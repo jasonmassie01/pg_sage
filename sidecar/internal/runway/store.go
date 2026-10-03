@@ -17,20 +17,37 @@ import (
 // pruneBatch bounds the samples one tick deletes.
 const pruneBatch = 10000
 
-// pruneSamplesSQL and loadLastSQL bound sampled_at with now(), which is
-// stable within the statement, so runway_samples_sampled_at_idx serves
-// them; a volatile clock_timestamp() cutoff cannot be an index bound and
-// read the whole table every pass (performance gate).
+// pruneSamplesSQL bounds sampled_at with now(), which is stable within
+// the statement, so runway_samples_sampled_at_idx serves it; a volatile
+// clock_timestamp() cutoff cannot be an index bound and read the whole
+// table every pass (performance gate).
+//
+// loadLastSQL reads each series' newest sample with a skip scan of
+// runway_samples_series_idx: the first index entry past the previous
+// series is the next series' newest sample, so a (re)start reads one row
+// per series. It read every sample of the retention window before (all
+// of them qualify: performance gate offender 7). A series whose newest
+// sample is older than the window is skipped.
 const (
 	pruneSamplesSQL = `/* pg_sage */ DELETE FROM sage.runway_samples
 		WHERE id IN (SELECT id FROM sage.runway_samples
 		             WHERE sampled_at < now() - make_interval(secs => $1)
 		             LIMIT $2)`
 	loadLastSQL = `/* pg_sage */
-		SELECT DISTINCT ON (kind, subject) kind, subject, epoch, counter
-		FROM sage.runway_samples
-		WHERE sampled_at > now() - make_interval(secs => $1)
-		ORDER BY kind, subject, sampled_at DESC`
+		WITH RECURSIVE last AS (
+		    (SELECT r.kind, r.subject, r.epoch, r.counter, r.sampled_at
+		     FROM sage.runway_samples r
+		     ORDER BY r.kind, r.subject, r.sampled_at DESC LIMIT 1)
+		    UNION ALL
+		    SELECT n.kind, n.subject, n.epoch, n.counter, n.sampled_at FROM last l
+		    CROSS JOIN LATERAL (
+		        SELECT r.kind, r.subject, r.epoch, r.counter, r.sampled_at
+		        FROM sage.runway_samples r
+		        WHERE (r.kind, r.subject) > (l.kind, l.subject)
+		        ORDER BY r.kind, r.subject, r.sampled_at DESC LIMIT 1) n
+		)
+		SELECT kind, subject, epoch, counter FROM last
+		WHERE sampled_at > now() - make_interval(secs => $1)`
 )
 
 // sample writes the snapshot's samples, each in its series' epoch, then
