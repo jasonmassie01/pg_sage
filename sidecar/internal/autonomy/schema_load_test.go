@@ -3,6 +3,7 @@ package autonomy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -121,8 +122,8 @@ func TestSchemaGuardLoadIsBoundedOnASyntheticCatalog(t *testing.T) {
 	}
 	base := requireAutonomyDB(t)
 	live := createCloneFamily(t, base, "sgllive", 40, 49)
-	idle := createCloneFamily(t, base, "sglidle", 40, 9)
-	defer holdFamilyLock(t, base, live)()
+	idle := createTextFamily(t, base, "sglidle", 40, 9)
+	defer holdFamilyLock(t, base, live, live.parent())()
 	pool, counter := tracedPool(t)
 	router := &recordingRouter{}
 	guard, err := NewPostgresSchemaGuard(pool, "testdb", router,
@@ -143,8 +144,11 @@ func TestSchemaGuardLoadIsBoundedOnASyntheticCatalog(t *testing.T) {
 	if got := routesTo(router, liveTargets); got != 40*49 {
 		t.Fatalf("live routes = %d, want every member routed (1960)", got)
 	}
-	if got := routesTo(router, idleTargets); got != 0 {
-		t.Fatalf("idle leftover family routes = %d, want 0", got)
+	if got := routesTo(router, idleTargets); got != 0 || first.Skipped != 40*9 ||
+		guardVerdict(t, base, idleTargets[0]) != string(ledger.VerdictPark) {
+		t.Fatalf("idle leftover family: routes=%d skipped=%d verdict=%q, want 0 routes, "+
+			"360 skipped and a park (family: %s)", got, first.Skipped,
+			guardVerdict(t, base, idleTargets[0]), familyReason(t, base, idleTargets[0]))
 	}
 	requireFannedOutRow(t, base, live)
 
@@ -166,6 +170,31 @@ func TestSchemaGuardLoadIsBoundedOnASyntheticCatalog(t *testing.T) {
 		t.Fatalf("detected %d then %d on an unchanged catalog", first.Detected, second.Detected)
 	}
 	requireOneChangeRecorded(t, base, guard, live)
+}
+
+// familyReason is the family classification recorded for target.
+func familyReason(t *testing.T, pool *pgxpool.Pool, target string) string {
+	t.Helper()
+	var reason *string
+	err := pool.QueryRow(context.Background(), `SELECT evidence->>'family_reason'
+		FROM sage.decision WHERE feature='schema_guard' AND target_objects ? $1
+		ORDER BY id DESC LIMIT 1`, target).Scan(&reason)
+	if err != nil || reason == nil {
+		return fmt.Sprintf("none recorded (%v)", err)
+	}
+	return *reason
+}
+
+// guardVerdict is the latest schema guard verdict recorded for target.
+func guardVerdict(t *testing.T, pool *pgxpool.Pool, target string) string {
+	t.Helper()
+	var verdict string
+	if err := pool.QueryRow(context.Background(), `SELECT verdict FROM sage.decision
+		WHERE feature='schema_guard' AND target_objects ? $1 ORDER BY id DESC LIMIT 1`,
+		target).Scan(&verdict); err != nil {
+		t.Fatalf("read verdict for %s: %v", target, err)
+	}
+	return verdict
 }
 
 // requireFannedOutRow checks a live-family row lists all 40 members.

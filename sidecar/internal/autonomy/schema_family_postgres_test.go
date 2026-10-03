@@ -36,8 +36,43 @@ func (f cloneFamily) childTargets() []string {
 	return targets
 }
 
+// createCloneFamily builds a family whose children hold unindexed foreign
+// keys. Building the primary keys scans the new tables, so the family has
+// scan activity once the statistics are flushed.
 func createCloneFamily(
 	t *testing.T, pool *pgxpool.Pool, prefix string, n, children int,
+) cloneFamily {
+	t.Helper()
+	return buildFamily(t, pool, prefix, n, children, func(f cloneFamily) string {
+		ddl := fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY); ", f.parent())
+		for c := 1; c <= children; c++ {
+			ddl += fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, p_id bigint "+
+				"REFERENCES %s(id)); ", f.child(c), f.parent())
+		}
+		return ddl
+	})
+}
+
+// createTextFamily builds a family of index-free tables, each with one
+// type-tightening invariant (account_id stored as text). Nothing scans or
+// writes them, so their activity counters stay exactly zero: an idle
+// family whatever the statistics flush timing.
+func createTextFamily(
+	t *testing.T, pool *pgxpool.Pool, prefix string, n, tables int,
+) cloneFamily {
+	t.Helper()
+	return buildFamily(t, pool, prefix, n, tables, func(f cloneFamily) string {
+		ddl := ""
+		for c := 1; c <= tables; c++ {
+			ddl += fmt.Sprintf("CREATE TABLE %s (account_id text, n int); ", f.child(c))
+		}
+		return ddl
+	})
+}
+
+func buildFamily(
+	t *testing.T, pool *pgxpool.Pool, prefix string, n, children int,
+	tables func(cloneFamily) string,
 ) cloneFamily {
 	t.Helper()
 	ctx := context.Background()
@@ -48,26 +83,20 @@ func createCloneFamily(
 		t.Fatalf("acquire DDL connection: %v", err)
 	}
 	defer conn.Release()
-	for i := 1; i <= n; i++ {
-		schema := fmt.Sprintf("%s_%06d", prefix, i)
-		var ddl strings.Builder
-		fmt.Fprintf(&ddl, "CREATE SCHEMA %s; SET search_path TO %s; ", schema, schema)
-		fmt.Fprintf(&ddl, "CREATE TABLE %s (id bigint PRIMARY KEY); ", family.parent())
-		for c := 1; c <= children; c++ {
-			fmt.Fprintf(&ddl, "CREATE TABLE %s (id bigint PRIMARY KEY, p_id bigint "+
-				"REFERENCES %s(id)); ", family.child(c), family.parent())
-		}
-		ddl.WriteString("RESET search_path")
-		if _, err := conn.Exec(ctx, ddl.String()); err != nil {
-			t.Fatalf("create clone schema %s: %v", schema, err)
-		}
-		family.schemas = append(family.schemas, schema)
-	}
 	t.Cleanup(func() {
 		for _, schema := range family.schemas {
 			_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
 		}
 	})
+	for i := 1; i <= n; i++ {
+		schema := fmt.Sprintf("%s_%06d", prefix, i)
+		ddl := fmt.Sprintf("CREATE SCHEMA %s; SET search_path TO %s; ", schema, schema) +
+			tables(family) + "RESET search_path"
+		if _, err := conn.Exec(ctx, ddl); err != nil {
+			t.Fatalf("create clone schema %s: %v", schema, err)
+		}
+		family.schemas = append(family.schemas, schema)
+	}
 	return family
 }
 
@@ -98,11 +127,11 @@ func detectFamily(
 
 func TestFamilyDetectorMarksUnusedCopiesIdle(t *testing.T) {
 	pool := requireAutonomyDB(t)
-	family := createCloneFamily(t, pool, "sgfidle", 5, 2)
+	family := createTextFamily(t, pool, "sgfidle", 5, 2)
 	detector := newFamilyDetector(pool, postgresSchemaDetector{pool}, SchemaGuardOptions{})
 	items := detectFamily(t, detector, family)
 	if len(items) != 10 {
-		t.Fatalf("family invariants = %d, want 5 schemas x 2 foreign keys", len(items))
+		t.Fatalf("family invariants = %d, want 5 schemas x 2 text id columns", len(items))
 	}
 	for _, item := range items {
 		if item.Family == nil || !item.Family.Idle || len(item.Family.Members) != 5 ||
@@ -110,16 +139,16 @@ func TestFamilyDetectorMarksUnusedCopiesIdle(t *testing.T) {
 			t.Fatalf("invariant %s family = %+v, want an idle 5-schema family",
 				item.Target(), item.Family)
 		}
-		if item.Subject == "" || item.Kind != schemaguard.InvariantMissingFKIndex {
-			t.Fatalf("invariant = %+v, want a foreign key subject", item)
+		if item.Subject != "account_id" || item.Kind != schemaguard.InvariantTypeTightening {
+			t.Fatalf("invariant = %+v, want the account_id column as subject", item)
 		}
 	}
 }
 
 func TestFamilyDetectorKeepsLockedFamilyLive(t *testing.T) {
 	pool := requireAutonomyDB(t)
-	family := createCloneFamily(t, pool, "sgflock", 5, 1)
-	release := holdFamilyLock(t, pool, family)
+	family := createTextFamily(t, pool, "sgflock", 5, 1)
+	release := holdFamilyLock(t, pool, family, family.child(1))
 	defer release()
 	detector := newFamilyDetector(pool, postgresSchemaDetector{pool}, SchemaGuardOptions{})
 	items := detectFamily(t, detector, family)
@@ -135,17 +164,21 @@ func TestFamilyDetectorKeepsLockedFamilyLive(t *testing.T) {
 	}
 }
 
-// holdFamilyLock keeps an ACCESS SHARE lock on the first member's parent
-// table in an open transaction until release is called.
-func holdFamilyLock(t *testing.T, pool *pgxpool.Pool, family cloneFamily) func() {
+// holdFamilyLock keeps an ACCESS SHARE lock on the first member's table
+// in an open transaction until release is called.
+func holdFamilyLock(
+	t *testing.T, pool *pgxpool.Pool, family cloneFamily, table string,
+) func() {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin lock transaction: %v", err)
 	}
-	if _, err := tx.Exec(ctx, "LOCK TABLE "+family.schemas[0]+"."+family.parent()+
-		" IN ACCESS SHARE MODE"); err != nil {
+	// Unqualified (SET LOCAL search_path): only pg_locks, not a statement
+	// text naming the schema, shows the family is in use.
+	if _, err := tx.Exec(ctx, "SET LOCAL search_path TO "+family.schemas[0]+
+		"; LOCK TABLE "+table+" IN ACCESS SHARE MODE"); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("lock family table: %v", err)
 	}
@@ -155,7 +188,7 @@ func holdFamilyLock(t *testing.T, pool *pgxpool.Pool, family cloneFamily) func()
 
 func TestFamilyDetectorTurnsQuietFamilyIdleAfterTheWindow(t *testing.T) {
 	pool := requireAutonomyDB(t)
-	family := createCloneFamily(t, pool, "sgfwin", 5, 1)
+	family := createTextFamily(t, pool, "sgfwin", 5, 1)
 	writeToFamily(t, pool, family)
 	clock := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	detector := newFamilyDetector(pool, postgresSchemaDetector{pool}, SchemaGuardOptions{
@@ -173,7 +206,7 @@ func TestFamilyDetectorTurnsQuietFamilyIdleAfterTheWindow(t *testing.T) {
 }
 
 // writeToFamily inserts into every member (unqualified) and waits until the
-// cumulative statistics show the writes.
+// cumulative statistics show the writes in every member.
 func writeToFamily(t *testing.T, pool *pgxpool.Pool, family cloneFamily) {
 	t.Helper()
 	ctx := context.Background()
@@ -194,7 +227,7 @@ func writeToFamily(t *testing.T, pool *pgxpool.Pool, family cloneFamily) {
 			}
 		}
 		if _, err := conn.Exec(ctx, "SET search_path TO "+schema+"; INSERT INTO "+
-			family.parent()+" VALUES (1); RESET search_path"); err != nil {
+			family.child(1)+" VALUES ('1', 1); RESET search_path"); err != nil {
 			t.Fatalf("write to %s: %v", schema, err)
 		}
 	}
@@ -203,12 +236,13 @@ func writeToFamily(t *testing.T, pool *pgxpool.Pool, family cloneFamily) {
 		if err != nil {
 			t.Fatalf("loadSchemaShapes: %v", err)
 		}
+		written := 0
 		for _, shape := range shapes {
-			if shape.Schema == family.schemas[len(family.schemas)-1] {
-				return shape.Activity > 0
+			if containsName(family.schemas, shape.Schema) && shape.Activity > 0 {
+				written++
 			}
 		}
-		return false
+		return written == len(family.schemas)
 	})
 }
 
