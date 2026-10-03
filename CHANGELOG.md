@@ -37,6 +37,24 @@
   it no longer holds, pg_sage refuses and says which check failed: the index was scanned,
   the statistics were reset inside the window, or the index is gone.
 
+- **The schema guard no longer floods the decision ledger or keeps a CPU core busy on big
+  catalogs.** On a database with 15,000 tables and 160 leftover test schemas it wrote one
+  `sage.decision` row for every schema issue on every cycle (about a million rows a day)
+  and ran one unindexed lookup per issue. It now records a decision only when it changes
+  (the decision's route, outcome, reason or SQL, or the issue coming back after it was
+  gone), reads its history and table contracts in one query each per cycle, and reads
+  `pg_stat_statements` once per cycle. Unchanged issues are still checked and handled
+  every cycle exactly as before. Schemas that are copies of one another (same tables,
+  generated names, five or more copies) are handled as one family: a family in use, such
+  as one schema per tenant, is still fixed in every schema but recorded once per issue
+  with the list of schemas; a family nothing has used within
+  `analyzer.unused_index_window_days` (no scans, writes, statements or sessions) is noted
+  once as an idle leftover and not fixed. After pg_sage's own DDL the guard re-checks at
+  most once per `analyzer.schema_guard_ddl_debounce_seconds` (default 60). pg_sage builds
+  the index `sage.idx_decision_schema_guard_targets` in the background without blocking
+  writes (an index that already exists is kept), and schema guard decisions now age out
+  after `retention.findings_days` unless an action or a verification refers to them.
+
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
 ### What's new
