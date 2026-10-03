@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **A stop signal during startup now shuts pg_sage down cleanly.** The SIGTERM/SIGINT handler
+  was installed only after the API and metrics servers were listening, so an orchestrator that
+  stopped the container right after it reported ready (a rolling deploy) killed the process
+  without its graceful shutdown. The handler is now installed before startup begins.
+
 - **The blast-radius limit now holds at its configured number of tables.** pg_sage counted
   the tables its own changes had touched in the last 24 hours without the table the next
   change would touch, so `max_tables_per_window: 20` let a 21st table through. An index
