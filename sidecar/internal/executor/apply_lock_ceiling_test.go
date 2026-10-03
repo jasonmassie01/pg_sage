@@ -62,11 +62,15 @@ func lockTable(t *testing.T, pool *pgxpool.Pool, table string) {
 }
 
 // assertCeilingBounds requires the capped wait to give up well before the
-// safety timeout, and the uncapped control to wait for it.
+// safety timeout, and the uncapped control to wait for it. The capped run
+// is compared with the control, which pays the same path overhead (a
+// loaded runner slows both): a 500 ms ceiling ends the wait 3.5 s sooner,
+// so it must finish at least 2 s before the control.
 func assertCeilingBounds(t *testing.T, capped, uncapped time.Duration) {
 	t.Helper()
-	if capped >= 2*time.Second {
-		t.Fatalf("with a %dms ceiling the lock wait took %s", ceilingMS, capped)
+	if capped > uncapped-2*time.Second {
+		t.Fatalf("with a %dms ceiling the lock wait took %s, the %dms control %s",
+			ceilingMS, capped, ceilingSafetyMS, uncapped)
 	}
 	if uncapped < 3*time.Second {
 		t.Fatalf("control without a ceiling took %s, want about %dms",

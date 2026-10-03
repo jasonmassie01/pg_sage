@@ -315,13 +315,23 @@ func TestRetentionBatchUsesPipelineLockTimeout(t *testing.T) {
 	item := retentionItem(table, retentionTestWindow, schemaguard.DispositionApply)
 	plan := retentionPlan{item: item, target: mustRetentionTarget(t, pool, item.Invariant),
 		cutoff: time.Now().Add(-retentionTestWindow), bound: 10}
-	started := time.Now()
-
-	_, err = enforcer.deleteBatch(ctx, plan, RetentionRun{LockTimeout: 100 * time.Millisecond})
-
-	if err == nil || time.Since(started) > 1500*time.Millisecond {
-		t.Fatalf("deleteBatch under lock = %v after %s, want the 100ms pipeline lock timeout",
-			err, time.Since(started))
+	// The batch's own bound (2 s) is the control: both runs pay the same
+	// overhead on a loaded runner, and the pipeline's 100 ms must end the
+	// wait well before the control's.
+	timed := func(run RetentionRun) (time.Duration, error) {
+		started := time.Now()
+		_, err := enforcer.deleteBatch(ctx, plan, run)
+		return time.Since(started), err
+	}
+	control, controlErr := timed(RetentionRun{})
+	piped, err := timed(RetentionRun{LockTimeout: 100 * time.Millisecond})
+	if controlErr == nil || control < 1500*time.Millisecond {
+		t.Fatalf("control deleteBatch under lock = %v after %s, want the 2s batch bound",
+			controlErr, control)
+	}
+	if err == nil || piped > control-time.Second {
+		t.Fatalf("deleteBatch under lock = %v after %s (control %s), want the 100ms "+
+			"pipeline lock timeout", err, piped, control)
 	}
 }
 

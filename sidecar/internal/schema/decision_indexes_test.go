@@ -118,7 +118,10 @@ func TestCompleteLedgerMigrationTakesNoLockOnDecision(t *testing.T) {
 	if _, err := conn.Exec(ctx, ddlDecisionLedger()); err != nil {
 		t.Fatalf("re-running the complete ledger migration waited for a lock: %v", err)
 	}
-	if elapsed := time.Since(start); elapsed > 900*time.Millisecond {
+	// The lock is held throughout, so a lock wait could only end in the
+	// 1 s lock_timeout error above; the duration only guards against a hang
+	// and is generous for a loaded runner.
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Fatalf("re-run took %v, want no lock wait", elapsed)
 	}
 }
