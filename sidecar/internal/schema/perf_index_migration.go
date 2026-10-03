@@ -45,4 +45,11 @@ CREATE INDEX IF NOT EXISTS idx_schema_baseline_action
 CREATE INDEX IF NOT EXISTS idx_schema_baseline_decision
     ON sage.schema_baseline (last_authorized_decision_id)
     WHERE last_authorized_decision_id IS NOT NULL;
+-- verify.ListDue reads the open watches (completed_at IS NULL) of four
+-- verdicts; idx_verification_due covers only two, so the scan was full.
+CREATE INDEX IF NOT EXISTS idx_verification_open_due
+    ON sage.verification (next_evaluation_at) WHERE completed_at IS NULL;
+-- The decision retention purge bounds created_at alone.
+CREATE INDEX IF NOT EXISTS idx_decision_created
+    ON sage.decision (created_at);
 `
