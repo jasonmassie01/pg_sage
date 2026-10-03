@@ -11,8 +11,10 @@ import (
 func ident(name string) string { return pgx.Identifier{name}.Sanitize() }
 
 // convertSteps are the statements that turn the locked plain table into
-// the partitioned layout, in order.
-func convertSteps(t Table, p convertPlan) []string {
+// the partitioned layout, in order: the catalog changes before the ATTACH,
+// then the ATTACH and what follows it. None reads the old heap: the bound
+// is proven by the validated cutover CHECK, the key is pre-built.
+func convertSteps(t Table, p convertPlan) (before, attach []string) {
 	hist := child(t.HistoryName())
 	steps := []string{fmt.Sprintf("ALTER TABLE %s RENAME TO %s", t.ident(),
 		ident(t.HistoryName()))}
@@ -23,7 +25,9 @@ func convertSteps(t Table, p convertPlan) []string {
 	}
 	steps = append(steps, fmt.Sprintf(`CREATE TABLE %s (LIKE %s INCLUDING DEFAULTS
 		INCLUDING CONSTRAINTS INCLUDING STORAGE INCLUDING COMMENTS)
-		PARTITION BY RANGE (%s)`, t.ident(), hist, ident(t.Column)))
+		PARTITION BY RANGE (%s)`, t.ident(), hist, ident(t.Column)),
+		// LIKE copied the cutover CHECK; the parent must not refuse later rows.
+		fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", t.ident(), ident(t.checkName())))
 	if len(t.Key) > 0 {
 		cols := make([]string, 0, len(t.Key)+1)
 		for _, k := range append(append([]string{}, t.Key...), t.Column) {
@@ -42,11 +46,13 @@ func convertSteps(t Table, p convertPlan) []string {
 			t.ident(), ident(col)))
 	}
 	steps = append(steps, grantSteps(t, p.grants)...)
-	return append(steps, cutoverSteps(t, p, hist)...)
+	return steps, cutoverSteps(t, p, hist)
 }
 
 // keySteps drop the plain table's primary key (a partitioned table's keys
-// must include the day column) and keep its columns NOT NULL.
+// must include the day column), keep its columns NOT NULL (proven by the
+// cutover CHECK: no scan) and make the pre-built key the history
+// partition's primary key, which the ATTACH adopts instead of building one.
 func keySteps(t Table, p convertPlan, hist string) []string {
 	var steps []string
 	for _, ix := range p.indexes {
@@ -58,6 +64,10 @@ func keySteps(t Table, p convertPlan, hist string) []string {
 	for _, k := range t.Key {
 		steps = append(steps, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", hist,
 			ident(k)))
+	}
+	if len(t.Key) > 0 {
+		steps = append(steps, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY USING INDEX %s",
+			hist, ident(t.HistoryName()+"_pkey"), ident(t.keyName())))
 	}
 	return steps
 }
@@ -94,17 +104,17 @@ func grantSteps(t Table, grants []grant) []string {
 	return steps
 }
 
-// cutoverSteps create the default partition, move rows dated on or after
-// the cutover into it, and attach the old table as the history partition.
-// Attaching validates the bound with one read of the old table's heap.
+// cutoverSteps attach the old table as the history partition (its bound is
+// implied by the validated cutover CHECK, so nothing is scanned; no row is
+// dated at or past the cut, so none moves), drop the CHECK and add the
+// empty default partition.
 func cutoverSteps(t Table, p convertPlan, hist string) []string {
-	def, col, cut := child(t.DefaultName()), ident(t.Column), literal(p.cutover)
 	return []string{
-		fmt.Sprintf("CREATE TABLE %s PARTITION OF %s DEFAULT", def, t.ident()),
-		fmt.Sprintf("INSERT INTO %s SELECT * FROM %s WHERE %s >= %s", def, hist, col, cut),
-		fmt.Sprintf("DELETE FROM %s WHERE %s >= %s", hist, col, cut),
 		fmt.Sprintf("ALTER TABLE %s ATTACH PARTITION %s FOR VALUES FROM (MINVALUE) TO (%s)",
-			t.ident(), hist, cut),
+			t.ident(), hist, literal(p.cutover)),
+		fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", hist, ident(t.checkName())),
+		fmt.Sprintf("CREATE TABLE %s PARTITION OF %s DEFAULT", child(t.DefaultName()),
+			t.ident()),
 	}
 }
 

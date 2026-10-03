@@ -98,8 +98,8 @@ func indexNames(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table str
 
 func converted(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tbl Table) {
 	t.Helper()
-	if ok, err := Convert(ctx, pool, tbl); err != nil || !ok {
-		t.Fatalf("Convert(%s) = %v, %v", tbl.Name, ok, err)
+	if res, err := Convert(ctx, pool, tbl); err != nil || !res.Converted {
+		t.Fatalf("Convert(%s) = %+v, %v", tbl.Name, res, err)
 	}
 }
 
@@ -152,9 +152,9 @@ func TestConvert_IsIdempotent(t *testing.T) {
 	tbl := scratch(t, ctx, pool, nil)
 	converted(t, ctx, pool, tbl)
 	before := indexNames(t, ctx, pool, tbl.Name)
-	ok, err := Convert(ctx, pool, tbl)
-	if err != nil || ok {
-		t.Fatalf("second Convert = %v, %v; want a no-op", ok, err)
+	res, err := Convert(ctx, pool, tbl)
+	if err != nil || res.Converted {
+		t.Fatalf("second Convert = %+v, %v; want a no-op", res, err)
 	}
 	if got := indexNames(t, ctx, pool, tbl.Name); got != before {
 		t.Fatalf("indexes changed on a no-op convert: %s -> %s", before, got)
@@ -192,39 +192,35 @@ func TestConvert_KeyBecomesCompositePrimaryKey(t *testing.T) {
 	}
 }
 
-// History ends tomorrow at 00:00 UTC. A row dated later (a skewed clock, a
-// test fixture in 2099) waits in the DEFAULT partition and moves into its
-// day when that day's partition is created; nothing is refused.
-func TestConvert_RowsDatedAheadWaitInDefault(t *testing.T) {
+// The cutover is two UTC midnights past the newest row (or now): a row
+// dated a few days ahead (a skewed clock) stays in the history partition
+// instead of being copied under the exclusive lock, and rows written after
+// the conversion beyond the history partition land in their day.
+func TestConvert_RowsDatedAheadStayInHistory(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tbl := scratch(t, ctx, pool, nil)
 	now := time.Now()
 	ahead := DayStart(now).Add(2*24*time.Hour + time.Hour)
-	far := time.Date(2099, 7, 22, 12, 0, 0, 0, time.UTC)
-	exec(t, ctx, pool, "INSERT INTO sage."+tbl.Name+" (at, v) VALUES ($1, 1), ($2, 2), (now(), 3)",
-		ahead, far)
+	exec(t, ctx, pool, "INSERT INTO sage."+tbl.Name+" (at, v) VALUES ($1, 1), (now(), 3)",
+		ahead)
 	converted(t, ctx, pool, tbl)
 	parts, err := List(ctx, pool, tbl)
 	if err != nil || len(parts) != 2 || !parts[0].History || !parts[1].Default {
 		t.Fatalf("List = %+v, %v; want history and default", parts, err)
 	}
-	if want := DayStart(now).Add(24 * time.Hour); !parts[0].Upper.Equal(want) {
+	if want := DayStart(ahead).Add(48 * time.Hour); !parts[0].Upper.Equal(want) {
 		t.Fatalf("history upper = %s, want %s", parts[0].Upper, want)
 	}
-	if n := count(t, ctx, pool, "SELECT count(*) FROM ONLY sage."+tbl.DefaultName()); n != 2 {
-		t.Fatalf("default holds %d rows, want the two dated ahead", n)
+	if n := count(t, ctx, pool, "SELECT count(*) FROM ONLY sage."+tbl.HistoryName()); n != 2 {
+		t.Fatalf("history holds %d rows, want both", n)
 	}
-	if _, err := Ensure(ctx, pool, tbl, now, 3); err != nil {
-		t.Fatalf("Ensure over a default partition holding a row of the day: %v", err)
+	later := parts[0].Upper.Add(time.Hour)
+	if _, err := Ensure(ctx, pool, tbl, later, 1); err != nil {
+		t.Fatalf("Ensure: %v", err)
 	}
-	if n := count(t, ctx, pool, "SELECT count(*) FROM ONLY sage."+tbl.DayName(ahead)); n != 1 {
-		t.Fatalf("%s holds %d rows, want the moved one", tbl.DayName(ahead), n)
-	}
-	if n := count(t, ctx, pool, "SELECT count(*) FROM ONLY sage."+tbl.DefaultName()); n != 1 {
-		t.Fatalf("default holds %d rows after the move, want the 2099 one", n)
-	}
-	if n := count(t, ctx, pool, "SELECT count(*) FROM sage."+tbl.Name); n != 3 {
-		t.Fatalf("%d rows in all, want 3", n)
+	exec(t, ctx, pool, "INSERT INTO sage."+tbl.Name+" (at, v) VALUES ($1, 4)", later)
+	if n := count(t, ctx, pool, "SELECT count(*) FROM ONLY sage."+tbl.DayName(later)); n != 1 {
+		t.Fatalf("%s holds %d rows, want the new one", tbl.DayName(later), n)
 	}
 }
 
@@ -247,24 +243,25 @@ func TestEnsure_CreatesMissingDaysAfterHistoryOnly(t *testing.T) {
 	}
 	converted(t, ctx, pool, tbl)
 	now := time.Now()
-	// History ends tomorrow at 00:00 UTC, so of [today, today+4) only the
-	// days from tomorrow on need partitions.
+	// History ends at the second UTC midnight from now (the cutover leaves a
+	// day of margin), so of [today, today+4) only the last two days need
+	// partitions.
 	n, err := Ensure(ctx, pool, tbl, now, 4)
-	if err != nil || n != 3 {
-		t.Fatalf("Ensure = %d, %v; want 3 new daily partitions", n, err)
+	if err != nil || n != 2 {
+		t.Fatalf("Ensure = %d, %v; want 2 new daily partitions", n, err)
 	}
 	if n, err := Ensure(ctx, pool, tbl, now, 4); err != nil || n != 0 {
 		t.Fatalf("repeat Ensure = %d, %v; want 0", n, err)
 	}
 	parts, err := List(ctx, pool, tbl)
-	if err != nil || len(parts) != 5 || !parts[0].History || !parts[4].Default {
-		t.Fatalf("List = %+v, %v; want history, 3 days, default", parts, err)
+	if err != nil || len(parts) != 4 || !parts[0].History || !parts[3].Default {
+		t.Fatalf("List = %+v, %v; want history, 2 days, default", parts, err)
 	}
 	for i, p := range days(parts) {
-		day := DayStart(now).Add(time.Duration(i+1) * 24 * time.Hour)
+		day := DayStart(now).Add(time.Duration(i+2) * 24 * time.Hour)
 		if p.History || p.Name != tbl.DayName(day) || !p.Lower.Equal(day) ||
 			!p.Upper.Equal(day.Add(24*time.Hour)) {
-			t.Fatalf("partition %d = %+v, want day %s", i+1, p, day)
+			t.Fatalf("partition %d = %+v, want day %s", i+2, p, day)
 		}
 	}
 	// A row two days ahead lands in its day, which has the parent's indexes.
@@ -311,8 +308,9 @@ func TestEnsure_ConcurrentCallersAgree(t *testing.T) {
 		total += n
 	}
 	parts, err := List(ctx, pool, tbl)
-	if err != nil || len(days(parts)) != 4 || total != 4 {
-		t.Fatalf("partitions = %+v (%v), created in all = %d; want 4 days, 4",
+	if err != nil || len(days(parts)) != 3 || total != 3 {
+		// [today, today+5) less today and tomorrow, which history covers.
+		t.Fatalf("partitions = %+v (%v), created in all = %d; want 3 days, 3",
 			parts, err, total)
 	}
 }
@@ -459,10 +457,15 @@ func TestKeeper_EnsuresEachDayOnce(t *testing.T) {
 	if db.n != first {
 		t.Fatalf("cached Ensure issued %d more statements", db.n-first)
 	}
-	// The next day is ensured ahead: tomorrow is covered already.
+	// The next day is ensured ahead: tomorrow is covered already (here by the
+	// history partition, which ends two midnights after the conversion).
 	parts, _ := List(ctx, pool, tbl)
 	tomorrowEnd := DayStart(at).Add(48 * time.Hour)
-	if d := days(parts); len(d) == 0 || d[len(d)-1].Upper.Before(tomorrowEnd) {
+	covered := parts[0].Upper
+	if d := days(parts); len(d) > 0 {
+		covered = d[len(d)-1].Upper
+	}
+	if covered.Before(tomorrowEnd) {
 		t.Fatalf("tomorrow not covered: %+v", parts)
 	}
 	// A plain table is skipped, not an error, and costs one lookup per day.
