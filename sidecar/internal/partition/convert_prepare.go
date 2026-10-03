@@ -69,7 +69,11 @@ func prepare(ctx context.Context, s DB, t Table, cut time.Time) (time.Duration, 
 	for _, k := range append(append([]string{}, t.Key...), t.Column) {
 		cols = append(cols, ident(k))
 	}
-	if _, err := s.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX CONCURRENTLY %s ON %s (%s)",
+	how, err := keyBuild(ctx, s, t)
+	if err != nil {
+		return validated, err
+	}
+	if _, err := s.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX %s%s ON %s (%s)", how,
 		ident(t.keyName()), t.ident(), strings.Join(cols, ", "))); err != nil {
 		return validated, fmt.Errorf("build the partitioned key: %w", err)
 	}
@@ -193,8 +197,10 @@ func cleanupLocked(ctx context.Context, s DB, t Table) (err error) {
 		}
 	}
 	if hasKey {
-		if _, err := s.Exec(ctx, "DROP INDEX CONCURRENTLY IF EXISTS "+
-			child(t.keyName())); err != nil {
+		// Not CONCURRENTLY: that waits for every older snapshot in the database,
+		// which deadlocks against a session waiting for a lock this one holds
+		// (bootstrap). Dropping is a brief lock under the lock timeout.
+		if _, err := s.Exec(ctx, "DROP INDEX IF EXISTS "+child(t.keyName())); err != nil {
 			return fmt.Errorf("drop the pre-built key: %w", err)
 		}
 	}
@@ -227,4 +233,26 @@ func Hint(err error) string {
 		return "pg_sage stopped or ran out of time before the conversion finished."
 	}
 	return "The PostgreSQL log shows the statement that failed."
+}
+
+// concurrentKeyMinBytes is the heap size from which the partitioned key is
+// built CONCURRENTLY. A smaller table's key builds in well under a second
+// under a SHARE lock (writers wait, within the lock timeout). CONCURRENTLY
+// waits for every older snapshot in the database, which deadlocks when
+// the converting session holds a lock another session waits for (bootstrap
+// holds its advisory lock while a second instance waits for it); bootstrap
+// only converts heaps up to this size.
+const concurrentKeyMinBytes = 32 << 20
+
+// keyBuild is "CONCURRENTLY " for a large heap, "" otherwise.
+func keyBuild(ctx context.Context, s DB, t Table) (string, error) {
+	var heap int64
+	if err := s.QueryRow(ctx, "SELECT pg_catalog.pg_relation_size(pg_catalog.to_regclass($1))",
+		t.regclass()).Scan(&heap); err != nil {
+		return "", fmt.Errorf("read the heap size: %w", err)
+	}
+	if heap > concurrentKeyMinBytes {
+		return "CONCURRENTLY ", nil
+	}
+	return "", nil
 }
