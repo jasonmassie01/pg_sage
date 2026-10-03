@@ -92,6 +92,7 @@ func TestRunOnce_DropsExpiredQueryStoreDays(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tbl := partition.QueryStore
 	bound := rebound(t, ctx, tbl, 20)
+	t.Cleanup(func() { rebound(t, ctx, tbl, 3) })
 	for d := 0; d <= 20; d++ {
 		execRetry(t, ctx, `INSERT INTO sage.query_store (captured_at, queryid, calls,
 			total_exec_time, mean_exec_time) VALUES ($1, 8500000000 + $2, 1, 1, 1)`,
@@ -99,10 +100,12 @@ func TestRunOnce_DropsExpiredQueryStoreDays(t *testing.T) {
 	}
 	cfg := &config.Config{Retention: config.RetentionConfig{QueryStoreDays: 14}}
 	stats := New(pool, cfg, noopLog).RunOnce(ctx)
-	var want []string
+	// The history partition ended 20 days ago and is empty: it goes too.
+	want := []string{tbl.HistoryName()}
 	for d := 0; d < 6; d++ { // days -20 .. -15 end at or before now - 14 days
 		want = append(want, tbl.DayName(bound.AddDate(0, 0, d)))
 	}
+	slices.Sort(want)
 	slices.Sort(stats.Dropped)
 	if !slices.Equal(stats.Dropped, want) {
 		t.Fatalf("dropped = %v, want %v", stats.Dropped, want)

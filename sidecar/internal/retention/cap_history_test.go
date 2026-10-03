@@ -125,9 +125,16 @@ func TestSnapshotCap_TrimsTheHistoryPartitionOldestFirst(t *testing.T) {
 	keep := ids[6:]
 	smallest := scalar(t, ctx, `SELECT min(pg_column_size(data))::int8 FROM sage.snapshots
 		WHERE id = ANY($1)`, ids)
+	disk, err := partition.Size(ctx, pool, tbl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The cap counts every partition: the other (empty) partitions' files
+	// take their share of it.
+	others := disk - partitionBytes(t, ctx, tbl.HistoryName())
 	logs := &captureLog{}
 	c := New(pool, snapshotCfg(), logs.log)
-	c.capBytes = dataBytes(t, ctx, keep) + smallest/2
+	c.capBytes = others + dataBytes(t, ctx, keep) + smallest/2
 	stats := c.RunOnce(ctx)
 	if got := remainingIDs(t, ctx); !slices.Equal(got, keep) {
 		t.Fatalf("remaining = %v, want the five newest %v (deleted %d)", got, keep,
@@ -139,7 +146,7 @@ func TestSnapshotCap_TrimsTheHistoryPartitionOldestFirst(t *testing.T) {
 	if !logs.contains("WARN", "trimming the oldest rows of sage.snapshots_history") {
 		t.Fatalf("the trim was not announced: %v", logs.lines)
 	}
-	disk, err := partition.Size(ctx, pool, tbl)
+	disk, err = partition.Size(ctx, pool, tbl)
 	if err != nil || disk <= c.capBytes {
 		t.Fatalf("disk size %d (%v): precondition, deleted TOAST space is not returned "+
 			"before vacuum, so the disk size stays over the %d cap", disk, err, c.capBytes)
