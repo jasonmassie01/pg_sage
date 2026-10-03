@@ -12,10 +12,15 @@ import (
 
 var t0 = time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 
+var keyA = StatementKey{UserID: 10, QueryID: 1, TopLevel: true}
+
+// reading is one sample whose pg_sage statements are a single entry.
 func reading(at time.Duration, dbMs float64, calls, blocks, read, written int64) Reading {
 	return Reading{At: t0.Add(at), Database: "app", StatementsKnown: true,
 		DBTimeMs: dbMs, Calls: calls, Blocks: blocks, RowsRead: read,
-		RowsWritten: written, SchemaBytes: 4096}
+		RowsWritten: written, SchemaBytes: 4096,
+		Statements: map[StatementKey]StatementCounters{
+			keyA: {TimeMs: dbMs, Calls: calls, Blocks: blocks}}}
 }
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
@@ -85,9 +90,10 @@ func TestBetween_CounterResetIsUnknown(t *testing.T) {
 		time.Minute); c.Known {
 		t.Errorf("rows-written reset: %+v, want unknown", c)
 	}
+	// An entry whose counters went back was reset: its whole count is new.
 	c := Between(prev, reading(time.Minute, 10, 5, 200, 2000, 2000), time.Minute)
-	if !c.Known || c.DBTimeKnown {
-		t.Errorf("pg_stat_statements reset: %+v, want table rates known, DB time unknown", c)
+	if !c.Known || !c.DBTimeKnown || !near(c.DBTimeMsPerCycle, 10) || !near(c.CallsPerCycle, 5) {
+		t.Errorf("pg_stat_statements entry reset: %+v, want 10 ms and 5 calls", c)
 	}
 }
 
@@ -200,5 +206,24 @@ func TestStatementsUnavailableClassification(t *testing.T) {
 	}
 	if statementsUnavailable(nil) {
 		t.Error("nil error classified as a missing extension")
+	}
+}
+
+// pg_stat_statements evicts entries on a busy server: an evicted pg_sage
+// entry must neither hide the window's cost nor make it negative, and a
+// new entry counts in full (it was created inside the window).
+func TestBetween_EvictedAndNewStatements(t *testing.T) {
+	keyB := StatementKey{UserID: 10, QueryID: 2, TopLevel: true}
+	keyC := StatementKey{UserID: 10, QueryID: 3, TopLevel: true}
+	prev := reading(0, 0, 0, 0, 0, 0)
+	prev.Statements = map[StatementKey]StatementCounters{
+		keyA: {TimeMs: 100, Calls: 10, Blocks: 50}, keyB: {TimeMs: 500, Calls: 5, Blocks: 9}}
+	cur := reading(time.Minute, 0, 0, 0, 0, 0)
+	cur.Statements = map[StatementKey]StatementCounters{
+		keyA: {TimeMs: 160, Calls: 16, Blocks: 80}, keyC: {TimeMs: 30, Calls: 3, Blocks: 4}}
+	c := Between(prev, cur, time.Minute)
+	if !c.DBTimeKnown || !near(c.DBTimeMsPerCycle, 90) || !near(c.CallsPerCycle, 9) ||
+		!near(c.BlocksPerCycle, 34) {
+		t.Fatalf("cost = %+v, want 90 ms, 9 calls, 34 blocks", c)
 	}
 }
