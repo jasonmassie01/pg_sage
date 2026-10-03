@@ -20,9 +20,9 @@ import (
 // sage.action_outcome with predicted vs observed.
 
 type verifiedActionRow struct {
-	class, sql, rollback, before string
-	executedAt                   time.Time
-	decisionID                   int64
+	sql, rollback, before string
+	executedAt            time.Time
+	decisionID            int64
 }
 
 func insertVerifiedAction(t *testing.T, pool *pgxpool.Pool, row verifiedActionRow) int64 {
@@ -127,46 +127,62 @@ func dropAction(t *testing.T, pool *pgxpool.Pool, table, index string, qid int64
 	return id, rollback
 }
 
-// An index create whose targeted queries got faster is improved, with
-// predicted vs observed recorded, the change kept and credited.
-func TestOutcome_IndexCreateImprovingTargetsIsImproved(t *testing.T) {
+// createFixture is an applied CREATE INDEX with a hypopg prediction of
+// -40% for one target, executed two hours ago.
+type createFixture struct {
+	exec       *Executor
+	id, qid    int64
+	table      string
+	index      string
+	executedAt time.Time
+}
+
+func newCreateFixture(t *testing.T) (createFixture, context.Context) {
+	t.Helper()
 	table, exec, ctx := verifiedTable(t, "public")
-	pool := exec.pool
-	name := "public." + table + "_vo"
-	if _, err := pool.Exec(ctx, "CREATE INDEX "+table+"_vo ON public."+table+
+	f := createFixture{exec: exec, table: table, index: "public." + table + "_vo",
+		executedAt: time.Now().Add(-2 * time.Hour).UTC(),
+		qid:        int64(8_700_000_000) + time.Now().UnixNano()%1_000_000}
+	if _, err := exec.pool.Exec(ctx, "CREATE INDEX "+table+"_vo ON public."+table+
 		" (a)"); err != nil {
 		t.Fatalf("create index: %v", err)
 	}
-	executedAt := time.Now().Add(-2 * time.Hour).UTC()
-	qid := int64(8_700_000_000) + time.Now().UnixNano()%1_000_000
-	p := verify.Prediction{Class: verify.ClassIndexCreate, Method: verify.MethodHypoPG,
-		Metric: verify.MetricMeanExecTime, TargetQueryIDs: []int64{qid}}
 	change := -40.0
-	p.ExpectedChangePct = &change
-	before := map[string]any{"predicted_effect": p, "target_queryids": []int64{qid}}
-	exec.recordCreatedIndexIdentity(ctx, name, before)
+	p := verify.Prediction{Class: verify.ClassIndexCreate, Method: verify.MethodHypoPG,
+		Metric: verify.MetricMeanExecTime, TargetQueryIDs: []int64{f.qid},
+		ExpectedChangePct: &change}
+	before := map[string]any{"predicted_effect": p, "target_queryids": []int64{f.qid}}
+	exec.recordCreatedIndexIdentity(ctx, f.index, before)
 	raw, _ := json.Marshal(before)
-	id := insertVerifiedAction(t, pool, verifiedActionRow{
+	f.id = insertVerifiedAction(t, exec.pool, verifiedActionRow{
 		sql:      "CREATE INDEX CONCURRENTLY " + table + "_vo ON public." + table + " (a)",
-		rollback: "DROP INDEX CONCURRENTLY IF EXISTS " + name, before: string(raw),
-		executedAt: executedAt, decisionID: insertParkDecision(t, ctx, pool)})
-	seedQuerySamples(t, ctx, pool, qid, executedAt.Add(-2*time.Hour), 119, 10, 20)
-	seedContinuation(t, ctx, pool, qid, executedAt, 119, 10, 8)
+		rollback: "DROP INDEX CONCURRENTLY IF EXISTS " + f.index, before: string(raw),
+		executedAt: f.executedAt, decisionID: insertParkDecision(t, ctx, exec.pool)})
+	return f, ctx
+}
 
-	exec.indexVerification.now = func() time.Time { return executedAt }
-	err := exec.indexVerification.WatchApplied(ctx, verifiedIndexAction{
-		WatchID: fmt.Sprintf("index-action-%d", id), Table: "public." + table,
-		IndexName: name, QueryIDs: []int64{qid},
+// An index create whose targeted queries got faster is improved, with
+// predicted vs observed recorded, the change kept and credited.
+func TestOutcome_IndexCreateImprovingTargetsIsImproved(t *testing.T) {
+	f, ctx := newCreateFixture(t)
+	pool := f.exec.pool
+	seedQuerySamples(t, ctx, pool, f.qid, f.executedAt.Add(-2*time.Hour), 119, 10, 20)
+	seedContinuation(t, ctx, pool, f.qid, f.executedAt, 119, 10, 8)
+
+	f.exec.indexVerification.now = func() time.Time { return f.executedAt }
+	err := f.exec.indexVerification.WatchApplied(ctx, verifiedIndexAction{
+		WatchID: fmt.Sprintf("index-action-%d", f.id), Table: "public." + f.table,
+		IndexName: f.index, QueryIDs: []int64{f.qid},
 		Criterion:   verify.Criterion{Kind: "per_query_latency"},
-		RollbackSQL: "DROP INDEX CONCURRENTLY IF EXISTS " + name}, id)
+		RollbackSQL: "DROP INDEX CONCURRENTLY IF EXISTS " + f.index}, f.id)
 	if err != nil {
 		t.Fatalf("WatchApplied: %v", err)
 	}
 
-	if outcome, _ := actionOutcomeFor(t, pool, id); outcome != "success" {
+	if outcome, _ := actionOutcomeFor(t, pool, f.id); outcome != "success" {
 		t.Fatalf("action outcome = %q, want success", outcome)
 	}
-	got := storedOutcome(t, pool, id)
+	got := storedOutcome(t, pool, f.id)
 	if got.Verdict != verify.OutcomeImproved || got.Tolerance != verify.ToleranceMet {
 		t.Fatalf("outcome = %s/%s (%s), want improved/met", got.Verdict, got.Tolerance,
 			got.Reason)
@@ -179,7 +195,7 @@ func TestOutcome_IndexCreateImprovingTargetsIsImproved(t *testing.T) {
 	if got.Predicted.Method != verify.MethodHypoPG || *got.Predicted.ExpectedChangePct != -40 {
 		t.Fatalf("predicted = %+v, want the hypopg -40%%", got.Predicted)
 	}
-	if v := verificationVerdict(t, pool, id); v != "success" {
+	if v := verificationVerdict(t, pool, f.id); v != "success" {
 		t.Fatalf("verification verdict = %q, want success", v)
 	}
 }
@@ -484,4 +500,41 @@ func waitForDeadTuples(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ta
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("dead tuples on %s never reached the statistics", table)
+}
+
+// VACUUM (FREEZE) is judged by the relfrozenxid age it was run to
+// advance, not by dead tuples (a freshly loaded table has none).
+func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
+	pool, ctx := requireDB(t)
+	table := fmt.Sprintf("vo_frz_%d", time.Now().UnixNano())
+	for _, sql := range []string{"CREATE TABLE public." + table + " (a int)",
+		"INSERT INTO public." + table + " SELECT generate_series(1, 100)",
+		"SELECT txid_current()"} {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public."+table)
+	})
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
+	sql := "VACUUM (FREEZE) public." + table
+	before := map[string]any{}
+	p := exec.predictAction(ctx, sql, nil, before)
+	if p.Metric != verify.MetricFrozenXIDAge || p.Baseline == nil || *p.Baseline < 1 {
+		t.Fatalf("freeze prediction = %+v, want a relfrozenxid age baseline", p)
+	}
+	raw, _ := json.Marshal(before)
+	id := insertVerifiedAction(t, pool, verifiedActionRow{sql: sql, before: string(raw),
+		executedAt: time.Now().UTC()})
+	if _, err := pool.Exec(ctx, sql); err != nil {
+		t.Fatalf("vacuum freeze: %v", err)
+	}
+
+	exec.verifyImmediate(ctx, id)
+
+	got := storedOutcome(t, pool, id)
+	if got.Verdict != verify.OutcomeImproved || got.Observed.Metric != verify.MetricFrozenXIDAge {
+		t.Fatalf("freeze outcome = %+v, want improved on relfrozenxid age", got)
+	}
 }

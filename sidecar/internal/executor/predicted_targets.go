@@ -120,7 +120,7 @@ func (e *Executor) maintenanceBaseline(
 	if p.Class == verify.ClassAnalyze {
 		table = firstObjectAfter(sql, "ANALYZE", "VERBOSE")
 	}
-	value, err := readMaintenanceMetric(ctx, e.pool, p.Class, table)
+	value, err := readMaintenanceMetric(ctx, e.pool, p.Metric, table)
 	if err != nil {
 		e.logFn("executor", "maintenance baseline for %s unavailable: %v", table, err)
 		return

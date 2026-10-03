@@ -199,7 +199,10 @@ func (r *fakeRows) Close()                                       {}
 func (r *fakeRows) Err() error                                   { return nil }
 func (r *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *fakeRows) Next() bool                                   { r.at++; return r.at < len(r.values) }
+func (r *fakeRows) Next() bool {
+	r.at++
+	return r.at < len(r.values)
+}
 func (r *fakeRows) Scan(dest ...any) error {
 	return (&valueRow{values: r.values[r.at]}).Scan(dest...)
 }

@@ -218,9 +218,6 @@ func (e *Executor) runAuthorizedFinding(
 		e.recordCreatedIndexIdentity(ctx, verified.IndexName, beforeState)
 	}
 	actionID := e.logClaimedAction(ctx, f, findingID, beforeState, decisionID, execErr, claim)
-	if execErr == nil {
-		e.recordPrediction(ctx, actionID, beforeState)
-	}
 	e.settleClaim(ctx, claim, actionID, execErr)
 	if execErr != nil {
 		e.recordFindingFailure(ctx, f, actionID, execErr)

@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -122,6 +123,10 @@ func (e *Executor) predictAction(
 	case verify.ClassIndexDrop:
 		p.TargetQueryIDs = e.dropTargets(ctx, sql, before)
 	case verify.ClassVacuum, verify.ClassAnalyze:
+		if class == verify.ClassVacuum && strings.Contains(strings.ToUpper(sql), "FREEZE") {
+			p = ruleBasedPrediction(class, verify.MetricFrozenXIDAge, -100,
+				"VACUUM (FREEZE) advances the table's relfrozenxid")
+		}
 		e.maintenanceBaseline(ctx, sql, &p, before)
 	}
 	if len(p.TargetQueryIDs) > 0 {

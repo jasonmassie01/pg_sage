@@ -55,6 +55,7 @@ const (
 	MetricDeadTuples       = "dead_tuples"
 	MetricModsSinceAnalyze = "n_mod_since_analyze"
 	MetricRowsDeleted      = "rows_deleted"
+	MetricFrozenXIDAge     = "relfrozenxid_age"
 )
 
 // PredictionTolerance is the share of a predicted change the observed one

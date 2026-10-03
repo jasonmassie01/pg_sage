@@ -139,7 +139,8 @@ func TestWatchInvalidIndexIsUnverifiableOutcome(t *testing.T) {
 
 func TestWatchRevertsWhenAnyTargetRegresses(t *testing.T) {
 	source := newFakeObservationSource()
-	source.before[43] = Measurement{Samples: 40, AverageLatency: 100 * time.Millisecond, Buckets: 12}
+	source.before[43] = Measurement{Samples: 40, AverageLatency: 100 * time.Millisecond,
+		Buckets: 12}
 	source.after[43] = Measurement{Samples: 40, AverageLatency: 116 * time.Millisecond, Buckets: 12}
 	request := successfulWatchRequest("regression")
 	request.Criterion.TargetIDs = []int64{42, 43}
@@ -269,7 +270,8 @@ func TestWatchExtendsAdaptivelyAndCapsAtSeventyTwoHours(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			source := newFakeObservationSource()
-			source.after[42] = Measurement{Samples: 2, AverageLatency: time.Millisecond, Buckets: 12}
+			source.after[42] = Measurement{Samples: 2, AverageLatency: time.Millisecond,
+				Buckets: 12}
 			request := successfulWatchRequest(test.name)
 			request.Criterion.Window = test.window
 			request.ExecutedAt = testVerificationNow().Add(-test.window)

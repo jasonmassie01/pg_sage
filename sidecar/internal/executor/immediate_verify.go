@@ -41,8 +41,8 @@ func (e *Executor) verifyImmediate(ctx context.Context, actionID int64) {
 		o.Reason = "no pre-action baseline was recorded: not credited"
 	default:
 		before := *o.Predicted.Baseline
-		after := settledMaintenanceMetric(ctx, e.pool, o.Class, table, before)
-		j := judgeMaintenance(o.Class, before, after)
+		after := settledMaintenanceMetric(ctx, e.pool, o.Predicted.Metric, table, before)
+		j := judgeMaintenanceMetric(o.Class, o.Predicted.Metric, before, after)
 		o.Verdict, o.Reason = j.Verdict, j.Reason
 		o.Observed = verify.Observed{Metric: o.Predicted.Metric, Before: before,
 			After: after, ChangePct: j.ObservedPct}
@@ -84,11 +84,11 @@ func loadImmediate(
 // to statsSettle for the statistics to move off the baseline; -1 when it
 // cannot be read.
 func settledMaintenanceMetric(
-	ctx context.Context, pool *pgxpool.Pool, class, table string, before float64,
+	ctx context.Context, pool *pgxpool.Pool, metric, table string, before float64,
 ) float64 {
 	deadline := time.Now().Add(statsSettle)
 	for {
-		after, err := readMaintenanceMetric(ctx, pool, class, table)
+		after, err := readMaintenanceMetric(ctx, pool, metric, table)
 		if err != nil {
 			return -1
 		}
@@ -103,54 +103,69 @@ func settledMaintenanceMetric(
 	}
 }
 
-// readMaintenanceMetric reads the table's dead tuples (VACUUM) or rows
-// modified since the last analyze (ANALYZE).
+// maintenanceMetricSQL reads each maintenance metric of a table ($1).
+var maintenanceMetricSQL = map[string]string{
+	verify.MetricDeadTuples: `/* pg_sage */ SELECT n_dead_tup::float8
+		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
+	verify.MetricModsSinceAnalyze: `/* pg_sage */ SELECT n_mod_since_analyze::float8
+		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
+	verify.MetricFrozenXIDAge: `/* pg_sage */ SELECT age(relfrozenxid)::float8
+		FROM pg_class WHERE oid = to_regclass($1)`,
+}
+
+// readMaintenanceMetric reads a table's dead tuples (VACUUM), rows
+// modified since the last analyze (ANALYZE) or relfrozenxid age (VACUUM
+// FREEZE).
 func readMaintenanceMetric(
-	ctx context.Context, pool *pgxpool.Pool, class, table string,
+	ctx context.Context, pool *pgxpool.Pool, metric, table string,
 ) (float64, error) {
-	column := "n_dead_tup"
-	if class == verify.ClassAnalyze {
-		column = "n_mod_since_analyze"
+	query, ok := maintenanceMetricSQL[metric]
+	if !ok {
+		return 0, fmt.Errorf("no maintenance metric %q", metric)
 	}
 	var value float64
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT `+column+`::float8
-		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`, table).Scan(&value)
-	if err != nil {
-		return 0, fmt.Errorf("read %s of %s: %w", column, table, err)
+	if err := pool.QueryRow(ctx, query, table).Scan(&value); err != nil {
+		return 0, fmt.Errorf("read %s of %s: %w", metric, table, err)
 	}
 	return value, nil
 }
 
-// judgeMaintenance decides VACUUM/ANALYZE from the metric before and
-// after: improved when at least half of it went, neutral when less did
+// judgeMaintenance decides VACUUM/ANALYZE on the class's default metric.
+func judgeMaintenance(class string, before, after float64) metricJudgement {
+	metric := verify.MetricDeadTuples
+	if class == verify.ClassAnalyze {
+		metric = verify.MetricModsSinceAnalyze
+	}
+	return judgeMaintenanceMetric(class, metric, before, after)
+}
+
+// judgeMaintenanceMetric decides VACUUM/ANALYZE from the metric before
+// and after: improved when at least half of it went, neutral when less did
 // (an old snapshot holding dead tuples back), insufficient when there was
 // nothing to remove.
-func judgeMaintenance(class string, before, after float64) metricJudgement {
-	j := metricJudgement{Before: before, After: after, Metric: verify.MetricDeadTuples}
-	if class == verify.ClassAnalyze {
-		j.Metric = verify.MetricModsSinceAnalyze
-	}
+func judgeMaintenanceMetric(class, metric string, before, after float64) metricJudgement {
+	j := metricJudgement{Before: before, After: after, Metric: metric}
 	switch {
 	case class != verify.ClassVacuum && class != verify.ClassAnalyze:
 		j.Verdict, j.Reason = verify.OutcomeUnverifiable, "no maintenance metric for "+class
 		return j
 	case before < 0 || after < 0:
-		j.Verdict, j.Reason = verify.OutcomeUnverifiable, j.Metric+" could not be read"
+		j.Verdict, j.Reason = verify.OutcomeUnverifiable, metric+" could not be read"
 		return j
 	case before < 1:
 		j.Verdict, j.Reason = verify.OutcomeInsufficient, "nothing to remove before the "+
-			"action ("+j.Metric+" was 0)"
+			"action ("+metric+" was 0)"
 		return j
 	}
 	change := (after - before) * 100 / before
 	j.ObservedPct = &change
 	if after <= before*(1-maintenanceGainShare) {
 		j.Verdict = verify.OutcomeImproved
-		j.Reason = fmt.Sprintf("%s fell from %.0f to %.0f", j.Metric, before, after)
+		j.Reason = fmt.Sprintf("%s fell from %.0f to %.0f", metric, before, after)
 		return j
 	}
 	j.Verdict = verify.OutcomeNeutral
-	j.Reason = fmt.Sprintf("%s barely moved (%.0f -> %.0f)", j.Metric, before, after)
+	j.Reason = fmt.Sprintf("%s barely moved (%.0f -> %.0f)", metric, before, after)
 	return j
 }
 
