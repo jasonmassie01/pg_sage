@@ -172,6 +172,9 @@ type MigrationReport struct {
 	QueueLinked       int
 	ApprovalsMigrated int
 	Skipped           int
+	// InversesRepaired counts open findings and unapproved revisions
+	// whose CREATE INDEX rollback dropped another index.
+	InversesRepaired int
 }
 
 const (

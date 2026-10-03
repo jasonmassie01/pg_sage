@@ -10,11 +10,16 @@ import (
 // matched on the exact emitted identity scheme — category
 // OptimizerCategory and object_identifier "schema.table|<fingerprint>"
 // (or the legacy bare "schema.table") — with no LIKE wildcards (C06,
-// G3-B12). hasOpen reports whether any exists, which suppresses a new
-// LLM call; the returned recommendations are the still-valid, not yet
-// acted-on candidates to re-emit so the analyzer does not resolve them.
-// The rows are read before any is reloaded: a reload may run a what-if
-// session, which needs a connection of its own.
+// G3-B12). Findings of a pre-v1.8.0 category (legacyCategories, or an
+// unlisted LLM label carrying llm_rationale) are loaded too: they go
+// through the same reload, so a still-valid one is re-emitted under the
+// current identity with a derived rollback and a fresh what-if, and the
+// legacy row is retired either way (lifeos 1.8.3: a covering_index row
+// bypassed the what-if gate). hasOpen reports whether any exists, which
+// suppresses a new LLM call; the returned recommendations are the
+// still-valid, not yet acted-on candidates to re-emit so the analyzer does
+// not resolve them. The rows are read before any is reloaded: a reload
+// may run a what-if session, which needs a connection of its own.
 func (o *Optimizer) openRecommendations(
 	ctx context.Context, tc TableContext,
 ) (recs []Recommendation, hasOpen bool) {
@@ -27,24 +32,30 @@ func (o *Optimizer) openRecommendations(
 			rec.Severity = f.severity
 			recs = append(recs, rec)
 		}
+		if f.category != OptimizerCategory {
+			o.retireLegacyFinding(ctx, f)
+		}
 	}
 	return recs, hasOpen
 }
 
 // openFinding is one stored, not yet acted-on optimizer finding.
-type openFinding struct{ detail, severity string }
+type openFinding struct {
+	id                         int64
+	category, detail, severity string
+}
 
 // loadOpenFindings reads the table's open optimizer findings; hasOpen
 // counts acted-on ones too.
 func (o *Optimizer) loadOpenFindings(ctx context.Context, table string) (
 	[]openFinding, bool) {
 	rows, err := o.pool.Query(ctx, `/* pg_sage */
-		SELECT detail::text, severity, acted_on_at IS NOT NULL
+		SELECT id, category, detail::text, severity, acted_on_at IS NOT NULL
 		FROM sage.findings
-		WHERE category = $1 AND status = 'open'
+		WHERE (category = ANY($1) OR detail ? 'llm_rationale') AND status = 'open'
 		  AND (object_identifier = $2
 		       OR left(object_identifier, length($2) + 1) = $2 || '|')
-		ORDER BY id`, OptimizerCategory, table)
+		ORDER BY id`, Categories(), table)
 	if err != nil {
 		o.logFn("optimizer", "open recommendations query failed for %s: %v", table, err)
 		return nil, false
@@ -55,7 +66,7 @@ func (o *Optimizer) loadOpenFindings(ctx context.Context, table string) (
 	for rows.Next() {
 		var f openFinding
 		var acted bool
-		if err := rows.Scan(&f.detail, &f.severity, &acted); err != nil {
+		if err := rows.Scan(&f.id, &f.category, &f.detail, &f.severity, &acted); err != nil {
 			o.logFn("optimizer", "scan open recommendation for %s: %v", table, err)
 			return nil, hasOpen
 		}
@@ -70,9 +81,28 @@ func (o *Optimizer) loadOpenFindings(ctx context.Context, table string) (
 	return out, hasOpen
 }
 
+// retireLegacyFinding resolves a legacy-category finding once it has been
+// reloaded: its advice now lives (or was rejected) under the current
+// identity, so the old row must never act. Its recommendation is
+// superseded by the executor's freshness check (finding no longer open).
+// A failure leaves the row open, where the executor's what-if gate still
+// requires approval for it.
+func (o *Optimizer) retireLegacyFinding(ctx context.Context, f openFinding) {
+	_, err := o.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.findings
+		SET status = 'resolved', resolved_at = now()
+		WHERE id = $1 AND status = 'open' AND acted_on_at IS NULL`, f.id)
+	if err != nil {
+		o.logFn("optimizer", "retire legacy %s finding %d: %v", f.category, f.id, err)
+		return
+	}
+	o.logFn("optimizer", "retired legacy %s finding %d (re-evaluated as %s)",
+		f.category, f.id, OptimizerCategory)
+}
+
 // persistedRec mirrors the Detail keys written by the analyzer mapping.
 type persistedRec struct {
 	DDL          string   `json:"ddl"`
+	Category     string   `json:"category"`
 	Rationale    string   `json:"llm_rationale"`
 	Confidence   float64  `json:"confidence_score"`
 	ActionLevel  string   `json:"action_level"`
@@ -101,7 +131,7 @@ func (o *Optimizer) reloadRecommendation(
 	rec := Recommendation{
 		DDL: p.DDL, Rationale: p.Rationale, Confidence: p.Confidence,
 		ActionLevel: p.ActionLevel, IndexType: p.IndexType,
-		IndexCategory: p.IndexCat, EstimatedImprovementPct: p.Improvement,
+		Category: p.Category, IndexCategory: p.IndexCat, EstimatedImprovementPct: p.Improvement,
 		AffectedQueries: p.Affected, AffectedQueryIDs: p.QueryIDs,
 	}
 	rec.WhatIf, rec.WhatIfReason = reloadedVerdict(p)

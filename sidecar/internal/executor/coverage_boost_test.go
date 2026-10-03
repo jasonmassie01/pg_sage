@@ -3319,7 +3319,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 		 VALUES ('rc_hyst_cat', 'warning', 'index',
 		         'public.rc_hyst_obj',
 		         'hysteresis test',
-		         '{}', 'rec',
+		         '{"what_if_verdict": "verified"}', 'rec',
 		         'CREATE INDEX CONCURRENTLY idx_rc_hyst ON public.rc_hyst_obj (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
@@ -3356,6 +3356,9 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_hyst_obj",
 			Title:            "hysteresis test",
+			// A non-rule CREATE INDEX needs a verified what-if to reach
+			// the autonomous path whose hysteresis this test checks.
+			Detail: map[string]any{"what_if_verdict": "verified"},
 			RecommendedSQL: "CREATE INDEX CONCURRENTLY idx_rc_hyst " +
 				"ON public.rc_hyst_obj (id)",
 			ActionRisk: "safe",
