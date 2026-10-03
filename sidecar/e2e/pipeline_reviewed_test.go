@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // SQL-shape coverage must not grant fictitious host-load telemetry. These cases
@@ -60,14 +62,24 @@ func pipelineQueryID(t *testing.T, pool *pgxpool.Pool, table string) int64 {
 		t.Fatal("SQL-shape fixture requires schema.table")
 	}
 	mustExec(t, pool, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
-	mustExec(t, pool, "SELECT count(*) FROM "+pgx.Identifier(parts).Sanitize())
+	quoted := pgx.Identifier(parts).Sanitize()
 	var queryID int64
-	err := pool.QueryRow(t.Context(), `SELECT queryid FROM pg_stat_statements
-		WHERE query LIKE $1 AND dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
-		ORDER BY calls DESC LIMIT 1`, "%FROM "+pgx.Identifier(parts).Sanitize()+"%").Scan(&queryID)
-	if err != nil || queryID == 0 {
-		t.Fatalf("read real workload identity: %d %v", queryID, err)
-	}
+	// A pg_stat_statements_reset() elsewhere on the server can erase the
+	// workload before its identity is read: repeat then.
+	pgssepoch.Attempt(t, t.Context(), pool, 3, func() []string {
+		mustExec(t, pool, "SELECT count(*) FROM "+quoted)
+		err := pool.QueryRow(t.Context(), `SELECT queryid FROM pg_stat_statements
+			WHERE query LIKE $1
+			  AND dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+			ORDER BY calls DESC LIMIT 1`, "%FROM "+quoted+"%").Scan(&queryID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && queryID == 0) {
+			return []string{fmt.Sprintf("read real workload identity: %d %v", queryID, err)}
+		}
+		if err != nil {
+			t.Fatalf("read real workload identity: %v", err)
+		}
+		return nil
+	})
 	return queryID
 }
 
