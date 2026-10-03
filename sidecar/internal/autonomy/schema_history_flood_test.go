@@ -29,6 +29,16 @@ const (
 	floodRowsReadLimit = 1000
 )
 
+// floodBudget is floodScanBudget, scaled under the race detector: the scan
+// hashes and groups 27,206 invariants in Go, which instrumentation slows
+// far more than the database read the budget is about.
+func floodBudget() time.Duration {
+	if raceDetector {
+		return 5 * floodScanBudget
+	}
+	return floodScanBudget
+}
+
 // floodLedger is the seeded legacy ledger and what History must return.
 type floodLedger struct {
 	invariants []schemaguard.Invariant
@@ -54,9 +64,9 @@ func TestHistoryReadIsFlatOnALegacyFloodLedger(t *testing.T) {
 		_, err := source.History(ctx, ledgerRows.invariants)
 		return err
 	})
-	if best > floodScanBudget {
+	if best > floodBudget() {
 		t.Fatalf("history read on %d legacy rows took %v, want < %v", floodRows, best,
-			floodScanBudget)
+			floodBudget())
 	}
 	t.Logf("history read on %d legacy rows: best of 3 %v", floodRows, best)
 	recorder.Reset()
@@ -145,7 +155,9 @@ func seedFloodLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool) floo
 		t.Fatalf("seed newest rows: %v", err)
 	}
 	seedFloodCounts(t, ctx, pool, family, &out)
-	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE) sage.decision"); err != nil {
+	// No parallel index vacuum: its shared memory outgrows a container's
+	// default 64 MB /dev/shm (PostgreSQL 14 matrix).
+	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE, PARALLEL 0) sage.decision"); err != nil {
 		t.Fatalf("analyze flood ledger: %v", err)
 	}
 	t.Logf("seeded %d legacy rows in %v", floodRows, time.Since(start).Round(time.Second))
@@ -336,9 +348,9 @@ func requireFastFloodScan(
 		}
 		return err
 	})
-	if best > floodScanBudget {
+	if best > floodBudget() {
 		t.Fatalf("schema guard scan over %d legacy rows took %v, want < %v", floodRows,
-			best, floodScanBudget)
+			best, floodBudget())
 	}
 	t.Logf("schema guard scan (%d invariants) over %d legacy rows: best of 3 %v",
 		len(ledgerRows.invariants), floodRows, best)
