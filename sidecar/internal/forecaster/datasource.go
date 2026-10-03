@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
 // DaySystemAgg holds daily aggregated system-level metrics.
@@ -90,123 +88,48 @@ func QueryDailySystemAggs(
 	return aggs, nil
 }
 
-// daySamplesSQL picks, for one snapshot category in the lookback, the
-// first and last non-empty snapshot of each day (dogfood lifeos-1: every
-// snapshot used to be expanded; lifeos had 1,999 'sequences' snapshots of
-// 12,000 elements, > 70 s). Emptiness is read without detoasting a full
-// row (snapstore.NonEmptySQL); only the picked samples are decoded, through
-// the snapshot accessor (delta rows hold changes against a keyframe).
-var daySamplesSQL = `
-    SELECT s.id, s.collected_at, s.data, s.base_id,
-           row_number() OVER (PARTITION BY date_trunc('day', s.collected_at)
-                              ORDER BY s.collected_at, s.id) AS first_rank,
-           row_number() OVER (PARTITION BY date_trunc('day', s.collected_at)
-                              ORDER BY s.collected_at DESC, s.id DESC) AS last_rank
-    FROM sage.snapshots s
-    WHERE s.category = %s
-      AND s.collected_at > now() - make_interval(days => $1)
-      AND ` + snapstore.NonEmptySQL("s")
-
-// queryAggsSQL sums per-day call deltas. pg_stat_statements counters are
-// cumulative since the last reset, so each sample contributes
-// calls - previous calls for the same queryid; a drop (reset or eviction)
-// contributes the new count, and a queryid's first sample in the window
-// contributes 0 because its baseline is unknown (C10). Only each day's
-// first and last snapshot are sampled: for monotonic counters the daily
-// totals telescope to the same sums.
-var queryAggsSQL = `/* pg_sage */
-WITH d AS (` + fmt.Sprintf(daySamplesSQL, "'queries'") + `
-), p AS (
-    SELECT d.id, d.collected_at, ` + snapstore.DataSQL("d") + ` AS data
-    FROM d WHERE d.first_rank = 1 OR d.last_rank = 1
-)
-SELECT day, COALESCE(sum(delta), 0)::float8 AS total_calls
-FROM (
-    SELECT date_trunc('day', collected_at) AS day,
-           CASE WHEN prev_calls IS NULL THEN 0
-                WHEN calls >= prev_calls THEN calls - prev_calls
-                ELSE calls
-           END AS delta
-    FROM (
-        SELECT p.collected_at,
-               (elem->>'calls')::bigint AS calls,
-               lag((elem->>'calls')::bigint) OVER (
-                   PARTITION BY (elem->>'queryid')::bigint
-                   ORDER BY p.collected_at, p.id) AS prev_calls
-        FROM p, jsonb_array_elements(p.data) AS elem
-    ) samples
-) deltas
-GROUP BY day ORDER BY day`
-
-// QueryDailyQueryAggs returns daily query call volume aggregates.
+// QueryDailyQueryAggs returns daily query call volume aggregates (a
+// one-off read: a Forecaster remembers the decoded samples across runs).
 func QueryDailyQueryAggs(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	lookbackDays int,
 ) ([]DayQueryAgg, error) {
-	rows, err := pool.Query(ctx, queryAggsSQL, lookbackDays)
+	aggs, err := (&dayHistory{}).queryAggs(ctx, pool, lookbackDays)
 	if err != nil {
 		return nil, fmt.Errorf("query query aggs: %w", err)
-	}
-	defer rows.Close()
-
-	var aggs []DayQueryAgg
-	for rows.Next() {
-		var a DayQueryAgg
-		if err := rows.Scan(&a.Day, &a.TotalCalls); err != nil {
-			return nil, fmt.Errorf("scan query agg: %w", err)
-		}
-		aggs = append(aggs, a)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate query aggs: %w", err)
 	}
 	return aggs, nil
 }
 
-// seqAggsSQL reads each day's last non-empty 'sequences' snapshot: a
-// sequence's use only grows (a restart is a new, lower reading), so the
-// day's last reading is its use that day. Sequences under 1% are left
-// out: none can be within the forecaster's horizons (the collector keeps
-// those only as its top N).
-var seqAggsSQL = `/* pg_sage */
-WITH d AS (` + fmt.Sprintf(daySamplesSQL, "'sequences'") + `
-), p AS (
-    SELECT d.collected_at, ` + snapstore.DataSQL("d") + ` AS data
-    FROM d WHERE d.last_rank = 1
-)
-SELECT date_trunc('day', p.collected_at) AS day,
-       (elem->>'schemaname') || '.' ||
-           (elem->>'sequencename')       AS seq_name,
-       max((elem->>'pct_used')::float)   AS pct_used,
-       max((elem->>'max_value')::bigint) AS max_value
-FROM p, jsonb_path_query(p.data, '$[*] ? (@.pct_used >= 1)') AS elem
-GROUP BY 1, 2 ORDER BY 1`
-
-// QueryDailySeqAggs returns daily sequence usage aggregates.
+// QueryDailySeqAggs returns daily sequence usage aggregates (a one-off
+// read: a Forecaster remembers the decoded samples across runs).
 func QueryDailySeqAggs(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	lookbackDays int,
 ) ([]DaySeqAgg, error) {
-	rows, err := pool.Query(ctx, seqAggsSQL, lookbackDays)
+	aggs, err := (&dayHistory{}).seqAggs(ctx, pool, lookbackDays)
 	if err != nil {
 		return nil, fmt.Errorf("query seq aggs: %w", err)
 	}
-	defer rows.Close()
+	return aggs, nil
+}
 
-	var aggs []DaySeqAgg
-	for rows.Next() {
-		var a DaySeqAgg
-		if err := rows.Scan(
-			&a.Day, &a.SeqName, &a.PctUsed, &a.MaxValue,
-		); err != nil {
-			return nil, fmt.Errorf("scan seq agg: %w", err)
-		}
-		aggs = append(aggs, a)
+// dailyQueryAggs is QueryDailyQueryAggs over the Forecaster's samples.
+func (f *Forecaster) dailyQueryAggs(ctx context.Context) ([]DayQueryAgg, error) {
+	aggs, err := f.history.queryAggs(ctx, f.pool, f.cfg.LookbackDays)
+	if err != nil {
+		return nil, fmt.Errorf("query query aggs: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate seq aggs: %w", err)
+	return aggs, nil
+}
+
+// dailySeqAggs is QueryDailySeqAggs over the Forecaster's samples.
+func (f *Forecaster) dailySeqAggs(ctx context.Context) ([]DaySeqAgg, error) {
+	aggs, err := f.history.seqAggs(ctx, f.pool, f.cfg.LookbackDays)
+	if err != nil {
+		return nil, fmt.Errorf("query seq aggs: %w", err)
 	}
 	return aggs, nil
 }

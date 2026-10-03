@@ -48,7 +48,7 @@ func NewPostgresSchemaGuard(
 	policyConfig.AllowFKIndexApply = true
 	policyConfig.AllowRetentionApply = true
 	return schemaguard.NewCustodian(
-		newFamilyDetector(pool, postgresSchemaDetector{pool}, options),
+		newFamilyDetector(pool, newPostgresSchemaDetector(pool, options.Now), options),
 		postgresSchemaContractSource{pool}, postgresSchemaHistorySource{pool},
 		schemaRemediationRouter{
 			database: database, router: router,

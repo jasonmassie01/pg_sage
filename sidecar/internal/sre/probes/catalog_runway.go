@@ -55,48 +55,57 @@ SELECT pg_catalog.pg_snapshot_xmax(pg_catalog.pg_current_snapshot())::text::int8
         WHERE a.backend_type = 'autovacuum worker') AS autovacuum_workers
 LIMIT $1`
 
-// wraparoundTablesSQL ranks tables by the share of their effective freeze
-// maximum (the table's reloption when it is lower than the setting) that
-// their XID or multixact age has used. Reloption values are read in a
-// CASE so only the named option is ever cast.
-var wraparoundTablesSQL = `/* pg_sage sre:wraparound_tables v1 */
+// reloptionSQL reads one reloption of the relation aliased %[1]s as text
+// (NULL when unset); only a relation with reloptions is looked into.
+const reloptionSQL = `CASE WHEN %[1]s.reloptions IS NOT NULL THEN (
+               SELECT x.option_value FROM pg_catalog.pg_options_to_table(%[1]s.reloptions) x
+               WHERE x.option_name = '%[2]s' LIMIT 1) END`
+
+// wraparoundTablesSQL (v2) ranks tables by the share of their effective
+// freeze maximum (the table's reloption when it is lower than the
+// setting) that their XID or multixact age has used. It ranks from
+// pg_class alone and reads statistics, autovacuum_enabled and vacuum
+// progress only for the tables it returns: v1 joined the statistics view
+// for every relation of the catalog to return 50 (measured.md M8: 118 ms,
+// ~78 times an hour on lifeos). Reloption values are cast only when they
+// name the option read.
+var wraparoundTablesSQL = `/* pg_sage sre:wraparound_tables v2 */
 WITH g AS (
     SELECT pg_catalog.current_setting('autovacuum_freeze_max_age')::int8 AS xid_max,
            pg_catalog.current_setting('autovacuum_multixact_freeze_max_age')::int8
                AS mxid_max
 ), t AS (
-    SELECT c.oid, pg_catalog.age(c.relfrozenxid)::int8 AS xid_age,
+    SELECT c.oid, c.reloptions, pg_catalog.age(c.relfrozenxid)::int8 AS xid_age,
            pg_catalog.mxid_age(c.relminmxid)::int8 AS mxid_age,
-           LEAST(g.xid_max, COALESCE(o.xid_max, g.xid_max)) AS freeze_max_age,
-           LEAST(g.mxid_max, COALESCE(o.mxid_max, g.mxid_max)) AS mxid_freeze_max_age,
-           COALESCE(o.enabled, true) AS autovacuum_enabled
+           LEAST(g.xid_max, COALESCE((` + fmt.Sprintf(reloptionSQL, "c",
+	"autovacuum_freeze_max_age") + `)::int8, g.xid_max)) AS freeze_max_age,
+           LEAST(g.mxid_max, COALESCE((` + fmt.Sprintf(reloptionSQL, "c",
+	"autovacuum_multixact_freeze_max_age") + `)::int8, g.mxid_max)) AS mxid_freeze_max_age
     FROM pg_catalog.pg_class c CROSS JOIN g
-    LEFT JOIN LATERAL (
-        SELECT max(CASE WHEN x.option_name = 'autovacuum_freeze_max_age'
-                        THEN x.option_value::int8 END) AS xid_max,
-               max(CASE WHEN x.option_name = 'autovacuum_multixact_freeze_max_age'
-                        THEN x.option_value::int8 END) AS mxid_max,
-               bool_and(CASE WHEN x.option_name = 'autovacuum_enabled'
-                        THEN pg_catalog.lower(x.option_value) NOT IN
-                             ('false', 'off', 'no', '0') END) AS enabled
-        FROM pg_catalog.pg_options_to_table(c.reloptions) x
-    ) o ON true
     WHERE c.relkind IN ('r', 'm', 't') AND c.relfrozenxid <> '0'::xid
+), top AS (
+    SELECT t.*, GREATEST(t.xid_age::float8 / NULLIF(t.freeze_max_age, 0),
+                         t.mxid_age::float8 / NULLIF(t.mxid_freeze_max_age, 0)) AS used
+    FROM t
+    ORDER BY used DESC NULLS LAST, t.oid
+    LIMIT $1
 )
-SELECT ` + fmt.Sprintf(relationName, "t.oid") + ` AS relation,
-       t.xid_age, t.mxid_age, t.freeze_max_age, t.mxid_freeze_max_age,
-       t.autovacuum_enabled, s.n_dead_tup::int8 AS n_dead_tup,
+SELECT ` + fmt.Sprintf(relationName, "top.oid") + ` AS relation,
+       top.xid_age, top.mxid_age, top.freeze_max_age, top.mxid_freeze_max_age,
+       COALESCE(pg_catalog.lower(` + fmt.Sprintf(reloptionSQL, "top",
+	"autovacuum_enabled") + `) NOT IN ('false', 'off', 'no', '0'), true)
+           AS autovacuum_enabled,
+       pg_catalog.pg_stat_get_dead_tuples(top.oid)::int8 AS n_dead_tup,
        EXTRACT(EPOCH FROM pg_catalog.clock_timestamp()
-           - GREATEST(s.last_autovacuum, s.last_vacuum))::float8 AS last_vacuum_age_s,
-       s.autovacuum_count::int8 AS autovacuum_count,
+           - GREATEST(pg_catalog.pg_stat_get_last_autovacuum_time(top.oid),
+                      pg_catalog.pg_stat_get_last_vacuum_time(top.oid)))::float8
+           AS last_vacuum_age_s,
+       pg_catalog.pg_stat_get_autovacuum_count(top.oid)::int8 AS autovacuum_count,
        EXISTS (SELECT 1 FROM pg_catalog.pg_stat_progress_vacuum p
-               WHERE p.relid = t.oid AND p.datname = pg_catalog.current_database())
+               WHERE p.relid = top.oid AND p.datname = pg_catalog.current_database())
            AS vacuum_running
-FROM t LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = t.oid
-ORDER BY GREATEST(t.xid_age::float8 / NULLIF(t.freeze_max_age, 0),
-                  t.mxid_age::float8 / NULLIF(t.mxid_freeze_max_age, 0)) DESC NULLS LAST,
-         t.oid
-LIMIT $1`
+FROM top
+ORDER BY top.used DESC NULLS LAST, top.oid`
 
 // xminHorizonSQL lists what holds back the xmin horizon of this
 // database's tables: its client sessions (their snapshot or XID),
@@ -202,29 +211,45 @@ SELECT (SELECT COALESCE(sum(w.size), 0)::int8 FROM pg_catalog.pg_ls_waldir() w)
         WHERE a.name LIKE '%.ready') AS archive_ready_files
 LIMIT $1`
 
-// runwayTrendsSQL regresses each sampled series over the window: only
-// its current epoch (a counter reset or a recreated object starts a new
-// one), by its monotonic counter when it has one, else by its value.
-const runwayTrendsSQL = `/* pg_sage sre:runway_trends v1 */
-WITH s AS (
-    SELECT r.kind, r.subject, r.epoch, r.sampled_at, r.value, r.counter, r.limit_value,
-           EXTRACT(EPOCH FROM r.sampled_at)::float8 AS t
-    FROM sage.runway_samples r
-    WHERE r.sampled_at >= pg_catalog.now()
-          - pg_catalog.make_interval(secs => $2)
-), cur AS (
-    SELECT DISTINCT ON (s.kind, s.subject) s.kind, s.subject, s.epoch,
-           s.sampled_at AS last_at, s.value AS last_value, s.limit_value AS last_limit
-    FROM s ORDER BY s.kind, s.subject, s.sampled_at DESC
+// runwayTrendsSQL (v2) regresses each sampled series over the window:
+// only its current epoch (a counter reset or a recreated object starts a
+// new one), by its monotonic counter when it has one, else by its value.
+// Series are walked in (kind, subject) order by a skip scan of
+// runway_samples_series_idx and each reads only its own window, so a call
+// reads the samples of the series it returns and nothing is sorted (v1
+// sorted every sample of every series to return 200: 108 ms at 150,000
+// samples). The recursion yields the series in index order, which is the
+// order returned.
+const runwayTrendsSQL = `/* pg_sage sre:runway_trends v2 */
+WITH RECURSIVE series AS (
+    (SELECT r.kind, r.subject FROM sage.runway_samples r
+     ORDER BY r.kind, r.subject LIMIT 1)
+    UNION ALL
+    SELECT n.kind, n.subject FROM series s
+    CROSS JOIN LATERAL (
+        SELECT r.kind, r.subject FROM sage.runway_samples r
+        WHERE (r.kind, r.subject) > (s.kind, s.subject)
+        ORDER BY r.kind, r.subject LIMIT 1) n
 )
-SELECT c.kind, c.subject, count(*)::int8 AS samples, min(s.sampled_at) AS first_at,
-       c.last_at, c.last_value, c.last_limit,
-       pg_catalog.regr_slope(COALESCE(s.counter, s.value), s.t) AS rate_per_s,
-       pg_catalog.regr_r2(COALESCE(s.counter, s.value), s.t) AS r2
-FROM cur c
-JOIN s ON s.kind = c.kind AND s.subject = c.subject AND s.epoch = c.epoch
-GROUP BY c.kind, c.subject, c.last_at, c.last_value, c.last_limit
-ORDER BY c.kind, c.subject
+SELECT s.kind, s.subject, a.samples, a.first_at, c.last_at, c.last_value, c.last_limit,
+       a.rate_per_s, a.r2
+FROM series s
+CROSS JOIN LATERAL (
+    SELECT r.epoch, r.sampled_at AS last_at, r.value AS last_value,
+           r.limit_value AS last_limit
+    FROM sage.runway_samples r
+    WHERE r.kind = s.kind AND r.subject = s.subject
+      AND r.sampled_at >= pg_catalog.now() - pg_catalog.make_interval(secs => $2)
+    ORDER BY r.sampled_at DESC LIMIT 1) c
+CROSS JOIN LATERAL (
+    SELECT count(*)::int8 AS samples, min(r.sampled_at) AS first_at,
+           pg_catalog.regr_slope(COALESCE(r.counter, r.value),
+               EXTRACT(EPOCH FROM r.sampled_at)::float8) AS rate_per_s,
+           pg_catalog.regr_r2(COALESCE(r.counter, r.value),
+               EXTRACT(EPOCH FROM r.sampled_at)::float8) AS r2
+    FROM sage.runway_samples r
+    WHERE r.kind = s.kind AND r.subject = s.subject AND r.epoch = c.epoch
+      AND r.sampled_at >= pg_catalog.now() - pg_catalog.make_interval(secs => $2)) a
 LIMIT $1`
 
 // runwaySpecs are the M6 runway probes.
@@ -232,8 +257,8 @@ func runwaySpecs() []Spec {
 	return []Spec{
 		needsStats(spec(XIDRunwayProbe, FamilyVacuum, ArgsNone,
 			Variant{MinVersion: 140000, SQL: xidRunwaySQL})),
-		capped(spec(WraparoundTablesProbe, FamilyVacuum, ArgsNone,
-			Variant{MinVersion: 140000, SQL: wraparoundTablesSQL}), 50),
+		versioned(capped(spec(WraparoundTablesProbe, FamilyVacuum, ArgsNone,
+			Variant{MinVersion: 140000, SQL: wraparoundTablesSQL}), 50), "v2"),
 		capped(needsStats(spec(XminHorizon, FamilyVacuum, ArgsNone,
 			Variant{MinVersion: 140000, SQL: xminHorizonSQL})), 100),
 		spec(AutovacuumCancellations, FamilyVacuum, ArgsWindow,
@@ -245,8 +270,8 @@ func runwaySpecs() []Spec {
 		spec(WALDirectoryProbe, FamilyWAL, ArgsNone,
 			Variant{MinVersion: 140000, SQL: walDirectorySQL}),
 		sequenceRunwaySpec(),
-		capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
-			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200),
+		versioned(capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
+			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200), "v2"),
 	}
 }
 

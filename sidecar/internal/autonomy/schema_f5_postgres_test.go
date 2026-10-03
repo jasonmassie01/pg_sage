@@ -105,7 +105,7 @@ func TestPostgresDetectorFindsEverythingTextAndTypeTightening(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table)
 	})
 
-	items, err := (postgresSchemaDetector{pool}).Detect(ctx)
+	items, err := newPostgresSchemaDetector(pool, nil).Detect(ctx)
 	if err != nil {
 		t.Fatalf("Detect: %v", err)
 	}

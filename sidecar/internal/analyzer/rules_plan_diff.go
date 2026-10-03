@@ -1,7 +1,6 @@
 package analyzer
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -330,63 +329,4 @@ func findSortDisk(node planNodeFull) bool {
 		}
 	}
 	return false
-}
-
-// checkPlanRegression loads the two most recent plans per query
-// from explain_cache and runs plan regression detection.
-func (a *Analyzer) checkPlanRegression(
-	ctx context.Context,
-) []Finding {
-	rows, err := a.pool.Query(ctx, `/* pg_sage */ 
-		WITH ranked AS (
-			SELECT queryid, query_text, plan_json,
-				total_cost, execution_time,
-				ROW_NUMBER() OVER (
-					PARTITION BY queryid
-					ORDER BY captured_at DESC
-				) AS rn
-			FROM sage.explain_cache
-			WHERE captured_at > now() - interval '7 days'
-		)
-		SELECT
-			c.queryid, c.query_text,
-			c.plan_json, c.total_cost, c.execution_time,
-			p.plan_json, p.total_cost, p.execution_time
-		FROM ranked c
-		JOIN ranked p ON c.queryid = p.queryid AND p.rn = 2
-		WHERE c.rn = 1`)
-	if err != nil {
-		a.evalFail("plan_regression")
-		a.logFn(
-			"ERROR",
-			"analyzer: plan_regression query: %v", err,
-		)
-		return nil
-	}
-	defer rows.Close()
-
-	var pairs []planPair
-	for rows.Next() {
-		var p planPair
-		if err := rows.Scan(
-			&p.QueryID, &p.QueryText,
-			&p.CurrentPlan, &p.CurrentCost, &p.CurrentTime,
-			&p.PreviousPlan, &p.PreviousCost, &p.PreviousTime,
-		); err != nil {
-			a.logFn(
-				"WARN",
-				"analyzer: scan plan pair: %v", err,
-			)
-			continue
-		}
-		pairs = append(pairs, p)
-	}
-	if err := rows.Err(); err != nil {
-		a.evalFail("plan_regression")
-		a.logFn(
-			"ERROR",
-			"analyzer: iterate plan pairs: %v", err,
-		)
-	}
-	return rulePlanRegression(pairs)
 }

@@ -314,7 +314,7 @@ func checkLockFootprint(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		t.Fatalf("begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	rows, err := tx.Query(ctx, sequenceRunwaySQL, 51)
+	rows, err := tx.Query(ctx, sequenceRunwaySQL, 51, 0, 0)
 	if err != nil {
 		t.Fatalf("probe sql: %v", err)
 	}

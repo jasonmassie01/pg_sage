@@ -68,18 +68,20 @@ func TestCatalog_OnlySequenceRunwayHasABackgroundBudget(t *testing.T) {
 	}
 }
 
-// The v2 query reads last_value directly (no join of pg_sequences by
-// name), bounds the sequences it reads and reports its coverage.
-func TestCatalog_SequenceRunwayV2IsBounded(t *testing.T) {
+// The v3 query reads last_value directly (no join of pg_sequences by
+// name), bounds the sequences one statement reads (v1.8.3: a fixed cap,
+// larger catalogs are read in slices), reports its coverage and slices by
+// a hash of the sequence's OID.
+func TestCatalog_SequenceRunwayV3IsBounded(t *testing.T) {
 	spec, ok := Catalog().Spec(SequenceRunwayProbe)
-	if !ok || spec.Version != "v2" || spec.MaxRows != 50 {
+	if !ok || spec.Version != "v3" || spec.MaxRows != 50 || spec.Args != ArgsSlice {
 		t.Fatalf("sequence_runway spec = %+v", spec)
 	}
 	sql := spec.Variants[0].SQL
 	for _, want := range []string{"pg_sequence_last_value", "LIMIT LEAST(" +
 		strconv.Itoa(SequenceScanCap), "max_locks_per_transaction", "sequences_total", "sequences_scanned",
 		"sequences_used", "sequences_unreadable", "pg_is_other_temp_schema",
-		"sre:sequence_runway v2"} {
+		"coverage_only", "hashint8", "sre:sequence_runway v3"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("sequence_runway SQL lacks %q", want)
 		}
@@ -87,9 +89,12 @@ func TestCatalog_SequenceRunwayV2IsBounded(t *testing.T) {
 	if strings.Contains(sql, "pg_sequences") {
 		t.Error("sequence_runway still joins the pg_sequences view")
 	}
-	if SequenceScanCap < 12000 || SequenceScanCap > 50000 {
-		t.Fatalf("scan cap %d: lifeos (12,038 sequences) must be fully read, and "+
-			"the lock footprint must stay bounded", SequenceScanCap)
+	// One statement must stay inside the 500 ms incident budget on a busy
+	// server (each read opens and locks a sequence); lifeos (12,038
+	// sequences) is read in slices.
+	if SequenceScanCap < 1000 || SequenceScanCap > 5000 {
+		t.Fatalf("scan cap %d: one statement's reads and locks must stay bounded",
+			SequenceScanCap)
 	}
 }
 

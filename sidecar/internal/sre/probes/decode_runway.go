@@ -338,7 +338,8 @@ func WALDirectoryOf(res Result) (WALDirectory, error) {
 		nil
 }
 
-// Sequences decodes a sequence_runway result, nearest its limit first.
+// Sequences decodes a sequence_runway result, nearest its limit first
+// (a coverage_only row lists no sequence).
 func Sequences(res Result) ([]SequenceRunway, error) {
 	rows, err := rowsFor(res, SequenceRunwayProbe)
 	if err != nil || len(rows) == 0 {
@@ -346,6 +347,9 @@ func Sequences(res Result) ([]SequenceRunway, error) {
 	}
 	out := make([]SequenceRunway, 0, len(rows))
 	for i, r := range rows {
+		if coverageOnly(r) {
+			continue
+		}
 		name := strField(r, "sequence")
 		if name == "" {
 			return nil, fmt.Errorf("sequence_runway row %d: sequence is missing", i+1)

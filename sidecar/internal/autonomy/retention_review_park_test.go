@@ -65,7 +65,7 @@ func reviewParkCustodian(pool *pgxpool.Pool, router *recordingRouter, tables ...
 	policyConfig := schemaguard.DefaultPolicy()
 	policyConfig.AllowFKIndexApply, policyConfig.AllowRetentionApply = true, true
 	return schemaguard.NewCustodian(
-		orderedTestDetector{postgresSchemaDetector{pool}, scope},
+		orderedTestDetector{newPostgresSchemaDetector(pool, nil), scope},
 		postgresSchemaContractSource{pool}, postgresSchemaHistorySource{pool},
 		schemaRemediationRouter{database: "testdb", router: router,
 			verifiedIndexes: router, retention: &postgresRetentionEnforcer{

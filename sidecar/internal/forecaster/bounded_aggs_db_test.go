@@ -110,48 +110,31 @@ func TestSeqAggs_LastNonEmptySnapshotPerDay(t *testing.T) {
 }
 
 // Bounded work: the jsonb of at most two snapshots per day is expanded,
-// however many were taken that day.
+// however many were taken that day (each sample is decoded once by a
+// Forecaster; datasource_incremental_db_test.go covers the reuse).
 func TestSeqAndQueryAggs_ExpandAFewSnapshotsPerDay(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	seedSequenceSnapshots(t, ctx, pool)
 	seedBoundedQuerySnapshots(t, ctx, pool)
-	for name, sql := range map[string]string{"seq": seqAggsSQL, "query": queryAggsSQL} {
-		loops := functionScanLoops(t, ctx, pool, sql)
-		if loops < 1 || loops > 2*(boundedDays+1) {
-			t.Fatalf("%s aggregation expanded %d snapshots, want at most %d", name, loops,
+	for name, read := range map[string]func(*Forecaster) error{
+		"seq": func(f *Forecaster) error {
+			_, err := f.dailySeqAggs(ctx)
+			return err
+		},
+		"query": func(f *Forecaster) error {
+			_, err := f.dailyQueryAggs(ctx)
+			return err
+		},
+	} {
+		f, rec := recordingForecaster(t, pool)
+		if err := read(f); err != nil {
+			t.Fatalf("%s aggregation: %v", name, err)
+		}
+		if n := decoded(t, rec); n < 1 || n > 2*(boundedDays+1) {
+			t.Fatalf("%s aggregation expanded %d snapshots, want at most %d", name, n,
 				2*(boundedDays+1))
 		}
 	}
-}
-
-// functionScanLoops runs sql under EXPLAIN ANALYZE and returns the loops
-// of its jsonb expansion (the Function Scan node).
-func functionScanLoops(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
-	sql string) int {
-	t.Helper()
-	var raw string
-	if err := pool.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+sql,
-		boundedDays+1).Scan(&raw); err != nil {
-		t.Fatalf("explain: %v", err)
-	}
-	var plans []map[string]any
-	if err := json.Unmarshal([]byte(raw), &plans); err != nil {
-		t.Fatalf("plan json: %v", err)
-	}
-	return findLoops(plans[0]["Plan"].(map[string]any))
-}
-
-func findLoops(node map[string]any) int {
-	if node["Node Type"] == "Function Scan" {
-		return int(node["Actual Loops"].(float64))
-	}
-	children, _ := node["Plans"].([]any)
-	for _, c := range children {
-		if n := findLoops(c.(map[string]any)); n > 0 {
-			return n
-		}
-	}
-	return 0
 }
 
 // seedBoundedQuerySnapshots writes boundedPerDay snapshots per day of one
