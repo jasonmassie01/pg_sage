@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Prepares a pgvector/pgvector test container for the sidecar test suites:
 # installs HypoPG and pg_hint_plan from PGDG, preloads pg_stat_statements
-# and pg_hint_plan, enables logical WAL, and restarts. ALTER SYSTEM keeps it
+# and pg_hint_plan, keeps 50000 pg_stat_statements entries (the parallel
+# suite runs more distinct statements than the default 5000, and evictions
+# erased the probe entries tests measure), enables logical WAL, and
+# restarts. ALTER SYSTEM keeps it
 # independent of the image's PGDATA layout (PostgreSQL 18 moved it).
 #
 # Usage: setup-test-postgres.sh <container> <pg-major>
@@ -15,6 +18,7 @@ docker exec -e DEBIAN_FRONTEND=noninteractive "$container" sh -c \
    postgresql-${major}-hypopg postgresql-${major}-pg-hint-plan >/dev/null"
 docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   -c "ALTER SYSTEM SET shared_preload_libraries = pg_stat_statements, pg_hint_plan" \
+  -c "ALTER SYSTEM SET pg_stat_statements.max = 50000" \
   -c "ALTER SYSTEM SET wal_level = logical"
 docker restart "$container" >/dev/null
 for _ in $(seq 1 60); do
@@ -25,4 +29,5 @@ for _ in $(seq 1 60); do
 done
 docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" \
-  -c "SHOW server_version" -c "SHOW shared_preload_libraries"
+  -c "SHOW server_version" -c "SHOW shared_preload_libraries" \
+  -c "SHOW pg_stat_statements.max"
