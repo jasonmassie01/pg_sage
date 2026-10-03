@@ -3,6 +3,7 @@ package perfgate
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,11 +21,12 @@ const (
 	GateCatalogMax    Gate = "D catalog statement max time"
 	GateTimeout       Gate = "D statement cut off by a timeout"
 	GateEndpoint      Gate = "E API list endpoint"
+	GateHotUpdates    Gate = "F HOT share of updates"
 )
 
 var gateOrder = map[Gate]int{
 	GateSeqScan: 0, GateStatementMean: 1, GateCycleDBTime: 2, GateRowsWritten: 3,
-	GateCatalogMax: 4, GateTimeout: 5, GateEndpoint: 6,
+	GateCatalogMax: 4, GateTimeout: 5, GateEndpoint: 6, GateHotUpdates: 7,
 }
 
 // TableDelta is one sage table's counters over a phase.
@@ -35,6 +37,11 @@ type TableDelta struct {
 	SeqTupRead  int64
 	IdxScans    int64
 	RowsWritten int64 // inserted + updated + deleted
+	Updates     int64
+	HotUpdates  int64 // updates that wrote no index entry (heap-only tuples)
+	Bytes       int64 // heap, TOAST and indexes at the end of the phase
+	BytesGrowth int64 // Bytes minus the size at the start of the phase
+	Relations   int   // the table itself, or its partitions
 }
 
 // Statement is one pg_stat_statements entry of pg_sage's.
@@ -95,7 +102,14 @@ type Offender struct {
 	Detail   string
 }
 
-func (o Offender) ratio() float64 { return o.Measured / o.Budget }
+// ratio is how far over budget an offender is (a floor gate is breached by
+// being under its budget).
+func (o Offender) ratio() float64 {
+	if o.Gate == GateHotUpdates {
+		return o.Budget / math.Max(o.Measured, 0.1)
+	}
+	return o.Measured / o.Budget
+}
 
 // Evaluate charges every phase against the budgets and returns the
 // offenders ranked by gate, then by how far over budget they are.
@@ -115,6 +129,7 @@ func Evaluate(phases []Phase, b Budgets) ([]Offender, error) {
 		if p.Steady {
 			out = append(out, timeOffenders(p, b)...)
 			out = append(out, writeOffenders(p, b)...)
+			out = append(out, hotOffenders(p, b)...)
 		}
 		out = append(out, catalogOffenders(p, b)...)
 		out = append(out, endpointOffenders(p, b)...)
@@ -200,6 +215,28 @@ func writeOffenders(p Phase, b Budgets) []Offender {
 				Unit:   "rows per cycle",
 				Detail: fmt.Sprintf("%d rows written over %d cycles", t.RowsWritten, p.Cycles)})
 		}
+	}
+	return out
+}
+
+// hotOffenders: a sage table updated at least HotMinUpdates times in the
+// phase must write at least HotUpdateMinPct percent of its updates as
+// heap-only tuples. A non-HOT update writes a new entry in every index and
+// leaves dead index entries for vacuum; an updated column that is indexed
+// (or a full page) causes it.
+func hotOffenders(p Phase, b Budgets) []Offender {
+	var out []Offender
+	for _, t := range p.Tables {
+		if t.Updates < b.HotMinUpdates {
+			continue
+		}
+		pct := float64(t.HotUpdates) * 100 / float64(t.Updates)
+		if pct >= b.HotUpdateMinPct {
+			continue
+		}
+		out = append(out, Offender{Gate: GateHotUpdates, Phase: p.Name, Subject: t.Name,
+			Measured: pct, Budget: b.HotUpdateMinPct, Unit: "% HOT",
+			Detail: fmt.Sprintf("%d of %d updates HOT", t.HotUpdates, t.Updates)})
 	}
 	return out
 }

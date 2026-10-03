@@ -80,26 +80,38 @@ func ReadStatements(ctx context.Context, q Querier, database string) ([]Statemen
 	})
 }
 
-// TableStat is one reading of a sage table's cumulative counters.
+// TableStat is one reading of a sage relation's cumulative counters. A
+// partition carries its partitioned table's name in Parent: phases report
+// the logical table (sage.query_store), not each day's partition.
 type TableStat struct {
+	Parent     string // schema-qualified partitioned table; "" for a plain table
 	LiveRows   int64
 	SeqScan    int64
 	SeqTupRead int64
 	IdxScan    int64
 	Written    int64
+	Updated    int64
+	HotUpdated int64
+	Bytes      int64 // heap, TOAST and indexes
 }
 
-// TableStats maps schema-qualified sage table names to their counters.
+// TableStats maps schema-qualified sage relation names to their counters.
 type TableStats map[string]TableStat
 
 const tableStatsSQL = `/* ` + HarnessTag + ` */
-SELECT s.schemaname || '.' || s.relname, GREATEST(s.n_live_tup, c.reltuples::bigint),
+SELECT s.schemaname || '.' || s.relname,
+       COALESCE((SELECT pn.nspname || '.' || pc.relname FROM pg_inherits i
+                 JOIN pg_class pc ON pc.oid = i.inhparent
+                 JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+                 WHERE i.inhrelid = s.relid), ''),
+       GREATEST(s.n_live_tup, c.reltuples::bigint),
        COALESCE(s.seq_scan, 0), COALESCE(s.seq_tup_read, 0), COALESCE(s.idx_scan, 0),
-       s.n_tup_ins + s.n_tup_upd + s.n_tup_del
+       s.n_tup_ins + s.n_tup_upd + s.n_tup_del, s.n_tup_upd, s.n_tup_hot_upd,
+       pg_total_relation_size(s.relid)
 FROM pg_stat_user_tables s JOIN pg_class c ON c.oid = s.relid
 WHERE s.schemaname = 'sage'`
 
-// ReadTableStats reads the counters of every sage table.
+// ReadTableStats reads the counters of every sage table and partition.
 func ReadTableStats(ctx context.Context, q Querier) (TableStats, error) {
 	rows, err := q.Query(ctx, tableStatsSQL)
 	if err != nil {
@@ -110,8 +122,8 @@ func ReadTableStats(ctx context.Context, q Querier) (TableStats, error) {
 	for rows.Next() {
 		var name string
 		var s TableStat
-		if err := rows.Scan(&name, &s.LiveRows, &s.SeqScan, &s.SeqTupRead, &s.IdxScan,
-			&s.Written); err != nil {
+		if err := rows.Scan(&name, &s.Parent, &s.LiveRows, &s.SeqScan, &s.SeqTupRead,
+			&s.IdxScan, &s.Written, &s.Updated, &s.HotUpdated, &s.Bytes); err != nil {
 			return nil, fmt.Errorf("perfgate: scan table statistics: %w", err)
 		}
 		out[name] = s
@@ -122,17 +134,47 @@ func ReadTableStats(ctx context.Context, q Querier) (TableStats, error) {
 	return out, nil
 }
 
-// Delta is the change from before to these counters, one entry per table
-// sorted by name; a table created in between counts from zero.
+// logical is the table a relation's activity is charged to.
+func (s TableStat) logical(name string) string {
+	if s.Parent != "" {
+		return s.Parent
+	}
+	return name
+}
+
+// Delta is the change from before to these counters, one entry per
+// logical table sorted by name. Counters are differenced per relation and
+// summed per partitioned table: a relation created in between counts from
+// zero; a partition dropped in between adds nothing to the counters but
+// lowers BytesGrowth (size at the end minus size at the start).
 func (after TableStats) Delta(before TableStats) []TableDelta {
-	out := make([]TableDelta, 0, len(after))
+	sums := map[string]*TableDelta{}
 	for name, a := range after {
 		b := before[name]
-		out = append(out, TableDelta{
-			Name: name, LiveRows: a.LiveRows,
-			SeqScans: a.SeqScan - b.SeqScan, SeqTupRead: a.SeqTupRead - b.SeqTupRead,
-			IdxScans: a.IdxScan - b.IdxScan, RowsWritten: a.Written - b.Written,
-		})
+		d := sums[a.logical(name)]
+		if d == nil {
+			d = &TableDelta{Name: a.logical(name)}
+			sums[d.Name] = d
+		}
+		d.LiveRows += a.LiveRows
+		d.SeqScans += a.SeqScan - b.SeqScan
+		d.SeqTupRead += a.SeqTupRead - b.SeqTupRead
+		d.IdxScans += a.IdxScan - b.IdxScan
+		d.RowsWritten += a.Written - b.Written
+		d.Updates += a.Updated - b.Updated
+		d.HotUpdates += a.HotUpdated - b.HotUpdated
+		d.Bytes += a.Bytes
+		d.BytesGrowth += a.Bytes
+		d.Relations++
+	}
+	for name, b := range before {
+		if d := sums[b.logical(name)]; d != nil {
+			d.BytesGrowth -= b.Bytes
+		}
+	}
+	out := make([]TableDelta, 0, len(sums))
+	for _, d := range sums {
+		out = append(out, *d)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

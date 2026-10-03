@@ -286,8 +286,9 @@ func TestTableStatsDeltaIsExact(t *testing.T) {
 	}
 	got := after.Delta(before)
 	want := []TableDelta{
-		{Name: "sage.a", LiveRows: 12, SeqScans: 1, SeqTupRead: 12, IdxScans: 2, RowsWritten: 3},
-		{Name: "sage.b", LiveRows: 3, SeqScans: 1, SeqTupRead: 3, RowsWritten: 3},
+		{Name: "sage.a", LiveRows: 12, SeqScans: 1, SeqTupRead: 12, IdxScans: 2, RowsWritten: 3,
+			Relations: 1},
+		{Name: "sage.b", LiveRows: 3, SeqScans: 1, SeqTupRead: 3, RowsWritten: 3, Relations: 1},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("delta = %+v", got)
