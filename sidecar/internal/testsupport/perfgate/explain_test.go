@@ -110,3 +110,18 @@ func TestShortQueryIsBoundedAndSingleLine(t *testing.T) {
 		t.Fatal("short query altered")
 	}
 }
+
+func TestRepairNormalized(t *testing.T) {
+	cases := map[string]string{
+		"SELECT 1 WHERE t > now() - interval $1":      "SELECT 1 WHERE t > now() - $1::interval",
+		"SELECT EXTRACT($3 FROM r.sampled_at) FROM x": "SELECT extract(epoch from r.sampled_at) FROM x",
+		"SELECT * FROM sage.findings WHERE id = $1":   "SELECT * FROM sage.findings WHERE id = $1",
+		"SELECT interval_seconds FROM sage.io_rate_sample": "SELECT interval_seconds FROM " +
+			"sage.io_rate_sample",
+	}
+	for in, want := range cases {
+		if got := repairNormalized(in); got != want {
+			t.Errorf("repairNormalized(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

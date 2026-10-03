@@ -132,6 +132,13 @@ func TestSeedHistoryFillsEveryGrowingTable(t *testing.T) {
 	if key != 1 {
 		t.Fatalf("own binding rows = %d", key)
 	}
+	// Ledger history spans many families, as in a real fleet: one family
+	// would make every per-family index useless to the planner.
+	families := count(t, ctx, pool, `SELECT count(DISTINCT family)
+		FROM sage.sre_autonomy_outcomes`)
+	if families < 10 {
+		t.Fatalf("autonomy outcomes span %d families, want >= 10", families)
+	}
 	// History is history: nothing seeded is live work the runtime would pick up.
 	live := count(t, ctx, pool, `SELECT count(*) FROM sage.sre_investigations
 		WHERE state IN ('queued','collecting','evaluating','needs_evidence','paused')`)
@@ -217,7 +224,8 @@ func TestStatementsCaptureAndExplain(t *testing.T) {
 		"x"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, "/* "+HarnessTag+" */ SELECT count(*) FROM sage.findings"); err != nil {
+	tagged := "/* " + HarnessTag + " */ SELECT count(*) FROM sage.findings"
+	if _, err := pool.Exec(ctx, tagged); err != nil {
 		t.Fatal(err)
 	}
 	var db string
@@ -244,9 +252,11 @@ func TestStatementsCaptureAndExplain(t *testing.T) {
 func checkExplain(t *testing.T, ctx context.Context, pool *pgxpool.Pool, scan Statement) {
 	t.Helper()
 	byID := Statement{QueryID: 2, Query: "SELECT * FROM sage.decision WHERE id = $1"}
-	untyped := Statement{QueryID: 3, Query: "SELECT $1 FROM sage.decision"}
+	// A statement on a relation that is gone (a dropped or temporary table)
+	// cannot be planned afterwards.
+	missing := Statement{QueryID: 3, Query: "SELECT * FROM sage.perfgate_gone WHERE id = $1"}
 	utility := Statement{QueryID: 4, Query: "SET statement_timeout = $1"}
-	res, err := ExplainStatements(ctx, pool, []Statement{scan, byID, untyped, utility})
+	res, err := ExplainStatements(ctx, pool, []Statement{scan, byID, missing, utility})
 	if errors.Is(err, ErrGenericPlanUnsupported) {
 		if count(t, ctx, pool, "SELECT current_setting('server_version_num')::int") >= 160000 {
 			t.Fatalf("generic plans reported unsupported on PG16+: %v", err)
@@ -266,6 +276,6 @@ func checkExplain(t *testing.T, ctx context.Context, pool *pgxpool.Pool, scan St
 		t.Fatalf("primary key lookup plan = %+v", res[1])
 	}
 	if res[2].Err == "" {
-		t.Fatalf("untyped parameter explained without error: %+v", res[2])
+		t.Fatalf("missing relation explained without error: %+v", res[2])
 	}
 }
