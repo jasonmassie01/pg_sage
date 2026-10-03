@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/logwatch"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 var observedPlanPrefix = regexp.MustCompile(`^duration:\s+([0-9]+(?:\.[0-9]+)?)\s+ms\s+plan:\s*`)
@@ -27,11 +28,18 @@ type ObservedPlan struct {
 	CapturedAt  time.Time
 }
 
+// ErrSelfStatement rejects a plan of pg_sage's own statement (its session
+// name or its statement tag): it is not workload evidence (perf v1.8.3).
+var ErrSelfStatement = errors.New("auto_explain plan is pg_sage's own statement")
+
 // ParseObservedPlan accepts PostgreSQL auto_explain JSON objects, never plain duration logs.
 func ParseObservedPlan(entry logwatch.LogEntry, database string) (ObservedPlan, error) {
 	var result ObservedPlan
 	if database == "" || entry.Database != database || entry.Timestamp.IsZero() {
 		return result, errors.New("auto_explain log lacks matching database or capture timestamp")
+	}
+	if selfmonitor.IsApplicationName(entry.Application) {
+		return result, ErrSelfStatement
 	}
 	match := observedPlanPrefix.FindStringSubmatch(entry.Message)
 	if match == nil {
@@ -49,6 +57,9 @@ func ParseObservedPlan(entry logwatch.LogEntry, database string) (ObservedPlan, 
 		strings.TrimSpace(doc.Query) == "" || doc.Plan == nil || doc.Plan.TotalCost == nil ||
 		math.IsNaN(*doc.Plan.TotalCost) || math.IsInf(*doc.Plan.TotalCost, 0) || *doc.Plan.TotalCost < 0 {
 		return result, errors.New("auto_explain JSON is truncated or lacks query and plan cost")
+	}
+	if selfmonitor.IsQueryText(doc.Query) {
+		return result, ErrSelfStatement
 	}
 	queryID, err := parseQueryIdentifier(doc.QueryID)
 	if err != nil {
