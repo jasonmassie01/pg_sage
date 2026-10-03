@@ -158,6 +158,9 @@ func (after TableStats) Delta(before TableStats) []TableDelta {
 		}
 		d.LiveRows += a.LiveRows
 		d.SeqScans += a.SeqScan - b.SeqScan
+		if a.SeqScan > b.SeqScan {
+			d.ScannedRelationRows = max(d.ScannedRelationRows, a.LiveRows)
+		}
 		d.SeqTupRead += a.SeqTupRead - b.SeqTupRead
 		d.IdxScans += a.IdxScan - b.IdxScan
 		d.RowsWritten += a.Written - b.Written

@@ -30,7 +30,7 @@ type Budgets struct {
 	// answer 200.
 	EndpointMaxMs float64
 	// HotUpdateMinPct and HotMinUpdates (gate F): a sage table updated at
-	// least HotMinUpdates times in a phase writes at least
+	// least HotMinUpdates times in the steady phase writes at least
 	// HotUpdateMinPct percent of them as heap-only (HOT) updates: its
 	// updated columns are not indexed and its pages keep room for them.
 	HotUpdateMinPct float64
@@ -47,7 +47,7 @@ func DefaultBudgets() Budgets {
 		CatalogStatementMaxMs: 500,
 		EndpointMaxMs:         1000,
 		HotUpdateMinPct:       50,
-		HotMinUpdates:         30,
+		HotMinUpdates:         5,
 	}
 }
 

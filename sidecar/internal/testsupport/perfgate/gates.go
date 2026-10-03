@@ -42,6 +42,9 @@ type TableDelta struct {
 	Bytes       int64 // heap, TOAST and indexes at the end of the phase
 	BytesGrowth int64 // Bytes minus the size at the start of the phase
 	Relations   int   // the table itself, or its partitions
+	// ScannedRelationRows is the live rows of the largest relation (the
+	// table or one partition) scanned sequentially in the phase.
+	ScannedRelationRows int64
 }
 
 // Statement is one pg_stat_statements entry of pg_sage's.
@@ -78,7 +81,7 @@ type Endpoint struct {
 
 // Phase is one measured stretch of the run. Steady phases are charged
 // the per-cycle and per-statement budgets; every phase is charged the
-// seq-scan, catalog, timeout and HOT budgets.
+// seq-scan, catalog and timeout budgets; the HOT budget is steady-only.
 type Phase struct {
 	Name       string
 	Steady     bool
@@ -129,8 +132,8 @@ func Evaluate(phases []Phase, b Budgets) ([]Offender, error) {
 		if p.Steady {
 			out = append(out, timeOffenders(p, b)...)
 			out = append(out, writeOffenders(p, b)...)
+			out = append(out, hotOffenders(p, b)...)
 		}
-		out = append(out, hotOffenders(p, b)...)
 		out = append(out, catalogOffenders(p, b)...)
 		out = append(out, endpointOffenders(p, b)...)
 	}
@@ -146,7 +149,7 @@ func Evaluate(phases []Phase, b Budgets) ([]Offender, error) {
 func seqScanOffenders(p Phase, b Budgets) []Offender {
 	var out []Offender
 	for _, t := range p.Tables {
-		if t.SeqScans <= 0 || t.LiveRows <= b.SeqScanMinRows {
+		if t.SeqScans <= 0 || scannedRows(t) <= b.SeqScanMinRows {
 			continue
 		}
 		out = append(out, Offender{Gate: GateSeqScan, Phase: p.Name, Subject: t.Name,
@@ -158,13 +161,22 @@ func seqScanOffenders(p Phase, b Budgets) []Offender {
 	return out
 }
 
+// scannedRows is the size of the largest relation scanned sequentially: a
+// table built by hand (no relation count) is judged by its live rows.
+func scannedRows(t TableDelta) int64 {
+	if t.Relations == 0 {
+		return t.LiveRows
+	}
+	return t.ScannedRelationRows
+}
+
 // suspects names the statements whose generic plan scans table
 // sequentially, costliest first.
 func suspects(p Phase, table string) string {
 	var hits []Statement
 	for _, plan := range p.Plans {
 		for _, s := range plan.SeqScans {
-			if s.Schema+"."+s.Relation == table {
+			if scans(s, table) {
 				hits = append(hits, plan.Statement)
 				break
 			}
@@ -315,4 +327,11 @@ func shortQuery(q string) string {
 		return q[:160] + "..."
 	}
 	return q
+}
+
+// scans reports whether a plan's sequential scan reads table or one of its
+// partitions (<table>_history, <table>_pYYYYMMDD, <table>_default).
+func scans(s PlanScan, table string) bool {
+	name := s.Schema + "." + s.Relation
+	return name == table || strings.HasPrefix(name, table+"_")
 }
