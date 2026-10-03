@@ -47,6 +47,7 @@ type Workload struct {
 	DSN       string
 	AppTable  string // public.<name>, locked by the application holder
 	SageTable string // public.<name>, locked by the pg_sage holder
+	pids      []int  // every session started, awaited gone at cleanup
 }
 
 var seq atomic.Int64
@@ -68,6 +69,7 @@ func New(t testing.TB, dsn string) *Workload {
 	t.Cleanup(func() {
 		c := connect(t, dsn, "selfload_admin", false)
 		defer func() { _ = c.Close(context.Background()) }()
+		w.awaitGone(t, c)
 		_, _ = c.Exec(context.Background(),
 			"DROP TABLE IF EXISTS "+w.AppTable+", "+w.SageTable)
 	})
@@ -101,6 +103,7 @@ func (w *Workload) start(t testing.TB, sage bool, own string, extra int) *Group 
 	g := &Group{}
 	holder := connect(t, w.DSN, AppName, sage)
 	g.Holder = pidOf(t, holder)
+	w.pids = append(w.pids, g.Holder)
 	if _, err := holder.Exec(context.Background(), "BEGIN"); err != nil {
 		t.Fatalf("selfload: begin: %v", err)
 	}
@@ -124,6 +127,7 @@ func (w *Workload) background(t testing.TB, sage bool, sql string) int {
 	t.Helper()
 	conn := connect(t, w.DSN, AppName, sage)
 	pid := pidOf(t, conn)
+	w.pids = append(w.pids, pid)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -156,6 +160,33 @@ func (w *Workload) awaitStates(t testing.TB, g *Group) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("selfload: sessions not ready: %s", strings.Join(missing, ", "))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// awaitGone waits until every session the workload started has left
+// pg_stat_activity. Closing a client does not wait for its backend to
+// exit (a cancelled pg_sleep or an aborting transaction can outlive the
+// close briefly, more so on a loaded server), and the next test of the
+// package counts this database's sessions exactly.
+func (w *Workload) awaitGone(t testing.TB, admin *pgx.Conn) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var left int
+		err := admin.QueryRow(context.Background(), `SELECT count(*)
+			FROM pg_stat_activity WHERE pid = ANY($1)`, w.pids).Scan(&left)
+		if err != nil {
+			t.Errorf("selfload: read remaining sessions: %v", err)
+			return
+		}
+		if left == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("selfload: %d of the workload's sessions still running after 15s", left)
+			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
