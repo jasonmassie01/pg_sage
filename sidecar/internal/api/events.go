@@ -169,9 +169,26 @@ func (b *EventBroker) pollLoop(
 		case <-b.stopCh:
 			return
 		case <-t.C:
-			b.pollOnce(ctx, mgr, state)
+			b.pollIfWatched(ctx, mgr, state)
 		}
 	}
+}
+
+// pollIfWatched polls only while a dashboard is subscribed: the change
+// scans read whole history tables (performance gate), and with nobody
+// watching their result reaches no one. It reports whether it polled. A
+// subscriber that arrives later sees one refresh event at most, for
+// whatever changed while nobody was watching.
+func (b *EventBroker) pollIfWatched(
+	ctx context.Context,
+	mgr *fleet.DatabaseManager,
+	state map[string]map[EventType]lastSeen,
+) bool {
+	if b.SubscriberCount() == 0 {
+		return false
+	}
+	b.pollOnce(ctx, mgr, state)
+	return true
 }
 
 func (b *EventBroker) pollOnce(
