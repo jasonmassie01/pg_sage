@@ -187,4 +187,3 @@ func decodeSequenceUse(ctx context.Context, pool *pgxpool.Pool, ids []int64,
 	}
 	return rows.Err()
 }
-
