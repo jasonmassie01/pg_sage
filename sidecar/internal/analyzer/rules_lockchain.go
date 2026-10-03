@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // LockChain represents a single root-blocker and all sessions it blocks.
@@ -59,8 +60,11 @@ func isSafeProcess(appName string, pid int, ownPID int, patterns []string) bool 
 // find every root blocker and the tree of sessions it blocks. Only
 // sessions waiting in the monitored database start a chain:
 // pg_stat_activity is cluster-wide, and without the filter one fleet
-// database reported (and paged on) another database's blocking.
-const lockChainQuery = `/* pg_sage */
+// database reported (and paged on) another database's blocking. A
+// pg_sage session waiting for a lock is not a blocked application session
+// (it waits under lock_timeout) and starts no chain; pg_sage as a blocker
+// stays visible (isSafeProcess keeps it from kill SQL).
+var lockChainQuery = `/* pg_sage */
 WITH RECURSIVE lock_chain AS (
     SELECT
         sa.pid              AS blocked_pid,
@@ -75,6 +79,7 @@ WITH RECURSIVE lock_chain AS (
          LATERAL unnest(pg_blocking_pids(sa.pid)) AS blocker_pid
     WHERE sa.wait_event_type = 'Lock'
       AND sa.datname = current_database()
+      AND ` + selfmonitor.ActivityExclusionSQL("sa") + `
     UNION ALL
     SELECT
         lc.blocked_pid,
