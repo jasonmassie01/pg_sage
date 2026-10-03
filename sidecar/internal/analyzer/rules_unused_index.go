@@ -27,6 +27,7 @@ func ruleUnusedIndexes(
 	prev := previousIndexes(previous)
 	unlogged := buildUnloggedSet(current)
 	fkRequirements := buildFKRequirements(current)
+	byTable := indexesByTable(current.Indexes)
 	standbyRisk := standbyUsageUnknown(current)
 	var findings []Finding
 
@@ -46,7 +47,7 @@ func ruleUnusedIndexes(
 		if _, ok := extras.RecentlyCreated[idx.IndexRelName]; ok {
 			continue
 		}
-		if indexIsOnlyFKSupport(idx, current.Indexes, fkRequirements) {
+		if indexIsOnlyFKSupport(idx, byTable, fkRequirements) {
 			continue
 		}
 		since := unusedClock(extras, idx, ident, prev[ident], epoch, now)
