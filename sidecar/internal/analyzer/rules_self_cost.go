@@ -86,7 +86,7 @@ func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
 			"schema_bytes":           c.SchemaBytes,
 		},
 		Recommendation: "Its statements are the pg_stat_statements entries that contain " +
-			"with the /* pg_sage */ tag; sort them by total_exec_time to see which " +
+			"the /* pg_sage */ tag; sort them by total_exec_time to see which " +
 			"component costs most. Lengthen collector.interval_seconds or " +
 			"analyzer.interval_seconds to spend less, or raise " +
 			"analyzer.self_cost_budget_ms if this cost is expected.",
