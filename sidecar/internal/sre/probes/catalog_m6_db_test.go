@@ -60,14 +60,19 @@ func TestCatalog_CheckpointActivityCountsARequestedCheckpoint(t *testing.T) {
 
 func TestCatalog_TempFileActivityReadsThisDatabase(t *testing.T) {
 	pool, ctx := livePool(t)
+	// The database's counters are read first: they only grow, and temp
+	// files another test of the package database reports in between (or a
+	// spill flushed late) can then only raise the probe's sample.
+	var files, bytes, workMem int64
+	if err := pool.QueryRow(ctx, `SELECT temp_files, temp_bytes,
+		pg_size_bytes(current_setting('work_mem')) FROM pg_stat_database
+		WHERE datname = current_database()`).Scan(&files, &bytes, &workMem); err != nil {
+		t.Fatalf("read pg_stat_database: %v", err)
+	}
 	s, err := TempStats(run(ctx, pool, TempFileActivity))
 	if err != nil {
 		t.Fatalf("temp_file_activity: %v", err)
 	}
-	var files, bytes, workMem int64
-	_ = pool.QueryRow(ctx, `SELECT temp_files, temp_bytes,
-		pg_size_bytes(current_setting('work_mem')) FROM pg_stat_database
-		WHERE datname = current_database()`).Scan(&files, &bytes, &workMem)
 	if s.Files < float64(files) || s.Bytes < float64(bytes) ||
 		s.WorkMemBytes != float64(workMem) || !Known(s.TempFileLimitKB) {
 		t.Fatalf("temp sample = %+v, database files %d bytes %d work_mem %d", s, files,

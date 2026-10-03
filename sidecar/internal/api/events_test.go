@@ -212,7 +212,7 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
 	ctx, cancelReq := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
-	rec := httptest.NewRecorder()
+	rec := &syncRecorder{rec: httptest.NewRecorder()}
 
 	// Run handler in a goroutine; stream stays open until we cancel.
 	var wg sync.WaitGroup
@@ -223,22 +223,23 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	}()
 
 	// Give the handler a moment to register its subscriber.
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for b.SubscriberCount() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if b.SubscriberCount() == 0 {
+	if !waitFor(5*time.Second, func() bool { return b.SubscriberCount() > 0 }) {
 		cancelReq()
 		wg.Wait()
 		t.Fatal("handler never subscribed")
 	}
 
+	// The request ends once the frame is written: cancelling after a fixed
+	// pause raced the handler's select, which picks at random between a
+	// done context and a pending event when both are ready.
 	b.Publish(Event{Type: EventFindings, Database: "primary"})
-	time.Sleep(30 * time.Millisecond)
+	waitFor(10*time.Second, func() bool {
+		return strings.Contains(rec.body(), "event: findings")
+	})
 	cancelReq()
 	wg.Wait()
 
-	body := rec.Body.String()
+	body := rec.body()
 	if !strings.HasPrefix(body, "retry: 3000") {
 		t.Errorf("stream did not begin with retry hint; got: %q",
 			firstLine(body))
@@ -249,12 +250,66 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	if !strings.Contains(body, `"database":"primary"`) {
 		t.Errorf("stream missing payload database; got: %s", body)
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+	assertEventStreamHeaders(t, rec.Header())
+}
+
+func assertEventStreamHeaders(t *testing.T, h http.Header) {
+	t.Helper()
+	if ct := h.Get("Content-Type"); ct != "text/event-stream" {
 		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+	if cc := h.Get("Cache-Control"); cc != "no-cache" {
 		t.Errorf("Cache-Control = %q, want no-cache", cc)
 	}
+}
+
+// waitFor polls cond every 5 ms until it holds or timeout passes.
+func waitFor(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return true
+}
+
+// syncRecorder is an httptest.ResponseRecorder the test can read while
+// the handler streams into it.
+type syncRecorder struct {
+	mu  sync.Mutex
+	rec *httptest.ResponseRecorder
+}
+
+func (r *syncRecorder) Header() http.Header {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Header()
+}
+
+func (r *syncRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Write(p)
+}
+
+func (r *syncRecorder) WriteHeader(code int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.WriteHeader(code)
+}
+
+func (r *syncRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.Flush()
+}
+
+func (r *syncRecorder) body() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Body.String()
 }
 
 func firstLine(s string) string {

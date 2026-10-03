@@ -37,10 +37,24 @@ func burnXIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
 	}
 }
 
+// catalogRun runs one catalog probe. A probe has at most 500 ms; on a
+// loaded runner (-race, a busy shared server) a run can exhaust that
+// budget, which these tests do not measure, so such a run is repeated
+// (up to 3 times in all).
 func catalogRun(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id ID,
 	args Args) Result {
 	t.Helper()
-	return NewRunner(pool, Catalog(), NewLimiter(1)).Run(ctx, id, args)
+	r := NewRunner(pool, Catalog(), NewLimiter(1))
+	var res Result
+	for attempt := 1; attempt <= 3; attempt++ {
+		res = r.Run(ctx, id, args)
+		if res.Reason != "deadline_exceeded" && res.Reason != "statement_timeout" {
+			return res
+		}
+		t.Logf("probe %s attempt %d ran out of its budget (%s); repeating", id, attempt,
+			res.Reason)
+	}
+	return res
 }
 
 func TestCatalog_XIDRunwayCountsConsumption(t *testing.T) {

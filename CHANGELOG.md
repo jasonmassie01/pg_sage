@@ -16,6 +16,13 @@
   run. A withheld index build is recorded once with a closed verification (the ledger
   self-audit no longer flags it) and is not retried until its content changes.
 
+- **Active and idle-in-transaction session counts are the application's sessions only.** The
+  system snapshot also counted autovacuum workers, logical replication senders and parallel
+  query workers of the database as active sessions, so a busy autovacuum or one parallel
+  query inflated the active backends the connection advisor, forecaster and lock analysis
+  read, and those recorded in each action's before-state evidence. They now count client
+  sessions, as the connection states already did.
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new

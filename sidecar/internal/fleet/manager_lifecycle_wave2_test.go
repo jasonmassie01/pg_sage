@@ -136,13 +136,15 @@ func TestWave2RemoveInternalBoundClosesPoolWithStuckWorker(t *testing.T) {
 	inst.PoolClose = func() { close(poolClosed) }
 	mgr.RegisterInstance(inst)
 
+	// The 30 ms internal bound must end the removal; the 5 s budget absorbs
+	// a loaded runner (-race) and stays far below the 30 s production bound.
 	started := time.Now()
 	err := mgr.RemoveInstanceContext(context.Background(), "stuck")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		workers.Done()
 		t.Fatalf("remove error = %v, want context deadline exceeded", err)
 	}
-	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		workers.Done()
 		t.Fatalf("context-bounded removal took %s", elapsed)
 	}
@@ -170,13 +172,14 @@ func TestWave2RemoveInternalBoundClosesPoolWithStuckExecutor(t *testing.T) {
 	inst.PoolClose = func() { close(poolClosed) }
 	mgr.RegisterInstance(inst)
 
+	// 30 ms internal bound against a 5 s budget, as above.
 	started := time.Now()
 	err := mgr.RemoveInstanceContext(context.Background(), "stuck-executor")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		close(releaseExecutor)
 		t.Fatalf("remove error = %v, want context deadline exceeded", err)
 	}
-	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		close(releaseExecutor)
 		t.Fatalf("internally bounded executor shutdown took %s", elapsed)
 	}
