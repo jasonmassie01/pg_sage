@@ -11,6 +11,24 @@
   seconds (lifeos: 4-5 s application queries) every attempt was cancelled and the table stayed
   plain. That wait blocks none of the table's readers or writers, so it is now bounded by the
   conversion's 10 minute statement timeout instead.
+- **The snapshot size cap now works right after the upgrade, and gives the disk space
+  back.** Converting `sage.snapshots` to daily partitions put all existing rows (lifeos:
+  9.3 GB) into one history partition that still takes rows for up to two days. The cap
+  could not touch it until then and warned on every run. Now the cap waits for that
+  partition to close and then drops it whole, which returns its disk space at once
+  (deleting rows would only free space for reuse and write as much WAL). It says so once:
+  when the partition closes and that it will be dropped then. A history partition that
+  stays open longer than 48 hours (rows dated ahead at the conversion) has its oldest rows
+  deleted in small paced batches instead (at most 1 GiB a run, never today's rows, never
+  a snapshot that a kept one is built on). An empty or fully expired history partition of
+  `sage.snapshots` or `sage.query_store` is dropped instead of truncated, and dropping a
+  partition can no longer break a kept snapshot that reaches it through a checkpoint.
+  Over-cap warnings are logged once per change or day and say what pg_sage is doing.
+- **One slow cleanup no longer starves the others.** When one table's cleanup used the
+  whole 30 s run budget, the next run started with it again, so on lifeos the query
+  history backlog ran alone run after run and the other tables waited. A table that uses
+  the budget now goes last in the next run, so every table is cleaned at least once every
+  few runs.
 
 - **The analyzer no longer pins a CPU core on databases with many indexes.** The duplicate
   and subset index rule compared every btree index with every other one in the database, and

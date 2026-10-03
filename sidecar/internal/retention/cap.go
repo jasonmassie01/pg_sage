@@ -42,22 +42,97 @@ func (c *Cleaner) capFor(ctx context.Context, size int64) (int64, bool) {
 	return c.snapshotCap(dbBytes), true
 }
 
-// enforceSnapshotCap removes the oldest snapshot data until the table fits
-// its cap: the history partition is truncated first, then whole days are
-// dropped, oldest first. Today's and later partitions and the default
-// partition stay. A partition a remaining row is built on is never
-// removed: the cap waits until those rows go (logged).
+// enforceSnapshotCap holds sage.snapshots under its size cap, oldest data
+// first: the history partition goes first (trimmed oldest rows first while
+// it still takes today's rows, dropped whole once it is closed), then whole
+// days are dropped. Today's rows, today's and later partitions, the
+// default partition, and every row a kept row is built on stay. It
+// returns false when the run's deadline cut the trim short (the next run
+// resumes it). See cap_history.go for how the cap measures the table.
 func (c *Cleaner) enforceSnapshotCap(ctx context.Context, t partition.Table,
-	stats *RunStats) {
-	size, err := partition.Size(ctx, c.pool, t)
+	stats *RunStats, deadline time.Time) bool {
+	disk, err := partition.Size(ctx, c.pool, t)
 	if err != nil {
 		c.logFn("WARN", "retention: size of sage.%s: %v", t.Name, err)
-		return
+		return true
 	}
-	limit, on := c.capFor(ctx, size)
-	if !on || size <= limit {
-		return
+	limit, on := c.capFor(ctx, disk)
+	if !on {
+		return true
 	}
+	if disk <= limit { // the cap never counts more than the files
+		c.noteUnder(t, capUsage{disk: disk, live: disk}, limit)
+		return true
+	}
+	u, err := c.measure(ctx, t)
+	if err != nil {
+		c.logFn("WARN", "retention: measure sage.%s for its size cap: %v", t.Name, err)
+		return true
+	}
+	if u.live <= limit {
+		c.noteUnder(t, u, limit)
+		return true
+	}
+	if u.hist != nil && u.histRows > 0 {
+		var done, settled bool
+		if u, done, settled = c.capHistory(ctx, t, u, limit, stats, deadline); settled {
+			return done
+		}
+	}
+	c.dropDaysForCap(ctx, t, u, limit, stats)
+	return true
+}
+
+// trimSkipWindow: an open history partition that closes within it is not
+// trimmed. Once closed it is dropped whole, which returns all its space at
+// once, while trimming it first would delete rows (and write about as much
+// WAL as it deletes) that are about to go anyway: on lifeos ~6 GB of WAL
+// ~34 h before the drop, with ~6 GB of disk free. pg_sage's conversion
+// bounds the history partition at the second UTC midnight after it, so
+// the partitions it makes close within 48 h: only a bound pushed further
+// out (rows dated ahead at the conversion, up to a week) is trimmed.
+const trimSkipWindow = 48 * time.Hour
+
+// capHistory removes the history partition's share of the excess: an open
+// one is trimmed unless it closes within trimSkipWindow, a closed one is
+// dropped. settled reports that the cap needs
+// nothing more this run (done is then false when the deadline cut the trim
+// short); otherwise the history partition is gone or empty, and u is the
+// table measured again.
+func (c *Cleaner) capHistory(ctx context.Context, t partition.Table, u capUsage, limit int64,
+	stats *RunStats, deadline time.Time) (capUsage, bool, bool) {
+	now := time.Now()
+	if u.open(now) && u.hist.Upper.Sub(now) <= trimSkipWindow {
+		c.note(t.Name, "closing", "WARN", "retention: sage.%s is %d MB, over its %d MB cap; "+
+			"its history partition sage.%s closes at %s and will be dropped whole then: not "+
+			"trimming before (that would write WAL for rows about to go anyway)", t.Name,
+			u.live>>20, limit>>20, u.hist.Name, u.hist.Upper.UTC().Format(time.RFC3339))
+		return u, true, true
+	}
+	if u.open(now) {
+		if done, settled := c.trimHistory(ctx, t, u, limit, stats, deadline); !done || settled {
+			return u, done, true
+		}
+	} else if !c.dropClosedHistory(ctx, t, *u.hist, stats) {
+		return u, true, true
+	}
+	u, err := c.measure(ctx, t)
+	if err != nil {
+		c.logFn("WARN", "retention: measure sage.%s for its size cap: %v", t.Name, err)
+		return u, true, true
+	}
+	if u.hist != nil && u.histRows > 0 {
+		c.noteStuck(t, u, limit)
+		return u, true, true
+	}
+	return u, true, false
+}
+
+// dropDaysForCap drops whole days, oldest first, until the table fits. A
+// day a kept row is built on is not dropped: the cap waits until those
+// rows go (logged).
+func (c *Cleaner) dropDaysForCap(ctx context.Context, t partition.Table, u capUsage,
+	limit int64, stats *RunStats) {
 	parts, err := partition.List(ctx, c.pool, t)
 	if err != nil {
 		c.logFn("WARN", "retention: list partitions of sage.%s: %v", t.Name, err)
@@ -65,56 +140,55 @@ func (c *Cleaner) enforceSnapshotCap(ctx context.Context, t partition.Table,
 	}
 	today := partition.DayStart(time.Now())
 	for _, p := range parts {
-		if size <= limit || p.Default || p.Upper.After(today) {
-			break
-		}
-		if p.History && c.empty(ctx, p) {
+		if p.History {
 			continue
 		}
-		if !c.removable(ctx, t, p, p.Upper) {
-			return
+		if u.live <= limit || p.Default || p.Upper.After(today) {
+			break
 		}
-		if !c.removeForCap(ctx, t, p, stats) {
-			return
+		if !c.removable(ctx, t, p, p.Upper) || !c.dropDayForCap(ctx, t, p, stats) {
+			break
 		}
-		if size, err = partition.Size(ctx, c.pool, t); err != nil {
-			c.logFn("WARN", "retention: size of sage.%s: %v", t.Name, err)
+		if u, err = c.measure(ctx, t); err != nil {
+			c.logFn("WARN", "retention: measure sage.%s for its size cap: %v", t.Name, err)
 			return
 		}
 	}
-	if size > limit {
-		c.logFn("WARN", "retention: sage.%s is %d MB, over its %d MB cap, with nothing older "+
-			"than today left to remove", t.Name, size>>20, limit>>20)
+	if u.live > limit {
+		c.noteStuck(t, u, limit)
+		return
 	}
+	c.noteUnder(t, u, limit)
 }
 
-// removeForCap truncates the history partition or drops a day.
-func (c *Cleaner) removeForCap(ctx context.Context, t partition.Table, p partition.Partition,
+// dropDayForCap drops one day's partition.
+func (c *Cleaner) dropDayForCap(ctx context.Context, t partition.Table, p partition.Partition,
 	stats *RunStats) bool {
-	var err error
-	if p.History {
-		err = partition.Truncate(ctx, c.pool, t, p)
-	} else {
-		err = partition.Drop(ctx, c.pool, t, p)
-	}
-	if err != nil {
+	if err := partition.Drop(ctx, c.pool, t, p); err != nil {
 		c.logFn("WARN", "retention: removing %s for the size cap: %v (retrying next run)",
 			p.Name, err)
 		return false
 	}
-	if p.History {
-		stats.Truncated = append(stats.Truncated, p.Name)
-	} else {
-		stats.Dropped = append(stats.Dropped, p.Name)
-	}
+	stats.Dropped = append(stats.Dropped, p.Name)
 	c.logFn("INFO", "retention: removed sage.%s to keep sage.%s under its size cap",
 		p.Name, t.Name)
 	return true
 }
 
-// empty reports whether a partition holds no row (or cannot be read).
-func (c *Cleaner) empty(ctx context.Context, p partition.Partition) bool {
-	var rows bool
-	err := c.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM sage."+p.Name+")").Scan(&rows)
-	return err != nil || !rows
+// noteUnder logs, once, that a table is back under its cap.
+func (c *Cleaner) noteUnder(t partition.Table, u capUsage, limit int64) {
+	c.note(t.Name, capUnder, "INFO", "retention: sage.%s is back under its %d MB size cap "+
+		"(%d MB of live data, %d MB on disk: space freed by trimming is reused by new rows "+
+		"of the same partition and returned to the operating system when it is dropped)",
+		t.Name, limit>>20, u.live>>20, u.disk>>20)
+}
+
+// noteStuck warns, once per state change or day, that a table is over its
+// cap with nothing left that may go yet.
+func (c *Cleaner) noteStuck(t partition.Table, u capUsage, limit int64) {
+	c.note(t.Name, "stuck", "WARN", "retention: sage.%s is %d MB, over its %d MB cap, with "+
+		"nothing older than today left to remove (the rest is today's or a base today's "+
+		"snapshots are built on). It shrinks as days age out; if this repeats every day, "+
+		"raise retention.snapshots_max_pct or lower retention.snapshots_days",
+		t.Name, u.live>>20, limit>>20)
 }
