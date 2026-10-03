@@ -20,11 +20,28 @@ const (
 	recordKindQueued   = "queued"
 )
 
-const actionsSelectSQLPrefix = `SELECT id, executed_at,
+// actionsSelectSQLPrefix selects executed actions with all-time attempts.
+var actionsSelectSQLPrefix = actionsSelectSQL("")
+
+// attemptsSQL counts the executions of a row's SQL (inside the list's
+// time window when window is set) through idx_action_log_sql_md5, for the
+// rows returned only. It replaced COUNT(*) OVER (PARTITION BY
+// sql_executed), which sorted all of action_log on every page.
+func attemptsSQL(window string) string {
+	return `(SELECT count(*) FROM sage.action_log a2
+   WHERE md5(a2.sql_executed) = md5(action_log.sql_executed)
+     AND a2.sql_executed = action_log.sql_executed` + window + `)`
+}
+
+func actionsSelectSQL(window string) string {
+	return `/* pg_sage */SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
  measured_at,
- COUNT(*) OVER (PARTITION BY sql_executed) AS attempts,
+ ` + attemptsSQL(window) + ` AS attempts,` + actionsVerificationSQL
+}
+
+const actionsVerificationSQL = `
  (SELECT v.verdict FROM sage.verification v
    WHERE v.action_log_id = action_log.id
    ORDER BY v.id DESC LIMIT 1) AS verification_verdict,

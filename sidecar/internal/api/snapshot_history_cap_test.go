@@ -87,3 +87,12 @@ func TestSnapshotHistory_ResponseIsByteCapped(t *testing.T) {
 			len(resp.Points), resp.Truncated)
 	}
 }
+
+// pointData decodes a history point's document as a JSON object.
+func pointData(p historyPoint) (map[string]any, bool) {
+	var m map[string]any
+	if err := json.Unmarshal(p.Data, &m); err != nil || m == nil {
+		return nil, false
+	}
+	return m, true
+}

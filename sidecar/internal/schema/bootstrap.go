@@ -394,7 +394,8 @@ func migrationStatements() []string {
 		ddlIncidentOpenIdentity,
 		ddlSnapshotDelta,
 		ddlDecisionLedger(),
-		ddlPerfIndexes)
+		ddlPerfIndexes,
+		ddlAPIListIndexes())
 }
 
 // ---------------------------------------------------------------------------

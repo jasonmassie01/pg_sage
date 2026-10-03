@@ -96,8 +96,8 @@ func TestSnapshotAPI_DedupeGolden(t *testing.T) {
 			t.Errorf("%s latest differs (%v / %v)", metric, err1, err2)
 		}
 		for _, window := range []struct{ from, to time.Time }{{}, {from, to}} {
-			got, err1 := querySnapshotHistory(ctx, deltaPool, metric, 24, window.from, window.to)
-			want, err2 := querySnapshotHistory(ctx, legacyPool, metric, 24, window.from,
+			got, _, err1 := querySnapshotHistory(ctx, deltaPool, metric, 24, window.from, window.to)
+			want, _, err2 := querySnapshotHistory(ctx, legacyPool, metric, 24, window.from,
 				window.to)
 			if err1 != nil || err2 != nil {
 				t.Fatalf("%s history: %v / %v", metric, err1, err2)
@@ -128,11 +128,11 @@ func TestSnapshotAPI_OrphanDeltaReadsNull(t *testing.T) {
 	if err != nil || latest != nil {
 		t.Fatalf("latest = %v (%v), want null without error", latest, err)
 	}
-	points, err := querySnapshotHistory(ctx, deltaPool, "indexes", 24, time.Time{}, time.Time{})
+	points, _, err := querySnapshotHistory(ctx, deltaPool, "indexes", 24, time.Time{}, time.Time{})
 	if err != nil || len(points) == 0 {
 		t.Fatalf("history = %d points (%v)", len(points), err)
 	}
-	if last := points[len(points)-1]; last["data"] != nil {
-		t.Fatalf("orphan point = %v, want null data", last["data"])
+	if last := points[len(points)-1]; string(last.Data) != "null" {
+		t.Fatalf("orphan point = %s, want null data", last.Data)
 	}
 }

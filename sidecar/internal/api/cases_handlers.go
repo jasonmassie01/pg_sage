@@ -90,10 +90,14 @@ func queryProjectedCases(
 	pools := poolsForDatabaseSelection(mgr, database)
 	out := make([]cases.Case, 0)
 	for _, selected := range pools {
-		rows, _, err := queryFindings(ctx, selected.pool, filters, selected.name)
+		// The cases view needs no total: one bounded index-ordered read.
+		page, err := queryFindingsPage(ctx, selected.pool, filters,
+			listPage{Limit: filters.Limit}, selected.name, false)
 		if err != nil {
 			return nil, err
 		}
+		rows, _ := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
+			filters.Sort, filters.Order)
 		selectedCases := make([]cases.Case, 0, len(rows))
 		findingIDs := make([]int, 0, len(rows))
 		for _, row := range rows {

@@ -637,8 +637,8 @@ func TestPhase2_QueryActions_EmptyTable(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	actions, total, err := queryActions(
-		ctx, pool, 50, 0, time.Time{}, time.Time{})
+	actions, total, err := queryActionsPage(
+		ctx, pool, 50, 0)
 	if err != nil {
 		t.Fatalf("queryActions: %v", err)
 	}
@@ -669,8 +669,8 @@ func TestPhase2_QueryActions_WithData(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	actions, total, err := queryActions(
-		ctx, pool, 50, 0, time.Time{}, time.Time{})
+	actions, total, err := queryActionsPage(
+		ctx, pool, 50, 0)
 	if err != nil {
 		t.Fatalf("queryActions: %v", err)
 	}
@@ -709,8 +709,8 @@ func TestPhase2_QueryActions_Pagination(t *testing.T) {
 		}
 	}
 
-	actions, total, err := queryActions(
-		ctx, pool, 2, 1, time.Time{}, time.Time{})
+	actions, total, err := queryActionsPage(
+		ctx, pool, 2, 1)
 	if err != nil {
 		t.Fatalf("queryActions: %v", err)
 	}
@@ -814,7 +814,7 @@ func TestPhase2_QuerySnapshotHistory_Empty(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	points, err := querySnapshotHistory(
+	points, _, err := querySnapshotHistory(
 		ctx, pool, "tps", 24, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
@@ -839,7 +839,7 @@ func TestPhase2_QuerySnapshotHistory_WithData(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	points, err := querySnapshotHistory(
+	points, _, err := querySnapshotHistory(
 		ctx, pool, "tps", 24, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
@@ -849,7 +849,7 @@ func TestPhase2_QuerySnapshotHistory_WithData(t *testing.T) {
 	}
 
 	// Points should be ordered by collected_at ASC.
-	if points[0]["data"] == nil {
+	if points[0].Data == nil {
 		t.Error("first point data should not be nil")
 	}
 }
@@ -871,7 +871,7 @@ func TestPhase2_QuerySnapshotHistory_HoursFilter(
 		t.Fatalf("insert: %v", err)
 	}
 
-	points, err := querySnapshotHistory(
+	points, _, err := querySnapshotHistory(
 		ctx, pool, "tps", 2, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
@@ -900,7 +900,7 @@ func TestPhase2_QuerySnapshotHistory_CapsLargeFleetPayloads(
 		}
 	}
 
-	points, err := querySnapshotHistory(
+	points, _, err := querySnapshotHistory(
 		ctx, pool, "tps", 24*365, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
@@ -909,13 +909,13 @@ func TestPhase2_QuerySnapshotHistory_CapsLargeFleetPayloads(
 		t.Fatalf("points: got %d, want cap %d",
 			len(points), snapshotHistoryMaxPoints)
 	}
-	firstData, ok := points[0]["data"].(map[string]any)
+	firstData, ok := pointData(points[0])
 	if !ok {
-		t.Fatalf("first point data type = %T", points[0]["data"])
+		t.Fatalf("first point data = %s", points[0].Data)
 	}
-	lastData, ok := points[len(points)-1]["data"].(map[string]any)
+	lastData, ok := pointData(points[len(points)-1])
 	if !ok {
-		t.Fatalf("last point data type = %T", points[len(points)-1]["data"])
+		t.Fatalf("last point data = %s", points[len(points)-1].Data)
 	}
 	if firstData["v"].(float64) != 50 || lastData["v"].(float64) != 549 {
 		t.Fatalf("expected newest capped window 50..549, got %v..%v",
@@ -3977,41 +3977,6 @@ func TestPhase2_OAuthCallbackHandler_NotConfigured(
 }
 
 // ================================================================
-// buildFindingsOrder — sort columns
-// ================================================================
-
-func TestPhase2_BuildFindingsOrder_AllSortOptions(
-	t *testing.T,
-) {
-	tests := []struct {
-		sort  string
-		order string
-		want  string
-	}{
-		{"severity", "desc", "WHEN 'critical'"},
-		{"severity", "asc", "DESC"}, // least-severe-first → CASE DESC
-		{"created_at", "desc", "created_at DESC"},
-		{"last_seen", "asc", "last_seen ASC"},
-		{"category", "desc", "category DESC"},
-		{"title", "asc", "title ASC"},
-		{"unknown", "desc", "last_seen DESC"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.sort+"_"+tt.order, func(t *testing.T) {
-			f := fleet.FindingFilters{
-				Sort:  tt.sort,
-				Order: tt.order,
-			}
-			order := buildFindingsOrder(f)
-			if !strings.Contains(order, tt.want) {
-				t.Errorf("order for %s/%s: got %q, want containing %q",
-					tt.sort, tt.order, order, tt.want)
-			}
-		})
-	}
-}
-
-// ================================================================
 // validateMetric
 // ================================================================
 
@@ -4793,64 +4758,6 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 	}
 }
 
-func TestPhase2_SortFindingMaps_NullsTieBreakersAndSeverity(t *testing.T) {
-	older := time.Date(2026, 4, 26, 10, 0, 0, 0, time.UTC)
-	newer := older.Add(time.Hour)
-	highest := 9.5
-	lower := 2.25
-
-	rows := []map[string]any{
-		{
-			"severity": "warning", "last_seen": older,
-			"database_name": "bravo", "impact_score": &lower,
-		},
-		{
-			"severity": "critical", "last_seen": older,
-			"database_name": "charlie", "impact_score": nil,
-		},
-		{
-			"severity": "critical", "last_seen": newer,
-			"database_name": "alpha", "impact_score": &highest,
-		},
-	}
-	sortFindingMaps(rows, fleet.FindingFilters{
-		Sort: "severity", Order: "desc",
-	})
-	if rows[0]["database_name"] != "charlie" {
-		t.Fatalf("severity sort first: got %v, want charlie",
-			rows[0]["database_name"])
-	}
-	if rows[1]["database_name"] != "alpha" {
-		t.Errorf("severity tie last_seen: got %v, want alpha",
-			rows[1]["database_name"])
-	}
-
-	rows = []map[string]any{
-		{"impact_score": nil, "last_seen": older, "database_name": "z"},
-		{"impact_score": &lower, "last_seen": older, "database_name": "b"},
-		{"impact_score": &highest, "last_seen": older, "database_name": "a"},
-	}
-	sortFindingMaps(rows, fleet.FindingFilters{
-		Sort: "impact", Order: "desc",
-	})
-	if rows[0]["database_name"] != "a" || rows[2]["database_name"] != "z" {
-		t.Errorf("impact sort with nils: got %#v", rows)
-	}
-
-	if got := compareNullableFloat(nil, &highest); got != -1 {
-		t.Errorf("nil float compare: got %d, want -1", got)
-	}
-	if got := compareNullableFloat(highest, &highest); got != 0 {
-		t.Errorf("equal float compare: got %d, want 0", got)
-	}
-	if got := compareTimeValue(older, newer); got != -1 {
-		t.Errorf("time compare older/newer: got %d, want -1", got)
-	}
-	if got := compareTimeValue("missing", newer); got != -1 {
-		t.Errorf("missing time compare: got %d, want -1", got)
-	}
-}
-
 // ================================================================
 // Task 3 coverage: fleet health, forecast, and time helpers
 // ================================================================
@@ -5027,4 +4934,17 @@ func TestPhase2_GrowthForecastHandler_AnnotatesAndHandlesEmpty(t *testing.T) {
 		t.Errorf("growth_bytes: got %v, want 4000",
 			first["growth_bytes"])
 	}
+}
+
+// queryActionsPage reads one page of a single database's actions ledger
+// through the list endpoint's query (it replaced queryActions).
+func queryActionsPage(
+	ctx context.Context, pool *pgxpool.Pool, limit, offset int,
+) ([]map[string]any, int, error) {
+	resp, err := listActions(ctx, []namedPool{{name: "testdb", pool: pool}},
+		actionsRequest{page: listPage{Limit: limit, Offset: offset}})
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp["actions"].([]map[string]any), resp["total"].(int), nil
 }
