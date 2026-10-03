@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -27,9 +28,15 @@ import (
 // advisory lock; the tables are pg_sage's and small): never on
 // sage.decision, which only gets a storage parameter.
 
-// storageMigrationTimeout bounds the migration; converting a large legacy
-// table reads its heap once.
-const storageMigrationTimeout = 15 * time.Minute
+// storageMigrationTimeout bounds the migration. Startup bounds bootstrap
+// tighter (10 s): only small tables are converted here.
+const storageMigrationTimeout = 2 * time.Minute
+
+// bootstrapConvertMaxBytes is the largest history table heap bootstrap
+// converts (validating it reads the heap once: well under a second at this
+// size). Larger tables are converted by retention in the background
+// (retention.Cleaner.ConvertHistory), off the startup path.
+var bootstrapConvertMaxBytes int64 = 32 << 20
 
 // partitionDaysAhead is how many days of partitions bootstrap ensures.
 const partitionDaysAhead = 4
@@ -85,11 +92,8 @@ func migrateStorage(ctx context.Context, db partition.DB) error {
 	ctx, cancel := context.WithTimeout(ctx, storageMigrationTimeout)
 	defer cancel()
 	for _, t := range partition.HistoryTables() {
-		if _, err := partition.Convert(ctx, db, t); err != nil {
-			return fmt.Errorf("partition sage.%s: %w", t.Name, err)
-		}
-		if _, err := partition.Ensure(ctx, db, t, time.Now(), partitionDaysAhead); err != nil {
-			return fmt.Errorf("partitions of sage.%s: %w", t.Name, err)
+		if err := partitionAtBootstrap(ctx, db, t); err != nil {
+			return err
 		}
 	}
 	if _, err := db.Exec(ctx, ddlSnapshotDataAt); err != nil {
@@ -202,3 +206,35 @@ BEGIN
 END
 $fn$;
 `
+
+// partitionAtBootstrap converts the plain history table t when it is small
+// and ensures its days. A large table, or a conversion that fails (a busy
+// table, a timeout), leaves the plain table as it was: pg_sage runs on it
+// and retention converts it later, with backoff. Only a failure to read the
+// catalog or to create days fails bootstrap.
+func partitionAtBootstrap(ctx context.Context, db partition.DB, t partition.Table) error {
+	var kind string
+	var heap int64
+	if err := db.QueryRow(ctx, `SELECT relkind::text, pg_catalog.pg_relation_size(oid)
+		FROM pg_catalog.pg_class WHERE oid = pg_catalog.to_regclass($1)`, "sage."+t.Name).
+		Scan(&kind, &heap); err != nil {
+		return fmt.Errorf("read sage.%s: %w", t.Name, err)
+	}
+	if kind != "p" {
+		if heap > bootstrapConvertMaxBytes {
+			slog.Info("schema: sage."+t.Name+" will be partitioned by day in the background",
+				"heap_mb", heap>>20)
+			return nil
+		}
+		if _, err := partition.Convert(ctx, db, t); err != nil {
+			slog.Warn("schema: sage."+t.Name+" stays one plain table for now: partitioning "+
+				"it by day failed; pg_sage keeps working on it and retention retries later. "+
+				partition.Hint(err), "error", err)
+			return nil
+		}
+	}
+	if _, err := partition.Ensure(ctx, db, t, time.Now(), partitionDaysAhead); err != nil {
+		return fmt.Errorf("partitions of sage.%s: %w", t.Name, err)
+	}
+	return nil
+}
