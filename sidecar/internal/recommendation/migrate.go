@@ -21,18 +21,29 @@ const legacyFindingSQL = `f.category, f.object_identifier, COALESCE(f.object_typ
 // and every unexecuted pending or approved action_queue row is linked to
 // the revision holding its exact SQL. An approval keeps its approver and
 // is pinned to that revision (created, marked migrated, when the content
-// differs from the finding's). Idempotent: linked rows are skipped.
+// differs from the finding's). A CREATE INDEX rollback that drops another
+// index is repaired first in open findings and last in unapproved
+// revisions (index_inverse.go). Idempotent: linked rows are skipped.
 func MigrateLegacy(
 	ctx context.Context, pool *pgxpool.Pool, database string,
 ) (MigrationReport, error) {
 	s := NewStore(pool)
 	var report MigrationReport
+	repaired, err := s.repairFindingInverses(ctx)
+	report.InversesRepaired = repaired
+	if err != nil {
+		return report, err
+	}
 	created, err := s.migrateFindings(ctx, database)
 	report.Findings = created
 	if err != nil {
 		return report, err
 	}
-	err = s.migrateQueue(ctx, database, &report)
+	if err = s.migrateQueue(ctx, database, &report); err != nil {
+		return report, err
+	}
+	repaired, err = s.repairRevisionInverses(ctx, database)
+	report.InversesRepaired += repaired
 	return report, err
 }
 

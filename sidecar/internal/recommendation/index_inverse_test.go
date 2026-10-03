@@ -14,7 +14,7 @@ import (
 // that pair into the recommendation revision the executor acts on.
 
 const (
-	createOpt  = "CREATE INDEX CONCURRENTLY idx_memories_active_query_opt ON public.memories " +
+	createOpt = "CREATE INDEX CONCURRENTLY idx_memories_active_query_opt ON public.memories " +
 		"(status, fact_type, quality_score) WHERE (valid_to IS NULL AND deleted_at IS NULL)"
 	stalePartialDrop = "DROP INDEX CONCURRENTLY IF EXISTS idx_memories_active_partial"
 	derivedOptDrop   = `DROP INDEX CONCURRENTLY IF EXISTS "public"."idx_memories_active_query_opt"`
