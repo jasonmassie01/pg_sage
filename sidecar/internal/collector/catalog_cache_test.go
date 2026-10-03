@@ -295,3 +295,14 @@ func TestSequencePageSQL_BoundedByLockBudget(t *testing.T) {
 		t.Error("sequencePageSQL reads pg_sequences (locks every sequence)")
 	}
 }
+
+// The page's own last oid is inside its range: a sequence that stopped
+// being used at exactly that oid leaves the cache.
+func TestSequenceCache_RangeIncludesThePagesLastOID(t *testing.T) {
+	sc := &sequenceCache{}
+	sc.apply(0, []sequenceRow{used(10, "a", 1), used(20, "b", 2), used(30, "c", 3)}, true)
+	sc.apply(0, []sequenceRow{used(10, "a", 1), {oid: 20, readable: true}}, false)
+	if got, want := pcts(sc), "map[a:1 c:3]"; got != want {
+		t.Fatalf("cache = %s, want %s", got, want)
+	}
+}

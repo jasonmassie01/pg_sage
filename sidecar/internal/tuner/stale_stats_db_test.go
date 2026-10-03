@@ -74,9 +74,10 @@ func legacyStaleEntries(t *testing.T, pool *pgxpool.Pool) map[string]staleStatsE
 	return out
 }
 
-func TestLoadStaleStatsCache_MatchesLegacyQuery(t *testing.T) {
-	pool := staleTestPool(t)
-	ctx := context.Background()
+// createStaleFixture: an analyzed table modified since, an unanalyzed
+// one, a partitioned table, and the same table name in two schemas.
+func createStaleFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS stale_a, stale_b CASCADE")
 	})
@@ -84,27 +85,28 @@ func TestLoadStaleStatsCache_MatchesLegacyQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
-	if _, err := conn.Exec(ctx, `CREATE SCHEMA stale_a; CREATE SCHEMA stale_b;
+	defer conn.Release()
+	for _, s := range []string{`CREATE SCHEMA stale_a; CREATE SCHEMA stale_b;
 		CREATE TABLE stale_a.big (id int, pad text) WITH (autovacuum_enabled = off);
 		INSERT INTO stale_a.big SELECT g, repeat('p', 200) FROM generate_series(1, 20000) g;
 		CREATE TABLE stale_b.big (id int) WITH (autovacuum_enabled = off);
 		CREATE TABLE stale_a.parted (k int) PARTITION BY RANGE (k);
-		CREATE TABLE stale_a.parted_1 PARTITION OF stale_a.parted FOR VALUES FROM (0) TO (10)`); err != nil {
-		conn.Release()
-		t.Fatalf("fixture: %v", err)
-	}
-	for _, s := range []string{"ANALYZE stale_a.big",
+		CREATE TABLE stale_a.parted_1 PARTITION OF stale_a.parted FOR VALUES FROM (0) TO (10)`,
+		"ANALYZE stale_a.big",
 		"UPDATE stale_a.big SET id = id + 1 WHERE id <= 5000",
 		"INSERT INTO stale_b.big SELECT generate_series(1, 50)"} {
 		if _, err := conn.Exec(ctx, s); err != nil {
-			conn.Release()
-			t.Fatalf("%s: %v", s, err)
+			t.Fatalf("fixture %q: %v", s, err)
 		}
 	}
 	_, _ = conn.Exec(ctx, "SELECT pg_stat_force_next_flush()") // PG15+; PG14 waits below
-	conn.Release()
 	time.Sleep(1500 * time.Millisecond)
+}
 
+func TestLoadStaleStatsCache_MatchesLegacyQuery(t *testing.T) {
+	pool := staleTestPool(t)
+	ctx := context.Background()
+	createStaleFixture(t, ctx, pool)
 	want := legacyStaleEntries(t, pool)
 	got, err := LoadStaleStatsCache(ctx, pool, TunerConfig{})
 	if err != nil {
@@ -123,7 +125,8 @@ func TestLoadStaleStatsCache_MatchesLegacyQuery(t *testing.T) {
 			t.Errorf("%s: got %+v, want %+v", key, g, w)
 		}
 	}
-	if big := got.entries["stale_a.big"]; big.sizeMB < 3 || big.modSinceAnalyze != 5000 {
+	big := got.entries["stale_a.big"]
+	if big.sizeMB < 3 || big.modSinceAnalyze < 5000 { // unflushed inserts may land after ANALYZE
 		t.Fatalf("fixture did not exercise size/mods: %+v", big)
 	}
 	if len(got.entries) != len(want) {

@@ -88,6 +88,33 @@ func TestCollectIndexes_DefinitionsFetchedOnlyWhenChanged(t *testing.T) {
 		t.Fatalf("new index def = %q", d)
 	}
 	renameColumnIsSeen(t, ctx, pool, c)
+	renameTableAndSchemaAreSeen(t, ctx, pool, c)
+}
+
+// renameTableAndSchemaAreSeen: a table rename changes the table's
+// pg_class row and a schema rename its pg_namespace row; both appear in
+// the index definitions on the next cycle.
+func renameTableAndSchemaAreSeen(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	c *Collector) {
+	t.Helper()
+	oid := indexOID(t, ctx, pool, "defcache.t_a")
+	if _, err := pool.Exec(ctx, "ALTER TABLE defcache.t RENAME TO t_renamed"); err != nil {
+		t.Fatalf("rename table: %v", err)
+	}
+	got, err := c.collectIndexes(ctx)
+	if err != nil || !strings.Contains(defOf(got, oid), "ON defcache.t_renamed ") {
+		t.Fatalf("after table rename def = %q (%v)", defOf(got, oid), err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS defcache2 CASCADE")
+	})
+	if _, err := pool.Exec(ctx, "ALTER SCHEMA defcache RENAME TO defcache2"); err != nil {
+		t.Fatalf("rename schema: %v", err)
+	}
+	got, err = c.collectIndexes(ctx)
+	if err != nil || !strings.Contains(defOf(got, oid), "ON defcache2.t_renamed ") {
+		t.Fatalf("after schema rename def = %q (%v)", defOf(got, oid), err)
+	}
 }
 
 // assertRefetched: both changed indexes were re-read, and nothing outside
