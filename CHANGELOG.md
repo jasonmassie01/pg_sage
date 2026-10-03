@@ -199,6 +199,21 @@
   minutes) or once an hour. SLO windows are computed from running totals stored with each
   sample (a few index probes per series) instead of re-reading every sample every minute;
   samples stored before the upgrade are still read the old way until they age out.
+- **pg_sage no longer counts its own sessions and statements as your workload.** Now that
+  pg_sage is visible in `pg_stat_statements`, every analysis that reads sessions or
+  statements leaves pg_sage's own out: the snapshot's active and idle-in-transaction
+  counts, locks, connection states and churn (now per database, also in fleet mode), the
+  load circuit breaker, lock chains and the Sage SRE lock graph, long-transaction, wait and
+  temp-spill evidence, the runaway detector's blocker counts, the DDL risk score, the
+  tuner's and the briefing's active sessions, auto_explain plans from the logs, and the
+  write-latency check that decides whether an action caused a regression (pg_sage's own
+  writes could trigger a rollback). Connection slots still count pg_sage, and pg_sage
+  still shows up when it holds a lock or the xmin horizon. Every withheld index build is
+  now counted: a failed record used to be dropped silently. `/value` reads only credited
+  actions through a new index, the actions list counts through the time index, retention
+  checks verifications and credited actions by index instead of reading those tables,
+  and SRE investigation updates are heap-only again (no index on `updated_at`). The
+  Findings and Actions pages show a capped total as "1000+" and load further pages.
 
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
