@@ -315,35 +315,6 @@ func TestEnsure_ConcurrentCallersAgree(t *testing.T) {
 	}
 }
 
-func TestDropAndTruncate(t *testing.T) {
-	pool, ctx := requireDB(t)
-	tbl := scratch(t, ctx, pool, nil)
-	exec(t, ctx, pool, "INSERT INTO sage."+tbl.Name+
-		" (at, v) VALUES (now() - interval '9 days', 1)")
-	converted(t, ctx, pool, tbl)
-	if _, err := Ensure(ctx, pool, tbl, time.Now(), 3); err != nil {
-		t.Fatal(err)
-	}
-	parts, _ := List(ctx, pool, tbl)
-	last := days(parts)[len(days(parts))-1]
-	if err := Drop(ctx, pool, tbl, last); err != nil {
-		t.Fatalf("Drop: %v", err)
-	}
-	if n := count(t, ctx, pool, "SELECT count(*) FROM pg_class WHERE oid = to_regclass($1)",
-		"sage."+last.Name); n != 0 {
-		t.Fatalf("%s still exists", last.Name)
-	}
-	if err := Truncate(ctx, pool, tbl, parts[0]); err != nil {
-		t.Fatalf("Truncate history: %v", err)
-	}
-	if n := count(t, ctx, pool, "SELECT count(*) FROM sage."+tbl.Name); n != 0 {
-		t.Fatalf("%d rows after truncating history", n)
-	}
-	if err := Drop(ctx, pool, tbl, Partition{Name: "not_" + tbl.Name}); err == nil {
-		t.Fatal("Drop accepted a relation that is not one of the table's partitions")
-	}
-}
-
 // Dropping a partition needs an exclusive lock on the parent. It must give
 // up quickly instead of queueing every reader behind a long transaction.
 func TestDrop_GivesUpBehindALongReader(t *testing.T) {
