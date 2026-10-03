@@ -215,8 +215,10 @@
   writes could trigger a rollback). Connection slots still count pg_sage, and pg_sage
   still shows up when it holds a lock or the xmin horizon. Every withheld index build is
   now counted: a failed record used to be dropped silently. `/value` reads only credited
-  actions through a new index, the actions list counts through the time index, retention
-  checks verifications and credited actions by index instead of reading those tables,
+  actions through a new index, the actions list counts through the time index, the
+  app-managed-index check and RCA's rollback history read pg_sage's drops and rollbacks
+  through small indexes, retention checks verifications and credited actions by index
+  instead of reading those tables,
   and SRE investigation updates are heap-only again (no index on `updated_at`). The
   Findings and Actions pages show a capped total as "1000+" and load further pages.
 
