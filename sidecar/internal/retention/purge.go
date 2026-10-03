@@ -27,7 +27,7 @@ func (c *Cleaner) purgeTable(
 }
 
 // purge applies one rule. It returns false when the run's deadline passed
-// before the rule was done (the next run resumes it), true otherwise
+// before the rule was done (a later run resumes it), true otherwise
 // (done, disabled, or failed and logged).
 func (c *Cleaner) purge(ctx context.Context, rule purgeRule, stats *RunStats,
 	deadline time.Time) bool {
@@ -64,8 +64,7 @@ func (c *Cleaner) relkind(ctx context.Context, table string) (string, error) {
 
 // purgeRows deletes rule's expired rows from relation (sage.<table>, or
 // one partition of it) in paced batches until none remain or the deadline
-// passes. A statement is never sent after the deadline, but the first one
-// of a rule always is, so every run makes progress.
+// passes (paced).
 func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string,
 	stats *RunStats, deadline time.Time) bool {
 	batch := rule.batch
@@ -75,28 +74,45 @@ func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string
 	query := purgeSQL(rule, relation, batch)
 	total := int64(0)
 	defer func() { c.logPurged(rule, relation, total) }()
-	for ctx.Err() == nil {
+	done, err := c.paced(ctx, batch, deadline, func() (int64, error) {
 		tag, err := c.pool.Exec(ctx, query, rule.days)
 		if err != nil {
-			c.logFn("ERROR", "retention: purging %s failed after %d rows: %v", relation,
-				total, err)
-			return true
+			return 0, err
 		}
-		stats.Statements++
-		stats.Batches[rule.table]++
-		stats.Deleted[rule.table] += tag.RowsAffected()
+		stats.count(rule.table, tag.RowsAffected())
 		total += tag.RowsAffected()
-		if tag.RowsAffected() < int64(batch) {
-			return true
+		return tag.RowsAffected(), nil
+	})
+	if err != nil {
+		c.logFn("ERROR", "retention: purging %s failed after %d rows: %v", relation,
+			total, err)
+	}
+	return done
+}
+
+// paced runs step, one statement deleting at most batch rows, until a
+// statement deletes fewer, ctx ends, or the deadline passes, pausing
+// between statements. It returns false when the deadline cut it short
+// (a later run resumes), true otherwise. A statement is never sent after
+// the deadline, but the first one always is, so every run makes progress.
+func (c *Cleaner) paced(ctx context.Context, batch int, deadline time.Time,
+	step func() (int64, error)) (bool, error) {
+	for ctx.Err() == nil {
+		n, err := step()
+		if err != nil {
+			return true, err
+		}
+		if n < int64(batch) {
+			return true, nil
 		}
 		if time.Now().After(deadline) {
-			return false
+			return false, nil
 		}
 		if !c.sleep(ctx) {
-			return true
+			return true, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func (c *Cleaner) logPurged(rule purgeRule, relation string, total int64) {
