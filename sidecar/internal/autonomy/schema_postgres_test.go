@@ -100,7 +100,7 @@ func TestPostgresSchemaSourcesUseTableContractAndDryRunHistory(t *testing.T) {
 	if err != nil || !contract.AppendOnly || contract.RetentionWindow != 30*24*time.Hour {
 		t.Fatalf("table contract=%#v err=%v", contract, err)
 	}
-	invariants, err := (postgresSchemaDetector{pool}).Detect(ctx)
+	invariants, err := newPostgresSchemaDetector(pool, nil).Detect(ctx)
 	if err != nil || !containsInvariant(invariants, invariant) {
 		t.Fatalf("append invariant missing from %#v err=%v", invariants, err)
 	}

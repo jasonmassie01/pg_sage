@@ -22,6 +22,9 @@ type cadenceRunner struct {
 	fg, bg     map[probes.ID]int
 	seqResult  probes.Result
 	seqResults []probes.Result // consumed first, one per background call
+	// bySlice, when set, answers every sequence read from its arguments.
+	bySlice func(probes.Args) probes.Result
+	seqArgs []probes.Args
 }
 
 func newCadenceRunner(seq probes.Result) *cadenceRunner {
@@ -37,12 +40,16 @@ func (c *cadenceRunner) Run(_ context.Context, id probes.ID, _ probes.Args) prob
 }
 
 func (c *cadenceRunner) RunBackground(_ context.Context, id probes.ID,
-	_ probes.Args) probes.Result {
+	args probes.Args) probes.Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.bg[id]++
 	if id != probes.SequenceRunwayProbe {
 		return probes.Result{ProbeID: id, Status: probes.StatusEmpty}
+	}
+	c.seqArgs = append(c.seqArgs, args)
+	if c.bySlice != nil {
+		return c.bySlice(args)
 	}
 	if len(c.seqResults) > 0 {
 		r := c.seqResults[0]
@@ -192,14 +199,26 @@ func TestMonitorRead_FailedSequenceReadWaitsForTheNextDueTime(t *testing.T) {
 	}
 }
 
-// Coverage is logged once per change: a capped scan warns, truncation
-// alone is informational, an unchanged coverage logs nothing.
+// Coverage is logged once per change. v1.8.3: a reading capped at one
+// statement's scan cap is read again at once in slices that each fit
+// under it (no warning: every sequence is read); a slice that is still
+// capped warns, naming the catalog's total; truncation alone is
+// informational; an unchanged coverage logs nothing.
 func TestMonitorRead_ReportsCoverageOncePerChange(t *testing.T) {
-	r := newCadenceRunner(seqResult(true, 30000, int64(probes.SequenceScanCap), "public.a"))
-	r.seqResults = []probes.Result{
-		seqResult(true, 30000, int64(probes.SequenceScanCap), "public.a"),
-		seqResult(true, 30000, int64(probes.SequenceScanCap), "public.a"),
-		seqResult(true, 12038, 12038, "public.a")}
+	const total = 30000
+	capped := false
+	r := newCadenceRunner(probes.Result{})
+	r.bySlice = func(a probes.Args) probes.Result {
+		if a.Slices <= 1 {
+			return seqResult(true, total, int64(probes.SequenceScanCap), "public.a")
+		}
+		per := int64(total / a.Slices)
+		scanned := per
+		if capped {
+			scanned = per / 2
+		}
+		return seqResult(true, per, scanned, fmt.Sprintf("public.s%d", a.Slice))
+	}
 	c := &clock{t: time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)}
 	l := &logSink{}
 	m := cadenceMonitor(r, time.Minute, c, l)
@@ -207,15 +226,29 @@ func TestMonitorRead_ReportsCoverageOncePerChange(t *testing.T) {
 		m.read(context.Background())
 		c.add(time.Minute)
 	}
-	capped := l.matching("scan cap")
-	if len(capped) != 1 || !strings.HasPrefix(capped[0], "WARN") ||
-		!strings.Contains(capped[0], "30000") {
-		t.Fatalf("scan cap logs = %v, want one WARN naming the total", capped)
+	if got := l.matching("scan cap"); len(got) != 0 {
+		t.Fatalf("scan cap logs = %v, want none (the catalog is read in slices)", got)
 	}
 	trunc := l.matching("nearest their limit")
 	if len(trunc) != 1 || !strings.HasPrefix(trunc[0], "INFO") ||
-		!strings.Contains(trunc[0], "12038") {
-		t.Fatalf("truncation logs = %v, want one INFO for the new coverage", trunc)
+		!strings.Contains(trunc[0], "30000") {
+		t.Fatalf("truncation logs = %v, want one INFO naming the total", trunc)
+	}
+	slices := 0
+	for _, a := range r.seqArgs {
+		if a.Slices > 1 && a.Slice == 0 {
+			slices = a.Slices
+		}
+	}
+	if slices < 2 || total/slices > probes.SequenceScanCap {
+		t.Fatalf("sliced into %d, want slices under the scan cap", slices)
+	}
+	capped = true
+	m.read(context.Background())
+	warn := l.matching("scan cap")
+	if len(warn) != 1 || !strings.HasPrefix(warn[0], "WARN") ||
+		!strings.Contains(warn[0], "30000") {
+		t.Fatalf("scan cap logs = %v, want one WARN naming the total", warn)
 	}
 }
 

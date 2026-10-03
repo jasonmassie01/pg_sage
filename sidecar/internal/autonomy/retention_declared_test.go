@@ -87,7 +87,7 @@ func detectedRetentionItem(t *testing.T, pool *pgxpool.Pool, table string,
 ) schemaguard.Remediation {
 	t.Helper()
 	ctx := context.Background()
-	items, err := (postgresSchemaDetector{pool}).detectUnboundedAppend(ctx)
+	items, err := newPostgresSchemaDetector(pool, nil).detectUnboundedAppend(ctx)
 	if err != nil {
 		t.Fatalf("detectUnboundedAppend: %v", err)
 	}
@@ -222,7 +222,8 @@ func TestUnboundedAppendDedupesContractsPerTable(t *testing.T) {
 		table, "duplicate_"+table); err != nil {
 		t.Fatalf("second contract for the table: %v", err)
 	}
-	items, err := (postgresSchemaDetector{pool}).detectUnboundedAppend(context.Background())
+	items, err := newPostgresSchemaDetector(pool, nil).
+		detectUnboundedAppend(context.Background())
 	if err != nil {
 		t.Fatalf("detectUnboundedAppend: %v", err)
 	}

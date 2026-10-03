@@ -310,7 +310,7 @@ func TestUnboundedAppendDoesNotGuessArbitraryTimeColumn(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table)
 	})
 
-	items, err := (postgresSchemaDetector{pool}).detectUnboundedAppend(ctx)
+	items, err := newPostgresSchemaDetector(pool, nil).detectUnboundedAppend(ctx)
 
 	if err != nil {
 		t.Fatalf("detectUnboundedAppend: %v", err)
