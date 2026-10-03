@@ -232,6 +232,13 @@ func writeToFamily(t *testing.T, pool *pgxpool.Pool, family cloneFamily) {
 		}
 	}
 	waitFor(t, 15*time.Second, func() bool {
+		if version < 150000 {
+			// PostgreSQL 14 sends a backend's table counters at a transaction
+			// end at least 500 ms after the last send, and never while idle.
+			if _, err := conn.Exec(ctx, "SELECT pg_sleep(0.6)"); err != nil {
+				t.Fatalf("flush PostgreSQL 14 statistics: %v", err)
+			}
+		}
 		shapes, err := loadSchemaShapes(ctx, pool)
 		if err != nil {
 			t.Fatalf("loadSchemaShapes: %v", err)
