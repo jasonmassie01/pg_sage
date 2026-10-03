@@ -11,7 +11,8 @@ import (
 // fast-elevation WARN.
 func TestElevationKeysAreNotRuntimeOverrides(t *testing.T) {
 	for _, key := range []string{"trust.ramp_safe_hours", "trust.ramp_moderate_hours",
-		"verify.io_baseline_hours", "sre.autonomy.promotion.shadow_window_hours",
+		"verify.io_baseline_hours", "verify.drop_window_hours",
+		"sre.autonomy.promotion.shadow_window_hours",
 		"sre.autonomy.promotion.shadow_min_reviewed",
 		"sre.autonomy.promotion.shadow_min_accepted_pct",
 		"sre.autonomy.promotion.bench_min_top1_pct",
