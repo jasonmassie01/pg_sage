@@ -68,9 +68,11 @@ func (g *countingGate) count() int {
 	return g.calls
 }
 
+// A blocked verdict ends processing after one authorization (a parked one
+// goes on to Apply, which re-authorizes after its waits).
 func TestCheapSkipsRunBeforeTheGate(t *testing.T) {
-	fx := newRecFixture(t, autovacuumProbe2, policy.VerdictPark)
-	gate := &countingGate{inner: fixedGate{verdict: policy.VerdictPark}}
+	fx := newRecFixture(t, autovacuumProbe2, policy.VerdictBlocked)
+	gate := &countingGate{inner: fixedGate{verdict: policy.VerdictBlocked}}
 	fx.exec.WithPolicyGate(gate)
 
 	missing := fx.f
@@ -95,12 +97,17 @@ func TestCheapSkipsRunBeforeTheGate(t *testing.T) {
 	}
 }
 
-func decisionsFor(t *testing.T, fx *recFixture) (rows, repeats int, verdict string) {
+// decisionsFor counts the standing gate's decisions on the fixture's
+// table for databaseID (the fixture's own execute decision has none).
+func decisionsFor(
+	t *testing.T, fx *recFixture, databaseID int,
+) (rows, repeats int, verdict string) {
 	t.Helper()
 	target := fmt.Sprintf(`["%s"]`, fx.f.ObjectIdentifier)
 	err := fx.pool.QueryRow(fx.ctx, `SELECT count(*), COALESCE(sum(repeat_count), 0),
-		COALESCE(max(verdict), '') FROM sage.decision WHERE target_objects = $1::jsonb`,
-		target).Scan(&rows, &repeats, &verdict)
+		COALESCE(max(verdict), '') FROM sage.decision
+		WHERE target_objects = $1::jsonb AND database_id = $2`,
+		target, databaseID).Scan(&rows, &repeats, &verdict)
 	if err != nil {
 		t.Fatalf("count decisions: %v", err)
 	}
@@ -125,7 +132,7 @@ func TestRepeatedWithheldCandidateWritesOneDecisionRow(t *testing.T) {
 	fx.exec.WithEmergencyStopCheck(func(context.Context) bool { return true })
 	for cycle := 1; cycle <= 3; cycle++ {
 		fx.exec.RunCycle(fx.ctx, false)
-		rows, repeats, verdict := decisionsFor(t, fx)
+		rows, repeats, verdict := decisionsFor(t, fx, databaseID)
 		if rows != 1 || repeats != cycle || verdict == "execute" || verdict == "" {
 			t.Fatalf("after cycle %d: rows=%d repeats=%d verdict=%q, want 1 withheld "+
 				"row seen %d times", cycle, rows, repeats, verdict, cycle)
