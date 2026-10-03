@@ -67,14 +67,43 @@ func TestHotGateFlagsTablesWithFewHeapOnlyUpdates(t *testing.T) {
 	}
 }
 
-// The HOT share is a property of the schema and the writers, not of load:
-// warmup (where the analyzer refreshes every finding it opened) counts.
-func TestHotGateAppliesToEveryPhase(t *testing.T) {
+// Warmup holds one-time state transitions (the analyzer resolves every
+// seeded open finding: status and resolved_at are indexed, so those updates
+// are rightly not HOT); the steady phase holds the repeated refreshes the
+// HOT share is about.
+func TestHotGateAppliesOnlyToSteadyPhases(t *testing.T) {
 	warm := Phase{Name: "warmup", Window: time.Minute}
 	warm.Tables = []TableDelta{{Name: "sage.findings", Updates: 500, HotUpdates: 10}}
 	got, err := Evaluate([]Phase{warm}, DefaultBudgets())
-	if err != nil || len(got) != 1 || got[0].Gate != GateHotUpdates || got[0].Measured != 2 {
-		t.Fatalf("warmup gate F = %+v (%v), want findings at 2%% HOT", got, err)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("warmup charged gate F: %+v (%v)", got, err)
+	}
+	if DefaultBudgets().HotMinUpdates > 6 {
+		t.Fatalf("HotMinUpdates %d would miss a 6-cycle steady phase refreshing one row",
+			DefaultBudgets().HotMinUpdates)
+	}
+}
+
+// Gate A is about reading a large relation sequentially. A partitioned
+// table's empty partitions are scanned sequentially (the cheapest plan for
+// an empty heap); that is not a scan of a large table.
+func TestSeqScanGateJudgesTheScannedPartition(t *testing.T) {
+	const qs = "sage.query_store"
+	before := TableStats{}
+	after := TableStats{
+		"sage.query_store_history":   {Parent: qs, LiveRows: 30000, SeqScan: 0},
+		"sage.query_store_p20261003": {Parent: qs, LiveRows: 0, SeqScan: 40},
+		"sage.snapshots_history": {Parent: "sage.snapshots", LiveRows: 9000, SeqScan: 2,
+			SeqTupRead: 18000},
+	}
+	p := steadyPhase()
+	p.Tables = after.Delta(before)
+	got, err := Evaluate([]Phase{p}, DefaultBudgets())
+	if err != nil || len(got) != 1 || got[0].Subject != "sage.snapshots" {
+		t.Fatalf("offenders = %+v (%v), want the 9,000-row partition scan only", got, err)
+	}
+	if d := p.Tables[0]; d.Name != qs || d.ScannedRelationRows != 0 || d.SeqScans != 40 {
+		t.Fatalf("query_store delta = %+v", d)
 	}
 }
 
