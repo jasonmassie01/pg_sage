@@ -13,7 +13,16 @@ package schema
 // chains at most two deep). The partial index serves retention's "is this
 // row still a base" check. Idempotent.
 const ddlSnapshotDelta = `
-ALTER TABLE sage.snapshots ADD COLUMN IF NOT EXISTS base_id bigint;
+DO $$
+BEGIN
+    -- Checked first: ALTER TABLE would take ACCESS EXCLUSIVE on every bootstrap.
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+                   WHERE attrelid = 'sage.snapshots'::regclass
+                     AND attname = 'base_id' AND NOT attisdropped) THEN
+        ALTER TABLE sage.snapshots ADD COLUMN base_id bigint;
+    END IF;
+END
+$$;
 CREATE INDEX IF NOT EXISTS idx_snapshots_base
     ON sage.snapshots (base_id) WHERE base_id IS NOT NULL;
 

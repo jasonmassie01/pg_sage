@@ -48,6 +48,8 @@ type Cleaner struct {
 	// capBytes overrides the snapshot size cap derived from the config
 	// (tests); 0 derives it.
 	capBytes int64
+	// conv converts plain history tables in the background (convert.go).
+	conv *conversions
 }
 
 // New creates a new retention Cleaner.
@@ -57,7 +59,7 @@ func New(
 	logFn func(string, string, ...any),
 ) *Cleaner {
 	return &Cleaner{pool: pool, cfg: cfg, logFn: logFn, pause: defaultPause,
-		budget: defaultRunBudget}
+		budget: defaultRunBudget, conv: &conversions{}}
 }
 
 // WithControlPool prunes the control-database tables (controlTables) in
@@ -100,8 +102,12 @@ func newRunStats() RunStats {
 	return RunStats{Deleted: map[string]int64{}, Batches: map[string]int{}}
 }
 
-// Run performs one retention run (see RunOnce).
-func (c *Cleaner) Run(ctx context.Context) { c.RunOnce(ctx) }
+// Run starts the due background conversions of plain history tables
+// (ConvertHistory) and performs one retention run (see RunOnce).
+func (c *Cleaner) Run(ctx context.Context) {
+	c.convertInBackground(ctx, time.Now())
+	c.RunOnce(ctx)
+}
 
 // RunOnce purges expired data from every sage table, starting with the
 // rule the previous run did not finish, until done or the run's budget is
