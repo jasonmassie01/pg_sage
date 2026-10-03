@@ -9,6 +9,12 @@ import "strings"
 //     It used to read every successful action; the partial covering index
 //     holds the credited ones only, so the read is an index-only range
 //     whatever the ledger's size. Crediting is a one-time update.
+//   - idx_action_log_drop_index, idx_action_log_rolled_back: the
+//     app-managed-index check reads pg_sage's index drops of 180 days (it
+//     scanned the whole ledger every analyzer cycle) and RCA's rollback
+//     history reads the rollbacks measured in its window (it read every
+//     rollback). Both sets are small; a drop is never updated and a
+//     rollback's measured_at is set once.
 //   - sage.sre_investigations: every lease grant, step, budget and case
 //     update moves updated_at, and two indexes keyed it (43 % HOT updates
 //     in the gate). The queue index is keyed on created_at instead (the
@@ -25,6 +31,10 @@ var selfexclIndexes = []ledgerIndex{
 		"WHERE outcome = 'success' AND toil_minutes_saved IS NOT NULL"},
 	{"idx_sre_investigations_queue", "sre_investigations", "INDEX %I ON " +
 		"sage.sre_investigations (deployment_id, database_id, state, created_at)"},
+	{"idx_action_log_drop_index", "action_log", "INDEX %I ON sage.action_log " +
+		"(executed_at) WHERE action_type = 'drop_index'"},
+	{"idx_action_log_rolled_back", "action_log", "INDEX %I ON sage.action_log " +
+		"(measured_at) WHERE outcome = 'rolled_back'"},
 }
 
 // retiredInvestigationIndexes keyed updated_at.

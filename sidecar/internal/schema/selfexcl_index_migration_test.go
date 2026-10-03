@@ -20,6 +20,10 @@ func TestSelfExclIndexMigration_CreatesTheIndexes(t *testing.T) {
 			"toil_minutes_saved) WHERE ((outcome = 'success'::text) AND " +
 			"(toil_minutes_saved IS NOT NULL))"},
 		"idx_sre_investigations_queue": {"(deployment_id, database_id, state, created_at)"},
+		"idx_action_log_drop_index": {"(executed_at) WHERE (action_type = " +
+			"'drop_index'::text)"},
+		"idx_action_log_rolled_back": {"(measured_at) WHERE (outcome = " +
+			"'rolled_back'::text)"},
 	}
 	for name, parts := range want {
 		var def string
