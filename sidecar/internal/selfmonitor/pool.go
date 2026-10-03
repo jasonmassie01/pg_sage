@@ -3,6 +3,7 @@ package selfmonitor
 import (
 	"context"
 	"net"
+	"regexp"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,4 +60,15 @@ func ActivityExclusionSQL(alias string) string {
 		col = alias + "." + col
 	}
 	return "COALESCE(" + col + ", '') NOT ILIKE '%" + ApplicationName + "%'"
+}
+
+// applicationNamePattern is ActivityExclusionSQL's ILIKE pattern
+// ('%pg_sage%', where _ is any one character) as a regular expression.
+var applicationNamePattern = regexp.MustCompile(`(?is)pg.sage`)
+
+// IsApplicationName reports a session name ActivityExclusionSQL leaves
+// out (pg_sage's own), for sources that carry application_name outside
+// SQL: log records and auto_explain plans.
+func IsApplicationName(name string) bool {
+	return applicationNamePattern.MatchString(name)
 }
