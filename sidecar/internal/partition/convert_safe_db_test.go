@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Conversion safety (perf-storage follow-up): lifeos has a 9.3 GB
@@ -39,6 +41,18 @@ func requireForceFlush(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	if count(t, ctx, pool, "SELECT current_setting('server_version_num')::int") < 150000 {
 		t.Skip("pg_stat_force_next_flush() needs PostgreSQL 15+")
+	}
+}
+
+// flushPoolStats flushes the statistics every idle session of pool holds.
+func flushPoolStats(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, conn := range pool.AcquireAllIdle(ctx) {
+		err := testdb.FlushStats(ctx, conn)
+		conn.Release()
+		if err != nil {
+			t.Fatalf("flush statistics: %v", err)
+		}
 	}
 }
 
@@ -97,7 +111,12 @@ func TestConvert_ExclusiveWindowReadsNoHeap(t *testing.T) {
 	for _, key := range [][]string{nil, {"id"}} {
 		t.Run(fmt.Sprintf("key=%v", key), func(t *testing.T) {
 			tbl := scratch(t, ctx, pool, key)
+			// blocks fetched count every backend's reads: no autovacuum of
+			// the fixture, and the fill's own reads reported before the
+			// window, not by an idle session's deferred flush inside it.
+			exec(t, ctx, pool, "ALTER TABLE sage."+tbl.Name+" SET (autovacuum_enabled = off)")
 			fill(t, ctx, pool, tbl, 60000)
+			flushPoolStats(t, ctx, pool)
 			oid := relOID(t, ctx, pool, "sage."+tbl.Name)
 			pages := count(t, ctx, pool, "SELECT relpages FROM pg_class WHERE oid = $1", oid)
 			var before, after int64
