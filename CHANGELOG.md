@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Index advice saved by older pg_sage versions no longer runs without a verified what-if.**
+  Before v1.8.0 the optimizer filed its advice under the LLM's own label (`covering_index`,
+  `partial_index`, `composite_index`, ...), and those findings skipped the HypoPG what-if
+  check, so one built an index unattended on lifeos. Every automatic `CREATE INDEX` now needs
+  a verified what-if or an operator approval; only the deterministic missing-foreign-key-index
+  rule is exempt. The optimizer re-checks such old advice like current advice (HypoPG,
+  duplicates) and retires the old copy, and it no longer proposes an index that an existing
+  index already covers. Old findings whose rollback dropped a different index than the one
+  they create are repaired at startup, and an approval of such a pair is refused rather than
+  run. A withheld index build is recorded once with a closed verification (the ledger
+  self-audit no longer flags it) and is not retried until its content changes.
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new
