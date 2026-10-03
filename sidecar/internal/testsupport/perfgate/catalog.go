@@ -40,8 +40,8 @@ func tableName(i int) string   { return fmt.Sprintf("t_%04d", i) }
 
 // BuildCatalog creates the synthetic monitored catalog: application
 // schemas with distinct tables, clone schemas that are identical copies
-// of one another (leaked branch or test clones) and a few populated hot
-// tables. Each schema is its own transaction to bound the lock table. It
+// of one another (leaked branch or test clones), an idle family of leaked
+// test copies (legacy_guard.go) and a few populated hot tables. Each schema is its own transaction to bound the lock table. It
 // is idempotent.
 func BuildCatalog(ctx context.Context, pool *pgxpool.Pool, s Scale) error {
 	if err := s.Validate(); err != nil {
@@ -69,6 +69,9 @@ func BuildCatalog(ctx context.Context, pool *pgxpool.Pool, s Scale) error {
 			sch, first, s.TablesPerSchema, s.IndexesPerTable); err != nil {
 			return fmt.Errorf("perfgate: build schema %s: %w", sch, err)
 		}
+	}
+	if err := buildLeakedClones(ctx, conn); err != nil {
+		return err
 	}
 	return populateHotTables(ctx, conn, s)
 }
