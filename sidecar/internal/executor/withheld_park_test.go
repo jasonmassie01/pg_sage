@@ -16,16 +16,19 @@ import (
 
 func TestUnverifiableCreateIsParkedAcrossCycles(t *testing.T) {
 	fx := newLegacyFixture(t, "partial_index", verifiedPartialDetail(), staleRollback)
-	for range 3 {
+	fx.exec.RunCycle(fx.ctx, false)
+	// One attempt writes the gate's decision plus Apply's re-authorizations.
+	first := fx.decisionVerdicts(t)["execute/authorized"]
+	for range 2 {
 		fx.exec.RunCycle(fx.ctx, false)
 	}
 	a := fx.onlyAction(t)
 	if a.outcome != "failed" {
 		t.Fatalf("action = %+v, want the single withheld record", a)
 	}
-	if got := fx.decisionVerdicts(t)["execute/authorized"]; got != 1 {
-		t.Fatalf("execute decisions = %d (%v), want 1: a parked finding is not "+
-			"re-authorized every cycle", got, fx.decisionVerdicts(t))
+	if got := fx.decisionVerdicts(t)["execute/authorized"]; first == 0 || got != first {
+		t.Fatalf("execute decisions = %d after the first cycle, %d after three: a "+
+			"parked finding is not re-authorized every cycle", first, got)
 	}
 	if fx.indexExists(t, fx.index()) {
 		t.Fatal("the withheld CREATE INDEX ran")
