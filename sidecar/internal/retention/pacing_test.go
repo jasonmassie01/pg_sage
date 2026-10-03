@@ -47,6 +47,11 @@ func TestRunOnce_BatchesArePerTableAndPaced(t *testing.T) {
 		SELECT $1, 's', now() - interval '400 days' FROM generate_series(1, 2500)`, tag)
 	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
 		SELECT now() - interval '400 days', $1, '{}'::jsonb FROM generate_series(1, 120)`, tag)
+	// A retained row in the same (history) partition: the expired rows are
+	// deleted in batches; a wholly expired history partition would be
+	// truncated instead (TestRunOnce_ExpiredHistoryIsTruncated).
+	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
+		VALUES (now() - interval '1 hour', $1 || '_kept', '{}'::jsonb)`, tag)
 	const pause = 30 * time.Millisecond
 	c := New(pool, allDays(30), noopLog).WithPacing(pause, time.Minute)
 	stats := c.RunOnce(ctx)
@@ -206,12 +211,12 @@ func TestRunOnce_ResolvedFindingsAgeOnResolvedAt(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tag := uniqueTag("resolved")
 	execRetry(t, ctx, `INSERT INTO sage.findings (category, severity, object_type,
-		object_identifier, title, status, last_seen, resolved_at) VALUES
-		($1, 'info', 'table', 'a', 't', 'resolved', now() - interval '300 days',
+		object_identifier, title, detail, status, last_seen, resolved_at) VALUES
+		($1, 'info', 'table', 'a', 't', '{}', 'resolved', now() - interval '300 days',
 		 now() - interval '1 day'),
-		($1, 'info', 'table', 'b', 't', 'resolved', now() - interval '300 days',
+		($1, 'info', 'table', 'b', 't', '{}', 'resolved', now() - interval '300 days',
 		 now() - interval '200 days'),
-		($1, 'info', 'table', 'c', 't', 'open', now() - interval '300 days', NULL)`, tag)
+		($1, 'info', 'table', 'c', 't', '{}', 'open', now() - interval '300 days', NULL)`, tag)
 	New(pool, allDays(180), noopLog).RunOnce(ctx)
 	rows, err := pool.Query(ctx, `SELECT object_identifier FROM sage.findings
 		WHERE category = $1 ORDER BY 1`, tag)

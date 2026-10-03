@@ -214,3 +214,35 @@ func TestSnapshotCap_FromConfig(t *testing.T) {
 		t.Fatalf("disabled cap = %d", got)
 	}
 }
+
+// Once every row of the history partition (pre-upgrade data) is past the
+// window it goes with one TRUNCATE: no batch of deletes, no dead tuples.
+func TestRunOnce_ExpiredHistoryIsTruncated(t *testing.T) {
+	pool, ctx := requireDB(t)
+	tbl := partition.Snapshots
+	bound := rebound(t, ctx, tbl, 3)
+	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
+		SELECT now() - interval '40 days', 'history_test', '{}'::jsonb
+		FROM generate_series(1, 300)`)
+	cfg := &config.Config{Retention: config.RetentionConfig{SnapshotsDays: 30}}
+	stats := New(pool, cfg, noopLog).RunOnce(ctx)
+	if !slices.Equal(stats.Truncated, []string{tbl.HistoryName()}) {
+		t.Fatalf("truncated = %v, want the history partition", stats.Truncated)
+	}
+	if stats.Deleted["snapshots"] != 0 {
+		t.Fatalf("deleted %d snapshot rows one by one", stats.Deleted["snapshots"])
+	}
+	if n := countWhere(t, ctx, `SELECT count(*) FROM sage.snapshots
+		WHERE category = 'history_test'`); n != 0 {
+		t.Fatalf("%d expired history rows remain", n)
+	}
+	// A history partition still holding a retained row is purged row by row.
+	insertBlob(t, ctx, bound.Add(-time.Hour), 1)
+	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
+		VALUES (now() - interval '40 days', 'history_test', '{}')`)
+	stats = New(pool, cfg, noopLog).RunOnce(ctx)
+	if len(stats.Truncated) != 0 || stats.Deleted["snapshots"] != 1 {
+		t.Fatalf("stats = %+v, want one row deleted and nothing truncated", stats)
+	}
+	execRetry(t, ctx, `DELETE FROM sage.snapshots WHERE category = 'cap_test'`)
+}
