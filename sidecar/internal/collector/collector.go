@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/partition"
+	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -24,6 +26,10 @@ type Collector struct {
 	blkTime      *blockTimeExprs
 	logFn        func(string, string, ...any)
 	snapWriter   *snapstore.Writer
+	// queries writes sage.query_store samples of moved queries only;
+	// partitions creates the day partitions the writes land in.
+	queries    *querystore.Recorder
+	partitions *partition.Keeper
 
 	// skipConfigSnapshots is set before Run when no advisor will consume
 	// the configuration snapshot.
@@ -50,6 +56,8 @@ func New(
 		),
 		logFn:      logFn,
 		snapWriter: snapstore.NewWriter(),
+		queries:    querystore.NewRecorder(),
+		partitions: partition.NewKeeper(),
 	}
 }
 

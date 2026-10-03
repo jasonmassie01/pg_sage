@@ -43,15 +43,21 @@ type Evidence struct {
 // consecutive samples: counter decreases and statistics-epoch changes, so
 // a reset followed by enough new calls to exceed the old endpoint is
 // still detected (R10). A NULL upper bound ($3) means "latest sample".
+// Samples are written only when counters move (Recorder), so the window
+// starts at the last sample before $2 when there is one within $4
+// (AnchorLookback): an idle query has no sample at the window start.
 const evidenceSQL = `/* pg_sage */
-WITH s AS (
+WITH anchor AS (
+    SELECT max(captured_at) AS at FROM sage.query_store
+     WHERE queryid = $1 AND captured_at < $2 AND captured_at >= $2 - $4::interval
+), s AS (
     SELECT id, captured_at, calls, total_exec_time, stats_epoch,
            lag(calls) OVER w AS prev_calls,
            lag(total_exec_time) OVER w AS prev_total,
            lag(stats_epoch) OVER w AS prev_epoch,
            row_number() OVER w AS rn
       FROM sage.query_store
-     WHERE queryid = $1 AND captured_at >= $2
+     WHERE queryid = $1 AND captured_at >= COALESCE((SELECT at FROM anchor), $2)
        AND ($3::timestamptz IS NULL OR captured_at <= $3::timestamptz)
     WINDOW w AS (ORDER BY captured_at, id)
 )
@@ -82,7 +88,7 @@ func windowEvidence(
 	var samples, epochBreaks int
 	var firstCalls, lastCalls *int64
 	var firstTotal, lastTotal *float64
-	err := pool.QueryRow(ctx, evidenceSQL, queryid, from, to).Scan(
+	err := pool.QueryRow(ctx, evidenceSQL, queryid, from, to, AnchorLookback).Scan(
 		&samples, &epochBreaks, &firstCalls, &firstTotal, &lastCalls, &lastTotal)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("query_store evidence for %d: %w", queryid, err)

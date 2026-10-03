@@ -3,17 +3,21 @@ package collector
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 // recordQueryStore writes per-queryid samples to sage.query_store so
 // windowed latency can be computed for verify-and-revert (F1) and
-// plan-regression detection (A5). Non-fatal on error.
+// plan-regression detection (A5): one statement per cycle, holding only
+// the queries whose counters moved (and an hourly keyframe of the rest).
+// Non-fatal on error.
 func (c *Collector) recordQueryStore(ctx context.Context, snap *Snapshot) {
 	if len(snap.Queries) == 0 {
 		return
 	}
+	c.ensurePartitions(ctx, time.Now())
 	samples := make([]querystore.Sample, 0, len(snap.Queries))
 	for _, q := range snap.Queries {
 		if q.QueryID == 0 {
@@ -28,7 +32,7 @@ func (c *Collector) recordQueryStore(ctx context.Context, snap *Snapshot) {
 			StatsEpoch:  snap.StatsEpoch,
 		})
 	}
-	if err := querystore.Record(ctx, c.pool, samples); err != nil {
+	if _, err := c.queries.Record(ctx, c.pool, samples, snap.CollectedAt); err != nil {
 		c.logFn("WARN", "query_store record failed: %v", err)
 	}
 }
