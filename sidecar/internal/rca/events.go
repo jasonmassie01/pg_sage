@@ -45,6 +45,9 @@ func (e *Engine) applyPersistResults(
 func (e *Engine) applyOne(inc *Incident, r persistResult) []pendingEvent {
 	ts := e.trackFor(inc.ID)
 	ts.persisted = true
+	if r.fingerprint != "" {
+		ts.written = r.fingerprint
+	}
 	if r.inserted && r.previousID != "" {
 		inc.PreviousIncidentID = r.previousID
 	}

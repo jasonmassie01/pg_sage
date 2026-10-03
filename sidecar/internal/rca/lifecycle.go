@@ -24,9 +24,10 @@ const (
 // trackState is the persistence and notification bookkeeping for one
 // in-memory incident.
 type trackState struct {
-	persisted       bool // row exists in sage.incidents
-	notifyDetected  bool // incident_detected pending
-	notifyEscalated bool // incident_escalated pending
+	persisted       bool   // row exists in sage.incidents
+	written         string // fingerprint of the stored row (storedFingerprint)
+	notifyDetected  bool   // incident_detected pending
+	notifyEscalated bool   // incident_escalated pending
 	// quiet marks a resolution of an incident last seen longer ago than
 	// the stale window: recorded, not notified.
 	quiet bool

@@ -39,7 +39,9 @@ UPDATE sage.incidents SET
     last_detected_at  = $2,
     severity          = $3,
     root_cause        = $4,
-    causal_chain      = $5,
+    -- An unchanged chain keeps its TOAST pointer: no new chunks are written.
+    causal_chain      = CASE WHEN causal_chain IS DISTINCT FROM $5::jsonb
+                             THEN $5::jsonb ELSE causal_chain END,
     occurrence_count  = $6,
     escalated_at      = $7,
     identity_key      = $8,
@@ -58,6 +60,7 @@ FROM sage.incidents WHERE id = $1`
 type persistItem struct {
 	inc       Incident
 	persisted bool
+	written   string // fingerprint of the stored row; "" unknown
 }
 
 // persistResult is what the database said about one incident.
@@ -68,6 +71,8 @@ type persistResult struct {
 	resolved   bool // resolution is durable in the database
 	external   *Incident
 	gone       bool
+	// fingerprint of what this pass wrote; "" when nothing was written.
+	fingerprint string
 }
 
 // PersistIncidents writes every tracked incident, then applies what the
@@ -83,15 +88,28 @@ func (e *Engine) PersistIncidents(
 	items := e.persistSnapshot()
 	results := make([]persistResult, 0, len(items))
 	var errs []error
+	var unchanged []string
 	for _, it := range items {
+		if it.unchanged() {
+			unchanged = append(unchanged, it.inc.ID)
+			continue
+		}
 		r, err := persistOne(ctx, pool, it)
 		if err != nil {
 			errs = append(errs, fmt.Errorf(
 				"rca: persist incident %s: %w", it.inc.ID, err))
 			continue
 		}
+		if !r.gone && r.external == nil {
+			r.fingerprint = storedFingerprint(&it.inc)
+		}
 		results = append(results, r)
 	}
+	stored, err := checkUnchanged(ctx, pool, unchanged)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	results = append(results, stored...)
 	pending, d := e.applyPersistResults(results)
 	if d != nil && len(pending) > 0 {
 		e.dispatchEvents(ctx, d, e.decorateEvents(ctx, pending))
@@ -110,8 +128,9 @@ func (e *Engine) persistSnapshot() []persistItem {
 			if (inc.ResolvedAt != nil) != (pass == 0) {
 				continue
 			}
+			ts := e.trackFor(inc.ID)
 			items = append(items, persistItem{
-				inc: inc, persisted: e.trackFor(inc.ID).persisted,
+				inc: inc, persisted: ts.persisted, written: ts.written,
 			})
 		}
 	}

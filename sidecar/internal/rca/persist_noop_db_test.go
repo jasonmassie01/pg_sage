@@ -2,6 +2,9 @@ package rca
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -124,8 +127,8 @@ func TestPersist_UnchangedCausalChainWritesNoToast(t *testing.T) {
 		inc.ID).Scan(&occ); err != nil || occ != inc.OccurrenceCount {
 		t.Fatalf("occurrence_count = %d, %v; the update did not land", occ, err)
 	}
-	// A changed chain is written.
-	inc.CausalChain[0].Evidence = strings.Repeat("y", 9000)
+	// A changed chain is written (incompressible, so it is TOASTed).
+	inc.CausalChain[0].Evidence = uniqueText(12000, 104729)
 	if _, err := persistOne(ctx, pool, persistItem{inc: inc, persisted: true}); err != nil {
 		t.Fatalf("update chain: %v", err)
 	}
@@ -138,14 +141,11 @@ func TestPersist_UnchangedCausalChainWritesNoToast(t *testing.T) {
 // (well over the 2 kB inline limit, and not compressible below it).
 func bigChainIncident(db string) Incident {
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	var sb strings.Builder
-	for i := 0; sb.Len() < 12000; i++ {
-		sb.WriteString(time.Duration(i * 7919).String())
-	}
 	return Incident{ID: newUUID(), DetectedAt: now, LastDetectedAt: now,
 		Severity: "warning", RootCause: "toast test", Source: "deterministic",
 		DatabaseName: db, OccurrenceCount: 1, SignalIDs: []string{"toast_test"},
-		CausalChain: []ChainLink{{Order: 1, Signal: "toast_test", Evidence: sb.String()}}}
+		CausalChain: []ChainLink{{Order: 1, Signal: "toast_test",
+			Evidence: uniqueText(12000, 7919)}}}
 }
 
 func toastInserts(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
@@ -160,4 +160,14 @@ func toastInserts(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 		t.Fatalf("toast counters: %v", err)
 	}
 	return n
+}
+
+// uniqueText is n bytes of hashes (no repeats pglz could compress away).
+func uniqueText(n, seed int) string {
+	var sb strings.Builder
+	for i := 0; sb.Len() < n; i++ {
+		sum := sha256.Sum256([]byte(fmt.Sprint(seed, i)))
+		sb.WriteString(hex.EncodeToString(sum[:]))
+	}
+	return sb.String()
 }
