@@ -19,18 +19,7 @@ import (
 func TestList_PagesAreOrderedIndexRanges(t *testing.T) {
 	st, pool, ctx := liveStore(t, DefaultLimits())
 	scope := testScope(t, ctx, st)
-	if _, err := pool.Exec(ctx, `INSERT INTO sage.sre_investigations (deployment_id,
-		database_id, id, source_case_id, trigger_kind, trigger_fingerprint, state,
-		created_at, updated_at, expires_at)
-		SELECT $1::uuid, $2::uuid, gen_random_uuid(), 'case:list:' || (g % 40),
-		       'lock_blocking', sha256(('list-' || g)::bytea), 'concluded',
-		       now() - g * interval '1 minute', now() - g * interval '1 minute',
-		       now() + interval '1 day'
-		FROM generate_series(1, 6000) g;
-		ANALYZE sage.sre_investigations`, string(scope.DeploymentID),
-		string(scope.DatabaseID)); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	seedListHistory(t, pool, scope)
 	cfg := pool.Config().Copy()
 	rec := &testdb.QueryRecorder{}
 	cfg.ConnConfig.Tracer = rec
@@ -63,12 +52,46 @@ func TestList_PagesAreOrderedIndexRanges(t *testing.T) {
 			t.Fatalf("case page lists %q", inv.CaseID)
 		}
 	}
+	checkListPlans(t, pool, rec)
+}
+
+// seedListHistory gives scope 6,000 concluded investigations over 100
+// hours, 40 cases, and removes them when the test ends.
+func seedListHistory(t *testing.T, pool *pgxpool.Pool, scope Scope) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.sre_investigations (deployment_id,
+		database_id, id, source_case_id, trigger_kind, trigger_fingerprint, state,
+		created_at, updated_at, expires_at)
+		SELECT $1::uuid, $2::uuid, gen_random_uuid(), 'case:list:' || (g % 40),
+		       'lock_blocking', sha256(('list-' || g)::bytea), 'concluded',
+		       now() - g * interval '1 minute', now() - g * interval '1 minute',
+		       now() + interval '1 day'
+		FROM generate_series(1, 6000) g`, string(scope.DeploymentID),
+		string(scope.DatabaseID)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_investigations
+			WHERE deployment_id = $1 AND database_id = $2`, string(scope.DeploymentID),
+			string(scope.DatabaseID))
+	})
+	if _, err := pool.Exec(ctx, "ANALYZE sage.sre_investigations"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkListPlans explains every recorded list page: none scans or sorts
+// the scope's investigations, and none reads more than a page.
+func checkListPlans(t *testing.T, pool *pgxpool.Pool, rec *testdb.QueryRecorder) {
+	t.Helper()
 	stmts := rec.Matching("FROM sage.sre_investigations", "ORDER BY created_at DESC")
 	if len(stmts) != 3 {
 		t.Fatalf("list statements = %d, want 3", len(stmts))
 	}
 	for _, q := range stmts {
-		plan, err := testdb.Explain(ctx, pool, "ANALYZE", q.SQL, q.Args...)
+		plan, err := testdb.Explain(context.Background(), pool, "ANALYZE", q.SQL,
+			q.Args...)
 		if err != nil {
 			t.Fatal(err)
 		}

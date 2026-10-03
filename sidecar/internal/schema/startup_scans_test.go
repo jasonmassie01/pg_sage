@@ -17,7 +17,9 @@ import (
 // backfill scanned sage.incidents for NULLs, and the per-database scope
 // backfill scanned sage.sre_autonomy_events. A re-run must leave
 // constraints as they are and read neither table. Each check runs in one
-// rolled-back transaction and reads that transaction's scan counters.
+// rolled-back transaction and compares the backend's scan counters before
+// and after (on PostgreSQL 15+ they include the backend's earlier, not yet
+// flushed transactions, so only a difference is meaningful).
 
 func beginRolledBack(t *testing.T, ctx context.Context) pgx.Tx {
 	t.Helper()
@@ -65,6 +67,7 @@ func TestIncidentConstraintMigration_RerunNeitherRebuildsNorScans(t *testing.T) 
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	tx := beginRolledBack(t, ctx)
+	scans := seqScans(t, ctx, tx, "sage.incidents")
 	before := incidentChecks(t, ctx, tx)
 	for _, name := range []string{"incidents_severity_check", "incidents_source_check",
 		"incidents_action_risk_check"} {
@@ -81,7 +84,7 @@ func TestIncidentConstraintMigration_RerunNeitherRebuildsNorScans(t *testing.T) 
 			t.Errorf("constraint %s rebuilt on re-run (oid %d -> %d)", name, oid, after[name])
 		}
 	}
-	if n := seqScans(t, ctx, tx, "sage.incidents"); n != 0 {
+	if n := seqScans(t, ctx, tx, "sage.incidents") - scans; n != 0 {
 		t.Fatalf("re-run read sage.incidents sequentially %d times, want 0", n)
 	}
 }
@@ -124,10 +127,11 @@ func TestIncidentsLastDetectedMigration_NoScanOnceTheColumnExists(t *testing.T) 
 		ALTER COLUMN last_detected_at DROP NOT NULL`); err != nil {
 		t.Fatalf("legacy shape: %v", err)
 	}
+	scans := seqScans(t, ctx, tx, "sage.incidents")
 	if _, err := tx.Exec(ctx, ddlIncidentsLastDetected); err != nil {
 		t.Fatalf("re-run: %v", err)
 	}
-	if n := seqScans(t, ctx, tx, "sage.incidents"); n != 0 {
+	if n := seqScans(t, ctx, tx, "sage.incidents") - scans; n != 0 {
 		t.Fatalf("re-run read sage.incidents sequentially %d times, want 0", n)
 	}
 }
@@ -204,9 +208,12 @@ func TestAutonomyScopeMigration_LegacyLevelReadsItsPairOnly(t *testing.T) {
 		family, action_class, event_type, from_level, to_level, actor, reason,
 		database_name)
 		VALUES ($1, 'wraparound_runway', 'freeze', 'carried_over', 1, 3, 'pg_sage',
-		        'carried over', 'orders');
-		INSERT INTO sage.sre_family_autonomy (deployment_id, database_name, family,
-		  action_class, level, changed_by, change_reason, provenance, carried_ref)
+		        'carried over', 'orders')`, dep); err != nil {
+		t.Fatalf("seed carry-over event: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO sage.sre_family_autonomy (deployment_id,
+		database_name, family, action_class, level, changed_by, change_reason, provenance,
+		carried_ref)
 		VALUES ($1, '', 'wraparound_runway', 'freeze', 3, 'pg_sage', 'carried',
 		        'carried_over', 'spec F3')`, dep); err != nil {
 		t.Fatalf("seed legacy level: %v", err)

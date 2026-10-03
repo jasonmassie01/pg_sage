@@ -2,6 +2,7 @@ package slo
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand"
 	"sort"
@@ -239,6 +240,9 @@ func TestAggregate_ReadsAFewRowsPerSeries(t *testing.T) {
 	}
 }
 
+// checkGenericPlan prepares q and explains its generic plan (the plan a
+// cached prepared statement settles on): every read of the samples must
+// lead with the SLO name in its index condition.
 func checkGenericPlan(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	q testdb.RecordedQuery) {
 	t.Helper()
@@ -250,8 +254,27 @@ func checkGenericPlan(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	if _, err := conn.Exec(ctx, "SET plan_cache_mode = force_generic_plan"); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _, _ = conn.Exec(context.Background(), "RESET plan_cache_mode") }()
-	plan, err := testdb.Explain(ctx, conn, "", q.SQL, q.Args...)
+	defer func() {
+		_, _ = conn.Exec(context.Background(), "DEALLOCATE ALL; RESET plan_cache_mode")
+	}()
+	if _, err := conn.Exec(ctx, "PREPARE slo_generic AS "+q.SQL); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	// EXECUTE takes literal arguments (a utility statement has no
+	// parameters); the plan is generic whatever the values.
+	literals := make([]string, len(q.Args))
+	for i, a := range q.Args {
+		switch v := a.(type) {
+		case time.Time:
+			literals[i] = "'" + v.Format(time.RFC3339Nano) + "'"
+		case float64:
+			literals[i] = fmt.Sprint(v)
+		default:
+			literals[i] = "'" + strings.ReplaceAll(fmt.Sprint(v), "'", "''") + "'"
+		}
+	}
+	plan, err := testdb.Explain(ctx, conn, "",
+		"EXECUTE slo_generic("+strings.Join(literals, ", ")+")")
 	if err != nil {
 		t.Fatal(err)
 	}

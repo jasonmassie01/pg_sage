@@ -3,7 +3,6 @@ package analyzer
 import (
 	"context"
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -21,15 +20,14 @@ import (
 // are stable from one cycle to the next and each is decoded once: a
 // steady cycle decodes only snapshots it has not seen.
 
-// recordingAnalyzer is an analyzer over its own pool whose statements are
-// recorded, so a test can count the snapshots it decodes.
-func recordingAnalyzer(t *testing.T, lookbackDays int) (*Analyzer, *testdb.QueryRecorder) {
+// recordingAnalyzer is an analyzer over its own pool (on base's
+// database; base comes from phase2Pool, which a test calls once: it holds
+// the cross-package lock) whose statements are recorded, so a test can
+// count the snapshots it decodes.
+func recordingAnalyzer(t *testing.T, base *pgxpool.Pool, lookbackDays int) (*Analyzer,
+	*testdb.QueryRecorder) {
 	t.Helper()
-	phase2Pool(t) // bootstrap and cross-package serialization
-	cfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_DATABASE_URL"))
-	if err != nil {
-		t.Fatalf("parse dsn: %v", err)
-	}
+	cfg := base.Config().Copy()
 	rec := &testdb.QueryRecorder{}
 	cfg.ConnConfig.Tracer = rec
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
@@ -70,8 +68,8 @@ func bucketStart(now time.Time, width time.Duration, j int) time.Time {
 
 func TestHistoricalAverages_FirstSnapshotPerBucketDecodedOnce(t *testing.T) {
 	const lookbackDays, buckets = 4, 60
-	a, rec := recordingAnalyzer(t, lookbackDays)
 	pool := phase2Pool(t)
+	a, rec := recordingAnalyzer(t, pool, lookbackDays)
 	cleanQuerySnapshots(t, pool)
 	t.Cleanup(func() { cleanQuerySnapshots(t, pool) })
 	width := time.Duration(lookbackDays) * 24 * time.Hour / maxHistorySamples
@@ -111,8 +109,8 @@ func TestHistoricalAverages_FirstSnapshotPerBucketDecodedOnce(t *testing.T) {
 // With no more than maxHistorySamples snapshots every one is used, and a
 // snapshot that left the window no longer counts.
 func TestHistoricalAverages_FewSnapshotsAllUsedAndForgotten(t *testing.T) {
-	a, rec := recordingAnalyzer(t, 7)
 	pool := phase2Pool(t)
+	a, rec := recordingAnalyzer(t, pool, 7)
 	cleanQuerySnapshots(t, pool)
 	t.Cleanup(func() { cleanQuerySnapshots(t, pool) })
 	now := time.Now()
@@ -144,8 +142,8 @@ func TestHistoricalAverages_FewSnapshotsAllUsedAndForgotten(t *testing.T) {
 // bounded batch.
 func TestHistoricalAverages_ColdCycleCapped(t *testing.T) {
 	const days, perDay = 5, 300
-	a, rec := recordingAnalyzer(t, days+1)
 	pool := phase2Pool(t)
+	a, rec := recordingAnalyzer(t, pool, days+1)
 	seedHistory(t, pool, days, perDay)
 	avgs := a.buildHistoricalAverages(context.Background())
 	if avgs[8] != 50 || math.IsNaN(avgs[7]) {

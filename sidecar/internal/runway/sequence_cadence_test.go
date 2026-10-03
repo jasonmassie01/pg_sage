@@ -213,6 +213,9 @@ func TestMonitorRead_ReportsCoverageOncePerChange(t *testing.T) {
 			return seqResult(true, total, int64(probes.SequenceScanCap), "public.a")
 		}
 		per := int64(total / a.Slices)
+		if a.Slice < total%a.Slices {
+			per++ // the slices hold the whole catalog
+		}
 		scanned := per
 		if capped {
 			scanned = per / 2

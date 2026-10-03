@@ -126,7 +126,7 @@ func TestSeqAndQueryAggs_ExpandAFewSnapshotsPerDay(t *testing.T) {
 			return err
 		},
 	} {
-		f, rec := recordingForecaster(t)
+		f, rec := recordingForecaster(t, pool)
 		if err := read(f); err != nil {
 			t.Fatalf("%s aggregation: %v", name, err)
 		}

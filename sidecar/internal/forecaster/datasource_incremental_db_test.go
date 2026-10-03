@@ -19,13 +19,13 @@ import (
 // found by index, one probe per day, and a Forecaster decodes each sample
 // once: a run decodes only the samples it has not seen (today's newest).
 
-func recordingForecaster(t *testing.T) (*Forecaster, *testdb.QueryRecorder) {
+// recordingForecaster is a Forecaster over its own pool on base's
+// database (base comes from phase2RequireDB, which a test calls once: it
+// holds the cross-package lock) whose statements are recorded.
+func recordingForecaster(t *testing.T, base *pgxpool.Pool) (*Forecaster,
+	*testdb.QueryRecorder) {
 	t.Helper()
-	phase2RequireDB(t) // bootstrap and cross-package lock
-	cfg, err := pgxpool.ParseConfig(phase2DSN())
-	if err != nil {
-		t.Fatalf("parse dsn: %v", err)
-	}
+	cfg := base.Config().Copy()
 	rec := &testdb.QueryRecorder{}
 	cfg.ConnConfig.Tracer = rec
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
@@ -57,7 +57,7 @@ func TestForecaster_DecodesEachDailySampleOnce(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	seedSequenceSnapshots(t, ctx, pool)
 	seedBoundedQuerySnapshots(t, ctx, pool)
-	f, rec := recordingForecaster(t)
+	f, rec := recordingForecaster(t, pool)
 	q1, err := f.dailyQueryAggs(ctx)
 	if err != nil {
 		t.Fatalf("query aggs: %v", err)
@@ -85,8 +85,9 @@ func TestForecaster_DecodesEachDailySampleOnce(t *testing.T) {
 	if n := decoded(t, rec); n != 0 {
 		t.Fatalf("a run with no new snapshot decoded %d, want 0", n)
 	}
-	// A newer query snapshot today replaces only today's last sample.
-	insertSnapshot(t, ctx, pool, time.Now().UTC().Add(-time.Second), "queries",
+	// A newer query snapshot today (after every seeded one) replaces only
+	// today's last sample.
+	insertSnapshot(t, ctx, pool, dayStart(0).Add(23*time.Hour+30*time.Minute), "queries",
 		[]map[string]any{{"queryid": 42, "calls": 100000}, {"queryid": 43, "calls": 7}})
 	q3, err := f.dailyQueryAggs(ctx)
 	if err != nil {
@@ -108,7 +109,7 @@ func TestForecaster_DecodesEachDailySampleOnce(t *testing.T) {
 func TestForecaster_DailySamplesFoundByIndex(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	seedBoundedQuerySnapshots(t, ctx, pool)
-	f, rec := recordingForecaster(t)
+	f, rec := recordingForecaster(t, pool)
 	if _, err := f.dailyQueryAggs(ctx); err != nil {
 		t.Fatal(err)
 	}

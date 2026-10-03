@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -19,9 +21,8 @@ import (
 
 const planPairQueryBase = 917_000_000
 
-func cleanPlanPairs(t *testing.T) {
+func cleanPlanPairs(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	pool := phase2Pool(t)
 	if _, err := pool.Exec(context.Background(), `DELETE FROM sage.explain_cache
 		WHERE queryid BETWEEN $1 AND $1 + 999`, planPairQueryBase); err != nil {
 		t.Fatalf("clean plans: %v", err)
@@ -39,10 +40,10 @@ func planJSON(t *testing.T, node string) string {
 }
 
 func TestPlanRegression_NullTimingAndTextDoNotFailThePass(t *testing.T) {
-	a, _ := recordingAnalyzer(t, 7)
-	cleanPlanPairs(t)
-	t.Cleanup(func() { cleanPlanPairs(t) })
 	pool := phase2Pool(t)
+	a, _ := recordingAnalyzer(t, pool, 7)
+	cleanPlanPairs(t, pool)
+	t.Cleanup(func() { cleanPlanPairs(t, pool) })
 	ctx := context.Background()
 	qid := int64(planPairQueryBase + 1)
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.explain_cache (captured_at, queryid,
@@ -68,9 +69,10 @@ func TestPlanRegression_NullTimingAndTextDoNotFailThePass(t *testing.T) {
 }
 
 func TestPlanRegression_ReadsTwoPlansPerQuery(t *testing.T) {
-	a, rec := recordingAnalyzer(t, 7)
-	cleanPlanPairs(t)
-	t.Cleanup(func() { cleanPlanPairs(t) })
+	pool := phase2Pool(t)
+	a, rec := recordingAnalyzer(t, pool, 7)
+	cleanPlanPairs(t, pool)
+	t.Cleanup(func() { cleanPlanPairs(t, pool) })
 	ctx := context.Background()
 	a.eval = newCycleEval()
 	a.checkPlanRegression(ctx)
@@ -78,7 +80,7 @@ func TestPlanRegression_ReadsTwoPlansPerQuery(t *testing.T) {
 	if len(stmts) != 1 {
 		t.Fatalf("plan-regression statements = %d, want 1", len(stmts))
 	}
-	tx, err := phase2Pool(t).Begin(ctx)
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +91,12 @@ func TestPlanRegression_ReadsTwoPlansPerQuery(t *testing.T) {
 		       jsonb_build_array(jsonb_build_object('Plan', jsonb_build_object(
 		         'Node Type', 'Seq Scan', 'Relation Name', 'orders',
 		         'Pad', repeat(md5(q::text), 40)))), 'collector', 100 + p, 1
-		FROM generate_series(1, 30) q, generate_series(1, 40) p;
-		ANALYZE sage.explain_cache`, planPairQueryBase); err != nil {
+		FROM generate_series(1, 30) q, generate_series(1, 40) p`,
+		planPairQueryBase); err != nil {
 		t.Fatalf("seed plans: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "ANALYZE sage.explain_cache"); err != nil {
+		t.Fatal(err)
 	}
 	var queries float64
 	if err := tx.QueryRow(ctx, `SELECT count(DISTINCT queryid) FROM sage.explain_cache
@@ -102,20 +107,27 @@ func TestPlanRegression_ReadsTwoPlansPerQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var plansRead float64
+	if carried := plansCarried(plan); carried > 2*queries {
+		t.Fatalf("carried %v plans for %v queries, want at most two per query:\n%s",
+			carried, queries, plan)
+	}
+}
+
+// plansCarried is the most plans any node above a scan carries (a scan
+// may list every column, decoded or not: PostgreSQL's physical target
+// lists).
+func plansCarried(plan testdb.PlanNode) float64 {
+	var most float64
 	plan.Walk(func(n testdb.PlanNode) {
-		if n.Relation != "explain_cache" {
+		if strings.Contains(n.NodeType, "Scan") {
 			return
 		}
 		for _, o := range n.Output {
 			if strings.Contains(o, "plan_json") {
-				plansRead += n.ActualRows * n.ActualLoops
+				most = max(most, n.ActualRows*n.ActualLoops)
 				return
 			}
 		}
 	})
-	if plansRead > 2*queries {
-		t.Fatalf("read %v plans for %v queries, want at most two per query:\n%s",
-			plansRead, queries, plan)
-	}
+	return most
 }

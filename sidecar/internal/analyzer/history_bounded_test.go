@@ -70,7 +70,7 @@ func seedHistory(t *testing.T, pool *pgxpool.Pool, days, perDay int) {
 func TestHistoricalAverages_SmallHistoryUsesAll(t *testing.T) {
 	pool := phase2Pool(t)
 	seedHistory(t, pool, 2, 4)
-	a, rec := recordingAnalyzer(t, 3)
+	a, rec := recordingAnalyzer(t, pool, 3)
 	if got := a.buildHistoricalAverages(context.Background())[7]; got != 1.5 {
 		t.Fatalf("avg(7) = %v, want 1.5", got)
 	}
