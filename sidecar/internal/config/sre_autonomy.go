@@ -16,7 +16,7 @@ import (
 // regression. The promotion bar (Promotion) defaults to the spec's.
 type SREAutonomyConfig struct {
 	Enforce                  bool               `yaml:"enforce" doc:"Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true." warning:"false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."`
-	BenchResultsPath         string             `yaml:"bench_results_path" doc:"PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."`
+	BenchResultsPath         string             `yaml:"bench_results_path" doc:"PGIncidentBench report, or a directory searched 3 levels deep, ingested at startup and hourly. A <report>.sigstore.json bundle is verified; reports for another build are refused."`
 	EvaluateIntervalMinutes  int                `yaml:"evaluate_interval_minutes" doc:"Minutes between promotion evaluations (pg_sage proposes, an admin approves), 5-1440. Default: 60."`
 	ReconcileIntervalSeconds int                `yaml:"reconcile_interval_seconds" doc:"Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."`
 	MaxEvidenceAgeSeconds    int                `yaml:"max_evidence_age_seconds" doc:"Evidence older than this caps an action at L1, 5-3600. Default: 300."`
@@ -35,7 +35,7 @@ type SREAutonomyConfig struct {
 type SREGameDaysConfig struct {
 	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider (dle or snapshot) or local_dsn. Default: false."`
 	IntervalHours int      `yaml:"interval_hours" doc:"Hours between scheduled game days, 24-2160. Default: 168."`
-	LocalDSN      string   `yaml:"local_dsn" doc:"Development fallback when clone.provider is none: a disposable PostgreSQL database for game days. Never a monitored database (refused)." secret:"true"`
+	LocalDSN      string   `yaml:"local_dsn" doc:"Fallback when clone.provider is none: a disposable PostgreSQL database for game days and local bench runs. Never a monitored or the metadata database (refused)." secret:"true"`
 	Families      []string `yaml:"families" doc:"Incident families to exercise. Empty: every family the bench covers."`
 }
 
