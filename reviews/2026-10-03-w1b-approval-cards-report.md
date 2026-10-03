@@ -1,6 +1,8 @@
 # Roadmap 1.5: approval cards with the why (2026-10-03)
 
-Branch `claude/w1b-approval-cards`, based on `origin/master` (e9feff49, v1.8.4).
+Branch `claude/w1b-approval-cards`, based on `origin/master` (e9feff49, v1.8.4); `origin/master`
+3d439a13 (PR #95) merged in afterwards (CHANGELOG conflict only) and the executor, api,
+approvalcard, optimizer and recommendation packages re-run green on PG17 after the merge.
 
 Goal (ROADMAP Phase 1.5, interfaces review 2.2 / 2.5 / I4 / I5): every action that waits for
 approval is one card with the "why", approvable in one click in the UI, Slack and Telegram,
