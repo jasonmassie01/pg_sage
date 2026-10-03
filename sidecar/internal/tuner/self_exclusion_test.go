@@ -2,6 +2,7 @@ package tuner
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // pg_sage is tracked by pg_stat_statements now (perf v1.8.3): a slow
@@ -21,6 +23,44 @@ func TestFetchCandidatesNeverOffersPgSageStatements(t *testing.T) {
 		WHERE extname = 'pg_stat_statements')`).Scan(&exists); err != nil || !exists {
 		t.Skip("pg_stat_statements not available")
 	}
+	sage, app := selfProbeSessions(t, ctx)
+	tu := New(pool, TunerConfig{MinQueryCalls: 1, PlanTimeRatio: 0.5}, nil, noopLog2)
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the application statement before the candidates are read:
+	// repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		for i := 0; i < 2; i++ {
+			if _, err := sage.Exec(ctx, "SELECT pg_sleep(0.12) AS tuner_self_probe"); err != nil {
+				t.Fatalf("pg_sage statement: %v", err)
+			}
+			if _, err := app.Exec(ctx,
+				"SELECT pg_sleep(0.12) AS tuner_app_probe, 1 AS shape"); err != nil {
+				t.Fatalf("application statement: %v", err)
+			}
+		}
+		candidates, err := tu.fetchCandidates(ctx)
+		if err != nil {
+			t.Fatalf("fetchCandidates: %v", err)
+		}
+		var sawApp bool
+		for _, c := range candidates {
+			if strings.Contains(c.Query, "tuner_self_probe") {
+				t.Fatalf("pg_sage's own statement offered for a hint: %q", c.Query)
+			}
+			sawApp = sawApp || strings.Contains(c.Query, "tuner_app_probe")
+		}
+		if !sawApp {
+			return []string{fmt.Sprintf("the application's slow statement is missing from "+
+				"%d candidates: the exclusion is too broad", len(candidates))}
+		}
+		return nil
+	})
+}
+
+// selfProbeSessions opens a pool configured like pg_sage's own and a plain
+// application connection; both close when the test ends.
+func selfProbeSessions(t *testing.T, ctx context.Context) (*pgxpool.Pool, *pgx.Conn) {
+	t.Helper()
 	cfg, err := pgxpool.ParseConfig(tunerTestDSN())
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
@@ -30,35 +70,11 @@ func TestFetchCandidatesNeverOffersPgSageStatements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pg_sage pool: %v", err)
 	}
-	defer sage.Close()
+	t.Cleanup(sage.Close)
 	app, err := pgx.Connect(ctx, tunerTestDSN())
 	if err != nil {
 		t.Fatalf("app connection: %v", err)
 	}
-	defer func() { _ = app.Close(context.Background()) }()
-	for i := 0; i < 2; i++ {
-		if _, err := sage.Exec(ctx, "SELECT pg_sleep(0.12) AS tuner_self_probe"); err != nil {
-			t.Fatalf("pg_sage statement: %v", err)
-		}
-		if _, err := app.Exec(ctx,
-			"SELECT pg_sleep(0.12) AS tuner_app_probe, 1 AS shape"); err != nil {
-			t.Fatalf("application statement: %v", err)
-		}
-	}
-	tu := New(pool, TunerConfig{MinQueryCalls: 1, PlanTimeRatio: 0.5}, nil, noopLog2)
-	candidates, err := tu.fetchCandidates(ctx)
-	if err != nil {
-		t.Fatalf("fetchCandidates: %v", err)
-	}
-	var sawApp bool
-	for _, c := range candidates {
-		if strings.Contains(c.Query, "tuner_self_probe") {
-			t.Fatalf("pg_sage's own statement offered for a hint: %q", c.Query)
-		}
-		sawApp = sawApp || strings.Contains(c.Query, "tuner_app_probe")
-	}
-	if !sawApp {
-		t.Fatalf("the application's slow statement is missing from %d candidates: the "+
-			"exclusion is too broad", len(candidates))
-	}
+	t.Cleanup(func() { _ = app.Close(context.Background()) })
+	return sage, app
 }

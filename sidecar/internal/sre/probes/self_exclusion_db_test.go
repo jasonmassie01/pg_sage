@@ -2,11 +2,13 @@ package probes
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -104,39 +106,35 @@ func TestTempSpillProbeLeavesOutPgSageStatements(t *testing.T) {
 		t.Skipf("pg_stat_statements unavailable: %v", err)
 	}
 	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
-	var appID, sageID int64
-	var ss []SpillStatement
 	// Another package's unscoped pg_stat_statements_reset() can clear the
-	// entries between the spill and the probe: start over (3 tries).
-	for try := 0; try < 3; try++ {
+	// entries between the spill and the probe: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
 		spill(t, ctx, pool, `SELECT count(*) FROM (SELECT g, g + 1 AS h
 			FROM generate_series(1, 100000) g ORDER BY md5(g::text)) s`)
 		spill(t, ctx, sage, `SELECT count(*) FROM (SELECT g, g + 2, g + 3
 			FROM generate_series(1, 100000) g ORDER BY md5(g::text) DESC) s`)
-		appID = queryIDLike(ctx, pool, "%AS h%generate_series%")
-		sageID = queryIDLike(ctx, pool, "%md5(g::text) DESC%")
-		var err error
-		if ss, err = SpillStatements(run(ctx, pool, TempSpillStatements)); err != nil {
+		appID := queryIDLike(ctx, pool, "%AS h%generate_series%")
+		sageID := queryIDLike(ctx, pool, "%md5(g::text) DESC%")
+		ss, err := SpillStatements(run(ctx, pool, TempSpillStatements))
+		if err != nil {
 			t.Fatalf("temp_spill_statements: %v", err)
 		}
-		if appID != 0 && sageID != 0 {
-			break
+		if appID == 0 || sageID == 0 {
+			return []string{fmt.Sprintf("spilling statements not in pg_stat_statements "+
+				"(app %d, pg_sage %d)", appID, sageID)}
 		}
-	}
-	if appID == 0 || sageID == 0 {
-		t.Fatalf("spilling statements not in pg_stat_statements (app %d, pg_sage %d)",
-			appID, sageID)
-	}
-	var sawApp bool
-	for _, s := range ss {
-		if s.QueryID == sageID {
-			t.Fatalf("pg_sage's spilling statement %d is in the probe", sageID)
+		var sawApp bool
+		for _, s := range ss {
+			if s.QueryID == sageID {
+				t.Fatalf("pg_sage's spilling statement %d is in the probe", sageID)
+			}
+			sawApp = sawApp || s.QueryID == appID
 		}
-		sawApp = sawApp || s.QueryID == appID
-	}
-	if !sawApp {
-		t.Fatalf("application spill %d missing from %+v", appID, ss)
-	}
+		if !sawApp {
+			return []string{fmt.Sprintf("application spill %d missing from %+v", appID, ss)}
+		}
+		return nil
+	})
 }
 
 // spill runs sql with work_mem 64kB on one session of pool (separate

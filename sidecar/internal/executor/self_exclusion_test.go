@@ -2,12 +2,17 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -31,20 +36,36 @@ func TestWriteLatencyLeavesOutPgSageStatements(t *testing.T) {
 		(SELECT oid FROM pg_database WHERE datname = current_database()), 0)`); err != nil {
 		t.Skipf("pg_stat_statements_reset unavailable: %v", err)
 	}
-	for i := range 3 {
-		if _, err := pool.Exec(ctx, "INSERT INTO "+table+" (v) VALUES ($1)", i); err != nil {
-			t.Fatalf("application insert: %v", err)
-		}
-	}
 	sage := selfload.SagePool(t, testDSN())
-	if _, err := sage.Exec(ctx, "INSERT INTO "+table+
-		" (v) SELECT 1 FROM pg_sleep(0.3)"); err != nil {
-		t.Fatalf("pg_sage insert: %v", err)
-	}
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the inserts' rows before they are read: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		for i := range 3 {
+			if _, err := pool.Exec(ctx, "INSERT INTO "+table+" (v) VALUES ($1)", i); err != nil {
+				t.Fatalf("application insert: %v", err)
+			}
+		}
+		if _, err := sage.Exec(ctx, "INSERT INTO "+table+
+			" (v) SELECT 1 FROM pg_sleep(0.3)"); err != nil {
+			t.Fatalf("pg_sage insert: %v", err)
+		}
+		return writeLatencyProblems(t, ctx, pool, table)
+	})
+}
+
+// writeLatencyProblems checks the write-latency input equals the mean of
+// the application's insert into table (the only application write).
+func writeLatencyProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table string) []string {
+	t.Helper()
 	var appMean float64
-	if err := pool.QueryRow(ctx, `SELECT mean_exec_time FROM pg_stat_statements
+	err := pool.QueryRow(ctx, `SELECT mean_exec_time FROM pg_stat_statements
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-		  AND query LIKE 'INSERT INTO `+table+` (v) VALUES%'`).Scan(&appMean); err != nil {
+		  AND query LIKE 'INSERT INTO `+table+` (v) VALUES%'`).Scan(&appMean)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []string{"application statement missing from pg_stat_statements"}
+	}
+	if err != nil {
 		t.Fatalf("application statement in pg_stat_statements: %v", err)
 	}
 	var got float64
@@ -52,9 +73,10 @@ func TestWriteLatencyLeavesOutPgSageStatements(t *testing.T) {
 		t.Fatalf("write latency: %v", err)
 	}
 	if math.Abs(got-appMean) > 1e-9 || got >= 100 {
-		t.Fatalf("write latency = %.3f ms, want the application's mean %.3f ms "+
-			"(pg_sage's 300 ms insert left out)", got, appMean)
+		return []string{fmt.Sprintf("write latency = %.3f ms, want the application's "+
+			"mean %.3f ms (pg_sage's 300 ms insert left out)", got, appMean)}
 	}
+	return nil
 }
 
 func TestBeforeStateActiveBackendsAreApplicationSessions(t *testing.T) {
