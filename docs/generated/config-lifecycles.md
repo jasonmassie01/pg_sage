@@ -45,6 +45,7 @@
 | `analyzer.lock_chain.safe_patterns` | `restart` | `-` |
 | `analyzer.regression_lookback_days` | `restart` | `-` |
 | `analyzer.regression_threshold_pct` | `restart` | `-` |
+| `analyzer.schema_guard_ddl_debounce_seconds` | `restart` | `-` |
 | `analyzer.seq_scan_min_rows` | `restart` | `-` |
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` |

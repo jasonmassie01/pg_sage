@@ -48,9 +48,12 @@ type Reporter interface {
 }
 
 type DatabaseWorkersConfig struct {
-	Database      string
-	Interval      time.Duration
-	Tick          <-chan time.Time
+	Database string
+	Interval time.Duration
+	Tick     <-chan time.Time
+	// DDLDebounce is the least time between a schema guard scan and a
+	// DDL-requested one (RequestSchemaGuard); zero is DefaultDDLDebounce.
+	DDLDebounce   time.Duration
 	Freeze        Custodian
 	WAL           Custodian
 	Schema        SchemaGuard

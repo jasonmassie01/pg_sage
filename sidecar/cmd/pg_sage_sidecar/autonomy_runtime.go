@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/ledger"
+	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 // executorProposalRouter hands custodian proposals to the executor. Every
@@ -129,12 +130,13 @@ func newDatabaseAutonomy(
 			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
 		})}
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
-		pool, database, router, auditor, router.executeRetention)
+		pool, database, router, auditor, router.executeRetention, schemaGuardOptions(cfg))
 	if err != nil {
 		return nil, err
 	}
 	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{{
 		Database: database, Interval: autonomyInterval(cfg),
+		DDLDebounce: autonomyDDLDebounce(cfg),
 		Freeze: freezeWorker, WAL: walWorker, Schema: schemaGuard,
 		Router:  router,
 		Auditor: auditor, Reporter: autonomyLogReporter{},
@@ -164,6 +166,11 @@ func startInstanceAutonomy(
 	if err != nil {
 		return err
 	}
+	startInstanceWorker(workers, func() {
+		ensureSchemaGuardIndexLogged(ctx, database, func(ctx context.Context) error {
+			return schema.EnsureSchemaGuardIndex(ctx, pool)
+		}, func(format string, args ...any) { logWarn("autonomy", format, args...) })
+	})
 	startInstanceWorker(workers, func() {
 		supervisor.Start(ctx)
 		<-ctx.Done()

@@ -105,6 +105,13 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.change_lease cl WHERE cl.decision_id = decision.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.decision_id = decision.id)`
+	// Schema guard decisions are observations: one row per changed schema
+	// decision (observe_only or parked), never the decision an action ran
+	// under. They age out on the findings window; a row an action or a
+	// verification points at is kept like any decision.
+	keepSchemaGuardDecision = `AND feature = 'schema_guard'
+	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
+	                   WHERE al.decision_id = decision.id) ` + keepDecision
 	// Stored bench and game-day reports age out unless one is the evidence
 	// of a current ledger level or a pending promotion (any "id" in that
 	// evidence), or the newest report of a family for its source and
@@ -153,6 +160,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// A request still waiting for its turn is kept, however old.
 		{"lease_queue", "enqueued_at", r.ActionsDays, "AND state <> 'waiting'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
+		// Schema guard observations age with findings (dogfood lifeos).
+		{"decision", "created_at", r.FindingsDays, keepSchemaGuardDecision},
 		{"recommendation", "updated_at", r.ActionsDays, keepRecommendation},
 		{"retention_run", "created_at", r.ActionsDays, ""},
 		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},

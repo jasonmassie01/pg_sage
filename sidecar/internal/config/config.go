@@ -186,6 +186,9 @@ type AnalyzerConfig struct {
 
 	// v0.9 — Lock chain detection.
 	LockChain LockChainConfig `yaml:"lock_chain"`
+
+	// Schema guard post-DDL debounce: see schema_guard.go.
+	SchemaGuardDDLDebounceSeconds int `yaml:"schema_guard_ddl_debounce_seconds" doc:"After pg_sage's own DDL, the schema guard re-scans the schema at most once per this many seconds (DDL bursts are coalesced into one extra scan). 0 uses the default. Range 0-3600. Default: 60."`
 }
 
 type SafetyConfig struct {
@@ -670,6 +673,9 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if err := c.Analyzer.validateSchemaGuard(); err != nil {
+		return err
+	}
 	if err := c.RCA.validate(); err != nil {
 		return err
 	}
@@ -772,6 +778,8 @@ func newDefaults() *Config {
 			RegressionLookbackDays:       DefaultRegressionLookbackDays,
 			CheckpointFreqWarningPerHour: DefaultCheckpointFreqWarningPerHour,
 			WorkMemPromotionThreshold:    DefaultAnalyzerWorkMemPromotionThreshold,
+
+			SchemaGuardDDLDebounceSeconds: DefaultSchemaGuardDDLDebounceSeconds,
 			LockChain: LockChainConfig{
 				Enabled:                  true,
 				MinBlockedThreshold:      DefaultLockChainMinBlocked,
