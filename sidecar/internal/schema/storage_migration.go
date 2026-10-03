@@ -47,6 +47,9 @@ var storageIndexes = []storageIndex{
 		ON sage.findings (resolved_at) WHERE status = 'resolved'`},
 	{"idx_explain_results_expires",
 		"CREATE INDEX idx_explain_results_expires ON sage.explain_results (expires_at)"},
+	// The action queue purge keeps rows an SRE proposal points at.
+	{"idx_sre_action_proposals_queue", `CREATE INDEX idx_sre_action_proposals_queue
+		ON sage.sre_action_proposals (queue_id) WHERE queue_id IS NOT NULL`},
 }
 
 // retiredIndexes keyed last_seen, which every findings refresh updates.
