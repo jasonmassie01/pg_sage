@@ -99,8 +99,9 @@ func createStaleFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 			t.Fatalf("fixture %q: %v", s, err)
 		}
 	}
-	_, _ = conn.Exec(ctx, "SELECT pg_stat_force_next_flush()") // PG15+; PG14 waits below
-	time.Sleep(1500 * time.Millisecond)
+	if err := testdb.FlushStats(ctx, conn); err != nil {
+		t.Fatalf("flush statistics: %v", err)
+	}
 }
 
 func TestLoadStaleStatsCache_MatchesLegacyQuery(t *testing.T) {
