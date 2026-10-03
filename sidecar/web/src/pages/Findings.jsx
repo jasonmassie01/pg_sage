@@ -12,6 +12,8 @@ import { useTimeRange } from '../context/TimeRangeContext'
 import { LiveTimeAgo } from '../components/TimeAgo'
 import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { formatTotal, useCursorPages } from '../lib/listPaging'
+import { LoadMore } from '../components/LoadMore'
 
 // Subsystem taxonomy — mirrors sidecar/internal/api/handlers.go
 // buildSourceClause. Displayed in the "Source" filter dropdown.
@@ -152,6 +154,7 @@ export function Findings({ database, user }) {
   const url = status === 'open' ? base : withTimeRange(base, range)
   const { data, loading, error, refetch } = useAPI(url)
   useLiveRefetch(['findings', 'actions'], refetch)
+  const paging = useCursorPages(data, url, 'findings')
 
   if (loading) {
     return (
@@ -164,7 +167,7 @@ export function Findings({ database, user }) {
   }
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
 
-  const rawFindings = data?.findings || []
+  const rawFindings = paging.rows
   const findings = sortFindings(rawFindings, sortKey, sortDir)
   const canAct = user?.role === 'admin'
     || user?.role === 'operator'
@@ -290,10 +293,12 @@ export function Findings({ database, user }) {
         />
       )}
 
+      <LoadMore paging={paging} testId="findings-load-more" />
+
       <div className="text-xs"
         data-testid="findings-count"
         style={{ color: 'var(--text-secondary)' }}>
-        {data?.total || 0} total recommendations
+        {formatTotal(data)} total recommendations
       </div>
     </div>
   )

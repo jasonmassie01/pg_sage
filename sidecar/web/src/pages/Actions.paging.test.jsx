@@ -40,12 +40,12 @@ describe('Executed actions paging', () => {
     firstPage = { actions: [action(1, 'CREATE INDEX a ON t (a)')], total: 2,
       total_capped: false, next_cursor: 'c9' }
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200,
-      json: async () => ({ actions: [action(2, 'CREATE INDEX b ON t (b)')],
+      json: async () => ({ actions: [action(2, 'CREATE INDEX b ON invoices (b)')],
         next_cursor: '' }) }))
     vi.stubGlobal('fetch', fetchMock)
     render(<Actions database="all" user={{ role: 'viewer' }} />)
     fireEvent.click(screen.getByTestId('actions-load-more'))
-    await waitFor(() => expect(screen.getAllByText(/CREATE INDEX b ON t/).length)
+    await waitFor(() => expect(screen.getAllByText(/invoices/).length)
       .toBeGreaterThan(0))
     expect(fetchMock.mock.calls[0][0]).toContain('cursor=c9')
     expect(screen.getByTestId('executed-actions-count')).toHaveTextContent('2 actions')

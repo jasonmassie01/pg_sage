@@ -10,6 +10,8 @@ import { SkeletonRow } from '../components/Skeleton'
 import { usePendingActionsRefetch } from '../components/Layout'
 import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { formatTotal, useCursorPages } from '../lib/listPaging'
+import { LoadMore } from '../components/LoadMore'
 import { canRollBackRow, isQueuedRow, queuedLabels } from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
@@ -61,8 +63,9 @@ export function Actions({ database, user }) {
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
 
-  const { data, loading, error, refetch } =
-    useAPI(withTimeRange(`/api/v1/actions${dbParam}`, range))
+  const actionsURL = withTimeRange(`/api/v1/actions${dbParam}`, range)
+  const { data, loading, error, refetch } = useAPI(actionsURL)
+  const paging = useCursorPages(data, actionsURL, 'actions')
   const {
     data: pendingData,
     loading: pendingLoading,
@@ -92,7 +95,7 @@ export function Actions({ database, user }) {
         <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
-        <ExecutedTab data={data} loading={loading}
+        <ExecutedTab data={data} paging={paging} loading={loading}
           error={error} refetch={refetch} user={user} />
       </div>
     )
@@ -162,7 +165,7 @@ function TabBar({ tab, setTab, pendingCount, canReview }) {
   )
 }
 
-function ExecutedTab({ data, loading, error, refetch, user }) {
+function ExecutedTab({ data, paging, loading, error, refetch, user }) {
   const toast = useToast()
   const canRollback = user?.role === 'admin' || user?.role === 'operator'
   if (loading) {
@@ -178,7 +181,7 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
   if (error) return <ErrorBanner message={error}
     onRetry={refetch} />
 
-  const actions = data?.actions || []
+  const actions = paging.rows
 
   const outcomeStyle = outcome => {
     switch (outcome) {
@@ -348,94 +351,101 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
   }
 
   return (
-    <DataTable data-testid="executed-actions-table"
-      columns={columns} rows={actions} expandable rowKey={actionRowKey}
-      renderExpanded={row => (
-        <div className="space-y-3">
-          {row.outcome === 'failed' && row.rollback_reason && (
-            <div className="p-3 rounded text-sm"
-              style={{
-                background: 'rgba(239,68,68,0.1)',
-                border: '1px solid rgba(239,68,68,0.3)',
-              }}>
-              <div className="text-xs font-medium mb-1"
-                style={{ color: 'var(--red)' }}>
-                Error Details
+    <div className="space-y-3">
+      <DataTable data-testid="executed-actions-table"
+        columns={columns} rows={actions} expandable rowKey={actionRowKey}
+        renderExpanded={row => (
+          <div className="space-y-3">
+            {row.outcome === 'failed' && row.rollback_reason && (
+              <div className="p-3 rounded text-sm"
+                style={{
+                  background: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                }}>
+                <div className="text-xs font-medium mb-1"
+                  style={{ color: 'var(--red)' }}>
+                  Error Details
+                </div>
+                <code className="text-xs" style={{
+                  color: 'var(--text-primary)',
+                  wordBreak: 'break-all',
+                }}>
+                  {row.rollback_reason}
+                </code>
               </div>
-              <code className="text-xs" style={{
-                color: 'var(--text-primary)',
-                wordBreak: 'break-all',
-              }}>
-                {row.rollback_reason}
-              </code>
-            </div>
-          )}
-          {row.outcome === 'rolled_back'
-            && row.rollback_reason && (
-            <div className="p-3 rounded text-sm"
-              style={{
-                background: 'rgba(245,158,11,0.1)',
-                border: '1px solid rgba(245,158,11,0.3)',
-              }}>
-              <div className="text-xs font-medium mb-1"
-                style={{ color: 'var(--yellow)' }}>
-                Rollback Reason
+            )}
+            {row.outcome === 'rolled_back'
+              && row.rollback_reason && (
+              <div className="p-3 rounded text-sm"
+                style={{
+                  background: 'rgba(245,158,11,0.1)',
+                  border: '1px solid rgba(245,158,11,0.3)',
+                }}>
+                <div className="text-xs font-medium mb-1"
+                  style={{ color: 'var(--yellow)' }}>
+                  Rollback Reason
+                </div>
+                <span className="text-xs" style={{
+                  color: 'var(--text-primary)',
+                }}>
+                  {row.rollback_reason}
+                </span>
               </div>
-              <span className="text-xs" style={{
-                color: 'var(--text-primary)',
-              }}>
-                {row.rollback_reason}
-              </span>
-            </div>
-          )}
-          <div>
-            <div className="text-xs font-medium mb-1"
-              style={{ color: 'var(--text-secondary)' }}>
-              {isQueuedRow(row) || row.outcome === 'expired'
-                || row.outcome === 'rejected'
-                ? 'Proposed SQL' : 'SQL Executed'}
-            </div>
-            <SQLBlock sql={row.sql_executed} />
-          </div>
-          {row.rollback_sql && (
+            )}
             <div>
               <div className="text-xs font-medium mb-1"
                 style={{ color: 'var(--text-secondary)' }}>
-                Rollback SQL
+                {isQueuedRow(row) || row.outcome === 'expired'
+                  || row.outcome === 'rejected'
+                  ? 'Proposed SQL' : 'SQL Executed'}
               </div>
-              <SQLBlock sql={row.rollback_sql} />
-              {canRollback && canRollBackRow(row) && (
-                <button
-                  type="button"
-                  data-testid="rollback-action-button"
-                  onClick={() => handleRollback(row)}
-                  className="mt-2 px-2 py-1 rounded text-xs"
-                  style={{
-                    background: 'var(--yellow)',
-                    color: '#111827',
-                  }}>
-                  Roll Back Action
-                </button>
+              <SQLBlock sql={row.sql_executed} />
+            </div>
+            {row.rollback_sql && (
+              <div>
+                <div className="text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  Rollback SQL
+                </div>
+                <SQLBlock sql={row.rollback_sql} />
+                {canRollback && canRollBackRow(row) && (
+                  <button
+                    type="button"
+                    data-testid="rollback-action-button"
+                    onClick={() => handleRollback(row)}
+                    className="mt-2 px-2 py-1 rounded text-xs"
+                    style={{
+                      background: 'var(--yellow)',
+                      color: '#111827',
+                    }}>
+                    Roll Back Action
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex gap-4 text-xs" style={{
+              color: 'var(--text-secondary)',
+            }}>
+              {row.finding_id && (
+                <span>Finding #{row.finding_id}</span>
+              )}
+              {row.database_name && (
+                <span>Database: {row.database_name}</span>
+              )}
+              {row.measured_at && (
+                <span>Verified: <LiveTimeAgo
+                  timestamp={row.measured_at} /></span>
               )}
             </div>
-          )}
-          <div className="flex gap-4 text-xs" style={{
-            color: 'var(--text-secondary)',
-          }}>
-            {row.finding_id && (
-              <span>Finding #{row.finding_id}</span>
-            )}
-            {row.database_name && (
-              <span>Database: {row.database_name}</span>
-            )}
-            {row.measured_at && (
-              <span>Verified: <LiveTimeAgo
-                timestamp={row.measured_at} /></span>
-            )}
           </div>
-        </div>
-      )}
-    />
+        )}
+      />
+      <LoadMore paging={paging} testId="actions-load-more" />
+      <div className="text-xs" data-testid="executed-actions-count"
+        style={{ color: 'var(--text-secondary)' }}>
+        {formatTotal(data)} actions
+      </div>
+    </div>
   )
 }
 
