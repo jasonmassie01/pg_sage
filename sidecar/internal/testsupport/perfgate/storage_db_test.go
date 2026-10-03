@@ -18,7 +18,9 @@ func TestReadTableStatsCountsPartitionsNotTheParent(t *testing.T) {
 	rows := count(t, ctx, pool, "SELECT count(*) FROM sage.snapshots")
 	parts := count(t, ctx, pool, `SELECT count(*) FROM pg_inherits
 		WHERE inhparent = 'sage.snapshots'::regclass`)
-	if d.LiveRows != rows || int64(d.Relations) != parts {
+	// Live rows are estimates (reltuples or n_live_tup); the parent would
+	// double them.
+	if d.LiveRows < rows*9/10 || d.LiveRows > rows*11/10 || int64(d.Relations) != parts {
 		t.Fatalf("snapshots: %d live rows in %d relations, want %d in %d partitions",
 			d.LiveRows, d.Relations, rows, parts)
 	}

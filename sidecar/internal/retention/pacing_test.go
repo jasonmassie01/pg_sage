@@ -74,8 +74,10 @@ func TestRunOnce_BatchesArePerTableAndPaced(t *testing.T) {
 	if stats.Deleted["notification_log"] < 2500 || stats.Deleted["snapshots"] < 120 {
 		t.Fatalf("deleted = %v", stats.Deleted)
 	}
-	// Every full batch is followed by a pause before the next one.
-	full := stats.Batches["snapshots"] + stats.Batches["notification_log"] - 2
+	// Every full batch is followed by a pause before the next statement (the
+	// snapshot rows are all in the history partition).
+	full := stats.Deleted["snapshots"]/snapshotBatchSize +
+		stats.Deleted["notification_log"]/batchSize
 	if min := time.Duration(full) * pause; stats.Elapsed < min {
 		t.Fatalf("run took %s, want at least %s of pauses", stats.Elapsed, min)
 	}
