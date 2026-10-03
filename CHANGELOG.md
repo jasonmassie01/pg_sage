@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The snapshot size cap now works right after the upgrade, and gives the disk space
+  back.** Converting `sage.snapshots` to daily partitions put all existing rows (lifeos:
+  9.3 GB) into one history partition that still takes the rows of its first two days.
+  The cap could not touch it until then and warned on every run. Now, while that
+  partition still takes rows, pg_sage deletes its oldest rows in small paced batches
+  (at most 1 GiB a run, never today's rows, never a snapshot that a kept one is built
+  on) until the snapshots fit the cap; once it takes no more rows, it is dropped whole,
+  which returns its disk space at once (deleted rows only free space for reuse). An
+  empty or fully expired history partition of `sage.snapshots` or `sage.query_store` is
+  dropped instead of truncated, and dropping a partition can no longer break a kept
+  snapshot that reaches it through a checkpoint. The over-cap warning is logged once
+  per change or day and says what pg_sage is doing and how much is left.
+
 ## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
 
 ### What's new
