@@ -25,7 +25,7 @@ func TestActionOutcomeMigration_CreatesTableAndIndex(t *testing.T) {
 		t.Fatalf("index = %s", def)
 	}
 	var cascade string
-	if err := pool.QueryRow(ctx, `SELECT confdeltype FROM pg_constraint
+	if err := pool.QueryRow(ctx, `SELECT confdeltype::text FROM pg_constraint
 		WHERE conrelid = 'sage.action_outcome'::regclass AND contype = 'f'`).
 		Scan(&cascade); err != nil || cascade != "c" {
 		t.Fatalf("foreign key on delete = %q (%v), want cascade with the action", cascade,

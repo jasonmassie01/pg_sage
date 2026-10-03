@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestPostgresAdaptersFailClosedWithoutPool(t *testing.T) {
@@ -95,19 +96,26 @@ func TestDatabaseVerdictNormalizesPersistenceValues(t *testing.T) {
 	}
 }
 
+// QueryMeasurements summarizes each query's bucketed intervals (Phase 1.3:
+// the fake serves interval rows where it used to serve one window total).
 func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
-	queryer := &fakeRowQuerier{rows: []pgx.Row{
-		&valueRow{values: []any{int64(40), float64(12.5)}},
-		&valueRow{values: []any{int64(25), float64(8)}},
-		&valueRow{values: []any{4, float64(30)}},
-		&valueRow{values: []any{true}},
-	}}
+	queryer := &fakeRowQuerier{
+		intervals: map[int64][][]any{
+			7: {{int64(20), 250.0, false}, {int64(20), 250.0, false}},
+			9: {{int64(25), 200.0, false}},
+		},
+		rows: []pgx.Row{
+			&valueRow{values: []any{4, float64(30)}},
+			&valueRow{values: []any{true}},
+		},
+	}
 	source := &PostgresObservationSource{queryer: queryer}
 	from, to := time.Now().Add(-time.Hour), time.Now()
 	queries, err := source.QueryMeasurements(
 		context.Background(), []int64{7, 9}, from, to,
 	)
-	if err != nil || queries[7].Samples != 40 || queries[9].Samples != 25 {
+	if err != nil || queries[7].Samples != 40 || queries[9].Samples != 25 ||
+		queries[7].AverageLatency != 12500*time.Microsecond || queries[7].Buckets != 2 {
 		t.Fatalf("QueryMeasurements() = %#v, %v", queries, err)
 	}
 	writes, err := source.WriteMeasurements(context.Background(), "orders", from, to)
@@ -126,14 +134,25 @@ func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
 
 func TestPostgresObservationSourcePropagatesQueryErrors(t *testing.T) {
 	want := errors.New("query failed")
-	source := &PostgresObservationSource{
-		queryer: &fakeRowQuerier{rows: []pgx.Row{&valueRow{err: want}}},
-	}
+	source := &PostgresObservationSource{queryer: &fakeRowQuerier{queryErr: want}}
 	_, err := source.QueryMeasurements(
 		context.Background(), []int64{7}, time.Time{}, time.Now(),
 	)
 	if !errors.Is(err, want) {
 		t.Fatalf("QueryMeasurements() error = %v, want %v", err, want)
+	}
+}
+
+// A bucket that saw a statistics reset voids the whole window (R10).
+func TestPostgresObservationSourceRefusesBrokenEpoch(t *testing.T) {
+	source := &PostgresObservationSource{queryer: &fakeRowQuerier{
+		intervals: map[int64][][]any{7: {{int64(20), 250.0, false},
+			{int64(20), 250.0, true}}},
+	}}
+	got, err := source.QueryMeasurements(context.Background(), []int64{7}, time.Time{},
+		time.Now())
+	if err != nil || got[7] != (Measurement{}) {
+		t.Fatalf("broken window = %#v, %v, want no evidence", got[7], err)
 	}
 }
 
@@ -149,8 +168,10 @@ type fakeStateScanner struct {
 }
 
 type fakeRowQuerier struct {
-	rows []pgx.Row
-	next int
+	rows      []pgx.Row
+	next      int
+	intervals map[int64][][]any
+	queryErr  error
 }
 
 func (q *fakeRowQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
@@ -158,6 +179,33 @@ func (q *fakeRowQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
 	q.next++
 	return row
 }
+
+// Query serves the interval rows of the queryid in args[0].
+func (q *fakeRowQuerier) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+	if q.queryErr != nil {
+		return nil, q.queryErr
+	}
+	id, _ := args[0].(int64)
+	return &fakeRows{values: q.intervals[id], at: -1}, nil
+}
+
+// fakeRows is a pgx.Rows over fixed values.
+type fakeRows struct {
+	values [][]any
+	at     int
+}
+
+func (r *fakeRows) Close()                                       {}
+func (r *fakeRows) Err() error                                   { return nil }
+func (r *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *fakeRows) Next() bool                                   { r.at++; return r.at < len(r.values) }
+func (r *fakeRows) Scan(dest ...any) error {
+	return (&valueRow{values: r.values[r.at]}).Scan(dest...)
+}
+func (r *fakeRows) Values() ([]any, error) { return r.values[r.at], nil }
+func (r *fakeRows) RawValues() [][]byte    { return nil }
+func (r *fakeRows) Conn() *pgx.Conn        { return nil }
 
 type valueRow struct {
 	values []any

@@ -401,7 +401,8 @@ func migrationStatements() []string {
 		ddlSREPerf(),
 		ddlAPIListIndexes(),
 		ddlSelfExclIndexes(),
-		ddlGuardHistoryIndexes())
+		ddlGuardHistoryIndexes(),
+		ddlActionOutcome())
 }
 
 // ---------------------------------------------------------------------------
