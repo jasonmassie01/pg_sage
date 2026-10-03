@@ -233,8 +233,9 @@ func TestIngestRefusesOversizedReports(t *testing.T) {
 
 func TestReportFilesSkipsBundlesAndDeepDirectories(t *testing.T) {
 	root := shippedTree(t)
-	write(t, filepath.Join(root, "a", "b", "c", "too-deep.json"), "x")
-	write(t, filepath.Join(root, "a", "b", "ok.json"), "x")
+	// Directories up to MaxDepth (3) levels below the root are searched.
+	write(t, filepath.Join(root, "a", "b", "c", "d", "too-deep.json"), "x")
+	write(t, filepath.Join(root, "a", "b", "c", "ok.json"), "x")
 	files, err := ReportFiles(root)
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +245,7 @@ func TestReportFilesSkipsBundlesAndDeepDirectories(t *testing.T) {
 		r, _ := filepath.Rel(root, f)
 		rel = append(rel, filepath.ToSlash(r))
 	}
-	want := "a/b/ok.json,core/pgincidentbench.json,reactive/pgincidentbench.json," +
+	want := "a/b/c/ok.json,core/pgincidentbench.json,reactive/pgincidentbench.json," +
 		"runway/pgincidentbench.json"
 	if strings.Join(rel, ",") != want {
 		t.Fatalf("files = %v, want %s", rel, want)
