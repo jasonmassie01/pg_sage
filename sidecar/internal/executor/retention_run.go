@@ -80,7 +80,7 @@ func (r *retentionRun) recordStart(ctx context.Context, decisionID int64) (int64
 		"target": r.request.Target, "retention_column": r.request.Column,
 		"cutoff": r.request.Cutoff.UTC(), "candidate_rows": r.request.Candidates,
 		"reviewed_bound": r.request.Bound, "max_rows": r.maxRows(),
-		"dry_run_id": r.request.DryRunID,
+		"dry_run_id": r.request.DryRunID, "predicted_effect": r.prediction(),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("encode retention action: %w", err)
@@ -94,6 +94,7 @@ func (r *retentionRun) recordStart(ctx context.Context, decisionID int64) (int64
 	if err != nil {
 		return 0, fmt.Errorf("record retention action (nothing deleted): %w", err)
 	}
+	e.recordPrediction(ctx, actionID, map[string]any{"predicted_effect": r.prediction()})
 	return actionID, nil
 }
 
@@ -109,6 +110,7 @@ func (r *retentionRun) verify(ctx context.Context, actionID int64) error {
 				actionID, finalizeErr)
 		}
 		updateActionOutcome(ctx, e.pool, actionID, "failed", err.Error())
+		r.recordOutcome(ctx, actionID, r.failedVerdict(err))
 		return err
 	}
 	r.recordSuccess(ctx, actionID)
@@ -157,8 +159,10 @@ func (r *retentionRun) recordSuccess(ctx context.Context, actionID int64) {
 	}
 	reason := fmt.Sprintf("retention batch verified: %d rows within the reviewed bound "+
 		"of %d, all inside the declared predicate", o.Deleted, r.maxRows())
-	if _, err := finalizeActionVerification(ctx, e.pool, actionID, "success",
-		reason); err != nil {
+	j := retentionVerdict(o.Deleted, r.request.Candidates, nil)
+	if _, err := finalizeActionVerification(ctx, e.pool, actionID,
+		verificationVerdictFor(j.Verdict), reason); err != nil {
 		e.logFn("executor", "record retention verification for action %d: %v", actionID, err)
 	}
+	r.recordOutcome(ctx, actionID, j)
 }

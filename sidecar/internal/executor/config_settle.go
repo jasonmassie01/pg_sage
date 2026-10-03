@@ -2,13 +2,10 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // settleConfigChange reads a config change back after it ran and records
@@ -38,6 +35,7 @@ func (e *Executor) settleConfigChange(ctx context.Context, actionID int64, c *co
 	default:
 		e.revertIneffective(ctx, actionID, c, note)
 	}
+	e.recordUnverified(ctx, actionID, "config change not verifiable: "+note)
 	return false
 }
 
@@ -114,52 +112,4 @@ func (e *Executor) revertIneffective(
 	e.logFn("executor", "config change %q %s", c.sql, reason)
 	updateActionOutcome(ctx, e.pool, actionID, "failed", reason)
 	_, _ = finalizeActionVerification(ctx, e.pool, actionID, "failed", reason)
-}
-
-// settleConfigOutcome judges a config change's targeted metric at the end
-// of its monitor window, after the regression check passed. It returns
-// false when the action is not a config change.
-func settleConfigOutcome(
-	ctx context.Context, pool *pgxpool.Pool, actionID int64,
-	logFn func(string, string, ...any),
-) bool {
-	var raw []byte
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT before_state->'config_change'
-		FROM sage.action_log WHERE id = $1`, actionID).Scan(&raw)
-	if err != nil || len(raw) == 0 || string(raw) == "null" {
-		return false
-	}
-	var change struct {
-		Outcome *outcomeBaseline `json:"outcome"`
-	}
-	ok, reason := false, "no targeted metric to verify this change"
-	if err := json.Unmarshal(raw, &change); err != nil {
-		reason = "config change record unreadable: " + err.Error()
-	} else if change.Outcome != nil {
-		ok, reason = judgeAgainstNow(ctx, pool, *change.Outcome)
-	}
-	verdict := map[string]any{"verified": ok, "reason": reason}
-	if change.Outcome != nil {
-		verdict["metric"] = change.Outcome.Metric
-	}
-	logFn("rollback", "config outcome for action %d: %s", actionID, reason)
-	if ok {
-		updateActionSuccess(ctx, pool, actionID)
-	} else if setMonitoredOutcome(ctx, pool, actionID, "unverifiable", reason) {
-		_, _ = finalizeActionVerification(ctx, pool, actionID, "unverifiable", reason)
-	}
-	if err := mergeAfterState(ctx, pool, actionID, "config_outcome", verdict); err != nil {
-		logFn("rollback", "record config outcome for action %d: %v", actionID, err)
-	}
-	return true
-}
-
-func judgeAgainstNow(
-	ctx context.Context, pool *pgxpool.Pool, b outcomeBaseline,
-) (bool, string) {
-	now, err := readOutcomeCounters(ctx, pool, b.Metric, b.Table)
-	if err != nil {
-		return false, "outcome metric unavailable: " + err.Error()
-	}
-	return judgeOutcome(b, now, time.Now())
 }

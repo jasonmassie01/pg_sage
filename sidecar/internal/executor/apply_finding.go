@@ -253,6 +253,7 @@ func (e *Executor) prepareAndRunFinding(
 		f.RollbackSQL = config.rollbackSQL
 		config.record(beforeState)
 	}
+	e.predictAction(ctx, f.RecommendedSQL, f.Detail, beforeState)
 	return config, e.runFindingSQL(ctx, *f, decision)
 }
 
@@ -334,15 +335,15 @@ func (e *Executor) watchVerifiedCreate(
 	}
 }
 
-// monitorFinding starts the rollback window for a reversible action, or
-// marks an irreversible one (VACUUM, ANALYZE) successful at once. The
+// monitorFinding starts the verification monitor for a reversible action,
+// or verifies an irreversible one (VACUUM, ANALYZE) by its metric at once. The
 // monitor is detached from the execution deadline; Shutdown aborts it.
 func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actionID int64) {
 	if actionID <= 0 {
 		return
 	}
 	if f.RollbackSQL == "" {
-		updateActionSuccess(ctx, e.pool, actionID)
+		e.verifyImmediate(ctx, actionID)
 		return
 	}
 	monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))

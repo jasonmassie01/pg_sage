@@ -152,6 +152,9 @@ func waitActionSettled(t *testing.T, fx *recFixture, actionID int64) {
 func TestRunCycleActsOnDurableRecommendationC07(t *testing.T) {
 	fx := newRecFixture(t, autovacuumProbe2, policy.VerdictExecute)
 	fx.exec.cfg.Trust.RollbackWindowMinutes = 0 // judge the outcome at once
+	// Phase 1.3 extends a window without evidence up to the verify cap; pin
+	// it so the outcome is still judged at once.
+	fx.exec.cfg.Verify.WindowMaxMinutes = 0
 	rec := fx.propose(t)
 
 	fx.exec.RunCycle(fx.ctx, false)

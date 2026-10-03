@@ -34,6 +34,8 @@ func (c *Config) LoweredElevation() []LoweredSetting {
 		add("verify.io_baseline_days", float64(c.Verify.IOBaselineDays),
 			DefaultIOBaselineDays, "days")
 	}
+	add("verify.drop_window_hours", float64(c.Verify.DropWindowHours),
+		DefaultVerifyDropWindowHours, "hours")
 	a, def := c.SRE.Autonomy, defaultSREAutonomyConfig()
 	add("sre.autonomy.evaluate_interval_minutes", float64(a.EvaluateIntervalMinutes),
 		float64(def.EvaluateIntervalMinutes), "minutes")

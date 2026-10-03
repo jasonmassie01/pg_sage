@@ -9,11 +9,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 type rowQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
@@ -44,59 +43,6 @@ func (s *PostgresObservationSource) QueryMeasurements(
 		result[id] = measurement
 	}
 	return result, nil
-}
-
-// queryMeasurementSQL differences the first and last query_store samples
-// in the window. A window that spans more than one statistics epoch -- a
-// counter decrease, a changed stats_epoch (reset or restart, even after
-// counters regrew), or an unknown epoch next to a known one -- yields no
-// calls, so verification treats it as insufficient evidence (R10). Samples
-// are written only when counters move, so the window starts at the last
-// sample before $2 when there is one within $4 (querystore.AnchorLookback).
-const queryMeasurementSQL = `WITH anchor AS (
-		SELECT max(captured_at) AS at FROM sage.query_store
-		WHERE queryid=$1 AND captured_at < $2 AND captured_at >= $2 - $4::interval
-	), samples AS (
-		SELECT calls, total_exec_time,
-			row_number() OVER (ORDER BY captured_at, id) AS first_row,
-			row_number() OVER (ORDER BY captured_at DESC, id DESC) AS last_row,
-			calls < lag(calls) OVER w
-				OR total_exec_time < lag(total_exec_time) OVER w
-				OR (row_number() OVER w > 1
-					AND stats_epoch IS DISTINCT FROM lag(stats_epoch) OVER w)
-				AS epoch_break
-		FROM sage.query_store
-		WHERE queryid=$1
-			AND captured_at BETWEEN COALESCE((SELECT at FROM anchor), $2) AND $3
-		WINDOW w AS (ORDER BY captured_at, id)
-	), bounds AS (
-		SELECT max(calls) FILTER (WHERE last_row=1) -
-			max(calls) FILTER (WHERE first_row=1) AS calls,
-			max(total_exec_time) FILTER (WHERE last_row=1) -
-			max(total_exec_time) FILTER (WHERE first_row=1) AS elapsed,
-			COALESCE(bool_or(epoch_break), false) AS broken
-		FROM samples
-	)
-	SELECT CASE WHEN broken THEN 0 ELSE COALESCE(calls, 0) END,
-		CASE WHEN NOT broken AND calls > 0 AND elapsed >= 0
-			THEN elapsed/calls ELSE 0 END
-	FROM bounds`
-
-func (s *PostgresObservationSource) queryMeasurement(
-	ctx context.Context, id int64, from, to time.Time,
-) (Measurement, error) {
-	var calls int64
-	var latencyMS float64
-	err := s.queryer.QueryRow(ctx, queryMeasurementSQL, id, from, to,
-		querystore.AnchorLookback).
-		Scan(&calls, &latencyMS)
-	if err != nil {
-		return Measurement{}, err
-	}
-	return Measurement{
-		Samples:        int(maxInt64(calls, 0)),
-		AverageLatency: time.Duration(latencyMS * float64(time.Millisecond)),
-	}, nil
 }
 
 func (s *PostgresObservationSource) WriteMeasurements(
@@ -349,13 +295,6 @@ func databaseVerdict(status string) string {
 		return "pending"
 	}
 	return status
-}
-
-func maxInt64(value, floor int64) int64 {
-	if value < floor {
-		return floor
-	}
-	return value
 }
 
 var _ ObservationSource = (*PostgresObservationSource)(nil)

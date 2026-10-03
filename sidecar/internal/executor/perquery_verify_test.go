@@ -6,31 +6,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
-// TestIsQueryRegressed covers the pure F1 regression decision.
-func TestIsQueryRegressed(t *testing.T) {
-	cases := []struct {
-		name              string
-		baseline, current float64
-		threshold         int
-		want              bool
-	}{
-		{"clear regression", 10, 15, 20, true},   // +50%
-		{"within threshold", 10, 11, 20, false},  // +10%
-		{"improved", 10, 5, 20, false},           // -50%
-		{"exactly at threshold", 10, 12, 20, false}, // +20% not > 20
-		{"just over threshold", 10, 12.1, 20, true},
-		{"zero baseline", 0, 100, 20, false},     // can't compute
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := isQueryRegressed(c.baseline, c.current, c.threshold); got != c.want {
-				t.Errorf("isQueryRegressed(%v,%v,%d) = %v, want %v",
-					c.baseline, c.current, c.threshold, got, c.want)
-			}
-		})
-	}
-}
-
 // TestTargetQueryIDs covers extraction from a finding's detail, including
 // the JSON-float and list cases.
 func TestTargetQueryIDs(t *testing.T) {

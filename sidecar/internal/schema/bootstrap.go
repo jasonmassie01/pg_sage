@@ -403,7 +403,8 @@ func migrationStatements() []string {
 		ddlAPIListIndexes(),
 		ddlSelfExclIndexes(),
 		ddlGuardHistoryIndexes(),
-		ddlApprovalCards)
+		ddlApprovalCards,
+		ddlActionOutcome())
 }
 
 // ---------------------------------------------------------------------------

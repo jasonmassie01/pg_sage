@@ -336,6 +336,7 @@
 | `tuner.verify_after_apply` | `restart` | `-` |
 | `tuner.work_mem_max_mb` | `restart` | `-` |
 | `value.toil_model_version` | `restart` | `-` |
+| `verify.drop_window_hours` | `restart` | `-` |
 | `verify.io_baseline_days` | `restart` | `-` |
 | `verify.io_baseline_hours` | `restart` | `-` |
 | `verify.io_capacity` | `restart` | `-` |

@@ -33,7 +33,7 @@ func TestWatchPersistsPendingThenTerminalState(t *testing.T) {
 
 func TestExtendedWatchPersistsNextEvaluationAndWindow(t *testing.T) {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 1, AverageLatency: time.Millisecond}
+	source.after[42] = Measurement{Samples: 1, AverageLatency: time.Millisecond, Buckets: 12}
 	store := newMemoryStateStore()
 	request := successfulWatchRequest("durable-extension")
 	verdict, err := newTestEngine(t, source, store).Watch(context.Background(), request)

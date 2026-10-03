@@ -66,6 +66,7 @@ func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager)
 	mux.HandleFunc(
 		"GET /api/v1/actions/{id}",
 		actionDetailHandler(mgr))
+	mux.HandleFunc("GET /api/v1/action-outcomes", actionOutcomesHandler(mgr))
 	registerRecommendationRoutes(mux, mgr)
 	mux.HandleFunc(
 		"GET /api/v1/forecasts", forecastsHandler(mgr))

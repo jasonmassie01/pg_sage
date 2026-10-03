@@ -15,6 +15,8 @@ import { LoadMore } from '../components/LoadMore'
 import { canRollBackRow, isQueuedRow, queuedLabels } from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
+import { VerificationOutcome } from '../components/VerificationOutcome'
+import { verdictLabel } from '../lib/verificationOutcome'
 import { RecommendationsTab } from './actions/RecommendationsTab'
 import { revisionPin } from './actions/recommendation'
 import { ApprovalCardDetail, PendingCardsView } from './actions/ApprovalCards'
@@ -28,6 +30,7 @@ function actionRisk(row) {
 }
 
 function verificationStatus(row) {
+  if (row.verification_outcome) return verdictLabel(row.verification_outcome.verdict)
   return row.verification_status || 'not_started'
 }
 
@@ -306,7 +309,7 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
             : <span style={{ color: 'var(--text-secondary)' }}>1</span>
         },
       }] : []),
-    ...(actions.some(r => r.verification_status)
+    ...(actions.some(r => r.verification_status || r.verification_outcome)
       ? [{
         key: 'verification_status', label: 'Verification',
         render: r => verificationStatus(r),
@@ -405,6 +408,7 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
               </div>
               <SQLBlock sql={row.sql_executed} />
             </div>
+            <VerificationOutcome outcome={row.verification_outcome} />
             {row.rollback_sql && (
               <div>
                 <div className="text-xs font-medium mb-1"

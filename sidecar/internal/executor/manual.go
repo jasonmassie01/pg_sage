@@ -131,16 +131,18 @@ func (r *manualRun) run(
 	if err := r.prepareConfig(ctx, beforeState); err != nil {
 		return 0, err
 	}
+	e.predictAction(ctx, r.sql, detailMap(r.detail), beforeState)
 	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID, r.claim)
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
+	e.recordPrediction(ctx, actionID, beforeState)
 	return actionID, nil
 }
 
-// verify starts the rollback monitor or records immediate success.
+// verify starts the verification monitor or verifies the action at once.
 func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 	if r.covered {
 		return nil
@@ -175,7 +177,7 @@ func (e *Executor) prepareManualCreateIndex(
 	actionID := e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
 		beforeState, nil, approvedBy, decisionID, nil)
 	if actionID > 0 {
-		updateActionSuccess(ctx, e.pool, actionID)
+		settleOutcome(ctx, e.pool, coveredIndexOutcome(actionID), e.logFn)
 	}
 	return true, actionID, nil
 }
@@ -202,14 +204,14 @@ func (e *Executor) runManualSQL(
 	return e.execManualSQLWithRetry(ctx, sql, e.ddlTimeout(), e.lockOption(sql, decision))
 }
 
-// finishManualAction starts the rollback monitor (which re-authorizes the
-// rollback against the live operator gates) or records immediate success.
+// finishManualAction starts the verification monitor (which re-authorizes
+// rollback against the live operator gates) or verifies the action at once.
 func (e *Executor) finishManualAction(ctx context.Context, actionID int64, rollbackSQL string) {
 	if actionID <= 0 {
 		return
 	}
 	if rollbackSQL == "" {
-		updateActionSuccess(ctx, e.pool, actionID)
+		e.verifyImmediate(ctx, actionID)
 		return
 	}
 	monitorCfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
