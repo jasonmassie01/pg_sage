@@ -186,7 +186,7 @@ func indexSupportsFKRequirement(
 
 func indexIsOnlyFKSupport(
 	idx collector.IndexStats,
-	all []collector.IndexStats,
+	byTable map[tableKey][]collector.IndexStats,
 	requirements map[tableKey][][]string,
 ) bool {
 	if !indexSupportsFKRequirement(idx, requirements) {
@@ -201,7 +201,7 @@ func indexIsOnlyFKSupport(
 		if !isLeadingSet(req, p.Columns) {
 			continue
 		}
-		for _, other := range all {
+		for _, other := range byTable[tableKey{schema, p.Table}] {
 			if other.IndexRelName == idx.IndexRelName &&
 				other.SchemaName == idx.SchemaName {
 				continue
@@ -213,6 +213,24 @@ func indexIsOnlyFKSupport(
 		return true
 	}
 	return false
+}
+
+// indexesByTable groups indexes by the (schema, table) their definition
+// names, the key indexCoversRequirement matches on, so a check looks only
+// at the indexes of its own table (it scanned every index of the database
+// for each unused FK-backing index before).
+func indexesByTable(all []collector.IndexStats) map[tableKey][]collector.IndexStats {
+	out := make(map[tableKey][]collector.IndexStats)
+	for _, idx := range all {
+		p := ParseIndexDef(idx.IndexDef)
+		schema := p.Schema
+		if schema == "" {
+			schema = idx.SchemaName
+		}
+		key := tableKey{schema, p.Table}
+		out[key] = append(out[key], idx)
+	}
+	return out
 }
 
 func indexCoversRequirement(
