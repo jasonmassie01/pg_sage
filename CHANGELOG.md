@@ -130,6 +130,25 @@
   sequence catalog query) are listed in `reviews/2026-10-03-perf-gate-report.md` for the
   next fix pass.
 
+- **Sage SRE, runway, earned autonomy and the analyzer read only what they need.** The
+  earned-autonomy reconcile, the autovacuum-cancellation probe, the verification watch
+  lookup and the investigations list each read their whole table on every pass; they now use
+  small indexes (added automatically at startup, one migration that checks the catalog
+  first). The startup migrations no longer scan `sage.incidents` or the autonomy events
+  when there is nothing to change. The analyzer's query-history check decoded every
+  snapshot of the lookback window on every cycle (224 ms on the performance gate); it now
+  decodes the first snapshot of each of at most 100 time buckets once and remembers it.
+  The forecaster decodes two snapshots per day once instead of every snapshot each cycle.
+  The plan-regression rule reads the newest two plans per query instead of every plan of
+  the week, and no longer stops on plans captured without an execution time. The
+  sequence-runway probe reads at most 2,000 sequences per statement and covers larger
+  catalogs in slices; the wraparound probe ranks tables before reading their statistics;
+  runway trends and the runway restart read one series at a time through the index. The
+  schema-health scan of `pg_attribute` runs only after a DDL change (checked every 5
+  minutes) or once an hour. SLO windows are computed from running totals stored with each
+  sample (a few index probes per series) instead of re-reading every sample every minute;
+  samples stored before the upgrade are still read the old way until they age out.
+
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
 ### What's new
