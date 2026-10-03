@@ -12,6 +12,12 @@
   plain. That wait blocks none of the table's readers or writers, so it is now bounded by the
   conversion's 10 minute statement timeout instead.
 
+- **Active and idle-in-transaction session counts are the application's sessions only.** The
+  system snapshot also counted autovacuum workers, logical replication senders and parallel
+  query workers of the database as active sessions, so a busy autovacuum or one parallel
+  query inflated the active backends the connection advisor, forecaster and lock analysis
+  read. They now count client sessions, as the connection states already did.
+
 ## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
 
 ### What's new
