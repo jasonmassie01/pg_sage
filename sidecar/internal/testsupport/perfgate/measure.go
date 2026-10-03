@@ -109,7 +109,7 @@ SELECT s.schemaname || '.' || s.relname,
        s.n_tup_ins + s.n_tup_upd + s.n_tup_del, s.n_tup_upd, s.n_tup_hot_upd,
        pg_total_relation_size(s.relid)
 FROM pg_stat_user_tables s JOIN pg_class c ON c.oid = s.relid
-WHERE s.schemaname = 'sage'`
+WHERE s.schemaname = 'sage' AND c.relkind <> 'p'`
 
 // ReadTableStats reads the counters of every sage table and partition.
 func ReadTableStats(ctx context.Context, q Querier) (TableStats, error) {
