@@ -15,7 +15,7 @@ import (
 // (perf-selfexcl). The window is an index range of the rolled-back
 // actions' measured_at.
 func TestRollbackHistoryIsAMeasuredAtRange(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := recStorePool(t)
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.action_log (executed_at, action_type,
 		sql_executed, outcome, measured_at)
 		SELECT now() - g * interval '1 minute', 'create_index', 'rollback_plan_probe',
