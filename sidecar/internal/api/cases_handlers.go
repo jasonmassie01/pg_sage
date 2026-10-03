@@ -393,7 +393,7 @@ func queryActionLogsByFindingIDs(
 	if pool == nil || len(findingIDs) == 0 {
 		return out, nil
 	}
-	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+`
+	rows, err := pool.Query(ctx, actionsWithAttemptsSQL(`SELECT * FROM sage.action_log
  WHERE id IN (
      SELECT id
      FROM (
@@ -406,8 +406,7 @@ func queryActionLogsByFindingIDs(
          WHERE finding_id = ANY($1)
      ) ranked
      WHERE rn <= 20
- )
- ORDER BY finding_id, executed_at DESC, id DESC`, findingIDs)
+ )`, "", "\n ORDER BY finding_id, executed_at DESC, action_log.id DESC"), findingIDs)
 	if err != nil {
 		return nil, err
 	}

@@ -33,13 +33,15 @@ func timeWindowSQL(col string, from, to time.Time, args []any) (string, []any) {
 
 // buildActionLogPageSQL selects up to limit executed actions after cur,
 // newest first, through idx_action_log_time_id; attempts are counted for
-// those rows only, inside the same time window.
+// the page's statements only, inside the same time window. The rows come
+// back unordered: mergePage orders them.
 func buildActionLogPageSQL(from, to time.Time, cur *listCursor, source string,
 	limit int) (string, []any) {
 	window, args := timeWindowSQL("executed_at", from, to, nil)
 	attemptsWindow, _ := timeWindowSQL("a2.executed_at", from, to, nil)
-	return keysetPageSQL(actionsSelectSQL(attemptsWindow)+" WHERE true"+window,
+	rows, args := keysetPageSQL("SELECT * FROM sage.action_log WHERE true"+window,
 		actionLogKeys, cur, source, limit, args)
+	return actionsWithAttemptsSQL(rows, attemptsWindow, ""), args
 }
 
 // buildQueuedLedgerPageSQL selects up to limit not-yet-executed proposals
