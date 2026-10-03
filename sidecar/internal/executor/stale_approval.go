@@ -54,13 +54,16 @@ func (e *Executor) currentGateEvidence(
 	default:
 		f.Detail = overlayGateEvidence(f.Detail, live)
 	}
-	queueID, rejected, err := e.rejectedContent(ctx, f, findingID, cand)
+	queueID, hold, err := e.operatorHold(ctx, f, findingID, cand)
 	switch {
 	case err != nil:
 		e.logFn("executor", "read operator decisions on %q: %v", f.Title, err)
 		return withApprovalReason(f, "operator decisions on this change could not be read")
-	case rejected:
+	case hold == "rejected":
 		return requireApprovalAfterRejection(f, queueID)
+	case hold == "snoozed":
+		return withApprovalReason(f, fmt.Sprintf(
+			"an operator snoozed this exact change (queue item %d)", queueID))
 	}
 	return f
 }
@@ -99,22 +102,29 @@ func withApprovalReason(f analyzer.Finding, reason string) analyzer.Finding {
 	return f
 }
 
-// rejectedContent reports an operator rejection of exactly f's content.
-func (e *Executor) rejectedContent(
+// operatorHold reports an operator's "no" (rejected) or "not now" (a running
+// snooze of a pending proposal) on exactly f's content, with its queue item.
+func (e *Executor) operatorHold(
 	ctx context.Context, f analyzer.Finding, findingID int64,
 	cand *recommendation.Candidate,
-) (int, bool, error) {
-	rows, err := loadQueuedApprovals(ctx, e.pool, []string{"rejected"}, findingID,
-		f.RecommendedSQL, cand, false)
+) (int, string, error) {
+	rows, err := loadQueuedApprovals(ctx, e.pool, []string{"rejected", "pending"},
+		findingID, f.RecommendedSQL, cand, false)
 	if err != nil {
-		return 0, false, err
+		return 0, "", err
 	}
 	for _, q := range rows {
-		if q.sameContent(f.RecommendedSQL, cand) {
-			return q.ID, true, nil
+		if !q.sameContent(f.RecommendedSQL, cand) {
+			continue
+		}
+		if q.Status == "rejected" {
+			return q.ID, "rejected", nil
+		}
+		if q.Snoozed && !q.Expired {
+			return q.ID, "snoozed", nil
 		}
 	}
-	return 0, false, nil
+	return 0, "", nil
 }
 
 // whatIfVerified reports a HypoPG what-if verdict of verified.

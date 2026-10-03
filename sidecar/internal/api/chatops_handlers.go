@@ -46,6 +46,7 @@ type chatopsDeps struct {
 	mgr       *fleet.DatabaseManager
 	channels  *store.NotificationStore
 	ids       *chatops.Store
+	cards     *chatops.CardStore
 	tolerance time.Duration
 }
 
@@ -53,7 +54,7 @@ type chatopsDeps struct {
 // the admin identity mapping routes on the session-authenticated API mux.
 func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	mgr *fleet.DatabaseManager, cfg *config.Config, rt RuntimeDeps) {
-	d := &chatopsDeps{mgr: mgr, ids: chatops.NewStore(pool),
+	d := &chatopsDeps{mgr: mgr, ids: chatops.NewStore(pool), cards: chatops.NewCardStore(pool),
 		channels:  store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey),
 		tolerance: 5 * time.Minute}
 	if cfg != nil {
@@ -87,6 +88,10 @@ func (d *chatopsDeps) callbackHandler(provider string) http.HandlerFunc {
 		}
 		user, ok := d.authorize(w, r, ch, a)
 		if !ok {
+			return
+		}
+		if a.CardToken != "" {
+			d.decideCard(w, r, ch, a, user)
 			return
 		}
 		d.decide(w, r, ch, a, user)

@@ -85,6 +85,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 	// but never scheduled (F4). Dormant when no agent DBs exist.
 	if authPool != nil {
 		startAgentDBReconciler(shutdownCtx, authPool)
+		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
 	}
 }
 

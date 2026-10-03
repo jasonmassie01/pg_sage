@@ -150,6 +150,9 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "briefings", timeCol: "generated_at", days: r.FindingsDays},
 		{table: "alert_log", timeCol: "sent_at", days: r.ActionsDays},
 		{table: "notification_log", timeCol: "sent_at", days: r.ActionsDays},
+		// Approval cards age from their follow-up (open cards are closed by the
+		// follow-up worker after 14 days).
+		{table: "approval_card_deliveries", timeCol: "followed_up_at", days: r.ActionsDays},
 		{table: "action_log", timeCol: "executed_at", days: r.ActionsDays, extra: keepActionLog},
 		{table: "verification", timeCol: "created_at", days: r.ActionsDays,
 			extra: keepVerification},

@@ -20,6 +20,8 @@ type queuedApproval struct {
 	RecommendationID *int64
 	ContentHash      string
 	SQL              string
+	// Snoozed: an operator deferred this pending proposal ("not now").
+	Snoozed bool
 }
 
 // sameContent reports whether the proposal approves exactly sql: a pinned
@@ -41,7 +43,8 @@ type rowsQuerier interface {
 }
 
 const queuedApprovalsSQL = `/* pg_sage */ SELECT id, status, expires_at <= now(),
-	recommendation_id, COALESCE(content_hash, ''), proposed_sql
+	recommendation_id, COALESCE(content_hash, ''), proposed_sql,
+	COALESCE(snoozed_until > now(), false)
 	FROM sage.action_queue
 	WHERE status = ANY($4)
 	  AND (finding_id = $1 OR recommendation_id = $2 OR proposed_sql = $3)
@@ -68,7 +71,7 @@ func loadQueuedApprovals(
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (queuedApproval, error) {
 		var a queuedApproval
 		err := row.Scan(&a.ID, &a.Status, &a.Expired, &a.RecommendationID,
-			&a.ContentHash, &a.SQL)
+			&a.ContentHash, &a.SQL, &a.Snoozed)
 		return a, err
 	})
 }
@@ -76,8 +79,9 @@ func loadQueuedApprovals(
 // classifyQueuedApprovals decides what an authorized change does about the
 // live proposals around it: the unexpired pending proposals of exactly its
 // content are superseded; an approved (or approved and failed) proposal,
-// an operator rejection of this content, or a pending proposal of other
-// content blocks it. Expired and other-content rejections are ignored.
+// an operator rejection or running snooze of this content, or a pending
+// proposal of other content blocks it. Expired and other-content
+// rejections are ignored.
 func classifyQueuedApprovals(
 	rows []queuedApproval, sql string, cand *recommendation.Candidate,
 ) (supersede []int, blocked string) {
@@ -93,6 +97,9 @@ func classifyQueuedApprovals(
 			continue
 		case !same:
 			return nil, fmt.Sprintf("pending proposal %d is for different content", q.ID)
+		case q.Snoozed:
+			return nil, fmt.Sprintf("an operator snoozed this exact change (queue item %d)",
+				q.ID)
 		}
 		supersede = append(supersede, q.ID)
 	}

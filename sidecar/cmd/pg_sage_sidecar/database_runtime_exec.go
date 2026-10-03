@@ -90,7 +90,7 @@ func (rt *databaseRuntime) buildExecutor() {
 			"fail-closed: %v", rt.spec.Name, err)
 	}
 	if rt.dispatcher != nil {
-		ex.WithDispatcher(rt.dispatcher)
+		ex.WithDispatcher(executorDispatcher(rt.dispatcher, rt.spec.Pool, rt.spec.Name, ex))
 	}
 	ex.WithDatabaseName(rt.spec.Name)
 	if rt.llmOn {

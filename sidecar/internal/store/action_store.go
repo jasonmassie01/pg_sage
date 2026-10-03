@@ -286,13 +286,22 @@ const queuedActionSelectSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
 func (s *ActionStore) Approve(
 	ctx context.Context, queueID, userID int,
 ) (*QueuedAction, error) {
+	return s.approve(ctx, queueID, userID, nil)
+}
+
+// approve approves a pending queue row; a non-nil expectSQL also requires
+// its proposed SQL to be exactly that text (an approval card's SQL).
+func (s *ActionStore) approve(
+	ctx context.Context, queueID, userID int, expectSQL *string,
+) (*QueuedAction, error) {
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var a QueuedAction
 	err := pgx.BeginFunc(qctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		a, err = scanQueuedAction(tx.QueryRow(qctx, approveQueuedSQL, userID, queueID))
+		a, err = scanQueuedAction(tx.QueryRow(qctx, approveQueuedSQL, userID, queueID,
+			expectSQL))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return refusedApproval(qctx, tx, queueID, err)
 		}
@@ -332,6 +341,7 @@ const approveQueuedSQL = `/* pg_sage */ UPDATE sage.action_queue q
 	   AND q.status = 'pending'
 	   AND q.expires_at > now()
 	   AND (q.cooldown_until IS NULL OR q.cooldown_until <= now())
+	   AND ($3::text IS NULL OR q.proposed_sql = $3)
 	   AND EXISTS (
 	       SELECT 1 FROM sage.findings f
 	        WHERE f.id = q.finding_id

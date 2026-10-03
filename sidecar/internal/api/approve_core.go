@@ -33,6 +33,15 @@ func (r *approvalRefusal) write(w http.ResponseWriter, queueID int) {
 // manual path. The browser approval and ChatOps share it.
 func approveAndRun(ctx context.Context, as *store.ActionStore, exec *executor.Executor,
 	queueID, userID int) (map[string]any, *approvalRefusal) {
+	return approveAndRunExpecting(ctx, as, exec, queueID, userID, "")
+}
+
+// approveAndRunExpecting is approveAndRun bound to the SQL an approval card
+// showed: a non-empty expectSQL must still be the item's proposed SQL when
+// it is approved, in the same statement (single use, content match).
+func approveAndRunExpecting(ctx context.Context, as *store.ActionStore,
+	exec *executor.Executor, queueID, userID int,
+	expectSQL string) (map[string]any, *approvalRefusal) {
 	action, err := as.GetByID(ctx, queueID)
 	if err != nil {
 		slog.Error("approve action failed", "action_id", queueID, "error", err)
@@ -43,7 +52,11 @@ func approveAndRun(ctx context.Context, as *store.ActionStore, exec *executor.Ex
 		return nil, &approvalRefusal{status: http.StatusConflict,
 			msg: "action is not eligible: " + reason}
 	}
-	action, err = as.Approve(ctx, queueID, userID)
+	if expectSQL != "" {
+		action, err = as.ApproveExpecting(ctx, queueID, userID, expectSQL)
+	} else {
+		action, err = as.Approve(ctx, queueID, userID)
+	}
 	if err != nil {
 		return nil, &approvalRefusal{approveErr: err}
 	}
@@ -89,7 +102,7 @@ func approvalBlocked(ctx context.Context, as *store.ActionStore, exec *executor.
 	if reason == "" {
 		reason = "action is not eligible for approval"
 	}
-	if as != nil {
+	if as != nil && action.Status == "pending" {
 		_ = as.MarkReadinessOutcome(ctx, action.ID, readinessOutcomeStatus(readiness),
 			reason)
 	}
