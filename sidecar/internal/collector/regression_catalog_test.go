@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
@@ -60,20 +61,41 @@ func TestCollectLocksAndActivity_ScopedToCurrentDatabase(t *testing.T) {
 				lk.LockType, lk.Mode, otherPID)
 		}
 	}
-	s, err := c.collectSystem(ctx)
-	if err != nil {
-		t.Fatalf("collectSystem: %v", err)
+	assertLocalIdleInTransaction(t, ctx, pool, c)
+}
+
+// assertLocalIdleInTransaction checks the snapshot's idle-in-transaction
+// count against this database's, read just before and just after it: a
+// session of this database changing state in between would make two
+// separate reads disagree, so such a window is measured again.
+func assertLocalIdleInTransaction(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	c *Collector) {
+	t.Helper()
+	local := func() int {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE state = 'idle in transaction' AND datname = current_database()
+			  AND backend_type = 'client backend'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
 	}
-	var local int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
-		WHERE state = 'idle in transaction' AND datname = current_database()`,
-	).Scan(&local); err != nil {
-		t.Fatal(err)
+	for range 5 {
+		before := local()
+		s, err := c.collectSystem(ctx)
+		if err != nil {
+			t.Fatalf("collectSystem: %v", err)
+		}
+		if after := local(); after != before {
+			continue
+		}
+		if s.IdleInTransaction != before {
+			t.Fatalf("idle_in_transaction = %d, want %d (current database only)",
+				s.IdleInTransaction, before)
+		}
+		return
 	}
-	if s.IdleInTransaction != local {
-		t.Fatalf("idle_in_transaction = %d, want %d (current database only)",
-			s.IdleInTransaction, local)
-	}
+	t.Fatal("this database's idle-in-transaction sessions kept changing over 5 reads")
 }
 
 // G1-B18: a pagination error must not leave the keyset cursor behind;
