@@ -83,14 +83,33 @@ func (c *Cleaner) enforceSnapshotCap(ctx context.Context, t partition.Table,
 	return true
 }
 
+// trimSkipWindow: an open history partition that closes within it is not
+// trimmed. Once closed it is dropped whole, which returns all its space at
+// once, while trimming it first would delete rows (and write about as much
+// WAL as it deletes) that are about to go anyway: on lifeos ~6 GB of WAL
+// ~34 h before the drop, with ~6 GB of disk free. pg_sage's conversion
+// bounds the history partition at the second UTC midnight after it, so
+// the partitions it makes close within 48 h: only a bound pushed further
+// out (rows dated ahead at the conversion, up to a week) is trimmed.
+const trimSkipWindow = 48 * time.Hour
+
 // capHistory removes the history partition's share of the excess: an open
-// one is trimmed, a closed one dropped. settled reports that the cap needs
+// one is trimmed unless it closes within trimSkipWindow, a closed one is
+// dropped. settled reports that the cap needs
 // nothing more this run (done is then false when the deadline cut the trim
 // short); otherwise the history partition is gone or empty, and u is the
 // table measured again.
 func (c *Cleaner) capHistory(ctx context.Context, t partition.Table, u capUsage, limit int64,
 	stats *RunStats, deadline time.Time) (capUsage, bool, bool) {
-	if u.open(time.Now()) {
+	now := time.Now()
+	if u.open(now) && u.hist.Upper.Sub(now) <= trimSkipWindow {
+		c.note(t.Name, "closing", "WARN", "retention: sage.%s is %d MB, over its %d MB cap; "+
+			"its history partition sage.%s closes at %s and will be dropped whole then: not "+
+			"trimming before (that would write WAL for rows about to go anyway)", t.Name,
+			u.live>>20, limit>>20, u.hist.Name, u.hist.Upper.UTC().Format(time.RFC3339))
+		return u, true, true
+	}
+	if u.open(now) {
 		if done, settled := c.trimHistory(ctx, t, u, limit, stats, deadline); !done || settled {
 			return u, done, true
 		}

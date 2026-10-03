@@ -16,8 +16,9 @@ import (
 // since. While it is open (its bound is ahead), writers still put today's
 // rows in it and no day can be dropped before it, so the size cap trims
 // it: its oldest rows are deleted in paced batches (TID arrays, a pause
-// between statements, the run's time and byte budgets, resumed by the next
-// run) until the live data fits. Once it is closed, the cap drops it whole.
+// between statements, the run's time and byte budgets, resumed by a later
+// run) until the live data fits, unless it closes within trimSkipWindow.
+// Once it is closed, the cap drops it whole.
 //
 // Space: a DELETE frees no disk space. Autovacuum makes the trimmed space
 // reusable, but only by rows of the same partition: the rows still landing
