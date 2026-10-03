@@ -418,5 +418,9 @@ All touched packages meet their thresholds: business packages are 78.7–95.6% a
 - **Leftover fixture databases.** Killed runs leave `pgsage_*` databases behind; several
   exist on the matrix servers. I dropped only those I could attribute to my helper tests
   (`pgsage_x_visibility_*`) and left the rest.
+- **Merged with master after v1.8.4 was cut.** The changelog bullet stays under a new
+  `## Unreleased`. After the merge, `go vet ./...`, lint and the touched packages
+  (`perfgate`, `schema`, `collector`, `executor`, `testdb`, `selfload`, `value`,
+  `cmd/pg_sage_sidecar`) were re-run on PG17: all ok.
 - **Not done:** CI itself was not re-run on this branch before the PR. The PR's own run is
   the first CI check.
