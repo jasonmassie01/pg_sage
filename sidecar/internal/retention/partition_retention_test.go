@@ -31,17 +31,18 @@ func rebound(t *testing.T, ctx context.Context, tbl partition.Table, daysBack in
 			}
 		}
 	}
-	tx, err := testPool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	// Looked up before the transaction: the test pool has one connection.
 	detach := fmt.Sprintf("ALTER TABLE sage.%s DETACH PARTITION sage.%s", tbl.Name,
 		tbl.HistoryName())
 	if !relationExists(t, ctx, "sage."+tbl.HistoryName()) {
 		detach = fmt.Sprintf(`CREATE TABLE sage.%s (LIKE sage.%s INCLUDING DEFAULTS
 			INCLUDING CONSTRAINTS INCLUDING STORAGE)`, tbl.HistoryName(), tbl.Name)
 	}
+	tx, err := testPool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	for _, stmt := range []string{
 		fmt.Sprintf("TRUNCATE sage.%s", tbl.Name),
 		detach,
