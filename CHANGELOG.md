@@ -20,6 +20,22 @@
 
 ### Changed (read before upgrading)
 
+- **pg_sage keeps its own data small and cleans it up without a DBA.** Its query
+  history and snapshot tables are now split into one partition per day, so old data is
+  removed by dropping a whole day (instant, no vacuum, disk space returned at once) instead
+  of deleting rows; existing tables are converted in place on first start (the old rows
+  stay readable and go when they age out). The per-query history now records a query only
+  when its numbers changed (plus once an hour), in one write per minute instead of one per
+  query, and keeps 14 days (`retention.query_store_days`) instead of following the 90-day
+  snapshot window. Snapshots are capped at 5% of the database (`retention.snapshots_max_pct`,
+  never below 256 MB), oldest days first. Cleanup runs in small, paced batches with a 30 s
+  limit per run, also covers the approval queue and the agent database tables, and expires
+  cached explanations when they expire. pg_sage also stops rewriting rows that did not
+  change (change feed cursors, incidents and their causal chains) and stops indexing a
+  column it updates every cycle, so updates of findings no longer leave dead index entries.
+  Upgrading converts `sage.query_store` and `sage.snapshots` once at startup: expect a
+  short pause while the old tables are checked.
+
 - **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
   grows too big.** The collector used to store the full list of every table, index,
   sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal
