@@ -63,6 +63,9 @@ const (
 const (
 	PredictionTolerance = 0.5
 	NoChangeBandPct     = 10.0
+	// partialShare: a change in the predicted direction smaller than this
+	// share of the prediction is noise, not a partial effect.
+	partialShare = 0.1
 )
 
 // Prediction is the structured effect an action is expected to have,
@@ -133,9 +136,9 @@ func DecidedVerdict(v string) bool {
 
 // ToleranceVerdict compares the observed change with the prediction. A
 // change predicted as zero is met inside NoChangeBandPct; otherwise the
-// observed change must go the predicted way and reach
-// PredictionTolerance of it (met), go that way but less (partial), or it
-// missed.
+// observed change must go the predicted way and reach PredictionTolerance
+// of it (met), go that way by more than partialShare of it (partial), or
+// it missed.
 func ToleranceVerdict(p Prediction, verdict string, observedPct *float64) string {
 	if !p.Predicts() {
 		return ToleranceNoPrediction
@@ -158,7 +161,7 @@ func ToleranceVerdict(p Prediction, verdict string, observedPct *float64) string
 	switch {
 	case toward >= math.Abs(expected)*(1-PredictionTolerance):
 		return ToleranceMet
-	case toward > 0:
+	case toward > math.Abs(expected)*partialShare:
 		return TolerancePartial
 	}
 	return ToleranceMissed

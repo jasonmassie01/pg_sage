@@ -19,13 +19,13 @@ import (
 // is judged against what it targeted, and the verdict lands in
 // sage.action_outcome with predicted vs observed.
 
-type actionRow struct {
+type verifiedActionRow struct {
 	class, sql, rollback, before string
 	executedAt                   time.Time
 	decisionID                   int64
 }
 
-func insertVerifiedAction(t *testing.T, pool *pgxpool.Pool, row actionRow) int64 {
+func insertVerifiedAction(t *testing.T, pool *pgxpool.Pool, row verifiedActionRow) int64 {
 	t.Helper()
 	var id int64
 	var decision any
@@ -121,7 +121,7 @@ func dropAction(t *testing.T, pool *pgxpool.Pool, table, index string, qid int64
 	p := rulePrediction(0)
 	p.Class, p.Metric, p.TargetQueryIDs = verify.ClassIndexDrop,
 		verify.MetricMeanExecTime, []int64{qid}
-	id := insertVerifiedAction(t, pool, actionRow{
+	id := insertVerifiedAction(t, pool, verifiedActionRow{
 		sql: "DROP INDEX CONCURRENTLY public." + index, rollback: rollback,
 		before: beforeStateJSON(p, fixtureBaselineMs, nil), executedAt: executedAt})
 	return id, rollback
@@ -146,7 +146,7 @@ func TestOutcome_IndexCreateImprovingTargetsIsImproved(t *testing.T) {
 	before := map[string]any{"predicted_effect": p, "target_queryids": []int64{qid}}
 	exec.recordCreatedIndexIdentity(ctx, name, before)
 	raw, _ := json.Marshal(before)
-	id := insertVerifiedAction(t, pool, actionRow{
+	id := insertVerifiedAction(t, pool, verifiedActionRow{
 		sql:      "CREATE INDEX CONCURRENTLY " + table + "_vo ON public." + table + " (a)",
 		rollback: "DROP INDEX CONCURRENTLY IF EXISTS " + name, before: string(raw),
 		executedAt: executedAt, decisionID: insertParkDecision(t, ctx, pool)})
@@ -157,6 +157,7 @@ func TestOutcome_IndexCreateImprovingTargetsIsImproved(t *testing.T) {
 	err := exec.indexVerification.WatchApplied(ctx, verifiedIndexAction{
 		WatchID: fmt.Sprintf("index-action-%d", id), Table: "public." + table,
 		IndexName: name, QueryIDs: []int64{qid},
+		Criterion:   verify.Criterion{Kind: "per_query_latency"},
 		RollbackSQL: "DROP INDEX CONCURRENTLY IF EXISTS " + name}, id)
 	if err != nil {
 		t.Fatalf("WatchApplied: %v", err)
@@ -334,20 +335,28 @@ func TestOutcome_DropIsNotDecidedBeforeBusinessCycle(t *testing.T) {
 // credited, not rolled back.
 func TestOutcome_GUCWithoutMeasurableEffectIsNeutral(t *testing.T) {
 	pool, ctx := requireDB(t)
-	var tempFiles float64
-	if err := pool.QueryRow(ctx, `SELECT temp_files::float8 FROM pg_stat_database
-		WHERE datname = current_database()`).Scan(&tempFiles); err != nil {
-		t.Fatalf("read temp files: %v", err)
+	// The workload spilled before the change (a fresh test database has no
+	// temp files, which is "nothing to improve", not "no effect"): the
+	// pre-change rate predicts exactly the spills seen since, so the
+	// change made no measurable difference.
+	start := forceTempSpill(t, ctx, pool)
+	current := start
+	for i := 0; i < 20 && current-start < 4; i++ {
+		current = forceTempSpill(t, ctx, pool)
+	}
+	if current-start < 3 {
+		t.Fatalf("could not produce enough temp-file spills (%v)", current-start)
 	}
 	at := time.Now().Add(-10 * time.Minute).UTC()
 	baseline := outcomeBaseline{Metric: metricTempSpills, At: at,
-		Counters: map[string]float64{"temp_files": tempFiles - 10, "rate_per_sec": 10.0 / 600}}
+		Counters: map[string]float64{"temp_files": start,
+			"rate_per_sec": (current - start) / 600}}
 	p := configPrediction(metricTempSpills)
 	p.Class = verify.ClassGUC
 	raw, _ := json.Marshal(map[string]any{"predicted_effect": p,
 		"config_change": map[string]any{"kind": "guc", "name": "work_mem",
 			"outcome": baseline}})
-	id := insertVerifiedAction(t, pool, actionRow{
+	id := insertVerifiedAction(t, pool, verifiedActionRow{
 		sql: "ALTER SYSTEM SET work_mem = '64MB'", rollback: "ALTER SYSTEM RESET work_mem",
 		before: string(raw), executedAt: at, decisionID: insertParkDecision(t, ctx, pool)})
 	rec := &recordedRollback{}
@@ -357,7 +366,8 @@ func TestOutcome_GUCWithoutMeasurableEffectIsNeutral(t *testing.T) {
 
 	outcome, credited := actionOutcomeFor(t, pool, id)
 	if outcome != "success" || credited || rec.calls != 0 {
-		t.Fatalf("outcome = %q credited=%v rollbacks=%d, want kept, uncredited", outcome,
+		t.Fatalf("outcome = %q (%s) credited=%v rollbacks=%d, want kept, uncredited", outcome,
+			actionReason(t, ctx, pool, id),
 			credited, rec.calls)
 	}
 	got := storedOutcome(t, pool, id)
@@ -379,7 +389,7 @@ func TestOutcome_TooFewCallsIsInsufficientEvidence(t *testing.T) {
 	p := rulePrediction(-30)
 	p.Class, p.Metric, p.TargetQueryIDs = verify.ClassIndexCreate,
 		verify.MetricMeanExecTime, []int64{qid}
-	id := insertVerifiedAction(t, pool, actionRow{
+	id := insertVerifiedAction(t, pool, verifiedActionRow{
 		sql:      "CREATE INDEX CONCURRENTLY vo_few ON public.t (a)",
 		rollback: "DROP INDEX CONCURRENTLY IF EXISTS public.vo_few",
 		before:   beforeStateJSON(p, fixtureBaselineMs, nil), executedAt: executedAt,
@@ -427,7 +437,7 @@ func TestOutcome_VacuumVerifiedByDeadTuples(t *testing.T) {
 		t.Fatalf("vacuum prediction baseline = %v, want the dead tuples", p.Baseline)
 	}
 	raw, _ := json.Marshal(before)
-	id := insertVerifiedAction(t, pool, actionRow{sql: sql, before: string(raw),
+	id := insertVerifiedAction(t, pool, verifiedActionRow{sql: sql, before: string(raw),
 		executedAt: time.Now().UTC()})
 	if _, err := pool.Exec(ctx, sql); err != nil {
 		t.Fatalf("vacuum: %v", err)

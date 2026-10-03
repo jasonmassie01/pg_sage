@@ -41,13 +41,17 @@ const queryIntervalsSQL = `/* pg_sage */ WITH anchor AS (
 	GROUP BY floor(extract(epoch FROM captured_at) / $5)
 	ORDER BY floor(extract(epoch FROM captured_at) / $5)`
 
+// minBucket is the finest bucket. Empty buckets do not count, so a bucket
+// finer than the collector's cadence holds one sample interval.
+const minBucket = 5 * time.Second
+
 // bucketWidth sizes the time buckets of a window: about 48 buckets, never
-// finer than a minute (the collector's cadence) or coarser than 6 hours.
+// finer than minBucket or coarser than 6 hours.
 func bucketWidth(window time.Duration) time.Duration {
 	width := window / 48
 	switch {
-	case width < time.Minute:
-		return time.Minute
+	case width < minBucket:
+		return minBucket
 	case width > 6*time.Hour:
 		return 6 * time.Hour
 	}

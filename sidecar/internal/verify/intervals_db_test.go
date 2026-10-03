@@ -83,8 +83,9 @@ func TestBucketWidthScalesWithWindow(t *testing.T) {
 	cases := []struct {
 		window, want time.Duration
 	}{
-		{0, time.Minute},
-		{10 * time.Minute, time.Minute},
+		{0, 5 * time.Second},
+		{10 * time.Minute, 12500 * time.Millisecond},
+		{2 * time.Minute, 5 * time.Second},
 		{2 * time.Hour, 150 * time.Second},
 		{7 * 24 * time.Hour, 3*time.Hour + 30*time.Minute},
 		{60 * 24 * time.Hour, 6 * time.Hour},
