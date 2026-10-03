@@ -133,7 +133,9 @@ func TestShippedSignedReportIsIngestedAtStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	image := t.TempDir()
-	at := time.Now().UTC().Truncate(time.Second)
+	// In the past: the package's tests share one deployment, and a later
+	// test's newer report must win (newest report per family).
+	at := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
 	build := earned.Build{Version: "1.8.5", Commit: releaseCommit}
 	writeShippedReport(t, image, "core", at, build, "lock_blocking", true)
 	writeShippedReport(t, image, "runway", at.Add(time.Second), build,
