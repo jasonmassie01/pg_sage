@@ -323,3 +323,40 @@ func TestTrimSQL_KeepsBasesPastAnUnsafeBoundary(t *testing.T) {
 	}
 	assertStillReadable(t, ctx, before)
 }
+
+// Each run trims at most trimBudget bytes of documents (a DELETE of TOAST
+// rows writes about as much WAL, full-page images included), checked after
+// each statement. Reaching it ends the trim for this run without spending
+// the run: the other tables are still purged, and the next run goes on.
+func TestSnapshotCap_TrimStopsAtItsByteBudgetPerRun(t *testing.T) {
+	pool, ctx := requireDB(t)
+	rebound(t, ctx, partition.Snapshots, -2)
+	cleanCapRows(t, ctx)
+	today := partition.DayStart(time.Now())
+	var ids []int64
+	for i := 0; i < 120; i++ {
+		ids = append(ids, insertBlob(t, ctx,
+			today.AddDate(0, 0, -2).Add(time.Duration(i)*time.Minute), 4))
+	}
+	batch := dataBytes(t, ctx, ids[:snapshotBatchSize])
+	logs := &captureLog{}
+	c := New(pool, snapshotCfg(), logs.log)
+	c.capBytes = 1
+	c.trimBudget = batch + batch/2 // the second statement crosses it
+	first := c.RunOnce(ctx)
+	if first.Deleted["snapshots"] != 100 || first.BudgetSpent {
+		t.Fatalf("first run = %+v, want 100 rows and the run's time budget unspent", first)
+	}
+	if got := remainingIDs(t, ctx); !slices.Equal(got, ids[100:]) {
+		t.Fatalf("remaining = %v, want the 20 newest", got)
+	}
+	if logs.contains("WARN", "nothing older than today") {
+		t.Fatalf("a paused trim was reported as stuck: %v", logs.lines)
+	}
+	if second := c.RunOnce(ctx); second.Deleted["snapshots"] != 20 {
+		t.Fatalf("second run deleted %d rows, want the last 20", second.Deleted["snapshots"])
+	}
+	if New(nil, snapshotCfg(), noopLog).trimBudget != defaultTrimBudget {
+		t.Fatal("a new cleaner does not use the default trim budget")
+	}
+}
