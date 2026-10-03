@@ -99,7 +99,7 @@ func newLegacyFixture(t *testing.T, category string, detail map[string]any,
 	}
 	fx := &staleFixture{pool: pool, ctx: ctx, table: table, database: "legacy_" + table,
 		recs: recommendation.NewStore(pool), queue: store.NewActionStore(pool),
-		trust: "autonomous"}
+		trust: "autonomous", policy: unlimitedWindowPolicy()}
 	index := fx.index()
 	fx.f = analyzer.Finding{Category: category, Severity: "warning", ObjectType: "index",
 		ObjectIdentifier: "public." + table, Title: "index recommendation for " + table,

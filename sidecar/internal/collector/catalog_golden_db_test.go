@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Golden comparison (perf fix phase, measured.md M1/M3): the rewritten
@@ -83,20 +84,9 @@ func createGoldenCatalog(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 // flushStats makes the activity of conn visible to other backends.
 func flushStats(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	var v int
-	if err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").
-		Scan(&v); err != nil {
-		t.Fatalf("version: %v", err)
+	if err := testdb.FlushStats(ctx, conn); err != nil {
+		t.Fatalf("flush statistics: %v", err)
 	}
-	if v >= 150000 {
-		if _, err := conn.Exec(ctx, "SELECT pg_stat_force_next_flush()"); err != nil {
-			t.Fatalf("flush stats: %v", err)
-		}
-		if _, err := conn.Exec(ctx, "SELECT 1"); err != nil {
-			t.Fatalf("flush stats: %v", err)
-		}
-	}
-	time.Sleep(1500 * time.Millisecond) // PG14's collector, and PG15+ idle flush
 }
 
 func legacyTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[string]TableStats {

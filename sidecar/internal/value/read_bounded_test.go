@@ -20,7 +20,8 @@ import (
 // the credited actions in the window, never the rest of the ledger.
 
 // seedLedger adds n uncredited actions (failures, rollbacks and successes
-// without credit) and the credited ones, then analyzes the table.
+// without credit) and the credited ones, then vacuums and analyzes the
+// table until its visibility map covers it.
 func seedLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int,
 	credited map[time.Time]float64) {
 	t.Helper()
@@ -42,8 +43,11 @@ func seedLedger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int,
 			t.Fatalf("seed credited action: %v", err)
 		}
 	}
-	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE) sage.action_log"); err != nil {
-		t.Fatalf("analyze: %v", err)
+	// The read is an index-only scan: it fetches no heap rows only once
+	// VACUUM has marked every page all-visible, which another snapshot of
+	// this database (an autovacuum ANALYZE) can prevent; settle until it has.
+	if err := testdb.VacuumAllVisible(ctx, pool, "sage.action_log", 60*time.Second); err != nil {
+		t.Fatalf("vacuum the seeded ledger: %v", err)
 	}
 }
 

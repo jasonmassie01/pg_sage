@@ -133,16 +133,19 @@ func TestRunner_ByteCap(t *testing.T) {
 	}
 }
 
+// The statement would sleep 30 s; the 150 ms timeout must end it. The
+// 10 s budget leaves room for a loaded runner (-race, a busy server)
+// while staying far below the sleep.
 func TestRunner_StatementTimeout(t *testing.T) {
 	pool, ctx := livePool(t)
-	r := testRunner(t, pool, testSpec("slow", "SELECT pg_sleep(2) AS s LIMIT $1",
+	r := testRunner(t, pool, testSpec("slow", "SELECT pg_sleep(30) AS s LIMIT $1",
 		func(s *Spec) { s.StatementTimeout = 150 * time.Millisecond }))
 	start := time.Now()
 	res := r.Run(ctx, "slow", Args{})
 	if res.Status != StatusError || res.Reason != "statement_timeout" {
 		t.Fatalf("result = %+v, want error/statement_timeout", res)
 	}
-	if el := time.Since(start); el > 1500*time.Millisecond {
+	if el := time.Since(start); el > 10*time.Second {
 		t.Fatalf("timed-out probe took %s", el)
 	}
 }
@@ -366,8 +369,11 @@ func maxConcurrent(
 	return &peak
 }
 
+// sleepSpec sleeps 250 ms under the largest probe statement timeout
+// (500 ms): the default 400 ms left 150 ms for a loaded server.
 func sleepSpec(id ID, marker string) Spec {
-	return testSpec(id, "SELECT pg_sleep(0.25) AS s, '"+marker+"' AS m LIMIT $1")
+	return testSpec(id, "SELECT pg_sleep(0.25) AS s, '"+marker+"' AS m LIMIT $1",
+		func(s *Spec) { s.StatementTimeout = 500 * time.Millisecond })
 }
 
 func runConcurrently(ctx context.Context, n int, run func(i int) Result) []Result {
@@ -430,27 +436,36 @@ func TestRunner_SidecarWideLimit(t *testing.T) {
 	}
 }
 
+// A probe queued behind the sidecar-wide limit gives up at its own
+// deadline. The test holds the only slot itself (a busy probe started
+// first, after a fixed pause, could lose the slot to the queued one on a
+// loaded runner) and frees it after 5 s; the 2 s budget leaves room for
+// load while a probe that ignores its deadline would wait for the slot.
 func TestRunner_QueueWaitIsBounded(t *testing.T) {
 	pool, ctx := livePool(t)
 	marker := fmt.Sprintf("sre_wait_%d", time.Now().UnixNano())
-	reg := mustTestRegistry(t, sleepSpec("sleep", marker))
 	global := NewLimiter(1)
-	busy, idle := NewRunner(pool, reg, global), NewRunner(pool, reg, global)
-	done := make(chan Result, 1)
-	go func() { done <- busy.Run(ctx, "sleep", Args{}) }()
-	time.Sleep(60 * time.Millisecond)
+	idle := NewRunner(pool, mustTestRegistry(t, sleepSpec("sleep", marker)), global)
+	if err := global.acquire(ctx); err != nil {
+		t.Fatalf("hold the slot: %v", err)
+	}
+	released := make(chan struct{})
+	go func() {
+		defer close(released)
+		time.Sleep(5 * time.Second)
+		global.release()
+	}()
 	short, cancel := context.WithTimeout(ctx, 80*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	res := idle.Run(short, "sleep", Args{})
+	el := time.Since(start)
+	<-released
 	if res.Status != StatusError || res.Reason != "concurrency_limit" {
 		t.Fatalf("queued probe = %+v, want error/concurrency_limit", res)
 	}
-	if el := time.Since(start); el > 200*time.Millisecond {
-		t.Fatalf("queued probe waited %s past its deadline", el)
-	}
-	if first := <-done; first.Status != StatusOK {
-		t.Fatalf("running probe = %+v", first)
+	if el > 2*time.Second {
+		t.Fatalf("queued probe waited %s past its 80 ms deadline", el)
 	}
 }
 

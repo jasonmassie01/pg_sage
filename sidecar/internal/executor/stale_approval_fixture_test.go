@@ -34,6 +34,7 @@ type staleFixture struct {
 	queue     *store.ActionStore
 	exec      *Executor
 	trust     string
+	policy    policy.Document
 }
 
 // queueRow is the part of a sage.action_queue row these tests assert.
@@ -54,13 +55,24 @@ func newStaleFixture(t *testing.T, trust string) *staleFixture {
 func newStaleFixtureWith(t *testing.T, trust string, detail map[string]any) *staleFixture {
 	t.Helper()
 	pool, ctx := requireDB(t)
+	return newStaleFixtureOn(t, pool, ctx, trust, detail, unlimitedWindowPolicy())
+}
+
+// newStaleFixtureOn builds the fixture on pool with doc as the standing
+// policy (tests that spend the window budget use an isolated database).
+func newStaleFixtureOn(
+	t *testing.T, pool *pgxpool.Pool, ctx context.Context, trust string,
+	detail map[string]any, doc policy.Document,
+) *staleFixture {
+	t.Helper()
 	table := fmt.Sprintf("stale_appr_%d", time.Now().UnixNano())
 	if _, err := pool.Exec(ctx, "CREATE TABLE public."+table+
 		" (id bigint, status text)"); err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	fx := &staleFixture{pool: pool, ctx: ctx, table: table, database: "stale_" + table,
-		recs: recommendation.NewStore(pool), queue: store.NewActionStore(pool), trust: trust}
+		recs: recommendation.NewStore(pool), queue: store.NewActionStore(pool), trust: trust,
+		policy: doc}
 	fx.f = fx.indexFinding("idx_"+table+"_status", detail)
 	fx.findingID = fx.insertFinding(t, fx.f)
 	t.Cleanup(func() { fx.cleanup() })
@@ -71,6 +83,17 @@ func newStaleFixtureWith(t *testing.T, trust string, detail map[string]any) *sta
 	}
 	fx.rec = res.Recommendation
 	return fx
+}
+
+// unlimitedWindowPolicy is the unattended profile with windows always open;
+// its 24-hour limits are raised because the package's other tests also
+// spend them in the shared database.
+func unlimitedWindowPolicy() policy.Document {
+	doc := policy.UnattendedProfile()
+	doc.MaintenanceWindows = []string{"always"}
+	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
+	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
+	return doc
 }
 
 func unverifiedDetail() map[string]any {
@@ -141,13 +164,7 @@ func (fx *staleFixture) newExecutor(t *testing.T) *Executor {
 	exec.indexVerification = newVerifiedIndexLifecycle(
 		&fakeIndexVerifier{admission: verify.Admission{OK: true}},
 		&fakeVerifiedIndexActions{})
-	// The unattended profile with windows always open; its 24-hour limits
-	// are raised because the package's other tests also spend them.
-	doc := policy.UnattendedProfile()
-	doc.MaintenanceWindows = []string{"always"}
-	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
-	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
-	exec.EnableStandingPolicyDocument(doc, nil)
+	exec.EnableStandingPolicyDocument(fx.policy, nil)
 	t.Cleanup(func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

@@ -15,14 +15,18 @@ var notSelf = selfmonitor.ActivityExclusionSQL("")
 // systemStatsSQLBase is the common prefix for system stats (all PG
 // versions). active_backends is this database's, as idle_in_transaction
 // already was (fleet mode: one database's snapshot never counts another's
-// sessions).
+// sessions). Both count client sessions only, as the connection states
+// do: autovacuum workers, logical walsenders and parallel workers also
+// carry the database's name and show as active, but none is a session of
+// the application.
 var systemStatsSQLBase = sageTag + `
 SELECT
   (SELECT count(*) FROM pg_stat_activity
     WHERE state = 'active' AND pid <> pg_backend_pid()
+      AND backend_type = 'client backend'
       AND datname = current_database() AND ` + notSelf + `) AS active_backends,
   (SELECT count(*) FROM pg_stat_activity
-    WHERE state = 'idle in transaction'
+    WHERE state = 'idle in transaction' AND backend_type = 'client backend'
       AND datname = current_database() AND ` + notSelf + `) AS idle_in_transaction,
   (SELECT count(*) FROM pg_stat_activity
     WHERE pid <> pg_backend_pid()) AS total_backends,

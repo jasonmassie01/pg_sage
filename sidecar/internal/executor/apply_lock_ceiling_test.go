@@ -62,13 +62,21 @@ func lockTable(t *testing.T, pool *pgxpool.Pool, table string) {
 }
 
 // assertCeilingBounds requires the capped wait to give up well before the
-// safety timeout, and the uncapped control to wait for it.
+// safety timeout, and the uncapped control to wait for it. A capped run
+// under 2 s passes; on a loaded runner the path's overhead can push it
+// past that, so a run at least 1.5 s shorter than the control (which pays
+// the same overhead) passes too: the ceiling ends the wait 3.5 s sooner.
+// PostgreSQL times lock waits on the realtime clock, which a VM clock
+// sync can move forward by 1.4-1.6 s (measured under Docker Desktop's
+// WSL2), so the control's floor is 2 s, not 4 s: still far above the
+// 500 ms ceiling.
 func assertCeilingBounds(t *testing.T, capped, uncapped time.Duration) {
 	t.Helper()
-	if capped >= 2*time.Second {
-		t.Fatalf("with a %dms ceiling the lock wait took %s", ceilingMS, capped)
+	if capped >= 2*time.Second && capped > uncapped-1500*time.Millisecond {
+		t.Fatalf("with a %dms ceiling the lock wait took %s, the %dms control %s",
+			ceilingMS, capped, ceilingSafetyMS, uncapped)
 	}
-	if uncapped < 3*time.Second {
+	if uncapped < 2*time.Second {
 		t.Fatalf("control without a ceiling took %s, want about %dms",
 			uncapped, ceilingSafetyMS)
 	}
@@ -134,7 +142,17 @@ func timeOperatorAnalyze(t *testing.T, ceiling int64) time.Duration {
 // cross-package lock for the test that called it.
 func TestApplyLockCeilingCapsOperatorAnalyze(t *testing.T) {
 	var capped, uncapped time.Duration
-	t.Run("ceiling", func(t *testing.T) { capped = timeOperatorAnalyze(t, ceilingMS) })
-	t.Run("control", func(t *testing.T) { uncapped = timeOperatorAnalyze(t, 0) })
+	var skipped bool
+	measure := func(d *time.Duration, ceiling int64) func(*testing.T) {
+		return func(t *testing.T) {
+			defer func() { skipped = skipped || t.Skipped() }()
+			*d = timeOperatorAnalyze(t, ceiling)
+		}
+	}
+	t.Run("ceiling", measure(&capped, ceilingMS))
+	t.Run("control", measure(&uncapped, 0))
+	if skipped { // the subtest's reason is logged; there is nothing to compare
+		t.Skip("a measurement was skipped")
+	}
 	assertCeilingBounds(t, capped, uncapped)
 }

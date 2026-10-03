@@ -91,6 +91,29 @@ func TestBeforeStateActiveBackendsAreApplicationSessions(t *testing.T) {
 	}
 }
 
+// before_state's active backends are client sessions: parallel workers
+// (and autovacuum workers, logical walsenders) carry the database's name
+// and show as active too, but none is a session of the application.
+func TestBeforeStateActiveBackendsAreClientSessions(t *testing.T) {
+	requireDB(t)
+	sage := selfload.SagePool(t, testDSN())
+	w := selfload.New(t, testDSN())
+	leader := w.StartParallel(t)
+	e := New(sage, config.DefaultConfig(), zeroTime(), func(string, string, ...any) {})
+	state := e.snapshotBeforeState(context.Background(), nil)
+	workers, err := w.Workers(leader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workers == 0 {
+		t.Fatal("the probe's parallel workers ended before the read")
+	}
+	if got, ok := state["active_backends"].(int); !ok || got != 1 {
+		t.Fatalf("before_state active_backends = %v, want 1: the application session, "+
+			"not its %d parallel workers", state["active_backends"], workers)
+	}
+}
+
 // A pg_sage session queued behind an application lock is not a victim
 // the runaway policy should terminate the holder for.
 func TestRunawayBlockerCountsLeaveOutPgSageWaiters(t *testing.T) {

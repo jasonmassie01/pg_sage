@@ -88,20 +88,15 @@ func (f *resetFixture) scanIndex(t *testing.T, index, col string) {
 			t.Fatalf("scan: %v", err)
 		}
 	}
-	if f.version >= 150000 {
-		if _, err := conn.Exec(ctx, `SELECT pg_stat_force_next_flush()`); err != nil {
-			t.Fatalf("flush: %v", err)
-		}
+	// All five scans must be counted before the test goes on: on PG14 a
+	// report can carry the first scan while the rest stay pending in this
+	// session, to arrive after the pg_stat_reset() that follows and show
+	// scans the reset should have erased.
+	if err := testdb.FlushStats(ctx, conn); err != nil {
+		t.Fatalf("flush statistics: %v", err)
 	}
 	f.waitFor(t, "scans of "+index+" visible", func() bool {
-		if f.version < 150000 {
-			// PG14 sends a backend's counters to the stats collector at most
-			// every 500 ms, when the backend goes idle: keep it cycling.
-			if _, err := conn.Exec(ctx, `SELECT 1`); err != nil {
-				t.Fatalf("report stats: %v", err)
-			}
-		}
-		return f.liveScans(t, index) > 0
+		return f.liveScans(t, index) >= 5
 	})
 }
 

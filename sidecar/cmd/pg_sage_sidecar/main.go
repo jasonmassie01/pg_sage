@@ -98,6 +98,11 @@ func (d dbBudget) Spend(tokens int)         { d.b.Spend(d.db, tokens) }
 
 func main() {
 	runSubcommandAndExit()
+	// Catch SIGINT/SIGTERM before anything starts: a signal during startup
+	// (an orchestrator stopping the process right after it reported ready)
+	// must shut down gracefully once startup is done, not kill the process.
+	// sigCh is package-level so the /restart endpoint can trigger shutdown.
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	loadStartupConfigOrExit()
 
 	// Meta-DB mode: connect to dedicated metadata database first.
@@ -126,8 +131,6 @@ func main() {
 	promServer := startPrometheusServer(cfg.Prometheus.ListenAddr)
 
 	// Graceful shutdown.
-	// sigCh is package-level so the /restart endpoint can trigger shutdown.
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	shutdownProcess(sig, promServer)
 }

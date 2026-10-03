@@ -39,7 +39,11 @@ func (s *promStub) server(t *testing.T) *httptest.Server {
 		answer, delay := s.answer, s.delay
 		s.mu.Unlock()
 		if delay > 0 {
-			time.Sleep(delay)
+			select { // a client that gave up ends the wait
+			case <-time.After(delay):
+			case <-r.Context().Done():
+				return
+			}
 		}
 		code, body := answer(r.URL.Path, r.Form.Get("query"))
 		w.Header().Set("Content-Type", "application/json")
@@ -149,12 +153,15 @@ func TestPromClient_TypedErrors(t *testing.T) {
 }
 
 func TestPromClient_TimeoutAndUnreachable(t *testing.T) {
-	stub := &promStub{delay: 300 * time.Millisecond,
+	// The server answers after 30 s; the client's 50 ms timeout must end
+	// the query. The 3 s budget absorbs a loaded runner and stays below
+	// the 5 s default timeout a client ignoring its setting would use.
+	stub := &promStub{delay: 30 * time.Second,
 		answer: func(string, string) (int, string) { return 200, vector("1") }}
 	c := newClient(t, stub.server(t).URL, 50*time.Millisecond)
 	start := time.Now()
 	_, err := c.Query(context.Background(), "q", now)
-	if !errors.Is(err, ErrUnavailable) || time.Since(start) > 250*time.Millisecond {
+	if !errors.Is(err, ErrUnavailable) || time.Since(start) > 3*time.Second {
 		t.Fatalf("timeout: err = %v after %s", err, time.Since(start))
 	}
 	dead := newClient(t, "http://127.0.0.1:1", time.Second)

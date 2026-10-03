@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -85,11 +86,48 @@ func SeedHistory(ctx context.Context, pool *pgxpool.Pool, s Scale, own Binding) 
 
 // AnalyzeSage vacuums and analyzes the database, as autovacuum would have
 // on a long-running deployment, so plans and live-row counts are real.
+// VACUUM sets a table's live rows to the count it finds; statistics a
+// seeding session had not flushed yet (PostgreSQL 15+ flushes an idle
+// session's at most once a second, 14 every 500 ms) would be added on top
+// afterwards and count those rows twice. So the pool's idle sessions are
+// closed first: a backend flushes its statistics as it exits.
 func AnalyzeSage(ctx context.Context, pool *pgxpool.Pool) error {
+	if err := closeIdleSessions(ctx, pool); err != nil {
+		return err
+	}
 	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE)"); err != nil {
 		return fmt.Errorf("perfgate: vacuum analyze: %w", err)
 	}
 	return nil
+}
+
+// closeIdleSessions closes the pool's idle sessions and waits until their
+// backends have left pg_stat_activity, which they do after flushing their
+// statistics.
+func closeIdleSessions(ctx context.Context, pool *pgxpool.Pool) error {
+	var pids []int64
+	for _, conn := range pool.AcquireAllIdle(ctx) {
+		pids = append(pids, int64(conn.Conn().PgConn().PID()))
+		if err := conn.Hijack().Close(ctx); err != nil {
+			return fmt.Errorf("perfgate: close a seeding session: %w", err)
+		}
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		var left int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE pid = ANY($1)`, pids).Scan(&left)
+		if err != nil {
+			return fmt.Errorf("perfgate: wait for seeding sessions to exit: %w", err)
+		}
+		if left == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("perfgate: %d seeding sessions still running after 30s", left)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // spread(window) is a timestamp for row g of $1, newest first.

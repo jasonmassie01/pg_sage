@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
+
+### What's new
+
+- **Only HypoPG-verified index advice runs unattended, whatever its age.** Index advice saved by
+  older pg_sage versions under per-type categories (covering, partial, composite) skipped the
+  what-if gate; it is now held for approval until re-verified, and an existing index that
+  already covers a candidate rules it out. Stale rollback SQL from those versions is repaired,
+  and an action withheld for its own content is recorded once instead of retried every cycle.
+- **The blast-radius limit holds at its configured number of tables**, and a change to an index
+  counts against its table once.
+- **Session counts are the application's sessions only** (autovacuum, replication and parallel
+  workers no longer inflate them), and **a stop signal during startup shuts pg_sage down
+  cleanly**.
+- **Steadier CI:** 29 tests that depended on timing or server-wide state now isolate it.
+
 
 ### Fixed
 
@@ -15,6 +30,29 @@
   they create are repaired at startup, and an approval of such a pair is refused rather than
   run. A withheld index build is recorded once with a closed verification (the ledger
   self-audit no longer flags it) and is not retried until its content changes.
+
+- **Active and idle-in-transaction session counts are the application's sessions only.** The
+  system snapshot also counted autovacuum workers, logical replication senders and parallel
+  query workers of the database as active sessions, so a busy autovacuum or one parallel
+  query inflated the active backends the connection advisor, forecaster and lock analysis
+  read, and those recorded in each action's before-state evidence. They now count client
+  sessions, as the connection states already did.
+
+- **A stop signal during startup now shuts pg_sage down cleanly.** The SIGTERM/SIGINT handler
+  was installed only after the API and metrics servers were listening, so an orchestrator that
+  stopped the container right after it reported ready (a rolling deploy) killed the process
+  without its graceful shutdown. The handler is now installed before startup begins.
+
+- **The blast-radius limit now holds at its configured number of tables.** pg_sage counted
+  the tables its own changes had touched in the last 24 hours without the table the next
+  change would touch, so `max_tables_per_window: 20` let a 21st table through. An index
+  advice also counted as a table of its own next to its table. The count now includes the
+  next change's table and counts index advice as its table, so a second change on an
+  already counted table no longer uses up the limit. On lifeos, a verified index on
+  `public.events` was held back by this limit: 21 tables were counted, mostly index drops
+  in leftover `test_*` schemas. Such an index runs once the window has room for its table,
+  and then closes its outdated approval request. Until then the decision log records why
+  it waits (`blast_radius_exceeded`).
 
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
