@@ -130,6 +130,13 @@ func TestEvaluateRowsWrittenPerCycle(t *testing.T) {
 		got[0].Subject != "sage.runway_samples" || got[0].Measured != 5000 {
 		t.Fatalf("rows written offenders = %+v", got)
 	}
+	// Mutation audit: one row per cycle over the budget is already over.
+	p.Tables = []TableDelta{{Name: "sage.just_over",
+		RowsWritten: (b.RowsWrittenPerCycle + 1) * int64(p.Cycles)}}
+	got, err = Evaluate([]Phase{p}, b)
+	if err != nil || len(got) != 1 || got[0].Subject != "sage.just_over" {
+		t.Fatalf("one row over budget: %+v (%v)", got, err)
+	}
 }
 
 func TestEvaluateWarmupSkipsSteadyStateBudgets(t *testing.T) {
@@ -264,5 +271,33 @@ func TestIsCatalogQuery(t *testing.T) {
 		if IsCatalogQuery(q) {
 			t.Errorf("%q classified as catalog", q)
 		}
+	}
+}
+
+// Post-test audit: the live delta test only asserts "at least one" scan,
+// which an absolute (non-delta) reading would also satisfy.
+func TestTableStatsDeltaIsExact(t *testing.T) {
+	before := TableStats{
+		"sage.a": {LiveRows: 10, SeqScan: 5, SeqTupRead: 50, IdxScan: 7, Written: 100},
+	}
+	after := TableStats{
+		"sage.a": {LiveRows: 12, SeqScan: 6, SeqTupRead: 62, IdxScan: 9, Written: 103},
+		"sage.b": {LiveRows: 3, SeqScan: 1, SeqTupRead: 3, IdxScan: 0, Written: 3},
+	}
+	got := after.Delta(before)
+	want := []TableDelta{
+		{Name: "sage.a", LiveRows: 12, SeqScans: 1, SeqTupRead: 12, IdxScans: 2, RowsWritten: 3},
+		{Name: "sage.b", LiveRows: 3, SeqScans: 1, SeqTupRead: 3, RowsWritten: 3},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("delta = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("delta[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if len(TableStats{}.Delta(before)) != 0 {
+		t.Fatal("empty reading produced deltas")
 	}
 }
