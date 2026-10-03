@@ -30,9 +30,10 @@ func tableWritesSQL(rel string) string {
 		"pg_stat_get_tuples_updated(%[1]s) + pg_stat_get_tuples_deleted(%[1]s))", rel)
 }
 
-// maxIDSQL is a table's newest id: one backward step of its primary key.
+// maxIDSQL is a table's newest id: one backward step of its primary key
+// (written as ORDER BY ... LIMIT 1 so no planner picks an aggregate).
 func maxIDSQL(table string) string {
-	return "COALESCE((SELECT max(id) FROM sage." + table + "), 0)"
+	return "COALESCE((SELECT id FROM sage." + table + " ORDER BY id DESC LIMIT 1), 0)"
 }
 
 // changeSignatureSQL reads the three resources' change marks in one round

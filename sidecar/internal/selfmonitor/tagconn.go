@@ -5,33 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 )
-
-// StatementTag starts every statement pg_sage sends. pg_stat_statements
-// keeps it in the statement text, so a DBA can see (and price) pg_sage's
-// own work, and pg_sage's own readers leave those statements out of the
-// workload they analyze.
-const StatementTag = "/* pg_sage */ "
 
 // maxMessageBytes bounds one protocol message the wrapper will buffer; it
 // is far above anything pgx sends and only stops a corrupt length.
 const maxMessageBytes = 1 << 30
 
-// IsTagged reports whether sql starts (after leading white space) with a
-// comment that names pg_sage: /* pg_sage */ or /* pg_sage <component> */.
-func IsTagged(sql string) bool {
-	s := strings.TrimLeft(sql, " \t\r\n")
-	if !strings.HasPrefix(s, "/*") {
-		return false
-	}
-	end := strings.Index(s, "*/")
-	return end > 0 && strings.Contains(s[:end], ApplicationName)
-}
-
 // TagConn wraps the connection pgx speaks the PostgreSQL protocol over
-// (after TLS) and prefixes StatementTag to every Query and Parse message
-// that does not already carry a pg_sage tag. All other bytes pass through
+// (after TLS) and places StatementTag after the first keyword of every
+// Query and Parse message's statement (placeTag). All other bytes pass through
 // unchanged. It is installed through ConfigurePool, so the tag covers
 // every statement from every code path, including pgx's own.
 func TagConn(conn net.Conn) net.Conn {
@@ -109,17 +91,21 @@ func (c *tagConn) rewrite(buf []byte) ([]byte, []byte, error) {
 	return out, nil, nil
 }
 
-// tagMessage returns msg with its statement tagged when it is a Query or
-// Parse message whose statement is untagged; otherwise msg itself.
+// tagMessage returns msg with its statement's tag placed (placeTag) when
+// it is a Query or Parse message that needs it; otherwise msg itself.
 func tagMessage(msg []byte) []byte {
 	body := msg[5:]
 	switch msg[0] {
 	case 'Q':
 		query, ok := cString(body)
-		if !ok || needsNoTag(query) {
+		if !ok {
 			return msg
 		}
-		return buildMessage('Q', nil, StatementTag+query, body[len(query)+1:])
+		tagged := placeTag(query)
+		if tagged == query {
+			return msg
+		}
+		return buildMessage('Q', nil, tagged, body[len(query)+1:])
 	case 'P':
 		name, ok := cString(body)
 		if !ok {
@@ -127,18 +113,17 @@ func tagMessage(msg []byte) []byte {
 		}
 		rest := body[len(name)+1:]
 		query, ok := cString(rest)
-		if !ok || needsNoTag(query) {
+		if !ok {
 			return msg
 		}
-		return buildMessage('P', body[:len(name)+1], StatementTag+query,
-			rest[len(query)+1:])
+		tagged := placeTag(query)
+		if tagged == query {
+			return msg
+		}
+		return buildMessage('P', body[:len(name)+1], tagged, rest[len(query)+1:])
 	default:
 		return msg
 	}
-}
-
-func needsNoTag(query string) bool {
-	return strings.TrimSpace(query) == "" || IsTagged(query)
 }
 
 // buildMessage encodes type, prefix, the NUL-terminated query and suffix

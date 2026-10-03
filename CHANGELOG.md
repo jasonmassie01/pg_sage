@@ -22,7 +22,8 @@
 
 - **pg_sage shows its own cost instead of hiding it, and its API reads stay small on big
   histories.** pg_sage no longer turns `pg_stat_statements` tracking off for its sessions:
-  every statement it sends starts with `/* pg_sage */` and its sessions are named
+  every statement it sends carries `/* pg_sage */` after its first keyword (where even
+  PostgreSQL 18 keeps it) and its sessions are named
   `pg_sage`, so a DBA can see exactly what it costs. pg_sage leaves its own statements and
   sessions out of everything it analyzes (index and hint advice, schema guard, leftover
   schema detection, connection leaks), and reports its bill as `pg_sage_self_*`
