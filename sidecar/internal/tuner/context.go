@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // QueryContext holds enriched context for LLM-based hint reasoning.
@@ -272,7 +274,7 @@ func fetchSystemContext(
 	)
 	_ = pool.QueryRow(ctx,
 		`/* pg_sage */ SELECT count(*) FROM pg_stat_activity
-		 WHERE state = 'active'`,
+		 WHERE state = 'active' AND `+selfmonitor.ActivityExclusionSQL(""),
 	).Scan(&sc.ActiveBackends)
 	return sc
 }

@@ -289,7 +289,7 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 	}
 }
 
-const candidateSQL = `/* pg_sage */
+var candidateSQL = `/* pg_sage */
 SELECT queryid, query, calls, mean_exec_time,
        mean_plan_time, temp_blks_read, temp_blks_written
 FROM pg_stat_statements
@@ -297,8 +297,7 @@ WHERE calls >= $1
   AND dbid = (
       SELECT oid FROM pg_database WHERE datname = current_database()
   )
-  AND COALESCE(query, '') NOT ILIKE '%pg_sage%'
-  AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
+  AND ` + selfmonitor.StatementExclusionSQL("query") + `
   AND (mean_exec_time > 100
        OR temp_blks_written > 0
        OR (mean_plan_time > 0

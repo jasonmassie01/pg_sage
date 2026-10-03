@@ -4,6 +4,8 @@ import (
 	"context"
 	"regexp"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 const tableStatsSQL = `
@@ -31,15 +33,18 @@ func (ra *RiskAssessor) fetchTableStats(
 
 // activeQueriesSQL counts other active backends in THIS database whose
 // query mentions the table as a whole word. PostgreSQL ARE uses \y for
-// a word boundary; \b is a backspace (G7-B02).
-const activeQueriesSQL = `
+// a word boundary; \b is a backspace (G7-B02). pg_sage's own sessions
+// (probes, EXPLAINs and plan captures run application query text) are
+// not load the DDL competes with.
+var activeQueriesSQL = `
 SELECT COUNT(*)::int,
        COALESCE(MAX(EXTRACT(EPOCH FROM now() - query_start)), 0)
 FROM   pg_stat_activity
 WHERE  state = 'active'
   AND  pid <> pg_backend_pid()
   AND  datname = current_database()
-  AND  query ~* $1`
+  AND  query ~* $1
+  AND  ` + selfmonitor.ActivityExclusionSQL("")
 
 func (ra *RiskAssessor) fetchActiveQueries(
 	ctx context.Context, risk *DDLRisk,
@@ -64,13 +69,16 @@ func quoteARE(s string) string {
 
 // pendingLocksSQL counts ungranted locks on the table in THIS database;
 // pg_locks is cluster-wide and relation OIDs collide across databases
-// (G7-B17).
-const pendingLocksSQL = `
+// (G7-B17). A pg_sage session waiting (under lock_timeout) is not an
+// application waiter.
+var pendingLocksSQL = `
 SELECT COUNT(*)::int
 FROM   pg_locks l
 JOIN   pg_class c ON c.oid = l.relation
 JOIN   pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_stat_activity a ON a.pid = l.pid
 WHERE  NOT l.granted
+  AND  ` + selfmonitor.ActivityExclusionSQL("a") + `
   AND  l.database = (SELECT oid FROM pg_database
                       WHERE datname = current_database())
   AND  c.relname = $1

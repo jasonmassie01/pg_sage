@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // cronSchedule holds pre-parsed bitmasks for each cron field.
@@ -234,7 +235,8 @@ func (w *Worker) gatherSystem(ctx context.Context) (string, error) {
 		SELECT json_build_object(
 			'db_size', pg_size_pretty(pg_database_size(current_database())),
 			'connections', (SELECT count(*) FROM pg_stat_activity),
-			'active', (SELECT count(*) FROM pg_stat_activity WHERE state = 'active'),
+			'active', (SELECT count(*) FROM pg_stat_activity WHERE state = 'active'
+				AND `+selfmonitor.ActivityExclusionSQL("")+`),
 			'cache_hit_ratio', (
 				SELECT round((blks_hit::numeric / nullif(blks_hit + blks_read, 0) * 100), 2)
 				FROM pg_stat_database WHERE datname = current_database()
