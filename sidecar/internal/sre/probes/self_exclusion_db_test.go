@@ -103,16 +103,29 @@ func TestTempSpillProbeLeavesOutPgSageStatements(t *testing.T) {
 	if err := pgssReady(ctx, pool); err != nil {
 		t.Skipf("pg_stat_statements unavailable: %v", err)
 	}
-	spill(t, ctx, pool, `SELECT count(*) FROM (SELECT g, g + 1 AS h
-		FROM generate_series(1, 100000) g ORDER BY md5(g::text)) s`)
 	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
-	spill(t, ctx, sage, `SELECT count(*) FROM (SELECT g, g + 2, g + 3
-		FROM generate_series(1, 100000) g ORDER BY md5(g::text) DESC) s`)
-	appID := queryIDLike(t, ctx, pool, "%AS h%generate_series%")
-	sageID := queryIDLike(t, ctx, pool, "%md5(g::text) DESC%")
-	ss, err := SpillStatements(run(ctx, pool, TempSpillStatements))
-	if err != nil {
-		t.Fatalf("temp_spill_statements: %v", err)
+	var appID, sageID int64
+	var ss []SpillStatement
+	// Another package's unscoped pg_stat_statements_reset() can clear the
+	// entries between the spill and the probe: start over (3 tries).
+	for try := 0; try < 3; try++ {
+		spill(t, ctx, pool, `SELECT count(*) FROM (SELECT g, g + 1 AS h
+			FROM generate_series(1, 100000) g ORDER BY md5(g::text)) s`)
+		spill(t, ctx, sage, `SELECT count(*) FROM (SELECT g, g + 2, g + 3
+			FROM generate_series(1, 100000) g ORDER BY md5(g::text) DESC) s`)
+		appID = queryIDLike(ctx, pool, "%AS h%generate_series%")
+		sageID = queryIDLike(ctx, pool, "%md5(g::text) DESC%")
+		var err error
+		if ss, err = SpillStatements(run(ctx, pool, TempSpillStatements)); err != nil {
+			t.Fatalf("temp_spill_statements: %v", err)
+		}
+		if appID != 0 && sageID != 0 {
+			break
+		}
+	}
+	if appID == 0 || sageID == 0 {
+		t.Fatalf("spilling statements not in pg_stat_statements (app %d, pg_sage %d)",
+			appID, sageID)
 	}
 	var sawApp bool
 	for _, s := range ss {
@@ -142,13 +155,12 @@ func spill(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
 	}
 }
 
-func queryIDLike(t *testing.T, ctx context.Context, pool *pgxpool.Pool, like string) int64 {
-	t.Helper()
+// queryIDLike is the queryid of this database's statement matching like
+// (0 when there is none).
+func queryIDLike(ctx context.Context, pool *pgxpool.Pool, like string) int64 {
 	var id int64
-	if err := pool.QueryRow(ctx, `SELECT queryid FROM pg_stat_statements
+	_ = pool.QueryRow(ctx, `SELECT COALESCE(max(queryid), 0) FROM pg_stat_statements
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-		  AND query LIKE $1 LIMIT 1`, like).Scan(&id); err != nil {
-		t.Fatalf("statement %q in pg_stat_statements: %v", like, err)
-	}
+		  AND query LIKE $1`, like).Scan(&id)
 	return id
 }
