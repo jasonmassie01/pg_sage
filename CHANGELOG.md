@@ -1,6 +1,27 @@
 # Changelog
 
-## Unreleased
+## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
+
+### What's new
+
+- **pg_sage never needs a DBA to make it behave.** A new performance gate (now blocking in CI)
+  runs pg_sage against a large, messy catalog and fails on any seq scan of a large sage table,
+  slow statement, write amplification, catalog timeout, slow API list or non-HOT update. It
+  went from 16 offenders to 0. On the lifeos dogfood database pg_sage's ledger writes fell from
+  ~38,000 rows/hour to ~550, and the database's CPU from 85% to under 1%.
+- **Its own data stays small.** Query history and snapshots are partitioned by day and dropped a
+  day at a time; query history records only queries that moved; snapshots are capped at 5% of
+  the database; every pg_sage table has paced, budgeted retention. Existing tables are converted
+  in place without copying rows, larger ones in the background.
+- **It shows its own cost instead of hiding it.** pg_sage no longer turns off
+  `pg_stat_statements` for its sessions: its statements are tagged `/* pg_sage */`, its
+  sessions are named `pg_sage`, it reports `pg_sage_self_*` metrics and a `sage_self_cost`
+  finding, and it leaves its own activity out of everything it analyzes.
+- **Reads that stay flat as your database grows.** Catalog collection, the SRE probes, runways,
+  earned autonomy, the analyzer and the API (cursor paging, capped totals, live updates from
+  change counters) read only what they need.
+- **Index advice made before HypoPG was installed is re-checked**, so it can now be verified
+  and built autonomously instead of waiting for approval forever.
 
 ### Changed (read before upgrading)
 
