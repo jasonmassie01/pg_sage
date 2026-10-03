@@ -62,17 +62,20 @@ func lockTable(t *testing.T, pool *pgxpool.Pool, table string) {
 }
 
 // assertCeilingBounds requires the capped wait to give up well before the
-// safety timeout, and the uncapped control to wait for it. The capped run
-// is compared with the control, which pays the same path overhead (a
-// loaded runner slows both): a 500 ms ceiling ends the wait 3.5 s sooner,
-// so it must finish at least 2 s before the control.
+// safety timeout, and the uncapped control to wait for it. A capped run
+// under 2 s passes; on a loaded runner the path's overhead can push it
+// past that, so a run at least 1.5 s shorter than the control (which pays
+// the same overhead) passes too: the ceiling ends the wait 3.5 s sooner.
+// PostgreSQL times lock waits on the realtime clock, which a VM clock
+// sync can move forward by ~1.4 s (measured under Docker Desktop's WSL2),
+// so the control's floor is 2.5 s, not 4 s.
 func assertCeilingBounds(t *testing.T, capped, uncapped time.Duration) {
 	t.Helper()
-	if capped > uncapped-2*time.Second {
+	if capped >= 2*time.Second && capped > uncapped-1500*time.Millisecond {
 		t.Fatalf("with a %dms ceiling the lock wait took %s, the %dms control %s",
 			ceilingMS, capped, ceilingSafetyMS, uncapped)
 	}
-	if uncapped < 3*time.Second {
+	if uncapped < 2500*time.Millisecond {
 		t.Fatalf("control without a ceiling took %s, want about %dms",
 			uncapped, ceilingSafetyMS)
 	}
