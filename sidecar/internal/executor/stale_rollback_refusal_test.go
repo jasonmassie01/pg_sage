@@ -131,7 +131,7 @@ func auditViolations(t *testing.T, fx *staleFixture) []ledger.AuditViolation {
 // index is refused before anything is recorded or run: the rollback must
 // always undo the DDL being run.
 func TestExecuteManual_RefusesRollbackOfAnotherIndex(t *testing.T) {
-	e := New(nil, config.DefaultConfig(), time.Now().Add(-90*24*time.Hour), func(string, string, ...any) {})
+	e := manualGuardExecutor()
 	sql := "CREATE INDEX CONCURRENTLY idx_memories_active_query_opt ON public.memories " +
 		"(status) WHERE valid_to IS NULL"
 	for _, rollback := range []string{
@@ -149,7 +149,7 @@ func TestExecuteManual_RefusesRollbackOfAnotherIndex(t *testing.T) {
 }
 
 func TestExecuteManual_MatchingRollbackPassesGuard(t *testing.T) {
-	e := New(nil, config.DefaultConfig(), time.Now().Add(-90*24*time.Hour), func(string, string, ...any) {})
+	e := manualGuardExecutor()
 	sql := "CREATE INDEX CONCURRENTLY idx_q ON public.memories (status)"
 	for _, rollback := range []string{"", "DROP INDEX CONCURRENTLY IF EXISTS idx_q",
 		`DROP INDEX CONCURRENTLY IF EXISTS "public"."idx_q"`, "DROP INDEX public.idx_q;"} {
@@ -163,4 +163,9 @@ func TestExecuteManual_MatchingRollbackPassesGuard(t *testing.T) {
 	if errors.Is(err, ErrRollbackMismatch) {
 		t.Error("unnamed FK index without rollback refused as a mismatch")
 	}
+}
+
+func manualGuardExecutor() *Executor {
+	return New(nil, config.DefaultConfig(), time.Now().Add(-90*24*time.Hour),
+		func(string, string, ...any) {})
 }
