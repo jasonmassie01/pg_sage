@@ -99,6 +99,8 @@ type Analyzer struct {
 	// cloneTracker remembers clone-family activity across cycles; only
 	// touched by the cycle goroutine.
 	cloneTracker *cloneTracker
+	// history remembers the regression baseline's decoded snapshots.
+	history historyCache
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
