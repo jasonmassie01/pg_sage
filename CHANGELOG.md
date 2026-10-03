@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
+
+### What's new
+
+- **The sidecar no longer burns CPU on databases with many indexes.** The duplicate-index
+  rule compared every index with every other one in the database: about 90 s of CPU per
+  10-minute analyzer cycle on lifeos (35,000 indexes). It now compares within each table:
+  0.19 s, same findings.
+- **Verified index advice is built without waiting for an approval it no longer needs.** An
+  index queued for approval before HypoPG could verify it now runs once it is verified (the
+  pending request is closed as superseded), and the first autonomous optimizer index no longer
+  fails at its change lease. Indexes you rejected stay rejected.
+- **The schema guard is fast however much history it has.** It re-read every decision it had
+  recorded each scan (13 s per scan on lifeos); it now reads the newest one per issue (under
+  40 ms).
+- **Snapshot history shrinks after the upgrade.** The size cap now acts on the history
+  partition the v1.8.3 conversion created, drops it whole when it closes, and the background
+  conversion no longer gives up on databases with long-running queries. One slow cleanup no
+  longer starves the others.
+
 
 ### Fixed
 
