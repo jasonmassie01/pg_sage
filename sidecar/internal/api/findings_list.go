@@ -154,13 +154,18 @@ func queryFindingsPage(
 func cappedCount(ctx context.Context, pool *pgxpool.Pool, fromWhere string,
 	args []any) (int, error) {
 	var n int
-	err := pool.QueryRow(ctx, fmt.Sprintf(
-		"/* pg_sage */ SELECT count(*) FROM (SELECT 1 FROM %s LIMIT %d) capped",
-		fromWhere, maxListTotal+1), args...).Scan(&n)
+	err := pool.QueryRow(ctx, cappedCountSQL(fromWhere), args...).Scan(&n)
 	if err != nil {
 		return 0, err
 	}
 	return n, nil
+}
+
+// cappedCountSQL counts "<from> WHERE ... [ORDER BY ...]" up to
+// maxListTotal+1 rows.
+func cappedCountSQL(fromWhere string) string {
+	return fmt.Sprintf("/* pg_sage */ SELECT count(*) FROM (SELECT 1 FROM %s LIMIT %d) capped",
+		fromWhere, maxListTotal+1)
 }
 
 // capTotal reports a total summed over sources: exact up to maxListTotal,

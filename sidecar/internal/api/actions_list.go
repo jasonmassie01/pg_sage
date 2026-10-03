@@ -72,6 +72,14 @@ func keysetPageSQL(base string, keys []sortKey, cur *listCursor, source string,
 	return base + after + order + fmt.Sprintf(" LIMIT $%d", len(args)), args
 }
 
+// actionLogCountFrom is the executed actions in window for the capped
+// total, newest first: the count walks idx_action_log_time (1,001 index
+// entries at most) instead of scanning the ledger (perf gate,
+// perf-selfexcl).
+func actionLogCountFrom(window string) string {
+	return "sage.action_log WHERE true" + window + " ORDER BY executed_at DESC"
+}
+
 // actionsRequest is one actions list request.
 type actionsRequest struct {
 	page     listPage
@@ -90,7 +98,7 @@ func queryActionSources(ctx context.Context, pool *pgxpool.Pool, db string,
 	fetch := req.page.Offset + req.page.Limit + 1
 	logWindow, logArgs := timeWindowSQL("executed_at", req.from, req.to, nil)
 	qWindow, qArgs := timeWindowSQL("proposed_at", req.from, req.to, nil)
-	logTotal, err := cappedCount(ctx, pool, "sage.action_log WHERE true"+logWindow, logArgs)
+	logTotal, err := cappedCount(ctx, pool, actionLogCountFrom(logWindow), logArgs)
 	if err != nil {
 		return res, fmt.Errorf("count actions: %w", err)
 	}
