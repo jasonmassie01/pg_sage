@@ -308,8 +308,9 @@ func TestEnsure_ConcurrentCallersAgree(t *testing.T) {
 		total += n
 	}
 	parts, err := List(ctx, pool, tbl)
-	if err != nil || len(days(parts)) != 4 || total != 4 {
-		t.Fatalf("partitions = %+v (%v), created in all = %d; want 4 days, 4",
+	if err != nil || len(days(parts)) != 3 || total != 3 {
+		// [today, today+5) less today and tomorrow, which history covers.
+		t.Fatalf("partitions = %+v (%v), created in all = %d; want 3 days, 3",
 			parts, err, total)
 	}
 }

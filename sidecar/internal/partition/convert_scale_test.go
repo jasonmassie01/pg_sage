@@ -55,7 +55,8 @@ func TestConvertAtScale(t *testing.T) {
 	exec(t, ctx, pool, "VACUUM ANALYZE sage.qs_scale")
 	heap := count(t, ctx, pool, "SELECT pg_relation_size('sage.qs_scale')")
 	total := count(t, ctx, pool, "SELECT pg_total_relation_size('sage.qs_scale')")
-	rows := count(t, ctx, pool, "SELECT reltuples::bigint FROM pg_class WHERE oid = 'sage.qs_scale'::regclass")
+	rows := count(t, ctx, pool,
+		"SELECT reltuples::bigint FROM pg_class WHERE oid = 'sage.qs_scale'::regclass")
 	t.Logf("fixture: %d rows, heap %d MB, total %d MB, loaded in %s", rows, heap>>20, total>>20,
 		time.Since(loadStart).Round(time.Second))
 

@@ -138,7 +138,7 @@ func TestConvert_CopiesNoRows(t *testing.T) {
 	ahead := DayStart(time.Now()).Add(3*day + 5*time.Hour)
 	exec(t, ctx, pool, "INSERT INTO sage."+tbl.Name+" (at, v) VALUES ($1, 1)", ahead)
 	var node, toast int64
-	if err := pool.QueryRow(ctx, `SELECT relfilenode, COALESCE((SELECT relfilenode
+	if err := pool.QueryRow(ctx, `SELECT relfilenode::bigint, COALESCE((SELECT relfilenode::bigint
 		FROM pg_class t WHERE t.oid = c.reltoastrelid), 0) FROM pg_class c
 		WHERE oid = to_regclass($1)`, "sage."+tbl.Name).Scan(&node, &toast); err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestConvert_CopiesNoRows(t *testing.T) {
 		t.Fatalf("cut = %s, want %s (two days past the newest row)", res.Cut, want)
 	}
 	var histNode, histToast int64
-	if err := pool.QueryRow(ctx, `SELECT relfilenode, COALESCE((SELECT relfilenode
+	if err := pool.QueryRow(ctx, `SELECT relfilenode::bigint, COALESCE((SELECT relfilenode::bigint
 		FROM pg_class t WHERE t.oid = c.reltoastrelid), 0) FROM pg_class c
 		WHERE oid = to_regclass($1)`, "sage."+tbl.HistoryName()).
 		Scan(&histNode, &histToast); err != nil {
