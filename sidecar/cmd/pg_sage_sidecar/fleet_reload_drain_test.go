@@ -30,6 +30,32 @@ func sleepingAction(
 	}
 }
 
+// gatedAction is an executor action that stays in flight until proceed is
+// closed, then runs one statement on the database's pool and records that
+// its work finished. The test decides when it ends, so its ordering
+// against a drain is never left to timing.
+func gatedAction(
+	inst *fleet.DatabaseInstance, started chan<- struct{}, proceed <-chan struct{},
+	finished *atomic.Bool,
+) executor.ActionIntent {
+	return executor.ActionIntent{
+		Authorize: executeDecision,
+		Execute: func(ctx context.Context, _ executor.ActionPolicyDecision) (int64, error) {
+			close(started)
+			select {
+			case <-proceed:
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+			if _, err := inst.Pool.Exec(ctx, "SELECT pg_sleep(0.1)"); err != nil {
+				return 0, err
+			}
+			finished.Store(true)
+			return 1, nil
+		},
+	}
+}
+
 func noopIntent(executed *atomic.Int32) executor.ActionIntent {
 	return executor.ActionIntent{
 		Authorize: executeDecision,
@@ -54,41 +80,46 @@ func runtimeBoundContext(t *testing.T, inst *fleet.DatabaseInstance) context.Con
 	return ctx
 }
 
+// The removal must wait for the in-flight action. The action is held in
+// flight until the drain is seen parking new actions, so the drain always
+// starts while it runs; whether the action's work had finished is read the
+// moment the reload returns (comparing two goroutines' clock readings
+// raced: the action's goroutine could be scheduled after the reload's).
 func TestFleetReloadRemovalLetsInFlightActionFinish(t *testing.T) {
 	env := newFleetReloadEnv(t, "ctl", "b")
 	inst := fleetMgr.GetInstance("b")
 	actionCtx := runtimeBoundContext(t, inst)
-	started := make(chan struct{})
-	actionDone := make(chan time.Time, 1)
-	var actionErr error
+	started, proceed := make(chan struct{}), make(chan struct{})
+	var workFinished, finishedAtReturn atomic.Bool
+	actionDone := make(chan error, 1)
 	go func() {
-		_, actionErr = inst.Executor.Apply(actionCtx, sleepingAction(inst, 1.5, started))
-		actionDone <- time.Now()
+		_, err := inst.Executor.Apply(actionCtx,
+			gatedAction(inst, started, proceed, &workFinished))
+		actionDone <- err
 	}()
 	<-started
-	reloadDone := make(chan time.Time, 1)
-	var reloadErr error
+	reloadDone := make(chan error, 1)
 	go func() {
-		reloadErr = env.reload(func(c *config.Config) {
+		err := env.reload(func(c *config.Config) {
 			c.Databases = withoutDatabase(c.Databases, "b")
 		})
-		reloadDone <- time.Now()
+		finishedAtReturn.Store(workFinished.Load())
+		reloadDone <- err
 	}()
 	// Once the runtime drains, a new action parks instead of starting.
 	var executed atomic.Int32
-	eventually(t, 5*time.Second, "draining runtime to park new actions", func() bool {
+	eventually(t, 30*time.Second, "draining runtime to park new actions", func() bool {
 		_, err := inst.Executor.Apply(context.Background(), noopIntent(&executed))
 		return errors.Is(err, executor.ErrDDLSlotUnavailable)
 	})
-	finished := <-actionDone
-	if actionErr != nil {
-		t.Fatalf("in-flight action was interrupted: %v", actionErr)
+	close(proceed)
+	if err := <-actionDone; err != nil {
+		t.Fatalf("in-flight action was interrupted: %v", err)
 	}
-	returned := <-reloadDone
-	if reloadErr != nil {
-		t.Fatalf("removal reload: %v", reloadErr)
+	if err := <-reloadDone; err != nil {
+		t.Fatalf("removal reload: %v", err)
 	}
-	if returned.Before(finished) || !poolClosed(inst.Pool) {
+	if !finishedAtReturn.Load() || !poolClosed(inst.Pool) {
 		t.Fatal("removal completed before the in-flight action finished")
 	}
 	if fleetMgr.GetInstance("b") != nil {
