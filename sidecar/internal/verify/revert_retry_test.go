@@ -12,7 +12,7 @@ import (
 
 func regressingSource() *fakeObservationSource {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 60, AverageLatency: 300 * time.Millisecond}
+	source.after[42] = Measurement{Samples: 60, AverageLatency: 300 * time.Millisecond, Buckets: 12}
 	return source
 }
 
@@ -64,7 +64,7 @@ func TestResumedRevertReturnsStoredVerdictWithoutReobserving(t *testing.T) {
 func TestZeroWriteBaselineIsNotWriteRegression(t *testing.T) {
 	source := newFakeObservationSource()
 	source.writeBefore = Measurement{Samples: 60}
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 5 * time.Millisecond}
+	source.writeAfter = Measurement{Samples: 60, AverageLatency: 5 * time.Millisecond, Buckets: 12}
 	engine := newTestEngine(t, source, newMemoryStateStore())
 
 	verdict, err := engine.Watch(context.Background(), successfulWatchRequest("write-0"))

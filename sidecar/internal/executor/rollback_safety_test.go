@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // Regression tests for G4-B06, B10, B11, B12, B13, B25, B28, B31 and
@@ -37,18 +38,25 @@ func insertMonitoredAction(
 	t *testing.T, pool *pgxpool.Pool, outcome, rollbackSQL, beforeState string,
 ) int64 {
 	t.Helper()
+	stored := beforeState
+	if isVerificationFixture(beforeState) {
+		stored = "{}"
+	}
 	var id int64
 	err := pool.QueryRow(context.Background(), `INSERT INTO sage.action_log
 		(action_type, sql_executed, rollback_sql, outcome, before_state)
 		VALUES ('create_index', 'CREATE INDEX CONCURRENTLY rb_probe ON public.t (a)',
 		        $1, $2, $3::jsonb) RETURNING id`,
-		rollbackSQL, outcome, beforeState).Scan(&id)
+		rollbackSQL, outcome, stored).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert monitored action: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.action_log WHERE id=$1", id)
 	})
+	if isVerificationFixture(beforeState) {
+		applyVerificationFixture(t, pool, id, beforeState)
+	}
 	return id
 }
 
@@ -65,9 +73,6 @@ func actionOutcomeFor(t *testing.T, pool *pgxpool.Pool, id int64) (string, bool)
 }
 
 func allowRollback(context.Context, string) bool { return true }
-
-// A before-state cache hit ratio above 1.0 guarantees a measured regression.
-const regressedBeforeState = `{"cache_hit_ratio": 2.0}`
 
 func monitorConfig(rec *recordedRollback) RollbackMonitorConfig {
 	return RollbackMonitorConfig{
@@ -209,28 +214,51 @@ func TestMonitorMissingEvidenceIsNotSuccess(t *testing.T) {
 	}
 }
 
-func TestEvaluateRegressionTriState(t *testing.T) {
+// Replaces TestEvaluateRegressionTriState: the global cache-hit check is
+// gone; the judge compares the targeted queries against the frozen
+// baseline, and a missing baseline or prediction is never "no regression".
+func TestJudgeMonitoredVerdicts(t *testing.T) {
 	pool, ctx := requireDB(t)
-	missing := insertMonitoredAction(t, pool, "monitoring", "", `{}`)
-	regressed := insertMonitoredAction(t, pool, "monitoring", "", regressedBeforeState)
-	healthy := insertMonitoredAction(t, pool, "monitoring", "", `{"cache_hit_ratio": 0.01}`)
-
-	if got := evaluateRegression(ctx, pool, missing, 10); got != regressionUnverifiable {
-		t.Fatalf("missing baseline verdict = %v", got)
+	cases := map[string]struct {
+		before string
+		want   string
+	}{
+		"missing evidence": {`{}`, verify.OutcomeUnverifiable},
+		"regressed":        {regressedBeforeState, verify.OutcomeRegressed},
+		"improved":         {improvedBeforeState, verify.OutcomeImproved},
+		"legacy cache hit": {`{"cache_hit_ratio": 0.01}`, verify.OutcomeUnverifiable},
 	}
-	if got := evaluateRegression(ctx, pool, regressed, 10); got != regressionDetected {
-		t.Fatalf("regressed verdict = %v", got)
-	}
-	if got := evaluateRegression(ctx, pool, healthy, 10); got != regressionNone {
-		t.Fatalf("healthy verdict = %v", got)
+	cfg := monitorConfig(&recordedRollback{})
+	for name, tc := range cases {
+		id := insertMonitoredAction(t, pool, "monitoring", "", tc.before)
+		plan, err := loadMonitorPlan(ctx, pool, id, cfg)
+		if err != nil {
+			t.Fatalf("%s: loadMonitorPlan: %v", name, err)
+		}
+		got := judgeMonitored(ctx, pool, plan, cfg, time.Now())
+		if got.Verdict != tc.want {
+			t.Fatalf("%s: verdict = %s (%s), want %s", name, got.Verdict, got.Reason, tc.want)
+		}
+		if got.ActionLogID != id || got.Class != verify.ClassIndexCreate {
+			t.Fatalf("%s: outcome identity = %d/%s", name, got.ActionLogID, got.Class)
+		}
 	}
 }
 
-func TestPerQueryRegressionWithoutDataIsUnverifiable(t *testing.T) {
+// Replaces TestPerQueryRegressionWithoutDataIsUnverifiable: a target with
+// a baseline but no post-action samples is insufficient evidence.
+func TestJudgeTargetWithoutSamplesIsInsufficient(t *testing.T) {
 	pool, ctx := requireDB(t)
-	got := perQueryRegression(ctx, pool, []int64{987654321}, time.Now().Add(-time.Hour), 10)
-	if got != regressionUnverifiable {
-		t.Fatalf("per-query verdict without data = %v, want unverifiable", got)
+	id := insertMonitoredAction(t, pool, "monitoring", "",
+		fixtureBeforeState(verify.ClassIndexCreate, 987654321))
+	cfg := monitorConfig(&recordedRollback{})
+	plan, err := loadMonitorPlan(ctx, pool, id, cfg)
+	if err != nil {
+		t.Fatalf("loadMonitorPlan: %v", err)
+	}
+	if got := judgeMonitored(ctx, pool, plan, cfg, time.Now()); got.Verdict !=
+		verify.OutcomeInsufficient {
+		t.Fatalf("verdict = %s (%s), want insufficient_evidence", got.Verdict, got.Reason)
 	}
 }
 
@@ -285,11 +313,18 @@ func TestResumeOrphanedMonitorsFinishesInterruptedActions(t *testing.T) {
 	cfg.Trust.RollbackWindowMinutes = 1
 	exec := New(pool, cfg, time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
+	// The old fixture ({"cache_hit_ratio": 0.01}) was credited "success"
+	// with no evidence about the action; resumed monitors now need the
+	// targeted queries to have improved (Phase 1.3).
 	id := insertMonitoredAction(t, pool, "interrupted", "DROP INDEX CONCURRENTLY public.x",
-		`{"cache_hit_ratio": 0.01}`)
-	if _, err := pool.Exec(ctx, `UPDATE sage.action_log
-		SET executed_at = now() - interval '1 hour' WHERE id=$1`, id); err != nil {
-		t.Fatalf("age action: %v", err)
+		improvedBeforeState)
+	unproven := insertMonitoredAction(t, pool, "interrupted",
+		"DROP INDEX CONCURRENTLY public.y", `{"cache_hit_ratio": 0.01}`)
+	for _, aged := range []int64{id, unproven} {
+		if _, err := pool.Exec(ctx, `UPDATE sage.action_log
+			SET executed_at = now() - interval '1 hour' WHERE id=$1`, aged); err != nil {
+			t.Fatalf("age action: %v", err)
+		}
 	}
 
 	if err := exec.resumeOrphanedMonitors(ctx); err != nil {
@@ -299,6 +334,9 @@ func TestResumeOrphanedMonitorsFinishesInterruptedActions(t *testing.T) {
 
 	if outcome, _ := actionOutcomeFor(t, pool, id); outcome != "success" {
 		t.Fatalf("resumed outcome = %q, want success", outcome)
+	}
+	if outcome, _ := actionOutcomeFor(t, pool, unproven); outcome != "unverifiable" {
+		t.Fatalf("resumed outcome without evidence = %q, want unverifiable", outcome)
 	}
 }
 

@@ -764,42 +764,6 @@ func TestCoverage_UpdateActionOutcome(t *testing.T) {
 	}
 }
 
-// TestCoverage_UpdateActionSuccess exercises updateActionSuccess.
-func TestCoverage_UpdateActionSuccess(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	var actionID int64
-	err := pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, outcome)
-		 VALUES ('vacuum', 0, 'VACUUM t', 'pending')
-		 RETURNING id`,
-	).Scan(&actionID)
-	if err != nil {
-		t.Fatalf("inserting dummy action: %v", err)
-	}
-
-	t.Cleanup(func() {
-		cctx := context.Background()
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.action_log WHERE id = $1", actionID)
-	})
-
-	updateActionSuccess(ctx, pool, actionID)
-
-	var outcome string
-	err = pool.QueryRow(ctx,
-		`SELECT outcome FROM sage.action_log WHERE id = $1`,
-		actionID,
-	).Scan(&outcome)
-	if err != nil {
-		t.Fatalf("reading updated action: %v", err)
-	}
-	if outcome != "success" {
-		t.Fatalf("outcome = %q, want success", outcome)
-	}
-}
-
 func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 	t *testing.T,
 ) {
@@ -848,6 +812,9 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
+	// The impossible cache-hit before_state above no longer forces a
+	// regression (Phase 1.3); seed a measured one for the target instead.
+	applyVerificationFixture(t, pool, actionID, regressedBeforeState)
 
 	MonitorAndRollback(
 		ctx, pool, actionID,
@@ -884,149 +851,6 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 	}
 	if exists {
 		t.Fatal("rollback index still exists after MonitorAndRollback")
-	}
-}
-
-// TestCoverage_CheckRegression_NoBeforeState verifies checkRegression
-// returns false when there is no before_state (action not found or
-// cache_hit_ratio missing).
-func TestCoverage_CheckRegression_NoBeforeState(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	// Insert an action with no before_state.
-	var actionID int64
-	err := pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, outcome)
-		 VALUES ('create_index', 0, 'SELECT 1', 'pending')
-		 RETURNING id`,
-	).Scan(&actionID)
-	if err != nil {
-		t.Fatalf("inserting dummy action: %v", err)
-	}
-
-	t.Cleanup(func() {
-		cctx := context.Background()
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.action_log WHERE id = $1", actionID)
-	})
-
-	// Missing baseline evidence is unverifiable, never "no regression"
-	// (Codex C14: the old assertion encoded the fail-open behaviour).
-	got := evaluateRegression(ctx, pool, actionID, 10)
-	if got != regressionUnverifiable {
-		t.Errorf("evaluateRegression = %v, want unverifiable when "+
-			"no before_state exists", got)
-	}
-}
-
-// TestCoverage_CheckRegression_WithBeforeState verifies
-// checkRegression returns false when cache hit ratio has not regressed.
-func TestCoverage_CheckRegression_WithBeforeState(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	// Insert an action with a very low before-state cache hit ratio.
-	// This ensures current cache hit will be >= before, so no regression.
-	var actionID int64
-	err := pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, outcome,
-		  before_state)
-		 VALUES ('create_index', 0, 'SELECT 1', 'pending',
-		         '{"cache_hit_ratio": 0.01}')
-		 RETURNING id`,
-	).Scan(&actionID)
-	if err != nil {
-		t.Fatalf("inserting dummy action: %v", err)
-	}
-
-	t.Cleanup(func() {
-		cctx := context.Background()
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.action_log WHERE id = $1", actionID)
-	})
-
-	got := evaluateRegression(ctx, pool, actionID, 10)
-	if got != regressionNone {
-		t.Errorf("evaluateRegression = %v, want none when cache "+
-			"hit improved (before was very low)", got)
-	}
-}
-
-// TestCoverage_CheckRegression_ZeroBeforeCacheHit verifies
-// checkRegression returns false when before cache hit is 0
-// (division by zero guard).
-func TestCoverage_CheckRegression_ZeroBeforeCacheHit(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	var actionID int64
-	err := pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, outcome,
-		  before_state)
-		 VALUES ('create_index', 0, 'SELECT 1', 'pending',
-		         '{"cache_hit_ratio": 0}')
-		 RETURNING id`,
-	).Scan(&actionID)
-	if err != nil {
-		t.Fatalf("inserting dummy action: %v", err)
-	}
-
-	t.Cleanup(func() {
-		cctx := context.Background()
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.action_log WHERE id = $1", actionID)
-	})
-
-	// A zero baseline cannot prove health either way (Codex C14).
-	got := evaluateRegression(ctx, pool, actionID, 10)
-	if got != regressionUnverifiable {
-		t.Errorf("evaluateRegression = %v, want unverifiable when "+
-			"before cache_hit_ratio is 0", got)
-	}
-}
-
-// TestCoverage_CheckRegression_WithMeanExecTime verifies the
-// mean_exec_time_ms branch in checkRegression.
-func TestCoverage_CheckRegression_WithMeanExecTime(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	// Use a low cache hit to not trigger cache regression,
-	// and add mean_exec_time_ms to exercise that code path.
-	var actionID int64
-	err := pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, outcome,
-		  before_state)
-		 VALUES ('create_index', 0, 'SELECT 1', 'pending',
-		         '{"cache_hit_ratio": 0.01, "mean_exec_time_ms": 0.5}')
-		 RETURNING id`,
-	).Scan(&actionID)
-	if err != nil {
-		t.Fatalf("inserting dummy action: %v", err)
-	}
-
-	t.Cleanup(func() {
-		cctx := context.Background()
-		_, _ = pool.Exec(cctx,
-			"DELETE FROM sage.action_log WHERE id = $1", actionID)
-	})
-
-	// This exercises the mean_exec_time_ms branch.
-	// Whether regression is detected depends on pg_stat_statements
-	// data — but the code path is covered either way.
-	_ = evaluateRegression(ctx, pool, actionID, 10)
-}
-
-// TestCoverage_CheckRegression_NonexistentAction verifies
-// checkRegression returns false for a nonexistent action ID.
-func TestCoverage_CheckRegression_NonexistentAction(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	got := evaluateRegression(ctx, pool, -99999, 10)
-	if got != regressionUnverifiable {
-		t.Errorf("evaluateRegression = %v, want unverifiable for "+
-			"nonexistent action", got)
 	}
 }
 

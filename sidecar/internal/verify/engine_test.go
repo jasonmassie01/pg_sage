@@ -10,10 +10,17 @@ import (
 	"time"
 )
 
-func TestWatchRetainsWhenAnyTargetMeetsGainAndNoneRegress(t *testing.T) {
+// The gain is judged on the call-weighted mean of every target (Phase
+// 1.3): 42 runs 60 calls 100->70 ms and 43 runs 50 calls 200->150 ms, so
+// the pooled mean falls from 145.5 to 106.4 ms (-26.9%). The old rule kept
+// an index when any one target gained, however few calls it had; this
+// test replaces TestWatchRetainsWhenAnyTargetMeetsGainAndNoneRegress.
+func TestWatchRetainsWhenCallWeightedTargetsGainAndNoneRegress(t *testing.T) {
 	source := newFakeObservationSource()
-	source.before[43] = Measurement{Samples: 50, AverageLatency: 200 * time.Millisecond}
-	source.after[43] = Measurement{Samples: 50, AverageLatency: 190 * time.Millisecond}
+	source.before[43] = Measurement{Samples: 50, AverageLatency: 200 * time.Millisecond,
+		Buckets: 12}
+	source.after[43] = Measurement{Samples: 50, AverageLatency: 150 * time.Millisecond,
+		Buckets: 12}
 	request := successfulWatchRequest("useful")
 	request.Criterion.TargetIDs = []int64{42, 43}
 
@@ -26,15 +33,114 @@ func TestWatchRetainsWhenAnyTargetMeetsGainAndNoneRegress(t *testing.T) {
 	if !verdict.Retain || verdict.Revert || verdict.Status != "success" {
 		t.Fatalf("verdict = %#v, want retained success", verdict)
 	}
-	if verdict.Samples != 100 {
-		t.Fatalf("samples = %d, want 100", verdict.Samples)
+	if verdict.Samples != 110 {
+		t.Fatalf("samples = %d, want 110 pooled after-window calls", verdict.Samples)
+	}
+	if verdict.Outcome != OutcomeImproved || verdict.ObservedPct == nil ||
+		*verdict.ObservedPct > -26 || *verdict.ObservedPct < -28 {
+		t.Fatalf("outcome = %s observed = %v, want improved at about -26.9%%",
+			verdict.Outcome, verdict.ObservedPct)
+	}
+	if verdict.Evidence == nil || verdict.Evidence["comparison"] == nil ||
+		verdict.Evidence["targets"] == nil {
+		t.Fatalf("verdict evidence = %#v, want comparison and per-target evidence",
+			verdict.Evidence)
+	}
+}
+
+// One target gaining is not enough when the call-weighted mean does not
+// move: 42 gains 30% on 60 calls, 43 is flat on 2000 calls.
+func TestWatchRevertsWhenOnlyARareTargetGains(t *testing.T) {
+	source := newFakeObservationSource()
+	source.before[43] = Measurement{Samples: 2000, AverageLatency: 100 * time.Millisecond,
+		Buckets: 12}
+	source.after[43] = Measurement{Samples: 2000, AverageLatency: 100 * time.Millisecond,
+		Buckets: 12}
+	request := successfulWatchRequest("rare-gain")
+	request.Criterion.TargetIDs = []int64{42, 43}
+
+	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
+		context.Background(), request,
+	)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if !verdict.Revert || verdict.Reason != "no_gain" || verdict.Outcome != OutcomeNeutral {
+		t.Fatalf("verdict = %#v, want no-gain revert with a neutral outcome", verdict)
+	}
+}
+
+// Noisy samples do not flip the verdict: an apparent +60% whose interval
+// spans zero extends the window instead of reverting.
+func TestWatchNoisySamplesExtendInsteadOfReverting(t *testing.T) {
+	source := newFakeObservationSource()
+	source.before[42] = Measurement{Samples: 400, AverageLatency: 100 * time.Millisecond,
+		StdErr: 30 * time.Millisecond, Buckets: 6}
+	source.after[42] = Measurement{Samples: 400, AverageLatency: 160 * time.Millisecond,
+		StdErr: 60 * time.Millisecond, Buckets: 6}
+	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
+		context.Background(), successfulWatchRequest("noisy"),
+	)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if verdict.Revert || verdict.Retain || verdict.Status != "extended" {
+		t.Fatalf("noisy verdict = %#v, want an extended window", verdict)
+	}
+}
+
+func TestWatchRegressionCarriesRegressedOutcome(t *testing.T) {
+	source := newFakeObservationSource()
+	source.after[42] = Measurement{Samples: 60, AverageLatency: 140 * time.Millisecond,
+		Buckets: 12}
+	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
+		context.Background(), successfulWatchRequest("regressed-outcome"),
+	)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if verdict.Outcome != OutcomeRegressed || verdict.ObservedPct == nil ||
+		*verdict.ObservedPct < 39 || *verdict.ObservedPct > 41 {
+		t.Fatalf("verdict = %#v, want regressed at +40%%", verdict)
+	}
+}
+
+func TestWatchHardMaxWithoutSamplesIsInsufficientEvidence(t *testing.T) {
+	source := newFakeObservationSource()
+	source.after = map[int64]Measurement{}
+	request := successfulWatchRequest("hard-max-outcome")
+	request.Criterion.Window = 72 * time.Hour
+	request.ExecutedAt = testVerificationNow().Add(-72 * time.Hour)
+	source.executedAt = request.ExecutedAt
+	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
+		context.Background(), request,
+	)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if verdict.Outcome != OutcomeInsufficient {
+		t.Fatalf("outcome = %q, want insufficient_evidence (never success)", verdict.Outcome)
+	}
+}
+
+func TestWatchInvalidIndexIsUnverifiableOutcome(t *testing.T) {
+	source := newFakeObservationSource()
+	source.indexValid = false
+	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
+		context.Background(), successfulWatchRequest("invalid-outcome"),
+	)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if verdict.Outcome != OutcomeUnverifiable {
+		t.Fatalf("outcome = %q, want unverifiable", verdict.Outcome)
 	}
 }
 
 func TestWatchRevertsWhenAnyTargetRegresses(t *testing.T) {
 	source := newFakeObservationSource()
-	source.before[43] = Measurement{Samples: 40, AverageLatency: 100 * time.Millisecond}
-	source.after[43] = Measurement{Samples: 40, AverageLatency: 116 * time.Millisecond}
+	source.before[43] = Measurement{Samples: 40, AverageLatency: 100 * time.Millisecond, Buckets: 12}
+	source.after[43] = Measurement{Samples: 40, AverageLatency: 116 * time.Millisecond, Buckets: 12}
 	request := successfulWatchRequest("regression")
 	request.Criterion.TargetIDs = []int64{42, 43}
 
@@ -51,7 +157,7 @@ func TestWatchRevertsWhenAnyTargetRegresses(t *testing.T) {
 
 func TestWatchRegressionBoundaryIsStrict(t *testing.T) {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 60, AverageLatency: 115 * time.Millisecond}
+	source.after[42] = Measurement{Samples: 60, AverageLatency: 115 * time.Millisecond, Buckets: 12}
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("boundary"),
 	)
@@ -65,7 +171,7 @@ func TestWatchRegressionBoundaryIsStrict(t *testing.T) {
 
 func TestWatchRevertsWhenNoTargetMeetsMinimumGain(t *testing.T) {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 60, AverageLatency: 81 * time.Millisecond}
+	source.after[42] = Measurement{Samples: 60, AverageLatency: 81 * time.Millisecond, Buckets: 12}
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("no-gain"),
 	)
@@ -79,7 +185,7 @@ func TestWatchRevertsWhenNoTargetMeetsMinimumGain(t *testing.T) {
 
 func TestWatchMinimumGainBoundaryCountsAsSuccess(t *testing.T) {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 60, AverageLatency: 80 * time.Millisecond}
+	source.after[42] = Measurement{Samples: 60, AverageLatency: 80 * time.Millisecond, Buckets: 12}
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("gain-boundary"),
 	)
@@ -93,7 +199,7 @@ func TestWatchMinimumGainBoundaryCountsAsSuccess(t *testing.T) {
 
 func TestWatchRevertsOnWriteImpact(t *testing.T) {
 	source := newFakeObservationSource()
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 13 * time.Millisecond}
+	source.writeAfter = Measurement{Samples: 60, AverageLatency: 13 * time.Millisecond, Buckets: 12}
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("write-impact"),
 	)
@@ -107,7 +213,7 @@ func TestWatchRevertsOnWriteImpact(t *testing.T) {
 
 func TestWatchWriteImpactBoundaryIsAllowed(t *testing.T) {
 	source := newFakeObservationSource()
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 12 * time.Millisecond}
+	source.writeAfter = Measurement{Samples: 60, AverageLatency: 12 * time.Millisecond, Buckets: 12}
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
 		context.Background(), successfulWatchRequest("write-boundary"),
 	)
@@ -135,7 +241,7 @@ func TestWatchDropsInvalidIndexThroughRevertVerdict(t *testing.T) {
 
 func TestWatchExtendsWhenSamplesBelowThirty(t *testing.T) {
 	source := newFakeObservationSource()
-	source.after[42] = Measurement{Samples: 29, AverageLatency: 60 * time.Millisecond}
+	source.after[42] = Measurement{Samples: 29, AverageLatency: 60 * time.Millisecond, Buckets: 12}
 	request := successfulWatchRequest("low-samples")
 	store := newMemoryStateStore()
 	verdict, err := newTestEngine(t, source, store).Watch(context.Background(), request)
@@ -163,7 +269,7 @@ func TestWatchExtendsAdaptivelyAndCapsAtSeventyTwoHours(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			source := newFakeObservationSource()
-			source.after[42] = Measurement{Samples: 2, AverageLatency: time.Millisecond}
+			source.after[42] = Measurement{Samples: 2, AverageLatency: time.Millisecond, Buckets: 12}
 			request := successfulWatchRequest(test.name)
 			request.Criterion.Window = test.window
 			request.ExecutedAt = testVerificationNow().Add(-test.window)
