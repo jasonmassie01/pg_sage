@@ -33,9 +33,12 @@ func virtualSigstore(t *testing.T) *ca.VirtualSigstore {
 	return vs
 }
 
+// releaseVerifier is the release verifier over vs without the SCT
+// requirement: the virtual Sigstore cannot issue SCTs (see
+// TestReleaseVerifierRequiresAnSCT for the requirement itself).
 func releaseVerifier(t *testing.T, vs *ca.VirtualSigstore) *Verifier {
 	t.Helper()
-	v, err := NewVerifier(vs, ReleaseIdentity())
+	v, err := newVerifier(vs, ReleaseIdentity(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +102,26 @@ func TestVerifyRefusesOtherSigners(t *testing.T) {
 		if _, err := v.VerifyEntity(report, entity); !errors.Is(err, ErrInvalidSignature) {
 			t.Errorf("%s (%s): err = %v, want ErrInvalidSignature", name, c.san, err)
 		}
+	}
+}
+
+// The sidecar's verifier requires an SCT from a trusted CT log in the
+// signing certificate (as cosign verify-blob does): a certificate
+// without one is refused even when everything else verifies.
+func TestReleaseVerifierRequiresAnSCT(t *testing.T) {
+	vs := virtualSigstore(t)
+	entity, err := vs.Sign(ciTag, GitHubIssuer, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := NewVerifier(vs, ReleaseIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = v.VerifyEntity(report, entity)
+	if !errors.Is(err, ErrInvalidSignature) ||
+		!strings.Contains(err.Error(), "certificate timestamp") {
+		t.Fatalf("err = %v, want an SCT refusal", err)
 	}
 }
 
