@@ -394,7 +394,8 @@ func migrationStatements() []string {
 		ddlIncidentOpenIdentity,
 		ddlSnapshotDelta,
 		ddlDecisionLedger(),
-		ddlPerfIndexes)
+		ddlPerfIndexes,
+		ddlSREPerf())
 }
 
 // ---------------------------------------------------------------------------
@@ -713,12 +714,18 @@ CREATE INDEX IF NOT EXISTS idx_query_hints_revalidate
 `
 
 // v0.9.2 — Add last_detected_at to incidents for accurate outage duration.
+// The backfill runs when the column is added: every writer sets it, so a
+// re-run must not look for NULLs again (it read all of sage.incidents on
+// every startup; performance gate, v1.8.3).
 const ddlIncidentsLastDetected = `
-ALTER TABLE sage.incidents
-    ADD COLUMN IF NOT EXISTS last_detected_at TIMESTAMPTZ;
-UPDATE sage.incidents
-    SET last_detected_at = detected_at
-    WHERE last_detected_at IS NULL;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_attribute
+                    WHERE attrelid = 'sage.incidents'::regclass
+                      AND attname = 'last_detected_at' AND NOT attisdropped) THEN
+        ALTER TABLE sage.incidents ADD COLUMN last_detected_at TIMESTAMPTZ;
+        UPDATE sage.incidents SET last_detected_at = detected_at;
+    END IF;
+END $$;
 `
 
 // v0.11 — absorb sage.schema_findings into sage.findings. Add optional
