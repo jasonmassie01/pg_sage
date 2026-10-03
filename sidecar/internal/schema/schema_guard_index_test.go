@@ -40,11 +40,11 @@ func dropSchemaGuardIndex(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-func TestEnsureSchemaGuardIndexCreatesThePartialGINIndex(t *testing.T) {
+func TestEnsureDecisionIndexesCreatesThePartialGINIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	dropSchemaGuardIndex(t, pool)
-	if err := EnsureSchemaGuardIndex(ctx, pool); err != nil {
+	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
 		t.Fatalf("EnsureSchemaGuardIndex: %v", err)
 	}
 	oid, valid, def := schemaGuardIndex(t, pool)
@@ -52,7 +52,7 @@ func TestEnsureSchemaGuardIndexCreatesThePartialGINIndex(t *testing.T) {
 		!strings.Contains(def, "WHERE (feature = 'schema_guard'::text)") {
 		t.Fatalf("index valid=%v def=%s, want a valid partial GIN index", valid, def)
 	}
-	if err := EnsureSchemaGuardIndex(ctx, pool); err != nil {
+	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
 		t.Fatalf("second EnsureSchemaGuardIndex: %v", err)
 	}
 	if again, _, _ := schemaGuardIndex(t, pool); again != oid {
@@ -62,7 +62,7 @@ func TestEnsureSchemaGuardIndexCreatesThePartialGINIndex(t *testing.T) {
 
 // The coordinator already created the index by hand on lifeos: the
 // migration must leave it alone.
-func TestEnsureSchemaGuardIndexKeepsAnExistingIndex(t *testing.T) {
+func TestEnsureDecisionIndexesKeepsAnExistingIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	dropSchemaGuardIndex(t, pool)
@@ -70,7 +70,7 @@ func TestEnsureSchemaGuardIndexKeepsAnExistingIndex(t *testing.T) {
 		t.Fatalf("create index the coordinator's way: %v", err)
 	}
 	oid, _, _ := schemaGuardIndex(t, pool)
-	if err := EnsureSchemaGuardIndex(ctx, pool); err != nil {
+	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
 		t.Fatalf("EnsureSchemaGuardIndex: %v", err)
 	}
 	if again, valid, _ := schemaGuardIndex(t, pool); again != oid || !valid {
@@ -80,10 +80,10 @@ func TestEnsureSchemaGuardIndexKeepsAnExistingIndex(t *testing.T) {
 
 // A failed concurrent build leaves an INVALID index that IF NOT EXISTS
 // would skip forever; it is rebuilt.
-func TestEnsureSchemaGuardIndexRebuildsAnInvalidIndex(t *testing.T) {
+func TestEnsureDecisionIndexesRebuildsAnInvalidIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
-	if err := EnsureSchemaGuardIndex(ctx, pool); err != nil {
+	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
 		t.Fatalf("EnsureSchemaGuardIndex: %v", err)
 	}
 	oid, _, _ := schemaGuardIndex(t, pool)
@@ -91,7 +91,7 @@ func TestEnsureSchemaGuardIndexRebuildsAnInvalidIndex(t *testing.T) {
 		WHERE indexrelid = $1`, oid); err != nil {
 		t.Skipf("cannot mark the index invalid (needs superuser): %v", err)
 	}
-	if err := EnsureSchemaGuardIndex(ctx, pool); err != nil {
+	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
 		t.Fatalf("EnsureSchemaGuardIndex on an invalid index: %v", err)
 	}
 	again, valid, _ := schemaGuardIndex(t, pool)
@@ -100,7 +100,7 @@ func TestEnsureSchemaGuardIndexRebuildsAnInvalidIndex(t *testing.T) {
 	}
 }
 
-func TestEnsureSchemaGuardIndexConcurrentCallers(t *testing.T) {
+func TestEnsureDecisionIndexesConcurrentCallers(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	dropSchemaGuardIndex(t, pool)
@@ -110,7 +110,7 @@ func TestEnsureSchemaGuardIndexConcurrentCallers(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- EnsureSchemaGuardIndex(ctx, pool)
+			errs <- EnsureDecisionIndexes(ctx, pool)
 		}()
 	}
 	wg.Wait()
@@ -125,8 +125,8 @@ func TestEnsureSchemaGuardIndexConcurrentCallers(t *testing.T) {
 	}
 }
 
-func TestEnsureSchemaGuardIndexRejectsANilConnection(t *testing.T) {
-	err := EnsureSchemaGuardIndex(context.Background(), nil)
+func TestEnsureDecisionIndexesRejectsANilConnection(t *testing.T) {
+	err := EnsureDecisionIndexes(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "connection") {
 		t.Fatalf("nil database error = %v, want a named connection error", err)
 	}

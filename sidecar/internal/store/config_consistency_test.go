@@ -54,6 +54,9 @@ var excludedExactKeys = map[string]bool{
 	// The schema guard's post-DDL debounce is read when the autonomy
 	// supervisor starts; YAML only, restart-bound.
 	"analyzer.schema_guard_ddl_debounce_seconds": true,
+	// The non-execute decision retention window is YAML only; it is not
+	// exposed as an API override.
+	"retention.decisions_days": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
