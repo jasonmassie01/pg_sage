@@ -84,7 +84,7 @@ func TestRealizedValueReadsCreditedActionsOnly(t *testing.T) {
 func assertRealized(t *testing.T, got Snapshot, now, old time.Time) {
 	t.Helper()
 	month, week := 50.0, 50.0
-	if !sameMonth(now.Add(-2*time.Minute), now) {
+	if now.Add(-2*time.Minute).Month() != now.Month() {
 		month = 45
 	}
 	if now.Add(-2 * time.Minute).Before(startOfWeek(now)) {

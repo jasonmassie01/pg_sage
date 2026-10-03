@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,46 +29,60 @@ func readSnapshot(
 	return result, nil
 }
 
+// realizedSQL sums credited minutes per action type and day in SQL, over
+// idx_action_log_value_credit (credited actions only; perf v1.8.3,
+// perf-selfexcl): rows read are the credited actions in the window, never
+// the rest of the ledger. The window bounds are an index range in the
+// generic plan too ($1 IS NULL OR ... was not). $3 and $4 start this
+// month and this week.
+const realizedSQL = `SELECT al.action_type,
+	date_trunc('day', al.executed_at)::date::text,
+	sum(al.toil_minutes_saved)::float8,
+	COALESCE(sum(al.toil_minutes_saved) FILTER (WHERE al.executed_at >= $3), 0)::float8,
+	COALESCE(sum(al.toil_minutes_saved) FILTER (WHERE al.executed_at >= $4), 0)::float8
+	FROM sage.action_log al
+	WHERE al.outcome = 'success' AND al.toil_minutes_saved IS NOT NULL
+	  AND al.executed_at >= COALESCE($1::timestamptz, '-infinity')
+	  AND al.executed_at <= COALESCE($2::timestamptz, 'infinity')
+	GROUP BY 1, 2`
+
+// querier is a pool or a transaction.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 func readRealized(
-	ctx context.Context, pool *pgxpool.Pool, name string, filter Filter,
-	result *Snapshot,
+	ctx context.Context, q querier, name string, filter Filter, result *Snapshot,
 ) error {
-	rows, err := pool.Query(ctx, `SELECT al.action_type,
-		date_trunc('day', al.executed_at)::date::text, al.executed_at,
-		al.toil_minutes_saved::float8 FROM sage.action_log al
-		WHERE al.outcome='success' AND al.toil_minutes_saved IS NOT NULL
-		AND ($1::timestamptz IS NULL OR al.executed_at >= $1)
-		AND ($2::timestamptz IS NULL OR al.executed_at <= $2)
-		ORDER BY al.executed_at`, nullableTime(filter.Since),
-		nullableTime(filter.Until))
+	now := time.Now().UTC()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	rows, err := q.Query(ctx, realizedSQL, nullableTime(filter.Since),
+		nullableTime(filter.Until), monthStart, startOfWeek(now))
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	byDB := map[string]float64{}
 	byDay := map[string]float64{}
-	now := time.Now().UTC()
 	for rows.Next() {
 		var feature, day string
-		var at time.Time
-		var minutes float64
-		if err := rows.Scan(&feature, &day, &at, &minutes); err != nil {
+		var minutes, month, week float64
+		if err := rows.Scan(&feature, &day, &minutes, &month, &week); err != nil {
 			return err
 		}
 		result.AllTimeMinutes += minutes
-		if sameMonth(at, now) {
-			result.MonthMinutes += minutes
-		}
-		if !at.Before(startOfWeek(now)) {
-			result.WeekMinutes += minutes
-		}
+		result.MonthMinutes += month
+		result.WeekMinutes += week
 		result.ByFeatureMinutes[feature] += minutes
 		byDB[name] += minutes
 		byDay[day] += minutes
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	result.ByDatabaseMinutes = databaseRows(byDB)
 	result.TrendMinutes = dayRows(byDay)
-	return rows.Err()
+	return nil
 }
 
 func readPotential(
@@ -113,12 +128,6 @@ func nullableTime(value time.Time) *time.Time {
 		return nil
 	}
 	return &value
-}
-
-func sameMonth(left, right time.Time) bool {
-	ly, lm, _ := left.Date()
-	ry, rm, _ := right.Date()
-	return ly == ry && lm == rm
 }
 
 func startOfWeek(value time.Time) time.Time {
