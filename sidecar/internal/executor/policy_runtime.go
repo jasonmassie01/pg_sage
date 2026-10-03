@@ -78,15 +78,24 @@ func (e *Executor) standingRuntimeState(
 
 // standingUsage reports self-initiated executions in the rolling 24-hour
 // window for the gate's rate and blast-radius limits. Operator-approved
-// decisions are excluded: they are not self-initiated.
+// decisions are excluded: they are not self-initiated. TablesInWindow is
+// the blast radius the window would have if the request ran: the distinct
+// tables already touched plus the request's own, so the gate's
+// "TablesInWindow > max_tables_per_window" never admits one table past the
+// limit, and re-touching a counted table does not widen it. An index
+// identity ("public.t|btree(c)") counts as its table.
 func (e *Executor) standingUsage(
-	ctx context.Context, _ policy.ActionRequest,
+	ctx context.Context, request policy.ActionRequest,
 ) (policy.LimitUsage, error) {
 	var usage policy.LimitUsage
 	if e.pool == nil {
 		return usage, fmt.Errorf("policy usage requires a database pool")
 	}
-	err := e.pool.QueryRow(ctx, standingUsageSQL, operatorDecisionIntent).Scan(
+	targets := request.TargetObjs
+	if targets == nil {
+		targets = []string{}
+	}
+	err := e.pool.QueryRow(ctx, standingUsageSQL, operatorDecisionIntent, targets).Scan(
 		&usage.SelfInitiatedChangesInWindow, &usage.TablesInWindow)
 	if err != nil {
 		return usage, fmt.Errorf("read policy usage: %w", err)
@@ -94,6 +103,8 @@ func (e *Executor) standingUsage(
 	return usage, nil
 }
 
+// standingUsageSQL counts tables by the part of a target before "|": the
+// recommendation identity of an index is "<schema>.<table>|<definition>".
 const standingUsageSQL = `/* pg_sage */
 WITH recent AS (
 	SELECT al.id, d.target_objects
@@ -101,11 +112,16 @@ WITH recent AS (
 	  JOIN sage.decision d ON d.id = al.decision_id
 	 WHERE al.executed_at > now() - interval '24 hours'
 	   AND d.intent <> $1
+), touched AS (
+	SELECT btrim(split_part(target.obj, '|', 1)) AS tbl
+	  FROM recent CROSS JOIN LATERAL
+	       jsonb_array_elements_text(recent.target_objects) AS target(obj)
+	UNION
+	SELECT btrim(split_part(requested.obj, '|', 1))
+	  FROM unnest($2::text[]) AS requested(obj)
 )
 SELECT (SELECT count(*) FROM recent),
-       (SELECT count(DISTINCT target.obj)
-          FROM recent CROSS JOIN LATERAL
-               jsonb_array_elements_text(recent.target_objects) AS target(obj))`
+       (SELECT count(*) FROM touched WHERE tbl <> '')`
 
 // policySnapshot copies the live config under the hot-reload read lock so
 // authorization never reads a half-applied config change.
