@@ -20,6 +20,15 @@ import (
 func rebound(t *testing.T, ctx context.Context, tbl partition.Table, daysBack int) time.Time {
 	t.Helper()
 	bound := partition.DayStart(time.Now()).AddDate(0, 0, -daysBack)
+	reboundAt(t, ctx, tbl, bound, daysBack+3)
+	return bound
+}
+
+// reboundAt bounds the (emptied) history partition at bound and ensures
+// days daily partitions from it.
+func reboundAt(t *testing.T, ctx context.Context, tbl partition.Table, bound time.Time,
+	days int) {
+	t.Helper()
 	parts, err := partition.List(ctx, testPool, tbl)
 	if err != nil {
 		t.Fatalf("list %s: %v", tbl.Name, err)
@@ -56,10 +65,9 @@ func rebound(t *testing.T, ctx context.Context, tbl partition.Table, daysBack in
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := partition.Ensure(ctx, testPool, tbl, bound, daysBack+3); err != nil {
+	if _, err := partition.Ensure(ctx, testPool, tbl, bound, max(days, 1)); err != nil {
 		t.Fatalf("ensure %s: %v", tbl.Name, err)
 	}
-	return bound
 }
 
 func relationExists(t *testing.T, ctx context.Context, name string) bool {
