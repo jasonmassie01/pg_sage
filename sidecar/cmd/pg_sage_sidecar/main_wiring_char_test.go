@@ -103,15 +103,18 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 		"pg_sage_llm_circuit_open 0", "pg_sage_llm_tokens_used_today 0",
 		"pg_sage_llm_tokens_budget_daily 4321",
 		`pg_sage_optimizer_recommendations_total{category="covering_index"} `,
-		"pg_sage_optimizer_enabled 0", "pg_sage_database_size_bytes ",
+		"pg_sage_optimizer_enabled 0",
 		`pg_sage_connections_total{state=`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("standalone metrics lack %q", want)
 		}
 	}
+	// No collector, so no measured size: the gauge is the collector's cached
+	// size, never a per-scrape walk of the database.
 	if strings.Contains(body, "pg_sage_fleet_databases") ||
-		strings.Contains(body, "pg_sage_collector_last_run_timestamp") {
+		strings.Contains(body, "pg_sage_collector_last_run_timestamp") ||
+		strings.Contains(body, "pg_sage_database_size_bytes") {
 		t.Errorf("standalone metrics include fleet/collector sections:\n%s", body)
 	}
 }

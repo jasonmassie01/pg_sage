@@ -149,6 +149,17 @@ func legacyIndexes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[ui
 	return out
 }
 
+// sameXIDAge copies want's xid age into got when got is at most a few
+// thousand transactions older: age(relfrozenxid) moves with every
+// transaction anywhere in the cluster between the two reads.
+func sameXIDAge(t *testing.T, key string, got *TableStats, want TableStats) {
+	t.Helper()
+	if d := got.XIDAge - want.XIDAge; d < 0 || d > 5000 {
+		t.Errorf("%s xid_age %d, legacy %d", key, got.XIDAge, want.XIDAge)
+	}
+	got.XIDAge = want.XIDAge
+}
+
 func asJSON(t *testing.T, v any) string {
 	t.Helper()
 	j, err := json.Marshal(v)
@@ -185,7 +196,9 @@ func TestCollectTables_GoldenAgainstLegacyView(t *testing.T) {
 			"partitioned parent, matview): %v", len(gold), gold)
 	}
 	for key, ts := range gold {
-		if w, ok := want[key]; !ok || asJSON(t, w) != asJSON(t, ts) {
+		w, ok := want[key]
+		sameXIDAge(t, key, &ts, w)
+		if !ok || asJSON(t, w) != asJSON(t, ts) {
 			t.Errorf("%s\n got  %s\n want %s", key, asJSON(t, ts), asJSON(t, want[key]))
 		}
 	}
@@ -240,6 +253,7 @@ func TestCollectTables_SizesAreEstimatesOutsideTopN(t *testing.T) {
 				ts.TableBytes, ts.IndexBytes, w.TableBytes, w.IndexBytes)
 		}
 		w.TotalBytes, w.TableBytes, w.IndexBytes = ts.TotalBytes, ts.TableBytes, ts.IndexBytes
+		sameXIDAge(t, key, &ts, w)
 		if asJSON(t, w) != asJSON(t, ts) {
 			t.Errorf("%s non-size fields differ\n got  %s\n want %s", key,
 				asJSON(t, ts), asJSON(t, w))
