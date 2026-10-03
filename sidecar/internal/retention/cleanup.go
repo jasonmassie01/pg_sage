@@ -48,6 +48,9 @@ type Cleaner struct {
 	// capBytes overrides the snapshot size cap derived from the config
 	// (tests); 0 derives it.
 	capBytes int64
+	// trimBudget bounds the snapshot documents one run trims for the cap
+	// (cap_history.go).
+	trimBudget int64
 	// conv converts plain history tables in the background (convert.go).
 	conv *conversions
 	// notes rate-limits the size cap's warnings (cap_notes.go).
@@ -61,7 +64,8 @@ func New(
 	logFn func(string, string, ...any),
 ) *Cleaner {
 	return &Cleaner{pool: pool, cfg: cfg, logFn: logFn, pause: defaultPause,
-		budget: defaultRunBudget, conv: &conversions{}, notes: &capNotes{}}
+		budget: defaultRunBudget, trimBudget: defaultTrimBudget, conv: &conversions{},
+		notes: &capNotes{}}
 }
 
 // WithControlPool prunes the control-database tables (controlTables) in

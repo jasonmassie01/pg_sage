@@ -314,9 +314,9 @@ func TestTrimSQL_KeepsBasesPastAnUnsafeBoundary(t *testing.T) {
 	c := New(pool, snapshotCfg(), noopLog)
 	stats := newRunStats()
 	h := partition.Partition{Name: tbl.HistoryName(), History: true}
-	rows, _, done := c.deleteBefore(ctx, h, today, &stats, time.Now().Add(time.Minute))
-	if !done || rows != 1 {
-		t.Fatalf("deleted %d rows (done %v), want only the leaf %d", rows, done, leaf)
+	r := c.deleteBefore(ctx, h, today, &stats, time.Now().Add(time.Minute))
+	if !r.done || r.rows != 1 {
+		t.Fatalf("deleted %d rows (done %v), want only the leaf %d", r.rows, r.done, leaf)
 	}
 	if got := remainingIDs(t, ctx); !slices.Equal(got, []int64{k, cp, d}) {
 		t.Fatalf("remaining = %v, want %v", got, []int64{k, cp, d})

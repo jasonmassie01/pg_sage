@@ -2,6 +2,7 @@ package retention
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,6 +33,15 @@ import (
 // (about 25 bytes each). TOAST chunk headers add about 2% of the document,
 // which the estimate leaves out.
 const rowOverheadBytes = 200
+
+// defaultTrimBudget bounds the documents one run trims. Deleting TOAST rows
+// writes about as much WAL as it deletes (each page's first change after a
+// checkpoint is logged in full), so a run frees at most about one default
+// max_wal_size; a 6 GB backlog takes several runs instead of one burst.
+const defaultTrimBudget int64 = 1 << 30
+
+// errTrimBudget ends a run's trim once its byte budget is spent.
+var errTrimBudget = errors.New("trim budget spent")
 
 // maxBoundarySteps bounds the walk back to a keyframe boundary. The writer
 // chains rows at most two deep (delta, checkpoint, keyframe), so the walk
@@ -87,9 +97,10 @@ func (c *Cleaner) measure(ctx context.Context, t partition.Table) (capUsage, err
 // trimHistory deletes the history partition's oldest rows until the table
 // fits its cap, never a row of today (UTC) and never a row a kept row is
 // built on (safeBoundary). done is false when the run's deadline cut it
-// short; fits reports that the table is now under its cap.
+// short; settled reports that the cap needs nothing more this run (the
+// table fits, or the run's trim budget is spent).
 func (c *Cleaner) trimHistory(ctx context.Context, t partition.Table, u capUsage,
-	limit int64, stats *RunStats, deadline time.Time) (done, fits bool) {
+	limit int64, stats *RunStats, deadline time.Time) (done, settled bool) {
 	h, now := *u.hist, time.Now()
 	stop := partition.DayStart(now)
 	if h.Upper.Before(stop) {
@@ -118,16 +129,17 @@ func (c *Cleaner) trimHistory(ctx context.Context, t partition.Table, u capUsage
 	c.note(t.Name, "trimming", "WARN", "retention: sage.%s is %d MB (%d MB on disk), over "+
 		"its %d MB cap: trimming the oldest rows of sage.%s in paced batches, %d MB to go",
 		t.Name, u.live>>20, u.disk>>20, limit>>20, h.Name, excess>>20)
-	rows, bytes, done := c.deleteBefore(ctx, h, b, stats, deadline)
-	left := excess - bytes - rows*rowOverheadBytes
-	if rows > 0 {
+	r := c.deleteBefore(ctx, h, b, stats, deadline)
+	left := excess - r.bytes - r.rows*rowOverheadBytes
+	if r.rows > 0 {
 		c.logFn("INFO", "retention: trimmed %d rows (%d MB) from sage.%s for the size cap; "+
-			"%d MB to go", rows, bytes>>20, h.Name, max(left, 0)>>20)
+			"%d MB to go", r.rows, r.bytes>>20, h.Name, max(left, 0)>>20)
 	}
-	if done && left <= 0 {
+	fits := r.done && left <= 0
+	if fits {
 		c.noteUnder(t, capUsage{disk: u.disk, live: u.live - (excess - left)}, limit)
 	}
-	return done, done && left <= 0
+	return r.done, fits || r.paused
 }
 
 // trimTarget is the boundary that frees excess bytes: rows collected
@@ -216,11 +228,20 @@ func (c *Cleaner) anyBefore(ctx context.Context, h partition.Partition, b time.T
 	return err == nil && some
 }
 
+// trimmed is what one run's trim did: rows deleted and their stored size;
+// done is false when the run's deadline cut it short, paused is true when
+// it stopped at the run's trim budget.
+type trimmed struct {
+	rows, bytes  int64
+	done, paused bool
+}
+
 // deleteBefore deletes the history partition's rows collected before b,
-// oldest first, in paced batches. It returns the rows deleted, their
-// stored size, and false when the run's deadline cut it short.
+// oldest first, in paced batches, until none is left, the run's deadline
+// passes, or the run's trim budget is spent.
 func (c *Cleaner) deleteBefore(ctx context.Context, h partition.Partition, b time.Time,
-	stats *RunStats, deadline time.Time) (rows, bytes int64, done bool) {
+	stats *RunStats, deadline time.Time) trimmed {
+	var r trimmed
 	query := trimSQL(h.Name, snapshotBatchSize)
 	done, err := c.paced(ctx, snapshotBatchSize, deadline, func() (int64, error) {
 		var n, freed int64
@@ -228,14 +249,18 @@ func (c *Cleaner) deleteBefore(ctx context.Context, h partition.Partition, b tim
 			return 0, err
 		}
 		stats.count(partition.Snapshots.Name, n)
-		rows, bytes = rows+n, bytes+freed
+		r.rows, r.bytes = r.rows+n, r.bytes+freed
+		if n == snapshotBatchSize && c.trimBudget > 0 && r.bytes >= c.trimBudget {
+			return n, errTrimBudget
+		}
 		return n, nil
 	})
-	if err != nil {
+	r.done, r.paused = done, errors.Is(err, errTrimBudget)
+	if err != nil && !r.paused {
 		c.logFn("ERROR", "retention: trimming sage.%s for the size cap failed after %d rows: "+
-			"%v (retrying next run)", h.Name, rows, err)
+			"%v (retrying next run)", h.Name, r.rows, err)
 	}
-	return rows, bytes, done
+	return r
 }
 
 // trimSQL deletes one batch of the history partition's rows collected

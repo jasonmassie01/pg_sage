@@ -75,8 +75,8 @@ func (c *Cleaner) enforceSnapshotCap(ctx context.Context, t partition.Table,
 		return true
 	}
 	if u.hist != nil && u.histRows > 0 {
-		done, fits := c.trimHistory(ctx, t, u, limit, stats, deadline)
-		if !done || fits {
+		done, settled := c.trimHistory(ctx, t, u, limit, stats, deadline)
+		if !done || settled {
 			return done
 		}
 		if u, err = c.measure(ctx, t); err != nil {
