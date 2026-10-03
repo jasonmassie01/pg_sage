@@ -318,3 +318,42 @@ func TestSnapshotCap_TrimWarningSaysWhatIsLeft(t *testing.T) {
 	}
 	t.Fatalf("no trimming warning: %v", logs.lines)
 }
+
+// Once its bound has passed, the history partition takes no new row, so
+// space freed in it is never reused: only dropping it returns the space.
+// The cap then counts its files, not its live rows: a closed history
+// partition trimmed down to a few live rows but still large on disk is
+// dropped, oldest data first, even though its live rows alone would fit.
+func TestSnapshotCap_ClosedHistoryCountsItsFiles(t *testing.T) {
+	pool, ctx := requireDB(t)
+	tbl := partition.Snapshots
+	bound := rebound(t, ctx, tbl, 1)
+	t.Cleanup(func() { rebound(t, ctx, tbl, 3) })
+	cleanCapRows(t, ctx)
+	var ids []int64
+	for h := 10; h >= 1; h-- {
+		ids = append(ids, insertBlob(t, ctx, bound.Add(-time.Duration(h)*time.Hour), 64))
+	}
+	execRetry(t, ctx, `DELETE FROM sage.snapshots WHERE id = ANY($1)`, ids[:9]) // trimmed
+	today := insertBlob(t, ctx, partition.DayStart(time.Now()), 64)
+	disk, err := partition.Size(ctx, pool, tbl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	histDisk := partitionBytes(t, ctx, tbl.HistoryName())
+	logs := &captureLog{}
+	c := New(pool, snapshotCfg(), logs.log)
+	// Room for every live row, but not for the history partition's files.
+	c.capBytes = disk - histDisk + 4*dataBytes(t, ctx, ids[9:])
+	stats := c.RunOnce(ctx)
+	if !slices.Contains(stats.Dropped, tbl.HistoryName()) || stats.Deleted["snapshots"] != 0 {
+		t.Fatalf("stats = %+v, want the closed history partition dropped whole", stats)
+	}
+	if got := remainingIDs(t, ctx); !slices.Equal(got, []int64{today}) {
+		t.Fatalf("remaining = %v, want today's row %d", got, today)
+	}
+	after, err := partition.Size(ctx, pool, tbl)
+	if err != nil || after > c.capBytes {
+		t.Fatalf("size after = %d (cap %d), %v", after, c.capBytes, err)
+	}
+}
