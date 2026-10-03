@@ -47,7 +47,7 @@ func validateSpec(s Spec) error {
 		return fmt.Errorf("empty version")
 	case !knownFamilies[s.Family]:
 		return fmt.Errorf("unknown family %q", s.Family)
-	case s.Args < ArgsNone || s.Args > ArgsWindow:
+	case s.Args < ArgsNone || s.Args > ArgsSlice:
 		return fmt.Errorf("unknown argument kind %d", s.Args)
 	case s.StatementTimeout <= 0 || s.StatementTimeout > MaxStatementTimeout:
 		return fmt.Errorf("statement timeout %s outside (0, %s]",
