@@ -58,6 +58,8 @@ func (e *Executor) processFinding(
 		e.exceedsOscillationLimit(ctx, f, findingID) {
 		return
 	}
+	// The revision's evidence is immutable; the gate needs the current one.
+	f = e.currentGateEvidence(ctx, f, findingID, cand)
 	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
 	if decision.Decision == PolicyDecisionBlocked ||
 		decision.Decision == PolicyDecisionObserveOnly {
@@ -189,6 +191,9 @@ func (e *Executor) runAuthorizedFinding(
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
 	if refusal := e.findingRefusal(f); refusal != nil {
 		return e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, refusal)
+	}
+	if !e.retireStaleApprovals(ctx, f, findingID, decisionID, cand) {
+		return 0
 	}
 	var verified verifiedIndexAction
 	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"

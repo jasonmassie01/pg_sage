@@ -19,6 +19,16 @@
   10-minute analyzer cycle. Both rules now compare only indexes of the same table: 0.19 s on
   42,000 indexes, with the same findings.
 
+- **An index waiting for approval now runs on its own once it no longer needs approval.** An
+  index proposal queued because HypoPG had not yet verified it stayed pending even after
+  pg_sage verified it later, until the request expired a day afterwards. pg_sage now
+  checks the current verdict every cycle. Once the change may run unattended (it was
+  verified, or you raised trust), the pending request is closed as `superseded` with the
+  reason "approval no longer required" and the change runs exactly once. Requests you
+  approved or rejected are never overridden, and a change you rejected stays behind
+  approval. A related fix: autonomous index builds from the optimizer no longer fail at the
+  change lease with "invalid identifier".
+
 ## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
 
 ### What's new

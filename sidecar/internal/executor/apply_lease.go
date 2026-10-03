@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -66,6 +67,10 @@ func leaseSpecFor(intent ActionIntent) (TargetLease, bool) {
 	targets := intent.Request.TargetObjs
 	if len(targets) == 0 {
 		targets = targetObjectsForFinding(*intent.Lease)
+	}
+	if intent.Lease.Category == optimizer.OptimizerCategory && len(targets) > 0 {
+		// "schema.table|<index definition>" (C05) names no catalog object.
+		targets = []string{analyzer.OptimizerFindingTable(*intent.Lease)}
 	}
 	return TargetLease{Kind: kind, Actor: actor, Targets: append([]string(nil), targets...),
 		Intent: intent.Lease.RecommendedSQL}, true
