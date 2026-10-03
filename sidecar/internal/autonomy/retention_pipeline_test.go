@@ -56,6 +56,8 @@ func pipelineExecutor(pool *pgxpool.Pool) *executor.Executor {
 	// limits are not what these tests are about.
 	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
 	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
+	doc.BlastRadius.Hygiene = policy.KindBudget{MaxTablesPerWindow: 1 << 30,
+		MaxChangesPerWindow: 1 << 30}
 	exec.EnableStandingPolicyDocument(doc, nil)
 	return exec
 }

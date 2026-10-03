@@ -66,12 +66,14 @@ func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	return pool, ctx
 }
 
-// lifeosPolicy is lifeos's standing policy (sage.policy id 1): the
-// unattended profile, maintenance windows always open.
+// lifeosPolicy is lifeos's standing policy (sage.policy id 1) as stored:
+// the legacy single limit of 20 tables, read as the performance budget.
+// (It was the unattended profile; the profiles now split that envelope
+// between performance and hygiene, so the stored document is the source.)
+// spendWindow's decisions carry no budget kind, so they charge the
+// performance budget: these tests keep exercising its boundaries.
 func lifeosPolicy() policy.Document {
-	doc := policy.UnattendedProfile()
-	doc.MaintenanceWindows = []string{"always", "weekends"}
-	return doc
+	return lifeosLegacyPolicy()
 }
 
 // lifeosWindowTargets are the 21 distinct targets lifeos's executed actions
