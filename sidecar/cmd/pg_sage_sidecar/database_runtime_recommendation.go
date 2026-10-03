@@ -19,10 +19,11 @@ func migrateRecommendations(ctx context.Context, spec databaseRuntimeSpec) {
 			report.QueueLinked, report.ApprovalsMigrated, err)
 		return
 	}
-	if report.Findings+report.QueueLinked > 0 {
+	if report.Findings+report.QueueLinked+report.InversesRepaired > 0 {
 		logInfo(spec.Scope, "db %q: recommendations migrated: %d findings, %d queued "+
-			"actions, %d approvals kept, %d skipped", spec.Name, report.Findings,
-			report.QueueLinked, report.ApprovalsMigrated, report.Skipped)
+			"actions, %d approvals kept, %d skipped, %d stale index rollbacks repaired",
+			spec.Name, report.Findings, report.QueueLinked, report.ApprovalsMigrated,
+			report.Skipped, report.InversesRepaired)
 	}
 }
 

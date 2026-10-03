@@ -105,7 +105,8 @@ func anyExists(refs []string, existing map[string]bool) bool {
 
 // checkDuplicate rejects a recommendation whose shape — method, key
 // columns/expressions, INCLUDE set and predicate — equals a valid
-// existing index. Invalid indexes (a failed CONCURRENTLY build) are not
+// existing index, or that a valid existing index covers (coveredBy).
+// Invalid indexes (a failed CONCURRENTLY build) are not
 // duplicates of anything.
 func (v *Validator) checkDuplicate(
 	rec Recommendation,
@@ -121,6 +122,9 @@ func (v *Validator) checkDuplicate(
 		}
 		if have, ok := shapeOf(idx.Definition); ok && have == want {
 			return false, "duplicate of existing index " + idx.Name
+		}
+		if coveredBy(rec.DDL, idx.Definition) {
+			return false, "covered by existing index " + idx.Name
 		}
 	}
 	return true, ""

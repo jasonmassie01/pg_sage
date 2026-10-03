@@ -55,7 +55,8 @@ func (e *Executor) processFinding(
 	// Anti-oscillation: an object that keeps reverting externally stops
 	// being re-applied.
 	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
-		e.exceedsOscillationLimit(ctx, f, findingID) {
+		e.exceedsOscillationLimit(ctx, f, findingID) ||
+		e.parkedWithhold(ctx, f, findingID) {
 		return
 	}
 	// The revision's evidence is immutable; the gate needs the current one.
@@ -93,7 +94,7 @@ func (e *Executor) findingIntent(
 		},
 		Refused: func(ctx context.Context, decisionID int64, err error) {
 			before := e.snapshotBeforeState(ctx, targetQueryIDs(f))
-			e.logActionWithDecision(ctx, f, findingID, before, decisionID, err)
+			e.logRefusedAction(ctx, f, findingID, before, decisionID, err)
 			e.logFn("executor", "DDL lease denied for %q: %v", f.Title, err)
 		},
 	}
@@ -191,7 +192,7 @@ func (e *Executor) runAuthorizedFinding(
 	decisionID := decision.DecisionID
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
 	if refusal := e.findingRefusal(f); refusal != nil {
-		return e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, refusal)
+		return e.logRefusedAction(ctx, f, findingID, beforeState, decisionID, refusal)
 	}
 	if !e.retireStaleApprovals(ctx, f, findingID, decisionID, cand) {
 		return 0
@@ -206,7 +207,8 @@ func (e *Executor) runAuthorizedFinding(
 		}
 		if err != nil {
 			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v", f.Title, err)
-			return e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, err)
+			markContentBoundWithhold(f, beforeState)
+			return e.logRefusedAction(ctx, f, findingID, beforeState, decisionID, err)
 		}
 	}
 	claim, err := e.claimCandidate(ctx, cand, decisionID)
