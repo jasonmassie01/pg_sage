@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -140,9 +141,12 @@ func TestActionsKeyset_TotalIsCapped(t *testing.T) {
 		t.Fatalf("code=%d total=%d capped=%v rows=%d", code, resp.Total, resp.TotalCapped,
 			len(resp.Actions))
 	}
-	if a := resp.Actions[0]; a["attempts"] != float64(maxListTotal+1) {
-		t.Fatalf("attempts = %v, want %d (counted beyond the total cap)", a["attempts"],
-			maxListTotal+1)
+	// 1001 executions of one statement: attempts are bounded too (the
+	// performance gate's fixture runs one statement 20,000 times).
+	if a := resp.Actions[0]; a["attempts"] != float64(maxAttempts) ||
+		a["attempts_capped"] != true {
+		t.Fatalf("attempts = %v (capped %v), want %d capped", a["attempts"],
+			a["attempts_capped"], maxAttempts)
 	}
 }
 
@@ -169,6 +173,61 @@ func TestActionsPageSQL_UsesIndexes(t *testing.T) {
 		if !strings.Contains(qplan, "idx_action_queue_ledger") ||
 			strings.Contains(qplan, `"Node Type": "Sort"`) {
 			t.Errorf("cursor=%v: queued ledger plan:\n%s", c != nil, qplan)
+		}
+	}
+}
+
+// analyzedNode is the part of an EXPLAIN (ANALYZE, FORMAT JSON) node read
+// here.
+type analyzedNode struct {
+	NodeType    string         `json:"Node Type"`
+	Alias       string         `json:"Alias"`
+	ActualRows  float64        `json:"Actual Rows"`
+	ActualLoops float64        `json:"Actual Loops"`
+	Plans       []analyzedNode `json:"Plans"`
+}
+
+func nodesWithAlias(n analyzedNode, alias string, out []analyzedNode) []analyzedNode {
+	if n.Alias == alias {
+		out = append(out, n)
+	}
+	for _, c := range n.Plans {
+		out = nodesWithAlias(c, alias, out)
+	}
+	return out
+}
+
+// A page of 51 executions of one statement repeated 3,000 times counts its
+// attempts once, reading at most maxAttempts+1 rows (counting per row read
+// all 3,000 repeats 51 times: 1 s in the performance gate).
+func TestActionsPageSQL_CountsAttemptsOncePerStatement(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	seedActionLog(t, pool, "SELECT 1", 3000, keysetBase, time.Second)
+	// Planned with current statistics, as autovacuum keeps them.
+	if _, err := pool.Exec(ctx, "ANALYZE sage.action_log"); err != nil {
+		t.Fatal(err)
+	}
+	sql, args := buildActionLogPageSQL(time.Time{}, time.Time{}, nil, "testdb/log", 51)
+	var raw []byte
+	if err := pool.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+sql, args...).
+		Scan(&raw); err != nil {
+		t.Fatalf("explain analyze: %v", err)
+	}
+	var plans []struct {
+		Plan analyzedNode `json:"Plan"`
+	}
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
+		t.Fatalf("decode plan: %v", err)
+	}
+	scans := nodesWithAlias(plans[0].Plan, "a2", nil)
+	if len(scans) == 0 {
+		t.Fatalf("no attempts scan in the plan:\n%s", raw)
+	}
+	for _, n := range scans {
+		if n.ActualLoops != 1 || n.ActualRows > maxAttempts+1 {
+			t.Fatalf("attempts %s read %v rows in %v loops, want one bounded read:\n%s",
+				n.NodeType, n.ActualRows, n.ActualLoops, raw)
 		}
 	}
 }
