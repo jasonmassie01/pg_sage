@@ -36,15 +36,21 @@ func TestLoadStatementIndexExcludesPgSageStatements(t *testing.T) {
 		t.Skipf("pg_stat_statements unavailable: %v", err)
 	}
 	execAll(t, pool,
-		"CREATE TABLE IF NOT EXISTS public.guard_self_probe (id bigint)",
 		"CREATE TABLE IF NOT EXISTS public.guard_app_probe (id bigint)",
 		"SELECT count(*) FROM public.guard_app_probe")
+	// Every statement naming the self probe, its DDL included, is pg_sage's:
+	// an untagged CREATE TABLE would itself be a (correct) related query.
+	sage := sageTaggedPool(t)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
+		_, _ = sage.Exec(context.Background(),
 			"DROP TABLE IF EXISTS public.guard_self_probe, public.guard_app_probe")
 	})
+	if _, err := sage.Exec(ctx,
+		"CREATE TABLE IF NOT EXISTS public.guard_self_probe (id bigint)"); err != nil {
+		t.Fatalf("pg_sage DDL: %v", err)
+	}
 	var n int64
-	if err := sageTaggedPool(t).QueryRow(ctx,
+	if err := sage.QueryRow(ctx,
 		"SELECT count(*) FROM public.guard_self_probe").Scan(&n); err != nil {
 		t.Fatalf("pg_sage statement: %v", err)
 	}

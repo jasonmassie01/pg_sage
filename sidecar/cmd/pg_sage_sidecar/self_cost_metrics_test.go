@@ -45,7 +45,8 @@ func TestWriteSelfCostMetrics(t *testing.T) {
 			t.Errorf("unknown value exported: %q", absent)
 		}
 	}
-	if strings.Index(out, `database="alpha"`) > strings.Index(out, `database="zeta"`) {
+	if strings.Index(out, `pg_sage_self_schema_bytes{database="alpha"}`) >
+		strings.Index(out, `pg_sage_self_schema_bytes{database="zeta"}`) {
 		t.Error("databases are not exported in a stable sorted order")
 	}
 }

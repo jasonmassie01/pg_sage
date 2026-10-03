@@ -64,12 +64,12 @@ func TestRuleSelfCost_NoFinding(t *testing.T) {
 		cost   selfcost.Cost
 		budget int
 	}{
-		"exactly at budget":  {knownCost(3000), 3000},
-		"under budget":       {knownCost(10), 3000},
-		"budget disabled":    {knownCost(1e9), 0},
-		"unknown window":     {selfcost.Cost{DBTimeKnown: true, DBTimeMsPerCycle: 1e9}, 1},
-		"unknown DB time":    {selfcost.Cost{Known: true, DBTimeMsPerCycle: 1e9}, 1},
-		"zero-value cost":    {selfcost.Cost{}, 3000},
+		"exactly at budget": {knownCost(3000), 3000},
+		"under budget":      {knownCost(10), 3000},
+		"budget disabled":   {knownCost(1e9), 0},
+		"unknown window":    {selfcost.Cost{DBTimeKnown: true, DBTimeMsPerCycle: 1e9}, 1},
+		"unknown DB time":   {selfcost.Cost{Known: true, DBTimeMsPerCycle: 1e9}, 1},
+		"zero-value cost":   {selfcost.Cost{}, 3000},
 	}
 	for name, tc := range cases {
 		if got := ruleSelfCost(tc.cost, tc.budget); len(got) != 0 {

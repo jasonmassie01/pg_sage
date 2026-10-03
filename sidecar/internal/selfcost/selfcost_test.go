@@ -63,10 +63,10 @@ func TestBetween_InvalidWindowOrCycleIsUnknown(t *testing.T) {
 		cur   Reading
 		cycle time.Duration
 	}{
-		"same instant":   {reading(0, 9, 9, 9, 9, 9), time.Minute},
+		"same instant":    {reading(0, 9, 9, 9, 9, 9), time.Minute},
 		"clock went back": {reading(-time.Second, 9, 9, 9, 9, 9), time.Minute},
-		"zero cycle":     {reading(time.Minute, 9, 9, 9, 9, 9), 0},
-		"negative cycle": {reading(time.Minute, 9, 9, 9, 9, 9), -time.Second},
+		"zero cycle":      {reading(time.Minute, 9, 9, 9, 9, 9), 0},
+		"negative cycle":  {reading(time.Minute, 9, 9, 9, 9, 9), -time.Second},
 	} {
 		if c := Between(prev, tc.cur, tc.cycle); c.Known || c.DBTimeKnown {
 			t.Errorf("%s: cost = %+v, want unknown", name, c)
