@@ -32,6 +32,8 @@ func TestPerfIndexMigration_CreatesIdempotentIndexes(t *testing.T) {
 			"WHERE (last_authorized_action_id IS NOT NULL)",
 		"idx_schema_baseline_decision": "(last_authorized_decision_id) " +
 			"WHERE (last_authorized_decision_id IS NOT NULL)",
+		"idx_verification_open_due": "(next_evaluation_at) WHERE (completed_at IS NULL)",
+		"idx_decision_created":      "(created_at)",
 	}
 	for name, suffix := range want {
 		var def string
@@ -75,6 +77,12 @@ func TestPerfIndexMigration_PurgePredicatesUseIndexes(t *testing.T) {
 		"sre_change_events": `SELECT id FROM sage.sre_change_events
 			WHERE deployment_id = gen_random_uuid() AND received_at < now()`,
 		"verification by decision": `SELECT 1 FROM sage.verification WHERE decision_id = 7`,
+		"verification due": `SELECT action_log_id FROM sage.verification
+			WHERE completed_at IS NULL
+			  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
+			  AND next_evaluation_at <= now() ORDER BY next_evaluation_at, id`,
+		"decision": `SELECT ctid FROM sage.decision
+			WHERE created_at < now() - make_interval(days => 365) LIMIT 1000`,
 	}
 	for name, sql := range purges {
 		var plan string
