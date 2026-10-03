@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 func containsName(names []string, want string) bool {
@@ -83,16 +85,22 @@ func TestLoadStatementIndexToleratesMissingExtension(t *testing.T) {
 	if _, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
 		t.Skipf("pg_stat_statements unavailable on this server: %v", err)
 	}
-	execAll(t, pool, "CREATE TABLE IF NOT EXISTS public.stmt_probe (id bigint)",
-		"SELECT count(*) FROM public.stmt_probe")
+	execAll(t, pool, "CREATE TABLE IF NOT EXISTS public.stmt_probe (id bigint)")
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public.stmt_probe")
 	})
-	index, err = loadStatementIndex(ctx, pool)
-	if err != nil {
-		t.Fatalf("loadStatementIndex with extension: %v", err)
-	}
-	if len(index.queryIDs("public.stmt_probe")) == 0 || !index.mentionsSchema("public") {
-		t.Fatalf("statement index misses public.stmt_probe: %d targets", len(index.targets))
-	}
+	// A concurrent pg_stat_statements_reset() by another package can erase
+	// the probe before the index is read: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		execAll(t, pool, "SELECT count(*) FROM public.stmt_probe")
+		index, err := loadStatementIndex(ctx, pool)
+		if err != nil {
+			t.Fatalf("loadStatementIndex with extension: %v", err)
+		}
+		if len(index.queryIDs("public.stmt_probe")) == 0 || !index.mentionsSchema("public") {
+			return []string{fmt.Sprintf("statement index misses public.stmt_probe: %d targets",
+				len(index.targets))}
+		}
+		return nil
+	})
 }

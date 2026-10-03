@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // sageTaggedPool opens a pool configured like pg_sage's own.
@@ -35,9 +36,7 @@ func TestLoadStatementIndexExcludesPgSageStatements(t *testing.T) {
 	if _, err := pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
 		t.Skipf("pg_stat_statements unavailable: %v", err)
 	}
-	execAll(t, pool,
-		"CREATE TABLE IF NOT EXISTS public.guard_app_probe (id bigint)",
-		"SELECT count(*) FROM public.guard_app_probe")
+	execAll(t, pool, "CREATE TABLE IF NOT EXISTS public.guard_app_probe (id bigint)")
 	// Every statement naming the self probe, its DDL included, is pg_sage's:
 	// an untagged CREATE TABLE would itself be a (correct) related query.
 	sage := sageTaggedPool(t)
@@ -49,24 +48,30 @@ func TestLoadStatementIndexExcludesPgSageStatements(t *testing.T) {
 		"CREATE TABLE IF NOT EXISTS public.guard_self_probe (id bigint)"); err != nil {
 		t.Fatalf("pg_sage DDL: %v", err)
 	}
-	var n int64
-	if err := sage.QueryRow(ctx,
-		"SELECT count(*) FROM public.guard_self_probe").Scan(&n); err != nil {
-		t.Fatalf("pg_sage statement: %v", err)
-	}
-	index, err := loadStatementIndex(ctx, pool)
-	if err != nil {
-		t.Fatalf("loadStatementIndex: %v", err)
-	}
-	if !index.known {
-		t.Skip("pg_stat_statements is not preloaded on this server")
-	}
-	if ids := index.queryIDs("public.guard_self_probe"); len(ids) != 0 {
-		t.Fatalf("pg_sage's own statement indexed as a related query: %v", ids)
-	}
-	if ids := index.queryIDs("public.guard_app_probe"); len(ids) == 0 {
-		t.Fatal("the application statement is missing from the index")
-	}
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the application statement before the index is read: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		execAll(t, pool, "SELECT count(*) FROM public.guard_app_probe")
+		var n int64
+		if err := sage.QueryRow(ctx,
+			"SELECT count(*) FROM public.guard_self_probe").Scan(&n); err != nil {
+			t.Fatalf("pg_sage statement: %v", err)
+		}
+		index, err := loadStatementIndex(ctx, pool)
+		if err != nil {
+			t.Fatalf("loadStatementIndex: %v", err)
+		}
+		if !index.known {
+			t.Skip("pg_stat_statements is not preloaded on this server")
+		}
+		if ids := index.queryIDs("public.guard_self_probe"); len(ids) != 0 {
+			t.Fatalf("pg_sage's own statement indexed as a related query: %v", ids)
+		}
+		if ids := index.queryIDs("public.guard_app_probe"); len(ids) == 0 {
+			return []string{"the application statement is missing from the index"}
+		}
+		return nil
+	})
 }
 
 // A lock or a running statement of pg_sage's own session never makes a
