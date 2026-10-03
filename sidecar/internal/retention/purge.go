@@ -72,14 +72,7 @@ func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string
 	if batch <= 0 {
 		batch = batchSize
 	}
-	// The relation is aliased by the table's name: keep predicates refer
-	// to the row being purged that way, also when it lives in a partition.
-	query := fmt.Sprintf(`DELETE FROM %s WHERE ctid IN (
-		SELECT ctid FROM %s AS %s
-		WHERE %s < now() - make_interval(days => $1)
-		%s
-		LIMIT %d)`, relation, relation, pgx.Identifier{rule.table}.Sanitize(), rule.timeCol,
-		rule.extra, batch)
+	query := purgeSQL(rule, relation, batch)
 	total := int64(0)
 	defer func() { c.logPurged(rule, relation, total) }()
 	for ctx.Err() == nil {
@@ -136,4 +129,25 @@ func partitionedTable(rule purgeRule) (partition.Table, bool) {
 		}
 	}
 	return partition.Table{}, false
+}
+
+// purgeSQL deletes one batch of rule's expired rows from relation. The
+// relation is aliased by the table's name: keep predicates refer to the
+// row being purged that way, also when it lives in a partition. A
+// partition (history, default) is purged oldest first along its time
+// index: most of it may be expired at once, and a LIMIT over a sequential
+// scan reads the whole heap when nothing is left to delete. The batch's
+// ctids are collected first (ARRAY), so the delete is a TID scan; with
+// ctid IN (subquery) the planner may hash-join a full scan of the table.
+func purgeSQL(rule purgeRule, relation string, batch int) string {
+	order := ""
+	if relation != "sage."+rule.table {
+		order = "ORDER BY " + rule.timeCol
+	}
+	return fmt.Sprintf(`DELETE FROM %s WHERE ctid = ANY (ARRAY(
+		SELECT ctid FROM %s AS %s
+		WHERE %s < now() - make_interval(days => $1)
+		%s
+		%s LIMIT %d))`, relation, relation, pgx.Identifier{rule.table}.Sanitize(),
+		rule.timeCol, rule.extra, order, batch)
 }
