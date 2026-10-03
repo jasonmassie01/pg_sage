@@ -73,11 +73,36 @@ func prepare(ctx context.Context, s DB, t Table, cut time.Time) (time.Duration, 
 	if err != nil {
 		return validated, err
 	}
-	if _, err := s.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX %s%s ON %s (%s)", how,
-		ident(t.keyName()), t.ident(), strings.Join(cols, ", "))); err != nil {
+	sql := fmt.Sprintf("CREATE UNIQUE INDEX %s%s ON %s (%s)", how,
+		ident(t.keyName()), t.ident(), strings.Join(cols, ", "))
+	if err := buildKey(ctx, s, sql, how != ""); err != nil {
 		return validated, fmt.Errorf("build the partitioned key: %w", err)
 	}
 	return validated, nil
+}
+
+// buildKey runs the key's CREATE INDEX. CONCURRENTLY waits for every
+// older snapshot in the database, also of queries that never touch the
+// table (lifeos: application queries of 4-5 s), and blocks none of the
+// table's readers or writers meanwhile; the session's short lock timeout
+// would cancel that wait on every attempt, so it is lifted to the
+// conversion's statement timeout for this statement only.
+func buildKey(ctx context.Context, s DB, sql string, concurrently bool) error {
+	if !concurrently {
+		_, err := s.Exec(ctx, sql)
+		return err
+	}
+	if _, err := s.Exec(ctx, "SELECT pg_catalog.set_config('lock_timeout', $1, false)",
+		ms(convertStatementTimeout)); err != nil {
+		return fmt.Errorf("lift the lock timeout: %w", err)
+	}
+	_, err := s.Exec(ctx, sql)
+	_, rerr := s.Exec(context.WithoutCancel(ctx),
+		"SELECT pg_catalog.set_config('lock_timeout', $1, false)", ms(LockTimeout))
+	if rerr != nil {
+		rerr = fmt.Errorf("restore the lock timeout: %w", rerr)
+	}
+	return errors.Join(err, rerr)
 }
 
 // cutover is the ACCESS EXCLUSIVE transaction. It returns how long the
@@ -242,7 +267,7 @@ func Hint(err error) string {
 // the converting session holds a lock another session waits for (bootstrap
 // holds its advisory lock while a second instance waits for it); bootstrap
 // only converts heaps up to this size.
-const concurrentKeyMinBytes = 32 << 20
+var concurrentKeyMinBytes int64 = 32 << 20
 
 // keyBuild is "CONCURRENTLY " for a large heap, "" otherwise.
 func keyBuild(ctx context.Context, s DB, t Table) (string, error) {
