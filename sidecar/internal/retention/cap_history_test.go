@@ -294,3 +294,32 @@ func TestSnapshotCap_WarningIsRateLimited(t *testing.T) {
 		t.Fatalf("the warning does not say what to do: %v", logs.lines)
 	}
 }
+
+// The trim statement guards the bases of later rows on its own, for a row
+// written after the boundary was chosen (an older writer still running):
+// even told to delete everything before today, it keeps a checkpoint and
+// keyframe that a row after midnight is built on.
+func TestTrimSQL_KeepsBasesPastAnUnsafeBoundary(t *testing.T) {
+	pool, ctx := requireDB(t)
+	tbl := partition.Snapshots
+	rebound(t, ctx, tbl, -2)
+	cleanCapRows(t, ctx)
+	today := partition.DayStart(time.Now())
+	y := today.AddDate(0, 0, -1)
+	k := insertBlob(t, ctx, y.Add(20*time.Hour), 4)
+	leaf := insertDelta(t, ctx, y.Add(21*time.Hour), k)
+	cp := insertDelta(t, ctx, y.Add(22*time.Hour), k)
+	d := insertDelta(t, ctx, today.Add(30*time.Minute), cp)
+	before := readable(t, ctx)
+	c := New(pool, snapshotCfg(), noopLog)
+	stats := newRunStats()
+	h := partition.Partition{Name: tbl.HistoryName(), History: true}
+	rows, _, done := c.deleteBefore(ctx, h, today, &stats, time.Now().Add(time.Minute))
+	if !done || rows != 1 {
+		t.Fatalf("deleted %d rows (done %v), want only the leaf %d", rows, done, leaf)
+	}
+	if got := remainingIDs(t, ctx); !slices.Equal(got, []int64{k, cp, d}) {
+		t.Fatalf("remaining = %v, want %v", got, []int64{k, cp, d})
+	}
+	assertStillReadable(t, ctx, before)
+}
