@@ -226,3 +226,44 @@ func TestCollect_SnapshotCarriesSequenceCoverage(t *testing.T) {
 		t.Fatalf("snapshot coverage = %+v, want a complete scan", cov)
 	}
 }
+
+// The caches are shared collector state: overlapping cycles (a slow cycle
+// and a test or API-triggered collect) must serialize, not corrupt them.
+func TestCatalogCaches_ConcurrentCycles(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	c := New(pool, testConfig(), serverVersion(t, pool), noopLog)
+	wantSeq, err := c.collectSequences(ctx)
+	if err != nil {
+		t.Fatalf("sequences: %v", err)
+	}
+	wantIdx, err := c.collectIndexes(ctx)
+	if err != nil {
+		t.Fatalf("indexes: %v", err)
+	}
+	errs := make(chan error, 8)
+	for i := 0; i < 4; i++ {
+		go func() {
+			s, err := c.collectSequences(ctx)
+			if err == nil && len(s) != len(wantSeq) {
+				err = fmt.Errorf("%d sequences, want %d", len(s), len(wantSeq))
+			}
+			errs <- err
+		}()
+		go func() {
+			idx, err := c.collectIndexes(ctx)
+			if err == nil && len(idx) != len(wantIdx) {
+				err = fmt.Errorf("%d indexes, want %d", len(idx), len(wantIdx))
+			}
+			errs <- err
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent cycle: %v", err)
+		}
+	}
+	if !c.sequenceCoverage().Complete {
+		t.Fatalf("coverage after concurrent cycles: %+v", c.sequenceCoverage())
+	}
+}
