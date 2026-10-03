@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 type Server struct {
@@ -36,6 +37,9 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
+// Handle answers one JSON-RPC message. It returns nil for a notification
+// (no id, or any notifications/* method): JSON-RPC forbids replying to
+// one, and over stdio a stray line would be read as the next response.
 func (s *Server) Handle(ctx context.Context, raw json.RawMessage) []byte {
 	var request rpcRequest
 	if err := json.Unmarshal(raw, &request); err != nil {
@@ -45,8 +49,13 @@ func (s *Server) Handle(ctx context.Context, raw json.RawMessage) []byte {
 		return encodeResponse(rpcResponse{JSONRPC: "2.0", ID: request.ID,
 			Error: failure(-32600, "invalid request")})
 	}
+	if len(request.ID) == 0 || strings.HasPrefix(request.Method, "notifications/") {
+		return nil
+	}
 	response := rpcResponse{JSONRPC: "2.0", ID: request.ID}
 	switch request.Method {
+	case "ping":
+		response.Result = map[string]any{}
 	case "initialize":
 		response.Result = map[string]any{"protocolVersion": "2025-03-26",
 			"capabilities": map[string]any{"tools": map[string]any{}},
@@ -128,10 +137,24 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	return toolResult(result, err)
 }
 
+// toolSuccess is a tools/call result: the MCP content[] array with the
+// result as one JSON text block, plus structuredContent for clients that
+// read typed output.
+func toolSuccess(result any) map[string]any {
+	text, err := json.Marshal(result)
+	if err != nil {
+		text = []byte(`{"error":"result is not JSON-encodable"}`)
+	}
+	return map[string]any{
+		"content":           []map[string]any{{"type": "text", "text": string(text)}},
+		"structuredContent": result,
+	}
+}
+
 // toolResult wraps a tool's result, or maps its error to a JSON-RPC error.
 func toolResult(result any, err error) (any, *rpcError) {
 	if err == nil {
-		return map[string]any{"structuredContent": result}, nil
+		return toolSuccess(result), nil
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return nil, failure(-32800, "request cancelled")

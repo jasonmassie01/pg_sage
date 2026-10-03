@@ -1,0 +1,2 @@
+go test fuzz v1
+string("\u212a\u212a\u212a\u212a\u212a\u212a\u212a\u212a token=SECRET&x=1")

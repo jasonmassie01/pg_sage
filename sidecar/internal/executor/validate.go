@@ -357,12 +357,21 @@ func rejectMultiStatement(sql string) error {
 	return nil
 }
 
+// qualifiedTargetPrefixes are the destructive statements whose target must
+// name its schema: an unqualified name resolves through the session
+// search_path at run time, where "$user" may be sage and pg_catalog is
+// always searched, so the protected-schema check could not see it.
+var qualifiedTargetPrefixes = map[string]bool{"DROP INDEX": true, "ALTER TABLE": true}
+
 func checkProtectedSchemaUsage(trimmed, prefix string) error {
 	ident := statementTarget(trimmed, prefix)
+	schema := schemaFromIdentifier(ident)
+	if qualifiedTargetPrefixes[prefix] && schema == "" {
+		return fmt.Errorf("%w: %s target must be schema-qualified", ErrDisallowedSQL, prefix)
+	}
 	if ident == "" {
 		return nil
 	}
-	schema := schemaFromIdentifier(ident)
 	if isProtectedExecutorSchema(schema) {
 		return fmt.Errorf(
 			"%w: executor may not target protected schema %q",
@@ -395,7 +404,7 @@ func schemaFromIdentifier(ident string) string {
 func isProtectedExecutorSchema(schema string) bool {
 	schema = strings.ToLower(strings.Trim(schema, `"`))
 	switch schema {
-	case "pg_catalog", "information_schema", "google_ml", "sage":
+	case "pg_catalog", "pg_toast", "information_schema", "google_ml", "sage":
 		return true
 	}
 	return strings.HasPrefix(schema, "_timescaledb_")

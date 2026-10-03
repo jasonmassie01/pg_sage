@@ -9,8 +9,8 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 	allowed := []string{
 		"CREATE INDEX CONCURRENTLY idx ON t(id)",
 		"CREATE UNIQUE INDEX CONCURRENTLY idx ON t(id)",
-		"DROP INDEX CONCURRENTLY IF EXISTS idx",
-		"DROP INDEX idx",
+		"DROP INDEX CONCURRENTLY IF EXISTS public.idx",
+		"DROP INDEX public.idx",
 		"REINDEX INDEX CONCURRENTLY idx",
 		"VACUUM ANALYZE public.users",
 		"VACUUM",

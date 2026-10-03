@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **Safety fixes for EXPLAIN, LLM prompts, index drops and MCP (Phase 0).** `/explain` only
+  runs EXPLAIN ANALYZE when the query provably calls nothing with side effects (no volatile
+  functions such as `pg_terminate_backend` or `dblink`, also not inside views, no row locks or
+  data-modifying CTEs); otherwise it returns the plan without ANALYZE and says why. A zero or
+  negative `explain.timeout_ms` now means the default instead of no limit, plan-only and
+  ANALYZE results are cached separately, and a fallback after an LLM failure is cached for one
+  minute only. Text sent to the LLM is delimited and redacted more reliably (Unicode tag
+  tricks, `E''` strings, dollar quotes, plan JSON), the plan-regression narrator and action
+  justifier now use that protection, and the narrator no longer replaces a finding's
+  recommendation. `DROP INDEX` and `ALTER TABLE` run by pg_sage must name their schema, so a
+  search_path cannot steer them into `sage` or `pg_catalog`. With the MCP stdio transport the
+  daily briefing's stdout channel is written to stderr, and MCP now answers `ping`, ignores
+  notifications and returns tool results as `content` blocks.
+
 ### Changed (read before upgrading)
 
 - **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it

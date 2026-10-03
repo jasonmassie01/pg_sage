@@ -30,10 +30,11 @@ const planNarrativeSystem = `You are a PostgreSQL performance expert. A query's 
 	`the most likely cause(s) of the plan change (e.g. stale statistics, data growth, ` +
 	`a dropped or newly-created index, a parameter change, or a planner cost ` +
 	`mis-estimate) and the single best next step. Be specific to the evidence given. ` +
-	`No markdown. Output only the explanation.`
+	`No markdown. Output only the explanation. ` + llm.UntrustedDataRule
 
-// Narrate enriches each plan_regression finding with an LLM narrative.
-// No-op when the client is nil/disabled.
+// Narrate enriches each plan_regression finding with an LLM narrative in
+// Detail["narrative"]. Model output never replaces the deterministic
+// Recommendation. No-op when the client is nil/disabled.
 func (n *LLMPlanNarrator) Narrate(ctx context.Context, findings []Finding) []Finding {
 	if n == nil || n.client == nil || !n.client.IsEnabled() {
 		return findings
@@ -49,7 +50,7 @@ func (n *LLMPlanNarrator) Narrate(ctx context.Context, findings []Finding) []Fin
 		cancel()
 		if err != nil {
 			if n.logFn != nil {
-				n.logFn("analyzer", "plan narrative failed: %v", err)
+				n.logFn("WARN", "plan narrative failed: %v", err)
 			}
 			continue
 		}
@@ -62,32 +63,34 @@ func (n *LLMPlanNarrator) Narrate(ctx context.Context, findings []Finding) []Fin
 			findings[i].Detail = map[string]any{}
 		}
 		findings[i].Detail["narrative"] = narrative
-		findings[i].Recommendation = narrative
 	}
 	return findings
 }
 
 // buildPlanNarrativePrompt assembles the evidence for one regression.
+// Query text, node changes and plan summaries are database content: they
+// are delimited as untrusted data with literals and comments redacted.
 // Pure and testable.
 func buildPlanNarrativePrompt(f Finding) string {
 	d := f.Detail
 	var b strings.Builder
-	fmt.Fprintf(&b, "Query: %s\n", planDetailStr(d, "query"))
+	fmt.Fprintf(&b, "Query:\n%s\n", llm.SanitizePromptSQL("query", planDetailStr(d, "query")))
 	fmt.Fprintf(&b, "Cost increase: %.1fx (from %.0f to %.0f)\n",
 		planDetailFloat(d, "cost_ratio"),
 		planDetailFloat(d, "previous_cost"),
 		planDetailFloat(d, "current_cost"))
 	if nc := planDetailStrings(d, "node_changes"); len(nc) > 0 {
-		fmt.Fprintf(&b, "Plan node changes: %s\n", strings.Join(nc, "; "))
+		fmt.Fprintf(&b, "Plan node changes:\n%s\n",
+			llm.SanitizePromptSQL("node_changes", strings.Join(nc, "; ")))
 	}
 	if spills, _ := d["new_disk_spills"].(bool); spills {
 		b.WriteString("New disk spills appeared in the plan.\n")
 	}
 	if s := planDetailStr(d, "previous_summary"); s != "" {
-		fmt.Fprintf(&b, "Previous plan: %s\n", s)
+		fmt.Fprintf(&b, "Previous plan:\n%s\n", llm.SanitizePromptSQL("previous_plan", s))
 	}
 	if s := planDetailStr(d, "current_summary"); s != "" {
-		fmt.Fprintf(&b, "Current plan: %s\n", s)
+		fmt.Fprintf(&b, "Current plan:\n%s\n", llm.SanitizePromptSQL("current_plan", s))
 	}
 	return b.String()
 }
