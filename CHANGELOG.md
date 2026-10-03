@@ -16,7 +16,8 @@
   system snapshot also counted autovacuum workers, logical replication senders and parallel
   query workers of the database as active sessions, so a busy autovacuum or one parallel
   query inflated the active backends the connection advisor, forecaster and lock analysis
-  read. They now count client sessions, as the connection states already did.
+  read, and those recorded in each action's before-state evidence. They now count client
+  sessions, as the connection states already did.
 
 ## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
 
