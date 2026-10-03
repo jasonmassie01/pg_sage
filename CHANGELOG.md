@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Every action that waits for you now comes as an approval card with the why, and you can
+  decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
+  do and to which objects, why it needs you (for example: HypoPG has not verified the index,
+  trust level is advisory, the setting needs a restart, or you rejected this exact change
+  before), the evidence with its numbers, the model's rationale, the predicted effect, the
+  exact SQL and how to undo it, the lock it takes and when the request expires. Approve,
+  Reject (with a reason) and Snooze buttons now come with every action type in Slack and
+  Telegram, not only with SRE query cancels. A chat button works once, only for the chat it
+  was sent to, only for a chat user linked to a pg_sage operator or admin, and only while
+  the action is unchanged: if its SQL changed after the card was sent, the approval is
+  refused. Approvals from chat run through the same checks as the UI and are recorded under
+  the approver's name. Once the action is verified (or rolled back), pg_sage posts the
+  result back to the same chat. A snoozed action stays behind approval until the snooze
+  ends, then pg_sage asks again; a rejected one stays behind approval as before.
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new
