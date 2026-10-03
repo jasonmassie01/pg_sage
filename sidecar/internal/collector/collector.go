@@ -31,7 +31,41 @@ type Collector struct {
 
 	// stepOverrides replaces catalog category readers (tests).
 	stepOverrides map[string]func(context.Context, *Snapshot) error
+
+	// Bounded catalog reads (perf fix phase): caches and their tunables.
+	catalogMu      sync.Mutex
+	indexDefs      *indexDefCache
+	sequences      sequenceCache
+	seqCoverage    SequenceCoverage
+	dbSize         dbSizeCache
+	exactTopN      int           // relations sized exactly per cycle
+	seqPageSize    int           // sequences per catalog transaction
+	seqScanCap     int           // sequences read per cycle
+	dbSizeEvery    time.Duration // pg_database_size cadence
+	indexDefMaxAge time.Duration // full index-definition refresh backstop
+	now            func() time.Time
+	onCatalogQuery catalogHook // tests only
 }
+
+// Defaults for the bounded catalog reads.
+const (
+	// ExactSizeTopN relations (and as many indexes) get exact sizes each
+	// cycle; every other size is relpages x block size.
+	ExactSizeTopN = 100
+	// SequencePageSize sequences are read per catalog transaction (each
+	// holds one lock per sequence until the transaction ends); a page is
+	// also capped at a quarter of the server's lock table.
+	SequencePageSize = 1000
+	// SequenceScanCap sequences are read per cycle at most; past it the
+	// collector rotates through the catalog across cycles.
+	SequenceScanCap = 20000
+	// DBSizeRefreshInterval is how often pg_database_size (a stat() of
+	// every file of the database) is measured.
+	DBSizeRefreshInterval = 15 * time.Minute
+	// IndexDefMaxAge forces a full index-definition refresh even when the
+	// catalog update counters did not move (track_counts off).
+	IndexDefMaxAge = time.Hour
+)
 
 // New creates a Collector wired to the given pool and config.
 func New(
@@ -48,8 +82,15 @@ func New(
 			cfg.Safety.CPUCeilingPct,
 			cfg.Safety.BackoffConsecutiveSkips,
 		),
-		logFn:      logFn,
-		snapWriter: snapstore.NewWriter(),
+		logFn:          logFn,
+		snapWriter:     snapstore.NewWriter(),
+		indexDefs:      newIndexDefCache(),
+		exactTopN:      ExactSizeTopN,
+		seqPageSize:    SequencePageSize,
+		seqScanCap:     SequenceScanCap,
+		dbSizeEvery:    DBSizeRefreshInterval,
+		indexDefMaxAge: IndexDefMaxAge,
+		now:            time.Now,
 	}
 }
 

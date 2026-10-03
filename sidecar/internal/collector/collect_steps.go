@@ -38,6 +38,8 @@ func (c *Collector) catalogSteps() []catalogStep {
 		}},
 		{"sequences", func(ctx context.Context, s *Snapshot) (err error) {
 			s.Sequences, err = c.collectSequences(ctx)
+			cov := c.sequenceCoverage()
+			s.SequenceCoverage = &cov
 			return err
 		}},
 	}

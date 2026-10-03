@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -241,12 +242,10 @@ func writeDatabaseMetrics(b *strings.Builder, ctx context.Context) {
 		b.WriteString("\n")
 	}
 
-	// Database size.
-	var dbSize int64
-	if pool.QueryRow(ctx, "SELECT pg_database_size(current_database())").Scan(&dbSize) == nil {
-		b.WriteString("# HELP pg_sage_database_size_bytes Database size\n" +
-			"# TYPE pg_sage_database_size_bytes gauge\n")
-		fmt.Fprintf(b, "pg_sage_database_size_bytes %d\n\n", dbSize)
+	// Database size: the collector's cached measurement (a size walk on
+	// every scrape stat()ed every file of the database, untimed).
+	if coll != nil {
+		b.WriteString(databaseSizeMetric(coll.LatestSnapshot()))
 	}
 
 	// Cache hit ratio.
@@ -259,4 +258,15 @@ func writeDatabaseMetrics(b *strings.Builder, ctx context.Context) {
 			"# TYPE pg_sage_cache_hit_ratio gauge\n")
 		fmt.Fprintf(b, "pg_sage_cache_hit_ratio %g\n\n", ratio)
 	}
+}
+
+// databaseSizeMetric renders the database size gauge from a collector
+// snapshot; an unknown size (no snapshot yet, never measured) is omitted.
+func databaseSizeMetric(snap *collector.Snapshot) string {
+	if snap == nil || snap.System.DBSizeBytes <= 0 {
+		return ""
+	}
+	return "# HELP pg_sage_database_size_bytes Database size\n" +
+		"# TYPE pg_sage_database_size_bytes gauge\n" +
+		fmt.Sprintf("pg_sage_database_size_bytes %d\n\n", snap.System.DBSizeBytes)
 }
