@@ -17,6 +17,7 @@ import { PendingErrors } from './actions/PendingErrors'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { RecommendationsTab } from './actions/RecommendationsTab'
 import { revisionPin } from './actions/recommendation'
+import { ApprovalCardDetail, PendingCardsView } from './actions/ApprovalCards'
 
 function actionStatus(row) {
   return row.status || row.action_status || row.outcome || 'unknown'
@@ -72,8 +73,10 @@ export function Actions({ database, user }) {
     error: pendingError,
     refetch: pendingRefetch,
   } = useAPI(canReview ? `/api/v1/actions/pending${dbParam}` : null)
+  const cards = useAPI(canReview ? `/api/v1/approvals${dbParam}` : null)
   useLiveRefetch(['actions'], refetch)
   useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
+  useLiveRefetch(['actions'], canReview ? cards.refetch : null)
 
   if (activeTab === 'recommendations') {
     return (
@@ -111,7 +114,8 @@ export function Actions({ database, user }) {
       <PendingTab data={pendingData}
         loading={pendingLoading}
         error={pendingError}
-        refetch={pendingRefetch} />
+        refetch={pendingRefetch}
+        cards={cards} />
     </div>
   )
 }
@@ -467,8 +471,9 @@ function actionRowKey(row) {
 }
 
 function PendingTab({
-  data, loading, error, refetch,
+  data, loading, error, refetch, cards,
 }) {
+  const [view, setView] = useState('cards')
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
@@ -480,6 +485,17 @@ function PendingTab({
     onRetry={refetch} />
 
   const actions = data?.pending || []
+  const cardList = cards?.data?.cards
+  const hasCards = Array.isArray(cardList)
+  const refreshAll = () => {
+    refetch()
+    cards?.refetch?.()
+    refetchPendingCount()
+  }
+  if (hasCards && view === 'cards') {
+    return <PendingCardsView cards={cardList} errors={cards.data.errors}
+      onShowTable={() => setView('table')} onDecided={refreshAll} />
+  }
 
   async function handleApprove(action) {
     const id = action.id
@@ -637,6 +653,13 @@ function PendingTab({
 
   return (
     <div className="space-y-3">
+      {hasCards && (
+        <button data-testid="pending-view-cards" onClick={() => setView('cards')}
+          className="px-2 py-1 rounded text-xs"
+          style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+          Card view
+        </button>
+      )}
       <p data-testid="pending-help-text"
         className="text-sm"
         style={{ color: 'var(--text-secondary)' }}>
@@ -661,6 +684,7 @@ function PendingTab({
         columns={columns} rows={actions} expandable rowKey={actionRowKey}
         renderExpanded={row => (
           <div className="space-y-3">
+            <ApprovalCardDetail action={row} onDecided={refreshAll} />
             <div>
               <div className="text-xs font-medium mb-1"
                 style={{ color: 'var(--text-secondary)' }}>
