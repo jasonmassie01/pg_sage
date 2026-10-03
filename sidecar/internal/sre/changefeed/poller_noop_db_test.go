@@ -4,11 +4,13 @@ import (
 	"testing"
 )
 
-// stateVersions returns each source's row version (xmin) for the fixture's
-// scope: an unchanged xmin means the row was not rewritten.
+// stateVersions returns each source's row version and lock (xmin:xmax) for
+// the fixture's scope: unchanged, the row was neither rewritten nor even
+// locked by an upsert whose guard found nothing to change.
 func (f pollFixture) stateVersions(t *testing.T) map[string]string {
 	t.Helper()
-	rows, err := f.pool.Query(f.ctx, `SELECT source, xmin::text FROM sage.sre_change_feed_state
+	rows, err := f.pool.Query(f.ctx, `SELECT source, xmin::text || ':' || xmax::text
+		FROM sage.sre_change_feed_state
 		WHERE deployment_id = $1 AND database_id = $2`, string(f.scope.DeploymentID),
 		string(f.scope.DatabaseID))
 	if err != nil {
