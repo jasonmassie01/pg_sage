@@ -37,23 +37,33 @@
   it no longer holds, pg_sage refuses and says which check failed: the index was scanned,
   the statistics were reset inside the window, or the index is gone.
 
-- **The schema guard no longer floods the decision ledger or keeps a CPU core busy on big
-  catalogs.** On a database with 15,000 tables and 160 leftover test schemas it wrote one
-  `sage.decision` row for every schema issue on every cycle (about a million rows a day)
-  and ran one unindexed lookup per issue. It now records a decision only when it changes
-  (the decision's route, outcome, reason or SQL, or the issue coming back after it was
-  gone), reads its history and table contracts in one query each per cycle, and reads
-  `pg_stat_statements` once per cycle. Unchanged issues are still checked and handled
-  every cycle exactly as before. Schemas that are copies of one another (same tables,
-  generated names, five or more copies) are handled as one family: a family in use, such
-  as one schema per tenant, is still fixed in every schema but recorded once per issue
-  with the list of schemas; a family nothing has used within
-  `analyzer.unused_index_window_days` (no scans, writes, statements or sessions) is noted
-  once as an idle leftover and not fixed. After pg_sage's own DDL the guard re-checks at
-  most once per `analyzer.schema_guard_ddl_debounce_seconds` (default 60). pg_sage builds
-  the index `sage.idx_decision_schema_guard_targets` in the background without blocking
-  writes (an index that already exists is kept), and schema guard decisions now age out
-  after `retention.findings_days` unless an action or a verification refers to them.
+- **The decision ledger no longer grows by tens of thousands of rows an hour.** On a
+  database with 15,000 tables and 160 leftover test schemas, `sage.decision` grew by about
+  41,000 rows an hour (about a million a day, kept for a year). The policy gate wrote a new
+  row every time it re-checked a candidate it was holding back. The schema guard wrote
+  one row for every schema issue on every cycle and ran one unindexed lookup per issue.
+  Now:
+  - A parked, queued, blocked or observe-only verdict that repeats updates its existing row
+    (`repeat_count`, `last_seen_at`) instead of adding a new one. Each executed decision
+    still keeps its own row.
+  - Cheap checks that skip a candidate now run before the policy gate.
+  - The schema guard records a decision only when it changes (its route, outcome, reason or
+    SQL, or the issue coming back after it was gone). It reads its history and table
+    contracts in one query each per cycle and reads `pg_stat_statements` once per cycle.
+    Unchanged issues are still checked and handled every cycle exactly as before.
+  - Schemas that are copies of one another (same tables, generated names, five or more
+    copies) are handled as one family. A family in use, such as one schema per tenant, is
+    still fixed in every schema but recorded once per issue with the list of schemas. A
+    family nothing has used within `analyzer.unused_index_window_days` (no scans, writes,
+    statements or sessions) is noted once as an idle leftover and not fixed.
+  - After pg_sage's own DDL, the guard re-checks at most once per
+    `analyzer.schema_guard_ddl_debounce_seconds` (default 60).
+  - Non-executed decisions are removed after the new `retention.decisions_days` (default
+    30, counted from when they were last seen), unless an action or a verification refers
+    to them.
+  - pg_sage builds the ledger's indexes in the background without blocking writes, and
+    keeps any that already exist: `idx_decision_schema_guard_targets`, `created_at`, and
+    every foreign key into or out of `sage.decision`.
 
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
