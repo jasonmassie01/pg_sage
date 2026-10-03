@@ -48,7 +48,7 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	fmt.Fprintf(sb, "| %s | none |\n", GateTimeout)
 	fmt.Fprintf(sb, "| %s | HTTP 200 within %.0f ms |\n", GateEndpoint, b.EndpointMaxMs)
 	fmt.Fprintf(sb, "| %s | at least %.0f%% of updates for a table updated %d+ times "+
-		"(steady phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
+		"(every phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
 }
 
 func writeOffenderTable(sb *strings.Builder, offenders []Offender) {

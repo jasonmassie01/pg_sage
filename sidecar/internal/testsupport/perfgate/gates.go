@@ -78,7 +78,7 @@ type Endpoint struct {
 
 // Phase is one measured stretch of the run. Steady phases are charged
 // the per-cycle and per-statement budgets; every phase is charged the
-// seq-scan, catalog and timeout budgets.
+// seq-scan, catalog, timeout and HOT budgets.
 type Phase struct {
 	Name       string
 	Steady     bool
@@ -129,8 +129,8 @@ func Evaluate(phases []Phase, b Budgets) ([]Offender, error) {
 		if p.Steady {
 			out = append(out, timeOffenders(p, b)...)
 			out = append(out, writeOffenders(p, b)...)
-			out = append(out, hotOffenders(p, b)...)
 		}
+		out = append(out, hotOffenders(p, b)...)
 		out = append(out, catalogOffenders(p, b)...)
 		out = append(out, endpointOffenders(p, b)...)
 	}

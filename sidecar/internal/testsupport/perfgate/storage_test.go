@@ -67,12 +67,14 @@ func TestHotGateFlagsTablesWithFewHeapOnlyUpdates(t *testing.T) {
 	}
 }
 
-func TestHotGateAppliesOnlyToSteadyPhases(t *testing.T) {
+// The HOT share is a property of the schema and the writers, not of load:
+// warmup (where the analyzer refreshes every finding it opened) counts.
+func TestHotGateAppliesToEveryPhase(t *testing.T) {
 	warm := Phase{Name: "warmup", Window: time.Minute}
-	warm.Tables = []TableDelta{{Name: "sage.findings", Updates: 500}}
+	warm.Tables = []TableDelta{{Name: "sage.findings", Updates: 500, HotUpdates: 10}}
 	got, err := Evaluate([]Phase{warm}, DefaultBudgets())
-	if err != nil || len(got) != 0 {
-		t.Fatalf("warmup charged gate F: %+v (%v)", got, err)
+	if err != nil || len(got) != 1 || got[0].Gate != GateHotUpdates || got[0].Measured != 2 {
+		t.Fatalf("warmup gate F = %+v (%v), want findings at 2%% HOT", got, err)
 	}
 }
 
