@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Active and idle-in-transaction session counts are the application's sessions only.** The
+  system snapshot also counted autovacuum workers, logical replication senders and parallel
+  query workers of the database as active sessions, so a busy autovacuum or one parallel
+  query inflated the active backends the connection advisor, forecaster and lock analysis
+  read, and those recorded in each action's before-state evidence. They now count client
+  sessions, as the connection states already did.
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new
@@ -72,13 +83,6 @@
   took 13 seconds a scan. It now reads only the newest decision of each schema issue and
   the few rows it counts, through two small indexes: under 40 ms on a 250,000-row history,
   whatever its size. The large index the old read used is removed at upgrade.
-
-- **Active and idle-in-transaction session counts are the application's sessions only.** The
-  system snapshot also counted autovacuum workers, logical replication senders and parallel
-  query workers of the database as active sessions, so a busy autovacuum or one parallel
-  query inflated the active backends the connection advisor, forecaster and lock analysis
-  read, and those recorded in each action's before-state evidence. They now count client
-  sessions, as the connection states already did.
 
 ## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
 
