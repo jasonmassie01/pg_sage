@@ -358,7 +358,7 @@ jobs:
           for f in release-bench/*/pgincidentbench.json; do
             cosign verify-blob --bundle "$f.sigstore.json" --certificate-identity "$IDENTITY" \
               --certificate-oidc-issuer "$ISSUER" "$f"
-            CGO_ENABLED=0 go run ./cmd/pg_sage_sidecar bench verify --commit "$GITHUB_SHA" "$f"
+            go run ./cmd/pg_sage_sidecar bench verify --commit "$GITHUB_SHA" "$f"
           done
 
       - uses: actions/upload-artifact@v4
