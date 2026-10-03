@@ -102,23 +102,31 @@ func TestSequenceCache_PageReplacesItsOIDRange(t *testing.T) {
 	if got := len(sc.list()); got != 4 {
 		t.Fatalf("after first pass %d cached, want 4", got)
 	}
-	// Second pass: b stopped being readable, c was dropped, e is new;
-	// d (the next page) must survive until its own page is re-read.
+	// Second pass: b stopped being readable, e is new; c and d lie past
+	// this page's last oid (25), so they survive until their page is read.
 	sc.apply(0, []sequenceRow{used(10, "a", 1.5),
 		{oid: 20, readable: false, stats: seq("b", 0)}, used(25, "e", 9)}, false)
-	got := map[string]float64{}
-	for _, s := range sc.list() {
-		got[s.SequenceName] = s.PctUsed
+	if got, want := pcts(sc), "map[a:1.5 c:3 d:4 e:9]"; got != want {
+		t.Fatalf("cache = %s, want %s", got, want)
 	}
-	want := map[string]float64{"a": 1.5, "e": 9, "d": 4}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("cache = %v, want %v", got, want)
+	// The next (final) page covers (25, inf): c was dropped, d moved.
+	sc.apply(25, []sequenceRow{used(40, "d", 4.5)}, true)
+	if got, want := pcts(sc), "map[a:1.5 d:4.5 e:9]"; got != want {
+		t.Fatalf("cache = %s, want %s", got, want)
 	}
-	// The final page clears everything after its cursor.
+	// An empty final page clears everything after its cursor.
 	sc.apply(25, nil, true)
 	if got := len(sc.list()); got != 2 {
 		t.Fatalf("after an empty final page %d cached, want 2 (a, e)", got)
 	}
+}
+
+func pcts(sc *sequenceCache) string {
+	got := map[string]float64{}
+	for _, s := range sc.list() {
+		got[s.SequenceName] = s.PctUsed
+	}
+	return fmt.Sprint(got)
 }
 
 func TestSequenceCache_UnusedRowsAreNotCached(t *testing.T) {

@@ -40,9 +40,7 @@ CREATE TABLE golden_cat.parted_p2 PARTITION OF golden_cat.parted
 CREATE INDEX parted_id ON golden_cat.parted (id);
 INSERT INTO golden_cat.parted SELECT g, g % 20 FROM generate_series(1, 400) g;
 CREATE MATERIALIZED VIEW golden_cat.mv AS SELECT id, v FROM golden_cat.hot;
-CREATE UNIQUE INDEX mv_id ON golden_cat.mv (id);
-VACUUM ANALYZE golden_cat.hot;
-ANALYZE golden_cat.noidx;`
+CREATE UNIQUE INDEX mv_id ON golden_cat.mv (id);`
 
 // createGoldenCatalog builds the fixture and generates scans on one
 // connection, then flushes that backend's statistics.
@@ -58,6 +56,11 @@ func createGoldenCatalog(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 	defer conn.Release()
 	if _, err := conn.Exec(ctx, goldenFixtureSQL); err != nil {
 		t.Fatalf("golden fixture: %v", err)
+	}
+	for _, maint := range []string{"VACUUM ANALYZE golden_cat.hot", "ANALYZE golden_cat.noidx"} {
+		if _, err := conn.Exec(ctx, maint); err != nil { // not in the batch's transaction
+			t.Fatalf("%s: %v", maint, err)
+		}
 	}
 	if _, err := conn.Exec(ctx, `SELECT count(*) FROM golden_cat.hot;
 		SELECT count(*) FROM golden_cat.noidx;

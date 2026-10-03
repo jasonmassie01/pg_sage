@@ -1048,9 +1048,9 @@ func TestSystemStatsSQL_BothVersionsShareBase(t *testing.T) {
 		if !contains(sql, "pg_is_in_recovery()") {
 			t.Error("system stats SQL must check pg_is_in_recovery()")
 		}
-		if !contains(sql, "pg_database_size") {
-			t.Error("system stats SQL must select pg_database_size")
-		}
+	}
+	if !contains(databaseSizeSQL, "pg_database_size(current_database())") {
+		t.Error("the database size must come from pg_database_size")
 	}
 }
 

@@ -1416,8 +1416,8 @@ func TestSystemStatsSQL_SharedBase(t *testing.T) {
 		if !strings.Contains(variant, "deadlocks") {
 			t.Error("system stats SQL must select deadlocks")
 		}
-		if !strings.Contains(variant, "db_size_bytes") {
-			t.Error("system stats SQL must select db_size_bytes")
+		if strings.Contains(variant, "pg_database_size") {
+			t.Error("system stats SQL must not walk the database (cached size, M7)")
 		}
 		if !strings.Contains(variant, "is_replica") {
 			t.Error("system stats SQL must select is_replica")
