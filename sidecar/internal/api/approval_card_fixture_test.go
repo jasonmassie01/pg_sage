@@ -44,6 +44,12 @@ func newCardFixture(t *testing.T) *cardFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		// The approvals really ran through Executor.Apply, which leaves change
+		// leases that reference their decisions; other tests of this package
+		// delete every decision, so the leases go with the fixture.
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.change_lease
+			WHERE intent LIKE '%' || $1 || '%' OR object_key LIKE '%' || $1 || '%'
+			   OR COALESCE(object_name, '') LIKE '%' || $1 || '%'`, fx.table)
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public."+fx.table)
 	})
 	fx.sql = "ANALYZE public." + fx.table

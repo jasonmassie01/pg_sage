@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS sage.approval_card_deliveries (
 );
 CREATE INDEX IF NOT EXISTS idx_approval_card_followup
     ON sage.approval_card_deliveries (created_at, id) WHERE followed_up_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_approval_card_closed
+    ON sage.approval_card_deliveries (followed_up_at) WHERE followed_up_at IS NOT NULL;
 ALTER TABLE sage.action_queue ADD COLUMN IF NOT EXISTS snoozed_until timestamptz;
 ALTER TABLE sage.action_queue ADD COLUMN IF NOT EXISTS snoozed_by integer;
 ALTER TABLE sage.action_queue ADD COLUMN IF NOT EXISTS snooze_reason text;

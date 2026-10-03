@@ -354,7 +354,9 @@ func TestContentHashIsStableAndSensitive(t *testing.T) {
 		"queue":       func(q *store.QueuedAction) { q.ID++ },
 		"content":     func(q *store.QueuedAction) { q.ContentHash = "x" },
 		"risk":        func(q *store.QueuedAction) { q.ActionRisk = "high" },
-		"sql vs roll": func(q *store.QueuedAction) { q.ProposedSQL, q.RollbackSQL = q.RollbackSQL, q.ProposedSQL },
+		"sql vs roll": func(q *store.QueuedAction) {
+			q.ProposedSQL, q.RollbackSQL = q.RollbackSQL, q.ProposedSQL
+		},
 	}
 	for name, m := range mutations {
 		c := a
