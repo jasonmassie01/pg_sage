@@ -57,6 +57,10 @@ var excludedExactKeys = map[string]bool{
 	// The non-execute decision retention window is YAML only; it is not
 	// exposed as an API override.
 	"retention.decisions_days": true,
+	// The query_store window and the snapshot size cap (perf storage phase)
+	// are YAML only and restart-bound, like decisions_days.
+	"retention.query_store_days":  true,
+	"retention.snapshots_max_pct": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/partition"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -48,7 +49,11 @@ func TestPurgeSnapshots_KeepsBasesOfRetainedDeltas(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM sage.snapshots`) })
 	now := time.Now().UTC()
 	w := snapstore.NewWriter()
-	k1, k2 := now.Add(-40*24*time.Hour), now.Add(-30*24*time.Hour-2*time.Hour)
+	// The writer starts a new keyframe on every UTC day (retention drops
+	// days), so the chain is written inside one day and then shifted to
+	// straddle the 30-day cutoff: K2 two hours before it.
+	day := partition.DayStart(now.Add(-40 * 24 * time.Hour))
+	k1, k2 := day.Add(time.Hour), day.Add(8*time.Hour)
 	steps := []struct {
 		at        time.Time
 		hot, warm int
@@ -65,6 +70,10 @@ func TestPurgeSnapshots_KeepsBasesOfRetainedDeltas(t *testing.T) {
 			t.Fatalf("persist %s: %v", s.at, err)
 		}
 	}
+	shift := now.Add(-30*24*time.Hour - 2*time.Hour).Sub(k2).Truncate(time.Second)
+	execRetry(t, ctx, `UPDATE sage.snapshots
+		SET collected_at = collected_at + make_interval(secs => $1)`, shift.Seconds())
+	k2 = k2.Add(shift)
 	cfg := &config.Config{Retention: config.RetentionConfig{SnapshotsDays: 30}}
 	New(pool, cfg, noopLog).Run(ctx)
 	kept := keptSnapshots(t)

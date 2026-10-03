@@ -3,8 +3,11 @@ package retention
 import (
 	"context"
 	"sort"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/partition"
 )
 
 // G7-B12 / G4-B26: previously unbounded sage time-series are purged in
@@ -63,14 +66,20 @@ func TestRun_PurgesPreviouslyUnboundedTables(t *testing.T) {
 
 // G7-B12 guard: every sage table with a time column must either have a
 // purge rule or an explicit, justified exemption. New tables fail here
-// until someone decides their retention.
+// until someone decides their retention. The agent_db_* tables are created
+// on first use, so the guard creates them first; partitions of a
+// partitioned table are covered by its rule.
 func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
+	ensureAgentSchema(t)
 	_, ctx := requireDB(t)
 	rows, err := testPool.Query(ctx, `SELECT DISTINCT c.table_name
 		FROM information_schema.columns c
 		JOIN information_schema.tables t
 		  ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+		JOIN pg_class pc ON pc.oid = to_regclass(quote_ident(c.table_schema) || '.' ||
+		                                         quote_ident(c.table_name))
 		WHERE c.table_schema = 'sage' AND t.table_type = 'BASE TABLE'
+		  AND NOT pc.relispartition
 		  AND c.data_type LIKE 'timestamp%'`)
 	if err != nil {
 		t.Fatal(err)
@@ -81,10 +90,14 @@ func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
 		covered[r.table] = true
 	}
 	var missing []string
+	agentTables := 0
 	for rows.Next() {
 		var table string
 		if err := rows.Scan(&table); err != nil {
 			t.Fatal(err)
+		}
+		if strings.HasPrefix(table, "agent_db_") {
+			agentTables++
 		}
 		if !covered[table] && retentionExemptions[table] == "" {
 			missing = append(missing, table)
@@ -96,6 +109,23 @@ func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Fatalf("sage tables with no purge rule or exemption: %v", missing)
+	}
+	if agentTables < 18 {
+		t.Fatalf("the guard saw %d agent_db_* tables, want all 18+", agentTables)
+	}
+}
+
+// Every partitioned history table has a rule; its partitions are not
+// listed separately.
+func TestRetentionRules_CoverPartitionedTables(t *testing.T) {
+	covered := map[string]bool{}
+	for _, r := range purgeRules(allDays(30)) {
+		covered[r.table] = true
+	}
+	for _, tbl := range partition.HistoryTables() {
+		if !covered[tbl.Name] {
+			t.Errorf("partitioned sage.%s has no retention rule", tbl.Name)
+		}
 	}
 }
 
