@@ -65,8 +65,9 @@ func TestOperatorRequestCarriesTargetObjects(t *testing.T) {
 }
 
 func withSerializeGate(e *Executor, mode string) *Executor {
-	doc := policy.UnattendedProfile()
-	doc.MaintenanceWindows = []string{"always"}
+	// The 24-hour limits are raised: the package's other tests spend the
+	// shared database's window, and these tests are about leases.
+	doc := unlimitedWindowPolicy()
 	doc.SerializeMode = mode
 	e.EnableStandingPolicyDocument(doc, nil)
 	return e
