@@ -61,9 +61,10 @@
   - Non-executed decisions are removed after the new `retention.decisions_days` (default
     30, counted from when they were last seen), unless an action or a verification refers
     to them.
-  - pg_sage builds the ledger's indexes in the background without blocking writes, and
-    keeps any that already exist: `idx_decision_schema_guard_targets`, `created_at`, and
-    every foreign key into or out of `sage.decision`.
+  - At startup, pg_sage adds the ledger's missing indexes once, keeping any that already
+    exist: `idx_decision_schema_guard_targets`, `created_at`, and every foreign key into
+    or out of `sage.decision`. On a very large existing ledger, create them
+    `CONCURRENTLY` by hand first (see the review report for the statements).
 
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
