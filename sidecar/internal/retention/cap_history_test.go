@@ -360,3 +360,25 @@ func TestSnapshotCap_TrimStopsAtItsByteBudgetPerRun(t *testing.T) {
 		t.Fatal("a new cleaner does not use the default trim budget")
 	}
 }
+
+// A chain deeper than the writer makes (manual edits) cannot be walked to a
+// boundary: the trim deletes nothing and says why, rather than guessing.
+func TestSnapshotCap_UnwalkableChainTrimsNothing(t *testing.T) {
+	pool, ctx := requireDB(t)
+	rebound(t, ctx, partition.Snapshots, -2)
+	cleanCapRows(t, ctx)
+	today := partition.DayStart(time.Now())
+	prev := insertBlob(t, ctx, today.Add(-21*time.Hour), 4)
+	for i := 20; i >= 0; i-- { // each row built on the one before, the last after midnight
+		prev = insertDelta(t, ctx, today.Add(-time.Duration(i)*time.Hour+time.Minute), prev)
+	}
+	logs := &captureLog{}
+	c := New(pool, snapshotCfg(), logs.log)
+	c.capBytes = 1
+	if stats := c.RunOnce(ctx); stats.Deleted["snapshots"] != 0 {
+		t.Fatalf("deleted %d rows of a chain it could not walk", stats.Deleted["snapshots"])
+	}
+	if !logs.contains("WARN", "no keyframe boundary") {
+		t.Fatalf("the refusal was not logged: %v", logs.lines)
+	}
+}
