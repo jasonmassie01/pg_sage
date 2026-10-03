@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Large `sage.snapshots` tables now convert to daily partitions on busy databases.** The
+  background conversion builds the new key with `CREATE INDEX CONCURRENTLY`, which waits for
+  every query already running in the database, also queries that never touch pg_sage's
+  tables. It ran under pg_sage's 2 s lock timeout, so on a database with queries of a few
+  seconds (lifeos: 4-5 s application queries) every attempt was cancelled and the table stayed
+  plain. That wait blocks none of the table's readers or writers, so it is now bounded by the
+  conversion's 10 minute statement timeout instead.
 - **The snapshot size cap now works right after the upgrade, and gives the disk space
   back.** Converting `sage.snapshots` to daily partitions put all existing rows (lifeos:
   9.3 GB) into one history partition that still takes the rows of its first two days.

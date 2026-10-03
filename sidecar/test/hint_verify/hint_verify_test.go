@@ -2,13 +2,17 @@ package hint_verify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // testDSN uses the package-isolated database on the designated test server.
@@ -697,84 +701,31 @@ func TestHint_HintTableIntegration(t *testing.T) {
 	defer conn.Release()
 
 	// Enable hint table lookup and debug
-	_, err = conn.Exec(ctx,
-		"SET pg_hint_plan.enable_hint_table = on",
-	)
-	if err != nil {
+	if _, err = conn.Exec(ctx, "SET pg_hint_plan.enable_hint_table = on"); err != nil {
 		t.Fatalf("SET enable_hint_table: %v", err)
 	}
 
-	// Reset this database's stats (not the cluster's: other test packages
-	// share the server) and run the query to capture its queryid.
-	conn.Exec(ctx, `SELECT pg_stat_statements_reset(0,
-		(SELECT oid FROM pg_database WHERE datname = current_database()), 0)`)
-
 	query := `SELECT * FROM orders WHERE status = 'shipped'`
-	conn.Exec(ctx, query)
-
-	// Query pg_stat_statements — the normalized query will have $1
-	var queryID int64
-	err = conn.QueryRow(ctx,
-		`SELECT queryid FROM pg_stat_statements
-		 WHERE query LIKE $1
-		   AND queryid != 0
-		 ORDER BY calls DESC
-		 LIMIT 1`,
-		`%orders%status%`,
-	).Scan(&queryID)
-	if err != nil {
-		// Fallback: list all entries to debug
-		rows, _ := conn.Query(ctx,
-			"SELECT queryid, query FROM pg_stat_statements LIMIT 20",
-		)
-		for rows.Next() {
-			var qid int64
-			var q string
-			rows.Scan(&qid, &q)
-			t.Logf("  queryid=%d query=%s", qid, q)
-		}
-		rows.Close()
-		t.Fatalf("could not find queryid: %v", err)
-	}
+	queryID := captureQueryID(ctx, t, conn, query, `%orders%status%`)
 	t.Logf("Query ID: %d", queryID)
 
 	// Before: no hint in table
-	rows, _ := conn.Query(ctx, "EXPLAIN (COSTS OFF) "+query)
-	var beforeLines []string
-	for rows.Next() {
-		var l string
-		rows.Scan(&l)
-		beforeLines = append(beforeLines, l)
-	}
-	rows.Close()
-	before := strings.Join(beforeLines, "\n")
-	t.Logf("BEFORE plan:\n%s", before)
+	t.Logf("BEFORE plan:\n%s", explainCostsOff(ctx, t, conn, query))
 
 	// Insert hint into hint_plan.hints using query_id
-	_, err = conn.Exec(ctx,
+	if _, err = conn.Exec(ctx,
 		`INSERT INTO hint_plan.hints (query_id, application_name, hints)
 		 VALUES ($1, '', 'IndexScan(orders idx_orders_status)')`,
 		queryID,
-	)
-	if err != nil {
+	); err != nil {
 		t.Fatalf("INSERT hint: %v", err)
 	}
 	t.Cleanup(func() {
-		pool.Exec(ctx,
-			"DELETE FROM hint_plan.hints WHERE query_id = $1", queryID,
-		)
+		pool.Exec(ctx, "DELETE FROM hint_plan.hints WHERE query_id = $1", queryID)
 	})
 
 	// After: hint table should force IndexScan
-	rows, _ = conn.Query(ctx, "EXPLAIN (COSTS OFF) "+query)
-	var afterLines []string
-	for rows.Next() {
-		var l string
-		rows.Scan(&l)
-		afterLines = append(afterLines, l)
-	}
-	rows.Close()
-	after := strings.Join(afterLines, "\n")
+	after := explainCostsOff(ctx, t, conn, query)
 	t.Logf("AFTER plan:\n%s", after)
 
 	if !planContains(after, "Index Scan") &&
@@ -783,6 +734,80 @@ func TestHint_HintTableIntegration(t *testing.T) {
 	}
 	if planContains(after, "idx_orders_status") {
 		t.Log("Confirmed: hint_plan.hints table forced IndexScan(idx_orders_status)")
+	}
+}
+
+// explainCostsOff returns the plan of query on conn without costs.
+func explainCostsOff(ctx context.Context, t *testing.T, conn *pgxpool.Conn,
+	query string) string {
+	t.Helper()
+	rows, err := conn.Query(ctx, "EXPLAIN (COSTS OFF) "+query)
+	if err != nil {
+		t.Fatalf("EXPLAIN %q: %v", query, err)
+	}
+	lines, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("read plan of %q: %v", query, err)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// captureQueryID resets this database's statistics (not the cluster's:
+// other test packages share the server), runs query on conn and reads its
+// queryid from pg_stat_statements, where the normalized text (with $1)
+// matches like. A pg_stat_statements_reset() elsewhere on the server can
+// erase the entry before it is read: repeat then.
+func captureQueryID(ctx context.Context, t *testing.T, conn *pgxpool.Conn,
+	query, like string) int64 {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `SELECT pg_stat_statements_reset(0,
+		(SELECT oid FROM pg_database WHERE datname = current_database()), 0)`); err != nil {
+		t.Fatalf("reset this database's pg_stat_statements: %v", err)
+	}
+	var queryID int64
+	pgssepoch.Attempt(t, ctx, conn, 3, func() []string {
+		if _, err := conn.Exec(ctx, query); err != nil {
+			t.Fatalf("run %q: %v", query, err)
+		}
+		err := conn.QueryRow(ctx,
+			`SELECT queryid FROM pg_stat_statements
+			 WHERE query LIKE $1
+			   AND queryid != 0
+			   AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+			 ORDER BY calls DESC
+			 LIMIT 1`,
+			like,
+		).Scan(&queryID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			logStatements(ctx, t, conn)
+			return []string{fmt.Sprintf("could not find queryid of %q", query)}
+		}
+		if err != nil {
+			t.Fatalf("could not find queryid: %v", err)
+		}
+		return nil
+	})
+	return queryID
+}
+
+// logStatements logs a few pg_stat_statements entries to debug a missing
+// queryid.
+func logStatements(ctx context.Context, t *testing.T, conn *pgxpool.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, "SELECT queryid, query FROM pg_stat_statements LIMIT 20")
+	if err != nil {
+		t.Logf("list pg_stat_statements: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var qid int64
+		var q string
+		if err := rows.Scan(&qid, &q); err != nil {
+			t.Logf("scan pg_stat_statements: %v", err)
+			return
+		}
+		t.Logf("  queryid=%d query=%s", qid, q)
 	}
 }
 

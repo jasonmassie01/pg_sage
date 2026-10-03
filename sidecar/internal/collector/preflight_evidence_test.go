@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // No concurrent fixture writes: these probes compare sequential observation epochs.
@@ -76,25 +77,39 @@ func preflightCollect(t *testing.T, c *Collector) *Snapshot {
 	return s
 }
 
-func preflightWorkload(t *testing.T, s *Snapshot) QueryStats {
+// preflightWorkloadSQL is the fixture's workload statement.
+const preflightWorkloadSQL = "SELECT sum(i) FROM generate_series(1,1000) i"
+
+// preflightWorkload runs the workload n times, collects a snapshot and
+// finds the workload in it; a missing workload is returned as a problem.
+func preflightWorkload(t *testing.T, p *pgxpool.Pool, c *Collector, n int) (
+	*Snapshot, QueryStats, []string) {
 	t.Helper()
+	preflightExec(t, p, preflightWorkloadSQL, n)
+	s := preflightCollect(t, c)
 	for _, q := range s.Queries {
 		if strings.Contains(q.Query, "sum(i)") {
-			return q
+			return s, q, nil
 		}
 	}
-	t.Fatal("real workload query missing from collector")
-	return QueryStats{}
+	return s, QueryStats{}, []string{"real workload query missing from collector"}
 }
 
+// Another package's pg_stat_statements_reset() on the shared server can
+// erase the workload between running and collecting it, so each
+// measurement here is repeated when the statistics changed generation
+// under it (pgssepoch).
 func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
 	p, ctx, c := preflightPool(t)
 	// Only the second reset must be cluster-wide (it moves the stats_reset
 	// epoch); a cluster-wide reset wipes other packages' workloads.
 	preflightResetDatabase(t, p)
-	preflightExec(t, p, "SELECT sum(i) FROM generate_series(1,1000) i", 10)
-	before := preflightCollect(t, c)
-	q1 := preflightWorkload(t, before)
+	var before, after *Snapshot
+	var q1, q2 QueryStats
+	pgssepoch.Attempt(t, ctx, p, 3, func() (problems []string) {
+		before, q1, problems = preflightWorkload(t, p, c, 10)
+		return problems
+	})
 	c.latest = before
 	c.recordQueryStore(ctx, before)
 	var oldEpoch, newEpoch time.Time
@@ -103,17 +118,20 @@ func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
 		t.Fatal(err)
 	}
 	preflightExec(t, p, "/* pg_sage */ SELECT pg_stat_statements_reset()", 1)
-	preflightExec(t, p, "SELECT sum(i) FROM generate_series(1,1000) i", 30)
-	after := preflightCollect(t, c)
-	q2 := preflightWorkload(t, after)
+	pgssepoch.Attempt(t, ctx, p, 3, func() (problems []string) {
+		after, q2, problems = preflightWorkload(t, p, c, 30)
+		if problems == nil && q2.Calls <= q1.Calls {
+			problems = []string{fmt.Sprintf("invalid fixture: calls=%d/%d", q1.Calls, q2.Calls)}
+		}
+		return problems
+	})
 	c.recordQueryStore(ctx, after)
 	if err := p.QueryRow(ctx, "SELECT stats_reset FROM pg_stat_statements_info").Scan(
 		&newEpoch); err != nil {
 		t.Fatal(err)
 	}
-	if !newEpoch.After(oldEpoch) || q2.Calls <= q1.Calls {
-		t.Fatalf("invalid fixture: epochs=%v/%v calls=%d/%d", oldEpoch, newEpoch,
-			q1.Calls, q2.Calls)
+	if !newEpoch.After(oldEpoch) {
+		t.Fatalf("invalid fixture: epochs=%v/%v", oldEpoch, newEpoch)
 	}
 	t.Logf("real reset %v -> %v; workload calls %d -> %d; StatsReset=%v",
 		oldEpoch, newEpoch, q1.Calls, q2.Calls, after.StatsReset)
@@ -196,35 +214,13 @@ func TestPreflightEvidenceRoleIdentityWindow(t *testing.T) {
 	p, ctx, c := preflightPool(t)
 	roleA, roleB := preflightRoles(t, p)
 	preflightResetDatabase(t, p)
-	preflightRoleRun(t, p, roleA, 10)
-	preflightRoleRun(t, p, roleB, 100)
-	before := preflightCollect(t, c)
-	id, calls1, total1 := preflightTotals(before)
-	c.recordQueryStore(ctx, before)
-	preflightRoleRun(t, p, roleA, 10)
-	preflightRoleRun(t, p, roleB, 100)
-	after := preflightCollect(t, c)
-	_, calls2, total2 := preflightTotals(after)
-	c.recordQueryStore(ctx, after)
-	var roles int
-	if err := p.QueryRow(ctx, `SELECT count(DISTINCT userid) FROM pg_stat_statements
-		WHERE queryid=$1 AND dbid=(SELECT oid FROM pg_database
-		WHERE datname=current_database())`, id).Scan(&roles); err != nil {
-		t.Fatal(err)
+	run := func() {
+		preflightRoleRun(t, p, roleA, 10)
+		preflightRoleRun(t, p, roleB, 100)
 	}
-	if roles != 2 || calls2-calls1 != 110 {
-		t.Fatalf("invalid role fixture: roles=%d delta=%d", roles, calls2-calls1)
-	}
-	expected := (total2 - total1) / float64(calls2-calls1)
-	ms, ok, err := querystore.WindowedLatencyMs(ctx, p, id,
-		before.CollectedAt.Add(-time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("roles=%d aggregate expected=%f; actual=%f ok=%v", roles, expected, ms, ok)
-	if !ok || math.Abs(ms-expected) > 0.000001 {
-		t.Errorf("same-query role cohorts lost: got %f/%v want aggregate %f", ms, ok, expected)
-	}
+	pgssepoch.Attempt(t, ctx, p, 3, func() []string {
+		return preflightCohortWindow(t, p, c, run, "userid", "roles")
+	})
 }
 
 func TestPreflightEvidenceTopLevelIdentity(t *testing.T) {
@@ -237,25 +233,42 @@ func TestPreflightEvidenceTopLevelIdentity(t *testing.T) {
 		LANGUAGE plpgsql AS $$ DECLARE v bigint; BEGIN
 		SELECT sum(i) INTO v FROM generate_series(1,1000) i; RETURN v; END $$`, 1)
 	preflightResetDatabase(t, p)
-	preflightExec(t, p, "SELECT sum(i) FROM generate_series(1,1000) i", 10)
-	preflightExec(t, p, "SELECT preflight_nested()", 100)
+	run := func() {
+		preflightExec(t, p, preflightWorkloadSQL, 10)
+		preflightExec(t, p, "SELECT preflight_nested()", 100)
+	}
+	pgssepoch.Attempt(t, ctx, p, 3, func() []string {
+		return preflightCohortWindow(t, p, c, run, "toplevel", "levels")
+	})
+}
+
+// preflightCohortWindow measures the workload's windowed latency across
+// two collections, run between them each time. The workload's statement
+// is split in pg_stat_statements by column (two distinct values, e.g.
+// userid); the query store must aggregate the cohorts. Samples recorded
+// by an earlier, disturbed attempt are cleared first.
+func preflightCohortWindow(t *testing.T, p *pgxpool.Pool, c *Collector, run func(),
+	column, label string) []string {
+	t.Helper()
+	ctx := context.Background()
+	preflightExec(t, p, "DELETE FROM sage.query_store", 1)
+	run()
 	before := preflightCollect(t, c)
 	id, calls1, total1 := preflightTotals(before)
 	c.recordQueryStore(ctx, before)
-	preflightExec(t, p, "SELECT sum(i) FROM generate_series(1,1000) i", 10)
-	preflightExec(t, p, "SELECT preflight_nested()", 100)
+	run()
 	after := preflightCollect(t, c)
 	_, calls2, total2 := preflightTotals(after)
 	c.recordQueryStore(ctx, after)
-	var levels int
-	if err := p.QueryRow(ctx, `SELECT count(DISTINCT toplevel) FROM pg_stat_statements
+	var cohorts int
+	if err := p.QueryRow(ctx, `SELECT count(DISTINCT `+column+`) FROM pg_stat_statements
 		WHERE queryid=$1 AND dbid=(SELECT oid FROM pg_database
-		WHERE datname=current_database())`, id).Scan(&levels); err != nil {
+		WHERE datname=current_database())`, id).Scan(&cohorts); err != nil {
 		t.Fatal(err)
 	}
-	if levels != 2 || calls2-calls1 != 110 {
-		t.Fatalf("unable to establish same-query top-level fixture: levels=%d calls=%d",
-			levels, calls2-calls1)
+	if cohorts != 2 || calls2-calls1 != 110 {
+		return []string{fmt.Sprintf("invalid %s fixture: %s=%d delta=%d",
+			column, label, cohorts, calls2-calls1)}
 	}
 	expected := (total2 - total1) / float64(calls2-calls1)
 	ms, ok, err := querystore.WindowedLatencyMs(ctx, p, id,
@@ -263,8 +276,10 @@ func TestPreflightEvidenceTopLevelIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("levels=%d aggregate expected=%f; actual=%f ok=%v", levels, expected, ms, ok)
+	t.Logf("%s=%d aggregate expected=%f; actual=%f ok=%v", label, cohorts, expected, ms, ok)
 	if !ok || math.Abs(ms-expected) > 0.000001 {
-		t.Errorf("top-level cohorts lost: got %f/%v want aggregate %f", ms, ok, expected)
+		return []string{fmt.Sprintf("same-query %s cohorts lost: got %f/%v want "+
+			"aggregate %f", column, ms, ok, expected)}
 	}
+	return nil
 }

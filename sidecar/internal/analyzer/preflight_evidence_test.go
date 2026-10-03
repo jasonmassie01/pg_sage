@@ -9,11 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // No parallel fixtures: collection and analysis ordering is the subject of these tests.
@@ -227,25 +229,28 @@ func TestPreflightEvidenceFailedExecutionsDoNotCreatePlanningFinding(t *testing.
 	if _, err = conn.Exec(ctx, "SET pg_stat_statements.track_planning=on"); err != nil {
 		t.Fatal(err)
 	}
-	for range 100 {
-		_, err = conn.Exec(ctx, "SELECT 1 / i FROM generate_series(0,0) i")
-		var pgErr *pgconn.PgError
-		if !errors.As(err, &pgErr) || pgErr.Code != "22012" {
-			t.Fatalf("expected division-by-zero execution failure; got %v", err)
-		}
-	}
 	var q collector.QueryStats
 	var plans int64
-	err = conn.QueryRow(ctx, `SELECT queryid,calls,plans,mean_plan_time,mean_exec_time
-		FROM pg_stat_statements WHERE query LIKE $1`,
-		"SELECT % / i FROM generate_series% i").Scan(
-		&q.QueryID, &q.Calls, &plans, &q.MeanPlanTime, &q.MeanExecTime)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plans < 1 || q.Calls != 0 || q.MeanPlanTime <= 0 || q.MeanExecTime != 0 {
-		t.Fatalf("unexpected failed-execution source row: plans=%d query=%+v", plans, q)
-	}
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the failed executions' row before it is read: repeat then.
+	pgssepoch.Attempt(t, ctx, conn, 3, func() []string {
+		failDivisionByZero(t, ctx, conn, 100)
+		err := conn.QueryRow(ctx, `SELECT queryid,calls,plans,mean_plan_time,mean_exec_time
+			FROM pg_stat_statements WHERE query LIKE $1`,
+			"SELECT % / i FROM generate_series% i").Scan(
+			&q.QueryID, &q.Calls, &plans, &q.MeanPlanTime, &q.MeanExecTime)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []string{"failed executions' row missing from pg_stat_statements"}
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plans < 1 || q.Calls != 0 || q.MeanPlanTime <= 0 || q.MeanExecTime != 0 {
+			return []string{fmt.Sprintf("unexpected failed-execution source row: "+
+				"plans=%d query=%+v", plans, q)}
+		}
+		return nil
+	})
 	snap := &collector.Snapshot{Queries: []collector.QueryStats{q}}
 	findings := ruleHighPlanTime(snap, nil, config.DefaultConfig(), nil)
 	if len(findings) != 0 {
@@ -256,4 +261,17 @@ func TestPreflightEvidenceFailedExecutionsDoNotCreatePlanningFinding(t *testing.
 	}
 	t.Logf("actual pg_stat_statements plans=%d calls=%d plan_ms=%f exec_ms=%f findings=0",
 		plans, q.Calls, q.MeanPlanTime, q.MeanExecTime)
+}
+
+// failDivisionByZero runs a statement that is planned and then fails in
+// execution n times.
+func failDivisionByZero(t *testing.T, ctx context.Context, conn *pgxpool.Conn, n int) {
+	t.Helper()
+	for range n {
+		_, err := conn.Exec(ctx, "SELECT 1 / i FROM generate_series(0,0) i")
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "22012" {
+			t.Fatalf("expected division-by-zero execution failure; got %v", err)
+		}
+	}
 }

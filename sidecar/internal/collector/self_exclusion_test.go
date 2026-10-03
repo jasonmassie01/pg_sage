@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // pg_sage is tracked by pg_stat_statements now (perf v1.8.3). Statements
@@ -24,6 +26,45 @@ func TestCollectQueriesExcludesStatementsFromPgSagePools(t *testing.T) {
 		WHERE extname = 'pg_stat_statements')`).Scan(&exists); err != nil || !exists {
 		t.Skip("pg_stat_statements not available")
 	}
+	sage, app := selfExclusionSessions(t, ctx)
+	cfgC := testConfig()
+	cfgC.Collector.MaxQueries = 5000
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the application statement before the snapshot: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		// A catalog read with no sage. reference and no literal tag in the
+		// source: before universal tagging it reached the snapshot.
+		if _, err := sage.Exec(ctx, `SELECT count(*) AS coll_self_probe FROM pg_class
+			WHERE relkind = 'r'`); err != nil {
+			t.Fatalf("pg_sage statement: %v", err)
+		}
+		if _, err := app.Exec(ctx, `SELECT count(*) AS coll_app_probe, 1 AS shape
+			FROM pg_class WHERE relkind = 'i'`); err != nil {
+			t.Fatalf("application statement: %v", err)
+		}
+		queries, err := New(pool, cfgC, 170000, noopLog).collectQueries(ctx)
+		if err != nil {
+			t.Fatalf("collectQueries: %v", err)
+		}
+		var sawApp bool
+		for _, q := range queries {
+			if strings.Contains(q.Query, "coll_self_probe") {
+				t.Fatalf("pg_sage's own statement in the top-queries snapshot: %q", q.Query)
+			}
+			sawApp = sawApp || strings.Contains(q.Query, "coll_app_probe")
+		}
+		if !sawApp {
+			return []string{fmt.Sprintf("application statement missing from %d "+
+				"collected queries", len(queries))}
+		}
+		return nil
+	})
+}
+
+// selfExclusionSessions opens a pool configured like pg_sage's own and a
+// plain application connection; both close when the test ends.
+func selfExclusionSessions(t *testing.T, ctx context.Context) (*pgxpool.Pool, *pgx.Conn) {
+	t.Helper()
 	cfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
@@ -33,36 +74,11 @@ func TestCollectQueriesExcludesStatementsFromPgSagePools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pg_sage pool: %v", err)
 	}
-	defer sage.Close()
-	// A catalog read with no sage. reference and no literal tag in the
-	// source: before universal tagging it reached the snapshot.
-	if _, err := sage.Exec(ctx, `SELECT count(*) AS coll_self_probe FROM pg_class
-		WHERE relkind = 'r'`); err != nil {
-		t.Fatalf("pg_sage statement: %v", err)
-	}
+	t.Cleanup(sage.Close)
 	app, err := pgx.Connect(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
 	if err != nil {
 		t.Fatalf("app connection: %v", err)
 	}
-	defer func() { _ = app.Close(context.Background()) }()
-	if _, err := app.Exec(ctx, `SELECT count(*) AS coll_app_probe, 1 AS shape FROM pg_class
-		WHERE relkind = 'i'`); err != nil {
-		t.Fatalf("application statement: %v", err)
-	}
-	cfgC := testConfig()
-	cfgC.Collector.MaxQueries = 5000
-	queries, err := New(pool, cfgC, 170000, noopLog).collectQueries(ctx)
-	if err != nil {
-		t.Fatalf("collectQueries: %v", err)
-	}
-	var sawApp bool
-	for _, q := range queries {
-		if strings.Contains(q.Query, "coll_self_probe") {
-			t.Fatalf("pg_sage's own statement in the top-queries snapshot: %q", q.Query)
-		}
-		sawApp = sawApp || strings.Contains(q.Query, "coll_app_probe")
-	}
-	if !sawApp {
-		t.Fatalf("application statement missing from %d collected queries", len(queries))
-	}
+	t.Cleanup(func() { _ = app.Close(context.Background()) })
+	return sage, app
 }
