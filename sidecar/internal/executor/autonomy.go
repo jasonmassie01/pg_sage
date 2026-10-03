@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/earned"
-	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -121,13 +120,14 @@ func (e *Executor) queueHandoff(
 	if request.Contract != nil {
 		meta.ActionType = request.Contract.ActionType
 	}
-	if _, err := proposer.ProposeWithMetadata(ctx, e.databaseID, findingID, proposal.SQL,
-		"", decision.RiskTier, meta); err != nil {
+	queueID, err := proposer.ProposeWithMetadata(ctx, e.databaseID, findingID,
+		proposal.SQL, "", decision.RiskTier, meta)
+	if err != nil {
 		return fmt.Errorf("queue handoff: %w", err)
 	}
 	e.logFn("executor", "autonomy L2: handed %s to one-click approval", key)
-	e.dispatchEvent(ctx, notify.ApprovalNeededEvent(
-		"earned L2 handoff "+key, proposal.SQL, e.databaseName, decision.RiskTier))
+	e.requestApproval(ctx, "earned L2 handoff "+key, proposal.SQL, decision.RiskTier,
+		decision.DecisionID, queueID)
 	return nil
 }
 

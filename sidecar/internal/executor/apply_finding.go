@@ -114,13 +114,14 @@ func (e *Executor) queueFinding(
 	}
 	proposal := f
 	proposal.ActionRisk = decision.RiskTier
-	if _, err := e.proposeForApproval(ctx, int(findingID), proposal, cand); err != nil {
+	queueID, err := e.proposeForApproval(ctx, int(findingID), proposal, cand)
+	if err != nil {
 		e.logFn("executor", "failed to queue %q for approval: %v", f.Title, err)
 		return
 	}
 	e.logFn("executor", "queued %q for approval", f.Title)
-	e.dispatchEvent(ctx, notify.ApprovalNeededEvent(
-		f.Title, f.RecommendedSQL, e.databaseName, decision.RiskTier))
+	e.requestApproval(ctx, f.Title, f.RecommendedSQL, decision.RiskTier,
+		decision.DecisionID, queueID)
 }
 
 // pendingApproval reports an unresolved proposal for the finding or its SQL.
