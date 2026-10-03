@@ -464,3 +464,47 @@ func TestConvert_RestoresSessionSettings(t *testing.T) {
 			lock, stmt, held)
 	}
 }
+
+// Bootstrap converts while holding its advisory lock, and a second pg_sage
+// instance waits for that lock. CREATE INDEX CONCURRENTLY waits for every
+// older snapshot, the waiter's included: a deadlock (seen in the meta
+// reconcile test). A small table's key is built without CONCURRENTLY.
+func TestConvert_SmallTableKeyBuildDoesNotWaitForOtherSessions(t *testing.T) {
+	pool, ctx := requireDB(t)
+	tbl := scratch(t, ctx, pool, []string{"id"})
+	fill(t, ctx, pool, tbl, 2000)
+	const key = 7700042
+	waiter, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer waiter.Release()
+	waited := make(chan error, 1)
+	withHook(t, func(ctx context.Context, db DB, phase string) error {
+		switch phase {
+		case "index":
+			if _, err := db.Exec(ctx, "SELECT pg_advisory_lock($1)", key); err != nil {
+				return err
+			}
+			go func() {
+				_, err := waiter.Exec(context.Background(), "SELECT pg_advisory_lock($1)", key)
+				waited <- err
+			}()
+			time.Sleep(300 * time.Millisecond) // the waiter is queued, holding a snapshot
+		case "committed":
+			_, err := db.Exec(ctx, "SELECT pg_advisory_unlock($1)", key)
+			return err
+		}
+		return nil
+	})
+	res, err := Convert(ctx, pool, tbl)
+	if err != nil || !res.Converted {
+		t.Fatalf("Convert while a session waits for a lock it holds = %+v, %v", res, err)
+	}
+	if err := <-waited; err != nil {
+		t.Fatalf("waiting session: %v", err)
+	}
+	if _, err := waiter.Exec(ctx, "SELECT pg_advisory_unlock($1)", key); err != nil {
+		t.Fatal(err)
+	}
+}
