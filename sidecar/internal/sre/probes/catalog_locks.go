@@ -16,8 +16,10 @@ const relationName = `(SELECT pg_catalog.quote_ident(rn.nspname) || '.' ||
 
 // lockChainsSQL is the M0 lock-chain walk (analyzer.ProbeLockChains)
 // without query text: each root blocker with its chain depth and the
-// number of sessions it blocks, directly or transitively.
-const lockChainsSQL = `/* pg_sage sre:lock_chains v1 */
+// number of sessions it blocks, directly or transitively. v2: a pg_sage
+// session waiting for a lock starts no chain (it is not a blocked
+// application session); pg_sage as a blocker stays visible.
+var lockChainsSQL = `/* pg_sage sre:lock_chains v2 */
 WITH RECURSIVE lock_chain AS (
     SELECT sa.pid AS blocked_pid, b.pid AS blocker_pid, 1 AS depth,
            ARRAY[sa.pid, b.pid] AS chain
@@ -25,6 +27,7 @@ WITH RECURSIVE lock_chain AS (
     CROSS JOIN LATERAL pg_catalog.unnest(pg_catalog.pg_blocking_pids(sa.pid)) AS b(pid)
     WHERE sa.wait_event_type = 'Lock'
       AND sa.datname = pg_catalog.current_database()
+      AND ` + notSelf("sa") + `
     UNION ALL
     SELECT lc.blocked_pid, u.pid, lc.depth + 1, lc.chain || u.pid
     FROM lock_chain lc
@@ -55,8 +58,9 @@ LIMIT $1`
 
 // lockGraphSQL returns one row per wait edge: the waiting session, the
 // lock it requests, and each session (or prepared transaction, pid 0)
-// that blocks it.
-var lockGraphSQL = `/* pg_sage sre:lock_graph v1 */
+// that blocks it. v2: pg_sage's own waiting sessions are not edges (an
+// approved cancel must never target an application session for them).
+var lockGraphSQL = `/* pg_sage sre:lock_graph v2 */
 SELECT w.pid AS waiter_pid,
        w.backend_start AS waiter_backend_start,
        w.state AS waiter_state,
@@ -85,10 +89,13 @@ LEFT JOIN LATERAL (
 ) wl ON true
 WHERE w.wait_event_type = 'Lock'
   AND w.datname = pg_catalog.current_database()
+  AND ` + notSelf("w") + `
 ORDER BY w.pid, bp.pid
 LIMIT $1`
 
-const longTransactionsSQL = `/* pg_sage sre:long_transactions v1 */
+// longTransactionsSQL (v2) lists the application's open transactions;
+// pg_sage's own (statement-timeout bounded) are not the workload.
+var longTransactionsSQL = `/* pg_sage sre:long_transactions v2 */
 SELECT a.pid, a.backend_start, a.state,
        EXTRACT(EPOCH FROM pg_catalog.clock_timestamp() - a.xact_start)::float8
            AS xact_age_s,
@@ -102,6 +109,7 @@ WHERE a.datname = pg_catalog.current_database()
   AND a.xact_start IS NOT NULL
   AND a.pid <> pg_catalog.pg_backend_pid()
   AND a.backend_type = 'client backend'
+  AND ` + notSelf("a") + `
 ORDER BY a.xact_start, a.pid
 LIMIT $1`
 
@@ -127,18 +135,18 @@ WHERE a.pid = $2 AND a.backend_start = $3
 LIMIT $1`
 
 func lockChainsSpec() Spec {
-	return needsStats(spec(LockChains, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
-		SQL: lockChainsSQL}))
+	return versioned(needsStats(spec(LockChains, FamilyLocks, ArgsNone,
+		Variant{MinVersion: 140000, SQL: lockChainsSQL})), "v2")
 }
 
 func lockGraphSpec() Spec {
-	return needsStats(spec(LockGraph, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
-		SQL: lockGraphSQL}))
+	return versioned(needsStats(spec(LockGraph, FamilyLocks, ArgsNone,
+		Variant{MinVersion: 140000, SQL: lockGraphSQL})), "v2")
 }
 
 func longTransactionsSpec() Spec {
-	return needsStats(spec(LongTransactions, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
-		SQL: longTransactionsSQL}))
+	return versioned(needsStats(spec(LongTransactions, FamilyLocks, ArgsNone,
+		Variant{MinVersion: 140000, SQL: longTransactionsSQL})), "v2")
 }
 
 func preparedXactsSpec() Spec {

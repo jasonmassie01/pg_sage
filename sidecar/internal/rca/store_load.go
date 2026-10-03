@@ -237,6 +237,17 @@ func ResolveIncident(
 
 const pruneBatchSize = 1000
 
+// pruneIncidentsSQL deletes one batch of incidents resolved before the
+// window, oldest first. The batch's ids are collected first (ARRAY), so the
+// delete goes through the primary key; with id IN (subquery) the planner
+// may hash-join a full scan of sage.incidents (perf gate).
+const pruneIncidentsSQL = `/* pg_sage */
+DELETE FROM sage.incidents WHERE id = ANY (ARRAY(
+    SELECT id FROM sage.incidents
+    WHERE resolved_at IS NOT NULL
+      AND resolved_at < now() - make_interval(secs => $1)
+    ORDER BY resolved_at LIMIT $2))`
+
 // PruneResolvedIncidents deletes incidents resolved more than retention
 // ago, in batches. Open incidents are never deleted; recurrence links to
 // a pruned incident are cleared by the ON DELETE SET NULL foreign key.
@@ -251,13 +262,7 @@ func PruneResolvedIncidents(
 	}
 	var total int64
 	for {
-		tag, err := pool.Exec(ctx, `/* pg_sage */
-			DELETE FROM sage.incidents WHERE id IN (
-			    SELECT id FROM sage.incidents
-			    WHERE resolved_at IS NOT NULL
-			      AND resolved_at < now() - make_interval(secs => $1)
-			    ORDER BY resolved_at LIMIT $2)`,
-			retention.Seconds(), pruneBatchSize)
+		tag, err := pool.Exec(ctx, pruneIncidentsSQL, retention.Seconds(), pruneBatchSize)
 		if err != nil {
 			return total, fmt.Errorf("rca: prune resolved incidents: %w", err)
 		}

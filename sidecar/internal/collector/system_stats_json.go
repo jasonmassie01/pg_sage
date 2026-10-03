@@ -10,10 +10,13 @@ const CacheHitRatioUnknown = -1.0
 // systemStatsFields has SystemStats' fields without its JSON methods.
 type systemStatsFields SystemStats
 
-// systemStatsWire shadows cache_hit_ratio with a nullable value.
+// systemStatsWire shadows cache_hit_ratio and db_size_bytes with nullable
+// values: an unknown size (never measured) is null, not 0, so averages
+// over sage.snapshots ignore it.
 type systemStatsWire struct {
 	systemStatsFields
 	CacheHitRatio *float64 `json:"cache_hit_ratio"`
+	DBSizeBytes   *int64   `json:"db_size_bytes"`
 }
 
 // CacheHitRatioKnown reports whether CacheHitRatio holds a real fraction.
@@ -29,6 +32,10 @@ func (s SystemStats) MarshalJSON() ([]byte, error) {
 		ratio := s.CacheHitRatio
 		w.CacheHitRatio = &ratio
 	}
+	if s.DBSizeBytes > 0 {
+		size := s.DBSizeBytes
+		w.DBSizeBytes = &size
+	}
 	return json.Marshal(w)
 }
 
@@ -43,6 +50,10 @@ func (s *SystemStats) UnmarshalJSON(data []byte) error {
 	s.CacheHitRatio = CacheHitRatioUnknown
 	if w.CacheHitRatio != nil {
 		s.CacheHitRatio = *w.CacheHitRatio
+	}
+	s.DBSizeBytes = 0
+	if w.DBSizeBytes != nil {
+		s.DBSizeBytes = *w.DBSizeBytes
 	}
 	return nil
 }

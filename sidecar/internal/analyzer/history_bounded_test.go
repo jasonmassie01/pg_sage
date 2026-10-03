@@ -11,12 +11,13 @@ import (
 
 // Phase 0 item 8: the regression baseline used to read every 'queries'
 // snapshot of the lookback (7 days x 1,440 a day x 500 statements) on
-// every analyzer cycle and thin them to 100 in Go. The same evenly spaced
-// sample is now chosen in SQL from ids and timestamps, so at most
-// maxHistorySamples snapshots are expanded per cycle, however many exist.
-// (Drafted first as "first and last snapshot per day"; even sampling was
-// chosen in implementation because it keeps the estimator the analyzer
-// has always used, and the bound is a constant rather than per day.)
+// every analyzer cycle and thin them to 100 in Go. At most
+// maxHistorySamples snapshots are sampled, however many exist. v1.8.3
+// (performance gate offender 4) samples one snapshot per epoch-aligned
+// time bucket instead of every n-th by rank, so the sample is stable from
+// cycle to cycle and each snapshot is decoded once (history_incremental_
+// db_test.go); with no more snapshots than the cap every one is still
+// used, the estimator the analyzer has always used for short histories.
 
 // No concurrent access tests: buildHistoricalAverages is called only by
 // the single analyzer cycle goroutine and holds no shared state.
@@ -64,79 +65,17 @@ func seedHistory(t *testing.T, pool *pgxpool.Pool, days, perDay int) {
 	}
 }
 
-func historyExpansionLoops(t *testing.T, pool *pgxpool.Pool, days int) int {
-	t.Helper()
-	var raw string
-	if err := pool.QueryRow(context.Background(),
-		"EXPLAIN (ANALYZE, FORMAT JSON) "+historicalAveragesSQL, days, maxHistorySamples).
-		Scan(&raw); err != nil {
-		t.Fatalf("explain: %v", err)
-	}
-	var plans []map[string]any
-	if err := json.Unmarshal([]byte(raw), &plans); err != nil {
-		t.Fatal(err)
-	}
-	var find func(n map[string]any) int
-	find = func(n map[string]any) int {
-		if n["Node Type"] == "Function Scan" {
-			return int(n["Actual Loops"].(float64))
-		}
-		children, _ := n["Plans"].([]any)
-		for _, c := range children {
-			if v := find(c.(map[string]any)); v > 0 {
-				return v
-			}
-		}
-		return 0
-	}
-	return find(plans[0]["Plan"].(map[string]any))
-}
-
-func TestHistoricalAverages_EvenlySampled(t *testing.T) {
-	pool := phase2Pool(t)
-	const days, perDay = 3, 60
-	seedHistory(t, pool, days, perDay)
-	cfg := phase2Config()
-	cfg.Analyzer.RegressionLookbackDays = days + 1
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
-	avgs := a.buildHistoricalAverages(context.Background())
-	// 180 snapshots, at most 100 sampled: every second one, i.e. readings
-	// 0, 2, ..., 58 of each day, whose mean is 29.
-	if got := avgs[7]; got != 29 {
-		t.Fatalf("avg(7) = %v, want 29", got)
-	}
-	if avgs[8] != 50 {
-		t.Fatalf("avg(8) = %v, want 50", avgs[8])
-	}
-	if loops := historyExpansionLoops(t, pool, days+1); loops != days*perDay/2 {
-		t.Fatalf("expanded %d of %d snapshots, want %d", loops, days*perDay,
-			days*perDay/2)
-	}
-}
-
-// The sample is capped at maxHistorySamples however long the history.
-func TestHistoricalAverages_CappedSamples(t *testing.T) {
-	pool := phase2Pool(t)
-	const days, perDay = 5, 300
-	seedHistory(t, pool, days, perDay)
-	loops := historyExpansionLoops(t, pool, days+1)
-	if loops < maxHistorySamples/2 || loops > maxHistorySamples {
-		t.Fatalf("expanded %d of %d snapshots, want at most %d", loops, days*perDay,
-			maxHistorySamples)
-	}
-}
-
 // With fewer snapshots than the cap, every one is used (the estimator the
 // analyzer has always used).
 func TestHistoricalAverages_SmallHistoryUsesAll(t *testing.T) {
 	pool := phase2Pool(t)
 	seedHistory(t, pool, 2, 4)
-	if loops := historyExpansionLoops(t, pool, 3); loops != 8 {
-		t.Fatalf("expanded %d snapshots, want all 8", loops)
-	}
-	a := New(pool, phase2Config(), nil, nil, nil, nil, nil, noopLog)
+	a, rec := recordingAnalyzer(t, pool, 3)
 	if got := a.buildHistoricalAverages(context.Background())[7]; got != 1.5 {
 		t.Fatalf("avg(7) = %v, want 1.5", got)
+	}
+	if n := decodedSnapshots(t, rec); n != 8 {
+		t.Fatalf("expanded %d snapshots, want all 8", n)
 	}
 }
 

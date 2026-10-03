@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -37,6 +38,15 @@ type Optimizer struct {
 	breaker        *CircuitBreaker
 	maxOutput      int
 	logFn          func(string, string, ...any)
+	// catalogTimeouts bound the context builder's catalog reads.
+	catalogTimeouts catalogread.Timeouts
+}
+
+// WithCatalogReadTimeouts bounds the context builder's catalog reads
+// (columns, pg_stats, collation) with the safety configuration's
+// statement and lock timeouts; the default is the shipped safety values.
+func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
+	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
 
 // New creates an Optimizer with all sub-components.
@@ -67,6 +77,8 @@ func New(
 		breaker:   NewCircuitBreaker(),
 		maxOutput: maxOutputTokens,
 		logFn:     logFn,
+
+		catalogTimeouts: catalogread.Default(),
 	}
 	o.whatIf = o.hypopg
 	for _, opt := range options {
@@ -110,7 +122,8 @@ func (o *Optimizer) Analyze(
 	}
 
 	contexts, planSource, err := BuildTableContexts(
-		ctx, o.pool, snap, o.planner, int64(o.cfg.MinQueryCalls),
+		ctx, catalogread.New(o.pool, o.catalogTimeouts), snap, o.planner,
+		int64(o.cfg.MinQueryCalls),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build contexts: %w", err)

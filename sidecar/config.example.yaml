@@ -23,6 +23,7 @@ collector:
 analyzer:
   interval_seconds: 600    # How often to run the rules engine
   slow_query_threshold_ms: 1000
+  self_cost_budget_ms: 3000  # finding when pg_sage itself uses more DB time per collector cycle; 0 = off
   seq_scan_min_rows: 100000
   unused_index_window_days: 30  # Built-in default is 7; 30 recommended for prod
   index_bloat_threshold_pct: 30
@@ -192,6 +193,8 @@ retention:
   actions_days: 365
   explains_days: 90
   sage_size_warning_pct: 10                # finding when sage tables exceed this % of the DB; 0 = off
+  query_store_days: 14                     # per-query samples (readers look back <= 7 days); 0 = off
+  snapshots_max_pct: 5                     # cap snapshots at this % of the DB (>= 256 MB), oldest first; 0 = off
 
 # Agent-native autonomy. Every mutation still traverses the standing policy,
 # evidence ledger, typed executor contract, and verification engine.

@@ -38,9 +38,13 @@ func specVersion(id ID) string {
 	switch id {
 	case ConnectionSaturation:
 		return "v3"
+	case SequenceRunwayProbe:
+		return "v3" // v3: per-statement cap, catalog slices
 	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe,
-		SequenceRunwayProbe:
+		WraparoundTablesProbe, RunwayTrendsProbe:
 		return "v2"
+	case LockChains, LockGraph, LongTransactions, LWLockWaits, TempSpillStatements:
+		return "v2" // v2: pg_sage's own sessions and statements left out
 	}
 	return "v1"
 }
@@ -101,7 +105,9 @@ func TestCatalog_NeverSelectsQueryText(t *testing.T) {
 	for _, id := range Catalog().IDs() {
 		spec, _ := Catalog().Spec(id)
 		for _, v := range spec.Variants {
-			if m := queryColumn.FindString(v.SQL); m != "" {
+			// The self-exclusion predicate reads the text, never returns it.
+			sql := strings.ReplaceAll(v.SQL, notSelfStatement("s.query"), "")
+			if m := queryColumn.FindString(sql); m != "" {
 				t.Errorf("%s selects query text (%q)", id, m)
 			}
 		}

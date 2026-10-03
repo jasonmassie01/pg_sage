@@ -164,89 +164,6 @@ func TestCoverage_BuildFindingsWhere_AllFilters(t *testing.T) {
 }
 
 // ================================================================
-// buildFindingsOrder
-// ================================================================
-
-func TestCoverage_BuildFindingsOrder_SeverityDesc(t *testing.T) {
-	// "desc" = most severe first = critical(1) first → CASE ASC.
-	f := fleet.FindingFilters{Sort: "severity", Order: "desc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "CASE severity") {
-		t.Errorf("severity sort should use CASE: %q", order)
-	}
-	if !strings.Contains(order, "ASC") {
-		t.Errorf("most-severe-first should use ASC on CASE: %q", order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_SeverityAsc(t *testing.T) {
-	// "asc" = least severe first = info(3) first → CASE DESC.
-	f := fleet.FindingFilters{Sort: "severity", Order: "asc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "DESC") {
-		t.Errorf("least-severe-first should use DESC on CASE: %q", order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_CreatedAt(t *testing.T) {
-	f := fleet.FindingFilters{Sort: "created_at", Order: "desc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "created_at") {
-		t.Errorf("should contain created_at: %q", order)
-	}
-	if !strings.Contains(order, "DESC") {
-		t.Errorf("should contain DESC: %q", order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_LastSeen(t *testing.T) {
-	f := fleet.FindingFilters{Sort: "last_seen", Order: "asc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "last_seen") {
-		t.Errorf("should contain last_seen: %q", order)
-	}
-	if !strings.Contains(order, "ASC") {
-		t.Errorf("should contain ASC: %q", order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_Category(t *testing.T) {
-	f := fleet.FindingFilters{Sort: "category", Order: "desc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "category") {
-		t.Errorf("should contain category: %q", order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_Title(t *testing.T) {
-	f := fleet.FindingFilters{Sort: "title", Order: "asc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "title") {
-		t.Errorf("should contain title: %q", order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_UnknownSort(t *testing.T) {
-	// Unknown sort columns should default to last_seen.
-	f := fleet.FindingFilters{Sort: "invalid_col", Order: "desc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "last_seen") {
-		t.Errorf("unknown sort should default to last_seen: %q",
-			order)
-	}
-}
-
-func TestCoverage_BuildFindingsOrder_EmptySort(t *testing.T) {
-	// Empty sort defaults to last_seen (not severity path).
-	f := fleet.FindingFilters{Sort: "", Order: "desc"}
-	order := buildFindingsOrder(f)
-	if !strings.Contains(order, "last_seen") {
-		t.Errorf("empty sort should default to last_seen: %q",
-			order)
-	}
-}
-
-// ================================================================
 // buildFindingMap
 // ================================================================
 
@@ -1071,10 +988,11 @@ func TestCoverage_ParseFindingFilters_AllProvided(t *testing.T) {
 
 func TestCoverage_SnapshotHistory_AllValidMetrics(t *testing.T) {
 	r := testRouter("db1")
+	// Per-object categories (tables, indexes, queries, sequences,
+	// foreign_keys, locks, partitions, config_data) are refused for
+	// history since v1.8.3: TestSnapshotHistory_RejectsPerObjectCategories.
 	metrics := []string{
-		"tables", "indexes", "queries", "sequences",
-		"foreign_keys", "system", "io", "locks",
-		"config_data", "partitions",
+		"system", "io", "replication",
 		"cache_hit_ratio", "connections", "tps",
 		"dead_tuples", "database_size", "replication_lag",
 	}

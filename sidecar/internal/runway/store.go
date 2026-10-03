@@ -17,6 +17,41 @@ import (
 // pruneBatch bounds the samples one tick deletes.
 const pruneBatch = 10000
 
+// pruneSamplesSQL bounds sampled_at with now(), which is stable within
+// the statement, so runway_samples_sampled_at_idx serves it; a volatile
+// clock_timestamp() cutoff cannot be an index bound and read the whole
+// table every pass (performance gate). The prune collects its batch's ids
+// into an array: id IN (subquery) may be planned as a hash join over a
+// full scan of the table.
+//
+// loadLastSQL reads each series' newest sample with a skip scan of
+// runway_samples_series_idx: the first index entry past the previous
+// series is the next series' newest sample, so a (re)start reads one row
+// per series. It read every sample of the retention window before (all
+// of them qualify: performance gate offender 7). A series whose newest
+// sample is older than the window is skipped.
+const (
+	pruneSamplesSQL = `/* pg_sage */ DELETE FROM sage.runway_samples
+		WHERE id = ANY (ARRAY(SELECT id FROM sage.runway_samples
+		             WHERE sampled_at < now() - make_interval(secs => $1)
+		             LIMIT $2))`
+	loadLastSQL = `/* pg_sage */
+		WITH RECURSIVE last AS (
+		    (SELECT r.kind, r.subject, r.epoch, r.counter, r.sampled_at
+		     FROM sage.runway_samples r
+		     ORDER BY r.kind, r.subject, r.sampled_at DESC LIMIT 1)
+		    UNION ALL
+		    SELECT n.kind, n.subject, n.epoch, n.counter, n.sampled_at FROM last l
+		    CROSS JOIN LATERAL (
+		        SELECT r.kind, r.subject, r.epoch, r.counter, r.sampled_at
+		        FROM sage.runway_samples r
+		        WHERE (r.kind, r.subject) > (l.kind, l.subject)
+		        ORDER BY r.kind, r.subject, r.sampled_at DESC LIMIT 1) n
+		)
+		SELECT kind, subject, epoch, counter FROM last
+		WHERE sampled_at > now() - make_interval(secs => $1)`
+)
+
 // sample writes the snapshot's samples, each in its series' epoch, then
 // prunes samples past the retention.
 func (m *Monitor) sample(ctx context.Context, snap Snapshot) (int, error) {
@@ -43,10 +78,8 @@ func (m *Monitor) sample(ctx context.Context, snap Snapshot) (int, error) {
 			return 0, fmt.Errorf("write %d runway samples: %w", len(rows), err)
 		}
 	}
-	if _, err := m.pool.Exec(ctx, `/* pg_sage */ DELETE FROM sage.runway_samples
-		WHERE id IN (SELECT id FROM sage.runway_samples
-		             WHERE sampled_at < clock_timestamp() - make_interval(secs => $1)
-		             LIMIT $2)`, m.opts.Retention.Seconds(), pruneBatch); err != nil {
+	if _, err := m.pool.Exec(ctx, pruneSamplesSQL, m.opts.Retention.Seconds(),
+		pruneBatch); err != nil {
 		return len(rows), fmt.Errorf("prune runway samples: %w", err)
 	}
 	return len(rows), nil
@@ -62,11 +95,7 @@ func nullable(v float64) any {
 // loadLast reads each series' latest epoch and counter, so a restart
 // continues the series instead of starting new epochs.
 func (m *Monitor) loadLast(ctx context.Context) error {
-	rows, err := m.pool.Query(ctx, `/* pg_sage */
-		SELECT DISTINCT ON (kind, subject) kind, subject, epoch, counter
-		FROM sage.runway_samples
-		WHERE sampled_at > clock_timestamp() - make_interval(secs => $1)
-		ORDER BY kind, subject, sampled_at DESC`, m.opts.Retention.Seconds())
+	rows, err := m.pool.Query(ctx, loadLastSQL, m.opts.Retention.Seconds())
 	if err != nil {
 		return err
 	}

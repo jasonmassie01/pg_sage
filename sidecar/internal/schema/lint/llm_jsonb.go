@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // LLMJsonbAnalyzer enriches JSONB findings with query-level evidence
 // from pg_stat_statements via LLM analysis.
 type LLMJsonbAnalyzer struct {
-	pool      *pgxpool.Pool
+	pool      catalogread.Querier
 	llmClient *llm.Client
 	logFn     func(string, string, ...any)
 }
@@ -38,12 +38,11 @@ Return ONLY a JSON array of objects: ` +
 Return an empty array [] if no JSONB columns are used in joins or where clauses.
 ` + llm.UntrustedDataRule
 
-const slowQuerySQL = `
+var slowQuerySQL = `
 SELECT query, calls, mean_exec_time, rows
   FROM pg_stat_statements
  WHERE query ~* any($1)
-   AND COALESCE(query, '') NOT ILIKE '%pg_sage%'
-   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
+   AND ` + selfmonitor.StatementExclusionSQL("query") + `
  ORDER BY mean_exec_time DESC
  LIMIT 50`
 

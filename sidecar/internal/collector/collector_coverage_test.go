@@ -1342,14 +1342,8 @@ func TestTableStatsSQL_UsesParameterizedPagination(t *testing.T) {
 }
 
 func TestTableStatsSQL_OrdersCorrectly(t *testing.T) {
-	if !strings.Contains(tableStatsSQL, "ORDER BY s.relid") {
-		t.Error("tableStatsSQL must ORDER BY relid (oid keyset, dogfood lifeos-1)")
-	}
-}
-
-func TestSequencesSQL_OrdersByPctUsed(t *testing.T) {
-	if !strings.Contains(sequencesSQL, "ORDER BY pct_used DESC") {
-		t.Error("sequencesSQL must ORDER BY pct_used DESC")
+	if !strings.Contains(tableStatsSQL, "ORDER BY c.oid") {
+		t.Error("tableStatsSQL must ORDER BY the pg_class oid (keyset, dogfood lifeos-1)")
 	}
 }
 
@@ -1422,8 +1416,8 @@ func TestSystemStatsSQL_SharedBase(t *testing.T) {
 		if !strings.Contains(variant, "deadlocks") {
 			t.Error("system stats SQL must select deadlocks")
 		}
-		if !strings.Contains(variant, "db_size_bytes") {
-			t.Error("system stats SQL must select db_size_bytes")
+		if strings.Contains(variant, "pg_database_size") {
+			t.Error("system stats SQL must not walk the database (cached size, M7)")
 		}
 		if !strings.Contains(variant, "is_replica") {
 			t.Error("system stats SQL must select is_replica")

@@ -83,8 +83,10 @@ ORDER BY g.bytes DESC, g.pid
 LIMIT $1`
 
 // tempSpillStatementsSQL reads this database's statements that wrote
-// temp blocks, without their text (pg_stat_statements(false)).
-const tempSpillStatementsSQL = `/* pg_sage sre:temp_spill_statements v1 */
+// temp blocks, without returning their text. v2: the text is read (not
+// returned) to leave pg_sage's own statements out; the probe is reactive
+// (a temp-file incident), so reading the query texts once is acceptable.
+var tempSpillStatementsSQL = `/* pg_sage sre:temp_spill_statements v2 */
 SELECT s.queryid, sum(s.calls)::int8 AS calls,
        sum(s.temp_blks_written)::int8 AS temp_blks_written,
        sum(s.temp_blks_read)::int8 AS temp_blks_read,
@@ -92,10 +94,11 @@ SELECT s.queryid, sum(s.calls)::int8 AS calls,
        pg_catalog.current_setting('block_size')::int8 AS block_size,
        (SELECT i.stats_reset FROM ` + ExtSchemaToken + `.pg_stat_statements_info i)
            AS stats_reset
-FROM ` + ExtSchemaToken + `.pg_stat_statements(false) s
+FROM ` + ExtSchemaToken + `.pg_stat_statements(true) s
 WHERE s.dbid = (SELECT d.oid FROM pg_catalog.pg_database d
                 WHERE d.datname = pg_catalog.current_database())
   AND s.queryid IS NOT NULL AND s.temp_blks_written > 0
+  AND ` + notSelfStatement("s.query") + `
 GROUP BY s.queryid
 ORDER BY 3 DESC, 1
 LIMIT $1`
@@ -126,8 +129,9 @@ LIMIT $1`
 
 // lwlockWaitsSQL is one sample of what active backends wait on (CPU when
 // they wait on nothing), grouped by wait event and query id. Waits are
-// cluster-wide resources; the database flag attributes queries.
-const lwlockWaitsSQL = `/* pg_sage sre:lwlock_waits v1 */
+// cluster-wide resources; the database flag attributes queries. v2:
+// pg_sage's own active sessions are not the workload.
+var lwlockWaitsSQL = `/* pg_sage sre:lwlock_waits v2 */
 WITH s AS (
     SELECT COALESCE(a.wait_event_type, 'CPU') AS wait_event_type,
            COALESCE(a.wait_event, '') AS wait_event, a.query_id,
@@ -136,6 +140,7 @@ WITH s AS (
     FROM pg_catalog.pg_stat_activity a
     WHERE a.state = 'active' AND a.pid <> pg_catalog.pg_backend_pid()
       AND a.backend_type IN ('client backend', 'parallel worker')
+      AND ` + notSelf("a") + `
 ), t AS (SELECT count(*)::int8 AS active_backends FROM s)
 SELECT s.wait_event_type, s.wait_event, s.query_id, s.in_current_database,
        count(*)::int8 AS backends, t.active_backends
@@ -165,7 +170,7 @@ func tempSpillStatementsSpec() Spec {
 	s := needsStats(spec(TempSpillStatements, FamilyTempFiles, ArgsNone,
 		Variant{MinVersion: 140000, SQL: tempSpillStatementsSQL}))
 	s.Extension = "pg_stat_statements"
-	return s
+	return versioned(s, "v2")
 }
 
 func standbyReplayStateSpec() Spec {
@@ -174,6 +179,6 @@ func standbyReplayStateSpec() Spec {
 }
 
 func lwlockWaitsSpec() Spec {
-	return needsStats(spec(LWLockWaits, FamilyWaits, ArgsNone,
-		Variant{MinVersion: 140000, SQL: lwlockWaitsSQL}))
+	return versioned(needsStats(spec(LWLockWaits, FamilyWaits, ArgsNone,
+		Variant{MinVersion: 140000, SQL: lwlockWaitsSQL})), "v2")
 }

@@ -58,13 +58,7 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 	}
 
 	// Connection state distribution
-	rows3, err := pool.Query(ctx, `/* pg_sage */ 
-		SELECT COALESCE(state,'unknown'), count(*)::int,
-		       COALESCE(avg(EXTRACT(EPOCH FROM (now() - state_change)))::int, 0)
-		FROM pg_stat_activity
-		WHERE backend_type = 'client backend'
-		  AND datname = current_database()
-		GROUP BY state`)
+	rows3, err := pool.Query(ctx, connectionStatesSQL)
 	if err == nil {
 		for rows3.Next() {
 			var c ConnectionState
@@ -100,10 +94,7 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 
 	// Connection churn (new connections in last 5 minutes)
 	var churn int
-	err = pool.QueryRow(ctx, `/* pg_sage */ 
-		SELECT count(*)::int FROM pg_stat_activity
-		WHERE backend_start > now() - interval '5 minutes'
-		  AND backend_type = 'client backend'`).Scan(&churn)
+	err = pool.QueryRow(ctx, connectionChurnSQL).Scan(&churn)
 	if err == nil {
 		cs.ConnectionChurn = churn
 	}

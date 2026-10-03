@@ -105,15 +105,26 @@ const (
 	ArgsNone ArgKind = iota
 	ArgsBackend
 	ArgsWindow
+	// ArgsSlice reads one slice of a catalog too large for one statement
+	// (sequence_runway): the objects whose OID hashes to Slice of Slices.
+	// The zero value reads the whole catalog, capped.
+	ArgsSlice
 )
+
+// MaxSequenceSlices bounds Args.Slices: SequenceScanCap sequences each
+// is 20 million sequences.
+const MaxSequenceSlices = 10000
 
 // Args are typed probe arguments. Backend identity pins one session
 // (pid plus backend_start, since PIDs are reused); Window bounds a
-// history lookback (zero means DefaultWindow).
+// history lookback (zero means DefaultWindow); Slice of Slices picks one
+// slice of a sliced catalog read.
 type Args struct {
 	PID          int32
 	BackendStart time.Time
 	Window       time.Duration
+	Slice        int
+	Slices       int
 }
 
 func (a Args) validate(kind ArgKind) error {
@@ -123,19 +134,35 @@ func (a Args) validate(kind ArgKind) error {
 			return errors.New("probe takes no arguments")
 		}
 	case ArgsBackend:
-		if a.PID <= 0 || a.BackendStart.IsZero() || a.Window != 0 {
+		if a.PID <= 0 || a.BackendStart.IsZero() || a.Window != 0 || a.sliced() {
 			return errors.New("probe needs a pid and backend_start")
 		}
 	case ArgsWindow:
-		if a.PID != 0 || !a.BackendStart.IsZero() {
+		if a.PID != 0 || !a.BackendStart.IsZero() || a.sliced() {
 			return errors.New("probe takes only a window")
 		}
 		if a.Window != 0 && (a.Window < MinWindow || a.Window > MaxWindow) {
 			return fmt.Errorf("window %s outside [%s, %s]", a.Window,
 				MinWindow, MaxWindow)
 		}
+	case ArgsSlice:
+		return a.validateSlice()
 	default:
 		return fmt.Errorf("unknown argument kind %d", kind)
+	}
+	return nil
+}
+
+func (a Args) sliced() bool { return a.Slice != 0 || a.Slices != 0 }
+
+func (a Args) validateSlice() error {
+	switch {
+	case a.PID != 0 || !a.BackendStart.IsZero() || a.Window != 0:
+		return errors.New("probe takes only a slice")
+	case a.Slices < 0 || a.Slices > MaxSequenceSlices:
+		return fmt.Errorf("slices %d outside [0, %d]", a.Slices, MaxSequenceSlices)
+	case a.Slice < 0 || a.Slice >= max(a.Slices, 1):
+		return fmt.Errorf("slice %d outside [0, %d)", a.Slice, max(a.Slices, 1))
 	}
 	return nil
 }
@@ -152,6 +179,8 @@ func (a Args) params(kind ArgKind, limit int) []any {
 			w = DefaultWindow
 		}
 		return []any{limit, w.Seconds()}
+	case ArgsSlice:
+		return []any{limit, max(a.Slices, 1), a.Slice}
 	default:
 		return []any{limit}
 	}

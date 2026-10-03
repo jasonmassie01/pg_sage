@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // snapshotBeforeState captures current database health metrics
@@ -29,7 +30,8 @@ func (e *Executor) snapshotBeforeState(
 	var activeBackends int
 	err = e.pool.QueryRow(ctx,
 		`/* pg_sage */ SELECT count(*) FROM pg_stat_activity
-		 WHERE state = 'active' AND datname = current_database()`,
+		 WHERE state = 'active' AND datname = current_database()
+		   AND `+selfmonitor.ActivityExclusionSQL(""),
 	).Scan(&activeBackends)
 	if err == nil {
 		state["active_backends"] = activeBackends

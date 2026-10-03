@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/querystore"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
@@ -27,10 +28,14 @@ const cacheHitRatioSQL = `/* pg_sage */ SELECT coalesce(
 	blks_hit::float / nullif(blks_hit + blks_read, 0), 1.0)
 	FROM pg_stat_database WHERE datname = current_database()`
 
-const writeLatencySQL = `/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
+// writeLatencySQL is the application's write latency: pg_sage's own
+// statements are tagged after their first keyword ("INSERT /* pg_sage */
+// INTO sage.action_log ...") and matched 'INSERT%' too (perf-selfexcl).
+var writeLatencySQL = `/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
 	FROM pg_stat_statements
 	WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-	  AND (query LIKE 'INSERT%' OR query LIKE 'UPDATE%')`
+	  AND (query LIKE 'INSERT%' OR query LIKE 'UPDATE%')
+	  AND ` + selfmonitor.StatementExclusionSQL("query")
 
 // monitorableOutcomes are states a post-action monitor may still change.
 // Terminal outcomes (rolled_back, rollback_failed, failed, ...) are final.

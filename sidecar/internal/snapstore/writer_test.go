@@ -162,14 +162,8 @@ func TestPersist_NoRowsIsNoOp(t *testing.T) {
 	}
 }
 
-// The SQL helpers name the accessor function and the alias.
+// NonEmptySQL names the alias (DataSQL: TestDataSQLPassesCollectionTime).
 func TestSQLHelpers(t *testing.T) {
-	if got := DataSQL("s"); got != "sage.snapshot_data(s.data, s.base_id)" {
-		t.Fatalf("DataSQL = %q", got)
-	}
-	if got := DataSQL(""); got != "sage.snapshot_data(data, base_id)" {
-		t.Fatalf("DataSQL(\"\") = %q", got)
-	}
 	got := NonEmptySQL("s")
 	for _, part := range []string{"s.base_id IS NULL", "pg_column_size(s.data) > 12",
 		"(s.data->>'n')::int > 0"} {

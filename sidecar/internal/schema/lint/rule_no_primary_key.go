@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleNoPrimaryKey struct{}
@@ -17,7 +17,7 @@ func (r *ruleNoPrimaryKey) Category() string { return "schema_design" }
 
 // Check finds tables that lack a primary key constraint.
 func (r *ruleNoPrimaryKey) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -31,7 +31,7 @@ func (r *ruleNoPrimaryKey) Check(
 		  AND pk.oid IS NULL
 		ORDER BY c.reltuples DESC`, excludeList)
 
-	rows, err := pool.Query(ctx, query, opts.MinTableRows)
+	rows, err := db.Query(ctx, query, opts.MinTableRows)
 	if err != nil {
 		return nil, fmt.Errorf("ruleNoPrimaryKey query: %w", err)
 	}

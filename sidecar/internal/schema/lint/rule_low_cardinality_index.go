@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleLowCardinalityIndex struct{}
@@ -16,7 +16,7 @@ func (r *ruleLowCardinalityIndex) Severity() string { return "info" }
 func (r *ruleLowCardinalityIndex) Category() string { return "performance" }
 
 func (r *ruleLowCardinalityIndex) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -42,7 +42,7 @@ SELECT n.nspname, ct.relname, a.attname,
    AND ps.n_distinct >= 0 AND ps.n_distinct < 10
  ORDER BY index_size DESC`, excludeList)
 
-	rows, err := pool.Query(ctx, query, opts.MinTableRows)
+	rows, err := db.Query(ctx, query, opts.MinTableRows)
 	if err != nil {
 		return nil, fmt.Errorf("ruleLowCardinalityIndex query: %w", err)
 	}

@@ -87,7 +87,10 @@ func (e *Executor) admitIndexBuild(
 	if withheld == nil {
 		return nil
 	}
-	if e.recordWithheldAdmission(ctx, findingKey, decisionID, admission) {
+	inserted, recErr := e.recordWithheldAdmission(ctx, findingKey, decisionID, admission)
+	if recErr != nil {
+		e.logFn("executor", "%v", recErr)
+	} else if inserted {
 		e.logFn("executor", "withheld autonomous index build %s: %v", findingKey, err)
 	}
 	return err
@@ -111,36 +114,6 @@ func (e *Executor) recordAdmissionDecision(
 	if err != nil {
 		e.logFn("executor", "record load admission for decision %d: %v", decisionID, err)
 	}
-}
-
-// recordWithheldAdmission upserts the withheld record and reports whether
-// it is new, so the log line is written once per finding and reason.
-func (e *Executor) recordWithheldAdmission(
-	ctx context.Context, findingKey string, decisionID int64, admission verify.Admission,
-) bool {
-	if e.pool == nil {
-		return true
-	}
-	evidence, err := json.Marshal(admission.Evidence)
-	if err != nil {
-		evidence = []byte("{}")
-	}
-	var inserted bool
-	err = e.pool.QueryRow(ctx, `INSERT INTO sage.admission_withheld
-		(database_name, finding_key, reason, mode, detail, evidence, decision_id)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULLIF($7, 0))
-		ON CONFLICT (database_name, finding_key, reason) DO UPDATE SET
-			last_seen_at = now(), occurrences = sage.admission_withheld.occurrences + 1,
-			mode = EXCLUDED.mode, detail = EXCLUDED.detail, evidence = EXCLUDED.evidence,
-			decision_id = COALESCE(EXCLUDED.decision_id, sage.admission_withheld.decision_id)
-		RETURNING (xmax = 0)`,
-		e.databaseName, findingKey, admission.Reason, admission.Mode,
-		admission.Detail, string(evidence), decisionID).Scan(&inserted)
-	if err != nil {
-		e.logFn("executor", "record withheld admission %s: %v", findingKey, err)
-		return true
-	}
-	return inserted
 }
 
 // admissionWindowOpen evaluates the maintenance window exactly as the

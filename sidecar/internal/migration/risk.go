@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // RiskAssessor enriches a DDLClassification with live database metrics
@@ -12,6 +14,7 @@ type RiskAssessor struct {
 	pool         *pgxpool.Pool
 	logFn        func(string, string, ...any)
 	rowThreshold int64
+	timeouts     catalogread.Timeouts // bounds each live-metric read
 }
 
 // NewRiskAssessor creates a RiskAssessor backed by the given pool.
@@ -21,7 +24,19 @@ func NewRiskAssessor(
 ) *RiskAssessor {
 	return &RiskAssessor{
 		pool: pool, logFn: logFn, rowThreshold: defaultDDLRowThreshold,
+		timeouts: catalogread.Default(),
 	}
+}
+
+// SetCatalogReadTimeouts bounds the live-metric reads (table stats,
+// activity, locks, replication lag) with the safety configuration's
+// statement and lock timeouts (static.md F11): a slow read is cut off and
+// the risk is scored from what is known.
+func (ra *RiskAssessor) SetCatalogReadTimeouts(t catalogread.Timeouts) { ra.timeouts = t }
+
+// catalog is the bounded reader over the assessor's pool.
+func (ra *RiskAssessor) catalog() catalogread.Reader {
+	return catalogread.New(ra.pool, ra.timeouts)
 }
 
 // Assess queries live database metrics and computes a risk score for

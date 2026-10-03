@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -19,7 +19,7 @@ func (r *ruleTxidAge) Category() string { return "maintenance" }
 
 // Check finds tables whose transaction ID age approaches wraparound.
 func (r *ruleTxidAge) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -33,7 +33,7 @@ WHERE c.relkind IN ('r', 't')
 ORDER BY age(c.relfrozenxid) DESC
 LIMIT 100`, excludeList)
 
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleTxidAge query: %w", err)
 	}

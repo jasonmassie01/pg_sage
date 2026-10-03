@@ -128,7 +128,8 @@ func detectFamily(
 func TestFamilyDetectorMarksUnusedCopiesIdle(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	family := createTextFamily(t, pool, "sgfidle", 5, 2)
-	detector := newFamilyDetector(pool, postgresSchemaDetector{pool}, SchemaGuardOptions{})
+	detector := newFamilyDetector(pool, newPostgresSchemaDetector(pool, nil),
+		SchemaGuardOptions{})
 	items := detectFamily(t, detector, family)
 	if len(items) != 10 {
 		t.Fatalf("family invariants = %d, want 5 schemas x 2 text id columns", len(items))
@@ -150,7 +151,8 @@ func TestFamilyDetectorKeepsLockedFamilyLive(t *testing.T) {
 	family := createTextFamily(t, pool, "sgflock", 5, 1)
 	release := holdFamilyLock(t, pool, family, family.child(1))
 	defer release()
-	detector := newFamilyDetector(pool, postgresSchemaDetector{pool}, SchemaGuardOptions{})
+	detector := newFamilyDetector(pool, newPostgresSchemaDetector(pool, nil),
+		SchemaGuardOptions{})
 	items := detectFamily(t, detector, family)
 	if len(items) != 5 {
 		t.Fatalf("family invariants = %d, want 5", len(items))
@@ -191,7 +193,7 @@ func TestFamilyDetectorTurnsQuietFamilyIdleAfterTheWindow(t *testing.T) {
 	family := createTextFamily(t, pool, "sgfwin", 5, 1)
 	writeToFamily(t, pool, family)
 	clock := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	detector := newFamilyDetector(pool, postgresSchemaDetector{pool}, SchemaGuardOptions{
+	detector := newFamilyDetector(pool, newPostgresSchemaDetector(pool, nil), SchemaGuardOptions{
 		IdleWindow: time.Hour, Now: func() time.Time { return clock }})
 	first := detectFamily(t, detector, family)
 	if len(first) == 0 || first[0].Family == nil || first[0].Family.Idle ||

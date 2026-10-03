@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/partition"
 	"github.com/pg-sage/sidecar/internal/testsupport/snapfixture"
 )
 
@@ -36,9 +37,10 @@ func categoryBytes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[st
 
 func relationBytes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 	t.Helper()
-	var n int64
-	if err := pool.QueryRow(ctx,
-		`SELECT pg_total_relation_size('sage.snapshots')`).Scan(&n); err != nil {
+	// sage.snapshots is partitioned by day: its own size is 0, the
+	// partitions hold the data.
+	n, err := partition.Size(ctx, pool, partition.Snapshots)
+	if err != nil {
 		t.Fatalf("relation size: %v", err)
 	}
 	return n

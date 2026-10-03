@@ -66,7 +66,7 @@ func (a *Analyzer) checkSageFootprint(
 
 func (a *Analyzer) measureSageFootprint(ctx context.Context) (sageFootprint, error) {
 	var fp sageFootprint
-	rows, err := a.pool.Query(ctx, sageFootprintSQL)
+	rows, err := a.catalog().Query(ctx, sageFootprintSQL)
 	if err != nil {
 		return fp, err
 	}

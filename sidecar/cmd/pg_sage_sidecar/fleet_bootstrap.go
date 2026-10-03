@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // fleetBootstrap tracks YAML fleet startup: the control database is the
@@ -83,14 +84,9 @@ func openFleetPool(dbCfg config.DatabaseConfig) (*pgxpool.Pool, error) {
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	// A stable application_name lets the analyzer and executor recognize
-	// every sidecar backend.
-	if poolCfg.ConnConfig.RuntimeParams == nil {
-		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
-	}
-	poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
-	// Keep pg_sage's own monitoring queries out of pg_stat_statements
-	// (best-effort; the /* pg_sage */ tag filter is the fallback).
-	poolCfg.AfterConnect = silenceSelfStats
+	// every sidecar backend; tagged statements keep pg_sage visible in
+	// pg_stat_statements and out of its own analysis.
+	selfmonitor.ConfigurePool(poolCfg)
 	dbPool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("pool: %w", err)

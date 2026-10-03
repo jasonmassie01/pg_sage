@@ -2,6 +2,7 @@ package probes
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // M6 reactive probes against real PostgreSQL (14 to 18): every probe
@@ -127,24 +129,23 @@ func TestCatalog_TempSpillStatementsFindsASpillingStatement(t *testing.T) {
 	if err := pgssReady(ctx, pool); err != nil {
 		t.Skipf("pg_stat_statements unavailable: %v", err)
 	}
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	_, err = conn.Conn().PgConn().Exec(ctx, `SET work_mem = '64kB';
-		SELECT count(*) FROM (SELECT g FROM generate_series(1, 100000) g
-		ORDER BY md5(g::text)) s;`).ReadAll()
-	conn.Release()
-	if err != nil {
-		t.Fatalf("spilling statement: %v", err)
-	}
-	ss, err := SpillStatements(run(ctx, pool, TempSpillStatements))
-	if err != nil || len(ss) == 0 {
-		t.Fatalf("temp_spill_statements = %+v (%v)", ss, err)
-	}
-	if !(ss[0].TempBlksWritten > 0) || ss[0].Calls < 1 || ss[0].BlockSize < 1024 {
-		t.Fatalf("top spilling statement = %+v", ss[0])
-	}
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the spill's entry before the probe reads it: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		spill(t, ctx, pool, `SELECT count(*) FROM (SELECT g FROM generate_series(1, 100000) g
+			ORDER BY md5(g::text)) s`)
+		ss, err := SpillStatements(run(ctx, pool, TempSpillStatements))
+		if err != nil {
+			t.Fatalf("temp_spill_statements: %v", err)
+		}
+		if len(ss) == 0 {
+			return []string{"temp_spill_statements found no spilling statement"}
+		}
+		if !(ss[0].TempBlksWritten > 0) || ss[0].Calls < 1 || ss[0].BlockSize < 1024 {
+			return []string{fmt.Sprintf("top spilling statement = %+v", ss[0])}
+		}
+		return nil
+	})
 }
 
 // pgssReady creates pg_stat_statements when possible and checks it can

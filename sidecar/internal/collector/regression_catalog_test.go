@@ -77,7 +77,10 @@ func TestCollectLocksAndActivity_ScopedToCurrentDatabase(t *testing.T) {
 }
 
 // G1-B18: a pagination error must not leave the keyset cursor behind;
-// the next collection has to start from the beginning again.
+// the next collection has to start from the beginning again. (The page
+// used to fail on a locked table because the size functions locked every
+// relation; the rewrite reads no relation, so the error is injected by
+// canceling the context after the first page.)
 func TestCollectTables_ErrorMidPaginationDoesNotSkipTables(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -85,25 +88,20 @@ func TestCollectTables_ErrorMidPaginationDoesNotSkipTables(t *testing.T) {
 	mustExec(t, pool, `CREATE TABLE IF NOT EXISTS b18.a_first (id int)`)
 	mustExec(t, pool, `CREATE TABLE IF NOT EXISTS b18.b_locked (id int)`)
 
-	locker, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := locker.Exec(ctx, `LOCK TABLE b18.b_locked IN ACCESS EXCLUSIVE MODE`); err != nil {
-		t.Fatal(err)
-	}
 	cfg := testConfig()
 	cfg.Collector.BatchSize = 1
-	cfg.Safety.QueryTimeoutMs = 2000
-	cfg.Safety.LockTimeoutMs = 100
 	c := New(pool, cfg, 170000, noopLog)
-	if _, err := c.collectTables(ctx); err == nil {
-		_ = locker.Rollback(ctx)
-		t.Fatal("expected lock timeout while paging past the locked table")
+	pageCtx, cancel := context.WithCancel(ctx)
+	pages := 0
+	c.onCatalogQuery = func(context.Context, pgx.Tx, string, []any) {
+		if pages++; pages == 1 {
+			cancel()
+		}
 	}
-	if err := locker.Rollback(ctx); err != nil {
-		t.Fatal(err)
+	if _, err := c.collectTables(pageCtx); err == nil {
+		t.Fatal("expected an error while paging after the context was canceled")
 	}
+	c.onCatalogQuery = nil
 	tables, err := c.collectTables(ctx)
 	if err != nil {
 		t.Fatalf("collectTables after recovery: %v", err)
@@ -116,6 +114,44 @@ func TestCollectTables_ErrorMidPaginationDoesNotSkipTables(t *testing.T) {
 	}
 	if !found["a_first"] || !found["b_locked"] {
 		t.Fatalf("collection after an error skipped tables: got %v", found)
+	}
+}
+
+// A table held ACCESS EXCLUSIVE (VACUUM FULL, a rewrite) no longer stalls
+// or fails the tables page: it is listed with estimated sizes, and only
+// the best-effort exact sizing gives up (with a warning).
+func TestCollectTables_LockedTableDoesNotBlockThePage(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	mustExec(t, pool, `CREATE SCHEMA IF NOT EXISTS b18`)
+	mustExec(t, pool, `CREATE TABLE IF NOT EXISTS b18.b_locked (id int)`)
+	locker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = locker.Rollback(ctx) }()
+	if _, err := locker.Exec(ctx, `LOCK TABLE b18.b_locked IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.Safety.QueryTimeoutMs = 2000
+	cfg.Safety.LockTimeoutMs = 100
+	rec := &logRecorder{}
+	c := New(pool, cfg, 170000, rec.log)
+	c.exactTopN = 1 << 30
+	tables, err := c.collectTables(ctx)
+	if err != nil {
+		t.Fatalf("collectTables with a locked table: %v", err)
+	}
+	listed := false
+	for _, tb := range tables {
+		listed = listed || (tb.SchemaName == "b18" && tb.RelName == "b_locked")
+	}
+	if !listed {
+		t.Fatal("locked table missing from the tables page")
+	}
+	if !rec.has("WARN", "exact") {
+		t.Fatalf("logs = %v, want a warning that exact sizes were skipped", rec.lines)
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // CategoryAppManagedIndex is an index pg_sage dropped that came back with
@@ -41,7 +41,7 @@ WHERE al.action_type = 'drop_index' AND al.rollback_sql IS NOT NULL
 
 // loadAppManagedIndexes returns, by lower-cased schema.index, the indexes
 // pg_sage dropped that exist again with the definition they had.
-func loadAppManagedIndexes(ctx context.Context, pool *pgxpool.Pool) (
+func loadAppManagedIndexes(ctx context.Context, pool catalogread.Querier) (
 	map[string]appManagedIndex, error) {
 	rows, err := pool.Query(ctx, appManagedSQL)
 	if err != nil {
@@ -133,7 +133,7 @@ func (a *Analyzer) applyAppManaged(ctx context.Context, findings []Finding) []Fi
 	if a.pool == nil {
 		return findings
 	}
-	managed, err := loadAppManagedIndexes(ctx, a.pool)
+	managed, err := loadAppManagedIndexes(ctx, a.catalog())
 	if err != nil {
 		a.logFn("WARN", "analyzer: app-managed indexes: %v", err)
 		return findings

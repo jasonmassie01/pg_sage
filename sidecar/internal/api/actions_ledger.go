@@ -20,18 +20,43 @@ const (
 	recordKindQueued   = "queued"
 )
 
-const actionsSelectSQLPrefix = `SELECT id, executed_at,
- action_type, finding_id, sql_executed, rollback_sql,
- before_state, after_state, outcome, rollback_reason,
- measured_at,
- COUNT(*) OVER (PARTITION BY sql_executed) AS attempts,
+// maxAttempts caps the attempts counted for one SQL statement: beyond it
+// the ledger reports maxAttempts and attempts_capped.
+const maxAttempts = 1000
+
+// actionsWithAttemptsSQL selects the executed actions chosen by rowsSQL (a
+// SELECT * FROM sage.action_log ...) with their attempts and latest
+// verification. Attempts are counted once per distinct SQL statement among
+// those rows (tally is materialized so the count is not re-run per row),
+// inside the time window when window is set, reading at most
+// maxAttempts+1 entries of idx_action_log_sql_md5 (statements are matched
+// by md5, index-only). They replaced COUNT(*) OVER (PARTITION BY
+// sql_executed), which sorted all of action_log on every page; counting
+// per row read every repeat of a statement once per row (perf gate: 1 s
+// for 51 rows of one statement). order is the outer ORDER BY ("" when the
+// caller orders the rows).
+func actionsWithAttemptsSQL(rowsSQL, window, order string) string {
+	return `/* pg_sage */ WITH page AS (` + rowsSQL + `),
+tally AS MATERIALIZED (
+  SELECT p.sql_hash, (SELECT count(*) FROM (
+      SELECT 1 FROM sage.action_log a2
+       WHERE md5(a2.sql_executed) = p.sql_hash` + window + `
+       ORDER BY a2.executed_at DESC
+       LIMIT ` + strconv.Itoa(maxAttempts+1) + `) capped) AS attempts
+    FROM (SELECT DISTINCT md5(sql_executed) AS sql_hash FROM page) p)
+SELECT action_log.id, executed_at, action_type, finding_id, sql_executed, rollback_sql,
+ before_state, after_state, outcome, rollback_reason, measured_at,
+ tally.attempts AS attempts,` + actionsVerificationSQL + `
+ FROM page action_log JOIN tally ON tally.sql_hash = md5(action_log.sql_executed)` + order
+}
+
+const actionsVerificationSQL = `
  (SELECT v.verdict FROM sage.verification v
    WHERE v.action_log_id = action_log.id
    ORDER BY v.id DESC LIMIT 1) AS verification_verdict,
  (SELECT v.completed_at FROM sage.verification v
    WHERE v.action_log_id = action_log.id
-   ORDER BY v.id DESC LIMIT 1) AS verification_completed_at
- FROM sage.action_log`
+   ORDER BY v.id DESC LIMIT 1) AS verification_completed_at`
 
 const queuedActionLedgerSQL = `/* pg_sage */SELECT q.id, q.finding_id,
  COALESCE(q.action_type, ''), q.proposed_sql, q.rollback_sql,
@@ -75,7 +100,8 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 			sqlExecuted, rollbackSQL, beforeState,
 			afterState, outcome, rollbackReason, measuredAt,
 		)
-		a["attempts"] = attempts
+		a["attempts"] = min(attempts, maxAttempts)
+		a["attempts_capped"] = attempts > maxAttempts
 		a["action_risk"] = deriveDisplayActionRisk(sqlExecuted)
 		annotateVerification(a, verdict, verifiedAt)
 		results = append(results, a)

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 // latencyProxy: each new query_store capture is one slice: the
@@ -40,14 +42,21 @@ SELECT DISTINCT captured_at FROM sage.query_store
 WHERE captured_at > pg_catalog.now() - interval '30 minutes'
 ORDER BY captured_at DESC LIMIT 2`
 
-// deltasSQL lists the top queries of the interval between two captures,
+// deltasSQL lists the top queries of the interval ending at capture $1,
 // and whether any query's counters reset (another statistics epoch, or
-// fewer calls) between them.
+// fewer calls) in it. A query's sample is written only when its counters
+// move, so its interval starts at its own last sample at or before the
+// previous capture $2 (within $4, querystore.AnchorLookback), not at a
+// row of $2 that an idle query does not have.
 const deltasSQL = `/* pg_sage sre:slo_proxy */
 SELECT (c.calls - p.calls)::float8, (c.total_exec_time - p.total_exec_time)::float8,
        bool_or(c.stats_epoch IS DISTINCT FROM p.stats_epoch OR c.calls < p.calls) OVER ()
 FROM sage.query_store c
-JOIN sage.query_store p ON p.queryid = c.queryid AND p.captured_at = $2
+CROSS JOIN LATERAL (
+    SELECT q.calls, q.total_exec_time, q.stats_epoch FROM sage.query_store q
+    WHERE q.queryid = c.queryid AND q.captured_at <= $2
+      AND q.captured_at >= $2 - $4::interval
+    ORDER BY q.captured_at DESC, q.id DESC LIMIT 1) p
 WHERE c.captured_at = $1
 ORDER BY c.total_exec_time - p.total_exec_time DESC
 LIMIT $3`
@@ -116,7 +125,8 @@ func (p *latencyProxy) measure(ctx context.Context) (float64, time.Time, string)
 
 func (p *latencyProxy) deltas(ctx context.Context, cur, prev time.Time) ([]queryDelta, bool,
 	error) {
-	rows, err := p.pool.Query(ctx, deltasSQL, cur, prev, max(p.cfg.TopQueries, 1))
+	rows, err := p.pool.Query(ctx, deltasSQL, cur, prev, max(p.cfg.TopQueries, 1),
+		querystore.AnchorLookback)
 	if err != nil {
 		return nil, false, err
 	}

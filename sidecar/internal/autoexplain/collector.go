@@ -125,7 +125,7 @@ func (c *Collector) Collect(ctx context.Context) error {
 	return nil
 }
 
-const candidateSQL = `
+var candidateSQL = `
 		SELECT s.queryid, s.query
 		FROM pg_stat_statements s
 		LEFT JOIN sage.explain_cache e
@@ -137,8 +137,7 @@ const candidateSQL = `
 				SELECT oid FROM pg_database
 				WHERE datname = current_database()
 			)
-			AND COALESCE(s.query, '') NOT ILIKE '%pg_sage%'
-			AND COALESCE(s.query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
+			AND ` + selfmonitor.StatementExclusionSQL("s.query") + `
 			AND e.id IS NULL
 		ORDER BY s.mean_exec_time DESC
 		LIMIT $2`

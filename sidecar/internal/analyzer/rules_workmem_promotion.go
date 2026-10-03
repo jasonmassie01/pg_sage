@@ -38,7 +38,7 @@ func (a *Analyzer) checkWorkMemPromotion(ctx context.Context) []Finding {
 	if threshold <= 0 {
 		return nil
 	}
-	rows, err := a.pool.Query(ctx, workMemPromotionSQL, threshold)
+	rows, err := a.catalog().Query(ctx, workMemPromotionSQL, threshold)
 	if err != nil {
 		a.evalFail("work_mem_promotion")
 		a.logFn("WARN", "analyzer: work_mem promotion query: %v", err)

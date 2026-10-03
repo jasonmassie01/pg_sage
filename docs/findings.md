@@ -318,6 +318,35 @@ expected. Snapshot rows written before compact storage age out with
 
 ---
 
+### sage_self_cost
+
+Detects pg_sage itself using too much of the database's time.
+
+**Severity:** warning
+
+**What it detects:** pg_sage's own statements used more database time per collector
+cycle than `analyzer.self_cost_budget_ms` (default 3000 ms, 5% of one core at the
+default 60 s collector interval). pg_sage does not hide from `pg_stat_statements`: every
+statement it sends carries the `/* pg_sage */` tag after its first keyword, and each
+analyzer cycle sums those entries' execution and planning time for this database since the previous cycle.
+The finding also gives statements, shared blocks, sage-table rows read and written per
+cycle and the sage schema's size. Without `pg_stat_statements`, after a statistics reset,
+and on the first cycle after a start, the open finding is kept, not resolved; `0`
+disables it. The same figures are exported as `pg_sage_self_*` Prometheus metrics.
+
+**Example output:**
+
+```
+Sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
+```
+
+**Recommended action:** Look at the `pg_stat_statements` entries that contain
+`/* pg_sage */`, sorted by `total_exec_time`, to see which component costs most; lengthen
+`collector.interval_seconds` or `analyzer.interval_seconds`, or raise
+`analyzer.self_cost_budget_ms` if the cost is expected.
+
+---
+
 ### checkpoint_pressure
 
 Detects high checkpoint frequency.

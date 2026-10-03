@@ -50,6 +50,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	all = append(all, a.runProducers(ctx, current)...)
 	all = append(all, a.runLateChecks(ctx)...)
 	all = append(all, a.checkSageFootprint(ctx, current)...)
+	all = append(all, a.checkSelfCost(ctx)...)
 	all = a.applyAppManaged(ctx, all)
 	if current.Available("tables") && len(current.Tables) > 0 {
 		all = collapseCloneSchemas(current, all, a.cloneSignals(ctx))

@@ -57,6 +57,10 @@ var excludedExactKeys = map[string]bool{
 	// The non-execute decision retention window is YAML only; it is not
 	// exposed as an API override.
 	"retention.decisions_days": true,
+	// The query_store window and the snapshot size cap (perf storage phase)
+	// are YAML only and restart-bound, like decisions_days.
+	"retention.query_store_days":  true,
+	"retention.snapshots_max_pct": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
@@ -786,7 +790,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 115 // Update when adding/removing keys.
+	const expectedCount = 116 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -815,7 +819,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 115 // Should match allowedConfigKeys.
+	const expectedCount = 116 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

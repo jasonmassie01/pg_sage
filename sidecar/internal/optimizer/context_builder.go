@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 )
 
@@ -15,7 +15,7 @@ import (
 // "query_text_only", or "none").
 func BuildTableContexts(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool catalogread.Querier,
 	snap *collector.Snapshot,
 	planner *PlanCapture,
 	minQueryCalls int64,
@@ -33,7 +33,7 @@ func BuildTableContexts(
 	// Capture plans once for ALL queries, then filter per-table.
 	var allPlans []PlanSummary
 	if planner != nil {
-		plans, source := planner.CapturePlans(ctx, snap.Queries)
+		plans, source := planner.CapturePlans(ctx, applicationQueries(snap.Queries))
 		allPlans = plans
 		if len(plans) > 0 {
 			planSource = source
@@ -67,13 +67,13 @@ func BuildTableContexts(
 		}
 
 		tc := TableContext{
-			Schema:         ts.SchemaName,
-			Table:          ts.RelName,
-			LiveTuples:     ts.NLiveTup,
-			DeadTuples:     ts.NDeadTup,
-			TableBytes:     ts.TableBytes,
-			IndexBytes:     ts.IndexBytes,
-			IndexCount:     countIndexes(
+			Schema:     ts.SchemaName,
+			Table:      ts.RelName,
+			LiveTuples: ts.NLiveTup,
+			DeadTuples: ts.NDeadTup,
+			TableBytes: ts.TableBytes,
+			IndexBytes: ts.IndexBytes,
+			IndexCount: countIndexes(
 				snap.Indexes, ts.SchemaName, ts.RelName,
 			),
 			Queries:        queries,
@@ -103,7 +103,7 @@ func groupQueriesByTable(
 	snap *collector.Snapshot,
 ) map[string][]QueryInfo {
 	result := make(map[string][]QueryInfo)
-	for _, q := range snap.Queries {
+	for _, q := range applicationQueries(snap.Queries) {
 		tables := extractTablesFromQuery(q.Query)
 		qi := QueryInfo{
 			QueryID:     q.QueryID,
@@ -227,7 +227,7 @@ func buildIndexInfo(
 
 func fetchColumns(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool catalogread.Querier,
 	schema, table string,
 ) []ColumnInfo {
 	rows, err := pool.Query(ctx,
@@ -255,7 +255,7 @@ func fetchColumns(
 
 func fetchColStats(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool catalogread.Querier,
 	schema, table string,
 	queries []QueryInfo,
 ) []ColStat {

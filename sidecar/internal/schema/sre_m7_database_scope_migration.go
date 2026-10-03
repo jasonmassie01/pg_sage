@@ -94,16 +94,23 @@ CREATE INDEX IF NOT EXISTS sre_autonomy_outcomes_db_family
 CREATE INDEX IF NOT EXISTS sre_packet_reviews_db_family
     ON sage.sre_packet_reviews (deployment_id, database_name, family, reviewed_at);
 
+-- Each deployment-wide carried-over level looks up its own pair's first
+-- carry-over event (sre_autonomy_events_pair); with no such level the
+-- event history is not read at all (it was, on every startup: v1.8.3).
 UPDATE sage.sre_family_autonomy a
    SET database_name = e.database_name
-  FROM (SELECT DISTINCT ON (deployment_id, family, action_class)
-               deployment_id, family, action_class, database_name
-          FROM sage.sre_autonomy_events
-         WHERE event_type = 'carried_over' AND COALESCE(database_name, '') <> ''
-         ORDER BY deployment_id, family, action_class, created_at, id) e
- WHERE a.database_name = '' AND a.provenance = 'carried_over'
-   AND a.deployment_id = e.deployment_id AND a.family = e.family
-   AND a.action_class = e.action_class
+  FROM sage.sre_family_autonomy l
+  CROSS JOIN LATERAL (
+        SELECT ev.database_name
+          FROM sage.sre_autonomy_events ev
+         WHERE ev.deployment_id = l.deployment_id AND ev.family = l.family
+           AND ev.action_class = l.action_class AND ev.event_type = 'carried_over'
+           AND COALESCE(ev.database_name, '') <> ''
+         ORDER BY ev.created_at, ev.id
+         LIMIT 1) e
+ WHERE l.database_name = '' AND l.provenance = 'carried_over'
+   AND a.deployment_id = l.deployment_id AND a.database_name = ''
+   AND a.family = l.family AND a.action_class = l.action_class
    AND NOT EXISTS (SELECT 1 FROM sage.sre_family_autonomy b
                     WHERE b.deployment_id = a.deployment_id
                       AND b.database_name = e.database_name

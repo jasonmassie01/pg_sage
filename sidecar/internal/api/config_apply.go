@@ -205,6 +205,8 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.IntervalSeconds = atoi(v)
 	case "analyzer.slow_query_threshold_ms":
 		cfg.Analyzer.SlowQueryThresholdMs = atoi(v)
+	case "analyzer.self_cost_budget_ms":
+		cfg.Analyzer.SelfCostBudgetMs = atoi(v)
 	case "analyzer.seq_scan_min_rows":
 		cfg.Analyzer.SeqScanMinRows = atoi(v)
 	case "analyzer.unused_index_window_days":

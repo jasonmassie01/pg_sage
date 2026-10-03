@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 type rowQuerier interface {
@@ -48,8 +50,13 @@ func (s *PostgresObservationSource) QueryMeasurements(
 // in the window. A window that spans more than one statistics epoch -- a
 // counter decrease, a changed stats_epoch (reset or restart, even after
 // counters regrew), or an unknown epoch next to a known one -- yields no
-// calls, so verification treats it as insufficient evidence (R10).
-const queryMeasurementSQL = `WITH samples AS (
+// calls, so verification treats it as insufficient evidence (R10). Samples
+// are written only when counters move, so the window starts at the last
+// sample before $2 when there is one within $4 (querystore.AnchorLookback).
+const queryMeasurementSQL = `WITH anchor AS (
+		SELECT max(captured_at) AS at FROM sage.query_store
+		WHERE queryid=$1 AND captured_at < $2 AND captured_at >= $2 - $4::interval
+	), samples AS (
 		SELECT calls, total_exec_time,
 			row_number() OVER (ORDER BY captured_at, id) AS first_row,
 			row_number() OVER (ORDER BY captured_at DESC, id DESC) AS last_row,
@@ -59,7 +66,8 @@ const queryMeasurementSQL = `WITH samples AS (
 					AND stats_epoch IS DISTINCT FROM lag(stats_epoch) OVER w)
 				AS epoch_break
 		FROM sage.query_store
-		WHERE queryid=$1 AND captured_at BETWEEN $2 AND $3
+		WHERE queryid=$1
+			AND captured_at BETWEEN COALESCE((SELECT at FROM anchor), $2) AND $3
 		WINDOW w AS (ORDER BY captured_at, id)
 	), bounds AS (
 		SELECT max(calls) FILTER (WHERE last_row=1) -
@@ -79,7 +87,8 @@ func (s *PostgresObservationSource) queryMeasurement(
 ) (Measurement, error) {
 	var calls int64
 	var latencyMS float64
-	err := s.queryer.QueryRow(ctx, queryMeasurementSQL, id, from, to).
+	err := s.queryer.QueryRow(ctx, queryMeasurementSQL, id, from, to,
+		querystore.AnchorLookback).
 		Scan(&calls, &latencyMS)
 	if err != nil {
 		return Measurement{}, err

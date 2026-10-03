@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,8 +14,24 @@ import (
 
 // postgresSchemaDetector reads the catalog for schema invariants: three
 // catalog queries per cycle, plus one pg_stat_statements read when foreign
-// keys need workload evidence, however many tables the database has.
-type postgresSchemaDetector struct{ pool *pgxpool.Pool }
+// keys need workload evidence, however many tables the database has. The
+// structural scan is the costliest and changes only with DDL: it reruns
+// when the catalog changed or hourly (structural); a detector without a
+// structural cache scans every cycle.
+type postgresSchemaDetector struct {
+	pool       *pgxpool.Pool
+	now        func() time.Time
+	structural *structuralCache
+}
+
+// newPostgresSchemaDetector is a detector with a structural cache; now is
+// its clock (nil is time.Now).
+func newPostgresSchemaDetector(pool *pgxpool.Pool, now func() time.Time) postgresSchemaDetector {
+	if now == nil {
+		now = time.Now
+	}
+	return postgresSchemaDetector{pool: pool, now: now, structural: &structuralCache{}}
+}
 
 func (d postgresSchemaDetector) Detect(ctx context.Context) ([]schemaguard.Invariant, error) {
 	fkItems, err := d.detectMissingFKIndexes(ctx)
@@ -94,7 +111,8 @@ func (d postgresSchemaDetector) detectUnboundedAppend(
 	return result, nil
 }
 
-func (d postgresSchemaDetector) detectStructuralPathologies(
+// scanStructuralPathologies runs the structural catalog scan.
+func (d postgresSchemaDetector) scanStructuralPathologies(
 	ctx context.Context,
 ) ([]schemaguard.Invariant, error) {
 	rows, err := d.pool.Query(ctx, structuralPathologySQL)

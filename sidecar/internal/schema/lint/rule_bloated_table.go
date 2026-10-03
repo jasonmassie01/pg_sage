@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleBloatedTable struct{}
@@ -16,7 +16,7 @@ func (r *ruleBloatedTable) Severity() string { return "warning" }
 func (r *ruleBloatedTable) Category() string { return "performance" }
 
 func (r *ruleBloatedTable) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -46,7 +46,7 @@ SELECT n.nspname, c.relname, c.relpages, c.reltuples::bigint,
  ORDER BY bloat_pct DESC
  LIMIT 200`, excludeList)
 
-	rows, err := pool.Query(ctx, query, opts.MinTableRows)
+	rows, err := db.Query(ctx, query, opts.MinTableRows)
 	if err != nil {
 		return nil, fmt.Errorf("ruleBloatedTable query: %w", err)
 	}

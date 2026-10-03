@@ -99,8 +99,9 @@ func (s *Store) ReconcileVerifying(ctx context.Context, database string) (int, e
 	return changed, nil
 }
 
-func (s *Store) verifyingEffects(ctx context.Context, database string) ([]effect, error) {
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT r.id, r.revision,
+// verifyingEffectsSQL reads the verifying recommendations of a database
+// with their action's outcome and latest verification verdict.
+const verifyingEffectsSQL = `/* pg_sage */ SELECT r.id, r.revision,
 		r.attempt_count, COALESCE(r.verdict, ''), al.outcome,
 		COALESCE(al.rollback_reason, ''), v.verdict
 		FROM sage.recommendation r
@@ -108,7 +109,20 @@ func (s *Store) verifyingEffects(ctx context.Context, database string) ([]effect
 		LEFT JOIN LATERAL (SELECT verdict FROM sage.verification
 		                    WHERE action_log_id = r.action_log_id
 		                    ORDER BY id DESC LIMIT 1) v ON true
-		WHERE r.database_name = $1 AND r.state = 'verifying' ORDER BY r.id`, database)
+		WHERE r.database_name = $1 AND r.state = 'verifying' ORDER BY r.id`
+
+// rowQuerier is a pool or a transaction.
+type rowQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func (s *Store) verifyingEffects(ctx context.Context, database string) ([]effect, error) {
+	return s.verifyingEffectsOn(ctx, s.pool, database)
+}
+
+func (s *Store) verifyingEffectsOn(ctx context.Context, q rowQuerier,
+	database string) ([]effect, error) {
+	rows, err := q.Query(ctx, verifyingEffectsSQL, database)
 	if err != nil {
 		return nil, fmt.Errorf("list verifying recommendations: %w", err)
 	}

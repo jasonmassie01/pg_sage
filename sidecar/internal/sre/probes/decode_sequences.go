@@ -20,8 +20,8 @@ type SequenceCoverage struct {
 func (c SequenceCoverage) ScanCapped() bool { return c.Scanned < c.Total }
 
 // SequenceCoverageOf decodes the coverage of a sequence_runway result.
-// A result without rows (no used sequence among those read) has zero
-// coverage; a failed probe is an error.
+// A slice without a used sequence answers one coverage_only row (v3); a
+// result without rows has zero coverage; a failed probe is an error.
 func SequenceCoverageOf(res Result) (SequenceCoverage, error) {
 	rows, err := rowsFor(res, SequenceRunwayProbe)
 	if err != nil || len(rows) == 0 {
@@ -44,6 +44,18 @@ func SequenceCoverageOf(res Result) (SequenceCoverage, error) {
 		return SequenceCoverage{}, fmt.Errorf("sequence_runway coverage is inconsistent: "+
 			"%+v", c)
 	}
-	c.Reported, c.Truncated = int64(len(rows)), res.Truncated
+	for _, r := range rows {
+		if !coverageOnly(r) {
+			c.Reported++
+		}
+	}
+	c.Truncated = res.Truncated
 	return c, nil
+}
+
+// coverageOnly reports the row a slice without a used sequence answers:
+// it carries the coverage and lists no sequence.
+func coverageOnly(r Row) bool {
+	only, _ := r["coverage_only"].(bool)
+	return only
 }

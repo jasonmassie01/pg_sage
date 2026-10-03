@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -15,7 +15,7 @@ type Rule interface {
 	Name() string
 	Severity() string
 	Category() string
-	Check(ctx context.Context, pool *pgxpool.Pool, opts RuleOpts) ([]Finding, error)
+	Check(ctx context.Context, db catalogread.Querier, opts RuleOpts) ([]Finding, error)
 }
 
 // RuleOpts carries runtime parameters that rules may need.

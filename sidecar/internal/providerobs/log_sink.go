@@ -135,6 +135,10 @@ func (s *LogSink) storePlans(ctx context.Context, entries []logwatch.LogEntry) e
 			continue
 		}
 		plan, err := autoexplain.ParseObservedPlan(entry, s.database)
+		if errors.Is(err, autoexplain.ErrSelfStatement) {
+			s.rejectPlan("pg_sage_self")
+			continue
+		}
 		if err != nil {
 			s.rejectPlan("invalid_json_plan")
 			continue

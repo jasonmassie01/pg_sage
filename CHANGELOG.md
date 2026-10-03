@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Changed (read before upgrading)
+
+- **pg_sage keeps its own data small and cleans it up without a DBA.** Its query
+  history and snapshot tables are now split into one partition per day, so old data is
+  removed by dropping a whole day (instant, no vacuum, disk space returned at once) instead
+  of deleting rows; existing tables are converted in place on first start (the old rows
+  stay readable and go when they age out). The per-query history now records a query only
+  when its numbers changed (plus once an hour), in one write per minute instead of one per
+  query, and keeps 14 days (`retention.query_store_days`) instead of following the 90-day
+  snapshot window. Snapshots are capped at 5% of the database (`retention.snapshots_max_pct`,
+  never below 256 MB), oldest days first. Cleanup runs in small, paced batches with a 30 s
+  limit per run, also covers the approval queue and the agent database tables, and expires
+  cached explanations when they expire. pg_sage also stops rewriting rows that did not
+  change (change feed cursors, incidents and their causal chains) and stops indexing a
+  column it updates every cycle, so updates of findings no longer leave dead index entries.
+  Upgrading converts `sage.query_store` and `sage.snapshots` without blocking pg_sage or
+  your sessions: the old rows are checked while writes continue, and the tables are locked
+  only for a catalog change (about 0.1 s for a 1 GB table). Small tables are converted at
+  startup; larger ones in the background after it. If a conversion cannot finish (a long
+  transaction holds the table, a timeout, a full disk), pg_sage keeps working on the
+  unconverted table, still deletes its expired rows in small batches, logs one warning
+  saying what to do, and tries again later (after 1 hour, then up to once a day).
+
+- **pg_sage shows its own cost instead of hiding it, and its API reads stay small on big
+  histories.** pg_sage no longer turns `pg_stat_statements` tracking off for its sessions:
+  every statement it sends carries `/* pg_sage */` after its first keyword (where even
+  PostgreSQL 18 keeps it) and its sessions are named
+  `pg_sage`, so a DBA can see exactly what it costs. pg_sage leaves its own statements and
+  sessions out of everything it analyzes (index and hint advice, schema guard, leftover
+  schema detection, connection leaks), and reports its bill as `pg_sage_self_*`
+  Prometheus metrics (database time, statements, blocks, sage-table rows read and written
+  per collector cycle, sage schema size) plus a `sage_self_cost` finding above
+  `analyzer.self_cost_budget_ms` (default 3000, `0` turns the finding off). With a
+  dashboard open, live updates no longer re-count the findings, actions and health tables
+  every 2 seconds; they read the tables' change counters. The findings and actions lists
+  page with a `cursor` (`next_cursor` in each response) over new indexes, their `total`
+  stops counting at 1,000 (`total_capped` says so), and `offset` is limited to 1,000.
+  Snapshot history refuses per-object categories (`tables`, `indexes`, `queries`,
+  `sequences`, `foreign_keys`, `locks`, `partitions`, `config_data`: read them with
+  `/snapshots/latest`) and stops at 4 MB (`truncated`).
+
 ### Fixed
 
 - **An index recommendation made before HypoPG was installed is now re-checked.** The
@@ -11,6 +52,77 @@
   indefinitely. An open unverified recommendation is now re-measured with HypoPG when it
   is re-emitted: a measured gain makes it verified, no gain resolves it, and without
   HypoPG nothing changes.
+
+- **pg_sage's own catalog reads no longer grow with the size of your database.** On a
+  database with 15,000 tables, 35,000 indexes and 12,000 sequences, each collector cycle used
+  to rebuild the table statistics view once per 1,000-row page, re-render every index
+  definition, stat() every table and index file, and hold one lock per sequence in a single
+  transaction (12,000 locks every minute: on a server with default lock settings that could
+  make other sessions fail with "out of shared memory"). Now table and index pages read
+  counters directly (about 5x faster per page in our tests), sizes come from the catalog's page
+  counts with exact sizes for the 100 largest tables and indexes, index definitions are read
+  again only when an index or its table changes, and sequences are read 1,000 at a time in
+  separate transactions (never more than a quarter of the lock table). The database size is
+  measured every 15 minutes instead of every minute and on every `/metrics` scrape, and a slow
+  size measurement no longer loses the whole snapshot. The tuner's stale-statistics check and
+  the TOAST lint rule stopped opening every table, so pg_sage's connections stay small. Every
+  read-only check pg_sage runs on your database (analyzer checks, the optimizer's table
+  context, the DDL risk assessment and all schema lint rules) now runs read-only under
+  `safety.query_timeout_ms`: a slow check is cut off and reported as not evaluated instead of
+  hanging the cycle.
+
+- **pg_sage no longer reads whole history tables to clean up or to find recent rows, and
+  a new performance gate keeps it that way.** A test now builds a large synthetic database
+  (5,000 tables, 15,000 indexes, 5,000 sequences, 150,000 rows in each of pg_sage's history
+  tables), runs pg_sage against it and fails if pg_sage scans a large `sage.*` table end to
+  end, runs a slow statement, writes rows per object instead of per change, or runs a catalog
+  query over 500 ms. Its first run found the work fixed here: the retention purges of
+  explain, alert, verification and resolved-finding history, the change-feed age-out, the
+  clean-up that runs when old actions and decisions are purged, and the check for due
+  verifications each read their whole table; they now use indexes (added automatically at
+  startup). Runway sampling and several Sage SRE windows bounded time in a way PostgreSQL
+  cannot use with an index; they now can. The dashboard's live-update check no longer runs
+  when no dashboard is open. The remaining findings (the live-update check while a dashboard
+  is open, the actions list, forecast history reads, the earned-autonomy reconcile and a
+  sequence catalog query) are listed in `reviews/2026-10-03-perf-gate-report.md` for the
+  next fix pass.
+
+- **Sage SRE, runway, earned autonomy and the analyzer read only what they need.** The
+  earned-autonomy reconcile, the autovacuum-cancellation probe, the verification watch
+  lookup and the investigations list each read their whole table on every pass; they now use
+  small indexes (added automatically at startup, one migration that checks the catalog
+  first). The startup migrations no longer scan `sage.incidents` or the autonomy events
+  when there is nothing to change. The analyzer's query-history check decoded every
+  snapshot of the lookback window on every cycle (224 ms on the performance gate); it now
+  decodes the first snapshot of each of at most 100 time buckets once and remembers it.
+  The forecaster decodes two snapshots per day once instead of every snapshot each cycle.
+  The plan-regression rule reads the newest two plans per query instead of every plan of
+  the week, and no longer stops on plans captured without an execution time. The
+  sequence-runway probe reads at most 2,000 sequences per statement and covers larger
+  catalogs in slices; the wraparound probe ranks tables before reading their statistics;
+  runway trends and the runway restart read one series at a time through the index. The
+  schema-health scan of `pg_attribute` runs only after a DDL change (checked every 5
+  minutes) or once an hour. SLO windows are computed from running totals stored with each
+  sample (a few index probes per series) instead of re-reading every sample every minute;
+  samples stored before the upgrade are still read the old way until they age out.
+
+- **pg_sage no longer counts its own sessions and statements as your workload.** Now that
+  pg_sage is visible in `pg_stat_statements`, every analysis that reads sessions or
+  statements leaves pg_sage's own out: the snapshot's active and idle-in-transaction
+  counts, locks, connection states and churn (now per database, also in fleet mode), the
+  load circuit breaker, lock chains and the Sage SRE lock graph, long-transaction, wait and
+  temp-spill evidence, the runaway detector's blocker counts, the DDL risk score, the
+  tuner's and the briefing's active sessions, auto_explain plans from the logs, and the
+  write-latency check that decides whether an action caused a regression (pg_sage's own
+  writes could trigger a rollback). Connection slots still count pg_sage, and pg_sage
+  still shows up when it holds a lock or the xmin horizon. Every withheld index build is
+  now counted: a failed record used to be dropped silently. `/value` reads only credited
+  actions through a new index, the actions list counts through the time index, the
+  app-managed-index check and RCA's rollback history read pg_sage's drops and rollbacks
+  through small indexes, retention checks verifications and credited actions by index
+  instead of reading those tables,
+  and SRE investigation updates are heap-only again (no index on `updated_at`). The
+  Findings and Actions pages show a capped total as "1000+" and load further pages.
 
 ## v1.8.2 (2026-10-03) -- Safety first: reversible config, safe EXPLAIN, per-database trust, promote from the UI
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -18,7 +18,7 @@ func (r *ruleFKTypeMismatch) Severity() string { return "warning" }
 func (r *ruleFKTypeMismatch) Category() string { return "correctness" }
 
 func (r *ruleFKTypeMismatch) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -45,7 +45,7 @@ SELECT ns.nspname      AS fk_schema,
    AND a_fk.atttypid <> a_pk.atttypid
  ORDER BY ns.nspname, cl.relname`, excludeList)
 
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleFKTypeMismatch query: %w", err)
 	}

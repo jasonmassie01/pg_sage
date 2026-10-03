@@ -35,14 +35,8 @@ func (s *PostgresStore) List(ctx context.Context, scope Scope, f ListFilter) (Pa
 	if err := checkText("case id", f.CaseID, false, 256); err != nil {
 		return Page{}, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+invColumns+`
-		FROM sage.sre_investigations
-		WHERE deployment_id = $1 AND database_id = $2
-		  AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4::uuid))
-		  AND ($6 = '' OR source_case_id = $6)
-		ORDER BY created_at DESC, id DESC LIMIT $5`,
-		string(scope.DeploymentID), string(scope.DatabaseID), after, afterID, limit+1,
-		f.CaseID)
+	sql, args := listQuery(scope, f.CaseID, after, afterID, limit+1)
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return Page{}, storeErr(ctx, "list", err)
 	}
@@ -64,6 +58,30 @@ func (s *PostgresStore) List(ctx context.Context, scope Scope, f ListFilter) (Pa
 		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
 	}
 	return page, nil
+}
+
+// listQuery is the page statement for a filter. Each variant is an ordered
+// range of idx_sre_investigations_created (or _case with a case filter):
+// an optional filter written as `$n IS NULL OR ...` is no index bound, so
+// the first page read and sorted the scope's whole history (performance
+// gate, v1.8.3).
+func listQuery(scope Scope, caseID string, after *time.Time, afterID *string,
+	limit int) (string, []any) {
+	args := []any{string(scope.DeploymentID), string(scope.DatabaseID), limit}
+	where := "deployment_id = $1 AND database_id = $2"
+	if caseID != "" {
+		args = append(args, caseID)
+		where += fmt.Sprintf(" AND source_case_id = $%d", len(args))
+	}
+	if after != nil && afterID != nil {
+		args = append(args, *after, *afterID)
+		where += fmt.Sprintf(" AND (created_at, id) < ($%d::timestamptz, $%d::uuid)",
+			len(args)-1, len(args))
+	}
+	return `SELECT ` + invColumns + `
+		FROM sage.sre_investigations
+		WHERE ` + where + `
+		ORDER BY created_at DESC, id DESC LIMIT $3`, args
 }
 
 func encodeCursor(t time.Time, id UUID) string {

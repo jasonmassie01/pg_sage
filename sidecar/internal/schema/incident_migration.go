@@ -3,70 +3,71 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
+// incidentCheck is one widened CHECK constraint of sage.incidents: the
+// values pg_sage writes to column (and NULL when nullable).
+type incidentCheck struct {
+	name, column string
+	values       []string
+	nullable     bool
+}
+
+// incidentCheckSpecs are the v0.9.1 constraints: log-based RCA sources, info
+// severity and the Tier 2 action_risk values.
+var incidentCheckSpecs = []incidentCheck{
+	{"incidents_severity_check", "severity", []string{"info", "warning", "critical"}, false},
+	{"incidents_source_check", "source", []string{"deterministic", "log_deterministic",
+		"self_action", "manual_review_required", "llm", "schema_advisor", "schema_lint",
+		"n_plus_one"}, false},
+	{"incidents_action_risk_check", "action_risk", []string{"safe", "moderate",
+		"high_risk", "low", "medium", "high"}, true},
+}
+
 // migrateIncidentConstraints widens the CHECK constraints on
-// sage.incidents for v0.9.1 log-based RCA sources, info severity,
-// and Tier 2 action_risk values. Idempotent — safe to re-run.
+// sage.incidents when one still lacks a value pg_sage writes. A
+// constraint that admits every value is left alone: re-adding it on every
+// startup validated (read) the whole table three times under an ACCESS
+// EXCLUSIVE lock (performance gate, v1.8.3). Idempotent.
 func migrateIncidentConstraints(
 	ctx context.Context, db bootstrapDB,
 ) error {
-	const ddl = `
-DO $$ BEGIN
-    -- severity: add 'info'
-    IF EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE table_schema = 'sage'
-          AND table_name   = 'incidents'
-          AND constraint_type = 'CHECK'
-          AND constraint_name = 'incidents_severity_check'
-    ) THEN
-        ALTER TABLE sage.incidents DROP CONSTRAINT incidents_severity_check;
-        ALTER TABLE sage.incidents
-            ADD CONSTRAINT incidents_severity_check
-            CHECK (severity IN ('info', 'warning', 'critical'));
-    END IF;
-
-    -- source: add log_deterministic, self_action, manual_review_required
-    IF EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE table_schema = 'sage'
-          AND table_name   = 'incidents'
-          AND constraint_type = 'CHECK'
-          AND constraint_name = 'incidents_source_check'
-    ) THEN
-        ALTER TABLE sage.incidents DROP CONSTRAINT incidents_source_check;
-        ALTER TABLE sage.incidents
-            ADD CONSTRAINT incidents_source_check
-            CHECK (source IN (
-                'deterministic', 'log_deterministic',
-                'self_action', 'manual_review_required', 'llm',
-                'schema_advisor', 'schema_lint', 'n_plus_one'
-            ));
-    END IF;
-
-    -- action_risk: add low, medium, high (Tier 2 values)
-    IF EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE table_schema = 'sage'
-          AND table_name   = 'incidents'
-          AND constraint_type = 'CHECK'
-          AND constraint_name = 'incidents_action_risk_check'
-    ) THEN
-        ALTER TABLE sage.incidents DROP CONSTRAINT incidents_action_risk_check;
-        ALTER TABLE sage.incidents
-            ADD CONSTRAINT incidents_action_risk_check
-            CHECK (action_risk IN (
-                'safe', 'moderate', 'high_risk',
-                'low', 'medium', 'high'
-            ) OR action_risk IS NULL);
-    END IF;
-END $$;`
-
-	if _, err := db.Exec(ctx, ddl); err != nil {
+	if _, err := db.Exec(ctx, ddlIncidentChecks()); err != nil {
 		return err
 	}
 	return migrateIncidentLifecycle(ctx, db)
+}
+
+// ddlIncidentChecks re-creates each existing constraint whose definition
+// does not name every value.
+func ddlIncidentChecks() string {
+	var b strings.Builder
+	b.WriteString("DO $$ BEGIN\n")
+	for _, c := range incidentCheckSpecs {
+		quoted := make([]string, 0, len(c.values))
+		names := make([]string, 0, len(c.values))
+		for _, v := range c.values {
+			quoted = append(quoted, sqlLiteral(v))
+			names = append(names, "strpos(pg_get_constraintdef(oid), "+
+				sqlLiteral(sqlLiteral(v))+") > 0")
+		}
+		check := c.column + " IN (" + strings.Join(quoted, ", ") + ")"
+		if c.nullable {
+			check += " OR " + c.column + " IS NULL"
+		}
+		fmt.Fprintf(&b, `    IF EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'sage.incidents'::regclass AND conname = '%[1]s')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'sage.incidents'::regclass AND conname = '%[1]s'
+                  AND %[2]s) THEN
+        ALTER TABLE sage.incidents DROP CONSTRAINT %[1]s;
+        ALTER TABLE sage.incidents ADD CONSTRAINT %[1]s CHECK (%[3]s);
+    END IF;
+`, c.name, strings.Join(names, " AND "), check)
+	}
+	b.WriteString("END $$;")
+	return b.String()
 }
 
 // ddlIncidentLifecycle adds the durable incident lifecycle columns

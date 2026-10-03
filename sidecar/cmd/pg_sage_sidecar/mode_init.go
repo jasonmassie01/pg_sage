@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -128,15 +127,6 @@ func buildDBConfig(name string) config.DatabaseConfig {
 		Database: cfg.Postgres.Database,
 		SSLMode:  cfg.Postgres.SSLMode,
 	}
-}
-
-// silenceSelfStats stops pg_stat_statements from recording pg_sage's own
-// monitoring queries on this connection. Best-effort: failures (e.g. a
-// non-superuser role on a managed provider) are ignored, leaving the
-// /* pg_sage */ query tag and self-monitoring filter as the fallback.
-func silenceSelfStats(ctx context.Context, c *pgx.Conn) error {
-	_, _ = c.Exec(ctx, "SET pg_stat_statements.track = 'none'")
-	return nil
 }
 
 // resolveExecutionMode returns the execution mode from config.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleToastHeavy struct{}
@@ -16,26 +16,10 @@ func (r *ruleToastHeavy) Severity() string { return "info" }
 func (r *ruleToastHeavy) Category() string { return "performance" }
 
 func (r *ruleToastHeavy) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
-	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
-	query := fmt.Sprintf(`
-SELECT n.nspname, c.relname,
-       pg_relation_size(c.reltoastrelid) AS toast_size,
-       pg_total_relation_size(c.oid)     AS total_size,
-       pg_relation_size(c.reltoastrelid)::float
-           / NULLIF(pg_total_relation_size(c.oid), 0) AS toast_ratio
-  FROM pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace
- WHERE c.relkind = 'r'
-   AND c.reltoastrelid <> 0
-   AND n.nspname NOT IN (%s)
-   AND pg_total_relation_size(c.oid) > 0
-   AND pg_relation_size(c.reltoastrelid)::float
-       / pg_total_relation_size(c.oid) > 0.5
- ORDER BY toast_size DESC`, excludeList)
-
-	rows, err := pool.Query(ctx, query)
+	query := toastHeavyQuery(schemaExcludeSQL(opts.ExcludeSchemas))
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleToastHeavy query: %w", err)
 	}
@@ -85,4 +69,32 @@ func (r *ruleToastHeavy) collect(rows interface {
 		return nil, fmt.Errorf("ruleToastHeavy rows: %w", err)
 	}
 	return findings, nil
+}
+
+// toastHeavyQuery ranks tables by TOAST share from relpages (as of the
+// last VACUUM): heap, TOAST and index pages. It used to call
+// pg_total_relation_size up to three times per table over the whole
+// catalog (551 ms on lifeos, and every relation opened in the backend).
+func toastHeavyQuery(excludeList string) string {
+	return fmt.Sprintf(`/* pg_sage lint:toast_heavy */
+WITH s AS (
+  SELECT n.nspname, c.relname,
+         t.relpages::int8 * current_setting('block_size')::int8 AS toast_size,
+         (c.relpages::int8 + t.relpages::int8 + COALESCE((
+             SELECT sum(ic.relpages)::int8 FROM pg_index i
+               JOIN pg_class ic ON ic.oid = i.indexrelid
+              WHERE i.indrelid IN (c.oid, t.oid)), 0))
+           * current_setting('block_size')::int8 AS total_size
+    FROM pg_class c
+    JOIN pg_class t ON t.oid = c.reltoastrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.relkind = 'r'
+     AND n.nspname NOT IN (%s)
+)
+SELECT nspname, relname, toast_size, total_size,
+       toast_size::float / total_size AS toast_ratio
+  FROM s
+ WHERE total_size > 0 AND toast_size::float / total_size > 0.5
+ ORDER BY toast_size DESC
+ LIMIT 200`, excludeList)
 }
