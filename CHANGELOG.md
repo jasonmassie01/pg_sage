@@ -2,22 +2,6 @@
 
 ## Unreleased
 
-### Added
-
-- **Safety fixes for EXPLAIN, LLM prompts, index drops and MCP (Phase 0).** `/explain` only
-  runs EXPLAIN ANALYZE when the query provably calls nothing with side effects (no volatile
-  functions such as `pg_terminate_backend` or `dblink`, also not inside views, no row locks or
-  data-modifying CTEs); otherwise it returns the plan without ANALYZE and says why. A zero or
-  negative `explain.timeout_ms` now means the default instead of no limit, plan-only and
-  ANALYZE results are cached separately, and a fallback after an LLM failure is cached for one
-  minute only. Text sent to the LLM is delimited and redacted more reliably (Unicode tag
-  tricks, `E''` strings, dollar quotes, plan JSON), the plan-regression narrator and action
-  justifier now use that protection, and the narrator no longer replaces a finding's
-  recommendation. `DROP INDEX` and `ALTER TABLE` run by pg_sage must name their schema, so a
-  search_path cannot steer them into `sage` or `pg_catalog`. With the MCP stdio transport the
-  daily briefing's stdout channel is written to stderr, and MCP now answers `ping`, ignores
-  notifications and returns tool results as `content` blocks.
-
 ### Changed (read before upgrading)
 
 - **pg_sage keeps its own data small and cleans it up without a DBA.** Its query
@@ -59,6 +43,126 @@
   `sequences`, `foreign_keys`, `locks`, `partitions`, `config_data`: read them with
   `/snapshots/latest`) and stops at 4 MB (`truncated`).
 
+### Fixed
+
+- **An index recommendation made before HypoPG was installed is now re-checked.** The
+  optimizer re-emits a table's open index recommendation instead of asking the LLM again,
+  but it kept the stored "unverified" verdict forever, so installing HypoPG later never
+  let pg_sage verify (and, with autonomy, build) the index: it waited for approval
+  indefinitely. An open unverified recommendation is now re-measured with HypoPG when it
+  is re-emitted: a measured gain makes it verified, no gain resolves it, and without
+  HypoPG nothing changes.
+
+- **pg_sage's own catalog reads no longer grow with the size of your database.** On a
+  database with 15,000 tables, 35,000 indexes and 12,000 sequences, each collector cycle used
+  to rebuild the table statistics view once per 1,000-row page, re-render every index
+  definition, stat() every table and index file, and hold one lock per sequence in a single
+  transaction (12,000 locks every minute: on a server with default lock settings that could
+  make other sessions fail with "out of shared memory"). Now table and index pages read
+  counters directly (about 5x faster per page in our tests), sizes come from the catalog's page
+  counts with exact sizes for the 100 largest tables and indexes, index definitions are read
+  again only when an index or its table changes, and sequences are read 1,000 at a time in
+  separate transactions (never more than a quarter of the lock table). The database size is
+  measured every 15 minutes instead of every minute and on every `/metrics` scrape, and a slow
+  size measurement no longer loses the whole snapshot. The tuner's stale-statistics check and
+  the TOAST lint rule stopped opening every table, so pg_sage's connections stay small. Every
+  read-only check pg_sage runs on your database (analyzer checks, the optimizer's table
+  context, the DDL risk assessment and all schema lint rules) now runs read-only under
+  `safety.query_timeout_ms`: a slow check is cut off and reported as not evaluated instead of
+  hanging the cycle.
+
+- **pg_sage no longer reads whole history tables to clean up or to find recent rows, and
+  a new performance gate keeps it that way.** A test now builds a large synthetic database
+  (5,000 tables, 15,000 indexes, 5,000 sequences, 150,000 rows in each of pg_sage's history
+  tables), runs pg_sage against it and fails if pg_sage scans a large `sage.*` table end to
+  end, runs a slow statement, writes rows per object instead of per change, or runs a catalog
+  query over 500 ms. Its first run found the work fixed here: the retention purges of
+  explain, alert, verification and resolved-finding history, the change-feed age-out, the
+  clean-up that runs when old actions and decisions are purged, and the check for due
+  verifications each read their whole table; they now use indexes (added automatically at
+  startup). Runway sampling and several Sage SRE windows bounded time in a way PostgreSQL
+  cannot use with an index; they now can. The dashboard's live-update check no longer runs
+  when no dashboard is open. The remaining findings (the live-update check while a dashboard
+  is open, the actions list, forecast history reads, the earned-autonomy reconcile and a
+  sequence catalog query) are listed in `reviews/2026-10-03-perf-gate-report.md` for the
+  next fix pass.
+
+- **Sage SRE, runway, earned autonomy and the analyzer read only what they need.** The
+  earned-autonomy reconcile, the autovacuum-cancellation probe, the verification watch
+  lookup and the investigations list each read their whole table on every pass; they now use
+  small indexes (added automatically at startup, one migration that checks the catalog
+  first). The startup migrations no longer scan `sage.incidents` or the autonomy events
+  when there is nothing to change. The analyzer's query-history check decoded every
+  snapshot of the lookback window on every cycle (224 ms on the performance gate); it now
+  decodes the first snapshot of each of at most 100 time buckets once and remembers it.
+  The forecaster decodes two snapshots per day once instead of every snapshot each cycle.
+  The plan-regression rule reads the newest two plans per query instead of every plan of
+  the week, and no longer stops on plans captured without an execution time. The
+  sequence-runway probe reads at most 2,000 sequences per statement and covers larger
+  catalogs in slices; the wraparound probe ranks tables before reading their statistics;
+  runway trends and the runway restart read one series at a time through the index. The
+  schema-health scan of `pg_attribute` runs only after a DDL change (checked every 5
+  minutes) or once an hour. SLO windows are computed from running totals stored with each
+  sample (a few index probes per series) instead of re-reading every sample every minute;
+  samples stored before the upgrade are still read the old way until they age out.
+
+- **pg_sage no longer counts its own sessions and statements as your workload.** Now that
+  pg_sage is visible in `pg_stat_statements`, every analysis that reads sessions or
+  statements leaves pg_sage's own out: the snapshot's active and idle-in-transaction
+  counts, locks, connection states and churn (now per database, also in fleet mode), the
+  load circuit breaker, lock chains and the Sage SRE lock graph, long-transaction, wait and
+  temp-spill evidence, the runaway detector's blocker counts, the DDL risk score, the
+  tuner's and the briefing's active sessions, auto_explain plans from the logs, and the
+  write-latency check that decides whether an action caused a regression (pg_sage's own
+  writes could trigger a rollback). Connection slots still count pg_sage, and pg_sage
+  still shows up when it holds a lock or the xmin horizon. Every withheld index build is
+  now counted: a failed record used to be dropped silently. `/value` reads only credited
+  actions through a new index, the actions list counts through the time index, the
+  app-managed-index check and RCA's rollback history read pg_sage's drops and rollbacks
+  through small indexes, retention checks verifications and credited actions by index
+  instead of reading those tables,
+  and SRE investigation updates are heap-only again (no index on `updated_at`). The
+  Findings and Actions pages show a capped total as "1000+" and load further pages.
+
+## v1.8.2 (2026-10-03) -- Safety first: reversible config, safe EXPLAIN, per-database trust, promote from the UI
+
+### What's new
+
+- **Config changes pg_sage makes are reversible and checked.** The prior value and real
+  rollback are captured, the effective value is read back, and success requires the targeted
+  metric to move. Settings and table options outside an allowlist become advice only.
+- **Safer SQL and LLM handling.** `/explain` only runs `ANALYZE` when the query provably has no
+  side effects; the prompt-injection guard and redaction were hardened; destructive DDL must be
+  schema-qualified; MCP stdio no longer gets corrupted by the briefing.
+- **Index advice you can trust.** HypoPG checks no longer fail open; gains are weighted by query
+  time; expression and partial indexes work (every partial index was rejected before); an
+  unverified optimizer index needs approval; live tenant schema families are never called
+  leftovers.
+- **Earned autonomy per database, and you can earn it from the UI.** Accept or reject
+  investigations, "Evaluate now", and a "Path to next level" panel. Only verified outcomes and a
+  person's reviews count.
+- **pg_sage stops flooding its own ledger.** The schema guard and policy gate write a decision
+  only when something changes (lifeos: ~38,000 rows/hour before), with the indexes and retention
+  that ledger needs.
+
+### Added
+
+- **Safety fixes for EXPLAIN, LLM prompts, index drops and MCP (Phase 0).** `/explain` only
+  runs EXPLAIN ANALYZE when the query provably calls nothing with side effects (no volatile
+  functions such as `pg_terminate_backend` or `dblink`, also not inside views, no row locks or
+  data-modifying CTEs); otherwise it returns the plan without ANALYZE and says why. A zero or
+  negative `explain.timeout_ms` now means the default instead of no limit, plan-only and
+  ANALYZE results are cached separately, and a fallback after an LLM failure is cached for one
+  minute only. Text sent to the LLM is delimited and redacted more reliably (Unicode tag
+  tricks, `E''` strings, dollar quotes, plan JSON), the plan-regression narrator and action
+  justifier now use that protection, and the narrator no longer replaces a finding's
+  recommendation. `DROP INDEX` and `ALTER TABLE` run by pg_sage must name their schema, so a
+  search_path cannot steer them into `sage` or `pg_catalog`. With the MCP stdio transport the
+  daily briefing's stdout channel is written to stderr, and MCP now answers `ping`, ignores
+  notifications and returns tool results as `content` blocks.
+
+### Changed (read before upgrading)
+
 - **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
   grows too big.** The collector used to store the full list of every table, index,
   sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal
@@ -93,23 +197,6 @@
 
 ### Fixed
 
-- **pg_sage's own catalog reads no longer grow with the size of your database.** On a
-  database with 15,000 tables, 35,000 indexes and 12,000 sequences, each collector cycle used
-  to rebuild the table statistics view once per 1,000-row page, re-render every index
-  definition, stat() every table and index file, and hold one lock per sequence in a single
-  transaction (12,000 locks every minute: on a server with default lock settings that could
-  make other sessions fail with "out of shared memory"). Now table and index pages read
-  counters directly (about 5x faster per page in our tests), sizes come from the catalog's page
-  counts with exact sizes for the 100 largest tables and indexes, index definitions are read
-  again only when an index or its table changes, and sequences are read 1,000 at a time in
-  separate transactions (never more than a quarter of the lock table). The database size is
-  measured every 15 minutes instead of every minute and on every `/metrics` scrape, and a slow
-  size measurement no longer loses the whole snapshot. The tuner's stale-statistics check and
-  the TOAST lint rule stopped opening every table, so pg_sage's connections stay small. Every
-  read-only check pg_sage runs on your database (analyzer checks, the optimizer's table
-  context, the DDL risk assessment and all schema lint rules) now runs read-only under
-  `safety.query_timeout_ms`: a slow check is cut off and reported as not evaluated instead of
-  hanging the cycle.
 - **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
   sidecar's entry point, the core of the action executor and the API router were split
   into smaller files, one per job, so each file and function stays within the project's
@@ -169,58 +256,6 @@
     exist: `idx_decision_schema_guard_targets`, `created_at`, and every foreign key into
     or out of `sage.decision`. On a very large existing ledger, create them
     `CONCURRENTLY` by hand first (see the review report for the statements).
-
-- **pg_sage no longer reads whole history tables to clean up or to find recent rows, and
-  a new performance gate keeps it that way.** A test now builds a large synthetic database
-  (5,000 tables, 15,000 indexes, 5,000 sequences, 150,000 rows in each of pg_sage's history
-  tables), runs pg_sage against it and fails if pg_sage scans a large `sage.*` table end to
-  end, runs a slow statement, writes rows per object instead of per change, or runs a catalog
-  query over 500 ms. Its first run found the work fixed here: the retention purges of
-  explain, alert, verification and resolved-finding history, the change-feed age-out, the
-  clean-up that runs when old actions and decisions are purged, and the check for due
-  verifications each read their whole table; they now use indexes (added automatically at
-  startup). Runway sampling and several Sage SRE windows bounded time in a way PostgreSQL
-  cannot use with an index; they now can. The dashboard's live-update check no longer runs
-  when no dashboard is open. The remaining findings (the live-update check while a dashboard
-  is open, the actions list, forecast history reads, the earned-autonomy reconcile and a
-  sequence catalog query) are listed in `reviews/2026-10-03-perf-gate-report.md` for the
-  next fix pass.
-
-- **Sage SRE, runway, earned autonomy and the analyzer read only what they need.** The
-  earned-autonomy reconcile, the autovacuum-cancellation probe, the verification watch
-  lookup and the investigations list each read their whole table on every pass; they now use
-  small indexes (added automatically at startup, one migration that checks the catalog
-  first). The startup migrations no longer scan `sage.incidents` or the autonomy events
-  when there is nothing to change. The analyzer's query-history check decoded every
-  snapshot of the lookback window on every cycle (224 ms on the performance gate); it now
-  decodes the first snapshot of each of at most 100 time buckets once and remembers it.
-  The forecaster decodes two snapshots per day once instead of every snapshot each cycle.
-  The plan-regression rule reads the newest two plans per query instead of every plan of
-  the week, and no longer stops on plans captured without an execution time. The
-  sequence-runway probe reads at most 2,000 sequences per statement and covers larger
-  catalogs in slices; the wraparound probe ranks tables before reading their statistics;
-  runway trends and the runway restart read one series at a time through the index. The
-  schema-health scan of `pg_attribute` runs only after a DDL change (checked every 5
-  minutes) or once an hour. SLO windows are computed from running totals stored with each
-  sample (a few index probes per series) instead of re-reading every sample every minute;
-  samples stored before the upgrade are still read the old way until they age out.
-- **pg_sage no longer counts its own sessions and statements as your workload.** Now that
-  pg_sage is visible in `pg_stat_statements`, every analysis that reads sessions or
-  statements leaves pg_sage's own out: the snapshot's active and idle-in-transaction
-  counts, locks, connection states and churn (now per database, also in fleet mode), the
-  load circuit breaker, lock chains and the Sage SRE lock graph, long-transaction, wait and
-  temp-spill evidence, the runaway detector's blocker counts, the DDL risk score, the
-  tuner's and the briefing's active sessions, auto_explain plans from the logs, and the
-  write-latency check that decides whether an action caused a regression (pg_sage's own
-  writes could trigger a rollback). Connection slots still count pg_sage, and pg_sage
-  still shows up when it holds a lock or the xmin horizon. Every withheld index build is
-  now counted: a failed record used to be dropped silently. `/value` reads only credited
-  actions through a new index, the actions list counts through the time index, the
-  app-managed-index check and RCA's rollback history read pg_sage's drops and rollbacks
-  through small indexes, retention checks verifications and credited actions by index
-  instead of reading those tables,
-  and SRE investigation updates are heap-only again (no index on `updated_at`). The
-  Findings and Actions pages show a capped total as "1000+" and load further pages.
 
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 

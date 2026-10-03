@@ -13,13 +13,31 @@ import (
 // G3-B12). hasOpen reports whether any exists, which suppresses a new
 // LLM call; the returned recommendations are the still-valid, not yet
 // acted-on candidates to re-emit so the analyzer does not resolve them.
+// The rows are read before any is reloaded: a reload may run a what-if
+// session, which needs a connection of its own.
 func (o *Optimizer) openRecommendations(
 	ctx context.Context, tc TableContext,
 ) (recs []Recommendation, hasOpen bool) {
 	if o.pool == nil {
 		return nil, false
 	}
-	table := tc.Schema + "." + tc.Table
+	stored, hasOpen := o.loadOpenFindings(ctx, tc.Schema+"."+tc.Table)
+	for _, f := range stored {
+		if rec, ok := o.reloadRecommendation(ctx, f.detail, tc); ok {
+			rec.Severity = f.severity
+			recs = append(recs, rec)
+		}
+	}
+	return recs, hasOpen
+}
+
+// openFinding is one stored, not yet acted-on optimizer finding.
+type openFinding struct{ detail, severity string }
+
+// loadOpenFindings reads the table's open optimizer findings; hasOpen
+// counts acted-on ones too.
+func (o *Optimizer) loadOpenFindings(ctx context.Context, table string) (
+	[]openFinding, bool) {
 	rows, err := o.pool.Query(ctx, `/* pg_sage */
 		SELECT detail::text, severity, acted_on_at IS NOT NULL
 		FROM sage.findings
@@ -32,23 +50,24 @@ func (o *Optimizer) openRecommendations(
 		return nil, false
 	}
 	defer rows.Close()
+	var out []openFinding
+	hasOpen := false
 	for rows.Next() {
-		var detail, severity string
+		var f openFinding
 		var acted bool
-		if err := rows.Scan(&detail, &severity, &acted); err != nil {
+		if err := rows.Scan(&f.detail, &f.severity, &acted); err != nil {
 			o.logFn("optimizer", "scan open recommendation for %s: %v", table, err)
 			return nil, hasOpen
 		}
 		hasOpen = true
-		if rec, ok := o.reloadRecommendation(ctx, detail, tc); ok && !acted {
-			rec.Severity = severity
-			recs = append(recs, rec)
+		if !acted {
+			out = append(out, f)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		o.logFn("optimizer", "open recommendations rows for %s: %v", table, err)
 	}
-	return recs, hasOpen
+	return out, hasOpen
 }
 
 // persistedRec mirrors the Detail keys written by the analyzer mapping.
@@ -96,7 +115,35 @@ func (o *Optimizer) reloadRecommendation(
 			return rec, false
 		}
 	}
+	if rec.WhatIf != WhatIfVerified {
+		return o.reverify(ctx, rec, tc)
+	}
 	return rec, true
+}
+
+// reverify re-runs the what-if check on a reloaded unverified candidate
+// once HypoPG can measure it (it was missing, or an older release never
+// evaluated the candidate), so it becomes verified and may act
+// autonomously, or is rejected and not re-emitted (the analyzer then
+// resolves it). Without HypoPG the stored verdict and reason stand. A
+// verified candidate is never re-evaluated here.
+func (o *Optimizer) reverify(
+	ctx context.Context, rec Recommendation, tc TableContext,
+) (Recommendation, bool) {
+	if o.whatIf == nil || !o.whatIf.IsAvailable(ctx) {
+		return rec, true
+	}
+	checked, rejected := o.enrichWithHypoPG(ctx, rec, tc)
+	switch {
+	case rejected:
+		o.logFn("optimizer", "dropping open %s on %s: %s",
+			rec.DDL, tc.Schema+"."+tc.Table, checked.WhatIfReason)
+		return checked, false
+	case checked.WhatIf == WhatIfVerified:
+		o.logFn("optimizer", "open %s on %s is now verified by HypoPG (%.0f%% better)",
+			rec.DDL, tc.Schema+"."+tc.Table, checked.EstimatedImprovementPct)
+	}
+	return checked, true
 }
 
 // reloadedVerdict restores a stored verdict. Verified requires both the
