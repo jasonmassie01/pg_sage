@@ -55,7 +55,8 @@ func (e *Executor) processFinding(
 	// Anti-oscillation: an object that keeps reverting externally stops
 	// being re-applied.
 	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
-		e.exceedsOscillationLimit(ctx, f, findingID) {
+		e.exceedsOscillationLimit(ctx, f, findingID) ||
+		e.parkedWithhold(ctx, f, findingID) {
 		return
 	}
 	// The revision's evidence is immutable; the gate needs the current one.
@@ -205,6 +206,7 @@ func (e *Executor) runAuthorizedFinding(
 		}
 		if err != nil {
 			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v", f.Title, err)
+			markContentBoundWithhold(f, beforeState)
 			return e.logRefusedAction(ctx, f, findingID, beforeState, decisionID, err)
 		}
 	}
