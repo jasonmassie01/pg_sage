@@ -50,6 +50,8 @@ type Cleaner struct {
 	capBytes int64
 	// conv converts plain history tables in the background (convert.go).
 	conv *conversions
+	// notes rate-limits the size cap's warnings (cap_notes.go).
+	notes *capNotes
 }
 
 // New creates a new retention Cleaner.
@@ -59,7 +61,7 @@ func New(
 	logFn func(string, string, ...any),
 ) *Cleaner {
 	return &Cleaner{pool: pool, cfg: cfg, logFn: logFn, pause: defaultPause,
-		budget: defaultRunBudget, conv: &conversions{}}
+		budget: defaultRunBudget, conv: &conversions{}, notes: &capNotes{}}
 }
 
 // WithControlPool prunes the control-database tables (controlTables) in
@@ -92,7 +94,6 @@ type RunStats struct {
 	Batches     map[string]int   // purge statements per table
 	Statements  int              // purge statements in all
 	Dropped     []string         // partitions dropped
-	Truncated   []string         // partitions truncated
 	Deferred    []string         // tables left for the next run (budget spent)
 	BudgetSpent bool
 	Elapsed     time.Duration
@@ -100,6 +101,13 @@ type RunStats struct {
 
 func newRunStats() RunStats {
 	return RunStats{Deleted: map[string]int64{}, Batches: map[string]int{}}
+}
+
+// count records one delete statement on table that removed n rows.
+func (s *RunStats) count(table string, n int64) {
+	s.Statements++
+	s.Batches[table]++
+	s.Deleted[table] += n
 }
 
 // Run starts the due background conversions of plain history tables
