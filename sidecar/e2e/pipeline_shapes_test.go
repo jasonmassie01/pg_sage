@@ -29,9 +29,12 @@ import (
 )
 
 // executedOutcomes are the outcomes that mean "the SQL ran": actions with
-// rollback SQL go straight into the monitoring window, others log success.
+// rollback SQL go straight into the monitoring window; the others are
+// verified at once (Phase 1.3) and end success (improved or neutral) or
+// unverifiable (ran, effect not measurable, e.g. no dead tuples in the
+// statistics yet). Before Phase 1.3 they were marked success unverified.
 func isExecutedOutcome(outcome string) bool {
-	return outcome == "success" || outcome == "monitoring"
+	return outcome == "success" || outcome == "monitoring" || outcome == "unverifiable"
 }
 
 func TestPipelineCoverage_SQLShapes(t *testing.T) {
