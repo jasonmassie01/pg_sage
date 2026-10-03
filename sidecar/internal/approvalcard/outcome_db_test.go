@@ -3,6 +3,7 @@ package approvalcard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -98,7 +99,7 @@ func TestReadOutcomeUsesTheVerificationVerdict(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.decision (feature, intent,
 		target_objects, verdict, risk_tier, reason, evidence, evidence_id)
 		VALUES ('optimizer', 'x', '[]', 'execute', 'moderate', 'authorized', '{}',
-		'ev-verify-' || $1::text) RETURNING id`, id).Scan(&decisionID); err != nil {
+		$1) RETURNING id`, fmt.Sprintf("ev-verify-%d", id)).Scan(&decisionID); err != nil {
 		t.Fatal(err)
 	}
 	var vID int64

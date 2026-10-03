@@ -52,7 +52,7 @@ func TestParseSlackCardRejectsBadTokens(t *testing.T) {
 	}
 }
 
-func telegramUpdate(data string) []byte {
+func cardTelegramUpdate(data string) []byte {
 	raw, _ := json.Marshal(map[string]any{"update_id": 77,
 		"callback_query": map[string]any{"id": "cbq-1",
 			"from":    map[string]any{"id": 4242, "username": "bob"},
@@ -70,7 +70,7 @@ func TestParseTelegramCardDecisions(t *testing.T) {
 		if len(data) > 64 {
 			t.Fatalf("callback data %q exceeds Telegram's 64 bytes", data)
 		}
-		got, err := ParseTelegram(telegramUpdate(data))
+		got, err := ParseTelegram(cardTelegramUpdate(data))
 		if err != nil {
 			t.Fatalf("%s: %v", d, err)
 		}
@@ -91,7 +91,7 @@ func TestParseTelegramCardRejectsMalformed(t *testing.T) {
 		"wrong prefix":  "card:ca:" + cardToken,
 		"proposal verb": "sage:a:" + cardToken,
 	} {
-		if _, err := ParseTelegram(telegramUpdate(data)); !errors.Is(err, ErrMalformed) {
+		if _, err := ParseTelegram(cardTelegramUpdate(data)); !errors.Is(err, ErrMalformed) {
 			t.Errorf("%s: err = %v, want ErrMalformed", name, err)
 		}
 	}

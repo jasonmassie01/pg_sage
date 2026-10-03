@@ -67,7 +67,7 @@ func TestApprovalCardRequestErrors(t *testing.T) {
 		{"/api/v1/approvals/-4?database=orders", http.StatusBadRequest},
 		{"/api/v1/approvals/987654321?database=orders", http.StatusNotFound},
 		{fmt.Sprintf("/api/v1/approvals/%d?database=nope", fx.queueID), http.StatusNotFound},
-		{fmt.Sprintf("/api/v1/approvals/%d?database=bad;name", fx.queueID),
+		{fmt.Sprintf("/api/v1/approvals/%d?database=bad%%20name", fx.queueID),
 			http.StatusBadRequest},
 		{"/api/v1/approvals?database=nope", http.StatusNotFound},
 	}

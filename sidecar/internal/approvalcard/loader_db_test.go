@@ -2,6 +2,7 @@ package approvalcard
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestLoaderCardFromTheDatabase(t *testing.T) {
 		target_objects, verdict, risk_tier, reason, guardrails, evidence, evidence_id,
 		queue_id) VALUES ('optimizer', 'create_index', '["public.orders"]',
 		'queue_approval', 'moderate', 'trust_ramp_not_satisfied', '["approval_required"]',
-		'{}', 'ev-loader-' || $1::text, $1) RETURNING id`, queueID).
+		'{}', $2, $1) RETURNING id`, queueID, fmt.Sprintf("ev-loader-%d", queueID)).
 		Scan(&decisionID); err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +114,8 @@ func TestLinkedDecisionIsTheNewest(t *testing.T) {
 		if _, err := pool.Exec(ctx, `INSERT INTO sage.decision (feature, intent,
 			target_objects, verdict, risk_tier, reason, evidence, evidence_id, queue_id)
 			VALUES ('optimizer', 'x', '[]', 'queue_approval', 'moderate', $1, '{}',
-			'ev-newest-' || $2::text || '-' || $3::text, $2)`,
-			reason, queueID, i); err != nil {
+			$3, $2)`,
+			reason, queueID, fmt.Sprintf("ev-newest-%d-%d", queueID, i)); err != nil {
 			t.Fatal(err)
 		}
 	}
