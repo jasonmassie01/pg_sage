@@ -51,7 +51,7 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 		if stmt.GetAlterTableStmt().GetRelation().GetSchemaname() == "" {
 			return reject("ALTER TABLE target must be schema-qualified")
 		}
-		return checkAlterTable(stmt.GetAlterTableStmt())
+		return checkAlterTable(stmt.GetAlterTableStmt(), rules)
 	case stmt.GetAlterSystemStmt() != nil:
 		return checkSetting("ALTER SYSTEM",
 			stmt.GetAlterSystemStmt().GetSetstmt(), rules.SystemParam)

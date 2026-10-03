@@ -74,6 +74,7 @@ func newRecFixture(t *testing.T, sqlTemplate string, verdict policy.Verdict) *re
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = fx.exec.Shutdown(sctx)
+		closeTestMonitors(t, pool, sql)
 	})
 	return fx
 }
@@ -126,10 +127,31 @@ func statesOf(t *testing.T, fx *recFixture, id int64) []recommendation.Transitio
 	return history
 }
 
+// waitActionSettled waits for the rollback monitor to leave 'monitoring'.
+func waitActionSettled(t *testing.T, fx *recFixture, actionID int64) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var outcome string
+		if err := fx.pool.QueryRow(fx.ctx, `SELECT outcome FROM sage.action_log
+			WHERE id=$1`, actionID).Scan(&outcome); err != nil {
+			t.Fatal(err)
+		}
+		if outcome != "monitoring" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("action %d still monitoring", actionID)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // C07: a recommendation proposed in an earlier cycle is acted on from the
 // durable queue even though the analyzer's memory no longer holds it.
 func TestRunCycleActsOnDurableRecommendationC07(t *testing.T) {
 	fx := newRecFixture(t, autovacuumProbe2, policy.VerdictExecute)
+	fx.exec.cfg.Trust.RollbackWindowMinutes = 0 // judge the outcome at once
 	rec := fx.propose(t)
 
 	fx.exec.RunCycle(fx.ctx, false)
@@ -158,16 +180,24 @@ func TestRunCycleActsOnDurableRecommendationC07(t *testing.T) {
 	if !strings.HasPrefix(history[1].Actor, "policy:") {
 		t.Fatalf("autonomous approval actor = %q, want policy:*", history[1].Actor)
 	}
+	// G-P0-1: a reloption change is credited only when its targeted metric
+	// (dead tuples after autovacuum runs) improves. Nothing vacuums this
+	// probe table, so the monitor ends it unverifiable and the durable
+	// recommendation ends inconclusive, never verified (the old "completes
+	// at once" premise of this probe no longer holds by design).
+	waitActionSettled(t, fx, *got.ActionLogID)
 	fx.exec.RunCycle(fx.ctx, false)
-	if got := fx.get(t, rec.ID); got.State != recommendation.StateVerified {
-		t.Fatalf("after the action succeeded: state=%s, want verified", got.State)
+	if got := fx.get(t, rec.ID); got.State != recommendation.StateInconclusive ||
+		got.Verdict != "unverifiable" {
+		t.Fatalf("after the monitor: state=%s verdict=%q, want inconclusive/unverifiable",
+			got.State, got.Verdict)
 	}
 	if n := fx.actionRows(t); n != 1 {
 		t.Fatalf("%d action rows for one recommendation, want 1", n)
 	}
 }
 
-// autovacuumProbe2 has no inverse SQL, so the action completes at once.
+// autovacuumProbe2's rollback is captured at apply time (G-P0-1).
 const autovacuumProbe2 = "ALTER TABLE public.{table} SET (autovacuum_vacuum_scale_factor = 0.03)"
 
 func TestRunCycleSupersedesWhenFindingClosed(t *testing.T) {

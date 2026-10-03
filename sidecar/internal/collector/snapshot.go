@@ -111,6 +111,9 @@ type IndexStats struct {
 	// IndexRelID is the index's oid: a dropped and recreated index under
 	// the same name is a new object. Zero when unknown (legacy rows).
 	IndexRelID uint32 `json:"indexrelid"`
+	// LastIdxScan is pg_stat_user_indexes.last_idx_scan (PG16+): when the
+	// index was last scanned. Nil before PG16 or when never scanned.
+	LastIdxScan *time.Time `json:"last_idx_scan,omitempty"`
 }
 
 // ForeignKey describes a foreign key constraint.

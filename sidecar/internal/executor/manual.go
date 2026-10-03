@@ -88,6 +88,8 @@ type manualRun struct {
 	covered bool
 	// claim is the recommendation this action applies, when there is one.
 	claim *recommendation.Claim
+	// config is the captured prior state of a config change (G-P0-1).
+	config *configChange
 }
 
 // execute claims the recommendation the operator's SQL applies (the
@@ -123,6 +125,9 @@ func (r *manualRun) run(
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
+	if err := r.prepareConfig(ctx, beforeState); err != nil {
+		return 0, err
+	}
 	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID, r.claim)
@@ -138,7 +143,9 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 		return nil
 	}
 	r.executor.notifyPostDDL(ctx, r.sql)
-	r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+	if r.executor.settleConfigChange(ctx, actionID, r.config) {
+		r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+	}
 	return nil
 }
 

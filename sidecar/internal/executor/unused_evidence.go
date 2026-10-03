@@ -20,6 +20,8 @@ type unusedEvidence struct {
 	matches int       // indexes with that schema-qualified name
 	scans   int64     // their idx_scan
 	epoch   time.Time // the database's relation stats epoch; zero if unknown
+	// lastScan is last_idx_scan (PG16+); nil before PG16 or never scanned.
+	lastScan *time.Time
 }
 
 // unusedEvidenceSQL reads, for one "schema.index", the index's scans and
@@ -32,7 +34,10 @@ const unusedEvidenceSQL = `/* pg_sage */ SELECT
     WHERE s.schemaname || '.' || s.indexrelname = $1),
   (SELECT GREATEST(COALESCE(d.stats_reset, '-infinity'::timestamptz),
                    pg_postmaster_start_time())
-     FROM pg_stat_database d WHERE d.datname = current_database())`
+     FROM pg_stat_database d WHERE d.datname = current_database()),
+  -- last_idx_scan exists from PG16; read by name so older servers get NULL.
+  (SELECT max((to_jsonb(s) ->> 'last_idx_scan')::timestamptz) FROM pg_stat_all_indexes s
+    WHERE s.schemaname || '.' || s.indexrelname = $1)`
 
 type rowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -44,7 +49,7 @@ func readUnusedEvidence(ctx context.Context, q rowQuerier, ident string) (
 	var ev unusedEvidence
 	var epoch *time.Time
 	if err := q.QueryRow(ctx, unusedEvidenceSQL, ident).
-		Scan(&ev.matches, &ev.scans, &epoch); err != nil {
+		Scan(&ev.matches, &ev.scans, &epoch, &ev.lastScan); err != nil {
 		return unusedEvidence{}, fmt.Errorf("read unused-index evidence for %s: %w", ident, err)
 	}
 	if epoch != nil {
@@ -54,14 +59,17 @@ func readUnusedEvidence(ctx context.Context, q rowQuerier, ident string) (
 }
 
 // broken returns why the evidence does not support a drop at now, or "".
-// It holds when the index exists exactly once, has zero scans, and the
-// statistics have run, without a reset, for at least the window.
+// It holds when the index exists exactly once and either has zero scans
+// while the statistics have run, without a reset, for at least the window,
+// or (PG16+) was last scanned at least one window ago (G-P0-12).
 func (u unusedEvidence) broken(now time.Time, window time.Duration) string {
 	switch {
 	case u.matches == 0:
 		return "index not found"
 	case u.matches > 1:
 		return "index name is ambiguous"
+	case u.scans > 0 && u.lastScan != nil && now.Sub(*u.lastScan) >= window:
+		return "" // last scanned a full window ago: durable unused evidence
 	case u.scans > 0:
 		return fmt.Sprintf("index was scanned (%d scans)", u.scans)
 	case u.epoch.IsZero():

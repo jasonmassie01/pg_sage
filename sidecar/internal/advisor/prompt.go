@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 const maxAdvisorPromptChars = 16384
@@ -82,9 +83,9 @@ func parseLLMFindings(
 			oid := objID
 			title := fmt.Sprintf("%s recommendation for %s", category, objID)
 			if multi {
-				if param, _, ok := parseAlterSystemSet(stmt); ok {
-					oid = objID + ":" + param
-					title = fmt.Sprintf("%s: set %s", category, param)
+				if set, ok := pgconf.ParseAlterSystem(stmt); ok && !set.Reset {
+					oid = objID + ":" + set.Name
+					title = fmt.Sprintf("%s: set %s", category, set.Name)
 				}
 			}
 
@@ -101,7 +102,7 @@ func parseLLMFindings(
 			})
 		}
 	}
-	return findings
+	return applyConfigAllowlist(findings)
 }
 
 // splitSQLStatements splits a recommendation into individual statements,

@@ -33,3 +33,11 @@ func TestRequiresRestart_Unknown(t *testing.T) {
 		t.Fatal("expected unknown setting to not require restart")
 	}
 }
+
+// G-P0-1: autovacuum_max_workers is postmaster-context before PG18; the
+// old advisor list missed it, so a restart-only change looked reloadable.
+func TestRequiresRestart_AutovacuumMaxWorkers(t *testing.T) {
+	if !RequiresRestart("autovacuum_max_workers") {
+		t.Error("autovacuum_max_workers should require restart")
+	}
+}

@@ -32,6 +32,16 @@
   `sage_footprint` finding warns when pg_sage's own tables pass
   `retention.sage_size_warning_pct` percent of the database (default 10, `0` turns it off).
 
+- **Config changes are reversible and checked, not assumed.** When pg_sage applies an
+  LLM-proposed setting or table storage parameter, it first records the old value and the
+  exact SQL to put it back, then reads the setting back after the reload. A change that did
+  not take effect is undone and marked failed; one that needs a restart is marked as such.
+  It is only counted as a success when the thing it was meant to fix measurably improved
+  (fewer temp-file spills, fewer dead rows, more HOT updates); otherwise it is
+  "unverifiable". Only allowlisted settings run; anything else, including turning
+  autovacuum off, stays advice. Unused-index drops now use `last_idx_scan` (PG16+) and are
+  never automatic on a database with replicas, whose index use pg_sage cannot see.
+
 ### Fixed
 
 - **Internal cleanup of the sidecar's largest files, with no change in behavior.** The

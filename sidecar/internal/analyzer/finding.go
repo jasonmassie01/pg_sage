@@ -10,6 +10,12 @@ import (
 
 const actionResolutionReopenGrace = "2 minutes"
 
+// DetailApprovalRequired is the Detail key a producer sets (to a
+// human-readable reason) when a finding's SQL may run only with operator
+// approval, never unattended: e.g. an index drop while standby usage is
+// unknown, or a restart-required setting. The executor enforces it.
+const DetailApprovalRequired = "approval_required"
+
 // Finding represents a single diagnostic finding from the rules engine.
 type Finding struct {
 	Category         string
