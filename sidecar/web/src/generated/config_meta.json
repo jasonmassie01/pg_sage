@@ -1884,6 +1884,12 @@
     "default": 1,
     "doc": "Active calibrated toil-model version."
   },
+  "verify.drop_window_hours": {
+    "type": "int",
+    "default": 168,
+    "doc": "Hours an index drop is verified for (its business cycle), 1-8760. The dropped index definition is kept and re-created on the first miss inside the window. Default: 168 (7 days).",
+    "warning": "A shorter window can miss a weekly or monthly job that needs the index; the sidecar warns at startup."
+  },
   "verify.io_baseline_days": {
     "type": "int",
     "default": 7,

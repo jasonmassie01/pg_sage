@@ -108,6 +108,9 @@ func (c *Config) validateElevation() error {
 		return fmt.Errorf("trust.ramp_moderate_hours (%d) must be at least "+
 			"trust.ramp_safe_hours (%d)", t.RampModerateHours, t.RampSafeHours)
 	}
+	if err := c.Verify.validateDropWindow(); err != nil {
+		return err
+	}
 	h := c.Verify.IOBaselineHours
 	if h < 0 || h > maxElevationHours {
 		return fmt.Errorf("verify.io_baseline_hours must be 0 (use io_baseline_days) "+
