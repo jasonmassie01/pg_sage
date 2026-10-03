@@ -400,7 +400,8 @@ func migrationStatements() []string {
 		ddlPerfIndexes,
 		ddlSREPerf(),
 		ddlAPIListIndexes(),
-		ddlSelfExclIndexes())
+		ddlSelfExclIndexes(),
+		ddlGuardHistoryIndexes())
 }
 
 // ---------------------------------------------------------------------------
