@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The blast-radius limit now holds at its configured number of tables.** pg_sage counted
+  the tables its own changes had touched in the last 24 hours without the table the next
+  change would touch, so `max_tables_per_window: 20` let a 21st table through. An index
+  advice also counted as a table of its own next to its table. The count now includes the
+  next change's table and counts index advice as its table, so a second change on an
+  already counted table no longer uses up the limit. On lifeos, a verified index on
+  `public.events` was held back by this limit: 21 tables were counted, mostly index drops
+  in leftover `test_*` schemas. Such an index runs once the window has room for its table,
+  and then closes its outdated approval request. Until then the decision log records why
+  it waits (`blast_radius_exceeded`).
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new
