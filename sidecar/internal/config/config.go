@@ -189,6 +189,9 @@ type AnalyzerConfig struct {
 
 	// Schema guard post-DDL debounce: see schema_guard.go.
 	SchemaGuardDDLDebounceSeconds int `yaml:"schema_guard_ddl_debounce_seconds" doc:"After pg_sage's own DDL, the schema guard re-scans the schema at most once per this many seconds (DDL bursts are coalesced into one extra scan). 0 uses the default. Range 0-3600. Default: 60."`
+
+	// SelfCostBudgetMs: see self_cost.go.
+	SelfCostBudgetMs int `yaml:"self_cost_budget_ms" doc:"Raise a sage_self_cost finding when pg_sage's own statements use more than this many ms of database time per collector cycle. 0 disables the finding. Range 0-3600000. Default: 3000."`
 }
 
 type SafetyConfig struct {
@@ -704,6 +707,9 @@ func (c *Config) validate() error {
 	if err := c.Retention.validateSageFootprint(); err != nil {
 		return err
 	}
+	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
@@ -784,6 +790,7 @@ func newDefaults() *Config {
 			WorkMemPromotionThreshold:    DefaultAnalyzerWorkMemPromotionThreshold,
 
 			SchemaGuardDDLDebounceSeconds: DefaultSchemaGuardDDLDebounceSeconds,
+			SelfCostBudgetMs:              DefaultSelfCostBudgetMs,
 			LockChain: LockChainConfig{
 				Enabled:                  true,
 				MinBlockedThreshold:      DefaultLockChainMinBlocked,

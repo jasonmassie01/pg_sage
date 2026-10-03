@@ -23,6 +23,7 @@ collector:
 analyzer:
   interval_seconds: 600    # How often to run the rules engine
   slow_query_threshold_ms: 1000
+  self_cost_budget_ms: 3000  # finding when pg_sage itself uses more DB time per collector cycle; 0 = off
   seq_scan_min_rows: 100000
   unused_index_window_days: 30  # Built-in default is 7; 30 recommended for prod
   index_bloat_threshold_pct: 30
