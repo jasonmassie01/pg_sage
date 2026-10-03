@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
@@ -58,11 +59,12 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	rows, err := a.pool.Query(ctx,
 		`/* pg_sage */ SELECT pid, usename, application_name, state,
-		        now() - state_change AS idle_duration
+		        (now() - state_change)::text AS idle_duration
 		 FROM pg_stat_activity
 		 WHERE state = 'idle in transaction'
 		   AND now() - state_change > make_interval(mins => $1)
-		   AND pid != pg_backend_pid()`,
+		   AND pid != pg_backend_pid()
+		   AND `+selfmonitor.ActivityExclusionSQL(""),
 		a.cfg.Analyzer.IdleInTxTimeoutMinutes,
 	)
 	if err != nil {
