@@ -31,7 +31,8 @@ func runPerfRuntime(
 	t.Helper()
 	preserveParityGlobals(t, perfConfig(t, dsn, timing))
 	cfg.Mode = "standalone"
-	trackPerfSelfStats(t)
+	// pg_sage no longer silences pg_stat_statements on its own sessions
+	// (perf v1.8.3): the gate measures the shipped behaviour as is.
 	logs := capturePerfLogs(t)
 	session := perfAPISession(t, ctx, harness)
 	monitored, err := connectMonitoredDB(dsn, cfg.Postgres.MaxConnections)
@@ -85,19 +86,6 @@ func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config
 		SSLMode: "disable", MaxConnections: 6,
 	}
 	return c
-}
-
-// trackPerfSelfStats keeps pg_stat_statements tracking pg_sage's own
-// sessions. Production silences them (silenceSelfStats) so pg_sage does not
-// crowd the operator's workload view; the gate must see them.
-func trackPerfSelfStats(t *testing.T) {
-	t.Helper()
-	old := silenceSelfStats
-	silenceSelfStats = func(ctx context.Context, c *pgx.Conn) error {
-		_, err := c.Exec(ctx, "SET pg_stat_statements.track = 'top'")
-		return err
-	}
-	t.Cleanup(func() { silenceSelfStats = old })
 }
 
 func readPerfCounters(

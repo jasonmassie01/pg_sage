@@ -1071,10 +1071,11 @@ func TestCoverage_ParseFindingFilters_AllProvided(t *testing.T) {
 
 func TestCoverage_SnapshotHistory_AllValidMetrics(t *testing.T) {
 	r := testRouter("db1")
+	// Per-object categories (tables, indexes, queries, sequences,
+	// foreign_keys, locks, partitions, config_data) are refused for
+	// history since v1.8.3: TestSnapshotHistory_RejectsPerObjectCategories.
 	metrics := []string{
-		"tables", "indexes", "queries", "sequences",
-		"foreign_keys", "system", "io", "locks",
-		"config_data", "partitions",
+		"system", "io", "replication",
 		"cache_hit_ratio", "connections", "tps",
 		"dead_tuples", "database_size", "replication_lag",
 	}

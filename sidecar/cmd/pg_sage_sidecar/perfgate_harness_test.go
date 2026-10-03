@@ -128,6 +128,11 @@ func perfRouter(t *testing.T) http.Handler {
 			Store    *store.ActionStore
 			Executor *executor.Executor
 		}{Store: actionStore, Executor: exec}}).Handler
+	// PG_SAGE_PERF_LIVE_SUBSCRIBER=0 measures a run with no dashboard open
+	// (the live-update poll must then cost nothing at all).
+	if os.Getenv("PG_SAGE_PERF_LIVE_SUBSCRIBER") == "0" {
+		return router
+	}
 	events, unsubscribe := api.DefaultEventBroker().Subscribe()
 	done := make(chan struct{})
 	go func() {
