@@ -260,3 +260,33 @@ func TestStaleApprovalTrustRaisedSupersedes(t *testing.T) {
 		t.Fatal("the authorized change did not run exactly once")
 	}
 }
+
+// A worker that read the candidate before another worker ran it, and got
+// past the lease after that run, must not run it again (nor record a
+// failed attempt because the index now exists).
+func TestStaleApprovalLateWorkerDoesNotRunAgain(t *testing.T) {
+	fx := newStaleFixture(t, "autonomous")
+	fx.queuePending(t)
+	fx.markVerified(t)
+	cands := fx.exec.actionableRecommendations(fx.ctx)
+	if len(cands) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(cands))
+	}
+	stale := cands[0]
+	fx.exec.RunCycle(fx.ctx, false)
+	if fx.actions(t, fx.f.RecommendedSQL) != 1 {
+		t.Fatal("the first worker did not run the change")
+	}
+	late := fx.newExecutor(t)
+	f := late.currentGateEvidence(fx.ctx, findingFromCandidate(fx.database, stale),
+		fx.findingID, &stale)
+	decision := ActionPolicyDecision{Decision: PolicyDecisionExecute,
+		DecisionID: recordCustodianDecision(t, fx.ctx, fx.pool, "index", fx.table)}
+	if id := late.runAuthorizedFinding(fx.ctx, f, fx.findingID, decision, &stale); id != 0 {
+		t.Fatalf("late worker recorded action %d, want none", id)
+	}
+	if n := fx.actions(t, fx.f.RecommendedSQL); n != 1 || fx.applyingTransitions(t) != 1 {
+		t.Fatalf("actions=%d applying=%d, want the single first run", n,
+			fx.applyingTransitions(t))
+	}
+}

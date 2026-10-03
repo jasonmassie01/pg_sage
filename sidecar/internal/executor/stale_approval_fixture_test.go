@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -109,21 +112,42 @@ func (fx *staleFixture) insertFinding(t *testing.T, f analyzer.Finding) int64 {
 	return id
 }
 
-// newExecutor builds a production-shaped executor: real standing gate
-// (windows always open), real action queue, fake index verification.
+// newExecutor builds a production-shaped executor: real standing gate,
+// real action queue, fake index verification.
 func (fx *staleFixture) newExecutor(t *testing.T) *Executor {
 	t.Helper()
 	cfg := config.DefaultConfig()
 	cfg.Trust.Level = fx.trust
 	cfg.Trust.Tier3Safe, cfg.Trust.Tier3Moderate = true, true
-	exec := New(fx.pool, cfg, time.Now().Add(-90*24*time.Hour), nopLog)
+	cfg.Trust.MaintenanceWindow = "always"
+	var mu sync.Mutex
+	var lines []string
+	logFn := func(component, format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, component+": "+fmt.Sprintf(format, args...))
+	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			mu.Lock()
+			defer mu.Unlock()
+			t.Logf("executor log:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+	exec := New(fx.pool, cfg, time.Now().Add(-90*24*time.Hour), logFn)
 	exec.WithDatabaseName(fx.database)
 	exec.WithActionStore(fx.queue, "auto")
 	exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	exec.indexVerification = newVerifiedIndexLifecycle(
 		&fakeIndexVerifier{admission: verify.Admission{OK: true}},
 		&fakeVerifiedIndexActions{})
-	withTestStandingGate(exec)
+	// The unattended profile with windows always open; its 24-hour limits
+	// are raised because the package's other tests also spend them.
+	doc := policy.UnattendedProfile()
+	doc.MaintenanceWindows = []string{"always"}
+	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
+	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
+	exec.EnableStandingPolicyDocument(doc, nil)
 	t.Cleanup(func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
