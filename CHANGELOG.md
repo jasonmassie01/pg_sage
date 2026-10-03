@@ -33,8 +33,13 @@
   cached explanations when they expire. pg_sage also stops rewriting rows that did not
   change (change feed cursors, incidents and their causal chains) and stops indexing a
   column it updates every cycle, so updates of findings no longer leave dead index entries.
-  Upgrading converts `sage.query_store` and `sage.snapshots` once at startup: expect a
-  short pause while the old tables are checked.
+  Upgrading converts `sage.query_store` and `sage.snapshots` without blocking pg_sage or
+  your sessions: the old rows are checked while writes continue, and the tables are locked
+  only for a catalog change (about 0.1 s for a 1 GB table). Small tables are converted at
+  startup; larger ones in the background after it. If a conversion cannot finish (a long
+  transaction holds the table, a timeout, a full disk), pg_sage keeps working on the
+  unconverted table, still deletes its expired rows in small batches, logs one warning
+  saying what to do, and tries again later (after 1 hour, then up to once a day).
 
 - **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
   grows too big.** The collector used to store the full list of every table, index,

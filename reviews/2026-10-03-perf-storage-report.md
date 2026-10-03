@@ -149,7 +149,8 @@ The fixture database is dropped by the test.
 1. **Daily partitioning for query_store and snapshots: yes.** Retention becomes `DROP TABLE` of a
    day instead of millions of row deletes (lifeos: 2.87M query_store and 58.9k snapshot deletes so
    far, with their WAL and vacuum). Layout: one `_history` partition holding everything before the
-   upgrade (in-place conversion: rename, recreate indexes, attach, validate; no data copy), one
+   upgrade (in-place conversion, no data copy, no heap read under the exclusive lock: see
+   "Follow-up"), one
    partition per UTC day, a default partition for rows dated ahead. Partitions for today and
    tomorrow are created by the collector before it writes and by retention. Cost: retention
    granularity is one day (rows live up to 1 day past the window); readers of whole tables (none
@@ -172,6 +173,173 @@ The fixture database is dropped by the test.
 10. **Gate F added** (steady phase only, >= 5 updates, >= 50% HOT): warmup holds one-time
     resolutions (status and resolved_at are indexed, rightly not HOT).
 
+## Follow-up: a conversion that is safe for lifeos-sized tables
+
+Coordinator request after 43d0c1b4: lifeos has `sage.snapshots` at 9.3 GB and
+`sage.query_store` at 852 MB. The first conversion held ACCESS EXCLUSIVE while ATTACH validated
+the history bound with a heap scan. For snapshots it also built the `(id, collected_at)` key under
+that lock. Every reader and writer of the table waited for that whole time.
+
+### What changed
+
+1. **No heap read under the exclusive lock** (partition/convert.go, convert_prepare.go).
+   - Before the exclusive transaction:
+     - `ADD CONSTRAINT <t>_cutover_check CHECK (<key> IS NOT NULL AND <col> IS NOT NULL AND
+       <col> < cut) NOT VALID`. This is a catalog change. It takes ACCESS EXCLUSIVE only
+       briefly, with the 2 s lock timeout. Note: ADD CONSTRAINT takes ACCESS EXCLUSIVE even with
+       NOT VALID, not SHARE UPDATE EXCLUSIVE.
+     - `VALIDATE CONSTRAINT`, under SHARE UPDATE EXCLUSIVE, so writers keep running.
+     - For snapshots, `CREATE UNIQUE INDEX <t>_cutover_key (id, collected_at)`. It is built
+       CONCURRENTLY only when the heap is over 32 MB. A smaller key builds in well under a
+       second under a SHARE lock, within the lock timeout. CONCURRENTLY waits for every older
+       snapshot in the database, and under bootstrap's advisory lock that deadlocked against a
+       second instance waiting for the lock (found by the full suite, bug 11). Bootstrap only
+       converts heaps up to 32 MB.
+   - The exclusive transaction only changes the catalog:
+     - The pre-built index becomes the history table's primary key (`ADD CONSTRAINT ... PRIMARY
+       KEY USING INDEX`). The CHECK proves the key columns NOT NULL, so this does not scan.
+     - The parent's copy of the CHECK (copied by `LIKE`) is dropped.
+     - `ATTACH ... FROM (MINVALUE) TO (cut)` finds the bound implied by the validated CHECK and
+       adopts the existing indexes.
+     - Then the CHECK is dropped and the empty default partition is created.
+   - **The cut** is the second UTC midnight after `now()`, or after the newest row when rows are
+     dated ahead. A row written between VALIDATE and the lock is therefore at least a day below
+     the cut and cannot violate the CHECK.
+   - A row more than 7 days ahead is a broken clock. The conversion refuses with
+     `ErrFutureRows` rather than stretch the history partition over months.
+   - Cost: the history partition now also covers tomorrow, one day more than before.
+   - A session advisory lock serializes conversions and cleanups. A second converter gets
+     `ErrBusy`.
+2. **Failure behaviour.**
+   - Any failure undoes the preparation on its own bounded context, so a cancelled bootstrap
+     still cleans up. It drops the CHECK and the pre-built key. The exclusive transaction rolls
+     back, so no renamed objects are left. The session's timeouts and advisory lock are released
+     and restored.
+   - The undo may itself fail, for example when the lock is still unavailable. In that case
+     `partition.Cleanup` removes the leftovers on the next retention run, every run, independent
+     of the backoff. A leftover CHECK would refuse every insert once the clock passes the cut,
+     which is at least a day away.
+   - **Bootstrap** (startup has a 10 s deadline) converts a table only when its heap is at most
+     32 MB.
+     - A larger table is left to retention.
+     - A failed conversion logs one `slog.Warn` with a hint and does not fail startup.
+     - The `stats_epoch` and `base_id` ADD COLUMN migrations now check the catalog first. Before,
+       they took ACCESS EXCLUSIVE on every start, so a long reader of either table stalled
+       startup and everything queued behind it.
+   - **Retention** (`Cleaner.Run`) does two catalog reads per run.
+     - A plain table that is due is converted on a background goroutine, so a long VALIDATE never
+       holds the orchestrator cycle.
+     - Retries back off at 1 h, 2 h, 4 h and so on, up to 24 h. A success resets the backoff.
+     - Each failed attempt logs one WARN: what failed, that pg_sage keeps working on the plain
+       table and deletes expired rows in paced batches, when the next attempt is, and what to do
+       (`partition.Hint`). The hint distinguishes a lock timeout (end long transactions or
+       restart at a quiet time), a statement timeout, a full disk, a broken clock and a cancel.
+     - Until the conversion succeeds, the plain table is purged by the paced row deletes (tested:
+       2,500 expired rows deleted in batches of 1,000).
+3. **Disk headroom.**
+   - No row is copied: the cut is past every row.
+   - The old table is not rewritten. A test asserts the history partition keeps the plain
+     table's relfilenode and TOAST relfilenode, and the default partition holds 0 rows, also
+     with a row dated 3 days ahead.
+   - The only extra space is the pre-built `(id, collected_at)` key of snapshots. On lifeos that
+     is 50.9k rows, a few MB.
+
+### Measured (PG17 `pgsage-ag3`, query_store-shaped plain table, writer inserting every 2 ms)
+
+`go test -tags=convertscale -run TestConvertAtScale ./internal/partition` with
+`PG_SAGE_CONVERT_MB=250` and `=1000`. The "before" numbers come from the 43d0c1b4 conversion code
+with the same harness. Fixtures were 367 MB and 1.09 GB in the package's throwaway database,
+dropped after each run (C: had 9.4 GB free before and after).
+
+| Fixture | Code | Exclusive lock held | VALIDATE (writers running) | Longest writer stall | Writes failed |
+|---|---|---|---|---|---|
+| 2.0M rows, heap 240 MB, 367 MB total | before | whole conversion, 184 ms | (inside the lock) | 154 ms | 0 |
+| same | after | 43 ms | 83 ms | 39 ms | 0 |
+| 6.0M rows, heap 721 MB, 1.09 GB total | before | whole conversion, 313 ms | (inside the lock) | 292 ms | 0 |
+| same | after | 104 ms | 293 ms | 98 ms | 0 |
+
+- **Heap blocks read in the exclusive transaction:** 0
+  (`TestConvert_ExclusiveWindowReadsNoHeap`, `pg_stat_get_blocks_fetched` delta around the
+  transaction). That holds both with and without a key, on PG17 and PG18. PG14 skips this test
+  because it has no forced stats flush. Before, the transaction read the whole heap: a
+  validation scan, plus an index build for snapshots.
+- **Warm cache:** the fixtures were just loaded, so the heap was cached. The old conversion's
+  stall is a heap read, which from disk is much slower than these numbers. The new exclusive
+  window reads no heap block, so the cache does not matter to it.
+- **What still grows with size in the new lock window** (43 to 104 ms) is not heap reading. The
+  transaction drops the old single-column primary key, and the likely cost is unlinking that
+  index's files at commit. I have not separately verified this.
+
+**Extrapolation to 9.3 GB**, taking the worst case that all of it is heap. Linear in heap size
+from the two points: stall about 0.29 ms/MB warm.
+
+- **Before:**
+  - Warm cache: about 2.8 s with every reader and writer of the table blocked.
+  - Cold, at a 200 MB/s disk read: about 47 s, plus the snapshots key build under the same lock.
+  - Either way above the 10 s startup deadline once cold: the old code ran the conversion inside
+    bootstrap, so the upgrade would have failed startup.
+  - lifeos's real heaps are smaller: query_store heap 402 MB, so about 0.2 s warm and 2 s cold;
+    the snapshots heap holds 50.9k rows and its 9.3 GB is TOAST, which validation does not read.
+- **After:**
+  - The exclusive window does not depend on heap size. It grew 43 to 104 ms across the two
+    fixtures. Scaled by the dropped primary key, lifeos's would be about 0.1 s for query_store
+    (108.5 MB pkey) and less for snapshots (2.4 MB pkey). A straight-line worst case at 9.3 GB of
+    heap is about 1.2 s.
+  - VALIDATE scales with the heap (0.4 ms/MB warm: about 4 s warm, about 47 s cold at 9.3 GB),
+    but writers keep running. It is bounded by a 10 min statement timeout. A timeout counts as a
+    failed attempt: retried with backoff, plain table kept.
+
+### Tests (written first, d61a6036)
+- partition:
+  - `TestConvert_ExclusiveWindowReadsNoHeap`, `TestConvert_CopiesNoRows`,
+    `TestConvert_CutLeavesADayOfMargin`, `TestConvert_RowsFarAheadAreRefused`.
+  - `TestConvert_LockTimeoutAtCutoverLeavesPlainTable`,
+    `TestConvert_LockTimeoutAddingCheckLeavesPlainTable`,
+    `TestConvert_StatementTimeoutValidatingLeavesPlainTable`,
+    `TestConvert_DiskFullInsideTransactionLeavesPlainTable` (injected SQLSTATE 53100) and
+    `TestConvert_CancelledContextStillCleansUp`. Each asserts relkind `r`, no cutover CHECK or
+    key, no `_history`/`_default` table, no advisory lock held, and a later successful Convert.
+  - `TestCleanup_RemovesLeftoversOfACrashedConversion` (also ErrBusy while another session holds
+    the conversion lock), `TestConvert_ConcurrentWriterNeverFails`,
+    `TestConvert_RestoresSessionSettings`.
+  - `TestConvert_SmallTableKeyBuildDoesNotWaitForOtherSessions` (added after the full suite
+    found the deadlock; it fails with CONCURRENTLY).
+- schema: `TestStorageMigration_LargePlainTableIsLeftToRetention` and
+  `TestStorageMigration_FailedConversionDoesNotFailBootstrap` (a long reader on query_store; 10 s
+  deadline).
+- retention: `TestConversionBackoffDoublesToADay`,
+  `TestConvertHistory_FailsSoftRetriesWithBackoffThenSucceeds` (one WARN naming the lock and
+  `1h0m0s`, no retry inside the backoff, paced purge of the plain table, success after the
+  backoff), `TestRun_DoesNotWaitForTheConversion` and
+  `TestConvertHistory_RemovesLeftoverCheckEveryRun`.
+- **Existing tests changed because behaviour changed:** the partition tests now expect the
+  history partition to end two midnights out (Ensure creates 2 of 4 days, 3 of 5 concurrently).
+  `TestConvert_RowsDatedAheadWaitInDefault` became `..._StayInHistory`, because rows ahead no
+  longer move to the default partition. Keeper coverage is read from the history bound.
+- **Test bugs fixed while making them pass:** relfilenode is `oid` and must be cast to `bigint`
+  to scan. The async-run test now turns off the query_store purge, because that DELETE queues
+  behind the attempt's queued lock request, which is bounded by the 2 s lock timeout but is not
+  what that test measures.
+- **Mutation testing:** 17 mutants, all killed:
+  - drop the CHECK before ATTACH
+  - skip VALIDATE
+  - no undo on failure
+  - one-day cut
+  - no future-row guard
+  - pre-built key read into the plan
+  - no session restore
+  - no PRIMARY KEY USING INDEX
+  - no leftover cleanup at start
+  - no backoff doubling
+  - synchronous conversion in Run
+  - no per-run cleanup
+  - no backoff check
+  - bootstrap converts any size
+  - bootstrap fails on a failed conversion
+  - unguarded ADD COLUMN
+  - always build the key CONCURRENTLY (killed by
+    `TestConvert_SmallTableKeyBuildDoesNotWaitForOtherSessions`: deadlock detected)
+
 ## For the coordinator / other branches
 
 - perf-api proposes an index on findings `(status, last_seen DESC, id DESC)`: it would make every
@@ -193,17 +361,26 @@ The fixture database is dropped by the test.
 
 **Command:** `go test -p 2 -count=1 -cover -v -timeout 3600s ./...` (sidecar, golang:1.25 in
 Docker, `--cpus=2`, PG17 `pgsage-ag3` :55473)
-**Total:** 11,405 passed (tests and subtests), 0 failed, 21 skipped; 86 packages ok, 0 FAIL.
+**Total (final run, after the follow-up, head a957cabc):** 11,426 passed (tests and subtests),
+0 failed, 21 skipped. 85 packages ok. internal/rollout, which this branch does not touch, reported
+FAIL only because its fixture-database cleanup timed out connecting to the shared server; all
+its tests passed. A rerun gave ok, and I dropped the database left behind. The first full run
+of the follow-up found the CIC deadlock (bug 11). In that run an executor timing test
+(`TestApplyLockCeilingCapsCycleAnalyze`, package not touched) also failed under load; it passed
+in the final run. Before the follow-up: 11,405 passed, 0 failed, 21 skipped, 86 ok.
 
 Also run:
 - Touched packages (16: partition, querystore, retention, snapstore, schema, verify, sre/slo,
   sre/changefeed, rca, analyzer, collector, config, store, runway, testsupport/perfgate, smoke)
   on PG14 (:55414) and PG18 (:55418): all ok. On PG14 two new tests failed first (bugs 7 and 8);
-  fixed in e3ceb685, then all ok.
-- Same packages with `-race` on PG17: all ok, no data race reported.
-- e2e: `go test -tags=e2e -count=1 -timeout 900s ./e2e/`: ok (163.8 s).
-- Lint: `golangci-lint run ./...` (v2.11.4) and with `--build-tags=perfgate` on the gate
-  packages: 0 issues.
+  fixed in e3ceb685, then all ok. Rerun after the follow-up: all ok on both. On PG14 the
+  heap-read test skips (no `pg_stat_force_next_flush`); its other conversion tests run.
+- Same packages with `-race` on PG17: all ok, no data race reported (before and after the
+  follow-up).
+- e2e: `go test -tags=e2e -count=1 -timeout 900s ./e2e/`: ok (163.8 s; 171.6 s after the
+  follow-up).
+- Lint: `golangci-lint run ./...` (v2.11.4), with `--build-tags=perfgate` on the gate packages
+  and `--build-tags=convertscale` on partition: 0 issues.
 - Perf gate: `go test -tags=perfgate -run '^TestPerfGate$' ./cmd/pg_sage_sidecar` with
   `PG_SAGE_PERF_SCALE=small`: FAIL with 14 offenders, all outside this branch's scope (above).
 
@@ -211,13 +388,13 @@ Also run:
 
 | Package | Coverage |
 |---|---|
-| internal/partition (new) | 84.0% |
+| internal/partition (new) | 83.4% |
 | internal/querystore | 95.0% |
-| internal/retention | 85.8% |
+| internal/retention | 86.2% |
 | internal/snapstore | 98.6% |
-| internal/schema | 80.4% |
+| internal/schema | 80.9% |
 | internal/verify | 86.8% |
-| internal/sre/slo | 89.6% |
+| internal/sre/slo | 89.0% |
 | internal/sre/changefeed | 89.9% |
 | internal/rca | 95.6% |
 | internal/analyzer | 87.9% |
@@ -243,9 +420,9 @@ None of the 21 skips is in logic this branch added. All are existing environment
   passed).
 - TestGeneratePlanFixtures: fixture regeneration only. TestPGIncidentBench: CI runs it in its
   own step.
-- On PG14 only, two new tests skip by design: TestFindingRefreshIsAHeapOnlyUpdate and
-  TestPersist_UnchangedCausalChainWritesNoToast need `pg_stat_force_next_flush()` (PG15+). Both
-  run on PG17 and PG18.
+- On PG14 only, three new tests skip by design: TestFindingRefreshIsAHeapOnlyUpdate,
+  TestPersist_UnchangedCausalChainWritesNoToast and TestConvert_ExclusiveWindowReadsNoHeap need
+  `pg_stat_force_next_flush()` (PG15+). All three run on PG17 and PG18.
 
 ### Failures (if any)
 None in the final runs. Earlier in the session, TestMetaReconcileAppliesPolicyColumnsInPlace
@@ -278,6 +455,20 @@ were already below 70% before this branch.
 8. [TEST BUG, fixed] perfgate partition rollup test (new): it compared reltuples estimates
    exactly, and PG14's estimate differed by 2.5%. It now allows 10% (a double-counted parent
    would be off by 100%).
+9. [BUG, follow-up] schema: the first conversion ran inside bootstrap, which startup bounds
+   with a 10 s deadline (cmd metadb.go). On lifeos-sized tables, the heap scan under the lock
+   would have run into that deadline and failed startup. Bootstrap now converts only heaps of
+   32 MB or less and never fails on a conversion.
+10. [BUG, follow-up] schema: the `stats_epoch` and `base_id` migrations ran `ALTER TABLE ...
+   ADD COLUMN IF NOT EXISTS` on every start. That takes ACCESS EXCLUSIVE before it checks the
+   column, so a long reader of query_store or snapshots stalled startup, and every writer
+   queued behind the request. They now check the catalog first.
+11. [BUG, follow-up, found by the full suite] partition: the first version of the safe
+   conversion built the snapshots key with CREATE INDEX CONCURRENTLY inside bootstrap. CIC
+   waits for every older snapshot, including a second instance waiting for the bootstrap
+   advisory lock, so `TestMetaReconcileConcurrentPassesPublishOneRuntime` hit "deadlock
+   detected". Fixed by building small keys without CONCURRENTLY and dropping with a plain
+   DROP INDEX.
 
 Existing tests changed because behaviour changed (not to make them pass):
 - smoke CHECK-08 backdated only `last_seen`. Resolved findings now age from `resolved_at`, so it
@@ -290,19 +481,21 @@ Existing tests changed because behaviour changed (not to make them pass):
 - Schema snapshot accessor test: 2 -> 3 `snapshot_data` overloads.
 
 ### Manual Checks Remaining
-- CHECK-M1: MANUAL — upgrade of a large existing deployment (lifeos: query_store 852 MB;
-  snapshots 9.3 GB, 50.9k heap rows). The in-place conversion holds ACCESS EXCLUSIVE on the
-  renamed table while ATTACH validates the bound with one heap scan (TOAST is not read). A 30 s
-  lock timeout and a 10 min statement timeout bound it. Measured only on test fixtures (20k
-  rows, well under a second). Not run against lifeos, which is off limits.
+- CHECK-M1: MANUAL — upgrade of lifeos itself (query_store 852 MB, snapshots 9.3 GB). It is
+  off limits, so I did not run it. Measured instead on 367 MB and 1.09 GB fixtures and
+  extrapolated (see "Follow-up"). The exclusive window reads no heap block (asserted), so the
+  remaining unknown is VALIDATE time on a cold cache, and writers do not wait for it.
 
 ## Post-test audit
 
-1. Inputs not tested: sidecar and database clocks more than a day apart. Rows dated ahead land
-   in the default partition and the next Ensure moves them (tested); a clock that is behind is
-   not tested. Also untested: a deployment with extra user indexes on query_store/snapshots.
-   Conversion recreates every index from its definition, and a non-PK unique index is refused
-   (tested).
+1. Inputs not tested: sidecar and database clocks more than a day apart. Rows dated ahead
+   when the table is converted stay in the history partition (the cut moves past them, up to a
+   week; tested); rows dated ahead later land in the default partition and the next Ensure
+   moves them (tested). A sidecar clock more than a day ahead while a conversion is preparing
+   would have its inserts refused by the cutover CHECK until the conversion ends or is undone;
+   that is not tested. A clock that is behind is not tested. Also untested: a deployment with
+   extra user indexes on query_store/snapshots. Conversion recreates every index from its
+   definition, and a non-PK unique index is refused (tested).
 2. Behaviour not asserted: the exact pause length between batches (only a lower bound is
    asserted), and log message wording.
 3. Assertions that would pass with a broken feature: none found. Every DB test asserts row
@@ -324,7 +517,8 @@ now killed.
 
 ## Branch
 
-- Head: the commit adding this report (latest on `claude/perf-storage`). Not pushed.
+- Head: the commit adding this report (latest on `claude/perf-storage`). Pushed to
+  `origin/claude/perf-storage` at the coordinator's request (follow-up); not merged, no PR.
 - Tests were committed before each implementation.
 - The struct-tag lines for the two new config keys exceed 100 columns, like every other field in
   `config.go`; Go struct tags cannot wrap.
