@@ -1027,6 +1027,11 @@
     "default": 365,
     "doc": ""
   },
+  "retention.decisions_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."
+  },
   "retention.explains_days": {
     "type": "int",
     "default": 90,

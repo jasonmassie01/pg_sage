@@ -46,10 +46,9 @@ func (e *Executor) processFinding(
 	if f.RecommendedSQL == "" || e.unusedDropRefused(ctx, f) {
 		return
 	}
-	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
-	if decision.Decision == PolicyDecisionBlocked ||
-		decision.Decision == PolicyDecisionObserveOnly ||
-		e.isCascadeCooldown(f.ObjectIdentifier) {
+	// The read-only skips run before the gate, which records a decision
+	// (dogfood lifeos: a skipped candidate still wrote one every cycle).
+	if e.isCascadeCooldown(f.ObjectIdentifier) {
 		return
 	}
 	findingID := e.lookupFindingID(ctx, f)
@@ -57,6 +56,11 @@ func (e *Executor) processFinding(
 	// being re-applied.
 	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
 		e.exceedsOscillationLimit(ctx, f, findingID) {
+		return
+	}
+	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
+	if decision.Decision == PolicyDecisionBlocked ||
+		decision.Decision == PolicyDecisionObserveOnly {
 		return
 	}
 	if decision.Decision == PolicyDecisionQueueApproval {

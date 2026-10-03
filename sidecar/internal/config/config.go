@@ -458,6 +458,7 @@ type RetentionConfig struct {
 	FindingsDays  int `yaml:"findings_days"`
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
+	DecisionsDays int `yaml:"decisions_days" doc:"Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."`
 	// SageSizeWarningPct: see sage_footprint.go.
 	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size. 0 disables the check. Default 10."`
 }
@@ -701,6 +702,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Retention.validateSageFootprint(); err != nil {
+		return err
+	}
+	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
 
@@ -963,6 +967,7 @@ func newDefaults() *Config {
 			ExplainsDays:  DefaultRetentionExplainsDays,
 
 			SageSizeWarningPct: DefaultRetentionSageSizeWarningPct,
+			DecisionsDays:      DefaultRetentionDecisionsDays,
 		},
 		NotificationPolicy: NotificationPolicyConfig{
 			AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,

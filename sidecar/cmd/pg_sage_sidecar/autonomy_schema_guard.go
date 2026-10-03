@@ -23,14 +23,15 @@ func autonomyDDLDebounce(cfg *config.Config) time.Duration {
 	return cfg.Analyzer.SchemaGuardDDLDebounce()
 }
 
-// schemaGuardIndexTimeout bounds the concurrent build of the schema guard
-// history index; a build that cannot finish (a long-open transaction) is
+// schemaGuardIndexTimeout bounds the concurrent builds of the decision
+// ledger indexes; a build that cannot finish (a long-open transaction) is
 // cancelled and retried at the next start.
 const schemaGuardIndexTimeout = 30 * time.Minute
 
-// ensureSchemaGuardIndexLogged ensures the schema guard history index in
-// the background. A failure is logged and never stops the sidecar: the
-// guard's one history query per cycle works without it, only slower.
+// ensureSchemaGuardIndexLogged ensures the decision ledger indexes (the
+// schema guard history index among them) in the background. A failure is
+// logged and never stops the sidecar: every query works without them,
+// only slower.
 func ensureSchemaGuardIndexLogged(
 	ctx context.Context, database string, ensure func(context.Context) error,
 	warn func(string, ...any),
@@ -38,8 +39,8 @@ func ensureSchemaGuardIndexLogged(
 	ctx, cancel := context.WithTimeout(ctx, schemaGuardIndexTimeout)
 	defer cancel()
 	if err := ensure(ctx); err != nil {
-		warn("database %s: ensure schema guard history index "+
-			"(sage.idx_decision_schema_guard_targets) failed, retried at next start: %v",
+		warn("database %s: ensure decision ledger indexes (the schema guard history "+
+			"index and retention indexes) failed, retried at next start: %v",
 			database, err)
 	}
 }

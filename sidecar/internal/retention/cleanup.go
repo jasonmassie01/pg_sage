@@ -105,11 +105,18 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.change_lease cl WHERE cl.decision_id = decision.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.decision_id = decision.id)`
-	// Schema guard decisions are observations: one row per changed schema
-	// decision (observe_only or parked), never the decision an action ran
-	// under. They age out on the findings window; a row an action or a
-	// verification points at is kept like any decision.
-	keepSchemaGuardDecision = `AND feature = 'schema_guard'
+	// Non-execute decisions (withheld gate verdicts, schema guard
+	// observations) are facts about candidates, not the record of a change:
+	// they age out on decisions_days from when they were last seen. A row an
+	// action, a verification, a lease or a value record points at is kept,
+	// and so is a schema guard retention dry run (the evidence that
+	// authorizes its later deletes); those age with the actions. The
+	// created_at bound (implied by the window) lets the purge use
+	// idx_decision_created.
+	keepWithheldDecision = `AND verdict <> 'execute'
+	    AND created_at < now() - make_interval(days => $1)
+	    AND NOT (feature = 'schema_guard'
+	             AND evidence->>'disposition' IS NOT DISTINCT FROM 'dry_run')
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.decision_id = decision.id) ` + keepDecision
 	// Stored bench and game-day reports age out unless one is the evidence
@@ -160,8 +167,9 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// A request still waiting for its turn is kept, however old.
 		{"lease_queue", "enqueued_at", r.ActionsDays, "AND state <> 'waiting'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
-		// Schema guard observations age with findings (dogfood lifeos).
-		{"decision", "created_at", r.FindingsDays, keepSchemaGuardDecision},
+		// Withheld verdicts age from when they were last seen (perf audit F1).
+		{"decision", "COALESCE(last_seen_at, created_at)", r.DecisionsDays,
+			keepWithheldDecision},
 		{"recommendation", "updated_at", r.ActionsDays, keepRecommendation},
 		{"retention_run", "created_at", r.ActionsDays, ""},
 		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},

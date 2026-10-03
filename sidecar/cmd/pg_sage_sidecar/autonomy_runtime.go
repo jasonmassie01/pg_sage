@@ -168,7 +168,7 @@ func startInstanceAutonomy(
 	}
 	startInstanceWorker(workers, func() {
 		ensureSchemaGuardIndexLogged(ctx, database, func(ctx context.Context) error {
-			return schema.EnsureSchemaGuardIndex(ctx, pool)
+			return schema.EnsureDecisionIndexes(ctx, pool)
 		}, func(format string, args ...any) { logWarn("autonomy", format, args...) })
 	})
 	startInstanceWorker(workers, func() {

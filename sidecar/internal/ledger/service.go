@@ -39,6 +39,14 @@ func (s *Service) RecordDecision(
 	if input.EvidenceID == "" {
 		input.EvidenceID = NewEvidenceID()
 	}
+	if upserter, ok := s.repository.(FingerprintRepository); ok && input.Fingerprint != "" {
+		id, evidenceID, err := upserter.UpsertDecision(ctx, input)
+		if err != nil {
+			return Decision{}, fmt.Errorf("upsert decision: %w", err)
+		}
+		input.EvidenceID = evidenceID
+		return Decision{DecisionInput: input, ID: id}, nil
+	}
 	id, err := s.repository.InsertDecision(ctx, input)
 	if err != nil {
 		return Decision{}, fmt.Errorf("insert decision: %w", err)

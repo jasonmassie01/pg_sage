@@ -45,7 +45,7 @@ func TestEnsureDecisionIndexesCreatesThePartialGINIndex(t *testing.T) {
 	bootstrapWithRetry(t, ctx, pool)
 	dropSchemaGuardIndex(t, pool)
 	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
-		t.Fatalf("EnsureSchemaGuardIndex: %v", err)
+		t.Fatalf("EnsureDecisionIndexes: %v", err)
 	}
 	oid, valid, def := schemaGuardIndex(t, pool)
 	if !valid || !strings.Contains(def, "USING gin (target_objects)") ||
@@ -53,7 +53,7 @@ func TestEnsureDecisionIndexesCreatesThePartialGINIndex(t *testing.T) {
 		t.Fatalf("index valid=%v def=%s, want a valid partial GIN index", valid, def)
 	}
 	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
-		t.Fatalf("second EnsureSchemaGuardIndex: %v", err)
+		t.Fatalf("second EnsureDecisionIndexes: %v", err)
 	}
 	if again, _, _ := schemaGuardIndex(t, pool); again != oid {
 		t.Fatalf("re-run rebuilt the index (oid %d -> %d), want a no-op", oid, again)
@@ -71,7 +71,7 @@ func TestEnsureDecisionIndexesKeepsAnExistingIndex(t *testing.T) {
 	}
 	oid, _, _ := schemaGuardIndex(t, pool)
 	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
-		t.Fatalf("EnsureSchemaGuardIndex: %v", err)
+		t.Fatalf("EnsureDecisionIndexes: %v", err)
 	}
 	if again, valid, _ := schemaGuardIndex(t, pool); again != oid || !valid {
 		t.Fatalf("existing index replaced (oid %d -> %d, valid=%v)", oid, again, valid)
@@ -84,7 +84,7 @@ func TestEnsureDecisionIndexesRebuildsAnInvalidIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
-		t.Fatalf("EnsureSchemaGuardIndex: %v", err)
+		t.Fatalf("EnsureDecisionIndexes: %v", err)
 	}
 	oid, _, _ := schemaGuardIndex(t, pool)
 	if _, err := pool.Exec(ctx, `UPDATE pg_index SET indisvalid = false
@@ -92,7 +92,7 @@ func TestEnsureDecisionIndexesRebuildsAnInvalidIndex(t *testing.T) {
 		t.Skipf("cannot mark the index invalid (needs superuser): %v", err)
 	}
 	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
-		t.Fatalf("EnsureSchemaGuardIndex on an invalid index: %v", err)
+		t.Fatalf("EnsureDecisionIndexes on an invalid index: %v", err)
 	}
 	again, valid, _ := schemaGuardIndex(t, pool)
 	if !valid || again == oid {
@@ -117,7 +117,7 @@ func TestEnsureDecisionIndexesConcurrentCallers(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		if err != nil {
-			t.Fatalf("concurrent EnsureSchemaGuardIndex: %v", err)
+			t.Fatalf("concurrent EnsureDecisionIndexes: %v", err)
 		}
 	}
 	if _, valid, _ := schemaGuardIndex(t, pool); !valid {

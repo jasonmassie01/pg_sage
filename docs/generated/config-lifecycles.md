@@ -191,6 +191,7 @@
 | `rca.stale_after_hours` | `restart` | `-` |
 | `rca.wal_spike_multiplier` | `restart` | `-` |
 | `retention.actions_days` | `restart` | `-` |
+| `retention.decisions_days` | `restart` | `-` |
 | `retention.explains_days` | `restart` | `-` |
 | `retention.findings_days` | `restart` | `-` |
 | `retention.sage_size_warning_pct` | `restart` | `-` |
