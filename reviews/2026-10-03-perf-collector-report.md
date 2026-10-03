@@ -69,15 +69,11 @@ SRE `sequence_runway v2` probe (616-773 ms at large scale) belongs to the SRE ow
    `pg_get_indexdef`'s catalog-cache cost back, since backends never shrink.
 4. **A column/schema/function rename anywhere refreshes all cached definitions.** It is rare and
    runs on the scratch connection. On lifeos it costs ~0.45 s, spread over pages.
-5. **No pool-wide `statement_timeout`.** In standalone mode the monitored pool also runs schema
-   bootstrap (e.g. `CREATE INDEX CONCURRENTLY` on multi-GB sage tables), snapshot writes and
-   executor DDL. A pool default at `query_timeout_ms` (500 ms) would break them. Every collector
-   catalog read is under the configured timeouts. **Coordinator decision needed:** the remaining
-   untimed catalog readers (`analyzer/analyzer_checks.go`, `optimizer/context_builder.go`,
-   `migration/risk_queries.go`, the other lint rules) are bounded only by their context
-   deadlines. Either wrap them in a read-only, timed transaction (the collector's
-   `catalogQueryVia` is the pattern), or set a pool default once bootstrap and executor paths are
-   audited for explicit overrides.
+5. **No pool-wide `statement_timeout` (coordinator agreed).** In standalone mode the monitored
+   pool also runs schema bootstrap (e.g. `CREATE INDEX CONCURRENTLY` on multi-GB sage tables),
+   snapshot writes and executor DDL. A pool default at `query_timeout_ms` (500 ms) would break
+   them. Instead, per the coordinator's decision, every read-only analysis path goes through one
+   helper (section 7).
 6. `selectSequences` breaks ties by schema, then name, in byte order. The old SQL used the database
    collation. This only matters for equal `pct_used` at the 100/1,000 cut.
 
@@ -155,10 +151,72 @@ All touched packages meet their thresholds (business logic 70%).
 
 ## 6. Left for others / coordinator
 
-- Decision 5 (timeouts for the remaining catalog readers / pool default).
 - SRE `sequence_runway` and `cluster_database_size` probes could reuse the collector's
   sequence pages and cached size (SRE owner); static.md F12's other lint rules (serial-usage
   `pg_get_serial_sequence` over all columns: 412 ms).
 - Commits: `78c6861d` (tests), `b460475d` (test fixes), `4fdcebfa` (collector), `6ac7261a` /
   `11613b4f` (tuner/lint tests), `0a1ef4ce` (tuner/lint), `30c5bf37` (changelog), later test
   commits.
+
+## 7. Follow-up: one bounded-read helper for every read-only analysis path
+
+Coordinator decision: no pool default. Give every read-only analysis path on the monitored
+database the collector's treatment.
+
+**Helper: `internal/catalogread`.** `Reader{DB, Timeouts}` with `Query`/`QueryRow` runs each
+statement in its own `READ ONLY` transaction with LOCAL `statement_timeout` and `lock_timeout`
+from `safety.query_timeout_ms` / `lock_timeout_ms` (`FromSafety`; `Default()` is the shipped
+config), `max_parallel_workers_per_gather=0` and `jit=off`. Closing the rows (or `Scan`) rolls
+back. `WithBeforeStatement(ctx, fn)` is a context-scoped fault-injection seam that production
+code never sets. `catalogread.Querier` is satisfied by both a `Reader` and a `*pgxpool.Pool`, so
+existing callers and tests keep compiling. The collector now uses the helper too (same
+behavior).
+
+| path | statements wrapped | how the timeout reaches it | degrade on a cut-off read |
+|---|---|---|---|
+| analyzer | recent index actions, stats epoch, index builds, XID age, idle-in-tx leaks, extension drift, sort-without-index, work_mem promotion, open index findings, clone sessions, sage footprint, app-managed indexes (12) | `a.cfg.Safety`, read on every call (reload-aware) | each check fails closed: no findings, category not resolved, stats epoch = now, index-build probe marked failed |
+| optimizer context builder | collation, columns, pg_stats | `optimizer.WithCatalogReadTimeouts(FromSafety(cfg.Safety))` in `newOptimizer` (default: `Default()`) | the context is built without the timed-out part |
+| migration risk | table stats, active queries, pending locks, replication lag | `Advisor.WithCatalogReadTimeouts` in `startMigrationAdvisor` (default `Default()`) | risk scored from the intrinsic hazard |
+| lint | all 16 rules plus the LLM JSONB enhancer's `pg_stat_statements` read | `Runner.SetCatalogReadTimeouts` in `startSchemaLint` (default `Default()`) | the rule is marked failed (its findings are not resolved) and the scan goes on |
+
+**Not wrapped, deliberately.**
+- The sage history readers (`analyzer/query_history.go`, `rules_plan_diff.go`) take hundreds of
+  ms by design and belong to the snapshot/storage owner.
+- Finding writes.
+- Lock-chain detection: an incident path with its own 10 s bound, exported to RCA.
+- The optimizer's HypoPG and plan capture: session state and EXPLAIN, not catalog reads.
+
+**Tests (written first, `f3b00c5d`).** In each path, a slow read is injected inside its
+transaction (`pg_sleep(10)` under a 200 ms timeout). The tests assert:
+- every statement went through the helper (hook count: 12 analyzer, 3 optimizer, 4 migration,
+  1 per lint rule);
+- each was cut off (logged `statement timeout`, 57014);
+- the path degraded as above and finished in bounded time (instead of 10 s per read).
+
+Baselines without injection prove the same calls return data. Helper tests cover:
+- the settings inside the transaction and that they do not leak;
+- writes refused (25006);
+- connections released after Close/Scan;
+- the hooks, errors, a canceled context, a nil database, and concurrent reads.
+
+**Mutation checks (all killed):** the lint scan bypassing the reader, the analyzer XID check on
+the raw pool, the migration table-stats read on the raw pool, and the helper not setting
+`statement_timeout`. The optimizer's wiring is covered by its option test and by the
+context-builder test, which takes the reader explicitly.
+
+**Results.**
+- Full suite on PG17: 86 packages ok, 0 failed.
+- e2e: ok (174 s).
+- `golangci-lint`: 0 issues.
+- Coverage: catalogread 93.2%, analyzer 89.0%, optimizer 88.1%, migration 78.7%, lint 80.6%,
+  collector 88.9%.
+- PG14 and PG18 on the touched packages (catalogread, analyzer, optimizer, migration, lint,
+  collector, cmd): all ok, except PG18 `TestFleetReloadRemovesDatabaseAndCleansUp`. That one
+  hit "dial error: timeout" creating its extra database on the shared PG18 server; it passes
+  3/3 on rerun.
+- `-race` (PG17) on catalogread, analyzer, optimizer, migration and lint: all ok.
+- Skips: only the existing version-gated ones (`pg_stat_io` and generic plans need PG16+;
+  `pg_hint_plan` is not on the PG14 server).
+- The shared PG14/PG18 matrix servers hold leftover `agentdb_local_database_test_*` /
+  `pgsage_x_*` databases from several agents' runs. I can't tell mine apart, so I left them.
+  I dropped the two my runs leaked on `pgsage-ag1`.
