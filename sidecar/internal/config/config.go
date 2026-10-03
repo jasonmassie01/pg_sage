@@ -461,6 +461,9 @@ type RetentionConfig struct {
 	DecisionsDays int `yaml:"decisions_days" doc:"Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."`
 	// SageSizeWarningPct: see sage_footprint.go.
 	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size. 0 disables the check. Default 10."`
+	// QueryStoreDays and SnapshotsMaxPct: see storage_retention.go.
+	QueryStoreDays  int `yaml:"query_store_days" doc:"Days to keep per-query samples in sage.query_store (its readers look back at most 7 days). 0 disables. Range 0-3650. Default 14."`
+	SnapshotsMaxPct int `yaml:"snapshots_max_pct" doc:"Cap sage.snapshots at this percent of the database size (never below 256 MB): the oldest days are removed first. 0 disables the cap. Range 0-100. Default 5."`
 }
 
 // NotificationPolicyConfig holds notification delivery policy. It is YAML-only
@@ -705,6 +708,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Retention.validateDecisionsDays(); err != nil {
+		return err
+	}
+	if err := c.Retention.validateStorage(); err != nil {
 		return err
 	}
 
@@ -968,6 +974,8 @@ func newDefaults() *Config {
 
 			SageSizeWarningPct: DefaultRetentionSageSizeWarningPct,
 			DecisionsDays:      DefaultRetentionDecisionsDays,
+			QueryStoreDays:     DefaultRetentionQueryStoreDays,
+			SnapshotsMaxPct:    DefaultRetentionSnapshotsMaxPct,
 		},
 		NotificationPolicy: NotificationPolicyConfig{
 			AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,
