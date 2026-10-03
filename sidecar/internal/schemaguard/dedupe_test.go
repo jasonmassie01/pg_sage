@@ -390,3 +390,32 @@ func TestConcurrentScansShareStateSafely(t *testing.T) {
 		t.Fatalf("scan after concurrent scans re-recorded: %+v", result)
 	}
 }
+
+// reasonRouter parks every route with a reason the test sets.
+type reasonRouter struct{ reason string }
+
+func (r *reasonRouter) Route(context.Context, Remediation) error {
+	return &ParkedRoute{Reason: r.reason}
+}
+
+// A park whose reason changes (a new review deadline, a new blocker) is a
+// changed decision even when route and disposition are the same.
+func TestChangedReasonAloneIsRecorded(t *testing.T) {
+	ledger := &fakeLedger{}
+	router := &reasonRouter{reason: "retention dry run in review until 10:00"}
+	detector := &fakeDetector{items: []Invariant{fkInvariant("public", "orders", "fk")}}
+	custodian := NewCustodian(detector, &targetContracts{}, ledger, router, ledger,
+		testPolicy())
+	for i, reason := range []string{"", "", "retention dry run in review until 11:00"} {
+		if reason != "" {
+			router.reason = reason
+		}
+		if _, err := custodian.Scan(context.Background()); err != nil {
+			t.Fatalf("scan %d: %v", i, err)
+		}
+	}
+	rows := ledger.since(0)
+	if len(rows) != 2 || rows[1].Decision.Reason != "retention dry run in review until 11:00" {
+		t.Fatalf("rows = %+v, want the first park and the changed reason", rows)
+	}
+}
