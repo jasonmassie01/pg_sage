@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -118,15 +119,29 @@ func perfAPISession(t *testing.T, ctx context.Context, harness *pgxpool.Pool) st
 	return session
 }
 
-// callPerfEndpoints calls every list endpoint through the production
-// router wiring and records its status and latency.
-func callPerfEndpoints(t *testing.T, session string) []perfgate.Endpoint {
+// perfRouter builds the API with the production wiring and keeps one
+// live-update subscriber for the whole run: an open dashboard.
+func perfRouter(t *testing.T) http.Handler {
 	t.Helper()
 	router := wireRouter(WireParams{Cfg: cfg, Pool: pool, FleetMgr: fleetMgr,
 		Actions: struct {
 			Store    *store.ActionStore
 			Executor *executor.Executor
 		}{Store: actionStore, Executor: exec}}).Handler
+	events, unsubscribe := api.DefaultEventBroker().Subscribe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range events { // drain like a browser would
+		}
+	}()
+	t.Cleanup(func() { unsubscribe(); <-done })
+	return router
+}
+
+// callPerfEndpoints calls every list endpoint and records its status and
+// latency.
+func callPerfEndpoints(router http.Handler, session string) []perfgate.Endpoint {
 	out := make([]perfgate.Endpoint, 0, len(perfEndpoints))
 	for _, path := range perfEndpoints {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

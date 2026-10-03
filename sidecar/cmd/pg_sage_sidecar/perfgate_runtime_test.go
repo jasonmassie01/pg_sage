@@ -44,13 +44,14 @@ func runPerfRuntime(
 
 	base := readPerfCounters(t, ctx, harness, logs, true)
 	initStandalone()
+	router := perfRouter(t)
 	stopWorkload := startPerfWorkload(t, dsn, scale.HotTables())
 	time.Sleep(timing.Warmup)
 	warm := readPerfCounters(t, ctx, harness, logs, true)
 
 	steadyStart := time.Now()
 	time.Sleep(timing.Window / 2)
-	endpoints := callPerfEndpoints(t, session)
+	endpoints := callPerfEndpoints(router, session)
 	time.Sleep(time.Until(steadyStart.Add(timing.Window)))
 	stopWorkload()
 	stopPerfRuntime(t, monitored)
