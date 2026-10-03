@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **An index recommendation made before HypoPG was installed is now re-checked.** The
+  optimizer re-emits a table's open index recommendation instead of asking the LLM again,
+  but it kept the stored "unverified" verdict forever, so installing HypoPG later never
+  let pg_sage verify (and, with autonomy, build) the index: it waited for approval
+  indefinitely. An open unverified recommendation is now re-measured with HypoPG when it
+  is re-emitted: a measured gain makes it verified, no gain resolves it, and without
+  HypoPG nothing changes.
+
 ## v1.8.2 (2026-10-03) -- Safety first: reversible config, safe EXPLAIN, per-database trust, promote from the UI
 
 ### What's new
