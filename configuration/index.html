@@ -2422,15 +2422,30 @@ finding with the same SQL, and only through the approval path. It verifies the c
 databases first, then widens. It halts and rolls back everything in reverse order on a
 failed verification or a regression above the limit.</p>
 <p>API, under <code>/api/v1/sre/autonomy</code>. Every route takes <code>?database=&lt;name&gt;</code>.</p>
+<p>The ledger is per database: each database earns its own levels from its own shadow reviews,
+live outcomes, game days and safety record, and its own failover cooldown and carry-over
+apply. PGIncidentBench reports are about pg_sage itself and are shared by every database of
+the deployment. A level stored before the ledger was per database applies to every database
+at that level until the database changes it. Only a verified success counts as a live
+recovery: an action that is never verified is recorded as <code>unverified</code> after 24 hours and
+earns nothing.</p>
 <ul>
 <li>Viewers: <code>GET</code> the root, <code>/history</code>, <code>/proposals</code>, <code>/game-days</code>, <code>/rollouts</code> and
   <code>/rollouts/{id}</code>.</li>
-<li>Operators: <code>POST /evaluate</code>, <code>/proposals/{id}/reject</code>, <code>/downgrade</code>, <code>/reviews</code> (a shadow
-  review of a concluded investigation) and <code>/outcomes</code> (harmful or safety_violation).</li>
+<li>Operators: <code>POST /evaluate</code> (returns the proposals created and, for every other pair,
+  why not: each unmet check with how to meet it), <code>/proposals/{id}/reject</code>, <code>/downgrade</code>,
+  <code>/reviews</code> (accept or reject a concluded or inconclusive investigation, with an optional
+  <code>note</code> and <code>actual_root_cause</code>; it also records the investigation outcome) and
+  <code>/outcomes</code> (harmful or safety_violation).</li>
 <li>Admins: <code>POST /proposals/{id}/approve</code>, <code>/bench-results</code>, <code>/game-days</code> and <code>/rollouts</code>.</li>
 </ul>
-<p>The UI page is <strong>Advanced &gt; Earned autonomy</strong>. With MCP enabled, agents get
-<code>sre_get_autonomy</code> and <code>sre_downgrade_autonomy</code>. There is no approval tool.</p>
+<p>The UI page is <strong>Advanced &gt; Earned autonomy</strong>: <strong>Evaluate now</strong> and a <strong>Path to next
+level</strong> checklist per family and class. Reviews are recorded with <strong>Accept diagnosis</strong> /
+<strong>Reject diagnosis</strong> on a finished investigation in <strong>Cases</strong>. With MCP enabled, agents get
+<code>sre_get_autonomy</code>, and operators also <code>sre_downgrade_autonomy</code>, <code>sre_review_investigation</code>
+and <code>sre_evaluate_autonomy</code>. There is no approval tool. Only a review by a person (UI or
+REST) counts as shadow evidence: a review an agent records through MCP is kept, says that
+it does not count, and never replaces a person's review of the same investigation.</p>
 <h3 id="fast-elevation-dogfood-databases">Fast elevation (dogfood databases)<a class="headerlink" href="#fast-elevation-dogfood-databases" title="Permanent link">&para;</a></h3>
 <p>pg_sage earns trust before it acts, and by default that takes weeks: an 8-day ramp for SAFE
 actions, 31 days for MODERATE ones, a 7-day IO baseline before autonomous index builds, and a
@@ -2473,9 +2488,10 @@ each setting below the spec, including a shorter <code>io_baseline_days</code>, 
 or <code>evaluate_interval_minutes</code>. The autonomy API returns them as <code>fast_elevation</code>, and
 <strong>Advanced &gt; Earned autonomy</strong> shows a "Fast elevation" badge that lists them. These keys
 are YAML-only and need a restart; the config API refuses them.</p>
-<p>To approve a promotion quickly, run <code>POST /api/v1/sre/autonomy/evaluate</code> as an operator,
-then <code>GET /api/v1/sre/autonomy/proposals</code> and <code>POST
-/api/v1/sre/autonomy/proposals/{id}/approve</code> as an admin.</p>
+<p>To approve a promotion quickly, review investigations in <strong>Cases</strong>, press <strong>Evaluate now</strong>
+on the Earned autonomy page (or <code>POST /api/v1/sre/autonomy/evaluate</code> as an operator), then
+approve the pending promotion as an admin (or <code>GET /api/v1/sre/autonomy/proposals</code> and <code>POST
+/api/v1/sre/autonomy/proposals/{id}/approve</code>).</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
