@@ -246,7 +246,6 @@ func TestCoalesceInSQL(t *testing.T) {
 	}{
 		{"tableStatsSQL", tableStatsSQL},
 		{"indexStatsSQL", indexStatsSQL},
-		{"sequencesSQL", sequencesSQL},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

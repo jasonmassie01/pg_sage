@@ -96,7 +96,7 @@ func TestCollectCatalog_ManySchemasPagedByOID(t *testing.T) {
 			len(seenTab), manySchemas*tablesEach*3, manySchemas*tablesEach)
 	}
 	if !strings.Contains(indexStatsSQL, "s.indexrelid > $1") ||
-		!strings.Contains(tableStatsSQL, "s.relid > $1") {
+		!strings.Contains(tableStatsSQL, "c.oid > $1") {
 		t.Fatal("catalog pages are not keyed by oid")
 	}
 }

@@ -1342,14 +1342,8 @@ func TestTableStatsSQL_UsesParameterizedPagination(t *testing.T) {
 }
 
 func TestTableStatsSQL_OrdersCorrectly(t *testing.T) {
-	if !strings.Contains(tableStatsSQL, "ORDER BY s.relid") {
-		t.Error("tableStatsSQL must ORDER BY relid (oid keyset, dogfood lifeos-1)")
-	}
-}
-
-func TestSequencesSQL_OrdersByPctUsed(t *testing.T) {
-	if !strings.Contains(sequencesSQL, "ORDER BY pct_used DESC") {
-		t.Error("sequencesSQL must ORDER BY pct_used DESC")
+	if !strings.Contains(tableStatsSQL, "ORDER BY c.oid") {
+		t.Error("tableStatsSQL must ORDER BY the pg_class oid (keyset, dogfood lifeos-1)")
 	}
 }
 
