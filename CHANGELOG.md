@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## v1.8.2 (2026-10-03) -- Safety first: reversible config, safe EXPLAIN, per-database trust, promote from the UI
+
+### What's new
+
+- **Config changes pg_sage makes are reversible and checked.** The prior value and real
+  rollback are captured, the effective value is read back, and success requires the targeted
+  metric to move. Settings and table options outside an allowlist become advice only.
+- **Safer SQL and LLM handling.** `/explain` only runs `ANALYZE` when the query provably has no
+  side effects; the prompt-injection guard and redaction were hardened; destructive DDL must be
+  schema-qualified; MCP stdio no longer gets corrupted by the briefing.
+- **Index advice you can trust.** HypoPG checks no longer fail open; gains are weighted by query
+  time; expression and partial indexes work (every partial index was rejected before); an
+  unverified optimizer index needs approval; live tenant schema families are never called
+  leftovers.
+- **Earned autonomy per database, and you can earn it from the UI.** Accept or reject
+  investigations, "Evaluate now", and a "Path to next level" panel. Only verified outcomes and a
+  person's reviews count.
+- **pg_sage stops flooding its own ledger.** The schema guard and policy gate write a decision
+  only when something changes (lifeos: ~38,000 rows/hour before), with the indexes and retention
+  that ledger needs.
 
 ### Added
 
