@@ -15,7 +15,7 @@ import (
 )
 
 // sevRankSQL ranks severity, most severe highest. The findings list index
-// idx_findings_list_severity is built on this exact expression.
+// idx_findings_list_rank is built on this exact expression.
 const sevRankSQL = "(CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 " +
 	"WHEN 'info' THEN 1 ELSE 0 END)"
 
@@ -32,15 +32,15 @@ func findingSeverityRank(sev string) int64 {
 }
 
 // findingSortKeys is each sort's ORDER BY (id breaks the last tie). The
-// severity and last_seen sorts, the ones the dashboard uses, are served
-// by idx_findings_list_severity and idx_findings_list_last_seen; the
-// others sort one status's rows.
+// default severity sort is served by idx_findings_list_rank; the others
+// sort the rows matching the filter (top-N, one status). last_seen is in
+// no findings index: the analyzer rewrites it on every refresh, and an
+// index on it would make each refresh write every index (no HOT).
 func findingSortKeys(sortName string) []sortKey {
-	lastSeen := sortKey{"last_seen", keyTime}
 	rank := sortKey{sevRankSQL, keyInt}
 	switch sortName {
 	case "severity":
-		return []sortKey{rank, lastSeen}
+		return []sortKey{rank}
 	case "created_at":
 		return []sortKey{{"created_at", keyTime}}
 	case "category":
@@ -48,10 +48,9 @@ func findingSortKeys(sortName string) []sortKey {
 	case "title":
 		return []sortKey{{`title COLLATE "C"`, keyText}}
 	case "impact", "impact_score":
-		return []sortKey{{"COALESCE(impact_score, '-Infinity'::real)", keyFloat}, rank,
-			lastSeen}
+		return []sortKey{{"COALESCE(impact_score, '-Infinity'::real)", keyFloat}, rank}
 	default:
-		return []sortKey{lastSeen}
+		return []sortKey{{"last_seen", keyTime}}
 	}
 }
 

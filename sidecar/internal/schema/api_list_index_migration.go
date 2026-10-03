@@ -7,9 +7,11 @@ import "strings"
 // the last tie-breaker; each index matches one list's filter and order so
 // a page reads about a page of index entries, never the whole history:
 //
-//   - idx_findings_list_severity / idx_findings_list_last_seen: the
-//     dashboard's findings sorts (by severity rank, by last seen) within a
-//     status. The rank expression is the API's sevRankSQL, verbatim.
+//   - idx_findings_list_rank: the findings list's default sort (most
+//     severe first, newest first within a severity) within a status. The
+//     rank expression is the API's sevRankSQL, verbatim. No findings index
+//     keys last_seen or another column the analyzer rewrites on every
+//     refresh, so refreshes stay heap-only (HOT) updates.
 //   - idx_action_queue_ledger: not-yet-executed proposals by time (executed
 //     actions page through the existing idx_action_log_time, the id tie
 //     sorted incrementally: an (executed_at, id) index would duplicate it).
@@ -21,11 +23,9 @@ import "strings"
 // rebuilt, and a build runs under the bootstrap lock, once, pausing only
 // pg_sage's own writes to that table. Idempotent.
 var apiListIndexes = []ledgerIndex{
-	{"idx_findings_list_severity", "findings", "INDEX %I ON sage.findings (status, " +
+	{"idx_findings_list_rank", "findings", "INDEX %I ON sage.findings (status, " +
 		"(CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 " +
-		"WHEN 'info' THEN 1 ELSE 0 END), last_seen, id)"},
-	{"idx_findings_list_last_seen", "findings",
-		"INDEX %I ON sage.findings (status, last_seen, id)"},
+		"WHEN 'info' THEN 1 ELSE 0 END), id)"},
 	{"idx_action_log_sql_md5", "action_log",
 		"INDEX %I ON sage.action_log (md5(sql_executed), executed_at)"},
 	{"idx_action_queue_ledger", "action_queue", "INDEX %I ON sage.action_queue " +
