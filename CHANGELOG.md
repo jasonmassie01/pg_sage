@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
+
+### What's new
+
+- **Only HypoPG-verified index advice runs unattended, whatever its age.** Index advice saved by
+  older pg_sage versions under per-type categories (covering, partial, composite) skipped the
+  what-if gate; it is now held for approval until re-verified, and an existing index that
+  already covers a candidate rules it out. Stale rollback SQL from those versions is repaired,
+  and an action withheld for its own content is recorded once instead of retried every cycle.
+- **The blast-radius limit holds at its configured number of tables**, and a change to an index
+  counts against its table once.
+- **Session counts are the application's sessions only** (autovacuum, replication and parallel
+  workers no longer inflate them), and **a stop signal during startup shuts pg_sage down
+  cleanly**.
+- **Steadier CI:** 29 tests that depended on timing or server-wide state now isolate it.
+
 
 ### Fixed
 
