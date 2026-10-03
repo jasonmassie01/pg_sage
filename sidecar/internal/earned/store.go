@@ -83,6 +83,9 @@ type PostgresStore struct {
 	pool       *pgxpool.Pool
 	deployment string
 	database   string
+	// build is the running pg_sage build (the service's); bench reports
+	// stamped for another build never count. Nil: none counts.
+	build func() Build
 }
 
 var uuidPattern = regexp.MustCompile(

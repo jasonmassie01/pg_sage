@@ -26,7 +26,10 @@ type Config struct {
 	// EvidenceCacheTTL caches promotion evidence per pair for the gate;
 	// 0 reads it on every authorization.
 	EvidenceCacheTTL time.Duration
-	Now              func() time.Time
+	// Build is the running pg_sage build: a bench report stamped for
+	// another build is refused and never counts (roadmap 1.1).
+	Build Build
+	Now   func() time.Time
 	// Log reports failures that must not block a restriction (a cap
 	// event that could not be written). Default: the standard logger.
 	Log func(format string, args ...any)
@@ -86,7 +89,9 @@ func NewService(store *PostgresStore, cfg Config) (*Service, error) {
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
 	}
-	return &Service{store: store, cfg: cfg, cache: map[pairKey]cachedLevel{}}, nil
+	svc := &Service{store: store, cfg: cfg, cache: map[pairKey]cachedLevel{}}
+	store.build = svc.Build
+	return svc, nil
 }
 
 // Store is the ledger's store.

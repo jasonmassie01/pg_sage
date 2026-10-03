@@ -174,38 +174,72 @@ func (s *PostgresStore) familySafety(ctx context.Context, f Family, since time.T
 	return n, last.UTC(), nil
 }
 
-// insertEvalRun stores a parsed report; a report already stored (same
-// hash) is returned with Duplicate set.
+// insertEvalRun stores a parsed report with its provenance; a report
+// already stored (same hash) is returned with Duplicate set, and marked
+// signed when it arrives signed now.
 func (s *PostgresStore) insertEvalRun(ctx context.Context, run EvalRun) (EvalRun, error) {
 	if run.Source == SourceGameDay {
 		if err := s.checkDatabase(run.Database); err != nil {
 			return EvalRun{}, err
 		}
 	}
-	cells, err := json.Marshal(run.Cells)
+	args, err := evalRunArgs(run)
 	if err != nil {
-		return EvalRun{}, fmt.Errorf("%w: encode cells: %v", ErrInvalidReport, err)
-	}
-	gated, err := json.Marshal(run.Gated)
-	if err != nil {
-		return EvalRun{}, fmt.Errorf("%w: encode gated arms: %v", ErrInvalidReport, err)
-	}
-	sum, err := hex.DecodeString(run.SHA256)
-	if err != nil || len(sum) != 32 {
-		return EvalRun{}, fmt.Errorf("%w: report hash", ErrInvalidReport)
+		return EvalRun{}, err
 	}
 	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_eval_runs
 		(deployment_id, id, source, schema_version, generated_at, ingested_at, ingested_by,
-		 database_name, report_sha256, gated_arms, cells)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11)
+		 database_name, report_sha256, gated_arms, cells, origin, pg_sage_version,
+		 pg_sage_commit, signature)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13, $14,
+		        $15)
 		ON CONFLICT (deployment_id, report_sha256) DO NOTHING`,
-		s.deployment, run.ID, run.Source, run.Schema, run.GeneratedAt, run.IngestedAt,
-		run.IngestedBy, run.Database, sum, gated, cells)
+		append([]any{s.deployment}, args...)...)
 	if err != nil {
 		return EvalRun{}, storeErr("store eval run", err)
 	}
 	if tag.RowsAffected() == 1 {
 		return run, nil
+	}
+	return s.duplicateEvalRun(ctx, run, args[7], args[13])
+}
+
+// evalRunArgs are the stored columns of run after the deployment.
+func evalRunArgs(run EvalRun) ([]any, error) {
+	cells, err := json.Marshal(run.Cells)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode cells: %v", ErrInvalidReport, err)
+	}
+	gated, err := json.Marshal(run.Gated)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode gated arms: %v", ErrInvalidReport, err)
+	}
+	sum, err := hex.DecodeString(run.SHA256)
+	if err != nil || len(sum) != 32 {
+		return nil, fmt.Errorf("%w: report hash", ErrInvalidReport)
+	}
+	var signature []byte
+	if run.Signature != nil {
+		if signature, err = json.Marshal(run.Signature); err != nil {
+			return nil, fmt.Errorf("%w: encode signature: %v", ErrInvalidReport, err)
+		}
+	}
+	return []any{run.ID, run.Source, run.Schema, run.GeneratedAt, run.IngestedAt,
+		run.IngestedBy, run.Database, sum, gated, cells, run.Origin, run.Build.Version,
+		run.Build.Commit, signature}, nil
+}
+
+// duplicateEvalRun reads the stored copy of run; an unsigned copy is
+// marked signed when run is (never the reverse).
+func (s *PostgresStore) duplicateEvalRun(ctx context.Context, run EvalRun, sum,
+	signature any) (EvalRun, error) {
+	if run.Signature != nil {
+		if _, err := s.pool.Exec(ctx, `UPDATE sage.sre_eval_runs
+			SET origin = 'signed_release', signature = $3
+			WHERE deployment_id = $1 AND report_sha256 = $2 AND source = 'bench'
+			  AND signature IS NULL`, s.deployment, sum, signature); err != nil {
+			return EvalRun{}, storeErr("mark eval run signed", err)
+		}
 	}
 	existing, err := s.scanEvalRun(s.pool.QueryRow(ctx, evalRunSelect+
 		` WHERE deployment_id = $1 AND report_sha256 = $2`, s.deployment, sum))
@@ -215,13 +249,14 @@ func (s *PostgresStore) insertEvalRun(ctx context.Context, run EvalRun) (EvalRun
 
 const evalRunSelect = `SELECT id::text, source, schema_version, generated_at, ingested_at,
 	ingested_by, COALESCE(database_name, ''), encode(report_sha256, 'hex'), gated_arms,
-	cells FROM sage.sre_eval_runs`
+	cells, origin, pg_sage_version, pg_sage_commit, signature FROM sage.sre_eval_runs`
 
 func (s *PostgresStore) scanEvalRun(row pgx.Row) (EvalRun, error) {
 	var run EvalRun
-	var gated, cells []byte
+	var gated, cells, signature []byte
 	err := row.Scan(&run.ID, &run.Source, &run.Schema, &run.GeneratedAt, &run.IngestedAt,
-		&run.IngestedBy, &run.Database, &run.SHA256, &gated, &cells)
+		&run.IngestedBy, &run.Database, &run.SHA256, &gated, &cells, &run.Origin,
+		&run.Build.Version, &run.Build.Commit, &signature)
 	if err != nil {
 		return EvalRun{}, err
 	}
@@ -231,18 +266,39 @@ func (s *PostgresStore) scanEvalRun(row pgx.Row) (EvalRun, error) {
 	if err := json.Unmarshal(cells, &run.Cells); err != nil {
 		return EvalRun{}, fmt.Errorf("decode cells: %w", err)
 	}
-	return run, nil
+	if signature != nil {
+		run.Signature = &ReportSignature{}
+		if err := json.Unmarshal(signature, run.Signature); err != nil {
+			return EvalRun{}, fmt.Errorf("decode signature: %w", err)
+		}
+	}
+	return run.WithProvenance(), nil
 }
 
-// LatestBench is the deployment's newest bench report, or nil; with a
-// family, the newest report that scored that family. Bench evidence is
-// about pg_sage, not a database, so every database of the deployment
-// shares it.
+// runningBuild is the build bench reports must score (none: only
+// unstamped reports count).
+func (s *PostgresStore) runningBuild() Build {
+	if s.build == nil {
+		return Build{}
+	}
+	return s.build().Normalized()
+}
+
+// LatestBench is the deployment's newest bench report that counts for
+// the running build, or nil; with a family, the newest such report that
+// scored that family. A report stamped for another build never counts;
+// an unstamped (operator) report does. Bench evidence is about pg_sage,
+// not a database, so every database of the deployment shares it.
 func (s *PostgresStore) LatestBench(ctx context.Context, f Family) (*EvalRun, error) {
+	b := s.runningBuild()
 	run, err := s.scanEvalRun(s.pool.QueryRow(ctx, evalRunSelect+
 		` WHERE deployment_id = $1 AND source = 'bench'
 		  AND ($2 = '' OR cells @> jsonb_build_array(jsonb_build_object('family', $2::text)))
-		  ORDER BY generated_at DESC, ingested_at DESC LIMIT 1`, s.deployment, string(f)))
+		  AND ((pg_sage_version = '' AND pg_sage_commit = '')
+		    OR ($3 <> '' AND pg_sage_commit = $3)
+		    OR (($3 = '' OR pg_sage_commit = '') AND $4 <> '' AND pg_sage_version = $4))
+		  ORDER BY generated_at DESC, ingested_at DESC LIMIT 1`, s.deployment, string(f),
+		b.Commit, b.Version))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

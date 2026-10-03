@@ -32,9 +32,12 @@ type ClassView struct {
 
 // FamilyView is one family's rows with its shadow record.
 type FamilyView struct {
-	Family  Family      `json:"family"`
-	Shadow  Shadow      `json:"shadow"`
-	Classes []ClassView `json:"classes"`
+	Family Family `json:"family"`
+	Shadow Shadow `json:"shadow"`
+	// Bench is the report the family's bench checks read, with its
+	// provenance (none without one).
+	Bench   *BenchSummary `json:"bench,omitempty"`
+	Classes []ClassView   `json:"classes"`
 }
 
 // View is the whole ledger.
@@ -83,7 +86,7 @@ func (s *Service) familyView(ctx context.Context, f Family,
 		if err != nil {
 			return FamilyView{}, err
 		}
-		fv.Shadow = ev.Shadow
+		fv.Shadow, fv.Bench = ev.Shadow, SummarizeBench(ev.Bench)
 		row, err := s.classView(ctx, ev, pending[pairKey{f, c}])
 		if err != nil {
 			return FamilyView{}, err

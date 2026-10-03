@@ -366,7 +366,8 @@ func (s *Service) RecordReview(ctx context.Context, r Review) error {
 }
 
 // IngestEvalRun stores a PGIncidentBench report as bench or game-day
-// evidence. A game-day report names the database it ran against.
+// evidence. A game-day report names the database it ran against; a bench
+// report is an unsigned operator-provided one (IngestBench).
 func (s *Service) IngestEvalRun(ctx context.Context, raw []byte, source, actor,
 	database string) (EvalRun, error) {
 	switch {
@@ -378,13 +379,17 @@ func (s *Service) IngestEvalRun(ctx context.Context, raw []byte, source, actor,
 	case strings.TrimSpace(actor) == "" || len(actor) > 200 || len(database) > 200:
 		return EvalRun{}, fmt.Errorf("%w: actor", ErrInvalidRequest)
 	}
+	if source == SourceBench {
+		return s.IngestBench(ctx, raw, BenchIngest{Origin: OriginOperator, Actor: actor})
+	}
 	run, err := ParseBenchReport(raw, s.now())
 	if err != nil {
 		return EvalRun{}, err
 	}
 	run.ID, run.Source, run.IngestedAt, run.IngestedBy, run.Database = newID(), source,
 		s.now(), actor, database
+	run.Origin = OriginGameDay
 	stored, err := s.store.insertEvalRun(ctx, run)
 	s.invalidate()
-	return stored, err
+	return stored.WithProvenance(), err
 }

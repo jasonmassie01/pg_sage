@@ -53,6 +53,12 @@ type EvalRun struct {
 	Gated       []string  `json:"gated_arms"`
 	Cells       []Cell    `json:"cells"`
 	SHA256      string    `json:"sha256"`
+	// Origin, Build and Signature are the report's provenance (roadmap
+	// 1.1); Provenance says it in words.
+	Origin     string           `json:"origin"`
+	Build      Build            `json:"build"`
+	Signature  *ReportSignature `json:"signature,omitempty"`
+	Provenance string           `json:"provenance"`
 	// Duplicate reports an upload of a report already ingested.
 	Duplicate bool `json:"duplicate,omitempty"`
 }
