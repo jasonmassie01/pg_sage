@@ -378,9 +378,14 @@ jobs:
     needs: [test, lint, bench-sign]
     # master pushes publish :edge and :sha-*; release tags publish the
     # semver tags and move :latest, so :latest is always a release.
+    # A tag image needs verified signed bench reports; :edge is published
+    # without them when bench-sign fails or is skipped (the sidecar starts
+    # cleanly with no shipped reports).
     if: >-
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+      always() && github.event_name == 'push' &&
+      needs.test.result == 'success' && needs.lint.result == 'success' &&
+      (github.ref == 'refs/heads/master' ||
+       (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success'))
     permissions:
       packages: write
     steps:
@@ -408,11 +413,13 @@ jobs:
       # /usr/share/pg_sage/bench (an air-gapped install has them) and the
       # trusted root they were verified with.
       - uses: actions/download-artifact@v4
+        if: needs.bench-sign.result == 'success'
         with:
           name: pgincidentbench-signed
           path: sidecar/release-bench
 
       - uses: actions/download-artifact@v4
+        if: needs.bench-sign.result == 'success'
         with:
           name: sigstore-trusted-root
           path: sidecar/internal/benchsig

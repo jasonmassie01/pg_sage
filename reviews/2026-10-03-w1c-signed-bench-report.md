@@ -87,7 +87,7 @@ bench run on a clone to count for the families it covered."
 - The tag bench at 4 repeats passes its gates within the step timeouts.
 - The goreleaser-cross build compiles with the refreshed `trusted_root.json`.
 
-The first master push after merge exercises `bench-sign` and `docker` (`:edge`) the same way. Because `docker` now needs `bench-sign`, a Sigstore outage also blocks the edge image.
+The first master push after merge exercises `bench-sign` and `docker` (`:edge`) the same way. A failed `bench-sign` no longer blocks `:edge`; that image then ships without reports.
 
 ## Test Results
 
@@ -194,11 +194,14 @@ None remaining. The transient failures and the fixed ones are listed above.
 
 ## Coordinator decisions
 
-1. **Binary size.** sigstore-go brings in rekor, grpc, protobuf and otel. The stripped no-cgo binary grows from 28.6 MB to 48.1 MB (+19.5 MB).
+1. **Binary size (accepted by the product owner on 2026-10-03).** sigstore-go brings in rekor, grpc, protobuf and otel. The stripped no-cgo binary grows from 28.6 MB to 48.1 MB (+19.5 MB).
    - The alternative is an ed25519/minisign key in a repo secret: stdlib verification and about 0 MB, at the cost of managing the key.
    - I kept keyless signing, as the brief prefers.
 2. **sigstore-go v1.2.0, not v1.3.0.** v1.3.0 requires `go 1.25.8`. That would bump `go.mod`, and the goreleaser-cross v1.25.0 image does not carry it.
-3. **Publishing depends on signing.** `docker` (including `:edge`) and `release` now depend on `bench-sign`, so a Sigstore outage blocks publishing. That is acceptable for releases; for `:edge` the dependency could be made soft.
+3. **Publishing depends on signing, for releases only.** Decided by the product owner on 2026-10-03:
+   - `release` and the tag image hard-depend on `bench-sign`: a release never ships without verified signed reports.
+   - `:edge` on master is published without bench reports when `bench-sign` fails or is skipped (`always()` gating; the artifact downloads are gated on `bench-sign` success).
+   - `internal/startup/bench_sign_contract_test.go` pins both behaviours.
 4. **Longer release CI.** Tag builds run the bench 4 times, so the bench steps take about 4x as long.
 
 ## What is left
