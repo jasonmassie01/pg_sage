@@ -102,13 +102,22 @@ func TestCheckSelfCost_TwoCyclesAgainstPostgres(t *testing.T) {
 	if !a.eval.failed[categorySelfCost] {
 		t.Fatal("first cycle must leave the category unknown, not evaluated")
 	}
-	if _, err := sagePool(t).Exec(ctx,
-		"SELECT pg_sleep(0.05) AS analyzer_selfcost_probe"); err != nil {
-		t.Fatal(err)
+	// pg_stat_statements ignores aliases and constants: a probe shaped like
+	// another test's untagged "SELECT pg_sleep(0.02)" (same role, same
+	// database) would land in that untagged entry, so this one has a shape
+	// of its own. Other packages' tests call pg_stat_statements_reset() on
+	// the shared server; a reset between the probe and the reading erases
+	// the probe's entry, so the window is retried a few times.
+	var got []Finding
+	for attempt := 0; attempt < 3 && len(got) == 0; attempt++ {
+		if _, err := sagePool(t).Exec(ctx, "SELECT pg_sleep(0.05), "+
+			"'analyzer_selfcost_probe'::text, 3 AS self_cost_shape"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+		a.eval = newCycleEval()
+		got = a.checkSelfCost(ctx)
 	}
-	time.Sleep(20 * time.Millisecond)
-	a.eval = newCycleEval()
-	got := a.checkSelfCost(ctx)
 	if len(got) != 1 || got[0].Category != categorySelfCost {
 		t.Fatalf("second cycle findings = %+v, want one %s", got, categorySelfCost)
 	}
