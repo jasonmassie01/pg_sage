@@ -123,41 +123,76 @@ func lockedSession(ctx context.Context, tx pgx.Tx, key string, wait time.Duratio
 
 // Drop drops one of t's partitions, giving up after LockTimeout.
 func Drop(ctx context.Context, db DB, t Table, p Partition) error {
-	return onPartition(ctx, db, t, p, "DROP TABLE %s")
+	_, err := onPartition(ctx, db, t, p, func(tx pgx.Tx) (bool, error) {
+		_, err := tx.Exec(ctx, "DROP TABLE "+child(p.Name))
+		return err == nil, err
+	})
+	return err
 }
 
-// Truncate empties one of t's partitions, giving up after LockTimeout.
-func Truncate(ctx context.Context, db DB, t Table, p Partition) error {
-	return onPartition(ctx, db, t, p, "TRUNCATE %s")
+// DropHistory drops t's history partition p unless it still holds a row
+// at or after keepFrom, giving up after LockTimeout. The check runs under
+// the drop's own locks (the parent's, then p's, the order DROP takes
+// them), so a row written meanwhile keeps the partition. It reports
+// whether p was dropped. Rows older than every daily partition land in
+// the default partition afterwards.
+func DropHistory(ctx context.Context, db DB, t Table, p Partition, keepFrom time.Time) (bool,
+	error) {
+	if !p.History {
+		return false, fmt.Errorf("partition: %s is not the history partition of %s", p.Name,
+			t.regclass())
+	}
+	return onPartition(ctx, db, t, p, func(tx pgx.Tx) (bool, error) {
+		if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE ONLY %s, %s IN ACCESS EXCLUSIVE MODE",
+			t.ident(), child(p.Name))); err != nil {
+			return false, err
+		}
+		var keep bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s
+			WHERE %s >= $1)`, child(p.Name), pgx.Identifier{t.Column}.Sanitize()),
+			keepFrom).Scan(&keep); err != nil || keep {
+			return false, err
+		}
+		_, err := tx.Exec(ctx, "DROP TABLE "+child(p.Name))
+		return err == nil, err
+	})
 }
 
-func onPartition(ctx context.Context, db DB, t Table, p Partition, stmt string) error {
+// onPartition runs change on one of t's partitions in a transaction that
+// waits at most LockTimeout for a lock; it commits when change reports
+// true.
+func onPartition(ctx context.Context, db DB, t Table, p Partition,
+	change func(pgx.Tx) (bool, error)) (bool, error) {
 	parts, err := List(ctx, db, t)
 	if err != nil {
-		return err
+		return false, err
 	}
 	known := false
 	for _, q := range parts {
 		known = known || q.Name == p.Name
 	}
 	if !known {
-		return fmt.Errorf("partition: %s is not a partition of %s", p.Name, t.regclass())
+		return false, fmt.Errorf("partition: %s is not a partition of %s", p.Name, t.regclass())
 	}
 	tx, err := db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("partition: %s: begin: %w", p.Name, err)
+		return false, fmt.Errorf("partition: %s: begin: %w", p.Name, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lockedSession(ctx, tx, "sage.partition."+t.Name, LockTimeout); err != nil {
-		return fmt.Errorf("partition: %s: %w", p.Name, err)
+		return false, fmt.Errorf("partition: %s: %w", p.Name, err)
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(stmt, child(p.Name))); err != nil {
-		return fmt.Errorf("partition: %s: %w", p.Name, err)
+	done, err := change(tx)
+	if err != nil {
+		return false, fmt.Errorf("partition: %s: %w", p.Name, err)
+	}
+	if !done {
+		return false, nil
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("partition: %s: commit: %w", p.Name, err)
+		return false, fmt.Errorf("partition: %s: commit: %w", p.Name, err)
 	}
-	return nil
+	return true, nil
 }
 
 // Size is the total size of t (heap, TOAST and indexes) with every

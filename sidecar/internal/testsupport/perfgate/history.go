@@ -56,7 +56,8 @@ type seedStep struct {
 
 // SeedHistory pre-seeds the sage history a long-running deployment would
 // have: HistoryRows rows in every growing table (snapshots in the
-// keyframe+delta format), with the SRE history mostly under own.
+// keyframe+delta format), the schema guard's legacy flood
+// (legacy_guard.go), with the SRE history mostly under own.
 func SeedHistory(ctx context.Context, pool *pgxpool.Pool, s Scale, own Binding) error {
 	if err := s.Validate(); err != nil {
 		return err
@@ -76,6 +77,9 @@ func SeedHistory(ctx context.Context, pool *pgxpool.Pool, s Scale, own Binding) 
 		if _, err := pool.Exec(ctx, step.sql, s.HistoryRows); err != nil {
 			return fmt.Errorf("perfgate: seed sage.%s: %w", step.table, err)
 		}
+	}
+	if err := seedLegacyGuardFlood(ctx, pool, s); err != nil {
+		return err
 	}
 	return seedSRE(ctx, pool, s.HistoryRows, own)
 }

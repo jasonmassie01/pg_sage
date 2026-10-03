@@ -12,8 +12,8 @@
 //
 // Convert turns an existing plain table into this layout in place (the old
 // table becomes T_history, so no row is copied); Ensure creates the daily
-// partitions ahead of the writers; Drop and Truncate remove old data under
-// a short lock timeout so they never queue readers behind them.
+// partitions ahead of the writers; Drop and DropHistory remove old data
+// under a short lock timeout so they never queue readers behind them.
 package partition
 
 import (
@@ -29,7 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// LockTimeout bounds how long creating, dropping or truncating a partition
+// LockTimeout bounds how long creating or dropping a partition
 // waits for its lock. These statements need a strong lock on the parent;
 // waiting longer would queue every reader behind them.
 const LockTimeout = 2 * time.Second

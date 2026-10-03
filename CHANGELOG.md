@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
+
+### What's new
+
+- **The sidecar no longer burns CPU on databases with many indexes.** The duplicate-index
+  rule compared every index with every other one in the database: about 90 s of CPU per
+  10-minute analyzer cycle on lifeos (35,000 indexes). It now compares within each table:
+  0.19 s, same findings.
+- **Verified index advice is built without waiting for an approval it no longer needs.** An
+  index queued for approval before HypoPG could verify it now runs once it is verified (the
+  pending request is closed as superseded), and the first autonomous optimizer index no longer
+  fails at its change lease. Indexes you rejected stay rejected.
+- **The schema guard is fast however much history it has.** It re-read every decision it had
+  recorded each scan (13 s per scan on lifeos); it now reads the newest one per issue (under
+  40 ms).
+- **Snapshot history shrinks after the upgrade.** The size cap now acts on the history
+  partition the v1.8.3 conversion created, drops it whole when it closes, and the background
+  conversion no longer gives up on databases with long-running queries. One slow cleanup no
+  longer starves the others.
+
 
 ### Fixed
 
@@ -11,6 +30,48 @@
   seconds (lifeos: 4-5 s application queries) every attempt was cancelled and the table stayed
   plain. That wait blocks none of the table's readers or writers, so it is now bounded by the
   conversion's 10 minute statement timeout instead.
+- **The snapshot size cap now works right after the upgrade, and gives the disk space
+  back.** Converting `sage.snapshots` to daily partitions put all existing rows (lifeos:
+  9.3 GB) into one history partition that still takes rows for up to two days. The cap
+  could not touch it until then and warned on every run. Now the cap waits for that
+  partition to close and then drops it whole, which returns its disk space at once
+  (deleting rows would only free space for reuse and write as much WAL). It says so once:
+  when the partition closes and that it will be dropped then. A history partition that
+  stays open longer than 48 hours (rows dated ahead at the conversion) has its oldest rows
+  deleted in small paced batches instead (at most 1 GiB a run, never today's rows, never
+  a snapshot that a kept one is built on). An empty or fully expired history partition of
+  `sage.snapshots` or `sage.query_store` is dropped instead of truncated, and dropping a
+  partition can no longer break a kept snapshot that reaches it through a checkpoint.
+  Over-cap warnings are logged once per change or day and say what pg_sage is doing.
+- **One slow cleanup no longer starves the others.** When one table's cleanup used the
+  whole 30 s run budget, the next run started with it again, so on lifeos the query
+  history backlog ran alone run after run and the other tables waited. A table that uses
+  the budget now goes last in the next run, so every table is cleaned at least once every
+  few runs.
+
+- **The analyzer no longer pins a CPU core on databases with many indexes.** The duplicate
+  and subset index rule compared every btree index with every other one in the database, and
+  the unused-index rule re-read every index definition for each unused index that backs a
+  foreign key. On lifeos (35,000 indexes) that cost about 90 seconds of sidecar CPU every
+  10-minute analyzer cycle. Both rules now compare only indexes of the same table: 0.19 s on
+  42,000 indexes, with the same findings.
+
+- **An index waiting for approval now runs on its own once it no longer needs approval.** An
+  index proposal queued because HypoPG had not yet verified it stayed pending even after
+  pg_sage verified it later, until the request expired a day afterwards. pg_sage now
+  checks the current verdict every cycle. Once the change may run unattended (it was
+  verified, or you raised trust), the pending request is closed as `superseded` with the
+  reason "approval no longer required" and the change runs exactly once. Requests you
+  approved or rejected are never overridden, and a change you rejected stays behind
+  approval. A related fix: autonomous index builds from the optimizer no longer fail at the
+  change lease with "invalid identifier".
+
+- **The schema guard no longer slows down as its decision history grows.** Each scan
+  re-read every decision it had ever recorded about the tables it checks; on the lifeos
+  dogfood database, which still holds 253,000 rows written by v1.8.1's ledger flood, that
+  took 13 seconds a scan. It now reads only the newest decision of each schema issue and
+  the few rows it counts, through two small indexes: under 40 ms on a 250,000-row history,
+  whatever its size. The large index the old read used is removed at upgrade.
 
 - **Active and idle-in-transaction session counts are the application's sessions only.** The
   system snapshot also counted autovacuum workers, logical replication senders and parallel
