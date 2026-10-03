@@ -508,3 +508,56 @@ func TestConvert_SmallTableKeyBuildDoesNotWaitForOtherSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A large table's key is built CONCURRENTLY, which waits for every older
+// transaction in the database, also those that never touch the table. On
+// lifeos (application queries of 4-5 s) the 2 s lock timeout of the other
+// steps cancelled that wait on every attempt, so sage.snapshots was never
+// converted. The wait blocks no reader or writer of the table, so it is
+// bounded by the conversion's statement timeout instead.
+func TestConvert_ConcurrentKeyBuildWaitsOutLongTransactions(t *testing.T) {
+	pool, ctx := requireDB(t)
+	old := concurrentKeyMinBytes
+	concurrentKeyMinBytes = 0
+	t.Cleanup(func() { concurrentKeyMinBytes = old })
+	tbl := scratch(t, ctx, pool, []string{"id"})
+	fill(t, ctx, pool, tbl, 2000)
+	other, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Release()
+	hold := LockTimeout + time.Second
+	slept := make(chan error, 1)
+	withHook(t, func(ctx context.Context, _ DB, phase string) error {
+		if phase != "index" {
+			return nil
+		}
+		// A running application query that never reads the table: its
+		// snapshot is what CONCURRENTLY waits for.
+		go func() {
+			_, err := other.Exec(context.Background(), "SELECT pg_catalog.pg_sleep($1)",
+				hold.Seconds())
+			slept <- err
+		}()
+		time.Sleep(200 * time.Millisecond)
+		return nil
+	})
+	// The sleeping query must finish before the connection is released.
+	defer func() { <-slept }()
+	started := time.Now()
+	res, err := Convert(ctx, pool, tbl)
+	if err != nil || !res.Converted {
+		t.Fatalf("Convert during a %s transaction = %+v, %v", hold, res, err)
+	}
+	if waited := time.Since(started); waited < hold {
+		t.Fatalf("conversion took %s: the key build did not wait for the transaction", waited)
+	}
+	var lockTimeout string
+	if err := pool.QueryRow(ctx, "SHOW lock_timeout").Scan(&lockTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if lockTimeout != "0" {
+		t.Fatalf("a pooled session kept lock_timeout = %s", lockTimeout)
+	}
+}
