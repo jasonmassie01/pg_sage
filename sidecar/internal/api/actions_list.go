@@ -79,7 +79,8 @@ type actionsRequest struct {
 }
 
 // queryActionSources reads one database's executed and queued ledgers
-// (each its own keyset source) and their capped totals.
+// (each its own keyset source) and their total (up to maxListTotal+1
+// each).
 func queryActionSources(ctx context.Context, pool *pgxpool.Pool, db string,
 	req actionsRequest) (pageResult, error) {
 	var res pageResult
@@ -89,17 +90,16 @@ func queryActionSources(ctx context.Context, pool *pgxpool.Pool, db string,
 	fetch := req.page.Offset + req.page.Limit + 1
 	logWindow, logArgs := timeWindowSQL("executed_at", req.from, req.to, nil)
 	qWindow, qArgs := timeWindowSQL("proposed_at", req.from, req.to, nil)
-	logTotal, logCapped, err := cappedCount(ctx, pool,
-		"sage.action_log WHERE true"+logWindow, logArgs)
+	logTotal, err := cappedCount(ctx, pool, "sage.action_log WHERE true"+logWindow, logArgs)
 	if err != nil {
 		return res, fmt.Errorf("count actions: %w", err)
 	}
-	qTotal, qCapped, err := cappedCount(ctx, pool,
+	qTotal, err := cappedCount(ctx, pool,
 		"sage.action_queue q"+queuedLedgerWhere+qWindow, qArgs)
 	if err != nil {
 		return res, fmt.Errorf("count queued action ledger: %w", err)
 	}
-	res.total, res.capped = logTotal+qTotal, logCapped || qCapped
+	res.total = logTotal + qTotal
 	sql, args := buildActionLogPageSQL(req.from, req.to, req.page.Cursor, db+"/log", fetch)
 	executed, err := queryLedgerRows(ctx, pool, sql, args, db, "/log", scanActionRows)
 	if err != nil {
@@ -147,24 +147,18 @@ func queryLedgerRows(ctx context.Context, pool *pgxpool.Pool, sql string, args [
 func listActions(ctx context.Context, sources []namedPool, req actionsRequest,
 ) (map[string]any, error) {
 	var all []pagedRow
-	total, capped := 0, false
+	sum := 0
 	for _, s := range sources {
 		res, err := queryActionSources(ctx, s.pool, s.name, req)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", s.name, err)
 		}
 		all = append(all, res.rows...)
-		total += res.total
-		capped = capped || res.capped
+		sum += res.total
 	}
 	actions, next := mergePage(all, req.page, true, actionsSort, "desc")
-	total, capped = capTotal(total, capped)
+	total, capped := capTotal(sum)
 	return map[string]any{"total": total, "total_capped": capped,
 		"offset": req.page.Offset, "limit": req.page.Limit, "actions": actions,
 		"next_cursor": next}, nil
-}
-
-// capTotal reports a summed total under the same cap as one source's.
-func capTotal(total int, capped bool) (int, bool) {
-	return min(total, maxListTotal), capped || total > maxListTotal
 }

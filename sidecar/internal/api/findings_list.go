@@ -104,11 +104,11 @@ type pagedRow struct {
 	id     int64
 }
 
-// pageResult is one source's rows (sorted) and its capped total.
+// pageResult is one source's rows and its total, counted up to
+// maxListTotal+1 (capTotal reports the cap).
 type pageResult struct {
-	rows   []pagedRow
-	total  int
-	capped bool
+	rows  []pagedRow
+	total int
 }
 
 // errBadPage marks a request whose cursor or offset cannot be served.
@@ -134,11 +134,11 @@ func queryFindingsPage(
 	}
 	if withTotal {
 		where, args := findingsFilterSQL(f)
-		total, capped, err := cappedCount(ctx, pool, "sage.findings"+where, args)
+		total, err := cappedCount(ctx, pool, "sage.findings"+where, args)
 		if err != nil {
 			return res, fmt.Errorf("count findings: %w", err)
 		}
-		res.total, res.capped = total, capped
+		res.total = total
 	}
 	sql, args := buildFindingsPageSQL(f, page.Cursor, source, page.Offset+page.Limit+1)
 	rows, err := pool.Query(ctx, sql, args...)
@@ -150,18 +150,24 @@ func queryFindingsPage(
 	return res, err
 }
 
-// cappedCount counts the rows of "<from> WHERE ..." up to maxListTotal+1:
-// the reported total is exact below the cap and capped above it.
+// cappedCount counts the rows of "<from> WHERE ..." up to maxListTotal+1,
+// enough to tell an exact total from a capped one.
 func cappedCount(ctx context.Context, pool *pgxpool.Pool, fromWhere string,
-	args []any) (int, bool, error) {
+	args []any) (int, error) {
 	var n int
 	err := pool.QueryRow(ctx, fmt.Sprintf(
 		"/* pg_sage */ SELECT count(*) FROM (SELECT 1 FROM %s LIMIT %d) capped",
 		fromWhere, maxListTotal+1), args...).Scan(&n)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
-	return min(n, maxListTotal), n > maxListTotal, nil
+	return n, nil
+}
+
+// capTotal reports a total summed over sources: exact up to maxListTotal,
+// maxListTotal and capped above it.
+func capTotal(total int) (int, bool) {
+	return min(total, maxListTotal), total > maxListTotal
 }
 
 func scanFindingPage(rows pgx.Rows, source string, keys []sortKey) ([]pagedRow, error) {
@@ -243,18 +249,17 @@ func listFindings(
 	ctx context.Context, sources []namedPool, f fleet.FindingFilters, page listPage,
 ) (map[string]any, error) {
 	var all []pagedRow
-	total, capped := 0, false
+	sum := 0
 	for _, s := range sources {
 		res, err := queryFindingsPage(ctx, s.pool, f, page, s.name, true)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", s.name, err)
 		}
 		all = append(all, res.rows...)
-		total += res.total
-		capped = capped || res.capped
+		sum += res.total
 	}
 	findings, next := mergePage(all, page, f.Order != "asc", f.Sort, f.Order)
-	total, capped = capTotal(total, capped)
+	total, capped := capTotal(sum)
 	return map[string]any{"filters": f, "total": total, "total_capped": capped,
 		"offset": page.Offset, "limit": page.Limit, "findings": findings,
 		"next_cursor": next}, nil
