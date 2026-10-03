@@ -113,7 +113,4 @@ BEGIN
     END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS sre_investigation_retention
-    ON sage.sre_investigations (deployment_id, database_id, updated_at)
-    WHERE NOT pinned;
 `

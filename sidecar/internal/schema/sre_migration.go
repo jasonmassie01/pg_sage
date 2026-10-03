@@ -64,8 +64,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS sre_one_live_trigger
 CREATE UNIQUE INDEX IF NOT EXISTS sre_investigation_idempotency
     ON sage.sre_investigations (deployment_id, database_id, idempotency_key)
     WHERE idempotency_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS sre_investigation_queue
-    ON sage.sre_investigations (deployment_id, database_id, state, updated_at);
 
 CREATE TABLE IF NOT EXISTS sage.sre_steps (
     deployment_id    uuid NOT NULL,

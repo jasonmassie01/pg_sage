@@ -399,7 +399,8 @@ func migrationStatements() []string {
 		ddlDecisionLedger(),
 		ddlPerfIndexes,
 		ddlSREPerf(),
-		ddlAPIListIndexes())
+		ddlAPIListIndexes(),
+		ddlSelfExclIndexes())
 }
 
 // ---------------------------------------------------------------------------

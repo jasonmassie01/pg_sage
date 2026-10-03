@@ -60,15 +60,24 @@ func (s *PostgresStore) Purge(ctx context.Context, scope Scope,
 	return res, err
 }
 
-// agedIDs locks up to batch terminal, unpinned investigations whose last
-// change is older than age. extra is a constant SQL predicate.
+// agedIDsSQL locks up to $4 terminal, unpinned investigations whose last
+// change is older than $3 seconds. extra is a constant SQL predicate. No
+// index keys updated_at (every progress update moves it, which made those
+// updates non-HOT); updated_at >= created_at, so the created_at bound
+// makes the read a range of idx_sre_investigations_created, oldest first.
+func agedIDsSQL(extra string) string {
+	return `SELECT id::text FROM sage.sre_investigations
+		WHERE deployment_id = $1 AND database_id = $2 AND NOT pinned
+		  AND state IN ` + terminalStates + `
+		  AND created_at < now() - make_interval(secs => $3)
+		  AND updated_at < now() - make_interval(secs => $3) ` + extra + `
+		ORDER BY created_at, id LIMIT $4 FOR UPDATE SKIP LOCKED`
+}
+
+// agedIDs runs agedIDsSQL for scope.
 func agedIDs(ctx context.Context, tx pgx.Tx, scope Scope, age time.Duration,
 	batch int, extra string) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT id::text FROM sage.sre_investigations
-		WHERE deployment_id = $1 AND database_id = $2 AND NOT pinned
-		  AND state IN `+terminalStates+`
-		  AND updated_at < now() - make_interval(secs => $3) `+extra+`
-		ORDER BY updated_at, id LIMIT $4 FOR UPDATE SKIP LOCKED`,
+	rows, err := tx.Query(ctx, agedIDsSQL(extra),
 		string(scope.DeploymentID), string(scope.DatabaseID), age.Seconds(), batch)
 	if err != nil {
 		return nil, err
