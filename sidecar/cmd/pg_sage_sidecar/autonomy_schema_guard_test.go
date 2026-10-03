@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -33,26 +30,5 @@ func TestSchemaGuardRuntimeSettingsFollowConfig(t *testing.T) {
 	cfg.Analyzer.UnusedIndexWindowDays = 0
 	if got := schemaGuardOptions(cfg).IdleWindow; got != 7*24*time.Hour {
 		t.Fatalf("zero idle window = %v, want the 7-day default", got)
-	}
-}
-
-// Building the history index CONCURRENTLY can fail (a long transaction,
-// a cancelled build); the sidecar keeps running and says so.
-func TestEnsureSchemaGuardIndexFailureIsLoggedNotFatal(t *testing.T) {
-	var logged []string
-	ensureSchemaGuardIndexLogged(context.Background(), "orders",
-		func(context.Context) error { return errors.New("canceling statement") },
-		func(format string, args ...any) {
-			logged = append(logged, format)
-		})
-	if len(logged) != 1 || !strings.Contains(logged[0], "schema guard history index") {
-		t.Fatalf("logged = %v, want one warning naming the index", logged)
-	}
-	logged = nil
-	ensureSchemaGuardIndexLogged(context.Background(), "orders",
-		func(context.Context) error { return nil },
-		func(format string, args ...any) { logged = append(logged, format) })
-	if len(logged) != 0 {
-		t.Fatalf("success logged %v, want nothing", logged)
 	}
 }

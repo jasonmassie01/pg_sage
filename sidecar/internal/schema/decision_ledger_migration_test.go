@@ -10,9 +10,8 @@ import (
 
 // Decision ledger dedupe (dogfood lifeos): non-execute verdicts carry a
 // fingerprint and repeats update one row (repeat_count, last_seen_at). The
-// unique index behind the upsert is created by Bootstrap, so the upsert
-// works from the first decision; the performance indexes are built
-// CONCURRENTLY by EnsureDecisionIndexes.
+// unique index behind the upsert, and the ledger's performance indexes,
+// are created by Bootstrap, so the upsert works from the first decision.
 
 func TestDecisionLedgerMigrationAddsFingerprintColumnsAndUniqueIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
@@ -69,12 +68,9 @@ func indexDefinition(t *testing.T, pool *pgxpool.Pool, name string) string {
 // Every foreign key into or out of sage.decision leads some valid index, so
 // retention's purges and the anti-joins in its keep rules never scan the
 // table; created_at leads an index for the age-based purge.
-func TestEnsureDecisionIndexesCoversEveryDecisionForeignKey(t *testing.T) {
+func TestBootstrapIndexesEveryDecisionForeignKey(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
-	if err := EnsureDecisionIndexes(ctx, pool); err != nil {
-		t.Fatalf("EnsureDecisionIndexes: %v", err)
-	}
 	rows, err := pool.Query(ctx, `SELECT c.conrelid::regclass::text, a.attname
 		FROM pg_constraint c
 		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
