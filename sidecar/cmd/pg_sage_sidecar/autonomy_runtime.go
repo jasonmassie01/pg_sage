@@ -13,7 +13,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/ledger"
-	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 // executorProposalRouter hands custodian proposals to the executor. Every
@@ -166,11 +165,6 @@ func startInstanceAutonomy(
 	if err != nil {
 		return err
 	}
-	startInstanceWorker(workers, func() {
-		ensureSchemaGuardIndexLogged(ctx, database, func(ctx context.Context) error {
-			return schema.EnsureDecisionIndexes(ctx, pool)
-		}, func(format string, args ...any) { logWarn("autonomy", format, args...) })
-	})
 	startInstanceWorker(workers, func() {
 		supervisor.Start(ctx)
 		<-ctx.Done()

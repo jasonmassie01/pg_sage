@@ -392,7 +392,7 @@ func migrationStatements() []string {
 		ddlDebtExec,
 		ddlIncidentOpenIdentity,
 		ddlSnapshotDelta,
-		ddlDecisionLedgerDedupe)
+		ddlDecisionLedger())
 }
 
 // ---------------------------------------------------------------------------
