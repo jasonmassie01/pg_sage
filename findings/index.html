@@ -716,6 +716,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage_self_cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sage_self_cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#checkpoint_pressure" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1185,6 +1196,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage_self_cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sage_self_cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#checkpoint_pressure" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1440,12 +1462,32 @@ largest table listed), or raise <code>retention.sage_size_warning_pct</code> if 
 expected. Snapshot rows written before compact storage age out with
 <code>retention.snapshots_days</code>.</p>
 <hr />
+<h3 id="sage_self_cost">sage_self_cost<a class="headerlink" href="#sage_self_cost" title="Permanent link">&para;</a></h3>
+<p>Detects pg_sage itself using too much of the database's time.</p>
+<p><strong>Severity:</strong> warning</p>
+<p><strong>What it detects:</strong> pg_sage's own statements used more database time per collector
+cycle than <code>analyzer.self_cost_budget_ms</code> (default 3000 ms, 5% of one core at the
+default 60 s collector interval). pg_sage does not hide from <code>pg_stat_statements</code>: every
+statement it sends carries the <code>/* pg_sage */</code> tag after its first keyword, and each
+analyzer cycle sums those entries' execution and planning time for this database since the previous cycle.
+The finding also gives statements, shared blocks, sage-table rows read and written per
+cycle and the sage schema's size. Without <code>pg_stat_statements</code>, after a statistics reset,
+and on the first cycle after a start, the open finding is kept, not resolved; <code>0</code>
+disables it. The same figures are exported as <code>pg_sage_self_*</code> Prometheus metrics.</p>
+<p><strong>Example output:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>Sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
+</code></pre></div>
+<p><strong>Recommended action:</strong> Look at the <code>pg_stat_statements</code> entries that contain
+<code>/* pg_sage */</code>, sorted by <code>total_exec_time</code>, to see which component costs most; lengthen
+<code>collector.interval_seconds</code> or <code>analyzer.interval_seconds</code>, or raise
+<code>analyzer.self_cost_budget_ms</code> if the cost is expected.</p>
+<hr />
 <h3 id="checkpoint_pressure">checkpoint_pressure<a class="headerlink" href="#checkpoint_pressure" title="Permanent link">&para;</a></h3>
 <p>Detects high checkpoint frequency.</p>
 <p><strong>Severity:</strong> warning</p>
 <p><strong>What it detects:</strong> Checkpoints occurring more frequently than expected, indicating heavy write load or insufficient <code>max_wal_size</code>.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>Checkpoint pressure: 45 checkpoints in last hour (expected &lt; 6)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Checkpoint pressure: 45 checkpoints in last hour (expected &lt; 6)
 </code></pre></div>
 <p><strong>Recommended action:</strong> Increase <code>max_wal_size</code> and <code>checkpoint_completion_target</code>.</p>
 <hr />
@@ -1455,7 +1497,7 @@ expected. Snapshot rows written before compact storage age out with
 <p><strong>Severity:</strong> warning or critical</p>
 <p><strong>What it detects:</strong> Standby servers falling behind the primary, measured via <code>pg_stat_replication</code>.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Replication lag: 45 seconds behind primary
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Replication lag: 45 seconds behind primary
 </code></pre></div>
 <p><strong>Recommended action:</strong> Investigate network issues, standby I/O capacity, or heavy write load on primary.</p>
 <hr />
@@ -1464,10 +1506,10 @@ expected. Snapshot rows written before compact storage age out with
 <p><strong>Severity:</strong> warning</p>
 <p><strong>What it detects:</strong> Replication slots without active consumers, causing WAL to accumulate and disk usage to grow.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
 </code></pre></div>
 <p><strong>Recommended action:</strong> Drop the inactive slot if the consumer is permanently gone.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">pg_drop_replication_slot</span><span class="p">(</span><span class="s1">'old_subscriber'</span><span class="p">);</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">pg_drop_replication_slot</span><span class="p">(</span><span class="s1">'old_subscriber'</span><span class="p">);</span>
 </code></pre></div>
 <hr />
 <h2 id="tier-2-llm-index-optimizer">Tier 2 -- LLM Index Optimizer<a class="headerlink" href="#tier-2-llm-index-optimizer" title="Permanent link">&para;</a></h2>

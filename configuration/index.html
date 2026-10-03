@@ -1378,6 +1378,11 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td>Seconds between analysis cycles</td>
 </tr>
 <tr>
+<td><code>analyzer.self_cost_budget_ms</code></td>
+<td><code>3000</code></td>
+<td>Raise a <code>sage_self_cost</code> finding when pg_sage's own statements (the <code>pg_stat_statements</code> entries carrying the <code>/* pg_sage */</code> tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. <code>0</code> disables the finding; the <code>pg_sage_self_*</code> Prometheus metrics are exported either way. <code>0</code>-<code>3600000</code></td>
+</tr>
+<tr>
 <td><code>rca.lock_chain_interval_seconds</code></td>
 <td><code>60</code></td>
 <td>Seconds between lock-chain fast-path checks. Each check opens or updates the <code>lock_contention</code> incident (with the root blocker's pid, <code>backend_start</code> and query identity) and sends <code>incident_detected</code> without waiting for the analyzer cycle. <code>0</code> disables the fast path; otherwise <code>10</code>-<code>3600</code>. Escalation and auto-resolution still count analyzer cycles. Restart to change</td>
