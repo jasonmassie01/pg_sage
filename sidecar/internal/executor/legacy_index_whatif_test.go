@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -107,7 +108,7 @@ func newLegacyFixture(t *testing.T, category string, detail map[string]any,
 			" USING btree (status) INCLUDE (id)",
 		RollbackSQL: rollback(index), ActionRisk: "moderate", Detail: detail}
 	fx.findingID = fx.insertFinding(t, fx.f)
-	t.Cleanup(func() { fx.cleanup() })
+	t.Cleanup(func() { fx.cleanup(); fx.ageActions() })
 	fx.exec = fx.newExecutor(t)
 	res, err := fx.recs.Propose(ctx, analyzer.RecommendationProposal(fx.database, fx.f))
 	if err != nil || res.Outcome != recommendation.OutcomeCreated {
@@ -174,4 +175,13 @@ func TestFKIndexFindingNotRoutedToApproval(t *testing.T) {
 	if got["execute/authorized"] == 0 || got["queue_approval/approval_required"] != 0 {
 		t.Fatalf("decisions = %v, want the gate to authorize the FK index", got)
 	}
+}
+
+// ageActions moves the fixture's action rows out of the gate's 24-hour
+// usage window, so the tables these tests touch do not count against the
+// blast radius of other tests sharing the database.
+func (fx *staleFixture) ageActions() {
+	_, _ = fx.pool.Exec(context.Background(), `UPDATE sage.action_log
+		SET executed_at = now() - interval '2 days' WHERE sql_executed = $1`,
+		fx.f.RecommendedSQL)
 }
