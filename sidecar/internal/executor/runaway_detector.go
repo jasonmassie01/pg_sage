@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // RunawayDetector loads current backend evidence and advances one tracker.
@@ -113,8 +114,11 @@ SELECT pid,
    AND datname = current_database()
    AND backend_type = 'client backend'`
 
-const runawayBlockersSQL = `/* pg_sage */
+// runawayBlockersSQL counts the sessions each backend blocks; a pg_sage
+// session queued behind a lock is not a victim to terminate a query for.
+var runawayBlockersSQL = `/* pg_sage */
 SELECT blocker_pid, count(*)::integer
   FROM pg_stat_activity AS blocked
  CROSS JOIN LATERAL unnest(pg_blocking_pids(blocked.pid)) AS blocker_pid
+ WHERE ` + selfmonitor.ActivityExclusionSQL("blocked") + `
  GROUP BY blocker_pid`
