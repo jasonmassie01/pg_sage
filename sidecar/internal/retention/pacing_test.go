@@ -52,7 +52,8 @@ func TestRunOnce_BatchesArePerTableAndPaced(t *testing.T) {
 	// truncated instead (TestRunOnce_ExpiredHistoryIsTruncated).
 	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
 		VALUES (now() - interval '1 hour', $1 || '_kept', '{}'::jsonb)`, tag)
-	const pause = 30 * time.Millisecond
+	// Long enough that the pauses, not the statements, dominate the run.
+	const pause = 400 * time.Millisecond
 	c := New(pool, allDays(30), noopLog).WithPacing(pause, time.Minute)
 	stats := c.RunOnce(ctx)
 	if n := countWhere(t, ctx, `SELECT count(*) FROM sage.notification_log WHERE event=$1`,
@@ -107,7 +108,11 @@ func TestRunOnce_StopsAtItsBudgetAndResumesNextRun(t *testing.T) {
 	}
 	// Later runs continue where the last one stopped until nothing is left.
 	for run := 0; run < 200 && left > 0; run++ {
-		c.RunOnce(ctx)
+		// A spent budget lets a rule send one statement, never the backlog.
+		if got := c.RunOnce(ctx).Deleted["notification_log"]; got > batchSize {
+			t.Fatalf("a run over budget deleted %d notification_log rows, want <= %d",
+				got, batchSize)
+		}
 		left = countWhere(t, ctx, `SELECT count(*) FROM sage.notification_log WHERE event=$1`,
 			tag)
 	}
