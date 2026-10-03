@@ -54,7 +54,7 @@ func (a *ActionService) autoPropose(ctx context.Context, scope sre.Scope) error 
 	rows, err := a.st.Pool().Query(ctx, `SELECT i.id::text FROM sage.sre_investigations i
 		WHERE i.deployment_id = $1 AND i.database_id = $2 AND i.state = 'concluded'
 		  AND i.trigger_kind IN ('lock_blocking', 'connection_pressure')
-		  AND i.concluded_at > clock_timestamp() - make_interval(secs => $3)
+		  AND i.concluded_at > now() - make_interval(secs => $3)
 		  AND NOT EXISTS (SELECT 1 FROM sage.sre_action_proposals p
 		      WHERE p.deployment_id = i.deployment_id AND p.database_id = i.database_id
 		        AND p.investigation_id = i.id)
@@ -235,7 +235,7 @@ func (a *ActionService) closeVerification(ctx context.Context, p Proposal) {
 // uncertain outcomes and verifies recovery; it never retries the signal.
 func (a *ActionService) markAbandoned(ctx context.Context, scope sre.Scope) error {
 	ps, err := a.ps.list(ctx, scope, `state = 'executing'
-		AND updated_at < clock_timestamp() - make_interval(secs => $3) LIMIT 10`,
+		AND updated_at < now() - make_interval(secs => $3) LIMIT 10`,
 		abandonedAfter.Seconds())
 	if err != nil {
 		return a.observe(err)

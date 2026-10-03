@@ -6,6 +6,9 @@ on:
     tags: ["v*"]
   pull_request:
     branches: [master]
+  # Nightly: the performance gate at the large scale (5,000 tables).
+  schedule:
+    - cron: "17 6 * * *"
 
 jobs:
   test:
@@ -84,6 +87,34 @@ jobs:
           go test ./e2e -cover -tags=e2e -count=1 -timeout 900s -json > ../e2e.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../e2e.json
           exit $status
+
+      # Performance gate: the real runtime against a large synthetic catalog
+      # with pre-seeded sage history; fails on a seq scan of a large sage
+      # table, slow statements, O(objects) writes or a catalog query over
+      # the 500 ms incident budget (internal/testsupport/perfgate/budgets.go).
+      # Pull requests run the small scale; the nightly run the large one.
+      # Report-only while the offender queue in
+      # reviews/2026-10-03-perf-gate-report.md is open: master fails the gate
+      # by design until the fix phase lands. Delete continue-on-error then.
+      - name: Performance gate
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        working-directory: sidecar
+        timeout-minutes: 25
+        env:
+          PG_SAGE_PERF_SCALE: ${{ github.event_name == 'schedule' && 'large' || 'small' }}
+          PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
+        run: |
+          go test ./cmd/pg_sage_sidecar -tags=perfgate -run '^TestPerfGate$' -count=1 \
+            -timeout 1500s -v
+
+      - name: Upload performance gate report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perfgate-pg17
+          path: perfgate/
+          if-no-files-found: warn
 
       # The bench runs in shards by incident family (SAGE_BENCH_FAMILIES), each
       # its own step under 20 minutes, so it neither crowds the ./... suites

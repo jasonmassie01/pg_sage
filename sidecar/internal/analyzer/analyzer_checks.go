@@ -139,6 +139,15 @@ func canonicalTable(ref string) string {
 	return "public." + ref
 }
 
+// openIndexFindingsSQL reads the open index findings. A finding is open,
+// resolved or suppressed; naming the open state (rather than excluding
+// the other two) lets idx_findings_category_status, which holds only
+// open findings, serve it instead of a scan of every finding ever
+// recorded (performance gate).
+const openIndexFindingsSQL = `/* pg_sage */ SELECT DISTINCT object_identifier
+	FROM sage.findings
+	WHERE category ILIKE '%index%' AND status = 'open'`
+
 // openIndexRecommendationTables returns the canonical names of
 // tables that have open (unresolved, unsuppressed) index-related
 // findings. The tuner uses these to defer queries on tables where
@@ -151,12 +160,7 @@ func (a *Analyzer) openIndexRecommendationTables(
 	if a.pool == nil {
 		return nil
 	}
-	rows, err := a.pool.Query(ctx,
-		`/* pg_sage */ SELECT DISTINCT object_identifier
-		 FROM sage.findings
-		 WHERE category ILIKE '%index%'
-		   AND status NOT IN ('resolved','suppressed')`,
-	)
+	rows, err := a.pool.Query(ctx, openIndexFindingsSQL)
 	if err != nil {
 		a.logFn("WARN",
 			"analyzer: load open index findings: %v", err)

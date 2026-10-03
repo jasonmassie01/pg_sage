@@ -114,6 +114,22 @@
     or out of `sage.decision`. On a very large existing ledger, create them
     `CONCURRENTLY` by hand first (see the review report for the statements).
 
+- **pg_sage no longer reads whole history tables to clean up or to find recent rows, and
+  a new performance gate keeps it that way.** A test now builds a large synthetic database
+  (5,000 tables, 15,000 indexes, 5,000 sequences, 150,000 rows in each of pg_sage's history
+  tables), runs pg_sage against it and fails if pg_sage scans a large `sage.*` table end to
+  end, runs a slow statement, writes rows per object instead of per change, or runs a catalog
+  query over 500 ms. Its first run found the work fixed here: the retention purges of
+  explain, alert, verification and resolved-finding history, the change-feed age-out, the
+  clean-up that runs when old actions and decisions are purged, and the check for due
+  verifications each read their whole table; they now use indexes (added automatically at
+  startup). Runway sampling and several Sage SRE windows bounded time in a way PostgreSQL
+  cannot use with an index; they now can. The dashboard's live-update check no longer runs
+  when no dashboard is open. The remaining findings (the live-update check while a dashboard
+  is open, the actions list, forecast history reads, the earned-autonomy reconcile and a
+  sequence catalog query) are listed in `reviews/2026-10-03-perf-gate-report.md` for the
+  next fix pass.
+
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
 ### What's new

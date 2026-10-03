@@ -133,8 +133,10 @@ func buildDBConfig(name string) config.DatabaseConfig {
 // silenceSelfStats stops pg_stat_statements from recording pg_sage's own
 // monitoring queries on this connection. Best-effort: failures (e.g. a
 // non-superuser role on a managed provider) are ignored, leaving the
-// /* pg_sage */ query tag and self-monitoring filter as the fallback.
-func silenceSelfStats(ctx context.Context, c *pgx.Conn) error {
+// /* pg_sage */ query tag and self-monitoring filter as the fallback. It
+// is a variable so the performance gate (TestPerfGate) can keep tracking
+// on and measure pg_sage's own statements.
+var silenceSelfStats = func(ctx context.Context, c *pgx.Conn) error {
 	_, _ = c.Exec(ctx, "SET pg_stat_statements.track = 'none'")
 	return nil
 }
