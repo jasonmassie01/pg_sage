@@ -7,11 +7,13 @@ import (
 	"math"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 func singleConnPool(t *testing.T) *pgxpool.Pool {
@@ -45,36 +47,63 @@ func TestCollectQueries_AggregatesAcrossUsers(t *testing.T) {
 	ctx := context.Background()
 	suffix := fmt.Sprintf("%d", os.Getpid())
 	roleA, roleB := "b05_role_a_"+suffix, "b05_role_b_"+suffix
-	mustExec(t, pool, `CREATE TABLE IF NOT EXISTS b05_target (id int)`)
-	mustExec(t, pool, `INSERT INTO b05_target SELECT generate_series(1, 10)`)
+	var tables []string
 	for _, role := range []string{roleA, roleB} {
 		mustExec(t, pool, `CREATE ROLE `+role)
-		mustExec(t, pool, `GRANT SELECT ON b05_target TO `+role)
 	}
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `RESET ROLE`)
+		for _, table := range tables {
+			_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS `+table)
+		}
 		for _, role := range []string{roleA, roleB} {
-			_, _ = pool.Exec(ctx, `RESET ROLE`)
-			_, _ = pool.Exec(ctx, `REVOKE ALL ON b05_target FROM `+role)
 			_, _ = pool.Exec(ctx, `DROP ROLE IF EXISTS `+role)
 		}
 	})
-	const q = `SELECT count(*) FROM b05_target WHERE id > 0`
-	for role, times := range map[string]int{roleA: 2, roleB: 3} {
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the workload's rows before they are collected: repeat then.
+	// Each attempt (and each run of the test) queries a table of its own,
+	// so calls counted before a reset or by an earlier run never add up.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		table := fmt.Sprintf("b05_target_%s_%d", suffix, fixtureSeq.Add(1))
+		tables = append(tables, table)
+		mustExec(t, pool, `CREATE TABLE `+table+` (id int)`)
+		mustExec(t, pool, `INSERT INTO `+table+` SELECT generate_series(1, 10)`)
+		for _, role := range []string{roleA, roleB} {
+			mustExec(t, pool, `GRANT SELECT ON `+table+` TO `+role)
+		}
+		return aggregateAcrossUsers(t, ctx, pool, table, map[string]int{roleA: 2, roleB: 3})
+	})
+}
+
+// fixtureSeq names each run's fixture table uniquely: pg_stat_statements
+// keeps an earlier run's rows (same text, another table) until a reset.
+var fixtureSeq atomic.Int64
+
+// aggregateAcrossUsers runs the count on table as each role (the given
+// number of times) and checks the collector returns one aggregated row.
+func aggregateAcrossUsers(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table string, runs map[string]int) []string {
+	t.Helper()
+	q := `SELECT count(*) FROM ` + table + ` WHERE id > 0`
+	for role, times := range runs {
 		mustExec(t, pool, `SET ROLE `+role)
 		for i := 0; i < times; i++ {
 			mustExec(t, pool, q)
 		}
 		mustExec(t, pool, `RESET ROLE`)
 	}
+	marker := table + " WHERE id >"
 	var perUserRows int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_statements
-		WHERE query LIKE '%b05_target WHERE id >%'
+		WHERE query LIKE '%' || $1 || '%'
 		  AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
-	).Scan(&perUserRows); err != nil {
+		marker).Scan(&perUserRows); err != nil {
 		t.Fatalf("count pg_stat_statements rows: %v", err)
 	}
 	if perUserRows < 2 {
-		t.Fatalf("fixture produced %d per-user rows; need >= 2", perUserRows)
+		return []string{fmt.Sprintf("fixture produced %d per-user rows; need >= 2",
+			perUserRows)}
 	}
 	cfg := testConfig()
 	cfg.Collector.MaxQueries = 1000
@@ -84,20 +113,24 @@ func TestCollectQueries_AggregatesAcrossUsers(t *testing.T) {
 	}
 	var matches []QueryStats
 	for _, qs := range queries {
-		if strings.Contains(qs.Query, "b05_target WHERE id >") {
+		if strings.Contains(qs.Query, marker) {
 			matches = append(matches, qs)
 		}
 	}
 	if len(matches) != 1 {
-		t.Fatalf("got %d rows for one queryid, want 1 aggregated row", len(matches))
+		return []string{fmt.Sprintf("got %d rows for one queryid, want 1 aggregated row",
+			len(matches))}
 	}
+	var problems []string
 	if matches[0].Calls != 5 {
-		t.Errorf("aggregated calls = %d, want 5 (2 + 3)", matches[0].Calls)
+		problems = append(problems, fmt.Sprintf("aggregated calls = %d, want 5 (2 + 3)",
+			matches[0].Calls))
 	}
 	wantMean := matches[0].TotalExecTime / float64(matches[0].Calls)
 	if math.Abs(matches[0].MeanExecTime-wantMean) > 1e-9 {
 		t.Errorf("mean %v != total/calls %v", matches[0].MeanExecTime, wantMean)
 	}
+	return problems
 }
 
 // G1-B08 / C01: cache_hit_ratio is a fraction in [0,1] computed by the
@@ -181,11 +214,9 @@ func TestCollectQueries_BlockReadTimeFromStatements(t *testing.T) {
 	ctx := context.Background()
 	mustExec(t, pool, `SET track_io_timing = on`)
 	mustExec(t, pool, `SET temp_buffers = '800kB'`)
-	mustExec(t, pool, `CREATE TEMP TABLE b16_tmp AS
+	table := fmt.Sprintf("b16_tmp_%d", fixtureSeq.Add(1))
+	mustExec(t, pool, `CREATE TEMP TABLE `+table+` AS
 		SELECT g AS id, repeat('x', 200) AS pad FROM generate_series(1, 60000) g`)
-	for i := 0; i < 3; i++ {
-		mustExec(t, pool, `SELECT count(*) FROM b16_tmp WHERE pad <> ''`)
-	}
 	// PG17 split blk_read_time into shared_/local_blk_read_time.
 	readTime := "blk_read_time"
 	var version int
@@ -202,15 +233,32 @@ func TestCollectQueries_BlockReadTimeFromStatements(t *testing.T) {
 		t.Skip("PG16 pg_stat_statements does not time local-buffer reads; " +
 			"this fixture reads a temp table")
 	}
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the workload's row between the reads: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		for i := 0; i < 3; i++ {
+			mustExec(t, pool, `SELECT count(*) FROM `+table+` WHERE pad <> ''`)
+		}
+		return blockReadTimeProblems(t, ctx, pool, table, readTime)
+	})
+}
+
+// blockReadTimeProblems compares the workload's block read time in
+// pg_stat_statements with the collector's.
+func blockReadTimeProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table, readTime string) []string {
+	t.Helper()
+	marker := "FROM " + table + " WHERE pad"
 	var want float64
 	err := pool.QueryRow(ctx, `SELECT COALESCE(sum(`+readTime+`), 0)
 		FROM pg_stat_statements
-		WHERE query LIKE '%FROM b16_tmp WHERE pad%'`).Scan(&want)
+		WHERE query LIKE '%' || $1 || '%'`, marker).Scan(&want)
 	if err != nil {
 		t.Fatalf("read expected block time: %v", err)
 	}
 	if want <= 0 {
-		t.Fatalf("workload produced no block read time (%v); fixture invalid", want)
+		return []string{fmt.Sprintf("workload produced no block read time (%v); "+
+			"fixture invalid", want)}
 	}
 	cfg := testConfig()
 	cfg.Collector.MaxQueries = 1000
@@ -219,12 +267,12 @@ func TestCollectQueries_BlockReadTimeFromStatements(t *testing.T) {
 		t.Fatalf("collectQueries: %v", err)
 	}
 	for _, q := range queries {
-		if strings.Contains(q.Query, "FROM b16_tmp WHERE pad") {
+		if strings.Contains(q.Query, marker) {
 			if math.Abs(q.BlkReadTime-want) > 1e-6 {
-				t.Fatalf("BlkReadTime = %v, want %v", q.BlkReadTime, want)
+				return []string{fmt.Sprintf("BlkReadTime = %v, want %v", q.BlkReadTime, want)}
 			}
-			return
+			return nil
 		}
 	}
-	t.Fatal("b16 workload query not collected")
+	return []string{"b16 workload query not collected"}
 }

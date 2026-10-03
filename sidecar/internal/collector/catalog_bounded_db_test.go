@@ -59,6 +59,7 @@ func TestCollectIndexes_DefinitionsFetchedOnlyWhenChanged(t *testing.T) {
 		CREATE INDEX u_c ON defcache.u (c) WHERE c > 0`); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
+	waitWatermarkSettled(t, ctx, pool)
 	c := New(pool, testConfig(), serverVersion(t, pool), noopLog)
 	rec := &defRecorder{}
 	c.onCatalogQuery = rec.hook
@@ -89,6 +90,33 @@ func TestCollectIndexes_DefinitionsFetchedOnlyWhenChanged(t *testing.T) {
 	}
 	renameColumnIsSeen(t, ctx, pool, c)
 	renameTableAndSchemaAreSeen(t, ctx, pool, c)
+}
+
+// waitWatermarkSettled waits until the fixture's catalog writes have
+// reached the statistics the index-definition watermark reads. They are
+// reported asynchronously (up to about a second later, PG14 included), so
+// a cycle right after the DDL can see the watermark move under it and
+// rightly flush the cache.
+func waitWatermarkSettled(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	read := func() int64 {
+		var w int64
+		if err := pool.QueryRow(ctx, indexDefWatermarkSQL).Scan(&w); err != nil {
+			t.Fatalf("read watermark: %v", err)
+		}
+		return w
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	last, stableSince := read(), time.Now()
+	for time.Since(stableSince) < 1500*time.Millisecond {
+		if time.Now().After(deadline) {
+			t.Fatalf("index-definition watermark kept moving for 15 s (last %d)", last)
+		}
+		time.Sleep(250 * time.Millisecond)
+		if w := read(); w != last {
+			last, stableSince = w, time.Now()
+		}
+	}
 }
 
 // renameTableAndSchemaAreSeen: a table rename changes the table's
