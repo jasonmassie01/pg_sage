@@ -48,11 +48,12 @@ func SmallScale() Scale {
 }
 
 // LargeScale is the nightly size: 5,000 tables, 15,000 indexes, 5,000
-// sequences in 100 schemas (40 identical clones) and 200k rows of history
-// in every growing sage table.
+// sequences in 100 schemas (40 identical clones) and 150k rows of history
+// in every growing sage table. 200k rows measured 1.77 GB and a 10.5 min
+// build on PostgreSQL 17; 150k keeps the fixture under the 1.5 GB budget.
 func LargeScale() Scale {
 	return Scale{Name: "large", Schemas: 100, CloneSchemas: 40,
-		TablesPerSchema: tablesPerSchema, IndexesPerTable: 3, HistoryRows: 200000}
+		TablesPerSchema: tablesPerSchema, IndexesPerTable: 3, HistoryRows: 150000}
 }
 
 // Tables, Indexes and Sequences count the user catalog (one bigserial

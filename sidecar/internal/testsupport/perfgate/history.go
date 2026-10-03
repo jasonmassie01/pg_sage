@@ -96,7 +96,7 @@ func spread(window string) string {
 var historySteps = []seedStep{
 	{"query_store", true, `INSERT INTO sage.query_store (captured_at, queryid, calls,
 		total_exec_time, mean_exec_time, rows, plan_hash, stats_epoch)
-		SELECT ` + spread("14 days") + `, 1000 + g % 2000, g, g * 1.5, 1.5, g,
+		SELECT ` + spread("60 days") + `, 1000 + g % 2000, g, g * 1.5, 1.5, g,
 		md5((g % 2000)::text), now() - interval '30 days'
 		FROM generate_series(1, $1) g`},
 	{"decision", true, `INSERT INTO sage.decision (feature, intent, target_objects,
@@ -109,31 +109,31 @@ var historySteps = []seedStep{
 		(ARRAY['execute','queue_approval','parked','blocked','observe_only'])[1 + g % 5],
 		(ARRAY['read_only','safe','moderate','high'])[1 + g % 4], 'perfgate history',
 		jsonb_build_object('disposition', CASE WHEN g % 3 = 0 THEN 'dry_run' ELSE 'apply' END),
-		'perfgate-' || g, ` + spread("14 days") + `, ` + spread("14 days") + ` + interval '1 minute'
+		'perfgate-' || g, ` + spread("60 days") + `, ` + spread("60 days") + ` + interval '1 minute'
 		FROM generate_series(1, $1) g`},
 	{"action_log", true, `INSERT INTO sage.action_log (executed_at, action_type,
 		finding_id, sql_executed, outcome, decision_id)
-		SELECT ` + spread("14 days") + `, (ARRAY['create_index','vacuum','analyze','reindex'])
+		SELECT ` + spread("60 days") + `, (ARRAY['create_index','vacuum','analyze','reindex'])
 		[1 + g % 4], g, 'SELECT 1', (ARRAY['success','failed','rolled_back'])[1 + g % 3],
 		CASE WHEN g % 2 = 0 THEN d.first + g - 1 END
 		FROM generate_series(1, $1) g, (SELECT min(id) AS first FROM sage.decision) d`},
 	{"findings", true, `INSERT INTO sage.findings (created_at, last_seen, category,
 		severity, object_type, object_identifier, title, detail, status, resolved_at, rule_id)
-		SELECT ` + spread("14 days") + `, ` + spread("14 days") + `,
+		SELECT ` + spread("60 days") + `, ` + spread("60 days") + `,
 		(ARRAY['unused_index','missing_index','table_bloat','seq_scan_heavy','duplicate_index'])
 		[1 + g % 5], (ARRAY['info','warning','critical'])[1 + g % 3], 'table',
 		'perf_app_' || lpad((g % 60)::text, 3, '0') || '.t_' || g, 'perfgate history',
 		jsonb_build_object('n', g), CASE WHEN g <= least($1 / 100, 500) THEN 'open'
-		ELSE 'resolved' END, CASE WHEN g > least($1 / 100, 500) THEN ` + spread("14 days") + ` END,
+		ELSE 'resolved' END, CASE WHEN g > least($1 / 100, 500) THEN ` + spread("60 days") + ` END,
 		'perfgate'
 		FROM generate_series(1, $1) g`},
 	{"incidents", true, `INSERT INTO sage.incidents (detected_at, last_detected_at,
 		severity, root_cause, source, database_name, identity_key, resolved_at, resolved_by)
-		SELECT ` + spread("14 days") + `, ` + spread("14 days") + `,
+		SELECT ` + spread("60 days") + `, ` + spread("60 days") + `,
 		(ARRAY['info','warning','critical'])[1 + g % 3], 'perfgate history',
 		(ARRAY['deterministic','log_deterministic','schema_lint'])[1 + g % 3],
 		CASE WHEN g % 10 < 7 THEN current_database() ELSE 'other_' || g % 5 END,
-		'perfgate-' || g % 5000, ` + spread("14 days") + ` + interval '5 minutes', 'perfgate'
+		'perfgate-' || g % 5000, ` + spread("60 days") + ` + interval '5 minutes', 'perfgate'
 		FROM generate_series(1, $1) g`},
 	{"recommendation", true, `INSERT INTO sage.recommendation (identity_key, database_name,
 		category, target, action_type, state, revision, content_hash, retry_budget,
@@ -141,8 +141,8 @@ var historySteps = []seedStep{
 		SELECT 'perfgate-' || g % 20000, current_database(), 'missing_index',
 		'perf_app_000.t_' || lpad((g % 50)::text, 4, '0'), 'create_index',
 		(ARRAY['verified','reverted','inconclusive','superseded','abandoned'])[1 + g % 5],
-		1, md5(g::text), 3, ` + spread("14 days") + `, ` + spread("14 days") + `,
-		` + spread("14 days") + `
+		1, md5(g::text), 3, ` + spread("60 days") + `, ` + spread("60 days") + `,
+		` + spread("60 days") + `
 		FROM generate_series(1, $1) g`},
 	{"recommendation_revision", true, `INSERT INTO sage.recommendation_revision
 		(recommendation_id, revision, content_hash, forward_sql, source, created_at)
@@ -155,28 +155,28 @@ var historySteps = []seedStep{
 		WHERE identity_key LIKE 'perfgate-%' LIMIT $1`},
 	{"verification", true, `INSERT INTO sage.verification (decision_id, criterion, baseline,
 		minimum_samples, next_evaluation_at, hard_deadline_at, verdict, created_at, completed_at)
-		SELECT d.first + g - 1, '{}', '{}', 3, ` + spread("14 days") + `,
-		` + spread("14 days") + ` + interval '1 hour',
+		SELECT d.first + g - 1, '{}', '{}', 3, ` + spread("60 days") + `,
+		` + spread("60 days") + ` + interval '1 hour',
 		(ARRAY['success','revert','failed','unverifiable'])[1 + g % 4],
-		` + spread("14 days") + `, ` + spread("14 days") + ` + interval '1 hour'
+		` + spread("60 days") + `, ` + spread("60 days") + ` + interval '1 hour'
 		FROM generate_series(1, $1) g, (SELECT min(id) AS first FROM sage.decision) d`},
 	{"size_history", true, `INSERT INTO sage.size_history (collected_at, metric_type,
 		object_name, size_bytes, dead_tuple_pct, database_name)
-		SELECT ` + spread("14 days") + `, (ARRAY['database','table'])[1 + g % 2],
+		SELECT ` + spread("60 days") + `, (ARRAY['database','table'])[1 + g % 2],
 		'perf_app_000.t_' || lpad((g % 3000)::text, 4, '0'), 8192 * g, 1.5, current_database()
 		FROM generate_series(1, $1) g`},
 	{"health_history", true, `INSERT INTO sage.health_history (recorded_at, database_name,
-		health_score, findings_open) SELECT ` + spread("14 days") + `,
+		health_score, findings_open) SELECT ` + spread("60 days") + `,
 		CASE WHEN g % 10 < 7 THEN current_database() ELSE 'other_' || g % 5 END, 90, 3
 		FROM generate_series(1, $1) g`},
 	{"alert_log", true, `INSERT INTO sage.alert_log (sent_at, severity, channel, dedup_key)
-		SELECT ` + spread("14 days") + `, 'warning', 'slack', 'perfgate-' || g % 1000
+		SELECT ` + spread("60 days") + `, 'warning', 'slack', 'perfgate-' || g % 1000
 		FROM generate_series(1, $1) g`},
 	{"notification_log", true, `INSERT INTO sage.notification_log (event, subject, status,
-		sent_at) SELECT 'finding', 'perfgate history', 'sent', ` + spread("14 days") + `
+		sent_at) SELECT 'finding', 'perfgate history', 'sent', ` + spread("60 days") + `
 		FROM generate_series(1, $1) g`},
 	{"explain_cache", true, `INSERT INTO sage.explain_cache (captured_at, queryid, query_text,
-		plan_json, source, total_cost) SELECT ` + spread("14 days") + `, 1000 + g % 2000,
+		plan_json, source, total_cost) SELECT ` + spread("60 days") + `, 1000 + g % 2000,
 		'SELECT 1', '[{"Plan": {"Node Type": "Result"}}]', 'collector', 1.0
 		FROM generate_series(1, $1) g`},
 	{"runway_samples", true, `INSERT INTO sage.runway_samples (kind, subject, epoch,

@@ -34,8 +34,8 @@ func TestLargeScaleMatchesTheTargetCatalog(t *testing.T) {
 		t.Fatalf("catalog = %d tables, %d indexes, %d sequences; want 5000/15000/5000",
 			s.Tables(), s.Indexes(), s.Sequences())
 	}
-	if s.HistoryRows != 200000 {
-		t.Fatalf("history rows = %d, want 200000", s.HistoryRows)
+	if s.HistoryRows != 150000 {
+		t.Fatalf("history rows = %d, want 150000", s.HistoryRows)
 	}
 }
 
