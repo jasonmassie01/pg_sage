@@ -93,12 +93,9 @@ jobs:
       # table, slow statements, O(objects) writes or a catalog query over
       # the 500 ms incident budget (internal/testsupport/perfgate/budgets.go).
       # Pull requests run the small scale; the nightly run the large one.
-      # Report-only while the offender queue in
-      # reviews/2026-10-03-perf-gate-report.md is open: master fails the gate
-      # by design until the fix phase lands. Delete continue-on-error then.
+      # Blocking: any offender fails the build.
       - name: Performance gate
         if: ${{ !cancelled() }}
-        continue-on-error: true
         working-directory: sidecar
         timeout-minutes: 25
         env:
