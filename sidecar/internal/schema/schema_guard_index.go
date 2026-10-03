@@ -45,15 +45,17 @@ const dropInvalidSchemaGuardIndex = `DROP INDEX CONCURRENTLY IF EXISTS
 // EnsureSchemaGuardIndex creates the schema guard history index when it is
 // missing or invalid. It returns nil without waiting when another session
 // is already ensuring or building it.
-func EnsureSchemaGuardIndex(ctx context.Context, pool *pgxpool.Pool) error {
+func EnsureSchemaGuardIndex(ctx context.Context, pool *pgxpool.Pool) (err error) {
 	if pool == nil {
 		return errors.New("schema guard index requires a database connection")
 	}
-	conn, err := pool.Acquire(ctx)
+	// A dedicated connection, not a pool slot: a concurrent build can wait a
+	// long time for older transactions, and the runtime's pools are small.
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
 	if err != nil {
-		return fmt.Errorf("acquire connection for the schema guard index: %w", err)
+		return fmt.Errorf("connect for the schema guard index: %w", err)
 	}
-	defer conn.Release()
+	defer func() { err = errors.Join(err, closeIndexConn(conn)) }()
 	var locked bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))",
 		schemaGuardIndexLockKey).Scan(&locked); err != nil {
@@ -62,8 +64,18 @@ func EnsureSchemaGuardIndex(ctx context.Context, pool *pgxpool.Pool) error {
 	if !locked {
 		return nil
 	}
-	buildErr := ensureSchemaGuardIndex(ctx, conn.Conn())
-	return errors.Join(buildErr, unlockSchemaGuardIndex(conn.Conn()))
+	buildErr := ensureSchemaGuardIndex(ctx, conn)
+	return errors.Join(buildErr, unlockSchemaGuardIndex(conn))
+}
+
+// closeIndexConn ends the build session and with it any session lock.
+func closeIndexConn(conn *pgx.Conn) error {
+	ctx, cancel := context.WithTimeout(context.Background(), schemaGuardIndexUnlock)
+	defer cancel()
+	if err := conn.Close(ctx); err != nil {
+		return fmt.Errorf("close schema guard index connection: %w", err)
+	}
+	return nil
 }
 
 func ensureSchemaGuardIndex(ctx context.Context, conn *pgx.Conn) error {
@@ -86,15 +98,14 @@ func ensureSchemaGuardIndex(ctx context.Context, conn *pgx.Conn) error {
 	return nil
 }
 
-// unlockSchemaGuardIndex releases the build lock; when that fails the
-// connection is closed, which releases the session lock.
+// unlockSchemaGuardIndex releases the build lock. If that fails, closing
+// the dedicated connection (deferred) releases it with the session.
 func unlockSchemaGuardIndex(conn *pgx.Conn) error {
 	ctx, cancel := context.WithTimeout(context.Background(), schemaGuardIndexUnlock)
 	defer cancel()
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_unlock(hashtext($1))",
 		schemaGuardIndexLockKey); err != nil {
-		closeErr := conn.Close(ctx)
-		return errors.Join(fmt.Errorf("unlock schema guard index build: %w", err), closeErr)
+		return fmt.Errorf("unlock schema guard index build: %w", err)
 	}
 	return nil
 }
