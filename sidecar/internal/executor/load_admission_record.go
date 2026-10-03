@@ -30,9 +30,11 @@ const withheldUpsertSQL = `INSERT INTO sage.admission_withheld
 // it is new, so the log line is written once per finding and reason. A
 // withhold went uncounted when this upsert failed and the error was
 // logged and reported as a new record (perf-selfexcl): the failure seen
-// under load was a pooled connection another session had terminated. The
-// upsert is retried once on a lost connection (the statement did not
-// run); any other failure is returned with what was being recorded.
+// under load was a pooled connection another session had terminated. On
+// a lost connection (the statement did not run) the upsert is retried:
+// each failure discards that connection, so at most the pool's size of
+// retries reaches a live one. Any other failure is returned with what was
+// being recorded.
 func (e *Executor) recordWithheldAdmission(
 	ctx context.Context, findingKey string, decisionID int64, admission verify.Admission,
 ) (bool, error) {
@@ -44,11 +46,12 @@ func (e *Executor) recordWithheldAdmission(
 		evidence = []byte("{}")
 	}
 	var inserted bool
+	retries := int(e.pool.Config().MaxConns)
 	for attempt := 0; ; attempt++ {
 		err = e.pool.QueryRow(ctx, withheldUpsertSQL, e.databaseName, findingKey,
 			admission.Reason, admission.Mode, admission.Detail, string(evidence),
 			decisionID).Scan(&inserted)
-		if err == nil || attempt > 0 || !connectionLost(ctx, err) {
+		if err == nil || attempt >= retries || !connectionLost(ctx, err) {
 			break
 		}
 	}

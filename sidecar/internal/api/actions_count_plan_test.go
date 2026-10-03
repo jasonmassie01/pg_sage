@@ -17,6 +17,11 @@ func TestActionLogCappedCountWalksTheTimeIndex(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	testdb.RequireServerVersion(t, pool, 160000, "EXPLAIN (GENERIC_PLAN)")
 	phase2CleanTables(t, pool, ctx)
+	t.Cleanup(func() {
+		// Leave no 20,000-row ledger or its statistics to later plan tests.
+		phase2CleanTables(t, pool, ctx)
+		_, _ = pool.Exec(ctx, "ANALYZE sage.action_log")
+	})
 	seedActionLog(t, pool, "SELECT 1", 20000, keysetBase, time.Second)
 	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE) sage.action_log"); err != nil {
 		t.Fatal(err)

@@ -26,7 +26,7 @@ func TestCatalog_HasM6ReactiveProbes(t *testing.T) {
 		if !ok {
 			t.Fatalf("catalog lacks %s", id)
 		}
-		if spec.Family != families[id] || spec.Args != ArgsNone || spec.Version != "v1" {
+		if spec.Family != families[id] || spec.Args != ArgsNone || spec.Version != specVersion(id) {
 			t.Errorf("%s = family %q args %d version %s", id, spec.Family, spec.Args,
 				spec.Version)
 		}

@@ -105,7 +105,9 @@ func TestCatalog_NeverSelectsQueryText(t *testing.T) {
 	for _, id := range Catalog().IDs() {
 		spec, _ := Catalog().Spec(id)
 		for _, v := range spec.Variants {
-			if m := queryColumn.FindString(v.SQL); m != "" {
+			// The self-exclusion predicate reads the text, never returns it.
+			sql := strings.ReplaceAll(v.SQL, notSelfStatement("s.query"), "")
+			if m := queryColumn.FindString(sql); m != "" {
 				t.Errorf("%s selects query text (%q)", id, m)
 			}
 		}
