@@ -12,20 +12,23 @@ import (
 
 // The history partition of sage.snapshots holds every row written before
 // the table was partitioned by day (lifeos: 9.3 GB) and, until its upper
-// bound, the rows written since. No day can be dropped before it, so the
-// size cap trims it: its oldest rows are deleted in paced batches (TID
-// arrays, a pause between statements, the run's budget, resumed by the
-// next run) until the live data fits, and all of it is dropped at once
-// when all of it must go.
+// bound (the second UTC midnight after the conversion), the rows written
+// since. While it is open (its bound is ahead), writers still put today's
+// rows in it and no day can be dropped before it, so the size cap trims
+// it: its oldest rows are deleted in paced batches (TID arrays, a pause
+// between statements, the run's time and byte budgets, resumed by the next
+// run) until the live data fits. Once it is closed, the cap drops it whole.
 //
 // Space: a DELETE frees no disk space. Autovacuum makes the trimmed space
-// reusable, but only by rows of the same partition, and the history
-// partition takes no new row once its bound has passed; the space goes
-// back to the operating system when the partition is dropped (once empty,
-// or once wholly past retention.snapshots_days: dropDoneHistory). VACUUM
-// FULL is never run: it would lock the table for the whole rewrite. The
-// cap therefore counts live data (capUsage), not files, or it would go on
-// deleting rows long after enough of them were gone.
+// reusable, but only by rows of the same partition: the rows still landing
+// in an open history partition reuse it, a closed one takes no new row, so
+// its freed space is dead weight until the partition is dropped. VACUUM
+// FULL is never run (it would lock the table for the whole rewrite). The
+// cap therefore counts an open history partition by its live rows, or it
+// would go on deleting rows long after enough of them were gone, and a
+// closed one by its files, which only a drop returns: once closed, a
+// history partition over the cap is dropped (dropClosedHistory), and one
+// under it is dropped once empty or wholly expired (dropDoneHistory).
 
 // rowOverheadBytes estimates what a snapshot row takes beside its stored
 // document: the heap tuple (header, id, collected_at, category, base_id,
@@ -51,18 +54,22 @@ const maxBoundarySteps = 16
 // capUsage is a day-partitioned table's size as the cap counts it.
 type capUsage struct {
 	disk     int64                // every partition's files
-	live     int64                // disk, with the history partition's live rows for its files
+	live     int64                // what the cap counts: disk, less what trimming freed
 	hist     *partition.Partition // nil when there is none
 	histDisk int64
-	histLive int64 // estimated: stored documents plus rowOverheadBytes a row
-	histRows int64
+	histLive int64 // open: documents plus rowOverheadBytes a row; closed: its files
+	histRows int64 // open: its rows; closed: 1 when it holds any
 }
 
+// open reports whether the history partition still takes new rows.
+func (u capUsage) open(now time.Time) bool { return u.hist != nil && u.hist.Upper.After(now) }
+
 // measure sizes t for its cap. Daily partitions lose no rows (they are
-// dropped whole), so their files are their size; the history partition's
-// live rows are estimated from pg_column_size, which reads a TOASTed
-// value's stored size from its pointer without fetching it: one scan of
-// the partition's heap (lifeos: 50 MB, 26 ms).
+// dropped whole), so their files are their size, and so are a closed
+// history partition's. An open history partition's live rows are
+// estimated from pg_column_size, which reads a TOASTed value's stored size
+// from its pointer without fetching it: one scan of the partition's heap
+// (lifeos: 50 MB, 26 ms).
 func (c *Cleaner) measure(ctx context.Context, t partition.Table) (capUsage, error) {
 	var u capUsage
 	disk, err := partition.Size(ctx, c.pool, t)
@@ -82,30 +89,41 @@ func (c *Cleaner) measure(ctx context.Context, t partition.Table) (capUsage, err
 	if u.hist == nil {
 		return u, nil
 	}
-	err = c.pool.QueryRow(ctx, fmt.Sprintf(`SELECT
-		pg_catalog.pg_total_relation_size(pg_catalog.to_regclass($1)), count(*),
-		COALESCE(sum(pg_catalog.pg_column_size(data)::int8 + $2), 0)::int8 FROM %s`,
-		ident(u.hist.Name)), "sage."+u.hist.Name, rowOverheadBytes).
-		Scan(&u.histDisk, &u.histRows, &u.histLive)
-	if err != nil {
-		return u, fmt.Errorf("live rows of sage.%s: %w", u.hist.Name, err)
+	if err := c.measureHistory(ctx, &u); err != nil {
+		return u, fmt.Errorf("measure sage.%s: %w", u.hist.Name, err)
 	}
 	u.live = disk - u.histDisk + u.histLive
 	return u, nil
 }
 
-// trimHistory deletes the history partition's oldest rows until the table
-// fits its cap, never a row of today (UTC) and never a row a kept row is
+// measureHistory sizes the history partition: an open one by its live rows,
+// a closed one by its files (with whether it holds any row).
+func (c *Cleaner) measureHistory(ctx context.Context, u *capUsage) error {
+	name := "sage." + u.hist.Name
+	if !u.open(time.Now()) {
+		err := c.pool.QueryRow(ctx, fmt.Sprintf(`SELECT
+			pg_catalog.pg_total_relation_size(pg_catalog.to_regclass($1)),
+			(SELECT count(*) FROM (SELECT 1 FROM %s LIMIT 1) s)`, ident(u.hist.Name)), name).
+			Scan(&u.histDisk, &u.histRows)
+		u.histLive = u.histDisk
+		return err
+	}
+	return c.pool.QueryRow(ctx, fmt.Sprintf(`SELECT
+		pg_catalog.pg_total_relation_size(pg_catalog.to_regclass($1)), count(*),
+		COALESCE(sum(pg_catalog.pg_column_size(data)::int8 + $2), 0)::int8 FROM %s`,
+		ident(u.hist.Name)), name, rowOverheadBytes).
+		Scan(&u.histDisk, &u.histRows, &u.histLive)
+}
+
+// trimHistory deletes an open history partition's oldest rows until the
+// table fits its cap, never a row of today (UTC) and never a row a kept row is
 // built on (safeBoundary). done is false when the run's deadline cut it
 // short; settled reports that the cap needs nothing more this run (the
 // table fits, or the run's trim budget is spent).
 func (c *Cleaner) trimHistory(ctx context.Context, t partition.Table, u capUsage,
 	limit int64, stats *RunStats, deadline time.Time) (done, settled bool) {
-	h, now := *u.hist, time.Now()
-	stop := partition.DayStart(now)
-	if h.Upper.Before(stop) {
-		stop = h.Upper
-	}
+	h := *u.hist
+	stop := partition.DayStart(time.Now()) // an open partition covers today
 	excess := u.live - limit
 	b, err := c.trimTarget(ctx, h, stop, excess)
 	if err == nil {
@@ -116,19 +134,14 @@ func (c *Cleaner) trimHistory(ctx context.Context, t partition.Table, u capUsage
 			h.Name, err)
 		return true, false
 	}
-	if c.dropTrimmedHistory(ctx, t, h, b, now, stats) {
-		rest := capUsage{disk: u.disk - u.histDisk, live: u.live - u.histLive}
-		if rest.live <= limit {
-			c.noteUnder(t, rest, limit)
-		}
-		return true, rest.live <= limit
-	}
 	if !c.anyBefore(ctx, h, b) {
 		return true, false
 	}
 	c.note(t.Name, "trimming", "WARN", "retention: sage.%s is %d MB (%d MB on disk), over "+
-		"its %d MB cap: trimming the oldest rows of sage.%s in paced batches, %d MB to go",
-		t.Name, u.live>>20, u.disk>>20, limit>>20, h.Name, excess>>20)
+		"its %d MB cap: trimming the oldest rows of sage.%s in paced batches, %d MB to go. "+
+		"Rows written until %s reuse the space; the rest returns to the operating system "+
+		"when the partition is dropped after that", t.Name, u.live>>20, u.disk>>20,
+		limit>>20, h.Name, excess>>20, h.Upper.Format(time.RFC3339))
 	r := c.deleteBefore(ctx, h, b, stats, deadline)
 	left := excess - r.bytes - r.rows*rowOverheadBytes
 	if r.rows > 0 {
@@ -189,24 +202,19 @@ func (c *Cleaner) safeBoundary(ctx context.Context, h partition.Partition, b tim
 		"the writer makes)", maxBoundarySteps)
 }
 
-// dropTrimmedHistory drops the history partition when the trim would
-// leave nothing in it and it covers no current time: one catalog change
-// that returns the space at once instead of deleting row by row. A lock
-// timeout leaves it to the row-by-row trim and the next run.
-func (c *Cleaner) dropTrimmedHistory(ctx context.Context, t partition.Table,
-	h partition.Partition, b, now time.Time, stats *RunStats) bool {
-	if h.Upper.After(now) {
+// dropClosedHistory drops a closed history partition for the cap: its
+// rows are the oldest, and deleting them would free no space. It stays
+// while a kept row is built on one of its rows (logged by removable), and
+// a lock timeout leaves it for the next run.
+func (c *Cleaner) dropClosedHistory(ctx context.Context, t partition.Table,
+	h partition.Partition, stats *RunStats) bool {
+	if !c.removable(ctx, t, h, h.Upper) {
 		return false
 	}
-	var rest bool
-	if err := c.pool.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s
-		WHERE collected_at >= $1)`, ident(h.Name)), b).Scan(&rest); err != nil || rest {
-		return false
-	}
-	dropped, err := partition.DropHistory(ctx, c.pool, t, h, b)
+	dropped, err := partition.DropHistory(ctx, c.pool, t, h, h.Upper)
 	if err != nil {
-		c.logFn("WARN", "retention: dropping sage.%s for the size cap: %v (trimming its rows "+
-			"instead; the drop is retried once it is empty)", h.Name, err)
+		c.logFn("WARN", "retention: dropping sage.%s for the size cap: %v (retrying next run)",
+			h.Name, err)
 		return false
 	}
 	if dropped {
