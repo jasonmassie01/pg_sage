@@ -100,6 +100,13 @@ var unindexedFKExemptions = map[string]string{
 	"decision(policy_id)":           "policy versions are kept, never deleted",
 	"sre_runbook_runs(deployment_id, database_id, runbook_id, version)": "runbook " +
 		"versions are immutable and never deleted",
+	// Investigation-scoped keys: the primary key prefix (deployment_id,
+	// database_id, investigation_id) bounds the check to one
+	// investigation's rows, never the whole table.
+	"sre_budget_reservations(deployment_id, database_id, investigation_id)": "bounded " +
+		"by sre_budget_request (deployment_id, database_id, investigation_id, ...)",
+	"sre_evidence(deployment_id, database_id, investigation_id, step_id)": "bounded " +
+		"by the primary key prefix (deployment_id, database_id, investigation_id)",
 }
 
 // TestSageForeignKeysAreIndexed is a permanent guard: a new foreign key on
