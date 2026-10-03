@@ -10,8 +10,9 @@ import "strings"
 //   - idx_findings_list_severity / idx_findings_list_last_seen: the
 //     dashboard's findings sorts (by severity rank, by last seen) within a
 //     status. The rank expression is the API's sevRankSQL, verbatim.
-//   - idx_action_log_time_id, idx_action_queue_ledger: the actions ledger
-//     (executed actions and not-yet-executed proposals) by time.
+//   - idx_action_queue_ledger: not-yet-executed proposals by time (executed
+//     actions page through the existing idx_action_log_time, the id tie
+//     sorted incrementally: an (executed_at, id) index would duplicate it).
 //   - idx_action_log_sql_md5: attempts per SQL statement, counted for the
 //     rows of a page (it replaced a window over all of action_log).
 //
@@ -25,8 +26,6 @@ var apiListIndexes = []ledgerIndex{
 		"WHEN 'info' THEN 1 ELSE 0 END), last_seen, id)"},
 	{"idx_findings_list_last_seen", "findings",
 		"INDEX %I ON sage.findings (status, last_seen, id)"},
-	{"idx_action_log_time_id", "action_log",
-		"INDEX %I ON sage.action_log (executed_at, id)"},
 	{"idx_action_log_sql_md5", "action_log",
 		"INDEX %I ON sage.action_log (md5(sql_executed), executed_at)"},
 	{"idx_action_queue_ledger", "action_queue", "INDEX %I ON sage.action_queue " +

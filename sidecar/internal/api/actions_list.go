@@ -32,7 +32,7 @@ func timeWindowSQL(col string, from, to time.Time, args []any) (string, []any) {
 }
 
 // buildActionLogPageSQL selects up to limit executed actions after cur,
-// newest first, through idx_action_log_time_id; attempts are counted for
+// newest first, through idx_action_log_time; attempts are counted for
 // the page's statements only, inside the same time window. The rows come
 // back unordered: mergePage orders them.
 func buildActionLogPageSQL(from, to time.Time, cur *listCursor, source string,

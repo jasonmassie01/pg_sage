@@ -13,7 +13,6 @@ var apiListIndexWant = map[string][]string{
 		"WHEN 'critical'::text THEN 3", "WHEN 'warning'::text THEN 2",
 		"WHEN 'info'::text THEN 1", "ELSE 0", "last_seen, id)"},
 	"idx_findings_list_last_seen": {"(status, last_seen, id)"},
-	"idx_action_log_time_id":      {"(executed_at, id)"},
 	"idx_action_log_sql_md5":      {"(md5(sql_executed), executed_at)"},
 	"idx_action_queue_ledger": {"(proposed_at, id) WHERE ((status <> 'executed'::text) " +
 		"AND (proposed_at IS NOT NULL))"},

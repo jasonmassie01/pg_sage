@@ -157,7 +157,10 @@ func TestActionsPageSQL_UsesIndexes(t *testing.T) {
 	for _, c := range []*listCursor{nil, cur} {
 		sql, args := buildActionLogPageSQL(time.Time{}, time.Time{}, c, "testdb/log", 51)
 		plan := explainPlan(t, pool, sql, args...)
-		for _, want := range []string{"idx_action_log_time_id", "idx_action_log_sql_md5"} {
+		// Newest first through the existing time index; ties on executed_at
+		// are ordered by id with an incremental sort, never a full one.
+		for _, want := range []string{`"Index Name": "idx_action_log_time"`,
+			"idx_action_log_sql_md5"} {
 			if !strings.Contains(plan, want) {
 				t.Errorf("cursor=%v: plan lacks %s:\n%s", c != nil, want, plan)
 			}
