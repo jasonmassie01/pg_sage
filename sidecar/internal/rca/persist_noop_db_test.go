@@ -116,12 +116,8 @@ func TestPersist_UnchangedCausalChainWritesNoToast(t *testing.T) {
 	// TOAST inserts are counted from every session: earlier tests' incident
 	// writes still pending in the shared pool's idle sessions must not be
 	// reported inside the measured window.
-	for _, conn := range shared.AcquireAllIdle(ctx) {
-		err := testdb.FlushStats(ctx, conn)
-		conn.Release()
-		if err != nil {
-			t.Fatalf("flush the shared pool's statistics: %v", err)
-		}
+	if err := testdb.FlushIdleSessions(ctx, shared); err != nil {
+		t.Fatalf("flush the shared pool's statistics: %v", err)
 	}
 	before := toastInserts(t, ctx, pool)
 	inc.LastDetectedAt = inc.LastDetectedAt.Add(time.Minute)

@@ -32,12 +32,8 @@ func TestFindingRefreshIsAHeapOnlyUpdate(t *testing.T) {
 	// The counters are the table's, from every session: updates earlier
 	// tests made through the shared pool, still pending in its idle
 	// sessions, must not be reported inside the measured window.
-	for _, conn := range shared.AcquireAllIdle(ctx) {
-		err := testdb.FlushStats(ctx, conn)
-		conn.Release()
-		if err != nil {
-			t.Fatalf("flush the shared pool's statistics: %v", err)
-		}
+	if err := testdb.FlushIdleSessions(ctx, shared); err != nil {
+		t.Fatalf("flush the shared pool's statistics: %v", err)
 	}
 	f := Finding{Category: "hot_refresh_test", Severity: "warning", ObjectType: "table",
 		ObjectIdentifier: "public.hot_refresh", Title: "t", Recommendation: "r",

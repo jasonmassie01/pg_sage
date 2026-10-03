@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // statsInterval14 is PostgreSQL 14's PGSTAT_STAT_INTERVAL: a session
@@ -87,4 +88,18 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-time.After(d):
 		return nil
 	}
+}
+
+// FlushIdleSessions runs FlushStats on every idle session of pool, so
+// counts its sessions still hold are not reported later, inside a
+// window a test measures.
+func FlushIdleSessions(ctx context.Context, pool *pgxpool.Pool) error {
+	for _, conn := range pool.AcquireAllIdle(ctx) {
+		err := FlushStats(ctx, conn)
+		conn.Release()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

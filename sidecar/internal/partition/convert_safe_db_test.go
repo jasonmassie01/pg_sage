@@ -44,18 +44,6 @@ func requireForceFlush(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 }
 
-// flushPoolStats flushes the statistics every idle session of pool holds.
-func flushPoolStats(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
-	t.Helper()
-	for _, conn := range pool.AcquireAllIdle(ctx) {
-		err := testdb.FlushStats(ctx, conn)
-		conn.Release()
-		if err != nil {
-			t.Fatalf("flush statistics: %v", err)
-		}
-	}
-}
-
 // blocksFetched is how many heap blocks of rel were requested (hit or read).
 func blocksFetched(t *testing.T, ctx context.Context, pool *pgxpool.Pool, oid uint32) int64 {
 	t.Helper()
@@ -116,7 +104,9 @@ func TestConvert_ExclusiveWindowReadsNoHeap(t *testing.T) {
 			// window, not by an idle session's deferred flush inside it.
 			exec(t, ctx, pool, "ALTER TABLE sage."+tbl.Name+" SET (autovacuum_enabled = off)")
 			fill(t, ctx, pool, tbl, 60000)
-			flushPoolStats(t, ctx, pool)
+			if err := testdb.FlushIdleSessions(ctx, pool); err != nil {
+				t.Fatalf("flush statistics: %v", err)
+			}
 			oid := relOID(t, ctx, pool, "sage."+tbl.Name)
 			pages := count(t, ctx, pool, "SELECT relpages FROM pg_class WHERE oid = $1", oid)
 			var before, after int64
