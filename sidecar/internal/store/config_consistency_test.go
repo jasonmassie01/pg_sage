@@ -113,6 +113,13 @@ var excludedExactKeys = map[string]bool{
 	"llm.optimizer.plan_source":                  true,
 	"llm.optimizer.confidence_threshold":         true,
 	"llm.optimizer.write_impact_threshold_pct":   true,
+	// What-if rejection memory: YAML-only, read when the optimizer is built.
+	"llm.optimizer.rejection_memory.enabled":            true,
+	"llm.optimizer.rejection_memory.max_age_days":       true,
+	"llm.optimizer.rejection_memory.call_volume_ratio":  true,
+	"llm.optimizer.rejection_memory.mean_time_ratio":    true,
+	"llm.optimizer.rejection_memory.row_estimate_ratio": true,
+	"llm.optimizer.rejection_memory.prompt_max_shapes":  true,
 	"llm.optimizer_llm.enabled":                  true,
 	"llm.optimizer_llm.endpoint":                 true,
 	"llm.optimizer_llm.api_key":                  true,
