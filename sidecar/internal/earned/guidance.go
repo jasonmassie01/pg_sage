@@ -66,11 +66,13 @@ func guideShadow(th Thresholds, ev Evidence, c *Check) {
 func guideBench(th Thresholds, ev Evidence, c *Check) {
 	switch {
 	case ev.Bench == nil || len(gatedCells(ev)) == 0:
-		c.How = fmt.Sprintf("Upload a PGIncidentBench report on this page (admin) or "+
-			"point sre.autonomy.bench_results_path at the CI report; it must score %s on "+
-			"a gated arm.", ev.Family)
+		c.How = fmt.Sprintf("Run the bench locally on a clone (Run bench locally, admin), "+
+			"upgrade to a release that ships its signed report, upload a PGIncidentBench "+
+			"report on this page (admin) or point sre.autonomy.bench_results_path at the CI "+
+			"report; it must score %s on a gated arm for this pg_sage build.", ev.Family)
 	case c.Name == "bench_fresh":
-		c.How = fmt.Sprintf("The newest bench report is %s old; ingest one newer than %s.",
+		c.How = fmt.Sprintf("The newest bench report is %s old; run the bench locally on "+
+			"a clone or ingest one newer than %s.",
 			humanDuration(ev.At.Sub(ev.Bench.GeneratedAt)), humanDuration(th.BenchMaxAge))
 	default:
 		c.How = fmt.Sprintf("The bench report scores %s on %s (needs %s); run "+
