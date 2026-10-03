@@ -528,22 +528,23 @@ func TestConvert_ConcurrentKeyBuildWaitsOutLongTransactions(t *testing.T) {
 	}
 	defer other.Release()
 	hold := LockTimeout + time.Second
+	slept := make(chan error, 1)
 	withHook(t, func(ctx context.Context, _ DB, phase string) error {
 		if phase != "index" {
 			return nil
 		}
 		// A running application query that never reads the table: its
 		// snapshot is what CONCURRENTLY waits for.
-		started := make(chan struct{})
 		go func() {
-			close(started)
-			_, _ = other.Exec(context.Background(), "SELECT pg_catalog.pg_sleep($1)",
+			_, err := other.Exec(context.Background(), "SELECT pg_catalog.pg_sleep($1)",
 				hold.Seconds())
+			slept <- err
 		}()
-		<-started
 		time.Sleep(200 * time.Millisecond)
 		return nil
 	})
+	// The sleeping query must finish before the connection is released.
+	defer func() { <-slept }()
 	started := time.Now()
 	res, err := Convert(ctx, pool, tbl)
 	if err != nil || !res.Converted {
