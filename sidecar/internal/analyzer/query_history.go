@@ -25,7 +25,7 @@ const defaultRegressionLookbackDays = 7
 // mean_exec_time are skipped.
 var historicalAveragesSQL = `/* pg_sage */
 WITH ranked AS (
-    SELECT s.id,
+    SELECT s.id, s.collected_at,
            row_number() OVER (ORDER BY s.collected_at, s.id) AS rn,
            count(*) OVER () AS total
       FROM sage.snapshots s
@@ -33,12 +33,12 @@ WITH ranked AS (
        AND s.collected_at > now() - make_interval(days => $1)
        AND ` + snapstore.NonEmptySQL("s") + `
 ), picked AS (
-    SELECT id FROM ranked
+    SELECT id, collected_at FROM ranked
      WHERE (rn - 1) % GREATEST(1, ceil(total::numeric / $2::int)::bigint) = 0
 ), docs AS (
     SELECT ` + snapstore.DataSQL("s") + ` AS doc
       FROM sage.snapshots s
-      JOIN picked p ON p.id = s.id
+      JOIN picked p ON p.id = s.id AND p.collected_at = s.collected_at
 )
 SELECT (e->>'queryid')::bigint, avg((e->>'mean_exec_time')::float8)
   FROM docs d
