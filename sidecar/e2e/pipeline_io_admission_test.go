@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -42,7 +43,7 @@ func TestPipelineIndexBuildEarnsLoadAdmission(t *testing.T) {
 		RecommendedSQL: "CREATE INDEX CONCURRENTLY shp_d6_id_idx ON public.shp_d6 (id)",
 		RollbackSQL:    "DROP INDEX CONCURRENTLY IF EXISTS shp_d6_id_idx",
 		ActionRisk:     "moderate",
-		Detail:         map[string]any{},
+		Detail:         map[string]any{"what_if_verdict": optimizer.WhatIfVerified},
 	}
 	f.Detail["queryids"] = []int64{pipelineQueryID(t, pool, f.ObjectIdentifier)}
 	driveFinding(t, pool, an, ex, f)
