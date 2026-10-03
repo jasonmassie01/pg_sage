@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -195,6 +196,12 @@ func TestRunOnce_SnapshotDayNeededByARetainedDeltaIsKept(t *testing.T) {
 		t.Fatalf("dropped = %v after the delta went, want %s", stats.Dropped,
 			tbl.DayName(bound))
 	}
+	// Over a 1-byte cap everything older than today goes, never today.
+	today := tbl.DayName(time.Now())
+	if slices.Contains(stats.Dropped, today) ||
+		!slices.Contains(partitionNames(t, ctx, tbl), today) {
+		t.Fatalf("today's partition %s was removed for the cap: %v", today, stats.Dropped)
+	}
 	execRetry(t, ctx, `DELETE FROM sage.snapshots WHERE category = 'cap_test'`)
 }
 
@@ -245,4 +252,32 @@ func TestRunOnce_ExpiredHistoryIsTruncated(t *testing.T) {
 		t.Fatalf("stats = %+v, want one row deleted and nothing truncated", stats)
 	}
 	execRetry(t, ctx, `DELETE FROM sage.snapshots WHERE category = 'cap_test'`)
+}
+
+// The history partition can be mostly expired at once (an upgrade with a
+// shorter window). Its purge must walk the time index, not scan the heap:
+// a LIMIT over a sequential scan reads all of it once nothing is left.
+func TestPurgeSQL_HistoryPartitionUsesItsTimeIndex(t *testing.T) {
+	_, ctx := requireDB(t)
+	tbl := partition.QueryStore
+	rebound(t, ctx, tbl, 2)
+	execRetry(t, ctx, `INSERT INTO sage.query_store (captured_at, queryid, calls,
+		total_exec_time, mean_exec_time)
+		SELECT now() - interval '30 days' - g * interval '1 second', g, 1, 1, 1
+		FROM generate_series(1, 20000) g`)
+	execRetry(t, ctx, `ANALYZE sage.query_store_history`)
+	rule := purgeRules(&config.Config{Retention: config.RetentionConfig{
+		QueryStoreDays: 14}})[1]
+	if rule.table != "query_store" {
+		t.Fatalf("rule = %+v", rule)
+	}
+	var plan string
+	queryRetry(t, ctx, fmt.Sprintf("EXPLAIN (FORMAT JSON) %s",
+		strings.Replace(purgeSQL(rule, "sage."+tbl.HistoryName(), batchSize), "$1", "14", 1)),
+		&plan)
+	if strings.Contains(plan, `"Seq Scan"`) || !strings.Contains(plan, `"Tid Scan"`) ||
+		!strings.Contains(plan, `"Index Scan"`) {
+		t.Fatalf("history purge plan scans the heap:\n%s", plan)
+	}
+	execRetry(t, ctx, `TRUNCATE sage.query_store_history`)
 }
