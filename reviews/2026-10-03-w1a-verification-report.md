@@ -244,6 +244,12 @@ None of the skips are in code this branch touched; all are environment-gated:
   failed once in the final full run while other agents' suites shared the Docker VM. Both
   passed in the previous full run, alone, and in a full re-run of both packages (`ok`, 212.9 s
   and 67.6 s). Neither touches verification code. Flagged as load-sensitive, not fixed here.
+- After merging master (`329903c9`), `TestFleetReloadThroughWatchedYAMLFile` hit its 30 s
+  bound once in a load-heavy run; the whole `TestFleetReload*` family then passed 3x in a row
+  (54/54, 1.6-7.1 s each). The fleet-reload 30 s bounds are tight on a shared Docker VM; a
+  separate task should widen them or make them event-driven.
+- Post-merge re-validation: executor, optimizer, recommendation, verify, earned, api and e2e
+  ok; cmd/pg_sage_sidecar full re-run ok (81.4%); `go vet ./...` clean; lint 0 issues.
 
 ### Coverage Gaps (packages below threshold)
 All packages meet coverage thresholds (business logic ≥ 70%, utilities ≥ 50%); numbers above.
