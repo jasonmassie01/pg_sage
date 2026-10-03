@@ -51,7 +51,7 @@ WITH s AS (
            lag(q.plan_hash) OVER w AS prev_hash,
            q.stats_epoch IS NOT DISTINCT FROM lag(q.stats_epoch) OVER w AS same_epoch
     FROM sage.query_store q
-    WHERE q.captured_at >= pg_catalog.clock_timestamp()
+    WHERE q.captured_at >= pg_catalog.now()
               - pg_catalog.make_interval(secs => $2)
       AND q.plan_hash IS NOT NULL
     WINDOW w AS (PARTITION BY q.queryid ORDER BY q.captured_at, q.id)

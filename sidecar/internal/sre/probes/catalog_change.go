@@ -18,7 +18,7 @@ SELECT l.id::int8 AS id, pg_catalog.left(l.action_type, 64) AS action_type,
        pg_catalog.left(l.outcome, 32) AS outcome, l.executed_at,
        EXTRACT(EPOCH FROM pg_catalog.clock_timestamp() - l.executed_at)::float8 AS age_s
 FROM sage.action_log l
-WHERE l.executed_at > pg_catalog.clock_timestamp() - pg_catalog.make_interval(secs => $2)
+WHERE l.executed_at > pg_catalog.now() - pg_catalog.make_interval(secs => $2)
 ORDER BY l.executed_at DESC, l.id DESC
 LIMIT $1`
 

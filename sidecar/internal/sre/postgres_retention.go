@@ -67,7 +67,7 @@ func agedIDs(ctx context.Context, tx pgx.Tx, scope Scope, age time.Duration,
 	rows, err := tx.Query(ctx, `SELECT id::text FROM sage.sre_investigations
 		WHERE deployment_id = $1 AND database_id = $2 AND NOT pinned
 		  AND state IN `+terminalStates+`
-		  AND updated_at < clock_timestamp() - make_interval(secs => $3) `+extra+`
+		  AND updated_at < now() - make_interval(secs => $3) `+extra+`
 		ORDER BY updated_at, id LIMIT $4 FOR UPDATE SKIP LOCKED`,
 		string(scope.DeploymentID), string(scope.DatabaseID), age.Seconds(), batch)
 	if err != nil {

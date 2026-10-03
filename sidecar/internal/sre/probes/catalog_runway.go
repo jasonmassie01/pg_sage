@@ -153,7 +153,7 @@ const autovacuumCancellationsSQL = `/* pg_sage sre:autovacuum_cancellations v1 *
 SELECT count(*)::int8 AS cancel_incidents
 FROM sage.incidents i
 WHERE 'log_autovacuum_cancel' = ANY (i.signal_ids)
-  AND i.last_detected_at > pg_catalog.clock_timestamp()
+  AND i.last_detected_at > pg_catalog.now()
       - pg_catalog.make_interval(secs => $2)
 LIMIT $1`
 
@@ -210,7 +210,7 @@ WITH s AS (
     SELECT r.kind, r.subject, r.epoch, r.sampled_at, r.value, r.counter, r.limit_value,
            EXTRACT(EPOCH FROM r.sampled_at)::float8 AS t
     FROM sage.runway_samples r
-    WHERE r.sampled_at >= pg_catalog.clock_timestamp()
+    WHERE r.sampled_at >= pg_catalog.now()
           - pg_catalog.make_interval(secs => $2)
 ), cur AS (
     SELECT DISTINCT ON (s.kind, s.subject) s.kind, s.subject, s.epoch,
