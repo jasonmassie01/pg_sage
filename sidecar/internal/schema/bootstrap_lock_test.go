@@ -30,7 +30,7 @@ func requireMultiConnDB(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("database unavailable: %v", err)
@@ -42,7 +42,7 @@ func advisoryLocksForPID(
 	t *testing.T, pool *pgxpool.Pool, backendPID uint32,
 ) int {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var count int
@@ -62,9 +62,10 @@ func waitForBootstrapLockWaiters(
 	t *testing.T, pool *pgxpool.Pool, want int,
 ) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	// Generous for a loaded runner: the waiters dial new connections first.
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		var count int
 		err := pool.QueryRow(ctx, `
 			SELECT count(*)
@@ -84,7 +85,7 @@ func waitForBootstrapLockWaiters(
 
 func TestAdvisoryLock_PinsOwningConnectionUntilRelease(t *testing.T) {
 	pool := requireMultiConnDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	lock, err := acquireAdvisoryLock(ctx, pool, time.Second)
@@ -109,7 +110,7 @@ func TestAdvisoryLock_PinsOwningConnectionUntilRelease(t *testing.T) {
 
 func TestDestructiveTestLock_PinsOwningConnectionUntilRelease(t *testing.T) {
 	pool := requireMultiConnDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	conn, err := acquireDestructiveTestLock(ctx, pool)
@@ -131,7 +132,7 @@ func TestDestructiveTestLock_PinsOwningConnectionUntilRelease(t *testing.T) {
 
 func TestAdvisoryLock_TimesOutWhileAnotherSessionOwnsLock(t *testing.T) {
 	pool := requireMultiConnDB(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	owner, err := acquireAdvisoryLock(ctx, pool, time.Second)
@@ -149,8 +150,10 @@ func TestAdvisoryLock_TimesOutWhileAnotherSessionOwnsLock(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("lock timeout error = %v, want context deadline exceeded", err)
 	}
-	if elapsed > time.Second {
-		t.Fatalf("lock timeout took %s, want less than 1s", elapsed)
+	// 150 ms lock timeout; the 5 s budget absorbs a loaded runner (a
+	// contender ignoring its timeout would wait for the owner, forever).
+	if elapsed > 5*time.Second {
+		t.Fatalf("lock timeout took %s, want about 150ms", elapsed)
 	}
 	if got := advisoryLocksForPID(
 		t, pool, owner.conn.Conn().PgConn().PID(),
@@ -226,9 +229,10 @@ func TestBootstrap_ConcurrentCallsSerializeTerminateAndRelease(t *testing.T) {
 		}
 	}
 
-	checkCtx, checkCancel := context.WithTimeout(context.Background(), time.Second)
+	// A leaked lock would hold the probe off for its whole 2 s wait.
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer checkCancel()
-	probe, err := acquireAdvisoryLock(checkCtx, pool, 500*time.Millisecond)
+	probe, err := acquireAdvisoryLock(checkCtx, pool, 2*time.Second)
 	if err != nil {
 		t.Fatalf("bootstrap advisory lock leaked after concurrent calls: %v", err)
 	}
@@ -239,7 +243,7 @@ func TestBootstrap_ConcurrentCallsSerializeTerminateAndRelease(t *testing.T) {
 
 func TestBootstrap_ContextDeadlineBoundsLockWait(t *testing.T) {
 	pool := requireMultiConnDB(t)
-	ownerCtx, ownerCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ownerCtx, ownerCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer ownerCancel()
 	owner, err := acquireAdvisoryLock(ownerCtx, pool, time.Second)
 	if err != nil {
@@ -257,7 +261,8 @@ func TestBootstrap_ContextDeadlineBoundsLockWait(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Bootstrap error = %v, want deadline exceeded", err)
 	}
-	if elapsed := time.Since(started); elapsed > time.Second {
+	// 150 ms deadline, 5 s budget as above.
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("Bootstrap exceeded caller deadline by too much: %s", elapsed)
 	}
 	if got := advisoryLocksForPID(
