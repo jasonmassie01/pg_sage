@@ -212,7 +212,7 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
 	ctx, cancelReq := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
-	rec := httptest.NewRecorder()
+	rec := &syncRecorder{rec: httptest.NewRecorder()}
 
 	// Run handler in a goroutine; stream stays open until we cancel.
 	var wg sync.WaitGroup
@@ -233,12 +233,18 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 		t.Fatal("handler never subscribed")
 	}
 
+	// The request ends once the frame is written: cancelling after a fixed
+	// pause raced the handler's select, which picks at random between a
+	// done context and a pending event when both are ready.
 	b.Publish(Event{Type: EventFindings, Database: "primary"})
-	time.Sleep(30 * time.Millisecond)
+	deadline = time.Now().Add(10 * time.Second)
+	for !strings.Contains(rec.body(), "event: findings") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	cancelReq()
 	wg.Wait()
 
-	body := rec.Body.String()
+	body := rec.body()
 	if !strings.HasPrefix(body, "retry: 3000") {
 		t.Errorf("stream did not begin with retry hint; got: %q",
 			firstLine(body))
@@ -255,6 +261,43 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
 		t.Errorf("Cache-Control = %q, want no-cache", cc)
 	}
+}
+
+// syncRecorder is an httptest.ResponseRecorder the test can read while
+// the handler streams into it.
+type syncRecorder struct {
+	mu  sync.Mutex
+	rec *httptest.ResponseRecorder
+}
+
+func (r *syncRecorder) Header() http.Header {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Header()
+}
+
+func (r *syncRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Write(p)
+}
+
+func (r *syncRecorder) WriteHeader(code int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.WriteHeader(code)
+}
+
+func (r *syncRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.Flush()
+}
+
+func (r *syncRecorder) body() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Body.String()
 }
 
 func firstLine(s string) string {
