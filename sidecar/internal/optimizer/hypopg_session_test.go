@@ -130,7 +130,9 @@ func TestHypoPGSizeDoesNotAcquireAnotherSession(t *testing.T) {
 	}
 	defer pool.Close()
 	h := NewHypoPG(pool, noopLog2)
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	// A second session from the one-connection pool would block until the
+	// deadline; 10 s leaves the real validation room on a loaded runner.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	rec := Recommendation{DDL: "CREATE INDEX candidate ON hypopg_session_test.items (category)"}
 	queries := []QueryInfo{{QueryID: 1,

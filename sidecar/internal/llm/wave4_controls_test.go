@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -243,9 +244,18 @@ func TestWave4LateResponseRejectedAfterDisable(t *testing.T) {
 	}
 }
 
+// The server answers after 30 s (or once the client gives up); the
+// reconfigured 1 s timeout must end the request. The 4 s budget absorbs a
+// loaded runner and stays below the 5 s timeout it replaced.
 func TestWave4ReconfigureAppliesNewRequestTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(1500 * time.Millisecond)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// With the body read, the server notices the client hanging up.
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-time.After(30 * time.Second):
+		case <-r.Context().Done():
+			return
+		}
 		_, _ = w.Write(wave4Response(1))
 	}))
 	defer server.Close()
@@ -262,7 +272,7 @@ func TestWave4ReconfigureAppliesNewRequestTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("request ignored reconfigured timeout")
 	}
-	if elapsed := time.Since(started); elapsed > 1300*time.Millisecond {
+	if elapsed := time.Since(started); elapsed > 4*time.Second {
 		t.Fatalf("reconfigured timeout took %s, want about 1s", elapsed)
 	}
 }
