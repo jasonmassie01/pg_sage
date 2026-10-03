@@ -67,21 +67,14 @@ func finite(f float64) bool { return !math.IsNaN(f) && !math.IsInf(f, 0) }
 
 // RecordSample stores one sample; a replay (same series and time) is a
 // no-op with created false. value is an optional gauge (a proxy's
-// measured value, e.g. interval p95 latency).
+// measured value, e.g. interval p95 latency). The sample carries its
+// series' running counters (store_cumulative.go).
 func (s *Store) RecordSample(ctx context.Context, dep sre.UUID, slo string, p PushSample,
 	value *float64) (bool, error) {
 	if err := p.validate(); err != nil {
 		return false, err
 	}
-	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_sli_samples
-		(deployment_id, slo_name, series, observed_at, bad, eligible, value)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (deployment_id, slo_name, series, observed_at) DO NOTHING`,
-		string(dep), slo, p.Series, p.ObservedAt, p.Bad, p.Eligible, value)
-	if err != nil {
-		return false, fmt.Errorf("record SLI sample of %s: %w", slo, err)
-	}
-	return tag.RowsAffected() == 1, nil
+	return s.recordSample(ctx, dep, slo, p, value)
 }
 
 // LastSample returns a series' newest sample.
@@ -102,52 +95,18 @@ func (s *Store) LastSample(ctx context.Context, dep sre.UUID, slo,
 	return p, true, nil
 }
 
-// aggregateSQL sums each series' increases over the samples in [from,
-// to] plus the newest sample before from (within the lookback) as the
-// baseline. A decrease is a reset: the new value is the increase.
-const aggregateSQL = `/* pg_sage sre:slo */
-WITH s AS (
-    SELECT series, observed_at, bad, eligible,
-           observed_at >= $4 AS inside,
-           row_number() OVER (PARTITION BY series, observed_at >= $4
-                              ORDER BY observed_at DESC) AS rn
-    FROM sage.sre_sli_samples
-    WHERE deployment_id = $1 AND slo_name = $2 AND ($3 = '' OR series = $3)
-      AND observed_at > $4::timestamptz - make_interval(secs => $6)
-      AND observed_at <= $5
-), kept AS (
-    SELECT series, observed_at, bad, eligible,
-           lag(bad) OVER w AS pbad, lag(eligible) OVER w AS pel
-    FROM s WHERE inside OR rn = 1
-    WINDOW w AS (PARTITION BY series ORDER BY observed_at)
-)
-SELECT series, count(*)::int, min(observed_at), max(observed_at),
-       COALESCE(sum(CASE WHEN pbad IS NULL THEN 0 WHEN bad >= pbad THEN bad - pbad
-                         ELSE bad END), 0),
-       COALESCE(sum(CASE WHEN pel IS NULL THEN 0 WHEN eligible >= pel THEN eligible - pel
-                         ELSE eligible END), 0),
-       count(*) FILTER (WHERE pbad IS NOT NULL AND (bad < pbad OR eligible < pel))::int
-FROM kept GROUP BY series ORDER BY series`
-
-// Aggregate sums a SLO's counter series (or one series) over a window.
+// Aggregate sums a SLO's counter series (or one series) over a window:
+// per series the increases over the samples in [from, to] plus the
+// newest sample before from (within the lookback) as the baseline; a
+// decrease is a reset whose new value is the increase. It reads a few
+// samples per series (running counters, store_window.go).
 func (s *Store) Aggregate(ctx context.Context, dep sre.UUID, slo, series string, from,
 	to time.Time, lookback time.Duration) ([]SeriesAgg, error) {
-	rows, err := s.pool.Query(ctx, aggregateSQL, string(dep), slo, series, from, to,
-		lookback.Seconds())
+	out, err := s.aggregate(ctx, dep, slo, series, from, to, lookback)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate SLI samples of %s: %w", slo, err)
 	}
-	defer rows.Close()
-	var out []SeriesAgg
-	for rows.Next() {
-		var a SeriesAgg
-		if err := rows.Scan(&a.Series, &a.Samples, &a.First, &a.Last, &a.Bad, &a.Eligible,
-			&a.Resets); err != nil {
-			return nil, fmt.Errorf("scan SLI aggregate of %s: %w", slo, err)
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // Baseline is the median of a series' gauge values since a time, and how
