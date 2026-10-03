@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleWideTable struct{}
@@ -16,7 +16,7 @@ func (r *ruleWideTable) Severity() string { return "info" }
 func (r *ruleWideTable) Category() string { return "performance" }
 
 func (r *ruleWideTable) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -32,7 +32,7 @@ SELECT n.nspname, c.relname, count(*) AS col_count
 HAVING count(*) > 50
  ORDER BY col_count DESC`, excludeList)
 
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleWideTable query: %w", err)
 	}

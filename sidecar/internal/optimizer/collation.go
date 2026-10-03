@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // collationSQL reads the database collation from pg_database: the
@@ -18,7 +18,7 @@ const collationSQL = `/* pg_sage */ SELECT datcollate,
 
 // fetchCollation returns the database collation: datcollate for libc,
 // "C" for the builtin provider (code-point order), "ICU <locale>" for ICU.
-func fetchCollation(ctx context.Context, pool *pgxpool.Pool) (string, error) {
+func fetchCollation(ctx context.Context, pool catalogread.Querier) (string, error) {
 	var collate, provider, locale string
 	err := pool.QueryRow(ctx, collationSQL).Scan(&collate, &provider, &locale)
 	if err != nil {

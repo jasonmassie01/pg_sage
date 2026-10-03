@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
@@ -133,7 +132,7 @@ func (r *failingRule) Name() string     { return "failing" }
 func (r *failingRule) Severity() string { return "info" }
 func (r *failingRule) Category() string { return "convention" }
 func (r *failingRule) Check(
-	context.Context, *pgxpool.Pool, RuleOpts,
+	context.Context, catalogread.Querier, RuleOpts,
 ) ([]Finding, error) {
 	return nil, errors.New("transient failure")
 }

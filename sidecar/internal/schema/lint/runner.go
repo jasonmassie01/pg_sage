@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
@@ -46,6 +47,11 @@ func NewRunner(
 		databaseName: databaseName,
 		logFn:        logFn,
 	}
+}
+
+// SetCatalogReadTimeouts bounds the rules' catalog reads (see Linter).
+func (r *Runner) SetCatalogReadTimeouts(t catalogread.Timeouts) {
+	r.linter.SetCatalogReadTimeouts(t)
 }
 
 // SetLLMClient sets the optional LLM client for enhanced analysis.

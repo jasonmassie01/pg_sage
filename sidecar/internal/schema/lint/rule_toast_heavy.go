@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleToastHeavy struct{}
@@ -16,10 +16,10 @@ func (r *ruleToastHeavy) Severity() string { return "info" }
 func (r *ruleToastHeavy) Category() string { return "performance" }
 
 func (r *ruleToastHeavy) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	query := toastHeavyQuery(schemaExcludeSQL(opts.ExcludeSchemas))
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleToastHeavy query: %w", err)
 	}

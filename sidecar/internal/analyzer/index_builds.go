@@ -30,7 +30,7 @@ func (a *Analyzer) loadIndexBuilds(ctx context.Context) {
 }
 
 func (a *Analyzer) queryIndexBuilds(ctx context.Context) (map[string]bool, error) {
-	rows, err := a.pool.Query(ctx, indexBuildsSQL)
+	rows, err := a.catalog().Query(ctx, indexBuildsSQL)
 	if err != nil {
 		return nil, err
 	}

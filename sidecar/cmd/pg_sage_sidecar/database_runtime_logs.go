@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/logwatch"
@@ -162,6 +163,7 @@ func (rt *databaseRuntime) startSchemaLint() {
 		rt.spec.Pool, &cfg.SchemaLint, rt.pgVersion(), rt.spec.Name,
 		logStructuredWrapper,
 	)
+	runner.SetCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety))
 	if rt.llmOn {
 		runner.SetLLMClient(rt.generalLLM)
 	}
@@ -182,7 +184,7 @@ func (rt *databaseRuntime) startMigrationAdvisor() {
 	advisor := migration.NewAdvisor(
 		rt.spec.Pool, &cfg.Migration, rt.pgVersion(), rt.spec.Name,
 		logStructuredWrapper, general,
-	)
+	).WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety))
 	findings := store.NewMigrationSafetyFindingStore(rt.spec.Pool)
 	if cfg.Migration.ActivityPolling {
 		detector := migration.NewDetector(

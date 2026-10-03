@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
@@ -13,12 +14,18 @@ import (
 // Linter orchestrates periodic schema anti-pattern detection.
 type Linter struct {
 	pool      *pgxpool.Pool
+	timeouts  catalogread.Timeouts // bounds every rule's catalog read
 	rules     []Rule
 	cfg       *config.SchemaLintConfig
 	pgVer     int
 	logFn     func(string, string, ...any)
 	llmClient *llm.Client
 }
+
+// SetCatalogReadTimeouts bounds every rule's catalog read with the safety
+// configuration's statement and lock timeouts (static.md F11): a slow rule
+// is cut off, marked failed, and the scan goes on.
+func (l *Linter) SetCatalogReadTimeouts(t catalogread.Timeouts) { l.timeouts = t }
 
 // SetLLMClient sets the optional LLM client for enhanced analysis.
 func (l *Linter) SetLLMClient(c *llm.Client) { l.llmClient = c }
@@ -31,10 +38,11 @@ func New(
 	logFn func(string, string, ...any),
 ) *Linter {
 	l := &Linter{
-		pool:  pool,
-		cfg:   cfg,
-		pgVer: pgVer,
-		logFn: logFn,
+		pool:     pool,
+		timeouts: catalogread.Default(),
+		cfg:      cfg,
+		pgVer:    pgVer,
+		logFn:    logFn,
 	}
 	l.rules = defaultRules()
 	return l
@@ -73,7 +81,7 @@ func (l *Linter) ScanReport(
 			continue
 		}
 		start := time.Now()
-		findings, err := r.Check(ctx, l.pool, opts)
+		findings, err := r.Check(ctx, catalogread.New(l.pool, l.timeouts), opts)
 		elapsed := time.Since(start)
 		if err != nil {
 			l.logFn("warn", "lint rule %s failed: %v", r.ID(), err)
@@ -89,7 +97,8 @@ func (l *Linter) ScanReport(
 
 	if l.llmClient != nil {
 		enhancer := &LLMJsonbAnalyzer{
-			pool: l.pool, llmClient: l.llmClient, logFn: l.logFn,
+			pool:      catalogread.New(l.pool, l.timeouts),
+			llmClient: l.llmClient, logFn: l.logFn,
 		}
 		all = enhancer.Enhance(ctx, all)
 	}

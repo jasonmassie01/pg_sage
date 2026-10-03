@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // collectIndexes pages through pg_stat_user_indexes by indexrelid (see
@@ -77,7 +79,7 @@ func (c *Collector) collectIndexBatch(
 	if len(missing) == 0 {
 		return batch, nil
 	}
-	var db txBeginner = c.pool
+	var db catalogread.Beginner = c.pool
 	if len(missing) >= indexDefScratchMin {
 		conn, err := scratch.get(ctx)
 		if err != nil {
@@ -130,7 +132,7 @@ func (c *Collector) readIndexPage(
 }
 
 func (c *Collector) fetchIndexDefs(
-	ctx context.Context, db txBeginner, oids []uint32,
+	ctx context.Context, db catalogread.Beginner, oids []uint32,
 ) (map[uint32]string, error) {
 	rows, err := c.catalogQueryVia(ctx, db, indexDefsSQL, oids)
 	if err != nil {

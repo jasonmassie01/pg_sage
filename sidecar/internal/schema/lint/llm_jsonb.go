@@ -7,15 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 // LLMJsonbAnalyzer enriches JSONB findings with query-level evidence
 // from pg_stat_statements via LLM analysis.
 type LLMJsonbAnalyzer struct {
-	pool      *pgxpool.Pool
+	pool      catalogread.Querier
 	llmClient *llm.Client
 	logFn     func(string, string, ...any)
 }
