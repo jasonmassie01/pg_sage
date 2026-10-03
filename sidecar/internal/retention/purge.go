@@ -27,7 +27,7 @@ func (c *Cleaner) purgeTable(
 }
 
 // purge applies one rule. It returns false when the run's deadline passed
-// before the rule was done (the next run resumes it), true otherwise
+// before the rule was done (a later run resumes it), true otherwise
 // (done, disabled, or failed and logged).
 func (c *Cleaner) purge(ctx context.Context, rule purgeRule, stats *RunStats,
 	deadline time.Time) bool {
@@ -93,7 +93,7 @@ func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string
 // paced runs step, one statement deleting at most batch rows, until a
 // statement deletes fewer, ctx ends, or the deadline passes, pausing
 // between statements. It returns false when the deadline cut it short
-// (the next run resumes), true otherwise. A statement is never sent after
+// (a later run resumes), true otherwise. A statement is never sent after
 // the deadline, but the first one always is, so every run makes progress.
 func (c *Cleaner) paced(ctx context.Context, batch int, deadline time.Time,
 	step func() (int64, error)) (bool, error) {

@@ -24,7 +24,8 @@ const defaultPause = 50 * time.Millisecond
 // defaultRunBudget bounds one run. The orchestrator runs the cleaner in
 // its cycle (about every 10 minutes, after the executor and the briefing),
 // so a backlog is worked off over several runs instead of stalling the
-// cycle; each run resumes with the rule the last one could not finish.
+// cycle; each run resumes where the last one stopped, and a rule that spent
+// the budget goes last (deferFrom).
 const defaultRunBudget = 30 * time.Second
 
 // defaultRunInterval is used by RunEvery when no positive interval is given.
@@ -121,8 +122,8 @@ func (c *Cleaner) Run(ctx context.Context) {
 	c.RunOnce(ctx)
 }
 
-// RunOnce purges expired data from every sage table, starting with the
-// rule the previous run did not finish, until done or the run's budget is
+// RunOnce purges expired data from every sage table, starting where the
+// previous run stopped (deferFrom), until done or the run's budget is
 // spent. A failing table is logged at ERROR and does not stop the others.
 func (c *Cleaner) RunOnce(ctx context.Context) RunStats {
 	start := time.Now()
@@ -136,11 +137,13 @@ func (c *Cleaner) RunOnce(ctx context.Context) RunStats {
 	for i := 0; i < len(rules) && ctx.Err() == nil; i++ {
 		at := (first + i) % len(rules)
 		if i > 0 && time.Now().After(deadline) {
-			c.deferFrom(rules, first, at, &stats)
+			c.deferFrom(rules, first, at, at, &stats) // rules[at] has not run: it goes first
 			break
 		}
 		if !c.target(rules[at]).purge(ctx, rules[at], &stats, deadline) {
-			c.deferFrom(rules, first, at, &stats)
+			// rules[at] spent the budget: it goes last next run, so a rule
+			// that spends it every run cannot starve the others.
+			c.deferFrom(rules, first, at, (at+1)%len(rules), &stats)
 			break
 		}
 	}
@@ -156,10 +159,11 @@ func (c *Cleaner) RunOnce(ctx context.Context) RunStats {
 
 // deferFrom records that the run, which started at rules[first], stopped at
 // rules[at]: the rules from at up to first are left, and the next run
-// resumes at at.
-func (c *Cleaner) deferFrom(rules []purgeRule, first, at int, stats *RunStats) {
+// starts at next. Every run starts at least one rule further on, so each
+// rule runs within len(rules) runs, however long any one takes.
+func (c *Cleaner) deferFrom(rules []purgeRule, first, at, next int, stats *RunStats) {
 	stats.BudgetSpent = true
-	c.next = at
+	c.next = next
 	for i := 0; i < len(rules); i++ {
 		idx := (at + i) % len(rules)
 		if i > 0 && idx == first {
@@ -168,7 +172,7 @@ func (c *Cleaner) deferFrom(rules []purgeRule, first, at int, stats *RunStats) {
 		stats.Deferred = append(stats.Deferred, rules[idx].table)
 	}
 	c.logFn("INFO", "retention: run budget of %s spent; %d rules deferred to the next run, "+
-		"starting with sage.%s", c.budget, len(stats.Deferred), rules[at].table)
+		"which starts with sage.%s", c.budget, len(stats.Deferred), rules[next].table)
 }
 
 // target is the cleaner that purges rule: the control database's for the
