@@ -30,6 +30,23 @@ type Reading struct {
 	RowsRead        int64 // sage tables: sequential + index tuple reads
 	RowsWritten     int64 // sage tables: rows inserted + updated + deleted
 	SchemaBytes     int64 // sage relations with TOAST and indexes
+	// Statements are pg_sage's pg_stat_statements entries; DBTimeMs, Calls
+	// and Blocks are their sums.
+	Statements map[StatementKey]StatementCounters
+}
+
+// StatementKey identifies a pg_stat_statements entry of this database.
+type StatementKey struct {
+	UserID   uint32
+	QueryID  int64
+	TopLevel bool
+}
+
+// StatementCounters are one entry's cumulative counters.
+type StatementCounters struct {
+	TimeMs float64 // execution + planning
+	Calls  int64
+	Blocks int64 // shared blocks hit + read
 }
 
 // Cost is pg_sage's cost per collector cycle between two readings.
@@ -55,16 +72,16 @@ type Cost struct {
 // Querier is a pgx pool, connection or transaction.
 type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // statementsSQL sums this database's pg_sage-tagged statements.
-const statementsSQL = `/* pg_sage */ SELECT
-  COALESCE(sum(total_exec_time + total_plan_time), 0)::float8,
-  COALESCE(sum(calls), 0)::int8,
-  COALESCE(sum(shared_blks_hit + shared_blks_read), 0)::int8
+const statementsSQL = `/* pg_sage */ SELECT userid, queryid, toplevel,
+  (total_exec_time + total_plan_time)::float8, calls,
+  (shared_blks_hit + shared_blks_read)::int8
 FROM pg_stat_statements
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND query LIKE '/* pg_sage%'`
+  AND queryid IS NOT NULL AND strpos(query, '/* pg_sage') > 0`
 
 // schemaSQL sums the sage relations' statistics counters and sizes. It
 // reads pg_class once per measurement (one analyzer cycle).
@@ -87,17 +104,57 @@ func Read(ctx context.Context, q Querier) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("read sage schema counters: %w", err)
 	}
-	err = q.QueryRow(ctx, statementsSQL).Scan(&r.DBTimeMs, &r.Calls, &r.Blocks)
+	r.Statements, err = readStatements(ctx, q)
 	switch {
 	case err == nil:
 		r.StatementsKnown = true
-	case statementsUnavailable(err):
-		r.DBTimeMs, r.Calls, r.Blocks = 0, 0, 0
-	default:
+	case !statementsUnavailable(err):
 		return Reading{}, fmt.Errorf("read pg_sage statements: %w", err)
+	}
+	for _, s := range r.Statements {
+		r.DBTimeMs += s.TimeMs
+		r.Calls += s.Calls
+		r.Blocks += s.Blocks
 	}
 	r.At = time.Now()
 	return r, nil
+}
+
+func readStatements(ctx context.Context, q Querier) (map[StatementKey]StatementCounters,
+	error) {
+	rows, err := q.Query(ctx, statementsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[StatementKey]StatementCounters{}
+	for rows.Next() {
+		var k StatementKey
+		var s StatementCounters
+		if err := rows.Scan(&k.UserID, &k.QueryID, &k.TopLevel, &s.TimeMs, &s.Calls,
+			&s.Blocks); err != nil {
+			return nil, err
+		}
+		out[k] = s
+	}
+	return out, rows.Err()
+}
+
+// statementDelta is pg_sage's work between two readings, entry by entry:
+// an entry whose calls went back was reset and counts from zero, one that
+// appeared counts in full, one evicted from pg_stat_statements drops out.
+func statementDelta(prev, cur map[StatementKey]StatementCounters) StatementCounters {
+	var d StatementCounters
+	for k, c := range cur {
+		p, ok := prev[k]
+		if !ok || c.Calls < p.Calls || c.TimeMs < p.TimeMs || c.Blocks < p.Blocks {
+			p = StatementCounters{}
+		}
+		d.TimeMs += c.TimeMs - p.TimeMs
+		d.Calls += c.Calls - p.Calls
+		d.Blocks += c.Blocks - p.Blocks
+	}
+	return d
 }
 
 // statementsUnavailable reports pg_stat_statements missing (not installed
@@ -131,16 +188,14 @@ func Between(prev, cur Reading, cycle time.Duration) Cost {
 	c.Known, c.WindowSeconds = true, window
 	c.RowsReadPerCycle = float64(read) * scale
 	c.RowsWrittenPerCycle = float64(written) * scale
-	dbMs, calls, blocks := cur.DBTimeMs-prev.DBTimeMs, cur.Calls-prev.Calls,
-		cur.Blocks-prev.Blocks
-	if !prev.StatementsKnown || !cur.StatementsKnown || dbMs < 0 || calls < 0 ||
-		blocks < 0 {
+	if !prev.StatementsKnown || !cur.StatementsKnown {
 		return c
 	}
+	d := statementDelta(prev.Statements, cur.Statements)
 	c.DBTimeKnown = true
-	c.DBTimeMsPerCycle = dbMs * scale
-	c.CallsPerCycle = float64(calls) * scale
-	c.BlocksPerCycle = float64(blocks) * scale
+	c.DBTimeMsPerCycle = d.TimeMs * scale
+	c.CallsPerCycle = float64(d.Calls) * scale
+	c.BlocksPerCycle = float64(d.Blocks) * scale
 	return c
 }
 
