@@ -64,11 +64,16 @@ func createGoldenCatalog(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 	}
 	if _, err := conn.Exec(ctx, `SELECT count(*) FROM golden_cat.hot;
 		SELECT count(*) FROM golden_cat.noidx;
+		CREATE INDEX noidx_tmp ON golden_cat.noidx (a);
 		SET enable_seqscan = off;
 		SELECT * FROM golden_cat.hot WHERE id = 7;
 		SELECT * FROM golden_cat.hot WHERE v = 9;
 		SELECT * FROM golden_cat.mv WHERE id = 3;
-		RESET enable_seqscan`); err != nil {
+		SET enable_indexscan = off;
+		SELECT * FROM golden_cat.noidx WHERE a < 50; -- bitmap: heap fetches
+		RESET enable_indexscan;
+		RESET enable_seqscan;
+		DROP INDEX golden_cat.noidx_tmp`); err != nil {
 		t.Fatalf("golden scans: %v", err)
 	}
 	flushStats(t, ctx, conn.Conn())
@@ -185,7 +190,7 @@ func TestCollectTables_GoldenAgainstLegacyView(t *testing.T) {
 		}
 	}
 	if gold["golden_cat.hot"].IdxScan == 0 || gold["golden_cat.hot"].SeqScan == 0 ||
-		gold["golden_cat.noidx"].IdxTupFetch != 0 {
+		gold["golden_cat.noidx"].IdxTupFetch != 0 { // heap fetches, no index left: 0
 		t.Fatalf("fixture activity missing: %+v / %+v", gold["golden_cat.hot"],
 			gold["golden_cat.noidx"])
 	}
