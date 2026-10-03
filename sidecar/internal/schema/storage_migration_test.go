@@ -157,8 +157,8 @@ func TestStorageMigration_BackfillsResolvedAt(t *testing.T) {
 	bootstrapWithRetry(t, ctx, pool)
 	var id int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.findings (category, severity,
-		object_type, object_identifier, title, status, last_seen, resolved_at)
-		VALUES ('storage_test', 'info', 'table', 'storage.backfill', 't', 'resolved',
+		object_type, object_identifier, title, detail, status, last_seen, resolved_at)
+		VALUES ('storage_test', 'info', 'table', 'storage.backfill', 't', '{}', 'resolved',
 		        now() - interval '200 days', NULL) RETURNING id`).Scan(&id); err != nil {
 		t.Fatal(err)
 	}

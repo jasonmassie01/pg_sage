@@ -17,8 +17,6 @@ CREATE INDEX IF NOT EXISTS idx_alert_log_sent
     ON sage.alert_log (sent_at);
 CREATE INDEX IF NOT EXISTS idx_verification_created
     ON sage.verification (created_at);
-CREATE INDEX IF NOT EXISTS idx_findings_resolved_last_seen
-    ON sage.findings (last_seen) WHERE status = 'resolved';
 CREATE INDEX IF NOT EXISTS idx_sre_change_events_received
     ON sage.sre_change_events (deployment_id, received_at);
 CREATE INDEX IF NOT EXISTS idx_findings_action_log
