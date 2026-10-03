@@ -135,7 +135,8 @@ func TestConfigurePool_SessionIsNamedAndNotUntracked(t *testing.T) {
 func TestExclusionPredicatesEvaluateInPostgres(t *testing.T) {
 	pool, ctx := selfPool(t)
 	statements := map[string]bool{ // text -> kept (not pg_sage)
-		StatementTag + "SELECT 1":                   false,
+		"SELECT /* pg_sage */ 1":                    false,
+		"/* pg_sage */ SELECT 1":                    false,
 		"/* pg_sage sre:lock_graph v1 */ SELECT 1":  false,
 		"SELECT * FROM sage.findings":               false,
 		`SELECT * FROM "sage".decision`:             false,

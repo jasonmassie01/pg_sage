@@ -110,8 +110,8 @@ func TestTagConn_SimpleQueryGetsTag(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(msgs))
 	}
 	q, ok := msgs[0].(*pgproto3.Query)
-	if !ok || q.String != StatementTag+"SELECT 1" {
-		t.Fatalf("query = %#v, want %q", msgs[0], StatementTag+"SELECT 1")
+	if !ok || q.String != "SELECT /* pg_sage */ 1" {
+		t.Fatalf("query = %#v, want the tag after SELECT", msgs[0])
 	}
 }
 
@@ -131,7 +131,7 @@ func TestTagConn_ParseKeepsNameAndParameterTypes(t *testing.T) {
 	if !ok {
 		t.Fatalf("first message = %T, want Parse", msgs[0])
 	}
-	if got.Name != "stmtcache_1" || got.Query != StatementTag+parse.Query {
+	if got.Name != "stmtcache_1" || got.Query != "SELECT /* pg_sage */ $1::int + $2" {
 		t.Fatalf("parse = %+v", got)
 	}
 	if len(got.ParameterOIDs) != 2 || got.ParameterOIDs[0] != 23 || got.ParameterOIDs[1] != 20 {
@@ -142,30 +142,48 @@ func TestTagConn_ParseKeepsNameAndParameterTypes(t *testing.T) {
 	}
 }
 
-func TestTagConn_AlreadyTaggedStatementsUnchanged(t *testing.T) {
-	for _, sql := range []string{
-		"/* pg_sage */SELECT 1",
-		"/* pg_sage */ SELECT 1",
-		"  \n\t/* pg_sage sre:lock_chains v1 */\nSELECT 2",
-		"/* pg_sage:collector */ SELECT 3",
-	} {
-		cc := &captureConn{}
-		writeAll(t, TagConn(cc), append(startup(t),
-			encode(t, &pgproto3.Query{String: sql})...), 1<<20)
-		msgs := decodeFrontend(t, cc.out.Bytes())
-		if q := msgs[0].(*pgproto3.Query); q.String != sql {
-			t.Errorf("tagged statement rewritten: %q -> %q", sql, q.String)
+// queryThroughTagger sends sql as a simple Query and returns what reaches
+// the server.
+func queryThroughTagger(t *testing.T, sql string) string {
+	t.Helper()
+	cc := &captureConn{}
+	writeAll(t, TagConn(cc), append(startup(t),
+		encode(t, &pgproto3.Query{String: sql})...), 1<<20)
+	return decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Query).String
+}
+
+// PostgreSQL 18's pg_stat_statements drops comments before a statement
+// (it keeps the text from the first token), so the tag goes right after
+// the first keyword. A leading pg_sage comment (with its component label)
+// moves there instead of being repeated; one already there stays put.
+func TestTagConn_TagSitsAfterTheFirstKeyword(t *testing.T) {
+	cases := map[string]string{
+		"/* pg_sage */SELECT 1":  "SELECT /* pg_sage */ 1",
+		"/* pg_sage */ SELECT 1": "SELECT /* pg_sage */ 1",
+		"  \n\t/* pg_sage sre:lock_chains v1 */\nSELECT 2": "  \n\tSELECT " +
+			"/* pg_sage sre:lock_chains v1 */ 2",
+		"/* pg_sage:collector */ SELECT 3": "SELECT /* pg_sage:collector */ 3",
+		"SELECT /* pg_sage */ 1":           "SELECT /* pg_sage */ 1",
+		"WITH /* pg_sage sre:x v1 */ a AS (SELECT 1) SELECT * FROM a": "WITH " +
+			"/* pg_sage sre:x v1 */ a AS (SELECT 1) SELECT * FROM a",
+		"/* app:report */ SELECT 1":       "/* app:report */ SELECT /* pg_sage */ 1",
+		"-- note\nselect 1":               "-- note\nselect /* pg_sage */ 1",
+		"/* a /* nested */ b */ SELECT 1": "/* a /* nested */ b */ SELECT /* pg_sage */ 1",
+		"SELECT*FROM t":                   "SELECT /* pg_sage */ *FROM t",
+		"BEGIN":                           "BEGIN /* pg_sage */",
+		"(SELECT 1) UNION SELECT 2":       "/* pg_sage */ (SELECT 1) UNION SELECT 2",
+		"/* unterminated":                 "/* unterminated",
+	}
+	for in, want := range cases {
+		if got := queryThroughTagger(t, in); got != want {
+			t.Errorf("%q\n  got  %q\n  want %q", in, got, want)
 		}
 	}
 }
 
-func TestTagConn_OtherLeadingCommentStillTagged(t *testing.T) {
-	cc := &captureConn{}
-	sql := "/* app:report */ SELECT 1"
-	writeAll(t, TagConn(cc), append(startup(t),
-		encode(t, &pgproto3.Query{String: sql})...), 1<<20)
-	if q := decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Query); q.String != StatementTag+sql {
-		t.Fatalf("query = %q, want the pg_sage tag in front", q.String)
+func TestTagConn_WhitespaceOnlyQueryUnchanged(t *testing.T) {
+	if got := queryThroughTagger(t, " \n\t"); got != " \n\t" {
+		t.Fatalf("whitespace query = %q, want it left alone", got)
 	}
 }
 
@@ -197,10 +215,10 @@ func TestTagConn_SplitWritesMatchSingleWrite(t *testing.T) {
 		}
 	}
 	msgs := decodeFrontend(t, whole.out.Bytes())
-	if p := msgs[0].(*pgproto3.Parse); p.Query != StatementTag+"SELECT $1::text" {
+	if p := msgs[0].(*pgproto3.Parse); p.Query != "SELECT /* pg_sage */ $1::text" {
 		t.Fatalf("parse query = %q", p.Query)
 	}
-	if q := msgs[4].(*pgproto3.Query); q.String != StatementTag+"SELECT 42" {
+	if q := msgs[4].(*pgproto3.Query); q.String != "SELECT /* pg_sage */ 42" {
 		t.Fatalf("query = %q", q.String)
 	}
 }
@@ -262,9 +280,10 @@ func TestIsTagged(t *testing.T) {
 		"\n  /* pg_sage sre:x v1 */ SELECT": true,
 		"SELECT 1":                          false,
 		"/* app */ SELECT 1":                false,
-		"SELECT /* pg_sage */ 1":            false,
+		"SELECT /* pg_sage */ 1":            true,
+		"SELECT $1 /*pg_sage*/":             true,
 		"":                                  false,
-		"/* pg_sage":                        false,
+		"SELECT 1 -- pg_sage":               false,
 	}
 	for sql, want := range cases {
 		if got := IsTagged(sql); got != want {
