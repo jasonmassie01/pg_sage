@@ -3,6 +3,7 @@ package perfgate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 func TestMain(m *testing.M) {
@@ -217,8 +219,35 @@ func TestStatementsCaptureAndExplain(t *testing.T) {
 	if err := AnalyzeSage(ctx, pool); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
+	var found *Statement
+	// Another package's pg_stat_statements_reset() or an eviction on the
+	// shared server can erase the entry between the call and the read: such
+	// a window (the epoch moved after this test's own reset) is repeated.
+	for attempt := 1; ; attempt++ {
+		problem, moved := captureOneCall(t, ctx, pool, &found)
+		if problem == "" {
+			break
+		}
+		if !moved || attempt == 3 {
+			t.Fatal(problem)
+		}
+		t.Logf("attempt %d: pg_stat_statements was reset or evicted; repeating", attempt)
+	}
+	checkExplain(t, ctx, pool, *found)
+}
+
+// captureOneCall resets the statements, runs one tagged and one untagged
+// statement and reads them back. It returns the problem found, if any, and
+// whether the statistics changed generation during the window.
+func captureOneCall(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	found **Statement) (string, bool) {
+	t.Helper()
 	if err := ResetStatements(ctx, pool); err != nil {
 		t.Fatalf("reset: %v", err)
+	}
+	before, err := pgssepoch.Epoch(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, "SELECT count(*) FROM sage.decision WHERE reason = $1",
 		"x"); err != nil {
@@ -234,19 +263,25 @@ func TestStatementsCaptureAndExplain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	var found *Statement
+	after, err := pgssepoch.Epoch(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*found = nil
 	for i := range stmts {
 		if strings.Contains(stmts[i].Query, HarnessTag) {
 			t.Fatalf("harness statement captured: %q", stmts[i].Query)
 		}
 		if strings.Contains(stmts[i].Query, "sage.decision WHERE reason") {
-			found = &stmts[i]
+			*found = &stmts[i]
 		}
 	}
-	if found == nil || found.Calls != 1 || found.QueryID == 0 || found.TotalMs <= 0 {
-		t.Fatalf("captured statement = %+v among %d", found, len(stmts))
+	f := *found
+	if f == nil || f.Calls != 1 || f.QueryID == 0 || f.TotalMs <= 0 {
+		return fmt.Sprintf("captured statement = %+v among %d", f, len(stmts)),
+			before != after
 	}
-	checkExplain(t, ctx, pool, *found)
+	return "", false
 }
 
 func checkExplain(t *testing.T, ctx context.Context, pool *pgxpool.Pool, scan Statement) {

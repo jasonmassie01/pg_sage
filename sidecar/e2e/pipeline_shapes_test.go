@@ -278,7 +278,7 @@ func shapeVacuum(t *testing.T, pool *pgxpool.Pool, r *checkReport) {
 	act, ok := latestActionFor(t, pool, "table_bloat", "public.shp_b07")
 	r.add(t, "CHECK-B07a", ok && isExecutedOutcome(act.Outcome),
 		fmt.Sprintf("VACUUM executed (outcome=%s)", act.Outcome))
-	lastVacuum := scalarString(t, pool,
+	lastVacuum := settledString(t, pool,
 		`SELECT coalesce(last_vacuum::text,'') FROM pg_stat_user_tables
 		  WHERE relname = 'shp_b07'`)
 	r.add(t, "CHECK-B07b", lastVacuum != "",
@@ -322,7 +322,7 @@ func shapeAnalyze(t *testing.T, pool *pgxpool.Pool, r *checkReport) {
 	act, ok := latestActionFor(t, pool, "stale_statistics", "public.shp_b09")
 	r.add(t, "CHECK-B09a", ok && isExecutedOutcome(act.Outcome),
 		fmt.Sprintf("ANALYZE executed (outcome=%s)", act.Outcome))
-	lastAnalyze := scalarString(t, pool,
+	lastAnalyze := settledString(t, pool,
 		`SELECT coalesce(last_analyze::text,'') FROM pg_stat_user_tables
 		  WHERE relname = 'shp_b09'`)
 	r.add(t, "CHECK-B09b", lastAnalyze != "",

@@ -267,6 +267,21 @@ func scalarString(t *testing.T, pool *pgxpool.Pool, sql string) string {
 	return v
 }
 
+// settledString polls sql until it returns a non-empty value or 15 s pass.
+// It reads cumulative statistics (last_vacuum, last_analyze), which
+// PostgreSQL 14's collector applies asynchronously after the command.
+func settledString(t *testing.T, pool *pgxpool.Pool, sql string) string {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		v := scalarString(t, pool, sql)
+		if v != "" || time.Now().After(deadline) {
+			return v
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // checkReport accumulates CHECK-xx lines so the run ends with the
 // repo-mandated verification checklist.
 type checkReport struct {
