@@ -51,25 +51,75 @@ func TestAutonomyServiceConfigMapsSettings(t *testing.T) {
 	}
 }
 
-func TestLedgerForSharesOneLedgerPerControlPool(t *testing.T) {
+// P0-5: one ledger per control pool AND database. Databases of one
+// control database share its deployment (and its bench evidence) but
+// never a ledger.
+func TestLedgerForBuildsOneLedgerPerControlPoolAndDatabase(t *testing.T) {
 	pool := autonomyPool(t)
 	other := autonomyPool(t)
 	ledgers := newAutonomyLedgers(true)
 	settings := config.DefaultConfig().SRE.Autonomy
-	a, err := ledgers.ledgerFor(context.Background(), pool, settings)
+	a, err := ledgers.ledgerFor(context.Background(), pool, "orders", settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := ledgers.ledgerFor(context.Background(), pool, settings)
+	b, err := ledgers.ledgerFor(context.Background(), pool, "orders", settings)
 	if err != nil || a != b {
-		t.Fatalf("same control pool built two ledgers (%v)", err)
+		t.Fatalf("same control pool and database built two ledgers (%v)", err)
 	}
-	c, err := ledgers.ledgerFor(context.Background(), other, settings)
+	billing, err := ledgers.ledgerFor(context.Background(), pool, "billing", settings)
+	if err != nil || billing == a || billing.Database() != "billing" ||
+		billing.Store().DeploymentID() != a.Store().DeploymentID() {
+		t.Fatalf("billing ledger = %v (%v): its own ledger in the same deployment",
+			billing, err)
+	}
+	c, err := ledgers.ledgerFor(context.Background(), other, "orders", settings)
 	if err != nil || c == a {
 		t.Fatalf("a different control pool shared the ledger (%v)", err)
 	}
-	if _, err := ledgers.ledgerFor(context.Background(), nil, settings); err == nil {
+	if _, err := ledgers.ledgerFor(context.Background(), nil, "orders", settings); err == nil {
 		t.Fatal("a nil control pool built a ledger")
+	}
+	if _, err := ledgers.ledgerFor(context.Background(), pool, " ", settings); err == nil {
+		t.Fatal("a ledger without a database was built")
+	}
+}
+
+// Installing a database adopts the deployment's legacy (pre-scope)
+// levels for that database once, before carry-over is seeded.
+func TestInstallAdoptsLegacyLevelsForTheDatabase(t *testing.T) {
+	pool := autonomyPool(t)
+	ctx := context.Background()
+	deployment, err := earned.EnsureDeployment(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := "legacy_" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.sre_family_autonomy
+		(deployment_id, database_name, family, action_class, level, changed_by,
+		 change_reason) VALUES ($1, '', 'lock_blocking', 'backend_terminate', 0,
+		 'user:1:a@e', 'legacy restriction')
+		ON CONFLICT DO NOTHING`, deployment); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_family_autonomy
+			WHERE deployment_id = $1 AND database_name = ''`, deployment)
+	})
+	ledgers := newAutonomyLedgers(true)
+	if err := ledgers.install(ctx, autonomousExecutor(pool), autonomyBinding{database: db,
+		control: pool, monitored: pool,
+		settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := ledgers.registry.Lookup(db)
+	if !ok {
+		t.Fatal("not registered")
+	}
+	st, err := entry.Service.Granted(ctx, earned.FamilyLockBlocking,
+		earned.ClassBackendTerminate)
+	if err != nil || st.Level != earned.L0 || !st.Stored {
+		t.Fatalf("adopted legacy restriction = %+v (%v), want a stored L0", st, err)
 	}
 }
 
@@ -175,7 +225,7 @@ func TestRouteStampsTheEvidenceTime(t *testing.T) {
 func TestIngestBenchPathIngestsEachReportOnce(t *testing.T) {
 	pool := autonomyPool(t)
 	ledgers := newAutonomyLedgers(true)
-	ledger, err := ledgers.ledgerFor(context.Background(), pool,
+	ledger, err := ledgers.ledgerFor(context.Background(), pool, "orders",
 		config.DefaultConfig().SRE.Autonomy)
 	if err != nil {
 		t.Fatal(err)

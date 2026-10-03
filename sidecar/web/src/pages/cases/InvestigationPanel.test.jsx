@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InvestigationPanel } from './InvestigationPanel'
 
@@ -166,5 +166,18 @@ describe('InvestigationPanel', () => {
       expect.objectContaining({ method: 'POST' })))
     const buttons = within(panel).getAllByRole('button').map(b => b.textContent)
     expect(buttons.filter(b => /execute|approve|terminate/i.test(b))).toEqual([])
+  })
+})
+
+// Phase 1.1: the review buttons live in the investigation panel.
+describe('InvestigationPanel review', () => {
+  it('offers operators the diagnosis review, viewers nothing', () => {
+    const viewerPanel = open(concluded.investigation)
+    expect(within(viewerPanel).queryByTestId('investigation-review')).toBeNull()
+    cleanup()
+    const panel = open(concluded.investigation, { role: 'operator' })
+    expect(within(panel).getByTestId('investigation-review')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: /accept diagnosis/i }))
+      .toBeInTheDocument()
   })
 })

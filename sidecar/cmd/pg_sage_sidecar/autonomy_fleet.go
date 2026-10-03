@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/earned"
+	"github.com/pg-sage/sidecar/internal/earned/packetreview"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/rollout"
@@ -124,8 +125,12 @@ func (t fleetCanaryTarget) ActionResult(ctx context.Context, actionLogID int64) 
 	return a.Outcome, a.Verification, err
 }
 
-// autonomyMCPBackend serves the MCP autonomy tools from the registry.
-type autonomyMCPBackend struct{ registry *earned.Registry }
+// autonomyMCPBackend serves the MCP autonomy tools from the registry; a
+// review also needs the database's investigations (the fleet).
+type autonomyMCPBackend struct {
+	registry *earned.Registry
+	manager  *fleet.DatabaseManager
+}
 
 func (b autonomyMCPBackend) entry(database string) (earned.RegistryEntry, string, error) {
 	if database == "" {
@@ -180,4 +185,35 @@ func (b autonomyMCPBackend) DowngradeAutonomy(ctx context.Context,
 		return nil, err
 	}
 	return map[string]any{"states": states}, nil
+}
+
+// EvaluateAutonomy proposes what a database's evidence supports and
+// explains every pair it did not propose (sre_evaluate_autonomy).
+func (b autonomyMCPBackend) EvaluateAutonomy(ctx context.Context,
+	req mcp.AutonomyRequest) (any, error) {
+	e, _, err := b.entry(req.Database)
+	if err != nil {
+		return nil, err
+	}
+	return e.Service.Evaluate(ctx)
+}
+
+// ReviewInvestigation records an MCP principal's review of a finished
+// investigation: the shadow review and the investigation outcome
+// (sre_review_investigation). It never approves a promotion.
+func (b autonomyMCPBackend) ReviewInvestigation(ctx context.Context,
+	req mcp.AutonomyRequest, actor string) (any, error) {
+	e, name, err := b.entry(req.Database)
+	if err != nil {
+		return nil, err
+	}
+	var inv packetreview.Investigations
+	if b.manager != nil {
+		if inst := b.manager.GetInstance(name); inst != nil && inst.Investigations != nil {
+			inv = inst.Investigations
+		}
+	}
+	return packetreview.Record(ctx, e.Service, inv, packetreview.Request{
+		InvestigationID: req.InvestigationID, Verdict: req.Verdict, Note: req.Note,
+		ActualRootCause: req.ActualRootCause, Actor: actor})
 }

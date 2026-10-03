@@ -33,7 +33,8 @@ type Limiter struct {
 	overrides map[string]time.Time
 }
 
-// Limiter binds the ledger to one database's signals.
+// Limiter binds the ledger to its database's signals; a binding that
+// names another database fails every authorization closed.
 func (s *Service) Limiter(b Binding) *Limiter {
 	return &Limiter{svc: s, b: b, last: map[pairKey]string{},
 		overrides: map[string]time.Time{}}
@@ -48,6 +49,9 @@ var _ policy.AutonomyLimiter = (*Limiter)(nil)
 // (the gate then fails closed).
 func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	policy.AutonomyLimit, error) {
+	if err := l.svc.store.checkDatabase(l.b.Database); err != nil {
+		return policy.AutonomyLimit{}, fmt.Errorf("limiter bound to another ledger: %w", err)
+	}
 	f, c := Family(strings.TrimSpace(req.IncidentFamily)), ClassFor(req)
 	st, err := l.svc.Granted(ctx, f, c)
 	if err != nil {
@@ -208,8 +212,7 @@ func (l *Limiter) noteTransition(ctx context.Context, f Family, c ActionClass,
 		return
 	}
 	e := Event{Family: f, Class: c, Type: EventCapped, Actor: ActorPgSage,
-		Reason: "downgraded to at most L1: " + joined, Database: l.b.Database,
-		At: l.svc.now()}
+		Reason: "downgraded to at most L1: " + joined, At: l.svc.now()}
 	if joined == "" {
 		e.Type, e.Reason = EventCapCleared, "downgrade signals cleared"
 	}

@@ -105,7 +105,7 @@ func (f *fakeActionOutcomes) Outcomes(_ context.Context, since time.Time,
 
 func TestActionOutcomeFeedRecordsEachRunOnce(t *testing.T) {
 	pool := autonomyPool(t)
-	svc, err := newAutonomyLedgers(true).ledgerFor(context.Background(), pool,
+	svc, err := newAutonomyLedgers(true).ledgerFor(context.Background(), pool, "orders",
 		config.DefaultConfig().SRE.Autonomy)
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func shardReport(t *testing.T, dir string, at time.Time, families ...string) {
 // and each family reads the newest report that scored it.
 func TestBenchShardReportsFeedTheirFamilies(t *testing.T) {
 	pool := autonomyPool(t)
-	svc, err := newAutonomyLedgers(true).ledgerFor(context.Background(), pool,
+	svc, err := newAutonomyLedgers(true).ledgerFor(context.Background(), pool, "orders",
 		config.DefaultConfig().SRE.Autonomy)
 	if err != nil {
 		t.Fatal(err)

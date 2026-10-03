@@ -162,7 +162,7 @@ func TestApprovalRechecksEvidence(t *testing.T) {
 	}
 	p := f.pending(FamilyWAL, ClassWALBound)
 	for i := 0; i < 5; i++ {
-		if err := f.svc.RecordReview(f.ctx, Review{Database: "db1",
+		if err := f.svc.RecordReview(f.ctx, Review{Database: f.db,
 			InvestigationID: newUUID(t), Family: FamilyWAL, Verdict: VerdictRejected,
 			Reviewer: "user:7:ops@example.com"}); err != nil {
 			t.Fatal(err)
@@ -288,13 +288,15 @@ func TestFamilyWideDowngradeSupersedesProposals(t *testing.T) {
 
 // A harmful or unsafe outcome demotes the whole family to at most L1 at
 // once (CHECK-40: safety regression), leaves other families alone and
-// blocks re-promotion until the evidence window is clean again.
+// blocks re-promotion until the evidence window is clean again. The
+// ledger is per database (P0-5): the outcome is this database's; another
+// database's outcome cannot demote it (scope_db_test.go).
 func TestSafetyRegressionDemotesTheFamilyDurably(t *testing.T) {
 	f := newFixture(t)
 	f.seedL3()
 	f.seedL2Evidence(FamilyWAL, 25, 0)
 	f.promote(FamilyWAL, ClassWALBound)
-	err := f.svc.RecordOutcome(f.ctx, Outcome{Database: "db2", Family: FamilyWraparound,
+	err := f.svc.RecordOutcome(f.ctx, Outcome{Database: f.db, Family: FamilyWraparound,
 		Class: ClassVacuum, Level: L1, Result: ResultHarmful, Source: SourceOperator,
 		Actor: "user:2:o@e", Detail: "vacuum starved the replica"})
 	if err != nil {
@@ -324,7 +326,7 @@ func TestSafetyRegressionDemotesTheFamilyDurably(t *testing.T) {
 
 func TestRecordOutcomeValidates(t *testing.T) {
 	f := newFixture(t)
-	good := Outcome{Database: "db1", ActionLogID: 1, Family: FamilyWAL, Class: ClassWALBound,
+	good := Outcome{Database: f.db, ActionLogID: 1, Family: FamilyWAL, Class: ClassWALBound,
 		Level: L2, Result: ResultVerifiedRecovery, Source: SourceExecutor, Actor: "pg_sage"}
 	for name, mutate := range map[string]func(*Outcome){
 		"result":   func(o *Outcome) { o.Result = "fine" },
@@ -355,7 +357,7 @@ func TestRecordOutcomeValidates(t *testing.T) {
 
 func TestRecordReviewValidatesAndCountsTheShadowRecord(t *testing.T) {
 	f := newFixture(t)
-	good := Review{Database: "db1", InvestigationID: newUUID(t), Family: FamilyLockBlocking,
+	good := Review{Database: f.db, InvestigationID: newUUID(t), Family: FamilyLockBlocking,
 		Verdict: VerdictAccepted, Reviewer: "user:7:o@e"}
 	for name, mutate := range map[string]func(*Review){
 		"verdict":  func(r *Review) { r.Verdict = "meh" },
@@ -523,10 +525,11 @@ func TestDeploymentsAreIsolated(t *testing.T) {
 	if b.granted(FamilyWAL, ClassWALBound) != L1 {
 		t.Fatal("deployment b sees deployment a's level")
 	}
-	if _, err := NewPostgresStore(a.pool, "not-a-uuid"); !errors.Is(err, ErrInvalidRequest) {
+	if _, err := NewPostgresStore(a.pool, "not-a-uuid", "orders"); !errors.Is(err,
+		ErrInvalidRequest) {
 		t.Fatalf("bad deployment id: %v", err)
 	}
-	if _, err := NewPostgresStore(nil, newUUID(t)); err == nil {
+	if _, err := NewPostgresStore(nil, newUUID(t), "orders"); err == nil {
 		t.Fatal("nil pool accepted")
 	}
 }

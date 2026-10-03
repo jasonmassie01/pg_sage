@@ -165,13 +165,19 @@ func TestSeedIsIdempotentAndNeverRaisesAnExistingRow(t *testing.T) {
 	if n := len(f.events(EventFilter{Family: FamilyWraparound, Class: ClassFreeze})); n != 1 {
 		t.Fatalf("freeze carry-over events = %d, want 1", n)
 	}
-	// A database whose configuration allows less does not lower what
-	// another database's configuration carried (each gate stays the bound).
-	if _, err := f.svc.SeedCarriedOver(f.ctx, "billing", policy.RuntimeState{}); err != nil {
-		t.Fatal(err)
+	// Carry-over is per database (P0-5): a database whose configuration
+	// allows less neither lowers what another database carried nor
+	// inherits it.
+	billing := f.sibling("billing")
+	if seeded, err := billing.svc.SeedCarriedOver(billing.ctx, "billing",
+		policy.RuntimeState{}); err != nil || len(seeded) != 0 {
+		t.Fatalf("strict billing seeded %+v (%v)", seeded, err)
 	}
 	if f.granted(FamilyWraparound, ClassFreeze) != L3 {
 		t.Fatal("a stricter database lowered the carried level")
+	}
+	if billing.granted(FamilyWraparound, ClassFreeze) != L1 {
+		t.Fatal("billing inherited the carry-over of orders")
 	}
 }
 

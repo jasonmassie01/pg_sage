@@ -42,6 +42,16 @@
   autovacuum off, stays advice. Unused-index drops now use `last_idx_scan` (PG16+) and are
   never automatic on a database with replicas, whose index use pg_sage cannot see.
 
+- **Earned autonomy is per database, and you can earn it from the UI.** In a fleet, one
+  database's reviews and outcomes no longer promote or demote another (bench reports stay
+  shared); levels set before this release apply to each database until it decides
+  otherwise. A success that was never verified now earns nothing. Cases gains Accept /
+  Reject (with a note and the actual root cause) on every finished investigation, and the
+  Earned autonomy page gains "Evaluate now" and a "Path to next level" checklist that says
+  what is still missing, with counts and ETAs. MCP adds `sre_review_investigation` and
+  `sre_evaluate_autonomy`; a review an agent records through MCP is kept but never counts
+  toward promotion, and approving a promotion stays a human step.
+
 ### Fixed
 
 - **Internal cleanup of the sidecar's largest files, with no change in behavior.** The

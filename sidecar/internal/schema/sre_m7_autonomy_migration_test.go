@@ -60,7 +60,7 @@ func TestSREMigrationM7_LevelBoundsAreEnforced(t *testing.T) {
 		_, err := pool.Exec(ctx, `INSERT INTO sage.sre_family_autonomy
 			(deployment_id, family, action_class, level, changed_by, change_reason)
 			VALUES ($1, 'lock_blocking', 'backend_cancel', $2, 'test', 'bounds')
-			ON CONFLICT (deployment_id, family, action_class)
+			ON CONFLICT (deployment_id, database_name, family, action_class)
 			DO UPDATE SET level = EXCLUDED.level`, m7Deployment, level)
 		return err
 	}
