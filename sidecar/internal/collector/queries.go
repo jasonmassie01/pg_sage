@@ -1,5 +1,11 @@
 package collector
 
+import (
+	"strings"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
+)
+
 // SQL constants for each collection category.
 
 // sageTag marks every collector query so pg_sage's own catalog reads
@@ -45,23 +51,24 @@ const queryStatsPlanColumns = `,
        COALESCE(sum(total_plan_time) / NULLIF(sum(plans), 0), 0)::float8
          AS mean_plan_time`
 
-const queryStatsFrom = `
+// queryStatsFrom leaves pg_sage's own statements out (a format string:
+// the predicate's % are doubled).
+var queryStatsFrom = `
   FROM pg_stat_statements
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
-   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
-   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
+   AND ` + strings.ReplaceAll(selfmonitor.StatementExclusionSQL("query"), "%", "%%") + `
  GROUP BY queryid
  ORDER BY sum(total_exec_time) DESC
  LIMIT %d`
 
-const queryStatsSQL = queryStatsSelect + queryStatsFrom
+var queryStatsSQL = queryStatsSelect + queryStatsFrom
 
-const queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
+var queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
 
-const queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
+var queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
 
-const queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
+var queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
 	queryStatsPlanColumns + queryStatsFrom
 
 // blockTimeColumnsSQL finds which block-time columns the installed
@@ -163,59 +170,6 @@ SELECT cl.relname AS table_name,
 const cacheHitRatioExpr = `round(sum(blks_hit)::numeric /
        NULLIF(sum(blks_hit) + sum(blks_read), 0), 4)`
 
-// systemStatsSQLBase is the common prefix for system stats (all PG versions).
-const systemStatsSQLBase = sageTag + `
-SELECT
-  (SELECT count(*) FROM pg_stat_activity
-    WHERE state = 'active' AND pid <> pg_backend_pid()) AS active_backends,
-  (SELECT count(*) FROM pg_stat_activity
-    WHERE state = 'idle in transaction'
-      AND datname = current_database()) AS idle_in_transaction,
-  (SELECT count(*) FROM pg_stat_activity
-    WHERE pid <> pg_backend_pid()) AS total_backends,
-  (SELECT setting::int FROM pg_settings
-    WHERE name = 'max_connections') AS max_connections,
-  (SELECT ` + cacheHitRatioExpr + ` FROM pg_stat_database
-    WHERE datname = current_database()) AS cache_hit_ratio,
-  COALESCE((SELECT deadlocks FROM pg_stat_database
-    WHERE datname = current_database()), 0) AS deadlocks,
-  COALESCE((SELECT blk_read_time FROM pg_stat_database
-    WHERE datname = current_database()), 0) AS blk_read_time,
-  COALESCE((SELECT blk_write_time FROM pg_stat_database
-    WHERE datname = current_database()), 0) AS blk_write_time,
-`
-
-// systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
-const systemStatsSQL14 = systemStatsSQLBase + `
-  (SELECT checkpoints_timed + checkpoints_req
-    FROM pg_stat_bgwriter) AS total_checkpoints,
-  pg_is_in_recovery() AS is_replica`
-
-// systemStatsSQL17 uses pg_stat_checkpointer (PG 17+).
-const systemStatsSQL17 = systemStatsSQLBase + `
-  (SELECT num_timed + num_requested
-    FROM pg_stat_checkpointer) AS total_checkpoints,
-  pg_is_in_recovery() AS is_replica`
-
-// locksSQL is scoped to the current database (G1-B17): relation locks
-// must belong to this database (pg_class OIDs are per-database, so a
-// foreign lock would resolve to the wrong relname), and database-less
-// locks (transactionid, virtualxid) only count for local backends.
-const locksSQL = sageTag + `
-SELECT l.locktype, l.mode, l.granted,
-       c.relname,
-       a.query, a.state,
-       a.wait_event_type, a.wait_event,
-       l.pid,
-       a.backend_start, a.query_start
-  FROM pg_locks l
- CROSS JOIN (SELECT oid FROM pg_database WHERE datname = current_database()) d
-  LEFT JOIN pg_stat_activity a ON a.pid = l.pid
-  LEFT JOIN pg_class c ON c.oid = l.relation AND l.database = d.oid
- WHERE l.pid <> pg_backend_pid()
-   AND (l.database = d.oid OR (l.database IS NULL AND a.datid = d.oid))
- ORDER BY l.granted, l.pid`
-
 const replicationReplicasSQL = sageTag + `
 SELECT client_addr::text, state,
        sent_lsn::text, write_lsn::text, flush_lsn::text, replay_lsn::text,
@@ -276,10 +230,3 @@ SELECT gid, prepared, owner, database,
        age(transaction) AS xid_age
   FROM pg_prepared_xacts
  ORDER BY prepared`
-
-const loadRatioSQL = sageTag + `
-SELECT count(*)::float /
-       (SELECT setting::float FROM pg_settings WHERE name = 'max_connections')
-       AS load_ratio
-  FROM pg_stat_activity
- WHERE state = 'active' AND pid <> pg_backend_pid()`
