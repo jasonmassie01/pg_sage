@@ -68,6 +68,27 @@ func (e *Executor) logActionWithDecision(
 	return e.logClaimedAction(ctx, f, findingID, beforeState, decisionID, execErr, nil)
 }
 
+// logRefusedAction records a finding the executor refused or withheld
+// before running its SQL (backend signal, managed provider, denied change
+// lease, unverifiable CREATE INDEX). Like an execution failure it is a
+// failed action_log row, closed at once with a terminal "failed"
+// verification whose reason says it never ran, so the ledger self-audit
+// (every recent action has a decision and a verification) holds without
+// exempting anything (lifeos 1.8.3: action 6385 was reported as
+// missing_verification).
+func (e *Executor) logRefusedAction(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+	beforeState map[string]any, decisionID int64, refusal error,
+) int64 {
+	actionID := e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, refusal)
+	if _, err := finalizeActionVerification(ctx, e.pool, actionID, "failed",
+		"not executed: "+refusal.Error()); err != nil {
+		e.logFn("executor", "close verification of refused action %d (%q): %v",
+			actionID, f.Title, err)
+	}
+	return actionID
+}
+
 // categorizeAction derives an action_type label from the SQL statement.
 func categorizeAction(sql string) string {
 	upper := strings.ToUpper(sql)
