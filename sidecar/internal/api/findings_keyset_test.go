@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,22 @@ func TestFindingsKeyset_WalksEveryRowOnceWithTiedSortKeys(t *testing.T) {
 	}
 }
 
+// idOf is a list row's id (a JSON number decodes as float64).
+func idOf(t *testing.T, r map[string]any) int64 {
+	t.Helper()
+	switch v := r["id"].(type) {
+	case float64:
+		return int64(v)
+	case string:
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err == nil {
+			return id
+		}
+	}
+	t.Fatalf("id %v (%T) is not an integer", r["id"], r["id"])
+	return 0
+}
+
 func lastSeenOf(t *testing.T, r map[string]any) time.Time {
 	t.Helper()
 	ts, err := time.Parse(time.RFC3339Nano, fmt.Sprint(r["last_seen"]))
@@ -148,7 +165,9 @@ func TestFindingsKeyset_SeverityMostSevereFirst(t *testing.T) {
 		if rank[b["severity"]] > rank[a["severity"]] {
 			t.Fatalf("row %d: %v after %v", i, b["severity"], a["severity"])
 		}
-		if a["severity"] == b["severity"] && lastSeenOf(t, b).After(lastSeenOf(t, a)) {
+		// Within a severity, newest first by id: last_seen is no tie-breaker
+		// (no findings index may key it, so refreshes stay HOT).
+		if a["severity"] == b["severity"] && idOf(t, b) > idOf(t, a) {
 			t.Fatalf("row %d: newer finding after an older one of the same severity", i)
 		}
 	}
@@ -255,8 +274,7 @@ func TestFindingsPageSQL_UsesListIndexes(t *testing.T) {
 		sort, index string
 		keys        []string
 	}{
-		"severity":  {"severity", "idx_findings_list_severity", []string{"2", keysetBase.Format(time.RFC3339Nano)}},
-		"last_seen": {"last_seen", "idx_findings_list_last_seen", []string{keysetBase.Format(time.RFC3339Nano)}},
+		"severity": {"severity", "idx_findings_list_rank", []string{"2"}},
 	}
 	for name, tc := range cases {
 		for _, withCursor := range []bool{false, true} {

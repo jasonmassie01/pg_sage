@@ -9,11 +9,10 @@ import (
 // keyset over an index matching each list's filter and order, and the
 // actions list counts attempts per page row through an index on the SQL.
 var apiListIndexWant = map[string][]string{
-	"idx_findings_list_severity": {"(status, (", "CASE severity",
+	"idx_findings_list_rank": {"(status, (", "CASE severity",
 		"WHEN 'critical'::text THEN 3", "WHEN 'warning'::text THEN 2",
-		"WHEN 'info'::text THEN 1", "ELSE 0", "last_seen, id)"},
-	"idx_findings_list_last_seen": {"(status, last_seen, id)"},
-	"idx_action_log_sql_md5":      {"(md5(sql_executed), executed_at)"},
+		"WHEN 'info'::text THEN 1", "ELSE 0", "END), id)"},
+	"idx_action_log_sql_md5": {"(md5(sql_executed), executed_at)"},
 	"idx_action_queue_ledger": {"(proposed_at, id) WHERE ((status <> 'executed'::text) " +
 		"AND (proposed_at IS NOT NULL))"},
 }
@@ -45,7 +44,7 @@ func TestAPIListIndexMigration_RebuildsDroppedIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
 	var oidBefore uint32
-	if err := pool.QueryRow(ctx, `SELECT 'sage.idx_findings_list_last_seen'::regclass::oid`).
+	if err := pool.QueryRow(ctx, `SELECT 'sage.idx_findings_list_rank'::regclass::oid`).
 		Scan(&oidBefore); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func TestAPIListIndexMigration_RebuildsDroppedIndex(t *testing.T) {
 	var exists bool
 	var oidAfter uint32
 	if err := pool.QueryRow(ctx, `SELECT to_regclass('sage.idx_action_log_sql_md5') IS NOT NULL,
-		'sage.idx_findings_list_last_seen'::regclass::oid`).Scan(&exists, &oidAfter); err != nil {
+		'sage.idx_findings_list_rank'::regclass::oid`).Scan(&exists, &oidAfter); err != nil {
 		t.Fatal(err)
 	}
 	if !exists {
@@ -89,6 +88,27 @@ func TestAPIListIndexMigration_NoDuplicateDefinitions(t *testing.T) {
 		short := strings.TrimPrefix(name, "sage.")
 		if _, mine := apiListIndexWant[short]; mine && n > 1 {
 			t.Errorf("%s duplicates another sage index", name)
+		}
+	}
+}
+
+// The analyzer refreshes every open finding each cycle (last_seen, the
+// counters and the visible text). A findings index keyed on any of those
+// columns turns each refresh into a non-HOT update that writes every index
+// (perf-storage: 11,022 refreshes, 0 HOT on lifeos). Severity is rewritten
+// with the same value, which keeps the update HOT.
+func TestAPIListIndexes_NoFindingsIndexKeysARefreshedColumn(t *testing.T) {
+	refreshed := []string{"last_seen", "occurrence_count", "detail", "title",
+		"recommendation", "recommended_sql", "rollback_sql", "rule_id", "impact_score"}
+	for _, index := range apiListIndexes {
+		if index.table != "findings" {
+			continue
+		}
+		for _, column := range refreshed {
+			if strings.Contains(index.definition, column) {
+				t.Errorf("%s keys %s, which every findings refresh rewrites: %s",
+					index.name, column, index.definition)
+			}
 		}
 	}
 }
