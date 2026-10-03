@@ -246,3 +246,36 @@ what was added after the audit.
 - **Two runs failed for reasons unrelated to this branch.** `TestRouterTable_MatchesGolden`
   fails only because of the Windows CRLF checkout (it passes with the golden converted to
   LF). `TestOperatorQueueTimeoutRefuses` is timing-flaky under load and passes 3/3 alone.
+
+## Pre-creating the ledger indexes on a large existing install
+
+Run these before upgrading. Bootstrap keeps an index that already exists under the same
+name. It adds the columns itself; the fingerprint index needs the column first, so run
+the `ALTER` too. The `ALTER` adds nullable columns and one constant default, which
+changes only the catalog.
+
+```sql
+ALTER TABLE sage.decision ADD COLUMN IF NOT EXISTS fingerprint text,
+  ADD COLUMN IF NOT EXISTS repeat_count integer NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_fingerprint ON sage.decision
+  (fingerprint) WHERE fingerprint IS NOT NULL AND resolved_at IS NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_schema_guard_targets ON sage.decision
+  USING gin (target_objects) WHERE feature = 'schema_guard';
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_created ON sage.decision (created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_action_log ON sage.decision
+  (action_log_id) WHERE action_log_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_queue ON sage.decision (queue_id)
+  WHERE queue_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_policy ON sage.decision (policy_id)
+  WHERE policy_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_verification_decision
+  ON sage.verification (decision_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_change_lease_decision
+  ON sage.change_lease (decision_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_incident_avoided_decision
+  ON sage.incident_avoided (decision_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_schema_baseline_decision
+  ON sage.schema_baseline (last_authorized_decision_id)
+  WHERE last_authorized_decision_id IS NOT NULL;
+```
