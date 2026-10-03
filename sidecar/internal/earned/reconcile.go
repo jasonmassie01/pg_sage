@@ -74,6 +74,7 @@ type executed struct {
 	actionLogID  int64
 	outcome      string
 	verification string
+	verdict      string // sage.action_outcome verdict (Phase 1.3), "" when none
 	settled      bool
 	sql          string
 	at           time.Time
@@ -110,7 +111,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (ReconcileResult, error) {
 }
 
 func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResult) error {
-	result, decided := classifyOutcome(x.outcome, x.verification, x.settled)
+	result, decided := classifyWithVerdict(x.outcome, x.verification, x.verdict, x.settled)
 	if !decided {
 		res.Pending++
 		return nil
@@ -118,7 +119,8 @@ func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResul
 	inserted, err := r.svc.recordOutcome(ctx, Outcome{Database: r.database,
 		ActionLogID: x.actionLogID, Family: x.family, Class: x.class, Level: x.level,
 		Result: result, Source: SourceExecutor, Actor: ActorPgSage,
-		Detail: fmt.Sprintf("action_log %s, verification %q", x.outcome, x.verification)})
+		Detail: fmt.Sprintf("action_log %s, verification %q, verdict %q", x.outcome,
+			x.verification, x.verdict)})
 	if inserted {
 		res.Recorded++
 	}
@@ -147,12 +149,13 @@ func classifyOutcome(outcome, verification string, settled bool) (string, bool) 
 }
 
 const handoffSQL = `/* pg_sage */ SELECT q.identity_key, l.id, l.outcome,
-	COALESCE(v.verdict, ''),
+	COALESCE(v.verdict, ''), COALESCE(o.verdict, ''),
 	l.executed_at < now() - make_interval(secs => $2::double precision),
 	l.sql_executed, l.executed_at
 	FROM sage.action_queue q
 	JOIN sage.action_log l ON l.id = q.action_log_id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
+	LEFT JOIN sage.action_outcome o ON o.action_log_id = l.id
 	WHERE q.identity_key LIKE 'autonomy:%'
 	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
 	ORDER BY l.id LIMIT 1000`
@@ -170,8 +173,8 @@ func (r *Reconciler) handoffs(ctx context.Context) ([]executed, int, error) {
 	for rows.Next() {
 		var key string
 		x := executed{level: L2}
-		if err := rows.Scan(&key, &x.actionLogID, &x.outcome, &x.verification, &x.settled,
-			&x.sql, &x.at); err != nil {
+		if err := rows.Scan(&key, &x.actionLogID, &x.outcome, &x.verification, &x.verdict,
+			&x.settled, &x.sql, &x.at); err != nil {
 			return nil, 0, fmt.Errorf("scan autonomy handoff: %w", err)
 		}
 		var ok bool
@@ -201,12 +204,13 @@ func parseHandoffKey(key string) (Family, ActionClass, bool) {
 // them). Operator approvals are the handoff path's.
 const autoExecutionSQL = `/* pg_sage */ SELECT d.evidence->>'incident_family',
 	COALESCE(d.evidence->>'autonomy_class', ''), d.reason, l.id, l.outcome,
-	COALESCE(v.verdict, ''),
+	COALESCE(v.verdict, ''), COALESCE(o.verdict, ''),
 	l.executed_at < now() - make_interval(secs => $2::double precision),
 	l.sql_executed, l.executed_at
 	FROM sage.decision d
 	JOIN sage.action_log l ON l.decision_id = d.id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
+	LEFT JOIN sage.action_outcome o ON o.action_log_id = l.id
 	WHERE d.verdict = 'execute' AND d.evidence ? 'incident_family'
 	  AND d.reason <> 'operator_approved'
 	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
@@ -228,7 +232,7 @@ func (r *Reconciler) autoExecutions(ctx context.Context) ([]executed, int, error
 		var family, class, reason string
 		x := executed{level: L1}
 		if err := rows.Scan(&family, &class, &reason, &x.actionLogID, &x.outcome,
-			&x.verification, &x.settled, &x.sql, &x.at); err != nil {
+			&x.verification, &x.verdict, &x.settled, &x.sql, &x.at); err != nil {
 			return nil, 0, fmt.Errorf("scan autonomous execution: %w", err)
 		}
 		x.family, x.class = Family(family), ActionClass(class)
