@@ -61,6 +61,8 @@ type persistedRec struct {
 	IndexCat     string   `json:"index_category"`
 	Improvement  float64  `json:"estimated_improvement_pct"`
 	Validated    bool     `json:"hypopg_validated"`
+	WhatIf       string   `json:"what_if_verdict"`
+	WhatIfReason string   `json:"what_if_reason"`
 	Affected     []string `json:"affected_queries"`
 	QueryIDs     []int64  `json:"queryids"`
 }
@@ -81,9 +83,10 @@ func (o *Optimizer) reloadRecommendation(
 		DDL: p.DDL, Rationale: p.Rationale, Confidence: p.Confidence,
 		ActionLevel: p.ActionLevel, IndexType: p.IndexType,
 		IndexCategory: p.IndexCat, EstimatedImprovementPct: p.Improvement,
-		Validated: p.Validated, AffectedQueries: p.Affected,
-		AffectedQueryIDs: p.QueryIDs,
+		AffectedQueries: p.Affected, AffectedQueryIDs: p.QueryIDs,
 	}
+	rec.WhatIf, rec.WhatIfReason = reloadedVerdict(p)
+	rec.Validated = rec.WhatIf == WhatIfVerified
 	rec, err := canonicalizeRecommendation(rec, tc)
 	if err != nil {
 		return rec, false
@@ -94,4 +97,18 @@ func (o *Optimizer) reloadRecommendation(
 		}
 	}
 	return rec, true
+}
+
+// reloadedVerdict restores a stored verdict. Verified requires both the
+// verdict and HypoPG's validation flag; a legacy row without a verdict is
+// verified only if HypoPG validated it. Anything else is unverified.
+func reloadedVerdict(p persistedRec) (string, string) {
+	switch {
+	case p.Validated && (p.WhatIf == WhatIfVerified || p.WhatIf == ""):
+		return WhatIfVerified, ""
+	case p.WhatIfReason != "":
+		return WhatIfUnverified, p.WhatIfReason
+	default:
+		return WhatIfUnverified, "no verified what-if evaluation recorded"
+	}
 }

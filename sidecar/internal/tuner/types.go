@@ -24,7 +24,10 @@ type PlanSymptom struct {
 	Schema       string
 	Alias        string
 	IndexName    string
-	Detail       map[string]any
+	// JoinAliases are the aliases of the relations a join node joins
+	// (from its children; SubPlans/InitPlans excluded).
+	JoinAliases []string
+	Detail      map[string]any
 }
 
 // Prescription maps a symptom to a pg_hint_plan directive or

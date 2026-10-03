@@ -63,7 +63,7 @@ func New(
 			pool, pgVersionNum, false,
 			cfg.PlanSource, logFn,
 		),
-		hypopg:    NewHypoPG(pool, cfg.HypoPGMinImprovePct, logFn),
+		hypopg:    NewHypoPG(pool, logFn),
 		breaker:   NewCircuitBreaker(),
 		maxOutput: maxOutputTokens,
 		logFn:     logFn,
@@ -79,7 +79,7 @@ func New(
 type whatIfValidator interface {
 	IsAvailable(ctx context.Context) bool
 	Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
-	) (accepted bool, improvement float64, size int64, err error)
+	) (WhatIfResult, error)
 }
 
 // WithAutoExplain enables auto_explain as a plan source.
@@ -261,10 +261,8 @@ func (o *Optimizer) admit(
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
 	if rejected {
-		o.logFn("optimizer",
-			"rejected %s on %s: HypoPG shows %.1f%% improvement (min %.1f%%)",
-			rec.DDL, rec.Table, rec.EstimatedImprovementPct,
-			o.cfg.HypoPGMinImprovePct)
+		o.logFn("optimizer", "rejected %s on %s: %s",
+			rec.DDL, rec.Table, rec.WhatIfReason)
 		return rec, false
 	}
 	rec = o.scoreConfidence(rec, tc)
@@ -284,33 +282,37 @@ func (o *Optimizer) admit(
 	return rec, true
 }
 
-// enrichWithHypoPG measures the recommendation with hypothetical
-// indexes. The verdict is tri-state (G3-B06): unavailable or
-// inconclusive (no measurable query, error) is neutral; a measured
-// improvement below HypoPGMinImprovePct — including zero or negative —
-// rejects the recommendation instead of scoring like "no HypoPG".
+// enrichWithHypoPG measures the recommendation with hypothetical indexes
+// and records the verdict (Phase 0 item 7). A complete measurement below
+// HypoPGMinImprovePct rejects it. Anything less than a complete
+// measurement — HypoPG unavailable, an error, no measurable query, a
+// query that could not be planned — is "unverified": the recommendation
+// is kept, but only an operator can approve it (the executor gates on
+// the verdict).
 func (o *Optimizer) enrichWithHypoPG(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
 ) (Recommendation, bool) {
+	rec.Validated = false
 	if o.whatIf == nil || !o.whatIf.IsAvailable(ctx) {
+		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, "HypoPG unavailable"
 		return rec, false
 	}
-	accepted, improvement, estSize, err := o.whatIf.Validate(ctx, rec, tc.Queries)
+	res, err := o.whatIf.Validate(ctx, rec, tc.Queries)
 	if err != nil {
-		o.logFn("optimizer",
-			"hypopg validation failed for %s: %v", rec.Table, err,
-		)
-		return rec, false
+		o.logFn("optimizer", "hypopg validation failed for %s: %v", rec.Table, err)
 	}
-	if estSize <= 0 {
-		return rec, false // nothing measurable: inconclusive
+	verdict, reason := whatIfVerdict(res, err, o.cfg.HypoPGMinImprovePct)
+	rec.WhatIf, rec.WhatIfReason = verdict, reason
+	if res.Measured > 0 {
+		rec.EstimatedImprovementPct = res.Improvement
 	}
-	rec.EstimatedImprovementPct = improvement
-	rec.CostEstimate = &CostEstimate{EstimatedSizeBytes: estSize}
-	rec.Validated = accepted
-	return rec, !accepted
+	if res.SizeBytes > 0 {
+		rec.CostEstimate = &CostEstimate{EstimatedSizeBytes: res.SizeBytes}
+	}
+	rec.Validated = verdict == WhatIfVerified
+	return rec, verdict == WhatIfRejected
 }
 
 func (o *Optimizer) scoreConfidence(

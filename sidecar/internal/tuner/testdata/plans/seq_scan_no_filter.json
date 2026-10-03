@@ -1,0 +1,31 @@
+[
+  {
+    "Plan": {
+      "Async Capable": false,
+      "Node Type": "Aggregate",
+      "Parallel Aware": false,
+      "Partial Mode": "Simple",
+      "Plan Rows": 1,
+      "Plan Width": 8,
+      "Plans": [
+        {
+          "Alias": "o",
+          "Async Capable": false,
+          "Index Name": "orders_customer_idx",
+          "Node Type": "Index Only Scan",
+          "Parallel Aware": false,
+          "Parent Relationship": "Outer",
+          "Plan Rows": 200000,
+          "Plan Width": 0,
+          "Relation Name": "orders",
+          "Scan Direction": "Forward",
+          "Startup Cost": 0.29,
+          "Total Cost": 3700.3
+        }
+      ],
+      "Startup Cost": 4200.3,
+      "Strategy": "Plain",
+      "Total Cost": 4200.31
+    }
+  }
+]

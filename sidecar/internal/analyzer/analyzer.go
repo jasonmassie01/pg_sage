@@ -96,6 +96,9 @@ type Analyzer struct {
 	// version recorded on new revisions (nil records none).
 	recs          *recommendation.Store
 	policyVersion func(context.Context) (int64, error)
+	// cloneTracker remembers clone-family activity across cycles; only
+	// touched by the cycle goroutine.
+	cloneTracker *cloneTracker
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

@@ -837,6 +837,9 @@ func TestPhase2_ScanPlan_HashSpill(t *testing.T) {
 	}
 }
 
+// A bare Seq Scan is not a symptom: without catalog facts there is no
+// evidence that an index could serve it (Phase 0 item 11; this test used
+// to require that every Seq Scan be flagged).
 func TestPhase2_ScanPlan_SeqScan(t *testing.T) {
 	plan := `[{"Plan":{
 		"Node Type":"Seq Scan",
@@ -850,17 +853,8 @@ func TestPhase2_ScanPlan_SeqScan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanPlan: %v", err)
 	}
-	found := false
-	for _, s := range symptoms {
-		if s.Kind == SymptomSeqScanWithIndex {
-			found = true
-			if s.RelationName != "orders" {
-				t.Errorf("relation: got %q", s.RelationName)
-			}
-		}
-	}
-	if !found {
-		t.Error("expected SymptomSeqScanWithIndex")
+	if len(symptoms) != 0 {
+		t.Errorf("bare seq scan produced symptoms: %+v", symptoms)
 	}
 }
 

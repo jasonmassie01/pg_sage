@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
 // SQL-shape coverage must not grant fictitious host-load telemetry. These cases
@@ -25,6 +26,9 @@ func driveReviewedIndexFinding(
 		f.Detail = make(map[string]any)
 	}
 	f.Detail["queryids"] = []int64{pipelineQueryID(t, pool, f.ObjectIdentifier)}
+	// A reviewed optimizer index is one HypoPG verified; an unverified one
+	// needs approval and is covered by TestPipelineUnverifiedIndexNeedsApproval.
+	f.Detail["what_if_verdict"] = optimizer.WhatIfVerified
 	driveFinding(t, pool, an, ex, f)
 	// Without load evidence the autonomous build is withheld (D6): recorded
 	// once in sage.admission_withheld, never as a failed action row.

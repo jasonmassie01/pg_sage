@@ -314,7 +314,7 @@ func TestPhase2_EnrichWithHypoPG_NotAvailable(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
 
-	hypopg := NewHypoPG(pool, 10.0, noopLog2)
+	hypopg := NewHypoPG(pool, noopLog2)
 	o := &Optimizer{
 		hypopg: hypopg,
 		whatIf: hypopg,
@@ -352,7 +352,7 @@ func TestPhase2_EnrichWithHypoPG_CachedAvailability(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
 
-	hypopg := NewHypoPG(pool, 10.0, noopLog2)
+	hypopg := NewHypoPG(pool, noopLog2)
 	// Call IsAvailable twice to exercise the cache path.
 	a1 := hypopg.IsAvailable(context.Background())
 	a2 := hypopg.IsAvailable(context.Background())
@@ -584,7 +584,7 @@ func TestPhase2_HypoPG_IsAvailable_CachesResult(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
 
-	h := NewHypoPG(pool, 10.0, noopLog2)
+	h := NewHypoPG(pool, noopLog2)
 	r1 := h.IsAvailable(context.Background())
 	r2 := h.IsAvailable(context.Background())
 	if r1 != r2 {

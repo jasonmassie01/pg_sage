@@ -63,6 +63,18 @@
   it no longer holds, pg_sage refuses and says which check failed: the index was scanned,
   the statistics were reset inside the window, or the index is gone.
 
+- **Index, schema-family and hint advice you can trust more (Phase 0 tuning correctness).**
+  New indexes run on their own only when HypoPG measured the whole workload and showed a
+  gain, weighted by how much time each query really takes; anything it could not measure
+  waits for your approval. Expression and partial indexes are understood, partitioned tables
+  get a step-by-step plan instead of a statement PostgreSQL would reject, and the database
+  collation is read correctly on PostgreSQL 16+. Live schema-per-tenant designs are no longer
+  mistaken for leftover copies: each problem is shown once with the list of affected schemas,
+  and pg_sage only suggests dropping schemas that are truly idle. Query hints are suggested
+  only when the plan and catalog support them (no more hints for every scan or empty join
+  hints), and the hints page shows whether a hint was proposed, applied or rolled back. The
+  analyzer and optimizer read a bounded slice of their own history instead of all of it.
+
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
 ### What's new

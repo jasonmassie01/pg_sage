@@ -52,7 +52,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	all = append(all, a.checkSageFootprint(ctx, current)...)
 	all = a.applyAppManaged(ctx, all)
 	if current.Available("tables") && len(current.Tables) > 0 {
-		all = collapseCloneSchemas(current, all)
+		all = collapseCloneSchemas(current, all, a.cloneSignals(ctx))
 		a.eval.evaluated(CategoryCloneSchemas)
 	}
 	a.runRCA(ctx, current, previous, all)

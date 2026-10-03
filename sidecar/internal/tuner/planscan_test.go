@@ -69,98 +69,11 @@ func TestScanPlan_HashSpill(t *testing.T) {
 	}
 }
 
-func TestScanPlan_BadNestedLoop(t *testing.T) {
-	actual := int64(50000)
-	_ = actual // used in JSON below
-	plan := `[{"Plan": {
-		"Node Type": "Nested Loop",
-		"Plan Rows": 10,
-		"Actual Rows": 50000,
-		"Alias": "nl1",
-		"Plans": [
-			{"Node Type": "Index Scan", "Plan Rows": 1,
-			 "Relation Name": "orders",
-			 "Index Name": "orders_pkey"}
-		]
-	}}]`
-	syms, err := ScanPlan([]byte(plan))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	found := false
-	for _, s := range syms {
-		if s.Kind == SymptomBadNestedLoop {
-			found = true
-			if s.Alias != "nl1" {
-				t.Errorf("alias = %q, want nl1", s.Alias)
-			}
-		}
-	}
-	if !found {
-		t.Error("bad_nested_loop symptom not found")
-	}
-}
-
-func TestScanPlan_SeqScanNamed(t *testing.T) {
-	plan := `[{"Plan": {
-		"Node Type": "Seq Scan",
-		"Plan Rows": 5000,
-		"Relation Name": "users",
-		"Schema": "public",
-		"Alias": "u"
-	}}]`
-	syms, err := ScanPlan([]byte(plan))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var seqScan, parDisabled bool
-	for _, s := range syms {
-		if s.Kind == SymptomSeqScanWithIndex {
-			seqScan = true
-			if s.RelationName != "users" {
-				t.Errorf("relation = %q, want users",
-					s.RelationName)
-			}
-		}
-		if s.Kind == SymptomParallelDisabled {
-			parDisabled = true
-		}
-	}
-	if !seqScan {
-		t.Error("seq_scan_with_index symptom not found")
-	}
-	// Seq Scan contains "Scan" and no WorkersPlanned
-	if !parDisabled {
-		t.Error("parallel_disabled also expected")
-	}
-}
-
-func TestScanPlan_ParallelNotFlagged(t *testing.T) {
-	plan := `[{"Plan": {
-		"Node Type": "Gather",
-		"Plan Rows": 10000,
-		"Workers Planned": 2,
-		"Workers Launched": 2,
-		"Plans": [{
-			"Node Type": "Parallel Seq Scan",
-			"Plan Rows": 5000,
-			"Relation Name": "big_table",
-			"Alias": "bt",
-			"Workers Planned": 2
-		}]
-	}}]`
-	syms, err := ScanPlan([]byte(plan))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, s := range syms {
-		if s.Kind == SymptomParallelDisabled {
-			t.Error("should not flag parallel_disabled " +
-				"when WorkersPlanned is set")
-		}
-	}
-}
-
+// The hand-written TestScanPlan_BadNestedLoop / SeqScanNamed /
+// ParallelNotFlagged plans used shapes PostgreSQL never emits (an Alias on
+// a Nested Loop, a "Parallel Seq Scan" node type, Workers Planned on a
+// scan) and expected every Seq Scan to be flagged twice; they are replaced
+// by the real-plan fixtures in plan_fixtures_test.go.
 func TestScanPlan_CleanPlan(t *testing.T) {
 	plan := `[{"Plan": {
 		"Node Type": "Index Scan",
@@ -198,7 +111,9 @@ func TestScanPlan_NestedSymptoms(t *testing.T) {
 			]}
 		]
 	}}]`
-	syms, err := ScanPlan([]byte(plan))
+	facts := &CatalogFacts{Tables: map[string]int64{"public.items": 500_000,
+		"public.cats": 50}}
+	syms, err := ScanPlan([]byte(plan), WithCatalogFacts(facts, 1000))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -211,15 +126,15 @@ func TestScanPlan_NestedSymptoms(t *testing.T) {
 					s.NodeDepth)
 			}
 		}
-		if s.Kind == SymptomSeqScanWithIndex {
-			hasSeq = true
+		if s.Kind == SymptomParallelDisabled {
+			hasSeq = s.RelationName == "items" && s.NodeDepth == 2
 		}
 	}
 	if !hasDisk {
 		t.Error("expected disk_sort in child node")
 	}
 	if !hasSeq {
-		t.Error("expected seq_scan_with_index in child")
+		t.Error("expected parallel_disabled on the large items scan at depth 2 only")
 	}
 }
 
@@ -360,7 +275,9 @@ func TestScanPlan_CorrelatedSubqueryDeepNesting(t *testing.T) {
 		]
 	}}]`
 
-	syms, err := ScanPlan([]byte(plan))
+	facts := &CatalogFacts{Tables: map[string]int64{"public.orders": 2_000_000,
+		"public.line_items": 2_000_000, "public.customers": 500}}
+	syms, err := ScanPlan([]byte(plan), WithCatalogFacts(facts, 100_000))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -396,12 +313,12 @@ func TestScanPlan_CorrelatedSubqueryDeepNesting(t *testing.T) {
 	// hash_spill at depth 2 (Hash Join under Sort)
 	assertSymptom(SymptomHashSpill, 2)
 
-	// seq_scan_with_index on "orders" at depth 3
-	assertSymptom(SymptomSeqScanWithIndex, 3)
+	// parallel_disabled on the large serial "orders" scan at depth 3
+	assertSymptom(SymptomParallelDisabled, 3)
 
-	// seq_scan_with_index on "line_items" at depth 4
+	// parallel_disabled on "line_items" at depth 4
 	// (Hash is depth 3, Seq Scan under it is depth 4)
-	assertSymptom(SymptomSeqScanWithIndex, 4)
+	assertSymptom(SymptomParallelDisabled, 4)
 
 	// Verify detail values on specific symptoms.
 	for _, s := range syms {
@@ -432,12 +349,11 @@ func TestScanPlan_CorrelatedSubqueryDeepNesting(t *testing.T) {
 		}
 	}
 
-	// Sanity: we should have at least 7 symptoms total:
-	// 1 bad_nested_loop + 1 disk_sort + 1 hash_spill +
-	// 2 seq_scan + 2+ parallel_disabled (for seq scans without
-	// WorkersPlanned).
-	if len(syms) < 7 {
-		t.Errorf("expected >= 7 symptoms, got %d", len(syms))
+	// Exactly: 1 bad_nested_loop + 1 disk_sort + 1 hash_spill + 2
+	// parallel_disabled. The orders scan returns 10% of the table or
+	// more and has no usable-index facts, so no index hint.
+	if len(syms) != 5 {
+		t.Errorf("expected 5 symptoms, got %d: %v", len(syms), hits)
 	}
 }
 
@@ -476,7 +392,9 @@ func TestScanPlan_ExistsSubPlanDiskSort(t *testing.T) {
 		]
 	}}]`
 
-	syms, err := ScanPlan([]byte(plan))
+	facts := &CatalogFacts{Tables: map[string]int64{"public.orders": 2_000_000,
+		"public.customers": 1000}}
+	syms, err := ScanPlan([]byte(plan), WithCatalogFacts(facts, 100_000))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,8 +408,8 @@ func TestScanPlan_ExistsSubPlanDiskSort(t *testing.T) {
 				t.Errorf("sort_space_kb = %d, want 65536", kb)
 			}
 		}
-		if s.Kind == SymptomSeqScanWithIndex &&
-			s.RelationName == "orders" {
+		if s.Kind == SymptomParallelDisabled &&
+			s.RelationName == "orders" && s.NodeDepth == 2 {
 			seqOrders = true
 		}
 	}
@@ -499,7 +417,7 @@ func TestScanPlan_ExistsSubPlanDiskSort(t *testing.T) {
 		t.Error("disk_sort not found inside SubPlan")
 	}
 	if !seqOrders {
-		t.Error("seq_scan on orders not found inside SubPlan")
+		t.Error("serial scan on orders not found inside SubPlan")
 	}
 }
 

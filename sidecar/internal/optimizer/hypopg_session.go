@@ -50,31 +50,34 @@ func (s *hypopgSession) function(name string) string {
 
 func (s *hypopgSession) evaluate(ctx context.Context, ddl string,
 	queries []QueryInfo,
-) (float64, int64, error) {
-	before, err := s.measureCosts(ctx, queries)
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(before) == 0 {
-		return 0, 0, nil
+) (WhatIfResult, error) {
+	before, failed, err := s.measureCosts(ctx, queries)
+	if err != nil || len(before) == 0 {
+		return WhatIfResult{Failed: failed}, err
 	}
 	oid, err := s.createIndex(ctx, ddl)
 	if err != nil {
-		return 0, 0, err
+		return WhatIfResult{}, err
 	}
-	after, err := s.measureCosts(ctx, queries)
+	after, _, err := s.measureCosts(ctx, queries)
 	if err != nil {
-		return 0, 0, err
+		return WhatIfResult{}, err
 	}
-	improvement, measured := hypotheticalImprovement(before, after)
-	if measured == 0 {
-		return 0, 0, nil
+	res := WhatIfResult{Failed: failed}
+	res.Improvement, res.Measured = weightedImprovement(queries, before, after)
+	for id := range before {
+		if _, ok := after[id]; !ok {
+			res.Failed++ // planned without the index but not with it
+		}
 	}
-	size, err := s.estimateSize(ctx, oid)
+	if res.Measured == 0 {
+		return res, nil
+	}
+	res.SizeBytes, err = s.estimateSize(ctx, oid)
 	if err != nil {
-		return 0, 0, err
+		return WhatIfResult{}, err
 	}
-	return improvement, size, nil
+	return res, nil
 }
 
 func (s *hypopgSession) createIndex(ctx context.Context, ddl string) (uint32, error) {
@@ -96,26 +99,60 @@ func (s *hypopgSession) estimateSize(ctx context.Context, oid uint32) (int64, er
 	return size, nil
 }
 
+// measureCosts plans every explainable workload query. Each EXPLAIN runs
+// in its own savepoint, so a query that fails (a dropped column, a type
+// it cannot plan) is counted and skipped instead of aborting the shared
+// transaction. A cancelled context aborts the measurement.
 func (s *hypopgSession) measureCosts(ctx context.Context,
 	queries []QueryInfo,
-) (map[int64]float64, error) {
+) (map[int64]float64, int, error) {
 	costs := make(map[int64]float64)
+	failed := 0
 	for _, query := range queries {
 		if !isExplainable(query.Text) {
 			continue
 		}
 		if err := sanitize.RejectMultiStatement(query.Text); err != nil {
-			return nil, fmt.Errorf("validate hypothetical workload query: %w", err)
+			failed++
+			continue
 		}
-		plan, err := s.explain(ctx, query.Text)
+		plan, err := s.explainIsolated(ctx, query.Text)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, failed, ctxErr
+		}
 		if err != nil {
-			return nil, fmt.Errorf("explain hypothetical workload query: %w", err)
+			if errors.Is(err, errSessionBroken) {
+				return nil, failed, err
+			}
+			failed++
+			continue
 		}
 		if cost := extractTotalCost(plan); cost > 0 {
 			costs[query.QueryID] = cost
 		}
 	}
-	return costs, nil
+	return costs, failed, nil
+}
+
+// errSessionBroken means a failed EXPLAIN could not be rolled back to its
+// savepoint, so the session cannot measure anything else.
+var errSessionBroken = errors.New("hypothetical session unusable")
+
+func (s *hypopgSession) explainIsolated(ctx context.Context, query string) ([]byte, error) {
+	if _, err := s.tx.Exec(ctx, "SAVEPOINT sage_hypo_query"); err != nil {
+		return nil, fmt.Errorf("%w: savepoint: %w", errSessionBroken, err)
+	}
+	plan, err := s.explain(ctx, query)
+	if err != nil {
+		if _, rbErr := s.tx.Exec(ctx, "ROLLBACK TO SAVEPOINT sage_hypo_query"); rbErr != nil {
+			return nil, fmt.Errorf("%w: %w (rollback: %w)", errSessionBroken, err, rbErr)
+		}
+		return nil, fmt.Errorf("explain hypothetical workload query: %w", err)
+	}
+	if _, err := s.tx.Exec(ctx, "RELEASE SAVEPOINT sage_hypo_query"); err != nil {
+		return nil, fmt.Errorf("%w: release savepoint: %w", errSessionBroken, err)
+	}
+	return plan, nil
 }
 
 func (s *hypopgSession) explain(ctx context.Context, query string) ([]byte, error) {

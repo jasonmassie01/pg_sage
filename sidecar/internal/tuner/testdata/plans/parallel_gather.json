@@ -1,0 +1,58 @@
+[
+  {
+    "Plan": {
+      "Async Capable": false,
+      "Node Type": "Aggregate",
+      "Parallel Aware": false,
+      "Partial Mode": "Finalize",
+      "Plan Rows": 1,
+      "Plan Width": 8,
+      "Plans": [
+        {
+          "Async Capable": false,
+          "Node Type": "Gather",
+          "Parallel Aware": false,
+          "Parent Relationship": "Outer",
+          "Plan Rows": 2,
+          "Plan Width": 8,
+          "Plans": [
+            {
+              "Async Capable": false,
+              "Node Type": "Aggregate",
+              "Parallel Aware": false,
+              "Parent Relationship": "Outer",
+              "Partial Mode": "Partial",
+              "Plan Rows": 1,
+              "Plan Width": 8,
+              "Plans": [
+                {
+                  "Alias": "o",
+                  "Async Capable": false,
+                  "Filter": "(note ~~ '%ab%'::text)",
+                  "Node Type": "Seq Scan",
+                  "Parallel Aware": true,
+                  "Parent Relationship": "Outer",
+                  "Plan Rows": 8418,
+                  "Plan Width": 0,
+                  "Relation Name": "orders",
+                  "Startup Cost": 0,
+                  "Total Cost": 3412.67
+                }
+              ],
+              "Startup Cost": 3433.71,
+              "Strategy": "Plain",
+              "Total Cost": 3433.72
+            }
+          ],
+          "Single Copy": false,
+          "Startup Cost": 3433.71,
+          "Total Cost": 3433.72,
+          "Workers Planned": 2
+        }
+      ],
+      "Startup Cost": 3433.73,
+      "Strategy": "Plain",
+      "Total Cost": 3433.74
+    }
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "Plan": {
+      "Alias": "o",
+      "Async Capable": false,
+      "Filter": "(lower(email) = 'u1@x.io'::text)",
+      "Node Type": "Seq Scan",
+      "Parallel Aware": false,
+      "Plan Rows": 1000,
+      "Plan Width": 8,
+      "Relation Name": "orders",
+      "Startup Cost": 0,
+      "Total Cost": 5371
+    }
+  }
+]

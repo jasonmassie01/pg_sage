@@ -58,9 +58,16 @@ func newFakeOpenAI(t *testing.T, setup func(f *fakeOpenAI)) *fakeOpenAI {
 		setup(f)
 	}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
+	// Learned request shapes are process-wide and keyed by endpoint and
+	// model; a later test's server can reuse a closed server's port. A
+	// unique base path per fake keeps one test's learning out of the next
+	// (the handler serves every path).
+	f.srv.URL += fmt.Sprintf("/fake%d", fakeServerSeq.Add(1))
 	t.Cleanup(f.srv.Close)
 	return f
 }
+
+var fakeServerSeq atomic.Int64
 
 func (f *fakeOpenAI) handle(w http.ResponseWriter, r *http.Request) {
 	f.calls.Add(1)
