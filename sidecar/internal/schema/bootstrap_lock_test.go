@@ -229,7 +229,13 @@ func TestBootstrap_ConcurrentCallsSerializeTerminateAndRelease(t *testing.T) {
 		}
 	}
 
-	// A leaked lock would hold the probe off for its whole 2 s wait.
+	assertBootstrapLockFree(t, pool)
+}
+
+// assertBootstrapLockFree takes and releases the bootstrap lock; a leaked
+// lock would hold the probe off for its whole 2 s wait.
+func assertBootstrapLockFree(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer checkCancel()
 	probe, err := acquireAdvisoryLock(checkCtx, pool, 2*time.Second)

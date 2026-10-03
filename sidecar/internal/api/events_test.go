@@ -223,11 +223,7 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	}()
 
 	// Give the handler a moment to register its subscriber.
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for b.SubscriberCount() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if b.SubscriberCount() == 0 {
+	if !waitFor(5*time.Second, func() bool { return b.SubscriberCount() > 0 }) {
 		cancelReq()
 		wg.Wait()
 		t.Fatal("handler never subscribed")
@@ -237,10 +233,9 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	// pause raced the handler's select, which picks at random between a
 	// done context and a pending event when both are ready.
 	b.Publish(Event{Type: EventFindings, Database: "primary"})
-	deadline = time.Now().Add(10 * time.Second)
-	for !strings.Contains(rec.body(), "event: findings") && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitFor(10*time.Second, func() bool {
+		return strings.Contains(rec.body(), "event: findings")
+	})
 	cancelReq()
 	wg.Wait()
 
@@ -255,12 +250,29 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 	if !strings.Contains(body, `"database":"primary"`) {
 		t.Errorf("stream missing payload database; got: %s", body)
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+	assertEventStreamHeaders(t, rec.Header())
+}
+
+func assertEventStreamHeaders(t *testing.T, h http.Header) {
+	t.Helper()
+	if ct := h.Get("Content-Type"); ct != "text/event-stream" {
 		t.Errorf("Content-Type = %q, want text/event-stream", ct)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+	if cc := h.Get("Cache-Control"); cc != "no-cache" {
 		t.Errorf("Cache-Control = %q, want no-cache", cc)
 	}
+}
+
+// waitFor polls cond every 5 ms until it holds or timeout passes.
+func waitFor(timeout time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return true
 }
 
 // syncRecorder is an httptest.ResponseRecorder the test can read while
