@@ -308,7 +308,7 @@ func TestSmoke_EndToEndPipeline(t *testing.T) {
 	}
 
 	// ---- CHECK-07: retention preserves resolved findings within
-	// the retention window (last_seen is recent). ----
+	// the retention window (resolved recently). ----
 	var resolvedRemaining int
 	pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM sage.findings
@@ -322,9 +322,11 @@ func TestSmoke_EndToEndPipeline(t *testing.T) {
 	}
 
 	// ---- CHECK-08: retention purges resolved findings past TTL. ----
+	// Resolved findings age from their resolution (resolved_at).
 	_, err = pool.Exec(ctx,
 		`UPDATE sage.findings
-		 SET last_seen = now() - interval '100 days'
+		 SET last_seen = now() - interval '100 days',
+		     resolved_at = now() - interval '100 days'
 		 WHERE status = 'resolved' AND `+smokeOwnedFilter,
 		smokeOwnedFindings)
 	if err != nil {

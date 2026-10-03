@@ -19,8 +19,10 @@
 // both the bytes written and a read's work (at most two applies) small.
 //
 // Every reader goes through the SQL accessor sage.snapshot_data(data,
-// base_id) (see DataSQL), which returns the document exactly as the
-// collector wrote it, for legacy full rows and delta rows alike.
+// base_id, collected_at) (see DataSQL), which returns the document exactly
+// as the collector wrote it, for legacy full rows and delta rows alike. A
+// base is always in its rows' UTC day (see usable), so retention can drop
+// whole day partitions.
 package snapstore
 
 import (
@@ -31,6 +33,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/partition"
 )
 
 const (
@@ -212,9 +216,14 @@ func (w *Writer) plan(category string, data []byte, at time.Time) (rowPlan, erro
 	return full, nil
 }
 
-// usable reports whether kf can serve as a base for a document at at.
+// usable reports whether kf can serve as a base for a document at at: a
+// committed list, not newer than the document and from the same UTC day.
+// sage.snapshots is partitioned by UTC day and retention drops whole days,
+// so a base in an earlier day could be dropped while its deltas are kept;
+// the first document of each day is a keyframe instead.
 func usable(kf *keyframe, at time.Time) bool {
-	return kf != nil && kf.list != nil && !at.Before(kf.at)
+	return kf != nil && kf.list != nil && !at.Before(kf.at) &&
+		partition.DayStart(kf.at).Equal(partition.DayStart(at))
 }
 
 // deltaPlan stores list as a delta on the latest checkpoint when that is
@@ -240,10 +249,11 @@ func deltaPlan(b *bases, list *catalog, at time.Time) (rowPlan, bool) {
 
 // DataSQL is the SQL expression that reads a sage.snapshots row's document
 // as the collector wrote it, for full and delta rows alike; NULL when a
-// delta's keyframe is gone. alias qualifies the columns ("" for none).
+// delta's keyframe is gone. alias qualifies the columns ("" for none). The
+// row's collection time confines the base lookup to its day partition.
 func DataSQL(alias string) string {
 	p := qualifier(alias)
-	return "sage.snapshot_data(" + p + "data, " + p + "base_id)"
+	return "sage.snapshot_data(" + p + "data, " + p + "base_id, " + p + "collected_at)"
 }
 
 // NonEmptySQL is a SQL predicate that is true when a row's document holds

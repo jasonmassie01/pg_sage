@@ -9,7 +9,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -26,41 +25,18 @@ type Sample struct {
 	StatsEpoch time.Time
 }
 
-// recordSampleSQL inserts one sample and stamps it with the fingerprint
-// of the latest plan captured for the queryid (plan_hash, M0), so plan
-// flips are visible in the per-queryid series. NULL means no plan has
-// been fingerprinted for the queryid yet.
-const recordSampleSQL = `/* pg_sage */ INSERT INTO sage.query_store
-	   (queryid, calls, total_exec_time, mean_exec_time, rows,
-	    stats_epoch, plan_hash)
-	 VALUES ($1, $2, $3, $4, $5, $6, (
-	     SELECT e.plan_hash FROM sage.explain_cache e
-	     WHERE e.queryid = $1 AND e.plan_hash IS NOT NULL
-	     ORDER BY e.captured_at DESC, e.id DESC LIMIT 1))`
-
-// Record writes a batch of samples to sage.query_store. A nil/empty
-// batch is a no-op. Samples sharing a queryid (pg_stat_statements splits
-// a statement by userid and toplevel) are summed into one row so each
-// cycle has exactly one sample per queryid (G1-B05).
-func Record(ctx context.Context, pool *pgxpool.Pool, samples []Sample) error {
+// Record writes every sample to sage.query_store in one statement, changed
+// or not (the collector uses a Recorder, which writes only moved queries).
+// A nil/empty batch is a no-op. Samples sharing a queryid
+// (pg_stat_statements splits a statement by userid and toplevel) are
+// summed into one row so each cycle has exactly one sample per queryid
+// (G1-B05).
+func Record(ctx context.Context, db Execer, samples []Sample) error {
 	samples = aggregateSamples(samples)
 	if len(samples) == 0 {
 		return nil
 	}
-	batch := &pgx.Batch{}
-	for _, s := range samples {
-		batch.Queue(recordSampleSQL,
-			s.QueryID, s.Calls, s.TotalExecMs, s.MeanExecMs, s.Rows,
-			epochParam(s.StatsEpoch))
-	}
-	br := pool.SendBatch(ctx, batch)
-	for range samples {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close()
-			return err
-		}
-	}
-	return br.Close()
+	return insertSamples(ctx, db, samples)
 }
 
 // epochParam maps an unknown (zero) epoch to NULL.

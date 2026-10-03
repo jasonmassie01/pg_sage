@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
+	"github.com/pg-sage/sidecar/internal/partition"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -74,7 +76,18 @@ func (c *Collector) persist(ctx context.Context, snap *Snapshot) error {
 	if err != nil {
 		return err
 	}
+	c.ensurePartitions(ctx, snap.CollectedAt)
 	return c.snapWriter.Persist(ctx, c.pool, snap.CollectedAt, rows)
+}
+
+// ensurePartitions makes sure the day partitions of at (and the next day)
+// exist before rows are written there. A failure is logged, not fatal: a
+// row with no day partition lands in the default partition.
+func (c *Collector) ensurePartitions(ctx context.Context, at time.Time) {
+	err := c.partitions.Ensure(ctx, c.pool, at, partition.Snapshots, partition.QueryStore)
+	if err != nil {
+		c.logFn("WARN", "ensure sage history partitions: %v", err)
+	}
 }
 
 // snapshotRows marshals each available category of snap, sorted by

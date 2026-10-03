@@ -47,6 +47,8 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	fmt.Fprintf(sb, "| %s | %.0f ms |\n", GateCatalogMax, b.CatalogStatementMaxMs)
 	fmt.Fprintf(sb, "| %s | none |\n", GateTimeout)
 	fmt.Fprintf(sb, "| %s | HTTP 200 within %.0f ms |\n", GateEndpoint, b.EndpointMaxMs)
+	fmt.Fprintf(sb, "| %s | at least %.0f%% of updates for a table updated %d+ times "+
+		"(steady phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
 }
 
 func writeOffenderTable(sb *strings.Builder, offenders []Offender) {
@@ -120,17 +122,38 @@ func writeTopStatements(sb *strings.Builder, phases []Phase) {
 
 func writeTables(sb *strings.Builder, phases []Phase) {
 	sb.WriteString("\n## Sage table activity\n\n")
-	sb.WriteString("| phase | table | live rows | seq scans | seq rows read | idx scans " +
-		"| rows written |\n|---|---|---|---|---|---|---|\n")
+	sb.WriteString("| phase | table | relations | live rows | seq scans | seq rows read | " +
+		"idx scans | rows written | updates | HOT % | MB | MB per hour |\n" +
+		"|---|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, p := range phases {
 		for _, t := range p.Tables {
 			if t.SeqScans == 0 && t.RowsWritten == 0 && t.IdxScans == 0 {
 				continue
 			}
-			fmt.Fprintf(sb, "| %s | %s | %d | %d | %d | %d | %d |\n", p.Name, t.Name,
-				t.LiveRows, t.SeqScans, t.SeqTupRead, t.IdxScans, t.RowsWritten)
+			fmt.Fprintf(sb, "| %s | %s | %d | %d | %d | %d | %d | %d | %d | %s | %.1f | %s |\n",
+				p.Name, t.Name, t.Relations, t.LiveRows, t.SeqScans, t.SeqTupRead, t.IdxScans,
+				t.RowsWritten, t.Updates, hotShare(t), float64(t.Bytes)/mib,
+				growthPerHour(t, p.Window))
 		}
 	}
+}
+
+const mib = 1 << 20
+
+// hotShare is the percentage of a table's updates that were HOT.
+func hotShare(t TableDelta) string {
+	if t.Updates <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.0f", float64(t.HotUpdates)*100/float64(t.Updates))
+}
+
+// growthPerHour extrapolates a phase's size change to an hour.
+func growthPerHour(t TableDelta, window time.Duration) string {
+	if window <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.2f", float64(t.BytesGrowth)/mib*float64(time.Hour)/float64(window))
 }
 
 func writeEndpoints(sb *strings.Builder, phases []Phase) {

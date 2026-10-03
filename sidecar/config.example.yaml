@@ -192,6 +192,8 @@ retention:
   actions_days: 365
   explains_days: 90
   sage_size_warning_pct: 10                # finding when sage tables exceed this % of the DB; 0 = off
+  query_store_days: 14                     # per-query samples (readers look back <= 7 days); 0 = off
+  snapshots_max_pct: 5                     # cap snapshots at this % of the DB (>= 256 MB), oldest first; 0 = off
 
 # Agent-native autonomy. Every mutation still traverses the standing policy,
 # evidence ledger, typed executor contract, and verification engine.

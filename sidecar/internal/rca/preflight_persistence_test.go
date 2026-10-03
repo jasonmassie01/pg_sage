@@ -132,6 +132,12 @@ func TestPreflightRCAManualResolutionSurvivesStaleConcurrentFlush(t *testing.T) 
 		WHERE id=$1 AND resolved_at IS NULL`, id); err != nil {
 		t.Fatal(err)
 	}
+	// Adapted setup: an unchanged incident is not written at all (perf F9.2),
+	// so it cannot race the resolution. The engine sees the condition again
+	// first, as the next cycle would, and its flush has a change to write.
+	e.Analyze(&collector.Snapshot{CollectedAt: time.Now(),
+		System: collector.SystemStats{TotalBackends: 85, MaxConnections: 100,
+			CacheHitRatio: 0.999}}, nil, preflightRCAConfig(), nil)
 	done := make(chan error, 1)
 	go func() { done <- e.PersistIncidents(t.Context(), pool) }()
 	preflightWaitForIncidentFlush(t, pool)

@@ -1042,6 +1042,11 @@
     "default": 180,
     "doc": ""
   },
+  "retention.query_store_days": {
+    "type": "int",
+    "default": 14,
+    "doc": "Days to keep per-query samples in sage.query_store (its readers look back at most 7 days). 0 disables. Range 0-3650. Default 14."
+  },
   "retention.sage_size_warning_pct": {
     "type": "int",
     "default": 10,
@@ -1051,6 +1056,11 @@
     "type": "int",
     "default": 90,
     "doc": ""
+  },
+  "retention.snapshots_max_pct": {
+    "type": "int",
+    "default": 5,
+    "doc": "Cap sage.snapshots at this percent of the database size (never below 256 MB): the oldest days are removed first. 0 disables the cap. Range 0-100. Default 5."
   },
   "runaway.enabled": {
     "type": "bool",

@@ -52,10 +52,12 @@ func insertDecision(t *testing.T, ctx context.Context, evidence string, age stri
 func TestRun_PurgesFindingReferencedByAlertLog(t *testing.T) {
 	_, ctx := requireDB(t)
 	tag := uniqueTag("b12_alert")
+	// Every resolve path sets resolved_at (bootstrap backfills older rows);
+	// resolved findings age on it.
 	findingID := insertID(t, ctx, `INSERT INTO sage.findings
-		(category, severity, title, detail, status, last_seen)
+		(category, severity, title, detail, status, last_seen, resolved_at)
 		VALUES ('retention_test', 'warning', $1, '{}'::jsonb, 'resolved',
-		        now() - interval '400 days') RETURNING id`, tag)
+		        now() - interval '400 days', now() - interval '400 days') RETURNING id`, tag)
 	alertID := insertID(t, ctx, `INSERT INTO sage.alert_log
 		(finding_id, severity, channel, dedup_key)
 		VALUES ($1, 'warning', 'slack', $2) RETURNING id`, findingID, tag)

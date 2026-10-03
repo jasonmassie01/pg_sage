@@ -35,8 +35,10 @@ func TestSnapshotDeltaMigration_ColumnIndexFunctions(t *testing.T) {
 		JOIN pg_namespace n ON n.oid = p.pronamespace
 		WHERE n.nspname = 'sage'
 		  AND p.proname IN ('snapshot_apply', 'snapshot_data')`).Scan(&fns); err != nil ||
-		fns != 2 {
-		t.Fatalf("accessor functions = %d (%v), want 2", fns, err)
+		fns != 3 {
+		// snapshot_apply, snapshot_data(data, base_id) and the day-partition
+		// aware snapshot_data(data, base_id, collected_at) (storage_migration.go).
+		t.Fatalf("accessor functions = %d (%v), want 3", fns, err)
 	}
 }
 

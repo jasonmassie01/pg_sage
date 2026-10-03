@@ -194,8 +194,10 @@
 | `retention.decisions_days` | `restart` | `-` |
 | `retention.explains_days` | `restart` | `-` |
 | `retention.findings_days` | `restart` | `-` |
+| `retention.query_store_days` | `restart` | `-` |
 | `retention.sage_size_warning_pct` | `restart` | `-` |
 | `retention.snapshots_days` | `restart` | `-` |
+| `retention.snapshots_max_pct` | `restart` | `-` |
 | `runaway.enabled` | `restart` | `-` |
 | `runaway.policies` | `restart` | `-` |
 | `runaway.safe_patterns` | `restart` | `-` |

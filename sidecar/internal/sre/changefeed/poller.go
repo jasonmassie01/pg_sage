@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -147,7 +148,7 @@ func (p *Poller) pollSource(ctx context.Context, scope sre.Scope, src source) (i
 			emitted++
 		}
 	}
-	return emitted, "", p.saveState(ctx, scope, src.name, state)
+	return emitted, "", p.saveState(ctx, scope, src.name, state, prev)
 }
 
 // classify maps a source error to its unavailability reason.
@@ -178,15 +179,24 @@ func (p *Poller) loadState(ctx context.Context, scope sre.Scope, name string) ([
 	return raw, nil
 }
 
-func (p *Poller) saveState(ctx context.Context, scope sre.Scope, name string, state any) error {
+// saveState stores a source's state when it changed. Most polls change
+// nothing (dogfood lifeos: 3,328 rewrites of 8 constant rows, 83% dead), so
+// an unchanged state is not written at all; the guard on the upsert covers
+// a concurrent poller.
+func (p *Poller) saveState(ctx context.Context, scope sre.Scope, name string, state any,
+	prev []byte) error {
 	raw, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("encode change feed state of %s: %w", name, err)
 	}
+	if sameState(prev, raw) {
+		return nil
+	}
 	_, err = p.feed.store.pool.Exec(ctx, `INSERT INTO sage.sre_change_feed_state
 		(deployment_id, database_id, source, state) VALUES ($1, $2, $3, $4::jsonb)
 		ON CONFLICT (deployment_id, database_id, source)
-		DO UPDATE SET state = EXCLUDED.state, updated_at = clock_timestamp()`,
+		DO UPDATE SET state = EXCLUDED.state, updated_at = clock_timestamp()
+		WHERE sre_change_feed_state.state IS DISTINCT FROM EXCLUDED.state`,
 		string(scope.DeploymentID), string(scope.DatabaseID), name, string(raw))
 	if err != nil {
 		return fmt.Errorf("save change feed state of %s: %w", name, err)
@@ -235,4 +245,17 @@ func (p *Poller) tick(ctx context.Context, lastPurge *time.Time) {
 		p.logf("INFO", "sre change feed: retention deleted %d events", n)
 	}
 	*lastPurge = time.Now()
+}
+
+// sameState reports whether two state documents are the same JSON value
+// (the stored one comes back as jsonb text: other spacing, key order).
+func sameState(prev, next []byte) bool {
+	if len(prev) == 0 {
+		return false
+	}
+	var a, b any
+	if json.Unmarshal(prev, &a) != nil || json.Unmarshal(next, &b) != nil {
+		return false
+	}
+	return reflect.DeepEqual(a, b)
 }

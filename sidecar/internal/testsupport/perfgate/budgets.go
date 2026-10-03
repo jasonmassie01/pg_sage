@@ -29,6 +29,12 @@ type Budgets struct {
 	// EndpointMaxMs (gate E): one API list endpoint call, and it must
 	// answer 200.
 	EndpointMaxMs float64
+	// HotUpdateMinPct and HotMinUpdates (gate F): a sage table updated at
+	// least HotMinUpdates times in the steady phase writes at least
+	// HotUpdateMinPct percent of them as heap-only (HOT) updates: its
+	// updated columns are not indexed and its pages keep room for them.
+	HotUpdateMinPct float64
+	HotMinUpdates   int64
 }
 
 // DefaultBudgets are the shipped limits.
@@ -40,12 +46,15 @@ func DefaultBudgets() Budgets {
 		RowsWrittenPerCycle:   250,
 		CatalogStatementMaxMs: 500,
 		EndpointMaxMs:         1000,
+		HotUpdateMinPct:       50,
+		HotMinUpdates:         5,
 	}
 }
 
 func (b Budgets) validate() error {
 	if b.SeqScanMinRows <= 0 || b.StatementMeanMs <= 0 || b.CycleDBTimeMs <= 0 ||
-		b.RowsWrittenPerCycle <= 0 || b.CatalogStatementMaxMs <= 0 || b.EndpointMaxMs <= 0 {
+		b.RowsWrittenPerCycle <= 0 || b.CatalogStatementMaxMs <= 0 || b.EndpointMaxMs <= 0 ||
+		b.HotUpdateMinPct <= 0 || b.HotMinUpdates <= 0 {
 		return fmt.Errorf("perfgate: every budget must be positive: %+v", b)
 	}
 	return nil

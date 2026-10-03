@@ -18,7 +18,6 @@ func TestPerfIndexMigration_CreatesIdempotentIndexes(t *testing.T) {
 		"idx_alert_log_sent":              "(sent_at)",
 		"idx_verification_created":        "(created_at)",
 		"idx_verification_decision":       "(decision_id)",
-		"idx_findings_resolved_last_seen": "(last_seen) WHERE (status = 'resolved'::text)",
 		"idx_sre_change_events_received":  "(deployment_id, received_at)",
 		"idx_findings_action_log":         "(action_log_id) WHERE (action_log_id IS NOT NULL)",
 		"idx_decision_action_log":         "(action_log_id) WHERE (action_log_id IS NOT NULL)",
@@ -72,7 +71,7 @@ func TestPerfIndexMigration_PurgePredicatesUseIndexes(t *testing.T) {
 			WHERE created_at < now() - make_interval(days => 365)
 			AND verdict NOT IN ('pending', 'extended') LIMIT 1000`,
 		"findings": `SELECT ctid FROM sage.findings
-			WHERE last_seen < now() - make_interval(days => 180)
+			WHERE resolved_at < now() - make_interval(days => 180)
 			AND status = 'resolved' LIMIT 1000`,
 		"sre_change_events": `SELECT id FROM sage.sre_change_events
 			WHERE deployment_id = gen_random_uuid() AND received_at < now()`,
@@ -100,12 +99,12 @@ func TestPerfIndexMigration_PurgePredicatesUseIndexes(t *testing.T) {
 // key's action. Every other sage foreign key must have an index whose
 // leading columns are the key's columns.
 var unindexedFKExemptions = map[string]string{
-	"config(updated_by_user_id)":    "users are deleted by an admin, rarely; config is small",
-	"config_audit(changed_by)":      "users are deleted by an admin, rarely",
-	"chatops_identities(user_id)":   "users are deleted by an admin, rarely; tiny table",
+	"config(updated_by_user_id)":     "users are deleted by an admin, rarely; config is small",
+	"config_audit(changed_by)":       "users are deleted by an admin, rarely",
+	"chatops_identities(user_id)":    "users are deleted by an admin, rarely; tiny table",
 	"notification_rules(channel_id)": "notification channels are configuration; tiny table",
-	"policy(supersedes_id)":         "policy versions are kept, never deleted",
-	"decision(policy_id)":           "policy versions are kept, never deleted",
+	"policy(supersedes_id)":          "policy versions are kept, never deleted",
+	"decision(policy_id)":            "policy versions are kept, never deleted",
 	"sre_runbook_runs(deployment_id, database_id, runbook_id, version)": "runbook " +
 		"versions are immutable and never deleted",
 	// Investigation-scoped keys: the primary key prefix (deployment_id,

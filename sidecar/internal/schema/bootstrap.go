@@ -104,7 +104,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateIncidentConstraints(ctx, conn); err != nil {
 				return fmt.Errorf("incident constraint migration: %w", err)
 			}
-			return migrateRetentionForeignKeys(ctx, conn)
+			if err := migrateRetentionForeignKeys(ctx, conn); err != nil {
+				return err
+			}
+			return migrateStorage(ctx, conn) // storage_migration.go
 		},
 	)
 }
@@ -480,8 +483,6 @@ CREATE TABLE IF NOT EXISTS sage.findings (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup
     ON sage.findings (category, object_identifier)
     WHERE status = 'open';
-CREATE INDEX IF NOT EXISTS idx_findings_status
-    ON sage.findings (status, severity, last_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_object
     ON sage.findings (object_identifier, category);
 CREATE INDEX IF NOT EXISTS idx_findings_category_status
@@ -739,9 +740,6 @@ ALTER TABLE sage.findings
 CREATE INDEX IF NOT EXISTS idx_findings_rule_id
     ON sage.findings (rule_id)
     WHERE rule_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_findings_schema_lint
-    ON sage.findings (category, severity, last_seen DESC)
-    WHERE category LIKE 'schema_lint:%' AND status = 'open';
 `
 
 // v0.11 — one-time backfill of sage.schema_findings rows into
