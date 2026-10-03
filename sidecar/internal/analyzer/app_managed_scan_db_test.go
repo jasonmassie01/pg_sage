@@ -50,8 +50,11 @@ func TestAppManagedIndexesReadDropsByIndex(t *testing.T) {
 		}
 	}
 	after, _ := testdb.XactScansOf(ctx, tx, "sage.action_log")
-	if d := after.Minus(before); d.Seq != 0 || d.IndexFetch > 7 {
+	// At most two fetches per read: the one drop, plus a probe the planner
+	// may make for the actual end of the executed_at range while estimating
+	// it (PG14 counted 8 for 7 reads). A full ledger read is 20,000.
+	if d := after.Minus(before); d.Seq != 0 || d.IndexFetch > 14 {
 		t.Fatalf("7 reads of the drop history: %+v on sage.action_log, want no seq scan "+
-			"and only the one drop fetched per read", d)
+			"and only the one drop fetched per read (plus planner probes)", d)
 	}
 }

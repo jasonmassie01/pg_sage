@@ -12,6 +12,13 @@
   plain. That wait blocks none of the table's readers or writers, so it is now bounded by the
   conversion's 10 minute statement timeout instead.
 
+- **The analyzer no longer pins a CPU core on databases with many indexes.** The duplicate
+  and subset index rule compared every btree index with every other one in the database, and
+  the unused-index rule re-read every index definition for each unused index that backs a
+  foreign key. On lifeos (35,000 indexes) that cost about 90 seconds of sidecar CPU every
+  10-minute analyzer cycle. Both rules now compare only indexes of the same table: 0.19 s on
+  42,000 indexes, with the same findings.
+
 - **The schema guard no longer slows down as its decision history grows.** Each scan
   re-read every decision it had ever recorded about the tables it checks; on the lifeos
   dogfood database, which still holds 253,000 rows written by v1.8.1's ledger flood, that

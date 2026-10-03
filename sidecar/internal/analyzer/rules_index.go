@@ -136,101 +136,98 @@ type duplicateIndexCandidate struct {
 	parsed ParsedIndex
 }
 
+// ruleDuplicateIndexes flags duplicate and subset btree indexes.
+// Duplicates and subsets only exist within one table (IsDuplicate and
+// IsSubset compare schema and table first), so pairs are formed per table:
+// comparing every index with every other one in the database pinned the
+// sidecar on lifeos (35k indexes, ~600M pairs per analyzer cycle).
 func ruleDuplicateIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
 	_ *config.Config,
 	_ *RuleExtras,
 ) []Finding {
-	var btrees []duplicateIndexCandidate
+	var order []tableKey
+	byTable := make(map[tableKey][]duplicateIndexCandidate)
 	for _, idx := range current.Indexes {
-		if isSystemSchema(idx.SchemaName) {
-			continue
-		}
-		if !idx.IsValid {
+		if isSystemSchema(idx.SchemaName) || !idx.IsValid {
 			continue
 		}
 		p := ParseIndexDef(idx.IndexDef)
 		if p.IndexType != "btree" {
 			continue
 		}
-		btrees = append(btrees, duplicateIndexCandidate{
-			info: idx, parsed: p,
-		})
+		key := tableKey{p.Schema, p.Table}
+		if _, ok := byTable[key]; !ok {
+			order = append(order, key)
+		}
+		byTable[key] = append(byTable[key], duplicateIndexCandidate{info: idx, parsed: p})
 	}
-
 	seen := make(map[string]bool)
 	var findings []Finding
-
-	for i := 0; i < len(btrees); i++ {
-		for j := i + 1; j < len(btrees); j++ {
-			a, b := btrees[i], btrees[j]
-			aIdent := a.info.SchemaName + "." + a.info.IndexRelName
-			bIdent := b.info.SchemaName + "." + b.info.IndexRelName
-
-			if IsDuplicate(a.parsed, b.parsed) {
-				drop, keep, dropIdent, keepIdent, ok :=
-					chooseDuplicateDrop(a, b, aIdent, bIdent)
-				if !ok {
-					continue
-				}
-				if seen[dropIdent] {
-					continue
-				}
-				seen[dropIdent] = true
-
-				findings = append(findings, Finding{
-					Category:         "duplicate_index",
-					Severity:         "critical",
-					ObjectType:       "index",
-					ObjectIdentifier: dropIdent,
-					Title: fmt.Sprintf(
-						"Duplicate index %s (same as %s)",
-						dropIdent, keepIdent,
-					),
-					Detail: map[string]any{
-						"drop_index": dropIdent,
-						"keep_index": keepIdent,
-						"drop_def":   drop.info.IndexDef,
-						"keep_def":   keep.info.IndexDef,
-					},
-					Recommendation: "Drop the duplicate index.",
-					RecommendedSQL: dropIndexSQL(drop.info),
-					RollbackSQL:    drop.info.IndexDef + ";",
-					ActionRisk:     "safe",
-				})
-			} else if IsSubset(a.parsed, b.parsed) {
-				if isConstraintBacked(a.info) {
-					continue
-				}
-				if !subsetWorthDropping(a.parsed, b.parsed, a.info, b.info) {
-					continue
-				}
-				if seen[aIdent] {
-					continue
-				}
-				seen[aIdent] = true
-				findings = append(findings, subsetFinding(
-					a.info, b.info, aIdent, bIdent,
-				))
-			} else if IsSubset(b.parsed, a.parsed) {
-				if isConstraintBacked(b.info) {
-					continue
-				}
-				if !subsetWorthDropping(b.parsed, a.parsed, b.info, a.info) {
-					continue
-				}
-				if seen[bIdent] {
-					continue
-				}
-				seen[bIdent] = true
-				findings = append(findings, subsetFinding(
-					b.info, a.info, bIdent, aIdent,
-				))
+	for _, key := range order {
+		btrees := byTable[key]
+		for i := 0; i < len(btrees); i++ {
+			for j := i + 1; j < len(btrees); j++ {
+				findings = appendPairFinding(findings, seen, btrees[i], btrees[j])
 			}
 		}
 	}
 	return findings
+}
+
+// appendPairFinding adds the duplicate or subset finding for one pair of
+// btree indexes, at most once per index to drop.
+func appendPairFinding(
+	out []Finding, seen map[string]bool, a, b duplicateIndexCandidate,
+) []Finding {
+	aIdent := a.info.SchemaName + "." + a.info.IndexRelName
+	bIdent := b.info.SchemaName + "." + b.info.IndexRelName
+	switch {
+	case IsDuplicate(a.parsed, b.parsed):
+		drop, keep, dropIdent, keepIdent, ok := chooseDuplicateDrop(a, b, aIdent, bIdent)
+		if !ok || seen[dropIdent] {
+			return out
+		}
+		seen[dropIdent] = true
+		return append(out, duplicateFinding(drop, keep, dropIdent, keepIdent))
+	case IsSubset(a.parsed, b.parsed):
+		return appendSubset(out, seen, a, b, aIdent, bIdent)
+	case IsSubset(b.parsed, a.parsed):
+		return appendSubset(out, seen, b, a, bIdent, aIdent)
+	}
+	return out
+}
+
+// appendSubset adds the finding for sub, an index whose columns lead sup's.
+func appendSubset(out []Finding, seen map[string]bool, sub, sup duplicateIndexCandidate,
+	subIdent, supIdent string) []Finding {
+	if isConstraintBacked(sub.info) ||
+		!subsetWorthDropping(sub.parsed, sup.parsed, sub.info, sup.info) || seen[subIdent] {
+		return out
+	}
+	seen[subIdent] = true
+	return append(out, subsetFinding(sub.info, sup.info, subIdent, supIdent))
+}
+
+func duplicateFinding(drop, keep duplicateIndexCandidate, dropIdent, keepIdent string) Finding {
+	return Finding{
+		Category:         "duplicate_index",
+		Severity:         "critical",
+		ObjectType:       "index",
+		ObjectIdentifier: dropIdent,
+		Title:            fmt.Sprintf("Duplicate index %s (same as %s)", dropIdent, keepIdent),
+		Detail: map[string]any{
+			"drop_index": dropIdent,
+			"keep_index": keepIdent,
+			"drop_def":   drop.info.IndexDef,
+			"keep_def":   keep.info.IndexDef,
+		},
+		Recommendation: "Drop the duplicate index.",
+		RecommendedSQL: dropIndexSQL(drop.info),
+		RollbackSQL:    drop.info.IndexDef + ";",
+		ActionRisk:     "safe",
+	}
 }
 
 func chooseDuplicateDrop(
