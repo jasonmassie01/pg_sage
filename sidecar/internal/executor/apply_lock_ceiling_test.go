@@ -138,7 +138,17 @@ func timeOperatorAnalyze(t *testing.T, ceiling int64) time.Duration {
 // cross-package lock for the test that called it.
 func TestApplyLockCeilingCapsOperatorAnalyze(t *testing.T) {
 	var capped, uncapped time.Duration
-	t.Run("ceiling", func(t *testing.T) { capped = timeOperatorAnalyze(t, ceilingMS) })
-	t.Run("control", func(t *testing.T) { uncapped = timeOperatorAnalyze(t, 0) })
+	var skipped bool
+	measure := func(d *time.Duration, ceiling int64) func(*testing.T) {
+		return func(t *testing.T) {
+			defer func() { skipped = skipped || t.Skipped() }()
+			*d = timeOperatorAnalyze(t, ceiling)
+		}
+	}
+	t.Run("ceiling", measure(&capped, ceilingMS))
+	t.Run("control", measure(&uncapped, 0))
+	if skipped { // the subtest's reason is logged; there is nothing to compare
+		t.Skip("a measurement was skipped")
+	}
 	assertCeilingBounds(t, capped, uncapped)
 }
