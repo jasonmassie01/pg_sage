@@ -215,7 +215,12 @@ func TestRun_DoesNotWaitForTheConversion(t *testing.T) {
 	}
 	defer pool.Close()
 	logs := &logRecorder{}
-	c := New(pool, config.DefaultConfig(), logs.log)
+	// No query_store purge: its DELETE would queue behind the attempt's queued
+	// lock request (bounded by the lock timeout, but this test is about the
+	// conversion, not the lock queue).
+	cfg := config.DefaultConfig()
+	cfg.Retention.QueryStoreDays = 0
+	c := New(pool, cfg, logs.log)
 	release := lockHolder(t, ctx, "sage.query_store")
 	start := time.Now()
 	c.Run(ctx)
@@ -226,8 +231,7 @@ func TestRun_DoesNotWaitForTheConversion(t *testing.T) {
 		t.Fatalf("background attempt did not report its failure: %q", logs.lines)
 	}
 	// The attempt waited out the lock timeout in the background; the
-	// retention run itself did not (it purges the table under the same lock
-	// it can take: row deletes do not conflict with a reader).
+	// retention run itself did not.
 	if ran >= partition.LockTimeout {
 		t.Fatalf("Run took %s: it waited for the conversion", ran)
 	}
