@@ -133,25 +133,7 @@ func TestSchemaGuardLoadIsBoundedOnASyntheticCatalog(t *testing.T) {
 		t.Fatalf("NewPostgresSchemaGuard: %v", err)
 	}
 	liveTargets, idleTargets := live.childTargets(), idle.childTargets()
-
-	first := scanGuard(t, guard)
-	if rows := countGuardRows(t, base, liveTargets); rows != 49 {
-		t.Fatalf("live family rows after first scan = %d, want 49 (one per foreign key)", rows)
-	}
-	if rows := countGuardRows(t, base, idleTargets); rows != 9 {
-		t.Fatalf("idle family rows after first scan = %d, want 9", rows)
-	}
-	if got := routesTo(router, liveTargets); got != 40*49 {
-		t.Fatalf("live routes = %d, want every member routed (1960)", got)
-	}
-	if got := routesTo(router, idleTargets); got != 0 || first.Skipped != 40*9 ||
-		guardVerdict(t, base, idleTargets[0]) != string(ledger.VerdictPark) {
-		t.Fatalf("idle leftover family: routes=%d skipped=%d verdict=%q, want 0 routes, "+
-			"360 skipped and a park (family: %s)", got, first.Skipped,
-			guardVerdict(t, base, idleTargets[0]), familyReason(t, base, idleTargets[0]))
-	}
-	requireFannedOutRow(t, base, live)
-
+	first := requireFirstScan(t, base, guard, router, live, idle)
 	counter.reset()
 	second := scanGuard(t, guard)
 	reads, writes := counter.counts()
@@ -170,6 +152,34 @@ func TestSchemaGuardLoadIsBoundedOnASyntheticCatalog(t *testing.T) {
 		t.Fatalf("detected %d then %d on an unchanged catalog", first.Detected, second.Detected)
 	}
 	requireOneChangeRecorded(t, base, guard, live)
+}
+
+// requireFirstScan checks the first cycle: one row per identity, every
+// live member routed, the idle leftover parked and skipped.
+func requireFirstScan(
+	t *testing.T, base *pgxpool.Pool, guard *schemaguard.Custodian,
+	router *recordingRouter, live, idle cloneFamily,
+) schemaguard.CycleResult {
+	t.Helper()
+	liveTargets, idleTargets := live.childTargets(), idle.childTargets()
+	first := scanGuard(t, guard)
+	if rows := countGuardRows(t, base, liveTargets); rows != 49 {
+		t.Fatalf("live family rows after first scan = %d, want 49 (one per foreign key)", rows)
+	}
+	if rows := countGuardRows(t, base, idleTargets); rows != 9 {
+		t.Fatalf("idle family rows after first scan = %d, want 9", rows)
+	}
+	if got := routesTo(router, liveTargets); got != 40*49 {
+		t.Fatalf("live routes = %d, want every member routed (1960)", got)
+	}
+	if got := routesTo(router, idleTargets); got != 0 || first.Skipped != 40*9 ||
+		guardVerdict(t, base, idleTargets[0]) != string(ledger.VerdictPark) {
+		t.Fatalf("idle leftover family: routes=%d skipped=%d verdict=%q, want 0 routes, "+
+			"360 skipped and a park (family: %s)", got, first.Skipped,
+			guardVerdict(t, base, idleTargets[0]), familyReason(t, base, idleTargets[0]))
+	}
+	requireFannedOutRow(t, base, live)
+	return first
 }
 
 // familyReason is the family classification recorded for target.
