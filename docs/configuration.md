@@ -201,6 +201,46 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
 
+### Verifying actions
+
+Every action pg_sage takes records, before it runs, what it expects: the queries it
+targets, the metric that should move and by how much, and how that was predicted (`hypopg`,
+`model`, `rule`, or `none`). Afterwards it records what it observed and a verdict:
+
+| Verdict | Meaning | Trust and credit |
+|---|---|---|
+| `improved` | the predicted effect was observed (a drop: reads held for the whole cycle) | counts toward earned autonomy and value |
+| `neutral` | measured, no change beyond the bars | neither |
+| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell | neither |
+| `unverifiable` | nothing measurable, or no prediction | neither |
+| `regressed` | a targeted query (or the targeted metric) got significantly worse | rolled back; counts against trust |
+
+The targeted queries are compared on their call-weighted mean execution time, before and
+after, with Welch's test over the sampling intervals in `sage.query_store`: a change counts
+only when it is both significant and beyond its bar. With several targets each is tested
+with a Bonferroni-corrected significance and the call-weighted pool decides. A first verdict
+comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
+enough evidence the watch extends up to `verify.window_max_minutes`.
+
+An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
+from the start. Its definition is kept, and the index is re-created as soon as a query on
+the table regresses or an active pg_sage hint names it (soft drop). VACUUM and ANALYZE are
+checked right after they run (dead tuples, rows modified since analyze, relfrozenxid age
+for VACUUM FREEZE).
+
+Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
+`/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
+outcome ledger (`sage.action_outcome`).
+
+| Parameter | Default | Description |
+|---|---|---|
+| `trust.rollback_window_minutes` | `15` | Minimum minutes before a first verdict (not for drops) |
+| `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean |
+| `verify.min_samples` | `30` | Calls each window needs |
+| `verify.min_gain_pct` | `20` | Gain bar for `improved` |
+| `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
+| `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
+
 ### Maintenance windows
 
 `trust.maintenance_window` and the standing policy's `maintenance_windows`
@@ -785,6 +825,7 @@ trust:
   ramp_moderate_hours: 4          # MODERATE actions after 4 hours (spec: 744)
 verify:
   io_baseline_hours: 2            # learned IO baseline after 2 hours (spec: 7 days)
+  drop_window_hours: 2            # verify an index drop over 2 hours (spec: 168)
 sre:
   autonomy:
     evaluate_interval_minutes: 5  # propose promotions every 5 minutes (default: 60)

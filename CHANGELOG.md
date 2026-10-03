@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Every action pg_sage takes now says what it expects, and is checked against it.** Before
+  an index create or drop, a config or table-setting change, a VACUUM/ANALYZE, a query hint or
+  a retention batch runs, pg_sage records its predicted effect: which queries it targets, which
+  metric should move and by how much, and whether the estimate came from HypoPG, a model or a
+  rule (or that there is none). Afterwards it records what it observed and a verdict:
+  improved, neutral, regressed, insufficient evidence or unverifiable. The action detail in
+  the Actions page shows predicted vs observed with the evidence, and the outcomes are served
+  by `GET /api/v1/actions`, `/api/v1/actions/{id}` and the new
+  `GET /api/v1/action-outcomes` ledger.
+- **Index drops are verified over a business cycle and come back on the first miss.** A drop
+  is watched for `verify.drop_window_hours` (default 168, one week) instead of 15 minutes.
+  Its definition is kept, and the index is re-created as soon as a query on that table gets
+  slower or an active pg_sage hint names it. A shorter window is a fast-elevation setting
+  and is reported at startup like the others.
+
+### Changed
+
+- **"It did not get worse" is no longer "success".** Verification compares the call-weighted
+  mean execution time of the queries an action targets, before and after, with a
+  significance test over the sampling intervals, over windows that grow until there are
+  enough calls. Noise no longer flips a verdict, and too little traffic is "insufficient
+  evidence", not success. The old check of database-wide cache hit and write latency is
+  gone.
+- **Only verified improvements earn trust or credit.** Earned autonomy and the value ledger
+  count an action only when its verdict is improved; neutral, insufficient evidence and
+  unverifiable count for nothing either way, and a regression is rolled back and counts
+  against trust. VACUUM and ANALYZE are verified by the dead tuples and modified rows they
+  were meant to clear instead of being marked successful at once.
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new
