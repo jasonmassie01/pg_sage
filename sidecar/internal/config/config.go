@@ -186,6 +186,9 @@ type AnalyzerConfig struct {
 
 	// v0.9 — Lock chain detection.
 	LockChain LockChainConfig `yaml:"lock_chain"`
+
+	// Schema guard post-DDL debounce: see schema_guard.go.
+	SchemaGuardDDLDebounceSeconds int `yaml:"schema_guard_ddl_debounce_seconds" doc:"After pg_sage's own DDL, the schema guard re-scans the schema at most once per this many seconds (DDL bursts are coalesced into one extra scan). 0 uses the default. Range 0-3600. Default: 60."`
 }
 
 type SafetyConfig struct {
@@ -455,6 +458,7 @@ type RetentionConfig struct {
 	FindingsDays  int `yaml:"findings_days"`
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
+	DecisionsDays int `yaml:"decisions_days" doc:"Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."`
 	// SageSizeWarningPct: see sage_footprint.go.
 	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size. 0 disables the check. Default 10."`
 }
@@ -670,6 +674,9 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if err := c.Analyzer.validateSchemaGuard(); err != nil {
+		return err
+	}
 	if err := c.RCA.validate(); err != nil {
 		return err
 	}
@@ -695,6 +702,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Retention.validateSageFootprint(); err != nil {
+		return err
+	}
+	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
 
@@ -772,6 +782,8 @@ func newDefaults() *Config {
 			RegressionLookbackDays:       DefaultRegressionLookbackDays,
 			CheckpointFreqWarningPerHour: DefaultCheckpointFreqWarningPerHour,
 			WorkMemPromotionThreshold:    DefaultAnalyzerWorkMemPromotionThreshold,
+
+			SchemaGuardDDLDebounceSeconds: DefaultSchemaGuardDDLDebounceSeconds,
 			LockChain: LockChainConfig{
 				Enabled:                  true,
 				MinBlockedThreshold:      DefaultLockChainMinBlocked,
@@ -955,6 +967,7 @@ func newDefaults() *Config {
 			ExplainsDays:  DefaultRetentionExplainsDays,
 
 			SageSizeWarningPct: DefaultRetentionSageSizeWarningPct,
+			DecisionsDays:      DefaultRetentionDecisionsDays,
 		},
 		NotificationPolicy: NotificationPolicyConfig{
 			AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,

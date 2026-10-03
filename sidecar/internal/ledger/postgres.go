@@ -19,26 +19,17 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 func (r *PostgresRepository) InsertDecision(
 	ctx context.Context, input DecisionInput,
 ) (int64, error) {
-	targets, err := json.Marshal(input.TargetObjects)
+	values, err := decisionValues(input)
 	if err != nil {
-		return 0, fmt.Errorf("persist decision targets: %w", err)
-	}
-	evidence := cloneEvidence(input.Evidence)
-	if input.ProposedSQL != "" {
-		evidence["proposed_sql"] = input.ProposedSQL
-	}
-	evidenceJSON, err := json.Marshal(evidence)
-	if err != nil {
-		return 0, fmt.Errorf("persist decision evidence: %w", err)
+		return 0, err
 	}
 	var id int64
 	err = r.pool.QueryRow(ctx, `INSERT INTO sage.decision
 		(database_id, feature, intent, target_objects, policy_version, verdict,
-		 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12) RETURNING id`,
-		input.DatabaseID, input.Feature, input.Intent, targets, input.PolicyVersion,
-		input.Verdict, input.RiskTier, input.Reason, evidenceJSON, input.EvidenceID,
-		input.DeadlineKind, input.DeadlineHardAt).Scan(&id)
+		 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
+		 fingerprint)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13) RETURNING id`,
+		values...).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -47,6 +38,27 @@ func (r *PostgresRepository) InsertDecision(
 		return 0, fmt.Errorf("persist decision: %w", err)
 	}
 	return id, nil
+}
+
+// decisionValues encodes a decision as the 13 INSERT parameters. An insert
+// that is not an upsert stores no fingerprint, so it can never collide
+// with an open fingerprinted row.
+func decisionValues(input DecisionInput) ([]any, error) {
+	targets, err := json.Marshal(input.TargetObjects)
+	if err != nil {
+		return nil, fmt.Errorf("persist decision targets: %w", err)
+	}
+	evidence := cloneEvidence(input.Evidence)
+	if input.ProposedSQL != "" {
+		evidence["proposed_sql"] = input.ProposedSQL
+	}
+	evidenceJSON, err := json.Marshal(evidence)
+	if err != nil {
+		return nil, fmt.Errorf("persist decision evidence: %w", err)
+	}
+	return []any{input.DatabaseID, input.Feature, input.Intent, targets,
+		input.PolicyVersion, input.Verdict, input.RiskTier, input.Reason, evidenceJSON,
+		input.EvidenceID, input.DeadlineKind, input.DeadlineHardAt, nil}, nil
 }
 
 // FindAuditViolations reports recent actions that lack a decision or a

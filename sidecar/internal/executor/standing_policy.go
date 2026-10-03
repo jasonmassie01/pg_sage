@@ -115,6 +115,11 @@ func ledgerInput(
 		input.DeadlineKind = string(request.Deadline.Kind)
 		input.DeadlineHardAt = &request.Deadline.HardAt
 	}
+	// A withheld verdict repeats every cycle the candidate stays withheld:
+	// repeats update one row. An execute verdict backs its own action.
+	if input.Verdict != ledger.VerdictExecute {
+		input.Fingerprint = ledger.DecisionFingerprint(input)
+	}
 	return input
 }
 

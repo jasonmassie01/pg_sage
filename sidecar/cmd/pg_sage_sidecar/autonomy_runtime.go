@@ -129,12 +129,13 @@ func newDatabaseAutonomy(
 			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
 		})}
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
-		pool, database, router, auditor, router.executeRetention)
+		pool, database, router, auditor, router.executeRetention, schemaGuardOptions(cfg))
 	if err != nil {
 		return nil, err
 	}
 	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{{
 		Database: database, Interval: autonomyInterval(cfg),
+		DDLDebounce: autonomyDDLDebounce(cfg),
 		Freeze: freezeWorker, WAL: walWorker, Schema: schemaGuard,
 		Router:  router,
 		Auditor: auditor, Reporter: autonomyLogReporter{},

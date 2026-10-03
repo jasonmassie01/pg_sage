@@ -209,6 +209,11 @@
     "default": 50,
     "doc": "Percent latency regression required before a query is flagged as a regressor. Set low for sensitive detection, higher to reduce noise."
   },
+  "analyzer.schema_guard_ddl_debounce_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "After pg_sage's own DDL, the schema guard re-scans the schema at most once per this many seconds (DDL bursts are coalesced into one extra scan). 0 uses the default. Range 0-3600. Default: 60."
+  },
   "analyzer.seq_scan_min_rows": {
     "type": "int",
     "default": 100000,
@@ -1021,6 +1026,11 @@
     "type": "int",
     "default": 365,
     "doc": ""
+  },
+  "retention.decisions_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."
   },
   "retention.explains_days": {
     "type": "int",

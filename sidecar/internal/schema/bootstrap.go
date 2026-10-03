@@ -392,7 +392,8 @@ func migrationStatements() []string {
 		ddlHAIdentity,
 		ddlDebtExec,
 		ddlIncidentOpenIdentity,
-		ddlSnapshotDelta)
+		ddlSnapshotDelta,
+		ddlDecisionLedger())
 }
 
 // ---------------------------------------------------------------------------

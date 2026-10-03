@@ -45,6 +45,7 @@
 | `analyzer.lock_chain.safe_patterns` | `restart` | `-` |
 | `analyzer.regression_lookback_days` | `restart` | `-` |
 | `analyzer.regression_threshold_pct` | `restart` | `-` |
+| `analyzer.schema_guard_ddl_debounce_seconds` | `restart` | `-` |
 | `analyzer.seq_scan_min_rows` | `restart` | `-` |
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` |
@@ -190,6 +191,7 @@
 | `rca.stale_after_hours` | `restart` | `-` |
 | `rca.wal_spike_multiplier` | `restart` | `-` |
 | `retention.actions_days` | `restart` | `-` |
+| `retention.decisions_days` | `restart` | `-` |
 | `retention.explains_days` | `restart` | `-` |
 | `retention.findings_days` | `restart` | `-` |
 | `retention.sage_size_warning_pct` | `restart` | `-` |
