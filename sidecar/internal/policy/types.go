@@ -211,8 +211,10 @@ const (
 )
 
 type LimitUsage struct {
-	StorageBytes                 int64
-	RowsRewritten                int64
+	StorageBytes  int64
+	RowsRewritten int64
+	// TablesInWindow is the distinct tables the window holds if the
+	// request runs (the ones already touched plus the request's own).
 	TablesInWindow               int64
 	SelfInitiatedChangesInWindow int64
 }
