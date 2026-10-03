@@ -1415,26 +1415,29 @@ func queryActionByID(
 		outcome        string
 		rollbackReason *string
 		measuredAt     *time.Time
+		outcomeJSON    []byte
 	)
 	err := pool.QueryRow(ctx, actionDetailSQL, id).Scan(
 		&aID, &executedAt, &actionType, &findingID,
 		&sqlExecuted, &rollbackSQL, &beforeState,
-		&afterState, &outcome, &rollbackReason, &measuredAt,
+		&afterState, &outcome, &rollbackReason, &measuredAt, &outcomeJSON,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return buildActionMap(
+	a := buildActionMap(
 		aID, executedAt, actionType, findingID,
 		sqlExecuted, rollbackSQL, beforeState, afterState,
 		outcome, rollbackReason, measuredAt,
-	), nil
+	)
+	annotateOutcome(a, outcomeJSON)
+	return a, nil
 }
 
 const actionDetailSQL = `/* pg_sage */SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
- measured_at FROM sage.action_log WHERE id = $1`
+ measured_at,` + actionOutcomeColumnSQL + ` FROM sage.action_log WHERE id = $1`
 
 const snapshotHistoryMaxPoints = 500
 
