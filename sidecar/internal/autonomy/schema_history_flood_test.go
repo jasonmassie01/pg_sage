@@ -58,6 +58,7 @@ func TestHistoryReadIsFlatOnALegacyFloodLedger(t *testing.T) {
 		t.Fatalf("history read on %d legacy rows took %v, want < %v", floodRows, best,
 			floodScanBudget)
 	}
+	t.Logf("history read on %d legacy rows: best of 3 %v", floodRows, best)
 	recorder.Reset()
 	if _, err := source.History(ctx, ledgerRows.invariants); err != nil {
 		t.Fatalf("History (recorded): %v", err)
@@ -283,6 +284,12 @@ func requireBoundedHistoryPlan(
 		t.Fatalf("begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	// The counters include the connection's earlier statements not yet
+	// flushed: only the delta around the explain is this read's.
+	before, err := testdb.XactScansOf(ctx, tx, "sage.decision")
+	if err != nil {
+		t.Fatalf("read scan counters: %v", err)
+	}
 	plan, err := testdb.Explain(ctx, tx, "ANALYZE", recorded[0].SQL, recorded[0].Args...)
 	if err != nil {
 		t.Fatalf("explain history read: %v", err)
@@ -298,16 +305,17 @@ func requireBoundedHistoryPlan(
 			rows += n.ActualRows * max(n.ActualLoops, 1)
 		}
 	})
-	scans, err := testdb.XactScansOf(ctx, tx, "sage.decision")
+	after, err := testdb.XactScansOf(ctx, tx, "sage.decision")
 	if err != nil {
 		t.Fatalf("read scan counters: %v", err)
 	}
-	if rows > floodRowsReadLimit || scans.SeqRead != 0 ||
-		scans.IndexFetch > floodRowsReadLimit {
+	seqRead, fetched := after.SeqRead-before.SeqRead, after.IndexFetch-before.IndexFetch
+	if rows > floodRowsReadLimit || seqRead != 0 || fetched > floodRowsReadLimit {
 		t.Fatalf("history read %g plan rows, %d seq rows, %d index fetches of %d legacy "+
-			"rows, want <= %d:\n%s", rows, scans.SeqRead, scans.IndexFetch, floodRows,
+			"rows, want <= %d:\n%s", rows, seqRead, fetched, floodRows,
 			floodRowsReadLimit, plan)
 	}
+	t.Logf("history read: %g plan rows, %d index fetches", rows, fetched)
 }
 
 // requireFastFloodScan runs whole guard scans (the real contract and
@@ -332,6 +340,8 @@ func requireFastFloodScan(
 		t.Fatalf("schema guard scan over %d legacy rows took %v, want < %v", floodRows,
 			best, floodScanBudget)
 	}
+	t.Logf("schema guard scan (%d invariants) over %d legacy rows: best of 3 %v",
+		len(ledgerRows.invariants), floodRows, best)
 	// The newest hashes are synthetic and the recorder writes nothing, so
 	// every scan records every identity (idle members included) again.
 	if recorder.identities() != len(ledgerRows.lastHash) {
