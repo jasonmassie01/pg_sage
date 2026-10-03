@@ -28,7 +28,7 @@ type benchClone struct{}
 func (benchClone) Create(context.Context, clone.CloneSpec) (clone.Clone, error) {
 	return clone.Clone{ID: "c1", DSN: "postgres://x:secret@clone:5432/orders"}, nil
 }
-func (benchClone) Destroy(context.Context, clone.Clone) error             { return nil }
+func (benchClone) Destroy(context.Context, clone.Clone) error         { return nil }
 func (benchClone) SnapshotAge(context.Context) (time.Duration, error) { return 0, nil }
 
 type benchFaults struct {

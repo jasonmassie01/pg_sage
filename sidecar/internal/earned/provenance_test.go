@@ -115,10 +115,12 @@ func TestProvenanceLabels(t *testing.T) {
 		want []string
 	}{
 		"signed release": {signed, []string{"signed", "1.8.5", "aaaaaaa"}},
-		"signed master":  {EvalRun{Origin: OriginSignedRelease, Build: Build{Commit: commitB}}, []string{"signed", "bbbbbbb"}},
-		"local run":      {EvalRun{Origin: OriginLocalRun, Build: buildA}, []string{"local run", "1.8.5"}},
-		"operator":       {EvalRun{Origin: OriginOperator}, []string{"unsigned (operator-provided)"}},
-		"game day":       {EvalRun{Origin: OriginGameDay}, []string{"game day"}},
+		"signed master": {EvalRun{Origin: OriginSignedRelease, Build: Build{Commit: commitB}},
+			[]string{"signed", "bbbbbbb"}},
+		"local run": {EvalRun{Origin: OriginLocalRun, Build: buildA},
+			[]string{"local run", "1.8.5"}},
+		"operator": {EvalRun{Origin: OriginOperator}, []string{"unsigned (operator-provided)"}},
+		"game day": {EvalRun{Origin: OriginGameDay}, []string{"game day"}},
 	}
 	for name, c := range cases {
 		label := c.run.ProvenanceLabel()

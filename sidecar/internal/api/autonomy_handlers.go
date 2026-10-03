@@ -30,7 +30,7 @@ type AutonomyDeps struct {
 	GameDays *gameday.Registry
 	// LocalBench runs the bench locally on a clone (roadmap 1.1).
 	LocalBench *gameday.BenchRegistry
-	Canary   *rollout.CanaryService
+	Canary     *rollout.CanaryService
 	// FastElevation is every trust-elevation setting below the spec (the
 	// config is restart-bound, so it is fixed for the process).
 	FastElevation []config.LoweredSetting
