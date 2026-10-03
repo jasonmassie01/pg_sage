@@ -92,34 +92,50 @@ Product calls (made per the rules' "AI DBA" lens: keep pg_sage's footprint small
 destroy what a kept row needs):
 - Drop a closed history partition whole for the cap, even if its live rows alone would fit:
   the cap protects disk, and only a drop returns it. On lifeos this loses the 10-02 tail,
-  10-03 and 10-04 snapshot rows (~0.8 GB) to return 9.3 GB about two days after the upgrade.
+  10-03 and 10-04 snapshot rows (~1.5 GB with nothing trimmed first) to return 9.3 GB about
+  two days after the upgrade.
 - 1 GiB per run trim budget (WAL), on top of the time budget.
-- **For the coordinator:** on lifeos the trim of the open partition is mostly wasted work:
-  ~5.9 GB of deletes (~6 GB of WAL) to bring the live data under the cap for the ~34 hours
-  until the partition closes and is dropped anyway (only ~70 MB/day of new rows land there to
-  reuse the space). It is what the brief requires, and it matters on a database that writes
-  GBs a day before the cut. If preferred, the trim could be skipped when the partition closes
-  within a day; that is a one-line condition in `capHistory`.
+- **Coordinator decision (follow-up, implemented):** no trim when the open history partition
+  closes within 48 h (`trimSkipWindow`): it is dropped whole once closed, and trimming first
+  would write ~6 GB of WAL on lifeos for rows dropped ~34 h later, on a machine with ~6 GB of
+  disk free. The cap logs once (rate-limited): "...its history partition
+  sage.snapshots_history closes at <UTC time> and will be dropped whole then: not trimming
+  before". Consequence to know: pg_sage's conversion bounds the history partition at the
+  second UTC midnight after it (`chooseCut`), so a partition pg_sage made always closes
+  within 48 h. The trim now only runs for a bound pushed further out (rows dated ahead at the
+  conversion, up to `maxAhead` = 7 days) or a hand-made layout. It stays tested (bounds three
+  midnights ahead) and costs nothing when unused.
+6. **Fair rule rotation (follow-up).** `RunOnce` used to start the next run with the rule that
+   spent the budget, so a rule that spent it every run (lifeos: `sage.query_store`'s backlog,
+   "29 rules deferred to the next run, starting with sage.query_store") ran alone and starved
+   the rest, `sage.snapshots` included. Now a rule cut short by the budget goes last in the
+   next run (`next = at + 1`); a rule the run did not reach still goes first (`next = at`).
+   Each run starts at least one rule further on, so every rule runs within `len(rules)` runs
+   (30 today) however long any one takes. Simplest option that bounds starvation; no shares
+   or per-rule budgets.
 
 ## Lifeos: time to get under the cap at default pacing
 
 Inputs (read-only queries on lifeos, 2026-10-03 ~15:00 UTC): database 18,793 MB, so the cap is
-5% = 939 MB. History live estimate 6.86 GB (07-20..07-28: 319 MB, 09-05..09-12: 4,994 MB,
-10-02: 832 MB, 10-03 so far: ~710 MB). Since ~06:00 UTC today (snapshot dedupe on) new
-snapshots add 1-4 MB an hour. Retention runs about every 10 minutes (analyzer interval + 5 s;
-lifeos logs show runs at 12:48, 12:58, 13:10).
+5% = 939 MB. History partition: 9.3 GB on disk, live estimate 6.86 GB (07-20..07-28: 319 MB,
+09-05..09-12: 4,994 MB, 10-02: 832 MB, 10-03 so far: ~710 MB). Since ~06:00 UTC today
+(snapshot dedupe on) new snapshots add 1-4 MB an hour. Retention runs about every 10 minutes
+(analyzer interval + 5 s; lifeos logs show runs at 12:48, 12:58, 13:10).
 
-- Excess ≈ 6.86 GB − 0.94 GB ≈ 5.9 GB, all from rows before today (the boundary lands in the
-  afternoon of 2026-10-02; all pre-10-03 rows are keyframes, so no keyframe pull-back).
-- At 1 GiB per run: **6 runs, about 1 hour after deploy** until the live data is under the cap
-  and the warning stops. Fixture throughput (240 MB of ~120 KB rows, default 50 ms pause):
-  ~100 MB/s including pauses, so 1 GiB takes ~10 s plus lifeos's uncached TOAST reads; it fits
-  the 30 s run budget. WAL: ~6 GB over that hour.
-- Disk: stays 9.3 GB until the partition closes at **2026-10-05 00:00 UTC**; the first run
-  after that (about 00:10 UTC, ~34 hours from now) drops it and returns the 9.3 GB. If the
-  drop times out on its 2 s lock (a long reader of `sage.snapshots`), it is retried each run.
-- After that, the table is the daily partitions (~70 MB/day at the current rate), so the cap
-  keeps about 13 days of snapshots until `snapshots_max_pct` or the database grows.
+With the 48 h rule (final behavior):
+- The partition closes at **2026-10-05 00:00 UTC**, within 48 h, so nothing is trimmed. The
+  first run logs one WARN that it closes then and will be dropped whole; no WAL is written for
+  it. The live data stays over the cap until then.
+- The first run after the close (**about 00:10 UTC on 2026-10-05, ~34 hours from now**) drops
+  the partition: the table is under the cap and the 9.3 GB is returned at once. If the drop
+  times out on its 2 s lock (a long reader of `sage.snapshots`), it is retried each run.
+  Lost with it: the rest of 10-02 and the 10-03/10-04 snapshot rows (~1.5 GB of documents).
+- After that the table is the daily partitions (~70 MB/day at the current rate), so the cap
+  keeps about 13 days of snapshots.
+- For reference, without the 48 h rule the trim would have taken 6 runs at 1 GiB each (about
+  1 hour) to get the live data under the cap, writing ~6 GB of WAL (measured: 247 MB of WAL
+  per 234 MB trimmed after a checkpoint; ~100 MB/s including pauses on a 240 MB fixture),
+  without returning any disk before the same drop.
 
 ## Tests
 
@@ -131,7 +147,7 @@ New tests (DB-backed, real partition and retention code paths; PG17 `pgsage-ag2`
 | Stops at the keyframe boundary (pre-1.8.3 chain across midnight), kept rows readable | `TestSnapshotCap_TrimStopsAtTheKeyframeBoundary` |
 | No kept delta orphaned: `sage.snapshot_data(data, base_id)` non-NULL for every kept row readable before | `assertStillReadable` in the boundary, guard, chain and writer tests |
 | Statement guard keeps bases past an unsafe boundary | `TestTrimSQL_KeepsBasesPastAnUnsafeBoundary` |
-| Resumes across runs (50 rows a run under a 1 ns budget, oldest first) | `TestSnapshotCap_HistoryTrimResumesAcrossRuns` |
+| Resumes across runs (50 rows a turn under a 1 ns budget, oldest first, a turn within `len(rules)` runs) | `TestSnapshotCap_HistoryTrimResumesAcrossRuns` |
 | Per-run byte budget, run not spent, no false "stuck" | `TestSnapshotCap_TrimStopsAtItsByteBudgetPerRun` |
 | Dropped when all of it must go / closed and counted by its files | `TestSnapshotCap_DropsTheHistoryPartitionWhenAllOfItMustGo`, `TestSnapshotCap_ClosedHistoryCountsItsFiles` |
 | Dropped once empty (not while it covers today) or wholly expired (snapshots, query_store) | `TestRunOnce_EmptyHistoryIsDroppedOnceItCoversNoCurrentTime`, `TestRunOnce_ExpiredHistoryIsDropped`, `TestRunOnce_ExpiredQueryStoreHistoryIsDropped` |
@@ -142,11 +158,16 @@ New tests (DB-backed, real partition and retention code paths; PG17 `pgsage-ag2`
 | Concurrent writer never fails, its rows stay readable | `TestSnapshotCap_ConcurrentWriterNeverFails` |
 | Plan: time index + TID scan, no seq scan of the history partition | `TestTrimSQL_UsesTheTimeIndexAndTIDs` |
 | Error path: chain deeper than the writer makes, nothing deleted, warned | `TestSnapshotCap_UnwalkableChainTrimsNothing` |
+| No trim when closing in 47 h (one WARN in 2 runs, names time and drop), trim at 49 h | `TestSnapshotCap_NoTrimWhenTheHistoryPartitionClosesWithin48h` |
+| A rule that spends the budget every run does not starve the others (victim purged within `len(rules)` runs) | `TestRunOnce_ABudgetHogDoesNotStarveTheOtherRules` |
 
 Fails before the fix: on the v1.8.3 code (with compile stubs for the new identifiers), 14 of
 the first 15 new tests failed, plus the 2 changed existing ones (the passing one, "under the
 cap is untouched", is a regression guard). The byte-budget and closed-history tests were
-committed before their fixes and fail without them (mutation run below). Mutation testing (each change must fail a test; all did): no boundary
+committed before their fixes and fail without them (mutation run below). The two follow-up
+tests were committed first and both failed on the previous head: "closes in 47h0m0s: deleted
+3 rows; want none" and "alert_log's expired row is still there after 29 runs: starved by the
+hog". Mutation testing (each change must fail a test; all did): no boundary
 walk, no keep guard, cap measured by files, no rate limit, one-deep `removable`, no closed
 history drop, trimming today's rows, `DropHistory` without its guard, dropping a history
 partition that covers today, no byte budget, closed history measured by live rows.
@@ -155,11 +176,23 @@ Test changes to existing tests (spec changes, explained in the commits): the his
 partition is dropped, not truncated (`TestRunOnce_ExpiredHistoryIsTruncated` became
 `...IsDropped`; the cap test expects it among the dropped; the query_store days test expects
 the empty history partition dropped); `TestDropAndTruncate` became `TestDropAndDropHistory`
-(`Truncate` is gone); `rebound` recreates a dropped history partition. One test logic error
+(`Truncate` is gone); `rebound` recreates a dropped history partition and delegates to
+`reboundAt`. With the 48 h rule, the trim tests bound the history partition three UTC
+midnights ahead (`trimmedAhead`), and the resume test follows the fair rotation (it counts
+`sage.snapshots` turns instead of expecting every run to be one). One test logic error
 was fixed: the oldest-first test's cap left out the empty partitions' index pages.
 
 ## Test Results
 
+**Follow-up (merged with origin/master at f8c8f1a8, both follow-ups in):**
+- `internal/retention` 87.3%, `internal/partition` 84.1% on PG17 and PG14, all pass; `-race`
+  (PG17) passes. PG14 skips 2 version-gated tests (PostgreSQL 15+ features:
+  `TestPurgeGenericPlansProbeLargeTablesByIndex`, `TestConvert_ExclusiveWindowReadsNoHeap`).
+- E2E: ok (169 s), 20 passed, 13 skipped (live LLM, no key), 0 failed.
+- Perf gate (small): PASS (161 s). Lint: golangci-lint 2.11.4, 0 issues.
+- CHANGELOG released sections (`## v1.8.3` and below) byte-identical to origin/master.
+
+**Before the follow-up:**
 **Command:** `go test -cover -count=1 -p 2 ./...` (PG17, `--cpus=2`)
 **Total:** 89 packages ok, 0 failed (first full run, exit 0). A second full run with `-json`
 (to enumerate skips) passed 11,648 tests; 2 tests in `internal/analyzer` and
@@ -206,8 +239,5 @@ cmd 81.4%).
 - Fakes: none. Every test runs the real SQL against PostgreSQL 14, 17 and 18.
 
 ## What is left
-- Coordinator decision: keep or skip trimming an open history partition that closes within
-  a day (see Design, product calls).
 - `query_store` has no size cap path; its history partition drains by age only.
-- The rule rotation can starve `sage.snapshots` if `sage.query_store`'s purge spends the
-  whole budget run after run (seen on lifeos before this change); not changed here.
+- With the 48 h rule, the trim path is dormant for partitions pg_sage creates (see Design).
