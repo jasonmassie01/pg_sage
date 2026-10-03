@@ -2,9 +2,12 @@ package collector
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // No concurrent access tests: epoch reads and reset marking run on the
@@ -78,14 +81,19 @@ func TestPreflightContractCollectStatementsEpoch(t *testing.T) {
 	if err := p.QueryRow(ctx, "SELECT pg_postmaster_start_time()").Scan(&start); err != nil {
 		t.Fatal(err)
 	}
-	epoch := c.collectStatementsEpoch(ctx)
-	if epoch.IsZero() || epoch.Before(start) || epoch.After(time.Now().Add(time.Minute)) {
-		t.Fatalf("epoch = %v, want within [postmaster start %v, now]", epoch, start)
-	}
-	snap := preflightCollect(t, c)
-	if !snap.StatsEpoch.Equal(epoch) {
-		t.Fatalf("snapshot epoch = %v, want %v", snap.StatsEpoch, epoch)
-	}
+	// Another package's pg_stat_statements_reset() on the shared server
+	// moves the epoch between the two reads: repeat then.
+	pgssepoch.Attempt(t, ctx, p, 3, func() []string {
+		epoch := c.collectStatementsEpoch(ctx)
+		if epoch.IsZero() || epoch.Before(start) || epoch.After(time.Now().Add(time.Minute)) {
+			t.Fatalf("epoch = %v, want within [postmaster start %v, now]", epoch, start)
+		}
+		snap := preflightCollect(t, c)
+		if !snap.StatsEpoch.Equal(epoch) {
+			return []string{fmt.Sprintf("snapshot epoch = %v, want %v", snap.StatsEpoch, epoch)}
+		}
+		return nil
+	})
 }
 
 func TestPreflightContractStatementsEpochUnknownOnError(t *testing.T) {

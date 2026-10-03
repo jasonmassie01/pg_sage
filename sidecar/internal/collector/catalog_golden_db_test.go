@@ -39,7 +39,8 @@ CREATE TABLE golden_cat.parted_p2 PARTITION OF golden_cat.parted
   FOR VALUES FROM (10) TO (20) WITH (autovacuum_enabled = off);
 CREATE INDEX parted_id ON golden_cat.parted (id);
 INSERT INTO golden_cat.parted SELECT g, g % 20 FROM generate_series(1, 400) g;
-CREATE MATERIALIZED VIEW golden_cat.mv AS SELECT id, v FROM golden_cat.hot;
+CREATE MATERIALIZED VIEW golden_cat.mv WITH (autovacuum_enabled = off)
+  AS SELECT id, v FROM golden_cat.hot;
 CREATE UNIQUE INDEX mv_id ON golden_cat.mv (id);`
 
 // createGoldenCatalog builds the fixture and generates scans on one
