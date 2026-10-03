@@ -26,17 +26,6 @@ func optimizerFinding(verdict any) analyzer.Finding {
 	return f
 }
 
-func hasApprovalGuardrail(req policy.ActionRequest) bool {
-	if req.Contract == nil {
-		return false
-	}
-	for _, g := range req.Contract.Guardrails {
-		if g == policy.GuardrailApprovalRequired {
-			return true
-		}
-	}
-	return false
-}
 
 func TestFindingRequest_UnverifiedIndexNeedsApproval(t *testing.T) {
 	cases := []struct {
