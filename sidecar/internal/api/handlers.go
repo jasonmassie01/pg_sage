@@ -45,50 +45,28 @@ func findingsListHandler(
 			return
 		}
 		filters := parseFindingFilters(q)
-		if database == "all" && mgr.InstanceCount() > 1 {
-			findings, total, err := queryFindingsAcrossFleet(
-				r.Context(), mgr, filters,
-			)
-			if err != nil {
-				slog.Error("query fleet findings failed",
-					"error", err)
-				jsonError(w, "failed to query findings", 500)
-				return
-			}
-			jsonResponse(w, map[string]any{
-				"database": "all",
-				"filters":  filters,
-				"total":    total,
-				"offset":   filters.Offset,
-				"limit":    filters.Limit,
-				"findings": findings,
-			})
-			return
-		}
-		pool := mgr.PoolForDatabase(database)
-		displayName := mgr.ResolveDatabaseName(database)
-		if pool == nil {
-			jsonResponse(w, findingsEmptyResponse(
-				displayName, filters,
-			))
-			return
-		}
-		findings, total, err := queryFindings(
-			r.Context(), pool, filters, displayName,
-		)
+		page, err := parseListPage(q, filters.Sort, filters.Order)
 		if err != nil {
-			slog.Error("query findings failed", "error", err)
-			jsonError(w, "failed to query findings", 500)
+			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		jsonResponse(w, map[string]any{
-			"database": displayName,
-			"filters":  filters,
-			"total":    total,
-			"offset":   filters.Offset,
-			"limit":    filters.Limit,
-			"findings": findings,
-		})
+		filters.Limit, filters.Offset = page.Limit, page.Offset
+		displayName := mgr.ResolveDatabaseName(database)
+		if database == "all" && mgr.InstanceCount() > 1 {
+			displayName = "all"
+		}
+		sources := listSources(mgr, database)
+		if len(sources) == 0 {
+			jsonResponse(w, findingsEmptyResponse(displayName, filters))
+			return
+		}
+		resp, err := listFindings(r.Context(), sources, filters, page)
+		if err != nil {
+			writeListError(w, r, "findings", err)
+			return
+		}
+		resp["database"] = displayName
+		jsonResponse(w, resp)
 	}
 }
 
@@ -454,57 +432,33 @@ func actionsListHandler(
 		if rejectUnknownDatabase(w, mgr, database) {
 			return
 		}
-		limit := parseIntDefault(q.Get("limit"), 50)
-		offset := parseIntDefault(q.Get("offset"), 0)
-		from := parseTimeParam(q.Get("from"))
-		to := parseTimeParam(q.Get("to"))
-		if limit > 200 {
-			limit = 200
+		page, err := parseListPage(q, actionsSort, "desc")
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
 		}
+		req := actionsRequest{page: page, from: parseTimeParam(q.Get("from")),
+			to: parseTimeParam(q.Get("to"))}
 		displayName := responseDatabaseName(database)
 		if database == "all" && mgr.InstanceCount() == 1 {
 			displayName = mgr.ResolveDatabaseName(database)
 		}
-		if database == "all" {
-			actions, total, err := queryActionsAcrossPools(
-				r.Context(), mgr, limit, offset, from, to)
-			if err != nil {
-				slog.Error("query actions failed", "error", err)
-				jsonError(w, "failed to query actions", 500)
-				return
-			}
+		sources := poolsForDatabaseSelection(mgr, database)
+		if len(sources) == 0 {
 			jsonResponse(w, map[string]any{
-				"database": displayName, "total": total,
-				"offset": offset, "limit": limit,
-				"actions": actions,
+				"database": displayName, "total": 0, "total_capped": false,
+				"offset": page.Offset, "limit": page.Limit,
+				"actions": []any{}, "next_cursor": "",
 			})
 			return
 		}
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
-			jsonResponse(w, map[string]any{
-				"database": displayName, "total": 0,
-				"offset": offset, "limit": limit,
-				"actions": []any{},
-			})
-			return
-		}
-		actions, total, err := queryActionsWithQueueLedger(
-			r.Context(), pool, limit, offset, from, to,
-		)
+		resp, err := listActions(r.Context(), sources, req)
 		if err != nil {
-			slog.Error("query actions failed", "error", err)
-			jsonError(w, "failed to query actions", 500)
+			writeListError(w, r, "actions", err)
 			return
 		}
-		for _, action := range actions {
-			action["database_name"] = database
-		}
-		jsonResponse(w, map[string]any{
-			"database": displayName, "total": total,
-			"offset": offset, "limit": limit,
-			"actions": actions,
-		})
+		resp["database"] = displayName
+		jsonResponse(w, resp)
 	}
 }
 
@@ -617,8 +571,8 @@ func snapshotHistoryHandler(
 			jsonError(w, "database is required", http.StatusBadRequest)
 			return
 		}
-		if !validateMetric(metric) {
-			jsonError(w, "invalid metric", http.StatusBadRequest)
+		if msg := historyMetricProblem(metric); msg != "" {
+			jsonError(w, msg, http.StatusBadRequest)
 			return
 		}
 		if selected.pool == nil {
@@ -628,7 +582,7 @@ func snapshotHistoryHandler(
 			}
 			jsonResponse(w, map[string]any{
 				"database": selected.name, "metric": metric,
-				"points": []any{},
+				"points": []any{}, "truncated": false,
 			})
 			return
 		}
@@ -636,19 +590,17 @@ func snapshotHistoryHandler(
 		hours := parseIntDefault(q.Get("hours"), 24)
 		from := parseTimeParam(q.Get("from"))
 		to := parseTimeParam(q.Get("to"))
-		points, err := querySnapshotHistory(
+		points, truncated, err := querySnapshotHistory(
 			r.Context(), selected.pool, metric, hours, from, to,
 		)
 		if err != nil {
-			jsonResponse(w, map[string]any{
-				"database": displayName, "metric": metric,
-				"points": []any{},
-			})
-			return
+			slog.Warn("snapshot history query failed; answering no points",
+				"database", displayName, "metric", metric, "error", err)
+			points, truncated = []historyPoint{}, false
 		}
 		jsonResponse(w, map[string]any{
 			"database": displayName, "metric": metric,
-			"points": points,
+			"points": points, "truncated": truncated,
 		})
 	}
 }
@@ -771,7 +723,7 @@ func validateMetric(metric string) bool {
 		// Collector snapshot categories.
 		"tables": true, "indexes": true, "queries": true,
 		"sequences": true, "foreign_keys": true, "system": true,
-		"io": true, "locks": true, "config_data": true,
+		"io": true, "locks": true, "config_data": true, "replication": true,
 		"partitions": true,
 		// Dashboard time-series metrics.
 		"cache_hit_ratio": true, "connections": true,
@@ -1077,83 +1029,15 @@ func findingsEmptyResponse(
 	database string, filters fleet.FindingFilters,
 ) map[string]any {
 	return map[string]any{
-		"database": database,
-		"filters":  filters,
-		"total":    0,
-		"offset":   filters.Offset,
-		"limit":    filters.Limit,
-		"findings": []any{},
+		"database":     database,
+		"filters":      filters,
+		"total":        0,
+		"total_capped": false,
+		"offset":       filters.Offset,
+		"limit":        filters.Limit,
+		"findings":     []any{},
+		"next_cursor":  "",
 	}
-}
-
-func queryFindings(
-	ctx context.Context, pool *pgxpool.Pool,
-	f fleet.FindingFilters, database string,
-) ([]map[string]any, int, error) {
-	where, args := buildFindingsWhere(f)
-	countQ := "SELECT COUNT(*) FROM sage.findings" + where
-	var total int
-	if err := pool.QueryRow(ctx, countQ, args...).Scan(
-		&total,
-	); err != nil {
-		return nil, 0, fmt.Errorf("count findings: %w", err)
-	}
-	selectQ := findingsSelectSQL + where +
-		buildFindingsOrder(f) +
-		fmt.Sprintf(" LIMIT $%d OFFSET $%d",
-			len(args)+1, len(args)+2)
-	args = append(args, f.Limit, f.Offset)
-	rows, err := pool.Query(ctx, selectQ, args...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("query findings: %w", err)
-	}
-	defer rows.Close()
-	findings, err := scanFindingRows(rows, database)
-	if err != nil {
-		return nil, 0, err
-	}
-	return findings, total, nil
-}
-
-func queryFindingsAcrossFleet(
-	ctx context.Context, mgr *fleet.DatabaseManager,
-	f fleet.FindingFilters,
-) ([]map[string]any, int, error) {
-	local := f
-	local.Offset = 0
-	local.Limit = f.Offset + f.Limit
-	if local.Limit <= 0 {
-		local.Limit = f.Limit
-	}
-
-	var all []map[string]any
-	total := 0
-	for _, inst := range sortedFleetInstances(mgr) {
-		if inst.Pool == nil {
-			continue
-		}
-		rows, dbTotal, err := queryFindings(
-			ctx, inst.Pool, local, inst.Name,
-		)
-		if err != nil {
-			return nil, 0, err
-		}
-		total += dbTotal
-		all = append(all, rows...)
-	}
-	sortFindingMaps(all, f)
-	start := f.Offset
-	if start > len(all) {
-		start = len(all)
-	}
-	end := start + f.Limit
-	if end > len(all) {
-		end = len(all)
-	}
-	if all == nil {
-		all = []map[string]any{}
-	}
-	return all[start:end], total, nil
 }
 
 func sortedFleetInstances(
@@ -1171,137 +1055,6 @@ func sortedFleetInstances(
 	}
 	return out
 }
-
-func sortFindingMaps(rows []map[string]any, f fleet.FindingFilters) {
-	desc := f.Order != "asc"
-	sort.SliceStable(rows, func(i, j int) bool {
-		cmp := compareFindingMaps(rows[i], rows[j], f.Sort)
-		if cmp == 0 {
-			cmp = compareFindingMaps(rows[i], rows[j], "last_seen")
-			if cmp == 0 {
-				cmp = strings.Compare(
-					fmt.Sprint(rows[i]["database_name"]),
-					fmt.Sprint(rows[j]["database_name"]),
-				)
-			}
-		}
-		if f.Sort == "severity" && f.Order != "asc" {
-			return cmp < 0
-		}
-		if f.Sort == "severity" {
-			return cmp > 0
-		}
-		if desc {
-			return cmp > 0
-		}
-		return cmp < 0
-	})
-}
-
-func compareFindingMaps(a, b map[string]any, sortKey string) int {
-	switch sortKey {
-	case "severity":
-		return compareInt(
-			severitySortRank(fmt.Sprint(a["severity"])),
-			severitySortRank(fmt.Sprint(b["severity"])),
-		)
-	case "impact", "impact_score":
-		return compareNullableFloat(
-			a["impact_score"], b["impact_score"])
-	case "created_at", "last_seen":
-		return compareTimeValue(a[sortKey], b[sortKey])
-	case "category", "title":
-		return strings.Compare(
-			fmt.Sprint(a[sortKey]), fmt.Sprint(b[sortKey]))
-	default:
-		return compareTimeValue(a["last_seen"], b["last_seen"])
-	}
-}
-
-func severitySortRank(sev string) int {
-	switch sev {
-	case "critical":
-		return 1
-	case "warning":
-		return 2
-	case "info":
-		return 3
-	default:
-		return 4
-	}
-}
-
-func compareInt(a, b int) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	return 0
-}
-
-func compareNullableFloat(a, b any) int {
-	af, aok := asFloat(a)
-	bf, bok := asFloat(b)
-	if !aok && !bok {
-		return 0
-	}
-	if !aok {
-		return -1
-	}
-	if !bok {
-		return 1
-	}
-	if af < bf {
-		return -1
-	}
-	if af > bf {
-		return 1
-	}
-	return 0
-}
-
-func asFloat(v any) (float64, bool) {
-	switch x := v.(type) {
-	case *float64:
-		if x == nil {
-			return 0, false
-		}
-		return *x, true
-	case float64:
-		return x, true
-	default:
-		return 0, false
-	}
-}
-
-func compareTimeValue(a, b any) int {
-	at, aok := a.(time.Time)
-	bt, bok := b.(time.Time)
-	if !aok && !bok {
-		return 0
-	}
-	if !aok {
-		return -1
-	}
-	if !bok {
-		return 1
-	}
-	if at.Before(bt) {
-		return -1
-	}
-	if at.After(bt) {
-		return 1
-	}
-	return 0
-}
-
-const findingsSelectSQL = `/* pg_sage */SELECT id, created_at, last_seen,
- occurrence_count, category, severity, object_type,
- object_identifier, title, detail, recommendation,
- recommended_sql, rollback_sql, status, rule_id, impact_score,
- resolved_at, acted_on_at, action_log_id FROM sage.findings`
 
 func buildFindingsWhere(
 	f fleet.FindingFilters,
@@ -1425,104 +1178,6 @@ var (
 		"incident", "incident_open", "incident_resolved",
 	}
 )
-
-func buildFindingsOrder(f fleet.FindingFilters) string {
-	dir := "DESC"
-	if f.Order == "asc" {
-		dir = "ASC"
-	}
-	if f.Sort == "severity" {
-		// CASE maps critical=1, warning=2, info=3.
-		// Invert: "desc" (most severe first) → CASE ASC (1,2,3),
-		//         "asc" (least severe first) → CASE DESC (3,2,1).
-		sevDir := "ASC"
-		if f.Order == "asc" {
-			sevDir = "DESC"
-		}
-		return fmt.Sprintf(
-			" ORDER BY CASE severity"+
-				" WHEN 'critical' THEN 1"+
-				" WHEN 'warning' THEN 2"+
-				" WHEN 'info' THEN 3"+
-				" ELSE 4 END %s", sevDir)
-	}
-	// impact_score requires a tie-breaker and NULLS LAST so
-	// subsystems that don't emit an impact score don't dominate the
-	// tail of the list.
-	if f.Sort == "impact" || f.Sort == "impact_score" {
-		return fmt.Sprintf(
-			" ORDER BY impact_score %s NULLS LAST,"+
-				" CASE severity"+
-				" WHEN 'critical' THEN 1"+
-				" WHEN 'warning' THEN 2"+
-				" WHEN 'info' THEN 3"+
-				" ELSE 4 END ASC,"+
-				" last_seen DESC", dir)
-	}
-	// Allowlist sort columns to prevent injection
-	col := "last_seen"
-	allowed := map[string]string{
-		"created_at": "created_at",
-		"last_seen":  "last_seen",
-		"category":   "category",
-		"title":      "title",
-	}
-	if c, ok := allowed[f.Sort]; ok {
-		col = c
-	}
-	return fmt.Sprintf(" ORDER BY %s %s", col, dir)
-}
-
-func scanFindingRows(
-	rows pgx.Rows, database string,
-) ([]map[string]any, error) {
-	var results []map[string]any
-	for rows.Next() {
-		var (
-			id              int64
-			createdAt       time.Time
-			lastSeen        time.Time
-			occurrenceCount int
-			category        string
-			severity        string
-			objectType      *string
-			objectIdent     *string
-			title           string
-			detail          []byte
-			recommendation  *string
-			recommendedSQL  *string
-			rollbackSQL     *string
-			status          string
-			ruleID          *string
-			impactScore     *float64
-			resolvedAt      *time.Time
-			actedOnAt       *time.Time
-			actionLogID     *int64
-		)
-		err := rows.Scan(
-			&id, &createdAt, &lastSeen, &occurrenceCount,
-			&category, &severity, &objectType, &objectIdent,
-			&title, &detail, &recommendation, &recommendedSQL,
-			&rollbackSQL, &status, &ruleID, &impactScore,
-			&resolvedAt, &actedOnAt, &actionLogID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan finding: %w", err)
-		}
-		f := buildFindingMapWithAction(
-			id, createdAt, lastSeen, occurrenceCount,
-			category, severity, objectType, objectIdent,
-			title, detail, recommendation, recommendedSQL,
-			rollbackSQL, status, database, ruleID, impactScore,
-			resolvedAt, actedOnAt, actionLogID,
-		)
-		results = append(results, f)
-	}
-	if results == nil {
-		results = []map[string]any{}
-	}
-	return results, nil
-}
 
 func buildFindingMapWithAction(
 	id int64, createdAt, lastSeen time.Time,
@@ -1745,167 +1400,6 @@ func isConnectionError(err error) bool {
 	return false
 }
 
-func queryActions(
-	ctx context.Context, pool *pgxpool.Pool,
-	limit, offset int, from, to time.Time,
-) ([]map[string]any, int, error) {
-	where, args := buildActionsWhere(from, to)
-	countQ := "SELECT COUNT(*) FROM sage.action_log" + where
-	var total int
-	if err := pool.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count actions: %w", err)
-	}
-	selectQ := actionsSelectSQLPrefix + where +
-		fmt.Sprintf(" ORDER BY executed_at DESC"+
-			" LIMIT $%d OFFSET $%d",
-			len(args)+1, len(args)+2)
-	args = append(args, limit, offset)
-	rows, err := pool.Query(ctx, selectQ, args...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("query actions: %w", err)
-	}
-	defer rows.Close()
-	actions, err := scanActionRows(rows)
-	if err != nil {
-		return nil, 0, err
-	}
-	return actions, total, nil
-}
-
-func queryActionsWithQueueLedger(
-	ctx context.Context, pool *pgxpool.Pool,
-	limit, offset int, from, to time.Time,
-) ([]map[string]any, int, error) {
-	executed, total, err := queryActions(ctx, pool, limit, offset, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-	queued, qTotal, err := queryQueuedActionLedger(ctx, pool, limit, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-	merged := append(executed, queued...)
-	sort.SliceStable(merged, func(i, j int) bool {
-		return timeFromMap(merged[i], "event_at").After(
-			timeFromMap(merged[j], "event_at"))
-	})
-	if len(merged) > limit {
-		merged = merged[:limit]
-	}
-	return merged, total + qTotal, nil
-}
-
-func queryQueuedActionLedger(
-	ctx context.Context, pool *pgxpool.Pool,
-	limit int, from, to time.Time,
-) ([]map[string]any, int, error) {
-	where, args := buildQueuedActionsLedgerWhere(from, to)
-	countQ := "SELECT COUNT(*) FROM sage.action_queue q" + where
-	var total int
-	if err := pool.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count queued action ledger: %w", err)
-	}
-	selectQ := queuedActionLedgerSQL + where +
-		fmt.Sprintf(" ORDER BY q.proposed_at DESC LIMIT $%d", len(args)+1)
-	args = append(args, limit)
-	rows, err := pool.Query(ctx, selectQ, args...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("query queued action ledger: %w", err)
-	}
-	defer rows.Close()
-	actions, err := scanQueuedActionLedgerRows(rows)
-	if err != nil {
-		return nil, 0, err
-	}
-	return actions, total, nil
-}
-
-func buildQueuedActionsLedgerWhere(from, to time.Time) (string, []any) {
-	where := " WHERE q.status <> 'executed'"
-	var args []any
-	n := 1
-	if !from.IsZero() {
-		where += fmt.Sprintf(" AND q.proposed_at >= $%d", n)
-		args = append(args, from)
-		n++
-	}
-	if !to.IsZero() {
-		where += fmt.Sprintf(" AND q.proposed_at <= $%d", n)
-		args = append(args, to)
-	}
-	return where, args
-}
-
-func queryActionsAcrossPools(
-	ctx context.Context, mgr *fleet.DatabaseManager,
-	limit, offset int, from, to time.Time,
-) ([]map[string]any, int, error) {
-	pools := poolsForDatabaseSelection(mgr, "all")
-	if len(pools) == 0 {
-		return []map[string]any{}, 0, nil
-	}
-
-	merged := make([]map[string]any, 0)
-	total := 0
-	perDBLimit := limit + offset
-	if perDBLimit <= 0 {
-		perDBLimit = limit
-	}
-	for _, selected := range pools {
-		actions, dbTotal, err := queryActionsWithQueueLedger(
-			ctx, selected.pool, perDBLimit, 0, from, to)
-		if err != nil {
-			return nil, 0, fmt.Errorf(
-				"%s: %w", selected.name, err)
-		}
-		total += dbTotal
-		for _, action := range actions {
-			action["database_name"] = selected.name
-			merged = append(merged, action)
-		}
-	}
-
-	sort.SliceStable(merged, func(i, j int) bool {
-		return timeFromMap(merged[i], "executed_at").After(
-			timeFromMap(merged[j], "executed_at"))
-	})
-
-	start := offset
-	if start > len(merged) {
-		return []map[string]any{}, total, nil
-	}
-	end := start + limit
-	if end > len(merged) {
-		end = len(merged)
-	}
-	if limit == 0 {
-		end = start
-	}
-	return merged[start:end], total, nil
-}
-
-// buildActionsWhere filters executed_at BETWEEN from AND to when
-// either bound is set.
-func buildActionsWhere(from, to time.Time) (string, []any) {
-	where := ""
-	var args []any
-	n := 1
-	if !from.IsZero() {
-		where += fmt.Sprintf(" WHERE executed_at >= $%d", n)
-		args = append(args, from)
-		n++
-	}
-	if !to.IsZero() {
-		if where == "" {
-			where += fmt.Sprintf(" WHERE executed_at <= $%d", n)
-		} else {
-			where += fmt.Sprintf(" AND executed_at <= $%d", n)
-		}
-		args = append(args, to)
-	}
-	return where, args
-}
-
 func queryActionByID(
 	ctx context.Context, pool *pgxpool.Pool, id string,
 ) (map[string]any, error) {
@@ -1960,76 +1454,6 @@ func querySnapshotLatest(
 	var parsed any
 	_ = json.Unmarshal(data, &parsed)
 	return parsed, nil
-}
-
-func querySnapshotHistory(
-	ctx context.Context, pool *pgxpool.Pool,
-	metric string, hours int, from, to time.Time,
-) ([]map[string]any, error) {
-	// When explicit from/to provided, use BETWEEN semantics;
-	// otherwise fall back to the legacy last-N-hours sliding window.
-	var (
-		rows pgx.Rows
-		err  error
-	)
-	if !from.IsZero() || !to.IsZero() {
-		if from.IsZero() {
-			from = time.Unix(0, 0)
-		}
-		if to.IsZero() {
-			to = time.Now().UTC()
-		}
-		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT collected_at, `+snapstore.DataSQL("")+`
-			 FROM (
-			     SELECT collected_at, data, base_id
-			     FROM sage.snapshots
-			     WHERE category = $1
-			       AND collected_at BETWEEN $2 AND $3
-			     ORDER BY collected_at DESC
-			     LIMIT $4
-			 ) capped
-			 ORDER BY collected_at`,
-			metric, from, to, snapshotHistoryMaxPoints,
-		)
-	} else {
-		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT collected_at, `+snapstore.DataSQL("")+`
-			 FROM (
-			     SELECT collected_at, data, base_id
-			     FROM sage.snapshots
-			     WHERE category = $1
-			       AND collected_at > now() - ($2 || ' hours')::interval
-			     ORDER BY collected_at DESC
-			     LIMIT $3
-			 ) capped
-			 ORDER BY collected_at`,
-			metric, strconv.Itoa(hours), snapshotHistoryMaxPoints,
-		)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("query history: %w", err)
-	}
-	defer rows.Close()
-	var points []map[string]any
-	for rows.Next() {
-		var (
-			ts   time.Time
-			data []byte
-		)
-		if err := rows.Scan(&ts, &data); err != nil {
-			return nil, fmt.Errorf("scan snapshot: %w", err)
-		}
-		var parsed any
-		_ = json.Unmarshal(data, &parsed)
-		points = append(points, map[string]any{
-			"timestamp": ts, "data": parsed,
-		})
-	}
-	if points == nil {
-		points = []map[string]any{}
-	}
-	return points, nil
 }
 
 func derefStr(s *string) string {

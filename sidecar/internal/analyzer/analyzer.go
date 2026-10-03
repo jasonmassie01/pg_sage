@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/recommendation"
+	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
 // EventDispatcher sends notification events. Nil means no
@@ -101,6 +102,9 @@ type Analyzer struct {
 	cloneTracker *cloneTracker
 	// history remembers the regression baseline's decoded snapshots.
 	history historyCache
+	// selfCost meters pg_sage's own cost on this database (perf v1.8.3);
+	// read concurrently by /metrics.
+	selfCost *selfcost.Meter
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
@@ -137,8 +141,9 @@ func New(
 			InvalidFirstSeen: make(map[string]time.Time),
 			IndexOID:         make(map[string]uint32),
 		},
-		logFn: logFn,
-		recs:  newRecommendationStore(pool),
+		logFn:    logFn,
+		recs:     newRecommendationStore(pool),
+		selfCost: selfcost.NewMeter(),
 	}
 }
 

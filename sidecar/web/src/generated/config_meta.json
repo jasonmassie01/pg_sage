@@ -214,6 +214,11 @@
     "default": 60,
     "doc": "After pg_sage's own DDL, the schema guard re-scans the schema at most once per this many seconds (DDL bursts are coalesced into one extra scan). 0 uses the default. Range 0-3600. Default: 60."
   },
+  "analyzer.self_cost_budget_ms": {
+    "type": "int",
+    "default": 3000,
+    "doc": "Raise a sage_self_cost finding when pg_sage's own statements use more than this many ms of database time per collector cycle. 0 disables the finding. Range 0-3600000. Default: 3000."
+  },
   "analyzer.seq_scan_min_rows": {
     "type": "int",
     "default": 100000,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // cloneSignals is the evidence that decides whether a clone family is
@@ -179,19 +180,24 @@ func fanOutIssue(key string, group []Finding) Finding {
 
 // cloneSessionsSQL lists the schemas other backends of this database hold
 // relation locks in, and the statement text of its client sessions.
-const cloneSessionsSQL = `/* pg_sage */
+// pg_sage's own sessions are left out (its collector locks every sequence
+// it reads, clone schemas' included).
+var cloneSessionsSQL = `/* pg_sage */
 SELECT DISTINCT n.nspname, NULL::text
   FROM pg_catalog.pg_locks l
   JOIN pg_catalog.pg_class c ON c.oid = l.relation
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  LEFT JOIN pg_catalog.pg_stat_activity la ON la.pid = l.pid
  WHERE l.database = (SELECT oid FROM pg_catalog.pg_database
                       WHERE datname = current_database())
    AND l.pid <> pg_backend_pid()
+   AND ` + selfmonitor.ActivityExclusionSQL("la") + `
 UNION ALL
 SELECT NULL, left(lower(a.query), 4096)
   FROM pg_catalog.pg_stat_activity a
  WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
-   AND a.backend_type = 'client backend' AND COALESCE(a.query, '') <> ''`
+   AND a.backend_type = 'client backend' AND COALESCE(a.query, '') <> ''
+   AND ` + selfmonitor.ActivityExclusionSQL("a")
 
 // loadCloneSessions returns the schemas locked by other sessions and the
 // sessions' statements. On error both are nil (unknown).

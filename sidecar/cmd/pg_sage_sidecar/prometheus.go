@@ -65,6 +65,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// every fleet instance in all modes, never from the meta pool.
 	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 	writeSLOMetrics(&b, ctx, fleetMgr)
+	writeSelfCostFromFleet(&b, fleetMgr)
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

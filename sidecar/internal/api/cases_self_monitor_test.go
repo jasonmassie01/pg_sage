@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
@@ -97,4 +100,18 @@ func TestFilterSelfMonitoringHintRowsRemovesPgSageQueryText(t *testing.T) {
 	if got[0]["queryid"] != int64(200) {
 		t.Fatalf("queryid = %v, want 200", got[0]["queryid"])
 	}
+}
+
+// queryFindings reads one page of a database's findings through the list
+// endpoint's keyset query (the production helper of the same name was
+// replaced in perf v1.8.3).
+func queryFindings(
+	ctx context.Context, pool *pgxpool.Pool, f fleet.FindingFilters, db string,
+) ([]map[string]any, int, error) {
+	resp, err := listFindings(ctx, []namedPool{{name: db, pool: pool}}, f,
+		listPage{Limit: f.Limit, Offset: f.Offset})
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp["findings"].([]map[string]any), resp["total"].(int), nil
 }

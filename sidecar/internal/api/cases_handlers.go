@@ -90,10 +90,14 @@ func queryProjectedCases(
 	pools := poolsForDatabaseSelection(mgr, database)
 	out := make([]cases.Case, 0)
 	for _, selected := range pools {
-		rows, _, err := queryFindings(ctx, selected.pool, filters, selected.name)
+		// The cases view needs no total: one bounded index-ordered read.
+		page, err := queryFindingsPage(ctx, selected.pool, filters,
+			listPage{Limit: filters.Limit}, selected.name, false)
 		if err != nil {
 			return nil, err
 		}
+		rows, _ := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
+			filters.Sort, filters.Order)
 		selectedCases := make([]cases.Case, 0, len(rows))
 		findingIDs := make([]int, 0, len(rows))
 		for _, row := range rows {
@@ -389,7 +393,7 @@ func queryActionLogsByFindingIDs(
 	if pool == nil || len(findingIDs) == 0 {
 		return out, nil
 	}
-	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+`
+	rows, err := pool.Query(ctx, actionsWithAttemptsSQL(`SELECT * FROM sage.action_log
  WHERE id IN (
      SELECT id
      FROM (
@@ -402,8 +406,7 @@ func queryActionLogsByFindingIDs(
          WHERE finding_id = ANY($1)
      ) ranked
      WHERE rn <= 20
- )
- ORDER BY finding_id, executed_at DESC, id DESC`, findingIDs)
+ )`, "", "\n ORDER BY finding_id, executed_at DESC, action_log.id DESC"), findingIDs)
 	if err != nil {
 		return nil, err
 	}

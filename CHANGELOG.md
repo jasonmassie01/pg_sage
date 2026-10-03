@@ -36,6 +36,24 @@
   Upgrading converts `sage.query_store` and `sage.snapshots` once at startup: expect a
   short pause while the old tables are checked.
 
+- **pg_sage shows its own cost instead of hiding it, and its API reads stay small on big
+  histories.** pg_sage no longer turns `pg_stat_statements` tracking off for its sessions:
+  every statement it sends carries `/* pg_sage */` after its first keyword (where even
+  PostgreSQL 18 keeps it) and its sessions are named
+  `pg_sage`, so a DBA can see exactly what it costs. pg_sage leaves its own statements and
+  sessions out of everything it analyzes (index and hint advice, schema guard, leftover
+  schema detection, connection leaks), and reports its bill as `pg_sage_self_*`
+  Prometheus metrics (database time, statements, blocks, sage-table rows read and written
+  per collector cycle, sage schema size) plus a `sage_self_cost` finding above
+  `analyzer.self_cost_budget_ms` (default 3000, `0` turns the finding off). With a
+  dashboard open, live updates no longer re-count the findings, actions and health tables
+  every 2 seconds; they read the tables' change counters. The findings and actions lists
+  page with a `cursor` (`next_cursor` in each response) over new indexes, their `total`
+  stops counting at 1,000 (`total_capped` says so), and `offset` is limited to 1,000.
+  Snapshot history refuses per-object categories (`tables`, `indexes`, `queries`,
+  `sequences`, `foreign_keys`, `locks`, `partitions`, `config_data`: read them with
+  `/snapshots/latest`) and stops at 4 MB (`truncated`).
+
 - **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
   grows too big.** The collector used to store the full list of every table, index,
   sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal

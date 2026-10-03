@@ -33,7 +33,7 @@ func BuildTableContexts(
 	// Capture plans once for ALL queries, then filter per-table.
 	var allPlans []PlanSummary
 	if planner != nil {
-		plans, source := planner.CapturePlans(ctx, snap.Queries)
+		plans, source := planner.CapturePlans(ctx, applicationQueries(snap.Queries))
 		allPlans = plans
 		if len(plans) > 0 {
 			planSource = source
@@ -103,7 +103,7 @@ func groupQueriesByTable(
 	snap *collector.Snapshot,
 ) map[string][]QueryInfo {
 	result := make(map[string][]QueryInfo)
-	for _, q := range snap.Queries {
+	for _, q := range applicationQueries(snap.Queries) {
 		tables := extractTablesFromQuery(q.Query)
 		qi := QueryInfo{
 			QueryID:     q.QueryID,

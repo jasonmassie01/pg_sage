@@ -17,6 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -47,7 +48,9 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 	poolCfg.MinConns = 1
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
-	poolCfg.AfterConnect = silenceSelfStats
+	// pg_sage's sessions are named and its statements tagged, not hidden
+	// from pg_stat_statements: a DBA sees its cost (perf v1.8.3).
+	selfmonitor.ConfigurePool(poolCfg)
 
 	const maxAttempts = 5
 	backoff := 1 * time.Second
@@ -236,15 +239,12 @@ func connectMonitoredDBContext(
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	poolCfg.HealthCheckPeriod = 30 * time.Second
 
-	// Tag every pool connection with a stable application_name so the
-	// analyzer/executor can recognize all sidecar backends (not just the
-	// one returned by pg_backend_pid() on some arbitrary pool conn) when
-	// deciding whether a query is safe to terminate.
-	if poolCfg.ConnConfig.RuntimeParams == nil {
-		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
-	}
-	poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
-	poolCfg.AfterConnect = silenceSelfStats
+	// A stable application_name lets the analyzer and executor recognize
+	// every sidecar backend (not just pg_backend_pid() of one pool conn)
+	// when deciding whether a query is safe to terminate; every statement
+	// carries the /* pg_sage */ tag so pg_stat_statements shows pg_sage's
+	// cost and pg_sage's own analysis leaves it out.
+	selfmonitor.ConfigurePool(poolCfg)
 
 	const maxAttempts = 5
 	backoff := 1 * time.Second
