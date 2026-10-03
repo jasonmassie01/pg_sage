@@ -34,6 +34,8 @@ type Forecaster struct {
 
 	mu            sync.Mutex
 	lastEvaluated []string
+	// history remembers the decoded daily samples across runs.
+	history dayHistory
 }
 
 // New creates a new Forecaster.
@@ -73,13 +75,13 @@ func (f *Forecaster) Forecast(
 		all = append(all, forecastCheckpointPressure(sysAggs, f.cfg)...)
 		evaluated = append(evaluated, systemForecastCategories...)
 	}
-	if qAggs, err := QueryDailyQueryAggs(ctx, f.pool, f.cfg.LookbackDays); err != nil {
+	if qAggs, err := f.dailyQueryAggs(ctx); err != nil {
 		f.logFn("WARN", "forecaster: query aggs: %v", err)
 	} else {
 		all = append(all, forecastQueryVolume(qAggs, f.cfg)...)
 		evaluated = append(evaluated, queryForecastCategories...)
 	}
-	if seqAggs, err := QueryDailySeqAggs(ctx, f.pool, f.cfg.LookbackDays); err != nil {
+	if seqAggs, err := f.dailySeqAggs(ctx); err != nil {
 		f.logFn("WARN", "forecaster: seq aggs: %v", err)
 	} else {
 		all = append(all, forecastSequenceExhaustion(seqAggs, f.cfg)...)
