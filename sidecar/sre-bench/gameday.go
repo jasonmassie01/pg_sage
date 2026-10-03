@@ -22,6 +22,12 @@ type GameDayOptions struct {
 	Families []string
 	// Scenarios limits the run to these scenario ids; empty runs all.
 	Scenarios []string
+	// MinRunsPerFamily repeats every scenario until each selected family
+	// has at least this many top-1 runs (0: once).
+	MinRunsPerFamily int
+	// PgSageVersion and PgSageCommit stamp the report with the running
+	// pg_sage build.
+	PgSageVersion, PgSageCommit string
 }
 
 // OpenEnv bootstraps the sage schema on dsn's database and returns the
@@ -100,12 +106,20 @@ func RunGameDay(ctx context.Context, dsn string, opts GameDayOptions,
 	if err := env.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
 		return nil, fmt.Errorf("game day: server version: %w", err)
 	}
-	cfg := RunConfig{Repeats: 1, Live: []LiveArm{CausalGraph{}}}
-	results := Run(ctx, env, scenarios, cfg)
-	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
-		Pending: cfg.Pending(), Repeats: 1, ServerVersion: version,
-		GeneratedAt: now.UTC()})
-	return json.Marshal(report)
+	cfg, meta := gameDayRun(scenarios, opts, version, now)
+	return json.Marshal(BuildReport(Run(ctx, env, scenarios, cfg), meta))
+}
+
+// gameDayRun is the run configuration and report metadata of a game day
+// (or a local bench run): the deterministic causal graph only, repeated
+// until every selected family reaches opts.MinRunsPerFamily.
+func gameDayRun(scenarios []Scenario, opts GameDayOptions, serverVersion string,
+	now time.Time) (RunConfig, ReportMeta) {
+	repeats := RepeatsFor(scenarios, opts.MinRunsPerFamily)
+	cfg := RunConfig{Repeats: repeats, Live: []LiveArm{CausalGraph{}}}
+	return cfg, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(), Pending: cfg.Pending(),
+		Repeats: repeats, ServerVersion: serverVersion, GeneratedAt: now.UTC(),
+		PgSageVersion: opts.PgSageVersion, PgSageCommit: opts.PgSageCommit}
 }
 
 // GameDayFaults adapts RunGameDay to the game-day runner.
@@ -114,6 +128,10 @@ type GameDayFaults struct {
 	Scenarios []string
 	// Now stamps the report (default time.Now).
 	Now func() time.Time
+	// MinRunsPerFamily, PgSageVersion and PgSageCommit are passed to
+	// every run (GameDayOptions).
+	MinRunsPerFamily            int
+	PgSageVersion, PgSageCommit string
 }
 
 // Run runs the fault programs of families against dsn.
@@ -123,6 +141,7 @@ func (f GameDayFaults) Run(ctx context.Context, dsn string, families []string) (
 	if f.Now != nil {
 		now = f.Now
 	}
-	return RunGameDay(ctx, dsn, GameDayOptions{Families: families, Scenarios: f.Scenarios},
-		now())
+	return RunGameDay(ctx, dsn, GameDayOptions{Families: families, Scenarios: f.Scenarios,
+		MinRunsPerFamily: f.MinRunsPerFamily, PgSageVersion: f.PgSageVersion,
+		PgSageCommit: f.PgSageCommit}, now())
 }

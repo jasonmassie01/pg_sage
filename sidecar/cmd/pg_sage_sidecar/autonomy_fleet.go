@@ -22,7 +22,7 @@ import (
 func autonomyAPIDeps(mgr *fleet.DatabaseManager, control *pgxpool.Pool) *api.AutonomyDeps {
 	ledgers := processAutonomy()
 	deps := &api.AutonomyDeps{Ledgers: ledgers.registry, GameDays: ledgers.gameDays,
-		FastElevation: cfg.LoweredElevation()}
+		LocalBench: ledgers.localBenches, FastElevation: cfg.LoweredElevation()}
 	if mgr == nil || control == nil {
 		return deps
 	}

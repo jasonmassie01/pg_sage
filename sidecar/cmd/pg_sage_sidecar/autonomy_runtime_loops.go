@@ -13,7 +13,8 @@ import (
 	srebench "github.com/pg-sage/sidecar/sre-bench"
 )
 
-// benchIngestInterval is how often bench_results_path is re-read.
+// benchIngestInterval is how often the shipped bench reports and
+// bench_results_path are re-read.
 const benchIngestInterval = time.Hour
 
 // gameDayCheckInterval is how often a due game day is looked for.
@@ -70,9 +71,8 @@ func (rt *databaseRuntime) startAutonomyLoops() {
 		})
 	})
 	rt.start(func() { every(rt.ctx, settings.EvaluateInterval(), evaluator(entry.Service)) })
-	if path := settings.BenchResultsPath; path != "" {
-		rt.start(func() { every(rt.ctx, benchIngestInterval, benchIngester(entry.Service, path)) })
-	}
+	rt.start(func() { every(rt.ctx, benchIngestInterval, benchIngester(entry.Service, settings)) })
+	rt.startLocalBench(entry.Service, settings)
 	rt.startGameDays(entry.Service, settings)
 	rt.start(func() {
 		<-rt.ctx.Done()
@@ -92,18 +92,6 @@ func evaluator(svc *earned.Service) func(context.Context) {
 		for _, p := range created {
 			logInfo("autonomy", "proposed %s/%s %s -> %s: an admin must approve it",
 				p.Family, p.Class, p.From, p.To)
-		}
-	}
-}
-
-func benchIngester(svc *earned.Service, path string) func(context.Context) {
-	return func(ctx context.Context) {
-		n, err := ingestBenchPath(ctx, svc, path)
-		if err != nil {
-			logWarn("autonomy", "ingest bench reports from %s: %v", path, err)
-		}
-		if n > 0 {
-			logInfo("autonomy", "ingested %d new PGIncidentBench reports", n)
 		}
 	}
 }

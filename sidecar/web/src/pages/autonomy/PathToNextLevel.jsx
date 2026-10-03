@@ -1,9 +1,12 @@
 // Phase 1.1 (2026-10-02) promotion coach: for every family x class that
 // can still rise, each unmet check of its next level as one instruction
 // with its counts (from the server's "how") and, where the rule implies
-// one, an ETA. It explains the bar; it never lowers it.
+// one, an ETA. It explains the bar; it never lowers it. Roadmap 1.1
+// (2026-10-03): it shows each family's bench provenance and offers "Run
+// bench locally" where bench evidence is missing.
 
 import { checkText } from './checkText'
+import { BenchEvidence, RunBenchLocally } from './BenchEvidence'
 
 const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 const muted = { color: 'var(--text-secondary)' }
@@ -15,8 +18,9 @@ function climbable(families) {
     .map(row => ({ family: f.family, row })))
 }
 
-export function PathToNextLevel({ families }) {
+export function PathToNextLevel({ families, benchRuns, canRunBench, onRunBench }) {
   const pairs = climbable(families)
+  const climbing = families.filter(f => pairs.some(p => p.family === f.family))
   return (
     <div className="rounded border p-3 space-y-2" style={card}
       data-testid="path-to-next-level">
@@ -32,15 +36,20 @@ export function PathToNextLevel({ families }) {
           promotion waiting for an admin.
         </div>
       )}
+      {climbing.length > 0 && (
+        <BenchEvidence families={climbing} benchRuns={benchRuns} />
+      )}
       {pairs.map(({ family, row }) => (
-        <PairPath key={`${family}-${row.class}`} family={family} row={row} />
+        <PairPath key={`${family}-${row.class}`} family={family} row={row}
+          bench={{ benchRuns, canRun: canRunBench, onRun: onRunBench }} />
       ))}
     </div>
   )
 }
 
-function PairPath({ family, row }) {
+function PairPath({ family, row, bench }) {
   const unmet = (row.next.checks || []).filter(c => !c.met)
+  const needsBench = unmet.some(c => c.name.startsWith('bench_'))
   return (
     <div data-testid={`path-${family}-${row.class}`} className="text-xs">
       <div style={strong}>
@@ -64,6 +73,10 @@ function PairPath({ family, row }) {
             </li>
           ))}
         </ul>
+      )}
+      {!row.next.met && needsBench && (
+        <RunBenchLocally family={family} benchRuns={bench.benchRuns}
+          canRun={bench.canRun} onRun={bench.onRun} />
       )}
     </div>
   )

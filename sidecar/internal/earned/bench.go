@@ -44,16 +44,19 @@ type wireCell struct {
 }
 
 type wireReport struct {
-	Schema      string     `json:"schema"`
-	GeneratedAt time.Time  `json:"generated_at"`
-	Gated       []string   `json:"gated_arms"`
-	Cells       []wireCell `json:"cells"`
+	Schema        string     `json:"schema"`
+	GeneratedAt   time.Time  `json:"generated_at"`
+	PgSageVersion string     `json:"pg_sage_version"`
+	PgSageCommit  string     `json:"pg_sage_commit"`
+	Gated         []string   `json:"gated_arms"`
+	Cells         []wireCell `json:"cells"`
 }
 
 // ParseBenchReport reads a PGIncidentBench JSON report: the schema must
 // match, the report must not come from the future, every cell must be a
-// consistent proportion. The per-run records are not kept. now bounds
-// the generation time.
+// consistent proportion, and the pg_sage build it names (if any) must be
+// well formed. The per-run records are not kept. now bounds the
+// generation time.
 func ParseBenchReport(raw []byte, now time.Time) (EvalRun, error) {
 	if len(raw) == 0 || len(raw) > MaxReportBytes {
 		return EvalRun{}, fmt.Errorf("%w: report size %d (1..%d bytes)",
@@ -70,8 +73,12 @@ func ParseBenchReport(raw []byte, now time.Time) (EvalRun, error) {
 	if err := w.validate(now); err != nil {
 		return EvalRun{}, err
 	}
+	build := Build{Version: w.PgSageVersion, Commit: w.PgSageCommit}.Normalized()
+	if err := build.validate(); err != nil {
+		return EvalRun{}, err
+	}
 	sum := sha256.Sum256(raw)
-	run := EvalRun{Schema: w.Schema, GeneratedAt: w.GeneratedAt.UTC(),
+	run := EvalRun{Schema: w.Schema, GeneratedAt: w.GeneratedAt.UTC(), Build: build,
 		Gated: append([]string{}, w.Gated...), SHA256: hex.EncodeToString(sum[:])}
 	for _, c := range w.Cells {
 		run.Cells = append(run.Cells, Cell{Arm: c.Arm, Family: c.Family, Pending: c.Pending,

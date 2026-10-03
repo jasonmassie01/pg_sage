@@ -50,6 +50,7 @@ export function AutonomyPage({ database, user }) {
     30000)
   const gameDays = useAPI(`/api/v1/sre/autonomy/game-days${q}`, 60000)
   const rollouts = useAPI('/api/v1/sre/autonomy/rollouts', 60000)
+  const benchRuns = useAPI(`/api/v1/sre/autonomy/bench-runs${q}`, 15000)
   const [actionError, setActionError] = useState(null)
 
   if (view.loading) return <LoadingSpinner />
@@ -86,7 +87,12 @@ export function AutonomyPage({ database, user }) {
       <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
         onDecide={(id, verb, note) => run(
           `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
-      <PathToNextLevel families={families} />
+      <PathToNextLevel families={families} benchRuns={benchRuns.data}
+        canRunBench={role === 'admin'}
+        onRunBench={async family => {
+          await run(`/api/v1/sre/autonomy/bench-runs${q}`, { families: [family] })
+          benchRuns.refetch?.()
+        }} />
       {families.map(f => (
         <FamilyTable key={f.family} family={f} canAct={canAct}
           onDowngrade={body => run(`/api/v1/sre/autonomy/downgrade${q}`, body)} />
@@ -128,7 +134,10 @@ function Header({ data }) {
             style={{ border: '1px solid var(--red)', color: 'var(--red)' }}>
             Earned autonomy is not enforced (sre.autonomy.enforce: false)</span>}
         <span>Database: {data?.database}</span>
-        <span>Bench report: {bench ? bench.generated_at : 'none ingested'}</span>
+        <span data-testid="newest-bench">
+          Newest bench report: {bench ? `${bench.provenance}, ${bench.generated_at}`
+            : 'none for this pg_sage build'}
+        </span>
       </div>
       <FastElevation info={data?.fast_elevation} />
     </div>

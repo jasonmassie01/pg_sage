@@ -30,6 +30,10 @@ jobs:
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
       SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench
+      # Roadmap 1.1: every PGIncidentBench report names the pg_sage build it
+      # scored, so a sidecar refuses a report made for another build.
+      SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
+      SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
       PGHOST: localhost
       PGPORT: "5432"
       PGUSER: postgres
@@ -126,6 +130,9 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core
+          # A release report must meet the promotion bar's n >= 10 per
+          # family (the smallest family has 3 scored scenarios).
+          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
@@ -141,6 +148,9 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive
+          # A release report must meet the promotion bar's n >= 10 per
+          # family (the smallest family has 3 scored scenarios).
+          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
@@ -156,6 +166,9 @@ jobs:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
           SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway
+          # A release report must meet the promotion bar's n >= 10 per
+          # family (the smallest family has 3 scored scenarios).
+          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
@@ -290,14 +303,89 @@ jobs:
           version: v2.11.4
           args: --timeout 5m
 
-  docker:
+  # Roadmap 1.1: sign this commit's PGIncidentBench reports keyless
+  # (Sigstore, GitHub OIDC; no key to keep) for the image and the release.
+  # Verified twice before anything ships them: by cosign and by pg_sage's
+  # own verifier with the trusted root the binaries will embed.
+  bench-sign:
     runs-on: ubuntu-latest
-    needs: [test, lint]
-    # master pushes publish :edge and :sha-*; release tags publish the
-    # semver tags and move :latest, so :latest is always a release.
+    needs: test
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pgincidentbench-pg17
+          path: sidecar/release-bench
+
+      - name: Refresh the embedded Sigstore trusted root (TUF)
+        working-directory: sidecar
+        run: go run ./cmd/sigstore_trusted_root -o internal/benchsig/trusted_root.json
+
+      - uses: sigstore/cosign-installer@v4
+
+      - name: Sign the PGIncidentBench reports (keyless)
+        working-directory: sidecar/release-bench
+        run: |
+          set -euo pipefail
+          # Ship the shard reports only (the replay report is not ledger
+          # evidence and would be refused at every ingest).
+          find . -maxdepth 1 -type f ! -name README.md -delete
+          reports=(*/pgincidentbench.json)
+          test "${#reports[@]}" -eq 3
+          for f in "${reports[@]}"; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+
+      - name: Verify the signatures (cosign and pg_sage)
+        working-directory: sidecar
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
+          ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          set -euo pipefail
+          for f in release-bench/*/pgincidentbench.json; do
+            cosign verify-blob --bundle "$f.sigstore.json" --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer "$ISSUER" "$f"
+            go run ./cmd/pg_sage_sidecar bench verify --commit "$GITHUB_SHA" "$f"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgincidentbench-signed
+          path: sidecar/release-bench/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sigstore-trusted-root
+          path: sidecar/internal/benchsig/trusted_root.json
+          if-no-files-found: error
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [test, lint, bench-sign]
+    # master pushes publish :edge and :sha-*; release tags publish the
+    # semver tags and move :latest, so :latest is always a release.
+    # A tag image needs verified signed bench reports; :edge is published
+    # without them when bench-sign fails or is skipped (the sidecar starts
+    # cleanly with no shipped reports).
+    if: >-
+      always() && github.event_name == 'push' &&
+      needs.test.result == 'success' && needs.lint.result == 'success' &&
+      (github.ref == 'refs/heads/master' ||
+       (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success'))
     permissions:
       packages: write
     steps:
@@ -321,6 +409,21 @@ jobs:
             type=edge,branch=master
             type=sha
 
+      # The image carries this commit's signed bench reports at
+      # /usr/share/pg_sage/bench (an air-gapped install has them) and the
+      # trusted root they were verified with.
+      - uses: actions/download-artifact@v4
+        if: needs.bench-sign.result == 'success'
+        with:
+          name: pgincidentbench-signed
+          path: sidecar/release-bench
+
+      - uses: actions/download-artifact@v4
+        if: needs.bench-sign.result == 'success'
+        with:
+          name: sigstore-trusted-root
+          path: sidecar/internal/benchsig
+
       - uses: docker/build-push-action@v6
         with:
           context: sidecar/
@@ -335,7 +438,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, bench-sign]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -355,6 +458,28 @@ jobs:
       # (--skip=validate); the checkout is the exact tag.
       - name: Build web UI
         run: cd sidecar/web && npm ci && npm run build
+
+      # Roadmap 1.1: the archives carry the signed bench reports in bench/
+      # next to the binary, and the release lists them as assets.
+      - uses: actions/download-artifact@v4
+        with:
+          name: pgincidentbench-signed
+          path: bench
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sigstore-trusted-root
+          path: sidecar/internal/benchsig
+
+      - name: Stage the signed bench reports as release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          for shard in core reactive runway; do
+            for ext in json json.sigstore.json md; do
+              cp "bench/$shard/pgincidentbench.$ext" "release-assets/pgincidentbench-$shard.$ext"
+            done
+          done
 
       # cgo release: goreleaser-cross carries a C cross-compiler per target
       # (osxcross for darwin) so libpg_query links into every binary.
