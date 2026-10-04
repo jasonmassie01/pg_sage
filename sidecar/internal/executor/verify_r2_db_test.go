@@ -81,7 +81,8 @@ func reindexAction(t *testing.T, bloat bool, meanAfterMs float64) (*Executor, in
 	seedQuerySamples(t, ctx, exec.pool, qid, executedAt.Add(time.Second), 110, 40,
 		meanAfterMs)
 	id := insertVerifiedAction(t, exec.pool, verifiedActionRow{sql: sql,
-		before: withTarget(t, before, qid), executedAt: executedAt})
+		before: withTarget(t, before, qid), executedAt: executedAt,
+		decisionID: insertParkDecision(t, ctx, exec.pool)})
 	return exec, id, ctx
 }
 
@@ -174,7 +175,7 @@ func statisticsAction(t *testing.T, meanAfterMs float64) (*Executor, int64,
 			if _, err := pool.Exec(ctx, `INSERT INTO sage.explain_cache (captured_at,
 				queryid, query_text, plan_json, source)
 				VALUES ($1, $2, $3, $4::jsonb, 'auto_explain_log')`,
-				at.Add(time.Duration(i)*time.Second), qid, query, plan); err != nil {
+				at.Add(time.Duration(i)*time.Millisecond), qid, query, plan); err != nil {
 				t.Fatalf("store plan: %v", err)
 			}
 		}
