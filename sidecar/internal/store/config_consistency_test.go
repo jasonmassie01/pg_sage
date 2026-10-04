@@ -135,6 +135,7 @@ var excludedExactKeys = map[string]bool{
 	"llm.optimizer.rejection_memory.mean_time_ratio":    true,
 	"llm.optimizer.rejection_memory.row_estimate_ratio": true,
 	"llm.optimizer.rejection_memory.prompt_max_shapes":  true,
+	"llm.optimizer.rejection_memory.skip_llm_after":     true,
 
 	// Advisor sub-fields not exposed as overrides.
 	"advisor.vacuum_enabled":     true,
