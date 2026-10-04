@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Errors. Each is distinguishable with errors.Is; details are wrapped.
@@ -43,7 +43,7 @@ type Options struct {
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// Excluded reports statements that are not application workload;
-	// nil means pg_sage's own statements.
+	// nil means the workload rule (workload.Excluded).
 	Excluded func(query string) bool
 	// Log receives diagnostics; nil discards them.
 	Log func(level, format string, args ...any)
@@ -64,8 +64,7 @@ func New(pool *pgxpool.Pool, opts Options) *Tools {
 		opts.Now = time.Now
 	}
 	if opts.Excluded == nil {
-		// TODO(#110): use workload.Excluded once merged
-		opts.Excluded = selfmonitor.IsQueryText
+		opts.Excluded = workload.Excluded
 	}
 	if opts.Log == nil {
 		opts.Log = func(string, string, ...any) {}
