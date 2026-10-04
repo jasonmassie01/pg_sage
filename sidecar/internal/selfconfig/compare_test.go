@@ -124,7 +124,7 @@ func TestJudgeTempFileThreshold(t *testing.T) {
 // Observations feed the soak samples from the same evidence the rules use.
 func TestObservations(t *testing.T) {
 	cfg := config.DefaultConfig()
-	ev := Evidence{CollectorCostMs: Known(450), CatalogScanMs: Known(80),
+	ev := Evidence{CollectorCycleMs: Known(450), CatalogScanMs: Known(80),
 		SequenceScanMs: Known(30), TempBytesPerSecond: Known(float64(1<<20) / 3),
 		MaxConnections: Known(100)}
 	for key, want := range map[string]float64{

@@ -97,7 +97,7 @@ func TestLiveKeyPromotedAfterSoakAndApplied(t *testing.T) {
 	pool, _ := testPool(t)
 	e, clk := newTestEngine(pool)
 	cfg := defaults()
-	ev := Evidence{CollectorCostMs: Known(1800), Relations: Known(9000)}
+	ev := Evidence{CollectorCycleMs: Known(1800), Relations: Known(9000)}
 	reconcile(t, e, Input{Cfg: cfg, OperatorSet: noOperator(), Evidence: ev,
 		Phase: PhaseStartup})
 	for i := 0; i < 3; i++ {
@@ -336,5 +336,31 @@ func TestSummaryNamesEveryKey(t *testing.T) {
 	}
 	if Summary(nil) != "none" {
 		t.Errorf("empty summary %q", Summary(nil))
+	}
+}
+
+// Regression (found by the full suite, TestFleetCollectionStatusUsesManagedCollector):
+// a runtime value that neither the operator set in a file nor derivation
+// promoted (set programmatically, by a fleet default, by a test) is never
+// overwritten with the product default.
+func TestUnderivedRuntimeValueIsNeverOverwritten(t *testing.T) {
+	pool, _ := testPool(t)
+	e, clk := newTestEngine(pool)
+	cfg := defaults()
+	cfg.Collector.IntervalSeconds = 1
+	cfg.Safety.QueryTimeoutMs = 750
+	in := Input{Cfg: cfg, OperatorSet: noOperator(), Evidence: Evidence{},
+		Phase: PhaseStartup}
+	got := reconcile(t, e, in)
+	clk.Advance(time.Hour)
+	in.Phase = PhaseLive
+	reconcile(t, e, in)
+	if cfg.Collector.IntervalSeconds != 1 || cfg.Safety.QueryTimeoutMs != 750 {
+		t.Fatalf("runtime values overwritten: %d %d", cfg.Collector.IntervalSeconds,
+			cfg.Safety.QueryTimeoutMs)
+	}
+	if r := got["collector.interval_seconds"]; r.Applied || r.Value != 1 ||
+		r.Status != StatusDefault {
+		t.Fatalf("collector result %+v", r)
 	}
 }

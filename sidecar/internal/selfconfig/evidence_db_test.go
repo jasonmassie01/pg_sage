@@ -5,14 +5,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Evidence is read from the real catalog: relation and sequence counts,
 // how long the catalog and sequence scans take, the server's connection
 // limit and the database's temp-file counters.
 
-func TestGatherReadsTheCatalog(t *testing.T) {
-	pool, ctx := testPool(t)
+func seedEvidenceSchema(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
+	t.Helper()
 	for _, stmt := range []string{
 		"DROP SCHEMA IF EXISTS sc_evidence CASCADE",
 		"CREATE SCHEMA sc_evidence",
@@ -27,6 +29,11 @@ func TestGatherReadsTheCatalog(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS sc_evidence CASCADE")
 	})
+}
+
+func TestGatherReadsTheCatalog(t *testing.T) {
+	pool, ctx := testPool(t)
+	seedEvidenceSchema(t, pool, ctx)
 	var relations, sequences, maxConns float64
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM pg_class),
 		(SELECT count(*) FROM pg_sequences),
@@ -60,8 +67,12 @@ func TestGatherReadsTheCatalog(t *testing.T) {
 		t.Errorf("temp counters %+v %+v %+v", ev.TempBytes, ev.StatsAgeSeconds,
 			ev.TempBytesPerSecond)
 	}
-	if ev.CollectorCostMs.Known {
-		t.Error("Gather claims a collector cost; only the runtime measures it")
+	// The collector cycle estimate is the catalog scan plus the statements
+	// read (zero when pg_stat_statements is absent).
+	if !ev.CollectorCycleMs.Known ||
+		ev.CollectorCycleMs.Value != ev.CatalogScanMs.Value+ev.StatementsScanMs.Value {
+		t.Errorf("collector cycle %+v, catalog %+v, statements %+v", ev.CollectorCycleMs,
+			ev.CatalogScanMs, ev.StatementsScanMs)
 	}
 	if ev.At.Before(before) {
 		t.Errorf("evidence time %v before the call %v", ev.At, before)

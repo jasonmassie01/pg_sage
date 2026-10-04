@@ -61,7 +61,9 @@ func newTestRunner(pool *pgxpool.Pool, cfg *config.Config, logs *logCapture) *se
 	now := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
 	e.Now = func() time.Time { return now }
 	return &selfConfigRunner{name: "orders", pool: pool, cfg: cfg, engine: e,
-		gather: selfconfig.Gather, logInfo: logs.log, logWarn: logs.log}
+		gather: func(ctx context.Context) (selfconfig.Evidence, error) {
+			return selfconfig.Gather(ctx, pool)
+		}, logInfo: logs.log, logWarn: logs.log}
 }
 
 func byKey(results []selfconfig.Result) map[string]selfconfig.Result {
@@ -107,9 +109,14 @@ func TestSelfConfigOperatorSetFromFileAndOverrides(t *testing.T) {
 		0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.NewConfigStore(pool).SetOverride(t.Context(),
-		"collector.interval_seconds", "120", 0, 0); err != nil {
+	// A global API override (no user: the override FK needs a real one).
+	if _, err := pool.Exec(t.Context(), `INSERT INTO sage.config (key, value)
+		VALUES ('collector.interval_seconds', '120')`); err != nil {
 		t.Fatalf("seed override: %v", err)
+	}
+	if got, err := store.NewConfigStore(pool).GetOverrides(t.Context(), 0); err != nil ||
+		len(got) == 0 {
+		t.Fatalf("seeded override not visible as a global override: %v %v", got, err)
 	}
 	cfg := config.DefaultConfig()
 	cfg.SRE.Detectors.LWLockWaiters = 12
@@ -119,7 +126,7 @@ func TestSelfConfigOperatorSetFromFileAndOverrides(t *testing.T) {
 	r.configPath, r.controlPool = path, pool
 	r.gather = func(context.Context) (selfconfig.Evidence, error) {
 		return selfconfig.Evidence{MaxConnections: selfconfig.Known(3000),
-			CollectorCostMs: selfconfig.Known(5000)}, nil
+			CollectorCycleMs: selfconfig.Known(5000)}, nil
 	}
 	results, err := r.pass(t.Context(), selfconfig.PhaseStartup)
 	if err != nil {
@@ -212,32 +219,42 @@ func TestSelfConfigPartialEvidence(t *testing.T) {
 	}
 }
 
-// The collector's measured self-cost feeds the collector interval rule;
-// the temp rate is measured between passes.
-func TestSelfConfigLivePassUsesTheCollectorCost(t *testing.T) {
+// A live pass derives from fresh evidence each time; the temp-file rate is
+// measured between passes (delta), not since the statistics reset.
+func TestSelfConfigLivePassMeasuresTheTempRateBetweenPasses(t *testing.T) {
 	pool := selfConfigPool(t)
 	cfg := config.DefaultConfig()
 	logs := &logCapture{}
 	r := newTestRunner(pool, cfg, logs)
-	r.cost = func() (float64, bool) { return 1800, true }
+	t1 := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	samples := []selfconfig.Evidence{
+		{At: t1, TempBytes: selfconfig.Known(0),
+			TempBytesPerSecond: selfconfig.Known(1)},
+		// 1 GiB in 60 s since the previous pass: 4.3 GiB per 300 s window.
+		{At: t1.Add(time.Minute), TempBytes: selfconfig.Known(1 << 30),
+			TempBytesPerSecond: selfconfig.Known(1)},
+	}
+	pass := 0
 	r.gather = func(context.Context) (selfconfig.Evidence, error) {
-		return selfconfig.Evidence{}, nil
+		ev := samples[pass]
+		pass++
+		return ev, nil
 	}
 	results, err := r.pass(t.Context(), selfconfig.PhaseLive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := byKey(results)["collector.interval_seconds"]; got.Shadow == nil ||
-		*got.Shadow != 180 {
-		t.Fatalf("collector interval from the measured cost: %+v", got)
+	if got := byKey(results)["sre.detectors.temp_file_mb"]; got.Shadow != nil {
+		t.Fatalf("1 B/s since the reset derived a threshold: %+v", got)
 	}
-	r.cost = func() (float64, bool) { return 0, false }
 	results, err = r.pass(t.Context(), selfconfig.PhaseLive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := byKey(results)["collector.interval_seconds"]; got.Shadow == nil {
-		t.Fatalf("an unknown cost dropped the shadow: %+v", got)
+	// 1 GiB/60 s * 300 s = 5120 MiB per window; 4x = 20480 MiB.
+	if got := byKey(results)["sre.detectors.temp_file_mb"]; got.Shadow == nil ||
+		*got.Shadow != 20480 {
+		t.Fatalf("temp threshold from the rate between passes: %+v", got)
 	}
 }
 

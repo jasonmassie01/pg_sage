@@ -25,6 +25,7 @@ var excludedPrefixes = []string{
 	"briefing.",
 	"databases.",
 	"defaults.",
+	"self_config.", // derivation switch and soak: YAML only, safety-critical, restart-bound
 }
 
 // excludedExactKeys are individual keys that exist in the Config

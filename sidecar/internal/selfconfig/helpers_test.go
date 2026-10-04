@@ -89,7 +89,7 @@ func heavyEvidence() Evidence {
 		SequenceScanMs:     Known(1500),    // sequence interval 1500
 		MaxConnections:     Known(1000),    // lwlock waiters 20
 		TempBytesPerSecond: Known(7158279), // ~2048 MiB per 300 s: temp 8192
-		CollectorCostMs:    Known(1800),    // collector interval 180
+		CollectorCycleMs:   Known(1800),    // collector interval 180
 	}
 }
 

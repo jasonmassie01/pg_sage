@@ -87,8 +87,6 @@ func settingsByKey(t *testing.T, body map[string]any) map[string]map[string]any 
 	return out
 }
 
-func viewerUser() *auth.User { return &auth.User{ID: 3, Email: "v@test.com", Role: "viewer"} }
-
 func TestDerivedSettingsListsEveryKeyWithEvidence(t *testing.T) {
 	pool, _ := phase2RequireDB(t)
 	cleanDerived(t, pool)

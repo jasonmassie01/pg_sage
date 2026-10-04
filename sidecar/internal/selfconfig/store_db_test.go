@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Integration (real Postgres): pin current / unpin state transitions and
@@ -41,15 +43,7 @@ func TestPinCurrentAndUnpin(t *testing.T) {
 		entries[0].Actor != "admin@example.com" {
 		t.Fatalf("pin ledger %+v", entries)
 	}
-	// Pinning again is a no-op: no second ledger row.
-	before := ledgerCount(t, pool, "sre.detectors.lwlock_waiters", "pinned")
-	if again, err := e.Store.Pin(ctx, "sre.detectors.lwlock_waiters", "x"); err != nil ||
-		again.PinnedBy != "admin@example.com" {
-		t.Fatalf("re-pin %+v %v", again, err)
-	}
-	if ledgerCount(t, pool, "sre.detectors.lwlock_waiters", "pinned") != before {
-		t.Fatal("re-pinning wrote a ledger row")
-	}
+	assertRepinIsANoOp(t, e, pool)
 	// Evidence now says something else: the pin holds.
 	clk.Advance(3 * time.Hour)
 	cfg := defaults()
@@ -76,6 +70,19 @@ func TestPinCurrentAndUnpin(t *testing.T) {
 	if got := r["sre.detectors.lwlock_waiters"]; got.Status != StatusShadow ||
 		got.Shadow == nil || *got.Shadow != 60 || got.Value != 20 {
 		t.Fatalf("after unpin %+v", got)
+	}
+}
+
+// Pinning again is a no-op: no second ledger row, the first pin kept.
+func assertRepinIsANoOp(t *testing.T, e *Engine, pool *pgxpool.Pool) {
+	t.Helper()
+	before := ledgerCount(t, pool, "sre.detectors.lwlock_waiters", "pinned")
+	if again, err := e.Store.Pin(t.Context(), "sre.detectors.lwlock_waiters", "x"); err != nil ||
+		again.PinnedBy != "admin@example.com" {
+		t.Fatalf("re-pin %+v %v", again, err)
+	}
+	if ledgerCount(t, pool, "sre.detectors.lwlock_waiters", "pinned") != before {
+		t.Fatal("re-pinning wrote a ledger row")
 	}
 }
 

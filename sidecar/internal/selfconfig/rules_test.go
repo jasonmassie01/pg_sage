@@ -70,7 +70,7 @@ func runUnusable(t *testing.T, key string, build func(Measure) Evidence, wantRea
 
 func TestCollectorIntervalBoundaries(t *testing.T) {
 	cost := func(ms float64) Evidence {
-		return Evidence{CollectorCostMs: Known(ms), Relations: Known(1200)}
+		return Evidence{CollectorCycleMs: Known(ms), Relations: Known(1200)}
 	}
 	runBoundaries(t, "collector.interval_seconds", []boundaryCase{
 		{"zero cost keeps the default", cost(0), 60},
@@ -83,8 +83,8 @@ func TestCollectorIntervalBoundaries(t *testing.T) {
 		{"huge cost clamps", cost(1e12), 600},
 	})
 	runUnusable(t, "collector.interval_seconds", func(m Measure) Evidence {
-		return Evidence{CollectorCostMs: m, Relations: Known(10)}
-	}, "self-cost")
+		return Evidence{CollectorCycleMs: m, Relations: Known(10)}
+	}, "collector cycle cost")
 }
 
 func TestQueryTimeoutBoundaries(t *testing.T) {
@@ -206,13 +206,13 @@ func TestLWLockWaitersBoundaries(t *testing.T) {
 
 func TestEvaluateCitesTheEvidenceItUsed(t *testing.T) {
 	p := rule(t, "collector.interval_seconds").Evaluate(Evidence{
-		CollectorCostMs: Known(1800), Relations: Known(250000),
+		CollectorCycleMs: Known(1800), Relations: Known(250000),
 	}, config.DefaultConfig())
 	names := map[string]float64{}
 	for _, c := range p.Evidence {
 		names[c.Name] = c.Value
 	}
-	if names["collector_cost_ms_per_cycle"] != 1800 || names["relations"] != 250000 {
+	if names["collector_cycle_ms"] != 1800 || names["relations"] != 250000 {
 		t.Fatalf("citations %+v", p.Evidence)
 	}
 	if p.Bounds.Min != 60 || p.Bounds.Max != 600 || p.Bounds.Default != 60 {

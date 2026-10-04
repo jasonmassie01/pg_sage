@@ -34,7 +34,7 @@ func testRule(verdict *Verdict) Rule {
 
 func proposal(v float64) Proposal {
 	return Proposal{OK: true, Value: v, Reason: "derived for the test",
-		Evidence: []Citation{{Name: "collector_cost_ms_per_cycle", Value: v * 10}},
+		Evidence: []Citation{{Name: "collector_cycle_ms", Value: v * 10}},
 		Bounds:   Bounds{Min: 60, Max: 600, Default: 60}}
 }
 
@@ -79,9 +79,11 @@ func TestCandidateEqualToTheDefaultStaysDefault(t *testing.T) {
 	}
 }
 
+// shadowState is a key soaking candidate v since since, with enough soak
+// samples (MinSoakSamples) for a measurable comparison to run.
 func shadowState(v float64, since time.Time) State {
 	return State{Key: "collector.interval_seconds", Status: StatusShadow, Value: 60,
-		Shadow: f(v), ShadowSince: since}
+		Shadow: f(v), ShadowSince: since, Samples: []float64{1, 1, 1}}
 }
 
 func TestPromotionWaitsForTheWholeSoak(t *testing.T) {
@@ -131,6 +133,7 @@ func TestWorseComparisonHoldsTheShadowWithItsReasonOnce(t *testing.T) {
 func TestInsufficientSamplesHold(t *testing.T) {
 	r := rule(t, "collector.interval_seconds")
 	prev := shadowState(120, t0)
+	prev.Samples = nil
 	in := baseInput(r, prev, proposal(120), t0.Add(soak))
 	in.Sample = f(2000)
 	res := Step(in)
@@ -145,6 +148,7 @@ func TestInsufficientSamplesHold(t *testing.T) {
 
 func TestSamplesAreCapped(t *testing.T) {
 	prev := shadowState(120, t0)
+	prev.Samples = nil
 	for i := 0; i < MaxSoakSamples; i++ {
 		prev.Samples = append(prev.Samples, float64(i))
 	}

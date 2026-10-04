@@ -43,7 +43,7 @@ func randomEvidence(rng *rand.Rand) Evidence {
 		Sequences: randomMeasure(rng), SequenceScanMs: randomMeasure(rng),
 		MaxConnections: randomMeasure(rng), TempBytes: randomMeasure(rng),
 		StatsAgeSeconds: randomMeasure(rng), TempBytesPerSecond: randomMeasure(rng),
-		CollectorCostMs: randomMeasure(rng),
+		CollectorCycleMs: randomMeasure(rng),
 	}
 }
 
