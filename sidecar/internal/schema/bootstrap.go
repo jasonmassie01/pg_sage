@@ -408,7 +408,8 @@ func migrationStatements() []string {
 		ddlActionOutcome(),
 		ddlTrustLedger(),
 		ddlShadowMode(),
-		ddlFacts)
+		ddlFacts,
+		ddlMCPv2)
 }
 
 // ---------------------------------------------------------------------------

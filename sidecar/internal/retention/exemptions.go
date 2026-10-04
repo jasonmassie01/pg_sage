@@ -45,6 +45,8 @@ var coreExemptions = map[string]string{
 		"grandfathered into the trust ledger, and the reconcile cursors",
 	"trust_shadow_evidence": "shadow-mode promotion evidence, one row per counted " +
 		"shadow decision (like sre_autonomy_outcomes)",
+	"mcp_tokens": "admin-managed MCP API credentials; revoked and expired tokens " +
+		"are kept as the audit trail of who could act through MCP",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",
