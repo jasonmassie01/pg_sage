@@ -94,7 +94,7 @@ func TestSRETools_ListedAsReadOnlyWithStrictSchemas(t *testing.T) {
 			schema["additionalProperties"] != false {
 			t.Errorf("%s schema is not strict: %s", name, tool.InputSchema)
 		}
-		if mutatingTools[name] {
+		if scope, _ := RequiredScope(name, nil); scope != ScopeRead {
 			t.Errorf("%s is marked mutating; it is read-only", name)
 		}
 	}

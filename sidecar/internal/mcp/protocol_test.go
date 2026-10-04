@@ -43,7 +43,7 @@ func TestInitializeNegotiatesLegacyVersions(t *testing.T) {
 
 func TestServerDiscoverAdvertisesBothEras(t *testing.T) {
 	response := invoke(t, NewServer(&recordingBackend{}).WithVersion("1.2.3"), viewerCtx,
-		`{"jsonrpc":"2.0","id":"d1","method":"server/discover","params":{`+modernMeta+`}}`)
+		`{"jsonrpc":"2.0","id":31,"method":"server/discover","params":{`+modernMeta+`}}`)
 	require.Empty(t, response.Error.Code)
 	result := objectMap(t, response.Result)
 	require.Equal(t, "complete", result["resultType"])

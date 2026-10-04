@@ -209,6 +209,10 @@ func (f *m5Fixture) mcpTool(t *testing.T, session, tool string,
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	content, _ := resp.Result["structuredContent"].(map[string]any)
+	if resp.Result["isError"] == true { // a tool execution error (MCP 2025-06-18+)
+		failure, _ := content["error"].(map[string]any)
+		return w.Code, nil, failure
+	}
 	return w.Code, content, resp.Error
 }
 

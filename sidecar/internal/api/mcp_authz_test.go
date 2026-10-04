@@ -96,9 +96,15 @@ func TestMountedMCPViewerCannotMutate(t *testing.T) {
 	h := mcpRouterForUser(t, backend, testViewerUser())
 
 	out := postMCPCall(t, h, mcpProposeBody)
-	rpcErr, ok := out["error"].(map[string]any)
-	require.True(t, ok, "viewer mutation must return a JSON-RPC error")
+	// Since MCP 2025-06-18 a refused tool call is a tool execution error:
+	// an isError result whose structuredContent carries the code.
+	result, ok := out["result"].(map[string]any)
+	require.True(t, ok, "viewer mutation must return a tool error result: %v", out)
+	require.Equal(t, true, result["isError"])
+	structured, _ := result["structuredContent"].(map[string]any)
+	rpcErr, _ := structured["error"].(map[string]any)
 	require.Equal(t, float64(-32001), rpcErr["code"])
+	require.Equal(t, "scope_required", rpcErr["reason"])
 	require.Zero(t, backend.proposals)
 }
 
