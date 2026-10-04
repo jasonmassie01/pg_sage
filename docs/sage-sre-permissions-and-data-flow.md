@@ -124,7 +124,7 @@ family says so (`disk_capacity: provider_metric_unavailable`) and makes no runwa
 | pg_sage process | probe results (typed, capped as above) | each investigation |
 | `sage.sre_*` tables | evidence (probe results with hashes), hypotheses, the summary (graph result and model output side by side), the append-only event chain, budget reservations | each investigation |
 | Cases panel, REST API, MCP read tools (`sre_list_incidents`, `sre_get_investigation`, `sre_get_evidence`), export | the stored records, **redacted on every read** | when a signed-in user or MCP principal asks; export needs the operator role |
-| LLM endpoint (`llm.endpoint`) | the model turn's prompt (below) | only with an LLM configured and `sre.llm.enabled: true` (default) |
+| LLM endpoint (`llm.endpoint`) | the model turn's prompt and, in investigator mode, the results of the reads the model asks for (below) | only with an LLM configured and `sre.llm.enabled: true` (default) |
 
 Nothing else leaves: investigations send no notifications of their own, and the probes make no
 network calls.
@@ -148,7 +148,16 @@ One investigation makes at most 2 model calls. Each call carries:
 - when a probe may be requested, the catalog menu (probe ids and argument types).
 
 Not sent: database credentials or connection strings, query text (no probe collects it), raw
-rows, other investigations, other databases' evidence, pg_sage user data.
+rows (except as below), other investigations, other databases' evidence, pg_sage user data.
+
+In investigator mode (`sre.llm.mode: investigator`, the default), the model makes up to 5
+calls (narrow plan) or 10 (broad plan) instead of 2. It also receives the result of each read
+it asks for, as the next message. A result is the probe's rows, **redacted, fenced and capped
+at 20 rows and 4000 characters**. The reads are catalog probes, the three pg_stat views and,
+in the broad plan, a plan-only `EXPLAIN`, whose result is plan node shapes (node type,
+relation, index, costs, row estimates), never query text. Confirmed facts and the graph's
+state are sent the same way. Every read is stored as evidence with its digest, and the
+transcript is redacted on every read like the rest of the investigation.
 
 **Redaction** (`internal/sre/redact.go`) removes connection URIs (anything shaped like
 `scheme://user:pass@host`, and any `postgres://` URI), `password=`/`secret=`/`token=`/
@@ -204,7 +213,8 @@ role can make an investigation execute anything: R1 has no actions.
 |---|---|---|
 | Automatic investigations | `sre.automatic_start: false` | investigations start only when an operator asks (`POST /api/v1/databases/{db}/investigations`); stored ones still resume and are retained |
 | The model turn only | `sre.llm.enabled: false` | investigations stay fully deterministic; nothing is sent to the LLM |
+| The model's own reads | `sre.llm.mode: review` | the single review turn: at most 2 calls, no probe rows sent |
 | Every LLM feature | `llm.enabled: false` (or no `llm.endpoint`) | no LLM traffic at all from pg_sage |
 | Keeping data | lower `sre.evidence_retention_days` / `sre.timeline_retention_days` | retention deletes sooner (minimum 1 day) |
 
-All four are restart settings ([configuration](configuration.md#sage-sre-investigations)).
+All five are restart settings ([configuration](configuration.md#sage-sre-investigations)).

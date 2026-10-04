@@ -16,6 +16,22 @@
   cleanup script you run; a CDC slot is never dropped or advanced; an archive keeps its
   data and indexes. Every blocked action names the fact, who confirmed it and when. Facts
   expire when the objects they describe are gone. See `docs/facts.md`.
+- **The model now investigates instead of only reviewing.** With an LLM configured,
+  pg_sage's investigations plan their own reads after the causal graph has scored the
+  hypotheses. The reads are catalog probes, pg_stat views, a plan-only `EXPLAIN` by
+  queryid, the graph's state and confirmed facts, and none of them can change anything.
+  Operator-started and SLO-burn investigations get a broad budget; detector triggers get a
+  narrow one. Steps, probes, wall clock and tokens are all capped, and every read is stored
+  as evidence with its digest. The model may agree with the graph, conclude an inconclusive
+  graph, contest a conclusive root, or name a cause the graph does not model. Every claim
+  must cite evidence, and uncited claims are dropped and counted. The model's root stays
+  advisory until its family earns root authority on the bench, and its own confidence is
+  never used. Contests are tagged in the replay-case export. The investigation view, the
+  API (`.../investigations/{id}/transcript`) and MCP (`sre_get_transcript`) show the
+  redacted transcript: the plan, each read with its result, and the citations. Set
+  `sre.llm.mode: review` to keep the single review turn. PGIncidentBench gains a
+  `causal-graph+investigator` arm, gated like the LLM-on arm and scored with scripted
+  adversarial transcripts.
 
 ### Fixed
 
