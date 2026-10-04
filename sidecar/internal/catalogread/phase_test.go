@@ -119,7 +119,8 @@ func TestReader_LockTimeoutNamesLockWait(t *testing.T) {
 		t.Fatalf("begin: %v", err)
 	}
 	defer func() { _ = holder.Rollback(context.Background()) }()
-	if _, err := holder.Exec(ctx, "LOCK TABLE catalogread_locked IN ACCESS EXCLUSIVE MODE"); err != nil {
+	if _, err := holder.Exec(ctx,
+		"LOCK TABLE catalogread_locked IN ACCESS EXCLUSIVE MODE"); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
 	r := New(pool, Timeouts{Statement: 2 * time.Second, Lock: 100 * time.Millisecond})
