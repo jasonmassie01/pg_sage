@@ -256,11 +256,11 @@ func TestProposeFindingForApproval_ConcurrentCallsQueueOnce(t *testing.T) {
 	}
 }
 
-// fixedGate answers every request with one decision.
-type fixedGate struct{ d policy.Decision }
+// askFixedGate answers every request with one decision.
+type askFixedGate struct{ d policy.Decision }
 
-func (g fixedGate) Authorize(context.Context, policy.ActionRequest) policy.Decision { return g.d }
-func (g fixedGate) Explain(context.Context, policy.ActionRequest) policy.Decision   { return g.d }
+func (g askFixedGate) Authorize(context.Context, policy.ActionRequest) policy.Decision { return g.d }
+func (g askFixedGate) Explain(context.Context, policy.ActionRequest) policy.Decision   { return g.d }
 
 // A self-initiated block that a person's approval lifts (the trust ramp,
 // approval required, budgets, windows, earned autonomy) is still queued
@@ -274,7 +274,7 @@ func TestProposeFindingForApproval_QueuesWhatAnApprovalCanLift(t *testing.T) {
 	for i, reason := range liftable {
 		id := f.finding(fmt.Sprintf("public.ask_px_l%d", i), askPxCreate,
 			"DROP INDEX CONCURRENTLY public.ask_px_c", "open")
-		f.exec.WithPolicyGate(fixedGate{policy.Decision{Verdict: policy.VerdictBlocked,
+		f.exec.WithPolicyGate(askFixedGate{policy.Decision{Verdict: policy.VerdictBlocked,
 			Reason: reason, RiskTier: policy.RiskModerate}})
 		p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
 		if err != nil || !p.Created || p.Decision.BlockedReason != string(reason) {
@@ -292,7 +292,7 @@ func TestProposeFindingForApproval_QueuesWhatAnApprovalCanLift(t *testing.T) {
 	for i, d := range hard {
 		id := f.finding(fmt.Sprintf("public.ask_px_h%d", i), askPxCreate,
 			"DROP INDEX CONCURRENTLY public.ask_px_c", "open")
-		f.exec.WithPolicyGate(fixedGate{d})
+		f.exec.WithPolicyGate(askFixedGate{d})
 		if _, err := f.exec.ProposeFindingForApproval(f.ctx, id); !errors.Is(err,
 			ErrProposalBlocked) {
 			t.Errorf("%s: err = %v, want ErrProposalBlocked", d.Reason, err)

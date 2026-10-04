@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -19,7 +20,9 @@ import (
 // Explain (no decision recorded, no approval flags): what it blocks is
 // not queued; what it would run autonomously is still only queued. Only
 // typed actions with a rollback (or none needed) qualify, and the
-// finding's own SQL is queued, never text from the conversation.
+// finding's own SQL is queued, never text from the conversation. A block
+// of pg_sage's own initiative that a person's approval lifts (the trust
+// ramp, for example) does not stop the proposal: the person decides.
 
 // Errors of ProposeFindingForApproval, distinguishable with errors.Is.
 var (
@@ -66,7 +69,7 @@ func (e *Executor) ProposeFindingForApproval(ctx context.Context,
 		return FindingProposal{}, err
 	}
 	p.Decision = e.ExplainAction(ctx, contract, f.sql, f.object)
-	if p.Decision.Decision == PolicyDecisionBlocked {
+	if !approvalCanRun(p.Decision) {
 		return p, fmt.Errorf("%w: %s %s", ErrProposalBlocked, p.Decision.BlockedReason,
 			p.Decision.Detail)
 	}
@@ -81,6 +84,36 @@ func (e *Executor) ProposeFindingForApproval(ctx context.Context,
 		return p, err
 	}
 	return e.queueProposal(ctx, proposer, p, f, contract)
+}
+
+// approvalLifts are the gate's blocks of pg_sage's own initiative that a
+// person's approval lifts (policy.operatorDecision): tiers, the trust
+// ramp, earned autonomy, budgets, rate limits, the refusal set, a lease
+// conflict and windows (an approval still waits for its window).
+var approvalLifts = map[string]bool{
+	string(policy.ReasonTrustRampNotSatisfied):    true,
+	string(policy.ReasonApprovalRequired):         true,
+	string(policy.ReasonBudgetExceeded):           true,
+	string(policy.ReasonRateLimitExceeded):        true,
+	string(policy.ReasonRefusedByPolicy):          true,
+	string(policy.ReasonOutsideMaintenanceWindow): true,
+	string(policy.ReasonAutonomyLevel):            true,
+	string(policy.ReasonAutonomyHandoff):          true,
+	string(policy.ReasonAutonomyDowngraded):       true,
+	string(policy.ReasonDDLConflict):              true,
+}
+
+// approvalCanRun reports whether a person's approval of the proposal
+// could run it: any verdict but blocked and observe-only, or a block an
+// approval lifts. Unknown reasons fail closed.
+func approvalCanRun(d ActionPolicyDecision) bool {
+	switch d.Decision {
+	case PolicyDecisionBlocked:
+		return approvalLifts[d.BlockedReason]
+	case PolicyDecisionObserveOnly:
+		return false
+	}
+	return true
 }
 
 func (e *Executor) approvalQueue() (ActionMetadataProposer, error) {
