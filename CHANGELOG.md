@@ -10,9 +10,13 @@
   index drops in leaked test schemas used the whole day's budget and parked two verified
   indexes for most of a day). A parked change now says which budget is full and when it
   frees. `max_rows_rewritten` is enforced: changes that rewrite a table are charged its
-  estimated rows. Two changes can no longer both take the last slot of a budget, and a
-  waiting change is evaluated once per cycle instead of twice. Existing policies keep
-  their limit for performance changes; see [Blast-radius
+  estimated rows. Two changes can no longer both take the last slot of a budget, even
+  from two pg_sage processes on one database, and a waiting change is evaluated once per
+  cycle instead of twice. Emergencies are never held back by these budgets: a wraparound
+  freeze or disk-space cleanup when the runway is critical, and the undo of pg_sage's own
+  change, still pass every other safety check and are recorded as a budget bypass.
+  Existing policies keep their limit for performance changes, and a policy saved by this
+  version stays readable by older ones; see [Blast-radius
   budgets](docs/configuration.md#blast-radius-budgets).
 
 - **Every action that waits for you now comes as an approval card with the why, and you can

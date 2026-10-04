@@ -347,10 +347,16 @@ setting change:
 ```json
 "blast_radius": {
   "max_rows_rewritten": 5000000,
-  "performance": {"max_tables_per_window": 10, "max_changes_per_window": 25},
-  "hygiene":     {"max_tables_per_window": 10, "max_changes_per_window": 25}
-}
+  "max_tables_per_window": 10,
+  "hygiene": {"max_tables_per_window": 10, "max_changes_per_window": 25}
+},
+"rate_limits": {"max_self_initiated_changes_per_window": 25}
 ```
+
+The performance budget is `blast_radius.max_tables_per_window` plus
+`rate_limits.max_self_initiated_changes_per_window` (a document may also
+spell it `blast_radius.performance: {max_tables_per_window,
+max_changes_per_window}`); `hygiene` is optional and defaults per field.
 
 - **Kinds.** `hygiene` is unused and redundant index drops (including drops in
   leaked test schemas), `VACUUM` and `ANALYZE`. Everything else is
@@ -380,9 +386,11 @@ setting change:
   `rate_limits.max_self_initiated_changes_per_window` are read as the
   performance budget, and hygiene gets the defaults above (so such a policy
   allows up to 10 hygiene tables on top of its old limit). A document may name
-  a performance limit both ways only if the values agree. Saving a policy
-  writes the canonical `performance`/`hygiene` form; sidecars older than this
-  release cannot read that form and fail closed (`policy_unavailable`).
+  a performance limit both ways (also as a `performance` block) only if the
+  values agree. Saving a policy writes the performance budget in those
+  legacy fields, and a `hygiene` block only when it differs from the
+  default, so a sidecar from before the split still reads a saved policy
+  (it fails closed, `policy_unavailable`, on a customized hygiene block).
 - **When a budget is full** the change is parked (`blast_radius_exceeded` for
   tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
   The decision's `evidence.budget_detail` says which budget is full and when it
@@ -391,7 +399,18 @@ setting change:
 - **Concurrent candidates.** An authorized change holds its slot from the
   authorization until it has run (at most twice the DDL timeout plus a
   minute, if the sidecar dies in between), so two candidates can never both
-  take the last slot.
+  take the last slot, even across sidecar processes: the usage read and the
+  recorded decision share one transaction holding a
+  `pg_advisory_xact_lock` keyed by the database.
+- **Emergency mitigations bypass the kind budgets.** A wraparound `VACUUM`
+  while the XID runway is critical, a space-freeing `VACUUM`, unused-index
+  drop or `REINDEX` while the disk runway is critical (urgency critical with
+  the hard deadline still ahead, as the custodian computed it), and the
+  revert or rollback of a change pg_sage made itself are never parked by a
+  kind budget and are charged to none (`evidence.budget_kind = bypass`).
+  They are recorded with the reason `budget bypass: <why>` and still pass
+  every other check: change classes, guardrails, the refusal set, windows,
+  leases, lock ceilings and the shared `max_rows_rewritten` bound.
 
 #### Retention contracts
 
