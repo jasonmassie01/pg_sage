@@ -83,6 +83,7 @@ func (rt *databaseRuntime) buildExecutor() {
 	// Earned autonomy (M7) restricts the gate built just below. It carries
 	// over the autonomy this database's settings (applied above) grant.
 	rt.installAutonomy(ex)
+	ex.WithFactBinder(rt.factBinder())
 	if err := ex.EnableStandingPolicyWithStore(
 		rt.ctx, rt.spec.ControlPool, cfg.Policy.Profile, policyDatabaseID,
 	); err != nil {

@@ -27,6 +27,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		rt.newAdvisor(), rt.newForecaster(), rt.newTuner(),
 		logStructuredWrapper,
 	)
+	rt.analyzer.WithFactFilter(rt.factFilter())
 	rt.analyzer.WithSupplementalDetector(executor.NewRunawayDetector(
 		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
 	))
@@ -120,6 +121,7 @@ func (rt *databaseRuntime) newOptimizer(autoExplain bool) *optimizer.Optimizer {
 	}
 	options := []func(*optimizer.Optimizer){
 		optimizer.WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety)),
+		optimizer.WithFacts(rt.facts),
 	}
 	if autoExplain {
 		options = append(options, optimizer.WithAutoExplain())
@@ -142,6 +144,7 @@ func (rt *databaseRuntime) newAdvisor() analyzer.ConfigAdvisor {
 	)
 	result.WithCloudEnv(rt.provider)
 	result.WithDatabaseName(rt.spec.Config.Database)
+	result.WithFacts(rt.facts)
 	rt.note("advisor")
 	return result
 }

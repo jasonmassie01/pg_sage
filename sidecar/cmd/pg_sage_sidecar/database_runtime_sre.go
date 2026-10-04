@@ -108,6 +108,7 @@ func (rt *databaseRuntime) startInvestigator() {
 		return
 	}
 	rt.sreService, rt.sre = svc, svc.Coordinator()
+	rt.sre.WithFacts(rt.facts)
 	rt.start(func() { rt.sre.Run(rt.ctx) })
 	rt.sreStarted = true
 	rt.note("sre_investigator")

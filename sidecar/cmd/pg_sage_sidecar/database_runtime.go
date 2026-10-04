@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/logwatch"
@@ -100,6 +101,8 @@ type databaseRuntime struct {
 	brief      *briefing.Worker
 	features   []string
 	inst       *fleet.DatabaseInstance
+	// facts is the database's fact store (roadmap 2.3).
+	facts *facts.Store
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It
@@ -120,6 +123,7 @@ func buildDatabaseRuntime(
 	rt := newDatabaseRuntime(spec, checks)
 	rt.startMonitoring()
 	rt.startExecution()
+	rt.startFacts()
 	rt.startSREActions()
 	rt.startActionOutcomeFeed() // M7: approved M5 runs feed the ledger
 	rt.startRunways()
@@ -192,6 +196,7 @@ func newDatabaseRuntime(
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
 	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter)
+	rt.facts = newFactStore(spec.Pool)
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()

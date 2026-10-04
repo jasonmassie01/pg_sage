@@ -47,6 +47,8 @@ func startMCPRuntime() {
 		Actions: access,
 		// Earned autonomy: read; operator downgrade/review/evaluate (never approval).
 		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry, manager: fleetMgr},
+		// Binding facts: read, propose (stays proposed), decide (operator).
+		Facts: factsMCPBackend{manager: fleetMgr},
 	})
 	if err != nil {
 		logError("mcp", "production backend: %v", err)
