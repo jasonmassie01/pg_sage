@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // The schema guard reads pg_stat_statements once per cycle and indexes the
@@ -142,12 +142,12 @@ func statementsUnavailable(err error) (statementIndex, error) {
 	return statementIndex{}, fmt.Errorf("read pg_stat_statements: %w", err)
 }
 
-// statementsSQL leaves out pg_sage's own statements: pg_sage is tracked by
-// pg_stat_statements (perf v1.8.3) and must not cite its own reads as a
-// target's related queries.
+// statementsSQL keeps workload statements (internal/workload): pg_sage is
+// tracked by pg_stat_statements (perf v1.8.3) and must not cite its own
+// reads, nor an EXPLAIN or VACUUM of the table, as related queries.
 var statementsSQL = `/* pg_sage */
 SELECT queryid::bigint, query FROM pg_stat_statements
 WHERE queryid IS NOT NULL
   AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND ` + selfmonitor.StatementExclusionSQL("query") + `
+  AND ` + workload.AdviceSQL("query") + `
 ORDER BY calls DESC LIMIT $1`

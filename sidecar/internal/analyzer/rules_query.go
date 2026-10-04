@@ -23,7 +23,7 @@ func ruleSlowQueries(
 	}
 	var findings []Finding
 
-	for _, q := range current.Queries {
+	for _, q := range adviceQueries(current) {
 		if q.MeanExecTime <= threshold {
 			continue
 		}
@@ -67,7 +67,7 @@ func ruleHighPlanTime(
 	_ *RuleExtras,
 ) []Finding {
 	var findings []Finding
-	for _, q := range current.Queries {
+	for _, q := range adviceQueries(current) {
 		if q.MeanPlanTime <= 0 || q.Calls < 100 {
 			continue
 		}
@@ -139,7 +139,7 @@ func ruleQueryRegression(
 	multiplier := 1.0 + float64(cfg.Analyzer.RegressionThresholdPct)/100.0
 	var findings []Finding
 
-	for _, q := range current.Queries {
+	for _, q := range adviceQueries(current) {
 		// FIX-4: Skip if calls dropped >90% (pg_stat_statements reset).
 		if prev, ok := prevCalls[q.QueryID]; ok && prev > 0 {
 			if float64(q.Calls) < float64(prev)*0.1 {
