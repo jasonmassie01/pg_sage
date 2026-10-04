@@ -17,9 +17,7 @@ func TestPlans_WithBothSignalsLeaveRoomForTheModelProbe(t *testing.T) {
 	for kind := range triggerKinds {
 		plan, ok := c.plan(kind)
 		if !ok {
-			if kind != TriggerOperator {
-				t.Errorf("%s has no probe plan", kind)
-			}
+			t.Errorf("%s has no probe plan", kind)
 			continue
 		}
 		planned++
@@ -39,9 +37,10 @@ func TestPlans_WithBothSignalsLeaveRoomForTheModelProbe(t *testing.T) {
 			t.Errorf("%s first step lacks a signal probe: %v", kind, plan[0].calls)
 		}
 	}
-	// lock, connections, WAL, plan, SLO burn, 4 reactive, 3 runway kinds.
-	if planned != 12 {
-		t.Fatalf("%d trigger kinds have a plan, want 12", planned)
+	// lock, connections, WAL, plan, SLO burn, operator triage (roadmap
+	// 2.1), 4 reactive, 3 runway kinds.
+	if planned != 13 {
+		t.Fatalf("%d trigger kinds have a plan, want 13", planned)
 	}
 }
 

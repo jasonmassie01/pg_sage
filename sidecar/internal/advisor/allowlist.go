@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
@@ -109,4 +110,25 @@ func withApprovalRequired(f analyzer.Finding, why string) analyzer.Finding {
 	}
 	f.Detail[analyzer.DetailApprovalRequired] = why
 	return f
+}
+
+// GateConfigFindings is the one set of gates every proposed GUC or
+// storage-parameter change passes, whoever proposed it (the advisor's
+// sub-advisors or the tuning agent): values outside the documented safe
+// range are dropped, settings outside the allowlists become advisory,
+// restart-required settings need an operator, shared_buffers must be
+// grounded in host memory, and managed services get their own form
+// (ALTER SYSTEM becomes ALTER DATABASE; settings they forbid are
+// filtered).
+func GateConfigFindings(findings []analyzer.Finding, hostMemBytes int64,
+	cloudEnv, dbName string, settings []collector.PGSetting) []analyzer.Finding {
+	kept := make([]analyzer.Finding, 0, len(findings))
+	for _, f := range findings {
+		if ok, _ := ValidateConfigSQL(f.RecommendedSQL); ok {
+			kept = append(kept, f)
+		}
+	}
+	kept = applyHostMemoryGuard(kept, hostMemBytes)
+	kept = applyConfigAllowlist(kept)
+	return TransformForCloud(kept, cloudEnv, dbName, settings)
 }

@@ -2,19 +2,20 @@ package config
 
 import "fmt"
 
-// OptimizerRejectionMemoryConfig controls how the index optimizer remembers
+// OptimizerRejectionMemoryConfig controls how index admission remembers
 // HypoPG what-if rejections (llm.optimizer.rejection_memory). A candidate the
-// model proposes again — under any name, with the INCLUDE list reordered,
-// trimmed or extended — is not re-measured while the workload and table are
-// materially unchanged, and the model is told which shapes were measured.
+// tuning agent proposes again — under any name, with the INCLUDE list
+// reordered, trimmed or extended — is not re-measured while the workload and
+// table are materially unchanged, and the model is told which shapes were
+// measured. skip_llm_after applies the same rules to whole tuning cases.
 type OptimizerRejectionMemoryConfig struct {
-	Enabled          bool    `yaml:"enabled" doc:"Remember HypoPG what-if rejections of LLM index candidates: skip re-measuring the same idea and tell the model it was measured. LLM candidates only. Default: true."`
+	Enabled          bool    `yaml:"enabled" doc:"Remember HypoPG what-if rejections of index candidates: skip re-measuring the same idea and tell the tuning agent it was measured. Default: true."`
 	MaxAgeDays       int     `yaml:"max_age_days" doc:"Days a remembered rejection stays valid; after that the idea may be measured again. Range 1-90. Default: 7."`
 	CallVolumeRatio  float64 `yaml:"call_volume_ratio" doc:"A target query whose call count grew or shrank by at least this factor since the rejection is a material workload change. Range >1-1000. Default: 2."`
 	MeanTimeRatio    float64 `yaml:"mean_time_ratio" doc:"A target query whose mean execution time grew or shrank by at least this factor is a material workload change. Range >1-1000. Default: 2."`
 	RowEstimateRatio float64 `yaml:"row_estimate_ratio" doc:"A table whose live-row estimate grew or shrank by at least this factor is a material change. Range >1-1000. Default: 2."`
-	PromptMaxShapes  int     `yaml:"prompt_max_shapes" doc:"Most recently rejected shapes per table listed in the optimizer prompt as already measured. Range 1-20. Default: 5."`
-	SkipLLMAfter     int     `yaml:"skip_llm_after" doc:"After this many consecutive proposals for a table that were all already measured or rejected, stop asking the model until a material change or the max age. Range 1-100. Default: 3."`
+	PromptMaxShapes  int     `yaml:"prompt_max_shapes" doc:"Most recently rejected shapes per table listed in the tuning agent's case packet as already measured. Range 1-20. Default: 5."`
+	SkipLLMAfter     int     `yaml:"skip_llm_after" doc:"After this many consecutive wasted answers for a tuning case (rejected, already measured, empty or malformed), stop asking the model until the case changes. Range 1-100. Default: 3."`
 }
 
 // Rejection memory defaults and limits.

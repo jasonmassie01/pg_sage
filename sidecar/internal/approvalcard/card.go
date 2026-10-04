@@ -91,6 +91,9 @@ type Rationale struct {
 	Source     string   `json:"source"`
 	Text       string   `json:"text"`
 	Confidence *float64 `json:"confidence,omitempty"`
+	// Calibration says what Confidence rests on for the tuning agent's
+	// proposals: the comparable outcomes, or "uncalibrated" (no number).
+	Calibration string `json:"calibration,omitempty"`
 }
 
 // Predicted is the effect pg_sage expects.

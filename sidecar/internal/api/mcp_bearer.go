@@ -68,7 +68,7 @@ func tokenPrincipal(
 		kind = mcp.KindAgent
 	}
 	return mcp.Principal{
-		Actor: "token:" + grant.TokenID, Role: grant.OwnerRole, Kind: kind,
+		Actor: "token:" + grant.TokenID, Role: grant.OwnerRole, Kind: kind, Name: grant.Name,
 		Scopes: scopes, Databases: grant.Databases, TokenID: grant.TokenID,
 	}, nil
 }

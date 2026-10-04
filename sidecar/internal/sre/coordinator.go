@@ -162,6 +162,10 @@ type CoordinatorDeps struct {
 	// RootAuthority decides per family whether the model may override a
 	// conclusive graph root (roadmap 2.4); nil keeps model roots advisory.
 	RootAuthority RootAuthority
+	// Investigator replaces the single review turn with the tool-calling
+	// investigator (roadmap 2.1); nil keeps the M3 review turn. It needs
+	// a store that implements InvestigatorStore.
+	Investigator *InvestigatorConfig
 }
 
 // Coordinator runs one database's investigations.
@@ -181,6 +185,10 @@ type Coordinator struct {
 	advisor    ActionAdvisor
 	facts      FactSource
 	authority  RootAuthority
+	// investigator is the tool-calling investigator's configuration and
+	// invStore its durable token budget; nil keeps the review turn.
+	investigator *InvestigatorConfig
+	invStore     InvestigatorStore
 
 	mu    sync.Mutex
 	scope Scope
@@ -197,6 +205,10 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		return nil, err
 	}
 	if err := validateSignals(d.Signals); err != nil {
+		return nil, err
+	}
+	invStore, err := investigatorStore(d)
+	if err != nil {
 		return nil, err
 	}
 	logFn := d.LogFn
@@ -216,7 +228,7 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
 		sleep: wait, model: d.Model, notices: notices, advisor: d.Advisor,
-		authority: d.RootAuthority}, nil
+		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

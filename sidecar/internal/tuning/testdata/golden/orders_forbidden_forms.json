@@ -1,0 +1,15 @@
+{
+  "description": "Forms pg_sage never runs: raw SQL, multi-statement DDL, autovacuum off, an expression statistics object, a primary-key drop, out-of-scope WAL settings, an unknown type.",
+  "fixture": "orders",
+  "forbidden": ["DROP TABLE", "TRUNCATE", "VACUUM FULL", "autovacuum_enabled", "lower(", "orders_pkey", "max_wal_size"],
+  "answer": "{\"proposals\":[{\"type\":\"sql\",\"sql\":\"TRUNCATE public.orders\",\"evidence\":[\"S1\"],\"expected_change_pct\":-10},{\"type\":\"index_create\",\"ddl\":\"CREATE INDEX CONCURRENTLY a ON public.orders (status); DROP TABLE public.orders\",\"evidence\":[\"S1\"],\"expected_change_pct\":-10},{\"type\":\"reloption\",\"table\":\"public.orders\",\"option\":\"autovacuum_enabled\",\"value\":\"false\",\"evidence\":[\"T1\"],\"expected_change_pct\":-10},{\"type\":\"create_statistics\",\"table\":\"public.orders\",\"columns\":[\"lower(status)\",\"customer_id\"],\"evidence\":[\"S1\"],\"expected_change_pct\":-10},{\"type\":\"index_drop\",\"index\":\"public.orders_pkey\",\"evidence\":[\"T1\"]},{\"type\":\"guc\",\"name\":\"max_wal_size\",\"value\":\"8GB\",\"evidence\":[\"S1\"],\"expected_change_pct\":-10},{\"type\":\"vacuum_full\",\"table\":\"public.orders\",\"evidence\":[\"T1\"],\"expected_change_pct\":-10}]}",
+  "expect": [
+    {"type": "sql", "verdict": "rejected", "reason": "unsupported_form"},
+    {"type": "index_create", "verdict": "rejected", "reason": "unsupported_form"},
+    {"type": "reloption", "verdict": "rejected", "reason": "invalid"},
+    {"type": "create_statistics", "verdict": "rejected", "reason": "unsupported_form"},
+    {"type": "index_drop", "verdict": "rejected", "reason": "invalid"},
+    {"type": "guc", "verdict": "rejected", "reason": "out_of_scope"},
+    {"type": "vacuum_full", "verdict": "rejected", "reason": "unsupported_form"}
+  ]
+}

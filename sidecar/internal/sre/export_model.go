@@ -32,4 +32,30 @@ func writeModel(b *strings.Builder, s Summary) {
 		b.WriteString("## Model-proposed probe\n\n")
 		fmt.Fprintf(b, "- %s: %s [%s]\n\n", p.ProbeID, p.Rationale, p.EvidenceID)
 	}
+	writeInvestigator(b, s.Investigator, s.ModelConclusion)
+}
+
+// writeInvestigator renders the tool-calling investigator's transcript
+// and conclusion (roadmap 2.1), labeled as model-generated.
+func writeInvestigator(b *strings.Builder, run *InvestigatorRun, mc *ModelConclusion) {
+	if run == nil {
+		return
+	}
+	fmt.Fprintf(b, "## Investigator (model-generated; plan %s, %s protocol, stopped: %s)\n\n",
+		run.Plan, run.Protocol, run.Stop)
+	for _, st := range run.Steps {
+		fmt.Fprintf(b, "- %d. %s %s", st.Seq, st.Tool, st.Status)
+		if st.EvidenceID != "" {
+			fmt.Fprintf(b, " [%s] sha256 %s", st.EvidenceID, st.Digest)
+		}
+		if st.Note != "" {
+			fmt.Fprintf(b, " (%s)", st.Note)
+		}
+		b.WriteString("\n")
+	}
+	if mc != nil {
+		fmt.Fprintf(b, "\nModel conclusion: outcome %s, root %q, authority %s: %s\n",
+			mc.Outcome, mc.Root, mc.Authority, mc.Reason)
+	}
+	b.WriteString("\n")
 }

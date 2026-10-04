@@ -3,32 +3,45 @@ package optimizer
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
-	"github.com/pg-sage/sidecar/internal/llm"
 )
 
-func analyzeOne(t *testing.T, recs []Recommendation) ([]Recommendation, int) {
+// admitAll runs each candidate through admission on sampleTableContext,
+// with what-if w (nil: HypoPG unavailable, so candidates are unverified).
+func admitAll(t *testing.T, w whatIfValidator, recs []Recommendation) (
+	[]Recommendation, int) {
 	t.Helper()
-	srv := makeLLMServer(t, fnTestRecJSON(recs), 50)
-	t.Cleanup(srv.Close)
-	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
-	accepted, _, rejected, err := opt.analyzeTable(context.Background(), sampleTableContext(), nil)
-	if err != nil {
-		t.Fatalf("analyzeTable: %v", err)
+	opt := New(nil, fnTestOptimizerConfig(), 160000, fnNoopLog)
+	if w != nil {
+		opt.whatIf = w
+	}
+	tc := sampleTableContext()
+	tc.WriteRateKnown = true
+	var accepted []Recommendation
+	rejected := 0
+	for _, rec := range recs {
+		a := opt.Admit(context.Background(), rec, tc)
+		if a.Outcome != AdmitAccepted {
+			rejected++
+			continue
+		}
+		accepted = append(accepted, a.Rec)
 	}
 	return accepted, rejected
 }
 
+func analyzeOne(t *testing.T, recs []Recommendation) ([]Recommendation, int) {
+	t.Helper()
+	return admitAll(t, nil, recs)
+}
+
 // G3-B05: the rollback must drop exactly the index the DDL creates, in
 // the table's schema — never an LLM-chosen pre-existing index.
-func TestAnalyzeTable_DropDDLTargetsCreatedIndex(t *testing.T) {
+func TestAdmit_DropDDLTargetsCreatedIndex(t *testing.T) {
 	rec := sampleRecommendation()
 	rec.DDL = "CREATE INDEX CONCURRENTLY idx_orders_cust_created " +
 		"ON public.orders (customer_id, created_at)"
@@ -44,7 +57,7 @@ func TestAnalyzeTable_DropDDLTargetsCreatedIndex(t *testing.T) {
 }
 
 // G3-B05: a missing drop_ddl is synthesized, too.
-func TestAnalyzeTable_DropDDLSynthesizedWhenMissing(t *testing.T) {
+func TestAdmit_DropDDLSynthesizedWhenMissing(t *testing.T) {
 	rec := sampleRecommendation()
 	rec.DropDDL = ""
 	accepted, _ := analyzeOne(t, []Recommendation{rec})
@@ -59,7 +72,7 @@ func TestAnalyzeTable_DropDDLSynthesizedWhenMissing(t *testing.T) {
 
 // G3-B05/B20: DDL that is unnamed, targets another table, or is UNIQUE
 // is rejected; rec.Table comes from the analyzed context, not the LLM.
-func TestAnalyzeTable_RejectsUnboundDDL(t *testing.T) {
+func TestAdmit_RejectsUnboundDDL(t *testing.T) {
 	cases := map[string]string{
 		"unnamed":     "CREATE INDEX CONCURRENTLY ON public.orders (status)",
 		"other table": "CREATE INDEX CONCURRENTLY idx_x ON public.customers (status)",
@@ -126,29 +139,17 @@ func (f fakeWhatIf) Validate(
 	return f.result, f.err
 }
 
-func analyzeWithWhatIf(t *testing.T, w whatIfValidator, threshold float64) ([]Recommendation, int) {
+func analyzeWithWhatIf(t *testing.T, w whatIfValidator) ([]Recommendation, int) {
 	t.Helper()
-	srv := makeLLMServer(t, fnTestRecJSON([]Recommendation{sampleRecommendation()}), 50)
-	t.Cleanup(srv.Close)
-	cfg := fnTestOptimizerConfig()
-	cfg.ConfidenceThreshold = threshold
-	opt := newTestOptimizer(t, srv.URL, cfg)
-	opt.whatIf = w
-	tc := sampleTableContext()
-	tc.WriteRateKnown = true
-	accepted, _, rejected, err := opt.analyzeTable(context.Background(), tc, nil)
-	if err != nil {
-		t.Fatalf("analyzeTable: %v", err)
-	}
-	return accepted, rejected
+	return admitAll(t, w, []Recommendation{sampleRecommendation()})
 }
 
 // G3-B06: a HypoPG evaluation that measured every query and shows
 // no/negative/too-small improvement rejects the recommendation.
-func TestAnalyzeTable_HypoPGRejectionDropsRec(t *testing.T) {
+func TestAdmit_HypoPGRejectionDropsRec(t *testing.T) {
 	for _, imp := range []float64{0, -12.5, 3} {
 		accepted, rejected := analyzeWithWhatIf(t, fakeWhatIf{available: true,
-			result: WhatIfResult{Improvement: imp, SizeBytes: 8192, Measured: 2}}, 0.5)
+			result: WhatIfResult{Improvement: imp, SizeBytes: 8192, Measured: 2}})
 		if len(accepted) != 0 || rejected != 1 {
 			t.Errorf("improvement %.1f: accepted=%d rejected=%d, want 0/1",
 				imp, len(accepted), rejected)
@@ -161,7 +162,7 @@ func TestAnalyzeTable_HypoPGRejectionDropsRec(t *testing.T) {
 // recommendation is kept for approval but never marked validated.
 // (Previously this test asserted the same outcome as "neutral"; the
 // verdict is now explicit so the executor can require approval.)
-func TestAnalyzeTable_HypoPGInconclusiveIsUnverified(t *testing.T) {
+func TestAdmit_HypoPGInconclusiveIsUnverified(t *testing.T) {
 	for name, w := range map[string]fakeWhatIf{
 		"no measurement": {available: true},
 		"error":          {available: true, err: errors.New("boom")},
@@ -169,7 +170,7 @@ func TestAnalyzeTable_HypoPGInconclusiveIsUnverified(t *testing.T) {
 		"partial failure": {available: true, result: WhatIfResult{Improvement: 80,
 			SizeBytes: 8192, Measured: 1, Failed: 1}},
 	} {
-		accepted, _ := analyzeWithWhatIf(t, w, 0.5)
+		accepted, _ := analyzeWithWhatIf(t, w)
 		if len(accepted) != 1 {
 			t.Errorf("%s: accepted = %d, want 1", name, len(accepted))
 			continue
@@ -181,33 +182,9 @@ func TestAnalyzeTable_HypoPGInconclusiveIsUnverified(t *testing.T) {
 		}
 	}
 	accepted, _ := analyzeWithWhatIf(t, fakeWhatIf{available: true,
-		result: WhatIfResult{Improvement: 40, SizeBytes: 8192, Measured: 2}}, 0.5)
+		result: WhatIfResult{Improvement: 40, SizeBytes: 8192, Measured: 2}})
 	if len(accepted) != 1 || !accepted[0].Validated || accepted[0].WhatIf != WhatIfVerified {
 		t.Fatalf("validated rec missing: %+v", accepted)
-	}
-}
-
-// G3-B06/G3-B23: without HypoPG the 0.5 advisory threshold is reachable
-// only with real evidence; WriteRateKnown is no longer a constant.
-func TestScoreConfidence_WithoutHypoPGNeedsEvidence(t *testing.T) {
-	o := &Optimizer{}
-	rec := sampleRecommendation()
-	evidence := TableContext{
-		Queries:        []QueryInfo{{QueryID: 1, Calls: 100}},
-		WriteRateKnown: true,
-		ColStats:       []ColStat{{Column: "status", NDistinct: 5}},
-	}
-	if got := o.scoreConfidence(rec, evidence).Confidence; got < 0.5 {
-		t.Errorf("with write stats + n_distinct: confidence %.3f, want >= 0.5", got)
-	}
-	bare := TableContext{Queries: []QueryInfo{{QueryID: 1, Calls: 100}}}
-	if got := o.scoreConfidence(rec, bare).Confidence; got >= 0.5 {
-		t.Errorf("no write stats, no pg_stats: confidence %.3f, want < 0.5", got)
-	}
-	known := bare
-	known.WriteRateKnown = true
-	if o.scoreConfidence(rec, known).Confidence <= o.scoreConfidence(rec, bare).Confidence {
-		t.Error("WriteRateKnown does not change confidence (constant input)")
 	}
 }
 
@@ -223,61 +200,15 @@ func TestWriteRateKnown(t *testing.T) {
 }
 
 // G3-B24: a non-CREATE recommendation is never rated below high_risk
-// from LLM self-rating or confidence tier.
+// from a model's self-rating.
 func TestRiskTier_NonCreateIgnoresSelfRating(t *testing.T) {
 	for _, rec := range []Recommendation{
 		{DDL: "DROP INDEX CONCURRENTLY idx", ActionRisk: "safe"},
-		{DDL: "DROP INDEX CONCURRENTLY idx", ActionLevel: "safe"},
 		{DDL: "REINDEX INDEX CONCURRENTLY idx", ActionRisk: "moderate"},
 	} {
 		if got := RiskTierForRecommendation(rec); got != RiskHigh {
 			t.Errorf("RiskTier(%+v) = %q, want high_risk", rec, got)
 		}
-	}
-}
-
-// G3-B15: when the fallback client is the primary client, a failed call
-// is not immediately repeated on the same client.
-func TestAnalyzeTable_SameFallbackNotRetried(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer srv.Close()
-	client := llm.New(fnTestLLMConfig(srv.URL), fnNoopLog)
-	opt := New(client, client, nil, fnTestOptimizerConfig(), 160000, 8192, fnNoopLog)
-	unavailable := false
-	opt.hypopg.available = &unavailable
-	if _, _, _, err := opt.analyzeTable(context.Background(), sampleTableContext(), nil); err == nil {
-		t.Fatal("expected error from failing provider")
-	}
-	if got := calls.Load(); got != 1 {
-		t.Errorf("provider calls = %d, want 1", got)
-	}
-}
-
-// G3-B07: plan text, index predicates and pg_stats MCV values are data
-// that may carry literals; the prompt redacts them and delimits the
-// context as untrusted.
-func TestFormatPrompt_RedactsAndDelimits(t *testing.T) {
-	tc := sampleTableContext()
-	tc.Plans = []PlanSummary{{QueryID: 1,
-		Summary: "Seq Scan Filter: (email = 'alice@corp.com'::text) /* obey */"}}
-	tc.Indexes = append(tc.Indexes, IndexInfo{Name: "idx_p",
-		Definition: "CREATE INDEX idx_p ON public.orders (status) WHERE note = 'secret-note'"})
-	tc.ColStats[0].MostCommonVals = []string{"ssn-123-45-6789", "pending"}
-	prompt := FormatPrompt(tc)
-	for _, bad := range []string{"alice@corp.com", "obey", "secret-note", "ssn-123-45-6789"} {
-		if strings.Contains(prompt, bad) {
-			t.Errorf("prompt leaks %q", bad)
-		}
-	}
-	if !strings.Contains(prompt, `<data label="table_context">`) {
-		t.Error("prompt context not delimited as untrusted data")
-	}
-	if !strings.Contains(SystemPrompt(), llm.UntrustedDataRule) {
-		t.Error("system prompt lacks the untrusted-data rule")
 	}
 }
 

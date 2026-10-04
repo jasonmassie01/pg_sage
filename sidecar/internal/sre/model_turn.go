@@ -43,15 +43,21 @@ type modelOutcome struct {
 	// contest re-rooted it, for a fallback conclusion.
 	contest *ModelContest
 	graph   *causal.Diagnosis
+	// conclusion and run are the tool-calling investigator's (roadmap
+	// 2.1): its conclusion and its transcript.
+	conclusion *ModelConclusion
+	run        *InvestigatorRun
 }
 
 func (o modelOutcome) empty() bool {
-	return o.ranking == nil && o.narrative == nil && o.probe == nil && o.contest == nil
+	return o.ranking == nil && o.narrative == nil && o.probe == nil && o.contest == nil &&
+		o.conclusion == nil && o.run == nil
 }
 
 func (o modelOutcome) apply(s *Summary) {
 	s.ModelRanking, s.Narrative, s.ModelProbe = o.ranking, o.narrative, o.probe
 	s.Memory, s.ModelContest = o.memory, o.contest
+	s.ModelConclusion, s.Investigator = o.conclusion, o.run
 }
 
 // modelSession is one investigation run's use of the model.
@@ -79,6 +85,9 @@ func (c *Coordinator) consultModel(ctx context.Context, lease Lease, inv Investi
 	if !c.model.IsEnabled() {
 		NoteModelUnavailable(c.notices, c.logFn, "the LLM client is disabled")
 		return lease, d, modelOutcome{}, nil
+	}
+	if c.investigator != nil {
+		return c.investigate(ctx, lease, inv, d, ev)
 	}
 	s := &modelSession{c: c, lease: lease, inv: inv, tools: true}
 	s.recall(ctx, d)

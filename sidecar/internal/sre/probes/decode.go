@@ -101,7 +101,7 @@ func rowsFor(res Result, id ID) ([]Row, error) {
 	}
 	if !res.Status.Usable() {
 		return nil, &UnavailableError{ProbeID: id, Status: res.Status,
-			Reason: res.Reason}
+			Reason: res.Reason, Phase: res.Phase, Timing: res.Timing}
 	}
 	return res.Rows, nil
 }

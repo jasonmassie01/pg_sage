@@ -139,8 +139,11 @@ func ruleCheckpointPressure(
 	}}
 }
 
-// ruleStatStatementsCapacity warns when tracked queries approach
-// the pg_stat_statements.max limit. Warning at >80%, critical >95%.
+// ruleStatStatementsCapacity warns when pg_stat_statements approaches
+// pg_stat_statements.max (warning at 80%, critical above 95%), counting
+// its true entries when the collector read them (the collected queries
+// are only the top N). Near capacity and mostly utility statements
+// (pg_dump's COPY ... TO stdout), it says so and what to change.
 func ruleStatStatementsCapacity(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -151,33 +154,36 @@ func ruleStatStatementsCapacity(
 	if maxSt <= 0 {
 		return nil
 	}
+	usage := current.System.StatStatements
 	count := len(current.Queries)
+	if usage != nil && usage.Entries > count {
+		count = usage.Entries
+	}
 	pct := float64(count) / float64(maxSt) * 100.0
-
 	if pct < 80.0 {
 		return nil
 	}
-
 	severity := "warning"
 	if pct > 95.0 {
 		severity = "critical"
 	}
-
+	detail := map[string]any{
+		"tracked_queries":     count,
+		"stat_statements_max": maxSt,
+		"utilization_pct":     pct,
+	}
+	title := fmt.Sprintf("pg_stat_statements at %.0f%% capacity (%d/%d)", pct, count, maxSt)
+	if usage != nil {
+		title += usageDetail(usage, detail)
+	}
 	return []Finding{{
 		Category:         "stat_statements_pressure",
 		Severity:         severity,
 		ObjectType:       "database",
 		ObjectIdentifier: "pg_stat_statements",
-		Title: fmt.Sprintf(
-			"pg_stat_statements at %.0f%% capacity (%d/%d)",
-			pct, count, maxSt,
-		),
-		Detail: map[string]any{
-			"tracked_queries":     count,
-			"stat_statements_max": maxSt,
-			"utilization_pct":     pct,
-		},
-		Recommendation: "Increase pg_stat_statements.max or review tracked queries.",
-		ActionRisk:     "safe",
+		Title:            title,
+		Detail:           detail,
+		Recommendation:   capacityAdvice(usage),
+		ActionRisk:       "safe",
 	}}
 }

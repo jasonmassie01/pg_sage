@@ -48,9 +48,16 @@ func (s *hypopgSession) function(name string) string {
 	return pgx.Identifier{s.namespace, name}.Sanitize()
 }
 
-func (s *hypopgSession) evaluate(ctx context.Context, ddl string,
+func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []string,
 	queries []QueryInfo,
 ) (WhatIfResult, error) {
+	// In-flight indexes are part of the baseline: the candidate is judged
+	// on what it adds to them.
+	for _, d := range alongside {
+		if _, err := s.createIndex(ctx, d); err != nil {
+			return WhatIfResult{}, fmt.Errorf("in-flight index %q: %w", d, err)
+		}
+	}
 	before, failed, err := s.measureCosts(ctx, queries)
 	if err != nil || len(before) == 0 {
 		return WhatIfResult{Failed: failed}, err

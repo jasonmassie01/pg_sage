@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
@@ -227,11 +226,11 @@ func TestNew_RejectionMemoryFollowsConfig(t *testing.T) {
 	pool := rejectionDB(t)
 	cfg := fnTestOptimizerConfig()
 	cfg.RejectionMemory = config.DefaultOptimizerRejectionMemory()
-	if o := New(nil, nil, pool, cfg, 170000, 8192, noopLog2); o.memory == nil {
+	if o := New(pool, cfg, 170000, noopLog2); o.memory == nil {
 		t.Fatal("enabled memory with a pool was not built")
 	}
 	cfg.RejectionMemory.Enabled = false
-	if o := New(nil, nil, pool, cfg, 170000, 8192, noopLog2); o.memory != nil {
+	if o := New(pool, cfg, 170000, noopLog2); o.memory != nil {
 		t.Fatal("disabled memory was built")
 	}
 }
@@ -290,30 +289,29 @@ func claimsSnapshot() *collector.Snapshot {
 const claimsITDDL = "CREATE INDEX CONCURRENTLY %s ON rejmem_it.claims USING btree " +
 	"(evidence text_pattern_ops) INCLUDE (%s)"
 
-// End to end on a real database: the first cycle measures the idea with
-// HypoPG and remembers the rejection; the second cycle's renamed variant is
-// skipped, the model is told, and the skip is one DEBUG summary line.
-func TestAnalyze_RejectionMemoryWithRealHypoPG(t *testing.T) {
+// End to end on a real database: the first admission measures the idea
+// with HypoPG and remembers the rejection; the renamed variant on the
+// next cycle is not measured again, and the measured shape is listed for
+// the tuning agent's case packet.
+func TestAdmit_RejectionMemoryWithRealHypoPG(t *testing.T) {
 	pool, version := claimsITSetup(t)
-	model := newScriptedModel(t,
-		recReply(fmt.Sprintf(claimsITDDL, "claims_evidence_pattern_idx", "id, status")),
-		recReply(fmt.Sprintf(claimsITDDL, "claims_evidence_prefix_idx", "status, id")))
-	llmCfg := fnTestLLMConfig(model.srv.URL)
-	llmCfg.CooldownSeconds = 0
 	cfg := fnTestOptimizerConfig()
 	cfg.MinSnapshots = 0
 	cfg.RejectionMemory = config.DefaultOptimizerRejectionMemory()
 	logs := &logRecorder{}
-	o := New(llm.New(llmCfg, fnNoopLog), nil, pool, cfg, version, 8192, logs.log)
+	o := New(pool, cfg, version, logs.log)
 	w := &countingDelegate{inner: o.whatIf}
 	o.whatIf = w
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-
-	first, err := o.Analyze(ctx, claimsSnapshot())
-	if err != nil || first.Rejections != 1 || first.MemorySkips != 0 || w.calls.Load() != 1 {
-		t.Fatalf("cycle 1: %+v err=%v whatif=%d\nlogs: %q", first, err, w.calls.Load(),
-			logs.lines)
+	tc, ok, err := o.TableContext(ctx, claimsSnapshot(), "rejmem_it.claims")
+	if err != nil || !ok || len(tc.Queries) != 1 {
+		t.Fatalf("context = %+v ok=%t err=%v", tc, ok, err)
+	}
+	first := o.Admit(ctx, Recommendation{DDL: fmt.Sprintf(claimsITDDL,
+		"claims_evidence_pattern_idx", "id, status"), IndexType: "btree"}, tc)
+	if first.Outcome != AdmitRejected || w.calls.Load() != 1 {
+		t.Fatalf("first: %+v whatif=%d logs: %q", first, w.calls.Load(), logs.lines)
 	}
 	var improvement float64
 	var reason string
@@ -325,23 +323,16 @@ func TestAnalyze_RejectionMemoryWithRealHypoPG(t *testing.T) {
 	if improvement >= 10 || !strings.Contains(reason, "below the 10.0% minimum") {
 		t.Fatalf("persisted %.2f%% %q", improvement, reason)
 	}
-
-	logs.lines = nil
-	second, err := o.Analyze(ctx, claimsSnapshot())
-	if err != nil || second.Rejections != 1 || second.MemorySkips != 1 || w.calls.Load() != 1 {
-		t.Fatalf("cycle 2: %+v err=%v whatif=%d", second, err, w.calls.Load())
+	tc, _, _ = o.TableContext(ctx, claimsSnapshot(), "rejmem_it.claims")
+	second := o.Admit(ctx, Recommendation{DDL: fmt.Sprintf(claimsITDDL,
+		"claims_evidence_prefix_idx", "status, id"), IndexType: "btree"}, tc)
+	if second.Outcome != AdmitMeasured || w.calls.Load() != 1 ||
+		o.MemoryStats().WhatIfSkipped != 1 {
+		t.Fatalf("second: %+v whatif=%d stats=%+v", second, w.calls.Load(), o.MemoryStats())
 	}
-	if debug := logs.matching("DEBUG", "rejection memory"); len(debug) != 1 ||
-		!strings.Contains(debug[0], "rejmem_it.claims") {
-		t.Fatalf("want one DEBUG summary naming the table, got %q", logs.lines)
-	}
-	for _, line := range logs.lines {
-		if !strings.HasPrefix(line, "DEBUG") && strings.Contains(line, "claims_evidence") {
-			t.Fatalf("a skipped candidate was logged above DEBUG: %q", line)
-		}
-	}
-	if p := model.prompt(1); !strings.Contains(p, "Already measured") ||
-		!strings.Contains(p, "btree (evidence text_pattern_ops) INCLUDE (id, status)") {
-		t.Fatalf("second prompt lacks the measured shape:\n%s", p)
+	lines := o.MeasuredRejections(ctx, tc)
+	if len(lines) != 1 ||
+		!strings.Contains(lines[0], "btree (evidence text_pattern_ops) INCLUDE (id, status)") {
+		t.Fatalf("measured shapes = %q", lines)
 	}
 }

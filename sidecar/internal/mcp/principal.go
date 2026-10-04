@@ -37,6 +37,8 @@ type Principal struct {
 	// Databases are the databases the principal may use; nil is all.
 	Databases []string
 	TokenID   string
+	// Name is the token's name (the external system it belongs to).
+	Name string
 }
 
 type principalKey struct{}

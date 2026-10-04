@@ -1,7 +1,6 @@
 package optimizer
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -64,30 +63,4 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func TestFormatPrompt_IncludesVectorWorkloadHints(t *testing.T) {
-	tc := sampleTableContext()
-	tc.Columns = append(tc.Columns, ColumnInfo{
-		Name: "embedding", Type: "vector(1536)", IsNullable: false,
-	})
-	tc.Queries = []QueryInfo{{
-		QueryID: 123,
-		Text: "SELECT id FROM orders WHERE tenant_id = $2 " +
-			"ORDER BY embedding <-> $1 LIMIT 10",
-		Calls: 250,
-	}}
-
-	prompt := FormatPrompt(tc)
-
-	if !strings.Contains(prompt, "### Vector Workload Hints") {
-		t.Fatalf("prompt missing vector workload hints: %s", prompt)
-	}
-	if !strings.Contains(prompt, VectorShapeFilteredANN) {
-		t.Fatalf("prompt missing shape %q", VectorShapeFilteredANN)
-	}
-	if !strings.Contains(prompt, VectorRecommendationFilteredRecallCheck) {
-		t.Fatalf("prompt missing recommendation %q",
-			VectorRecommendationFilteredRecallCheck)
-	}
 }

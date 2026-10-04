@@ -79,6 +79,9 @@ const (
 	DefaultWindow = 24 * time.Hour
 	// queueWait bounds how long a probe waits for a concurrency slot.
 	queueWait = 5 * time.Second
+	// acquireWait bounds how long a probe waits for a pool connection,
+	// apart from its statement budget.
+	acquireWait = 5 * time.Second
 )
 
 // Status is the typed outcome of one probe run.
@@ -244,6 +247,10 @@ type Result struct {
 	Columns    []string  `json:"columns,omitempty"`
 	Rows       []Row     `json:"rows,omitempty"`
 	Truncated  bool      `json:"truncated,omitempty"`
+	// Phase is where a failed run spent its budget; empty when usable.
+	Phase Phase `json:"phase,omitempty"`
+	// Timing is where the run spent its time (logs and tests only).
+	Timing Timing `json:"-"`
 }
 
 // UnavailableError reports a probe result that is not an observation.
@@ -251,8 +258,15 @@ type UnavailableError struct {
 	ProbeID ID
 	Status  Status
 	Reason  string
+	// Phase and Timing say where a failed run spent its budget.
+	Phase  Phase
+	Timing Timing
 }
 
 func (e *UnavailableError) Error() string {
-	return fmt.Sprintf("probe %s %s: %s", e.ProbeID, e.Status, e.Reason)
+	msg := fmt.Sprintf("probe %s %s: %s", e.ProbeID, e.Status, e.Reason)
+	if e.Phase == "" {
+		return msg
+	}
+	return msg + e.Timing.describe(e.Phase)
 }

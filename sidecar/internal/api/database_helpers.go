@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // ConnectionTestResult holds the result of a database
@@ -39,7 +41,7 @@ func testFromConnString(
 	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := pgx.Connect(testCtx, connStr)
+	conn, err := connectAsSage(testCtx, connStr)
 	if err != nil {
 		log.Printf("test-connection (by connstr) failed: %v", err)
 		return &ConnectionTestResult{
@@ -63,6 +65,17 @@ func testFromConnString(
 		PGVersion:  version,
 		Extensions: queryExtensions(testCtx, conn),
 	}
+}
+
+// connectAsSage opens a connection recognizable as pg_sage's own
+// (application_name pg_sage, statements tagged), like its pools'.
+func connectAsSage(ctx context.Context, connStr string) (*pgx.Conn, error) {
+	cfg, err := pgx.ParseConfig(connStr)
+	if err != nil {
+		return nil, err
+	}
+	selfmonitor.ConfigureConn(cfg)
+	return pgx.ConnectConfig(ctx, cfg)
 }
 
 // queryExtensions checks for pg_stat_statements and

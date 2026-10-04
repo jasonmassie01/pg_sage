@@ -9,7 +9,7 @@ const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 const modelBox = { borderColor: 'var(--border)', borderStyle: 'dashed' }
 
-function EvidenceRef({ id, known, onCite }) {
+export function EvidenceRef({ id, known, onCite }) {
   if (!known.has(id)) {
     return (
       <span data-testid={`evidence-missing-${id}`} style={muted}>evidence unavailable</span>

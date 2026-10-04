@@ -1,7 +1,6 @@
 package optimizer
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -68,30 +67,5 @@ func TestClassifyJSONWorkload_NonJSONQuery(t *testing.T) {
 	if got.PrimaryRecommendation != "" {
 		t.Fatalf("PrimaryRecommendation = %q, want empty",
 			got.PrimaryRecommendation)
-	}
-}
-
-func TestFormatPrompt_IncludesJSONWorkloadHints(t *testing.T) {
-	tc := sampleTableContext()
-	tc.Columns = append(tc.Columns, ColumnInfo{
-		Name: "payload", Type: "jsonb", IsNullable: true,
-	})
-	tc.Queries = []QueryInfo{{
-		QueryID: 99,
-		Text:    `SELECT * FROM orders WHERE payload->>'tenant_id' = $1`,
-		Calls:   200,
-	}}
-
-	prompt := FormatPrompt(tc)
-
-	if !strings.Contains(prompt, "### JSON/JSONB Workload Hints") {
-		t.Fatalf("prompt missing JSON workload hints: %s", prompt)
-	}
-	if !strings.Contains(prompt, JSONShapeScalarExtraction) {
-		t.Fatalf("prompt missing shape %q", JSONShapeScalarExtraction)
-	}
-	if !strings.Contains(prompt, JSONRecommendationExpressionIndex) {
-		t.Fatalf("prompt missing recommendation %q",
-			JSONRecommendationExpressionIndex)
 	}
 }

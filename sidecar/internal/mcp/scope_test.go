@@ -19,7 +19,8 @@ var approveTools = []string{"decide_fact", "declare_table_contract", "register_c
 var proposeTools = []string{"propose_policy_change", "request_change", "optimize_query",
 	"apply_migration", "ensure_fk_indexes", "set_maintenance_policy", "sre_propose_action",
 	"sre_request_execution", "sre_draft_runbook", "sre_compile_runbook",
-	"sre_evaluate_autonomy", "propose_fact", "mark_object", "report_source_fix"}
+	"sre_evaluate_autonomy", "propose_fact", "mark_object", "report_source_fix",
+	"specialist_request_remediation"}
 
 func agentContext(scopes ...Scope) context.Context {
 	return WithPrincipal(context.Background(), Principal{Actor: "token:agt1",

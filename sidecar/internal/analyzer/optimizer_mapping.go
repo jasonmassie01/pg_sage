@@ -7,20 +7,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
-// optimizerRecommendationToFinding maps one optimizer candidate to a
-// finding. Identity is "schema.table|<normalized index definition>" with
-// the fixed optimizer category, so several candidates for one table
+// OptimizerRecommendationFinding maps one admitted index candidate to a
+// finding; planSource is where the evidence plans came from. Identity is
+// "schema.table|<normalized index definition>" with the fixed optimizer
+// category, so several candidates for one table
 // persist independently and the optimizer's open-finding lookup matches
 // exactly what is emitted (C05, C06, G2-B19, G3-B13). The table is kept
 // separately in Detail["table"]; use OptimizerFindingTable to read it.
-func optimizerRecommendationToFinding(
-	rec optimizer.Recommendation,
-	result *optimizer.Result,
+func OptimizerRecommendationFinding(rec optimizer.Recommendation, planSource string,
 ) Finding {
-	planSource := ""
-	if result != nil {
-		planSource = result.PlanSource
-	}
 	indexCategory := rec.IndexCategory
 	if indexCategory == "" {
 		indexCategory = rec.Category
@@ -32,8 +27,6 @@ func optimizerRecommendationToFinding(
 		"ddl":                       rec.DDL,
 		"drop_ddl":                  rec.DropDDL,
 		"llm_rationale":             rec.Rationale,
-		"confidence_score":          rec.Confidence,
-		"action_level":              rec.ActionLevel,
 		"action_risk":               optimizer.RiskTierForRecommendation(rec),
 		"index_type":                rec.IndexType,
 		"category":                  optimizer.OptimizerCategory,

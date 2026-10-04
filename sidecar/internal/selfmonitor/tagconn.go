@@ -13,8 +13,8 @@ const maxMessageBytes = 1 << 30
 
 // TagConn wraps the connection pgx speaks the PostgreSQL protocol over
 // (after TLS) and places StatementTag after the first keyword of every
-// Query and Parse message's statement (placeTag). All other bytes pass through
-// unchanged. It is installed through ConfigurePool, so the tag covers
+// statement of a Query message (placeTags) and of a Parse message's
+// statement (placeTag). All other bytes pass through unchanged. It is installed through ConfigurePool, so the tag covers
 // every statement from every code path, including pgx's own.
 func TagConn(conn net.Conn) net.Conn {
 	if conn == nil {
@@ -91,8 +91,8 @@ func (c *tagConn) rewrite(buf []byte) ([]byte, []byte, error) {
 	return out, nil, nil
 }
 
-// tagMessage returns msg with its statement's tag placed (placeTag) when
-// it is a Query or Parse message that needs it; otherwise msg itself.
+// tagMessage returns msg with its statements' tags placed when it is a
+// Query or Parse message that needs them; otherwise msg itself.
 func tagMessage(msg []byte) []byte {
 	body := msg[5:]
 	switch msg[0] {
@@ -101,7 +101,7 @@ func tagMessage(msg []byte) []byte {
 		if !ok {
 			return msg
 		}
-		tagged := placeTag(query)
+		tagged := placeTags(query)
 		if tagged == query {
 			return msg
 		}

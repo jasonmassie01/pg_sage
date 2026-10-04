@@ -55,7 +55,7 @@ func planFor(kind TriggerKind, actionWindow time.Duration) ([]planStep, bool) {
 			probes.WALCheckpoint, probes.Archiver)}}, true
 	case TriggerPlan:
 		return []planStep{{calls: with(probes.PlanRegressions)}}, true
-	case TriggerSLOBurn:
+	case TriggerSLOBurn, TriggerOperator:
 		return sloBurnPlan(actions), true
 	}
 	return planM6(kind, actions)
@@ -93,6 +93,8 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = planDiagnosis(obs, inv.Subject)
 	case TriggerSLOBurn:
 		d = causal.DiagnoseSLOBurn(obs, inv.Subject)
+	case TriggerOperator:
+		d = causal.DiagnoseOperator(obs, inv.Subject)
 	case TriggerWraparound, TriggerDiskWAL, TriggerSequence:
 		d = diagnoseRunway(inv, obs)
 	default:

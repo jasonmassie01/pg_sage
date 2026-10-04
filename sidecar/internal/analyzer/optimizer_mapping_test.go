@@ -7,34 +7,33 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
-func TestOptimizerRecommendationToFinding_SeparatesActionLevelFromRisk(t *testing.T) {
+func TestOptimizerRecommendationFinding_RiskAndRollback(t *testing.T) {
 	rec := optimizer.Recommendation{
 		Table:                   "public.orders",
 		DDL:                     "CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status)",
 		DropDDL:                 "DROP INDEX CONCURRENTLY IF EXISTS idx_orders_status",
 		Rationale:               "speed up status lookups",
 		Severity:                "warning",
-		Confidence:              0.62,
 		IndexType:               "btree",
 		Category:                "missing_index",
 		EstimatedImprovementPct: 25,
-		ActionLevel:             "advisory",
 		AffectedQueries:         []string{"SELECT * FROM orders WHERE status = $1"},
 	}
-	result := &optimizer.Result{PlanSource: "pg_stat_statements"}
-
-	finding := optimizerRecommendationToFinding(rec, result)
+	finding := OptimizerRecommendationFinding(rec, "pg_stat_statements")
 
 	if finding.ActionRisk != optimizer.RiskModerate {
 		t.Fatalf("ActionRisk = %q, want %q",
 			finding.ActionRisk, optimizer.RiskModerate)
 	}
-	if finding.ActionRisk == rec.ActionLevel {
-		t.Fatalf("ActionRisk reused ActionLevel %q", rec.ActionLevel)
+	// The fixed-weight confidence and action level are gone: the tuning
+	// agent calibrates confidence on outcomes (roadmap 2.2).
+	for _, key := range []string{"action_level", "confidence_score"} {
+		if _, ok := finding.Detail[key]; ok {
+			t.Fatalf("detail %s = %v, want absent", key, finding.Detail[key])
+		}
 	}
-	if finding.Detail["action_level"] != rec.ActionLevel {
-		t.Fatalf("detail action_level = %v, want %q",
-			finding.Detail["action_level"], rec.ActionLevel)
+	if finding.Detail["plan_source"] != "pg_stat_statements" {
+		t.Fatalf("plan_source = %v", finding.Detail["plan_source"])
 	}
 	if finding.RecommendedSQL != rec.DDL {
 		t.Fatalf("RecommendedSQL = %q, want %q",
@@ -81,20 +80,18 @@ func TestOptimizerSpecializedRecommendationsProjectToIndexActions(t *testing.T) 
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			finding := optimizerRecommendationToFinding(
+			finding := OptimizerRecommendationFinding(
 				optimizer.Recommendation{
 					Table:           "public." + tt.name + "_demo",
 					DDL:             tt.ddl,
 					DropDDL:         "DROP INDEX CONCURRENTLY IF EXISTS idx_demo;",
 					Rationale:       "specialized workload index",
 					Severity:        "warning",
-					Confidence:      0.72,
 					IndexType:       tt.indexType,
 					Category:        tt.category,
-					ActionLevel:     "advisory",
 					AffectedQueries: []string{tt.query},
 				},
-				&optimizer.Result{PlanSource: "test"},
+				"test",
 			)
 
 			projected := cases.ProjectFinding(cases.SourceFinding{
