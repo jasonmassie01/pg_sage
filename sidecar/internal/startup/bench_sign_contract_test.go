@@ -143,3 +143,28 @@ func TestDockerSoftOnMasterHardOnTags(t *testing.T) {
 		}
 	}
 }
+
+// The signing tool is installed by an action pinned to a full commit SHA:
+// cosign-installer publishes no floating major tag, and `@v4` failed the
+// first master run ("unable to find version v4"). A SHA pin also keeps the
+// action that signs releases from changing under a moved tag.
+func TestBenchSignPinsCosignInstallerToACommit(t *testing.T) {
+	job, ok := ciJobs(t)["bench-sign"]
+	if !ok {
+		t.Fatal("ci.yml has no bench-sign job")
+	}
+	found := 0
+	for _, s := range job.Steps {
+		name, ref, ok := strings.Cut(s.Uses, "@")
+		if !ok || name != "sigstore/cosign-installer" {
+			continue
+		}
+		found++
+		if len(ref) != 40 || strings.Trim(ref, "0123456789abcdef") != "" {
+			t.Errorf("sigstore/cosign-installer@%s: want a 40-hex commit SHA", ref)
+		}
+	}
+	if found != 1 {
+		t.Fatalf("bench-sign installs cosign %d times, want once", found)
+	}
+}
