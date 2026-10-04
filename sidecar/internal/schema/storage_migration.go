@@ -80,6 +80,17 @@ var storageSettings = []storageSetting{
 	{"sre_change_feed_state", append([]string{"fillfactor=50"}, smallHot...)},
 	{"sre_service_slos", append([]string{"fillfactor=50"}, smallHot...)},
 	{"sre_investigations", append([]string{"fillfactor=70"}, smallHot...)},
+	// Dogfood round 2: small tables updated in place (cursors, leases,
+	// reservations, queue and verification states, hint revalidation, trust
+	// levels) sat at 15-100% dead tuples on lifeos, below autovacuum's
+	// default 50-row trigger.
+	{"trust_ledger_state", smallHot},
+	{"sre_budget_reservations", smallHot},
+	{"change_lease", smallHot},
+	{"action_queue", smallHot},
+	{"verification", smallHot},
+	{"query_hints", smallHot},
+	{"sre_family_autonomy", smallHot},
 }
 
 // backfillResolvedAt gives resolved findings from before resolved_at was
@@ -138,13 +149,21 @@ func migrateStorageIndexes(ctx context.Context, db partition.DB) error {
 	return nil
 }
 
+// migrateStorageSettings sets each table's storage parameters when one is
+// missing; a table this deployment does not have yet is skipped.
 func migrateStorageSettings(ctx context.Context, db partition.DB) error {
 	for _, s := range storageSettings {
+		var exists bool
 		var current []string
-		err := db.QueryRow(ctx, `SELECT COALESCE(reloptions, '{}') FROM pg_catalog.pg_class
-			WHERE oid = pg_catalog.to_regclass($1)`, "sage."+s.table).Scan(&current)
+		err := db.QueryRow(ctx, `SELECT pg_catalog.to_regclass($1) IS NOT NULL,
+			COALESCE((SELECT reloptions FROM pg_catalog.pg_class
+			          WHERE oid = pg_catalog.to_regclass($1)), '{}')`, "sage."+s.table).
+			Scan(&exists, &current)
 		if err != nil {
 			return fmt.Errorf("read storage parameters of sage.%s: %w", s.table, err)
+		}
+		if !exists {
+			continue
 		}
 		missing := false
 		for _, o := range s.opts {
