@@ -155,6 +155,7 @@ func wireRouter(p WireParams) WireResult {
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
+			Ask:        askServices(),
 		},
 		middlewares...,
 	)

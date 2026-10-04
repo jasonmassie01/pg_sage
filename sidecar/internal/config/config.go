@@ -94,6 +94,7 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+	Ask         AskConfig           `yaml:"ask"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -693,6 +694,9 @@ func (c *Config) validate() error {
 	if err := c.SRE.validate(); err != nil {
 		return err
 	}
+	if err := c.Ask.validate(); err != nil {
+		return err
+	}
 	if err := c.LLM.validateWire(); err != nil {
 		return err
 	}
@@ -1035,6 +1039,7 @@ func newDefaults() *Config {
 			},
 		},
 		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		Ask: defaultAskConfig(),
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},

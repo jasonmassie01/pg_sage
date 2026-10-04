@@ -24,7 +24,7 @@ func toolDefinitions() []Tool {
 	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
 	tools = append(append(tools, signalTools()...), runbookTools()...)
 	tools = append(append(tools, autonomyTools()...), factTools()...)
-	tools = append(tools, agentTools()...)
+	tools = append(append(tools, agentTools()...), askTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}
@@ -35,7 +35,8 @@ func finishTool(tool Tool) Tool {
 	if tool.Name != "list_databases" {
 		tool.InputSchema = setDatabaseProperty(tool.InputSchema, nil)
 	}
-	readOnly := !approveScopeTools[tool.Name] && !proposeScopeTools[tool.Name]
+	readOnly := !approveScopeTools[tool.Name] && !proposeScopeTools[tool.Name] &&
+		!askToolNames[tool.Name] // ask_sage may queue a proposal
 	tool.Annotations = &ToolAnnotations{ReadOnlyHint: readOnly}
 	return tool
 }

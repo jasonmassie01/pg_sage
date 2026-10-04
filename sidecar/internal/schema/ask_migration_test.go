@@ -51,20 +51,7 @@ func TestAskTablesConstraints(t *testing.T) {
 		conv); err != nil {
 		t.Fatalf("valid message: %v", err)
 	}
-	bad := map[string]string{
-		"empty actor": `INSERT INTO sage.ask_conversations (actor) VALUES ('')`,
-		"long title": `INSERT INTO sage.ask_conversations (actor, title)
-			VALUES ('mig:2', repeat('t', 201))`,
-		"empty question": `INSERT INTO sage.ask_messages (conversation_id, question, answer,
-			status) VALUES ('` + conv + `'::uuid, '', '{}'::jsonb, 'answered')`,
-		"unknown status": `INSERT INTO sage.ask_messages (conversation_id, question, answer,
-			status) VALUES ('` + conv + `'::uuid, 'q', '{}'::jsonb, 'approved')`,
-		"orphan message": `INSERT INTO sage.ask_messages (conversation_id, question, answer,
-			status) VALUES (gen_random_uuid(), 'q', '{}'::jsonb, 'answered')`,
-		"negative tokens": `INSERT INTO sage.ask_budget_day (day, actor, tokens)
-			VALUES (current_date, 'mig:3', -1)`,
-	}
-	for name, sql := range bad {
+	for name, sql := range askInvalidRows(conv) {
 		if _, err := pool.Exec(ctx, sql); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
@@ -85,5 +72,22 @@ func TestAskTablesConstraints(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.ask_messages
 		WHERE conversation_id = $1::uuid`, conv).Scan(&left); err != nil || left != 0 {
 		t.Fatalf("messages left after their conversation: %d (%v)", left, err)
+	}
+}
+
+// askInvalidRows are inserts the Ask Sage tables must refuse.
+func askInvalidRows(conv string) map[string]string {
+	return map[string]string{
+		"empty actor": `INSERT INTO sage.ask_conversations (actor) VALUES ('')`,
+		"long title": `INSERT INTO sage.ask_conversations (actor, title)
+		VALUES ('mig:2', repeat('t', 201))`,
+		"empty question": `INSERT INTO sage.ask_messages (conversation_id, question, answer,
+		status) VALUES ('` + conv + `'::uuid, '', '{}'::jsonb, 'answered')`,
+		"unknown status": `INSERT INTO sage.ask_messages (conversation_id, question, answer,
+		status) VALUES ('` + conv + `'::uuid, 'q', '{}'::jsonb, 'approved')`,
+		"orphan message": `INSERT INTO sage.ask_messages (conversation_id, question, answer,
+		status) VALUES (gen_random_uuid(), 'q', '{}'::jsonb, 'answered')`,
+		"negative tokens": `INSERT INTO sage.ask_budget_day (day, actor, tokens)
+		VALUES (current_date, 'mig:3', -1)`,
 	}
 }

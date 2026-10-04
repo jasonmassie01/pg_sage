@@ -127,6 +127,7 @@ func buildDatabaseRuntime(
 	rt.startSREActions()
 	rt.startActionOutcomeFeed() // M7: approved M5 runs feed the ledger
 	rt.startRunways()
+	rt.startAsk()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,

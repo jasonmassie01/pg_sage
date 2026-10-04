@@ -73,6 +73,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Facts: factsMCPBackend{manager: fleetMgr},
 		// Coding-agent tools (roadmap phase 3) on the resolved database.
 		AgentTools: fleetAgentTools{manager: fleetMgr, options: agentToolOptions(cfg)},
+		// Ask Sage (roadmap phase 3): read, and propose with the propose scope.
+		Ask: askServices(),
 	}
 }
 

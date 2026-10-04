@@ -59,6 +59,11 @@
 | `analyzer.xid_wraparound_warning` | `restart` | `-` |
 | `api.listen_addr` | `restart` | `-` |
 | `api.trusted_proxies` | `restart` | `-` |
+| `ask.daily_tokens_per_database` | `restart` | `-` |
+| `ask.daily_tokens_per_user` | `restart` | `-` |
+| `ask.enabled` | `restart` | `-` |
+| `ask.max_tokens_per_question` | `restart` | `-` |
+| `ask.retention_days` | `restart` | `-` |
 | `auto_explain.collect_interval_seconds` | `reconfigure` | `auto_explain` |
 | `auto_explain.enabled` | `restart` | `-` |
 | `auto_explain.log_min_duration_ms` | `restart` | `-` |

@@ -77,6 +77,8 @@ func familyOf(name string) toolFamily {
 		return (*Server).callFactTool
 	case agentToolNames[name]:
 		return (*Server).callAgentTool
+	case askToolNames[name]:
+		return (*Server).callAskTool
 	case name == "list_databases":
 		return (*Server).listDatabases
 	}
