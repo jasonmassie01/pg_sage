@@ -99,7 +99,9 @@ func TestMCPBearerCredentialParsing(t *testing.T) {
 		got, ok := bearerCredential(req)
 		require.Equal(t, tc.ok, ok, "header %q", tc.header)
 		require.Equal(t, tc.want, got, "header %q", tc.header)
-		require.Equal(t, tc.ok, isMCPTokenRequest(req), "header %q", tc.header)
+		// Token-only endpoint: the session middleware leaves every MCP
+		// request to the token check, whatever its header.
+		require.True(t, isMCPTokenRequest(req), "header %q", tc.header)
 	}
 	other := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/tokens", nil)
 	other.Header.Set("Authorization", "Bearer pgs_mcp_x")
