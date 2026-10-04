@@ -12,9 +12,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 )
 
-// MCP API tokens authenticate the MCP endpoint, and only it. A request to
-// it that carries a Bearer credential is authenticated by that credential
-// alone: an invalid token is refused and never falls back to a session.
+// MCP API tokens authenticate the MCP endpoint, and only it; the endpoint
+// accepts nothing else. An invalid token is refused and never falls back
+// to a session.
 
 const mcpEndpointPath = "/api/v1/mcp"
 
@@ -32,13 +32,10 @@ func mcpTokenStore(pool *pgxpool.Pool) *mcptoken.Store {
 }
 
 // isMCPTokenRequest reports a request the session middleware must leave to
-// the MCP token check.
+// the MCP token check: every request to the MCP endpoint, which is
+// token-only (a session cookie there is ignored, never used).
 func isMCPTokenRequest(r *http.Request) bool {
-	if r.URL.Path != mcpEndpointPath {
-		return false
-	}
-	_, ok := bearerCredential(r)
-	return ok
+	return r.URL.Path == mcpEndpointPath
 }
 
 // bearerCredential returns the credential of an `Authorization: Bearer`
