@@ -24,22 +24,25 @@ type evidenceSet struct {
 // class records (verdict counts, the self-initiated evidence).
 type evidenceNeeds struct{ incident, records bool }
 
-// loadEvidence reads the scope's evidence at now.
-func (s *Service) loadEvidence(ctx context.Context, p pairScope, need evidenceNeeds,
+// loadEvidence reads the evidence of pairs at now: the class records of
+// every pair, the incident evidence of the incident pairs.
+func (s *Service) loadEvidence(ctx context.Context, pairs []pairKey, need evidenceNeeds,
 	now time.Time) (evidenceSet, error) {
 	e := evidenceSet{at: now}
 	var err error
 	if need.records {
-		if e.records, err = s.store.classRecordSet(ctx, p); err != nil {
+		if e.records, err = s.store.classRecordSet(ctx, pairs); err != nil {
 			return evidenceSet{}, err
 		}
 	}
-	if !need.incident {
+	incident := incidentPairs(pairs)
+	if !need.incident || len(incident) == 0 {
 		return e, nil
 	}
-	families := Families()
-	if !p.all() {
-		families = []Family{p.family}
+	names := familiesOf(incident)
+	families := make([]Family, 0, len(names))
+	for _, f := range names {
+		families = append(families, Family(f))
 	}
 	if e.bench, err = s.store.benchSet(ctx, families); err != nil {
 		return evidenceSet{}, err
@@ -49,13 +52,14 @@ func (s *Service) loadEvidence(ctx context.Context, p pairScope, need evidenceNe
 		return evidenceSet{}, err
 	}
 	th := s.cfg.Thresholds
-	if e.shadow, err = s.store.shadowSet(ctx, p, now.Add(-th.ShadowDuration)); err != nil {
+	if e.shadow, err = s.store.shadowSet(ctx, names,
+		now.Add(-th.ShadowDuration)); err != nil {
 		return evidenceSet{}, err
 	}
-	if e.live, err = s.store.liveSet(ctx, p); err != nil {
+	if e.live, err = s.store.liveSet(ctx, incident); err != nil {
 		return evidenceSet{}, err
 	}
-	e.safety, err = s.store.safetySet(ctx, p, now.Add(-s.cfg.SafetyWindow))
+	e.safety, err = s.store.safetySet(ctx, names, now.Add(-s.cfg.SafetyWindow))
 	if err != nil {
 		return evidenceSet{}, err
 	}
@@ -84,10 +88,32 @@ func (s *Service) evidenceOf(e evidenceSet, f Family, c ActionClass) Evidence {
 func (s *Service) Evidence(ctx context.Context, f Family, c ActionClass) (Evidence, error) {
 	now := s.now()
 	self := IsSelfInitiated(f)
-	e, err := s.loadEvidence(ctx, pairScope{f, c},
+	e, err := s.loadEvidence(ctx, []pairKey{{f, c}},
 		evidenceNeeds{incident: !self, records: self}, now)
 	if err != nil {
 		return Evidence{}, err
 	}
 	return s.evidenceOf(e, f, c), nil
+}
+
+// incidentPairs are the pairs of incident families.
+func incidentPairs(pairs []pairKey) []pairKey {
+	var out []pairKey
+	for _, p := range pairs {
+		if !IsSelfInitiated(p.family) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// gridPairs is every family x class pair of the Trust view, in order.
+func gridPairs() []pairKey {
+	var out []pairKey
+	for _, f := range AllFamilies() {
+		for _, c := range ApplicableClasses(f) {
+			out = append(out, pairKey{f, c})
+		}
+	}
+	return out
 }

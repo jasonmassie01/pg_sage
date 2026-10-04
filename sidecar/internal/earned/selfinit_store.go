@@ -48,31 +48,39 @@ func (s *PostgresStore) saveCursors(ctx context.Context, c selfCursors) error {
 	return storeErr("save reconcile cursors", err)
 }
 
-// lastChanges reads the newest level-changing event of every pair of the
-// database.
-func (s *PostgresStore) lastChanges(ctx context.Context) (map[pairKey]Event, error) {
-	rows, err := s.pool.Query(ctx, `SELECT DISTINCT ON (family, action_class) id, family,
-		action_class, event_type, from_level, to_level, actor, reason,
-		COALESCE(database_name, ''), COALESCE(proposal_id::text, ''),
-		COALESCE(action_log_id, 0), evidence, created_at
-		FROM sage.sre_autonomy_events
-		WHERE deployment_id = $1 AND database_name = $2
-		  AND event_type IN ('promotion_approved', 'downgraded', 'auto_downgraded',
-		                     'carried_over', 'grandfathered', 'database_scoped')
-		ORDER BY family, action_class, created_at DESC, id DESC`, s.deployment, s.database)
-	if err != nil {
-		return nil, storeErr("read level changes", err)
-	}
-	defer rows.Close()
+// lastChangesSQL reads each pair's newest level-changing event through the
+// pair's index.
+const lastChangesSQL = `/* pg_sage */ SELECT e.id, e.family, e.action_class, e.event_type,
+	e.from_level, e.to_level, e.actor, e.reason, e.database_name, e.proposal_id,
+	e.action_log_id, e.evidence, e.created_at
+	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
+	CROSS JOIN LATERAL (
+		SELECT id, family, action_class, event_type, from_level, to_level, actor, reason,
+		       COALESCE(database_name, '') AS database_name,
+		       COALESCE(proposal_id::text, '') AS proposal_id,
+		       COALESCE(action_log_id, 0) AS action_log_id, evidence, created_at
+		  FROM sage.sre_autonomy_events ev
+		 WHERE ev.deployment_id = $1 AND ev.database_name = $2
+		   AND ev.family = p.family AND ev.action_class = p.action_class
+		   AND ev.event_type IN ('promotion_approved', 'downgraded', 'auto_downgraded',
+		                         'carried_over', 'grandfathered', 'database_scoped')
+		 ORDER BY ev.created_at DESC, ev.id DESC LIMIT 1) e`
+
+// lastChanges reads the newest level-changing event of each pair.
+func (s *PostgresStore) lastChanges(ctx context.Context, pairs []pairKey) (
+	map[pairKey]Event, error) {
+	families, classes := pairArrays(pairs)
 	out := map[pairKey]Event{}
-	for rows.Next() {
-		e, err := scanEvent(rows)
-		if err != nil {
-			return nil, storeErr("scan level change", err)
-		}
-		out[pairKey{e.Family, e.Class}] = e
-	}
-	return out, storeErr("read level changes", rows.Err())
+	err := s.queryEach(ctx, "read level changes", lastChangesSQL,
+		[]any{s.deployment, s.database, families, classes}, func(rows pgx.Rows) error {
+			e, err := scanEvent(rows)
+			if err != nil {
+				return err
+			}
+			out[pairKey{e.Family, e.Class}] = e
+			return nil
+		})
+	return out, err
 }
 
 // stamp is a nullable time for an API row.

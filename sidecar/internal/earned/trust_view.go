@@ -71,7 +71,8 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 	for i := range pending {
 		byPair[pairKey{pending[i].Family, pending[i].Class}] = &pending[i]
 	}
-	changes, err := s.store.lastChanges(ctx)
+	grid := gridPairs()
+	changes, err := s.store.lastChanges(ctx, grid)
 	if err != nil {
 		return TrustView{}, err
 	}
@@ -80,7 +81,7 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 		return TrustView{}, err
 	}
 	now := s.now()
-	e, err := s.loadEvidence(ctx, pairScope{},
+	e, err := s.loadEvidence(ctx, grid,
 		evidenceNeeds{incident: true, records: true}, now)
 	if err != nil {
 		return TrustView{}, err
@@ -90,16 +91,13 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 	if v.Grandfathered, err = s.Grandfathered(ctx); err != nil {
 		return TrustView{}, err
 	}
-	for _, f := range AllFamilies() {
-		for _, c := range ApplicableClasses(f) {
-			key := pairKey{f, c}
-			st, ok := levels[key]
-			if !ok {
-				st = defaultState(f, c)
-			}
-			v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, f, c), e.records[key],
-				byPair[key], changes[key]))
+	for _, key := range grid {
+		st, ok := levels[key]
+		if !ok {
+			st = defaultState(key.family, key.class)
 		}
+		v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, key.family, key.class),
+			e.records[key], byPair[key], changes[key]))
 	}
 	return v, nil
 }
@@ -147,7 +145,7 @@ func lastChange(st State, e Event) TrustChange {
 // one statement.
 func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 	self := l.selfDowngrades(ctx)
-	safety, err := l.svc.store.safetySet(ctx, pairScope{},
+	safety, err := l.svc.store.safetySet(ctx, rowFamilies(v.Rows, false),
 		l.svc.now().Add(-l.svc.cfg.SafetyWindow))
 	byFamily := map[Family][]Downgrade{}
 	for i := range v.Rows {
@@ -175,4 +173,16 @@ func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 		}
 		row.Effective = &level
 	}
+}
+
+// rowFamilies lists the distinct families of rows, self-initiated ones
+// only when self.
+func rowFamilies(rows []TrustRow, self bool) []string {
+	pairs := make([]pairKey, 0, len(rows))
+	for _, r := range rows {
+		if IsSelfInitiated(r.Family) == self {
+			pairs = append(pairs, pairKey{r.Family, r.Class})
+		}
+	}
+	return familiesOf(pairs)
 }

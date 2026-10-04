@@ -65,70 +65,72 @@ func (s *PostgresStore) LatestBench(ctx context.Context, f Family) (*EvalRun, er
 // classRecordSetSQL counts each pair's outcomes on the database, and its
 // credited and uncredited decided outcomes since its last demerit. Rows
 // recorded before outcomes kept their verdict count by result.
-const classRecordSetSQL = `/* pg_sage */ WITH pair AS (
-	SELECT family, action_class, verdict, result,
-	       COALESCE(observed_at, recorded_at) AS at
-	  FROM sage.sre_autonomy_outcomes
-	 WHERE deployment_id = $1 AND database_name = $2 /*scope*/
-), last AS (
-	SELECT DISTINCT ON (family, action_class) family, action_class, at,
-	       COALESCE(verdict, result) AS cause
-	  FROM pair WHERE result IN ('harmful', 'safety_violation', 'rejected')
-	 ORDER BY family, action_class, at DESC
-)
-SELECT pair.family, pair.action_class,
-	count(*) FILTER (WHERE verdict = 'improved'
-	                    OR (verdict IS NULL AND result = 'verified_recovery')),
-	count(*) FILTER (WHERE verdict = 'neutral'),
-	count(*) FILTER (WHERE verdict = 'regressed'
-	                    OR (verdict IS NULL AND result IN ('harmful', 'safety_violation'))),
-	count(*) FILTER (WHERE verdict = 'rolled_back'),
-	count(*) FILTER (WHERE verdict = 'rejected'
-	                    OR (verdict IS NULL AND result = 'rejected')),
-	count(*) FILTER (WHERE verdict = 'insufficient_evidence'),
-	count(*) FILTER (WHERE verdict = 'unverifiable'
-	                    OR (verdict IS NULL AND result = 'unverified')),
-	count(*) FILTER (WHERE result = 'verified_recovery'
-	                   AND (l.at IS NULL OR pair.at > l.at)),
-	count(*) FILTER (WHERE result = 'unverified' AND verdict = 'neutral'
-	                   AND (l.at IS NULL OR pair.at > l.at)),
-	max(l.at), max(l.cause)
-FROM pair LEFT JOIN last l
-  ON l.family = pair.family AND l.action_class = pair.action_class
-GROUP BY pair.family, pair.action_class`
+const classRecordSetSQL = `/* pg_sage */ SELECT p.family, p.action_class,
+	c.improved, c.neutral, c.regressed, c.rolled_back, c.rejected, c.insufficient,
+	c.unverifiable, c.successes, c.uncredited, l.at, l.cause
+	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
+	LEFT JOIN LATERAL (
+		SELECT COALESCE(o.observed_at, o.recorded_at) AS at,
+		       COALESCE(o.verdict, o.result) AS cause
+		  FROM sage.sre_autonomy_outcomes o
+		 WHERE o.deployment_id = $1 AND o.database_name = $2 AND o.family = p.family
+		   AND o.action_class = p.action_class
+		   AND o.result IN ('harmful', 'safety_violation', 'rejected')
+		 ORDER BY 1 DESC LIMIT 1) l ON true
+	CROSS JOIN LATERAL (
+		SELECT
+		count(*) FILTER (WHERE o.verdict = 'improved'
+		    OR (o.verdict IS NULL AND o.result = 'verified_recovery')) AS improved,
+		count(*) FILTER (WHERE o.verdict = 'neutral') AS neutral,
+		count(*) FILTER (WHERE o.verdict = 'regressed' OR (o.verdict IS NULL
+		    AND o.result IN ('harmful', 'safety_violation'))) AS regressed,
+		count(*) FILTER (WHERE o.verdict = 'rolled_back') AS rolled_back,
+		count(*) FILTER (WHERE o.verdict = 'rejected'
+		    OR (o.verdict IS NULL AND o.result = 'rejected')) AS rejected,
+		count(*) FILTER (WHERE o.verdict = 'insufficient_evidence') AS insufficient,
+		count(*) FILTER (WHERE o.verdict = 'unverifiable'
+		    OR (o.verdict IS NULL AND o.result = 'unverified')) AS unverifiable,
+		count(*) FILTER (WHERE o.result = 'verified_recovery' AND (l.at IS NULL
+		    OR COALESCE(o.observed_at, o.recorded_at) > l.at)) AS successes,
+		count(*) FILTER (WHERE o.result = 'unverified' AND o.verdict = 'neutral'
+		    AND (l.at IS NULL OR COALESCE(o.observed_at, o.recorded_at) > l.at))
+		    AS uncredited
+		  FROM sage.sre_autonomy_outcomes o
+		 WHERE o.deployment_id = $1 AND o.database_name = $2 AND o.family = p.family
+		   AND o.action_class = p.action_class) c`
 
-// classRecordSet reads the verdict record of every pair of the scope
-// (pairs without outcomes are absent: a zero record).
-func (s *PostgresStore) classRecordSet(ctx context.Context, p pairScope) (
+// classRecordSet reads the verdict record of each pair.
+func (s *PostgresStore) classRecordSet(ctx context.Context, pairs []pairKey) (
 	map[pairKey]ClassRecord, error) {
-	sql, args := scoped(classRecordSetSQL, p, true, s.deployment, s.database)
+	families, classes := pairArrays(pairs)
 	out := map[pairKey]ClassRecord{}
-	err := s.queryEach(ctx, "read class record", sql, args, func(rows pgx.Rows) error {
-		var f, c string
-		var r ClassRecord
-		var cause *string
-		if err := rows.Scan(&f, &c, &r.Improved, &r.Neutral, &r.Regressed, &r.RolledBack,
-			&r.Rejected, &r.Insufficient, &r.Unverifiable, &r.Successes, &r.Uncredited,
-			&r.LastDemeritAt, &cause); err != nil {
-			return err
-		}
-		if r.LastDemeritAt != nil {
-			at := r.LastDemeritAt.UTC()
-			r.LastDemeritAt = &at
-		}
-		if cause != nil {
-			r.LastDemerit = demeritName(*cause)
-		}
-		out[pairKey{Family(f), ActionClass(c)}] = r
-		return nil
-	})
+	err := s.queryEach(ctx, "read class record", classRecordSetSQL,
+		[]any{s.deployment, s.database, families, classes}, func(rows pgx.Rows) error {
+			var f, c string
+			var r ClassRecord
+			var cause *string
+			if err := rows.Scan(&f, &c, &r.Improved, &r.Neutral, &r.Regressed,
+				&r.RolledBack, &r.Rejected, &r.Insufficient, &r.Unverifiable, &r.Successes,
+				&r.Uncredited, &r.LastDemeritAt, &cause); err != nil {
+				return err
+			}
+			if r.LastDemeritAt != nil {
+				at := r.LastDemeritAt.UTC()
+				r.LastDemeritAt = &at
+			}
+			if cause != nil {
+				r.LastDemerit = demeritName(*cause)
+			}
+			out[pairKey{Family(f), ActionClass(c)}] = r
+			return nil
+		})
 	return out, err
 }
 
 // ClassRecord reads a pair's verdict record on the database.
 func (s *PostgresStore) ClassRecord(ctx context.Context, f Family, c ActionClass) (
 	ClassRecord, error) {
-	set, err := s.classRecordSet(ctx, pairScope{f, c})
+	set, err := s.classRecordSet(ctx, []pairKey{{f, c}})
 	if err != nil {
 		return ClassRecord{}, err
 	}
