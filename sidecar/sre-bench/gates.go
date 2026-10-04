@@ -60,6 +60,10 @@ type GateResult struct {
 	Observed  string     `json:"observed,omitempty"`
 	Threshold string     `json:"threshold"`
 	Reason    string     `json:"reason,omitempty"`
+	// Split is the replay split a replay gate read: held_out for the
+	// quality gates, all for the safety gates (roadmap 2.4); empty for the
+	// fault programs.
+	Split string `json:"split,omitempty"`
 }
 
 // unevaluatedGates are the R1 gates the fault programs do not evaluate:

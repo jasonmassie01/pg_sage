@@ -44,12 +44,22 @@ type wireCell struct {
 }
 
 type wireReport struct {
-	Schema        string     `json:"schema"`
-	GeneratedAt   time.Time  `json:"generated_at"`
-	PgSageVersion string     `json:"pg_sage_version"`
-	PgSageCommit  string     `json:"pg_sage_commit"`
-	Gated         []string   `json:"gated_arms"`
-	Cells         []wireCell `json:"cells"`
+	Schema         string     `json:"schema"`
+	SchemaRevision int        `json:"schema_revision"`
+	GeneratedAt    time.Time  `json:"generated_at"`
+	PgSageVersion  string     `json:"pg_sage_version"`
+	PgSageCommit   string     `json:"pg_sage_commit"`
+	Gated          []string   `json:"gated_arms"`
+	Cells          []wireCell `json:"cells"`
+	// Revision 2 (roadmap 2.4): the model mode, a live run's budget and
+	// the held-out model lift.
+	LLM struct {
+		Mode string `json:"mode"`
+	} `json:"llm"`
+	Budget *struct {
+		Exhausted bool `json:"exhausted"`
+	} `json:"llm_budget"`
+	ModelLift []LiftRecord `json:"model_lift"`
 }
 
 // ParseBenchReport reads a PGIncidentBench JSON report: the schema must
@@ -85,6 +95,11 @@ func ParseBenchReport(raw []byte, now time.Time) (EvalRun, error) {
 			Runs: c.Runs, Top1: Metric(c.Top1), SafePass: Metric(c.SafePass),
 			Precision: c.Precision, Forbidden: c.Forbidden})
 	}
+	run.SchemaRevision = w.SchemaRevision
+	if len(w.ModelLift) > 0 {
+		run.ModelLift = &ModelLift{Mode: w.LLM.Mode,
+			BudgetExhausted: w.Budget != nil && w.Budget.Exhausted, Records: w.ModelLift}
+	}
 	return run, nil
 }
 
@@ -97,8 +112,18 @@ func (w wireReport) validate(now time.Time) error {
 	case w.GeneratedAt.After(now.Add(maxReportFutureSkew)):
 		return fmt.Errorf("%w: generated_at %s is in the future", ErrInvalidReport,
 			w.GeneratedAt.Format(time.RFC3339))
-	case len(w.Cells) == 0:
-		return fmt.Errorf("%w: no cells", ErrInvalidReport)
+	case len(w.Cells) == 0 && len(w.ModelLift) == 0:
+		return fmt.Errorf("%w: no cells and no model lift", ErrInvalidReport)
+	case w.SchemaRevision < 0:
+		return fmt.Errorf("%w: schema_revision %d", ErrInvalidReport, w.SchemaRevision)
+	case len(w.ModelLift) > maxLiftRecords:
+		return fmt.Errorf("%w: %d model lift records (at most %d)", ErrInvalidReport,
+			len(w.ModelLift), maxLiftRecords)
+	}
+	for i, r := range w.ModelLift {
+		if err := r.validate(w.LLM.Mode); err != nil {
+			return fmt.Errorf("%w: model lift record %d: %v", ErrInvalidReport, i, err)
+		}
 	}
 	for _, arm := range w.Gated {
 		if !armPattern.MatchString(arm) {

@@ -19,29 +19,23 @@ import "fmt"
 //     recorded results), so it bounds the investigator and the model.
 // Under the fake model the quality gates (top-1, abstention) are not
 // evaluated: the fake measures safety, not quality.
+//
+// Roadmap 2.4: the quality gates (R1-TOP1, R1-ABSTAIN, CHECK-36-REPLAY,
+// M3-LLM-PARITY) read the held-out cases only, so the cases thresholds
+// were tuned on cannot carry them; the safety gates (R1-FORBIDDEN,
+// R1-ADVERSARIAL, R1-CLAIM-REFS, R1-PACKET-P95, M3-LLM-ROOT) read every
+// case. Each gate names its split.
 
 // adversarialClasses are the replay classes of the adversarial set.
 var adversarialClasses = map[string]bool{ClassAdversarial: true, ClassMissingData: true}
 
 // ReplayGates evaluates one arm's replay gates.
 func ReplayGates(s Summary, rs []Result, arm, mode string) []GateResult {
+	held := Summarize(heldOutOnly(rs), s.Arms)
 	var out []GateResult
-	quality := arm != ArmLLM || mode == LLMLive
 	for _, fam := range s.Families {
-		t := s.Tally(arm, fam)
-		gs := []GateResult{top1Gate(t), abstentionGate(t), forbiddenGate(t),
-			adversarialGate(rs, arm, fam), packetGate(t)}
-		if !quality {
-			gs[0].Status, gs[0].Observed, gs[0].Reason = GateNotEvaluated, "", fakeModelReason
-			gs[1].Status, gs[1].Observed, gs[1].Reason = GateNotEvaluated, "", fakeModelReason
-		}
-		if arm == ArmCausalGraph {
-			gs = append(gs, replayTop1Gate(t))
-		}
-		if arm == ArmLLM {
-			gs = append(gs, claimRefsGate(t))
-		}
-		for _, g := range gs {
+		for _, g := range familyReplayGates(s.Tally(arm, fam), held.Tally(arm, fam), rs, arm,
+			fam, mode) {
 			g.Arm, g.Family = arm, fam
 			out = append(out, g)
 		}
@@ -51,9 +45,30 @@ func ReplayGates(s Summary, rs []Result, arm, mode string) []GateResult {
 		Reason: "needs two human reviewers for disputed narratives; the bench grades " +
 			"claims only mechanically (cited evidence resolves, numbers are grounded)"})
 	if arm == ArmLLM {
-		out = append(out, LLMGates(s, rs, mode)...)
+		out = append(out, llmGates(held, s, rs, mode, true)...)
 	}
 	return out
+}
+
+// familyReplayGates are one family's gates: quality on the held-out
+// tally, safety on every case.
+func familyReplayGates(all, held Tally, rs []Result, arm, fam, mode string) []GateResult {
+	top1, abstain := top1Gate(held), abstentionGate(held)
+	if arm == ArmLLM && mode != LLMLive {
+		top1.Status, top1.Observed, top1.Reason = GateNotEvaluated, "", fakeModelReason
+		abstain.Status, abstain.Observed, abstain.Reason = GateNotEvaluated, "",
+			fakeModelReason
+	}
+	gs := []GateResult{heldOutGate(top1), heldOutGate(abstain),
+		everyCaseGate(forbiddenGate(all)), everyCaseGate(adversarialGate(rs, arm, fam)),
+		everyCaseGate(packetGate(all))}
+	if arm == ArmCausalGraph {
+		gs = append(gs, heldOutGate(replayTop1Gate(held)))
+	}
+	if arm == ArmLLM {
+		gs = append(gs, everyCaseGate(claimRefsGate(all)))
+	}
+	return gs
 }
 
 // adversarialGate counts the findings on the adversarial set of one

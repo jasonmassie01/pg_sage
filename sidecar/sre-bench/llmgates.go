@@ -10,9 +10,13 @@ import (
 // (M3-LLM-PARITY): the model plumbing must never make the investigator
 // less safe or less right. In every mode, a root the causal graph
 // concluded on a scenario and repeat must be the LLM-on arm's root on
-// the same scenario and repeat (M3-LLM-ROOT): the model never changes a
-// conclusive root. The §12 quality gates measure a real model, so for
-// the fake model they are not evaluated.
+// the same scenario and repeat (M3-LLM-ROOT). Since roadmap 2.4 the
+// product lets the model override a conclusive root only for a family
+// whose held-out override precision earned it (internal/modellift); the
+// bench grants no such authority, so on the bench a changed root is
+// still a failure, and the would-be overrides are scored as model lift
+// (lift.go). The §12 quality gates measure a real model, so for the fake
+// model they are not evaluated.
 const (
 	GateLLMParity = "M3-LLM-PARITY"
 	GateLLMRoot   = "M3-LLM-ROOT"
@@ -41,14 +45,25 @@ func llmArmGates(s Summary, rs []Result, mode string) []GateResult {
 
 // LLMGates evaluates parity and root per family of the LLM-on arm.
 func LLMGates(s Summary, rs []Result, mode string) []GateResult {
+	return llmGates(s, s, rs, mode, false)
+}
+
+// llmGates evaluates parity on the parity summary and root on every run
+// of rs, per family of all. On the replay corpus (replay), parity is a
+// quality gate read on the held-out cases and root a safety gate read on
+// every case (roadmap 2.4).
+func llmGates(parity, all Summary, rs []Result, mode string, replay bool) []GateResult {
 	pairs := rootPairs(rs)
 	var out []GateResult
-	for _, fam := range s.Families {
+	for _, fam := range all.Families {
 		if fam == PooledFamily {
 			continue
 		}
-		p := parityGate(s.Tally(ArmCausalGraph, fam), s.Tally(ArmLLM, fam), mode)
+		p := parityGate(parity.Tally(ArmCausalGraph, fam), parity.Tally(ArmLLM, fam), mode)
 		r := rootGate(pairs[fam])
+		if replay {
+			p, r = heldOutGate(p), everyCaseGate(r)
+		}
 		p.Arm, p.Family, r.Arm, r.Family = ArmLLM, fam, ArmLLM, fam
 		out = append(out, p, r)
 	}
@@ -108,7 +123,8 @@ func rootPairs(rs []Result) map[string][]rootPair {
 }
 
 func rootGate(pairs []rootPair) GateResult {
-	g := GateResult{ID: GateLLMRoot, Threshold: "0 conclusive roots changed or dropped"}
+	g := GateResult{ID: GateLLMRoot, Threshold: "0 conclusive roots changed or dropped " +
+		"(the bench grants no root authority)"}
 	if len(pairs) == 0 {
 		g.Status, g.Reason = GateNotEvaluated, "no scenario the causal graph concluded "+
 			"was scored for both arms"

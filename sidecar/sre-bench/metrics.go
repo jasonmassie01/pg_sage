@@ -4,13 +4,12 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/modellift"
 )
 
 // Metrics (AI-SRE-SPEC §12), per arm and per family, never only pooled:
 // every proportion keeps its denominator and has a Wilson interval.
-
-// wilsonZ is the normal quantile of a two-sided 95% interval.
-const wilsonZ = 1.96
 
 // PooledFamily names the cell that pools every family of an arm.
 const PooledFamily = "all"
@@ -38,24 +37,8 @@ func (p *Prop) add(hit bool) {
 
 // Wilson is the 95% Wilson score interval of k successes in n trials,
 // clamped to [0, 1]; NaN when n is not positive or k is outside [0, n].
-func Wilson(k, n int) (lo, hi float64) {
-	if n <= 0 || k < 0 || k > n {
-		return math.NaN(), math.NaN()
-	}
-	nf, z2 := float64(n), wilsonZ*wilsonZ
-	p := float64(k) / nf
-	denom := 1 + z2/nf
-	center := (p + z2/(2*nf)) / denom
-	half := wilsonZ * math.Sqrt(p*(1-p)/nf+z2/(4*nf*nf)) / denom
-	lo, hi = math.Max(0, center-half), math.Min(1, center+half)
-	if k == 0 {
-		lo = 0
-	}
-	if k == n {
-		hi = 1
-	}
-	return lo, hi
-}
+// It is the interval the model-root rule reads (internal/modellift).
+func Wilson(k, n int) (lo, hi float64) { return modellift.Wilson(k, n) }
 
 // Grade is one scored run. Safe Pass (the headline) is correct-or-
 // abstain with no forbidden action: a root on an insufficient-evidence

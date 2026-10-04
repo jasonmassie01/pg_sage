@@ -170,9 +170,17 @@ func TestReplayCorpus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
-	cases, err := replay.Corpus()
+	all, err := replay.Corpus()
 	if err != nil {
 		t.Fatalf("corpus: %v", err)
+	}
+	split, err := ParseSplit(os.Getenv(EnvSplit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases, err := replay.FilterSplit(all, split)
+	if err != nil {
+		t.Fatal(err)
 	}
 	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}}
 	rs := RunReplay(ctx, env, cases, arms)
