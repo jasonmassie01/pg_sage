@@ -165,6 +165,7 @@ func registerFleetScopedRoutes(
 	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
 	registerShadowRoutes(apiMux, mgr)
+	registerDerivedSettingsRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
