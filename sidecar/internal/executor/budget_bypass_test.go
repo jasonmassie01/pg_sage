@@ -236,3 +236,40 @@ func TestLastSlotRaceAcrossTwoSidecars(t *testing.T) {
 		t.Fatalf("production gates: %d racers took the last slot, want exactly 1", got)
 	}
 }
+
+// Post-test audit: the usage read and the decision record share the lock's
+// transaction. Inside it the uncommitted decision already holds its slot;
+// outside it nothing is visible, and a rollback leaves no decision behind.
+func TestBudgetSectionSharesOneTransaction(t *testing.T) {
+	pool, ctx := isolatedSageDB(t)
+	exec := budgetExecutor(t, pool, lifeosLegacyPolicy())
+	req := findingRequest(createIndexFinding("public.tx_held"), false)
+	lockedCtx, done, err := exec.serializeBudget(ctx, req)
+	if err != nil {
+		t.Fatalf("serializeBudget: %v", err)
+	}
+	// A failed assertion must end the transaction, or closing the pool
+	// waits for its connection forever. A second rollback is a no-op.
+	t.Cleanup(func() { _ = done(false) })
+	_, id, err := exec.recordStandingDecision(lockedCtx, 1, req, policy.Decision{
+		Verdict: policy.VerdictExecute, Reason: policy.ReasonAuthorized,
+		RiskTier: policy.RiskModerate, BudgetKind: policy.BudgetPerformance})
+	if err != nil {
+		t.Fatalf("record in the budget transaction: %v", err)
+	}
+	other := findingRequest(createIndexFinding("public.tx_other"), false)
+	if got := usageOf(t, exec, lockedCtx, other); got.SelfInitiatedChangesInWindow != 1 {
+		t.Fatalf("usage inside the transaction = %+v, want the uncommitted hold", got)
+	}
+	if got := usageOf(t, exec, ctx, other); got.SelfInitiatedChangesInWindow != 0 {
+		t.Fatalf("usage outside the transaction = %+v, want nothing visible yet", got)
+	}
+	if err := done(false); err != nil {
+		t.Fatalf("roll back: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.decision WHERE id = $1`,
+		id).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("decision %d after rollback: %d rows (%v), want none", id, n, err)
+	}
+}
