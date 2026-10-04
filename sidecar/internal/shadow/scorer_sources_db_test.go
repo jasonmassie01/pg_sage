@@ -148,7 +148,8 @@ func hypoFixture(t *testing.T, pool *pgxpool.Pool) int64 {
 	var qid int64
 	if err := pool.QueryRow(ctx, `SELECT queryid FROM pg_stat_statements
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-		  AND query LIKE '%shadow_hypo WHERE a = $1%' LIMIT 1`).Scan(&qid); err != nil {
+		  AND query LIKE 'SELECT count(*) FROM public.shadow_hypo WHERE a = $1%'
+		  AND query NOT LIKE '%pg_stat_statements%' LIMIT 1`).Scan(&qid); err != nil {
 		t.Skipf("pg_stat_statements did not record the target query (%v); "+
 			"is it in shared_preload_libraries?", err)
 	}
