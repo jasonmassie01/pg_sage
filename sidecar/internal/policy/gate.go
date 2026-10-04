@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
 type authorizationGate struct {
 	config GateConfig
+	// budgetMu makes reading usage and recording the verdict of a
+	// budget-spending request one critical section: the recorded execute
+	// decision holds its slot, so a concurrent candidate reads it.
+	budgetMu sync.Mutex
 }
 
 func NewGate(config GateConfig) Gate {
@@ -20,6 +25,10 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
+	if spendsBudget(req) {
+		gate.budgetMu.Lock()
+		defer gate.budgetMu.Unlock()
+	}
 	return gate.finish(ctx, req, gate.evaluate(ctx, req))
 }
 
@@ -51,11 +60,11 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if runtime.TrustLevel != TrustAdvisory && runtime.TrustLevel != TrustAutonomous {
 		return blocked(ReasonUnknownTrustLevel, runtime.TrustLevel)
 	}
-	doc, decision, stop := gate.documentDecision(ctx, req)
+	doc, decision, stop, note := gate.documentDecision(ctx, req)
 	if !stop {
 		decision = withDocumentBounds(doc, gate.selfInitiatedDecision(doc, runtime, req))
 	}
-	return gate.restrictAutonomy(ctx, doc, runtime, req, decision)
+	return note.stamp(gate.restrictAutonomy(ctx, doc, runtime, req, decision))
 }
 
 // selfInitiatedDecision lets trust, mode, tier flags and ramp decide first.
@@ -100,34 +109,38 @@ func providerDecision(runtime RuntimeState, req ActionRequest) (Decision, bool) 
 }
 
 // documentDecision applies the standing policy document: change class,
-// approval requirements and usage limits.
+// approval requirements and the usage limits of the request's budget kind.
 func (gate *authorizationGate) documentDecision(
 	ctx context.Context, req ActionRequest,
-) (Document, Decision, bool) {
+) (Document, Decision, bool, budgetNote) {
 	doc, err := gate.policy(ctx, req)
 	if err != nil || ValidateDocument(doc) != nil {
-		return doc, blocked(ReasonPolicyUnavailable, errorDetail(err)), true
+		return doc, blocked(ReasonPolicyUnavailable, errorDetail(err)), true, budgetNote{}
 	}
 	if req.Contract.RiskTier == RiskReadOnly {
-		return doc, Decision{}, false // diagnostics mutate nothing
+		return doc, Decision{}, false, budgetNote{} // diagnostics mutate nothing
 	}
 	changeClass := ChangeClass(req.Feature)
 	if !containsChangeClass(doc.AllowedChangeClasses, changeClass) {
-		return doc, gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed), true
+		decision := gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed)
+		return doc, decision, true, budgetNote{}
 	}
 	if hasGuardrail(*req.Contract, GuardrailApprovalRequired) ||
 		isBackendSignal(req.Contract.ActionType) ||
 		containsChangeClass(doc.ApprovalRequiredClasses, changeClass) {
-		return doc, gate.decision(req, VerdictQueueApproval, ReasonApprovalRequired), true
+		decision := gate.decision(req, VerdictQueueApproval, ReasonApprovalRequired)
+		return doc, decision, true, budgetNote{}
 	}
 	usage, err := gate.usage(ctx, req)
 	if err != nil {
-		return doc, blocked(ReasonPolicyUnavailable, err.Error()), true
+		return doc, blocked(ReasonPolicyUnavailable, err.Error()), true, budgetNote{}
 	}
-	if decision, stop := limitDecision(doc, usage); stop {
-		return doc, decisionForRequest(req, decision), true
+	kind := BudgetKindFor(req)
+	note := budgetNote{read: true, kind: kind, rows: usage.RequestRowsRewritten}
+	if decision, stop := limitDecision(doc, kind, usage); stop {
+		return doc, decisionForRequest(req, decision), true, note
 	}
-	return doc, Decision{}, false
+	return doc, Decision{}, false, note
 }
 
 // isBackendSignal reports action types that cancel or terminate a session.
@@ -239,42 +252,6 @@ func (gate *authorizationGate) usage(
 		return LimitUsage{}, nil
 	}
 	return gate.config.Usage(ctx, req)
-}
-
-func limitDecision(doc Document, usage LimitUsage) (Decision, bool) {
-	if budgetExceeded(doc.Budgets.StorageBytes, usage.StorageBytes) {
-		return blockedAs(VerdictPark, ReasonBudgetExceeded), true
-	}
-	if positiveExceeded(doc.BlastRadius.MaxRowsRewritten, usage.RowsRewritten, false) ||
-		positiveExceeded(doc.BlastRadius.MaxTablesPerWindow, usage.TablesInWindow, false) {
-		return blockedAs(VerdictPark, ReasonBlastRadiusExceeded), true
-	}
-	limit := doc.RateLimits.MaxSelfInitiatedChangesPerWindow
-	if positiveExceeded(limit, usage.SelfInitiatedChangesInWindow, true) {
-		return blockedAs(VerdictPark, ReasonRateLimitExceeded), true
-	}
-	return Decision{}, false
-}
-
-func budgetExceeded(limit BudgetLimit, usage int64) bool {
-	if limit.NoCap() {
-		return false
-	}
-	value, ok := limit.Value()
-	if !ok {
-		return true
-	}
-	return value == 0 || usage > value
-}
-
-func positiveExceeded(limit, usage int64, includeEqual bool) bool {
-	if limit == 0 {
-		return usage > 0
-	}
-	if includeEqual {
-		return usage >= limit
-	}
-	return usage > limit
 }
 
 func (gate *authorizationGate) windowDecision(

@@ -167,6 +167,11 @@ type Decision struct {
 	// SerializeMode is the policy's serialize_mode on an execute verdict:
 	// what a change lease conflict does (park, or wait in the lease queue).
 	SerializeMode string
+	// BudgetKind is the budget the request was charged to, and
+	// RowsRewritten its own estimate of rows rewritten, when the gate
+	// read usage (self-initiated, non-read-only requests).
+	BudgetKind    BudgetKind
+	RowsRewritten int64
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
@@ -210,13 +215,23 @@ const (
 	ExecutionManual   = "manual"
 )
 
+// LimitUsage is the rolling window of the request's budget kind if the
+// request runs. Rows rewritten are one budget shared by every kind.
 type LimitUsage struct {
-	StorageBytes  int64
-	RowsRewritten int64
+	StorageBytes int64
+	// RowsRewritten is the window's recorded rewrites plus the request's
+	// own estimate, RequestRowsRewritten.
+	RowsRewritten        int64
+	RequestRowsRewritten int64
 	// TablesInWindow is the distinct tables the window holds if the
 	// request runs (the ones already touched plus the request's own).
 	TablesInWindow               int64
 	SelfInitiatedChangesInWindow int64
+	// TablesFreeAt, ChangesFreeAt and RowsFreeAt are when the window next
+	// frees a table, a change or rewritten rows (zero: nothing to free).
+	TablesFreeAt  time.Time
+	ChangesFreeAt time.Time
+	RowsFreeAt    time.Time
 }
 
 type Gate interface {

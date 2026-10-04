@@ -61,13 +61,19 @@ type Budgets struct {
 	LLMTokensDaily BudgetLimit
 }
 
+// BlastRadius bounds what self-initiated changes may touch per window.
+// MaxRowsRewritten is one budget shared by every kind; MaxTablesPerWindow
+// is the performance budget's table limit (with
+// RateLimits.MaxSelfInitiatedChangesPerWindow, its change limit), and
+// Hygiene the housekeeping budget. See Document.Budget.
 type BlastRadius struct {
-	MaxRowsRewritten   int64 `json:"max_rows_rewritten"`
-	MaxTablesPerWindow int64 `json:"max_tables_per_window"`
+	MaxRowsRewritten   int64
+	MaxTablesPerWindow int64
+	Hygiene            KindBudget
 }
 
 type RateLimits struct {
-	MaxSelfInitiatedChangesPerWindow int64 `json:"max_self_initiated_changes_per_window"`
+	MaxSelfInitiatedChangesPerWindow int64
 }
 
 type Document struct {
@@ -90,9 +96,9 @@ type documentWire struct {
 	ApprovalRequiredClasses []ChangeClass   `json:"approval_required_classes,omitempty"`
 	MaintenanceWindows      []string        `json:"maintenance_windows"`
 	LockDurationCeilingMS   int64           `json:"lock_duration_ceiling_ms"`
-	BlastRadius             BlastRadius     `json:"blast_radius"`
+	BlastRadius             blastRadiusWire `json:"blast_radius"`
 	Budgets                 json.RawMessage `json:"budgets"`
-	RateLimits              RateLimits      `json:"rate_limits"`
+	RateLimits              rateLimitsWire  `json:"rate_limits"`
 	DeadlineOverrides       map[string]bool `json:"deadline_overrides"`
 	RefusalSet              []string        `json:"refusal_set"`
 	UnknownClassification   string          `json:"unknown_classification"`
@@ -114,7 +120,10 @@ func ParseDocument(raw []byte) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
-	doc := documentFromWire(wire, budgets)
+	doc, err := documentFromWire(wire, budgets)
+	if err != nil {
+		return Document{}, err
+	}
 	if err := ValidateDocument(doc); err != nil {
 		return Document{}, err
 	}
@@ -130,13 +139,12 @@ func MarshalDocument(doc Document) ([]byte, error) {
 		"approval_required_classes": doc.ApprovalRequiredClasses,
 		"maintenance_windows":       doc.MaintenanceWindows,
 		"lock_duration_ceiling_ms":  doc.LockDurationCeilingMS,
-		"blast_radius":              doc.BlastRadius,
+		"blast_radius":              blastRadiusJSON(doc),
 		"budgets": map[string]any{
 			"storage_bytes":    budgetJSONValue(doc.Budgets.StorageBytes),
 			"spend_daily":      budgetJSONValue(doc.Budgets.SpendDaily),
 			"llm_tokens_daily": budgetJSONValue(doc.Budgets.LLMTokensDaily),
 		},
-		"rate_limits":            doc.RateLimits,
 		"deadline_overrides":     doc.DeadlineOverrides,
 		"refusal_set":            doc.RefusalSet,
 		"unknown_classification": doc.UnknownClassification,
@@ -201,7 +209,11 @@ func parseBudgetLimit(name string, raw []byte) (BudgetLimit, error) {
 	return NewBudgetLimit(value), nil
 }
 
-func documentFromWire(wire documentWire, budgets Budgets) Document {
+func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
+	radius, rates, err := blastRadiusFromWire(wire.BlastRadius, wire.RateLimits)
+	if err != nil {
+		return Document{}, err
+	}
 	overrides := make(map[DeadlineKind]bool, len(wire.DeadlineOverrides))
 	for kind, enabled := range wire.DeadlineOverrides {
 		overrides[DeadlineKind(kind)] = enabled
@@ -211,14 +223,14 @@ func documentFromWire(wire documentWire, budgets Budgets) Document {
 		ApprovalRequiredClasses: wire.ApprovalRequiredClasses,
 		MaintenanceWindows:      wire.MaintenanceWindows,
 		LockDurationCeilingMS:   wire.LockDurationCeilingMS,
-		BlastRadius:             wire.BlastRadius,
+		BlastRadius:             radius,
 		Budgets:                 budgets,
-		RateLimits:              wire.RateLimits,
+		RateLimits:              rates,
 		DeadlineOverrides:       overrides,
 		RefusalSet:              wire.RefusalSet,
 		UnknownClassification:   wire.UnknownClassification,
 		SerializeMode:           wire.SerializeMode,
-	}
+	}, nil
 }
 
 func ValidateDocument(doc Document) error {
@@ -234,7 +246,7 @@ func ValidateDocument(doc Document) error {
 	if err := validateRefusalSet(doc.RefusalSet); err != nil {
 		return err
 	}
-	if err := validateBlastRadius(doc.BlastRadius); err != nil {
+	if err := validateBlastRadius(doc); err != nil {
 		return err
 	}
 	if err := validateBudgets(doc.Budgets); err != nil {
@@ -247,16 +259,6 @@ func ValidateDocument(doc Document) error {
 		return err
 	}
 	return validateWindows(doc.MaintenanceWindows)
-}
-
-func validateBlastRadius(radius BlastRadius) error {
-	if radius.MaxRowsRewritten < 0 {
-		return fmt.Errorf("max_rows_rewritten cannot be negative")
-	}
-	if radius.MaxTablesPerWindow < 0 {
-		return fmt.Errorf("max_tables_per_window cannot be negative")
-	}
-	return nil
 }
 
 func validateBudgets(budgets Budgets) error {
@@ -341,9 +343,13 @@ func baseProfile() Document {
 		AllowedChangeClasses:    append([]ChangeClass(nil), classes...),
 		ApprovalRequiredClasses: []ChangeClass{ChangeOnlineMigration},
 		LockDurationCeilingMS:   3000,
-		BlastRadius:             BlastRadius{5000000, 20},
-		Budgets:                 Budgets{NoCapBudget(), NoCapBudget(), NewBudgetLimit(500000)},
-		RateLimits:              RateLimits{50},
+		BlastRadius: BlastRadius{
+			MaxRowsRewritten:   5000000,
+			MaxTablesPerWindow: DefaultPerformanceTablesPerWindow,
+			Hygiene:            DefaultHygieneBudget(),
+		},
+		Budgets:    Budgets{NoCapBudget(), NoCapBudget(), NewBudgetLimit(500000)},
+		RateLimits: RateLimits{DefaultPerformanceChangesPerWindow},
 		RefusalSet: []string{
 			"rls_change", "grant_expansion", "major_upgrade",
 			"non_dup_object_drop", "unrollbackable",
