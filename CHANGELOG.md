@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
+
+### What's new
 
 - **Facts you confirm once now bind pg_sage.** pg_sage keeps typed facts about each
   database: an index, table or schema owned by the application's migrations, schemas that
@@ -16,66 +18,6 @@
   cleanup script you run; a CDC slot is never dropped or advanced; an archive keeps its
   data and indexes. Every blocked action names the fact, who confirmed it and when. Facts
   expire when the objects they describe are gone. See `docs/facts.md`.
-- **Coding agents can fix database problems at their source.** pg_sage's MCP server now
-  works with Claude Code and Cursor: one `claude mcp add` line with a scoped API token an
-  admin creates on the new MCP tokens page (read, propose, and approve only for a person's
-  own token; limited to chosen databases; expiring; stored as a hash). MCP is now served over
-  HTTP by default and accepts only these tokens, never a dashboard session; set
-  `mcp.transport: stdio` to keep stdio. Agents can see the top
-  queries with their plans, run a safe EXPLAIN, try an index with HypoPG, lint a migration
-  for lock level and rewrites, trace a query to the code that sends it (sqlcommenter tags,
-  `application_name`), and propose that an object belongs to the app's migrations. For a
-  finding, pg_sage hands the agent a cited source-fix packet (the migration, the evidence,
-  the code it touches, how it will be checked), the agent opens the PR, reports the deploy,
-  and pg_sage measures the targeted queries before and after and returns its verdict. Agents
-  can never approve anything or bypass the policy gate. Every tool now takes a `database`
-  argument for fleets, `apply_migration` accepts the arguments it documents and is checked by
-  the gate before any rehearsal, and the server follows the current MCP protocol (both the
-  handshake versions and 2026-07-28). See `docs/mcp.md`.
-
-### Fixed
-
-- **Advice is about your workload, never about diagnostic statements.** pg_sage no longer
-  raises slow-query, plan-regression or top-query findings, LLM advice, hints, plan captures
-  or briefing items for `EXPLAIN` (with or without `ANALYZE`), maintenance (`VACUUM`,
-  `ANALYZE`, `CREATE INDEX`, `REINDEX`, `CLUSTER`, `CHECKPOINT`), statistics resets or backup
-  `COPY ... TO`, nor for its own tagged statements. One rule applies on every advice path;
-  open findings about such statements resolve on the next analyzer cycle. Raw query views,
-  self-cost and incident analysis still see every statement.
-- **"Autovacuum falling behind" no longer fires on tiny tables.** A table's dead-tuple ratio
-  counts only when it has at least `rca.vacuum_min_dead_tuples` dead tuples (default 1000)
-  and a heap of at least `rca.vacuum_min_table_mb` (default 8 MB), so a table with a handful
-  of rows can no longer open, or escalate to critical, an incident.
-- **pg_sage's own small tables stay clean.** The trust ledger no longer rewrites its state row
-  on every pass when nothing changed, and pg_sage's small state tables (trust ledger state,
-  budget reservations, change leases, approval queue, verifications, query hints, trust
-  levels) are vacuumed after a few dead rows instead of 50 rows plus 20%.
-- **No stale or redundant index approvals.** An index an existing index already covers
-  (including through `INCLUDE`, the same partial predicate or expressions) is never proposed,
-  queued or run, whichever path proposed it, and its finding resolves naming the covering
-  index. Pending approvals whose finding is resolved, that an existing index covers, or that a
-  newer equivalent proposal replaces are withdrawn automatically with the reason (also posted
-  to the approval card's chat). Withdrawn and expired approvals never count as a rejection
-  against pg_sage's trust.
-
-### What's new
-
-- **`REINDEX` can now earn trust, and `CREATE STATISTICS` has its verifier.** A rebuild is
-  verified after it runs by the space it reclaimed, the rebuilt index being valid and the
-  table's queries not regressing, and its verdict now counts on the Trust page instead of only
-  carrying a level over. Extended statistics are verified by whether the targeted queries'
-  row estimates got better (from sampled plans with actual rows) without their latency getting
-  worse.
-- **pg_sage can create extended statistics.** It runs `CREATE STATISTICS` on correlated
-  columns and the `ANALYZE` that builds it as one action (one transaction, one entry in the
-  action log), and verifies it by the row estimates of the targeted queries. Only its own
-  form runs: a `sage_stx_` object in the table's schema, of kinds `ndistinct`, `dependencies`
-  and `mcv`, on 2 to 8 plain columns of one table, taking the same `SHARE UPDATE EXCLUSIVE`
-  lock as `ANALYZE` (reads and writes continue). It is undone by dropping exactly that object,
-  by hand or automatically when the targeted queries regress. It is policy change class
-  `analyze` and trust class statistics (tuning family), so it goes through the same approval,
-  budgets and earned trust as every other action.
-
 - **The model now has to earn the right to overrule pg_sage's diagnosis, family by family,
   and the benchmark measures it.** pg_sage's causal graph used to win every disagreement
   with the model. Now the model may replace the graph's root cause for an incident family
@@ -101,6 +43,62 @@
   (`GET /api/v1/databases/{db}/investigations/{id}/replay-case` or
   `pg_sage bench export-replay`): identifiers are hashed unless you opt in, and secrets
   and personal data are removed either way.
+- **Coding agents can fix database problems at their source.** pg_sage's MCP server now
+  works with Claude Code and Cursor: one `claude mcp add` line with a scoped API token an
+  admin creates on the new MCP tokens page (read, propose, and approve only for a person's
+  own token; limited to chosen databases; expiring; stored as a hash). MCP is now served over
+  HTTP by default and accepts only these tokens, never a dashboard session; set
+  `mcp.transport: stdio` to keep stdio. Agents can see the top
+  queries with their plans, run a safe EXPLAIN, try an index with HypoPG, lint a migration
+  for lock level and rewrites, trace a query to the code that sends it (sqlcommenter tags,
+  `application_name`), and propose that an object belongs to the app's migrations. For a
+  finding, pg_sage hands the agent a cited source-fix packet (the migration, the evidence,
+  the code it touches, how it will be checked), the agent opens the PR, reports the deploy,
+  and pg_sage measures the targeted queries before and after and returns its verdict. Agents
+  can never approve anything or bypass the policy gate. Every tool now takes a `database`
+  argument for fleets, `apply_migration` accepts the arguments it documents and is checked by
+  the gate before any rehearsal, and the server follows the current MCP protocol (both the
+  handshake versions and 2026-07-28). See `docs/mcp.md`.
+- **pg_sage can create extended statistics.** It runs `CREATE STATISTICS` on correlated
+  columns and the `ANALYZE` that builds it as one action (one transaction, one entry in the
+  action log), and verifies it by the row estimates of the targeted queries. Only its own
+  form runs: a `sage_stx_` object in the table's schema, of kinds `ndistinct`, `dependencies`
+  and `mcv`, on 2 to 8 plain columns of one table, taking the same `SHARE UPDATE EXCLUSIVE`
+  lock as `ANALYZE` (reads and writes continue). It is undone by dropping exactly that object,
+  by hand or automatically when the targeted queries regress. It is policy change class
+  `analyze` and trust class statistics (tuning family), so it goes through the same approval,
+  budgets and earned trust as every other action.
+- **`REINDEX` can now earn trust, and `CREATE STATISTICS` has its verifier.** A rebuild is
+  verified after it runs by the space it reclaimed, the rebuilt index being valid and the
+  table's queries not regressing, and its verdict now counts on the Trust page instead of only
+  carrying a level over. Extended statistics are verified by whether the targeted queries'
+  row estimates got better (from sampled plans with actual rows) without their latency getting
+  worse.
+
+### Fixed
+
+- **Advice is about your workload, never about diagnostic statements.** pg_sage no longer
+  raises slow-query, plan-regression or top-query findings, LLM advice, hints, plan captures
+  or briefing items for `EXPLAIN` (with or without `ANALYZE`), maintenance (`VACUUM`,
+  `ANALYZE`, `CREATE INDEX`, `REINDEX`, `CLUSTER`, `CHECKPOINT`), statistics resets or backup
+  `COPY ... TO`, nor for its own tagged statements. One rule applies on every advice path;
+  open findings about such statements resolve on the next analyzer cycle. Raw query views,
+  self-cost and incident analysis still see every statement.
+- **"Autovacuum falling behind" no longer fires on tiny tables.** A table's dead-tuple ratio
+  counts only when it has at least `rca.vacuum_min_dead_tuples` dead tuples (default 1000)
+  and a heap of at least `rca.vacuum_min_table_mb` (default 8 MB), so a table with a handful
+  of rows can no longer open, or escalate to critical, an incident.
+- **pg_sage's own small tables stay clean.** The trust ledger no longer rewrites its state row
+  on every pass when nothing changed, and pg_sage's small state tables (trust ledger state,
+  budget reservations, change leases, approval queue, verifications, query hints, trust
+  levels) are vacuumed after a few dead rows instead of 50 rows plus 20%.
+- **No stale or redundant index approvals.** An index an existing index already covers
+  (including through `INCLUDE`, the same partial predicate or expressions) is never proposed,
+  queued or run, whichever path proposed it, and its finding resolves naming the covering
+  index. Pending approvals whose finding is resolved, that an existing index covers, or that a
+  newer equivalent proposal replaces are withdrawn automatically with the reason (also posted
+  to the approval card's chat). Withdrawn and expired approvals never count as a rejection
+  against pg_sage's trust.
 
 ## v1.9.0 (2026-10-04) -- Earned trust: verified actions, shadow mode, approval cards
 
