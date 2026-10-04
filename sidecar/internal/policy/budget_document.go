@@ -2,16 +2,15 @@ package policy
 
 import "fmt"
 
-// blastRadiusWire is blast_radius as documents spell it. The canonical form
-// names both kind budgets:
+// blastRadiusWire is blast_radius as documents spell it. The performance
+// budget is max_tables_per_window here plus
+// rate_limits.max_self_initiated_changes_per_window (the fields every
+// sidecar version reads), or a performance block that must agree with
+// them; the hygiene block is optional and defaults per field:
 //
-//	"blast_radius": {"max_rows_rewritten": 5000000,
+//	"blast_radius": {"max_rows_rewritten": 5000000, "max_tables_per_window": 10,
 //	  "performance": {"max_tables_per_window": 10, "max_changes_per_window": 25},
 //	  "hygiene":     {"max_tables_per_window": 10, "max_changes_per_window": 25}}
-//
-// A document written before the split sets max_tables_per_window here and
-// rate_limits.max_self_initiated_changes_per_window: those name the
-// performance budget, and hygiene takes its defaults.
 type blastRadiusWire struct {
 	MaxRowsRewritten   int64           `json:"max_rows_rewritten"`
 	MaxTablesPerWindow *int64          `json:"max_tables_per_window,omitempty"`
@@ -81,13 +80,25 @@ func valueOr(value *int64, fallback int64) int64 {
 	return *value
 }
 
-// blastRadiusJSON is the canonical blast_radius of doc.
+// blastRadiusJSON is the saved blast_radius of doc. It is downgrade-safe
+// (owner decision 2026-10-03): the performance budget is written in the
+// legacy fields an older sidecar reads, and the hygiene block, which an
+// older sidecar's strict parser rejects, only when it is not the default.
 func blastRadiusJSON(doc Document) map[string]any {
-	return map[string]any{
-		"max_rows_rewritten": doc.BlastRadius.MaxRowsRewritten,
-		"performance":        doc.Budget(BudgetPerformance),
-		"hygiene":            doc.Budget(BudgetHygiene),
+	radius := map[string]any{
+		"max_rows_rewritten":    doc.BlastRadius.MaxRowsRewritten,
+		"max_tables_per_window": doc.Budget(BudgetPerformance).MaxTablesPerWindow,
 	}
+	if doc.Budget(BudgetHygiene) != DefaultHygieneBudget() {
+		radius["hygiene"] = doc.Budget(BudgetHygiene)
+	}
+	return radius
+}
+
+// rateLimitsJSON is the saved rate_limits: the performance change limit.
+func rateLimitsJSON(doc Document) map[string]any {
+	changes := doc.Budget(BudgetPerformance).MaxChangesPerWindow
+	return map[string]any{"max_self_initiated_changes_per_window": changes}
 }
 
 func validateBlastRadius(doc Document) error {

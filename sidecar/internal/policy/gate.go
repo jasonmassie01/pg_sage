@@ -10,8 +10,9 @@ import (
 
 type authorizationGate struct {
 	config GateConfig
-	// budgetMu makes reading usage and recording the verdict of a
-	// budget-spending request one critical section: the recorded execute
+	// budgetMu serializes the budget section of budget-spending requests in
+	// this process (and keeps at most one connection waiting on the
+	// cross-process lock, GateConfig.Serialize): the recorded execute
 	// decision holds its slot, so a concurrent candidate reads it.
 	budgetMu sync.Mutex
 }
@@ -25,9 +26,13 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
-	if spendsBudget(req) {
-		gate.budgetMu.Lock()
-		defer gate.budgetMu.Unlock()
+	if !spendsBudget(req) {
+		return gate.finish(ctx, req, gate.evaluate(ctx, req))
+	}
+	gate.budgetMu.Lock()
+	defer gate.budgetMu.Unlock()
+	if gate.config.Serialize != nil {
+		return gate.authorizeSerialized(ctx, req)
 	}
 	return gate.finish(ctx, req, gate.evaluate(ctx, req))
 }
@@ -136,8 +141,9 @@ func (gate *authorizationGate) documentDecision(
 		return doc, blocked(ReasonPolicyUnavailable, err.Error()), true, budgetNote{}
 	}
 	kind := BudgetKindFor(req)
-	note := budgetNote{read: true, kind: kind, rows: usage.RequestRowsRewritten}
-	if decision, stop := limitDecision(doc, kind, usage); stop {
+	note := budgetNote{read: true, kind: kind, rows: usage.RequestRowsRewritten,
+		bypass: BudgetBypassFor(req, gate.now())}
+	if decision, stop := limitDecision(doc, kind, usage, note.bypass != ""); stop {
 		return doc, decisionForRequest(req, decision), true, note
 	}
 	return doc, Decision{}, false, note
@@ -429,27 +435,33 @@ func (gate *authorizationGate) finish(
 	req ActionRequest,
 	decision Decision,
 ) Decision {
+	recorded, _ := gate.record(ctx, req, decision) // a failed record is a blocked verdict
+	return recorded
+}
+
+// record stamps and records the decision. A failed record returns a
+// blocked policy_unavailable decision and the error.
+func (gate *authorizationGate) record(
+	ctx context.Context, req ActionRequest, decision Decision,
+) (Decision, error) {
 	decision = decisionForRequest(req, decision)
 	if gate.config.RecordDecisionDetailed != nil {
-		evidenceID, decisionID, err := gate.config.RecordDecisionDetailed(
-			ctx, req, decision,
-		)
+		evidenceID, decisionID, err := gate.config.RecordDecisionDetailed(ctx, req, decision)
 		if err != nil {
-			return blocked(ReasonPolicyUnavailable, err.Error())
+			return blocked(ReasonPolicyUnavailable, err.Error()), err
 		}
-		decision.EvidenceID = evidenceID
-		decision.DecisionID = decisionID
-		return decision
+		decision.EvidenceID, decision.DecisionID = evidenceID, decisionID
+		return decision, nil
 	}
 	if gate.config.RecordDecision == nil {
-		return decision
+		return decision, nil
 	}
 	evidenceID, err := gate.config.RecordDecision(ctx, req, decision)
 	if err != nil {
-		return blocked(ReasonPolicyUnavailable, err.Error())
+		return blocked(ReasonPolicyUnavailable, err.Error()), err
 	}
 	decision.EvidenceID = evidenceID
-	return decision
+	return decision, nil
 }
 
 func errorDetail(err error) string {

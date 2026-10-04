@@ -1,7 +1,6 @@
 package policy
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )

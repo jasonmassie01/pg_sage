@@ -145,6 +145,7 @@ func MarshalDocument(doc Document) ([]byte, error) {
 			"spend_daily":      budgetJSONValue(doc.Budgets.SpendDaily),
 			"llm_tokens_daily": budgetJSONValue(doc.Budgets.LLMTokensDaily),
 		},
+		"rate_limits":            rateLimitsJSON(doc),
 		"deadline_overrides":     doc.DeadlineOverrides,
 		"refusal_set":            doc.RefusalSet,
 		"unknown_classification": doc.UnknownClassification,

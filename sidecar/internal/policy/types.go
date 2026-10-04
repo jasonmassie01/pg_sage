@@ -150,6 +150,10 @@ type ActionRequest struct {
 	// LeaseHeld marks the re-authorization that follows this action's own
 	// change lease, which is therefore not a concurrent writer.
 	LeaseHeld bool
+	// RevertsOwnChange marks the executor's own rollback of a change it
+	// made. Only the executor's rollback path sets it; such a request is
+	// not bound by the kind budgets (see BudgetBypassFor).
+	RevertsOwnChange bool
 }
 
 type Decision struct {
@@ -256,6 +260,12 @@ type GateConfig struct {
 	// Autonomy is the earned-autonomy ledger (M7); nil leaves verdicts as
 	// trust, mode, tiers and windows decide them.
 	Autonomy AutonomyLimiter
+	// Serialize, when set, runs the usage read and the decision record of
+	// a budget-spending request in one transaction holding a lock shared
+	// by every sidecar on the database. It returns the context Usage and
+	// the recorder run under and done(commit), which ends the transaction.
+	Serialize func(context.Context, ActionRequest) (context.Context, func(commit bool) error,
+		error)
 }
 
 var (

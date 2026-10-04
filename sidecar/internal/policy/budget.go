@@ -93,6 +93,8 @@ type budgetNote struct {
 	read bool
 	kind BudgetKind
 	rows int64
+	// bypass is why the kind budgets did not apply (BudgetBypassFor).
+	bypass string
 }
 
 func (note budgetNote) stamp(decision Decision) Decision {
@@ -100,15 +102,28 @@ func (note budgetNote) stamp(decision Decision) Decision {
 		decision.BudgetKind = note.kind
 		decision.RowsRewritten = note.rows
 	}
+	if note.bypass != "" {
+		decision.BudgetKind = BudgetBypass
+		if decision.Detail == "" {
+			decision.Detail = "budget bypass: " + note.bypass
+		}
+	}
 	return decision
 }
 
-func limitDecision(doc Document, kind BudgetKind, usage LimitUsage) (Decision, bool) {
+// limitDecision checks the shared bounds (storage, rows rewritten) and,
+// unless the request bypasses them, the kind budget.
+func limitDecision(
+	doc Document, kind BudgetKind, usage LimitUsage, bypass bool,
+) (Decision, bool) {
 	if budgetExceeded(doc.Budgets.StorageBytes, usage.StorageBytes) {
 		return blockedAs(VerdictPark, ReasonBudgetExceeded), true
 	}
 	if positiveExceeded(doc.BlastRadius.MaxRowsRewritten, usage.RowsRewritten, false) {
 		return parked(ReasonBlastRadiusExceeded, rowsDetail(doc, usage)), true
+	}
+	if bypass {
+		return Decision{}, false
 	}
 	budget := doc.Budget(kind)
 	if positiveExceeded(budget.MaxTablesPerWindow, usage.TablesInWindow, false) {
@@ -174,4 +189,54 @@ func positiveExceeded(limit, usage int64, includeEqual bool) bool {
 		return usage >= limit
 	}
 	return usage > limit
+}
+
+// BudgetBypass is the kind recorded for an emergency mitigation that the
+// kind budgets do not bind (BudgetBypassFor). It is charged to no kind.
+const BudgetBypass BudgetKind = "bypass"
+
+// BudgetBypassFor names why a request is an emergency mitigation that no
+// kind budget may park, or returns "". It is decided from the typed
+// contract and the deadline the custodian computed from its runway (owner
+// decision 2026-10-03), never from evidence or LLM text:
+//
+//   - a VACUUM (wraparound freeze) when the XID runway is critical;
+//   - a space-freeing action (VACUUM, unused index drop, REINDEX) when the
+//     disk runway is critical;
+//   - the revert or rollback of a change pg_sage made itself.
+//
+// Critical means urgency critical with a hard deadline still ahead. Every
+// other gate check still applies, and so does the shared rows bound.
+func BudgetBypassFor(req ActionRequest, now time.Time) string {
+	if req.Contract == nil {
+		return ""
+	}
+	action := req.Contract.ActionType
+	switch {
+	case action == "revert_created_index":
+		return "revert of an index pg_sage created"
+	case req.RevertsOwnChange:
+		return "rollback of pg_sage's own change"
+	}
+	deadline := req.Deadline
+	if deadline == nil || deadline.Urgency != UrgencyCritical || !deadline.HardAt.After(now) {
+		return ""
+	}
+	hardAt := deadline.HardAt.UTC().Format(time.RFC3339)
+	switch {
+	case deadline.Kind == DeadlineXID && action == "vacuum_table":
+		return "xid runway critical, wraparound hard deadline " + hardAt
+	case deadline.Kind == DeadlineDisk && diskMitigation(action):
+		return "disk runway critical, hard deadline " + hardAt
+	}
+	return ""
+}
+
+func diskMitigation(actionType string) bool {
+	switch actionType {
+	case "vacuum_table", "drop_unused_index", "reindex_concurrently":
+		return true
+	default:
+		return false
+	}
 }
