@@ -103,6 +103,15 @@ func TestVacuumBlocked_ZeroConfigUsesDefaultFloors(t *testing.T) {
 	if sig := newTestEngine().detectVacuumBlocked(snap, cfg); sig != nil {
 		t.Fatalf("zero-value floors let a 57-row table fire: %+v", sig)
 	}
+	// Each default floor on its own: a large heap with 999 dead tuples, and
+	// many dead tuples in a heap one byte under 8 MB.
+	for _, tbl := range []collector.TableStats{tableAt("big_few", 1000, 999, 512*mib),
+		tableAt("small_many", 4000, 5000, 8*mib-1)} {
+		snap.Tables = []collector.TableStats{tbl}
+		if sig := newTestEngine().detectVacuumBlocked(snap, cfg); sig != nil {
+			t.Fatalf("zero-value floors let %s fire: %+v", tbl.RelName, sig)
+		}
+	}
 	snap.Tables = []collector.TableStats{tableAt("orders", 4000, 1000, 8*mib)}
 	if sig := newTestEngine().detectVacuumBlocked(snap, cfg); sig == nil {
 		t.Fatal("the default floors suppressed a table exactly at the floor")
