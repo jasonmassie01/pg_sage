@@ -77,8 +77,8 @@ Bug fix found on the way: `internal/explain` planned pg_stat_statements text wit
    approval): it executes only where earned autonomy already allows it, otherwise it queues.
 9. `mark_object exempt` = the existing owned fact with an "exempt" note (no new fact type:
    facts only narrow, a new type would widen the binding rules); existence checked.
-10. Top-queries exclusion hook defaults to `selfmonitor.IsQueryText`; `TODO(#110)` switches
-    it to `workload.Excluded` (one line in `agenttools.New`).
+10. Top queries and attribution exclude statements with #110's `workload.Excluded` (the
+    one rule advice uses).
 11. queryids are strings in output and accepted as integer or string (JS loses precision).
 12. No fake what-if without HypoPG (`available: false`); what-if takes 1-20 query ids.
 13. Source fixes: one report per finding; verdict decided once, lazily on `status` after the
@@ -86,8 +86,10 @@ Bug fix found on the way: `internal/explain` planned pg_stat_statements text wit
     (that ledger is keyed by pg_sage's own actions; a deploy is not one).
 14. Lint verdict: risky >= 0.7, review >= 0.3 or any rewrite / ACCESS EXCLUSIVE, else safe;
     unrecognized DDL is said to be unproven, not safe.
-15. Default `mcp.transport` stays `stdio` (changing it changes a tested default); docs show
-    the one config line plus the one `claude mcp add` line.
+15. Default `mcp.transport` is now `http` (coordinator decision; the API server always
+    runs) and MCP over HTTP always needs a token or a signed-in session: tested for every
+    method, with no or bad credentials, with and without the session middleware. stdio
+    stays available. Setup = a token in the UI + one `claude mcp add` line.
 16. HTTP subscriptions close gracefully before the API's 30 s request deadline (clients
     listen again) instead of exempting the MCP path from the deadline.
 17. UI defaults a new token to read only, all databases, 30 days.
@@ -132,7 +134,7 @@ All packages meet coverage thresholds (lowest touched: api 79.3%, cmd 79.8%, mcp
 ### Bugs Found This Session
 1. [BUG] `explain.go`: unbound `$n` planned as NULL → constant-false cost-0 plan (fixed,
    `generic_plan_db_test.go`).
-2. [BUG, cross-cutting, not fixed here] PostgreSQL 18's pg_stat_statements drops leading
+2. [BUG, cross-cutting, fixed product-wide by another agent] PostgreSQL 18's pg_stat_statements drops leading
    comments from stored text, so pg_sage's `/* pg_sage */` prefix no longer marks its own
    statements on PG18 (verified on the matrix 18.4; 17 keeps it). Its statements that do
    not touch `sage.*`/pg_stat catalogs look like workload on PG18. Filed as a follow-up task.
@@ -169,12 +171,24 @@ All packages meet coverage thresholds (lowest touched: api 79.3%, cmd 79.8%, mcp
 
 ## Open questions
 
-1. Make `mcp.transport: http` the default so setup is truly one line?
-2. Should source-fix verdicts feed the trust ledger (e.g. raise the operator's trust in
-   pg_sage's recommendations of that class), and get a background verifier + UI surface?
-3. PG18 leading-comment issue (bug 2): move the tag to a trailing comment or rely on #110?
+1. (Decided: HTTP default; source-fix verdicts stay out of the trust ledger; the PG18 tag
+   placement is fixed product-wide by another agent.) A background verifier and a UI
+   surface for source-fix reports remain open.
 4. MCP resources/prompts (findings, schema) are still not served.
 5. Legacy intent tools other than `apply_migration` are not strictly validated against their
    schemas by the server.
 6. Pre-existing: `internal/retention/exemptions.go` is not gofmt-clean on master (one
    misaligned line); left untouched.
+
+## Follow-up (coordinator answers)
+
+- Merged `origin/release/v1.10.0` (#109, #110, #111 and test-timing fixes); the PR is now
+  stacked on #112.
+- `workload.Excluded` replaces the interim hook (test: the default filter equals the
+  workload rule on pg_sage, EXPLAIN, maintenance, reset, COPY TO and application
+  statements).
+- `mcp.transport` defaults to `http`; `internal/api/mcp_anonymous_test.go` proves no
+  anonymous MCP over HTTP. Config metadata and lifecycle docs regenerated; dist rebuilt.
+- Results: config, api (79.4%), cmd (79.9%), mcp, mcptoken, agenttools, schema, retention,
+  explain, workload ok on PG17; e2e ok; small perf gate ok; golangci-lint 0 issues; vitest
+  75 files, 443 passed, 0 failed, 0 skipped; lint clean.
