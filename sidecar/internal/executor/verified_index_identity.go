@@ -165,6 +165,9 @@ func (e *Executor) authorizeCreatedIndexRevert(ctx context.Context, dropSQL, tar
 		SQL: dropSQL, Feature: string(policy.ChangeIndex), TargetObjs: []string{target},
 		Contract: policyContract(contract),
 	}))
+	// A revert restores the state before a verified build; like a rollback,
+	// its authorization holds no budget slot.
+	e.releaseBudget(ctx, decision.DecisionID)
 	return decision.Decision == PolicyDecisionExecute
 }
 

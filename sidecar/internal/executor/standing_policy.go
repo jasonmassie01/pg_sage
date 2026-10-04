@@ -102,6 +102,7 @@ func ledgerInput(
 	evidenceID := ledger.NewEvidenceID()
 	evidence := cloneCustodianEvidence(request.Evidence)
 	evidence["off_window_ok"] = decision.OffWindowOK
+	stampBudgetEvidence(evidence, request, decision)
 	autonomyEvidence(evidence, request)
 	input := ledger.DecisionInput{
 		DatabaseID: databaseID, Feature: request.Feature, Intent: ledgerIntent(request),
