@@ -23,7 +23,8 @@ pg_sage sidecar (single Go binary)
   │
   ├── Analyzer         [every 600s]
   │   ├── Tier 1: Rules engine (25+ deterministic checks)
-  │   └── Tier 2: Index Optimizer (LLM + HypoPG validation)
+  │   └── Tier 2: Tuning agent (one per database; case-driven, read-only tools,
+  │       typed proposals, optimizer admission + HypoPG, calibrated confidence)
   │
   ├── Executor         [trust-gated]
   │   ├── CONCURRENTLY DDL on raw pgx connection
@@ -63,18 +64,34 @@ Gathers snapshots every 60s (configurable) from 10+ catalog views. Stores raw da
 
 Each rule produces findings with severity (critical/warning/info), recommended SQL, and rollback SQL.
 
-### Optimizer (Tier 2 -- LLM Index Optimizer)
+### Tuning agent (Tier 2)
 
-Lives in `internal/optimizer/` (18 files, 4,640 lines, 144 tests). Key capabilities:
+Lives in `internal/tuning/` (roadmap 2.2). One agent per database replaces the former
+optimizer, advisor vacuum/memory and tuner hint prompts:
 
-- **Plan-aware**: Captures EXPLAIN plans via `GENERIC_PLAN` (PG 16+) or on-demand execution to inform recommendations.
-- **HypoPG validation**: Creates hypothetical indexes and measures actual planner cost reduction before recommending.
-- **Rejection memory**: A what-if rejection of a model candidate is stored in `sage.optimizer_rejection` with its normalized shape (method, keys with opclass/collation/order, predicate, INCLUDE set; the name is ignored) and the workload it was measured on. While that workload and the table are materially unchanged, a repeat of the idea (INCLUDE subset or superset included) skips the what-if, and the prompt lists the shapes already measured. After `skip_llm_after` (3) consecutive all-wasted proposals for a table on an unchanged workload, the model is not asked about it until a material change or the max age; operator-requested runs always ask. Counters: `pg_sage_optimizer_whatif_skipped_total`, `pg_sage_optimizer_llm_calls_skipped_total` (per database). Deterministic findings and re-checks of open recommendations are never suppressed.
-- **Dual-model LLM**: Separate LLM client for optimizer (reasoning-tier) with independent circuit breaker and token budget.
-- **Confidence scoring**: 0.0-1.0 score based on 6 weighted signals (query volume, plan clarity, write rate, HypoPG result, selectivity, table traffic). Maps to action levels: autonomous (>=0.7) / advisory (>=0.4) / informational (<0.4).
-- **8 validators**: CONCURRENTLY check, column existence, duplicate detection, write impact analysis, max indexes per table, extension requirements, BRIN correlation, expression volatility.
-- **Cold start protection**: Waits for N snapshots before running.
-- **Post-check**: Verifies `indisvalid` after CREATE INDEX CONCURRENTLY.
+- **Workload classification** (deterministic): application, tenant-family, test-fixture,
+  diagnostic and pg_sage statements; confirmed facts give each table its routes.
+- **Cases**: a top statement by interval time (at least 5% of the workload), a regression
+  (mean time at least doubled), or write amplification (index maintenance on an unused or
+  covered index, or dead-tuple churn). No case, no model call.
+- **Read-only tools**: statement, table, explain (cache or `EXPLAIN` without `ANALYZE`,
+  generic plans on PG16+), whatif_index (HypoPG), write_cost, extended_stats, and rehearse
+  (clone provider only). Bounded results, wrapped as untrusted data, numbered as evidence.
+- **Typed proposals only**: index create/drop, server setting, storage parameter,
+  `CREATE STATISTICS` (`sage_stx_*`), query hint, each with cited evidence and a predicted
+  effect. pg_sage generates every statement.
+- **Validation**: index creates go through the optimizer's admission (`internal/optimizer`:
+  canonical form, 8 validators, rejection memory in `sage.optimizer_rejection`, HypoPG
+  what-if; a verified measurement replaces the model's estimate); configuration through the
+  advisor's allowlists and ranges; hints through the tuner; confirmed facts redirect bound
+  changes to source-fix packets; operator rejections are not re-proposed.
+- **Calibrated confidence**: per action class and prediction method from
+  `sage.action_outcome` (reliability bins by predicted improvement, Wilson intervals);
+  "uncalibrated" below `tuning.calibration_min_outcomes`; a lower bound under the
+  confidence threshold needs operator approval.
+- **Budgets**: per database per cycle (`tuning.max_requests_per_cycle`,
+  `tuning.max_tokens_per_cycle`), at most `tuning.max_cases_per_cycle` cases; a case whose
+  recent answers were all wasted is not asked again until it changes.
 
 ### Executor (Tier 3 -- Trust-Gated)
 
@@ -159,7 +176,7 @@ Analyzes historical trends to predict disk growth, connection exhaustion, sequen
 
 ### Tuner
 
-Per-query optimization via `pg_hint_plan` (if available). Detects plan-level symptoms (disk sorts, hash spills, bad joins) and applies per-query GUC overrides without modifying application queries.
+Per-query optimization via `pg_hint_plan` (if available). Detects plan-level symptoms (disk sorts, hash spills, bad joins) and applies per-query GUC overrides without modifying application queries. The tuning agent's hints go through it: it validates the pg_hint_plan syntax, clamps `Set(work_mem)`, records the hint and keeps one hint per statement.
 
 ### Retention
 
@@ -174,15 +191,16 @@ Metrics endpoint on `:9187`. Exports findings count by severity, circuit breaker
 ## Data Flow
 
 1. **Collector** gathers `pg_stat_statements`, `pg_stat_user_tables`, `pg_stat_user_indexes` every 60s into `sage.snapshots`.
-2. **Analyzer** runs rules every 600s, then calls `optimizer.Analyze()` if LLM is enabled.
-3. **Optimizer** enriches table contexts with `information_schema.columns`, `pg_stats`, plan data, and workload classification.
-4. LLM generates index recommendations as JSON.
-5. **Validator** runs 8 checks; **HypoPG** validates if available.
-6. **Confidence scorer** assigns action level.
-7. Findings are persisted to `sage.findings`.
-8. **Case projection** combines findings, incidents, and action state into DBA
+2. **Analyzer** runs rules every 600s, then the **tuning agent** if an LLM is usable.
+3. The agent classifies the workload, detects cases and asks the model about each case
+   with read-only tools.
+4. The model answers with typed proposals; pg_sage generates and validates the SQL
+   (optimizer admission and HypoPG, configuration gates, tuner hint checks, facts).
+5. Each admitted proposal gets a confidence calibrated on the outcome ledger.
+6. Findings are persisted to `sage.findings`.
+7. **Case projection** combines findings, incidents, and action state into DBA
    cases and shadow-mode proof.
-9. **Executor** queues, blocks, approves, or executes typed actions based on
+8. **Executor** queues, blocks, approves, or executes typed actions based on
    trust level, policy, evidence freshness, maintenance window, and guardrails.
 
 ---

@@ -16,6 +16,22 @@
   cleanup script you run; a CDC slot is never dropped or advanced; an archive keeps its
   data and indexes. Every blocked action names the fact, who confirmed it and when. Facts
   expire when the objects they describe are gone. See `docs/facts.md`.
+- **One tuning agent per database, with confidence it has earned.** The index optimizer,
+  the advisor's vacuum and memory prompts and the tuner's LLM hints are replaced by one
+  case-driven tuning agent. Each cycle it classifies the workload (application, tenant,
+  test-fixture, diagnostic and pg_sage statements; confirmed facts bind tables), finds the
+  cases worth tuning (a statement taking a large share of the workload's time, a
+  regression, write amplification) and asks the model about each case only, with
+  read-only tools (plans, HypoPG what-ifs, write cost, extended statistics, clone
+  rehearsal when configured) within a per-database budget per cycle (`tuning.*`). The model
+  answers with typed proposals only (index create or drop, setting, storage parameter,
+  extended statistics, query hint), each citing its evidence and predicting its effect;
+  pg_sage writes the SQL and keeps every gate (HypoPG what-if and rejection memory,
+  configuration allowlists, the tuner's hint checks, confirmed facts, earlier operator
+  rejections). Every proposal carries a confidence calibrated on the outcomes of comparable
+  past actions, or says "uncalibrated" when there are too few; approval cards and the Trust
+  page show it, and a low calibrated confidence needs an operator. The fixed-weight
+  optimizer confidence score is gone. See `docs/configuration.md#tuning-agent`.
 
 ### Fixed
 
