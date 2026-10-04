@@ -121,3 +121,30 @@ func TestDecidedVerdictsReadUsesAnIndex(t *testing.T) {
 			d.SeqRead)
 	}
 }
+
+// Perf gate offender (2026-10-04, once sage.action_outcome was seeded): the
+// reconciler's rolled-back read joined sage.action_outcome; its generic
+// plan (pgx prepares it, so PostgreSQL switches to the generic plan after
+// five runs) cannot estimate measured_at >= COALESCE($1, ...) and hashed
+// the whole table, 2 seq scans of 20,000 rows per steady phase. No fact
+// read of the trust reconciler may plan a scan of the outcome table.
+func TestReconcilerFactReadsNeverScanOutcomes(t *testing.T) {
+	pool, _ := seededLedgerPool(t, "reconcile_facts_plan")
+	testdb.RequireServerVersion(t, pool, 160000, "EXPLAIN (GENERIC_PLAN)")
+	stmts := []perfgate.Statement{{Query: verdictFactsSQL}, {Query: rollbackFactsSQL},
+		{Query: handoffSQL}, {Query: autoExecutionSQL}}
+	plans, err := perfgate.ExplainStatements(context.Background(), pool, stmts)
+	if err != nil || len(plans) != len(stmts) {
+		t.Fatalf("explain: %v (%d plans)", err, len(plans))
+	}
+	for _, p := range plans {
+		if p.Err != "" {
+			t.Errorf("%.60s: %s", p.Statement.Query, p.Err)
+		}
+		for _, s := range p.SeqScans {
+			if s.Relation == "action_outcome" || s.Relation == "action_log" {
+				t.Errorf("generic plan of %.80s scans sage.%s", p.Statement.Query, s.Relation)
+			}
+		}
+	}
+}
