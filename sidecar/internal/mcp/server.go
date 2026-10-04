@@ -15,7 +15,8 @@ type Server struct {
 func NewServer(backend Backend) *Server {
 	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
 	tools = append(append(tools, signalTools()...), runbookTools()...)
-	return &Server{backend: backend, tools: append(tools, autonomyTools()...)}
+	tools = append(tools, autonomyTools()...)
+	return &Server{backend: backend, tools: append(tools, factTools()...)}
 }
 
 func (s *Server) Tools() []Tool { return append([]Tool(nil), s.tools...) }
@@ -92,6 +93,9 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	}
 	if autonomyToolNames[call.Name] {
 		return s.callAutonomyTool(ctx, call.Name, call.Arguments)
+	}
+	if factToolNames[call.Name] {
+		return s.callFactTool(ctx, call.Name, call.Arguments)
 	}
 	var result any
 	var err error

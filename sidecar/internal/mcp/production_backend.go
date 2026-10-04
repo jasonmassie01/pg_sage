@@ -58,6 +58,8 @@ type ProductionDependencies struct {
 	Actions SREActionBackend
 	// Autonomy serves the earned-autonomy tools; optional.
 	Autonomy AutonomyBackend
+	// Facts serves the binding-fact tools (roadmap 2.3); optional.
+	Facts FactBackend
 }
 
 type ProductionBackend struct {
