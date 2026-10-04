@@ -79,8 +79,13 @@ var parkCounters = struct {
 	releases map[countKey]int64
 }{parks: map[countKey]int64{}, releases: map[countKey]int64{}}
 
-// countDecision counts a recorded standing-gate decision for /metrics.
+// countDecision counts a recorded standing-gate decision for /metrics. An
+// executor without a database name (an embedder's) is not exported: every
+// series carries the database it belongs to.
 func countDecision(database string, decision policy.Decision) {
+	if database == "" {
+		return
+	}
 	parkCounters.mu.Lock()
 	defer parkCounters.mu.Unlock()
 	if decision.Verdict == policy.VerdictPark {

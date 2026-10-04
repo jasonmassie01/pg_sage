@@ -119,3 +119,23 @@ func TestParkAndReleaseCounters(t *testing.T) {
 		t.Fatalf("releases %v", causes)
 	}
 }
+
+// An unnamed executor's decisions are not exported: no series without a
+// database (the fleet metrics forbid database="").
+func TestCountersSkipAnUnnamedExecutor(t *testing.T) {
+	countDecision("", policy.Decision{Verdict: policy.VerdictPark,
+		Reason: policy.ReasonAwaitingVerification})
+	countDecision("", policy.Decision{Verdict: policy.VerdictExecute,
+		VerificationWait: &policy.VerificationWait{Overridden: true,
+			Pending: []policy.PendingVerification{waitFor(1)}}})
+	for _, c := range ParkCounts() {
+		if c.Database == "" {
+			t.Fatalf("park series without a database: %+v", c)
+		}
+	}
+	for _, c := range WaitReleaseCounts() {
+		if c.Database == "" {
+			t.Fatalf("release series without a database: %+v", c)
+		}
+	}
+}
