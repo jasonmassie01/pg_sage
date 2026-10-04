@@ -203,3 +203,27 @@ func TestRequestRemediation_UnknownAndForeignIDs(t *testing.T) {
 		t.Fatalf("handoff blocked: %v", err)
 	}
 }
+
+// Only a concluded investigation's remediations can be requested: an
+// inconclusive, failed or cancelled one has no supported root to act on.
+func TestRequestRemediation_OnlyConcludedInvestigations(t *testing.T) {
+	for _, st := range []sre.State{sre.StateInconclusive, sre.StateFailed,
+		sre.StateCancelled, sre.StateExpired} {
+		h := remediationHarness(t)
+		h.orders.setState(inv, st)
+		_, err := h.svc.RequestRemediation(context.Background(), proposer, "orders",
+			string(inv), cancelID, RemediationRequest{})
+		if !errors.Is(err, ErrNotRequestable) || len(h.orders.requested) != 0 {
+			t.Fatalf("%s: %v", st, err)
+		}
+		r, err := h.svc.Result(context.Background(), proposer, "orders", string(inv))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rem := range r.Remediations {
+			if rem.Requestable {
+				t.Fatalf("%s: requestable %+v", st, rem)
+			}
+		}
+	}
+}
