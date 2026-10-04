@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Facts you confirm once now bind pg_sage.** pg_sage keeps typed facts about each
+  database: an index, table or schema owned by the application's migrations, schemas that
+  are test fixtures, a replication slot that feeds a named consumer (CDC), an append-only
+  table, a table's maintenance or batch window. Detectors propose them from evidence (an
+  index pg_sage dropped that came back, idle test schemas, logical slots, insert-only
+  tables) and the model proposes them from the catalog, always citing the evidence; you
+  confirm or reject each once on the new Facts page, inline on findings and approval cards,
+  in Slack or Telegram, through the API or MCP. A confirmed fact can only narrow or redirect
+  what pg_sage does, never widen it: pg_sage no longer creates, drops or alters an object
+  your migrations own and attaches the migration it recommends instead (a source-fix
+  packet for your PR); test fixtures leave findings and budgets and come back as one
+  cleanup script you run; a CDC slot is never dropped or advanced; an archive keeps its
+  data and indexes. Every blocked action names the fact, who confirmed it and when. Facts
+  expire when the objects they describe are gone. See `docs/facts.md`.
+
 ## v1.9.0 (2026-10-04) -- Earned trust: verified actions, shadow mode, approval cards
 
 ### What's new
