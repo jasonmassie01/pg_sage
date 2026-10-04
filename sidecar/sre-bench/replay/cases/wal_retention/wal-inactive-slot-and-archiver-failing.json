@@ -1,0 +1,152 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "wal-inactive-slot-and-archiver-failing",
+  "family": "wal_retention",
+  "class": "positive",
+  "description": "Two retention causes at once: a CDC connector's logical slot has been inactive for 6.5 hours and pins 41 GiB of WAL, and archive_command has failed for 49 minutes (an expired object-store credential) at a normal 2.5 MB/s write rate.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-11T03:47:00Z",
+  "subject": "wal_retention: pg_wal 41.3 GiB and climbing",
+  "tags": [
+    "post_r1",
+    "composite"
+  ],
+  "gold": {
+    "root": "inactive_slot",
+    "contributing": [
+      "archiver_failure"
+    ],
+    "rationale": "The inactive slot's restart point is 6.5 hours old, so it pins about 41 GiB; the archiver backlog is only the last 49 minutes (about 7 GB at 2.5 MB/s), all inside the slot's range. The slot is the binding constraint: fixing archiving alone frees nothing, while restoring or dropping the slot frees ~34 GB. The failing archiver is a second, independent fault that becomes the binding constraint next and must be fixed too. The write rate is normal."
+  },
+  "observations": [
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 120,
+      "rows": [
+        {
+          "slot_name": "cdc_debezium_orders",
+          "slot_type": "logical",
+          "active": false,
+          "wal_status": "extended",
+          "retained_bytes": 44023414784,
+          "safe_wal_size": null,
+          "database": "appdb",
+          "inactive_since": "2026-09-10T21:12:40Z"
+        },
+        {
+          "slot_name": "standby_az2",
+          "slot_type": "physical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 1048576,
+          "safe_wal_size": null,
+          "database": null,
+          "inactive_since": null
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "timed_checkpoints": 2880,
+          "requested_checkpoints": 3,
+          "checkpoint_write_ms": 905113.0,
+          "checkpoint_sync_ms": 2871.0,
+          "buffers_written": 11203345,
+          "wal_bytes": 2160123456789,
+          "wal_buffers_full": 412,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 8192,
+          "checkpointer_stats_reset": "2026-09-01T03:47:00Z",
+          "wal_stats_reset": "2026-09-01T03:47:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "archive_mode": "on",
+          "archived_count": 512330,
+          "failed_count": 418,
+          "last_archived_time": "2026-09-11T02:58:12Z",
+          "last_failed_time": "2026-09-11T03:46:41Z",
+          "stats_reset": "2026-09-01T03:47:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 180
+    },
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 5260,
+      "rows": [
+        {
+          "slot_name": "cdc_debezium_orders",
+          "slot_type": "logical",
+          "active": false,
+          "wal_status": "extended",
+          "retained_bytes": 44036778784,
+          "safe_wal_size": null,
+          "database": "appdb",
+          "inactive_since": "2026-09-10T21:12:40Z"
+        },
+        {
+          "slot_name": "standby_az2",
+          "slot_type": "physical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 917504,
+          "safe_wal_size": null,
+          "database": null,
+          "inactive_since": null
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 5280,
+      "rows": [
+        {
+          "timed_checkpoints": 2880,
+          "requested_checkpoints": 3,
+          "checkpoint_write_ms": 905113.0,
+          "checkpoint_sync_ms": 2871.0,
+          "buffers_written": 11203345,
+          "wal_bytes": 2160136820789,
+          "wal_buffers_full": 412,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 8192,
+          "checkpointer_stats_reset": "2026-09-01T03:47:00Z",
+          "wal_stats_reset": "2026-09-01T03:47:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 5300,
+      "rows": [
+        {
+          "archive_mode": "on",
+          "archived_count": 512330,
+          "failed_count": 421,
+          "last_archived_time": "2026-09-11T02:58:12Z",
+          "last_failed_time": "2026-09-11T03:47:04Z",
+          "stats_reset": "2026-09-01T03:47:00Z"
+        }
+      ]
+    }
+  ]
+}

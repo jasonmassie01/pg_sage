@@ -1,0 +1,66 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "plan-flip-other-query-regressed",
+  "family": "plan_regression",
+  "class": "positive",
+  "description": "The investigated checkout query flipped to a worse join order and slowed 3.6x; in the same window an unrelated reporting query slowed 8.5x on an unchanged plan.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-22T12:36:58Z",
+  "subject": "queryid -3087761245519902231",
+  "tags": [
+    "post_r1",
+    "plan_flip",
+    "noise"
+  ],
+  "gold": {
+    "root": "plan_flip_regression",
+    "rationale": "The investigated query's plan changed at its slowdown (3.6x over 40+ calls each side). The larger regression belongs to another query on its own unchanged plan and is not this incident's cause."
+  },
+  "observations": [
+    {
+      "probe": "plan_regressions",
+      "status": "ok",
+      "offset_ms": 85,
+      "rows": [
+        {
+          "queryid": 5512039948821007431,
+          "previous_plan_hash": null,
+          "current_plan_hash": "v1:71c3e5a7b9d0f2a4c6e8b1d3f5a7c9e2",
+          "plan_flipped": false,
+          "flipped_at": null,
+          "before_calls": 24,
+          "before_mean_ms": 118.2,
+          "after_calls": 26,
+          "after_mean_ms": 1004.7
+        },
+        {
+          "queryid": -3087761245519902231,
+          "previous_plan_hash": "v1:7a11e5a7b9d0f2a4c6e8b1d3f5a7c9e2",
+          "current_plan_hash": "v1:a8c0e2b4d6f8a1c3e5b7d9f0a2c4e6b9",
+          "plan_flipped": true,
+          "flipped_at": "2026-09-22T12:05:30Z",
+          "before_calls": 44,
+          "before_mean_ms": 6.35,
+          "after_calls": 41,
+          "after_mean_ms": 22.88
+        },
+        {
+          "queryid": 904417736520018854,
+          "previous_plan_hash": null,
+          "current_plan_hash": "v1:0c2e4a6b8d1f3a5c7e9b0d2f4a6c8e1b",
+          "plan_flipped": false,
+          "flipped_at": null,
+          "before_calls": 1500,
+          "before_mean_ms": 0.66,
+          "after_calls": 1475,
+          "after_mean_ms": 0.69
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 115
+    }
+  ]
+}

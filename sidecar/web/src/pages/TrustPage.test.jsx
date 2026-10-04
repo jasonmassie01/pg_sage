@@ -120,6 +120,13 @@ describe('TrustPage', () => {
     expect(screen.getByText(/the ledger decides/)).toBeInTheDocument()
   })
 
+  it('shows the model lift over deterministic (roadmap 2.4)', async () => {
+    render(<TrustPage database="all" user={viewer} />)
+    expect(await screen.findByTestId('model-lift')).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/v1/model-lift',
+      expect.objectContaining({ credentials: 'include' }))
+  })
+
   it('shows the evidence counts', () => {
     render(<TrustPage database="all" user={viewer} />)
     const drop = screen.getByTestId('trust-row-orders-hygiene-index_drop')

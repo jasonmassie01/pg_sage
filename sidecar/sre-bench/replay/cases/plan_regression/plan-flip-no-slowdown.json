@@ -1,0 +1,54 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "plan-flip-no-slowdown",
+  "family": "plan_regression",
+  "class": "confounded",
+  "description": "After a minor-version upgrade the planner chose a bitmap heap scan instead of an index scan for the customer-search query; the plan_hash changed but latency moved only from 8.21 ms to 9.04 ms.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-14T15:47:21Z",
+  "subject": "queryid 6650912384471209933",
+  "tags": [
+    "post_r1",
+    "plan_flip"
+  ],
+  "gold": {
+    "lookalike": "plan_flip_regression",
+    "rationale": "The plan changed, but a 1.1x latency change is within normal variance and below the 1.5x regression threshold: a plan change is not a regression on its own."
+  },
+  "observations": [
+    {
+      "probe": "plan_regressions",
+      "status": "ok",
+      "offset_ms": 85,
+      "rows": [
+        {
+          "queryid": 6650912384471209933,
+          "previous_plan_hash": "v1:b3d5f7a9c1e2b4d6f8a0c3e5b7d9f0a2",
+          "current_plan_hash": "v1:2e4a6c8f0b1d3e5a7c9f1b3d5e7a9c0b",
+          "plan_flipped": true,
+          "flipped_at": "2026-09-14T15:20:00Z",
+          "before_calls": 1340,
+          "before_mean_ms": 8.21,
+          "after_calls": 1288,
+          "after_mean_ms": 9.04
+        },
+        {
+          "queryid": -4419920077315530010,
+          "previous_plan_hash": null,
+          "current_plan_hash": "v1:f0a2c4e6b8d1f3a5c7e9b2d4f6a8c1e3",
+          "plan_flipped": false,
+          "flipped_at": null,
+          "before_calls": 77,
+          "before_mean_ms": 21.4,
+          "after_calls": 80,
+          "after_mean_ms": 20.9
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 115
+    }
+  ]
+}

@@ -16,7 +16,7 @@ import (
 // measure the model. Unset means unpaced.
 
 func TestLLMConfigFromEnv_RPM(t *testing.T) {
-	live := map[string]string{EnvLLMURL: "https://llm.example/v1", EnvLLMModel: "m"}
+	live := liveVars(map[string]string{EnvLLMModel: "m"})
 	with := func(rpm string) map[string]string {
 		m := map[string]string{EnvLLMRPM: rpm}
 		for k, v := range live {

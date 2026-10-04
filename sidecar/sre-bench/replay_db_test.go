@@ -198,4 +198,39 @@ func TestReplayCorpus(t *testing.T) {
 		t.Errorf("replay gate %s (%s, %s) failed: observed %s, threshold %s", g.ID,
 			g.Family, g.Arm, g.Observed, g.Threshold)
 	}
+	checkReplayLift(t, rs, rep)
+}
+
+// checkReplayLift holds the model lift to the real investigator's events
+// (roadmap 2.4): every disagreement names the graph's root (which stands:
+// the bench grants no root authority) and the model's, and the held-out
+// override counts add up to the held-out disagreements.
+func checkReplayLift(t *testing.T, rs []Result, rep ReplayReport) {
+	t.Helper()
+	held := 0
+	for _, r := range rs {
+		m := r.Outcome.Model
+		if r.Arm != ArmLLM || m == nil || m.Disagreed == 0 {
+			continue
+		}
+		if m.ModelRoot == "" || m.GraphRoot != r.Outcome.Root ||
+			m.Authority != sre.ContestAdvisory {
+			t.Errorf("%s: disagreement %+v, stored root %q", r.Scenario.ID, m, r.Outcome.Root)
+		}
+		if r.Scenario.Split == replay.SplitHeldOut {
+			held++
+		}
+	}
+	for _, l := range rep.ModelLift {
+		if l.Family == PooledFamily && l.Arm == ArmLLM && l.Overrides.N != held {
+			t.Errorf("pooled held-out overrides %d, want %d", l.Overrides.N, held)
+		}
+		if l.OverrideRule.Eligible && l.Mode != LLMLive {
+			t.Errorf("%s: a %s model must never earn root authority", l.Family, l.Mode)
+		}
+	}
+	if len(rep.ModelLift) == 0 || rep.HeldOutCases == 0 {
+		t.Errorf("the replay measured no held-out model lift: %d records, %d cases",
+			len(rep.ModelLift), rep.HeldOutCases)
+	}
 }

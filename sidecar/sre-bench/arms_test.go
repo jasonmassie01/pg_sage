@@ -45,7 +45,21 @@ func TestLLMConfigFromEnv(t *testing.T) {
 			EnvLLMKey},
 	}
 	for _, c := range cases {
-		got, err := LLMConfigFromEnv(env(c.vars))
+		// Roadmap 2.4: a live endpoint also needs PG_SAGE_LIVE_LLM=1 and the
+		// run's caps (llmbudget_test.go covers them); these cases are about
+		// the endpoint, so they set both.
+		vars := c.vars
+		if vars[EnvLLMURL] != "" {
+			vars = liveVars(nil)
+			delete(vars, EnvLLMKey)
+			for k, v := range c.vars {
+				vars[k] = v
+			}
+			if _, ok := c.vars[EnvLLMModel]; !ok {
+				delete(vars, EnvLLMModel)
+			}
+		}
+		got, err := LLMConfigFromEnv(env(vars))
 		if c.wantErr != "" {
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 				t.Errorf("%s: err = %v, want one naming %q", c.name, err, c.wantErr)
@@ -55,7 +69,8 @@ func TestLLMConfigFromEnv(t *testing.T) {
 			}
 			continue
 		}
-		if err != nil || got != c.want {
+		if err != nil || got.Mode != c.want.Mode || got.URL != c.want.URL ||
+			got.Model != c.want.Model || got.APIKey != c.want.APIKey {
 			t.Errorf("%s: got %+v, %v; want %+v", c.name, got, err, c.want)
 		}
 	}
