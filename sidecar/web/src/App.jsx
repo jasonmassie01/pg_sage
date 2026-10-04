@@ -18,6 +18,7 @@ import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyPage } from './pages/AutonomyPage'
 import { TrustPage } from './pages/TrustPage'
+import { FactsPage } from './pages/FactsPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -177,6 +178,9 @@ export default function App() {
       case '/trust':
         return { title: 'Trust',
           node: <TrustPage database={effectiveDB} user={user} /> }
+      case '/facts':
+        return { title: 'Facts',
+          node: <FactsPage database={effectiveDB} user={user} /> }
       case '/advanced/autonomy':
         return { title: 'Earned autonomy',
           node: <AutonomyPage database={effectiveDB} user={user} /> }

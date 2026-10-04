@@ -182,7 +182,9 @@ function RollbackSection({ rollback }) {
   )
 }
 
-export function ApprovalCard({ card, onDecided }) {
+// facts is an optional node (the binding facts about the card's targets)
+// shown under the why and trust lines.
+export function ApprovalCard({ card, onDecided, facts = null }) {
   const [now] = useState(() => Date.now())
   return (
     <div data-testid="approval-card" className="rounded p-4 space-y-3"
@@ -204,6 +206,7 @@ export function ApprovalCard({ card, onDecided }) {
       )}
       <WhySection why={card.why_approval} />
       <TrustLine trust={card.trust} />
+      {facts}
       <EvidenceSection evidence={card.evidence} />
       <RationaleSection rationale={card.rationale} />
       <PredictedSection predicted={card.predicted_effect} />
