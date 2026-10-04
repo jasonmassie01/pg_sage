@@ -36,6 +36,7 @@ nav:
   - Findings Catalog: findings.md
   - Binding Facts: facts.md
   - MCP for Coding Agents: mcp.md
+  - Ask Sage: ask-sage.md
   - Hint Verification: hint-verification.md
   - Security: security.md
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md

@@ -19,6 +19,21 @@
   `causal-graph+investigator` arm, gated like the LLM-on arm and scored with scripted
   adversarial transcripts.
 
+- **Ask Sage: ask your database's DBA, and get only what it can prove.** A chat panel per
+  database in the UI, a REST endpoint and the MCP tool `ask_sage` answer questions from
+  evidence pg_sage reads with read-only tools: findings, fixes waiting for approval, executed
+  actions with their verification outcomes, facts, incidents, investigations, the trust
+  ledger, the table catalog, the heaviest queries, configuration and its concepts. Every
+  statement cites its evidence and its numbers; uncited or ungrounded statements are dropped
+  and the answer says what it could not verify ("not observed" is a valid answer). Ask Sage
+  runs on the investigator's tool loop and can never execute, approve or confirm anything.
+  Operators (and MCP tokens with the propose scope) can have it open an investigation or
+  queue one of pg_sage's own findings for approval, with its rollback, predicted effect and
+  the policy gate's verdict; a person approves on the Actions page. Database text, finding
+  titles and query text reach the model as fenced data. It has its own daily LLM budget per
+  database and per user (`ask.*`), kept across restarts, and conversations are kept for
+  `ask.retention_days`.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new
