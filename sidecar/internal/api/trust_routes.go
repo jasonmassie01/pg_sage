@@ -19,11 +19,14 @@ const trustPath = "/api/v1/trust"
 // trustMeaning says what the trust settings mean under the ledger.
 const trustMeaning = "The trust ledger decides each self-initiated action class's " +
 	"level per database from verified outcomes: L1 manual script, L2 one-click " +
-	"approval, L3 unattended (irreversible classes never above L1). trust.level is " +
-	"the ceiling; the trust ramp (trust.ramp_safe_hours, ramp_moderate_hours) is the " +
-	"minimum observation before pg_sage may propose a promotion, never a grant. " +
-	"Promotions need an admin's approval; a regressed verdict, an operator rollback " +
-	"or a rejection demotes the class one level."
+	"approval, L3 unattended (irreversible classes never above L1). In short, " +
+	"the ledger grants, the operator caps: trust.level and trust.tier3_safe / " +
+	"tier3_moderate stay, permanently, the operator's ceiling and kill switch. " +
+	"The trust ramp " +
+	"(trust.ramp_safe_hours, ramp_moderate_hours) is the minimum observation before " +
+	"pg_sage may propose a promotion, never a grant. Promotions need an admin's " +
+	"approval; a regressed verdict, an operator rollback or a rejection demotes " +
+	"the class one level."
 
 func registerTrustRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	deps *AutonomyDeps) {
@@ -52,19 +55,14 @@ func (h autonomyHandlers) trust(w http.ResponseWriter, r *http.Request) {
 	}
 	views := make([]earned.TrustView, 0, len(names))
 	for _, name := range names {
-		entry, ok := h.deps.Ledgers.Lookup(name)
-		if !ok {
-			continue // left the fleet since it was listed
-		}
-		v, err := entry.Service.TrustView(r.Context())
+		v, ok, err := h.deps.Ledgers.TrustView(r.Context(), name)
 		if err != nil {
 			autonomyError(w, r, err)
 			return
 		}
-		if entry.Limiter != nil {
-			entry.Limiter.AnnotateTrust(r.Context(), &v)
+		if ok { // else it left the fleet since it was listed
+			views = append(views, v)
 		}
-		views = append(views, v)
 	}
 	jsonResponse(w, map[string]any{"databases": views,
 		"enforced": h.deps.Ledgers.Enforced(), "meaning": trustMeaning})

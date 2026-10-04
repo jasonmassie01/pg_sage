@@ -30,11 +30,14 @@ func classPromotionThresholds(th earned.Thresholds,
 func logTrustMeaning(c *config.Config, info, warn func(component, format string,
 	args ...any)) {
 	t, a := c.Trust, c.SRE.Autonomy
-	info("startup", "TRUST: trust.level=%s is the ceiling of what pg_sage may do on its "+
-		"own, not a grant. The trust ledger decides each action class's level per "+
-		"database (L1 script, L2 one-click approval, L3 unattended) from verified "+
-		"outcomes, and an admin approves every promotion (see /api/v1/trust and the "+
-		"Trust page).", t.Level)
+	info("startup", "TRUST: the ledger grants, the operator caps. The trust ledger "+
+		"decides each action class's level per database (L1 script, L2 one-click "+
+		"approval, L3 unattended) from verified outcomes, and an admin approves every "+
+		"promotion (see /api/v1/trust and the Trust page). trust.level=%s, "+
+		"trust.tier3_safe=%t and trust.tier3_moderate=%t are the operator's ceiling "+
+		"and kill switch, a permanent part of the design: the ledger never grants "+
+		"past them, and lowering them takes autonomy back at once.", t.Level,
+		t.Tier3Safe, t.Tier3Moderate)
 	info("startup", "TRUST: trust.ramp_safe_hours=%d and trust.ramp_moderate_hours=%d are "+
 		"now a floor: the minimum observation before pg_sage may propose a promotion "+
 		"(L2, and L3 of SAFE classes / L3 of MODERATE classes). They never grant "+

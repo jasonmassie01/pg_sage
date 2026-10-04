@@ -1736,7 +1736,7 @@
   "trust.level": {
     "type": "string",
     "default": "observation",
-    "doc": "Autonomy ceiling, never a grant: the trust ledger decides each class per database. observation: cases only; advisory: earned safe actions, moderate to approval; autonomous: safe and moderate.",
+    "doc": "Operator ceiling and kill switch, never a grant: the ledger grants, the operator caps. observation: cases only; advisory: earned safe actions, moderate to approval; autonomous: both.",
     "warning": "Changing trust can expand what execution_mode=auto may execute without human review."
   },
   "trust.maintenance_window": {
@@ -1786,13 +1786,13 @@
   "trust.tier3_moderate": {
     "type": "bool",
     "default": false,
-    "doc": "Enable typed moderate actions such as CREATE INDEX CONCURRENTLY after the longer trust ramp. Requires execution_mode=auto and trust.level=autonomous.",
+    "doc": "Operator switch for unattended MODERATE actions (CREATE INDEX CONCURRENTLY) the trust ledger has earned; off caps them at approval. Needs execution_mode=auto, trust.level=autonomous.",
     "warning": "Moderate actions can consume IO or briefly contend for locks."
   },
   "trust.tier3_safe": {
     "type": "bool",
     "default": true,
-    "doc": "Enable typed safe actions such as ANALYZE and non-FULL VACUUM after the trust ramp when execution_mode=auto and trust.level is advisory or autonomous."
+    "doc": "Operator switch for unattended SAFE actions (ANALYZE, non-FULL VACUUM) the trust ledger has earned; off caps them at approval. Needs execution_mode=auto and trust.level advisory+."
   },
   "tuner.analyze_cooldown_minutes": {
     "type": "int",
