@@ -3,6 +3,7 @@ import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { TrustTable } from './trust/TrustTable'
+import { ModelLift } from './trust/ModelLift'
 
 // One trust system (roadmap 1.2): database x family x class. Each class
 // pg_sage runs on its own initiative has one level per database, earned
@@ -81,6 +82,7 @@ export function TrustPage({ database, user }) {
         <DatabaseTrust key={view.database} view={view}
           isAdmin={user?.role === 'admin'} onApprove={onApprove} />
       ))}
+      <ModelLift database={database} />
     </section>
   )
 }

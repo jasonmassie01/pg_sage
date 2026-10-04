@@ -43,6 +43,9 @@ type sreInvestigatorDeps struct {
 	// episodes records reactive detector episodes as incidents (the
 	// database's RCA engine); nil without RCA.
 	episodes sre.EpisodeSink
+	// rootAuthority decides per family whether the model may override a
+	// conclusive graph root (roadmap 2.4); nil keeps model roots advisory.
+	rootAuthority sre.RootAuthority
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -72,7 +75,7 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
-		Signals: d.signals, Advisor: d.advisor})
+		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -102,7 +105,9 @@ func (rt *databaseRuntime) startInvestigator() {
 		runtimeKey: key, legacyID: legacy, settings: rt.cfg.SRE,
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
-		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents()})
+		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents(),
+		rootAuthority: registryRootAuthority{registry: processAutonomy().registry,
+			database: rt.spec.Name}})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre investigator not started: %v", rt.spec.Name, err)
 		return

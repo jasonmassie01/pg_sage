@@ -3,12 +3,14 @@ package advisor
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 const memorySystemPrompt = `You are a PostgreSQL memory tuning expert.
@@ -56,50 +58,21 @@ func analyzeMemory(
 		}
 	}
 
-	// Cache performance from queries.
-	var totalBlksHit, totalBlksRead, totalTempWritten int64
-	var spillingQueries int
+	// Cache performance counts every statement; spills only workload
+	// (maintenance spills in maintenance_work_mem, not work_mem).
+	var totalBlksHit, totalBlksRead int64
 	for _, q := range snap.Queries {
 		totalBlksHit += q.SharedBlksHit
 		totalBlksRead += q.SharedBlksRead
-		totalTempWritten += q.TempBlksWritten
-		if q.TempBlksWritten > 0 {
-			spillingQueries++
-		}
 	}
-
 	hitRatio := float64(0)
 	if totalBlksHit+totalBlksRead > 0 {
 		hitRatio = float64(totalBlksHit) /
 			float64(totalBlksHit+totalBlksRead) * 100
 	}
-
-	// Top spilling queries.
-	type spillQuery struct {
-		query string
-		temp  int64
-		calls int64
-	}
-	var spills []spillQuery
-	for _, q := range snap.Queries {
-		if q.TempBlksWritten > 0 {
-			spills = append(spills, spillQuery{
-				q.Query, q.TempBlksWritten, q.Calls,
-			})
-		}
-	}
-
-	// Sort by temp blocks desc (simple selection sort, max 5).
+	spillingQueries, totalTempWritten, spills := spillSummary(snap.Queries)
 	var spillLines []string
-	for i := 0; i < len(spills) && i < 5; i++ {
-		maxIdx := i
-		for j := i + 1; j < len(spills); j++ {
-			if spills[j].temp > spills[maxIdx].temp {
-				maxIdx = j
-			}
-		}
-		spills[i], spills[maxIdx] = spills[maxIdx], spills[i]
-		q := spills[i]
+	for i, q := range spills {
 		truncQuery := llm.SanitizeForLLM(q.query)
 		if len(truncQuery) > 120 {
 			truncQuery = truncQuery[:120] + "..."
@@ -145,4 +118,30 @@ func analyzeMemory(
 	}
 
 	return parseLLMFindings(resp, "memory_tuning", logFn), nil
+}
+
+// spillQuery is a workload statement that spilled to temp files.
+type spillQuery struct {
+	query string
+	temp  int64
+	calls int64
+}
+
+// spillSummary counts the workload statements (internal/workload) that
+// spilled, their temp blocks, and the five that spilled most.
+func spillSummary(queries []collector.QueryStats) (int, int64, []spillQuery) {
+	var spills []spillQuery
+	var total int64
+	for _, q := range workload.Queries(queries) {
+		if q.TempBlksWritten > 0 {
+			total += q.TempBlksWritten
+			spills = append(spills, spillQuery{q.Query, q.TempBlksWritten, q.Calls})
+		}
+	}
+	count := len(spills)
+	sort.SliceStable(spills, func(i, j int) bool { return spills[i].temp > spills[j].temp })
+	if len(spills) > 5 {
+		spills = spills[:5]
+	}
+	return count, total, spills
 }

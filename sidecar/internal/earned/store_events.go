@@ -35,6 +35,8 @@ const (
 	// EventGrandfathered seeds a self-initiated class at the level the time
 	// ramp granted it when the unified ledger took over (roadmap 1.2).
 	EventGrandfathered EventType = "grandfathered"
+	// The model-root authority entries (EventRootAuthorityGranted,
+	// EventRootAuthorityRevoked) are in root_authority_events.go.
 )
 
 // Event is one ledger history entry.

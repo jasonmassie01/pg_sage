@@ -194,7 +194,7 @@ func vacuumSnapshot(pid int, start time.Time) *collector.Snapshot {
 		System: collector.SystemStats{TotalBackends: 10, MaxConnections: 100,
 			CacheHitRatio: 0.999},
 		Tables: []collector.TableStats{{SchemaName: "public", RelName: "t",
-			NLiveTup: 100, NDeadTup: 900}},
+			NLiveTup: 1000, NDeadTup: 9000, TableBytes: 64 << 20}},
 		Locks: []collector.LockInfo{{PID: pid, State: &idle, BackendStart: &start}},
 	}
 }

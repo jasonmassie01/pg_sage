@@ -48,7 +48,8 @@ type ModelTap struct {
 	upstream string
 	srv      *httptest.Server
 	client   *http.Client
-	pace     *pacer // nil: unpaced
+	pace     *pacer  // nil: unpaced
+	budget   *Budget // nil: uncapped (the fake model)
 
 	mu      sync.Mutex
 	usage   TapUsage
@@ -84,7 +85,8 @@ func (t *ModelTap) Prompts() []string {
 	return append([]string(nil), t.prompts...)
 }
 
-// ServeHTTP forwards one request and records it.
+// ServeHTTP admits one request against the run's budget, forwards it
+// and records it. A request past the budget never leaves the process.
 func (t *ModelTap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, tapMaxBody))
 	t.record(body)
@@ -92,15 +94,34 @@ func (t *ModelTap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.fail(w, http.StatusBadRequest)
 		return
 	}
-	if err := t.pace.wait(r.Context()); err != nil {
-		t.fail(w, http.StatusServiceUnavailable)
+	res, err := t.budget.Admit(len(body), maxOutputOf(body))
+	if err != nil {
+		t.failWith(w, http.StatusServiceUnavailable, "model tap: live model budget "+
+			"exhausted")
 		return
+	}
+	status, reply, ctype := t.forward(r, body)
+	if reply == nil {
+		t.budget.Settle(res, status, TapUsage{})
+		t.fail(w, status)
+		return
+	}
+	t.budget.Settle(res, status, t.settle(status, reply))
+	w.Header().Set("Content-Type", ctype)
+	w.WriteHeader(status)
+	_, _ = w.Write(reply)
+}
+
+// forward paces and sends one request upstream; a nil reply is a failure
+// with its status.
+func (t *ModelTap) forward(r *http.Request, body []byte) (int, []byte, string) {
+	if err := t.pace.wait(r.Context()); err != nil {
+		return http.StatusServiceUnavailable, nil, ""
 	}
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, t.upstream+r.URL.Path,
 		bytes.NewReader(body))
 	if err != nil {
-		t.fail(w, http.StatusBadGateway)
-		return
+		return http.StatusBadGateway, nil, ""
 	}
 	for _, h := range []string{"Authorization", "Content-Type", "Accept"} {
 		if v := r.Header.Get(h); v != "" {
@@ -110,26 +131,25 @@ func (t *ModelTap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp, err := t.client.Do(req)
 	if err != nil {
 		// The error names the upstream URL only; it never carries headers.
-		t.fail(w, http.StatusBadGateway)
-		return
+		return http.StatusBadGateway, nil, ""
 	}
 	defer func() { _ = resp.Body.Close() }()
 	reply, err := io.ReadAll(io.LimitReader(resp.Body, tapMaxBody))
 	if err != nil {
-		t.fail(w, http.StatusBadGateway)
-		return
+		return http.StatusBadGateway, nil, ""
 	}
-	t.settle(resp.StatusCode, reply)
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(reply)
+	return resp.StatusCode, reply, resp.Header.Get("Content-Type")
 }
 
 func (t *ModelTap) fail(w http.ResponseWriter, status int) {
+	t.failWith(w, status, "model tap: upstream unavailable")
+}
+
+func (t *ModelTap) failWith(w http.ResponseWriter, status int, message string) {
 	t.mu.Lock()
 	t.usage.HTTPErrors++
 	t.mu.Unlock()
-	http.Error(w, `{"error":{"message":"model tap: upstream unavailable"}}`, status)
+	http.Error(w, `{"error":{"message":"`+message+`"}}`, status)
 }
 
 // record counts the call and keeps its message text.
@@ -155,9 +175,10 @@ func (t *ModelTap) record(body []byte) {
 	}
 }
 
-// settle records the reply's status and token usage. Gemini reports
-// thinking only as total above prompt plus completion.
-func (t *ModelTap) settle(status int, reply []byte) {
+// settle records the reply's status and token usage and returns this
+// call's usage. Gemini reports thinking only as total above prompt plus
+// completion.
+func (t *ModelTap) settle(status int, reply []byte) TapUsage {
 	var r struct {
 		Usage struct {
 			Prompt     int `json:"prompt_tokens"`
@@ -169,21 +190,24 @@ func (t *ModelTap) settle(status int, reply []byte) {
 		} `json:"usage"`
 	}
 	parsed := json.Unmarshal(reply, &r) == nil
+	var call TapUsage
+	if parsed {
+		u := r.Usage
+		call.PromptTokens, call.CompletionTokens = u.Prompt, u.Completion
+		switch {
+		case u.Details != nil && u.Details.Reasoning > 0:
+			call.ReasoningTokens = u.Details.Reasoning
+		case u.Total > u.Prompt+u.Completion:
+			call.ReasoningTokens = u.Total - u.Prompt - u.Completion
+		}
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if status >= 300 {
 		t.usage.HTTPErrors++
 	}
-	if !parsed {
-		return
-	}
-	u := r.Usage
-	t.usage.PromptTokens += u.Prompt
-	t.usage.CompletionTokens += u.Completion
-	switch {
-	case u.Details != nil && u.Details.Reasoning > 0:
-		t.usage.ReasoningTokens += u.Details.Reasoning
-	case u.Total > u.Prompt+u.Completion:
-		t.usage.ReasoningTokens += u.Total - u.Prompt - u.Completion
-	}
+	t.usage.PromptTokens += call.PromptTokens
+	t.usage.CompletionTokens += call.CompletionTokens
+	t.usage.ReasoningTokens += call.ReasoningTokens
+	return call
 }

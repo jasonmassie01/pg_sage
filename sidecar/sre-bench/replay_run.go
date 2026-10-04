@@ -34,7 +34,7 @@ var replayClasses = map[string]string{replay.ClassPositive: ClassPositive,
 // ReplayScenario is the scenario a replay case is scored as.
 func ReplayScenario(c replay.Case) Scenario {
 	return Scenario{ID: "replay/" + c.ID, Family: sre.TriggerKind(c.Family),
-		Class: replayClasses[c.Class], Subject: c.Subject,
+		Class: replayClasses[c.Class], Subject: c.Subject, Split: replay.SplitOf(c.ID),
 		Gold: Gold{Root: c.Gold.Root, Contributing: c.Gold.Contributing,
 			Lookalike: c.Gold.Lookalike}}
 }

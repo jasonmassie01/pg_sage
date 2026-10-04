@@ -13,10 +13,13 @@ import (
 
 // Regression tests for G4-B01, G4-B02, G4-B16, G4-B18 and G4-B36.
 
+// create_statistics left this list with the owner decision of 2026-10-04
+// (PR #110): the earned ledger decides its approval, like
+// create_index_concurrently (TestCreateStatisticsContract pins it).
 var approvalGuardedActionTypes = []string{
 	"alter_table", "cancel_backend", "terminate_backend",
 	"reindex_concurrently", "apply_query_hint",
-	"create_statistics", "prepare_query_rewrite", "promote_role_work_mem",
+	"prepare_query_rewrite", "promote_role_work_mem",
 	"prepare_parameterized_query",
 }
 

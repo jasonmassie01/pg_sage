@@ -58,7 +58,9 @@ func benchSources(s config.SREAutonomyConfig) []benchingest.Source {
 	return out
 }
 
-// benchIngester ingests every source now and on every tick.
+// benchIngester ingests every source now and on every tick, then records
+// and tells any model-root authority change (a newer report, or the
+// deciding one aging out).
 func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context.Context) {
 	sources := benchSources(s)
 	return func(ctx context.Context) {
@@ -69,6 +71,9 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 		if res.Added > 0 {
 			logInfo("autonomy", "ingested %d new PGIncidentBench reports (%d signed) for %s",
 				res.Added, res.Signed, svc.Build())
+		}
+		if _, err := svc.ReconcileRootAuthority(ctx); err != nil {
+			logWarn("autonomy", "model-root authority: %v", err)
 		}
 	}
 }

@@ -29,6 +29,8 @@ var allowedPrefixes = []string{
 	"SELECT ",
 	"INSERT INTO HINT_PLAN.HINTS",
 	"DELETE FROM HINT_PLAN.HINTS",
+	"CREATE STATISTICS",
+	"DROP STATISTICS",
 }
 
 var backendSignalPattern = regexp.MustCompile(
@@ -84,6 +86,9 @@ func ValidateExecutorSQL(sql string) error {
 		if err := checkSecondary(upper, prefix); err != nil {
 			return err
 		}
+		if err := checkStatisticsForm(normalized, prefix); err != nil {
+			return err
+		}
 		if err := checkProtectedSchemaUsage(normalized, prefix); err != nil {
 			return err
 		}
@@ -96,7 +101,7 @@ func ValidateExecutorSQL(sql string) error {
 			"REINDEX, VACUUM, ANALYZE, ALTER TABLE, "+
 			"ALTER SYSTEM, ALTER DATABASE, "+
 			"SELECT, INSERT INTO hint_plan.hints, "+
-			"DELETE FROM hint_plan.hints)",
+			"DELETE FROM hint_plan.hints, CREATE/DROP STATISTICS)",
 		ErrDisallowedSQL,
 	)
 }
@@ -331,7 +336,8 @@ func rejectMultiStatement(sql string) error {
 // name its schema: an unqualified name resolves through the session
 // search_path at run time, where "$user" may be sage and pg_catalog is
 // always searched, so the protected-schema check could not see it.
-var qualifiedTargetPrefixes = map[string]bool{"DROP INDEX": true, "ALTER TABLE": true}
+var qualifiedTargetPrefixes = map[string]bool{"DROP INDEX": true, "ALTER TABLE": true,
+	"CREATE STATISTICS": true, "DROP STATISTICS": true}
 
 func checkProtectedSchemaUsage(trimmed, prefix string) error {
 	ident := statementTarget(trimmed, prefix)

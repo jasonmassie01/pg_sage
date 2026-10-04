@@ -1,0 +1,31 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "plan-regressions-timeout",
+  "family": "plan_regression",
+  "class": "missing_data",
+  "description": "The plan_regressions probe hit statement_timeout reading a large sage.query_store during a busy hour, so no per-query latency history is available.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-18T19:02:44Z",
+  "subject": "queryid 3301457789920114562",
+  "tags": [
+    "post_r1",
+    "timeout"
+  ],
+  "gold": {
+    "rationale": "Without the probe's rows there is no evidence of a plan change or of a latency change for the query: the right answer is inconclusive, naming the missing evidence."
+  },
+  "observations": [
+    {
+      "probe": "plan_regressions",
+      "status": "error",
+      "offset_ms": 30080,
+      "reason": "statement_timeout",
+      "error": "canceling statement due to statement timeout"
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 30110
+    }
+  ]
+}

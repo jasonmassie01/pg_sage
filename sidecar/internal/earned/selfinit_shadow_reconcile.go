@@ -116,13 +116,17 @@ func (s *PostgresStore) shadowCursor(ctx context.Context) (*time.Time, error) {
 	return at, storeErr("read shadow cursor", err)
 }
 
-// saveShadowCursor moves the shadow cursor forward (never back).
+// saveShadowCursor moves the shadow cursor forward (never back); an
+// unchanged cursor (the boundary row read again) writes nothing.
 func (s *PostgresStore) saveShadowCursor(ctx context.Context, at time.Time) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO sage.trust_ledger_state
 		(deployment_id, database_name, shadow_cursor) VALUES ($1, $2, $3)
 		ON CONFLICT (deployment_id, database_name) DO UPDATE SET
 		  shadow_cursor = GREATEST(trust_ledger_state.shadow_cursor, EXCLUDED.shadow_cursor),
-		  updated_at = clock_timestamp()`, s.deployment, s.database, at)
+		  updated_at = clock_timestamp()
+		WHERE trust_ledger_state.shadow_cursor IS NULL
+		   OR EXCLUDED.shadow_cursor > trust_ledger_state.shadow_cursor`,
+		s.deployment, s.database, at)
 	return storeErr("save shadow cursor", err)
 }
 

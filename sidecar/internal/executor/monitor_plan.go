@@ -31,6 +31,7 @@ type monitorPlan struct {
 	isConfig    bool
 	index       string // the dropped index, for the soft-drop hint check
 	softDrop    bool
+	r2          r2State // statistics and reindex baselines
 
 	minWindow, capWindow, checkEvery time.Duration
 }
@@ -97,6 +98,7 @@ type monitorState struct {
 		Outcome *outcomeBaseline `json:"outcome"`
 	} `json:"config_change"`
 	DroppedIndex string `json:"dropped_index"`
+	r2State
 }
 
 // loadMonitorPlan reads an action's plan.
@@ -156,6 +158,7 @@ func (p *monitorPlan) applyState(state monitorState, sql string) {
 		}
 	}
 	p.index = state.DroppedIndex
+	p.r2 = state.r2State
 	if p.index == "" && p.softDrop {
 		p.index = bareIndexName(firstObjectAfter(sql, "DROP INDEX", "CONCURRENTLY", "IF",
 			"EXISTS"))

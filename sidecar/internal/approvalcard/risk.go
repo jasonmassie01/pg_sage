@@ -22,7 +22,9 @@ var lockByType = map[string]string{
 	"analyze_table":        "SHARE UPDATE EXCLUSIVE on the table: reads and writes continue",
 	"vacuum_table":         "SHARE UPDATE EXCLUSIVE on the table: reads and writes continue",
 	"set_table_autovacuum": "SHARE UPDATE EXCLUSIVE on the table, briefly",
-	"create_statistics":    "SHARE UPDATE EXCLUSIVE on the table, briefly",
+	"create_statistics": "SHARE UPDATE EXCLUSIVE on the table while the statistics are " +
+		"created and the table is analyzed: reads and writes continue",
+	"revert_created_statistics": "SHARE UPDATE EXCLUSIVE on the table, briefly",
 	"alter_table": "ACCESS EXCLUSIVE on the table: blocks reads and writes; " +
 		"some changes rewrite the table",
 	"alter_database_guc": "no table locks; applies to new sessions of the database",

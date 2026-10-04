@@ -1,0 +1,55 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "plan-flip-generic-plan",
+  "family": "plan_regression",
+  "class": "positive",
+  "description": "A prepared monthly-statement query switched to a generic plan after its fifth execution (plan_cache_mode auto); the generic plan scans the skewed tenant's rows with a sequential scan and takes twice as long.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-07T02:31:40Z",
+  "subject": "queryid -6224718339023612288",
+  "tags": [
+    "post_r1",
+    "plan_flip",
+    "generic_plan"
+  ],
+  "gold": {
+    "root": "plan_flip_regression",
+    "rationale": "The plan changed (custom to generic) exactly where latency doubled. Only a few calls exist on each side, so the evidence is weaker than a busy query's, but nothing else changed and a 2.1x slowdown on a new plan is a plan regression."
+  },
+  "observations": [
+    {
+      "probe": "plan_regressions",
+      "status": "ok",
+      "offset_ms": 85,
+      "rows": [
+        {
+          "queryid": -6224718339023612288,
+          "previous_plan_hash": "v1:07a9c1e3b5d7f92846a0c2e4b6d8f1a3",
+          "current_plan_hash": "v1:9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f71",
+          "plan_flipped": true,
+          "flipped_at": "2026-09-07T02:09:15Z",
+          "before_calls": 5,
+          "before_mean_ms": 612.4,
+          "after_calls": 4,
+          "after_mean_ms": 1297.9
+        },
+        {
+          "queryid": 1873365209914456021,
+          "previous_plan_hash": null,
+          "current_plan_hash": "v1:4c6e8a0b2d4f6a8c1e3b5d7f9a0c2e47",
+          "plan_flipped": false,
+          "flipped_at": null,
+          "before_calls": 48,
+          "before_mean_ms": 3.22,
+          "after_calls": 51,
+          "after_mean_ms": 3.31
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 115
+    }
+  ]
+}

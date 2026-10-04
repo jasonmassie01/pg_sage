@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // LLM-on arm model selection (opt-in live endpoint; fake model otherwise).
@@ -29,11 +30,19 @@ type LLMConfig struct {
 	// the pacer every run of the arm shares.
 	RPM  int    `json:"rpm,omitempty"`
 	pace *pacer `json:"-"`
+	// Caps are a live run's hard caps (roadmap 2.4); budget is the
+	// spending every run of the arm shares (nil for the fake model).
+	Caps   BudgetCaps `json:"-"`
+	budget *Budget    `json:"-"`
 }
+
+// Budget is the live run's shared budget (nil for the fake model).
+func (c LLMConfig) Budget() *Budget { return c.budget }
 
 // LLMConfigFromEnv reads the LLM-on arm's model: the fake model when no
 // endpoint is set, else a live OpenAI-compatible endpoint, which needs a
-// model and takes an optional key (local models have none).
+// model, takes an optional key (local models have none), and runs only
+// behind PG_SAGE_LIVE_LLM=1 with every hard cap set (llmcaps.go).
 func LLMConfigFromEnv(getenv func(string) string) (LLMConfig, error) {
 	raw := strings.TrimSpace(getenv(EnvLLMURL))
 	model := strings.TrimSpace(getenv(EnvLLMModel))
@@ -43,9 +52,9 @@ func LLMConfigFromEnv(getenv func(string) string) (LLMConfig, error) {
 		return LLMConfig{}, err
 	}
 	if raw == "" {
-		if model != "" || key != "" || rpm != 0 {
-			return LLMConfig{}, fmt.Errorf("%s, %s and %s need %s (an OpenAI-compatible "+
-				"endpoint)", EnvLLMModel, EnvLLMKey, EnvLLMRPM, EnvLLMURL)
+		if model != "" || key != "" || rpm != 0 || capsSet(getenv) {
+			return LLMConfig{}, fmt.Errorf("%s, %s, %s and the caps need %s (an "+
+				"OpenAI-compatible endpoint)", EnvLLMModel, EnvLLMKey, EnvLLMRPM, EnvLLMURL)
 		}
 		return LLMConfig{Mode: LLMFake}, nil
 	}
@@ -60,8 +69,16 @@ func LLMConfigFromEnv(getenv func(string) string) (LLMConfig, error) {
 	case u.User != nil:
 		return LLMConfig{}, fmt.Errorf("%s must not carry credentials; put the key in %s",
 			EnvLLMURL, EnvLLMKey)
+	case strings.TrimSpace(getenv(EnvLiveLLM)) != "1":
+		return LLMConfig{}, fmt.Errorf("a live model needs %s=1 (live calls are opt-in "+
+			"and never run in pull request CI)", EnvLiveLLM)
 	}
-	c := LLMConfig{Mode: LLMLive, URL: raw, Model: model, APIKey: key, RPM: rpm}
+	caps, err := capsFromEnv(getenv)
+	if err != nil {
+		return LLMConfig{}, err
+	}
+	c := LLMConfig{Mode: LLMLive, URL: raw, Model: model, APIKey: key, RPM: rpm, Caps: caps,
+		budget: NewBudget(caps, time.Now)}
 	if rpm > 0 {
 		c.pace = newPacer(rpm)
 	}

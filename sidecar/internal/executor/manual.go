@@ -40,6 +40,10 @@ func (e *Executor) ExecuteManual(
 	if err := checkIndexRollback(sql, rollbackSQL); err != nil {
 		return 0, err
 	}
+	rollbackSQL, err := statisticsRollback(sql, rollbackSQL)
+	if err != nil {
+		return 0, err
+	}
 	release, err := e.acquireDDLSlot(ctx)
 	if err != nil {
 		return 0, err
@@ -149,7 +153,7 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 	}
 	r.executor.notifyPostDDL(ctx, r.sql)
 	if r.executor.settleConfigChange(ctx, actionID, r.config) {
-		r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+		r.executor.finishManualAction(ctx, actionID, r.sql, r.rollbackSQL)
 	}
 	return nil
 }
@@ -164,7 +168,8 @@ func (e *Executor) prepareManualCreateIndex(
 	if err := e.dropFailedCreateIndexRemnant(ctx, sql, ddlTimeout, lockOpt); err != nil {
 		return true, 0, fmt.Errorf("dropping invalid index remnant: %w", err)
 	}
-	exists, err := e.createIndexCoverageExists(ctx, sql)
+	covering, err := e.coveringIndex(ctx, sql)
+	exists := covering != ""
 	if err != nil {
 		return true, 0, fmt.Errorf("checking existing index coverage: %w", err)
 	}
@@ -198,6 +203,9 @@ func (e *Executor) runManualSQL(
 	if categorizeAction(sql) == "analyze" {
 		return e.executeManualAnalyze(ctx, findingID, sql, e.lockTimeoutMS(sql, decision))
 	}
+	if categorizeAction(sql) == "create_statistics" {
+		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeout(), e.lockOption(sql, decision))
+	}
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
@@ -206,11 +214,12 @@ func (e *Executor) runManualSQL(
 
 // finishManualAction starts the verification monitor (which re-authorizes
 // rollback against the live operator gates) or verifies the action at once.
-func (e *Executor) finishManualAction(ctx context.Context, actionID int64, rollbackSQL string) {
+func (e *Executor) finishManualAction(ctx context.Context, actionID int64, sql,
+	rollbackSQL string) {
 	if actionID <= 0 {
 		return
 	}
-	if rollbackSQL == "" {
+	if rollbackSQL == "" && !monitoredWithoutRollback(sql) {
 		e.verifyImmediate(ctx, actionID)
 		return
 	}

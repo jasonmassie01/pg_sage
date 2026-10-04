@@ -26,6 +26,13 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		}
 	}
 	e.reconcileRecommendations(ctx)
+	// Queue housekeeping runs in every mode: a proposal whose reason is
+	// gone must not wait for an operator (dogfood round 2 item 5).
+	if n, err := e.supersedeStaleApprovals(ctx); err != nil {
+		e.logFn("executor", "supersede stale approvals: %v", err)
+	} else if n > 0 {
+		e.logFn("executor", "superseded %d queued proposal(s) whose reason is gone", n)
+	}
 	// Manual mode and executor-disabled are hard background-action stops.
 	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
 		return
@@ -46,6 +53,10 @@ func (e *Executor) processFinding(
 	if f.RecommendedSQL == "" || e.unusedDropRefused(ctx, f) {
 		return
 	}
+	if err := prepareFindingRollback(&f); err != nil {
+		e.logFn("executor", "refused %q: %v", f.Title, err)
+		return
+	}
 	// The read-only skips run before the gate, which records a decision
 	// (dogfood lifeos: a skipped candidate still wrote one every cycle).
 	if e.isCascadeCooldown(f.ObjectIdentifier) {
@@ -56,7 +67,7 @@ func (e *Executor) processFinding(
 	// being re-applied.
 	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
 		e.exceedsOscillationLimit(ctx, f, findingID) ||
-		e.parkedWithhold(ctx, f, findingID) {
+		e.parkedWithhold(ctx, f, findingID) || e.skipCoveredCreate(ctx, f, findingID) {
 		return
 	}
 	// The revision's evidence is immutable; the gate needs the current one.
@@ -291,6 +302,8 @@ func (e *Executor) runFindingSQL(
 	}
 	lockOpt := e.lockOption(f.RecommendedSQL, decision)
 	switch {
+	case categorizeAction(f.RecommendedSQL) == "create_statistics":
+		return ExecStatistics(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
 	case categorizeAction(f.RecommendedSQL) == "analyze":
 		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(f.RecommendedSQL, decision))
 	case NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL):
@@ -342,14 +355,15 @@ func (e *Executor) watchVerifiedCreate(
 	}
 }
 
-// monitorFinding starts the verification monitor for a reversible action,
-// or verifies an irreversible one (VACUUM, ANALYZE) by its metric at once. The
-// monitor is detached from the execution deadline; Shutdown aborts it.
+// monitorFinding starts the verification monitor for a reversible action
+// (and for REINDEX / CREATE STATISTICS, watched without one), or verifies
+// VACUUM/ANALYZE by its metric at once. The monitor is detached from the
+// execution deadline; Shutdown aborts it.
 func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actionID int64) {
 	if actionID <= 0 {
 		return
 	}
-	if f.RollbackSQL == "" {
+	if f.RollbackSQL == "" && !monitoredWithoutRollback(f.RecommendedSQL) {
 		e.verifyImmediate(ctx, actionID)
 		return
 	}

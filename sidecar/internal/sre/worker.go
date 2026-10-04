@@ -107,6 +107,9 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 			"detail": truncateRunes(err.Error(), 300)}); rerr != nil {
 			return rerr
 		}
+		if model.graph != nil { // the store refused an adopted model root
+			d = *model.graph
+		}
 		fallback := conclusionOf(d)
 		extra.apply(&fallback.Summary)
 		fallback.Summary.Memory = model.memory

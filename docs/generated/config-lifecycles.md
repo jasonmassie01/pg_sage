@@ -197,6 +197,8 @@
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` |
 | `rca.resolution_cycles` | `restart` | `-` |
 | `rca.stale_after_hours` | `restart` | `-` |
+| `rca.vacuum_min_dead_tuples` | `restart` | `-` |
+| `rca.vacuum_min_table_mb` | `restart` | `-` |
 | `rca.wal_spike_multiplier` | `restart` | `-` |
 | `retention.actions_days` | `restart` | `-` |
 | `retention.decisions_days` | `restart` | `-` |

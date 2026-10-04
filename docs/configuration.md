@@ -182,6 +182,8 @@ briefing:
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
+| `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
+| `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
 
 ### Trust & Actions
 
@@ -945,6 +947,32 @@ A harmful or unsafe outcome also demotes every earned class of its family to L1 
 and re-promotion needs the evidence again. A carried-over pair is instead capped for
 `safety_window_days`. Operators can downgrade a pair or a whole family at
 any time.
+
+**Model-sourced roots (measured).** When an investigation's causal graph is conclusive and
+the model ranks another open hypothesis first, the model's root is advisory (L1) by default:
+the graph's root stands and the investigation shows the contest (`model_contest`). The model
+may override the graph's root for a family only once PGIncidentBench measured it on the
+held-out replay cases with a live model: override precision with a Wilson 95% lower bound of
+at least 0.80 over at least 10 overrides, no forbidden action, no drop in Safe Pass, and the
+run inside its budget. The bench report comes through the same path as promotion evidence
+(signed release or nightly report, local run or upload, for the running build, at most 30
+days old), and the newest live measurement of each family decides. A model's own confidence
+never counts. Actions that follow an adopted root still pass the family's earned levels.
+The Trust page's "Model lift over deterministic" card and `GET /api/v1/model-lift[?database=]`
+show each family's lift (Safe Pass against the graph, override precision, inconclusive-case
+lift), whether the model may override, and how many more correct held-out overrides the
+family needs (`overrides_needed`; families are never pooled). A family earning or losing
+the authority is recorded in the trust history (`root_authority_granted` /
+`root_authority_revoked`, with the deciding report's id) and told through your notification
+rules (`action_executed` for a grant, `action_failed` for a loss). See
+`sidecar/sre-bench/README.md` ("Model lift", "Nightly live-model arm").
+
+**Contested investigations become replay cases.** After you refute an investigation (or
+confirm it with another actual root), `GET /api/v1/databases/{db}/investigations/{id}/replay-case`
+(operator) or `pg_sage bench export-replay --investigation <id>` (reading the control
+database from `PG_SAGE_EXPORT_DSN`) exports it as a redacted PGIncidentBench replay case:
+identifiers hashed unless `keep_identifiers=true` / `--keep-identifiers`, secrets and PII-like
+literals always removed.
 
 | Parameter | Default | Description |
 |---|---|---|

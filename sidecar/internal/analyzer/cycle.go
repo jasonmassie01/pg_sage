@@ -58,6 +58,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		all = collapseCloneSchemas(current, all, a.cloneSignals(ctx))
 		a.eval.evaluated(CategoryCloneSchemas)
 	}
+	all = dropNonWorkloadFindings(all)
 	a.runRCA(ctx, current, previous, all)
 
 	// Deduplicate conflicting findings across advisors.

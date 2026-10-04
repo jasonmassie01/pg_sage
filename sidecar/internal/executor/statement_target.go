@@ -1,6 +1,10 @@
 package executor
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/pg-sage/sidecar/internal/extstats"
+)
 
 // statementTarget names the relation an allow-listed statement changes, as
 // the statement writes it ("" when it names none: settings, signals,
@@ -20,6 +24,14 @@ func statementTarget(sql, prefix string) string {
 		return firstObjectAfter(sql, "ANALYZE", "VERBOSE")
 	case "ALTER TABLE":
 		return firstObjectAfter(sql, "ALTER TABLE", "IF", "EXISTS", "ONLY")
+	case "CREATE STATISTICS":
+		if c, err := extstats.ParseCreate(sql); err == nil {
+			return c.QualifiedTable()
+		}
+	case "DROP STATISTICS":
+		if d, err := extstats.ParseDrop(sql); err == nil {
+			return d.QualifiedName()
+		}
 	}
 	return ""
 }
