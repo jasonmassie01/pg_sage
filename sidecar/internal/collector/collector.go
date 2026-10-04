@@ -214,6 +214,8 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	c.collectExtras(ctx, snap)
 	// Collect pg_stat_statements.max for capacity monitoring.
 	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
+	snap.System.StatStatements = c.collectStatStatementsUsage(ctx,
+		snap.System.StatStatementsMax)
 
 	c.markStatsReset(snap)
 	return snap, nil

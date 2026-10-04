@@ -141,6 +141,9 @@ type SystemStats struct {
 	IsReplica         bool    `json:"is_replica"`
 	DBSizeBytes       int64   `json:"db_size_bytes"`
 	StatStatementsMax int     `json:"stat_statements_max"`
+	// StatStatements is how full pg_stat_statements is and with what;
+	// nil when it was not read.
+	StatStatements *StatStatementsUsage `json:"stat_statements_usage,omitempty"`
 	// RelationStatsEpoch is the instant since which this database's table
 	// and index counters accumulate: the later of pg_stat_database.
 	// stats_reset (moved by pg_stat_reset() and by every single-relation
