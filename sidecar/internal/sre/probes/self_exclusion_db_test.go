@@ -118,8 +118,7 @@ func TestTempSpillProbeMarksOwnRoleWithoutText(t *testing.T) {
 	sql := spec.Variants[0].SQL
 	if !strings.Contains(sql, "showtext => false") || strings.Contains(sql, "s.query ") ||
 		strings.Contains(sql, "s.query)") {
-		t.Fatalf("temp_spill_statements reads query text:
-%s", sql)
+		t.Fatalf("temp_spill_statements reads query text: %s", sql)
 	}
 	app := otherRolePool(t, ctx, pool, "sre_spill_app")
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
