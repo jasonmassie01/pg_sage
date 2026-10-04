@@ -338,6 +338,35 @@ type fakeStore struct {
 	catErr    error
 	actions   []SettingAction
 	actErr    error
+	day       map[string][2]int64 // UTC day -> tokens, requests charged
+	dayErr    error
+	chargeErr error
+}
+
+func (s *fakeStore) DayBudgetUsed(_ context.Context, day time.Time) (int64, int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dayErr != nil {
+		return 0, 0, s.dayErr
+	}
+	u := s.day[day.UTC().Format(time.DateOnly)]
+	return u[0], u[1], nil
+}
+
+func (s *fakeStore) ChargeDayBudget(_ context.Context, day time.Time, tokens,
+	requests int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chargeErr != nil {
+		return s.chargeErr
+	}
+	if s.day == nil {
+		s.day = map[string][2]int64{}
+	}
+	k := day.UTC().Format(time.DateOnly)
+	u := s.day[k]
+	s.day[k] = [2]int64{u[0] + tokens, u[1] + requests}
+	return nil
 }
 
 func (s *fakeStore) SettingActions(_ context.Context, since time.Time) (
