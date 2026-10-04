@@ -38,6 +38,9 @@ func seedProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string 
 		"CREATE TABLE "+q+".churn (id int PRIMARY KEY, pad text)",
 		"INSERT INTO "+q+".churn SELECT g, repeat('x', 200) FROM generate_series(1, 2000) g",
 		"DELETE FROM "+q+".churn WHERE id <= 1500",
+		// The bloat estimate reads the table size from pg_class.relpages (no
+		// lock, unlike pg_relation_size), which only VACUUM or ANALYZE set.
+		"ANALYZE "+q+".churn",
 		"ANALYZE "+q+".child",
 	)
 	// A failed concurrent build leaves an invalid index behind.

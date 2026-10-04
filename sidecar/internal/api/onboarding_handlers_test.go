@@ -140,7 +140,7 @@ func TestOnboardingHandlerBeforeFirstLook(t *testing.T) {
 
 func TestOnboardingHandlerErrors(t *testing.T) {
 	h := onboardingHandler(newFakeOnboarding())
-	if rec, _ := onboardingGet(t, h, "/api/v1/onboarding?database=bad;name"); rec.Code !=
+	if rec, _ := onboardingGet(t, h, "/api/v1/onboarding?database=bad%20name"); rec.Code !=
 		http.StatusBadRequest {
 		t.Fatalf("bad name status = %d", rec.Code)
 	}
