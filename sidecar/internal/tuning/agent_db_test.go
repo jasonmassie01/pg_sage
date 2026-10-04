@@ -2,6 +2,7 @@ package tuning
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -51,15 +52,15 @@ func ordersWorkload(t *testing.T, pool *pgxpool.Pool) realWorkload {
 	q := "SELECT id, status FROM " + s + ".orders WHERE customer_id = $1"
 	var w realWorkload
 	w.schema = s
+	w.queryID = workloadQueryID(t, pool, q)
 	// Other packages' tests reset pg_stat_statements on the shared test
 	// server: run the workload again until it is read back whole.
 	calls, err := int64(0), error(nil)
 	for attempt := 0; attempt < 5 && calls < 40; attempt++ {
 		runOrdersWorkload(t, pool, q)
-		err = pool.QueryRow(ctx, `SELECT queryid, calls FROM pg_stat_statements
-			WHERE query LIKE $1 AND dbid = (SELECT oid FROM pg_database
-			WHERE datname = current_database()) ORDER BY calls DESC LIMIT 1`,
-			"%"+s+".orders WHERE customer_id%").Scan(&w.queryID, &calls)
+		err = pool.QueryRow(ctx, `SELECT sum(calls)::bigint FROM pg_stat_statements
+			WHERE queryid = $1 AND dbid = (SELECT oid FROM pg_database
+			WHERE datname = current_database())`, w.queryID).Scan(&calls)
 	}
 	if err != nil || calls < 40 {
 		t.Fatalf("pg_stat_statements must track the workload: %d calls, %v", calls, err)
@@ -75,6 +76,27 @@ func ordersWorkload(t *testing.T, pool *pgxpool.Pool) realWorkload {
 	w.cur = snapAt(t0.Add(5*time.Minute), []collector.QueryStats{{QueryID: w.queryID,
 		Query: q, Calls: calls, TotalExecTime: 10 + 5000}}, []collector.TableStats{tbl}, idx)
 	return w
+}
+
+// workloadQueryID reads the statement's query identifier from EXPLAIN.
+// Matching pg_stat_statements by query text is not enough: PostgreSQL 18
+// jumbles relation names, so the same lookup on an earlier test's schema
+// shares the queryid and keeps that schema's text.
+func workloadQueryID(t *testing.T, pool *pgxpool.Pool, q string) int64 {
+	t.Helper()
+	var raw []byte
+	if err := pool.QueryRow(context.Background(), "EXPLAIN (VERBOSE, FORMAT JSON) "+q,
+		int64(1)).Scan(&raw); err != nil {
+		t.Fatalf("explain the workload: %v", err)
+	}
+	var plans []struct {
+		QueryID int64 `json:"Query Identifier"`
+	}
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 ||
+		plans[0].QueryID == 0 {
+		t.Fatalf("query identifier from EXPLAIN (%v): %s", err, raw)
+	}
+	return plans[0].QueryID
 }
 
 func runOrdersWorkload(t *testing.T, pool *pgxpool.Pool, q string) {
