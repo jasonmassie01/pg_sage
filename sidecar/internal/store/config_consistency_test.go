@@ -72,7 +72,7 @@ var excludedExactKeys = map[string]bool{
 	"trust.ramp_safe_hours":                          true,
 	"trust.ramp_moderate_hours":                      true,
 	"verify.io_baseline_hours":                       true,
-	"verify.drop_window_hours":                      true,
+	"verify.drop_window_hours":                       true,
 	"sre.autonomy.promotion.shadow_window_hours":     true,
 	"sre.autonomy.promotion.shadow_min_reviewed":     true,
 	"sre.autonomy.promotion.shadow_min_accepted_pct": true,
@@ -244,6 +244,24 @@ var excludedExactKeys = map[string]bool{
 	"sre.actions.chatops_tolerance_seconds": true,
 	"sre.actions.protected_roles":           true,
 	"sre.actions.protected_applications":    true,
+
+	// Postgres-specialist contract (roadmap phase 3): read when the API
+	// router is built (restart lifecycle), validated at load and carrying
+	// secrets, so they are YAML-only.
+	"specialist.enabled":                             true,
+	"specialist.writes_per_minute":                   true,
+	"specialist.reads_per_minute":                    true,
+	"specialist.max_open_per_identity":               true,
+	"specialist.max_open_total":                      true,
+	"specialist.keep_identifiers":                    true,
+	"specialist.pagerduty.signing_secret":            true,
+	"specialist.pagerduty.services":                  true,
+	"specialist.pagerduty.api_url":                   true,
+	"specialist.pagerduty.api_token":                 true,
+	"specialist.pagerduty.from_email":                true,
+	"specialist.webhook.signing_secret":              true,
+	"specialist.webhook.result_url":                  true,
+	"specialist.webhook.timestamp_tolerance_seconds": true,
 
 	// Sage SRE M6: runways are read when a database runtime is built
 	// (restart lifecycle) and validated together at load, so they are

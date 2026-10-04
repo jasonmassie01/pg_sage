@@ -187,6 +187,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// verdict is decided; decided ones age out like actions.
 		{table: "source_fix", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND verdict IS NOT NULL"},
+		// Specialist-contract requests (roadmap phase 3): the audit of what
+		// external agents asked; a result post still owed is kept.
+		{table: "specialist_requests", timeCol: "created_at", days: r.ActionsDays,
+			extra: "AND outbound <> 'pending'"},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is

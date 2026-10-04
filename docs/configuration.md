@@ -1264,3 +1264,26 @@ and age out with `snapshots_days`; nothing is rewritten.
 > **Complete reference:** See `sidecar/config.example.yaml` for all
 > configuration fields including `safety`, `alerting`, `auto_explain`,
 > `forecaster`, `tuner`, `advisor`, and `api` sections.
+
+### Postgres-specialist contract
+
+`specialist.*` configures the versioned investigation contract other agents
+call (see [specialist.md](specialist.md)). It is on by default and token-only
+(MCP tokens; a session never authenticates it). All keys are read at startup.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `specialist.enabled` | `true` | Serve `/api/v1/specialist/` and the `specialist_*` MCP tools. |
+| `specialist.writes_per_minute` | `30` | Opens and remediation requests per token per minute (1-10000). |
+| `specialist.reads_per_minute` | `240` | Status, result and stream calls per token per minute (1-10000). |
+| `specialist.max_open_per_identity` | `3` | Live investigations one token may have opened (1-100). |
+| `specialist.max_open_total` | `10` | Live investigations all tokens may have opened (1-100). |
+| `specialist.keep_identifiers` | `true` | `false` hashes identifiers in results; secrets and PII are always removed. |
+| `specialist.pagerduty.signing_secret` | | PagerDuty webhook subscription secret (required with `services`). |
+| `specialist.pagerduty.services` | `[]` | `SERVICE_ID=database[:family]` mappings. |
+| `specialist.pagerduty.api_url` | | PagerDuty REST API for result notes (https); empty sends none. |
+| `specialist.pagerduty.api_token` | | PagerDuty REST API token for notes. |
+| `specialist.pagerduty.from_email` | | `From` header of notes. |
+| `specialist.webhook.signing_secret` | | Generic webhook HMAC secret; empty disables the adapter. |
+| `specialist.webhook.result_url` | | Where signed results are posted (https, or http to loopback). |
+| `specialist.webhook.timestamp_tolerance_seconds` | `300` | Accepted age of a signed webhook request (30-900). |

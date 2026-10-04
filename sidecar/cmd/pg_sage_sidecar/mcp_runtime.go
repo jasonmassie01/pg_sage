@@ -73,6 +73,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Facts: factsMCPBackend{manager: fleetMgr},
 		// Coding-agent tools (roadmap phase 3) on the resolved database.
 		AgentTools: fleetAgentTools{manager: fleetMgr, options: agentToolOptions(cfg)},
+		// The Postgres-specialist contract over MCP (roadmap phase 3).
+		Specialist: processSpecialistMCP{},
 	}
 }
 

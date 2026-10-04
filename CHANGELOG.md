@@ -74,6 +74,20 @@
   first finding is exported as `pg_sage_time_to_first_finding_seconds`. See
   docs/quickstart.md.
 
+- **The Postgres specialist other agents call.** AWS DevOps Agent, PagerDuty,
+  Datadog or any HTTP/MCP client can now ask pg_sage what is wrong with a
+  database and why through a stable, versioned contract
+  (`pg_sage.specialist.v1`, OpenAPI at `/api/v1/specialist/openapi.json`):
+  open or attach an investigation, poll or stream it, and read a cited causal
+  chain with the root cause's source and authority, honest confidence
+  (uncalibrated unless the bench calibrated the family), missing evidence and
+  typed candidate remediations. Agents authenticate with MCP tokens (read to
+  investigate, propose to request a remediation); a requested remediation is
+  only a proposal that pg_sage's gate decides, and the caller gets the verdict.
+  PagerDuty incident webhooks and a generic signed webhook map onto it, with
+  results posted back only to endpoints you configure; the MCP tokens page
+  shows which agent asked what. See `docs/specialist.md`.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new

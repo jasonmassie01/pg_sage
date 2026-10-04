@@ -95,6 +95,8 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+	// Specialist is the Postgres-specialist contract other agents call.
+	Specialist SpecialistConfig `yaml:"specialist"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -694,6 +696,9 @@ func (c *Config) validate() error {
 	if err := c.SRE.validate(); err != nil {
 		return err
 	}
+	if err := c.Specialist.validate(); err != nil {
+		return err
+	}
 	if err := c.LLM.validateWire(); err != nil {
 		return err
 	}
@@ -973,7 +978,8 @@ func newDefaults() *Config {
 			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
 			NarrationEnabled:         DefaultRCANarrationEnabled,
 		},
-		SRE: defaultSREConfig(),
+		SRE:        defaultSREConfig(),
+		Specialist: defaultSpecialistConfig(),
 		Runaway: RunawayConfig{
 			Enabled: false,
 			Policies: []RunawayPolicy{

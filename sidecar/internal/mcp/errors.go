@@ -24,6 +24,9 @@ const (
 	codeConflict         = -32009
 	codeUnavailable      = -32010
 	codeRunbookRejected  = -32022
+	// Specialist contract (roadmap phase 3): per-identity limits.
+	codeRateLimited           = -32011
+	codeTooManyInvestigations = -32012
 )
 
 // errorReasons name each tool execution error code.
@@ -33,6 +36,7 @@ var errorReasons = map[int]string{
 	codeDatabaseRequired: "database_required", codeUnknownDatabase: "unknown_database",
 	codeConflict: "conflict", codeUnavailable: "unavailable",
 	codeRunbookRejected: "runbook_rejected", codeInvalidParams: "invalid_arguments",
+	codeRateLimited: "rate_limited", codeTooManyInvestigations: "too_many_investigations",
 	codeInternal: "internal_error",
 }
 

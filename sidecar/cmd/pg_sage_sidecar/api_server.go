@@ -86,6 +86,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 	if authPool != nil {
 		startAgentDBReconciler(shutdownCtx, authPool)
 		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
+		startSpecialistOutbound(shutdownCtx)
 	}
 }
 
