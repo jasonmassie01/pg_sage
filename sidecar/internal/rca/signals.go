@@ -194,9 +194,13 @@ func (e *Engine) detectVacuumBlocked(
 	if deadPct == 0 {
 		deadPct = 10
 	}
+	minDead := cfg.RCA.VacuumDeadTupleFloor()
+	minBytes := cfg.RCA.VacuumTableBytesFloor()
 	var blocked []string
 	for _, t := range curr.Tables {
-		if t.NLiveTup == 0 {
+		// Size floor (dogfood round 2): a ratio on a table with a handful
+		// of rows, or a few pages, is not autovacuum falling behind.
+		if t.NLiveTup == 0 || t.NDeadTup < minDead || t.TableBytes < minBytes {
 			continue
 		}
 		ratio := float64(t.NDeadTup) * 100 / float64(t.NLiveTup+t.NDeadTup)
