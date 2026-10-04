@@ -11,7 +11,7 @@ import (
 func ident(name string) string {
 	bare := name != "" && (name[0] < '0' || name[0] > '9')
 	for _, r := range name {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
 			bare = false
 			break
 		}

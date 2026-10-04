@@ -114,7 +114,19 @@ func TestDuplicateIndexesRedundantPrefix(t *testing.T) {
 }
 
 func TestDuplicateIndexesNotDuplicates(t *testing.T) {
-	cases := map[string]func() []Index{
+	for name, mk := range notDuplicateCases() {
+		t.Run(name, func(t *testing.T) {
+			items, flagged := DuplicateIndexes(mk())
+			if len(items) != 0 || len(flagged) != 0 {
+				t.Fatalf("items = %v, want none", rulesOf(items))
+			}
+		})
+	}
+}
+
+// notDuplicateCases are index pairs that look alike but are not copies.
+func notDuplicateCases() map[string]func() []Index {
+	return map[string]func() []Index{
 		"different tables": func() []Index {
 			return []Index{btree(1, 10, "a", 1), btree(2, 11, "b", 1)}
 		},
@@ -156,14 +168,6 @@ func TestDuplicateIndexesNotDuplicates(t *testing.T) {
 			b.Valid = false
 			return []Index{btree(1, 10, "a", 1), b}
 		},
-	}
-	for name, mk := range cases {
-		t.Run(name, func(t *testing.T) {
-			items, flagged := DuplicateIndexes(mk())
-			if len(items) != 0 || len(flagged) != 0 {
-				t.Fatalf("items = %v, want none", rulesOf(items))
-			}
-		})
 	}
 }
 

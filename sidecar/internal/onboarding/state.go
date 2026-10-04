@@ -58,10 +58,12 @@ func check(pool *pgxpool.Pool, database string) error {
 
 // initSQL records the database once. pg_sage has run here before when it
 // started its trust ramp or collected a snapshot: that install keeps its
-// configured trust. Later starts keep the first record.
+// configured trust. Later starts keep the first record. The newest snapshot
+// is read through its collected_at index, never by scanning the history.
 const initSQL = `INSERT INTO sage.onboarding (database_name, install_kind)
 SELECT $1, CASE WHEN EXISTS (SELECT 1 FROM sage.config WHERE key = 'trust_ramp_start')
-                  OR EXISTS (SELECT 1 FROM sage.snapshots)
+                  OR EXISTS (SELECT 1 FROM (SELECT collected_at FROM sage.snapshots
+                                            ORDER BY collected_at DESC LIMIT 1) newest)
                 THEN 'existing' ELSE 'new' END
 ON CONFLICT (database_name) DO NOTHING`
 

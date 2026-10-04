@@ -46,7 +46,7 @@ func (f *fakeOnboardingReader) Database(_ context.Context, name string) (
 	return f.dbs[name], nil
 }
 
-func (f *fakeOnboardingReader) MCP(context.Context) (bool, *bool) { return f.mcpOn, f.token }
+func (f *fakeOnboardingReader) MCP(context.Context) (bool, *bool)   { return f.mcpOn, f.token }
 func (f *fakeOnboardingReader) Notifications(context.Context) *bool { return f.notify }
 func (f *fakeOnboardingReader) Guide(_ context.Context, _ string) (onboarding.GuideInput,
 	grantTarget, error) {
@@ -66,7 +66,7 @@ func newFakeOnboarding() *fakeOnboardingReader {
 			FirstLook: &firstlook.Report{Database: "app", FinishedAt: finished,
 				DurationMS: 800, Items: []firstlook.Item{{Rule: firstlook.RuleDuplicateIndex,
 					Severity: firstlook.SeverityWarning, Object: "public.t_b",
-					Title:    "Duplicate index public.t_b"}},
+					Title: "Duplicate index public.t_b"}},
 				Capabilities: []firstlook.Capability{{Name: firstlook.CapStatStatements,
 					Status: firstlook.CapabilityOK}}}}},
 		mcpOn: true, token: &yes,
@@ -77,7 +77,7 @@ func newFakeOnboarding() *fakeOnboardingReader {
 	}
 }
 
-func onboardingGet(t *testing.T, h http.Handler, target string) (*httptest.ResponseRecorder,
+func obGet(t *testing.T, h http.Handler, target string) (*httptest.ResponseRecorder,
 	map[string]any) {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -92,7 +92,7 @@ func onboardingGet(t *testing.T, h http.Handler, target string) (*httptest.Respo
 }
 
 func TestOnboardingHandlerReportsChecklist(t *testing.T) {
-	rec, body := onboardingGet(t, onboardingHandler(newFakeOnboarding()), "/api/v1/onboarding")
+	rec, body := obGet(t, onboardingHandler(newFakeOnboarding()), "/api/v1/onboarding")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -127,7 +127,7 @@ func TestOnboardingHandlerBeforeFirstLook(t *testing.T) {
 	db := f.dbs["app"]
 	db.FirstLook, db.State = nil, nil
 	f.dbs["app"] = db
-	rec, body := onboardingGet(t, onboardingHandler(f), "/api/v1/onboarding?database=app")
+	rec, body := obGet(t, onboardingHandler(f), "/api/v1/onboarding?database=app")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -140,29 +140,29 @@ func TestOnboardingHandlerBeforeFirstLook(t *testing.T) {
 
 func TestOnboardingHandlerErrors(t *testing.T) {
 	h := onboardingHandler(newFakeOnboarding())
-	if rec, _ := onboardingGet(t, h, "/api/v1/onboarding?database=bad%20name"); rec.Code !=
+	if rec, _ := obGet(t, h, "/api/v1/onboarding?database=bad%20name"); rec.Code !=
 		http.StatusBadRequest {
 		t.Fatalf("bad name status = %d", rec.Code)
 	}
-	if rec, _ := onboardingGet(t, h, "/api/v1/onboarding?database=ghost"); rec.Code !=
+	if rec, _ := obGet(t, h, "/api/v1/onboarding?database=ghost"); rec.Code !=
 		http.StatusNotFound {
 		t.Fatalf("unknown database status = %d", rec.Code)
 	}
 	f := newFakeOnboarding()
 	f.dbErr = errors.New("pq: password authentication failed for user sage")
-	rec, _ := onboardingGet(t, onboardingHandler(f), "/api/v1/onboarding")
+	rec, _ := obGet(t, onboardingHandler(f), "/api/v1/onboarding")
 	if rec.Code != http.StatusInternalServerError ||
 		strings.Contains(rec.Body.String(), "password") {
 		t.Fatalf("reader error = %d %s, want a generic 500", rec.Code, rec.Body.String())
 	}
-	if rec, _ := onboardingGet(t, onboardingHandler(nil), "/api/v1/onboarding"); rec.Code !=
+	if rec, _ := obGet(t, onboardingHandler(nil), "/api/v1/onboarding"); rec.Code !=
 		http.StatusServiceUnavailable {
 		t.Fatalf("nil reader status = %d", rec.Code)
 	}
 }
 
 func TestFirstLookHandler(t *testing.T) {
-	rec, body := onboardingGet(t, firstLookHandler(newFakeOnboarding()), "/api/v1/first-look?database=app")
+	rec, body := obGet(t, firstLookHandler(newFakeOnboarding()), "/api/v1/first-look?database=app")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -177,18 +177,18 @@ func TestFirstLookHandler(t *testing.T) {
 	db := f.dbs["app"]
 	db.FirstLook = nil
 	f.dbs["app"] = db
-	_, body = onboardingGet(t, firstLookHandler(f), "/api/v1/first-look")
+	_, body = obGet(t, firstLookHandler(f), "/api/v1/first-look")
 	if body["databases"].([]any)[0].(map[string]any)["report"] != nil {
 		t.Fatalf("missing report should be null: %v", body)
 	}
-	if rec, _ := onboardingGet(t, firstLookHandler(f), "/api/v1/first-look?database=ghost"); rec.Code !=
+	if rec, _ := obGet(t, firstLookHandler(f), "/api/v1/first-look?database=ghost"); rec.Code !=
 		http.StatusNotFound {
 		t.Fatalf("unknown database status = %d", rec.Code)
 	}
 }
 
 func TestTrustGuideHandler(t *testing.T) {
-	rec, body := onboardingGet(t, trustGuideHandler(newFakeOnboarding()),
+	rec, body := obGet(t, trustGuideHandler(newFakeOnboarding()),
 		"/api/v1/onboarding/trust?database=app")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
@@ -200,7 +200,7 @@ func TestTrustGuideHandler(t *testing.T) {
 		t.Fatalf("trust guide = %v", body)
 	}
 	// With one database the parameter may be omitted.
-	if rec, _ := onboardingGet(t, trustGuideHandler(newFakeOnboarding()),
+	if rec, _ := obGet(t, trustGuideHandler(newFakeOnboarding()),
 		"/api/v1/onboarding/trust"); rec.Code != http.StatusOK {
 		t.Fatalf("single database without parameter = %d", rec.Code)
 	}
@@ -209,17 +209,17 @@ func TestTrustGuideHandler(t *testing.T) {
 func TestTrustGuideHandlerErrors(t *testing.T) {
 	f := newFakeOnboarding()
 	f.names = []string{"a", "b"}
-	if rec, _ := onboardingGet(t, trustGuideHandler(f), "/api/v1/onboarding/trust"); rec.Code !=
+	if rec, _ := obGet(t, trustGuideHandler(f), "/api/v1/onboarding/trust"); rec.Code !=
 		http.StatusBadRequest {
 		t.Fatalf("ambiguous database status = %d", rec.Code)
 	}
-	if rec, _ := onboardingGet(t, trustGuideHandler(f), "/api/v1/onboarding/trust?database=ghost"); rec.
+	if rec, _ := obGet(t, trustGuideHandler(f), "/api/v1/onboarding/trust?database=ghost"); rec.
 		Code != http.StatusNotFound {
 		t.Fatalf("unknown database status = %d", rec.Code)
 	}
 	f = newFakeOnboarding()
 	f.guideErr = errors.New("connection refused")
-	if rec, _ := onboardingGet(t, trustGuideHandler(f), "/api/v1/onboarding/trust?database=app"); rec.
+	if rec, _ := obGet(t, trustGuideHandler(f), "/api/v1/onboarding/trust?database=app"); rec.
 		Code != http.StatusInternalServerError {
 		t.Fatalf("guide error status = %d", rec.Code)
 	}

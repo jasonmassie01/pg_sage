@@ -80,6 +80,14 @@ func TestPerfGateFirstLook(t *testing.T) {
 		t.Errorf("first look took %s over %d relations, budget %s", took, report.Relations,
 			budget)
 	}
+	assertFirstLookClean(t, ctx, report, monitored, harness, seqBefore)
+}
+
+// assertFirstLookClean requires no degraded check, no scan of user data
+// and every first-look statement inside the catalog budget.
+func assertFirstLookClean(t *testing.T, ctx context.Context, report firstlook.Report,
+	monitored, harness *pgxpool.Pool, seqBefore int64) {
+	t.Helper()
 	for _, c := range report.Checks {
 		if c.Status == firstlook.CheckDegraded {
 			t.Errorf("check %s degraded at scale: %s", c.Rule, c.Note)
@@ -95,8 +103,14 @@ func TestPerfGateFirstLook(t *testing.T) {
 	assertFirstLookStatementsWithinBudget(t, ctx, harness)
 }
 
+// userSeqScans sums sequential scans of user tables. It first flushes p's
+// idle sessions: the catalog builder's own scans (it fills the hot tables)
+// otherwise reach the statistics after the baseline is read.
 func userSeqScans(t *testing.T, ctx context.Context, p *pgxpool.Pool) int64 {
 	t.Helper()
+	if err := testdb.FlushIdleSessions(ctx, p); err != nil {
+		t.Fatalf("flush statistics: %v", err)
+	}
 	var n int64
 	if err := p.QueryRow(ctx, `/* `+perfgate.HarnessTag+` */ SELECT
 		COALESCE(sum(seq_scan), 0)::bigint FROM pg_stat_user_tables

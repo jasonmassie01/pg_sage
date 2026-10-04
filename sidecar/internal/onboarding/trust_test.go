@@ -7,8 +7,8 @@ import (
 
 // No concurrent access tests: TrustGuide is a pure function of its input.
 
-func bp(b bool) *bool          { return &b }
-func fp(f float64) *float64    { return &f }
+func bp(b bool) *bool           { return &b }
+func fp(f float64) *float64     { return &f }
 func joined(ss []string) string { return strings.Join(ss, "\n") }
 
 func guideInput(current string) GuideInput {
