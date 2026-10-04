@@ -164,7 +164,8 @@ func (e *Executor) prepareManualCreateIndex(
 	if err := e.dropFailedCreateIndexRemnant(ctx, sql, ddlTimeout, lockOpt); err != nil {
 		return true, 0, fmt.Errorf("dropping invalid index remnant: %w", err)
 	}
-	exists, err := e.createIndexCoverageExists(ctx, sql)
+	covering, err := e.coveringIndex(ctx, sql)
+	exists := covering != ""
 	if err != nil {
 		return true, 0, fmt.Errorf("checking existing index coverage: %w", err)
 	}

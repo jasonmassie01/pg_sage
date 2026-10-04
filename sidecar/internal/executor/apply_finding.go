@@ -26,6 +26,13 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		}
 	}
 	e.reconcileRecommendations(ctx)
+	// Queue housekeeping runs in every mode: a proposal whose reason is
+	// gone must not wait for an operator (dogfood round 2 item 5).
+	if n, err := e.supersedeStaleApprovals(ctx); err != nil {
+		e.logFn("executor", "supersede stale approvals: %v", err)
+	} else if n > 0 {
+		e.logFn("executor", "superseded %d queued proposal(s) whose reason is gone", n)
+	}
 	// Manual mode and executor-disabled are hard background-action stops.
 	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
 		return
@@ -56,7 +63,7 @@ func (e *Executor) processFinding(
 	// being re-applied.
 	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
 		e.exceedsOscillationLimit(ctx, f, findingID) ||
-		e.parkedWithhold(ctx, f, findingID) {
+		e.parkedWithhold(ctx, f, findingID) || e.skipCoveredCreate(ctx, f, findingID) {
 		return
 	}
 	// The revision's evidence is immutable; the gate needs the current one.
