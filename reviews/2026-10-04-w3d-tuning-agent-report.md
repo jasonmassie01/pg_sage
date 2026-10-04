@@ -144,8 +144,16 @@ Other runs:
 | PG14 :55414 tuning, api (+ touched packages earlier) | ok (tuning 90.4%, api 79.1%) |
 | PG18 :55418 tuning, api (+ touched packages earlier) | ok after the queryid test fix (tuning 90.3%, api 79.1%) |
 | golangci-lint (default, `e2e,perfgate` tags) | 0 issues |
-| vitest | 73 files, 409 tests passed; dist rebuilt; node_modules deleted |
+| vitest | 73 files, 409 tests passed (76 / 449 after the merge); node_modules deleted |
 | Golden corpus (fake model) | 8 cases pass |
+
+After the last merge of `origin/release/v1.10.0` (v1.10.0 cut, MCP v2, schema
+changes), the touched packages plus every package the merge changed were rerun on
+PG17: all ok except two that pass on rerun: `cmd/pg_sage_sidecar`
+`TestFleetReloadRefusesToRemoveControlDatabase` (pool close deadline under `-p 2`; ok
+alone) and `internal/mcp` `TestToolReferenceDocsMatchSchemas` (this Windows worktree
+checks `docs/mcp.md` out with CRLF; ok against the committed LF file, 84.6%). Lint 0
+issues; vitest 76 files, 449 tests; dist rebuilt on the merged UI.
 
 ### Skipped Tests (must be zero or justified)
 - agentdb: 6 live cloud provisioning/gauntlet tests — need cloud credentials.
@@ -217,3 +225,7 @@ refuses fewer than 2 before the agent's check).
    hint write after ranking?
 4. Host memory is not wired in production (`host_memory_bytes` 0), so the memory
    guard leaves `shared_buffers` proposals advisory-only. Wire it from the provider?
+5. `release/v1.10.0` cut its CHANGELOG while this branch was open, so the tuning
+   agent's bullet sits under a new `## Unreleased` above `## v1.10.0` (everything from
+   `## v1.10.0` down matches the release branch, from `## v1.9.0` down matches master).
+   Ship it in v1.10.0 (move the bullet) or in the next release?
