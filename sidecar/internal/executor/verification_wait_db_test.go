@@ -71,7 +71,7 @@ func concludeVerification(t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 		WHERE action_log_id = %d`, outcome, id, verdict, id))
 }
 
-func gucFinding(name, value string) analyzer.Finding {
+func waitGUCFinding(name, value string) analyzer.Finding {
 	return analyzer.Finding{Category: "config_tuning", ObjectType: "configuration",
 		ObjectIdentifier: "instance", Title: "raise " + name,
 		RecommendedSQL: fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", name, value)}
@@ -153,7 +153,7 @@ func evidenceActionIDs(evidence map[string]any, key string) []int64 {
 func TestOneChange_LifeosWorkMemSequence(t *testing.T) {
 	pool, ctx := isolatedSageDB(t)
 	exec := waitExecutor(t, pool)
-	second := gucFinding("work_mem", "10MB")
+	second := waitGUCFinding("work_mem", "10MB")
 	requireExecutable(t, exec, ctx, second)
 
 	// 17:55 action 6407; 18:34 the new finding for 10MB arrives.
@@ -174,7 +174,7 @@ func TestOneChange_LifeosWorkMemSequence(t *testing.T) {
 		t.Fatalf("recorded detail %q, want the object named", detail)
 	}
 	// Another setting is another object.
-	other := gucFinding("random_page_cost", "1.1")
+	other := waitGUCFinding("random_page_cost", "1.1")
 	requireExecutable(t, exec, ctx, other)
 	if d := authorizeFinding(t, exec, ctx, other); d.Verdict != policy.VerdictExecute {
 		t.Fatalf("random_page_cost while work_mem is verified = %+v, want execute", d)
@@ -225,7 +225,7 @@ func TestOneChange_LifeosMemoriesIndexSequence(t *testing.T) {
 func TestOneChange_PendingOutcomeAloneHolds(t *testing.T) {
 	pool, ctx := isolatedSageDB(t)
 	exec := waitExecutor(t, pool)
-	second := gucFinding("work_mem", "10MB")
+	second := waitGUCFinding("work_mem", "10MB")
 	first := recordInFlight(t, pool, ctx, "ALTER SYSTEM SET work_mem = '9MB'", "",
 		"success", 20*time.Minute)
 	pendingOutcome(t, pool, ctx, first, "guc")
@@ -241,7 +241,7 @@ func TestOneChange_PendingOutcomeAloneHolds(t *testing.T) {
 func TestOneChange_InFlightLifecycleStates(t *testing.T) {
 	pool, ctx := isolatedSageDB(t)
 	exec := waitExecutor(t, pool)
-	second := gucFinding("work_mem", "10MB")
+	second := waitGUCFinding("work_mem", "10MB")
 	for _, outcome := range []string{"monitoring", "pending", "interrupted", "rolling_back"} {
 		id := recordInFlight(t, pool, ctx, "ALTER SYSTEM SET work_mem = '9MB'", "",
 			outcome, time.Minute)

@@ -106,7 +106,7 @@ func TestOneChange_OperatorOverrideIsRecorded(t *testing.T) {
 func TestOneChange_HardDeadlineReleasesTheWait(t *testing.T) {
 	pool, ctx := isolatedSageDB(t)
 	exec := waitExecutor(t, pool)
-	second := gucFinding("work_mem", "10MB")
+	second := waitGUCFinding("work_mem", "10MB")
 	// Past the 72 h cap and the hour of grace: released, and recorded.
 	stuck := recordInFlight(t, pool, ctx, "ALTER SYSTEM SET work_mem = '9MB'", "",
 		"monitoring", 74*time.Hour)
@@ -170,18 +170,23 @@ func TestOneChange_ConcurrentProposalsOnOneTable(t *testing.T) {
 	done.Wait()
 	winner := -1
 	for i, d := range decisions {
-		switch {
-		case d.Verdict == policy.VerdictExecute && winner < 0:
-			winner = i
-		case d.Verdict == policy.VerdictExecute:
-			t.Fatalf("two proposals on public.memories authorized: %d and %d", winner, i)
-		case d.Reason != policy.ReasonAwaitingVerification ||
-			!strings.Contains(d.Detail, fmt.Sprintf("decision %d", decisions[winner].DecisionID)):
-			t.Fatalf("loser %d = %+v, want parked on the winner's authorization", i, d)
+		if d.Verdict != policy.VerdictExecute {
+			continue
 		}
+		if winner >= 0 {
+			t.Fatalf("two proposals on public.memories authorized: %d and %d", winner, i)
+		}
+		winner = i
 	}
 	if winner < 0 {
 		t.Fatalf("no proposal authorized: %+v", decisions)
+	}
+	held := fmt.Sprintf("decision %d", decisions[winner].DecisionID)
+	for i, d := range decisions {
+		if i != winner && (d.Reason != policy.ReasonAwaitingVerification ||
+			!strings.Contains(d.Detail, held)) {
+			t.Fatalf("loser %d = %+v, want parked on the winner's authorization", i, d)
+		}
 	}
 	if again := gate.Authorize(ctx, requests[winner]); again.Verdict != policy.VerdictExecute {
 		t.Fatalf("the winner's re-authorization = %+v, want execute", again)
@@ -195,7 +200,7 @@ func TestOneChange_ParksAreCountedByReason(t *testing.T) {
 		time.Minute)
 	before := parkCount(exec, string(policy.ReasonAwaitingVerification))
 	for i := 0; i < 3; i++ {
-		authorizeFinding(t, exec, ctx, gucFinding("work_mem", "10MB"))
+		authorizeFinding(t, exec, ctx, waitGUCFinding("work_mem", "10MB"))
 	}
 	if got := parkCount(exec, string(policy.ReasonAwaitingVerification)); got != before+3 {
 		t.Fatalf("awaiting_verification parks %d, want %d", got, before+3)
@@ -242,7 +247,7 @@ func TestOneChange_InFlightLookupUsesIndexes(t *testing.T) {
 	}
 	var plan string
 	rows, err := tx.Query(ctx, "EXPLAIN (FORMAT TEXT) "+inFlightSQL, 720.0, "SELECT 1",
-		[]string{})
+		[]string{}, operatorDecisionIntent)
 	if err != nil {
 		t.Fatalf("explain the in-flight lookup: %v", err)
 	}
@@ -290,5 +295,34 @@ func TestOneChange_ParkedCandidateResumesAfterTheVerdict(t *testing.T) {
 	if !fx.indexExists(t, fx.index()) || fx.actions(t, fx.f.RecommendedSQL) != 1 {
 		t.Fatalf("after the verdict: decisions %v, want the index built",
 			fx.decisionVerdicts(t))
+	}
+}
+
+// An operator's authorization is not a hold: the person's change runs at
+// once and holds its object through its action row from then on. (Its
+// authorizations are never released, so counting them would hold the
+// object for the hold horizon even after a change that ran nothing.)
+func TestOneChange_OperatorAuthorizationIsNotAHold(t *testing.T) {
+	pool, ctx := isolatedSageDB(t)
+	exec := waitExecutor(t, pool)
+	operator := 7
+	d, err := exec.authorizeOperatorAction(ctx, "ALTER SYSTEM SET work_mem = '28MB'", 0,
+		&operator)
+	if err != nil || d.DecisionID <= 0 {
+		t.Fatalf("operator authorization = %+v, %v", d, err)
+	}
+	next := "ALTER SYSTEM SET work_mem = '32MB'"
+	if held, err := exec.VerificationWaits().PendingFor(ctx, next, nil); err != nil ||
+		len(held) != 0 {
+		t.Fatalf("after an operator authorization: %+v, %v; want no hold", held, err)
+	}
+	// A self-initiated authorization of the same setting does hold it.
+	self := exec.StandingPolicyGate().Authorize(ctx,
+		findingRequest(waitGUCFinding("work_mem", "28MB"), false))
+	held, err := exec.VerificationWaits().PendingFor(ctx, next, nil)
+	if self.Verdict != policy.VerdictExecute || err != nil || len(held) != 1 ||
+		held[0].DecisionID != self.DecisionID {
+		t.Fatalf("self-initiated %+v: holds %+v, %v; want decision %d holding work_mem",
+			self, held, err, self.DecisionID)
 	}
 }

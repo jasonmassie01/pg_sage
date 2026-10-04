@@ -18,7 +18,7 @@ func waitFor(id int64) policy.PendingVerification {
 }
 
 func TestLedgerRecordsTheVerificationWait(t *testing.T) {
-	req := findingRequest(gucFinding("work_mem", "10MB"), false)
+	req := findingRequest(waitGUCFinding("work_mem", "10MB"), false)
 	req.Evidence = map[string]any{"verification_wait": "spoofed",
 		"verification_override": "spoofed", "verification_wait_released": "spoofed",
 		"verification_wait_detail": "spoofed"}
@@ -45,7 +45,7 @@ func TestLedgerRecordsTheVerificationWait(t *testing.T) {
 }
 
 func TestLedgerRecordsOverrideAndRelease(t *testing.T) {
-	req := findingRequest(gucFinding("work_mem", "10MB"), false)
+	req := findingRequest(waitGUCFinding("work_mem", "10MB"), false)
 	req.OperatorApproved = true
 	over := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonOperatorApproved, VerificationWait: &policy.VerificationWait{
@@ -56,7 +56,7 @@ func TestLedgerRecordsOverrideAndRelease(t *testing.T) {
 	if _, ok := over.Evidence["verification_wait"]; ok {
 		t.Fatalf("an override is not a wait: %v", over.Evidence)
 	}
-	released := ledgerInput(nil, 1, findingRequest(gucFinding("work_mem", "10MB"), false),
+	released := ledgerInput(nil, 1, findingRequest(waitGUCFinding("work_mem", "10MB"), false),
 		policy.Decision{Verdict: policy.VerdictExecute, Reason: policy.ReasonAuthorized,
 			VerificationWait: &policy.VerificationWait{
 				Released: []policy.PendingVerification{waitFor(6400)}}})
@@ -64,7 +64,7 @@ func TestLedgerRecordsOverrideAndRelease(t *testing.T) {
 		"[6400]" {
 		t.Fatalf("release evidence %v", released.Evidence)
 	}
-	plain := ledgerInput(nil, 1, findingRequest(gucFinding("work_mem", "10MB"), false),
+	plain := ledgerInput(nil, 1, findingRequest(waitGUCFinding("work_mem", "10MB"), false),
 		policy.Decision{Verdict: policy.VerdictExecute, Reason: policy.ReasonAuthorized})
 	for _, key := range []string{"verification_wait", "verification_override",
 		"verification_wait_released", "verification_wait_detail"} {

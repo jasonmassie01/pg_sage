@@ -44,6 +44,9 @@ func gucInFlight(id int64) PendingVerification {
 func newWaitGate(t *testing.T, fixture gateFixture, tracker VerificationTracker) Gate {
 	t.Helper()
 	gate := newTestGate(t, fixture)
+	// The fixture's fake validator admits only CONCURRENTLY statements;
+	// these requests are settings and VACUUM, which the real one admits.
+	gate.(*authorizationGate).config.ValidateSQL = func(string) error { return nil }
 	gate.(*authorizationGate).config.Verification = tracker
 	return gate
 }
@@ -99,7 +102,8 @@ func TestWaitDetailNamesEveryPendingChange(t *testing.T) {
 }
 
 func TestWaitWithoutPendingDecidesAsWithoutTracker(t *testing.T) {
-	plain := newTestGate(t, gateFixture{}).Authorize(context.Background(), gucRequest("9MB"))
+	plain := newWaitGate(t, gateFixture{}, nil).Authorize(context.Background(),
+		gucRequest("9MB"))
 	tracked := newWaitGate(t, gateFixture{}, &fakeTracker{}).Authorize(context.Background(),
 		gucRequest("9MB"))
 	if plain.Verdict != VerdictExecute || tracked.Verdict != plain.Verdict ||
@@ -134,7 +138,7 @@ func TestWaitExemptsRollbacksAndReverts(t *testing.T) {
 	}
 }
 
-func freezeRequest(critical bool, kind DeadlineKind) ActionRequest {
+func waitFreezeRequest(critical bool, kind DeadlineKind) ActionRequest {
 	req := ActionRequest{
 		Contract: &ActionContract{ActionType: "vacuum_table", RiskTier: RiskSafe,
 			RollbackClass: RollbackNoRollbackNeeded},
@@ -154,20 +158,20 @@ func TestWaitExemptsEmergencyBudgetBypass(t *testing.T) {
 	for _, kind := range []DeadlineKind{DeadlineXID, DeadlineDisk} {
 		tracker := &fakeTracker{pending: []PendingVerification{inFlight}}
 		d := newWaitGate(t, gateFixture{}, tracker).Authorize(context.Background(),
-			freezeRequest(true, kind))
+			waitFreezeRequest(true, kind))
 		if d.Verdict != VerdictExecute || d.VerificationWait != nil {
 			t.Fatalf("critical %s freeze = %+v, want execute without a wait", kind, d)
 		}
 	}
 	tracker := &fakeTracker{pending: []PendingVerification{inFlight}}
 	d := newWaitGate(t, gateFixture{}, tracker).Authorize(context.Background(),
-		freezeRequest(false, ""))
+		waitFreezeRequest(false, ""))
 	assertDecision(t, d, VerdictPark, ReasonAwaitingVerification)
 }
 
 func TestWaitExemptsAnExpiredDeadline(t *testing.T) {
 	// A critical deadline already past is no emergency the gate trusts.
-	req := freezeRequest(true, DeadlineXID)
+	req := waitFreezeRequest(true, DeadlineXID)
 	req.Deadline.HardAt = waitNow.Add(-time.Minute)
 	tracker := &fakeTracker{pending: []PendingVerification{{ActionID: 1,
 		Object: "table:public.orders", Until: waitNow.Add(time.Hour),
