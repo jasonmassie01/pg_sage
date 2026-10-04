@@ -184,14 +184,8 @@ func createIndexShape(toks []token) (string, bool) {
 	default:
 		return "", false
 	}
-	if words(toks, i, "concurrently") {
-		i++
-	}
-	if words(toks, i, "if", "not", "exists") {
-		i += 3
-	}
 	for i < len(toks) && !words(toks, i, "on") {
-		i++ // the index name, which never matters
+		i++ // CONCURRENTLY, IF NOT EXISTS and the index name never matter
 	}
 	if words(toks, i+1, "only") {
 		i++

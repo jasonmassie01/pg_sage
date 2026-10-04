@@ -156,6 +156,10 @@ func TestScorerWaitsForTheVerdictOfAnApproval(t *testing.T) {
 func TestScorerIgnoresDecisionsMadeBeforeTheShadow(t *testing.T) {
 	pool, _ := testPool(t)
 	s := NewStore(pool)
+	// An older pending decision makes the pass read history from before
+	// the GUC decision was recorded.
+	older := record(t, s, sample("vacuum", `VACUUM public.o`))
+	age(t, pool, older.ID, 4*time.Hour)
 	sql := `ALTER SYSTEM SET work_mem = '64MB'`
 	d := record(t, s, sample("config_guc", sql))
 	age(t, pool, d.ID, time.Hour)
@@ -163,7 +167,7 @@ func TestScorerIgnoresDecisionsMadeBeforeTheShadow(t *testing.T) {
 	executedAction(t, pool, "alter_system", sql, "success", "improved", 3*time.Hour)
 	res := runOnce(t, newScorer(pool, fastOptions()))
 	assertPending(t, s, d.ID)
-	if res.Waiting != 1 {
+	if res.Waiting != 2 {
 		t.Fatalf("result %+v", res)
 	}
 }
