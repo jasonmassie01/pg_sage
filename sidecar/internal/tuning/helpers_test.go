@@ -338,9 +338,15 @@ type fakeStore struct {
 	catErr    error
 	actions   []SettingAction
 	actErr    error
+	queue     []string // in-flight index DDLs of the action queue
+	queueErr  error
 	day       map[string][2]int64 // UTC day -> tokens, requests charged
 	dayErr    error
 	chargeErr error
+}
+
+func (s *fakeStore) InFlightIndexes(context.Context) ([]string, error) {
+	return s.queue, s.queueErr
 }
 
 func (s *fakeStore) DayBudgetUsed(_ context.Context, day time.Time) (int64, int64, error) {

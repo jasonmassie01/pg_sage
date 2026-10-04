@@ -39,3 +39,31 @@ func TestPostgresStore_Relations(t *testing.T) {
 		t.Fatalf("nothing to check: %+v %v", empty, err)
 	}
 }
+
+// InFlightIndexes are the index creates waiting in the action queue.
+func TestPostgresStore_InFlightIndexes(t *testing.T) {
+	pool := dbPool(t)
+	ddl := "CREATE INDEX CONCURRENTLY inflight_probe_idx ON public.inflight_probe (a)"
+	mustExec(t, pool, "DELETE FROM sage.action_queue WHERE proposed_sql LIKE "+
+		"'%inflight_probe%'")
+	mustExec(t, pool, `INSERT INTO sage.action_queue (proposed_sql, action_risk, status)
+		VALUES ($1, 'safe', 'pending'), ($2, 'safe', 'rejected'),
+		       ('ALTER SYSTEM SET work_mem = ''8MB''', 'moderate', 'pending')`, ddl,
+		"CREATE INDEX CONCURRENTLY inflight_probe_old ON public.inflight_probe (b)")
+	t.Cleanup(func() {
+		mustExec(t, pool, "DELETE FROM sage.action_queue WHERE proposed_sql LIKE "+
+			"'%inflight_probe%'")
+	})
+	got, err := pgStore(t, pool).InFlightIndexes(context.Background())
+	if err != nil {
+		t.Fatalf("in-flight: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, d := range got {
+		seen[d] = true
+	}
+	if !seen[ddl] || seen["CREATE INDEX CONCURRENTLY inflight_probe_old ON "+
+		"public.inflight_probe (b)"] {
+		t.Fatalf("in-flight = %v", got)
+	}
+}

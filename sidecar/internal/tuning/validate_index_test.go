@@ -73,7 +73,7 @@ func judgeCase(t *testing.T, h *harness, confirmed []facts.Fact, c Case, p Propo
 	cur := validationSnap()
 	v := h.agent.newValidator(cur, ClassifyWorkload(cur, confirmed, t0), confirmed,
 		h.store.rejected)
-	v.prepare(context.Background(), prev)
+	v.prepare(context.Background(), prev, nil)
 	return v.judge(context.Background(), c, ordersEvidence(), p)
 }
 
