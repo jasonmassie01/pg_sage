@@ -300,7 +300,15 @@ func TestShadowCarriesTheRollbackOfAConfigChange(t *testing.T) {
 // limiter, a failing ledger) nothing is shadowed; hard stops are not
 // shadowed either (the class's trust is not what withholds the action).
 func TestNoShadowWithoutALedgerOrOnAHardStop(t *testing.T) {
+	// One rig: requireDB holds the package's cross-package lock per test.
 	r := newShadowRig(t, false)
+	stopped := r.analyzeFinding("shadow_estop")
+	r.exec.WithEmergencyStopCheck(func(context.Context) bool { return true })
+	r.exec.processFinding(r.ctx, stopped, false, nil)
+	if got := r.shadows(stopped.ObjectIdentifier); len(got) != 0 {
+		t.Fatalf("an emergency stop recorded %d shadows", len(got))
+	}
+	r.exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	f := r.analyzeFinding("shadow_none")
 	r.exec.WithAutonomy(&scopedCountingLimiter{limit: policy.AutonomyLimit{Level: 1,
 		Granted: 1}})
@@ -309,11 +317,34 @@ func TestNoShadowWithoutALedgerOrOnAHardStop(t *testing.T) {
 	if got := r.shadows(f.ObjectIdentifier); len(got) != 0 {
 		t.Fatalf("a limiter without a granted level recorded %d shadows", len(got))
 	}
-	stopped := newShadowRig(t, false)
-	g := stopped.analyzeFinding("shadow_estop")
-	stopped.exec.WithEmergencyStopCheck(func(context.Context) bool { return true })
-	stopped.exec.processFinding(stopped.ctx, g, false, nil)
-	if got := stopped.shadows(g.ObjectIdentifier); len(got) != 0 {
-		t.Fatalf("an emergency stop recorded %d shadows", len(got))
+}
+
+// Custodian work without an incident family is self-initiated (roadmap
+// 1.2) and shadowed like a finding when withheld; an incident-family
+// remediation (freeze: wraparound runway) earns from its own evidence and
+// is not.
+func TestShadowRecordsWithheldCustodianWork(t *testing.T) {
+	r := newShadowRig(t, false)
+	f := r.analyzeFinding("shadow_custodian")
+	err := r.exec.SubmitCustodianProposal(r.ctx, CustodianProposal{Feature: "analyze",
+		SQL: "ANALYZE " + f.ObjectIdentifier, TargetObjects: []string{f.ObjectIdentifier},
+		ObservedAt: time.Now()})
+	if err == nil {
+		t.Fatal("an L1 custodian action was not withheld")
+	}
+	got := r.shadows(f.ObjectIdentifier)
+	if len(got) != 1 || got[0].Class != "analyze" || got[0].FindingID != 0 ||
+		got[0].TrustedVerdict != "execute" || got[0].Title != "analyze custodian action" {
+		t.Fatalf("custodian shadow: %+v", got)
+	}
+	if r.actions("ANALYZE "+f.ObjectIdentifier) != 0 {
+		t.Fatal("a withheld custodian action ran")
+	}
+	freeze := r.analyzeFinding("shadow_freeze")
+	_ = r.exec.SubmitCustodianProposal(r.ctx, CustodianProposal{Feature: "freeze",
+		SQL: `VACUUM (FREEZE) ` + freeze.ObjectIdentifier,
+		TargetObjects: []string{freeze.ObjectIdentifier}, ObservedAt: time.Now()})
+	if got := r.shadows(freeze.ObjectIdentifier); len(got) != 0 {
+		t.Fatalf("an incident-family remediation was shadowed: %+v", got)
 	}
 }
