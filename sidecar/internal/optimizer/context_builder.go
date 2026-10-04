@@ -9,96 +9,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 )
 
-// BuildTableContexts creates enriched table contexts from a snapshot.
-// Returns (contexts, planSource, error) where planSource indicates how
-// execution plans were obtained ("explain_cache", "generic_plan",
-// "query_text_only", or "none").
-func BuildTableContexts(
-	ctx context.Context,
-	pool catalogread.Querier,
-	snap *collector.Snapshot,
-	planner *PlanCapture,
-	minQueryCalls int64,
-) ([]TableContext, string, error) {
-	collation, err := fetchCollation(ctx, pool)
-	if err != nil && planner != nil {
-		planner.logFn("optimizer", "read database collation: %v", err)
-	}
-	tableQueries := groupQueriesByTable(snap)
-	childSet := buildPartitionChildSet(snap)
-	parentSet := buildPartitionParentSet(snap)
-
-	planSource := "query_text_only"
-
-	// Capture plans once for ALL queries, then filter per-table.
-	var allPlans []PlanSummary
-	if planner != nil {
-		plans, source := planner.CapturePlans(ctx, applicationQueries(snap.Queries))
-		allPlans = plans
-		if len(plans) > 0 {
-			planSource = source
-		}
-	}
-
-	var contexts []TableContext
-	for _, ts := range snap.Tables {
-		if skipSchema(ts.SchemaName) {
-			continue
-		}
-		key := ts.SchemaName + "." + ts.RelName
-
-		// Skip partition children whose parent is in the snapshot.
-		// PG11+ propagates indexes from parent to children.
-		if childSet[key] {
-			continue
-		}
-
-		queries := tableQueries[key]
-		queries = filterByMinCalls(queries, minQueryCalls)
-		if len(queries) == 0 {
-			continue
-		}
-
-		isParent := parentSet[key]
-		if isParent {
-			queries = mergeChildQueries(
-				queries, tableQueries, childSet, snap, key,
-			)
-		}
-
-		tc := TableContext{
-			Schema:     ts.SchemaName,
-			Table:      ts.RelName,
-			LiveTuples: ts.NLiveTup,
-			DeadTuples: ts.NDeadTup,
-			TableBytes: ts.TableBytes,
-			IndexBytes: ts.IndexBytes,
-			IndexCount: countIndexes(
-				snap.Indexes, ts.SchemaName, ts.RelName,
-			),
-			Queries:        queries,
-			Collation:      collation,
-			Relpersistence: ts.Relpersistence,
-			IsPartitioned:  isParent,
-		}
-		if isParent {
-			tc.PartitionChildren, tc.NestedPartitions = partitionChildren(snap, key)
-		}
-		tc.WriteRate = computeWriteRate(ts)
-		tc.WriteRateKnown = writeRateKnown(ts)
-		tc.Workload = classifyWorkload(tc.WriteRate, tc.LiveTuples)
-		tc.Columns = fetchColumns(ctx, pool, ts.SchemaName, ts.RelName)
-		tc.Indexes = buildIndexInfo(snap.Indexes, ts.SchemaName, ts.RelName)
-		tc.ColStats = fetchColStats(
-			ctx, pool, ts.SchemaName, ts.RelName, queries,
-		)
-		tc.Plans = filterPlansForTable(allPlans, queries)
-
-		contexts = append(contexts, tc)
-	}
-	return contexts, planSource, nil
-}
-
 func groupQueriesByTable(
 	snap *collector.Snapshot,
 ) map[string][]QueryInfo {
@@ -402,23 +312,6 @@ func cleanColumnRef(token string) string {
 		return ""
 	}
 	return lower
-}
-
-func filterPlansForTable(
-	plans []PlanSummary,
-	queries []QueryInfo,
-) []PlanSummary {
-	qids := make(map[int64]bool)
-	for _, q := range queries {
-		qids[q.QueryID] = true
-	}
-	var result []PlanSummary
-	for _, p := range plans {
-		if qids[p.QueryID] {
-			result = append(result, p)
-		}
-	}
-	return result
 }
 
 // buildPartitionChildSet returns a set of "schema.table" keys for

@@ -117,13 +117,24 @@ function EvidenceSection({ evidence }) {
   )
 }
 
+// confidenceLabel shows the tuning agent's calibration (roadmap 2.2) and
+// otherwise a producer's own confidence; an uncalibrated proposal shows
+// no number.
+function confidenceLabel(rationale) {
+  const known = Number.isFinite(rationale.confidence)
+  const value = known ? Math.round(rationale.confidence * 100) : null
+  if (rationale.calibration && known) {
+    return ` (calibrated confidence ${value}%: ${rationale.calibration})`
+  }
+  if (rationale.calibration) return ` (${rationale.calibration})`
+  return known ? ` (confidence ${value}%)` : ''
+}
+
 function RationaleSection({ rationale }) {
   if (!rationale || !rationale.text) return null
   const source = rationale.source === 'llm' ? 'Model rationale' : 'Rationale'
-  const confidence = Number.isFinite(rationale.confidence)
-    ? ` (confidence ${Math.round(rationale.confidence * 100)}%)` : ''
   return (
-    <Section title={source + confidence} testId="approval-rationale">
+    <Section title={source + confidenceLabel(rationale)} testId="approval-rationale">
       <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{rationale.text}</p>
     </Section>
   )

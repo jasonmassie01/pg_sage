@@ -347,6 +347,14 @@
 | `tuner.stale_stats_mod_ratio` | `restart` | `-` |
 | `tuner.verify_after_apply` | `restart` | `-` |
 | `tuner.work_mem_max_mb` | `restart` | `-` |
+| `tuning.calibration_min_outcomes` | `restart` | `-` |
+| `tuning.calibration_window_days` | `restart` | `-` |
+| `tuning.enabled` | `restart` | `-` |
+| `tuning.max_cases_per_cycle` | `restart` | `-` |
+| `tuning.max_proposals_per_cycle` | `restart` | `-` |
+| `tuning.max_requests_per_cycle` | `restart` | `-` |
+| `tuning.max_tokens_per_cycle` | `restart` | `-` |
+| `tuning.max_turns_per_case` | `restart` | `-` |
 | `value.toil_model_version` | `restart` | `-` |
 | `verify.drop_window_hours` | `restart` | `-` |
 | `verify.io_baseline_days` | `restart` | `-` |

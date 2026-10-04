@@ -142,6 +142,18 @@ var excludedExactKeys = map[string]bool{
 	"llm.optimizer.rejection_memory.prompt_max_shapes":  true,
 	"llm.optimizer.rejection_memory.skip_llm_after":     true,
 
+	// Roadmap 2.2 tuning agent: budgets and calibration are read when a
+	// database runtime is built (restart lifecycle) and validated at
+	// load, so they are YAML-only.
+	"tuning.enabled":                  true,
+	"tuning.max_cases_per_cycle":      true,
+	"tuning.max_requests_per_cycle":   true,
+	"tuning.max_tokens_per_cycle":     true,
+	"tuning.max_turns_per_case":       true,
+	"tuning.max_proposals_per_cycle":  true,
+	"tuning.calibration_min_outcomes": true,
+	"tuning.calibration_window_days":  true,
+
 	// Advisor sub-fields not exposed as overrides.
 	"advisor.vacuum_enabled":     true,
 	"advisor.wal_enabled":        true,

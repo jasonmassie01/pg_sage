@@ -255,7 +255,9 @@ func waitBuiltSinceAction(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 func TestStatisticsImprovedThenRolledBackByHand(t *testing.T) {
 	fx := newStatsFixture(t)
 	id := fx.monitoredAction(t, fixtureBaselineMs)
-	MonitorAndRollback(fx.ctx, fx.pool, id, "DROP STATISTICS IF EXISTS public."+fx.name,
+	ctx, cancel := context.WithTimeout(fx.ctx, 2*time.Minute)
+	defer cancel()
+	MonitorAndRollback(ctx, fx.pool, id, "DROP STATISTICS IF EXISTS public."+fx.name,
 		r2MonitorConfig(), nopLog, nil)
 	got := storedOutcome(t, fx.pool, id)
 	if got.Class != verify.ClassStatistics || got.Verdict != verify.OutcomeImproved {
@@ -304,7 +306,14 @@ func (fx *statsFixture) monitoredAction(t *testing.T, meanAfterMs float64) int64
 	if err != nil {
 		t.Fatalf("ExecuteManual: %v", err)
 	}
-	waitAnalyzed(t, fx.ctx, fx.pool, "public."+fx.table)
+	// The verifier needs the action's own ANALYZE (not the fixture's) to
+	// be visible; on PG14 the collector reports it late, and the monitor
+	// then waited out its 3-day cap (CI hang, PR #115).
+	plan, err := loadMonitorPlan(fx.ctx, fx.pool, id, r2MonitorConfig())
+	if err != nil {
+		t.Fatalf("load plan: %v", err)
+	}
+	waitBuiltSinceAction(t, fx.ctx, fx.pool, plan)
 	time.Sleep(20 * time.Millisecond)
 	fx.capturePlans(t, time.Now().UTC())
 	acts := fx.actions(t)

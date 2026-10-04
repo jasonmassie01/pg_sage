@@ -2,36 +2,6 @@ package optimizer
 
 import "testing"
 
-// Non-index-create DDL is high_risk whatever the action level (G3-B24:
-// the old fallback matched level names ActionLevel never emits).
-func TestRiskTierForRecommendation_ActionLevelsMapToModerate(t *testing.T) {
-	tests := []struct {
-		name        string
-		actionLevel string
-		want        string
-	}{
-		{name: "autonomous", actionLevel: "autonomous", want: RiskHigh},
-		{name: "safe", actionLevel: "safe", want: RiskHigh},
-		{name: "moderate", actionLevel: "moderate", want: RiskHigh},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := Recommendation{
-				DDL:         "DROP INDEX CONCURRENTLY idx",
-				ActionLevel: tt.actionLevel,
-			}
-
-			got := RiskTierForRecommendation(rec)
-
-			if got != tt.want {
-				t.Fatalf("RiskTierForRecommendation(%q) = %q, want %q",
-					tt.actionLevel, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestRiskTierForRecommendation_IndexCreateAlwaysModerate(t *testing.T) {
 	// CREATE INDEX (any access method, any self-rated risk) is moderate so
 	// it can run autonomously — online + reversible. This must override even
@@ -92,7 +62,7 @@ func TestRiskTierForRecommendation_UnknownRiskFailsClosed(t *testing.T) {
 }
 
 func TestRiskTierForRecommendation_NoDDLHasNoRisk(t *testing.T) {
-	rec := Recommendation{ActionLevel: "advisory"}
+	rec := Recommendation{Rationale: "advisory only"}
 
 	got := RiskTierForRecommendation(rec)
 

@@ -3,6 +3,7 @@ package facts
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,17 @@ import (
 // prefix or suffix, or a "_test_" infix.
 const testSchemaRegex = `^(test|tests|testing|tmp|temp|pytest|ci)[_-]|` +
 	`[_-](test|tests|tmp|temp)$|[_-]test[_-]`
+
+// testSchemaPattern is testSchemaRegex compiled for Go, matched case
+// insensitively like the catalog query's ~*.
+var testSchemaPattern = regexp.MustCompile(`(?i)` + testSchemaRegex)
+
+// LooksLikeTestSchema reports whether a schema is named like a test
+// schema (the fixture detector's rule), so callers can treat it as test
+// traffic before any fact is confirmed.
+func LooksLikeTestSchema(schema string) bool {
+	return testSchemaPattern.MatchString(schema)
+}
 
 const testSchemasSQL = `/* pg_sage */
 SELECT n.nspname::text,

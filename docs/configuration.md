@@ -127,11 +127,18 @@ llm:
       mean_time_ratio: 2         # or a target query appears/disappears
       row_estimate_ratio: 2
       prompt_max_shapes: 5
-      skip_llm_after: 3          # stop asking the model after 3 wasted proposals
+      skip_llm_after: 3          # stop asking about a case after 3 wasted answers
   optimizer_llm:                 # optional second model for optimizer
     endpoint: ""
     model: ""
     api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
+
+tuning:                          # one case-driven tuning agent per database
+  enabled: true
+  max_cases_per_cycle: 3
+  max_requests_per_cycle: 12     # per database per analyzer cycle
+  max_tokens_per_cycle: 60000
+  calibration_min_outcomes: 5    # below this a proposal is "uncalibrated"
 
 api:
   listen_addr: "0.0.0.0:8080"
@@ -399,21 +406,83 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.api_key` | (none) | API key (supports `${ENV_VAR}` expansion) |
 | `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
 | `llm.token_budget_daily` | `500000` | Maximum tokens per day across general LLM features; `0` means no cap |
-| `llm.optimizer.enabled` | `true` | LLM index optimizer (HypoPG-validated, confidence-scored) |
+| `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of redundant or long-unused indexes |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
-| `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
-| `llm.optimizer.rejection_memory.enabled` | `true` | Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the prompt lists the shapes already measured. Applies to model candidates only, never to deterministic findings or to re-checks of open recommendations. Rows live in `sage.optimizer_rejection` and age out with `retention.findings_days` (YAML only) |
+| `llm.optimizer.max_new_per_table` | `3` | Max new index proposals per table per cycle |
+| `llm.optimizer.rejection_memory.enabled` | `true` | Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the tuning agent's case packet lists the shapes already measured. Applies to the agent's candidates and what-if tool calls, never to deterministic findings. Rows live in `sage.optimizer_rejection` and age out with `retention.findings_days` (YAML only) |
 | `llm.optimizer.rejection_memory.max_age_days` | `7` | Days a rejection stays valid; then the idea may be measured again (1-90) |
 | `llm.optimizer.rejection_memory.call_volume_ratio` | `2` | A target query whose call count changed by at least this factor (up or down) is a material workload change (>1-1000) |
 | `llm.optimizer.rejection_memory.mean_time_ratio` | `2` | Same, for a target query's mean execution time (>1-1000) |
 | `llm.optimizer.rejection_memory.row_estimate_ratio` | `2` | Same, for the table's live-row estimate (>1-1000). A target query appearing or disappearing is always a material change |
-| `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the prompt as already measured (1-20) |
-| `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive proposals for a table were all memory hits or fresh what-if rejections, with no material change since the first of them, the optimizer stops asking the model about the table until a material change or `max_age_days` (1-100). Operator-requested runs always ask. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
+| `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the tuning agent's case packet as already measured (1-20) |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive answers about a tuning case were all wasted (every proposal rejected or already measured, or the answer empty or malformed), the agent stops asking the model about the case until it changes materially (its statements, or a call-volume or mean-time change of `call_volume_ratio`/`mean_time_ratio`) or `max_age_days` passes (1-100). A provider failure neither extends nor breaks the streak. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
 | `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily` |
-| `advisor.enabled` | `true` | LLM configuration advisor (vacuum, WAL, connections, memory, rewrites, bloat) |
-| `tuner.llm_enabled` | `true` | Let the query tuner ask the LLM for pg_hint_plan hints (YAML only) |
+| `advisor.enabled` | `true` | LLM configuration advisor (WAL, connections, rewrites, bloat). With `advisor.memory_enabled` / `advisor.vacuum_enabled` it also lets the tuning agent propose server settings / table storage parameters |
+| `tuner.llm_enabled` | `true` | Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way |
 | `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |
 | `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
+
+### Tuning agent
+
+One tuning agent per database (roadmap 2.2) replaces the index optimizer, advisor vacuum
+and memory, and tuner hint prompts. Each analyzer cycle it classifies the workload
+deterministically (application, tenant-family, test-fixture, diagnostic and pg_sage
+statements; confirmed facts bind tables), finds the cases worth tuning (a statement taking
+at least 5% of the workload's interval time, a statement whose mean time at least doubled,
+a table whose index maintenance or dead-tuple churn is a problem) and asks the model about
+each case with read-only tools: `statement`, `table`, `explain` (cached plan, or `EXPLAIN`
+without `ANALYZE`; generic plans on PostgreSQL 16+), `whatif_index` (HypoPG),
+`write_cost`, `extended_stats`, and `rehearse` when a clone provider is configured. The
+model answers with typed proposals only (index create or drop, server setting, table
+storage parameter, `CREATE STATISTICS` in the accepted `sage_stx_*` form, query hint),
+each citing its evidence and predicting its effect; pg_sage generates every statement and
+validates it with the same gates as before (index admission and HypoPG, configuration
+allowlists and ranges, the tuner's hint checks, confirmed facts, earlier operator
+rejections). A change a confirmed fact binds becomes a source-fix packet. The model is
+never asked when there is no case. Which proposal types it may make follows
+`llm.optimizer.enabled`, `advisor.memory_enabled`, `advisor.vacuum_enabled` and
+`tuner.llm_enabled`; extended statistics are always allowed.
+
+Each admitted proposal carries a confidence calibrated on `sage.action_outcome`: per action
+class and prediction method, the share of comparable decided outcomes that improved (the
+predicted-improvement bin when it has enough outcomes, else the whole class and method).
+Below `tuning.calibration_min_outcomes` the proposal is labeled uncalibrated and carries no
+number. When the calibrated rate's 95% lower bound is under
+`llm.optimizer.confidence_threshold`, an operator must approve the proposal. Proposals are
+ranked calibrated-confident first, then uncalibrated, then calibrated-doubtful. The Trust
+page and `GET /api/v1/tuning/calibration?database=` show the reliability bins.
+
+Safeguards learned from dogfooding:
+
+- **Open findings are never resolved by absence.** A recommendation the agent did not
+  examine this cycle stays open unchanged; only catalog evidence retires one (its table is
+  gone, an existing index covers it, the index it would drop is gone).
+- **Daily budget survives restarts.** The agent charges its model tokens per database and
+  UTC day to `sage.tuning_budget_day`, capped at the daily token budget of the client it
+  uses (`llm.optimizer_llm.token_budget_daily` when the optimizer LLM is enabled and sets
+  one, else `llm.token_budget_daily`). Exported as
+  `pg_sage_tuning_budget_day_tokens_{used,limit}{database}`.
+- **Settings change on fresh evidence only.** A setting or storage parameter needs counters
+  measured over the last snapshot interval (a `work_mem` change needs temp spills in it;
+  cumulative totals since a statistics reset are never evidence), waits while its last
+  change is being verified, needs evidence measured after that change once it is decided,
+  and needs an operator when it would be the third change in the same direction within
+  7 days (the history is on the approval card).
+- **No overlapping indexes.** An index candidate is refused when an existing or in-flight
+  index (queued, or an open proposal) already serves it, or when it would make one
+  redundant; one proposal per table and leading key per cycle; HypoPG measures it with the
+  in-flight indexes present.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `tuning.enabled` | `true` | Run the tuning agent when an LLM is usable |
+| `tuning.max_cases_per_cycle` | `3` | Cases the model examines per cycle; the rest wait (1-20) |
+| `tuning.max_requests_per_cycle` | `12` | Model requests (tool turns included) per database per cycle (1-200) |
+| `tuning.max_tokens_per_cycle` | `60000` | Model tokens per database per cycle, charged before each request (1000-2000000) |
+| `tuning.max_turns_per_case` | `6` | Model turns per case; the last must answer without tools (1-20) |
+| `tuning.max_proposals_per_cycle` | `10` | New findings per cycle, best ranked first (1-100). The cap applies before anything is recorded: a cut proposal (a query hint included) leaves no trace and is counted in `pg_sage_tuning_proposals_capped_total{database}`. Cases a cycle cannot reach (case cap, budget, model error) are deferred and asked first in the next cycles, longest waiting first; open findings the agent did not examine are kept unchanged, never resolved by absence. The last cycle's use is exported as `pg_sage_tuning_budget_{tokens,requests}_{used,limit}{database}`, `pg_sage_tuning_cases_asked{database}` and `pg_sage_tuning_cases_deferred{database}`, and shown on the Trust page |
+| `tuning.calibration_min_outcomes` | `5` | Decided outcomes a class and method need before a confidence is shown (1-1000) |
+| `tuning.calibration_window_days` | `180` | Days of decided outcomes the calibration reads (1-3650) |
 
 ### Web UI and API Authentication
 

@@ -38,57 +38,46 @@ func countingAdvisorLLM(t *testing.T, content string) (string, *atomic.Int32) {
 	return srv.URL, &calls
 }
 
-func vacuumSnapshots() (*collector.Snapshot, *collector.Snapshot) {
+func walSnapshots() (*collector.Snapshot, *collector.Snapshot) {
 	now := time.Now()
-	lastVac := now.Add(-2 * time.Hour)
 	snap := &collector.Snapshot{
 		CollectedAt: now,
 		ConfigData: &collector.ConfigSnapshot{PGSettings: []collector.PGSetting{
-			{Name: "autovacuum", Setting: "on"},
-			{Name: "autovacuum_vacuum_scale_factor", Setting: "0.2"},
+			{Name: "max_wal_size", Setting: "1024", Unit: "MB"},
+			{Name: "checkpoint_timeout", Setting: "300", Unit: "s"},
 		}},
-		Tables: []collector.TableStats{{
-			SchemaName: "public", RelName: "orders", NLiveTup: 10000,
-			NDeadTup: 2000, NTupIns: 5000, NTupUpd: 3000, NTupDel: 500,
-			LastAutovacuum: &lastVac, AutovacuumCount: 10,
-		}},
+		System: collector.SystemStats{TotalCheckpoints: 400},
 	}
-	prev := &collector.Snapshot{
-		CollectedAt: now.Add(-time.Hour),
-		Tables: []collector.TableStats{{
-			SchemaName: "public", RelName: "orders", NLiveTup: 9500,
-			NDeadTup: 1000, NTupIns: 2000, NTupUpd: 1000, NTupDel: 200,
-		}},
-	}
+	prev := &collector.Snapshot{CollectedAt: now.Add(-time.Hour),
+		System: collector.SystemStats{TotalCheckpoints: 100}}
 	return snap, prev
 }
 
-// vacuumAdvice claims its own action_risk; the advisor must ignore it.
-const vacuumAdvice = `[{"object_identifier":"public.orders",` +
-	`"severity":"info","rationale":"Scale factor too high",` +
+// walAdvice claims its own action_risk; the advisor must ignore it.
+const walAdvice = `[{"object_identifier":"instance",` +
+	`"severity":"info","rationale":"Forced checkpoints",` +
 	`"action_risk":"none",` +
-	`"recommended_sql":"ALTER TABLE public.orders SET ` +
-	`(autovacuum_vacuum_scale_factor = 0.02)"}]`
+	`"recommended_sql":"ALTER SYSTEM SET max_wal_size = '4GB'"}]`
 
 func TestAdvisorDefaultsCallConfiguredLLM(t *testing.T) {
 	cfg := config.DefaultConfig()
-	if !cfg.Advisor.Enabled || !cfg.LLM.Enabled || !cfg.Advisor.VacuumEnabled {
-		t.Fatal("precondition: advisor, llm and vacuum advice default on")
+	if !cfg.Advisor.Enabled || !cfg.LLM.Enabled || !cfg.Advisor.WALEnabled {
+		t.Fatal("precondition: advisor, llm and WAL advice default on")
 	}
-	url, calls := countingAdvisorLLM(t, vacuumAdvice)
+	url, calls := countingAdvisorLLM(t, walAdvice)
 	cfg.LLM.Endpoint, cfg.LLM.APIKey, cfg.LLM.Model = url, "k", "m"
 	client := llm.New(&cfg.LLM, noopLog)
 	mgr := llm.NewManager(client, nil, cfg.LLM.OptimizerLLM.FallbackToGeneral)
-	snap, prev := vacuumSnapshots()
-	findings, err := analyzeVacuum(context.Background(), mgr, snap, prev, cfg, noopLog)
+	snap, prev := walSnapshots()
+	findings, err := analyzeWAL(context.Background(), mgr, snap, prev, cfg, noopLog)
 	if err != nil {
-		t.Fatalf("analyzeVacuum: %v", err)
+		t.Fatalf("analyzeWAL: %v", err)
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("provider calls = %d, want 1", calls.Load())
 	}
-	if len(findings) != 1 || findings[0].Category != "vacuum_tuning" {
-		t.Fatalf("findings = %+v, want one vacuum_tuning finding", findings)
+	if len(findings) != 1 || findings[0].Category != "wal_tuning" {
+		t.Fatalf("findings = %+v, want one wal_tuning finding", findings)
 	}
 	// Risk is derived from the SQL, never taken from the model's answer.
 	if findings[0].ActionRisk != deriveActionRisk(findings[0].RecommendedSQL) {
@@ -102,11 +91,11 @@ func TestAdvisorDefaultsCallConfiguredLLM(t *testing.T) {
 
 func TestAdvisorDefaultLLMBlockWithoutEndpointNeverCalls(t *testing.T) {
 	cfg := config.DefaultConfig()
-	url, calls := countingAdvisorLLM(t, vacuumAdvice)
+	url, calls := countingAdvisorLLM(t, walAdvice)
 	client := llm.New(&cfg.LLM, noopLog)
 	mgr := llm.NewManager(client, nil, true)
-	snap, prev := vacuumSnapshots()
-	findings, err := analyzeVacuum(context.Background(), mgr, snap, prev, cfg, noopLog)
+	snap, prev := walSnapshots()
+	findings, err := analyzeWAL(context.Background(), mgr, snap, prev, cfg, noopLog)
 	if err == nil || len(findings) != 0 {
 		t.Fatalf("findings=%+v err=%v, want an LLM-unavailable error", findings, err)
 	}

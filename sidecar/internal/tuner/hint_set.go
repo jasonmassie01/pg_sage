@@ -25,7 +25,7 @@ var allowedPlanCacheModes = map[string]bool{
 // maxParallelWorkersHint caps Set(max_parallel_workers_per_gather).
 const maxParallelWorkersHint = 16
 
-// normalizeSetDirectives rewrites every Set() directive in an LLM hint
+// normalizeSetDirectives rewrites every Set() directive in a hint
 // into canonical form, rejecting GUCs outside the allowlist. Planner
 // toggles, timeouts and other GUCs are refused: prompt-injected or
 // hallucinated Set(statement_timeout "0") must never be installed

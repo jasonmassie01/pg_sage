@@ -9,7 +9,7 @@ import (
 func mappingRec(ddl, category string) optimizer.Recommendation {
 	return optimizer.Recommendation{
 		Table: "public.orders", DDL: ddl, Category: category,
-		Severity: "warning", Confidence: 0.7,
+		Severity: "warning",
 	}
 }
 
@@ -17,11 +17,11 @@ func mappingRec(ddl, category string) optimizer.Recommendation {
 // findings; identity is table + normalized index definition and the
 // category is the fixed optimizer category, not the LLM's label.
 func TestOptimizerFinding_IdentityPerIndexDefinition(t *testing.T) {
-	a := optimizerRecommendationToFinding(mappingRec(
-		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"), nil)
-	b := optimizerRecommendationToFinding(mappingRec(
+	a := OptimizerRecommendationFinding(mappingRec(
+		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"), "")
+	b := OptimizerRecommendationFinding(mappingRec(
 		"CREATE INDEX CONCURRENTLY idx_b ON public.orders (created_at) INCLUDE (id)",
-		"covering_index"), nil)
+		"covering_index"), "")
 	if a.ObjectIdentifier == b.ObjectIdentifier {
 		t.Fatalf("two candidates share identity %q", a.ObjectIdentifier)
 	}
@@ -46,11 +46,11 @@ func TestOptimizerFinding_IdentityPerIndexDefinition(t *testing.T) {
 // Renaming the index or reformatting the DDL keeps the same identity so
 // the open finding is updated, not duplicated.
 func TestOptimizerFinding_IdentityStableAcrossCosmeticChanges(t *testing.T) {
-	a := optimizerRecommendationToFinding(mappingRec(
-		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"), nil)
-	b := optimizerRecommendationToFinding(mappingRec(
+	a := OptimizerRecommendationFinding(mappingRec(
+		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"), "")
+	b := OptimizerRecommendationFinding(mappingRec(
 		"create index concurrently IDX_other on public.orders using BTREE ( Status );",
-		"partial_index"), nil)
+		"partial_index"), "")
 	if a.ObjectIdentifier != b.ObjectIdentifier {
 		t.Errorf("identity changed: %q vs %q", a.ObjectIdentifier, b.ObjectIdentifier)
 	}
