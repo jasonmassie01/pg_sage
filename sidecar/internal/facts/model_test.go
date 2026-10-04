@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -164,7 +165,13 @@ func TestModelProposerRateLimitAndTimeout(t *testing.T) {
 	}
 
 	client, _ = fakeModel(t, func(w http.ResponseWriter, r *http.Request) {
-		<-r.Context().Done()
+		// Drain the body first: only then can the server notice the client
+		// hanging up (net/http's background read), so Close does not wait.
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(10 * time.Second):
+		}
 	})
 	ctx, cancel = context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()

@@ -57,10 +57,6 @@ func (f *factAPI) do(t *testing.T, user *auth.User, method, path string,
 	return w.Code, out
 }
 
-func viewerUser() *auth.User {
-	return &auth.User{ID: 3, Email: "viewer@test.com", Role: auth.RoleViewer}
-}
-
 func (f *factAPI) propose(t *testing.T, subject string) facts.Fact {
 	t.Helper()
 	fact, _, err := facts.NewStore(f.pool).Propose(context.Background(), facts.Proposal{
@@ -96,7 +92,7 @@ func TestFactRoutesRoles(t *testing.T) {
 	}
 }
 
-func TestFactRoutesDeclareConfirmRejectExpire(t *testing.T) {
+func TestFactRoutesDeclare(t *testing.T) {
 	f := newFactAPI(t)
 	code, body := f.do(t, testOperatorUser(), "POST", "/api/v1/facts?database=testdb",
 		map[string]any{"type": "slot_consumer", "subject_kind": "slot",
@@ -117,11 +113,15 @@ func TestFactRoutesDeclareConfirmRejectExpire(t *testing.T) {
 	if code != http.StatusBadRequest || body["code"] != "invalid_fact" {
 		t.Fatalf("invalid kind: %d %v", code, body)
 	}
+}
+
+func TestFactRoutesDecideFlow(t *testing.T) {
+	f := newFactAPI(t)
 	p := f.propose(t, "test_flow_*")
 	path := func(id int64, verb string) string {
 		return fmt.Sprintf("/api/v1/facts/%d/%s?database=testdb", id, verb)
 	}
-	code, body = f.do(t, testAdminUser(), "POST", path(p.ID, "confirm"),
+	code, body := f.do(t, testAdminUser(), "POST", path(p.ID, "confirm"),
 		map[string]string{"note": "CI leaks these"})
 	if fact, _ := body["fact"].(map[string]any); code != http.StatusOK ||
 		fact["status"] != "confirmed" || fact["decided_by"] != "admin@test.com" {

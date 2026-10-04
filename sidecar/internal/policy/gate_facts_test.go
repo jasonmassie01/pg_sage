@@ -167,7 +167,10 @@ func TestFactsNeverWidenAuthority(t *testing.T) {
 				t.Fatalf("case %d: facts widened %s/%s to execute (req %+v runtime %+v)",
 					i, base.Verdict, base.Reason, req, fixture.runtime)
 			}
-			if len(bindings) > 0 && bound.Verdict == VerdictExecute {
+			// Read-only diagnostics and rollbacks are never bound by design
+			// (TestGateDoesNotAskFactsForReadOnlyOrRollbacks).
+			exempt := req.Rollback || req.Contract.RiskTier == RiskReadOnly
+			if len(bindings) > 0 && !exempt && bound.Verdict == VerdictExecute {
 				t.Fatalf("case %d: a binding fact executed (req %+v)", i, req)
 			}
 			if len(bindings) == 0 && (bound.Verdict != base.Verdict ||
