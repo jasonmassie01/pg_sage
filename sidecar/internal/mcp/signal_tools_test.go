@@ -47,7 +47,7 @@ func TestSignalTools_Listed(t *testing.T) {
 		}
 	}
 	for _, mutating := range []string{"sre_list_slos", "sre_get_slo", "sre_list_changes"} {
-		if mutatingTools[mutating] {
+		if scope, _ := RequiredScope(mutating, nil); scope != ScopeRead {
 			t.Errorf("%s is marked mutating", mutating)
 		}
 	}

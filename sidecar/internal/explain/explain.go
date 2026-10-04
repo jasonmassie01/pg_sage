@@ -242,6 +242,13 @@ func (ex *Explainer) runExplainParameterized(
 	if err = ex.prepareConn(ctx, conn); err != nil {
 		return nil, err
 	}
+	// Without a value for every parameter the custom plan folds "x = NULL"
+	// to a constant-false Result; the generic plan is the query's real one.
+	if hasUnboundParam(query, params) {
+		if _, err = conn.Exec(ctx, "SET LOCAL plan_cache_mode = force_generic_plan"); err != nil {
+			return nil, fmt.Errorf("set plan_cache_mode: %w", err)
+		}
+	}
 	// Prepared statements survive ROLLBACK, and DEALLOCATE fails in
 	// an aborted transaction, so release it after the rollback.
 	defer func() {
@@ -278,6 +285,17 @@ func explainParamList(query string, params []string) (string, error) {
 		}
 	}
 	return strings.Join(values, ", "), nil
+}
+
+// hasUnboundParam reports a placeholder without a value (planned as NULL).
+func hasUnboundParam(query string, params []string) bool {
+	n := countParamPlaceholders(query)
+	for i := 0; i < n; i++ {
+		if i >= len(params) || params[i] == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // countParamPlaceholders returns the highest $N placeholder number

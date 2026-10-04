@@ -7,14 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pg-sage/sidecar/internal/auth"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// CHECK-39 (read tools): on the real mounted router, a signed-in viewer
-// reads investigations through MCP, a request without a session is
+// CHECK-39 (read tools): on the real mounted router, a read-only token
+// reads investigations through MCP, a request without a token is
 // refused before any tool runs, and the read tools never mutate.
 
 type sreMCPBackend struct {
@@ -45,7 +43,7 @@ const sreGetBody = `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":` +
 
 func TestMountedMCPViewerReadsInvestigations(t *testing.T) {
 	backend := &sreMCPBackend{}
-	h := mcpRouterForBackend(t, backend, testViewerUser())
+	h := mcpRouterForBackend(t, backend, "viewer")
 	out := postMCPCall(t, h, sreGetBody)
 	require.Nil(t, out["error"])
 	require.Equal(t, 1, backend.investigationReads)
@@ -54,7 +52,7 @@ func TestMountedMCPViewerReadsInvestigations(t *testing.T) {
 
 func TestMountedMCPInvestigationToolsNeedASession(t *testing.T) {
 	backend := &sreMCPBackend{}
-	h := mcpRouterForBackend(t, backend, nil)
+	h := mcpRouterForBackend(t, backend, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", strings.NewReader(sreGetBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -64,21 +62,9 @@ func TestMountedMCPInvestigationToolsNeedASession(t *testing.T) {
 }
 
 // mcpRouterForBackend mounts the real MCP runtime and server over any
-// backend on the real router, with user bound as the session.
-func mcpRouterForBackend(t *testing.T, backend mcp.Backend, user *auth.User) http.Handler {
+// backend on the real router; requests carry the token of a person with
+// role, or no credential for "".
+func mcpRouterForBackend(t *testing.T, backend mcp.Backend, role string) http.Handler {
 	t.Helper()
-	cfg := config.DefaultConfig()
-	cfg.MCP.Enabled, cfg.MCP.Transport = true, "http"
-	runtime, err := mcp.NewRuntime(cfg.MCP, mcp.NewServer(backend), nil, nil)
-	require.NoError(t, err)
-	inject := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if user != nil {
-				r = r.WithContext(context.WithValue(r.Context(), userContextKey, user))
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-	return NewRouterFullRuntime(nil, cfg, nil, nil, nil, nil,
-		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, inject)
+	return mcpRouterForUser(t, backend, role)
 }

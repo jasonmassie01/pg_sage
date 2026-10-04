@@ -13,10 +13,11 @@ import (
 // refused before the backend is reached.
 
 var mutatingToolCalls = map[string]string{
-	"propose_policy_change":  `{"delta":{"budgets":{"storage_bytes":0}}}`,
-	"request_change":         `{"intent":{"kind":"optimize_query","query_id":1}}`,
-	"optimize_query":         `{"goal":"latency","query_id":1}`,
-	"apply_migration":        `{"ddl":"ALTER TABLE t ADD COLUMN c int"}`,
+	"propose_policy_change": `{"delta":{"budgets":{"storage_bytes":0}}}`,
+	"request_change":        `{"intent":{"kind":"optimize_query","query_id":1}}`,
+	"optimize_query":        `{"goal":"latency","query_id":1}`,
+	// apply_migration's schema now matches its executor: table + sql.
+	"apply_migration":        `{"table":"public.t","sql":"ALTER TABLE public.t ADD UNIQUE (c)"}`,
 	"ensure_fk_indexes":      `{"schema":"public"}`,
 	"declare_table_contract": `{"table":"public.events","append_only":true}`,
 	"register_consumer":      `{"slot_name":"s1","owner":"agent"}`,
