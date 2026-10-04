@@ -189,6 +189,10 @@ var excludedExactKeys = map[string]bool{
 	// is built (restart lifecycle), so it is YAML-only.
 	"sre.llm.enabled": true,
 
+	// Roadmap 2.1: the investigator mode is read with the model turn
+	// switch (restart lifecycle), so it is YAML-only too.
+	"sre.llm.mode": true,
+
 	// Sage SRE M5: SLOs and the change feed are built with the database
 	// runtime (restart lifecycle), carry secrets and are validated at
 	// load, so they are YAML-only.
