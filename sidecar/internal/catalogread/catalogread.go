@@ -86,41 +86,56 @@ func Begin(ctx context.Context, db Beginner, t Timeouts) (pgx.Tx, error) {
 	return tx, nil
 }
 
-// Query runs sql; closing the rows ends the transaction.
+// Query runs sql; closing the rows ends the transaction. A timeout names
+// its phase (*PhaseError).
 func (r Reader) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	tx, err := r.begin(ctx)
+	t, tx, err := r.begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		_ = tx.Rollback(context.Background())
-		return nil, err
+		return nil, t.phased(err)
 	}
-	return &txRows{Rows: rows, tx: tx, after: r.bind(ctx, sql, args)}, nil
+	return &txRows{Rows: rows, tx: tx, after: r.bind(ctx, sql, args), timer: t}, nil
 }
 
 // QueryRow runs sql; Scan ends the transaction.
 func (r Reader) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	tx, err := r.begin(ctx)
+	t, tx, err := r.begin(ctx)
 	if err != nil {
 		return txRow{err: err}
 	}
-	return txRow{row: tx.QueryRow(ctx, sql, args...), tx: tx, after: r.bind(ctx, sql, args)}
+	return txRow{row: tx.QueryRow(ctx, sql, args...), tx: tx, after: r.bind(ctx, sql, args),
+		timer: t}
 }
 
-func (r Reader) begin(ctx context.Context) (pgx.Tx, error) {
+// readTimer measures one read's phases: begin (pool acquire and the
+// bounded transaction) and execution (everything after).
+type readTimer struct {
+	begin time.Duration
+	start time.Time
+}
+
+func (t readTimer) phased(err error) error {
+	return phased(err, PhaseExecution, t.begin, time.Since(t.start))
+}
+
+func (r Reader) begin(ctx context.Context) (readTimer, pgx.Tx, error) {
+	began := time.Now()
 	tx, err := Begin(ctx, r.DB, r.Timeouts)
+	t := readTimer{begin: time.Since(began), start: time.Now()}
 	if err != nil {
-		return nil, err
+		return t, nil, phased(err, PhaseBegin, t.begin, 0)
 	}
 	if before := beforeStatement(ctx); before != nil {
 		if err := before(ctx, tx); err != nil {
 			_ = tx.Rollback(context.Background())
-			return nil, err
+			return t, nil, t.phased(err)
 		}
 	}
-	return tx, nil
+	return t, tx, nil
 }
 
 func (r Reader) bind(ctx context.Context, sql string, args []any) func(pgx.Tx) {
@@ -135,6 +150,8 @@ type txRows struct {
 	tx     pgx.Tx
 	closed bool
 	after  func(pgx.Tx)
+	timer  readTimer
+	took   time.Duration
 }
 
 func (r *txRows) Next() bool {
@@ -151,10 +168,20 @@ func (r *txRows) Close() {
 	}
 	r.closed = true
 	r.Rows.Close()
+	r.took = time.Since(r.timer.start)
 	if r.after != nil {
 		r.after(r.tx)
 	}
 	_ = r.tx.Rollback(context.Background())
+}
+
+// Err is the statement's error; a timeout names its phase.
+func (r *txRows) Err() error {
+	took := r.took
+	if !r.closed {
+		took = time.Since(r.timer.start)
+	}
+	return phased(r.Rows.Err(), PhaseExecution, r.timer.begin, took)
 }
 
 type txRow struct {
@@ -162,6 +189,7 @@ type txRow struct {
 	tx    pgx.Tx
 	err   error
 	after func(pgx.Tx)
+	timer readTimer
 }
 
 func (r txRow) Scan(dest ...any) error {
@@ -173,7 +201,7 @@ func (r txRow) Scan(dest ...any) error {
 	if r.after != nil {
 		r.after(r.tx)
 	}
-	return err
+	return r.timer.phased(err)
 }
 
 type beforeKey struct{}

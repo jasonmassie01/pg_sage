@@ -195,8 +195,9 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	// old epoch on reset counters, which the counter-decrease check and
 	// the next cycle's epoch change both expose.
 	snap.StatsEpoch = c.collectStatementsEpoch(ctx)
+	retries := 0
 	for _, step := range c.catalogSteps() {
-		err := step.run(ctx, snap)
+		err := c.runStep(ctx, step, snap, &retries)
 		if err == nil {
 			continue
 		}
