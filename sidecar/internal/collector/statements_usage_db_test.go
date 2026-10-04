@@ -91,3 +91,28 @@ func TestCollectStatStatementsUsage_NoMaxIsNil(t *testing.T) {
 		t.Fatalf("usage without pg_stat_statements.max = %+v, want nil", u)
 	}
 }
+
+// The classification itself, on fixed texts (pg_stat_statements is
+// cluster-wide, so counts read from it move with other sessions).
+func TestStatementsClassification_FixedTexts(t *testing.T) {
+	pool := testPool(t)
+	src := `(VALUES ('COPY public.t (a, b) TO stdout;'),
+		('  copy (SELECT 1) to STDOUT'),
+		('COPY t FROM STDIN'),
+		('/* pg_sage */ SELECT 1'),
+		('(SELECT 1) UNION (SELECT 2)'),
+		('WITH x AS (SELECT 1) SELECT * FROM x'),
+		('SET work_mem = ''64MB'''),
+		('VACUUM t'),
+		('INSERT INTO t VALUES (1)'),
+		('<insufficient privilege>')) AS v(query)`
+	var entries, utility, copyOut int
+	if err := pool.QueryRow(context.Background(), classifySQL(src)).
+		Scan(&entries, &utility, &copyOut); err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if entries != 10 || utility != 5 || copyOut != 2 {
+		t.Fatalf("entries %d utility %d copy_out %d, want 10, 5 (3 COPY, SET, VACUUM), 2",
+			entries, utility, copyOut)
+	}
+}
