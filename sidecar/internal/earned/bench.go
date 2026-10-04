@@ -89,7 +89,8 @@ func ParseBenchReport(raw []byte, now time.Time) (EvalRun, error) {
 	}
 	sum := sha256.Sum256(raw)
 	run := EvalRun{Schema: w.Schema, GeneratedAt: w.GeneratedAt.UTC(), Build: build,
-		Gated: append([]string{}, w.Gated...), SHA256: hex.EncodeToString(sum[:])}
+		Gated: append([]string{}, w.Gated...), SHA256: hex.EncodeToString(sum[:]),
+		Cells: []Cell{}}
 	for _, c := range w.Cells {
 		run.Cells = append(run.Cells, Cell{Arm: c.Arm, Family: c.Family, Pending: c.Pending,
 			Runs: c.Runs, Top1: Metric(c.Top1), SafePass: Metric(c.SafePass),

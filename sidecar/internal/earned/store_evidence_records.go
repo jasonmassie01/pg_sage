@@ -12,8 +12,7 @@ import (
 const benchSetSQL = `/* pg_sage */ SELECT r.*, f.family FROM unnest($4::text[]) AS f(family)
 CROSS JOIN LATERAL (` + evalRunSelect + `
 	 WHERE deployment_id = $1 AND source = 'bench'
-	   AND ((f.family = '' AND EXISTS (SELECT 1 FROM jsonb_array_elements(cells) c
-	                                    WHERE c->>'family' <> 'all'))
+	   AND ((f.family = '' AND cells @? '$[*] ? (@.family != "all")')
 	        OR cells @> jsonb_build_array(jsonb_build_object('family', f.family)))
 	   AND ((pg_sage_version = '' AND pg_sage_commit = '')
 	     OR ($2 <> '' AND pg_sage_commit = $2)

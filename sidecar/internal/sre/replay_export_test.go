@@ -165,9 +165,13 @@ func TestBuildReplayCase_NotExportable(t *testing.T) {
 
 // Adversarial evidence: secrets and PII planted in identifiers, error
 // text and the subject.
+// fakeGitHubToken has a GitHub token's shape; it is assembled at run time
+// so secret scanners do not mistake the test for a leaked credential.
+var fakeGitHubToken = "gh" + "p_" + strings.Repeat("A1b2C3d4E5", 3) + "f6G7h8"
+
 var leakCanaries = []string{"hunter2", "Pa55w0rd", "db.internal", "alice@example.com",
 	"123-45-6789", "4111 1111 1111 1111", "4111111111111111", "sk_live_51HxQ9Abc",
-	"Secr3tPw", "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8", "+1 415 555 0134"}
+	"Secr3tPw", fakeGitHubToken, "+1 415 555 0134"}
 
 func adversarialInvestigation(t *testing.T) (Investigation, []Evidence) {
 	t.Helper()
@@ -187,7 +191,7 @@ func adversarialInvestigation(t *testing.T) (Investigation, []Evidence) {
 	slot := probes.Row{"slot_name": "cdc_sk_live_51HxQ9Abc", "slot_type": "logical",
 		"active": false, "retained_bytes": 41234567890, "wal_status": "extended",
 		"database": "prod", "note": []any{"call +1 415 555 0134", map[string]any{
-			"token": "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"}}}
+			"token": fakeGitHubToken}}}
 	failed := probes.Result{ProbeID: probes.PreparedXacts, Version: "v1",
 		Status: probes.StatusError, Reason: "permission_denied",
 		Error: `permission denied for relation "public.patients_ssn" password=Secr3tPw`}

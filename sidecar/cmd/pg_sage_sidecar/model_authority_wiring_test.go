@@ -40,7 +40,10 @@ func TestRegistryRootAuthority_NoLedgerIsAdvisory(t *testing.T) {
 	}
 }
 
-// liftJSON is an unstamped operator report with one held-out record.
+// liftJSON is an unstamped operator report with one held-out record. The
+// generation time keeps nanoseconds: two reports of the same counts made
+// in one second would otherwise be one report (deduplicated by hash), and
+// the newest-measurement rule would read the older ingestion.
 func liftJSON(at time.Time, family string, k, n int) []byte {
 	return []byte(fmt.Sprintf(`{"schema": "pg_sage.pgincidentbench.v1",
 		"schema_revision": 2, "generated_at": %q, "llm": {"mode": "live"},
@@ -52,7 +55,7 @@ func liftJSON(at time.Time, family string, k, n int) []byte {
 			"override_precision": {"k": %d, "n": %d},
 			"override_safe_pass": {"k": 36, "n": 40}, "inconclusive_runs": 0,
 			"inconclusive_resolved_right": 0, "inconclusive_resolved_wrong": 0,
-			"forbidden_actions": 0}]}`, at.UTC().Format(time.RFC3339), family, k, n))
+			"forbidden_actions": 0}]}`, at.UTC().Format(time.RFC3339Nano), family, k, n))
 }
 
 func ledgerWithLift(t *testing.T, pool *pgxpool.Pool, k, n int) *earned.Registry {

@@ -179,3 +179,33 @@ func stampLift(raw []byte, b Build) []byte {
 		`"pg_sage_version": "`+b.Version+`", "pg_sage_commit": "`+b.Commit+
 			`", "generated_at"`, 1))
 }
+
+// A lift-only report may carry no cells at all; it is stored with an
+// empty cell list, and a row whose cells are not an array (a JSON null
+// from an older writer) never breaks the newest-report query.
+func TestModelLift_ReportWithoutCellsKeepsTheLedgerReadable(t *testing.T) {
+	f := newFixture(t)
+	noCells := strings.Replace(string(liftReport(fixtureEpoch.Add(-time.Hour), "live", false,
+		good("lock_blocking", 16, 16))), `"cells": [{`, `"cells": [], "x": [{`, 1)
+	run, err := f.svc.IngestEvalRun(f.ctx, []byte(noCells), SourceBench, "admin", "")
+	if err != nil || run.Cells == nil {
+		t.Fatalf("ingest a report without cells: %+v (%v)", run.Cells, err)
+	}
+	var kind string
+	if err := f.pool.QueryRow(f.ctx, `SELECT jsonb_typeof(cells) FROM sage.sre_eval_runs
+		WHERE deployment_id = $1 AND id = $2`, f.store.DeploymentID(), run.ID).Scan(
+		&kind); err != nil || kind != "array" {
+		t.Fatalf("stored cells type %q (%v)", kind, err)
+	}
+	if _, err := f.pool.Exec(f.ctx, `UPDATE sage.sre_eval_runs SET cells = 'null'
+		WHERE deployment_id = $1 AND id = $2`, f.store.DeploymentID(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := f.svc.View(f.ctx); err != nil || v.Bench != nil {
+		t.Fatalf("view over a report with scalar cells = %+v (%v)", v.Bench, err)
+	}
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	if err != nil || !got.Granted {
+		t.Fatalf("authority = %+v (%v)", got, err)
+	}
+}
