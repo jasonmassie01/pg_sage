@@ -96,7 +96,7 @@ func TestPGStore_LiveOpenedAndTerminal(t *testing.T) {
 		rec, err := st.Record(ctx, Record{Kind: kind, TokenID: tok, IdentityName: "x",
 			Actor: "agent:x:" + tok, Transport: "http", Database: "orders",
 			InvestigationID: fmt.Sprintf("00000000-0000-4000-8000-00000000000%d", i),
-			Created: kind == KindOpen, Match: "new", Outbound: OutboundNone})
+			Created:         kind == KindOpen, Match: "new", Outbound: OutboundNone})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,25 +127,29 @@ func TestPGStore_RefusesInvalidRows(t *testing.T) {
 	}
 }
 
-func TestPGStore_OutboundClaimsAreExclusive(t *testing.T) {
-	pool := livePool(t)
-	st := NewPGStore(pool)
+// seedPending records n pending result posts of tok, after clearing any
+// pending rows other tests left so claim counts are exact.
+func seedPending(t *testing.T, pool *pgxpool.Pool, st *PGStore, tok string, n int) {
+	t.Helper()
 	ctx := context.Background()
-	tok := uniqueToken("out")
-	// Clear any pending rows other tests left so the claim count is exact.
 	if _, err := pool.Exec(ctx, `UPDATE sage.specialist_requests SET outbound = 'failed'
 		WHERE outbound = 'pending'`); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 6; i++ {
+	for i := 0; i < n; i++ {
+		ref := &ExternalRef{System: "pagerduty", ID: fmt.Sprintf("Q%d", i)}
 		if _, err := st.Record(ctx, Record{Kind: KindOpen, TokenID: tok, Actor: "a",
 			Transport: "pagerduty", Database: "orders", InvestigationID: string(inv),
 			Created: true, Match: "new", Outbound: OutboundPending,
-			ExternalRef: &ExternalRef{System: "pagerduty", ID: fmt.Sprintf("Q%d", i)}}); err != nil {
+			ExternalRef: ref}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	now := time.Now()
+}
+
+// claimConcurrently claims with three workers and counts claims per row.
+func claimConcurrently(t *testing.T, st *PGStore, now time.Time) map[string]int {
+	t.Helper()
 	var mu sync.Mutex
 	seen := map[string]int{}
 	var wg sync.WaitGroup
@@ -153,7 +157,7 @@ func TestPGStore_OutboundClaimsAreExclusive(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			recs, err := st.ClaimOutbound(ctx, now, time.Minute, 10)
+			recs, err := st.ClaimOutbound(context.Background(), now, time.Minute, 10)
 			if err != nil {
 				t.Error(err)
 				return
@@ -166,6 +170,16 @@ func TestPGStore_OutboundClaimsAreExclusive(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	return seen
+}
+
+func TestPGStore_OutboundClaimsAreExclusive(t *testing.T) {
+	pool := livePool(t)
+	st := NewPGStore(pool)
+	ctx := context.Background()
+	seedPending(t, pool, st, uniqueToken("out"), 6)
+	now := time.Now()
+	seen := claimConcurrently(t, st, now)
 	if len(seen) != 6 {
 		t.Fatalf("claimed %d of 6", len(seen))
 	}
@@ -175,7 +189,8 @@ func TestPGStore_OutboundClaimsAreExclusive(t *testing.T) {
 		}
 	}
 	// Leased rows are not claimed again until the lease ends.
-	if again, err := st.ClaimOutbound(ctx, now, time.Minute, 10); err != nil || len(again) != 0 {
+	again, err := st.ClaimOutbound(ctx, now, time.Minute, 10)
+	if err != nil || len(again) != 0 {
 		t.Fatalf("re-claimed under lease: %d %v", len(again), err)
 	}
 	var one string

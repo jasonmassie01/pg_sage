@@ -305,7 +305,9 @@ func cancelProposal(state sreaction.ProposalState) sreaction.ProposalView {
 	return sreaction.ProposalView{Proposal: p, Database: "orders"}
 }
 
-func TestMapResult_TypedRemediations(t *testing.T) {
+// remediationSnapshot is a concluded lock investigation with a proposed and
+// an ineligible cancel and two custodian proposals (one manual-only).
+func remediationSnapshot() Snapshot {
 	d := lockDetail()
 	d.Investigation.Summary.Proposals = []sre.ActionProposal{
 		{Feature: "freeze", Action: "VACUUM (FREEZE) public.t", SQL: "VACUUM (FREEZE) public.t",
@@ -315,8 +317,12 @@ func TestMapResult_TypedRemediations(t *testing.T) {
 	inel := cancelProposal(sreaction.ProposalIneligible)
 	inel.ID = "66666666-6666-4666-8666-666666666666"
 	inel.Target = nil
-	snap := Snapshot{Detail: d, Proposals: []sreaction.ProposalView{
+	return Snapshot{Detail: d, Proposals: []sreaction.ProposalView{
 		cancelProposal(sreaction.ProposalProposed), inel}}
+}
+
+func TestMapResult_TypedRemediations(t *testing.T) {
+	snap := remediationSnapshot()
 	r := MapResult(snap, MapOptions{Now: created, KeepIdentifiers: true})
 	if len(r.Remediations) != 4 {
 		t.Fatalf("remediations %+v", r.Remediations)

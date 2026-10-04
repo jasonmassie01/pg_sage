@@ -77,7 +77,7 @@ func newLiveFixture(t *testing.T) *liveFixture {
 	f := &liveFixture{pool: pool, coord: coord, svc: svc, tokens: map[string]string{},
 		handler: NewHandler(spec, NewTokenAuthenticator(tokens), HandlerOptions{})}
 	for label, req := range map[string]mcptoken.CreateRequest{
-		"read":    {Name: "Datadog", Scopes: []string{"read"}, Databases: []string{"orders"}},
+		"read": {Name: "Datadog", Scopes: []string{"read"}, Databases: []string{"orders"}},
 		"propose": {Name: "AWS DevOps Agent", Scopes: []string{"read", "propose"},
 			Databases: []string{"*"}},
 		"billing": {Name: "Billing bot", Scopes: []string{"read", "propose"},
@@ -137,16 +137,22 @@ func TestLive_OpenInvestigateAndReadTheCitedResult(t *testing.T) {
 		r.CallerSupplied.ExternalRef.ID != "monitor-1" {
 		t.Fatalf("caller supplied %+v", r.CallerSupplied)
 	}
-	// The audit trail names the agent: the investigation's created event
-	// and the request row.
-	events, verified, err := f.svc.Events(ctx, sre.UUID(open.Investigation.ID))
+	assertAuditNamesTheAgent(t, f, open.Investigation.ID)
+}
+
+// assertAuditNamesTheAgent: the investigation's created event and the
+// request row name the agent.
+func assertAuditNamesTheAgent(t *testing.T, f *liveFixture, invID string) {
+	t.Helper()
+	ctx := context.Background()
+	events, verified, err := f.svc.Events(ctx, sre.UUID(invID))
 	if err != nil || !verified || len(events) == 0 || !strings.HasPrefix(events[0].Actor,
 		"agent:datadog:") {
 		t.Fatalf("event chain actor: %+v %t %v", events, verified, err)
 	}
 	var actor, name string
 	if err := f.pool.QueryRow(ctx, `SELECT actor, identity_name FROM sage.specialist_requests
-		WHERE investigation_id = $1 AND kind = 'open'`, open.Investigation.ID).Scan(&actor,
+		WHERE investigation_id = $1 AND kind = 'open'`, invID).Scan(&actor,
 		&name); err != nil || name != "Datadog" || actor != events[0].Actor {
 		t.Fatalf("request row %q %q %v", actor, name, err)
 	}

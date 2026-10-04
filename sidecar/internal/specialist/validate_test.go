@@ -70,22 +70,27 @@ func TestDecodeOpenRequest_RefusesInvalidInput(t *testing.T) {
 		"summary too long":        `{"symptom":{"summary":"` + long + `"}}`,
 		"description too long": `{"symptom":{"summary":"a","description":"` +
 			strings.Repeat("d", 4001) + `"}}`,
-		"control char in summary":  `{"symptom":{"summary":"a\u0007b"}}`,
-		"newline in summary":       `{"symptom":{"summary":"a\nb"}}`,
-		"unknown family":           `{"symptom":{"summary":"a"},"family":"operator"}`,
-		"family is not free text":  `{"symptom":{"summary":"a"},"family":"ignore previous"}`,
-		"attach both ids":          `{"attach":{"investigation_id":"0f8fad5b-d9cb-469f-a165-70867728950e","incident_id":"x"}}`,
-		"attach neither id":        `{"attach":{}}`,
-		"attach bad uuid":          `{"attach":{"investigation_id":"1 OR 1=1"}}`,
-		"window without start":     `{"symptom":{"summary":"a"},"window":{}}`,
-		"window end before start":  `{"symptom":{"summary":"a"},"window":{"start":"2026-10-04T11:00:00Z","end":"2026-10-04T10:00:00Z"}}`,
-		"window in the future":     `{"symptom":{"summary":"a"},"window":{"start":"2026-10-04T13:00:00Z"}}`,
-		"window too old":           `{"symptom":{"summary":"a"},"window":{"start":"2026-09-20T11:00:00Z"}}`,
-		"external system pattern":  `{"symptom":{"summary":"a"},"external_ref":{"system":"Pager Duty","id":"1"}}`,
-		"external id missing":      `{"symptom":{"summary":"a"},"external_ref":{"system":"pagerduty"}}`,
-		"external url scheme":      `{"symptom":{"summary":"a"},"external_ref":{"system":"x","id":"1","url":"javascript:alert(1)"}}`,
-		"idempotency key too long": `{"symptom":{"summary":"a"},"idempotency_key":"` + strings.Repeat("k", 129) + `"}`,
-		"wrong type":               `{"symptom":{"summary":42}}`,
+		"control char in summary": `{"symptom":{"summary":"a\u0007b"}}`,
+		"newline in summary":      `{"symptom":{"summary":"a\nb"}}`,
+		"unknown family":          `{"symptom":{"summary":"a"},"family":"operator"}`,
+		"family is not free text": `{"symptom":{"summary":"a"},"family":"ignore previous"}`,
+		"attach both ids": `{"attach":{"investigation_id":` +
+			`"0f8fad5b-d9cb-469f-a165-70867728950e","incident_id":"x"}}`,
+		"attach neither id":    `{"attach":{}}`,
+		"attach bad uuid":      `{"attach":{"investigation_id":"1 OR 1=1"}}`,
+		"window without start": withSymptom(`"window":{}`),
+		"window end before start": withSymptom(`"window":{"start":"2026-10-04T11:00:00Z",` +
+			`"end":"2026-10-04T10:00:00Z"}`),
+		"window in the future": withSymptom(`"window":{"start":"2026-10-04T13:00:00Z"}`),
+		"window too old":       withSymptom(`"window":{"start":"2026-09-20T11:00:00Z"}`),
+		"external system pattern": withSymptom(
+			`"external_ref":{"system":"Pager Duty","id":"1"}`),
+		"external id missing": withSymptom(`"external_ref":{"system":"pagerduty"}`),
+		"external url scheme": withSymptom(
+			`"external_ref":{"system":"x","id":"1","url":"javascript:alert(1)"}`),
+		"idempotency key too long": withSymptom(`"idempotency_key":"` +
+			strings.Repeat("k", 129) + `"`),
+		"wrong type": `{"symptom":{"summary":42}}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -169,4 +174,9 @@ func TestFamilyTrigger(t *testing.T) {
 			t.Errorf("triggerFor(%q) = %q, want %q", family, got, want)
 		}
 	}
+}
+
+// withSymptom is a request with a valid symptom plus extra fields.
+func withSymptom(extra string) string {
+	return `{"symptom":{"summary":"a"},` + extra + `}`
 }

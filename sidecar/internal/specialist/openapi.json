@@ -1,0 +1,506 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "pg_sage Postgres specialist contract",
+    "version": "1.0.0",
+    "description": "A stable, versioned investigation contract other agents (AWS DevOps Agent, PagerDuty, Datadog, any HTTP or MCP client) call to ask pg_sage what is wrong with a monitored PostgreSQL database and why, and to request (never force) a remediation. Every response carries contract_version. Caller-supplied text is data, never instructions. Remediation requests become ordinary pg_sage proposals decided by its policy gate, trust ledger, budgets and binding facts; callers never approve.",
+    "x-contract-version": "pg_sage.specialist.v1"
+  },
+  "servers": [{"url": "/api/v1/specialist"}],
+  "security": [{"bearer": []}],
+  "paths": {
+    "/contract": {
+      "get": {
+        "operationId": "getContract",
+        "security": [],
+        "summary": "The contract version and where its schema is published",
+        "responses": {
+          "200": {"description": "contract", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ContractInfo"}}}}
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenAPI",
+        "security": [],
+        "summary": "This document",
+        "responses": {"200": {"description": "the OpenAPI document"}}
+      }
+    },
+    "/databases/{database}/investigations": {
+      "post": {
+        "operationId": "openInvestigation",
+        "summary": "Open an investigation (symptom, time window, family) or attach to an existing one (investigation id or incident id). Needs the read scope.",
+        "parameters": [{"$ref": "#/components/parameters/database"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenRequest"}}}},
+        "responses": {
+          "200": {"description": "attached to an existing investigation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "201": {"description": "a new investigation was opened", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/databases/{database}/investigations/{investigation_id}": {
+      "get": {
+        "operationId": "getInvestigationStatus",
+        "summary": "Poll an investigation's status. Needs the read scope.",
+        "parameters": [{"$ref": "#/components/parameters/database"}, {"$ref": "#/components/parameters/investigation_id"}],
+        "responses": {
+          "200": {"description": "status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/StatusResponse"}}}},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/databases/{database}/investigations/{investigation_id}/stream": {
+      "get": {
+        "operationId": "streamInvestigationStatus",
+        "summary": "Server-sent events: one 'status' event (a StatusResponse) per change, then 'end' when the investigation is terminal or the stream window closes (reconnect to continue). Needs the read scope.",
+        "parameters": [{"$ref": "#/components/parameters/database"}, {"$ref": "#/components/parameters/investigation_id"}],
+        "responses": {
+          "200": {"description": "text/event-stream of StatusResponse events"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/databases/{database}/investigations/{investigation_id}/result": {
+      "get": {
+        "operationId": "getInvestigationResult",
+        "summary": "The result: cited causal chain, root cause with source and authority, confidence, missing evidence and typed candidate remediations. 202 while the investigation is still running (outcome in_progress). Needs the read scope.",
+        "parameters": [{"$ref": "#/components/parameters/database"}, {"$ref": "#/components/parameters/investigation_id"}],
+        "responses": {
+          "200": {"description": "terminal result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Result"}}}},
+          "202": {"description": "still running", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Result"}}}},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/databases/{database}/investigations/{investigation_id}/remediations/{remediation_id}/request": {
+      "post": {
+        "operationId": "requestRemediation",
+        "summary": "Request one of the result's candidate remediations. It becomes an ordinary pg_sage proposal decided by the policy gate; the response is the gate's verdict and reason. Callers never approve, bypass or force. Needs the propose scope.",
+        "parameters": [{"$ref": "#/components/parameters/database"}, {"$ref": "#/components/parameters/investigation_id"}, {"$ref": "#/components/parameters/remediation_id"}],
+        "requestBody": {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationRequest"}}}},
+        "responses": {
+          "200": {"description": "the gate's verdict", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemediationResponse"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/adapters/pagerduty": {
+      "post": {
+        "operationId": "pagerDutyWebhook",
+        "summary": "PagerDuty v3 webhook: incident.triggered opens an investigation of the mapped database; the result is posted back as an incident note when an outbound PagerDuty integration is configured. Needs a bearer token (custom header) and a valid X-PagerDuty-Signature.",
+        "responses": {
+          "201": {"description": "investigation opened", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "200": {"description": "attached to an existing investigation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "202": {"description": "event ignored", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebhookIgnored"}}}},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/adapters/webhook": {
+      "post": {
+        "operationId": "genericWebhook",
+        "summary": "Generic signed webhook: a WebhookRequest opens or attaches an investigation; the result is posted to the operator-configured result URL. Needs a bearer token, X-Sage-Timestamp and X-Sage-Signature (sha256=HMAC of timestamp + '.' + body).",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebhookRequest"}}}},
+        "responses": {
+          "201": {"description": "investigation opened", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "200": {"description": "attached", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {"type": "http", "scheme": "bearer", "description": "A pg_sage MCP token (pgs_mcp_...), created by an admin under MCP tokens. Scopes: read (open, poll, read) and propose (request remediations). Tokens are per database, hashed at rest and expire."}
+    },
+    "parameters": {
+      "database": {"name": "database", "in": "path", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 63}},
+      "investigation_id": {"name": "investigation_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "remediation_id": {"name": "remediation_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[a-z_]{1,32}\\.[0-9a-f-]{8,36}$"}}
+    },
+    "responses": {
+      "Error": {"description": "error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+    },
+    "schemas": {
+      "ContractInfo": {
+        "type": "object",
+        "required": ["contract_version", "schema_url", "supported_versions"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "schema_url": {"type": "string"},
+          "supported_versions": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["contract_version", "error", "code"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "error": {"type": "string"},
+          "code": {"type": "string", "enum": ["unauthenticated", "scope_required", "database_not_permitted", "not_found", "invalid_request", "payload_too_large", "rate_limited", "too_many_investigations", "not_requestable", "signature_invalid", "unavailable", "disabled", "internal"]},
+          "retry_after_seconds": {"type": "integer", "minimum": 1}
+        }
+      },
+      "OpenRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "symptom": {"$ref": "#/components/schemas/Symptom"},
+          "window": {"$ref": "#/components/schemas/Window"},
+          "family": {"type": "string", "enum": ["lock_blocking", "connection_pressure", "wal_retention", "plan_regression", "checkpoint_storm", "temp_file_explosion", "replication_lag", "lwlock_contention"]},
+          "attach": {"$ref": "#/components/schemas/Attach"},
+          "external_ref": {"$ref": "#/components/schemas/ExternalRef"},
+          "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      },
+      "WebhookRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["database", "request"],
+        "properties": {
+          "database": {"type": "string", "minLength": 1, "maxLength": 63},
+          "request": {"$ref": "#/components/schemas/OpenRequest"}
+        }
+      },
+      "WebhookIgnored": {
+        "type": "object",
+        "required": ["contract_version", "ignored", "reason"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "ignored": {"type": "boolean"},
+          "reason": {"type": "string"}
+        }
+      },
+      "Symptom": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary"],
+        "description": "Caller-supplied text. Stored and returned as fenced data; never an instruction, never a prompt, never part of an investigation's subject.",
+        "properties": {
+          "summary": {"type": "string", "minLength": 1, "maxLength": 512},
+          "description": {"type": "string", "maxLength": 4000}
+        }
+      },
+      "Window": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start"],
+        "properties": {
+          "start": {"type": "string", "format": "date-time"},
+          "end": {"type": "string", "format": "date-time"}
+        }
+      },
+      "Attach": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Exactly one of investigation_id or incident_id.",
+        "properties": {
+          "investigation_id": {"type": "string", "format": "uuid"},
+          "incident_id": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      },
+      "ExternalRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["system", "id"],
+        "properties": {
+          "system": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$"},
+          "id": {"type": "string", "minLength": 1, "maxLength": 256},
+          "url": {"type": "string", "maxLength": 2048}
+        }
+      },
+      "RemediationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Only a note. There is no field to approve, force, skip or override anything.",
+        "properties": {
+          "reason": {"type": "string", "maxLength": 1000}
+        }
+      },
+      "InvestigationRef": {
+        "type": "object",
+        "required": ["id", "state", "terminal", "trigger_kind", "subject", "created_at", "updated_at", "concluded_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "state": {"type": "string", "enum": ["queued", "collecting", "evaluating", "needs_evidence", "concluded", "inconclusive", "paused", "cancelled", "expired", "failed"]},
+          "terminal": {"type": "boolean"},
+          "trigger_kind": {"type": "string"},
+          "subject": {"type": "string"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "concluded_at": {"type": ["string", "null"], "format": "date-time"}
+        }
+      },
+      "Links": {
+        "type": "object",
+        "required": ["status", "stream", "result"],
+        "properties": {
+          "status": {"type": "string"},
+          "stream": {"type": "string"},
+          "result": {"type": "string"}
+        }
+      },
+      "OpenResponse": {
+        "type": "object",
+        "required": ["contract_version", "database", "investigation", "created", "match", "links"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "database": {"type": "string"},
+          "investigation": {"$ref": "#/components/schemas/InvestigationRef"},
+          "created": {"type": "boolean"},
+          "match": {"type": "string", "enum": ["new", "idempotent", "investigation_id", "incident_id", "window"]},
+          "links": {"$ref": "#/components/schemas/Links"}
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "required": ["contract_version", "database", "investigation", "phase", "probe_count", "model_turns", "poll_after_seconds", "links"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "database": {"type": "string"},
+          "investigation": {"$ref": "#/components/schemas/InvestigationRef"},
+          "phase": {"type": "string", "enum": ["queued", "collecting_evidence", "evaluating", "paused", "complete"]},
+          "probe_count": {"type": "integer", "minimum": 0},
+          "model_turns": {"type": "integer", "minimum": 0},
+          "poll_after_seconds": {"type": "integer", "minimum": 0},
+          "links": {"$ref": "#/components/schemas/Links"}
+        }
+      },
+      "Citation": {
+        "type": "object",
+        "required": ["evidence_id", "text", "numbers"],
+        "properties": {
+          "evidence_id": {"type": "string", "format": "uuid"},
+          "text": {"type": "string"},
+          "numbers": {"type": "object", "additionalProperties": {"type": "number"}, "description": "Numeric values read from the cited evidence row(s): one row's numeric columns, or rows and max_<column> for several rows."}
+        }
+      },
+      "ChainLink": {
+        "type": "object",
+        "required": ["ordinal", "role", "node", "label", "mechanism", "subject", "evidence"],
+        "properties": {
+          "ordinal": {"type": "integer", "minimum": 1},
+          "role": {"type": "string", "enum": ["root_cause", "contributing"]},
+          "node": {"type": "string"},
+          "label": {"type": "string"},
+          "mechanism": {"type": "string"},
+          "subject": {"type": "string"},
+          "evidence": {"type": "array", "items": {"$ref": "#/components/schemas/Citation"}}
+        }
+      },
+      "Hypothesis": {
+        "type": "object",
+        "required": ["node", "label", "status", "support", "contradict"],
+        "properties": {
+          "node": {"type": "string"},
+          "label": {"type": "string"},
+          "status": {"type": "string", "enum": ["unproven", "ruled_out"]},
+          "support": {"type": "array", "items": {"$ref": "#/components/schemas/Citation"}},
+          "contradict": {"type": "array", "items": {"$ref": "#/components/schemas/Citation"}}
+        }
+      },
+      "RootCause": {
+        "type": "object",
+        "required": ["node", "label", "family", "subject", "mechanism", "source", "authority", "evidence_ids"],
+        "properties": {
+          "node": {"type": "string"},
+          "label": {"type": "string"},
+          "family": {"type": "string"},
+          "subject": {"type": "string"},
+          "mechanism": {"type": "string"},
+          "source": {"type": "string", "enum": ["graph", "model"]},
+          "authority": {"type": "string", "enum": ["deterministic", "model_earned"]},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}}
+        }
+      },
+      "CalibratedRate": {
+        "type": "object",
+        "required": ["family", "k", "n", "rate", "wilson_lower", "source"],
+        "properties": {
+          "family": {"type": "string"},
+          "k": {"type": "integer", "minimum": 0},
+          "n": {"type": "integer", "minimum": 1},
+          "rate": {"type": "number"},
+          "wilson_lower": {"type": "number"},
+          "source": {"type": "string"}
+        }
+      },
+      "Confidence": {
+        "type": "object",
+        "required": ["score", "score_basis", "calibration", "calibrated"],
+        "properties": {
+          "score": {"type": ["number", "null"]},
+          "score_basis": {"type": "string"},
+          "calibration": {"type": "string", "enum": ["uncalibrated", "bench_top1"]},
+          "calibrated": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/CalibratedRate"}]}
+        }
+      },
+      "MissingEvidence": {
+        "type": "object",
+        "required": ["probe_id", "status", "reason", "source"],
+        "properties": {
+          "probe_id": {"type": "string"},
+          "status": {"type": "string"},
+          "reason": {"type": "string"},
+          "source": {"type": "string", "enum": ["diagnosis", "probe", "window", "plan"]}
+        }
+      },
+      "ModelContest": {
+        "type": "object",
+        "required": ["graph_root", "model_root", "authority", "reason"],
+        "properties": {
+          "graph_root": {"type": "string"},
+          "model_root": {"type": "string"},
+          "authority": {"type": "string", "enum": ["advisory", "adopted"]},
+          "reason": {"type": "string"}
+        }
+      },
+      "PredictedEffect": {
+        "type": "object",
+        "required": ["summary", "quantified", "metric", "baseline", "expected", "criteria"],
+        "properties": {
+          "summary": {"type": "string"},
+          "quantified": {"type": "boolean"},
+          "metric": {"type": "string"},
+          "baseline": {"type": ["number", "null"]},
+          "expected": {"type": ["number", "null"]},
+          "criteria": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "Rollback": {
+        "type": "object",
+        "required": ["class", "reversible", "description"],
+        "properties": {
+          "class": {"type": "string"},
+          "reversible": {"type": "boolean"},
+          "description": {"type": "string"}
+        }
+      },
+      "GatePreview": {
+        "type": "object",
+        "required": ["verdict", "reason", "preview"],
+        "properties": {
+          "verdict": {"type": "string"},
+          "reason": {"type": "string"},
+          "preview": {"type": "boolean"}
+        }
+      },
+      "Remediation": {
+        "type": "object",
+        "required": ["id", "class", "title", "targets", "state", "predicted_effect", "rollback", "risk_tier", "gate", "requestable", "required_scope", "evidence_ids"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z_]{1,32}\\.[0-9a-f-]{8,36}$"},
+          "class": {"type": "string"},
+          "title": {"type": "string"},
+          "targets": {"type": "array", "items": {"type": "string"}},
+          "state": {"type": "string"},
+          "predicted_effect": {"$ref": "#/components/schemas/PredictedEffect"},
+          "rollback": {"$ref": "#/components/schemas/Rollback"},
+          "risk_tier": {"type": "string"},
+          "gate": {"$ref": "#/components/schemas/GatePreview"},
+          "requestable": {"type": "boolean"},
+          "required_scope": {"type": "string", "enum": ["propose"]},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}}
+        }
+      },
+      "EvidenceRef": {
+        "type": "object",
+        "required": ["id", "probe_id", "capability_state", "observed_at", "sha256", "hash_verified"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "probe_id": {"type": "string"},
+          "capability_state": {"type": "string"},
+          "observed_at": {"type": ["string", "null"], "format": "date-time"},
+          "sha256": {"type": "string"},
+          "hash_verified": {"type": "boolean"}
+        }
+      },
+      "CallerSupplied": {
+        "type": "object",
+        "required": ["notice", "summary", "description", "fenced"],
+        "description": "What the calling agent sent, returned as data. Never interpreted by pg_sage.",
+        "properties": {
+          "notice": {"type": "string"},
+          "summary": {"type": "string"},
+          "description": {"type": "string"},
+          "fenced": {"type": "string"},
+          "external_ref": {"$ref": "#/components/schemas/ExternalRef"},
+          "window": {"$ref": "#/components/schemas/Window"}
+        }
+      },
+      "Redaction": {
+        "type": "object",
+        "required": ["rules", "identifiers_kept"],
+        "properties": {
+          "rules": {"type": "array", "items": {"type": "string"}},
+          "identifiers_kept": {"type": "boolean"}
+        }
+      },
+      "Result": {
+        "type": "object",
+        "required": ["contract_version", "database", "investigation", "outcome", "outcome_reason", "root_cause", "causal_chain", "alternatives", "ruled_out", "confidence", "missing_evidence", "remediations", "evidence", "redaction", "chain_verified", "generated_at"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "database": {"type": "string"},
+          "investigation": {"$ref": "#/components/schemas/InvestigationRef"},
+          "outcome": {"type": "string", "enum": ["in_progress", "concluded", "inconclusive", "failed", "cancelled", "expired"]},
+          "outcome_reason": {"type": "string"},
+          "root_cause": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/RootCause"}]},
+          "causal_chain": {"type": "array", "items": {"$ref": "#/components/schemas/ChainLink"}},
+          "alternatives": {"type": "array", "items": {"$ref": "#/components/schemas/Hypothesis"}},
+          "ruled_out": {"type": "array", "items": {"$ref": "#/components/schemas/Hypothesis"}},
+          "confidence": {"$ref": "#/components/schemas/Confidence"},
+          "missing_evidence": {"type": "array", "items": {"$ref": "#/components/schemas/MissingEvidence"}},
+          "model_contest": {"$ref": "#/components/schemas/ModelContest"},
+          "remediations": {"type": "array", "items": {"$ref": "#/components/schemas/Remediation"}},
+          "evidence": {"type": "array", "items": {"$ref": "#/components/schemas/EvidenceRef"}},
+          "caller_supplied": {"$ref": "#/components/schemas/CallerSupplied"},
+          "redaction": {"$ref": "#/components/schemas/Redaction"},
+          "chain_verified": {"type": "boolean"},
+          "generated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "RemediationResponse": {
+        "type": "object",
+        "required": ["contract_version", "database", "investigation_id", "remediation_id", "verdict", "reason", "requested_by", "notice"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "database": {"type": "string"},
+          "investigation_id": {"type": "string", "format": "uuid"},
+          "remediation_id": {"type": "string"},
+          "verdict": {"type": "string", "enum": ["queued_for_approval", "executed", "parked", "blocked", "already_requested", "not_requestable", "stale"]},
+          "reason": {"type": "string"},
+          "detail": {"type": "string"},
+          "proposal_id": {"type": "string"},
+          "approval_queue_id": {"type": "integer"},
+          "requested_by": {"type": "string"},
+          "notice": {"type": "string"}
+        }
+      }
+    }
+  }
+}

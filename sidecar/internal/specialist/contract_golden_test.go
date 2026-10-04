@@ -71,53 +71,55 @@ func TestContract_IsBackwardCompatibleWithTheV1Baseline(t *testing.T) {
 	}
 }
 
+// breakingMutations are the kinds of breaking change the checker must catch.
+var breakingMutations = map[string]func(doc map[string]any){
+	"removed path": func(doc map[string]any) {
+		delete(doc["paths"].(map[string]any), "/databases/{database}/investigations")
+	},
+	"removed response code": func(doc map[string]any) {
+		op := pathOp(doc, "/databases/{database}/investigations/{investigation_id}/result",
+			"get")
+		delete(op["responses"].(map[string]any), "202")
+	},
+	"removed response property": func(doc map[string]any) {
+		delete(schemaProps(doc, "Result"), "causal_chain")
+	},
+	"changed property type": func(doc map[string]any) {
+		schemaProps(doc, "Citation")["numbers"] = map[string]any{"type": "array"}
+	},
+	"dropped guaranteed field": func(doc map[string]any) {
+		s := schemaOf(doc, "RootCause")
+		s["required"] = []any{"node"}
+	},
+	"new required request field": func(doc map[string]any) {
+		s := schemaOf(doc, "OpenRequest")
+		s["required"] = []any{"family"}
+	},
+	"removed request enum value": func(doc map[string]any) {
+		p := schemaProps(doc, "OpenRequest")["family"].(map[string]any)
+		p["enum"] = []any{"lock_blocking"}
+	},
+	"removed response enum value": func(doc map[string]any) {
+		p := schemaProps(doc, "RemediationResponse")["verdict"].(map[string]any)
+		p["enum"] = []any{"blocked"}
+	},
+	"shrunk request limit": func(doc map[string]any) {
+		p := schemaProps(doc, "Symptom")["summary"].(map[string]any)
+		p["maxLength"] = float64(10)
+	},
+	"removed schema": func(doc map[string]any) {
+		delete(doc["components"].(map[string]any)["schemas"].(map[string]any),
+			"Confidence")
+	},
+	"changed ref target": func(doc map[string]any) {
+		schemaProps(doc, "Result")["confidence"] = map[string]any{
+			"$ref": "#/components/schemas/Rollback"}
+	},
+}
+
 // The checker must itself catch each kind of breaking change.
 func TestContract_CompatCheckerDetectsBreakingChanges(t *testing.T) {
-	mutations := map[string]func(doc map[string]any){
-		"removed path": func(doc map[string]any) {
-			delete(doc["paths"].(map[string]any), "/databases/{database}/investigations")
-		},
-		"removed response code": func(doc map[string]any) {
-			op := pathOp(doc, "/databases/{database}/investigations/{investigation_id}/result",
-				"get")
-			delete(op["responses"].(map[string]any), "202")
-		},
-		"removed response property": func(doc map[string]any) {
-			delete(schemaProps(doc, "Result"), "causal_chain")
-		},
-		"changed property type": func(doc map[string]any) {
-			schemaProps(doc, "Citation")["numbers"] = map[string]any{"type": "array"}
-		},
-		"dropped guaranteed field": func(doc map[string]any) {
-			s := schemaOf(doc, "RootCause")
-			s["required"] = []any{"node"}
-		},
-		"new required request field": func(doc map[string]any) {
-			s := schemaOf(doc, "OpenRequest")
-			s["required"] = []any{"family"}
-		},
-		"removed request enum value": func(doc map[string]any) {
-			p := schemaProps(doc, "OpenRequest")["family"].(map[string]any)
-			p["enum"] = []any{"lock_blocking"}
-		},
-		"removed response enum value": func(doc map[string]any) {
-			p := schemaProps(doc, "RemediationResponse")["verdict"].(map[string]any)
-			p["enum"] = []any{"blocked"}
-		},
-		"shrunk request limit": func(doc map[string]any) {
-			p := schemaProps(doc, "Symptom")["summary"].(map[string]any)
-			p["maxLength"] = float64(10)
-		},
-		"removed schema": func(doc map[string]any) {
-			delete(doc["components"].(map[string]any)["schemas"].(map[string]any),
-				"Confidence")
-		},
-		"changed ref target": func(doc map[string]any) {
-			schemaProps(doc, "Result")["confidence"] = map[string]any{
-				"$ref": "#/components/schemas/Rollback"}
-		},
-	}
-	for name, mutate := range mutations {
+	for name, mutate := range breakingMutations {
 		t.Run(name, func(t *testing.T) {
 			baseline := readJSONFile(t, "testdata/contract.v1.baseline.json")
 			changed := readJSONFile(t, "testdata/contract.v1.baseline.json")

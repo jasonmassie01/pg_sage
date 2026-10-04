@@ -44,7 +44,8 @@ func newTestHandler(t *testing.T, limits Limits) (http.Handler, *harness) {
 	return handler, h
 }
 
-func call(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
+func call(t *testing.T, h http.Handler, method, path, token,
+	body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r io.Reader = http.NoBody
 	if body != "" {

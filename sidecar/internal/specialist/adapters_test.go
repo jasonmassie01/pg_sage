@@ -68,7 +68,8 @@ func postAdapter(h http.Handler, path, token string, body []byte,
 }
 
 func TestParsePagerDutyServices(t *testing.T) {
-	routes, err := ParsePagerDutyServices([]string{"PSVC1=orders", " PSVC2 = billing:wal_retention "})
+	routes, err := ParsePagerDutyServices([]string{"PSVC1=orders",
+		" PSVC2 = billing:wal_retention "})
 	if err != nil || routes["PSVC1"] != (PagerDutyRoute{Database: "orders"}) ||
 		routes["PSVC2"] != (PagerDutyRoute{Database: "billing", Family: "wal_retention"}) {
 		t.Fatalf("routes %+v %v", routes, err)
@@ -255,16 +256,17 @@ func TestGenericWebhook(t *testing.T) {
 		"future at tolerance":  webhookHeaders("wh-secret", now+300, body),
 	}
 	for name, hdr := range cases {
-		if w := postAdapter(h, base+"/adapters/webhook", "propose-token", body, hdr); w.Code >= 300 {
+		w := postAdapter(h, base+"/adapters/webhook", "propose-token", body, hdr)
+		if w.Code >= 300 {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
 	refused := map[string]map[string]string{
-		"stale":           webhookHeaders("wh-secret", now-301, body),
-		"too far ahead":   webhookHeaders("wh-secret", now+301, body),
-		"wrong secret":    webhookHeaders("other", now, body),
-		"no headers":      nil,
-		"bad timestamp":   {"X-Sage-Timestamp": "soon", "X-Sage-Signature": "sha256=00"},
+		"stale":         webhookHeaders("wh-secret", now-301, body),
+		"too far ahead": webhookHeaders("wh-secret", now+301, body),
+		"wrong secret":  webhookHeaders("other", now, body),
+		"no headers":    nil,
+		"bad timestamp": {"X-Sage-Timestamp": "soon", "X-Sage-Signature": "sha256=00"},
 		"signature reuse": {"X-Sage-Timestamp": strconv.FormatInt(now-1, 10),
 			"X-Sage-Signature": webhookHeaders("wh-secret", now, body)["X-Sage-Signature"]},
 	}
@@ -274,6 +276,11 @@ func TestGenericWebhook(t *testing.T) {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
+}
+
+func TestGenericWebhook_DatabaseAndBodyChecks(t *testing.T) {
+	h, hs := adapterHandler(t)
+	now := hs.clock.Now().Unix()
 	other := []byte(`{"database":"billing","request":{"symptom":{"summary":"x"}}}`)
 	if w := postAdapter(h, base+"/adapters/webhook", "propose-token", other,
 		webhookHeaders("wh-secret", now, other)); w.Code != 403 ||
