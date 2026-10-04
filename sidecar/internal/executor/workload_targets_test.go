@@ -29,6 +29,29 @@ func TestTableTargetsLeaveOutDiagnosticStatements(t *testing.T) {
 		WHERE extname = 'pg_stat_statements')`).Scan(&present); err != nil || !present {
 		t.Skip("pg_stat_statements not installed in the test database")
 	}
+	// Other packages reset pg_stat_statements on the shared matrix servers
+	// (cluster-wide), so targets and their texts are read in one statement,
+	// and a reset between running and reading retries the whole sequence.
+	for attempt := 0; attempt < 3; attempt++ {
+		checked := targetTexts(t, exec, ctx, table)
+		if len(checked) == 0 {
+			continue
+		}
+		for id, text := range checked {
+			if workload.Excluded(text) {
+				t.Errorf("verification target %d is not workload: %q", id, text)
+			}
+		}
+		return
+	}
+	t.Fatal("no target after 3 attempts: the application SELECT must be one")
+}
+
+// targetTexts runs the table's statements, then reads the verification
+// targets with their texts in one snapshot of pg_stat_statements.
+func targetTexts(t *testing.T, exec *Executor, ctx context.Context,
+	table string) map[int64]string {
+	t.Helper()
 	for _, sql := range []string{
 		"EXPLAIN (ANALYZE) SELECT * FROM public." + table + " WHERE a = 1",
 		"VACUUM public." + table,
@@ -41,18 +64,21 @@ func TestTableTargetsLeaveOutDiagnosticStatements(t *testing.T) {
 			}
 		}
 	}
-	ids := exec.statementIDs(ctx, tableStatementsSQL, wordPattern(table), verifyTargetLimit)
-	if len(ids) == 0 {
-		t.Fatal("no target: the application SELECT must be one")
+	rows, err := exec.pool.Query(context.Background(), `WITH t AS (`+tableStatementsSQL+`)
+		SELECT t.queryid, min(s.query) FROM t JOIN pg_stat_statements s USING (queryid)
+		GROUP BY t.queryid`, wordPattern(table), verifyTargetLimit)
+	if err != nil {
+		t.Fatalf("read targets: %v", err)
 	}
-	for _, id := range ids {
+	defer rows.Close()
+	out := map[int64]string{}
+	for rows.Next() {
+		var id int64
 		var text string
-		if err := exec.pool.QueryRow(context.Background(), `SELECT query
-			FROM pg_stat_statements WHERE queryid = $1 LIMIT 1`, id).Scan(&text); err != nil {
-			t.Fatalf("read target %d: %v", id, err)
+		if err := rows.Scan(&id, &text); err != nil {
+			t.Fatal(err)
 		}
-		if workload.Excluded(text) {
-			t.Errorf("verification target %d is not workload: %q", id, text)
-		}
+		out[id] = text
 	}
+	return out
 }
