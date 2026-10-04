@@ -333,7 +333,7 @@ jobs:
         working-directory: sidecar
         run: go run ./cmd/sigstore_trusted_root -o internal/benchsig/trusted_root.json
 
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign the PGIncidentBench reports (keyless)
         working-directory: sidecar/release-bench
