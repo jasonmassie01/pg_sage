@@ -110,6 +110,9 @@ type autonomyBinding struct {
 	// budget is the database's M5 error budget; nil without SLOs (no
 	// budget that could burn).
 	budget earned.BudgetSource
+	// notifier tells the operator about model-root authority changes;
+	// set before the ledger is registered, so no grant goes untold.
+	notifier earned.RootAuthorityNotifier
 }
 
 // failClosedLimiter answers every governed action (incident families and
@@ -163,6 +166,9 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
 	if b.settings.Enforce {
 		ex.WithAutonomy(lim)
+	}
+	if b.notifier != nil {
+		svc.WithRootAuthorityNotifier(b.notifier)
 	}
 	a.registry.Register(b.database, earned.RegistryEntry{Service: svc, Limiter: lim})
 	return nil

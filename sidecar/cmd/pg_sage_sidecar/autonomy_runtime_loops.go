@@ -41,7 +41,8 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 	// The M5 SLO engine is built with the investigator, before execution.
 	err := processAutonomy().install(rt.ctx, ex, autonomyBinding{database: rt.spec.Name,
 		control: control, monitored: rt.spec.Pool, databaseID: databaseID,
-		settings: settings, budget: slobudget.New(rt.sloEngine)})
+		settings: settings, budget: slobudget.New(rt.sloEngine),
+		notifier: rt.ledgerNotifier()})
 	if err != nil {
 		logError(rt.spec.Scope, "db %q: trust ledger unavailable; self-initiated "+
 			"actions are blocked until it is: %v", rt.spec.Name, err)
@@ -57,10 +58,7 @@ func (rt *databaseRuntime) startAutonomyLoops() {
 		return
 	}
 	settings := rt.cfg.SRE.Autonomy
-	notifier := autonomyNotifier{}
-	if rt.dispatcher != nil {
-		notifier.dispatcher = rt.dispatcher
-	}
+	notifier := rt.ledgerNotifier()
 	rec := earned.NewReconciler(entry.Service, rt.spec.Pool, rt.spec.Name, notifier)
 	name := rt.spec.Name
 	rt.startShadowScoring()
@@ -81,6 +79,16 @@ func (rt *databaseRuntime) startAutonomyLoops() {
 		ledgers.gameDays.Remove(name)
 	})
 	rt.note("earned_autonomy")
+}
+
+// ledgerNotifier tells this database's operator about ledger events
+// through its notification rules (and the log).
+func (rt *databaseRuntime) ledgerNotifier() autonomyNotifier {
+	n := autonomyNotifier{}
+	if rt.dispatcher != nil { // no typed nil in the interface
+		n.dispatcher = rt.dispatcher
+	}
+	return n
 }
 
 func evaluator(svc *earned.Service) func(context.Context) {

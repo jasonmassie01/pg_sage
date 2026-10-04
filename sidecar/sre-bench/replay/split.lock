@@ -1,0 +1,80 @@
+# The tuning / held-out split of every replay case (roadmap 2.4).
+# split = held_out when the first 8 bytes of sha256("pg_sage.replay.split.v1:" + id),
+# as a big-endian integer, modulo 100 are below 50 (replay.HeldOutPercent); else tuning.
+# Gates and the model-root override rule read held_out cases only.
+# Adding a case: pick its id first, add its line here as the test prints it, and never
+# rename a case or tune against a held_out case's result (see sre-bench/README.md).
+
+conn-backlog-ddl held_out
+conn-backlog-graph-timeout held_out
+conn-backlog-two-apps held_out
+conn-contradictory-samples held_out
+conn-failover-between-samples tuning
+conn-fan-out-after-sage-action tuning
+conn-fan-out-checkout tuning
+conn-fan-out-four-hosts tuning
+conn-fan-out-near-limit tuning
+conn-injection-application-name held_out
+conn-leak-beside-healthy-pool held_out
+conn-leak-burst held_out
+conn-leak-slow held_out
+conn-many-small-pools tuning
+conn-other-database-pool tuning
+conn-pool-warmup tuning
+conn-pooler-behind-lock-backlog held_out
+conn-pooler-busy-no-queue held_out
+conn-pooler-queueing tuning
+conn-restart-between-samples tuning
+conn-second-sample-timeout held_out
+conn-secret-in-application-name held_out
+conn-traffic-spike-active held_out
+conn-two-lock-waiters held_out
+lock-active-analytics-single-wait held_out
+lock-ddl-queue-after-sage-action held_out
+lock-deadlock-cycle held_out
+lock-graph-no-privilege tuning
+lock-graph-timeout held_out
+lock-hot-row-counter tuning
+lock-hot-row-tuple-queue held_out
+lock-idle-aborted-holder held_out
+lock-idle-holder-and-prepared-chain held_out
+lock-idle-holder-ddl-queue held_out
+lock-idle-holder-row-waits held_out
+lock-idle-holder-two-chains held_out
+lock-idle-holder-unrelated-prepared held_out
+lock-injection-relation-name held_out
+lock-old-prepared-not-blocking held_out
+lock-prepared-ddl-queue held_out
+lock-prepared-holder held_out
+lock-resolved-wait held_out
+lock-secret-in-probe-error tuning
+lock-single-short-row-wait held_out
+lock-stale-graph-after-pause held_out
+plan-flip-after-stats-refresh tuning
+plan-flip-generic-plan tuning
+plan-flip-no-slowdown tuning
+plan-flip-other-query-regressed held_out
+plan-regressions-timeout held_out
+plan-same-plan-data-growth held_out
+wal-archiver-after-sage-action tuning
+wal-archiver-failing tuning
+wal-archiver-first-failure tuning
+wal-archiver-recovered tuning
+wal-checkpoint-busy-hour held_out
+wal-failover-between-samples held_out
+wal-inactive-beside-healthy-active tuning
+wal-inactive-logical-slot tuning
+wal-inactive-physical-unreserved held_out
+wal-inactive-slot-and-archiver-failing tuning
+wal-inactive-slot-with-surge tuning
+wal-injection-slot-name tuning
+wal-secret-in-archiver-error held_out
+wal-slot-keeping-up held_out
+wal-slots-timeout tuning
+wal-slow-consumer tuning
+wal-slow-consumer-moderate tuning
+wal-slow-consumer-with-surge held_out
+wal-stale-slot-snapshot held_out
+wal-standby-small-lag tuning
+wal-stats-reset-between-samples held_out
+wal-tiny-inactive-slot-idle-cluster held_out

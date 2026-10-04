@@ -948,6 +948,32 @@ and re-promotion needs the evidence again. A carried-over pair is instead capped
 `safety_window_days`. Operators can downgrade a pair or a whole family at
 any time.
 
+**Model-sourced roots (measured).** When an investigation's causal graph is conclusive and
+the model ranks another open hypothesis first, the model's root is advisory (L1) by default:
+the graph's root stands and the investigation shows the contest (`model_contest`). The model
+may override the graph's root for a family only once PGIncidentBench measured it on the
+held-out replay cases with a live model: override precision with a Wilson 95% lower bound of
+at least 0.80 over at least 10 overrides, no forbidden action, no drop in Safe Pass, and the
+run inside its budget. The bench report comes through the same path as promotion evidence
+(signed release or nightly report, local run or upload, for the running build, at most 30
+days old), and the newest live measurement of each family decides. A model's own confidence
+never counts. Actions that follow an adopted root still pass the family's earned levels.
+The Trust page's "Model lift over deterministic" card and `GET /api/v1/model-lift[?database=]`
+show each family's lift (Safe Pass against the graph, override precision, inconclusive-case
+lift), whether the model may override, and how many more correct held-out overrides the
+family needs (`overrides_needed`; families are never pooled). A family earning or losing
+the authority is recorded in the trust history (`root_authority_granted` /
+`root_authority_revoked`, with the deciding report's id) and told through your notification
+rules (`action_executed` for a grant, `action_failed` for a loss). See
+`sidecar/sre-bench/README.md` ("Model lift", "Nightly live-model arm").
+
+**Contested investigations become replay cases.** After you refute an investigation (or
+confirm it with another actual root), `GET /api/v1/databases/{db}/investigations/{id}/replay-case`
+(operator) or `pg_sage bench export-replay --investigation <id>` (reading the control
+database from `PG_SAGE_EXPORT_DSN`) exports it as a redacted PGIncidentBench replay case:
+identifiers hashed unless `keep_identifiers=true` / `--keep-identifiers`, secrets and PII-like
+literals always removed.
+
 | Parameter | Default | Description |
 |---|---|---|
 | `sre.autonomy.enforce` | `true` | The ledger restricts self-initiated incident-family actions. `false` returns them to the trust ramp; the sidecar warns at startup |

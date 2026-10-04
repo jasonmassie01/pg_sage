@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -24,6 +25,21 @@ var r1Plan = map[string]map[probes.ID]int{
 		probes.SageActions: 1},
 	"wal_retention": {probes.ReplicationSlots: 2, probes.WALCheckpoint: 2,
 		probes.Archiver: 2, probes.SageActions: 1},
+}
+
+// laterPlans are the plans of the families added after R1: their cases
+// record every planned probe too, but they are not part of R1's class mix.
+var laterPlans = map[string]map[probes.ID]int{
+	"plan_regression": {probes.PlanRegressions: 1, probes.SageActions: 1},
+}
+
+// familyPlan is the probe plan of a family, R1 or later.
+func familyPlan(family string) (map[probes.ID]int, bool) {
+	if plan, ok := r1Plan[family]; ok {
+		return plan, true
+	}
+	plan, ok := laterPlans[family]
+	return plan, ok
 }
 
 func loadCorpus(t *testing.T) []Case {
@@ -73,9 +89,10 @@ func TestCorpus_SizeAndClassMix(t *testing.T) {
 
 func TestCorpus_RecordsEveryPlannedProbe(t *testing.T) {
 	for _, c := range loadCorpus(t) {
-		plan, ok := r1Plan[c.Family]
+		plan, ok := familyPlan(c.Family)
 		if !ok {
-			continue // a later family brings its own plan check
+			t.Errorf("%s: family %s has no probe plan to check", c.ID, c.Family)
+			continue
 		}
 		seen := map[probes.ID]int{}
 		for _, o := range c.Observations {
@@ -87,6 +104,27 @@ func TestCorpus_RecordsEveryPlannedProbe(t *testing.T) {
 					seen[id], n)
 			}
 		}
+	}
+}
+
+// A plan case's subject names the triggering query exactly as the
+// trigger does ("queryid <N>"): the investigator diagnoses the query whose
+// subject matches, so any other subject would never be diagnosed.
+func TestCorpus_PlanCasesNameTheirQuery(t *testing.T) {
+	subject := regexp.MustCompile(`^queryid -?[1-9][0-9]*$`)
+	n := 0
+	for _, c := range loadCorpus(t) {
+		if c.Family != "plan_regression" {
+			continue
+		}
+		n++
+		if !subject.MatchString(c.Subject) || !hasTag(c, TagPostR1) {
+			t.Errorf("%s: subject %q tags %v, want \"queryid <N>\" tagged %s", c.ID,
+				c.Subject, c.Tags, TagPostR1)
+		}
+	}
+	if n < 5 {
+		t.Errorf("%d plan_regression cases, want at least 5", n)
 	}
 }
 

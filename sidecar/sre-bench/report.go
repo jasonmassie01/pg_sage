@@ -15,6 +15,11 @@ import (
 const (
 	// ReportSchema versions the JSON result.
 	ReportSchema = "pg_sage.pgincidentbench.v1"
+	// ReportSchemaRevision is the additive revision of ReportSchema: 2 adds
+	// the held-out model lift, the live budget and the replay split
+	// (roadmap 2.4). Readers of revision 1 (pg_sage 1.9.0) ignore the new
+	// fields; this reader treats a report without a revision as 1.
+	ReportSchemaRevision = 2
 	// EnvRepeats sets how many times every scenario runs (default 1).
 	EnvRepeats = "SAGE_BENCH_REPEATS"
 	// EnvReportDir is where the report files go (default: a temp dir).
@@ -80,22 +85,40 @@ type Thresholds struct {
 
 // Report is the machine-readable bench result.
 type Report struct {
-	Schema        string            `json:"schema"`
-	GeneratedAt   time.Time         `json:"generated_at"`
-	ServerVersion string            `json:"server_version"`
-	PgSageVersion string            `json:"pg_sage_version,omitempty"`
-	PgSageCommit  string            `json:"pg_sage_commit,omitempty"`
-	Repeats       int               `json:"repeats"`
-	Arms          []string          `json:"arms"`
-	Gated         []string          `json:"gated_arms"`
-	Pending       map[string]string `json:"pending_arms,omitempty"`
-	LLM           LLMConfig         `json:"llm"`
-	Thresholds    Thresholds        `json:"thresholds"`
-	Cells         []CellRecord      `json:"cells"`
-	Gates         []GateResult      `json:"gates"`
-	Runs          []RunRecord       `json:"runs"`
+	Schema         string            `json:"schema"`
+	SchemaRevision int               `json:"schema_revision"`
+	GeneratedAt    time.Time         `json:"generated_at"`
+	ServerVersion  string            `json:"server_version"`
+	PgSageVersion  string            `json:"pg_sage_version,omitempty"`
+	PgSageCommit   string            `json:"pg_sage_commit,omitempty"`
+	Repeats        int               `json:"repeats"`
+	Arms           []string          `json:"arms"`
+	Gated          []string          `json:"gated_arms"`
+	Pending        map[string]string `json:"pending_arms,omitempty"`
+	LLM            LLMConfig         `json:"llm"`
+	Thresholds     Thresholds        `json:"thresholds"`
+	Cells          []CellRecord      `json:"cells"`
+	Gates          []GateResult      `json:"gates"`
+	Runs           []RunRecord       `json:"runs"`
 	// Replay is the replay corpus section, when the replay ran.
 	Replay *ReplayReport `json:"replay,omitempty"`
+	// ModelLift is the replay's held-out model lift over the causal graph
+	// (roadmap 2.4); LLMBudget is a live model's spending against its caps.
+	ModelLift []LiftRecord  `json:"model_lift,omitempty"`
+	LLMBudget *BudgetRecord `json:"llm_budget,omitempty"`
+}
+
+// AttachReplay sets the replay section with its model lift and the live
+// budget it saw last; nil removes them.
+func (r *Report) AttachReplay(rep *ReplayReport) {
+	r.Replay, r.ModelLift = rep, nil
+	if rep == nil {
+		return
+	}
+	r.ModelLift = rep.ModelLift
+	if rep.LLMBudget != nil {
+		r.LLMBudget = rep.LLMBudget
+	}
 }
 
 // Metric is a proportion with its denominator; the rate and Wilson
@@ -211,6 +234,8 @@ type RunRecord struct {
 	Error            string      `json:"error,omitempty"`
 	Grade            *Grade      `json:"grade,omitempty"`
 	Model            *ModelStats `json:"model,omitempty"`
+	// Split is a replay case's split (roadmap 2.4).
+	Split string `json:"split,omitempty"`
 }
 
 func runOf(r Result) RunRecord {
@@ -220,7 +245,7 @@ func runOf(r Result) RunRecord {
 		GoldContributing: sc.Gold.Contributing, Lookalike: sc.Gold.Lookalike,
 		State: string(o.State), Root: o.Root, Contributing: o.Contributing,
 		Ranked: o.Ranked, ProbeCount: o.ProbeCount, Forbidden: o.Forbidden,
-		Skipped: r.Skipped}
+		Skipped: r.Skipped, Split: sc.Split}
 	rec.Model = o.Model
 	if r.Err != nil {
 		rec.Error = r.Err.Error()
@@ -240,7 +265,8 @@ func runOf(r Result) RunRecord {
 // arm is listed with its reason and every gate not evaluated.
 func BuildReport(rs []Result, meta ReportMeta) Report {
 	s := Summarize(rs, meta.Arms)
-	r := Report{Schema: ReportSchema, GeneratedAt: meta.GeneratedAt,
+	r := Report{Schema: ReportSchema, SchemaRevision: ReportSchemaRevision,
+		GeneratedAt:   meta.GeneratedAt,
 		ServerVersion: meta.ServerVersion, PgSageVersion: meta.PgSageVersion,
 		PgSageCommit: meta.PgSageCommit, Repeats: meta.Repeats, Arms: s.Arms,
 		Gated: meta.Gated, Pending: meta.Pending, LLM: meta.LLM,
@@ -265,6 +291,10 @@ func BuildReport(rs []Result, meta ReportMeta) Report {
 	}
 	for _, res := range rs {
 		r.Runs = append(r.Runs, runOf(res))
+	}
+	if b := meta.LLM.budget; b != nil {
+		rec := b.Record()
+		r.LLMBudget = &rec
 	}
 	return r
 }

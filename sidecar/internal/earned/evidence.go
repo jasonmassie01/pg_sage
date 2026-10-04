@@ -61,6 +61,10 @@ type EvalRun struct {
 	Provenance string           `json:"provenance"`
 	// Duplicate reports an upload of a report already ingested.
 	Duplicate bool `json:"duplicate,omitempty"`
+	// SchemaRevision is the report's additive schema revision (0: a
+	// v1.9.0 report) and ModelLift its held-out model lift (roadmap 2.4).
+	SchemaRevision int        `json:"schema_revision,omitempty"`
+	ModelLift      *ModelLift `json:"model_lift,omitempty"`
 }
 
 // Shadow is a family's operator review record: packets reviewed and

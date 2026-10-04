@@ -315,14 +315,29 @@ func (e *Env) modelStats(ctx context.Context, scope sre.Scope, id sre.UUID,
 	}
 	m := &ModelStats{Turns: turns}
 	for _, ev := range events {
-		switch ev.Type {
-		case sre.EventModelReviewed:
-			m.Reviewed++
-		case sre.EventModelRejected:
-			m.Rejected++
-		case sre.EventModelDisagreed:
-			m.Disagreed++
-		}
+		countModelEvent(m, ev)
 	}
 	return m, nil
+}
+
+// countModelEvent counts one model turn event; a disagreement also names
+// the graph's root, the model's and the authority it got (its payload,
+// when readable).
+func countModelEvent(m *ModelStats, ev sre.Event) {
+	switch ev.Type {
+	case sre.EventModelReviewed:
+		m.Reviewed++
+	case sre.EventModelRejected:
+		m.Rejected++
+	case sre.EventModelDisagreed:
+		m.Disagreed++
+		var p struct {
+			GraphRoot string `json:"graph_root"`
+			ModelRoot string `json:"model_root"`
+			Authority string `json:"authority"`
+		}
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			m.GraphRoot, m.ModelRoot, m.Authority = p.GraphRoot, p.ModelRoot, p.Authority
+		}
+	}
 }
