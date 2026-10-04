@@ -12,7 +12,10 @@
   columns reordered, added or removed) skips the what-if, and the model is told which shapes
   were already measured. The idea is measured again once the workload or table changes
   materially (a target query's calls or mean time, or the table's rows, change 2x; a target
-  query appears or disappears) or after 7 days. Only model suggestions are remembered against:
+  query appears or disappears) or after 7 days. After three proposals in a row that were all
+  already measured, pg_sage stops asking the model about that table until something changes, so
+  the repeat costs neither a what-if nor an LLM call; both savings are exported as Prometheus
+  counters. Only model suggestions are remembered against:
   deterministic findings such as missing foreign-key indexes and re-checks of open
   recommendations are never skipped. Tune or turn it off under
   `llm.optimizer.rejection_memory`.

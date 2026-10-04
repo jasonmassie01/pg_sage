@@ -14,6 +14,7 @@ type OptimizerRejectionMemoryConfig struct {
 	MeanTimeRatio    float64 `yaml:"mean_time_ratio" doc:"A target query whose mean execution time grew or shrank by at least this factor is a material workload change. Range >1-1000. Default: 2."`
 	RowEstimateRatio float64 `yaml:"row_estimate_ratio" doc:"A table whose live-row estimate grew or shrank by at least this factor is a material change. Range >1-1000. Default: 2."`
 	PromptMaxShapes  int     `yaml:"prompt_max_shapes" doc:"Most recently rejected shapes per table listed in the optimizer prompt as already measured. Range 1-20. Default: 5."`
+	SkipLLMAfter     int     `yaml:"skip_llm_after" doc:"After this many consecutive proposals for a table that were all already measured or rejected, stop asking the model until a material change or the max age. Range 1-100. Default: 3."`
 }
 
 // Rejection memory defaults and limits.
@@ -24,10 +25,12 @@ const (
 	DefaultOptRejectionMeanTimeRatio    = 2.0
 	DefaultOptRejectionRowEstimateRatio = 2.0
 	DefaultOptRejectionPromptMaxShapes  = 5
+	DefaultOptRejectionSkipLLMAfter     = 3
 
 	MaxOptRejectionMaxAgeDays      = 90
 	MaxOptRejectionRatio           = 1000.0
 	MaxOptRejectionPromptMaxShapes = 20
+	MaxOptRejectionSkipLLMAfter    = 100
 )
 
 // DefaultOptimizerRejectionMemory returns the shipped rejection memory
@@ -40,6 +43,7 @@ func DefaultOptimizerRejectionMemory() OptimizerRejectionMemoryConfig {
 		MeanTimeRatio:    DefaultOptRejectionMeanTimeRatio,
 		RowEstimateRatio: DefaultOptRejectionRowEstimateRatio,
 		PromptMaxShapes:  DefaultOptRejectionPromptMaxShapes,
+		SkipLLMAfter:     DefaultOptRejectionSkipLLMAfter,
 	}
 }
 
@@ -65,6 +69,10 @@ func (c OptimizerRejectionMemoryConfig) validate() error {
 	if c.PromptMaxShapes < 1 || c.PromptMaxShapes > MaxOptRejectionPromptMaxShapes {
 		return fmt.Errorf("%sprompt_max_shapes must be 1-%d, got %d",
 			rejectionMemoryPrefix, MaxOptRejectionPromptMaxShapes, c.PromptMaxShapes)
+	}
+	if c.SkipLLMAfter < 1 || c.SkipLLMAfter > MaxOptRejectionSkipLLMAfter {
+		return fmt.Errorf("%sskip_llm_after must be 1-%d, got %d",
+			rejectionMemoryPrefix, MaxOptRejectionSkipLLMAfter, c.SkipLLMAfter)
 	}
 	return nil
 }

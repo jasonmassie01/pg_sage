@@ -12,8 +12,8 @@ import (
 func (o *Optimizer) analyzeTables(
 	ctx context.Context, contexts []TableContext, result *Result,
 ) {
-	skips := make(map[string]int)
-	defer func() { o.logMemorySummary(skips) }()
+	cyc := newCycleMemory()
+	defer func() { o.logMemorySummary(cyc) }()
 	for _, tc := range contexts {
 		if o.breaker.ShouldSkip(tc.Schema, tc.Table) {
 			o.logFn("optimizer",
@@ -31,7 +31,7 @@ func (o *Optimizer) analyzeTables(
 			result.Recommendations = append(result.Recommendations, open...)
 			continue
 		}
-		if !o.askModel(ctx, tc, result, skips) {
+		if !o.askModel(ctx, tc, result, cyc) {
 			break
 		}
 	}
@@ -41,13 +41,21 @@ func (o *Optimizer) analyzeTables(
 // returns false when the token budget is exhausted (no further table may
 // ask).
 func (o *Optimizer) askModel(
-	ctx context.Context, tc TableContext, result *Result, skips map[string]int,
+	ctx context.Context, tc TableContext, result *Result, cyc *cycleMemory,
 ) bool {
+	table := tc.Schema + "." + tc.Table
+	if !operatorRequested(ctx) && o.memory.skipModel(tc) {
+		cyc.model = append(cyc.model, table)
+		result.LLMCallsSkipped++
+		o.llmSkips.Add(1)
+		return true
+	}
 	mem := o.memory.view(ctx, tc)
 	recs, tokens, rejections, err := o.analyzeTable(ctx, tc, mem)
 	if mem.skipped > 0 {
-		skips[tc.Schema+"."+tc.Table] += mem.skipped
+		cyc.whatIf[table] += mem.skipped
 		result.MemorySkips += mem.skipped
+		o.whatIfSkips.Add(int64(mem.skipped))
 	}
 	if err != nil {
 		if isBudgetExhausted(err) {
@@ -76,19 +84,47 @@ func (o *Optimizer) askModel(
 	return true
 }
 
+// cycleMemory collects one cycle's rejection-memory skips for its summary.
+type cycleMemory struct {
+	whatIf map[string]int // what-if evaluations skipped, by table
+	model  []string       // tables the model was not asked about
+}
+
+func newCycleMemory() *cycleMemory {
+	return &cycleMemory{whatIf: make(map[string]int)}
+}
+
 // logMemorySummary reports the cycle's memory skips in one DEBUG line: a
 // skip is the expected steady state, not news.
-func (o *Optimizer) logMemorySummary(skips map[string]int) {
-	if len(skips) == 0 {
+func (o *Optimizer) logMemorySummary(cyc *cycleMemory) {
+	if len(cyc.whatIf) == 0 && len(cyc.model) == 0 {
 		return
 	}
-	tables := make([]string, 0, len(skips))
+	tables := make([]string, 0, len(cyc.whatIf))
 	total := 0
-	for table, n := range skips {
+	for table, n := range cyc.whatIf {
 		tables = append(tables, fmt.Sprintf("%s=%d", table, n))
 		total += n
 	}
 	sort.Strings(tables)
+	model := append([]string(nil), cyc.model...)
+	sort.Strings(model)
 	o.logFn("DEBUG", "optimizer: rejection memory skipped %d what-if evaluation(s) "+
-		"of already-measured candidates: %s", total, strings.Join(tables, ", "))
+		"of already-measured candidates (%s) and the model for %d table(s) (%s)",
+		total, strings.Join(tables, ", "), len(model), strings.Join(model, ", "))
+}
+
+// MemoryStats are the optimizer's rejection-memory counters since start.
+type MemoryStats struct {
+	WhatIfSkipped   int64 // what-if evaluations skipped (already measured)
+	LLMCallsSkipped int64 // model calls skipped (wasted-proposal streak)
+}
+
+// MemoryStats returns the rejection-memory counters (zero for nil).
+func (o *Optimizer) MemoryStats() MemoryStats {
+	if o == nil {
+		return MemoryStats{}
+	}
+	return MemoryStats{WhatIfSkipped: o.whatIfSkips.Load(),
+		LLMCallsSkipped: o.llmSkips.Load()}
 }

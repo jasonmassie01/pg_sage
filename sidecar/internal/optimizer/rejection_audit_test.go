@@ -63,7 +63,7 @@ func TestAskModel_BudgetAndFailureBranches(t *testing.T) {
 	llmCfg.CooldownSeconds, llmCfg.TokenBudgetDaily = 0, 1
 	o.client = llm.New(llmCfg, fnNoopLog)
 	res := &Result{}
-	if o.askModel(context.Background(), claimsTable(), res, map[string]int{}) ||
+	if o.askModel(context.Background(), claimsTable(), res, newCycleMemory()) ||
 		!res.BudgetExhausted || w.calls.Load() != 0 {
 		t.Fatalf("spent budget must stop the cycle: %+v whatif=%d", res, w.calls.Load())
 	}
@@ -73,7 +73,7 @@ func TestAskModel_BudgetAndFailureBranches(t *testing.T) {
 	o, w, _ = memOptimizer(t, failing, newMemStore(), zeroGain)
 	res = &Result{}
 	for range 3 {
-		if !o.askModel(context.Background(), claimsTable(), res, map[string]int{}) {
+		if !o.askModel(context.Background(), claimsTable(), res, newCycleMemory()) {
 			t.Fatal("a model error must not stop the cycle")
 		}
 	}

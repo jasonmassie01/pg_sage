@@ -284,3 +284,24 @@ func TestModelSkip_ConcurrentCycles(t *testing.T) {
 			promptCount(model))
 	}
 }
+
+// A material change in the middle of a streak restarts it on the new
+// workload, so earlier wasted proposals on the old workload do not count
+// toward skipping the new one.
+func TestModelSkip_MaterialChangeMidStreakRestartsCount(t *testing.T) {
+	o, model, _, _ := streakOptimizer(t, lifeosReplies()...)
+	ctx := context.Background()
+	askOnce(ctx, o, claimsTable())
+	askOnce(ctx, o, claimsTable())
+	busier := claimsTable()
+	busier.Queries[0].Calls *= 3
+	for i := 1; i <= 3; i++ { // the streak restarts at 1 on busier
+		if askOnce(ctx, o, busier).LLMCallsSkipped != 0 {
+			t.Fatalf("skipped after %d wasted proposals on the new workload", i-1)
+		}
+	}
+	if askOnce(ctx, o, busier).LLMCallsSkipped != 1 || promptCount(model) != 5 {
+		t.Fatalf("want the skip after 3 wasted proposals on the new workload, asked %d",
+			promptCount(model))
+	}
+}

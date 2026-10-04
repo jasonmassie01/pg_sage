@@ -42,6 +42,9 @@ type Result struct {
 	// MemorySkips counts LLM candidates whose what-if was skipped because
 	// rejection memory already measured the same idea on this workload.
 	MemorySkips int
+	// LLMCallsSkipped counts tables the model was not asked about because
+	// their recent proposals were all already measured (rejection memory).
+	LLMCallsSkipped int
 }
 
 // TableContext holds enriched per-table data for the LLM prompt.

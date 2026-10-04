@@ -132,6 +132,7 @@
 | `llm.optimizer.rejection_memory.mean_time_ratio` | `restart` | `-` |
 | `llm.optimizer.rejection_memory.prompt_max_shapes` | `restart` | `-` |
 | `llm.optimizer.rejection_memory.row_estimate_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `restart` | `-` |
 | `llm.optimizer.write_heavy_ratio_pct` | `restart` | `-` |
 | `llm.optimizer.write_impact_threshold_pct` | `restart` | `-` |
 | `llm.optimizer_llm.api_key` | `restart` | `-` |

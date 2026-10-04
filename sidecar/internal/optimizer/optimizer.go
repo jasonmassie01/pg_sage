@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
@@ -41,6 +42,9 @@ type Optimizer struct {
 	logFn          func(string, string, ...any)
 	// catalogTimeouts bound the context builder's catalog reads.
 	catalogTimeouts catalogread.Timeouts
+
+	// whatIfSkips and llmSkips count rejection-memory skips (MemoryStats).
+	whatIfSkips, llmSkips atomic.Int64
 }
 
 // WithCatalogReadTimeouts bounds the context builder's catalog reads
@@ -198,6 +202,7 @@ func (o *Optimizer) analyzeTable(
 		}
 		accepted = append(accepted, rec)
 	}
+	mem.finishProposal(tc, len(recs))
 
 	cap := o.maxNewPerTable()
 	if len(accepted) > cap {
@@ -241,13 +246,16 @@ func (o *Optimizer) admit(
 		)
 		return rec, false
 	}
-	if _, seen := mem.suppress(rec); seen {
-		return rec, false // counted in the cycle's DEBUG summary
+	if !operatorRequested(ctx) {
+		if _, seen := mem.suppress(rec); seen {
+			return rec, false // counted in the cycle's DEBUG summary
+		}
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
 	if rejected {
 		o.logFn("optimizer", "rejected %s on %s: %s",
 			rec.DDL, rec.Table, rec.WhatIfReason)
+		mem.countRejection()
 		if r, ok := o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct); ok {
 			mem.learn(r)
 		}

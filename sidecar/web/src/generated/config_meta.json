@@ -729,6 +729,11 @@
     "default": 2,
     "doc": "A table whose live-row estimate grew or shrank by at least this factor is a material change. Range \u003e1-1000. Default: 2."
   },
+  "llm.optimizer.rejection_memory.skip_llm_after": {
+    "type": "int",
+    "default": 3,
+    "doc": "After this many consecutive proposals for a table that were all already measured or rejected, stop asking the model until a material change or the max age. Range 1-100. Default: 3."
+  },
   "llm.optimizer.write_heavy_ratio_pct": {
     "type": "int",
     "default": 70,

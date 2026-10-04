@@ -66,6 +66,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 	writeSLOMetrics(&b, ctx, fleetMgr)
 	writeSelfCostFromFleet(&b, fleetMgr)
+	writeOptimizerMemoryFromFleet(&b, fleetMgr)
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

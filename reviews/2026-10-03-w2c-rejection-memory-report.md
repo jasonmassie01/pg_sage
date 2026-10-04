@@ -174,3 +174,48 @@ Pre-existing over-length functions touched: `Analyze` went from 95 to 57 lines;
    (`verify.drop_window_hours`).
 4. The bundled UI (`internal/api/dist`) was not rebuilt; the six new keys get tooltips at the
    next dist rebuild (the coordinator rebuilt dist at the wave-1 merge).
+
+## Follow-up (owner decisions on the open questions)
+
+1. **LLM calls are skipped too.** `llm.optimizer.rejection_memory.skip_llm_after` (default 3,
+   range 1-100): after that many consecutive *wasted* proposals for a table (a reply whose
+   every candidate was a memory hit or a fresh what-if rejection) with no material change
+   since the streak began, the model is not asked about the table until a material change or
+   `max_age_days` from the streak's start (same rules as the rejection memory). Files:
+   `internal/optimizer/rejection_streak.go`, `optimizer_cycle.go`.
+   Calls made:
+   - A *proposal* is one model reply for a table, not one candidate, so one reply with three
+     duplicate candidates does not skip the model at once.
+   - An empty reply (or a failed call) is neutral: it neither extends nor breaks the streak.
+     Any other outcome (an admitted or unverified candidate, a validator rejection) breaks it.
+   - Streaks live in process memory (one entry per table). After a restart a table is asked
+     up to `skip_llm_after` more times before it is skipped again; this avoids a second table
+     and costs at most three calls per table per restart.
+   - Operator-requested runs (`optimizer.WithOperatorRequest(ctx)`) always ask the model and
+     measure every candidate (no what-if suppression either). No operator trigger for the
+     optimizer exists yet; this is the hook for one.
+   - The cycle's one DEBUG summary line now also names the tables whose model call was
+     skipped (`... and the model for N table(s) (...)`); `Result.LLMCallsSkipped` counts them.
+2. **Prometheus counters** (process-lifetime, per database, same hand-written exposition and
+   per-instance iteration as the self-cost metrics):
+   `pg_sage_optimizer_whatif_skipped_total{database}` and
+   `pg_sage_optimizer_llm_calls_skipped_total{database}`. Read through
+   `Analyzer.OptimizerMemoryStats()`; databases without an optimizer export nothing.
+   Files: `cmd/pg_sage_sidecar/optimizer_memory_metrics.go` (+1 line in `prometheus.go`),
+   `internal/analyzer/optimizer_stats.go`.
+3. **CHANGELOG**: merged `origin/release/wave1` at cbed8d07; `## Unreleased` holds the wave 1
+   entries plus this bullet; everything from `## v1.8.5` down is byte-identical to
+   `origin/master`.
+4. Web dist and the pre-existing gofmt misalignment left alone.
+
+Tests first (commit d76c3c3d), then the implementation. New: boundary at N-1/N, configured N,
+useful proposal resets, validator rejection resets, empty reply neutral, material change
+resets (at and before N), max age lifts the skip (7 d - 1 s still skips, 7 d asks), operator
+request bypasses the skip and the what-if suppression, no memory never skips, per-table
+streaks, one DEBUG summary line, 8 concurrent cycles under `-race`, counters and their
+exposition (sorted, quoted labels, nothing without optimizers), analyzer accessor, config
+default/range. Mutation check of the streak: 12 mutants (threshold off by one, material change
+ignored, useful never resets, streak never restarts, empty reply resets, each operator bypass
+removed, each counter not incremented, rejections not counted, never skip, streak not per
+table); all killed. The "never restarts" mutant first survived; I added
+`TestModelSkip_MaterialChangeMidStreakRestartsCount`, which kills it.

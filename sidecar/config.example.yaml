@@ -100,6 +100,7 @@ llm:
       mean_time_ratio: 2        # ...or its mean time changes 2x
       row_estimate_ratio: 2     # ...or the table's rows change 2x
       prompt_max_shapes: 5      # Rejected shapes listed in the prompt per table
+      skip_llm_after: 3         # Stop asking the model after 3 all-rejected proposals
   # optimizer_llm:              # Dedicated LLM for optimizer (inherits from llm.* if empty)
   #   enabled: true               # Off by default; adds its own token_budget_daily
   #   endpoint: ""
