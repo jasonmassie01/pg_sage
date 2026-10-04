@@ -28,7 +28,7 @@ import (
 var perfEndpoints = []string{
 	"/api/v1/findings", "/api/v1/cases", "/api/v1/actions",
 	"/api/v1/investigations", "/api/v1/value", "/api/v1/incidents",
-	"/api/v1/recommendations",
+	"/api/v1/recommendations", "/api/v1/trust",
 }
 
 // perfLogCapture tees the runtime's log output (stderr) and keeps the

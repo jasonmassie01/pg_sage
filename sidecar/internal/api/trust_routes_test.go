@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,10 @@ func TestTrustAPI_ViewerReadsEveryDatabase(t *testing.T) {
 	dbs, _ := body["databases"].([]any)
 	if code != 200 || len(dbs) != 2 || body["meaning"] == nil {
 		t.Fatalf("trust = %d %v", code, body)
+	}
+	if m, _ := body["meaning"].(string); !strings.Contains(m,
+		"the ledger grants, the operator caps") || !strings.Contains(m, "tier3") {
+		t.Fatalf("meaning = %q", m)
 	}
 	orders := dbs[1].(map[string]any)
 	if orders["database"] != "orders" {
