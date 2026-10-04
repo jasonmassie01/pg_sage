@@ -52,7 +52,7 @@ func specVersion(id ID) string {
 func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 	reg := Catalog()
 	ids := reg.IDs()
-	all := append(r1IDs(), m6ReactiveIDs()...)
+	all := append(append(r1IDs(), m6ReactiveIDs()...), statViewIDs()...)
 	if len(ids) != len(all) {
 		t.Fatalf("catalog ids = %v, want %d probes", ids, len(all))
 	}
@@ -91,7 +91,7 @@ func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 	}
 	for _, fam := range []string{FamilyLocks, FamilyConnections,
 		FamilyReplication, FamilyWAL, FamilyVacuum, FamilyPlans, FamilyChange,
-		FamilyTempFiles, FamilyWaits, FamilySequences, FamilyRunway} {
+		FamilyTempFiles, FamilyWaits, FamilySequences, FamilyRunway, FamilyStats} {
 		if !families[fam] {
 			t.Errorf("no probe covers family %s", fam)
 		}
