@@ -30,7 +30,7 @@ func TestStartRevalidationLoop_RespectsVerifyAfterApply(t *testing.T) {
 }
 
 // G3-B16: agent hints keep the Set() allowlist and the work_mem clamp.
-func TestProposeHint_SetAllowlistAndClamp(t *testing.T) {
+func TestCheckHint_SetAllowlistAndClamp(t *testing.T) {
 	tu := New(nil, TunerConfig{WorkMemMaxMB: 512}, &HintPlanAvailability{Available: true,
 		HintTableReady: true}, noopLog2)
 	ctx := context.Background()
@@ -43,7 +43,7 @@ func TestProposeHint_SetAllowlistAndClamp(t *testing.T) {
 	qid := int64(100)
 	for hint, want := range accepted {
 		qid++
-		f, err := tu.ProposeHint(ctx, HintProposal{QueryID: qid, Hint: hint})
+		f, err := tu.CheckHint(ctx, HintProposal{QueryID: qid, Hint: hint})
 		if err != nil || f.Detail["hint_directive"] != want {
 			t.Errorf("%q: %v %v, want %q", hint, f.Detail["hint_directive"], err, want)
 		}
@@ -51,7 +51,7 @@ func TestProposeHint_SetAllowlistAndClamp(t *testing.T) {
 	for _, hint := range []string{`Set(statement_timeout "0")`, `Set(enable_seqscan off)`,
 		`Set(geqo off) NestLoop(a b)`} {
 		qid++
-		if _, err := tu.ProposeHint(ctx, HintProposal{QueryID: qid, Hint: hint}); !errors.Is(
+		if _, err := tu.CheckHint(ctx, HintProposal{QueryID: qid, Hint: hint}); !errors.Is(
 			err, ErrInvalidHint) {
 			t.Errorf("%q: %v, want ErrInvalidHint", hint, err)
 		}

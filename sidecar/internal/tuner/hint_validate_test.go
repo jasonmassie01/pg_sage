@@ -3,7 +3,7 @@ package tuner
 import "testing"
 
 // pg_hint_plan syntax validation, shared by the deterministic rules and
-// the tuning agent's hints (ProposeHint).
+// the tuning agent's hints (CheckHint).
 
 func TestValidateHintSyntax_ValidDirectives(t *testing.T) {
 	cases := []struct {

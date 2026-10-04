@@ -11,6 +11,8 @@ import (
 // the tuner keeps its pg_hint_plan validation, its Set() allowlist and
 // clamp, its sage.query_hints bookkeeping and its cooldown, and the
 // tuner's own deterministic pass then leaves that statement alone.
+// CheckHint has no side effects; only RecordHint, called for the hints
+// that survive the agent's per-cycle cap, records and cools down.
 
 func hintTuner(available bool) *Tuner {
 	hp := &HintPlanAvailability{Available: available, HintTableReady: available}
@@ -24,12 +26,12 @@ func agentHint(hint string) HintProposal {
 		Detail: map[string]any{"producer": "tuning_agent", "case_id": "top_statement:4242"}}
 }
 
-func TestProposeHint_BuildsTheFinding(t *testing.T) {
+func TestCheckHint_BuildsTheFinding(t *testing.T) {
 	tu := hintTuner(true)
 	if !tu.HintsAvailable() {
 		t.Fatal("pg_hint_plan with its hint table is available")
 	}
-	f, err := tu.ProposeHint(context.Background(), agentHint("IndexScan(orders orders_c_idx)"))
+	f, err := tu.CheckHint(context.Background(), agentHint("IndexScan(orders orders_c_idx)"))
 	if err != nil {
 		t.Fatalf("propose: %v", err)
 	}
@@ -43,14 +45,21 @@ func TestProposeHint_BuildsTheFinding(t *testing.T) {
 		f.Recommendation != "the planner prefers a sequential scan" {
 		t.Fatalf("detail = %v rec %q", f.Detail, f.Recommendation)
 	}
+	if _, cooling := tu.recentlyTuned[4242]; cooling {
+		t.Fatal("a checked hint leaves no trace: nothing cools down until it is recorded")
+	}
+	err = tu.RecordHint(context.Background(), agentHint("IndexScan(orders orders_c_idx)"))
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
 	if _, cooling := tu.recentlyTuned[4242]; !cooling {
-		t.Fatal("the statement cools down: the tuner's own pass skips it this cycle")
+		t.Fatal("a recorded hint cools down: the tuner's own pass skips it this cycle")
 	}
 }
 
-func TestProposeHint_ClampsWorkMem(t *testing.T) {
+func TestCheckHint_ClampsWorkMem(t *testing.T) {
 	tu := hintTuner(true)
-	f, err := tu.ProposeHint(context.Background(), agentHint(`Set(work_mem "2GB") HashJoin(o c)`))
+	f, err := tu.CheckHint(context.Background(), agentHint(`Set(work_mem "2GB") HashJoin(o c)`))
 	if err != nil {
 		t.Fatalf("propose: %v", err)
 	}
@@ -60,32 +69,49 @@ func TestProposeHint_ClampsWorkMem(t *testing.T) {
 	}
 }
 
-func TestProposeHint_Refusals(t *testing.T) {
+func TestCheckHint_Refusals(t *testing.T) {
 	ctx := context.Background()
-	if _, err := hintTuner(false).ProposeHint(ctx, agentHint("SeqScan(orders)")); !errors.Is(
+	if _, err := hintTuner(false).CheckHint(ctx, agentHint("SeqScan(orders)")); !errors.Is(
 		err, ErrHintsUnavailable) {
 		t.Fatalf("no pg_hint_plan: %v", err)
+	}
+	if err := hintTuner(false).RecordHint(ctx, agentHint("SeqScan(orders)")); !errors.Is(
+		err, ErrHintsUnavailable) {
+		t.Fatalf("no pg_hint_plan, nothing recorded: %v", err)
 	}
 	tu := hintTuner(true)
 	for _, bad := range []string{"", "DROP TABLE orders", "SeqScan(orders); DELETE FROM x",
 		`Set(statement_timeout "0")`, "Leading((a b))"} {
-		if _, err := tu.ProposeHint(ctx, agentHint(bad)); !errors.Is(err, ErrInvalidHint) {
+		if _, err := tu.CheckHint(ctx, agentHint(bad)); !errors.Is(err, ErrInvalidHint) {
 			t.Fatalf("%q: %v", bad, err)
 		}
+		if err := tu.RecordHint(ctx, agentHint(bad)); !errors.Is(err, ErrInvalidHint) {
+			t.Fatalf("record %q: %v", bad, err)
+		}
 	}
-	if _, err := tu.ProposeHint(ctx, HintProposal{Hint: "SeqScan(orders)"}); !errors.Is(err,
+	if _, err := tu.CheckHint(ctx, HintProposal{Hint: "SeqScan(orders)"}); !errors.Is(err,
 		ErrInvalidHint) {
 		t.Fatalf("a hint needs a statement: %v", err)
 	}
 	if len(tu.recentlyTuned) != 0 {
 		t.Fatal("a refused hint does not cool anything down")
 	}
-	if _, err := tu.ProposeHint(ctx, agentHint("SeqScan(orders)")); err != nil {
-		t.Fatalf("first: %v", err)
+	if _, err := tu.CheckHint(ctx, agentHint("SeqScan(orders)")); err != nil {
+		t.Fatalf("first check: %v", err)
 	}
-	if _, err := tu.ProposeHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
+	if _, err := tu.CheckHint(ctx, agentHint("IndexScan(orders)")); err != nil {
+		t.Fatalf("checking twice records nothing, so the second check passes: %v", err)
+	}
+	if err := tu.RecordHint(ctx, agentHint("SeqScan(orders)")); err != nil {
+		t.Fatalf("first record: %v", err)
+	}
+	if _, err := tu.CheckHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
 		ErrHintExists) {
 		t.Fatalf("one hint per statement while it is proposed or cooling: %v", err)
+	}
+	if err := tu.RecordHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
+		ErrHintExists) {
+		t.Fatalf("a second record of the statement is refused: %v", err)
 	}
 	var nilTuner *Tuner
 	if nilTuner.HintsAvailable() {
@@ -93,7 +119,7 @@ func TestProposeHint_Refusals(t *testing.T) {
 	}
 }
 
-func TestProposeHint_RecordsTheProposedHint(t *testing.T) {
+func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
 	if _, err := pool.Exec(ctx, "DELETE FROM sage.query_hints WHERE queryid = 4242"); err != nil {
 		t.Fatalf("clean: %v", err)
@@ -101,8 +127,16 @@ func TestProposeHint_RecordsTheProposedHint(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM sage.query_hints WHERE queryid = 4242") })
 	tu := New(pool, TunerConfig{WorkMemMaxMB: 256}, &HintPlanAvailability{Available: true,
 		HintTableReady: true}, noopLogFn)
-	if _, err := tu.ProposeHint(ctx, agentHint("SeqScan(orders)")); err != nil {
-		t.Fatalf("propose: %v", err)
+	if _, err := tu.CheckHint(ctx, agentHint("SeqScan(orders)")); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	var rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.query_hints
+		WHERE queryid = 4242`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("a checked hint writes nothing: %d rows, %v", rows, err)
+	}
+	if err := tu.RecordHint(ctx, agentHint("SeqScan(orders)")); err != nil {
+		t.Fatalf("record: %v", err)
 	}
 	var hint, symptom, status string
 	if err := pool.QueryRow(ctx, `SELECT hint_text, symptom, status FROM sage.query_hints
@@ -114,7 +148,7 @@ func TestProposeHint_RecordsTheProposedHint(t *testing.T) {
 	}
 	other := New(pool, TunerConfig{WorkMemMaxMB: 256}, &HintPlanAvailability{Available: true,
 		HintTableReady: true}, noopLogFn)
-	if _, err := other.ProposeHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
+	if _, err := other.CheckHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
 		ErrHintExists) {
 		t.Fatalf("a proposed hint survives a restart (loaded from sage.query_hints): %v", err)
 	}

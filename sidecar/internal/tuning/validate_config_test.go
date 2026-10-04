@@ -240,10 +240,14 @@ func TestJudge_QueryHintThroughTheTuner(t *testing.T) {
 	if j.Verdict != VerdictAdmitted || j.Finding.Category != "query_tuning" {
 		t.Fatalf("judged = %+v", j)
 	}
-	if len(h.hints.got) != 1 || h.hints.got[0].QueryID != 101 ||
-		h.hints.got[0].Hint != "IndexScan(orders orders_customer_idx)" ||
-		!strings.Contains(h.hints.got[0].Query, "customer_id") {
-		t.Fatalf("hint sink got %+v", h.hints.got)
+	if len(h.hints.checked) != 1 || h.hints.checked[0].QueryID != 101 ||
+		h.hints.checked[0].Hint != "IndexScan(orders orders_customer_idx)" ||
+		!strings.Contains(h.hints.checked[0].Query, "customer_id") {
+		t.Fatalf("hint sink checked %+v", h.hints.checked)
+	}
+	if len(h.hints.recorded) != 0 {
+		t.Fatalf("judging records nothing; only hints kept after the cap are recorded: %+v",
+			h.hints.recorded)
 	}
 	if j.Finding.Detail["producer"] != Producer || j.Class != verify.ClassQueryHint {
 		t.Fatalf("detail = %v class %q", j.Finding.Detail, j.Class)
@@ -268,7 +272,7 @@ func TestJudge_QueryHintRefusals(t *testing.T) {
 	s.Allowed[ProposeQueryHint] = false
 	h = newHarnessWith(t, s)
 	if j := judgeOne(t, h, nil, hintProposal(101)); j.Reason != ReasonDisabled ||
-		len(h.hints.got) != 0 {
+		len(h.hints.checked) != 0 {
 		t.Fatalf("hints switched off: %+v", j)
 	}
 }

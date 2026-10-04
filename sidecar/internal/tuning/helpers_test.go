@@ -285,17 +285,19 @@ func (f *fakeFacts) List(_ context.Context, filter facts.Filter) ([]facts.Fact, 
 type fakeHints struct {
 	available bool
 	err       error
-	got       []tuner.HintProposal
+	recordErr error
+	checked   []tuner.HintProposal
+	recorded  []tuner.HintProposal
 }
 
 func (h *fakeHints) HintsAvailable() bool { return h.available }
 
-func (h *fakeHints) ProposeHint(_ context.Context, p tuner.HintProposal) (
+func (h *fakeHints) CheckHint(_ context.Context, p tuner.HintProposal) (
 	analyzer.Finding, error) {
 	if h.err != nil {
 		return analyzer.Finding{}, h.err
 	}
-	h.got = append(h.got, p)
+	h.checked = append(h.checked, p)
 	detail := map[string]any{"queryid": p.QueryID, "hint_directive": p.Hint}
 	for k, v := range p.Detail {
 		detail[k] = v
@@ -305,6 +307,14 @@ func (h *fakeHints) ProposeHint(_ context.Context, p tuner.HintProposal) (
 		Title: "Per-query tuning", Detail: detail, Recommendation: p.Rationale,
 		RecommendedSQL: tuner.BuildInsertSQL(p.QueryID, p.Hint),
 		RollbackSQL:    tuner.BuildDeleteSQL(p.QueryID), ActionRisk: "safe"}, nil
+}
+
+func (h *fakeHints) RecordHint(_ context.Context, p tuner.HintProposal) error {
+	if h.recordErr != nil {
+		return h.recordErr
+	}
+	h.recorded = append(h.recorded, p)
+	return nil
 }
 
 // ---- fake store ----
