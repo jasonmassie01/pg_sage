@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
@@ -52,26 +51,27 @@ func (b *mcpAuthzBackend) GetLedger(
 	return mcp.LedgerResult{}, nil
 }
 
+// mcpRouterForUser mounts the real MCP runtime and server on the real
+// router with the real session middleware; requests carry the token of a
+// person with role ("viewer": read only, "operator": every scope), or no
+// credential for "". MCP over HTTP is token-only.
 func mcpRouterForUser(
-	t *testing.T, backend *mcpAuthzBackend, user *auth.User,
+	t *testing.T, backend mcp.Backend, role string,
 ) http.Handler {
 	t.Helper()
+	pool := surfacePool(t)
+	t.Setenv("PG_SAGE_LIVE_PROVISIONING", "0")
 	cfg := config.DefaultConfig()
 	cfg.MCP.Enabled = true
 	cfg.MCP.Transport = "http"
 	runtime, err := mcp.NewRuntime(cfg.MCP, mcp.NewServer(backend), nil, nil)
 	require.NoError(t, err)
-	inject := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if user != nil {
-				r = r.WithContext(context.WithValue(
-					r.Context(), userContextKey, user))
-			}
-			next.ServeHTTP(w, r)
-		})
+	h := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, SessionAuthMiddleware(pool))
+	if role == "" {
+		return h
 	}
-	return NewRouterFullRuntime(nil, cfg, nil, nil, nil, nil,
-		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, inject)
+	return withBearer(h, mcpRoleToken(t, pool, role).Secret)
 }
 
 func postMCPCall(t *testing.T, h http.Handler, body string) map[string]any {
@@ -93,18 +93,24 @@ const mcpProposeBody = `{"jsonrpc":"2.0","id":1,"method":"tools/call",` +
 
 func TestMountedMCPViewerCannotMutate(t *testing.T) {
 	backend := &mcpAuthzBackend{}
-	h := mcpRouterForUser(t, backend, testViewerUser())
+	h := mcpRouterForUser(t, backend, "viewer")
 
 	out := postMCPCall(t, h, mcpProposeBody)
-	rpcErr, ok := out["error"].(map[string]any)
-	require.True(t, ok, "viewer mutation must return a JSON-RPC error")
+	// Since MCP 2025-06-18 a refused tool call is a tool execution error:
+	// an isError result whose structuredContent carries the code.
+	result, ok := out["result"].(map[string]any)
+	require.True(t, ok, "viewer mutation must return a tool error result: %v", out)
+	require.Equal(t, true, result["isError"])
+	structured, _ := result["structuredContent"].(map[string]any)
+	rpcErr, _ := structured["error"].(map[string]any)
 	require.Equal(t, float64(-32001), rpcErr["code"])
+	require.Equal(t, "scope_required", rpcErr["reason"])
 	require.Zero(t, backend.proposals)
 }
 
 func TestMountedMCPViewerCanRead(t *testing.T) {
 	backend := &mcpAuthzBackend{}
-	h := mcpRouterForUser(t, backend, testViewerUser())
+	h := mcpRouterForUser(t, backend, "viewer")
 
 	out := postMCPCall(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/call",`+
 		`"params":{"name":"get_policy","arguments":{}}}`)
@@ -114,17 +120,18 @@ func TestMountedMCPViewerCanRead(t *testing.T) {
 
 func TestMountedMCPOperatorMutatesWithBoundActor(t *testing.T) {
 	backend := &mcpAuthzBackend{}
-	h := mcpRouterForUser(t, backend, testOperatorUser())
+	h := mcpRouterForUser(t, backend, "operator")
 
 	out := postMCPCall(t, h, mcpProposeBody)
 	require.Nil(t, out["error"])
 	require.Equal(t, 1, backend.proposals)
-	require.Equal(t, "mcp:user:2", backend.actor)
+	require.True(t, strings.HasPrefix(backend.actor, "mcp:token:"),
+		"the token is the actor: %s", backend.actor)
 }
 
 func TestMountedMCPWithoutUserIsRejected(t *testing.T) {
 	backend := &mcpAuthzBackend{}
-	h := mcpRouterForUser(t, backend, nil)
+	h := mcpRouterForUser(t, backend, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp",
 		strings.NewReader(mcpProposeBody))
 	req.Header.Set("Content-Type", "application/json")

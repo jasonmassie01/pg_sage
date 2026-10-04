@@ -410,7 +410,8 @@ func migrationStatements() []string {
 		ddlTrustLedger(),
 		ddlShadowMode(),
 		ddlFacts,
-		ddlSREAutonomyRootAuthority)
+		ddlSREAutonomyRootAuthority,
+		ddlMCPv2)
 }
 
 // ---------------------------------------------------------------------------

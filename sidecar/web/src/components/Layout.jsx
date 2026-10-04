@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings, Gauge,
-  Bot, Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck,
+  Bot, Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { EmergencyStopControl } from './EmergencyStopControl'
@@ -41,6 +41,8 @@ const NAV_GROUPS = [
         tid: 'nav-databases' },
       { path: '#/settings', icon: Settings, label: 'Settings',
         admin: true, tid: 'nav-settings' },
+      { path: '#/mcp-tokens', icon: KeyRound, label: 'MCP tokens',
+        admin: true, tid: 'nav-mcp-tokens' },
     ],
   },
 ]

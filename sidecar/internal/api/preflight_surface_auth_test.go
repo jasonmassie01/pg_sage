@@ -24,8 +24,9 @@ func TestPreflightSurfaceMCPViewerCannotPersistPolicyProposal(t *testing.T) {
 		t.Fatalf("REST role control: status=%d body=%s", status, body)
 	}
 	before := surfaceCount(t, pool, `SELECT count(*) FROM sage.policy WHERE status='proposed'`)
-	status, body = f.request(t, "POST", "/api/v1/mcp", surfaceRPC("propose_policy_change",
-		`{"delta":{"lock_duration_ceiling_ms":1000}}`))
+	// MCP over HTTP is token-only: the viewer acts with a read-only token.
+	status, body = f.requestBearer(t, "/api/v1/mcp", surfaceRPC("propose_policy_change",
+		`{"delta":{"lock_duration_ceiling_ms":1000}}`), mcpRoleToken(t, pool, "viewer").Secret)
 	after := surfaceCount(t, pool, `SELECT count(*) FROM sage.policy WHERE status='proposed'`)
 	t.Logf("REST=403 MCP=%d proposal rows before=%d after=%d response=%s", status, before, after, body)
 	if after != before {
@@ -38,9 +39,9 @@ func TestPreflightSurfaceMCPViewerCannotRegisterConsumer(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.MCP.Enabled, cfg.MCP.Transport = true, "http"
 	f := surfaceRouter(t, pool, cfg, surfaceMCP(t, pool, false))
-	f.login(t, "viewer")
-	status, body := f.request(t, "POST", "/api/v1/mcp", surfaceRPC("register_consumer",
-		`{"slot_name":"surface_viewer_probe","owner":"fixture"}`))
+	status, body := f.requestBearer(t, "/api/v1/mcp", surfaceRPC("register_consumer",
+		`{"slot_name":"surface_viewer_probe","owner":"fixture"}`),
+		mcpRoleToken(t, pool, "viewer").Secret)
 	count := surfaceCount(t, pool, `SELECT count(*) FROM sage.slot_consumer_registry
   WHERE slot_name='surface_viewer_probe'`)
 	t.Logf("viewer MCP=%d persisted consumers=%d response=%s", status, count, body)
@@ -60,7 +61,12 @@ func TestPreflightSurfaceMCPAuthenticationAndStopControls(t *testing.T) {
 		t.Fatalf("anonymous MCP status=%d want401", status)
 	}
 	f.login(t, "operator")
-	status, body := f.request(t, "POST", "/api/v1/mcp", rpc)
+	status, _ = f.request(t, "POST", "/api/v1/mcp", rpc)
+	if status != 401 {
+		t.Fatalf("session-only MCP status=%d want 401 (MCP is token-only)", status)
+	}
+	status, body := f.requestBearer(t, "/api/v1/mcp", rpc, mcpRoleToken(t, pool,
+		"operator").Secret)
 	if status != 200 || !strings.Contains(body, "emergency_stop") {
 		t.Errorf("stop response: status=%d body=%s", status, body)
 	}
