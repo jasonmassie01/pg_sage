@@ -30,23 +30,26 @@ func (r *Runtime) serveSubscription(w http.ResponseWriter, request *http.Request
 		}
 		return controller.Flush() == nil
 	}
+	// The baseline is taken before the acknowledgment: a client may change
+	// what the tool list depends on as soon as it sees the acknowledgment,
+	// and that change must not become part of the baseline (and be lost).
+	baseline := r.server.Fingerprint()
 	if !send(acknowledgment(message.ID, tools)) {
 		return
 	}
-	r.streamChanges(request.Context(), message, tools, send, func() bool {
+	r.streamChanges(request.Context(), message, tools, baseline, send, func() bool {
 		_, err := w.Write([]byte(": keep-alive\n\n"))
 		return err == nil && controller.Flush() == nil
 	})
 }
 
 func (r *Runtime) streamChanges(ctx context.Context, message envelope, tools bool,
-	send func([]byte) bool, keepAlive func() bool) {
+	last string, send func([]byte) bool, keepAlive func() bool) {
 	closeAt := closingTime(ctx)
 	ticker := time.NewTicker(r.watchInterval)
 	defer ticker.Stop()
 	idle := time.NewTicker(keepAliveInterval)
 	defer idle.Stop()
-	last := r.server.Fingerprint()
 	for {
 		select {
 		case <-ctx.Done():
