@@ -179,8 +179,12 @@ func (a *Analyzer) Run(ctx context.Context) {
 
 	a.logFn("INFO", "analyzer started, interval=%s", a.cfg.Analyzer.Interval())
 
-	// Run once immediately.
-	a.cycle(ctx)
+	// Run as soon as the collector's first snapshot exists (it collects at
+	// startup), not one interval later.
+	a.waitFirstSnapshot(ctx)
+	if ctx.Err() == nil {
+		a.cycle(ctx)
+	}
 
 	for {
 		select {
@@ -189,6 +193,28 @@ func (a *Analyzer) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.cycle(ctx)
+		}
+	}
+}
+
+// firstSnapshotPoll is how often the analyzer looks for the collector's
+// first snapshot before its first cycle.
+const firstSnapshotPoll = time.Second
+
+// waitFirstSnapshot waits, at most one analyzer interval, for the
+// collector's first snapshot.
+func (a *Analyzer) waitFirstSnapshot(ctx context.Context) {
+	if a.collector == nil {
+		return
+	}
+	deadline := time.Now().Add(a.cfg.Analyzer.Interval())
+	poll := time.NewTicker(firstSnapshotPoll)
+	defer poll.Stop()
+	for a.collector.LatestSnapshot() == nil && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-poll.C:
 		}
 	}
 }

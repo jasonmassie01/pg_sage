@@ -121,6 +121,13 @@ func (c *Collector) Run(ctx context.Context) {
 
 	c.logFn("INFO", "collector started, interval=%s", interval)
 
+	// Collect at startup, not one interval later: the first snapshot feeds
+	// the analyzer's first cycle within the first minute (five-minute time
+	// to value).
+	if ctx.Err() == nil {
+		c.cycle(ctx, ticker)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
