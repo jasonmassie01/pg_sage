@@ -225,3 +225,35 @@ is at 76.1% and `internal/mcp` at 84.8%, both above 70%.
 
 Follow-up verification: the touched packages on PG17, the small perf gate, actionlint (0),
 golangci-lint (0) and gitleaks are all green.
+
+## CI fix: pg_stat views at scale (PR #116 CI run 37224261119)
+
+`stat_statements` timed out (57014) on CI's server, which has ~50000 pg_stat_statements
+entries. It read the view with its text and matched pg_sage's self-exclusion regex against
+every entry.
+
+**Fix.** v2 reads `pg_stat_statements(showtext => false)`, ranks on the counters with
+`LIMIT $1`, and marks pg_sage-role statements with `own_role`. pg_sage's own statements can
+no longer be told apart by text. `stat_tables` v2 limits before naming relations.
+
+**Timing.** PG17, 45598 entries, 127 MB of text, best of 3:
+
+| Query | Time |
+|---|---|
+| v1 | 1066–1166 ms |
+| Text loading alone | 237–260 ms |
+| v2 | 56–69 ms (EXPLAIN ANALYZE: 56–64 ms) |
+| `stat_tables` over 3000 tables | 8 ms |
+
+**Tests.** New scale tests fill 3000 long distinct statements and 1500 tables, and require
+both probes to stay under half their timeout. They failed before the fix and pass after it.
+
+**Not changed: `temp_spill_statements`.** This existing M6 probe reads text the same way, to
+keep pg_sage's statements out (a v1.8.3 rule pinned by
+`TestTempSpillProbeLeavesOutPgSageStatements`). It takes 300–370 ms at that size against its
+500 ms timeout. It passes on CI's current pgss, but it is a scaling risk worth its own change.
+
+**MCP log line.** `REST=403 MCP=200` in `TestPreflightSurfaceMCP*` is expected. MCP returns a
+refused tool call as an `isError` result over HTTP 200 (code -32001, scope required), and no
+rows are persisted. The tests pass, so this is not an auth regression.
+
