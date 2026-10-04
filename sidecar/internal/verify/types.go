@@ -6,9 +6,15 @@ import (
 	"time"
 )
 
+// Measurement summarizes one query (or a pool of queries) over a window:
+// the calls, their call-weighted mean, the standard error of that mean
+// across the window's time buckets, and how many buckets carried calls.
+// StdErr is meaningful only with Buckets >= 2.
 type Measurement struct {
-	Samples        int
-	AverageLatency time.Duration
+	Samples        int           `json:"calls"`
+	AverageLatency time.Duration `json:"mean_ns"`
+	StdErr         time.Duration `json:"stderr_ns"`
+	Buckets        int           `json:"buckets"`
 }
 
 type Criterion struct {
@@ -52,6 +58,12 @@ type Verdict struct {
 	Samples          int
 	Window           time.Duration
 	NextEvaluationAt time.Time
+	// Outcome is the Phase 1.3 verdict (improved, neutral, regressed,
+	// insufficient_evidence, unverifiable); ObservedPct the call-weighted
+	// change of the targets; Evidence the comparison behind it.
+	Outcome     string
+	ObservedPct *float64
+	Evidence    map[string]any
 }
 
 // ResumeResult preserves the durable watch identity alongside its verdict.

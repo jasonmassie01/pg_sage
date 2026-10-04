@@ -57,6 +57,9 @@ func lockAlterSystem(t *testing.T, ctx context.Context, gucs ...string) *pgxpool
 func configTestExecutor(pool *pgxpool.Pool) *Executor {
 	cfg := config.DefaultConfig()
 	cfg.Trust.RollbackWindowMinutes = 0
+	// Judge at once: Phase 1.3 extends a window that lacks evidence up to
+	// verify.window_max_minutes, so the fixture pins that cap too.
+	cfg.Verify.WindowMaxMinutes = 0
 	e := New(pool, cfg, zeroTime(), nopLog)
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	e.settingWait = 3 * time.Second

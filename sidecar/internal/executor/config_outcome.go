@@ -9,11 +9,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/pgconf"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // Outcome metrics: the signal a config change is meant to move. A change
-// is credited 'success' only when its metric moved the right way over the
-// monitor window; anything unmeasurable is 'unverifiable' (G-P0-1).
+// is improved only when its metric moved the right way over the monitor
+// window (G-P0-1); Phase 1.3 judges it improved/neutral/regressed/insufficient.
 const (
 	metricTempSpills = "temp_spills" // work_mem: temp files per second
 	metricDeadTuples = "dead_tuples" // autovacuum knobs: dead-tuple ratio
@@ -23,6 +24,7 @@ const (
 const (
 	minExpectedSpills = 3    // fewer expected temp files cannot show a drop
 	spillDropFactor   = 0.5  // observed spills must be at most half of expected
+	spillRiseFactor   = 2.0  // observed spills at least double expected: regressed
 	deadRatioFactor   = 0.8  // dead-tuple ratio must fall by at least 20%
 	minWindowUpdates  = 100  // updates needed to judge a HOT ratio
 	hotRatioGain      = 0.05 // HOT share must rise by 5 points
@@ -130,17 +132,39 @@ func captureOutcomeBaseline(
 		Counters: counters}, nil
 }
 
-// judgeOutcome decides whether the metric moved enough to credit.
-func judgeOutcome(b outcomeBaseline, now map[string]float64, at time.Time) (bool, string) {
+// judgeOutcome decides the metric's verdict over the window.
+func judgeOutcome(b outcomeBaseline, now map[string]float64, at time.Time) metricJudgement {
+	var j metricJudgement
 	switch b.Metric {
 	case metricTempSpills:
-		return judgeTempSpills(b.Counters, now, at.Sub(b.At))
+		j = judgeTempSpills(b.Counters, now, at.Sub(b.At))
 	case metricDeadTuples:
-		return judgeDeadTuples(b.Counters, now)
+		j = judgeDeadTuples(b.Counters, now)
 	case metricHotUpdates:
-		return judgeHotUpdates(b.Counters, now)
+		j = judgeHotUpdates(b.Counters, now)
+	default:
+		j = metricJudgement{Verdict: verify.OutcomeUnverifiable, Terminal: true,
+			Reason: fmt.Sprintf("no targeted metric %q to verify the change", b.Metric)}
 	}
-	return false, fmt.Sprintf("no targeted metric %q to verify the change", b.Metric)
+	j.Metric = b.Metric
+	return j
+}
+
+// configPrediction is the rule-based prediction of a config change with a
+// targeted metric (the bars its judge credits).
+func configPrediction(metric string) verify.Prediction {
+	switch metric {
+	case metricTempSpills:
+		return ruleBasedPrediction("", metric, -50,
+			"temp files at most half of what the pre-change rate predicts")
+	case metricDeadTuples:
+		return ruleBasedPrediction("", metric, -20,
+			"the dead-tuple ratio falls by a fifth once autovacuum runs")
+	case metricHotUpdates:
+		return ruleBasedPrediction("", metric, 5,
+			"the share of HOT updates rises by 5 points")
+	}
+	return verify.NoPrediction("", "no targeted metric to verify this change")
 }
 
 func counters(m map[string]float64, keys ...string) ([]float64, bool) {
@@ -155,79 +179,112 @@ func counters(m map[string]float64, keys ...string) ([]float64, bool) {
 	return out, true
 }
 
-// judgeTempSpills credits a change when the window saw at most half the
-// temp files the pre-change rate predicts.
-func judgeTempSpills(before, after map[string]float64, elapsed time.Duration) (bool, string) {
+func insufficient(reason string, terminal bool) metricJudgement {
+	return metricJudgement{Verdict: verify.OutcomeInsufficient, Reason: reason,
+		Terminal: terminal}
+}
+
+// judgeTempSpills compares the temp files observed in the window with
+// those the pre-change rate predicts: at most half is improved, at least
+// double is a regression, anything between is neutral.
+func judgeTempSpills(before, after map[string]float64, elapsed time.Duration) metricJudgement {
 	b, ok1 := counters(before, "temp_files", "rate_per_sec")
 	a, ok2 := counters(after, "temp_files")
 	if !ok1 || !ok2 {
-		return false, "temp-file counters missing; not credited"
+		return metricJudgement{Verdict: verify.OutcomeUnverifiable, Terminal: true,
+			Reason: "temp-file counters missing; not credited"}
 	}
 	if b[0] <= 0 || b[1] <= 0 {
-		return false, "no temp-file spills before the change; nothing to improve"
+		return insufficient("no temp-file spills before the change; nothing to improve", true)
 	}
 	if a[0] < b[0] {
-		return false, "statistics were reset during the window; not credited"
+		return insufficient("statistics were reset during the window; not credited", true)
 	}
 	expected := b[1] * elapsed.Seconds()
 	if expected < minExpectedSpills-judgeEpsilon {
-		return false, fmt.Sprintf("too few spills expected in the window (%.1f) to judge",
-			expected)
+		return insufficient(fmt.Sprintf("too few spills expected in the window (%.1f) to "+
+			"judge", expected), false)
 	}
 	observed := a[0] - b[0]
-	if observed <= spillDropFactor*expected+judgeEpsilon {
-		return true, fmt.Sprintf("temp files fell: %.0f observed vs %.1f expected", observed,
+	change := (observed/expected - 1) * 100
+	j := metricJudgement{ObservedPct: &change, Before: expected, After: observed}
+	switch {
+	case observed <= spillDropFactor*expected+judgeEpsilon:
+		j.Verdict = verify.OutcomeImproved
+		j.Reason = fmt.Sprintf("temp files fell: %.0f observed vs %.1f expected", observed,
 			expected)
+	case observed >= spillRiseFactor*expected-judgeEpsilon:
+		j.Verdict = verify.OutcomeRegressed
+		j.Reason = fmt.Sprintf("temp files rose: %.0f observed vs %.1f expected", observed,
+			expected)
+	default:
+		j.Verdict = verify.OutcomeNeutral
+		j.Reason = fmt.Sprintf("temp files did not fall: %.0f observed vs %.1f expected",
+			observed, expected)
 	}
-	return false, fmt.Sprintf("temp files did not fall: %.0f observed vs %.1f expected",
-		observed, expected)
+	return j
 }
 
 // judgeDeadTuples credits an autovacuum change when autovacuum ran and
 // the dead-tuple ratio fell by at least 20%.
-func judgeDeadTuples(before, after map[string]float64) (bool, string) {
+func judgeDeadTuples(before, after map[string]float64) metricJudgement {
 	b, ok1 := counters(before, "n_dead_tup", "n_live_tup", "autovacuum_count")
 	a, ok2 := counters(after, "n_dead_tup", "n_live_tup", "autovacuum_count")
 	if !ok1 || !ok2 {
-		return false, "dead-tuple counters missing; not credited"
+		return metricJudgement{Verdict: verify.OutcomeUnverifiable, Terminal: true,
+			Reason: "dead-tuple counters missing; not credited"}
 	}
 	if b[0] <= 0 || b[0]+b[1] <= 0 {
-		return false, "no dead tuples before the change; nothing to improve"
+		return insufficient("no dead tuples before the change; nothing to improve", true)
 	}
 	if a[2] <= b[2] {
-		return false, "autovacuum did not run on the target during the window"
+		return insufficient("autovacuum did not run on the target during the window", false)
 	}
 	r0 := b[0] / (b[0] + b[1])
 	r1 := 0.0
 	if a[0]+a[1] > 0 {
 		r1 = a[0] / (a[0] + a[1])
 	}
+	change := (r1/r0 - 1) * 100
+	j := metricJudgement{ObservedPct: &change, Before: r0, After: r1}
 	if r1 <= deadRatioFactor*r0+judgeEpsilon {
-		return true, fmt.Sprintf("dead-tuple ratio fell from %.3f to %.3f", r0, r1)
+		j.Verdict = verify.OutcomeImproved
+		j.Reason = fmt.Sprintf("dead-tuple ratio fell from %.3f to %.3f", r0, r1)
+		return j
 	}
-	return false, fmt.Sprintf("dead-tuple ratio did not fall enough (%.3f -> %.3f)", r0, r1)
+	j.Verdict = verify.OutcomeNeutral
+	j.Reason = fmt.Sprintf("dead-tuple ratio did not fall enough (%.3f -> %.3f)", r0, r1)
+	return j
 }
 
 // judgeHotUpdates credits a fillfactor change when the window's share of
 // HOT updates beats the lifetime share by 5 points.
-func judgeHotUpdates(before, after map[string]float64) (bool, string) {
+func judgeHotUpdates(before, after map[string]float64) metricJudgement {
 	b, ok1 := counters(before, "n_tup_upd", "n_tup_hot_upd")
 	a, ok2 := counters(after, "n_tup_upd", "n_tup_hot_upd")
 	if !ok1 || !ok2 {
-		return false, "update counters missing; not credited"
+		return metricJudgement{Verdict: verify.OutcomeUnverifiable, Terminal: true,
+			Reason: "update counters missing; not credited"}
 	}
 	updates := a[0] - b[0]
 	if updates < minWindowUpdates {
-		return false, fmt.Sprintf("too few updates in the window (%.0f) to judge", updates)
+		return insufficient(fmt.Sprintf("too few updates in the window (%.0f) to judge",
+			updates), false)
 	}
 	base := 0.0
 	if b[0] > 0 {
 		base = b[1] / b[0]
 	}
 	window := (a[1] - b[1]) / updates
+	change := (window - base) * 100
+	j := metricJudgement{ObservedPct: &change, Before: base, After: window}
 	if window-base >= hotRatioGain-judgeEpsilon {
-		return true, fmt.Sprintf("HOT update share rose from %.3f to %.3f", base, window)
+		j.Verdict = verify.OutcomeImproved
+		j.Reason = fmt.Sprintf("HOT update share rose from %.3f to %.3f", base, window)
+		return j
 	}
-	return false, fmt.Sprintf("HOT update share did not rise enough (%.3f -> %.3f)",
-		base, math.Max(window, 0))
+	j.Verdict = verify.OutcomeNeutral
+	j.Reason = fmt.Sprintf("HOT update share did not rise enough (%.3f -> %.3f)", base,
+		math.Max(window, 0))
+	return j
 }

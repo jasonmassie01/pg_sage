@@ -46,6 +46,7 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 		logStructuredWrapper,
 	)
 	registerNotifySenders(dispatcher)
+	withApprovalCardTokens(dispatcher, controlPool)
 	notifyDispatchers[controlPool] = dispatcher
 	return dispatcher
 }

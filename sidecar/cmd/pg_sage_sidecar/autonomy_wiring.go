@@ -2,13 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -36,15 +30,17 @@ type ledgerKey struct {
 
 // autonomyLedgers is the process's ledgers and their registries.
 type autonomyLedgers struct {
-	mu       sync.Mutex
-	byKey    map[ledgerKey]*earned.Service
-	registry *earned.Registry
-	gameDays *gameday.Registry
+	mu           sync.Mutex
+	byKey        map[ledgerKey]*earned.Service
+	registry     *earned.Registry
+	gameDays     *gameday.Registry
+	localBenches *gameday.BenchRegistry
 }
 
 func newAutonomyLedgers(enforced bool) *autonomyLedgers {
 	return &autonomyLedgers{byKey: map[ledgerKey]*earned.Service{},
-		registry: earned.NewRegistry(enforced), gameDays: gameday.NewRegistry()}
+		registry: earned.NewRegistry(enforced), gameDays: gameday.NewRegistry(),
+		localBenches: gameday.NewBenchRegistry()}
 }
 
 var (
@@ -69,6 +65,7 @@ func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	c.ProposalTTL, c.MaxEvidenceAge = s.ProposalTTL(), s.MaxEvidenceAge()
 	c.ConcurrencyWindow, c.SafetyWindow = s.ConcurrencyWindow(), s.SafetyWindow()
 	c.FailoverCooldown = s.FailoverCooldown()
+	c.Build = runningBuild()
 	c.Log = func(format string, args ...any) { logWarn("autonomy", format, args...) }
 	return c
 }
@@ -176,53 +173,6 @@ func (n autonomyNotifier) NotifyAutonomous(ctx context.Context, a earned.AutoExe
 		DedupKey: fmt.Sprintf("autonomy:%s:%d", a.Database, a.ActionLogID)})
 }
 
-// ingestBenchPath ingests a PGIncidentBench report, or every *.json in a
-// directory, and reports how many were new.
-func ingestBenchPath(ctx context.Context, svc *earned.Service, path string) (int, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0, fmt.Errorf("bench results path: %w", err)
-	}
-	files := []string{path}
-	if info.IsDir() {
-		if files, err = benchReportFiles(path); err != nil {
-			return 0, fmt.Errorf("bench results path: %w", err)
-		}
-	}
-	added := 0
-	var errs []error
-	for _, f := range files {
-		run, err := ingestBenchFile(ctx, svc, f)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if !run.Duplicate {
-			added++
-		}
-	}
-	return added, errors.Join(errs...)
-}
-
-func ingestBenchFile(ctx context.Context, svc *earned.Service, path string) (
-	earned.EvalRun, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return earned.EvalRun{}, fmt.Errorf("open bench report: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(f, earned.MaxReportBytes+1))
-	if err != nil {
-		return earned.EvalRun{}, fmt.Errorf("read bench report %s: %w", path, err)
-	}
-	run, err := svc.IngestEvalRun(ctx, raw, earned.SourceBench, "bench_results_path", "")
-	if err != nil {
-		return earned.EvalRun{}, fmt.Errorf("bench report %s: %w",
-			filepath.Base(path), err)
-	}
-	return run, nil
-}
-
 // monitoredDSNs are every monitored database's connection strings, so a
 // local game-day database can never be one of them.
 func monitoredDSNs(extra ...*pgxpool.Pool) []string {
@@ -247,36 +197,4 @@ func trimmedFamilies(in []string) []string {
 		}
 	}
 	return out
-}
-
-// benchReportMaxDepth bounds the walk of bench_results_path: CI writes one
-// report per shard one level down (pgincidentbench/{core,reactive,runway}).
-const benchReportMaxDepth = 3
-
-// benchReportFiles lists the *.json files under root, at most
-// benchReportMaxDepth levels down, sorted.
-func benchReportFiles(root string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, relErr := filepath.Rel(root, p)
-		if relErr != nil {
-			return relErr
-		}
-		depth := len(strings.Split(filepath.ToSlash(rel), "/"))
-		if d.IsDir() {
-			if rel != "." && depth > benchReportMaxDepth {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(d.Name(), ".json") {
-			files = append(files, p)
-		}
-		return nil
-	})
-	sort.Strings(files)
-	return files, err
 }

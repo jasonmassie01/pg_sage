@@ -95,3 +95,7 @@ logs/
 local_monitor_config.yaml
 test-fixtures/full_surface/*.log
 test_briefing.txt
+
+# Signed bench reports CI places for the image (roadmap 1.1)
+sidecar/release-bench/*
+!sidecar/release-bench/README.md

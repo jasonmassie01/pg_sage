@@ -39,13 +39,13 @@ func newFakeObservationSource() *fakeObservationSource {
 	return &fakeObservationSource{
 		executedAt: testVerificationNow().Add(-2 * time.Hour),
 		before: map[int64]Measurement{
-			42: {Samples: 60, AverageLatency: 100 * time.Millisecond},
+			42: {Samples: 60, AverageLatency: 100 * time.Millisecond, Buckets: 12},
 		},
 		after: map[int64]Measurement{
-			42: {Samples: 60, AverageLatency: 70 * time.Millisecond},
+			42: {Samples: 60, AverageLatency: 70 * time.Millisecond, Buckets: 12},
 		},
-		writeBefore: Measurement{Samples: 60, AverageLatency: 10 * time.Millisecond},
-		writeAfter:  Measurement{Samples: 60, AverageLatency: 11 * time.Millisecond},
+		writeBefore: Measurement{Samples: 60, AverageLatency: 10 * time.Millisecond, Buckets: 12},
+		writeAfter:  Measurement{Samples: 60, AverageLatency: 11 * time.Millisecond, Buckets: 12},
 		indexValid:  true,
 		load:        LoadSample{CPUPct: 20, DataIOPct: 20, LogIOPct: 20},
 	}

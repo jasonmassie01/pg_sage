@@ -2,28 +2,18 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
-	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
-type regressionVerdict int
-
-const (
-	regressionNone regressionVerdict = iota
-	regressionDetected
-	regressionUnverifiable
-)
-
-// Health probes are scoped to the connected database so another database's
-// workload can neither trigger nor hide a regression (Codex C17).
+// Context probes recorded in before_state (not verification: Phase 1.3
+// judges the targeted queries), scoped to the connected database so another
+// database's workload never shows up in them (Codex C17).
 const cacheHitRatioSQL = `/* pg_sage */ SELECT coalesce(
 	blks_hit::float / nullif(blks_hit + blks_read, 0), 1.0)
 	FROM pg_stat_database WHERE datname = current_database()`
@@ -40,85 +30,6 @@ var writeLatencySQL = `/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
 // monitorableOutcomes are states a post-action monitor may still change.
 // Terminal outcomes (rolled_back, rollback_failed, failed, ...) are final.
 const monitorableOutcomes = `('monitoring', 'pending', 'interrupted')`
-
-// evaluateRegression compares before-state metrics with current metrics.
-// Missing or unreadable evidence is unverifiable, never "no regression".
-func evaluateRegression(
-	ctx context.Context, pool *pgxpool.Pool, actionID int64, thresholdPct int,
-) regressionVerdict {
-	if ids, executedAt := actionTargetQueries(ctx, pool, actionID); len(ids) > 0 &&
-		!executedAt.IsZero() {
-		return perQueryRegression(ctx, pool, ids, executedAt, thresholdPct)
-	}
-	var beforeCacheHit, beforeMeanMs float64
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT
-		coalesce((before_state->>'cache_hit_ratio')::float, -1),
-		coalesce((before_state->>'mean_exec_time_ms')::float, -1)
-		FROM sage.action_log WHERE id = $1`, actionID).Scan(&beforeCacheHit, &beforeMeanMs)
-	if err != nil || beforeCacheHit <= 0 {
-		return regressionUnverifiable
-	}
-	var currentCacheHit float64
-	if err := pool.QueryRow(ctx, cacheHitRatioSQL).Scan(&currentCacheHit); err != nil {
-		return regressionUnverifiable
-	}
-	dropPct := ((beforeCacheHit - currentCacheHit) / beforeCacheHit) * 100
-	if dropPct > float64(thresholdPct) {
-		return regressionDetected
-	}
-	if beforeMeanMs <= 0 {
-		return regressionNone
-	}
-	var currentMeanMs float64
-	if err := pool.QueryRow(ctx, writeLatencySQL).Scan(&currentMeanMs); err != nil {
-		return regressionUnverifiable
-	}
-	if currentMeanMs > 0 && ((currentMeanMs-beforeMeanMs)/beforeMeanMs)*100 > 20.0 {
-		return regressionDetected
-	}
-	return regressionNone
-}
-
-// perQueryRegression compares each targeted query's latency before vs after
-// the action. When no query has data in both windows the result is
-// unverifiable rather than a silent pass.
-func perQueryRegression(
-	ctx context.Context, pool *pgxpool.Pool, queryIDs []int64,
-	executedAt time.Time, thresholdPct int,
-) regressionVerdict {
-	const baselineWindow = 30 * time.Minute
-	measured := 0
-	for _, qid := range queryIDs {
-		baseline, okB, err := querystore.WindowedLatencyMsBetween(
-			ctx, pool, qid, executedAt.Add(-baselineWindow), executedAt)
-		if err != nil || !okB {
-			continue
-		}
-		current, okC, err := querystore.WindowedLatencyMsBetween(
-			ctx, pool, qid, executedAt, time.Now())
-		if err != nil || !okC {
-			continue
-		}
-		measured++
-		if isQueryRegressed(baseline, current, thresholdPct) {
-			return regressionDetected
-		}
-	}
-	if measured == 0 {
-		return regressionUnverifiable
-	}
-	return regressionNone
-}
-
-// isQueryRegressed reports whether currentMs is worse than baselineMs by
-// more than thresholdPct. Pure decision for F1.
-func isQueryRegressed(baselineMs, currentMs float64, thresholdPct int) bool {
-	if baselineMs <= 0 {
-		return false
-	}
-	deltaPct := ((currentMs - baselineMs) / baselineMs) * 100
-	return deltaPct > float64(thresholdPct)
-}
 
 // CheckHysteresis returns true if this finding — or an earlier finding with
 // the same category and object — was rolled back (or its rollback was
@@ -180,28 +91,6 @@ func detailInt64(v any) int64 {
 	return 0
 }
 
-// actionTargetQueries reads the target queryids and execution time an
-// action recorded in before_state.
-func actionTargetQueries(
-	ctx context.Context, pool *pgxpool.Pool, actionID int64,
-) ([]int64, time.Time) {
-	var idsJSON []byte
-	var executedAt time.Time
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT before_state->'target_queryids', executed_at
-		   FROM sage.action_log WHERE id = $1`,
-		actionID,
-	).Scan(&idsJSON, &executedAt)
-	if err != nil || len(idsJSON) == 0 {
-		return nil, time.Time{}
-	}
-	var ids []int64
-	if json.Unmarshal(idsJSON, &ids) != nil {
-		return nil, time.Time{}
-	}
-	return ids, executedAt
-}
-
 // updateActionOutcome sets the outcome and rollback_reason for an action.
 func updateActionOutcome(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64, outcome, reason string,
@@ -230,9 +119,11 @@ func setMonitoredOutcome(
 	return err == nil && tag.RowsAffected() == 1
 }
 
-// updateActionSuccess marks an action as successful and snapshots the
-// current state as after_state. Terminal rollback/failure outcomes are never
-// overwritten, and value is credited only when this call made the change.
+// updateActionSuccess marks an action whose own post-check verified it (a
+// custodian) as successful and snapshots the current state as after_state.
+// Terminal rollback/failure outcomes are never overwritten, and value is
+// credited only when this call made the change. Phase 1.3 actions settle
+// through settleOutcome instead.
 func updateActionSuccess(ctx context.Context, pool *pgxpool.Pool, actionID int64) {
 	var cacheHit float64
 	_ = pool.QueryRow(ctx, cacheHitRatioSQL).Scan(&cacheHit)

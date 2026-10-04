@@ -114,7 +114,8 @@ func TestLoweredElevation_NilConfig(t *testing.T) {
 func TestElevationKeysAreRestartBoundAndDocumented(t *testing.T) {
 	docs := collectDocTags(t, DefaultConfig())
 	for _, key := range []string{"trust.ramp_safe_hours", "trust.ramp_moderate_hours",
-		"verify.io_baseline_hours", "sre.autonomy.promotion.shadow_window_hours",
+		"verify.io_baseline_hours", "verify.drop_window_hours",
+		"sre.autonomy.promotion.shadow_window_hours",
 		"sre.autonomy.promotion.shadow_min_reviewed",
 		"sre.autonomy.promotion.shadow_min_accepted_pct",
 		"sre.autonomy.promotion.bench_min_top1_pct",
@@ -166,7 +167,8 @@ func TestDocumentedFastElevationProfileLoads(t *testing.T) {
 func assertDogfoodProfile(t *testing.T, cfg *Config) {
 	t.Helper()
 	if cfg.Trust.RampSafeHours != 1 || cfg.Trust.RampModerateHours != 4 ||
-		cfg.Verify.IOBaselineHours != 2 || cfg.SRE.Autonomy.EvaluateIntervalMinutes != 5 {
+		cfg.Verify.IOBaselineHours != 2 || cfg.Verify.DropWindowHours != 2 ||
+		cfg.SRE.Autonomy.EvaluateIntervalMinutes != 5 {
 		t.Fatalf("profile timings = %+v / %+v", cfg.Trust, cfg.Verify)
 	}
 	p := cfg.SRE.Autonomy.Promotion
@@ -180,8 +182,8 @@ func assertDogfoodProfile(t *testing.T, cfg *Config) {
 		p.MinSafePassPct != spec.MinSafePassPct {
 		t.Fatalf("the dogfood profile lowers the accuracy bar: %+v", p)
 	}
-	if got := cfg.LoweredElevation(); len(got) != 7 {
-		t.Fatalf("profile lowered %d settings, want 7: %+v", len(got), got)
+	if got := cfg.LoweredElevation(); len(got) != 8 {
+		t.Fatalf("profile lowered %d settings, want 8: %+v", len(got), got)
 	}
 }
 

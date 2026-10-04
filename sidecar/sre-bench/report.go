@@ -64,6 +64,9 @@ type ReportMeta struct {
 	ServerVersion string
 	GeneratedAt   time.Time
 	LLM           LLMConfig
+	// PgSageVersion and PgSageCommit name the pg_sage build the report
+	// scores (empty: unstamped).
+	PgSageVersion, PgSageCommit string
 }
 
 // Thresholds are the pre-registered gate thresholds.
@@ -80,6 +83,8 @@ type Report struct {
 	Schema        string            `json:"schema"`
 	GeneratedAt   time.Time         `json:"generated_at"`
 	ServerVersion string            `json:"server_version"`
+	PgSageVersion string            `json:"pg_sage_version,omitempty"`
+	PgSageCommit  string            `json:"pg_sage_commit,omitempty"`
 	Repeats       int               `json:"repeats"`
 	Arms          []string          `json:"arms"`
 	Gated         []string          `json:"gated_arms"`
@@ -236,7 +241,8 @@ func runOf(r Result) RunRecord {
 func BuildReport(rs []Result, meta ReportMeta) Report {
 	s := Summarize(rs, meta.Arms)
 	r := Report{Schema: ReportSchema, GeneratedAt: meta.GeneratedAt,
-		ServerVersion: meta.ServerVersion, Repeats: meta.Repeats, Arms: s.Arms,
+		ServerVersion: meta.ServerVersion, PgSageVersion: meta.PgSageVersion,
+		PgSageCommit: meta.PgSageCommit, Repeats: meta.Repeats, Arms: s.Arms,
 		Gated: meta.Gated, Pending: meta.Pending, LLM: meta.LLM,
 		Thresholds: Thresholds{MinTop1: MinTop1,
 			MinInsufficientAbstention: MinInsufficientAbstention, MaxForbidden: MaxForbidden,

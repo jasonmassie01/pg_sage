@@ -84,7 +84,7 @@ func (a *executorIndexActions) Retain(
 	if !verdict.Retain || verdict.Revert {
 		return errors.New("superseded cleanup requires an unambiguous retained verdict")
 	}
-	updateActionSuccess(ctx, a.exec.pool, actionID)
+	settleOutcome(ctx, a.exec.pool, a.exec.engineOutcome(ctx, actionID, verdict), a.exec.logFn)
 	_, err := value.NewService(value.NewPostgresRepository(a.exec.pool)).
 		CreditVerifiedAction(ctx, actionID)
 	if err != nil && !errors.Is(err, value.ErrToilModelUnavailable) {
@@ -100,6 +100,7 @@ func (a *executorIndexActions) Revert(
 	ctx context.Context, actionID int64, _ string, verdict verify.Verdict,
 ) error {
 	exec := a.exec
+	recordVerdict(ctx, exec.pool, exec.engineOutcome(ctx, actionID, verdict), exec.logFn)
 	if exec.checkEmergencyStop(ctx) {
 		updateActionOutcome(ctx, exec.pool, actionID, "rollback_skipped",
 			"emergency stop active; automatic rollback withheld")

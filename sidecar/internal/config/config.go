@@ -1009,6 +1009,7 @@ func newDefaults() *Config {
 			RegressPct:       DefaultVerifyRegressPct,
 			WriteImpactPct:   DefaultVerifyWriteImpactPct,
 			MinSamples:       DefaultVerifyMinSamples,
+			DropWindowHours:  DefaultVerifyDropWindowHours,
 			IOBaselineDays:   DefaultIOBaselineDays,
 			IOSampleDays:     DefaultIOSampleRetentionDays,
 		},

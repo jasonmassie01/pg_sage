@@ -45,6 +45,7 @@ trust:
 #   ramp_moderate_hours: 4
 # verify:
 #   io_baseline_hours: 2
+#   drop_window_hours: 2
 # sre:
 #   autonomy:
 #     evaluate_interval_minutes: 5

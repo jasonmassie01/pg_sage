@@ -137,14 +137,20 @@ func preflightRecoveryEngine(
 	return engine
 }
 
+// preflightSeedMeasurements seeds a steady 1 ms before the action and a
+// steady 3 ms after it, over several sampling intervals on each side:
+// Phase 1.3 judges regressions only with interval-level evidence (at
+// least three intervals per side), where one interval used to suffice.
 func preflightSeedMeasurements(t *testing.T, f *preflightFixture) {
 	t.Helper()
 	for _, sample := range []struct {
 		delay time.Duration
 		calls int
 		ms    float64
-	}{{-50 * time.Second, 0, 0}, {-time.Second, 100, 100},
-		{time.Second, 100, 100}, {50 * time.Second, 200, 400}} {
+	}{{-50 * time.Second, 0, 0}, {-40 * time.Second, 25, 25}, {-30 * time.Second, 50, 50},
+		{-20 * time.Second, 75, 75}, {-time.Second, 100, 100},
+		{time.Second, 100, 100}, {15 * time.Second, 150, 250},
+		{30 * time.Second, 200, 400}, {50 * time.Second, 250, 550}} {
 		_, err := f.pool.Exec(t.Context(), `INSERT INTO sage.query_store
 			(captured_at,queryid,calls,total_exec_time,mean_exec_time)
 			VALUES ($1,$2,$3,$4,1)`, f.at.Add(sample.delay), f.id, sample.calls, sample.ms)

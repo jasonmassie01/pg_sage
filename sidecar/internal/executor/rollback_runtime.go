@@ -19,6 +19,10 @@ func (e *Executor) rollbackMonitorConfig(
 	if cfg != nil {
 		result.ThresholdPct = cfg.Trust.RollbackThresholdPct
 		result.WindowMinutes = cfg.Trust.RollbackWindowMinutes
+		result.CapMinutes = cfg.Verify.WindowMaxMinutes
+		result.MinCalls = cfg.Verify.MinSamples
+		result.GainPct = cfg.Verify.MinGainPct
+		result.DropWindow = cfg.Verify.DropWindow()
 		result.StatementTimeout = cfg.Safety.DDLTimeout()
 		result.LockTimeoutMs = cfg.Safety.LockTimeout()
 		result.CloudEnvironment = cfg.CloudEnvironment
@@ -74,7 +78,7 @@ func (e *Executor) resumeOrphanedMonitors(ctx context.Context) error {
 	if e.pool == nil {
 		return nil
 	}
-	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT al.id, al.rollback_sql,
+	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT al.id, al.rollback_sql, al.sql_executed,
 		COALESCE(al.decision_id, 0), al.executed_at
 		FROM sage.action_log al
 		WHERE al.outcome IN ('monitoring', 'interrupted')
@@ -86,14 +90,14 @@ func (e *Executor) resumeOrphanedMonitors(ctx context.Context) error {
 		return fmt.Errorf("load orphaned monitors: %w", err)
 	}
 	type orphan struct {
-		id, decisionID int64
-		rollbackSQL    string
-		executedAt     time.Time
+		id, decisionID   int64
+		rollbackSQL, sql string
+		executedAt       time.Time
 	}
 	var orphans []orphan
 	for rows.Next() {
 		var item orphan
-		if err := rows.Scan(&item.id, &item.rollbackSQL, &item.decisionID,
+		if err := rows.Scan(&item.id, &item.rollbackSQL, &item.sql, &item.decisionID,
 			&item.executedAt); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan orphaned monitor: %w", err)
@@ -105,28 +109,29 @@ func (e *Executor) resumeOrphanedMonitors(ctx context.Context) error {
 		return fmt.Errorf("read orphaned monitors: %w", err)
 	}
 	for _, item := range orphans {
-		e.resumeMonitor(ctx, item.id, item.decisionID, item.rollbackSQL, item.executedAt)
+		e.resumeMonitor(ctx, item.id, item.decisionID, item.rollbackSQL, item.sql,
+			item.executedAt)
 	}
 	return nil
 }
 
+// resumeMonitor restarts a monitor after a restart. Its schedule is
+// relative to the action's execution, so it resumes where it was; one
+// whose cap ended long ago is expired instead of judged.
 func (e *Executor) resumeMonitor(
-	ctx context.Context, actionID, decisionID int64, rollbackSQL string, executedAt time.Time,
+	ctx context.Context, actionID, decisionID int64, rollbackSQL, sql string,
+	executedAt time.Time,
 ) {
 	authorize := e.manualRollbackAuthorizer()
 	if decisionID > 0 {
 		authorize = e.standingRollbackAuthorizer(analyzer.Finding{RecommendedSQL: rollbackSQL})
 	}
 	cfg := e.rollbackMonitorConfig(authorize)
-	if verificationExpired(executedAt, cfg.window(), time.Now()) {
-		expireMonitor(ctx, e.pool, actionID, executedAt, cfg.window(), e.logFn)
+	_, capW, _ := monitorWindows(verificationClass(sql), cfg)
+	if verificationExpired(executedAt, capW, time.Now()) {
+		expireMonitor(ctx, e.pool, actionID, executedAt, capW, e.logFn)
 		return
 	}
-	remaining := time.Until(executedAt.Add(cfg.window()))
-	if remaining < 0 {
-		remaining = 0
-	}
-	cfg.WindowMinutes, cfg.Delay = 0, remaining
 	e.logFn("executor", "resuming rollback monitor for action %d", actionID)
 	e.startRollbackMonitor(func() {
 		MonitorAndRollback(context.WithoutCancel(ctx), e.pool, actionID, rollbackSQL,

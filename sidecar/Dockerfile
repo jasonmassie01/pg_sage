@@ -28,6 +28,10 @@ RUN apk add --no-cache ca-certificates tzdata curl \
     && addgroup -g 1000 sage \
     && adduser -u 1000 -G sage -s /sbin/nologin -D sage
 COPY --from=builder /build/sage-sidecar /usr/local/bin/sage-sidecar
+# Roadmap 1.1: this commit's signed PGIncidentBench reports (CI puts them
+# in release-bench/; a local build ships only the README). The sidecar
+# verifies and ingests them at startup.
+COPY release-bench/ /usr/share/pg_sage/bench/
 USER sage
 EXPOSE 8080 9187
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

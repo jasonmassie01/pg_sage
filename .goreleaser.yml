@@ -60,6 +60,10 @@ archives:
       - README.md
       - LICENSE
       - config.example.yaml
+      # Roadmap 1.1: this commit's signed PGIncidentBench reports (the
+      # release job downloads them to bench/); the sidecar ingests
+      # bench/ next to its binary at startup.
+      - bench/*/*
 
 checksum:
   name_template: "checksums.txt"
@@ -76,6 +80,9 @@ release:
   github:
     owner: jasonmassie01
     name: pg_sage
+  # The signed bench reports and their Sigstore bundles, per shard.
+  extra_files:
+    - glob: ./release-assets/*
   name_template: "v{{.Version}}"
   draft: false
   prerelease: auto

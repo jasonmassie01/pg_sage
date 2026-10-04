@@ -1236,7 +1236,7 @@
   "sre.autonomy.bench_results_path": {
     "type": "string",
     "default": "",
-    "doc": "PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."
+    "doc": "PGIncidentBench report, or a directory searched 3 levels deep, ingested at startup and hourly. A \u003creport\u003e.sigstore.json bundle is verified; reports for another build are refused."
   },
   "sre.autonomy.canary.canary_instances": {
     "type": "int",
@@ -1292,7 +1292,7 @@
   "sre.autonomy.game_days.local_dsn": {
     "type": "string",
     "default": null,
-    "doc": "Development fallback when clone.provider is none: a disposable PostgreSQL database for game days. Never a monitored database (refused).",
+    "doc": "Fallback when clone.provider is none: a disposable PostgreSQL database for game days and local bench runs. Never a monitored or the metadata database (refused).",
     "secret": true
   },
   "sre.autonomy.max_evidence_age_seconds": {
@@ -1883,6 +1883,12 @@
     "type": "int",
     "default": 1,
     "doc": "Active calibrated toil-model version."
+  },
+  "verify.drop_window_hours": {
+    "type": "int",
+    "default": 168,
+    "doc": "Hours an index drop is verified for (its business cycle), 1-8760. The dropped index definition is kept and re-created on the first miss inside the window. Default: 168 (7 days).",
+    "warning": "A shorter window can miss a weekly or monthly job that needs the index; the sidecar warns at startup."
   },
   "verify.io_baseline_days": {
     "type": "int",

@@ -70,9 +70,11 @@ func TestPGIncidentBench(t *testing.T) {
 		t.Fatalf("server version: %v", err)
 	}
 	results := Run(ctx, env, selected, cfg)
+	sageVersion, sageCommit := BuildFromEnv(os.Getenv)
 	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
 		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
-		GeneratedAt: time.Now().UTC(), LLM: llm})
+		GeneratedAt: time.Now().UTC(), LLM: llm, PgSageVersion: sageVersion,
+		PgSageCommit: sageCommit})
 	report.Replay = benchReplay(t, ctx, env, cfg, version)
 	t.Log("\n" + report.Markdown())
 	jsonPath, mdPath, err := WriteReport(ReportDir(os.Getenv(EnvReportDir), t.TempDir()),

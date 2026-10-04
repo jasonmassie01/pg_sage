@@ -119,6 +119,9 @@ func NewRouterFullRuntime(
 		actions.Fleet != nil) {
 		registerActionRoutes(apiMux, actions)
 	}
+	if mgr != nil {
+		registerApprovalCardRoutes(apiMux, mgr)
+	}
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
 	}

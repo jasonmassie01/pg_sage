@@ -72,6 +72,7 @@ var excludedExactKeys = map[string]bool{
 	"trust.ramp_safe_hours":                          true,
 	"trust.ramp_moderate_hours":                      true,
 	"verify.io_baseline_hours":                       true,
+	"verify.drop_window_hours":                      true,
 	"sre.autonomy.promotion.shadow_window_hours":     true,
 	"sre.autonomy.promotion.shadow_min_reviewed":     true,
 	"sre.autonomy.promotion.shadow_min_accepted_pct": true,

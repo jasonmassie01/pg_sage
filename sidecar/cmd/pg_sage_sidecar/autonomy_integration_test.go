@@ -202,7 +202,7 @@ func TestBenchShardReportsFeedTheirFamilies(t *testing.T) {
 		"temp_file_explosion", "replication_lag", "lwlock_contention")
 	shardReport(t, filepath.Join(root, "runway"), shards["runway"], "wraparound_runway",
 		"disk_wal_runway", "sequence_runway")
-	n, err := ingestBenchPath(context.Background(), svc, root)
+	n, err := operatorIngest(context.Background(), svc, root)
 	if err != nil || n != 3 {
 		t.Fatalf("ingest = %d (%v), want the three shard reports", n, err)
 	}
@@ -216,7 +216,7 @@ func TestBenchShardReportsFeedTheirFamilies(t *testing.T) {
 				err, shard)
 		}
 	}
-	if n, err := ingestBenchPath(context.Background(), svc, root); err != nil || n != 0 {
+	if n, err := operatorIngest(context.Background(), svc, root); err != nil || n != 0 {
 		t.Fatalf("second ingest = %d (%v)", n, err)
 	}
 }

@@ -21,6 +21,7 @@ type VerifyConfig struct {
 	// IO load admission (D6). io_capacity is standalone-only; fleet
 	// databases declare it in databases[].verify.io_capacity.
 	IOBaselineDays  int               `yaml:"io_baseline_days" doc:"IO baseline days; 0 disables."`
+	DropWindowHours int               `yaml:"drop_window_hours" doc:"Hours an index drop is verified for (its business cycle), 1-8760. The dropped index definition is kept and re-created on the first miss inside the window. Default: 168 (7 days)." warning:"A shorter window can miss a weekly or monthly job that needs the index; the sidecar warns at startup."`
 	IOBaselineHours int               `yaml:"io_baseline_hours" doc:"IO baseline hours, 1-8760; when set it takes precedence over io_baseline_days (even 0). 0: use io_baseline_days." warning:"An hour-scale baseline admits index builds on a short load history; the sidecar warns at startup."`
 	IOSampleDays    int               `yaml:"io_sample_retention_days" doc:"IO sample retention days."`
 	IOCapacity      *IOCapacityConfig `yaml:"io_capacity" doc:"Declared IO capacity (standalone)."`

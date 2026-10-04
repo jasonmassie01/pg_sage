@@ -17,6 +17,8 @@ type Decision string
 const (
 	DecisionApprove Decision = "approve"
 	DecisionDeny    Decision = "deny"
+	// DecisionSnooze defers an approval card (cards only).
+	DecisionSnooze Decision = "snooze"
 )
 
 // Slack button action ids of an approval message.
@@ -44,7 +46,8 @@ type Action struct {
 	UserID      string
 	UserName    string
 	Decision    Decision
-	ProposalID  string
+	ProposalID  string // a Sage SRE proposal button
+	CardToken   string // an approval-card button
 	Nonce       string // replay key, unique per delivery
 	ResponseURL string // Slack follow-up URL
 	CallbackID  string // Telegram callback query id
@@ -91,22 +94,48 @@ func ParseSlack(body []byte) (Action, error) {
 		return Action{}, fmt.Errorf("%w: not one button press by a known user", ErrMalformed)
 	}
 	a := p.Actions[0]
-	var d Decision
-	switch a.ActionID {
+	if a.ActionTS == "" {
+		return Action{}, fmt.Errorf("%w: no action timestamp", ErrMalformed)
+	}
+	out := Action{Provider: ProviderSlack, TeamID: p.Team.ID, UserID: p.User.ID,
+		UserName: p.User.Username, Nonce: p.Team.ID + ":" + p.User.ID + ":" + a.ActionTS,
+		ResponseURL: p.ResponseURL}
+	if err := out.setSlackDecision(a.ActionID, a.Value); err != nil {
+		return Action{}, err
+	}
+	return out, nil
+}
+
+// slackCardActions are the approval-card buttons and their decisions.
+var slackCardActions = map[string]Decision{
+	SlackCardApproveAction: DecisionApprove,
+	SlackCardRejectAction:  DecisionDeny,
+	SlackCardSnoozeAction:  DecisionSnooze,
+}
+
+// setSlackDecision reads a button: a card button carries a card token, a
+// proposal button a proposal id.
+func (out *Action) setSlackDecision(actionID, value string) error {
+	if d, ok := slackCardActions[actionID]; ok {
+		if !ValidCardToken(value) {
+			return fmt.Errorf("%w: bad card token", ErrMalformed)
+		}
+		out.Decision, out.CardToken = d, value
+		return nil
+	}
+	switch actionID {
 	case SlackApproveAction:
-		d = DecisionApprove
+		out.Decision = DecisionApprove
 	case SlackDenyAction:
-		d = DecisionDeny
+		out.Decision = DecisionDeny
 	default:
-		return Action{}, fmt.Errorf("%w: unknown action", ErrMalformed)
+		return fmt.Errorf("%w: unknown action", ErrMalformed)
 	}
-	if !uuidPattern.MatchString(a.Value) || a.ActionTS == "" {
-		return Action{}, fmt.Errorf("%w: bad proposal id", ErrMalformed)
+	if !uuidPattern.MatchString(value) {
+		return fmt.Errorf("%w: bad proposal id", ErrMalformed)
 	}
-	return Action{Provider: ProviderSlack, TeamID: p.Team.ID, UserID: p.User.ID,
-		UserName: p.User.Username, Decision: d, ProposalID: strings.ToLower(a.Value),
-		Nonce:       p.Team.ID + ":" + p.User.ID + ":" + a.ActionTS,
-		ResponseURL: p.ResponseURL}, nil
+	out.ProposalID = strings.ToLower(value)
+	return nil
 }
 
 type telegramEnvelope struct {
@@ -141,13 +170,18 @@ func ParseTelegram(body []byte) (Action, error) {
 	if u.UpdateID == nil || c.From == nil || c.From.ID == 0 || c.ID == "" {
 		return Action{}, fmt.Errorf("%w: no update id or sender", ErrMalformed)
 	}
-	d, id, err := parseCallbackData(c.Data)
+	a := Action{Provider: ProviderTelegram, UserID: strconv.FormatInt(c.From.ID, 10),
+		UserName: c.From.Username, CallbackID: c.ID,
+		Nonce: "update:" + strconv.FormatInt(*u.UpdateID, 10)}
+	var err error
+	if strings.HasPrefix(c.Data, cardDataPrefix) {
+		err = a.setCardData(c.Data)
+	} else {
+		a.Decision, a.ProposalID, err = parseCallbackData(c.Data)
+	}
 	if err != nil {
 		return Action{}, err
 	}
-	a := Action{Provider: ProviderTelegram, UserID: strconv.FormatInt(c.From.ID, 10),
-		UserName: c.From.Username, Decision: d, ProposalID: id, CallbackID: c.ID,
-		Nonce: "update:" + strconv.FormatInt(*u.UpdateID, 10)}
 	if c.Message != nil {
 		a.ChatID = strconv.FormatInt(c.Message.Chat.ID, 10)
 		a.MessageID = c.Message.MessageID

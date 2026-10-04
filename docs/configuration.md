@@ -201,6 +201,46 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
 
+### Verifying actions
+
+Every action pg_sage takes records, before it runs, what it expects: the queries it
+targets, the metric that should move and by how much, and how that was predicted (`hypopg`,
+`model`, `rule`, or `none`). Afterwards it records what it observed and a verdict:
+
+| Verdict | Meaning | Trust and credit |
+|---|---|---|
+| `improved` | the predicted effect was observed (a drop: reads held for the whole cycle) | counts toward earned autonomy and value |
+| `neutral` | measured, no change beyond the bars | neither |
+| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell | neither |
+| `unverifiable` | nothing measurable, or no prediction | neither |
+| `regressed` | a targeted query (or the targeted metric) got significantly worse | rolled back; counts against trust |
+
+The targeted queries are compared on their call-weighted mean execution time, before and
+after, with Welch's test over the sampling intervals in `sage.query_store`: a change counts
+only when it is both significant and beyond its bar. With several targets each is tested
+with a Bonferroni-corrected significance and the call-weighted pool decides. A first verdict
+comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
+enough evidence the watch extends up to `verify.window_max_minutes`.
+
+An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
+from the start. Its definition is kept, and the index is re-created as soon as a query on
+the table regresses or an active pg_sage hint names it (soft drop). VACUUM and ANALYZE are
+checked right after they run (dead tuples, rows modified since analyze, relfrozenxid age
+for VACUUM FREEZE).
+
+Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
+`/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
+outcome ledger (`sage.action_outcome`).
+
+| Parameter | Default | Description |
+|---|---|---|
+| `trust.rollback_window_minutes` | `15` | Minimum minutes before a first verdict (not for drops) |
+| `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean |
+| `verify.min_samples` | `30` | Calls each window needs |
+| `verify.min_gain_pct` | `20` | Gain bar for `improved` |
+| `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
+| `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
+
 ### Maintenance windows
 
 `trust.maintenance_window` and the standing policy's `maintenance_windows`
@@ -706,7 +746,7 @@ any time.
 | Parameter | Default | Description |
 |---|---|---|
 | `sre.autonomy.enforce` | `true` | The ledger restricts self-initiated incident-family actions. `false` returns them to the trust ramp; the sidecar warns at startup |
-| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested hourly. Point it at the CI `pgincidentbench/` artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. Empty: upload through the API |
+| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused. Not needed for the reports a release ships. Empty: upload through the API |
 | `sre.autonomy.evaluate_interval_minutes` | `60` | Minutes between promotion evaluations, `5`-`1440` |
 | `sre.autonomy.reconcile_interval_seconds` | `60` | Seconds between recording live outcomes, `10`-`3600` |
 | `sre.autonomy.max_evidence_age_seconds` | `300` | Older evidence caps an action at L1, `5`-`3600` |
@@ -724,7 +764,7 @@ any time.
 | `sre.autonomy.promotion.min_live_recoveries` | `50` | Verified live L2 recoveries a pair needs for L3, `1`-`10000` |
 | `sre.autonomy.game_days.enabled` | `false` | Run PGIncidentBench fault programs on a disposable clone |
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
-| `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`. A monitored database is refused |
+| `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`, for game days and local bench runs. A monitored or the metadata database is refused |
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
@@ -733,6 +773,37 @@ any time.
 Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
 forbidden action on a game day is recorded as a safety violation. The clone DSN is never
 stored.
+
+#### Bench evidence: signed release reports and local runs
+
+L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:
+
+- **Shipped with every release.** The release workflow runs PGIncidentBench on the tagged
+  commit, signs each shard report keyless with Sigstore (cosign, GitHub OIDC identity of
+  the pg_sage `ci.yml` workflow; no key to manage) and ships the reports in the image at
+  `/usr/share/pg_sage/bench` and in the release archives in `bench/` next to the binary.
+  They are also release assets (`pgincidentbench-<shard>.json` with
+  `.json.sigstore.json`). The sidecar ingests them at startup and hourly, verifying the
+  signature offline against the Sigstore trusted root embedded in the binary, so an
+  air-gapped install has them too.
+- **Bound to the build.** A report names the pg_sage version and commit it scored. A
+  report for another build is refused, and stored reports of an older build stop
+  counting after an upgrade (until the new release's report is ingested). A signature
+  must name the same commit as the report.
+- **Run bench locally.** On the Autonomy page an admin can run the fault programs of a
+  family on a disposable clone (`clone.provider` `dle` or `snapshot`, else
+  `sre.autonomy.game_days.local_dsn`; game days need not be enabled). A monitored
+  database or the metadata database is refused. The report counts only for the
+  families it covered, marked "local run", and repeats every scenario until each family
+  has the promotion bar's sample size (`n >= 10`).
+- **Operator reports.** A report uploaded through the API or found under
+  `bench_results_path` without a bundle works as before, marked "unsigned
+  (operator-provided)". With a `<report>.sigstore.json` bundle next to it, it is
+  verified, and a bundle that does not verify refuses the report.
+
+The Path to next level panel shows each family's report and where it came from. To check
+a downloaded report by hand: `pg_sage bench verify --commit <sha> pgincidentbench.json`
+(the bundle next to it as `pgincidentbench.json.sigstore.json`).
 
 The fleet canary is started by an admin from a verified action on one database. On every
 other database, it applies the same statement only where that database has its own open
@@ -785,6 +856,7 @@ trust:
   ramp_moderate_hours: 4          # MODERATE actions after 4 hours (spec: 744)
 verify:
   io_baseline_hours: 2            # learned IO baseline after 2 hours (spec: 7 days)
+  drop_window_hours: 2            # verify an index drop over 2 hours (spec: 168)
 sre:
   autonomy:
     evaluate_interval_minutes: 5  # propose promotions every 5 minutes (default: 60)

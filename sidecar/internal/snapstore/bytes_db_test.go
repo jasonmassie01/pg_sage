@@ -54,7 +54,7 @@ func relationBytes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 
 func TestBytesPerHour_5000Indexes(t *testing.T) {
 	deltaPool, legacyPool, ctx := goldenStores(t)
 	sc := snapfixture.Scenario{
-		Start:   time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Minute),
+		Start:   oneDayWindow(time.Now().UTC().Add(-2*time.Hour), time.Hour),
 		Step:    time.Minute,
 		Cycles:  60,
 		Tables:  250,
@@ -93,6 +93,20 @@ func TestBytesPerHour_5000Indexes(t *testing.T) {
 			t.Fatalf("row %d (%s) differs", i, want[i].cat)
 		}
 	}
+}
+
+// oneDayWindow returns start (to the minute), moved back when [start,
+// start+span] would cross a UTC midnight. sage.snapshots is partitioned by
+// UTC day, and a second partition's fixed pages (heap, TOAST, indexes) would
+// count as an hour's growth: the reduction fell to 9.3x on runs between
+// 00:00 and 01:00 UTC.
+func oneDayWindow(start time.Time, span time.Duration) time.Time {
+	start = start.Truncate(time.Minute)
+	dayEnd := start.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	if start.Add(span).Before(dayEnd) {
+		return start
+	}
+	return dayEnd.Add(-span - time.Minute)
 }
 
 func ratio(legacy, delta int64) float64 {

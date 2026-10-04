@@ -1,5 +1,66 @@
 # Changelog
 
+## Unreleased
+
+### What's new
+
+- **Every action that waits for you now comes as an approval card with the why, and you can
+  decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
+  do and to which objects, why it needs you (for example: HypoPG has not verified the index,
+  trust level is advisory, the setting needs a restart, or you rejected this exact change
+  before), the evidence with its numbers, the model's rationale, the predicted effect, the
+  exact SQL and how to undo it, the lock it takes and when the request expires. Approve,
+  Reject (with a reason) and Snooze buttons now come with every action type in Slack and
+  Telegram, not only with SRE query cancels. A chat button works once, only for the chat it
+  was sent to, only for a chat user linked to a pg_sage operator or admin, and only while
+  the action is unchanged: if its SQL changed after the card was sent, the approval is
+  refused. Approvals from chat run through the same checks as the UI and are recorded under
+  the approver's name. Once the action is verified (or rolled back), pg_sage posts the
+  result back to the same chat. A snoozed action stays behind approval until the snooze
+  ends, then pg_sage asks again; a rejected one stays behind approval as before.
+
+- **Every release ships its own signed benchmark, so earning L2 no longer means copying CI
+  files.** The release build signs its PGIncidentBench reports with Sigstore (no key to
+  manage) and puts them in the image, in the release archive next to the binary and on the
+  release page. The sidecar checks the signature offline at startup and counts a report only
+  for the exact pg_sage build it measured. On the Autonomy page, "Path to next level" shows
+  where each family's benchmark came from (signed release, local run, or unsigned upload),
+  and an admin can press "Run bench locally" to run it on a disposable clone; that result
+  counts only for the families it covered. Reports you upload yourself still work, marked
+  "unsigned (operator-provided)".
+
+### Added
+
+- **Every action pg_sage takes now says what it expects, and is checked against it.** Before
+  an index create or drop, a config or table-setting change, a VACUUM/ANALYZE, a query hint or
+  a retention batch runs, pg_sage records its predicted effect: which queries it targets, which
+  metric should move and by how much, and whether the estimate came from HypoPG, a model or a
+  rule (or that there is none). Afterwards it records what it observed and a verdict:
+  improved, neutral, regressed, insufficient evidence or unverifiable. The action detail in
+  the Actions page shows predicted vs observed with the evidence, and the outcomes are served
+  by `GET /api/v1/actions`, `/api/v1/actions/{id}` and the new
+  `GET /api/v1/action-outcomes` ledger.
+- **Index drops are verified over a business cycle and come back on the first miss.** A drop
+  is watched for `verify.drop_window_hours` (default 168, one week) instead of 15 minutes.
+  Its definition is kept, and the index is re-created as soon as a query on that table gets
+  slower or an active pg_sage hint names it. A shorter window is a fast-elevation setting
+  and is reported at startup like the others.
+
+### Changed
+
+- **"It did not get worse" is no longer "success".** Verification compares the call-weighted
+  mean execution time of the queries an action targets, before and after, with a
+  significance test over the sampling intervals, over windows that grow until there are
+  enough calls. Noise no longer flips a verdict, and too little traffic is "insufficient
+  evidence", not success. The old check of database-wide cache hit and write latency is
+  gone.
+- **Only verified improvements earn trust or credit.** Earned autonomy and the value ledger
+  count an action only when its verdict is improved; neutral, insufficient evidence and
+  unverifiable count for nothing either way, and a regression is rolled back and counts
+  against trust. VACUUM and ANALYZE are verified by the dead tuples and modified rows they
+  were meant to clear instead of being marked successful at once.
+
+
 ## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
 
 ### What's new

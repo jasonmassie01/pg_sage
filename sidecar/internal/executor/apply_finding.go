@@ -115,13 +115,14 @@ func (e *Executor) queueFinding(
 	}
 	proposal := f
 	proposal.ActionRisk = decision.RiskTier
-	if _, err := e.proposeForApproval(ctx, int(findingID), proposal, cand); err != nil {
+	queueID, err := e.proposeForApproval(ctx, int(findingID), proposal, cand)
+	if err != nil {
 		e.logFn("executor", "failed to queue %q for approval: %v", f.Title, err)
 		return
 	}
 	e.logFn("executor", "queued %q for approval", f.Title)
-	e.dispatchEvent(ctx, notify.ApprovalNeededEvent(
-		f.Title, f.RecommendedSQL, e.databaseName, decision.RiskTier))
+	e.requestApproval(ctx, f.Title, f.RecommendedSQL, decision.RiskTier,
+		decision.DecisionID, queueID)
 }
 
 // pendingApproval reports an unresolved proposal for the finding or its SQL.
@@ -252,6 +253,7 @@ func (e *Executor) prepareAndRunFinding(
 		f.RollbackSQL = config.rollbackSQL
 		config.record(beforeState)
 	}
+	e.predictAction(ctx, f.RecommendedSQL, f.Detail, beforeState)
 	return config, e.runFindingSQL(ctx, *f, decision)
 }
 
@@ -333,15 +335,15 @@ func (e *Executor) watchVerifiedCreate(
 	}
 }
 
-// monitorFinding starts the rollback window for a reversible action, or
-// marks an irreversible one (VACUUM, ANALYZE) successful at once. The
+// monitorFinding starts the verification monitor for a reversible action,
+// or verifies an irreversible one (VACUUM, ANALYZE) by its metric at once. The
 // monitor is detached from the execution deadline; Shutdown aborts it.
 func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actionID int64) {
 	if actionID <= 0 {
 		return
 	}
 	if f.RollbackSQL == "" {
-		updateActionSuccess(ctx, e.pool, actionID)
+		e.verifyImmediate(ctx, actionID)
 		return
 	}
 	monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))

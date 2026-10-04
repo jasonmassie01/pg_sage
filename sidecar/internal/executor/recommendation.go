@@ -280,5 +280,8 @@ func (e *Executor) logClaimedAction(
 	if outcome != "failed" && findingID > 0 {
 		e.markFindingActioned(ctx, findingID, actionID)
 	}
+	if outcome != "failed" {
+		e.recordPrediction(ctx, actionID, beforeState)
+	}
 	return actionID
 }

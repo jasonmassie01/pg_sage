@@ -56,7 +56,7 @@ const actionsVerificationSQL = `
    ORDER BY v.id DESC LIMIT 1) AS verification_verdict,
  (SELECT v.completed_at FROM sage.verification v
    WHERE v.action_log_id = action_log.id
-   ORDER BY v.id DESC LIMIT 1) AS verification_completed_at`
+   ORDER BY v.id DESC LIMIT 1) AS verification_completed_at,` + actionOutcomeColumnSQL
 
 const queuedActionLedgerSQL = `/* pg_sage */SELECT q.id, q.finding_id,
  COALESCE(q.action_type, ''), q.proposed_sql, q.rollback_sql,
@@ -85,12 +85,13 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 			attempts       int
 			verdict        *string
 			verifiedAt     *time.Time
+			outcomeJSON    []byte
 		)
 		err := rows.Scan(
 			&id, &executedAt, &actionType, &findingID,
 			&sqlExecuted, &rollbackSQL, &beforeState,
 			&afterState, &outcome, &rollbackReason,
-			&measuredAt, &attempts, &verdict, &verifiedAt,
+			&measuredAt, &attempts, &verdict, &verifiedAt, &outcomeJSON,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan action: %w", err)
@@ -104,6 +105,7 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 		a["attempts_capped"] = attempts > maxAttempts
 		a["action_risk"] = deriveDisplayActionRisk(sqlExecuted)
 		annotateVerification(a, verdict, verifiedAt)
+		annotateOutcome(a, outcomeJSON)
 		results = append(results, a)
 	}
 	if results == nil {
