@@ -15,7 +15,9 @@ import (
 func TestWriteOptimizerMemoryMetrics(t *testing.T) {
 	var b strings.Builder
 	writeOptimizerMemoryMetrics(&b, map[string]analyzer.TuningStats{
-		"zeta":  {WhatIfSkipped: 4, ModelCallsSkipped: 2, ProposalsCapped: 3},
+		"zeta": {WhatIfSkipped: 4, ModelCallsSkipped: 2, ProposalsCapped: 3,
+			TokensUsed: 41000, TokenLimit: 60000, RequestsUsed: 12, RequestLimit: 12,
+			CasesAsked: 2, CasesDeferred: 5},
 		"alpha": {},
 	})
 	out := b.String()

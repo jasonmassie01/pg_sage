@@ -203,15 +203,13 @@ func TestTune_OpenFindingsAreReemittedAndSkipTheModel(t *testing.T) {
 	}
 }
 
-func TestTune_OpenFindingOfAVanishedCaseResolves(t *testing.T) {
+func TestTune_OpenFindingOfAVanishedCaseDoesNotBlockOtherCases(t *testing.T) {
 	h := newHarness(t, indexAnswer(t))
 	h.store.open = []analyzer.Finding{agentFinding("top_statement:555",
 		optimizer.OptimizerCategory, "public.orders|btree(status)")}
 	out := tune(t, h)
-	for _, f := range out.Findings {
-		if f.ObjectIdentifier == "public.orders|btree(status)" {
-			t.Fatal("its case is gone: not re-emitted, so the analyzer resolves it")
-		}
+	if _, ok := byIdent(out.Findings, "public.orders|btree(status)"); !ok {
+		t.Fatal("its case was not examined this cycle: the open finding is kept")
 	}
 	if h.model.callCount() == 0 {
 		t.Fatal("case 101 has no open proposal of its own: the model is asked")
@@ -233,9 +231,9 @@ func TestTune_LegacyOptimizerFindingsFollowTheirTable(t *testing.T) {
 		idents = append(idents, f.ObjectIdentifier)
 	}
 	if !slices.Contains(idents, onCase.ObjectIdentifier) ||
-		slices.Contains(idents, offCase.ObjectIdentifier) {
-		t.Fatalf("re-emitted = %v: a pre-agent index finding stays while a case "+
-			"involves its table", idents)
+		!slices.Contains(idents, offCase.ObjectIdentifier) {
+		t.Fatalf("re-emitted = %v: pre-agent index findings stay open, and one on a "+
+			"case's table keeps that case from being asked", idents)
 	}
 	if h.model.callCount() != 0 {
 		t.Fatal("the table already has an open index proposal: no new model call")

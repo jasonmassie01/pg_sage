@@ -57,6 +57,26 @@ describe('TuningCalibration', () => {
       .toHaveTextContent('uncalibrated')
   })
 
+  it('shows the last cycle's budget use and the deferred cases', async () => {
+    mockFetch({ database: 'orders', min_outcomes: 5, window_days: 180, classes: [],
+      budget: { tokens_used: 41000, token_limit: 60000, requests_used: 12,
+        request_limit: 12, cases_asked: 2, cases_deferred: 5 } })
+    render(<TuningCalibration database="orders" />)
+    const budget = await screen.findByTestId('tuning-budget')
+    expect(budget).toHaveTextContent('41000 of 60000 tokens')
+    expect(budget).toHaveTextContent('12 of 12 requests')
+    expect(budget).toHaveTextContent('2 cases examined')
+    expect(budget).toHaveTextContent('5 deferred to later cycles')
+  })
+
+  it('shows no budget line without a tuning agent', async () => {
+    mockFetch({ database: 'orders', min_outcomes: 5, window_days: 180, classes: [],
+      budget: null })
+    render(<TuningCalibration database="orders" />)
+    await screen.findByTestId('tuning-calibration-empty')
+    expect(screen.queryByTestId('tuning-budget')).not.toBeInTheDocument()
+  })
+
   it('asks for one database instead of mixing ledgers', () => {
     globalThis.fetch = vi.fn()
     render(<TuningCalibration database="all" />)

@@ -332,6 +332,26 @@ type fakeStore struct {
 	extStats  []ExtStat
 	colStats  []ColumnStat
 	openCalls int
+	catalog   *CatalogState // nil: every table and index exists, no index defs
+	catErr    error
+}
+
+func (s *fakeStore) Relations(_ context.Context, tables, indexes []string) (
+	CatalogState, error) {
+	if s.catErr != nil {
+		return CatalogState{}, s.catErr
+	}
+	if s.catalog != nil {
+		return *s.catalog, nil
+	}
+	st := CatalogState{Tables: map[string]bool{}, Indexes: map[string]bool{}}
+	for _, t := range tables {
+		st.Tables[t] = true
+	}
+	for _, i := range indexes {
+		st.Indexes[i] = true
+	}
+	return st, nil
 }
 
 func (s *fakeStore) OpenFindings(_ context.Context, cats []string) ([]analyzer.Finding, error) {

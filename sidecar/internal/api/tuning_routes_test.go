@@ -9,6 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -18,7 +21,13 @@ import (
 
 func calibrationGet(t *testing.T, pool *pgxpool.Pool, query string) (int, map[string]any) {
 	t.Helper()
-	h := tuningCalibrationHandler(phase2MgrWithPool(pool))
+	return calibrationGetWith(t, phase2MgrWithPool(pool), query)
+}
+
+func calibrationGetWith(t *testing.T, mgr *fleet.DatabaseManager, query string) (int,
+	map[string]any) {
+	t.Helper()
+	h := tuningCalibrationHandler(mgr)
 	req := httptest.NewRequest("GET", "/api/v1/tuning/calibration"+query, nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -86,5 +95,37 @@ func TestTuningCalibration_EmptyAndBadRequests(t *testing.T) {
 	}
 	if code, _ := calibrationGet(t, pool, "?database=nope"); code != http.StatusNotFound {
 		t.Fatalf("unknown database: %d", code)
+	}
+}
+
+type statsOnlyTuning struct{ stats analyzer.TuningStats }
+
+func (s statsOnlyTuning) Tune(context.Context, *collector.Snapshot, *collector.Snapshot) (
+	analyzer.TuningOutput, error) {
+	return analyzer.TuningOutput{}, nil
+}
+
+func (s statsOnlyTuning) Stats() analyzer.TuningStats { return s.stats }
+
+// The calibration response carries the agent's last-cycle budget use, so
+// the Trust page shows what was spent and how many cases wait.
+func TestTuningCalibration_ServesTheLastCycleBudget(t *testing.T) {
+	pool, _ := phase2RequireDB(t)
+	mgr := phase2MgrWithPool(pool)
+	code, body := calibrationGetWith(t, mgr, "?database=testdb")
+	if code != http.StatusOK || body["budget"] != nil {
+		t.Fatalf("no agent, no budget: %d %v", code, body["budget"])
+	}
+	tp := statsOnlyTuning{stats: analyzer.TuningStats{TokensUsed: 41000, TokenLimit: 60000,
+		RequestsUsed: 12, RequestLimit: 12, CasesAsked: 2, CasesDeferred: 5}}
+	mgr.GetInstance("testdb").Analyzer = analyzer.New(nil, mgr.Config(), nil, tp, nil, nil,
+		nil, func(string, string, ...any) {})
+	code, body = calibrationGetWith(t, mgr, "?database=testdb")
+	b, _ := body["budget"].(map[string]any)
+	if code != http.StatusOK || b["tokens_used"] != float64(41000) ||
+		b["token_limit"] != float64(60000) || b["requests_used"] != float64(12) ||
+		b["request_limit"] != float64(12) || b["cases_asked"] != float64(2) ||
+		b["cases_deferred"] != float64(5) {
+		t.Fatalf("budget = %v (%d)", body["budget"], code)
 	}
 }
