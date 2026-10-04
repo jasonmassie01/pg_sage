@@ -230,7 +230,7 @@ custodian:
     retained_wal_disk_pct_ceiling: 10
 mcp:
   enabled: true
-  transport: "stdio"          # intent-only JSON-RPC; never raw SQL
+  transport: "http"           # intent-level, never raw SQL; token or session required
 
 prometheus:
   listen_addr: "0.0.0.0:9187"
