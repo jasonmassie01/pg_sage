@@ -192,7 +192,8 @@ func TestTools_RehearseOnlyWithAProvider(t *testing.T) {
 		t.Fatal("with a provider the tool is offered")
 	}
 	tb = ordersToolbox(t, h)
-	out := call(t, tb, "rehearse", `{"ddl":"CREATE INDEX CONCURRENTLY r ON public.orders (status)"}`)
+	out := call(t, tb, "rehearse",
+		`{"ddl":"CREATE INDEX CONCURRENTLY r ON public.orders (status)"}`)
 	if out["build_ms"] != float64(120) || out["evidence_id"] != "R1" {
 		t.Fatalf("rehearsal = %v", out)
 	}

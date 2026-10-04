@@ -57,7 +57,8 @@ func cloneDB(t *testing.T) string {
 	}
 	defer pool.Close()
 	mustExec(t, pool, "CREATE TABLE public.orders (id bigint PRIMARY KEY, customer_id bigint)")
-	mustExec(t, pool, "INSERT INTO public.orders SELECT g, g % 5000 FROM generate_series(1, 100000) g")
+	mustExec(t, pool, "INSERT INTO public.orders SELECT g, g % 5000 "+
+		"FROM generate_series(1, 100000) g")
 	mustExec(t, pool, "ANALYZE public.orders")
 	return dsn
 }

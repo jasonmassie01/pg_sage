@@ -169,7 +169,8 @@ func TestPostgresStore_PlanFromTheCacheThenGeneric(t *testing.T) {
 		VALUES (7001, 'q', '[{"Plan":{"Node Type":"Index Scan"}}]', 'auto_explain')`)
 	store := pgStore(t, pool)
 	p, err := store.Plan(ctx, 7001, "SELECT * FROM "+s+".t WHERE id = $1")
-	if err != nil || p.Source != PlanSourceCache || !strings.Contains(string(p.JSON), "Index Scan") {
+	if err != nil || p.Source != PlanSourceCache ||
+		!strings.Contains(string(p.JSON), "Index Scan") {
 		t.Fatalf("cached plan = %+v %v", p, err)
 	}
 	p, err = store.Plan(ctx, 7002, "SELECT * FROM "+s+".t WHERE v = $1")
@@ -227,7 +228,8 @@ func TestPostgresStore_StatisticsCatalog(t *testing.T) {
 	ctx := context.Background()
 	s := freshSchema(t, pool)
 	mustExec(t, pool, "CREATE TABLE "+s+".t (a int, b int, c text)")
-	mustExec(t, pool, "INSERT INTO "+s+".t SELECT g % 10, g % 10, 'x' FROM generate_series(1, 2000) g")
+	mustExec(t, pool, "INSERT INTO "+s+".t SELECT g % 10, g % 10, 'x' "+
+		"FROM generate_series(1, 2000) g")
 	mustExec(t, pool, "CREATE STATISTICS "+s+".t_ab (dependencies) ON a, b FROM "+s+".t")
 	mustExec(t, pool, "ANALYZE "+s+".t")
 	store := pgStore(t, pool)

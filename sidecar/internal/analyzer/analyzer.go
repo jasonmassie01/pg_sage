@@ -11,7 +11,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
-	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
@@ -70,7 +69,7 @@ type Analyzer struct {
 	cfg          *config.Config
 	collector    *collector.Collector
 	extras       *RuleExtras
-	optimizer    *optimizer.Optimizer
+	tuning       TuningProducer
 	advisor      ConfigAdvisor
 	forecaster   WorkloadForecaster
 	tuner        QueryTuner
@@ -123,7 +122,7 @@ func New(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
 	coll *collector.Collector,
-	opt *optimizer.Optimizer,
+	tp TuningProducer,
 	adv ConfigAdvisor,
 	fc WorkloadForecaster,
 	qt QueryTuner,
@@ -133,7 +132,7 @@ func New(
 		pool:       pool,
 		cfg:        cfg,
 		collector:  coll,
-		optimizer:  opt,
+		tuning:     tp,
 		advisor:    adv,
 		forecaster: fc,
 		tuner:      qt,

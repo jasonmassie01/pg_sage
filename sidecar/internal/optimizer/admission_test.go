@@ -89,9 +89,6 @@ func TestAdmit_VerifiedCandidate(t *testing.T) {
 		r.CostEstimate == nil || r.CostEstimate.EstimatedSizeBytes != 16384 {
 		t.Fatalf("rollback and size: %+v", r)
 	}
-	if r.Confidence != 0 || r.ActionLevel != "" {
-		t.Fatalf("no fixed-weight confidence any more (the agent calibrates): %+v", r)
-	}
 }
 
 func TestAdmit_InvalidCandidateNeverReachesTheWhatIf(t *testing.T) {
@@ -131,7 +128,8 @@ func TestAdmit_RememberedIdeaIsNotRemeasured(t *testing.T) {
 
 func TestAdmit_WhatIfRejectionIsRemembered(t *testing.T) {
 	store := newMemStore()
-	o, _, _ := admissionOptimizer(store, WhatIfResult{Measured: 2, Improvement: 0})
+	o, _, _ := admissionOptimizer(store, WhatIfResult{Measured: 2, Improvement: 0,
+		SizeBytes: 8192})
 	a := o.Admit(context.Background(), candidate(statusDDL), admitTable())
 	if a.Outcome != AdmitRejected || !strings.Contains(a.Reason, "below") {
 		t.Fatalf("admission = %+v", a)

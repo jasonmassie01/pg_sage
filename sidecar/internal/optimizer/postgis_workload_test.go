@@ -1,7 +1,6 @@
 package optimizer
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -64,30 +63,5 @@ func TestClassifyPostGISWorkload_NonSpatialQuery(t *testing.T) {
 
 	if got.Shape != "" {
 		t.Fatalf("Shape = %q, want empty", got.Shape)
-	}
-}
-
-func TestFormatPrompt_IncludesPostGISWorkloadHints(t *testing.T) {
-	tc := sampleTableContext()
-	tc.Columns = append(tc.Columns, ColumnInfo{
-		Name: "geom", Type: "geometry(Point,4326)", IsNullable: false,
-	})
-	tc.Queries = []QueryInfo{{
-		QueryID: 321,
-		Text:    "SELECT id FROM orders WHERE ST_DWithin(geom, $1, 1000)",
-		Calls:   250,
-	}}
-
-	prompt := FormatPrompt(tc)
-
-	if !strings.Contains(prompt, "### PostGIS Workload Hints") {
-		t.Fatalf("prompt missing PostGIS workload hints: %s", prompt)
-	}
-	if !strings.Contains(prompt, PostGISShapeDistanceFilter) {
-		t.Fatalf("prompt missing shape %q", PostGISShapeDistanceFilter)
-	}
-	if !strings.Contains(prompt, PostGISRecommendationGiSTIndex) {
-		t.Fatalf("prompt missing recommendation %q",
-			PostGISRecommendationGiSTIndex)
 	}
 }

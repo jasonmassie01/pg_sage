@@ -22,7 +22,7 @@
   "advisor.memory_enabled": {
     "type": "bool",
     "default": true,
-    "doc": ""
+    "doc": "Let the tuning agent propose server settings (work_mem and other memory, planner and autovacuum settings) for its cases. Needs advisor.enabled. Default: true."
   },
   "advisor.rewrite_enabled": {
     "type": "bool",
@@ -32,7 +32,7 @@
   "advisor.vacuum_enabled": {
     "type": "bool",
     "default": true,
-    "doc": ""
+    "doc": "Let the tuning agent propose table storage parameters (autovacuum, fillfactor) for its write-amplification cases. Needs advisor.enabled. Default: true."
   },
   "advisor.wal_enabled": {
     "type": "bool",
@@ -657,7 +657,7 @@
   "llm.optimizer.enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Run the LLM index optimizer. On by default; needs a usable LLM. Its index changes execute only through the policy gate and trust level. Default: true."
+    "doc": "Let the tuning agent propose index creates (HypoPG-measured) and drops. Needs a usable LLM; index changes execute only through the policy gate and trust level. Default: true."
   },
   "llm.optimizer.hypopg_min_improvement_pct": {
     "type": "float64",
@@ -707,7 +707,7 @@
   "llm.optimizer.rejection_memory.enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Remember HypoPG what-if rejections of LLM index candidates: skip re-measuring the same idea and tell the model it was measured. LLM candidates only. Default: true."
+    "doc": "Remember HypoPG what-if rejections of index candidates: skip re-measuring the same idea and tell the tuning agent it was measured. Default: true."
   },
   "llm.optimizer.rejection_memory.max_age_days": {
     "type": "int",
@@ -722,7 +722,7 @@
   "llm.optimizer.rejection_memory.prompt_max_shapes": {
     "type": "int",
     "default": 5,
-    "doc": "Most recently rejected shapes per table listed in the optimizer prompt as already measured. Range 1-20. Default: 5."
+    "doc": "Most recently rejected shapes per table listed in the tuning agent's case packet as already measured. Range 1-20. Default: 5."
   },
   "llm.optimizer.rejection_memory.row_estimate_ratio": {
     "type": "float64",
@@ -732,7 +732,7 @@
   "llm.optimizer.rejection_memory.skip_llm_after": {
     "type": "int",
     "default": 3,
-    "doc": "After this many consecutive proposals for a table that were all already measured or rejected, stop asking the model until a material change or the max age. Range 1-100. Default: 3."
+    "doc": "After this many consecutive wasted answers for a tuning case (rejected, already measured, empty or malformed), stop asking the model until the case changes. Range 1-100. Default: 3."
   },
   "llm.optimizer.write_heavy_ratio_pct": {
     "type": "int",
@@ -1868,7 +1868,7 @@
   "tuner.llm_enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily. Default: true."
+    "doc": "Let the tuning agent propose per-query pg_hint_plan hints for its cases; the tuner validates, clamps and records them. The tuner's deterministic hint rules run either way. Default: true."
   },
   "tuner.max_concurrent_analyze": {
     "type": "int",
@@ -1940,6 +1940,46 @@
     "type": "int",
     "default": 512,
     "doc": "Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions."
+  },
+  "tuning.calibration_min_outcomes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Decided outcomes of an action class and prediction method needed before a confidence is shown; below it the agent reports uncalibrated. Range 1-1000. Default: 5."
+  },
+  "tuning.calibration_window_days": {
+    "type": "int",
+    "default": 180,
+    "doc": "Days of decided outcomes the calibration reads. Range 1-3650. Default: 180."
+  },
+  "tuning.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Run the case-driven tuning agent when an LLM is usable. Its changes execute only through the policy gate and trust level. Default: true."
+  },
+  "tuning.max_cases_per_cycle": {
+    "type": "int",
+    "default": 3,
+    "doc": "Workload cases the agent may examine with the model per analyzer cycle; the rest wait. Range 1-20. Default: 3."
+  },
+  "tuning.max_proposals_per_cycle": {
+    "type": "int",
+    "default": 10,
+    "doc": "New findings the agent emits per cycle, best ranked first. Range 1-100. Default: 10."
+  },
+  "tuning.max_requests_per_cycle": {
+    "type": "int",
+    "default": 12,
+    "doc": "Model requests (tool turns included) per database per analyzer cycle. Range 1-200. Default: 12."
+  },
+  "tuning.max_tokens_per_cycle": {
+    "type": "int",
+    "default": 60000,
+    "doc": "Model tokens per database per analyzer cycle, charged before each request. Range 1000-2000000. Default: 60000."
+  },
+  "tuning.max_turns_per_case": {
+    "type": "int",
+    "default": 6,
+    "doc": "Model turns per case; the last turn must answer without tools. Range 1-20. Default: 6."
   },
   "value.toil_model_version": {
     "type": "int",

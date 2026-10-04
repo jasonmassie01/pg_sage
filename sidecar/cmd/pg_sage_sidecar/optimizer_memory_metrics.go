@@ -5,22 +5,23 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/fleet"
-	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
-// writeOptimizerMemoryFromFleet exports each database's optimizer
-// rejection-memory counters (databases without an optimizer are left out).
+// writeOptimizerMemoryFromFleet exports each database's tuning-agent
+// memory counters (databases without an agent are left out). The metric
+// names predate the agent and are kept.
 func writeOptimizerMemoryFromFleet(b *strings.Builder, mgr *fleet.DatabaseManager) {
 	if mgr == nil {
 		return
 	}
-	stats := map[string]optimizer.MemoryStats{}
+	stats := map[string]analyzer.TuningStats{}
 	for name, inst := range mgr.Instances() {
 		if inst == nil {
 			continue
 		}
-		if s, ok := inst.Analyzer.OptimizerMemoryStats(); ok {
+		if s, ok := inst.Analyzer.TuningStats(); ok {
 			stats[name] = s
 		}
 	}
@@ -30,18 +31,18 @@ func writeOptimizerMemoryFromFleet(b *strings.Builder, mgr *fleet.DatabaseManage
 // optimizerMemoryCounters are the per-database rejection-memory series.
 var optimizerMemoryCounters = []struct {
 	name, help string
-	value      func(optimizer.MemoryStats) int64
+	value      func(analyzer.TuningStats) int64
 }{
-	{"pg_sage_optimizer_whatif_skipped_total", "HypoPG what-if evaluations the index " +
-		"optimizer skipped because the same idea was already measured and rejected",
-		func(s optimizer.MemoryStats) int64 { return s.WhatIfSkipped }},
-	{"pg_sage_optimizer_llm_calls_skipped_total", "Index optimizer LLM calls skipped " +
-		"because the table's recent proposals were all already measured",
-		func(s optimizer.MemoryStats) int64 { return s.LLMCallsSkipped }},
+	{"pg_sage_optimizer_whatif_skipped_total", "HypoPG what-if evaluations index " +
+		"admission skipped because the same idea was already measured and rejected",
+		func(s analyzer.TuningStats) int64 { return s.WhatIfSkipped }},
+	{"pg_sage_optimizer_llm_calls_skipped_total", "Tuning agent model calls skipped " +
+		"because the case's recent answers were all wasted and it has not changed",
+		func(s analyzer.TuningStats) int64 { return s.ModelCallsSkipped }},
 }
 
 // writeOptimizerMemoryMetrics writes the counters per database, sorted.
-func writeOptimizerMemoryMetrics(b *strings.Builder, stats map[string]optimizer.MemoryStats) {
+func writeOptimizerMemoryMetrics(b *strings.Builder, stats map[string]analyzer.TuningStats) {
 	if len(stats) == 0 {
 		return
 	}

@@ -2,29 +2,22 @@ package tuner
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
-	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Tuner produces per-query tuning findings from plan analysis.
 type Tuner struct {
-	pool           *pgxpool.Pool
-	cfg            TunerConfig
-	hintPlan       *HintPlanAvailability
-	llmClient      *llm.Client
-	fallbackClient *llm.Client
-	logFn          func(string, string, ...any)
-	recentlyTuned  map[int64]int
+	pool          *pgxpool.Pool
+	cfg           TunerConfig
+	hintPlan      *HintPlanAvailability
+	logFn         func(string, string, ...any)
+	recentlyTuned map[int64]int
 
 	// mu serializes Tune() and Revalidate() so the two loops
 	// never interleave writes to sage.query_hints.
@@ -40,22 +33,9 @@ type Tuner struct {
 	// exactly one ANALYZE finding.
 	staleStatsEmitted map[string]bool
 
-	llmPrescriptionCooldown map[string]int
-
 	// facts are the catalog facts of the current cycle (table rows,
 	// usable indexes); nil when they could not be loaded.
 	facts *CatalogFacts
-}
-
-// Option configures optional Tuner behavior.
-type Option func(*Tuner)
-
-// WithLLM enables LLM-enhanced hint reasoning with optional fallback.
-func WithLLM(client, fallback *llm.Client) Option {
-	return func(t *Tuner) {
-		t.llmClient = client
-		t.fallbackClient = fallback
-	}
 }
 
 // New creates a Tuner with the given dependencies.
@@ -64,18 +44,13 @@ func New(
 	cfg TunerConfig,
 	hintPlan *HintPlanAvailability,
 	logFn func(string, string, ...any),
-	opts ...Option,
 ) *Tuner {
 	t := &Tuner{
-		pool:                    pool,
-		cfg:                     cfg,
-		hintPlan:                hintPlan,
-		logFn:                   logFn,
-		recentlyTuned:           make(map[int64]int),
-		llmPrescriptionCooldown: make(map[string]int),
-	}
-	for _, o := range opts {
-		o(t)
+		pool:          pool,
+		cfg:           cfg,
+		hintPlan:      hintPlan,
+		logFn:         logFn,
+		recentlyTuned: make(map[int64]int),
 	}
 	// Active hints are loaded on the first Tune() call when
 	// recentlyTuned is empty (see Tune()), so bootstrap here is
@@ -237,14 +212,6 @@ func (t *Tuner) tickCooldowns() {
 			t.recentlyTuned[qid] = remaining
 		}
 	}
-	for key, remaining := range t.llmPrescriptionCooldown {
-		remaining--
-		if remaining <= 0 {
-			delete(t.llmPrescriptionCooldown, key)
-		} else {
-			t.llmPrescriptionCooldown[key] = remaining
-		}
-	}
 }
 
 // cooldownCycles returns the configured cascade cooldown,
@@ -364,17 +331,9 @@ func (t *Tuner) processCandidate(
 		return staleFindings
 	}
 
-	// Always compute deterministic fallback.
-	fallback := t.prescribeAll(symptoms)
-	fallbackHint := CombineHints(fallback)
-
-	// Try LLM-enhanced reasoning if available.
-	prescriptions := t.tryLLMPrescribe(
-		ctx, c, symptoms, fallbackHint,
-	)
-	if len(prescriptions) == 0 {
-		prescriptions = fallback
-	}
+	// The tuning agent proposes model-reasoned hints through ProposeHint
+	// (roadmap 2.2); this pass is the deterministic rules only.
+	prescriptions := t.prescribeAll(symptoms)
 	if len(prescriptions) == 0 {
 		return nil
 	}
@@ -382,8 +341,8 @@ func (t *Tuner) processCandidate(
 	combined := CombineHints(prescriptions)
 	// Deterministic prescriptions interpolate plan-derived identifiers
 	// raw (e.g. HashJoin(alias)), so re-validate the combined directive
-	// the same way the LLM path validates its hints (W4). A malformed
-	// hint is dropped rather than emitted as an unparseable directive.
+	// the same way agent hints are validated (W4). A malformed hint is
+	// dropped rather than emitted as an unparseable directive.
 	if combined != "" && !validateHintSyntax(combined) {
 		t.logFn("tuner",
 			"dropping unparseable combined hint: %s", combined)
@@ -453,274 +412,6 @@ func (t *Tuner) extractStaleStats(
 		})
 	}
 	return kept, findings
-}
-
-func (t *Tuner) tryLLMPrescribe(
-	ctx context.Context,
-	c candidate,
-	symptoms []PlanSymptom,
-	fallbackHint string,
-) []Prescription {
-	if !llmUsable(t.llmClient) && !llmUsable(t.fallbackClient) {
-		// tuner.llm_enabled defaults on: with no configured, open and
-		// in-budget client the deterministic rules apply silently.
-		return nil
-	}
-	planJSON := t.fetchPlanJSON(ctx, c.QueryID)
-	if len(symptoms) == 1 && planJSON == "" {
-		// Deterministic rules sufficient for single-symptom
-		// without plan data; skip LLM to save tokens.
-		t.logFn("DEBUG",
-			"tuner: single symptom without plan, "+
-				"using deterministic rules for queryid=%d",
-			c.QueryID)
-		return nil
-	}
-	contextKey := llmContextFingerprint(c, planJSON, symptoms, fallbackHint)
-	if t.llmSuppressionActive(ctx, contextKey) {
-		t.logFn("tuner",
-			"suppressing repeated LLM attempt for queryid %d",
-			c.QueryID)
-		return nil
-	}
-	qctx := buildQueryContext(
-		ctx, t.pool, c, symptoms, planJSON, fallbackHint,
-	)
-	rx, err := llmPrescribe(
-		ctx, t.llmClient, t.fallbackClient, qctx, t.cfg.WorkMemMaxMB, t.logFn,
-	)
-	if err != nil {
-		t.logFn("tuner",
-			"LLM prescribe failed for queryid %d, "+
-				"using deterministic: %v", c.QueryID, err)
-		if suppressesQuery(err) {
-			t.recordLLMSuppression(ctx, c, contextKey, "",
-				"llm_error", err.Error())
-		}
-		return nil
-	}
-	return t.acceptLLMPrescriptions(ctx, c, planJSON, contextKey, rx)
-}
-
-// acceptLLMPrescriptions drops prescriptions still cooling down, records
-// an empty_or_duplicate suppression when none is left, and logs the hint.
-func (t *Tuner) acceptLLMPrescriptions(
-	ctx context.Context, c candidate, planJSON, contextKey string,
-	rx []Prescription,
-) []Prescription {
-	if len(rx) > 0 {
-		rx = t.filterRepeatedLLMPrescriptions(ctx, c, planJSON,
-			contextKey, rx)
-	}
-	if len(rx) == 0 {
-		t.recordLLMSuppression(ctx, c, contextKey, "",
-			"empty_or_duplicate", "LLM returned no usable prescription")
-	}
-	if len(rx) > 0 {
-		t.logFn("tuner",
-			"LLM-enhanced hints for queryid %d: %s",
-			c.QueryID, rx[0].HintDirective)
-	}
-	return rx
-}
-
-func (t *Tuner) filterRepeatedLLMPrescriptions(
-	ctx context.Context,
-	c candidate,
-	planJSON string,
-	contextKey string,
-	prescriptions []Prescription,
-) []Prescription {
-	var kept []Prescription
-	for _, p := range prescriptions {
-		key := llmPrescriptionFingerprint(c, planJSON, p)
-		if t.llmPrescriptionCooldown[key] > 0 ||
-			t.llmSuppressionActive(ctx, key) {
-			t.logFn("tuner",
-				"suppressing repeated LLM prescription for queryid %d",
-				c.QueryID)
-			t.recordLLMSuppression(ctx, c, contextKey, key,
-				"duplicate_prescription",
-				"same LLM prescription is still cooling down")
-			continue
-		}
-		t.llmPrescriptionCooldown[key] = t.cooldownCycles()
-		t.recordLLMSuppression(ctx, c, contextKey, key,
-			"accepted", "accepted LLM prescription cooldown")
-		kept = append(kept, p)
-	}
-	return kept
-}
-
-func llmContextFingerprint(
-	c candidate,
-	planJSON string,
-	symptoms []PlanSymptom,
-	fallbackHint string,
-) string {
-	parts := []string{
-		fmt.Sprintf("%d", c.QueryID),
-		normalizeFingerprintText(c.Query),
-		normalizeFingerprintText(planJSON),
-		normalizeFingerprintText(fallbackHint),
-	}
-	for _, s := range symptoms {
-		parts = append(parts, normalizeFingerprintText(string(s.Kind)))
-		parts = append(parts, normalizeFingerprintText(s.RelationName))
-		parts = append(parts, normalizeFingerprintText(s.Schema))
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
-	return hex.EncodeToString(sum[:])
-}
-
-func llmPrescriptionFingerprint(
-	c candidate,
-	planJSON string,
-	p Prescription,
-) string {
-	normalized := strings.Join([]string{
-		fmt.Sprintf("%d", c.QueryID),
-		normalizeFingerprintText(c.Query),
-		normalizeFingerprintText(planJSON),
-		normalizeFingerprintText(p.HintDirective),
-		normalizeFingerprintText(p.SuggestedRewrite),
-	}, "\n")
-	sum := sha256.Sum256([]byte(normalized))
-	return hex.EncodeToString(sum[:])
-}
-
-func normalizeFingerprintText(s string) string {
-	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
-}
-
-const llmSuppressionCategory = "query_tuning"
-const llmSuppressionStatus = "suppressed"
-
-type llmSuppressionDetail struct {
-	QueryID                    int64  `json:"queryid"`
-	Query                      string `json:"query"`
-	LLMContextFingerprint      string `json:"llm_context_fingerprint"`
-	LLMPrescriptionFingerprint string `json:"llm_prescription_fingerprint"`
-	LLMOutcome                 string `json:"llm_outcome"`
-	Reason                     string `json:"reason"`
-}
-
-func (t *Tuner) llmSuppressionActive(
-	ctx context.Context,
-	fingerprint string,
-) bool {
-	if t.pool == nil || fingerprint == "" {
-		return false
-	}
-	var active bool
-	err := t.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT EXISTS (
-		    SELECT 1 FROM sage.findings
-		     WHERE category = $1
-		       AND status = $2
-		       AND suppressed_until > now()
-		       AND (
-		           detail->>'llm_context_fingerprint' = $3
-		           OR detail->>'llm_prescription_fingerprint' = $3
-		       )
-		)`,
-		llmSuppressionCategory, llmSuppressionStatus, fingerprint,
-	).Scan(&active)
-	if err != nil {
-		t.logFn("WARN", "tuner: check LLM suppression: %v", err)
-		return false
-	}
-	return active
-}
-
-func (t *Tuner) recordLLMSuppression(
-	ctx context.Context,
-	c candidate,
-	contextKey string,
-	prescriptionKey string,
-	outcome string,
-	reason string,
-) {
-	if t.pool == nil || contextKey == "" {
-		return
-	}
-	detail := llmSuppressionDetail{
-		QueryID:                    c.QueryID,
-		Query:                      c.Query,
-		LLMContextFingerprint:      contextKey,
-		LLMPrescriptionFingerprint: prescriptionKey,
-		LLMOutcome:                 outcome,
-		Reason:                     reason,
-	}
-	detailJSON, err := json.Marshal(detail)
-	if err != nil {
-		t.logFn("WARN", "tuner: encode LLM suppression: %v", err)
-		return
-	}
-	objectID := "llm_suppression:" + contextKey
-	suppressedUntil := time.Now().UTC().Add(t.llmSuppressionDuration())
-	updated, err := t.updateLLMSuppression(
-		ctx, objectID, detailJSON, outcome, suppressedUntil)
-	if err != nil {
-		t.logFn("WARN", "tuner: update LLM suppression: %v", err)
-		return
-	}
-	if updated {
-		return
-	}
-	if err := t.insertLLMSuppression(
-		ctx, objectID, detailJSON, outcome, suppressedUntil); err != nil {
-		t.logFn("WARN", "tuner: insert LLM suppression: %v", err)
-	}
-}
-
-func (t *Tuner) updateLLMSuppression(
-	ctx context.Context,
-	objectID string,
-	detailJSON []byte,
-	outcome string,
-	suppressedUntil time.Time,
-) (bool, error) {
-	tag, err := t.pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.findings
-		    SET last_seen = now(),
-		        detail = $3,
-		        recommendation = $4,
-		        suppressed_until = $5
-		  WHERE category = $1
-		    AND object_identifier = $2
-		    AND status = 'suppressed'`,
-		llmSuppressionCategory, objectID, detailJSON,
-		"LLM tuner attempt suppressed: "+outcome, suppressedUntil,
-	)
-	if err != nil {
-		return false, err
-	}
-	return tag.RowsAffected() > 0, nil
-}
-
-func (t *Tuner) insertLLMSuppression(
-	ctx context.Context,
-	objectID string,
-	detailJSON []byte,
-	outcome string,
-	suppressedUntil time.Time,
-) error {
-	_, err := t.pool.Exec(ctx,
-		`/* pg_sage */ INSERT INTO sage.findings
-		    (category, severity, object_type, object_identifier,
-		     title, detail, recommendation, status, suppressed_until)
-		 VALUES ($1, 'info', 'query', $2, $3, $4, $5, $6, $7)`,
-		llmSuppressionCategory, objectID,
-		"Suppressed repeated LLM tuner attempt",
-		detailJSON, "LLM tuner attempt suppressed: "+outcome,
-		llmSuppressionStatus, suppressedUntil,
-	)
-	return err
-}
-
-func (t *Tuner) llmSuppressionDuration() time.Duration {
-	return time.Duration(t.cooldownCycles()) * time.Hour
 }
 
 func (t *Tuner) gatherSymptoms(

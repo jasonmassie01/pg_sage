@@ -191,11 +191,13 @@ func TestJudge_IndexDropOfARedundantIndex(t *testing.T) {
 		"USING btree (customer_id)" {
 		t.Fatalf("rollback (soft drop keeps the definition) = %q", f.RollbackSQL)
 	}
-	if f.Detail["covered_by"] != "orders_customer_status_idx" || f.Detail["table"] != "public.orders" {
+	if f.Detail["covered_by"] != "orders_customer_status_idx" ||
+		f.Detail["table"] != "public.orders" {
 		t.Fatalf("detail = %v", f.Detail)
 	}
 	p := j.Prediction
-	if p.Method != verify.MethodRule || *p.ExpectedChangePct != 0 || j.Class != verify.ClassIndexDrop {
+	if p.Method != verify.MethodRule || *p.ExpectedChangePct != 0 ||
+		j.Class != verify.ClassIndexDrop {
 		t.Fatalf("a drop predicts reads unchanged: %+v", p)
 	}
 }

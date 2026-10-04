@@ -370,25 +370,6 @@ func TestCleanColumnRef(t *testing.T) {
 	}
 }
 
-func TestTotalQueryTime(t *testing.T) {
-	queries := []QueryInfo{
-		{TotalTimeMs: 100.5},
-		{TotalTimeMs: 200.0},
-		{TotalTimeMs: 50.5},
-	}
-	got := totalQueryTime(queries)
-	if got != 351.0 {
-		t.Errorf("totalQueryTime = %v, want 351.0", got)
-	}
-}
-
-func TestTotalQueryTime_Empty(t *testing.T) {
-	got := totalQueryTime(nil)
-	if got != 0 {
-		t.Errorf("totalQueryTime(nil) = %v, want 0", got)
-	}
-}
-
 func TestMergeChildQueries_NoDuplicates(t *testing.T) {
 	snap := &collector.Snapshot{
 		Partitions: []collector.PartitionInfo{

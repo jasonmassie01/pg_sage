@@ -440,69 +440,6 @@ func TestAnalyzeBloat_NoQualifyingTables(t *testing.T) {
 // analyzeVacuum early returns (vacuum.go)
 // ---------------------------------------------------------------------------
 
-func TestAnalyzeVacuum_NoQualifyingTables(t *testing.T) {
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{},
-		Tables: []collector.TableStats{
-			// Small table
-			{SchemaName: "public", RelName: "tiny",
-				NLiveTup: 500, NDeadTup: 400},
-			// Low dead ratio
-			{SchemaName: "public", RelName: "healthy",
-				NLiveTup: 20000, NDeadTup: 500},
-		},
-	}
-	findings, err := analyzeVacuum(
-		context.Background(), nil, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if findings != nil {
-		t.Fatal("expected nil findings when no tables qualify")
-	}
-}
-
-func TestAnalyzeVacuum_NoQualifyingTables_AllSmall(t *testing.T) {
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{},
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "t1",
-				NLiveTup: 100, NDeadTup: 100},
-			{SchemaName: "public", RelName: "t2",
-				NLiveTup: 300, NDeadTup: 200},
-		},
-	}
-	findings, err := analyzeVacuum(
-		context.Background(), nil, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if findings != nil {
-		t.Fatal("expected nil for all-small tables")
-	}
-}
-
-func TestAnalyzeVacuum_NoTables(t *testing.T) {
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{},
-		Tables:     nil,
-	}
-	findings, err := analyzeVacuum(
-		context.Background(), nil, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if findings != nil {
-		t.Fatal("expected nil for no tables")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // analyzeQueryRewrites early returns (rewrite.go)
 // ---------------------------------------------------------------------------
@@ -595,22 +532,6 @@ func TestAnalyzeConnections_NilConfigData(t *testing.T) {
 // ---------------------------------------------------------------------------
 // analyzeMemory early return (memory.go)
 // ---------------------------------------------------------------------------
-
-func TestAnalyzeMemory_NilConfigData(t *testing.T) {
-	snap := &collector.Snapshot{
-		ConfigData: nil,
-	}
-	findings, err := analyzeMemory(
-		context.Background(), nil, snap,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if findings != nil {
-		t.Fatal("expected nil for nil ConfigData")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // analyzeWAL early return (wal.go)
@@ -846,10 +767,8 @@ func TestRestartRequired_SingleSourced(t *testing.T) {
 
 func TestAllSystemPrompts_ContainJSONArray(t *testing.T) {
 	prompts := map[string]string{
-		"vacuum":     vacuumSystemPrompt,
 		"wal":        walSystemPrompt,
 		"connection": connectionSystemPrompt,
-		"memory":     memorySystemPrompt,
 		"bloat":      bloatSystemPrompt,
 		"rewrite":    rewriteSystemPrompt,
 	}
@@ -862,10 +781,8 @@ func TestAllSystemPrompts_ContainJSONArray(t *testing.T) {
 
 func TestAllSystemPrompts_ContainObjectIdentifier(t *testing.T) {
 	prompts := map[string]string{
-		"vacuum":     vacuumSystemPrompt,
 		"wal":        walSystemPrompt,
 		"connection": connectionSystemPrompt,
-		"memory":     memorySystemPrompt,
 		"bloat":      bloatSystemPrompt,
 		"rewrite":    rewriteSystemPrompt,
 	}
@@ -878,10 +795,8 @@ func TestAllSystemPrompts_ContainObjectIdentifier(t *testing.T) {
 
 func TestAllSystemPrompts_ContainAntiThinking(t *testing.T) {
 	prompts := map[string]string{
-		"vacuum":     vacuumSystemPrompt,
 		"wal":        walSystemPrompt,
 		"connection": connectionSystemPrompt,
-		"memory":     memorySystemPrompt,
 		"bloat":      bloatSystemPrompt,
 		"rewrite":    rewriteSystemPrompt,
 	}
@@ -894,10 +809,8 @@ func TestAllSystemPrompts_ContainAntiThinking(t *testing.T) {
 
 func TestAllSystemPrompts_ContainCRITICAL(t *testing.T) {
 	prompts := map[string]string{
-		"vacuum":     vacuumSystemPrompt,
 		"wal":        walSystemPrompt,
 		"connection": connectionSystemPrompt,
-		"memory":     memorySystemPrompt,
 		"bloat":      bloatSystemPrompt,
 		"rewrite":    rewriteSystemPrompt,
 	}
@@ -910,10 +823,8 @@ func TestAllSystemPrompts_ContainCRITICAL(t *testing.T) {
 
 func TestAllSystemPrompts_NonEmpty(t *testing.T) {
 	prompts := map[string]string{
-		"vacuum":     vacuumSystemPrompt,
 		"wal":        walSystemPrompt,
 		"connection": connectionSystemPrompt,
-		"memory":     memorySystemPrompt,
 		"bloat":      bloatSystemPrompt,
 		"rewrite":    rewriteSystemPrompt,
 	}
@@ -1448,7 +1359,7 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 		Tables: []collector.TableStats{
 			{SchemaName: "public", RelName: "orders",
 				NLiveTup: 5000, NDeadTup: 5000,
-				TableBytes: 50 * 1024 * 1024,
+				TableBytes:     50 * 1024 * 1024,
 				LastAutovacuum: nil},
 		},
 		System: collector.SystemStats{DBSizeBytes: 500 * 1024 * 1024},
@@ -1469,167 +1380,6 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 // ---------------------------------------------------------------------------
 // analyzeVacuum with mock LLM (vacuum.go)
 // ---------------------------------------------------------------------------
-
-func TestAnalyzeVacuum_FullPath_WithMockLLM(t *testing.T) {
-	// Config categories drop SQL-less rows (G3-B18), so the full path
-	// is exercised with an actionable statement.
-	llmResp := `[{"object_identifier":"public.orders",` +
-		`"severity":"info",` +
-		`"rationale":"Scale factor too high",` +
-		`"recommended_sql":"ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.02)"}]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	now := time.Now()
-	lastVac := now.Add(-2 * time.Hour)
-	snap := &collector.Snapshot{
-		CollectedAt: now,
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "autovacuum", Setting: "on"},
-				{Name: "autovacuum_vacuum_scale_factor",
-					Setting: "0.2"},
-			},
-			TableReloptions: []collector.TableReloption{
-				{SchemaName: "public", RelName: "orders",
-					Reloptions: "{autovacuum_vacuum_scale_factor=0.1}"},
-			},
-		},
-		Tables: []collector.TableStats{
-			{
-				SchemaName:      "public",
-				RelName:         "orders",
-				NLiveTup:        10000,
-				NDeadTup:        2000,
-				NTupIns:         5000,
-				NTupUpd:         3000,
-				NTupDel:         500,
-				LastAutovacuum:  &lastVac,
-				AutovacuumCount: 10,
-			},
-		},
-	}
-
-	prev := &collector.Snapshot{
-		CollectedAt: now.Add(-time.Hour),
-		Tables: []collector.TableStats{
-			{
-				SchemaName: "public",
-				RelName:    "orders",
-				NLiveTup:   9500,
-				NDeadTup:   1000,
-				NTupIns:    2000,
-				NTupUpd:    1000,
-				NTupDel:    200,
-			},
-		},
-	}
-
-	findings, err := analyzeVacuum(
-		context.Background(), mgr, snap, prev,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// The finding has empty RecommendedSQL, so it goes to the "else"
-	// branch (valid = append(valid, f)).
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	if findings[0].Category != "vacuum_tuning" {
-		t.Errorf("category = %q", findings[0].Category)
-	}
-}
-
-func TestAnalyzeVacuum_WithRecommendedSQL(t *testing.T) {
-	// Finding with RecommendedSQL goes through the validation branch.
-	// ValidateConfigRecommendation("", "", "") returns error, so the
-	// finding is dropped by the validator.
-	llmResp := `[{"object_identifier":"public.orders",` +
-		`"severity":"info",` +
-		`"rationale":"Need lower threshold",` +
-		`"recommended_sql":"ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.02)"}]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		CollectedAt: time.Now(),
-		ConfigData:  &collector.ConfigSnapshot{},
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "orders",
-				NLiveTup: 10000, NDeadTup: 2000},
-		},
-	}
-
-	findings, err := analyzeVacuum(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// The broken validation that called ValidateConfigRecommendation("","","")
-	// was removed — it always returned an error on empty setting name,
-	// silently dropping every finding with RecommendedSQL. Findings with
-	// RecommendedSQL are now correctly returned.
-	if len(findings) == 0 {
-		t.Fatal("expected at least 1 finding, got 0")
-	}
-}
-
-func TestAnalyzeVacuum_LLMError(t *testing.T) {
-	srv, mgr := mockLLMServerError(t)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		CollectedAt: time.Now(),
-		ConfigData:  &collector.ConfigSnapshot{},
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "big",
-				NLiveTup: 10000, NDeadTup: 2000},
-		},
-	}
-
-	_, err := analyzeVacuum(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err == nil {
-		t.Fatal("expected error from LLM failure")
-	}
-	if !strings.Contains(err.Error(), "vacuum LLM") {
-		t.Fatalf("expected 'vacuum LLM' in error, got: %v", err)
-	}
-}
-
-func TestAnalyzeVacuum_NilLastAutovacuum(t *testing.T) {
-	llmResp := `[]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		CollectedAt: time.Now(),
-		ConfigData:  &collector.ConfigSnapshot{},
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "orders",
-				NLiveTup:       10000,
-				NDeadTup:       2000,
-				LastAutovacuum: nil},
-		},
-	}
-
-	findings, err := analyzeVacuum(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if findings != nil {
-		t.Fatalf("expected nil for [], got %d", len(findings))
-	}
-}
 
 // ---------------------------------------------------------------------------
 // analyzeConnections with mock LLM (connection.go)
@@ -1734,107 +1484,6 @@ func TestAnalyzeConnections_EmptyResponse(t *testing.T) {
 // ---------------------------------------------------------------------------
 // analyzeMemory with mock LLM (memory.go)
 // ---------------------------------------------------------------------------
-
-func TestAnalyzeMemory_FullPath(t *testing.T) {
-	llmResp := `[{"object_identifier":"instance",` +
-		`"severity":"info",` +
-		`"rationale":"work_mem could be increased",` +
-		`"recommended_sql":"ALTER SYSTEM SET work_mem = '16MB'"}]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "shared_buffers", Setting: "128", Unit: "MB"},
-				{Name: "work_mem", Setting: "4", Unit: "MB"},
-				{Name: "maintenance_work_mem",
-					Setting: "64", Unit: "MB"},
-				{Name: "effective_cache_size",
-					Setting: "4", Unit: "GB"},
-				{Name: "huge_pages", Setting: "try", Unit: ""},
-				{Name: "temp_buffers", Setting: "8", Unit: "MB"},
-				{Name: "hash_mem_multiplier",
-					Setting: "2", Unit: ""},
-				{Name: "max_connections", Setting: "100", Unit: ""},
-			},
-		},
-		Queries: []collector.QueryStats{
-			{SharedBlksHit: 9000, SharedBlksRead: 1000,
-				TempBlksWritten: 500, Calls: 100,
-				Query: "SELECT * FROM orders WHERE id > $1"},
-			{SharedBlksHit: 5000, SharedBlksRead: 0,
-				TempBlksWritten: 0, Calls: 200,
-				Query: "SELECT 1"},
-			{SharedBlksHit: 3000, SharedBlksRead: 500,
-				TempBlksWritten: 200, Calls: 50,
-				Query: "SELECT o.* FROM orders o JOIN items i ON o.id = i.order_id"},
-		},
-	}
-
-	findings, err := analyzeMemory(
-		context.Background(), mgr, snap,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(findings) != 1 {
-		t.Fatalf("expected 1, got %d", len(findings))
-	}
-	if findings[0].Category != "memory_tuning" {
-		t.Errorf("category = %q", findings[0].Category)
-	}
-}
-
-func TestAnalyzeMemory_LLMError(t *testing.T) {
-	srv, mgr := mockLLMServerError(t)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{},
-	}
-
-	_, err := analyzeMemory(
-		context.Background(), mgr, snap,
-		&config.Config{}, noopLog,
-	)
-	if err == nil {
-		t.Fatal("expected error from LLM failure")
-	}
-	if !strings.Contains(err.Error(), "memory LLM") {
-		t.Fatalf("expected 'memory LLM' in error, got: %v", err)
-	}
-}
-
-func TestAnalyzeMemory_NoSpills(t *testing.T) {
-	srv, mgr := mockLLMServer(t, `[]`)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "shared_buffers", Setting: "128", Unit: "MB"},
-				{Name: "work_mem", Setting: "4", Unit: "MB"},
-			},
-		},
-		Queries: []collector.QueryStats{
-			{SharedBlksHit: 9000, SharedBlksRead: 100,
-				TempBlksWritten: 0},
-		},
-	}
-
-	findings, err := analyzeMemory(
-		context.Background(), mgr, snap,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(findings) != 0 {
-		t.Fatalf("expected 0, got %d", len(findings))
-	}
-}
 
 // ---------------------------------------------------------------------------
 // analyzeWAL with mock LLM (wal.go)
@@ -1957,12 +1606,12 @@ func TestAnalyzeQueryRewrites_FullPath(t *testing.T) {
 	snap := &collector.Snapshot{
 		Queries: []collector.QueryStats{
 			{
-				QueryID:       1,
-				Query:         "SELECT * FROM orders WHERE id IN (SELECT order_id FROM items)",
-				Calls:         200,
-				MeanExecTime:  100,
-				TotalExecTime: 20000,
-				Rows:          500,
+				QueryID:        1,
+				Query:          "SELECT * FROM orders WHERE id IN (SELECT order_id FROM items)",
+				Calls:          200,
+				MeanExecTime:   100,
+				TotalExecTime:  20000,
+				Rows:           500,
 				SharedBlksRead: 1000,
 			},
 		},
@@ -2145,44 +1794,6 @@ func TestAnalyzeBloat_MultipleTables_OnlyQualifyingIncluded(t *testing.T) {
 // Memory with > 5 spilling queries triggers top-5 sort (memory.go)
 // ---------------------------------------------------------------------------
 
-func TestAnalyzeMemory_ManySpillingQueries(t *testing.T) {
-	llmResp := `[]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	queries := make([]collector.QueryStats, 8)
-	for i := range queries {
-		queries[i] = collector.QueryStats{
-			SharedBlksHit:   1000,
-			SharedBlksRead:  100,
-			TempBlksWritten: int64((i + 1) * 100),
-			Calls:           100,
-			Query:           "SELECT spill_query_" + string(rune('A'+i)),
-		}
-	}
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "work_mem", Setting: "4", Unit: "MB"},
-			},
-		},
-		Queries: queries,
-	}
-
-	findings, err := analyzeMemory(
-		context.Background(), mgr, snap,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Empty response from LLM means no findings.
-	if len(findings) != 0 {
-		t.Fatalf("expected 0, got %d", len(findings))
-	}
-}
-
 // ---------------------------------------------------------------------------
 // WAL with unlogged tables (wal.go)
 // ---------------------------------------------------------------------------
@@ -2254,42 +1865,3 @@ func TestAnalyzeWAL_CloudSQLPlatform(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Vacuum with global autovacuum settings (vacuum.go)
 // ---------------------------------------------------------------------------
-
-func TestAnalyzeVacuum_GlobalSettings(t *testing.T) {
-	llmResp := `[]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		CollectedAt: time.Now(),
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "autovacuum", Setting: "on"},
-				{Name: "autovacuum_vacuum_scale_factor",
-					Setting: "0.2"},
-				{Name: "autovacuum_vacuum_threshold",
-					Setting: "50"},
-				{Name: "autovacuum_naptime", Setting: "60"},
-				{Name: "autovacuum_max_workers", Setting: "3"},
-				// Non-autovacuum setting should be excluded.
-				{Name: "work_mem", Setting: "4MB"},
-			},
-		},
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "active",
-				NLiveTup: 10000, NDeadTup: 2000},
-		},
-	}
-
-	findings, err := analyzeVacuum(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Empty LLM response -> no findings.
-	if findings != nil {
-		t.Fatalf("expected nil, got %d", len(findings))
-	}
-}

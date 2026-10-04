@@ -28,10 +28,11 @@ func TestParseAnswer_CleanJSON(t *testing.T) {
 
 func TestParseAnswer_FencedAndWrapped(t *testing.T) {
 	for name, raw := range map[string]string{
-		"json fence":  "```json\n{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\"}]}\n```",
-		"bare fence":  "```\n{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\"}]}\n```",
-		"prose first": "Here is my answer:\n{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\"}]}",
-		"bare array":  `[{"type":"guc","name":"work_mem"}]`,
+		"json fence": "```json\n{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\"}]}\n```",
+		"bare fence": "```\n{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\"}]}\n```",
+		"prose first": "Here is my answer:\n" +
+			"{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\"}]}",
+		"bare array": `[{"type":"guc","name":"work_mem"}]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			a, err := ParseAnswer(raw)

@@ -12,13 +12,6 @@ import (
 // storage-parameter change passes, whoever proposed it: the advisor's
 // remaining sub-advisors and the tuning agent (roadmap 2.2).
 
-func configFinding(sql string) analyzer.Finding {
-	return analyzer.Finding{Category: "memory_tuning", Severity: "info",
-		ObjectType: "configuration", ObjectIdentifier: "instance", Title: "t",
-		Detail: map[string]any{}, Recommendation: "why", RecommendedSQL: sql,
-		ActionRisk: "moderate"}
-}
-
 func TestGateConfigFindings(t *testing.T) {
 	settings := []collector.PGSetting{{Name: "work_mem", Setting: "4096", Unit: "kB"}}
 	for _, tc := range []struct {

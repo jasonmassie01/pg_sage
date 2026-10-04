@@ -112,7 +112,8 @@ func TestJudge_Reloption(t *testing.T) {
 	f := *j.Finding
 	if f.Category != "vacuum_tuning" ||
 		f.ObjectIdentifier != "public.orders:autovacuum_vacuum_scale_factor" ||
-		f.RecommendedSQL != "ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.02)" ||
+		f.RecommendedSQL != "ALTER TABLE public.orders SET "+
+			"(autovacuum_vacuum_scale_factor = 0.02)" ||
 		f.RollbackSQL != "ALTER TABLE public.orders RESET (autovacuum_vacuum_scale_factor)" {
 		t.Fatalf("finding = %+v", f)
 	}

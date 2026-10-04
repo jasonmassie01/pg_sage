@@ -44,12 +44,13 @@ func ctxFixture(t *testing.T) (*pgxpool.Pool, *collector.Snapshot) {
 	return pool, snap
 }
 
-func TestBuildTableContexts_SlowCatalogReadsDegrade(t *testing.T) {
+func TestTableContext_SlowCatalogReadsDegrade(t *testing.T) {
 	pool, snap := ctxFixture(t)
-	reader := catalogread.New(pool, catalogread.Timeouts{Statement: 200 * time.Millisecond})
-	base, _, err := BuildTableContexts(context.Background(), reader, snap, nil, 0)
-	if err != nil || len(base) != 1 || len(base[0].Columns) != 2 || len(base[0].ColStats) == 0 {
-		t.Fatalf("baseline contexts = %+v (%v), want columns and stats", base, err)
+	o := New(pool, &config.OptimizerConfig{}, 170000, func(string, string, ...any) {},
+		WithCatalogReadTimeouts(catalogread.Timeouts{Statement: 200 * time.Millisecond}))
+	base, ok, err := o.TableContext(context.Background(), snap, "public.ctx_bounded")
+	if err != nil || !ok || len(base.Columns) != 2 || len(base.ColStats) == 0 {
+		t.Fatalf("baseline context = %+v (%v, %v), want columns and stats", base, ok, err)
 	}
 	var calls atomic.Int32
 	slow := catalogread.WithBeforeStatement(context.Background(),
@@ -59,13 +60,13 @@ func TestBuildTableContexts_SlowCatalogReadsDegrade(t *testing.T) {
 			return err
 		})
 	start := time.Now()
-	got, _, err := BuildTableContexts(slow, reader, snap, nil, 0)
-	if err != nil || len(got) != 1 {
-		t.Fatalf("contexts under slow reads = %+v (%v), want the table without details",
-			got, err)
+	got, ok, err := o.TableContext(slow, snap, "public.ctx_bounded")
+	if err != nil || !ok {
+		t.Fatalf("context under slow reads = %+v (%v, %v), want the table without details",
+			got, ok, err)
 	}
-	if got[0].Columns != nil || got[0].ColStats != nil || got[0].Collation != "" {
-		t.Fatalf("timed-out reads produced data: %+v", got[0])
+	if got.Columns != nil || got.ColStats != nil || got.Collation != "" {
+		t.Fatalf("timed-out reads produced data: %+v", got)
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("%d reads went through the bounded helper, want 3 (collation, "+
@@ -77,14 +78,13 @@ func TestBuildTableContexts_SlowCatalogReadsDegrade(t *testing.T) {
 }
 
 func TestOptimizer_CatalogReadTimeouts(t *testing.T) {
-	o := New(nil, nil, nil, &config.OptimizerConfig{}, 170000, 0,
-		func(string, string, ...any) {})
+	o := New(nil, &config.OptimizerConfig{}, 170000, func(string, string, ...any) {})
 	if o.catalogTimeouts != catalogread.Default() {
 		t.Fatalf("default timeouts = %+v", o.catalogTimeouts)
 	}
 	want := catalogread.Timeouts{Statement: time.Second, Lock: 2 * time.Second}
-	o = New(nil, nil, nil, &config.OptimizerConfig{}, 170000, 0,
-		func(string, string, ...any) {}, WithCatalogReadTimeouts(want))
+	o = New(nil, &config.OptimizerConfig{}, 170000, func(string, string, ...any) {},
+		WithCatalogReadTimeouts(want))
 	if o.catalogTimeouts != want {
 		t.Fatalf("timeouts = %+v, want %+v", o.catalogTimeouts, want)
 	}

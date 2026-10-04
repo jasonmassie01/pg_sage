@@ -30,7 +30,8 @@ type realWorkload struct {
 
 func requireHypoPG(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), "CREATE EXTENSION IF NOT EXISTS hypopg"); err != nil {
+	if _, err := pool.Exec(context.Background(),
+		"CREATE EXTENSION IF NOT EXISTS hypopg"); err != nil {
 		t.Fatalf("HypoPG is part of the test server image: %v", err)
 	}
 }
@@ -48,21 +49,20 @@ func ordersWorkload(t *testing.T, pool *pgxpool.Pool) realWorkload {
 		"FROM generate_series(1, 100000) g")
 	mustExec(t, pool, "ANALYZE "+s+".orders")
 	q := "SELECT id, status FROM " + s + ".orders WHERE customer_id = $1"
-	for i := 0; i < 40; i++ {
-		if _, err := pool.Exec(ctx, q, int64(i)); err != nil {
-			t.Fatalf("workload: %v", err)
-		}
-	}
 	var w realWorkload
 	w.schema = s
-	var calls int64
-	var total float64
-	err := pool.QueryRow(ctx, `SELECT queryid, calls, total_exec_time FROM pg_stat_statements
-		WHERE query LIKE $1 AND dbid = (SELECT oid FROM pg_database
-		WHERE datname = current_database()) ORDER BY calls DESC LIMIT 1`,
-		"%"+s+".orders WHERE customer_id%").Scan(&w.queryID, &calls, &total)
-	if err != nil {
-		t.Fatalf("pg_stat_statements must track the workload: %v", err)
+	// Other packages' tests reset pg_stat_statements on the shared test
+	// server: run the workload again until it is read back whole.
+	calls, err := int64(0), error(nil)
+	for attempt := 0; attempt < 5 && calls < 40; attempt++ {
+		runOrdersWorkload(t, pool, q)
+		err = pool.QueryRow(ctx, `SELECT queryid, calls FROM pg_stat_statements
+			WHERE query LIKE $1 AND dbid = (SELECT oid FROM pg_database
+			WHERE datname = current_database()) ORDER BY calls DESC LIMIT 1`,
+			"%"+s+".orders WHERE customer_id%").Scan(&w.queryID, &calls)
+	}
+	if err != nil || calls < 40 {
+		t.Fatalf("pg_stat_statements must track the workload: %d calls, %v", calls, err)
 	}
 	tbl := collector.TableStats{SchemaName: s, RelName: "orders", NLiveTup: 100000,
 		TableBytes: 8 << 20, Relpersistence: "p"}
@@ -75,6 +75,15 @@ func ordersWorkload(t *testing.T, pool *pgxpool.Pool) realWorkload {
 	w.cur = snapAt(t0.Add(5*time.Minute), []collector.QueryStats{{QueryID: w.queryID,
 		Query: q, Calls: calls, TotalExecTime: 10 + 5000}}, []collector.TableStats{tbl}, idx)
 	return w
+}
+
+func runOrdersWorkload(t *testing.T, pool *pgxpool.Pool, q string) {
+	t.Helper()
+	for i := 0; i < 40; i++ {
+		if _, err := pool.Exec(context.Background(), q, int64(i)); err != nil {
+			t.Fatalf("workload: %v", err)
+		}
+	}
 }
 
 func realOptimizer(t *testing.T, pool *pgxpool.Pool) *optimizer.Optimizer {
@@ -123,10 +132,14 @@ func TestAgentDB_VerifiedIndexWithRealHypoPG(t *testing.T) {
 	if !strings.Contains(f.RecommendedSQL, "CONCURRENTLY") || f.RollbackSQL == "" {
 		t.Fatalf("finding = %+v", f)
 	}
-	// The explain tool really planned the statement on this server.
+	// The explain tool really planned the statement on this server; a
+	// parameterized statement has a plan only on PostgreSQL 16+ (generic).
 	toolMsg := model.msgs[1][len(model.msgs[1])-1].Content
-	if !strings.Contains(toolMsg, "orders") {
+	if serverVersion(t, pool) >= 160000 && !strings.Contains(toolMsg, "orders") {
 		t.Fatalf("explain result = %q", toolMsg)
+	}
+	if serverVersion(t, pool) < 160000 && !strings.Contains(toolMsg, PlanSourceNone) {
+		t.Fatalf("before PG16 the parameterized statement has no plan: %q", toolMsg)
 	}
 }
 

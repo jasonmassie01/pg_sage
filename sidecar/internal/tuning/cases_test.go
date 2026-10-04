@@ -37,16 +37,18 @@ func hasCase(cs []Case, id string) (Case, bool) {
 
 // shareSnaps builds an interval in which statement 1 spent stmtMs of a
 // workload total of totalMs (statement 2 spent the rest), both on
-// public.orders, with calls calls each.
+// public.orders, with calls calls each. Statement 1's history has the
+// interval's mean time, so it is a top statement and never a regression.
 func shareSnaps(stmtMs, totalMs float64, calls int64) (prev, cur *collector.Snapshot) {
 	tbl := []collector.TableStats{table("public", "orders", 1000, 0)}
 	q1 := "SELECT * FROM public.orders WHERE a = $1"
 	q2 := "SELECT * FROM public.orders WHERE b = $1"
 	prev = snapAt(t0, []collector.QueryStats{stmt(1, q1, 100, 1000), stmt(2, q2, 100, 1000)},
 		tbl, nil)
+	prev.Queries[0].TotalExecTime = 100 * stmtMs / float64(calls)
 	cur = snapAt(t0.Add(5*time.Minute), []collector.QueryStats{
-		stmt(1, q1, 100+calls, 1000+stmtMs), stmt(2, q2, 100+calls, 1000+totalMs-stmtMs)},
-		tbl, nil)
+		stmt(1, q1, 100+calls, prev.Queries[0].TotalExecTime+stmtMs),
+		stmt(2, q2, 100+calls, 1000+totalMs-stmtMs)}, tbl, nil)
 	return prev, cur
 }
 
@@ -167,10 +169,11 @@ func TestDetectCases_NonWorkloadNeverBecomesACase(t *testing.T) {
 	tbl := []collector.TableStats{table("public", "orders", 1000, 0),
 		table("test_x", "orders", 10, 0)}
 	q := "SELECT * FROM public.orders WHERE a = $1"
-	prev := snapAt(t0, []collector.QueryStats{stmt(1, q, 100, 100),
+	// Statement 1 keeps its 12 ms mean: a top statement, not a regression.
+	prev := snapAt(t0, []collector.QueryStats{stmt(1, q, 100, 1200),
 		stmt(2, "EXPLAIN ANALYZE SELECT * FROM public.orders", 1, 1),
 		stmt(3, "SELECT * FROM test_x.orders", 1, 1)}, tbl, nil)
-	cur := snapAt(t0.Add(time.Minute), []collector.QueryStats{stmt(1, q, 200, 1300),
+	cur := snapAt(t0.Add(time.Minute), []collector.QueryStats{stmt(1, q, 200, 2400),
 		stmt(2, "EXPLAIN ANALYZE SELECT * FROM public.orders", 50, 900001),
 		stmt(3, "SELECT * FROM test_x.orders", 500, 800001)}, tbl, nil)
 	cs := detect(prev, cur)
