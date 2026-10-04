@@ -12,12 +12,14 @@ import (
 
 // Roadmap 2.4: the nightly live-model arm is the bench-live job of
 // ci.yml (so its signature carries the release workflow's identity, the
-// one the sidecar accepts). The contract: it runs only on the nightly
-// schedule or a manual dispatch, never on a pull request or push; it
-// skips with a notice when its secret is missing; its live step opts in
-// (PG_SAGE_LIVE_LLM=1, SAGE_BENCH_LIVE_ARM=1) with every cap set and
-// the key from a secret; it runs TestLiveModelArm only; it signs the
-// report keyless on master only. No other job may opt in to live calls.
+// one the sidecar accepts). The contract: it runs on the nightly
+// schedule, a manual dispatch or a v* tag push (owner decision
+// 2026-10-04; the release never waits for it), never on a pull request
+// or a branch push; it skips with a notice when its secret is missing;
+// its live step opts in (PG_SAGE_LIVE_LLM=1, SAGE_BENCH_LIVE_ARM=1) with
+// every cap set and the key from a secret; it runs TestLiveModelArm
+// only; it signs the report keyless on master or a v* tag. No other job
+// may opt in to live calls.
 
 const liveSecret = "PG_SAGE_BENCH_OPENAI_API_KEY"
 
@@ -56,7 +58,7 @@ func readLiveWorkflow(t *testing.T) (liveWorkflow, string) {
 	return wf, string(raw)
 }
 
-func TestLiveWorkflow_RunsOnlyNightlyOrByHand(t *testing.T) {
+func TestLiveWorkflow_RunsNightlyByHandOrOnATag(t *testing.T) {
 	wf, _ := readLiveWorkflow(t)
 	job, ok := wf.Jobs["bench-live"]
 	if !ok {
@@ -71,7 +73,9 @@ func TestLiveWorkflow_RunsOnlyNightlyOrByHand(t *testing.T) {
 	cond := strings.Join(strings.Fields(job.If), " ")
 	if !strings.Contains(cond, "github.event_name == 'schedule'") ||
 		!strings.Contains(cond, "github.event_name == 'workflow_dispatch'") ||
-		strings.Contains(cond, "pull_request") || strings.Contains(cond, "'push'") {
+		!strings.Contains(cond, "github.event_name == 'push' && "+
+			"startsWith(github.ref, 'refs/tags/v')") ||
+		strings.Contains(cond, "pull_request") || strings.Contains(cond, "refs/heads/") {
 		t.Fatalf("bench-live if = %q", cond)
 	}
 	if job.Permissions["id-token"] != "write" || job.Permissions["contents"] != "read" {
@@ -151,7 +155,7 @@ func TestLiveWorkflow_LiveStepOptsInWithEveryCap(t *testing.T) {
 	}
 }
 
-func TestLiveWorkflow_SignsOnMasterOnly(t *testing.T) {
+func TestLiveWorkflow_SignsOnMasterOrATag(t *testing.T) {
 	wf, _ := readLiveWorkflow(t)
 	var sign *liveStep
 	for i, st := range wf.Jobs["bench-live"].Steps {
@@ -160,6 +164,7 @@ func TestLiveWorkflow_SignsOnMasterOnly(t *testing.T) {
 		}
 	}
 	if sign == nil || !strings.Contains(sign.If, "github.ref == 'refs/heads/master'") ||
+		!strings.Contains(sign.If, "startsWith(github.ref, 'refs/tags/v')") ||
 		!strings.Contains(sign.Run, "bench verify") {
 		t.Fatalf("signing step = %+v", sign)
 	}

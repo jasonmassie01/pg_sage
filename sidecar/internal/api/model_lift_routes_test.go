@@ -77,6 +77,12 @@ func TestModelLiftAPI_ViewerReadsLiftAndAuthority(t *testing.T) {
 	if wal["granted"] != false || wal["status"] != "advisory" || wal["lift"] != nil {
 		t.Fatalf("wal_retention = %v", wal)
 	}
+	// The page says plainly how many more correct held-out overrides each
+	// family needs: none for the granted family, 16 for an unmeasured one.
+	if lock["overrides_needed"] != float64(0) || wal["overrides_needed"] != float64(16) {
+		t.Fatalf("overrides needed: lock %v, wal %v", lock["overrides_needed"],
+			wal["overrides_needed"])
+	}
 }
 
 func TestModelLiftAPI_DatabaseParameter(t *testing.T) {

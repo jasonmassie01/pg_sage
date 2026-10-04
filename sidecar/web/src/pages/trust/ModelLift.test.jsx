@@ -72,6 +72,48 @@ describe('ModelLift', () => {
     expect(row).toHaveTextContent('not measured')
   })
 
+  // Owner decision 2026-10-04: per family, never pooled; the card says
+  // plainly how many more correct held-out overrides each family needs.
+  it('says how many more correct held-out overrides a family needs', async () => {
+    const close = { ...lockLift, granted: false, status: 'advisory', overrides_needed: 1,
+      reason: 'override precision 15/15, lower bound 0.80 < 0.80',
+      lift: { ...lockLift.lift, override_precision: { k: 15, n: 15 } } }
+    mockFetch({ database: 'orders', threshold: 0.8, min_overrides: 10, meaning: 'x',
+      families: [close, { ...walAdvisory, overrides_needed: 16 }] })
+    render(<ModelLift database="all" />)
+    const row = await screen.findByTestId('model-lift-lock_blocking')
+    expect(within(row).getByTestId('model-lift-needed'))
+      .toHaveTextContent('needs 1 more correct held-out override')
+    expect(within(row).getByTestId('model-lift-needed')).not.toHaveTextContent('overrides')
+    const wal = screen.getByTestId('model-lift-wal_retention')
+    expect(within(wal).getByTestId('model-lift-needed'))
+      .toHaveTextContent('needs 16 more correct held-out overrides')
+  })
+
+  it('says nothing more is needed once a family has enough', async () => {
+    const heldBack = { ...lockLift, granted: false, status: 'advisory', overrides_needed: 0,
+      reason: 'Safe Pass fell when the model root was adopted' }
+    mockFetch({ database: 'orders', threshold: 0.8, min_overrides: 10, meaning: 'x',
+      families: [{ ...lockLift, overrides_needed: 0 }, { ...heldBack, family: 'wal_retention',
+        lift: { ...lockLift.lift, family: 'wal_retention' } }] })
+    render(<ModelLift database="all" />)
+    const lock = await screen.findByTestId('model-lift-lock_blocking')
+    expect(within(lock).queryByTestId('model-lift-needed')).toBeNull()
+    const wal = screen.getByTestId('model-lift-wal_retention')
+    expect(within(wal).queryByTestId('model-lift-needed')).toBeNull()
+    expect(wal).toHaveTextContent('Safe Pass fell')
+  })
+
+  it('lists what each family needs when nothing was measured', async () => {
+    mockFetch({ database: 'orders', threshold: 0.8, min_overrides: 10, meaning: 'x',
+      families: [{ ...walAdvisory, overrides_needed: 16 },
+        { ...walAdvisory, family: 'lock_blocking', overrides_needed: 16 }] })
+    render(<ModelLift database="all" />)
+    const needs = await screen.findByTestId('model-lift-needs')
+    expect(needs).toHaveTextContent('wal_retention needs 16 more correct held-out overrides')
+    expect(needs).toHaveTextContent('lock_blocking needs 16 more correct held-out overrides')
+  })
+
   it('says when nothing was measured yet', async () => {
     mockFetch({ database: 'orders', threshold: 0.8, min_overrides: 10, meaning: 'x',
       families: [walAdvisory] })
