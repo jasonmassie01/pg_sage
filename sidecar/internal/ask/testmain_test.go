@@ -117,7 +117,7 @@ func (f *fixture) action(findingID int64, sql, verdict, tolerance string,
 	var id int64
 	if err := f.pool.QueryRow(f.ctx, `INSERT INTO sage.action_log (action_type, finding_id,
 		sql_executed, rollback_sql, outcome, approved_by) VALUES ('create_index', $1, $2,
-		'DROP INDEX CONCURRENTLY public.idx_orders_customer', 'success', 'alice')
+		'DROP INDEX CONCURRENTLY public.idx_orders_customer', 'success', 42)
 		RETURNING id`, findingID, sql).Scan(&id); err != nil {
 		f.t.Fatalf("seed action: %v", err)
 	}

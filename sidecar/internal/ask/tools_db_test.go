@@ -143,7 +143,7 @@ func TestTool_ActionsWithVerificationOutcomes(t *testing.T) {
 		t.Fatalf("list = %s", list.Text)
 	}
 	one := mustTool(t, s, viewer, "get_action", `{"id":`+itoa(aid)+`}`)
-	for _, want := range []string{"improved", "met", "-40", "-35.5", "alice",
+	for _, want := range []string{"improved", "met", "-40", "-35.5", "approved by user 42",
 		"DROP INDEX CONCURRENTLY public.idx_orders_customer"} {
 		if !strings.Contains(one.Text, want) {
 			t.Errorf("action text lacks %q:\n%s", want, one.Text)
