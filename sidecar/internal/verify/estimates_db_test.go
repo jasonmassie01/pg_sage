@@ -150,6 +150,7 @@ func TestIndexFootprintBeforeAndAfterReindex(t *testing.T) {
 	mustExec(t, ctx, pool, "INSERT INTO public."+table+
 		" SELECT i FROM generate_series(1, 50000) i")
 	mustExec(t, ctx, pool, "DELETE FROM public."+table+" WHERE a % 10 <> 0")
+	waitSnapshotsPastNow(t, ctx, pool)
 	mustExec(t, ctx, pool, "VACUUM public."+table)
 	src := NewPostgresObservationSource(pool)
 	before, valid, err := src.IndexFootprint(ctx, "public."+table+"_a", false)
@@ -198,4 +199,29 @@ func TestIndexFootprintReportsAnInvalidIndex(t *testing.T) {
 	if err != nil || valid {
 		t.Fatalf("table with an invalid index: valid=%v err=%v", valid, err)
 	}
+}
+
+// waitSnapshotsPastNow waits until no other backend holds a snapshot older
+// than this moment. On the shared CI server another package's open
+// transaction kept the deleted rows visible, so neither VACUUM nor REINDEX
+// could drop them and the "bloated" index kept its size (PG14 CI: neutral).
+func waitSnapshotsPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	var now string
+	if err := pool.QueryRow(ctx, "SELECT pg_current_xact_id()::text").Scan(&now); err != nil {
+		t.Fatalf("read the current transaction id: %v", err)
+	}
+	for i := 0; i < 120; i++ {
+		var clear bool
+		if err := pool.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity
+			WHERE pid <> pg_backend_pid() AND backend_xmin IS NOT NULL
+			  AND age(backend_xmin) >= age(xid($1::xid8)))`, now).Scan(&clear); err != nil {
+			t.Fatalf("read the xmin horizon: %v", err)
+		}
+		if clear {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatal("another backend held a snapshot older than the test's deletes for 30 s")
 }
