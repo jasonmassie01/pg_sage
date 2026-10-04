@@ -183,7 +183,7 @@ is at 76.1% and `internal/mcp` at 84.8%, both above 70%.
 - **Added after the audit:** the four mutant-killing tests and the conclusive-root regression
   test.
 
-## Product calls (made by the AI-DBA principle; please confirm)
+## Product calls (confirmed by the owner, 2026-10-04)
 
 1. **The investigator is the default model mode.** `sre.llm.mode: review` keeps the cheaper
    M3 turn.
@@ -203,13 +203,25 @@ is at 76.1% and `internal/mcp` at 84.8%, both above 70%.
    operator or admin (API) or the approve scope (MCP); agents never get them.
 9. **An operator start ("investigate now") runs the broad triage** instead of failing.
 
-## Open questions
+## Open questions (answered by the owner, 2026-10-04) and follow-up
 
-1. Should the nightly live-model arm (`BuildLiveReport`, `TestLiveModelArm`) also run the
-   investigator arm? The replay and lift code supports it, but the live run still lists only
-   `causal-graph` and `causal-graph+llm`, to keep the paid run's caps unchanged.
-2. Should the narrow plan get EXPLAIN for `plan_regression` triggers specifically? Today
-   only broad plans offer it.
-3. Ask Sage can reuse `internal/agentloop` as is. Should its first consumer share
-   `postgres_investigator.go`'s reservation path (another caller kind) or get its own budget
-   table?
+1. **Live-model run: include the investigator arm inside the existing caps. Done, on
+   alternating nights.** The caps (400 requests, 2.5M tokens, 45 min, $2) cover one model
+   arm's replay of the 73-case corpus, not two. The investigator makes up to 5 or 10 calls a
+   case against the review arm's 2, so 73 × 5 already uses most of the request cap. Each run
+   therefore measures one model arm, named by `SAGE_BENCH_LIVE_MODEL_ARM`.
+   - The workflow's `arm` step picks it. A `v*` tag always measures the review arm: the
+     release's model-root authority reads its held-out lift, and a tag build has only one
+     run.
+   - Scheduled and manual runs alternate by UTC day of the year: even days review, odd days
+     investigator.
+   - The caps are unchanged. The ledger keeps reading the newest report with a review-arm
+     record, so an investigator night never displaces the review arm's measurement.
+   - Contract tests run the step's script for both parities, leading-zero days and tags.
+2. **Narrow plan: plan-only EXPLAIN for plan-regression triggers. Done.** Plans gain
+   `TriggerTools`. The narrow plan offers `explain_statement` only for `plan_regression`,
+   with an unchanged budget, and trigger tools are validated like the plan's own.
+3. **Ask Sage gets its own budget.** Nothing to do in this PR.
+
+Follow-up verification: the touched packages on PG17, the small perf gate, actionlint (0),
+golangci-lint (0) and gitleaks are all green.

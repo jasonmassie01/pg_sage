@@ -374,6 +374,25 @@ like the release bench (the signing identity is `ci.yml@refs/heads/master` or
 `pgincidentbench-live` artifact. A sidecar built from that commit (the `:edge` or
 `sha-<commit>` image) ingests it through `sre.autonomy.bench_results_path`.
 
+**One model arm per run, alternating.** The caps cover one model arm's replay of the
+corpus, not two. The tool-calling investigator makes up to 5 or 10 calls a case, against
+the review arm's 2. So each run measures the causal graph and one model arm, named by
+`SAGE_BENCH_LIVE_MODEL_ARM`:
+
+- `causal-graph+llm`: the review arm, the default;
+- `causal-graph+investigator`: the tool-calling investigator.
+
+The job's `arm` step picks it:
+
+- A `v*` tag always measures the review arm. The release's model-root authority reads the
+  review arm's held-out lift, and a tag build has only one run.
+- Scheduled and manual runs alternate by UTC day of the year: even days measure the review
+  arm, odd days the investigator.
+
+The caps are unchanged. The ledger keeps reading the newest report that has a review-arm
+record for the family, so an investigator night never replaces the review arm's
+measurement.
+
 On a tag, the job `bench-live-release-assets` waits for the live run and the release and,
 when the live report was signed, attaches it to the GitHub release as
 `pgincidentbench-live.json`, `pgincidentbench-live.json.sigstore.json` and

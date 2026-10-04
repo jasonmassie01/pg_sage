@@ -45,21 +45,26 @@ const (
 // InvestigatorPlan bounds one tool-calling investigation: model steps,
 // probe calls (beyond the deterministic plan's), wall clock, tokens
 // (prompt, completion and reasoning, every step), each step's completion
-// cap, and the tools offered.
+// cap, and the tools offered: Tools always, TriggerTools besides them for
+// one trigger kind.
 type InvestigatorPlan struct {
-	Name       string
-	MaxSteps   int
-	MaxProbes  int
-	Wall       time.Duration
-	MaxTokens  int64
-	StepTokens int
-	Tools      []string
+	Name         string
+	MaxSteps     int
+	MaxProbes    int
+	Wall         time.Duration
+	MaxTokens    int64
+	StepTokens   int
+	Tools        []string
+	TriggerTools map[TriggerKind][]string
 }
 
 var defaultPlans = map[string]InvestigatorPlan{
 	PlanNarrow: {Name: PlanNarrow, MaxSteps: 5, MaxProbes: 3, Wall: 45 * time.Second,
 		MaxTokens: 32000, StepTokens: 1024,
-		Tools: []string{ToolRunProbe, ToolStatView, ToolGraphState, ToolFacts}},
+		Tools: []string{ToolRunProbe, ToolStatView, ToolGraphState, ToolFacts},
+		// A plan regression is about one statement's plan: the narrow plan
+		// may read it (plan-only EXPLAIN) without a broader budget.
+		TriggerTools: map[TriggerKind][]string{TriggerPlan: {ToolExplain}}},
 	PlanBroad: {Name: PlanBroad, MaxSteps: 10, MaxProbes: 6, Wall: 90 * time.Second,
 		MaxTokens: 64000, StepTokens: 1024,
 		Tools: []string{ToolRunProbe, ToolStatView, ToolExplain, ToolGraphState, ToolFacts}},
@@ -74,9 +79,20 @@ func DefaultInvestigatorPlans() map[string]InvestigatorPlan {
 	out := make(map[string]InvestigatorPlan, len(defaultPlans))
 	for k, p := range defaultPlans {
 		p.Tools = append([]string(nil), p.Tools...)
+		extra := make(map[TriggerKind][]string, len(p.TriggerTools))
+		for kind, tools := range p.TriggerTools {
+			extra[kind] = append([]string(nil), tools...)
+		}
+		p.TriggerTools = extra
 		out[k] = p
 	}
 	return out
+}
+
+// ToolsFor is a fresh list of the tools the plan offers for a trigger kind.
+func (p InvestigatorPlan) ToolsFor(kind TriggerKind) []string {
+	out := append([]string(nil), p.Tools...)
+	return append(out, p.TriggerTools[kind]...)
 }
 
 // PlanForTrigger is the plan name of a trigger kind.
@@ -109,8 +125,21 @@ func (p InvestigatorPlan) Validate() error {
 				c.problem)
 		}
 	}
+	if err := p.checkTools(p.Tools); err != nil {
+		return err
+	}
+	for kind := range p.TriggerTools {
+		if err := p.checkTools(p.ToolsFor(kind)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkTools refuses an unknown (or the final) tool and a repeated one.
+func (p InvestigatorPlan) checkTools(tools []string) error {
 	seen := map[string]bool{}
-	for _, t := range p.Tools {
+	for _, t := range tools {
 		if !readOnlyTools[t] || seen[t] {
 			return fmt.Errorf("%w: investigator plan %q: tool %q is unknown or repeated",
 				ErrInvalidRequest, p.Name, t)

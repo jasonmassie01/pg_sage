@@ -677,7 +677,7 @@ has scored the hypotheses. Every tool only reads:
 
 - catalog probes with typed arguments;
 - three pg_stat views (`database`, `tables`, `statements`), registered as catalog probes;
-- a plan-only `EXPLAIN` of a statement by its `pg_stat_statements` queryid (broad plan only).
+- a plan-only `EXPLAIN` of a statement by its `pg_stat_statements` queryid (the broad plan, and the narrow plan of a plan-regression investigation).
   It is never `ANALYZE` and never runs the statement. It plans the generic plan in a
   read-only transaction and returns node shapes only, never query text;
 - the graph's current state and operator-confirmed facts.
@@ -689,7 +689,7 @@ The loop is bounded by its plan:
 | Plan | Used for | Model steps | Probes | Wall clock | Tokens |
 |---|---|---|---|---|---|
 | broad | operator-started investigations (`POST /api/v1/databases/{db}/investigations`) and SLO burn | 10 | 6 | 90 s | 64k |
-| narrow | detector and incident triggers | 5 | 3 | 45 s | 32k |
+| narrow | detector and incident triggers (plan regressions also get the plan-only `EXPLAIN`) | 5 | 3 | 45 s | 32k |
 
 Probes count against the investigation's 12-probe ceiling. Each model call is reserved in the
 same durable budget ledger as the review turn, before it is sent. Every tool call is stored as

@@ -31,7 +31,7 @@ const (
 
 func (s *investigatorSession) tools() []agentloop.Tool {
 	var out []agentloop.Tool
-	for _, name := range s.plan.Tools {
+	for _, name := range s.plan.ToolsFor(s.inv.TriggerKind) {
 		switch name {
 		case ToolRunProbe:
 			out = append(out, s.probeTool())
