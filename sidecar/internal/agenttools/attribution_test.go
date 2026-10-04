@@ -75,6 +75,9 @@ func TestParseSQLCommenterIgnoresLiteralsAndLineComments(t *testing.T) {
 		"line comment":   "SELECT 1 -- /*controller='spoof'*/",
 		"line only":      "SELECT 1 -- controller='spoof'",
 		"string literal": "SELECT '/*controller=''spoof''*/' AS label",
+		"dollar quote":   "SELECT $$/*controller='spoof'*/$$ AS label",
+		"tagged dollar":  "SELECT $x$/*controller='spoof'*/$x$ AS label",
+		"identifier":     `SELECT 1 AS "/*controller='spoof'*/"`,
 	}
 	for name, sql := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -85,6 +88,9 @@ func TestParseSQLCommenterIgnoresLiteralsAndLineComments(t *testing.T) {
 	}
 	mixed := ParseSQLCommenter("SELECT 'x' -- note\n/*controller='real'*/")
 	require.Equal(t, map[string]string{"controller": "real"}, mixed)
+	// A comment opener inside a literal must not swallow the real comment.
+	opener := ParseSQLCommenter(`SELECT 'x/*' AS a, E'\'/*' AS b /*controller='real'*/`)
+	require.Equal(t, map[string]string{"controller": "real"}, opener)
 }
 
 func TestParseSQLCommenterKeyValidation(t *testing.T) {

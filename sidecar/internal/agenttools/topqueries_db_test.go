@@ -33,7 +33,9 @@ func newTopWorkload(f *fixture) topWorkload {
 		orders: orders,
 		workload: "SELECT count(*) FROM " + orders + " WHERE status = $1 " +
 			"/*controller='checkout',route='%2Fcart'*/",
-		selfTagged: "/* pg_sage */ SELECT max(amount) FROM " + orders,
+		// Tag at the end: PostgreSQL 18's pg_stat_statements drops leading
+		// comments from the stored text, trailing ones survive everywhere.
+		selfTagged: "SELECT max(amount) FROM " + orders + " /* pg_sage */",
 		explained:  "EXPLAIN SELECT min(amount) FROM " + orders,
 	}
 }

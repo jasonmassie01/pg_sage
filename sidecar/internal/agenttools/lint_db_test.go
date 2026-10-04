@@ -178,3 +178,21 @@ func TestLintMigrationUnknownTableStats(t *testing.T) {
 	require.NotEmpty(t, missing.Statements)
 	require.Equal(t, int64(0), missing.Statements[0].TableSizeBytes)
 }
+
+// A metadata-only ACCESS EXCLUSIVE change on a tiny table scores low, but
+// it still queues behind every reader and blocks the table: review.
+func TestLintMigrationAccessExclusiveIsNeverSafe(t *testing.T) {
+	f := newFixture(t)
+	tiny := f.q("tiny")
+	f.exec("CREATE TABLE "+tiny+" (a int, b int)",
+		"INSERT INTO "+tiny+" SELECT i, i FROM generate_series(1, 10) i", "ANALYZE "+tiny)
+	res, err := New(f.pool, Options{}).LintMigration(f.ctx, LintRequest{
+		SQL: "ALTER TABLE " + tiny + " DROP COLUMN b"})
+	require.NoError(t, err)
+	var exclusive bool
+	for _, it := range res.Statements {
+		exclusive = exclusive || it.LockLevel == "ACCESS EXCLUSIVE"
+	}
+	require.True(t, exclusive, "DROP COLUMN takes ACCESS EXCLUSIVE: %+v", res.Statements)
+	require.Equal(t, "review", res.Verdict, "max score %.3f", res.MaxRiskScore)
+}

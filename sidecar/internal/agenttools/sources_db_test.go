@@ -136,10 +136,12 @@ func TestQuerySourcesQueryIDFilter(t *testing.T) {
 // are not workload of this database.
 func TestQuerySourcesExcludesSelfIdleAndOtherDatabases(t *testing.T) {
 	f := newFixture(t)
+	// Create the extra database first: it takes seconds, longer than the
+	// sessions below keep running.
+	other := extraDatabase(t, f.ctx, "sources_other")
 	startSession(t, f, f.dsn, "checkout-svc", cartSQL)
 	startSession(t, f, f.dsn, "sage-self",
 		"/* pg_sage */ SELECT pg_sleep(5) /*route='%2Fself'*/")
-	other := extraDatabase(t, f.ctx, "sources_other")
 	startSession(t, f, other.Config().ConnString(), "other-svc",
 		"/*route='%2Fother'*/ SELECT pg_sleep(5)")
 	idleCfg, err := pgx.ParseConfig(f.dsn)
