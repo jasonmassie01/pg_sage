@@ -3,6 +3,8 @@ package shadow
 import (
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // Roadmap 1.4: a shadow decision is scored later, deterministically, by
@@ -238,5 +240,29 @@ func TestDefaultOptionsAndNormalization(t *testing.T) {
 	bad := Options{ScoreAfter: 48 * time.Hour, Horizon: time.Hour}
 	if n := bad.normalized(); n.Horizon < n.ScoreAfter || n.MaxWait < n.Horizon {
 		t.Fatalf("inconsistent windows kept: %+v", n)
+	}
+}
+
+// An externally applied change's verdict is final: a regression at once,
+// an improvement or neutral once the class's minimum window elapsed, too
+// little evidence only at the cap.
+func TestFinalVerdictBoundaries(t *testing.T) {
+	lo, hi := time.Hour, 3*time.Hour
+	for _, tc := range []struct {
+		verdict string
+		win     time.Duration
+		final   bool
+	}{
+		{verify.OutcomeRegressed, time.Minute, true},
+		{verify.OutcomeImproved, lo - time.Second, false},
+		{verify.OutcomeImproved, lo, true},
+		{verify.OutcomeNeutral, lo, true},
+		{verify.OutcomeInsufficient, hi - time.Second, false},
+		{verify.OutcomeInsufficient, hi, true},
+		{verify.OutcomeUnverifiable, hi, true},
+	} {
+		if got := finalVerdict(tc.verdict, tc.win, lo, hi); got != tc.final {
+			t.Errorf("%s at %s: final=%v, want %v", tc.verdict, tc.win, got, tc.final)
+		}
 	}
 }

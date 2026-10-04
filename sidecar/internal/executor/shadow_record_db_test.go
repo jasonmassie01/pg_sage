@@ -348,3 +348,32 @@ func TestShadowRecordsWithheldCustodianWork(t *testing.T) {
 		t.Fatalf("an incident-family remediation was shadowed: %+v", got)
 	}
 }
+
+// A class trusted at L3 is not shadowed even when the operator's ceiling
+// (execution_mode approval) still queues its action for a person.
+func TestNoShadowForATrustedClassHeldByTheCeiling(t *testing.T) {
+	r := newShadowRig(t, true)
+	r.exec.SetExecutionMode("approval")
+	f := r.analyzeFinding("shadow_ceiling")
+	r.exec.processFinding(r.ctx, f, false, nil)
+	if got := r.shadows(f.ObjectIdentifier); len(got) != 0 {
+		t.Fatalf("an L3 class held by the ceiling was shadowed: %+v", got)
+	}
+}
+
+// Once a decision is scored, the same finding is not recorded again
+// inside the dedupe window: one decision per fingerprint per window.
+func TestNoSecondShadowInsideTheWindowAfterScoring(t *testing.T) {
+	r := newShadowRig(t, false)
+	f := r.analyzeFinding("shadow_window")
+	r.exec.processFinding(r.ctx, f, false, nil)
+	if _, err := r.pool.Exec(r.ctx, `UPDATE sage.shadow_decision SET status = 'scored',
+		score = 'unscored', score_source = 'none', scored_at = now()
+		WHERE object_identifier = $1`, f.ObjectIdentifier); err != nil {
+		t.Fatal(err)
+	}
+	r.exec.processFinding(r.ctx, f, false, nil)
+	if got := r.shadows(f.ObjectIdentifier); len(got) != 1 {
+		t.Fatalf("decisions inside the window after scoring = %d, want 1", len(got))
+	}
+}

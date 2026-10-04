@@ -174,13 +174,13 @@ func TestScorerAppliedThroughPgSageMatchesByShape(t *testing.T) {
 	d := record(t, s, sample("index_create",
 		`CREATE INDEX CONCURRENTLY i_shadow_name ON public.o (shape_col)`))
 	age(t, pool, d.ID, 5*time.Hour)
+	// An unrelated action, run first, is not evidence.
+	executedAction(t, pool, "create_index", `CREATE INDEX x ON public.o (other_col)`,
+		"rolled_back", "regressed", 2*time.Hour)
 	// The operator ran the same change by hand, under another name.
 	act := executedAction(t, pool, "create_index",
 		`create index concurrently if not exists other_name on o ("shape_col")`,
 		"success", "improved", time.Hour)
-	// An unrelated action is not evidence.
-	executedAction(t, pool, "create_index", `CREATE INDEX x ON public.o (other_col)`,
-		"rolled_back", "regressed", time.Hour)
 	runOnce(t, newScorer(pool, fastOptions()))
 	got := assertScore(t, s, d.ID, ScoreCorrect, SourceApplied, false)
 	if got.RefActionLogID != act {
