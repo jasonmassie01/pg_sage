@@ -20,9 +20,11 @@ import (
 // self-initiated class. Startup explains the new meaning of the trust
 // settings; demotions reach a human through the notification rules.
 
+// analyzeCustodianProposal names its own table (see freezeCustodianProposal).
 func analyzeCustodianProposal() executor.CustodianProposal {
+	table := fixtureTable("orders")
 	return executor.CustodianProposal{Feature: "analyze",
-		SQL: `ANALYZE "public"."orders"`, TargetObjects: []string{"public.orders"},
+		SQL: `ANALYZE public.` + table, TargetObjects: []string{"public." + table},
 		ObservedAt: time.Now()}
 }
 
