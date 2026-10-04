@@ -120,7 +120,7 @@ func TestModelLift_ZeroOverrides(t *testing.T) {
 		!strings.Contains(r.OverrideRule.Reason, "no overrides") {
 		t.Fatalf("zero overrides = %+v", r)
 	}
-	if r.OverrideSafePass != r.SafePass {
+	if r.OverrideSafePass.K != r.SafePass.K || r.OverrideSafePass.N != r.SafePass.N {
 		t.Fatalf("without overrides the adopted Safe Pass equals the arm's: %+v vs %+v",
 			r.OverrideSafePass, r.SafePass)
 	}

@@ -184,8 +184,10 @@ describe('TrustPage', () => {
     unmount()
     render(<TrustPage database="all" user={admin} />)
     fireEvent.click(screen.getByRole('button', { name: /approve/i }))
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
-    const [url, opts] = globalThis.fetch.mock.calls[0]
+    // The page also loads the model lift card (roadmap 2.4); find the approval.
+    await waitFor(() => expect(globalThis.fetch.mock.calls.some(
+      ([u]) => u.includes('/approve'))).toBe(true))
+    const [url, opts] = globalThis.fetch.mock.calls.find(([u]) => u.includes('/approve'))
     expect(url).toBe('/api/v1/sre/autonomy/proposals/'
       + '22222222-2222-4222-8222-222222222222/approve?database=orders')
     expect(opts.method).toBe('POST')
@@ -193,10 +195,11 @@ describe('TrustPage', () => {
   })
 
   it('surfaces a failed approval', async () => {
-    globalThis.fetch = vi.fn(() => Promise.resolve({
+    // Only the approval fails; the model lift card (roadmap 2.4) loads.
+    globalThis.fetch = vi.fn(url => Promise.resolve(url.includes('/approve') ? {
       ok: false, status: 409,
       json: () => Promise.resolve({ error: 'promotion evidence is not met' }),
-    }))
+    } : { ok: true, status: 200, json: () => Promise.resolve({ families: [] }) }))
     render(<TrustPage database="all" user={admin} />)
     fireEvent.click(screen.getByRole('button', { name: /approve/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/evidence is not met/)

@@ -78,9 +78,19 @@ func TestBuildReplayCase_RefutedWithActualRootIsAPositiveCase(t *testing.T) {
 	if !hasTag(c.Tags, "contested") || !hasTag(c.Tags, replay.TagPostR1) {
 		t.Fatalf("tags = %v", c.Tags)
 	}
-	if len(c.Observations) != len(ev) || c.Observations[0].Probe != probes.LockGraph ||
-		c.Observations[0].OffsetMS != 2000 || c.Observations[1].OffsetMS != 3000 {
+	if len(c.Observations) != len(ev) || c.Observations[0].Probe != probes.LockGraph {
 		t.Fatalf("observations = %+v", c.Observations)
+	}
+	for i, o := range c.Observations {
+		if want := ev[i].ObservedAt.Sub(inv.CreatedAt).Milliseconds(); o.OffsetMS != want ||
+			o.Probe != probes.ID(ev[i].ProbeID) {
+			t.Fatalf("observation %d = %s at %d ms, want %s at %d ms", i, o.Probe, o.OffsetMS,
+				ev[i].ProbeID, want)
+		}
+	}
+	if c.Observations[0].OffsetMS != 2000 {
+		t.Fatalf("the first observation is 2 s after detection, got %d ms",
+			c.Observations[0].OffsetMS)
 	}
 	if exp.Contest.Verdict != string(OutcomeRefuted) || exp.Contest.GraphRoot !=
 		"idle_in_tx_holder" || exp.Contest.ActualNode != "ddl_lock_queue" {
