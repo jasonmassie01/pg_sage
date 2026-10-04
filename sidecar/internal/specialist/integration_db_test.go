@@ -78,7 +78,8 @@ func newLiveFixture(t *testing.T) *liveFixture {
 		handler: NewHandler(spec, NewTokenAuthenticator(tokens), HandlerOptions{})}
 	for label, req := range map[string]mcptoken.CreateRequest{
 		"read":    {Name: "Datadog", Scopes: []string{"read"}, Databases: []string{"orders"}},
-		"propose": {Name: "AWS DevOps Agent", Scopes: []string{"read", "propose"}},
+		"propose": {Name: "AWS DevOps Agent", Scopes: []string{"read", "propose"},
+			Databases: []string{"*"}},
 		"billing": {Name: "Billing bot", Scopes: []string{"read", "propose"},
 			Databases: []string{"billing"}},
 	} {

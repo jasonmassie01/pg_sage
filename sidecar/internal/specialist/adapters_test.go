@@ -29,12 +29,12 @@ func pdSign(secret string, body []byte) string {
 }
 
 func pdEvent(eventType, title, service string) []byte {
-	return []byte(fmt.Sprintf(`{"event":{"id":"01EV","event_type":%q,
+	return []byte(fmt.Sprintf(`{"event":{"id":"01EV","event_type":%s,
 		"resource_type":"incident","occurred_at":"2026-10-04T11:52:00.000Z",
 		"data":{"id":"Q1ABCDEF","type":"incident","number":42,"status":"triggered",
-		"html_url":"https://acme.pagerduty.com/incidents/Q1ABCDEF","title":%q,
-		"service":{"id":%q,"summary":"checkout-db","type":"service_reference"},
-		"urgency":"high"}}}`, eventType, title, service))
+		"html_url":"https://acme.pagerduty.com/incidents/Q1ABCDEF","title":%s,
+		"service":{"id":%s,"summary":"checkout-db","type":"service_reference"},
+		"urgency":"high"}}}`, jsonString(eventType), jsonString(title), jsonString(service)))
 }
 
 func adapterHandler(t *testing.T) (http.Handler, *harness) {
@@ -285,4 +285,10 @@ func TestGenericWebhook(t *testing.T) {
 		webhookHeaders("wh-secret", now, unknown)); w.Code != 400 {
 		t.Fatalf("unknown webhook field: %d", w.Code)
 	}
+}
+
+// jsonString quotes s as JSON (Go's %q is not JSON for control characters).
+func jsonString(s string) string {
+	raw, _ := json.Marshal(s)
+	return string(raw)
 }
