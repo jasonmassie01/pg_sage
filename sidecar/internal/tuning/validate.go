@@ -57,6 +57,12 @@ const (
 	ReasonNotWorkload      Reason = "not_workload"
 	ReasonUnavailable      Reason = "unavailable"
 	ReasonOutOfScope       Reason = "out_of_scope"
+	// ReasonNoRecentEvidence: the evidence is not measured in the interval,
+	// or not after the setting's last change.
+	ReasonNoRecentEvidence Reason = "no_recent_evidence"
+	// ReasonVerificationPending: the setting's last change is still being
+	// verified.
+	ReasonVerificationPending Reason = "verification_pending"
 )
 
 // Judged is the decision on one proposal.
@@ -84,6 +90,10 @@ type validator struct {
 	confirmed []facts.Fact
 	rejected  map[string]bool
 	dropping  map[string]bool
+	// Set by prepare: the evidence interval and recent setting changes.
+	window     evidenceWindow
+	history    map[string][]SettingAction
+	historyErr error
 }
 
 func (a *Agent) newValidator(cur *collector.Snapshot, w Workload, confirmed []facts.Fact,

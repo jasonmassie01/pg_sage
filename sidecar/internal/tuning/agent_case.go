@@ -43,6 +43,7 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	cy.budget = NewCycleBudget(t.MaxRequestsPerCycle, int64(t.MaxTokensPerCycle))
 	cy.tools = a.cycleTools()
 	cy.v = a.newValidator(cy.cur, cy.w, cy.confirmed, a.operatorRejected(ctx))
+	cy.v.prepare(ctx, cy.prev)
 	cy.cal = a.calibration(ctx)
 	var judged []Judged
 	var deferred []string

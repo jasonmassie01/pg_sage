@@ -90,6 +90,8 @@ func ordersPair() (prev, cur *collector.Snapshot) {
 		stmt(101, "SELECT * FROM public.orders WHERE customer_id = $1", 1600, 16000),
 		stmt(102, "SELECT * FROM public.orders WHERE id = $1", 5600, 600),
 	}, tbl, idx)
+	// Statement 101 sorts in work_mem: 4800 temp blocks in the interval.
+	prev.Queries[0].TempBlksWritten, cur.Queries[0].TempBlksWritten = 200, 5000
 	return prev, cur
 }
 

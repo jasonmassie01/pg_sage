@@ -48,6 +48,10 @@ type CaseStatement struct {
 	SharedBlksHit   int64
 	Rows            int64
 	Share           float64
+	// Windowed: the counters are deltas over the interval. Without an
+	// earlier sample (first cycle, a reset, a statement new to the view)
+	// they are cumulative since it was first tracked, never a rate.
+	Windowed bool
 }
 
 // Thresholds decide what is a case. A zero field takes its default.
@@ -186,6 +190,7 @@ func delta(q collector.QueryStats, before map[int64]collector.QueryStats) interv
 		s.SharedBlksRead = max(s.SharedBlksRead-p.SharedBlksRead, 0)
 		s.SharedBlksHit = max(s.SharedBlksHit-p.SharedBlksHit, 0)
 		s.Rows = max(s.Rows-p.Rows, 0)
+		s.Windowed = true
 		if p.Calls > 0 {
 			s.PrevMeanMs = p.TotalExecTime / float64(p.Calls)
 			s.hasPrior = true

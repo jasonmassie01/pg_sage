@@ -62,6 +62,9 @@ type Store interface {
 	// Relations reports which of the tables and indexes exist and the valid
 	// index definitions of the existing tables, in one catalog read.
 	Relations(ctx context.Context, tables, indexes []string) (CatalogState, error)
+	// SettingActions are the setting and storage-parameter changes executed
+	// since then, oldest first, with their verification verdicts.
+	SettingActions(ctx context.Context, since time.Time) ([]SettingAction, error)
 }
 
 // CatalogState is what Relations found, keyed by the names asked. A name

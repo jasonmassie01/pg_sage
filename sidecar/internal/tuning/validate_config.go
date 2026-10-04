@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -46,6 +47,15 @@ func (v *validator) judgeGUC(c Case, p Proposal) Judged {
 	if _, why := predictedChange(p, fall); why != "" {
 		return reject(p, ReasonInvalid, "%s", why)
 	}
+	spills, bad := v.windowEvidence(c, p, metric == "temp_spills")
+	if bad != nil {
+		return *bad
+	}
+	rej, approval, hist := v.historyCheck(p, name, currentSetting(v.cur, name), value,
+		gucParser(name))
+	if rej != nil {
+		return *rej
+	}
 	category := "memory_tuning"
 	if strings.HasPrefix(name, "autovacuum") {
 		category = "vacuum_tuning"
@@ -58,7 +68,37 @@ func (v *validator) judgeGUC(c Case, p Proposal) Judged {
 		Recommendation: p.Rationale,
 		RecommendedSQL: fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", name, value),
 		RollbackSQL:    gucRollback(v.cur, name), ActionRisk: "moderate"}
-	return v.gated(c, p, f, verify.ClassGUC, metric)
+	if metric == "temp_spills" {
+		f.Detail["temp_blks_in_window"] = spills
+	}
+	return v.applyHistory(v.gated(c, p, f, verify.ClassGUC, metric), approval, hist)
+}
+
+// windowEvidence refuses a configuration change without counters measured
+// over the interval; for a spill setting it also needs temp blocks the
+// case statements wrote in it (cumulative totals are never evidence). It
+// returns those blocks.
+func (v *validator) windowEvidence(c Case, p Proposal, spill bool) (int64, *Judged) {
+	if v.window.from.IsZero() {
+		j := reject(p, ReasonNoRecentEvidence, "no earlier sample: the counters are "+
+			"cumulative since they were first tracked, not a rate over a window")
+		return 0, &j
+	}
+	if !spill {
+		return 0, nil
+	}
+	var blocks int64
+	for _, s := range c.Statements {
+		if s.Windowed {
+			blocks += s.TempBlksWritten
+		}
+	}
+	if blocks == 0 {
+		j := reject(p, ReasonNoRecentEvidence, "no temp spills measured from %s to %s",
+			v.window.from.UTC().Format(time.RFC3339), v.window.to.UTC().Format(time.RFC3339))
+		return 0, &j
+	}
+	return blocks, nil
 }
 
 // gucMetric is the metric a setting is judged on and whether it should
@@ -154,6 +194,15 @@ func (v *validator) judgeReloption(c Case, p Proposal) Judged {
 	if _, why := predictedChange(p, fall); why != "" {
 		return reject(p, ReasonInvalid, "%s", why)
 	}
+	if _, bad := v.windowEvidence(c, p, false); bad != nil {
+		return *bad
+	}
+	key := table + "|" + opt
+	rej, approval, hist := v.historyCheck(p, key, v.currentReloption(key, table, opt),
+		value, plainNumber)
+	if rej != nil {
+		return *rej
+	}
 	f := analyzer.Finding{Category: category, Severity: "info", ObjectType: "table",
 		ObjectIdentifier: table + ":" + opt,
 		Title:            fmt.Sprintf("Set %s = %s on %s", opt, value, table),
@@ -163,7 +212,27 @@ func (v *validator) judgeReloption(c Case, p Proposal) Judged {
 		RecommendedSQL: fmt.Sprintf("ALTER TABLE %s SET (%s = %s)", table, opt, value),
 		RollbackSQL:    fmt.Sprintf("ALTER TABLE %s RESET (%s)", table, opt),
 		ActionRisk:     "moderate"}
-	j = v.gated(c, p, f, verify.ClassReloption, metric)
+	j = v.applyHistory(v.gated(c, p, f, verify.ClassReloption, metric), approval, hist)
 	j.Tables = []string{table}
 	return j
+}
+
+// currentReloption is a table's current value of opt: the last recorded
+// change, else the snapshot's storage parameters, else "".
+func (v *validator) currentReloption(key, table, opt string) string {
+	if acts := v.history[key]; len(acts) > 0 {
+		return acts[len(acts)-1].To
+	}
+	ts, ok := findSnapshotTable(v.cur, table)
+	if !ok {
+		return ""
+	}
+	raw := strings.Trim(reloptions(v.cur, ts), "{}")
+	for _, kv := range strings.Split(raw, ",") {
+		if k, val, ok := strings.Cut(strings.TrimSpace(kv), "="); ok &&
+			strings.EqualFold(k, opt) {
+			return val
+		}
+	}
+	return ""
 }

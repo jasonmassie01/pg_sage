@@ -103,6 +103,9 @@ func writeStatements(p *packetBuilder, c Case) {
 			"%.2f ms (before %.2f ms), rows %d, shared blocks read/hit %d/%d, temp blocks "+
 			"written %d", s.QueryID, s.Class, s.Calls, s.TotalMs, s.Share*100, s.MeanMs,
 			s.PrevMeanMs, s.Rows, s.SharedBlksRead, s.SharedBlksHit, s.TempBlksWritten)
+		if !s.Windowed {
+			p.line("   (no earlier sample: counters since it was first tracked, not a rate)")
+		}
 		p.line("   %s", clip(oneLine(llm.SanitizeForLLM(s.Text)), maxStatementChars))
 	}
 }

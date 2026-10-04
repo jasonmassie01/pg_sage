@@ -129,6 +129,7 @@ func judgeGolden(t *testing.T, gc goldenCase) []Judged {
 		t.Fatalf("parse golden answer: %v", err)
 	}
 	v := h.agent.newValidator(cur, w, confirmed, nil)
+	v.prepare(context.Background(), prev)
 	var out []Judged
 	for _, p := range answer.Proposals {
 		out = append(out, v.judge(context.Background(), c, pk.Evidence, p))

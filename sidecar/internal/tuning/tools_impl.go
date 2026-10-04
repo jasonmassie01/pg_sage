@@ -13,7 +13,8 @@ import (
 // maxToolQueryChars bounds a statement's text in a tool result.
 const maxToolQueryChars = 200
 
-// statement: a workload statement's interval and cumulative counters.
+// statement: a workload statement's counters over the interval (never
+// cumulative-since-reset totals, which are not current evidence).
 func (tb *toolbox) statement(args toolArgs) toolResult {
 	qid := int64(args.QueryID)
 	if !tb.w.IsWorkload(qid) {
@@ -29,9 +30,8 @@ func (tb *toolbox) statement(args toolArgs) toolResult {
 	fields := map[string]any{"queryid": fmt.Sprint(qid), "class": tb.w.Statements[qid].Class,
 		"interval": map[string]any{"calls": iv.Calls, "total_ms": iv.TotalMs,
 			"mean_ms": iv.MeanMs, "rows": iv.Rows, "shared_blks_read": iv.SharedBlksRead,
-			"shared_blks_hit": iv.SharedBlksHit, "temp_blks_written": iv.TempBlksWritten},
-		"cumulative": map[string]any{"calls": q.Calls, "total_ms": q.TotalExecTime,
-			"mean_ms": q.MeanExecTime}}
+			"shared_blks_hit": iv.SharedBlksHit, "temp_blks_written": iv.TempBlksWritten,
+			"windowed": iv.Windowed}}
 	if !slices.ContainsFunc(tb.c.Statements, func(s CaseStatement) bool {
 		return s.QueryID == qid
 	}) {
