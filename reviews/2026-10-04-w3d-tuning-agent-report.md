@@ -226,7 +226,7 @@ refuses fewer than 2 before the agent's check).
    records exactly N), drops a hint the tuner will no longer record, and counts what
    the caps cut in `pg_sage_tuning_proposals_capped_total` next to the cap log line.
 4. `shared_buffers` advisory-only without host memory: fine.
-5. Ships in v1.11.0: the bullet stays under `## Unreleased`.
+5. Ships in v2.1.0: the bullet stays under `## Unreleased`.
 
 ## Follow-up: unexamined work keeps its findings (lifeos, v1.9.0)
 
