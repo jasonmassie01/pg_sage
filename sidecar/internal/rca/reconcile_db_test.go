@@ -427,7 +427,7 @@ func TestReconcile_InvalidInputAndErrors(t *testing.T) {
 func deadTupleSnapshot(table string) *collector.Snapshot {
 	snap := quietSnapshot()
 	snap.Tables = []collector.TableStats{{SchemaName: "public", RelName: table,
-		NLiveTup: 100, NDeadTup: 900}}
+		NLiveTup: 1000, NDeadTup: 9000, TableBytes: 64 << 20}}
 	return snap
 }
 
