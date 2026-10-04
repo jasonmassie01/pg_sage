@@ -35,21 +35,21 @@ func TestCheckAcceptsPgSageStatistics(t *testing.T) {
 
 func TestCheckRejectsOtherStatistics(t *testing.T) {
 	for sql, want := range map[string]string{
-		"CREATE STATISTICS public.st_ab ON a, b FROM public.orders":       "pg_sage",
-		"CREATE STATISTICS sage_stx_ab ON a, b FROM public.orders":        "schema-qualified",
-		"CREATE STATISTICS public.sage_stx_ab ON a, b FROM orders":        "schema-qualified",
-		"CREATE STATISTICS app.sage_stx_ab ON a, b FROM public.orders":    "table's schema",
-		"CREATE STATISTICS public.sage_stx_ab ON (a + 1), b FROM public.orders": "plain columns",
-		"CREATE STATISTICS public.sage_stx_ab ON a, b FROM public.o, public.p":  "one table",
+		"CREATE STATISTICS public.st_ab ON a, b FROM public.orders":                          "pg_sage",
+		"CREATE STATISTICS sage_stx_ab ON a, b FROM public.orders":                           "schema-qualified",
+		"CREATE STATISTICS public.sage_stx_ab ON a, b FROM orders":                           "schema-qualified",
+		"CREATE STATISTICS app.sage_stx_ab ON a, b FROM public.orders":                       "table's schema",
+		"CREATE STATISTICS public.sage_stx_ab ON (a + 1), b FROM public.orders":              "plain columns",
+		"CREATE STATISTICS public.sage_stx_ab ON a, b FROM public.o, public.p":               "one table",
 		"CREATE STATISTICS public.sage_stx_ab ON a, b FROM public.o JOIN public.p USING (a)": "one table",
-		"CREATE STATISTICS sage.sage_stx_ab ON a, b FROM sage.findings":   "protected schema",
-		"CREATE STATISTICS pg_catalog.sage_stx_ab ON a, b FROM pg_catalog.pg_class": "protected schema",
-		"DROP STATISTICS public.st_ab":                     "pg_sage",
-		"DROP STATISTICS sage_stx_ab":                      "schema-qualified",
-		"DROP STATISTICS public.sage_stx_a, public.sage_stx_b": "one statistics object",
-		"DROP STATISTICS public.sage_stx_ab CASCADE":       "CASCADE",
-		"DROP STATISTICS sage.sage_stx_ab":                 "protected schema",
-		"DROP TABLE public.orders":                         "only indexes",
+		"CREATE STATISTICS sage.sage_stx_ab ON a, b FROM sage.findings":                      "protected schema",
+		"CREATE STATISTICS pg_catalog.sage_stx_ab ON a, b FROM pg_catalog.pg_class":          "protected schema",
+		"DROP STATISTICS public.st_ab":                                                       "pg_sage",
+		"DROP STATISTICS sage_stx_ab":                                                        "schema-qualified",
+		"DROP STATISTICS public.sage_stx_a, public.sage_stx_b":                               "one statistics object",
+		"DROP STATISTICS public.sage_stx_ab CASCADE":                                         "CASCADE",
+		"DROP STATISTICS sage.sage_stx_ab":                                                   "protected schema",
+		"DROP TABLE public.orders":                                                           "only indexes",
 	} {
 		err := Check(sql, statsRules())
 		if err == nil {

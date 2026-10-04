@@ -97,6 +97,7 @@ func (e *Executor) statisticsBaseline(
 ) {
 	table := statisticsTable(sql)
 	before["statistics_table"] = table
+	before["statistics_analyze_mark"] = e.analyzeMark(ctx, table)
 	if len(p.TargetQueryIDs) == 0 {
 		p.TargetQueryIDs = e.tableTargets(ctx, table)
 	}

@@ -18,6 +18,9 @@ type r2State struct {
 	ReindexTarget    string                 `json:"reindex_target"`
 	ReindexTable     bool                   `json:"reindex_table"`
 	ReindexBytes     *int64                 `json:"reindex_bytes"`
+	// AnalyzeMark is the table's last analyze time before the action
+	// (analyzeMarkNever when it had none); absent in older rows.
+	AnalyzeMark *string `json:"statistics_analyze_mark"`
 }
 
 // isR2Class reports a class judged by judgeR2.
@@ -77,7 +80,7 @@ func (p monitorPlan) judgeEstimates(
 			Reason: fmt.Sprintf("analyze time of %s unavailable: %v", p.r2.StatisticsTable,
 				err)}
 	}
-	if built == nil || built.Before(p.executedAt) {
+	if !p.builtSinceAction(built) {
 		return verify.EstimateJudgement{Verdict: verify.OutcomeInsufficient,
 			Reason: "statistics not built yet: no ANALYZE of " + p.r2.StatisticsTable +
 				" since the action"}
@@ -136,4 +139,43 @@ func finishUnrollable(
 		verificationVerdictFor(o.Verdict), reason); err != nil {
 		logFn("rollback", "finalize verification of action %d: %v", plan.actionID, err)
 	}
+}
+
+// analyzeMarkNever marks a table never analyzed before the action.
+const analyzeMarkNever = "never"
+
+// analyzeMark is the table's last analyze time now, in PostgreSQL's clock
+// (RFC 3339), recorded before a CREATE STATISTICS runs.
+func (e *Executor) analyzeMark(ctx context.Context, table string) string {
+	var built *time.Time
+	if err := e.pool.QueryRow(ctx, statisticsBuiltSQL, table).Scan(&built); err != nil {
+		e.logFn("executor", "analyze time of %s unavailable: %v", table, err)
+		return ""
+	}
+	if built == nil {
+		return analyzeMarkNever
+	}
+	return built.UTC().Format(time.RFC3339Nano)
+}
+
+// builtSinceAction reports an ANALYZE of the table after the action
+// started. The executor's own ANALYZE runs before action_log.executed_at
+// is stamped, so the pre-action mark decides when it was recorded; rows
+// without one fall back to executed_at.
+func (p monitorPlan) builtSinceAction(built *time.Time) bool {
+	if built == nil {
+		return false
+	}
+	if p.r2.AnalyzeMark != nil {
+		switch mark := *p.r2.AnalyzeMark; mark {
+		case analyzeMarkNever:
+			return true
+		case "":
+		default:
+			if at, err := time.Parse(time.RFC3339Nano, mark); err == nil {
+				return built.After(at)
+			}
+		}
+	}
+	return !built.Before(p.executedAt)
 }

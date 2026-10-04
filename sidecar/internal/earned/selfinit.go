@@ -168,6 +168,8 @@ func classForActionLabel(label string) ActionClass {
 		return ClassIndexDrop
 	case "reindex":
 		return ClassReindex
+	case "create_statistics":
+		return ClassStatistics
 	case "vacuum":
 		return ClassVacuum
 	case "analyze":

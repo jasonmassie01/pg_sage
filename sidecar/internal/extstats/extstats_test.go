@@ -34,7 +34,7 @@ func TestParseCreateAcceptsThePgSageForm(t *testing.T) {
 func TestParseCreateVariants(t *testing.T) {
 	for sql, want := range map[string]string{
 		// no kind list: PostgreSQL builds every kind
-		"CREATE STATISTICS app.sage_stx_x ON a, b FROM app.t": "app.sage_stx_x|app.t|",
+		"CREATE STATISTICS app.sage_stx_x ON a, b FROM app.t":                      "app.sage_stx_x|app.t|",
 		"create statistics if not exists App.SAGE_STX_X (mcv) on A, B from APP.T;": "App.SAGE_STX_X|APP.T|mcv",
 		"CREATE   STATISTICS\n\t\"Sales\".sage_stx_y (dependencies)  ON \"Col\", b " +
 			"FROM \"Sales\".\"Orders\"": `"Sales".sage_stx_y|"Sales"."Orders"|dependencies`,
@@ -65,26 +65,26 @@ func TestParseCreateCanonicalNames(t *testing.T) {
 
 func TestParseCreateRefusesOtherForms(t *testing.T) {
 	for sql, want := range map[string]string{
-		"":                                    "not a CREATE STATISTICS",
-		"CREATE INDEX i ON public.t (a)":      "not a CREATE STATISTICS",
-		"CREATE STATISTICS sage_stx_x ON a, b FROM public.t": "schema-qualified",
-		"CREATE STATISTICS public.sage_stx_x ON a, b FROM t": "schema-qualified",
-		"CREATE STATISTICS public.st_orders ON a, b FROM public.t": "sage_stx_",
-		`CREATE STATISTICS public."Sage_Stx_x" ON a, b FROM public.t`: "sage_stx_",
-		"CREATE STATISTICS app.sage_stx_x ON a, b FROM public.t": "table's schema",
-		"CREATE STATISTICS public.sage_stx_x (expressions) ON a, b FROM public.t": "kind",
-		"CREATE STATISTICS public.sage_stx_x (mcv, mcv) ON a, b FROM public.t": "twice",
-		"CREATE STATISTICS public.sage_stx_x () ON a, b FROM public.t":   "kind",
-		"CREATE STATISTICS public.sage_stx_x ON a FROM public.t":         "2 to 8 columns",
+		"":                               "not a CREATE STATISTICS",
+		"CREATE INDEX i ON public.t (a)": "not a CREATE STATISTICS",
+		"CREATE STATISTICS sage_stx_x ON a, b FROM public.t":                             "schema-qualified",
+		"CREATE STATISTICS public.sage_stx_x ON a, b FROM t":                             "schema-qualified",
+		"CREATE STATISTICS public.st_orders ON a, b FROM public.t":                       "sage_stx_",
+		`CREATE STATISTICS public."Sage_Stx_x" ON a, b FROM public.t`:                    "sage_stx_",
+		"CREATE STATISTICS app.sage_stx_x ON a, b FROM public.t":                         "table's schema",
+		"CREATE STATISTICS public.sage_stx_x (expressions) ON a, b FROM public.t":        "kind",
+		"CREATE STATISTICS public.sage_stx_x (mcv, mcv) ON a, b FROM public.t":           "twice",
+		"CREATE STATISTICS public.sage_stx_x () ON a, b FROM public.t":                   "kind",
+		"CREATE STATISTICS public.sage_stx_x ON a FROM public.t":                         "2 to 8 columns",
 		"CREATE STATISTICS public.sage_stx_x ON a, b, c, d, e, f, g, h, i FROM public.t": "2 to 8",
-		"CREATE STATISTICS public.sage_stx_x ON a, a FROM public.t":      "twice",
-		"CREATE STATISTICS public.sage_stx_x ON A, a FROM public.t":      "twice",
-		"CREATE STATISTICS public.sage_stx_x ON (lower(a)), b FROM public.t": "column",
-		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t, public.u": "one table",
+		"CREATE STATISTICS public.sage_stx_x ON a, a FROM public.t":                      "twice",
+		"CREATE STATISTICS public.sage_stx_x ON A, a FROM public.t":                      "twice",
+		"CREATE STATISTICS public.sage_stx_x ON (lower(a)), b FROM public.t":             "column",
+		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t, public.u":            "one table",
 		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t; DROP TABLE public.t": "one table",
-		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t -- c": "one table",
-		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t WHERE a > 1": "one table",
-		`CREATE STATISTICS public.sage_stx_x ON "a b", c FROM public.t`: "column",
+		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t -- c":                 "one table",
+		"CREATE STATISTICS public.sage_stx_x ON a, b FROM public.t WHERE a > 1":          "one table",
+		`CREATE STATISTICS public.sage_stx_x ON "a b", c FROM public.t`:                  "column",
 		"CREATE STATISTICS public.sage_stx_" + strings.Repeat("x", 60) +
 			" ON a, b FROM public.t": "63",
 	} {
@@ -144,14 +144,14 @@ func TestParseDrop(t *testing.T) {
 
 func TestParseDropRefusesOtherForms(t *testing.T) {
 	for sql, want := range map[string]string{
-		"DROP INDEX public.sage_stx_x":                             "not a DROP STATISTICS",
-		"DROP STATISTICS sage_stx_x":                               "schema-qualified",
-		"DROP STATISTICS public.st_orders":                         "sage_stx_",
-		"DROP STATISTICS public.sage_stx_x CASCADE":                "one statistics object",
-		"DROP STATISTICS public.sage_stx_x RESTRICT":               "one statistics object",
-		"DROP STATISTICS public.sage_stx_x, public.sage_stx_y":     "one statistics object",
-		"DROP STATISTICS public.sage_stx_x; DROP TABLE public.t":   "one statistics object",
-		"DROP STATISTICS IF EXISTS pg_catalog.sage_stx_x extra":    "one statistics object",
+		"DROP INDEX public.sage_stx_x":                           "not a DROP STATISTICS",
+		"DROP STATISTICS sage_stx_x":                             "schema-qualified",
+		"DROP STATISTICS public.st_orders":                       "sage_stx_",
+		"DROP STATISTICS public.sage_stx_x CASCADE":              "one statistics object",
+		"DROP STATISTICS public.sage_stx_x RESTRICT":             "one statistics object",
+		"DROP STATISTICS public.sage_stx_x, public.sage_stx_y":   "one statistics object",
+		"DROP STATISTICS public.sage_stx_x; DROP TABLE public.t": "one statistics object",
+		"DROP STATISTICS IF EXISTS pg_catalog.sage_stx_x extra":  "one statistics object",
 	} {
 		_, err := ParseDrop(sql)
 		if err == nil {
@@ -170,12 +170,12 @@ func TestUndoesMatchesOnlyTheCreatedObject(t *testing.T) {
 		t.Fatalf("ParseCreate: %v", err)
 	}
 	for drop, want := range map[string]bool{
-		"DROP STATISTICS IF EXISTS public.sage_stx_x":     true,
-		`DROP STATISTICS "public"."sage_stx_x"`:           true,
-		"DROP STATISTICS IF EXISTS PUBLIC.SAGE_STX_X":     true,
-		"DROP STATISTICS IF EXISTS public.sage_stx_y":     false,
-		"DROP STATISTICS IF EXISTS app.sage_stx_x":        false,
-		`DROP STATISTICS IF EXISTS public."SAGE_STX_X"`:   false,
+		"DROP STATISTICS IF EXISTS public.sage_stx_x":         true,
+		`DROP STATISTICS "public"."sage_stx_x"`:               true,
+		"DROP STATISTICS IF EXISTS PUBLIC.SAGE_STX_X":         true,
+		"DROP STATISTICS IF EXISTS public.sage_stx_y":         false,
+		"DROP STATISTICS IF EXISTS app.sage_stx_x":            false,
+		`DROP STATISTICS IF EXISTS public."SAGE_STX_X"`:       false,
 		"DROP INDEX CONCURRENTLY IF EXISTS public.sage_stx_x": false,
 		"": false,
 	} {
@@ -187,11 +187,11 @@ func TestUndoesMatchesOnlyTheCreatedObject(t *testing.T) {
 
 func TestOwnName(t *testing.T) {
 	for name, want := range map[string]bool{
-		"sage_stx_orders_ab":             true,
-		"sage_stx_":                      false, // the prefix alone names nothing
-		"st_orders":                      false,
-		"Sage_Stx_x":                     false, // canonical names are case-exact
-		"x_sage_stx_y":                   false,
+		"sage_stx_orders_ab":                  true,
+		"sage_stx_":                           false, // the prefix alone names nothing
+		"st_orders":                           false,
+		"Sage_Stx_x":                          false, // canonical names are case-exact
+		"x_sage_stx_y":                        false,
 		"sage_stx_" + strings.Repeat("x", 54): true,  // 63 bytes
 		"sage_stx_" + strings.Repeat("x", 55): false, // 64 bytes: PostgreSQL truncates
 	} {

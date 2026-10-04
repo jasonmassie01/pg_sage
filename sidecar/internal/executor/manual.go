@@ -40,6 +40,10 @@ func (e *Executor) ExecuteManual(
 	if err := checkIndexRollback(sql, rollbackSQL); err != nil {
 		return 0, err
 	}
+	rollbackSQL, err := statisticsRollback(sql, rollbackSQL)
+	if err != nil {
+		return 0, err
+	}
 	release, err := e.acquireDDLSlot(ctx)
 	if err != nil {
 		return 0, err
@@ -198,6 +202,9 @@ func (e *Executor) runManualSQL(
 	}
 	if categorizeAction(sql) == "analyze" {
 		return e.executeManualAnalyze(ctx, findingID, sql, e.lockTimeoutMS(sql, decision))
+	}
+	if categorizeAction(sql) == "create_statistics" {
+		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeout(), e.lockOption(sql, decision))
 	}
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err

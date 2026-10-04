@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -138,10 +139,10 @@ func (fx *statsFixture) statisticsBuilt(t *testing.T) bool {
 }
 
 type statsActionRow struct {
-	id                    int64
-	label, rollback, sql  string
-	outcome               string
-	before                map[string]any
+	id                   int64
+	label, rollback, sql string
+	outcome              string
+	before               map[string]any
 }
 
 func (fx *statsFixture) actions(t *testing.T) []statsActionRow {
@@ -293,6 +294,13 @@ func (fx *statsFixture) monitoredAction(t *testing.T, meanAfterMs float64) int64
 	executedAt := time.Now().Add(-2 * time.Hour).UTC()
 	seedQuerySamples(t, fx.ctx, fx.pool, fx.qid, executedAt.Add(time.Second), 110, 40,
 		meanAfterMs)
+	// The row's before_state is JSON; withTarget edits the typed prediction.
+	raw, _ := json.Marshal(acts[0].before["predicted_effect"])
+	var p verify.Prediction
+	if err := json.Unmarshal(raw, &p); err != nil || !p.Predicts() {
+		t.Fatalf("recorded prediction %s: %v", raw, err)
+	}
+	acts[0].before["predicted_effect"] = p
 	before := withTarget(t, acts[0].before, fx.qid)
 	fx.mustExec(t, `UPDATE sage.action_log SET executed_at = $2, before_state = $3::jsonb
 		WHERE id = $1`, id, executedAt, before)
@@ -399,5 +407,52 @@ func TestRunFindingSQLBuildsStatistics(t *testing.T) {
 	}
 	if !fx.statisticsExist(t) || !fx.statisticsBuilt(t) {
 		t.Fatal("background run did not create and build the statistics")
+	}
+}
+
+// backgroundFinding is the fixture's finding as the background cycle
+// hands it to processFinding, with the monitors already stopped.
+func (fx *statsFixture) backgroundFinding(t *testing.T, rollbackSQL string) analyzer.Finding {
+	t.Helper()
+	shutdown, cancel := context.WithTimeout(fx.ctx, 10*time.Second)
+	defer cancel()
+	if err := fx.exec.Shutdown(shutdown); err != nil {
+		t.Fatalf("stop monitors: %v", err)
+	}
+	fx.exec.WithPolicyGate(fixedGate{verdict: policy.VerdictExecute,
+		decisionID: insertParkDecision(t, fx.ctx, fx.pool)})
+	return analyzer.Finding{Category: "query_create_statistics", Title: "correlated a,b",
+		ObjectType: "table", ObjectIdentifier: "public." + fx.table,
+		RecommendedSQL: fx.sql, RollbackSQL: rollbackSQL,
+		Detail: map[string]any{"queryid": float64(fx.qid)}}
+}
+
+// The background path gives the finding its derived rollback before the
+// gate, Apply and the monitor see it.
+func TestBackgroundStatisticsRecordsItsDerivedRollback(t *testing.T) {
+	fx := newStatsFixture(t)
+	fx.exec.processFinding(fx.ctx, fx.backgroundFinding(t, ""), false, nil)
+	acts := fx.actions(t)
+	if len(acts) != 1 {
+		t.Fatalf("actions = %+v, want one", acts)
+	}
+	if want := "DROP STATISTICS IF EXISTS public." + fx.name; acts[0].rollback != want {
+		t.Fatalf("recorded rollback = %q, want %q", acts[0].rollback, want)
+	}
+	if !fx.statisticsExist(t) || !fx.statisticsBuilt(t) {
+		t.Fatal("background run did not create and build the statistics")
+	}
+}
+
+// A finding whose rollback drops another object never runs.
+func TestBackgroundStatisticsWithAForeignRollbackDoesNotRun(t *testing.T) {
+	fx := newStatsFixture(t)
+	fx.exec.processFinding(fx.ctx, fx.backgroundFinding(t,
+		"DROP STATISTICS IF EXISTS public.sage_stx_someone_else"), false, nil)
+	if acts := fx.actions(t); len(acts) != 0 {
+		t.Fatalf("actions = %+v, want none", acts)
+	}
+	if fx.statisticsExist(t) {
+		t.Fatal("statistics created although the rollback drops another object")
 	}
 }

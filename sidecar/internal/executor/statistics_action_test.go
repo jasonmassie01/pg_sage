@@ -225,8 +225,9 @@ func statisticsGate(spy *ledgerSpy) policy.Gate {
 		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
 			return doc, nil
 		},
-		Now:      func() time.Time { return matrixNow },
-		Autonomy: spy,
+		Now:         func() time.Time { return matrixNow },
+		ValidateSQL: ValidateExecutorSQL,
+		Autonomy:    spy,
 	})
 }
 
@@ -290,7 +291,8 @@ func TestStatisticsRefusedWithoutAnalyzeClass(t *testing.T) {
 		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
 			return doc, nil
 		},
-		Now: func() time.Time { return matrixNow },
+		Now:         func() time.Time { return matrixNow },
+		ValidateSQL: ValidateExecutorSQL,
 	})
 	got := gate.Authorize(context.Background(), findingRequest(analyzer.Finding{
 		RecommendedSQL: statsSQL, ObjectIdentifier: "public.orders"}, false))

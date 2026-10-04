@@ -53,6 +53,10 @@ func (e *Executor) processFinding(
 	if f.RecommendedSQL == "" || e.unusedDropRefused(ctx, f) {
 		return
 	}
+	if err := prepareFindingRollback(&f); err != nil {
+		e.logFn("executor", "refused %q: %v", f.Title, err)
+		return
+	}
 	// The read-only skips run before the gate, which records a decision
 	// (dogfood lifeos: a skipped candidate still wrote one every cycle).
 	if e.isCascadeCooldown(f.ObjectIdentifier) {
@@ -298,6 +302,8 @@ func (e *Executor) runFindingSQL(
 	}
 	lockOpt := e.lockOption(f.RecommendedSQL, decision)
 	switch {
+	case categorizeAction(f.RecommendedSQL) == "create_statistics":
+		return ExecStatistics(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
 	case categorizeAction(f.RecommendedSQL) == "analyze":
 		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(f.RecommendedSQL, decision))
 	case NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL):

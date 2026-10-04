@@ -41,6 +41,8 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	switch {
 	case stmt.GetIndexStmt() != nil:
 		return nil
+	case stmt.GetCreateStatsStmt() != nil:
+		return checkCreateStats(stmt.GetCreateStatsStmt(), rules)
 	case stmt.GetDropStmt() != nil:
 		return checkDrop(stmt.GetDropStmt(), rules)
 	case stmt.GetReindexStmt() != nil:
@@ -71,8 +73,11 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 }
 
 func checkDrop(drop *pg_query.DropStmt, rules Rules) error {
+	if drop.GetRemoveType() == pg_query.ObjectType_OBJECT_STATISTIC_EXT {
+		return checkDropStats(drop, rules)
+	}
 	if drop.GetRemoveType() != pg_query.ObjectType_OBJECT_INDEX {
-		return reject("DROP may remove only indexes")
+		return reject("DROP may remove only indexes or pg_sage statistics")
 	}
 	if len(drop.GetObjects()) != 1 {
 		return reject("DROP INDEX must name exactly one index")
