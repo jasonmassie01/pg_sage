@@ -134,7 +134,13 @@ func TestRunner_QueueWaitRecordedSeparately(t *testing.T) {
 }
 
 // Startup burst: many cheap probes from several runners at once on a
-// 2-connection pool that other loops keep busy. None may fail.
+// 2-connection pool that other loops hold for 1.8 s, longer than a
+// probe's statement budget plus its client margin. None may fail: the
+// pool wait is not execution. (A first version kept the pool saturated
+// at a 100% duty cycle for the whole run; under a loaded host the
+// fourth queued probe of a runner then waited past the 5 s queue budget,
+// a timing-dependent failure of a condition the queue budget does not
+// promise to absorb. The burst is now bounded and deterministic.)
 func TestRunner_StartupBurstOnBusyPool(t *testing.T) {
 	pool, ctx := smallPool(t, 2)
 	global := NewLimiter(MaxSidecarConcurrency)
@@ -143,37 +149,23 @@ func TestRunner_StartupBurstOnBusyPool(t *testing.T) {
 	for i := range runners {
 		runners[i] = NewRunner(pool, reg, global)
 	}
-	stop := make(chan struct{})
-	var hogs sync.WaitGroup
-	for i := 0; i < 2; i++ { // two "collector" loops holding connections
-		hogs.Add(1)
-		go func() {
-			defer hogs.Done()
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				c, err := pool.Acquire(ctx)
-				if err != nil {
-					return
-				}
-				time.Sleep(700 * time.Millisecond)
-				c.Release()
-			}
-		}()
-	}
+	first := holdConn(t, ctx, pool, 1800*time.Millisecond)
+	second := holdConn(t, ctx, pool, 1800*time.Millisecond)
 	results := runConcurrently(ctx, 24, func(i int) Result {
 		return runners[i%len(runners)].Run(ctx, "cheap", Args{})
 	})
-	close(stop)
-	hogs.Wait()
+	<-first
+	<-second
+	waited := false
 	for i, res := range results {
 		if res.Status != StatusOK {
 			t.Errorf("probe %d = %s/%s in %q (timing %+v)", i, res.Status, res.Reason,
 				res.Phase, res.Timing)
 		}
+		waited = waited || res.Timing.Acquire+res.Timing.Queue >= 1500*time.Millisecond
+	}
+	if !waited {
+		t.Fatal("no probe waited for the held pool: the burst did not exercise the pool wait")
 	}
 }
 
