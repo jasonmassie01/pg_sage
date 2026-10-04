@@ -20,6 +20,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
+	"github.com/pg-sage/sidecar/internal/mcptoken"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
@@ -28,7 +29,7 @@ import (
 )
 
 // Sage SRE M5 composed: CHECK-39 on the real mounted router with real
-// sessions and the production MCP backend. sre_request_execution creates
+// MCP tokens (MCP over HTTP is token-only) and the production MCP backend. sre_request_execution creates
 // exactly one approval item in the database's existing queue, executes
 // nothing (the blocking statement keeps running), and both action tools
 // refuse a viewer.
@@ -144,8 +145,8 @@ func newM5Fixture(t *testing.T) *m5Fixture {
 		Executor: exec, Status: &fleet.InstanceStatus{}, Investigations: svc,
 		Actions: f.actions})
 	f.router = m5Router(t, c, mgr, pool)
-	f.operator = m5Session(t, pool, auth.RoleOperator)
-	f.viewer = m5Session(t, pool, auth.RoleViewer)
+	f.operator = m5Token(t, pool, mcpScopes(true))
+	f.viewer = m5Token(t, pool, mcpScopes(false))
 	return f
 }
 
@@ -174,32 +175,44 @@ func m5Router(t *testing.T, c *config.Config, mgr *fleet.DatabaseManager,
 		&api.RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, api.SessionAuthMiddleware(pool))
 }
 
-func m5Session(t *testing.T, pool *pgxpool.Pool, role string) string {
+// m5Token is a person's MCP token: every scope for an operator, read
+// only for a viewer.
+func m5Token(t *testing.T, pool *pgxpool.Pool, scopes []string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := auth.CreateUser(ctx, pool, fmt.Sprintf("m5-%s-%d@test.local", role,
-		time.Now().UnixNano()), "correct horse battery", role)
+	id, err := auth.CreateUser(ctx, pool, fmt.Sprintf("m5-%d@test.local",
+		time.Now().UnixNano()), "correct horse battery", auth.RoleOperator)
 	if err != nil {
 		t.Fatalf("user: %v", err)
 	}
-	session, err := auth.CreateSession(ctx, pool, id)
+	tok, err := mcptoken.NewStore(pool).Create(ctx, mcptoken.CreateRequest{
+		Name: fmt.Sprintf("m5-%d", time.Now().UnixNano()), Kind: mcptoken.KindOperator,
+		Scopes: scopes, Databases: []string{"*"}, ExpiresIn: time.Hour,
+		OwnerUserID: id, CreatedBy: "m5@test.local"})
 	if err != nil {
-		t.Fatalf("session: %v", err)
+		t.Fatalf("token: %v", err)
 	}
-	return session
+	return tok.Secret
 }
 
-// mcpTool calls one tool as session; it returns the HTTP status, the
+func mcpScopes(operator bool) []string {
+	if operator {
+		return []string{"read", "propose", "approve"}
+	}
+	return []string{"read"}
+}
+
+// mcpTool calls one tool with an MCP token; it returns the HTTP status, the
 // structured content and the JSON-RPC error.
-func (f *m5Fixture) mcpTool(t *testing.T, session, tool string,
+func (f *m5Fixture) mcpTool(t *testing.T, token, tool string,
 	args map[string]any) (int, map[string]any, map[string]any) {
 	t.Helper()
 	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1,
 		"method": "tools/call", "params": map[string]any{"name": tool, "arguments": args}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
-	if session != "" {
-		req.AddCookie(&http.Cookie{Name: "sage_session", Value: session})
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	w := httptest.NewRecorder()
 	f.router.ServeHTTP(w, req)
