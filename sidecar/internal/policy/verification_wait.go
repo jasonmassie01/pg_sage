@@ -34,6 +34,37 @@ type PendingVerification struct {
 	Until time.Time
 	// HardDeadline is when the wait is released without a verdict.
 	HardDeadline time.Time
+	// Release is why the wait ends at HardDeadline: ReleaseHardDeadline
+	// (the default) or ReleaseDropFirstWindow.
+	Release string
+}
+
+// Why a wait ends without a verdict.
+const (
+	// ReleaseHardDeadline: the verification passed its hard deadline.
+	ReleaseHardDeadline = "hard_deadline"
+	// ReleaseDropFirstWindow: an index drop holds its table only until its
+	// first window concludes (owner decision, PR #122); its soft-drop
+	// monitoring keeps watching the business cycle and re-creates the index
+	// on a regression.
+	ReleaseDropFirstWindow = "drop_first_window"
+)
+
+// ReleaseCause is the release's stable code.
+func (p PendingVerification) ReleaseCause() string {
+	if p.Release == ReleaseDropFirstWindow {
+		return ReleaseDropFirstWindow
+	}
+	return ReleaseHardDeadline
+}
+
+// ReleaseReason is the release in words, as the decision log and the
+// approval card show it.
+func (p PendingVerification) ReleaseReason() string {
+	if p.ReleaseCause() == ReleaseDropFirstWindow {
+		return "drop's first window concluded"
+	}
+	return "hard deadline passed without a verdict"
 }
 
 // Expired reports a wait whose hard deadline has passed (inclusive).
@@ -152,10 +183,17 @@ func OverrideDetail(pending []PendingVerification) string {
 	return "overrides pending " + strings.Join(names, ", ")
 }
 
-// ReleaseDetail records waits released at their hard deadline.
+// ReleaseDetail records waits released without a verdict: at a drop's
+// first window, or at the hard deadline.
 func ReleaseDetail(released []PendingVerification) string {
 	parts := make([]string, 0, len(released))
 	for _, p := range released {
+		if p.ReleaseCause() == ReleaseDropFirstWindow {
+			parts = append(parts, fmt.Sprintf("%s: %s at %s: wait released (its soft-drop "+
+				"monitoring continues)", pendingName(p), p.ReleaseReason(),
+				formatWaitTime(p.HardDeadline)))
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("%s passed its hard deadline %s without a "+
 			"verdict: wait released", pendingName(p), formatWaitTime(p.HardDeadline)))
 	}

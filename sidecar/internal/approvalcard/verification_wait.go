@@ -28,8 +28,11 @@ type VerificationWait struct {
 	DecisionIDs []int64    `json:"decision_ids,omitempty"`
 	Objects     []string   `json:"objects"`
 	Until       *time.Time `json:"until,omitempty"`
-	Unavailable string     `json:"unavailable,omitempty"`
-	Line        string     `json:"line"`
+	// Released are drop waits that ended at the drop's first window: the
+	// drop is still watched over its business cycle.
+	Released    []string `json:"released,omitempty"`
+	Unavailable string   `json:"unavailable,omitempty"`
+	Line        string   `json:"line"`
 }
 
 // readWaits puts the live wait of a's change on in (nothing without a
@@ -58,6 +61,9 @@ func waitOf(in Inputs, now time.Time) *VerificationWait {
 	seen := map[string]bool{}
 	for _, p := range in.Waits {
 		if p.Expired(now) {
+			if p.ReleaseCause() == policy.ReleaseDropFirstWindow {
+				w.Released = append(w.Released, waitName(p)+": "+p.ReleaseReason())
+			}
 			continue
 		}
 		if p.ActionID > 0 {
@@ -75,13 +81,32 @@ func waitOf(in Inputs, now time.Time) *VerificationWait {
 		}
 		names = append(names, waitName(p))
 	}
-	if len(names) == 0 {
+	if len(names) == 0 && len(w.Released) == 0 {
 		return nil
 	}
-	w.Line = fmt.Sprintf("Awaiting %s (until %s): approving overrides pending %s",
-		strings.Join(names, ", "), w.Until.UTC().Format("2006-01-02 15:04 UTC"),
-		strings.Join(names, ", "))
+	w.Line = releasedLine(w.Released)
+	if len(names) > 0 {
+		w.Line = joinLine(fmt.Sprintf("Awaiting %s (until %s): approving overrides pending %s",
+			strings.Join(names, ", "), w.Until.UTC().Format("2006-01-02 15:04 UTC"),
+			strings.Join(names, ", ")), w.Line)
+	}
 	return w
+}
+
+// releasedLine says which drop waits ended at their first window.
+func releasedLine(released []string) string {
+	if len(released) == 0 {
+		return ""
+	}
+	return "Wait released: " + strings.Join(released, "; ") +
+		" (the drop's soft-drop monitoring continues over its business cycle)"
+}
+
+func joinLine(line, more string) string {
+	if more == "" {
+		return line
+	}
+	return line + ". " + more
 }
 
 func waitName(p policy.PendingVerification) string {
@@ -95,6 +120,9 @@ func waitName(p policy.PendingVerification) string {
 func waitReason(w *VerificationWait) []Reason {
 	if w == nil || w.Unavailable != "" {
 		return nil
+	}
+	if len(w.ActionIDs) == 0 && len(w.DecisionIDs) == 0 {
+		return []Reason{{Code: "verification_wait_released", Text: w.Line}}
 	}
 	return []Reason{{Code: string(policy.ReasonAwaitingVerification), Text: w.Line}}
 }

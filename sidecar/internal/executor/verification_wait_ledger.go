@@ -49,8 +49,9 @@ func waitEntries(pending []policy.PendingVerification) []any {
 	for _, p := range pending {
 		out = append(out, map[string]any{"action_id": p.ActionID,
 			"decision_id": p.DecisionID, "object": p.Object,
-			"until":         p.Until.UTC().Format(time.RFC3339),
-			"hard_deadline": p.HardDeadline.UTC().Format(time.RFC3339)})
+			"until":          p.Until.UTC().Format(time.RFC3339),
+			"hard_deadline":  p.HardDeadline.UTC().Format(time.RFC3339),
+			"release_reason": p.ReleaseReason()})
 	}
 	return out
 }
@@ -98,8 +99,8 @@ func countDecision(database string, decision policy.Decision) {
 	if wait.Overridden && len(wait.Pending) > 0 {
 		parkCounters.releases[countKey{database, "operator_override"}]++
 	}
-	if len(wait.Released) > 0 {
-		parkCounters.releases[countKey{database, "hard_deadline"}] += int64(len(wait.Released))
+	for _, p := range wait.Released {
+		parkCounters.releases[countKey{database, p.ReleaseCause()}]++
 	}
 }
 

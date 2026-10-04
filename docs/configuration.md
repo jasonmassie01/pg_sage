@@ -550,8 +550,12 @@ pg_sage changes one object at a time and waits for the verdict before the
 next change to it. An object is a setting (`work_mem` is one object whether it
 is changed with `ALTER SYSTEM`, `ALTER DATABASE` or `ALTER ROLE`) or a table
 with its indexes (an index, its reloptions, `VACUUM`, `ANALYZE` and extended
-statistics on a table are all changes to that table). The identity comes from
-the statement and the catalog, never from evidence or an LLM.
+statistics on a table are all changes to that table). For index, extended
+statistics and reloption changes, a partitioned table, its partitions and
+their indexes are one object (the partition tree, from `pg_inherits`), so a
+change to one waits for a change to another; `VACUUM` and `ANALYZE` of a
+partition stay that partition's own. The identity comes from the statement
+and the catalog, never from evidence or an LLM.
 
 - **What waits.** A self-initiated change whose object has another change in
   flight is parked with reason `awaiting_verification`. In flight means an
@@ -569,11 +573,15 @@ the statement and the catalog, never from evidence or an LLM.
   insufficient evidence, unverifiable, or rolled back).
 - **Never forever.** A verification that passes its hard deadline without a
   verdict releases the wait, and the release is recorded on the decision
-  (`evidence.verification_wait_released`). The hard deadline is the
-  verification cap (`verify.window_max_minutes`, or `verify.drop_window_hours`
-  for an index drop) plus one hour after the action ran; an authorized change
-  that has not run holds its object for at most twice the DDL timeout plus a
-  minute.
+  (`evidence.verification_wait_released`, with its `release_reason`). The
+  hard deadline is the verification cap (`verify.window_max_minutes`) plus
+  one hour after the action ran. An index drop holds its table only until its
+  first window concludes (`trust.rollback_window_minutes` after it ran),
+  released as "drop's first window concluded" and shown on approval cards;
+  its soft-drop monitoring keeps watching the whole business cycle
+  (`verify.drop_window_hours`) and re-creates the index on a regression. An
+  authorized change that has not run holds its object for at most twice the
+  DDL timeout plus a minute.
 - **Never waits.** Rollbacks and reverts of pg_sage's own changes (including the
   rollback of the change being verified), emergency mitigations (the same
   cases that bypass the budgets above), owner-declared retention deletes and
@@ -585,7 +593,8 @@ the statement and the catalog, never from evidence or an LLM.
 - **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts every park
   by reason (one per evaluation), and
   `pg_sage_verification_wait_releases_total{database,cause}` the waits that
-  ended without a verdict (`operator_override`, `hard_deadline`).
+  ended without a verdict (`operator_override`, `hard_deadline`,
+  `drop_first_window`).
 
 #### Retention contracts
 

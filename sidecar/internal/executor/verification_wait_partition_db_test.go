@@ -141,7 +141,7 @@ func TestOneChange_PartitionChangeHoldsItsParent(t *testing.T) {
 	requireParkedOn(t, authorizeFinding(t, exec, ctx, parent), first)
 	stats := analyzer.Finding{Category: "extended_statistics", ObjectType: "table",
 		ObjectIdentifier: "public.pevents", Title: "stats pevents",
-		RecommendedSQL: "CREATE STATISTICS public.pevents_s (dependencies) ON id, kind " +
+		RecommendedSQL: "CREATE STATISTICS public.sage_stx_pevents (dependencies) ON id, kind " +
 			"FROM public.pevents"}
 	if got := authorizeFinding(t, exec, ctx, stats); got.Reason !=
 		policy.ReasonAwaitingVerification {

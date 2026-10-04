@@ -10,11 +10,13 @@
   index on `public.memories` ten minutes after a first one it subsumed: overlapping
   changes make every verdict meaningless. Now a change pg_sage starts on its own waits
   while an earlier change to the same object (the same GUC, or the same table and its
-  indexes) is still being verified, or authorized and about to run. The decision log and
+  indexes; for index, statistics and reloption changes, a whole partition tree) is
+  still being verified, or authorized and about to run. The decision log and
   the approval card say which action it waits for and until when; it runs by itself once
   the verdict lands (improved, neutral, regressed, insufficient evidence, unverifiable or
   rolled back) and never waits past that verification's hard deadline (the verification
-  cap or the drop's business cycle, plus an hour), which is recorded. Rollbacks and
+  cap plus an hour), which is recorded. An index drop holds its table only until its
+  first window concludes; its soft-drop monitoring keeps watching the business cycle. Rollbacks and
   reverts of pg_sage's own changes and emergencies (a critical wraparound freeze, a
   critical disk runway) never wait. Approving a queued change overrides the wait, and the
   approval card says so before you click ("approving overrides pending verification of

@@ -72,7 +72,7 @@ func TestChangeRelationNamesFromStatementAndTargets(t *testing.T) {
 
 func testWindows() VerificationWindows {
 	return VerificationWindows{RollbackWindow: 15 * time.Minute, CreateWindow: time.Hour,
-		Cap: 72 * time.Hour, DropWindow: 168 * time.Hour, Grace: time.Hour,
+		Cap: 72 * time.Hour, Grace: time.Hour,
 		HoldHorizon: 12 * time.Minute}
 }
 
@@ -166,7 +166,7 @@ func TestWaitTimesCapBelowFirstWindow(t *testing.T) {
 func TestVerificationWindowsDefaults(t *testing.T) {
 	w := verificationWindowsFor(nil, 0)
 	if w.RollbackWindow != 15*time.Minute || w.Cap != 72*time.Hour ||
-		w.DropWindow != 168*time.Hour || w.CreateWindow <= 0 || w.Grace != time.Hour ||
+		w.CreateWindow <= 0 || w.Grace != time.Hour ||
 		w.HoldHorizon <= 0 {
 		t.Fatalf("defaults %+v", w)
 	}

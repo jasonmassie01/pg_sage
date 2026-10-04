@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/pgconf"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -101,7 +102,6 @@ type VerificationWindows struct {
 	RollbackWindow time.Duration
 	CreateWindow   time.Duration
 	Cap            time.Duration
-	DropWindow     time.Duration
 	Grace          time.Duration
 	HoldHorizon    time.Duration
 }
@@ -116,7 +116,6 @@ func verificationWindowsFor(cfg *config.Config, holdHorizon time.Duration) Verif
 		RollbackWindow: minutes(config.DefaultRollbackWindowMinutes),
 		CreateWindow:   minutes(config.DefaultVerifyWindowMinutes),
 		Cap:            minutes(config.DefaultVerifyWindowMaxMinutes),
-		DropWindow:     time.Duration(config.DefaultVerifyDropWindowHours) * time.Hour,
 		Grace:          verificationGrace, HoldHorizon: holdHorizon,
 	}
 	if w.HoldHorizon <= 0 {
@@ -129,7 +128,6 @@ func verificationWindowsFor(cfg *config.Config, holdHorizon time.Duration) Verif
 	positive(&w.RollbackWindow, minutes(cfg.Trust.RollbackWindowMinutes))
 	positive(&w.CreateWindow, minutes(cfg.Verify.WindowMinutes))
 	positive(&w.Cap, minutes(cfg.Verify.WindowMaxMinutes))
-	positive(&w.DropWindow, cfg.Verify.DropWindow())
 	return w
 }
 
@@ -143,20 +141,43 @@ func positive(target *time.Duration, value time.Duration) {
 
 // waitTimes are when the verification of a change executed at executedAt
 // is next due (its first window's end, or the hard deadline once that has
-// passed) and its hard deadline: a drop is judged over its whole business
-// cycle; anything else may be extended to the cap. Both include the grace.
+// passed) and when the wait ends without a verdict. An index drop holds
+// its table only until its first window concludes (owner decision, PR
+// #122): its soft-drop monitoring watches the business cycle on its own.
+// Anything else may be extended to the cap, plus the grace.
 func waitTimes(sql string, executedAt, now time.Time, w VerificationWindows) (
 	until, hard time.Time) {
-	first, last := w.RollbackWindow, max(w.Cap, w.RollbackWindow)
+	first, last := w.RollbackWindow, max(w.Cap, w.RollbackWindow)+w.Grace
 	switch verificationClass(sql) {
 	case verify.ClassIndexDrop:
-		first, last = w.DropWindow, w.DropWindow
+		first, last = w.RollbackWindow, w.RollbackWindow
 	case verify.ClassIndexCreate:
-		first, last = w.CreateWindow, max(w.Cap, w.CreateWindow)
+		first, last = w.CreateWindow, max(w.Cap, w.CreateWindow)+w.Grace
 	}
-	until, hard = executedAt.Add(first), executedAt.Add(last+w.Grace)
+	until, hard = executedAt.Add(first), executedAt.Add(last)
 	if !now.Before(until) {
 		until = hard
 	}
 	return until, hard
+}
+
+// waitRelease is why a change's wait ends without a verdict.
+func waitRelease(sql string) string {
+	if verificationClass(sql) == verify.ClassIndexDrop {
+		return policy.ReleaseDropFirstWindow
+	}
+	return policy.ReleaseHardDeadline
+}
+
+// partitionScoped reports a change that shares one object across a
+// partition tree (owner decision, PR #122): index, extended statistics and
+// reloption changes move the plans of every partition. VACUUM, ANALYZE
+// and settings keep their own object.
+func partitionScoped(sql string) bool {
+	switch verificationClass(sql) {
+	case verify.ClassIndexCreate, verify.ClassIndexDrop, verify.ClassReindex,
+		verify.ClassStatistics, verify.ClassReloption:
+		return true
+	}
+	return false
 }

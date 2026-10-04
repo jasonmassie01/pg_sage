@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,7 +62,7 @@ func (w *VerificationWaits) PendingFor(
 	if guc != "" {
 		return matchGUC(guc, candidates, now, windows), nil
 	}
-	return matchTables(ctx, db, relations, candidates, now, windows)
+	return matchTables(ctx, db, sql, relations, candidates, now, windows)
 }
 
 // waitQuerier reads in the gate's budget transaction when there is one,
@@ -152,6 +153,7 @@ func (c inFlight) pending(object string, now time.Time,
 		Object: object}
 	if c.actionID > 0 {
 		p.Until, p.HardDeadline = waitTimes(c.sql, c.at, now, w)
+		p.Release = waitRelease(c.sql)
 	} else {
 		p.Until = c.at.Add(w.HoldHorizon)
 		p.HardDeadline = p.Until
@@ -172,9 +174,10 @@ func matchGUC(guc string, candidates []inFlight, now time.Time,
 
 // matchTables resolves the request's relations and every candidate's (its
 // statement, its targets and its rollback: a dropped index's table is
-// named by the definition the rollback re-creates) in one catalog read.
-func matchTables(ctx context.Context, db policy.TargetQuerier, relations []string,
-	candidates []inFlight, now time.Time, w VerificationWindows,
+// named by the definition the rollback re-creates) in one catalog read,
+// and matches their object keys.
+func matchTables(ctx context.Context, db policy.TargetQuerier, sql string,
+	relations []string, candidates []inFlight, now time.Time, w VerificationWindows,
 ) ([]policy.PendingVerification, error) {
 	names := append([]string(nil), relations...)
 	byCandidate := make([][]string, len(candidates))
@@ -187,20 +190,36 @@ func matchTables(ctx context.Context, db policy.TargetQuerier, relations []strin
 	if err != nil {
 		return nil, fmt.Errorf("in-flight verifications: %w", err)
 	}
-	wanted := map[string]bool{}
-	for _, name := range relations {
-		if table := tables[name]; table != "" {
-			wanted[table] = true
-		}
-	}
+	wanted := objectKeys(tables, relations, partitionScoped(sql))
 	var out []policy.PendingVerification
 	for i, c := range candidates {
-		for _, name := range byCandidate[i] {
-			if table := tables[name]; table != "" && wanted[table] {
-				out = append(out, c.pending("table:"+table, now, w))
+		scoped := partitionScoped(c.sql) || partitionScoped(c.rollback)
+		for _, key := range objectKeys(tables, byCandidate[i], scoped) {
+			if slices.Contains(wanted, key) {
+				out = append(out, c.pending(key, now, w))
 				break
 			}
 		}
 	}
 	return out, nil
+}
+
+// objectKeys are the objects names change: each table ("table:<name>")
+// and, for a partition-scoped change, its partition tree
+// ("partition_tree:<root>"), so a change to a partitioned table, a
+// partition or one of their indexes meets another on the same tree.
+func objectKeys(tables map[string]policy.ChangeTable, names []string,
+	scoped bool) []string {
+	var keys []string
+	for _, name := range names {
+		table, ok := tables[name]
+		if !ok {
+			continue
+		}
+		keys = append(keys, "table:"+table.Table)
+		if scoped && table.Root != "" {
+			keys = append(keys, "partition_tree:"+table.Root)
+		}
+	}
+	return keys
 }
