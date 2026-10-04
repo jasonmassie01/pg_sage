@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/shadow"
 )
@@ -69,6 +70,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeSelfCostFromFleet(&b, fleetMgr)
 	writeOptimizerMemoryFromFleet(&b, fleetMgr)
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
+	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

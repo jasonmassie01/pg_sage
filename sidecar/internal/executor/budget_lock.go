@@ -87,5 +87,8 @@ func (e *Executor) recordStandingDecision(
 	}
 	input := ledgerInput(e.databaseID, policyVersion, request, decision)
 	recorded, err := ledger.NewService(repository).RecordDecision(ctx, input)
+	if err == nil {
+		countDecision(e.databaseName, decision)
+	}
 	return recorded.EvidenceID, recorded.ID, err
 }

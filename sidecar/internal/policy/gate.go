@@ -60,7 +60,7 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 		return decision
 	}
 	if req.OperatorApproved {
-		return gate.operatorDecision(ctx, runtime, req)
+		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
 	}
 	if observeOnly(runtime) {
 		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
@@ -72,7 +72,8 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if !stop {
 		decision = withDocumentBounds(doc, gate.selfInitiatedDecision(doc, runtime, req))
 	}
-	return note.stamp(gate.restrictAutonomy(ctx, doc, runtime, req, decision))
+	decision = note.stamp(gate.restrictAutonomy(ctx, doc, runtime, req, decision))
+	return gate.awaitVerification(ctx, req, decision)
 }
 
 // selfInitiatedDecision lets trust, mode, tier flags and ramp decide first.
