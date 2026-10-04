@@ -784,6 +784,60 @@
   
   
     <li class="md-nav__item">
+      <a href="../facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Binding Facts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../hint-verification/" class="md-nav__link">
         
   
@@ -1522,6 +1576,16 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td><code>24</code></td>
 <td>Hours an open incident may go without being re-detected before pg_sage resolves it (<code>resolved_by</code> <code>pg_sage:stale</code>). Incidents about an idle-in-transaction session also resolve once that session is gone (<code>pg_sage:subject_gone</code>). Resolutions of incidents last seen longer ago than this send no notification. <code>1</code>-<code>8760</code>, and at least <code>rca.dedup_window_minutes</code></td>
 </tr>
+<tr>
+<td><code>rca.vacuum_min_dead_tuples</code></td>
+<td><code>1000</code></td>
+<td>Fewest dead tuples a table needs before its dead-tuple ratio counts toward the <code>vacuum_blocked</code> ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. <code>1</code>-<code>1000000000</code></td>
+</tr>
+<tr>
+<td><code>rca.vacuum_min_table_mb</code></td>
+<td><code>8</code></td>
+<td>Smallest heap (MB, from <code>pg_class.relpages</code>) a table needs before its dead-tuple ratio counts toward the <code>vacuum_blocked</code> incident. <code>1</code>-<code>1048576</code></td>
+</tr>
 </tbody>
 </table>
 <h3 id="trust-actions">Trust &amp; Actions<a class="headerlink" href="#trust-actions" title="Permanent link">&para;</a></h3>
@@ -2013,7 +2077,9 @@ returned <code>sage_session</code> cookie:</p>
 configure the closed-loop autonomy stack. MCP is an intent-level JSON-RPC
 surface: it exposes policy, change-request, and evidence-ledger tools, never
 raw SQL execution. Caller claims are recorded as untrusted input and do not
-grant authority.</p>
+grant authority. MCP is served over HTTP by default (<code>mcp.transport: http</code>,
+<code>POST /api/v1/mcp</code>), accepting only MCP API tokens (never a session); set
+<code>mcp.transport: stdio</code> for stdio. See <a href="../mcp/">MCP for coding agents</a>.</p>
 <p>The default <code>unattended</code> policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use <code>staffed</code> for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
@@ -2760,6 +2826,30 @@ change is logged once per transition.</p>
 and re-promotion needs the evidence again. A carried-over pair is instead capped for
 <code>safety_window_days</code>. Operators can downgrade a pair or a whole family at
 any time.</p>
+<p><strong>Model-sourced roots (measured).</strong> When an investigation's causal graph is conclusive and
+the model ranks another open hypothesis first, the model's root is advisory (L1) by default:
+the graph's root stands and the investigation shows the contest (<code>model_contest</code>). The model
+may override the graph's root for a family only once PGIncidentBench measured it on the
+held-out replay cases with a live model: override precision with a Wilson 95% lower bound of
+at least 0.80 over at least 10 overrides, no forbidden action, no drop in Safe Pass, and the
+run inside its budget. The bench report comes through the same path as promotion evidence
+(signed release or nightly report, local run or upload, for the running build, at most 30
+days old), and the newest live measurement of each family decides. A model's own confidence
+never counts. Actions that follow an adopted root still pass the family's earned levels.
+The Trust page's "Model lift over deterministic" card and <code>GET /api/v1/model-lift[?database=]</code>
+show each family's lift (Safe Pass against the graph, override precision, inconclusive-case
+lift), whether the model may override, and how many more correct held-out overrides the
+family needs (<code>overrides_needed</code>; families are never pooled). A family earning or losing
+the authority is recorded in the trust history (<code>root_authority_granted</code> /
+<code>root_authority_revoked</code>, with the deciding report's id) and told through your notification
+rules (<code>action_executed</code> for a grant, <code>action_failed</code> for a loss). See
+<code>sidecar/sre-bench/README.md</code> ("Model lift", "Nightly live-model arm").</p>
+<p><strong>Contested investigations become replay cases.</strong> After you refute an investigation (or
+confirm it with another actual root), <code>GET /api/v1/databases/{db}/investigations/{id}/replay-case</code>
+(operator) or <code>pg_sage bench export-replay --investigation &lt;id&gt;</code> (reading the control
+database from <code>PG_SAGE_EXPORT_DSN</code>) exports it as a redacted PGIncidentBench replay case:
+identifiers hashed unless <code>keep_identifiers=true</code> / <code>--keep-identifiers</code>, secrets and PII-like
+literals always removed.</p>
 <table>
 <thead>
 <tr>

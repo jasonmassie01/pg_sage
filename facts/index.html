@@ -10,27 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-blueprint-builder/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/facts/">
       
       
+        <link rel="prev" href="../findings/">
+      
+      
+        <link rel="next" href="../mcp/">
       
       
         
       
       
-      <link rel="icon" href="../../../assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>AgentDB Blueprint Builder Implementation Plan - pg_sage</title>
+        <title>Binding Facts - pg_sage</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -49,7 +53,7 @@
       
     
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agentdb-blueprint-builder-implementation-plan" class="md-skip">
+        <a href="#binding-facts" class="md-skip">
           Skip to content
         </a>
       
@@ -90,7 +94,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              AgentDB Blueprint Builder Implementation Plan
+              Binding Facts
             
           </span>
         </div>
@@ -226,7 +230,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -256,7 +260,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -283,7 +287,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../walkthrough/" class="md-nav__link">
+      <a href="../walkthrough/" class="md-nav__link">
         
   
   
@@ -310,7 +314,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../installation/" class="md-nav__link">
+      <a href="../installation/" class="md-nav__link">
         
   
   
@@ -337,7 +341,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -364,7 +368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -391,7 +395,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../sql-reference/" class="md-nav__link">
+      <a href="../sql-reference/" class="md-nav__link">
         
   
   
@@ -418,7 +422,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../findings/" class="md-nav__link">
+      <a href="../findings/" class="md-nav__link">
         
   
   
@@ -442,10 +446,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../facts/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Binding Facts
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -461,6 +492,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#fact-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fact types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subjects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subjects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-facts-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where facts come from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#confirming-and-rejecting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Confirming and rejecting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-a-fact-binds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a fact binds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expiry-and-re-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expiry and re-verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -472,7 +589,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../mcp/" class="md-nav__link">
+      <a href="../mcp/" class="md-nav__link">
         
   
   
@@ -499,7 +616,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../hint-verification/" class="md-nav__link">
+      <a href="../hint-verification/" class="md-nav__link">
         
   
   
@@ -526,7 +643,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../security/" class="md-nav__link">
+      <a href="../security/" class="md-nav__link">
         
   
   
@@ -553,7 +670,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../sage-sre-permissions-and-data-flow/" class="md-nav__link">
+      <a href="../sage-sre-permissions-and-data-flow/" class="md-nav__link">
         
   
   
@@ -580,7 +697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../deployment/" class="md-nav__link">
+      <a href="../deployment/" class="md-nav__link">
         
   
   
@@ -607,7 +724,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../azure/" class="md-nav__link">
+      <a href="../azure/" class="md-nav__link">
         
   
   
@@ -654,10 +771,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#files" class="md-nav__link">
+  <a href="#fact-types" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Files
+        Fact types
       
     </span>
   </a>
@@ -665,71 +782,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tasks" class="md-nav__link">
+  <a href="#subjects" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tasks
+        Subjects
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Tasks">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#task-1-domain-and-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Task 1: Domain and Tests
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#task-2-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Task 2: API
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#task-3-ui" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Task 3: UI
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#task-4-verification-and-8085" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Task 4: Verification and 8085
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#self-review" class="md-nav__link">
+  <a href="#where-facts-come-from" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Self Review
+        Where facts come from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#confirming-and-rejecting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Confirming and rejecting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-a-fact-binds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a fact binds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expiry-and-re-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expiry and re-verification
       
     </span>
   </a>
@@ -756,84 +856,120 @@
   
 
 
-<h1 id="agentdb-blueprint-builder-implementation-plan">AgentDB Blueprint Builder Implementation Plan<a class="headerlink" href="#agentdb-blueprint-builder-implementation-plan" title="Permanent link">&para;</a></h1>
-<blockquote>
-<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
-</blockquote>
-<p><strong>Goal:</strong> Build an AgentDB Blueprint Builder that converts English deployment
-intent into a typed blueprint plus draft Terraform template.</p>
-<p><strong>Architecture:</strong> Add a focused AgentDB blueprint domain in Go with a generator
-interface, deterministic fallback, Terraform rendering, store persistence, API
-routes, and an AgentDB UI tab. Generated Terraform remains draft-only and flows
-through existing template policy and approval gates.</p>
-<p><strong>Tech Stack:</strong> Go, pgx, existing AgentDB store/API patterns, existing LLM
-client interface, React/Vitest, existing Terraform template validator.</p>
-<hr />
-<h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
+<h1 id="binding-facts">Binding facts<a class="headerlink" href="#binding-facts" title="Permanent link">&para;</a></h1>
+<p>Some things about a database are true for a long time and cost a lot when pg_sage gets
+them wrong: an index belongs to the application's migrations, a family of schemas is left
+over from test runs, a replication slot feeds a change-data-capture pipeline. pg_sage keeps
+these as <strong>typed facts</strong>. You confirm a fact once; from then on it binds what pg_sage does.</p>
+<p>A confirmed fact can only <strong>narrow or redirect</strong> what pg_sage does on its own. It never
+grants autonomy, never lets an action skip a check, and never makes pg_sage do something it
+would not have done anyway.</p>
+<h2 id="fact-types">Fact types<a class="headerlink" href="#fact-types" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Subject</th>
+<th>What it means</th>
+<th>What pg_sage does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>owned_by_app_migrations</code></td>
+<td>index, table or schema</td>
+<td>The application's schema migrations create and change it</td>
+<td>Never creates, drops or alters it. The change becomes a <strong>source-fix packet</strong>: the migration pg_sage recommends, attached to the finding, for you or a coding agent to put in a PR.</td>
+</tr>
+<tr>
+<td><code>test_fixture</code></td>
+<td>schema pattern</td>
+<td>Schemas left by test runs, not workload</td>
+<td>Removes them from findings and from the budgets, takes no action on them by itself, and offers one <strong>cleanup batch</strong> (a reviewed script you run once). pg_sage never drops schemas itself.</td>
+</tr>
+<tr>
+<td><code>slot_consumer</code></td>
+<td>replication slot</td>
+<td>The slot feeds a named consumer (Debezium, Fivetran, Airbyte...)</td>
+<td>Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. A confirmed slot is also registered in <code>sage.slot_consumer_registry</code>, so the WAL custodian escalates instead of acting.</td>
+</tr>
+<tr>
+<td><code>append_only</code></td>
+<td>table</td>
+<td>Rows are only inserted (an archive or a log)</td>
+<td>Never deletes its rows, rewrites it (<code>VACUUM FULL</code>, bloat plans) or drops its indexes (they look unused because an archive is rarely read).</td>
+</tr>
+<tr>
+<td><code>table_window</code></td>
+<td>table</td>
+<td><code>maintenance</code> window (act only inside) or <code>batch</code> window (never act during)</td>
+<td>Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="subjects">Subjects<a class="headerlink" href="#subjects" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Create: <code>sidecar/internal/agentdb/blueprint.go</code></li>
-<li>Create: <code>sidecar/internal/agentdb/blueprint_test.go</code></li>
-<li>Create: <code>sidecar/internal/api/agent_db_blueprint_handlers.go</code></li>
-<li>Modify: <code>sidecar/internal/agentdb/types.go</code></li>
-<li>Modify: <code>sidecar/internal/agentdb/schema.go</code></li>
-<li>Modify: <code>sidecar/internal/api/agent_db_handlers.go</code></li>
-<li>Modify: <code>sidecar/internal/api/router.go</code></li>
-<li>Modify: <code>sidecar/internal/api/agent_db_handlers_test.go</code></li>
-<li>Modify: <code>sidecar/web/src/pages/AgentDBsPage.jsx</code></li>
-<li>Modify: <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code></li>
-<li>Modify: <code>sidecar/web/src/pages/agentdb/AgentDBWorkspace.jsx</code></li>
-<li>Modify: <code>sidecar/web/src/pages/agentdb/AgentDBWorkspaceTabs.jsx</code></li>
-<li>Modify: <code>sidecar/web/src/pages/agentdb/TerraformTemplatePanel.jsx</code></li>
-<li>Create: <code>sidecar/web/src/pages/agentdb/BlueprintBuilderPanel.jsx</code></li>
+<li>Index and table subjects are schema-qualified: <code>public.idx_orders_status</code>, <code>app.orders</code>.</li>
+<li>Identifiers fold like PostgreSQL's: unquoted names are lower-cased, quoted names are exact
+  (<code>"Billing"."Invoices"</code> is not <code>billing.invoices</code>).</li>
+<li><code>*</code> matches any run of characters (<code>test_memory_*</code>, <code>public.idx_thesis_*</code>); nothing else
+  is a wildcard.</li>
+<li>A subject that could match pg_sage's own <code>sage</code> schema or a system schema (<code>*</code>, <code>s*</code>,
+  <code>pg_*</code>, <code>*.orders</code>) is refused.</li>
 </ul>
-<h2 id="tasks">Tasks<a class="headerlink" href="#tasks" title="Permanent link">&para;</a></h2>
-<h3 id="task-1-domain-and-tests">Task 1: Domain and Tests<a class="headerlink" href="#task-1-domain-and-tests" title="Permanent link">&para;</a></h3>
+<h2 id="where-facts-come-from">Where facts come from<a class="headerlink" href="#where-facts-come-from" title="Permanent link">&para;</a></h2>
 <ul>
-<li>[ ] Write failing tests for deterministic blueprint extraction, policy
-  findings, Terraform rendering, and store persistence.</li>
-<li>[ ] Add blueprint request/spec/generation/types.</li>
-<li>[ ] Implement deterministic extraction and Terraform rendering.</li>
-<li>[ ] Add <code>sage.agent_db_blueprints</code> schema.</li>
-<li>[ ] Add store create/list methods that also create a draft Terraform template.</li>
-<li>[ ] Run targeted <code>go test -count=1 ./internal/agentdb -run TestBlueprint</code>.</li>
+<li><strong>Detectors</strong> propose facts from deterministic evidence:</li>
+<li>an index pg_sage dropped that came back with the same definition (the application's
+    migrations recreated it);</li>
+<li>test-named schemas (<code>test_*</code>, <code>tmp_*</code>, <code>*_test</code>, ...) with no scans or writes for six
+    hours, as one pattern per family of copies;</li>
+<li>logical replication slots and their consumer;</li>
+<li>tables with a million inserts and no update or delete.</li>
+<li><strong>The model</strong> (when an LLM is configured) proposes facts from a bounded summary of the
+  catalog, at most once a day. Every model proposal must cite the evidence it was shown and
+  passes the same validation as any other; it is only ever a proposal.</li>
+<li><strong>You</strong> can declare a fact directly; your declaration confirms it.</li>
+<li>What you already declared with the MCP tools <code>register_consumer</code> and
+  <code>declare_table_contract</code> (append-only) is imported as confirmed facts.</li>
 </ul>
-<h3 id="task-2-api">Task 2: API<a class="headerlink" href="#task-2-api" title="Permanent link">&para;</a></h3>
+<p>Nothing proposed binds anything until a person confirms it. A rejected fact stays rejected
+when it is proposed again (the proposal count grows); new evidence reopens only an expired
+fact.</p>
+<h2 id="confirming-and-rejecting">Confirming and rejecting<a class="headerlink" href="#confirming-and-rejecting" title="Permanent link">&para;</a></h2>
 <ul>
-<li>[ ] Write failing API tests for POST/GET <code>/api/v1/agent-dbs/blueprints</code>.</li>
-<li>[ ] Add blueprint handlers.</li>
-<li>[ ] Wire optional LLM generator into AgentDB routes.</li>
-<li>[ ] Preserve deterministic fallback for tests and local deployments without LLM.</li>
-<li>[ ] Run targeted <code>go test -count=1 ./internal/api -run TestAgentDBBlueprint</code>.</li>
+<li><strong>Facts page</strong> in the UI: proposed facts with their evidence, Confirm / Reject, and
+  Reject or Expire for confirmed facts. A form declares a new fact.</li>
+<li><strong>Inline</strong> on findings and approval cards: the facts that bind the object, and proposed
+  facts about it with Confirm / Reject. A finding redirected by a fact shows its source-fix
+  packet; a cleanup finding shows its batch.</li>
+<li><strong>Slack and Telegram</strong>: a proposed fact is sent to the channels that receive approval
+  requests, with Confirm / Reject buttons. The buttons use the approval-card rules: a
+  single-use token bound to the channel, signed callbacks, a mapped operator or admin, and
+  the fact unchanged since the card was sent.</li>
+<li><strong>API</strong>: <code>GET /api/v1/facts</code>, <code>POST /api/v1/facts</code> (declare),
+  <code>POST /api/v1/facts/{id}/confirm|reject|expire</code>, <code>GET /api/v1/facts/match?object=...</code>.
+  Viewers read; operators and admins decide.</li>
+<li><strong>MCP</strong>: <code>list_facts</code>, <code>propose_fact</code> (stays proposed), <code>decide_fact</code> (operator or admin).</li>
 </ul>
-<h3 id="task-3-ui">Task 3: UI<a class="headerlink" href="#task-3-ui" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Write failing Vitest coverage for the Blueprints tab and Terraform upload
-  file body shape.</li>
-<li>[ ] Add <code>Blueprints</code> tab and panel.</li>
-<li>[ ] Fetch/list blueprints and submit English intent.</li>
-<li>[ ] Fix Terraform upload to send <code>body</code>.</li>
-<li>[ ] Run <code>npm --prefix sidecar/web test -- --run src/pages/AgentDBsPage.test.jsx</code>.</li>
-</ul>
-<h3 id="task-4-verification-and-8085">Task 4: Verification and 8085<a class="headerlink" href="#task-4-verification-and-8085" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Run <code>gofmt</code>.</li>
-<li>[ ] Run focused Go tests for AgentDB/API.</li>
-<li>[ ] Run <code>go test -cover -count=1 -p 1 ./...</code>.</li>
-<li>[ ] Run <code>go vet ./...</code>.</li>
-<li>[ ] Run <code>npm --prefix sidecar/web test</code>.</li>
-<li>[ ] Run <code>npm --prefix sidecar/web run lint</code>.</li>
-<li>[ ] Run <code>npm --prefix sidecar/web run build</code>.</li>
-<li>[ ] Run <code>git diff --check</code>.</li>
-<li>[ ] Rebuild and restart the 8085 sidecar.</li>
-<li>[ ] Verify root and metrics return HTTP 200.</li>
-</ul>
-<h2 id="self-review">Self Review<a class="headerlink" href="#self-review" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Scope is one subsystem: blueprint generation and review, not live apply.</li>
-<li>Generated Terraform is draft-only.</li>
-<li>No secrets are accepted in generated Terraform files.</li>
-<li>The LLM boundary is testable and optional.</li>
-</ul>
+<h2 id="how-a-fact-binds">How a fact binds<a class="headerlink" href="#how-a-fact-binds" title="Permanent link">&para;</a></h2>
+<p>The policy gate checks every action against the confirmed facts by typed matching (the
+action's objects and SQL against the fact subjects, never model text). A bound action is
+blocked with the reason <code>bound_by_fact</code> and a detail that names the fact, for example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>fact #12: index public.idx_thesis_allocation_run is owned by the application's
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>migrations (confirmed by alice@example.com on 2026-10-04); route: source_fix
+</code></pre></div>
+<p>Facts bind your own approvals too, except test-fixture and window facts: to let pg_sage act
+on an object again, reject or expire the fact first (one click; it is recorded). Read-only
+diagnostics and pg_sage undoing its own change are never bound. If the facts cannot be read,
+the gate fails closed (<code>facts_unavailable</code>).</p>
+<p>The optimizer, advisor and investigator prompts carry the confirmed facts as bounded context.
+Proposed facts are never presented to the model as true.</p>
+<h2 id="expiry-and-re-verification">Expiry and re-verification<a class="headerlink" href="#expiry-and-re-verification" title="Permanent link">&para;</a></h2>
+<p>Every 15 minutes pg_sage re-checks proposed and confirmed facts. A fact whose subject no
+longer names anything (the schema was dropped, the slot removed) expires after an hour of
+absence; a fact with an expiry date expires on that date. Expired and rejected facts are
+purged after <code>retention.actions_days</code>; proposed and confirmed facts are kept.</p>
 
 
 
@@ -889,10 +1025,10 @@ client interface, React/Vitest, existing Terraform template validator.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

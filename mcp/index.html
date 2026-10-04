@@ -1,0 +1,3527 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/mcp/">
+      
+      
+        <link rel="prev" href="../facts/">
+      
+      
+        <link rel="next" href="../hint-verification/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>MCP for Coding Agents - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-for-coding-agents" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP for Coding Agents
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Binding Facts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-claude-code-in-one-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set up Claude Code in one line
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tokens
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#databases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protocol
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-source-fix-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The source-fix loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-to-source-attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query to source attribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get_policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#propose_policy_change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        propose_policy_change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request_change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        request_change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimize_query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        optimize_query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply_migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apply_migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ensure_fk_indexes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ensure_fk_indexes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declare_table_contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        declare_table_contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#register_consumer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_consumer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set_maintenance_policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_maintenance_policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_guarantee_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_guarantee_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_ledger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_ledger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_incidents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_incidents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_investigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_evidence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_propose_action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_propose_action
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_request_execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_request_execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_slos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_slos
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_slo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_slo
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_runbooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_runbooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_runbook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_runbook_runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_runbook_runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_similar_incidents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_similar_incidents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_draft_runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_draft_runbook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_compile_runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_compile_runbook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_downgrade_autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_downgrade_autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_review_investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_review_investigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_evaluate_autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_evaluate_autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_facts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_facts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#propose_fact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        propose_fact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decide_fact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decide_fact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_databases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_databases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#top_queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        top_queries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#explain_query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        explain_query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whatif_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        whatif_index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lint_migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lint_migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#query_sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        query_sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mark_object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mark_object
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_source_fix_packet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_source_fix_packet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#report_source_fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        report_source_fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sage-sre-permissions-and-data-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-claude-code-in-one-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set up Claude Code in one line
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tokens
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#databases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protocol
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-source-fix-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The source-fix loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-to-source-attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query to source attribution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get_policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#propose_policy_change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        propose_policy_change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request_change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        request_change
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimize_query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        optimize_query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply_migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apply_migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ensure_fk_indexes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ensure_fk_indexes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#declare_table_contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        declare_table_contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#register_consumer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_consumer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set_maintenance_policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_maintenance_policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_guarantee_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_guarantee_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_ledger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_ledger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_incidents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_incidents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_investigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_evidence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_propose_action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_propose_action
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_request_execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_request_execution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_slos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_slos
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_slo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_slo
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_list_runbooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_list_runbooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_runbook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_runbook_runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_runbook_runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_similar_incidents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_similar_incidents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_draft_runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_draft_runbook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_compile_runbook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_compile_runbook
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_get_autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_downgrade_autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_downgrade_autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_review_investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_review_investigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre_evaluate_autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_evaluate_autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_facts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_facts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#propose_fact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        propose_fact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decide_fact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decide_fact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list_databases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_databases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#top_queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        top_queries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#explain_query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        explain_query
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whatif_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        whatif_index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lint_migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lint_migration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#query_sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        query_sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mark_object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mark_object
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_source_fix_packet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_source_fix_packet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#report_source_fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        report_source_fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="mcp-for-coding-agents">MCP for coding agents<a class="headerlink" href="#mcp-for-coding-agents" title="Permanent link">&para;</a></h1>
+<p>pg_sage speaks the <a href="https://modelcontextprotocol.io">Model Context Protocol</a> so a coding
+agent (Claude Code, Cursor, any MCP client) can ask your database's DBA what is wrong, why,
+and what to change in the application, then open the pull request itself. pg_sage hands the
+agent a <strong>source-fix packet</strong>, the agent opens the PR in the application repository, and after
+the deploy pg_sage measures whether the change did what it predicted.</p>
+<p>An agent never gets more authority than pg_sage already has. It can <strong>read</strong> and
+<strong>propose</strong>. Proposals go through the same policy gate as pg_sage's own initiative, and every
+<strong>approval</strong> (confirming a fact, a table contract or a slot consumer, reviewing an
+investigation, changing autonomy) stays with a person.</p>
+<h2 id="set-up-claude-code-in-one-line">Set up Claude Code in one line<a class="headerlink" href="#set-up-claude-code-in-one-line" title="Permanent link">&para;</a></h2>
+<p>MCP is on by default and served over HTTP at <code>/api/v1/mcp</code> on the API port, behind
+authentication: every MCP request needs an MCP token. A dashboard session cookie never
+authenticates MCP (a browser would send it cross-site); without a token the endpoint answers
+401 with <code>"code": "mcp_token_required"</code>. There is no anonymous MCP.</p>
+<ol>
+<li>
+<p>An admin creates a token for the agent once: <strong>MCP tokens</strong> in the dashboard (or
+   <code>POST /api/v1/mcp/tokens</code>, below). The token is shown once.</p>
+</li>
+<li>
+<p>Add pg_sage to Claude Code:</p>
+</li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>claude<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>--transport<span class="w"> </span>http<span class="w"> </span>pg_sage<span class="w"> </span>https://pg-sage.example.com:8080/api/v1/mcp<span class="w"> </span>--header<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$PG_SAGE_MCP_TOKEN</span><span class="s2">"</span>
+</code></pre></div>
+<p>Use <code>--scope project</code> to share the server entry with your team through <code>.mcp.json</code>
+   (keep the token in an environment variable, not in the file).</p>
+<p>Cursor (<code>.cursor/mcp.json</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">"pg_sage"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">      </span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://pg-sage.example.com:8080/api/v1/mcp"</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">      </span><span class="nt">"headers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"Authorization"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Bearer ${env:PG_SAGE_MCP_TOKEN}"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>To use stdio instead, set <code>mcp.transport: stdio</code>: the sidecar process itself then speaks
+MCP on stdin/stdout. Whatever launched it is treated as an agent: it can read and propose,
+never approve. <code>mcp.enabled: false</code> turns MCP off.</p>
+<h2 id="tokens">Tokens<a class="headerlink" href="#tokens" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td><code>agent</code> for a coding agent; <code>operator</code> for a person's own token (bound to an operator or admin user, <code>owner_user_id</code>)</td>
+</tr>
+<tr>
+<td><code>scopes</code></td>
+<td><code>read</code> (always), <code>propose</code>, and <code>approve</code> (operator tokens only; an agent token can never hold it)</td>
+</tr>
+<tr>
+<td><code>databases</code></td>
+<td>the fleet databases the token may name, or <code>["*"]</code> for all</td>
+</tr>
+<tr>
+<td><code>expires_in_days</code></td>
+<td>1 to 90</td>
+</tr>
+</tbody>
+</table>
+<p>Only the SHA-256 of a token is stored; the plaintext is returned once when it is created.
+An operator token follows its owner: if the owner is demoted to viewer it can only read, and
+it stops working when the owner is deleted. Every call is recorded with the actor
+<code>mcp:token:&lt;id&gt;</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># admin session cookie in $SAGE_COOKIE</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>https://pg-sage.example.com:8080/api/v1/mcp/tokens<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span>-b<span class="w"> </span><span class="s2">"sage_session=</span><span class="nv">$SAGE_COOKIE</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"name":"claude-code checkout repo","kind":"agent","scopes":["read","propose"],</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s1">       "databases":["orders"],"expires_in_days":30}'</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>curl<span class="w"> </span>-s<span class="w"> </span>https://pg-sage.example.com:8080/api/v1/mcp/tokens<span class="w"> </span>-b<span class="w"> </span><span class="s2">"sage_session=</span><span class="nv">$SAGE_COOKIE</span><span class="s2">"</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span>https://pg-sage.example.com:8080/api/v1/mcp/tokens/&lt;id&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>-b<span class="w"> </span><span class="s2">"sage_session=</span><span class="nv">$SAGE_COOKIE</span><span class="s2">"</span>
+</code></pre></div>
+<p>A bearer token authenticates the MCP endpoint only, never the rest of the API.</p>
+<h2 id="databases">Databases<a class="headerlink" href="#databases" title="Permanent link">&para;</a></h2>
+<p>Every tool takes a <code>database</code> argument (the fleet name; <code>list_databases</code> lists the ones the
+caller may use). With a single monitored database it is the default; in fleet mode it is
+required. A token restricted to some databases gets the same refusal for any other name,
+whether that database exists or not.</p>
+<h2 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h2>
+<p>A tool call the agent can correct comes back as a tool result with <code>isError: true</code>; its
+<code>structuredContent.error</code> has a <code>code</code> and a <code>reason</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Reason</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>-32001</td>
+<td><code>scope_required</code></td>
+<td>the caller lacks the scope (a viewer proposing, a read-only token)</td>
+</tr>
+<tr>
+<td>-32005</td>
+<td><code>approval_reserved_for_humans</code></td>
+<td>an agent asked for a person's decision</td>
+</tr>
+<tr>
+<td>-32003</td>
+<td><code>database_not_permitted</code></td>
+<td>the token may not use that database</td>
+</tr>
+<tr>
+<td>-32006</td>
+<td><code>database_required</code></td>
+<td>several databases are monitored and none was named</td>
+</tr>
+<tr>
+<td>-32007</td>
+<td><code>unknown_database</code></td>
+<td>no monitored database has that name</td>
+</tr>
+<tr>
+<td>-32602</td>
+<td><code>invalid_arguments</code></td>
+<td>the arguments do not match the tool's schema</td>
+</tr>
+<tr>
+<td>-32004</td>
+<td><code>not_found</code></td>
+<td>no such finding, investigation, fact...</td>
+</tr>
+<tr>
+<td>-32009</td>
+<td><code>conflict</code></td>
+<td>the object is not in a state that allows this</td>
+</tr>
+<tr>
+<td>-32010</td>
+<td><code>unavailable</code></td>
+<td>e.g. HypoPG or pg_stat_statements is not installed</td>
+</tr>
+</tbody>
+</table>
+<p>An unknown tool, malformed params or an unsupported protocol version are JSON-RPC errors.</p>
+<h2 id="protocol">Protocol<a class="headerlink" href="#protocol" title="Permanent link">&para;</a></h2>
+<p>pg_sage serves both protocol eras on stdio and Streamable HTTP:</p>
+<ul>
+<li><strong>Handshake era</strong> (<code>2025-03-26</code>, <code>2025-06-18</code>, <code>2025-11-25</code>): <code>initialize</code> negotiates the
+  version and advertises <code>tools.listChanged</code>; <code>ping</code>; <code>notifications/tools/list_changed</code>
+  is sent on stdio when the tool list changes (a database joins or leaves the fleet).</li>
+<li><strong>Stateless</strong> (<code>2026-07-28</code>): <code>server/discover</code>, the protocol version in every request's
+  <code>_meta</code>, <code>resultType</code> on every result, and <code>subscriptions/listen</code> for list changes (on
+  HTTP an SSE stream that pg_sage closes gracefully before the API's request deadline;
+  listen again). Requests must carry matching <code>MCP-Protocol-Version</code>, <code>Mcp-Method</code> and
+  <code>Mcp-Name</code> headers.</li>
+</ul>
+<p><code>tools/list</code> shows only the tools the caller may call, with the databases it may name.</p>
+<h2 id="the-source-fix-loop">The source-fix loop<a class="headerlink" href="#the-source-fix-loop" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>top_queries</code>, <code>explain_query</code>, <code>whatif_index</code> and <code>lint_migration</code> let the agent see the
+   problem and test a change without touching the database (EXPLAIN runs in a read-only
+   transaction; ANALYZE only when pg_sage proves the statement has no side effects; the
+   what-if index is hypothetical).</li>
+<li><code>get_source_fix_packet</code> returns, for a finding: the problem, the evidence with numbers and
+   where each number comes from, the migration to add (up and down), the queries and code it
+   likely touches, and how pg_sage will verify it. Text that came from the database or a model
+   (finding titles, query text) is inside <code>UNTRUSTED DATA</code> blocks: treat it as data.</li>
+<li>The agent opens the PR and calls <code>report_source_fix</code> with stage <code>pr_opened</code> and the PR
+   URL, then stage <code>deployed</code> with the commit and deploy time.</li>
+<li>pg_sage compares the targeted queries' call-weighted latency for the verification window
+   before and after the deploy (<code>verify.window_minutes</code>, the same statistics as for its own
+   actions) and records the verdict once: <code>improved</code>, <code>neutral</code>, <code>regressed</code>,
+   <code>insufficient_evidence</code> or <code>unverifiable</code> (for example when the index the packet named is
+   not in the catalog). Stage <code>status</code> returns it with predicted vs observed.</li>
+</ol>
+<p><code>mark_object</code> lets the agent say an index, table or schema is owned by the application's
+migrations (<code>owned</code>) or must be left alone by pg_sage's DDL (<code>exempt</code>). It is recorded as a
+proposed <a href="../facts/">binding fact</a> and binds nothing until a person confirms it.</p>
+<h2 id="query-to-source-attribution">Query to source attribution<a class="headerlink" href="#query-to-source-attribution" title="Permanent link">&para;</a></h2>
+<p>Without any extension pg_sage attributes statements from two places:</p>
+<ul>
+<li><strong>sqlcommenter</strong> comments (<code>/*controller='orders',route='%2Fcheckout'*/</code>) in the text
+  <code>pg_stat_statements</code> keeps for each statement (the text of its first execution);</li>
+<li><strong><code>pg_stat_activity</code> samples</strong>: <code>application_name</code> and the comment tags of the statements
+  running while <code>query_sources</code> samples (up to 5 seconds), matched by <code>query_id</code>
+  (PostgreSQL 14+, <code>compute_query_id</code> on).</li>
+</ul>
+<p><code>pg_stat_statements</code> does not record <code>application_name</code>, so a statement that never runs
+while sampled and carries no comment cannot be attributed. Add sqlcommenter to the
+application's database driver (most ORMs have a plugin) for reliable attribution.</p>
+<h2 id="tool-reference">Tool reference<a class="headerlink" href="#tool-reference" title="Permanent link">&para;</a></h2>
+<!-- BEGIN GENERATED MCP TOOL REFERENCE: regenerate with `go test ./internal/mcp -run TestToolReferenceDocsMatchSchemas -update-docs` -->
+
+<h3 id="get_policy"><code>get_policy</code><a class="headerlink" href="#get_policy" title="Permanent link">&para;</a></h3>
+<p>Read standing policy.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+</tbody>
+</table>
+<h3 id="propose_policy_change"><code>propose_policy_change</code><a class="headerlink" href="#propose_policy_change" title="Permanent link">&para;</a></h3>
+<p>Propose a policy delta (a dry-run proposal a person ratifies).</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>caller_claims</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>delta</code></td>
+<td>object</td>
+<td>yes</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="request_change"><code>request_change</code><a class="headerlink" href="#request_change" title="Permanent link">&para;</a></h3>
+<p>Request an intent-level database change; pg_sage's policy gate decides.</p>
+<p>Scope: <code>propose</code> (<code>approve</code> when the intent kind is <code>declare_table_contract</code> or <code>register_consumer</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>caller_claims</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>intent</code></td>
+<td>object</td>
+<td>yes</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="optimize_query"><code>optimize_query</code><a class="headerlink" href="#optimize_query" title="Permanent link">&para;</a></h3>
+<p>Optimize a query under standing policy.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>constraints</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>goal</code></td>
+<td>constant</td>
+<td>yes</td>
+<td>must be <code>latency</code></td>
+</tr>
+<tr>
+<td><code>query_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>query_text</code></td>
+<td>string</td>
+<td>no</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="apply_migration"><code>apply_migration</code><a class="headerlink" href="#apply_migration" title="Permanent link">&para;</a></h3>
+<p>Plan and rehearse an online migration (ADD UNIQUE / SET NOT NULL rewritten into expand steps). The policy gate is consulted before any clone rehearsal and again before each expand step; contract steps are never run.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cycle</code></td>
+<td>integer</td>
+<td>no</td>
+<td>deploy cycle of this migration; value &gt;= 0</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>sql</code></td>
+<td>string</td>
+<td>yes</td>
+<td>the migration statement; length 1-20000</td>
+</tr>
+<tr>
+<td><code>table</code></td>
+<td>string</td>
+<td>yes</td>
+<td>schema-qualified table the migration changes; pattern <code>^[A-Za-z_][A-Za-z0-9_$]{0,62}\.[A-Za-z_][A-Za-z0-9_$]{0,62}$</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="ensure_fk_indexes"><code>ensure_fk_indexes</code><a class="headerlink" href="#ensure_fk_indexes" title="Permanent link">&para;</a></h3>
+<p>Ensure foreign keys have supporting indexes.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>schema</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="declare_table_contract"><code>declare_table_contract</code><a class="headerlink" href="#declare_table_contract" title="Permanent link">&para;</a></h3>
+<p>Declare table intent constraints (a person's declaration, imported as a confirmed fact). retention needs both interval and column (the timestamptz, timestamp or date column whose age defines retention); pg_sage never infers the column.</p>
+<p>Scope: <code>approve</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>append_only</code></td>
+<td>boolean</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>exemptions</code></td>
+<td>array of string</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>expected_pk</code></td>
+<td>string</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>retention</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>table</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="register_consumer"><code>register_consumer</code><a class="headerlink" href="#register_consumer" title="Permanent link">&para;</a></h3>
+<p>Protect a replication slot consumer (a person's declaration, imported as a confirmed fact).</p>
+<p>Scope: <code>approve</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>owner</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>slot_name</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="set_maintenance_policy"><code>set_maintenance_policy</code><a class="headerlink" href="#set_maintenance_policy" title="Permanent link">&para;</a></h3>
+<p>Propose a maintenance policy patch.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>patch</code></td>
+<td>object</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>scope</code></td>
+<td>object</td>
+<td>yes</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="get_guarantee_status"><code>get_guarantee_status</code><a class="headerlink" href="#get_guarantee_status" title="Permanent link">&para;</a></h3>
+<p>Read machine-readable invariant status.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+</tbody>
+</table>
+<h3 id="get_value"><code>get_value</code><a class="headerlink" href="#get_value" title="Permanent link">&para;</a></h3>
+<p>Read verified DBA-hours saved.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+</tbody>
+</table>
+<h3 id="get_ledger"><code>get_ledger</code><a class="headerlink" href="#get_ledger" title="Permanent link">&para;</a></h3>
+<p>Read evidence ledger.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>database_id</code></td>
+<td>integer</td>
+<td>no</td>
+<td>legacy numeric database id; prefer database</td>
+</tr>
+<tr>
+<td><code>filter</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_list_incidents"><code>sre_list_incidents</code><a class="headerlink" href="#sre_list_incidents" title="Permanent link">&para;</a></h3>
+<p>List Sage SRE investigations of RCA incidents and plan regressions: family, state, case and conclusion.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>case_id</code></td>
+<td>string</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_get_investigation"><code>sre_get_investigation</code><a class="headerlink" href="#sre_get_investigation" title="Permanent link">&para;</a></h3>
+<p>Read one investigation: observed facts, likely explanation, alternatives, ruled-out hypotheses with evidence, missing evidence and operator steps.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_get_evidence"><code>sre_get_evidence</code><a class="headerlink" href="#sre_get_evidence" title="Permanent link">&para;</a></h3>
+<p>Read one typed, redacted evidence item of an investigation.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>evidence_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_propose_action"><code>sre_propose_action</code><a class="headerlink" href="#sre_propose_action" title="Permanent link">&para;</a></h3>
+<p>Propose the evidence-matched mitigation of a concluded investigation (cancel of the one root backend) with its repair contract and policy verdict, or why there is none. Never executes anything.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_request_execution"><code>sre_request_execution</code><a class="headerlink" href="#sre_request_execution" title="Permanent link">&para;</a></h3>
+<p>Queue exactly one approval item for a proposal in the existing approval flow. Never executes: a human approves, then pg_sage rechecks the target and runs it.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>proposal_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_list_slos"><code>sre_list_slos</code><a class="headerlink" href="#sre_list_slos" title="Permanent link">&para;</a></h3>
+<p>List SLO error-budget states: ok, ticket, page or unknown (with why), burn rates per window, budget left; app SLIs claim customer impact, database proxies never do.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_get_slo"><code>sre_get_slo</code><a class="headerlink" href="#sre_get_slo" title="Permanent link">&para;</a></h3>
+<p>Read one SLO's state and state history; with recovery_since, the SLI recovery verdict (never certified on missing data, counter resets or low traffic).</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>recovery_since</code></td>
+<td>string</td>
+<td>no</td>
+<td>format date-time</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_list_changes"><code>sre_list_changes</code><a class="headerlink" href="#sre_list_changes" title="Permanent link">&para;</a></h3>
+<p>List what changed around a database: signed deploys, migrations and feature flags, pg_sage's own actions, config changes, DDL, statistics resets, restarts, failovers and extension changes.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>window_minutes</code></td>
+<td>integer</td>
+<td>no</td>
+<td>value 1-10080</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_list_runbooks"><code>sre_list_runbooks</code><a class="headerlink" href="#sre_list_runbooks" title="Permanent link">&para;</a></h3>
+<p>List a database's typed runbooks: status (draft, signed, retired, invalid), whether each runs, latest version.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_get_runbook"><code>sre_get_runbook</code><a class="headerlink" href="#sre_get_runbook" title="Permanent link">&para;</a></h3>
+<p>Read one runbook: every version's DAG, content hash, signer and imported playbook text.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>runbook_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_runbook_runs"><code>sre_runbook_runs</code><a class="headerlink" href="#sre_runbook_runs" title="Permanent link">&para;</a></h3>
+<p>List the investigations a runbook ran in, with the version, path and proposal of each run.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>runbook_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_similar_incidents"><code>sre_similar_incidents</code><a class="headerlink" href="#sre_similar_incidents" title="Permanent link">&para;</a></h3>
+<p>List similar past incidents of an investigation and their operator-verified outcomes (context, not evidence).</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_draft_runbook"><code>sre_draft_runbook</code><a class="headerlink" href="#sre_draft_runbook" title="Permanent link">&para;</a></h3>
+<p>Create a runbook draft from a typed definition, or add a draft version (runbook_id and base_version). Drafts never run until an admin signs them in pg_sage.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>base_version</code></td>
+<td>integer</td>
+<td>no</td>
+<td>value &gt;= 1</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>definition</code></td>
+<td>object</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>runbook_id</code></td>
+<td>string</td>
+<td>no</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_compile_runbook"><code>sre_compile_runbook</code><a class="headerlink" href="#sre_compile_runbook" title="Permanent link">&para;</a></h3>
+<p>Compile an English playbook into a runbook draft with pg_sage's model; it never runs until an admin signs it.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length &lt;= 16000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_get_autonomy"><code>sre_get_autonomy</code><a class="headerlink" href="#sre_get_autonomy" title="Permanent link">&para;</a></h3>
+<p>Read pg_sage's earned autonomy: the level per incident family and action class (L0-L3), its cap, the level its evidence supports, active downgrades, pending promotions and history.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_downgrade_autonomy"><code>sre_downgrade_autonomy</code><a class="headerlink" href="#sre_downgrade_autonomy" title="Permanent link">&para;</a></h3>
+<p>Lower pg_sage's autonomy for a family and action class ("*" for every class of the family). Restricting is always allowed; raising autonomy needs a human approval in pg_sage.</p>
+<p>Scope: <code>approve</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>action_class</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>family</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>level</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>L0</code>, <code>L1</code>, <code>L2</code></td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length &lt;= 1000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_review_investigation"><code>sre_review_investigation</code><a class="headerlink" href="#sre_review_investigation" title="Permanent link">&para;</a></h3>
+<p>Review a concluded or inconclusive Sage SRE investigation: accept or reject its diagnosis, optionally with a note and the actual root cause (a causal-graph node id or free text). Records the review and the investigation outcome. A review made here is kept but never counts toward promotion: only a person's review in the UI or REST API does. It never approves a promotion.</p>
+<p>Scope: <code>approve</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>actual_root_cause</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 400</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td><code>note</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 1500</td>
+</tr>
+<tr>
+<td><code>verdict</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>accepted</code>, <code>rejected</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_evaluate_autonomy"><code>sre_evaluate_autonomy</code><a class="headerlink" href="#sre_evaluate_autonomy" title="Permanent link">&para;</a></h3>
+<p>Ask pg_sage to propose the promotions its evidence supports now; returns the proposals created and, for every other family and action class, why not (each unmet check with how to meet it). An admin still approves every promotion.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="list_facts"><code>list_facts</code><a class="headerlink" href="#list_facts" title="Permanent link">&para;</a></h3>
+<p>List pg_sage's typed facts about a database (who owns an object, test fixtures, CDC slots, archives, table windows): proposed ones awaiting a person and confirmed ones, which bind pg_sage.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>string</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td>string</td>
+<td>no</td>
+<td>one of <code>owned_by_app_migrations</code>, <code>test_fixture</code>, <code>slot_consumer</code>, <code>append_only</code>, <code>table_window</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="propose_fact"><code>propose_fact</code><a class="headerlink" href="#propose_fact" title="Permanent link">&para;</a></h3>
+<p>Propose a fact about the database with the evidence for it. It binds nothing until a person confirms it. A confirmed fact only narrows what pg_sage does (e.g. an index owned by the app's migrations is changed through a PR, never by pg_sage's DDL).</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>evidence</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length &lt;= 500</td>
+</tr>
+<tr>
+<td><code>subject</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length &lt;= 300</td>
+</tr>
+<tr>
+<td><code>subject_kind</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>index</code>, <code>table</code>, <code>schema</code>, <code>slot</code></td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>owned_by_app_migrations</code>, <code>test_fixture</code>, <code>slot_consumer</code>, <code>append_only</code>, <code>table_window</code></td>
+</tr>
+<tr>
+<td><code>value</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="decide_fact"><code>decide_fact</code><a class="headerlink" href="#decide_fact" title="Permanent link">&para;</a></h3>
+<p>Confirm or reject a proposed fact (or reject a confirmed one). Confirmed facts only narrow or redirect what pg_sage does.</p>
+<p>Scope: <code>approve</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>decision</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>confirm</code>, <code>reject</code></td>
+</tr>
+<tr>
+<td><code>fact_id</code></td>
+<td>integer</td>
+<td>yes</td>
+<td>value &gt;= 1</td>
+</tr>
+<tr>
+<td><code>note</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 1000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="list_databases"><code>list_databases</code><a class="headerlink" href="#list_databases" title="Permanent link">&para;</a></h3>
+<p>List the monitored databases this principal may name in the database argument of every other tool.</p>
+<p>Scope: <code>read</code></p>
+<p>No arguments.</p>
+<h3 id="top_queries"><code>top_queries</code><a class="headerlink" href="#top_queries" title="Permanent link">&para;</a></h3>
+<p>The database's top statements from pg_stat_statements (pg_sage's own and diagnostic statements excluded) with calls, time, rows, the latest captured plan and sqlcommenter tags.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>include_plans</code></td>
+<td>boolean</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>limit</code></td>
+<td>integer</td>
+<td>no</td>
+<td>value 1-50</td>
+</tr>
+<tr>
+<td><code>order_by</code></td>
+<td>string</td>
+<td>no</td>
+<td>one of <code>total_time</code>, <code>mean_time</code>, <code>calls</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="explain_query"><code>explain_query</code><a class="headerlink" href="#explain_query" title="Permanent link">&para;</a></h3>
+<p>Safe EXPLAIN of one read statement (text or a pg_stat_statements queryid) in a read-only transaction with a statement timeout. analyze runs EXPLAIN ANALYZE only when pg_sage proves the statement has no side effects; writes are never analyzed.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>analyze</code></td>
+<td>boolean</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>params</code></td>
+<td>array of string</td>
+<td>no</td>
+<td>at most 100 items</td>
+</tr>
+<tr>
+<td><code>query</code></td>
+<td>string</td>
+<td>no</td>
+<td>length 1-20000</td>
+</tr>
+<tr>
+<td><code>query_id</code></td>
+<td>integer or string</td>
+<td>no</td>
+<td>pg_stat_statements queryid (send large ids as a decimal string); pattern <code>^-?[0-9]{1,20}$</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="whatif_index"><code>whatif_index</code><a class="headerlink" href="#whatif_index" title="Permanent link">&para;</a></h3>
+<p>HypoPG what-if for a proposed index: planner cost of the workload queries with and without a hypothetical index (nothing is built). Reports when HypoPG is not installed.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>ddl</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one CREATE INDEX statement; length 1-2000</td>
+</tr>
+<tr>
+<td><code>query_ids</code></td>
+<td>array of integer or string</td>
+<td>no</td>
+<td>the workload queries to measure (from top_queries); at most 20 items</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lint_migration"><code>lint_migration</code><a class="headerlink" href="#lint_migration" title="Permanent link">&para;</a></h3>
+<p>Lint migration SQL with pg_sage's DDL classifier and live table statistics: lock level, table rewrite, estimated lock time, risk score and the safe alternative per statement.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>pg_version</code></td>
+<td>integer</td>
+<td>no</td>
+<td>value &gt;= 0</td>
+</tr>
+<tr>
+<td><code>sql</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length 1-100000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="query_sources"><code>query_sources</code><a class="headerlink" href="#query_sources" title="Permanent link">&para;</a></h3>
+<p>Attribute statements to application code: sqlcommenter tags in pg_stat_statements text and application_name and tags sampled from pg_stat_activity (no extension needed).</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>query_id</code></td>
+<td>integer or string</td>
+<td>no</td>
+<td>pg_stat_statements queryid (send large ids as a decimal string); pattern <code>^-?[0-9]{1,20}$</code></td>
+</tr>
+<tr>
+<td><code>sample_seconds</code></td>
+<td>integer</td>
+<td>no</td>
+<td>value 0-5</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mark_object"><code>mark_object</code><a class="headerlink" href="#mark_object" title="Permanent link">&para;</a></h3>
+<p>Propose that an index, table or schema is owned by the application's migrations (owned) or must be left alone by pg_sage's DDL (exempt). It is recorded as a proposed binding fact and binds nothing until a person confirms it.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>evidence</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length 1-500</td>
+</tr>
+<tr>
+<td><code>mark</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>owned</code>, <code>exempt</code></td>
+</tr>
+<tr>
+<td><code>path</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 300</td>
+</tr>
+<tr>
+<td><code>repo</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 300</td>
+</tr>
+<tr>
+<td><code>subject</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length 1-300</td>
+</tr>
+<tr>
+<td><code>subject_kind</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>index</code>, <code>table</code>, <code>schema</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="get_source_fix_packet"><code>get_source_fix_packet</code><a class="headerlink" href="#get_source_fix_packet" title="Permanent link">&para;</a></h3>
+<p>A cited source-fix packet for a finding: the problem, evidence with numbers, the migration to add to the application (up and down), the queries and code it likely touches, and how pg_sage verifies it after the deploy. Text from the database is fenced as data.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>finding_id</code></td>
+<td>integer</td>
+<td>yes</td>
+<td>value &gt;= 1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="report_source_fix"><code>report_source_fix</code><a class="headerlink" href="#report_source_fix" title="Permanent link">&para;</a></h3>
+<p>Report the pull request (stage pr_opened) and the deploy (stage deployed) of a source fix; stage status returns pg_sage's verdict, predicted vs observed, once the verification window after the deploy has passed.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>commit</code></td>
+<td>string</td>
+<td>no</td>
+<td>pattern <code>^[0-9a-f]{7,64}$</code></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>deployed_at</code></td>
+<td>string</td>
+<td>no</td>
+<td>format date-time</td>
+</tr>
+<tr>
+<td><code>finding_id</code></td>
+<td>integer</td>
+<td>yes</td>
+<td>value &gt;= 1</td>
+</tr>
+<tr>
+<td><code>packet_hash</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 128</td>
+</tr>
+<tr>
+<td><code>pr_url</code></td>
+<td>string</td>
+<td>no</td>
+<td>format uri; length &lt;= 500</td>
+</tr>
+<tr>
+<td><code>stage</code></td>
+<td>string</td>
+<td>yes</td>
+<td>one of <code>pr_opened</code>, <code>deployed</code>, <code>status</code></td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED MCP TOOL REFERENCE -->
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
