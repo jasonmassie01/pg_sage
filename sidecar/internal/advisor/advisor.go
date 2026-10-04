@@ -30,6 +30,9 @@ type Advisor struct {
 	// no RAM figure; without it shared_buffers changes stay advisory.
 	hostMemoryBytes int64
 
+	// facts renders the confirmed facts for prompts (roadmap 2.3); nil: none.
+	facts FactSource
+
 	mu        sync.Mutex
 	lastRunAt time.Time
 	findings  []analyzer.Finding
@@ -88,6 +91,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	}
 
 	a.logFn("INFO", "advisor: starting configuration review")
+	ctx = a.factsContext(ctx)
 
 	snap := a.coll.LatestSnapshot()
 	prev := a.coll.PreviousSnapshot()

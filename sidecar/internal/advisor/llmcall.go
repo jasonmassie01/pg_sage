@@ -33,6 +33,10 @@ func chatAdvisor(
 	}
 	sys += "\n\n" + llm.UntrustedDataRule
 	user := llm.UntrustedData(label, truncateAdvisorPrompt(data))
+	if facts := promptFactsFrom(ctx); facts != "" {
+		user += "\n\nOperator-confirmed facts about this database (binding: respect " +
+			"them):\n" + llm.UntrustedData("confirmed_facts", facts)
+	}
 	resp, _, err := mgr.ChatForPurpose(ctx, "advisor", sys, user, advisorMaxTokens)
 	if err != nil {
 		return "", fmt.Errorf("%s LLM: %w", label, err)

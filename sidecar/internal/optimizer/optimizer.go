@@ -38,6 +38,7 @@ type Optimizer struct {
 	whatIf         whatIfValidator // defaults to hypopg; tests inject fakes
 	breaker        *CircuitBreaker
 	memory         *rejectionMemory // nil: rejection memory off or no database
+	facts          FactSource       // nil: no confirmed facts in prompts
 	maxOutput      int
 	logFn          func(string, string, ...any)
 	// catalogTimeouts bound the context builder's catalog reads.
@@ -182,6 +183,7 @@ func (o *Optimizer) analyzeTable(
 	mem *tableMemory,
 ) ([]Recommendation, int, int, error) {
 	tc.MeasuredRejections = mem.promptLines()
+	tc.ConfirmedFacts = o.confirmedFacts(ctx, tc)
 	response, tokens, err := o.chat(ctx, SystemPrompt(), FormatPrompt(tc))
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("llm chat: %w", err)

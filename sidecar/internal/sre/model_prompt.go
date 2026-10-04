@@ -121,6 +121,7 @@ func (s reviewScope) userPrompt(inv Investigation) string {
 		b.WriteString(llm.UntrustedData("past_incidents", s.memory))
 		b.WriteString("\n")
 	}
+	writeConfirmedFacts(&b, s.facts)
 	if s.allowProbe {
 		b.WriteString(probeMenu())
 	} else {

@@ -168,6 +168,8 @@ type reviewScope struct {
 	open       []string
 	// memory is the fenced past-incident context; never citable.
 	memory string
+	// facts are the operator-confirmed facts of the database (roadmap 2.3).
+	facts string
 }
 
 // newReviewScope binds a diagnosis and the stored evidence (aliases in

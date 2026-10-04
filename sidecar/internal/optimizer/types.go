@@ -76,6 +76,9 @@ type TableContext struct {
 	// MeasuredRejections are prompt lines for shapes HypoPG already
 	// measured and rejected on this workload (rejection memory).
 	MeasuredRejections []string
+	// ConfirmedFacts are the operator-confirmed facts about the table
+	// (roadmap 2.3), as bounded prompt lines.
+	ConfirmedFacts []string
 }
 
 // ColumnInfo describes a table column.

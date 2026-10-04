@@ -97,6 +97,7 @@ func (c *Coordinator) consultModel(ctx context.Context, lease Lease, inv Investi
 func (s *modelSession) ask(ctx context.Context, scope reviewScope) (modelReview,
 	*ModelRejection, error) {
 	scope.memory = s.memory
+	scope.facts = s.c.promptFacts(ctx)
 	r, rej, err := s.attempt(ctx, scope, "")
 	if err != nil || rej == nil || !repairable[rej.Reason] || s.turnsLeft() == 0 {
 		return r, rej, err

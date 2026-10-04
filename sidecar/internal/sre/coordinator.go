@@ -176,6 +176,7 @@ type Coordinator struct {
 	notices    *OnceLog
 	signals    []probes.ID
 	advisor    ActionAdvisor
+	facts      FactSource
 
 	mu    sync.Mutex
 	scope Scope
