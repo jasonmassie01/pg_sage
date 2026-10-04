@@ -236,3 +236,16 @@ func TestRootAuthority_ReportFromTheFutureIsNotFresh(t *testing.T) {
 		t.Fatalf("a report generated after now must not grant: %+v", got)
 	}
 }
+
+// The held-out record decides even when a tuning record of the same
+// family comes first in the report.
+func TestRootAuthority_ReadsTheHeldOutRecordNotTheTuningOne(t *testing.T) {
+	raw := liftReport(benchNow.Add(-time.Hour), "live", false,
+		liftRec("lock_blocking", modellift.SplitTuning, 5, 5, [2]int{30, 40}, [2]int{36, 40}),
+		good("lock_blocking", 40, 40))
+	got := authority(t, raw, FamilyLockBlocking, benchNow)
+	if !got.Granted || got.Lift == nil || got.Lift.Split != modellift.SplitHeldOut ||
+		got.Lift.Overrides != (Metric{40, 40}) {
+		t.Fatalf("authority = %+v", got)
+	}
+}
