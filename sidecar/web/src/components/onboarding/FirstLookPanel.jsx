@@ -10,7 +10,7 @@ const severityColor = {
   info: 'var(--text-secondary)',
 }
 
-export function firstLookURL(database) {
+function firstLookURL(database) {
   if (!database || database === 'all') return '/api/v1/first-look'
   return `/api/v1/first-look?database=${encodeURIComponent(database)}`
 }
