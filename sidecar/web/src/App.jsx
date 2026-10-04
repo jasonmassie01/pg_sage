@@ -19,6 +19,7 @@ import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyPage } from './pages/AutonomyPage'
 import { TrustPage } from './pages/TrustPage'
 import { FactsPage } from './pages/FactsPage'
+import { AskPage } from './pages/AskPage'
 import { MCPTokensPage } from './pages/MCPTokensPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
@@ -182,6 +183,9 @@ export default function App() {
       case '/facts':
         return { title: 'Facts',
           node: <FactsPage database={effectiveDB} user={user} /> }
+      case '/ask':
+        return { title: 'Ask Sage',
+          node: <AskPage database={effectiveDB} user={user} /> }
       case '/advanced/autonomy':
         return { title: 'Earned autonomy',
           node: <AutonomyPage database={effectiveDB} user={user} /> }
