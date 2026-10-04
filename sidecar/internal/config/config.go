@@ -94,6 +94,7 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -726,6 +727,9 @@ func (c *Config) validate() error {
 	if err := c.Retention.validateStorage(); err != nil {
 		return err
 	}
+	if err := c.SelfConfig.validate(); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
@@ -1038,6 +1042,7 @@ func newDefaults() *Config {
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
+		SelfConfig: defaultSelfConfigConfig(),
 	}
 }
 
