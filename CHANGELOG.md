@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### What's new
+
+- **A useful first look within a minute, read-only until you grant more.** pg_sage now
+  reads the catalog the moment it connects and shows a first look on the landing page in
+  about a second: invalid, duplicate, redundant and never-scanned indexes, unindexed
+  foreign keys, transaction ID and sequence runway, dead-tuple bloat estimates, leftover
+  test schemas (proposed as facts, never touched) and the exact steps to enable
+  pg_stat_statements, HypoPG and auto_explain on your provider. Each finding cites its
+  catalog evidence; it needs no query history, no superuser and no LLM. The collector
+  takes its first snapshot at startup and the analyzer runs on it right away, instead of
+  after 1 and 10 minutes. A first-run checklist (connected, extensions, first look, MCP
+  token, notifications, grant more) shows live status, and a "Grant more" guide explains
+  what each trust level allows and which grants it needs before it sets `trust.level`.
+  New installs only observe; upgraded installs keep their configured trust. A database
+  without pg_stat_statements now starts degraded instead of refusing to start. Time to
+  first finding is exported as `pg_sage_time_to_first_finding_seconds`. See
+  docs/quickstart.md.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new
