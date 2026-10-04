@@ -117,7 +117,8 @@ func TestTuningCalibration_ServesTheLastCycleBudget(t *testing.T) {
 		t.Fatalf("no agent, no budget: %d %v", code, body["budget"])
 	}
 	tp := statsOnlyTuning{stats: analyzer.TuningStats{TokensUsed: 41000, TokenLimit: 60000,
-		RequestsUsed: 12, RequestLimit: 12, CasesAsked: 2, CasesDeferred: 5}}
+		RequestsUsed: 12, RequestLimit: 12, CasesAsked: 2, CasesDeferred: 5,
+		DayTokensUsed: 480000, DayTokenLimit: 500000}}
 	mgr.GetInstance("testdb").Analyzer = analyzer.New(nil, mgr.Config(), nil, tp, nil, nil,
 		nil, func(string, string, ...any) {})
 	code, body = calibrationGetWith(t, mgr, "?database=testdb")
@@ -125,7 +126,8 @@ func TestTuningCalibration_ServesTheLastCycleBudget(t *testing.T) {
 	if code != http.StatusOK || b["tokens_used"] != float64(41000) ||
 		b["token_limit"] != float64(60000) || b["requests_used"] != float64(12) ||
 		b["request_limit"] != float64(12) || b["cases_asked"] != float64(2) ||
-		b["cases_deferred"] != float64(5) {
+		b["cases_deferred"] != float64(5) || b["day_tokens_used"] != float64(480000) ||
+		b["day_token_limit"] != float64(500000) {
 		t.Fatalf("budget = %v (%d)", body["budget"], code)
 	}
 }

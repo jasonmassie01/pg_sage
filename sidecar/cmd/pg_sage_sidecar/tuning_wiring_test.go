@@ -63,3 +63,23 @@ func TestTuningSettingsFollowTheSwitches(t *testing.T) {
 		})
 	}
 }
+
+// The agent's durable daily cap is the daily token budget of the client it
+// uses: the optimizer LLM's when that is enabled and set, else the general
+// one.
+func TestTuningSettingsDailyTokenLimit(t *testing.T) {
+	c := config.DefaultConfig()
+	c.LLM.TokenBudgetDaily = 300000
+	c.LLM.OptimizerLLM.Enabled, c.LLM.OptimizerLLM.TokenBudgetDaily = false, 90000
+	if got := tuningSettings(c, "", "", 0).DailyTokenLimit; got != 300000 {
+		t.Fatalf("general client: %d", got)
+	}
+	c.LLM.OptimizerLLM.Enabled = true
+	if got := tuningSettings(c, "", "", 0).DailyTokenLimit; got != 90000 {
+		t.Fatalf("optimizer client: %d", got)
+	}
+	c.LLM.OptimizerLLM.TokenBudgetDaily = 0
+	if got := tuningSettings(c, "", "", 0).DailyTokenLimit; got != 300000 {
+		t.Fatalf("optimizer client without its own cap uses the general one: %d", got)
+	}
+}

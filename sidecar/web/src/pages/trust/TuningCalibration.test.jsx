@@ -60,13 +60,15 @@ describe('TuningCalibration', () => {
   it('shows the budget use of the last cycle and the deferred cases', async () => {
     mockFetch({ database: 'orders', min_outcomes: 5, window_days: 180, classes: [],
       budget: { tokens_used: 41000, token_limit: 60000, requests_used: 12,
-        request_limit: 12, cases_asked: 2, cases_deferred: 5 } })
+        request_limit: 12, cases_asked: 2, cases_deferred: 5,
+        day_tokens_used: 480000, day_token_limit: 500000 } })
     render(<TuningCalibration database="orders" />)
     const budget = await screen.findByTestId('tuning-budget')
     expect(budget).toHaveTextContent('41000 of 60000 tokens')
     expect(budget).toHaveTextContent('12 of 12 requests')
     expect(budget).toHaveTextContent('2 cases examined')
     expect(budget).toHaveTextContent('5 deferred to later cycles')
+    expect(budget).toHaveTextContent('Today (UTC): 480000 of 500000 tokens')
   })
 
   it('shows no budget line without a tuning agent', async () => {
