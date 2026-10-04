@@ -215,8 +215,14 @@ and the self-initiated classes, grouped by their goal:
 The levels are the earned-autonomy levels: L1 writes the script (the default), L2 hands the
 action to one-click approval, L3 runs it unattended (SAFE classes at any time, MODERATE ones
 inside the maintenance window, one object at a time). Irreversible classes (`retention`)
-never exceed L1. `trust.level`, `execution_mode`, the `tier3_*` flags and the standing policy
-stay the ceiling: `advisory` never runs a MODERATE class unattended whatever its level.
+never exceed L1.
+
+**The ledger grants, the operator caps.** `trust.level` and the `tier3_safe` /
+`tier3_moderate` flags are the operator's ceiling and kill switch, and stay so permanently:
+the ledger never grants past them, and lowering them takes autonomy back at once (without
+touching the earned levels, which return when the cap is raised). `execution_mode` and the
+standing policy cap the same way: `advisory` never runs a MODERATE class unattended whatever
+its level, and `tier3_moderate: false` keeps every MODERATE class at approval.
 
 **Evidence.** The verification verdicts of sage.action_outcome are the evidence:
 `insufficient_evidence` and `unverifiable` count neither way. A `regressed` verdict, an
@@ -248,7 +254,10 @@ deletes are never withheld by the ledger.
 
 The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
 with its level, effective level, evidence counts, last change and why, and the path to the
-next level. MCP `sre_get_autonomy` carries the same grid as `trust`.
+next level. MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
+fixed number of set-based statements per database, however many classes and outcomes it
+shows. Every approval card carries its action class's row as `trust` (level, evidence
+counts, path to the next level) and one `Trust:` line in Slack and Telegram.
 
 ### Shadow mode
 

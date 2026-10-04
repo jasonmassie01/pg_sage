@@ -1,6 +1,7 @@
 package earned
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"sync"
@@ -65,4 +66,25 @@ func (r *Registry) Databases() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// TrustView is a bound database's Trust view with its effective levels;
+// false when the database has no ledger (or there is no registry).
+func (r *Registry) TrustView(ctx context.Context, database string) (TrustView, bool,
+	error) {
+	if r == nil {
+		return TrustView{}, false, nil
+	}
+	e, ok := r.Lookup(database)
+	if !ok {
+		return TrustView{}, false, nil
+	}
+	v, err := e.Service.TrustView(ctx)
+	if err != nil {
+		return TrustView{}, true, err
+	}
+	if e.Limiter != nil {
+		e.Limiter.AnnotateTrust(ctx, &v)
+	}
+	return v, true, nil
 }

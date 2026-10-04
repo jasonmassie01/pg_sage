@@ -152,7 +152,11 @@ func TestTrustStartupExplainsTheNewMeaning(t *testing.T) {
 	cfg.Trust.RampSafeHours, cfg.Trust.RampModerateHours = 6, 12
 	logTrustMeaning(cfg, info.log, warn.log)
 	all := strings.Join(info.lines, "\n")
+	// trust.level and the tier3 flags stay, permanently, the operator's
+	// ceiling and kill switch: the ledger grants, the operator caps.
 	for _, want := range []string{"trust.level=autonomous", "ceiling",
+		"the ledger grants, the operator caps", "kill switch", "trust.tier3_safe=",
+		"trust.tier3_moderate=", "permanent",
 		"trust.ramp_safe_hours=6", "trust.ramp_moderate_hours=12", "floor",
 		"grandfathered", "/api/v1/trust"} {
 		if !strings.Contains(all, want) {
@@ -229,5 +233,14 @@ func TestAutonomyMCPGetCarriesTheTrustGrid(t *testing.T) {
 		if r.Effective == nil {
 			t.Fatalf("row %s/%s not annotated", r.Family, r.Class)
 		}
+	}
+}
+
+// Every approval card loader reads the process's trust ledgers, so a card
+// shows its class's trust wherever it is built.
+func TestApprovalCardLoaderReadsTheTrustLedgers(t *testing.T) {
+	l := approvalCardLoader(nil, "orders", "advisory")
+	if l.Trust == nil || l.Database != "orders" || l.TrustLevel != "advisory" {
+		t.Fatalf("loader = %+v", l)
 	}
 }

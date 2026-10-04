@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -43,6 +44,9 @@ type Card struct {
 	ExpiresAt      time.Time          `json:"expires_at"`
 	SnoozedUntil   *time.Time         `json:"snoozed_until,omitempty"`
 	SnoozeReason   string             `json:"snooze_reason,omitempty"`
+	// Trust is the action class's trust on the database (roadmap 1.2);
+	// nil without a trust ledger.
+	Trust *Trust `json:"trust,omitempty"`
 	// CardHash binds a decision to exactly this content (ContentHash).
 	CardHash string `json:"card_hash"`
 	// ShadowHistory is the action class's shadow record (roadmap 1.4);
@@ -146,7 +150,11 @@ type Inputs struct {
 	Snooze     *SnoozeRow
 	Contract   *executor.ActionContract
 	TrustLevel string
-	Now        time.Time
+	// Trust is the ledger row of the action's class (nil: no ledger, or
+	// a class the ledger does not judge); TrustErr an unreadable ledger.
+	Trust    *earned.TrustRow
+	TrustErr error
+	Now      time.Time
 }
 
 // FindingRow is the finding of a queued action.

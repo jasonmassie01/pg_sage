@@ -251,15 +251,80 @@ M12 and M20 first failed to compile (rewritten); M22 first survived as an equiva
   also has a real-Postgres test (`*_db_test.go`), and the executor's ledger path runs through
   the real `earned.Service` (`trust_ledger_db_test.go`).
 
+## Coordinator answers and follow-ups (2026-10-03)
+
+Product calls 1-12 confirmed as made. Open questions answered:
+
+- `trust.level` / `tier3_*` stay **permanently** as the operator's ceiling and kill switch:
+  the ledger grants, the operator caps. The startup `TRUST:` lines, the `/api/v1/trust`
+  `meaning`, the config doc strings and `docs/configuration.md` say exactly that.
+- Demotion notification retry: left as is (the demotion persists; the Trust page shows it).
+- `statistics` / `reindex` verification: queued separately, not in this PR.
+
+**Follow-up 1: the Trust view costs a constant number of statements.** Every evidence read is
+one set-based statement over a scope (one pair, or the whole database), in
+`earned/store_evidence_set.go` and `store_evidence_records.go`. The bench reports are one
+`LATERAL` over the families. The view reads, once each: levels, pending proposals, last
+changes, grandfathering, bench reports, game days, shadow reviews, live records, family
+safety and class records. The annotation reads the error budget and the HA role once, plus
+every family's safety record in one statement. A pair's `Evidence` runs the same statements
+filtered to that pair, so the per-pair and grid paths cannot disagree. The old per-pair
+implementations are removed. Before: about 200 statements per database (7 per incident pair,
+plus budget, HA and safety for each family). After: a fixed number (bounded at 12 by the
+test), however many pairs or outcomes there are. Guards:
+
+- `TestTrustViewReadsAConstantNumberOfStatements` uses a traced pool and checks the count
+  against the bound, with empty and with populated data.
+- `TestTrustViewAgreesWithPerPairReads` holds the view against the per-pair reads.
+- `/api/v1/trust` joins the small perf gate's timed endpoints.
+
+**Follow-up 2: class trust on approval cards.** `Card.trust` gives family, class, level,
+effective level, cap, provenance, evidence counts, next level and the path to it (unmet
+checks with their ETA). The trust also appears as one `Trust:` line in Slack and Telegram,
+and as one line with a Trust page link in the UI. The loader reads the database's annotated
+view once per request (one card, or the whole pending list) through `earned.Registry`; the
+API and the executor/snooze notifiers are wired to it. An unreadable ledger shows as
+"unavailable"; a database without a ledger shows nothing. The trust is not part of the card's
+content hash. The action-to-pair mapping is `earned.PairForQueued`, the same mapping the
+reconciler uses to attribute rejections.
+
+### Follow-up test results
+
+**Command:** `go test -v -count=1 -cover -p 2 ./internal/earned/... ./internal/approvalcard/
+./internal/api/ ./internal/config/ ./internal/store/ ./internal/mcp/ ./internal/executor/
+./internal/policy/ ./cmd/pg_sage_sidecar/` (Docker golang:1.25, PG17 :55476)
+**Total:** 4251 passed, 0 failed, 0 skipped
+**Coverage:** earned 89.7%, approvalcard 89.6%, api 79.1%, config 91.1%, store 76.1%,
+mcp 79.5%, executor 87.0%, policy 89.3%, cmd/pg_sage_sidecar 81.5%. All touched packages are
+above their thresholds.
+
+- Skipped tests: none in the touched packages. e2e: 13 skipped, all LLM-gated.
+- Failures: none on the final code. The first run (before the LATERAL rewrite) failed three
+  tests:
+  - `TestApprovalCardCarriesTheClassTrust`: a test logic error. It read `cards[0]`, but the
+    shared database holds other tests' pending items. Fixed in `a1280ce8`.
+  - Two timing tests under load: policy `TestLeaseQueueDisjointTargetsDoNotWait` and cmd
+    `TestComposedSRE_M6_DetectorOpensAnLWLockInvestigation`. Neither package was changed by
+    the follow-ups, and both passed in the final run.
+- **Small perf gate:** the first run FAILED with 2 offenders: sequential scans of
+  `sage.sre_autonomy_outcomes` and `sage.sre_autonomy_events` by the grouped Trust view reads,
+  with `/api/v1/trust` at 175 ms. After the per-pair LATERAL rewrite (`065ffd4a`) the gate
+  PASSES with 0 offenders and `/api/v1/trust` at 51 ms.
+- e2e: ok (183 s, 78 passed, 13 LLM-gated skips).
+- PG14 and PG18 (earned, approvalcard, api): ok.
+- golangci-lint: 0 issues. Web: vitest 58 files / 318 tests passed, eslint clean, dist
+  rebuilt.
+- **Mutation check of the new rules: 5/5 killed.**
+  - N1: the annotation reads each family's signals per family.
+  - N2: the view reads each pair's evidence one by one.
+  - N3: the pending card list reads trust per card.
+  - N4: an unreadable ledger is not shown.
+  - N5: a pair takes another class's live record. This one first survived, because the
+    agreement test compared two paths that share code; the test now also checks each pair
+    against the store's own single-pair reads.
+- Statements: an annotated Trust view takes 11 statements however many pairs and outcomes
+  there are; the test bounds it at 12.
+
 ## Open questions
 
-- Should `trust.level` / `tier3_*` eventually go away (the ledger is the only grant), or stay
-  as the ceiling?
-- `GET /api/v1/trust` reads evidence per pair (about 200 small queries per database, like the
-  SRE view); a fleet with many databases polling every 30 s may want a cached view.
-- Should a demotion notification failure be retried (today: logged and returned once, the
-  demotion itself always persists)?
-- `statistics` and `reindex` have no Phase 1.3 verification, so they can only be
-  grandfathered, never earned. Add verification or leave them script-only?
-- Approval cards for an L2 handoff say "Policy gate: autonomy handoff"; should the card show
-  the class's trust level and the path to L3?
+- None outstanding from this PR (see the answers above).

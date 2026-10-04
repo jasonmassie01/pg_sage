@@ -8,89 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// classRecordSQL counts a pair's outcomes on the database, and its
-// credited and uncredited decided outcomes since its last demerit. Rows
-// recorded before outcomes kept their verdict count by result. Shadow
-// evidence (roadmap 1.4) is counted apart: by score, and since the last
-// demerit by distinct decision (fingerprint); an incorrect shadow
-// decision is a demerit for this count (it never demotes).
-const classRecordSQL = `WITH pair AS (
-	SELECT verdict, result, COALESCE(observed_at, recorded_at) AS at
-	  FROM sage.sre_autonomy_outcomes
-	 WHERE deployment_id = $1 AND database_name = $2 AND family = $3
-	   AND action_class = $4
-), sh AS (
-	SELECT score, observed_at AS at, fingerprint FROM sage.trust_shadow_evidence
-	 WHERE deployment_id = $1 AND database_name = $2 AND family = $3
-	   AND action_class = $4
-), last AS (
-	SELECT at, cause FROM (
-		SELECT at, COALESCE(verdict, result) AS cause FROM pair
-		 WHERE result IN ('harmful', 'safety_violation', 'rejected')
-		UNION ALL
-		SELECT at, 'shadow_incorrect' FROM sh WHERE score = 'incorrect'
-	) d ORDER BY at DESC LIMIT 1
-), real_counts AS (
-	SELECT
-	count(*) FILTER (WHERE verdict = 'improved'
-	                    OR (verdict IS NULL AND result = 'verified_recovery')) AS improved,
-	count(*) FILTER (WHERE verdict = 'neutral') AS neutral,
-	count(*) FILTER (WHERE verdict = 'regressed'
-	                    OR (verdict IS NULL AND result IN ('harmful', 'safety_violation')))
-	                    AS regressed,
-	count(*) FILTER (WHERE verdict = 'rolled_back') AS rolled_back,
-	count(*) FILTER (WHERE verdict = 'rejected'
-	                    OR (verdict IS NULL AND result = 'rejected')) AS rejected,
-	count(*) FILTER (WHERE verdict = 'insufficient_evidence') AS insufficient,
-	count(*) FILTER (WHERE verdict = 'unverifiable'
-	                    OR (verdict IS NULL AND result = 'unverified')) AS unverifiable,
-	count(*) FILTER (WHERE result = 'verified_recovery'
-	                   AND (l.at IS NULL OR pair.at > l.at)) AS successes,
-	count(*) FILTER (WHERE result = 'unverified' AND verdict = 'neutral'
-	                   AND (l.at IS NULL OR pair.at > l.at)) AS uncredited
-	FROM pair LEFT JOIN last l ON true
-), shadow_counts AS (
-	SELECT count(*) FILTER (WHERE score = 'correct') AS correct,
-	count(*) FILTER (WHERE score = 'incorrect') AS incorrect,
-	count(*) FILTER (WHERE score = 'neutral') AS neutral,
-	count(DISTINCT fingerprint) FILTER (WHERE score = 'correct'
-	                   AND (l.at IS NULL OR sh.at > l.at)) AS successes,
-	count(DISTINCT fingerprint) FILTER (WHERE score = 'neutral'
-	                   AND (l.at IS NULL OR sh.at > l.at)) AS uncredited
-	FROM sh LEFT JOIN last l ON true
-)
-SELECT r.improved, r.neutral, r.regressed, r.rolled_back, r.rejected, r.insufficient,
-	r.unverifiable, r.successes, r.uncredited, s.correct, s.incorrect, s.neutral,
-	s.successes, s.uncredited, l.at, l.cause
-FROM real_counts r CROSS JOIN shadow_counts s LEFT JOIN last l ON true`
-
-// ClassRecord reads a pair's verdict record on the database, real and
-// shadow evidence apart and together.
-func (s *PostgresStore) ClassRecord(ctx context.Context, f Family, c ActionClass) (
-	ClassRecord, error) {
-	var r ClassRecord
-	var cause *string
-	var realSuccesses, realUncredited int
-	err := s.pool.QueryRow(ctx, classRecordSQL, s.deployment, s.database, string(f),
-		string(c)).Scan(&r.Improved, &r.Neutral, &r.Regressed, &r.RolledBack, &r.Rejected,
-		&r.Insufficient, &r.Unverifiable, &realSuccesses, &realUncredited, &r.ShadowCorrect,
-		&r.ShadowIncorrect, &r.ShadowNeutral, &r.ShadowSuccesses, &r.ShadowUncredited,
-		&r.LastDemeritAt, &cause)
-	if err != nil {
-		return ClassRecord{}, storeErr("read class record", err)
-	}
-	r.Successes = realSuccesses + r.ShadowSuccesses
-	r.Uncredited = realUncredited + r.ShadowUncredited
-	if r.LastDemeritAt != nil {
-		at := r.LastDemeritAt.UTC()
-		r.LastDemeritAt = &at
-	}
-	if cause != nil {
-		r.LastDemerit = demeritName(*cause)
-	}
-	return r, nil
-}
-
 // demeritName names a stored demerit (a verdict or, for rows without
 // one, a result).
 func demeritName(stored string) string {
@@ -131,31 +48,39 @@ func (s *PostgresStore) saveCursors(ctx context.Context, c selfCursors) error {
 	return storeErr("save reconcile cursors", err)
 }
 
-// lastChanges reads the newest level-changing event of every pair of the
-// database.
-func (s *PostgresStore) lastChanges(ctx context.Context) (map[pairKey]Event, error) {
-	rows, err := s.pool.Query(ctx, `SELECT DISTINCT ON (family, action_class) id, family,
-		action_class, event_type, from_level, to_level, actor, reason,
-		COALESCE(database_name, ''), COALESCE(proposal_id::text, ''),
-		COALESCE(action_log_id, 0), evidence, created_at
-		FROM sage.sre_autonomy_events
-		WHERE deployment_id = $1 AND database_name = $2
-		  AND event_type IN ('promotion_approved', 'downgraded', 'auto_downgraded',
-		                     'carried_over', 'grandfathered', 'database_scoped')
-		ORDER BY family, action_class, created_at DESC, id DESC`, s.deployment, s.database)
-	if err != nil {
-		return nil, storeErr("read level changes", err)
-	}
-	defer rows.Close()
+// lastChangesSQL reads each pair's newest level-changing event through the
+// pair's index.
+const lastChangesSQL = `/* pg_sage */ SELECT e.id, e.family, e.action_class, e.event_type,
+	e.from_level, e.to_level, e.actor, e.reason, e.database_name, e.proposal_id,
+	e.action_log_id, e.evidence, e.created_at
+	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
+	CROSS JOIN LATERAL (
+		SELECT id, family, action_class, event_type, from_level, to_level, actor, reason,
+		       COALESCE(database_name, '') AS database_name,
+		       COALESCE(proposal_id::text, '') AS proposal_id,
+		       COALESCE(action_log_id, 0) AS action_log_id, evidence, created_at
+		  FROM sage.sre_autonomy_events ev
+		 WHERE ev.deployment_id = $1 AND ev.database_name = $2
+		   AND ev.family = p.family AND ev.action_class = p.action_class
+		   AND ev.event_type IN ('promotion_approved', 'downgraded', 'auto_downgraded',
+		                         'carried_over', 'grandfathered', 'database_scoped')
+		 ORDER BY ev.created_at DESC, ev.id DESC LIMIT 1) e`
+
+// lastChanges reads the newest level-changing event of each pair.
+func (s *PostgresStore) lastChanges(ctx context.Context, pairs []pairKey) (
+	map[pairKey]Event, error) {
+	families, classes := pairArrays(pairs)
 	out := map[pairKey]Event{}
-	for rows.Next() {
-		e, err := scanEvent(rows)
-		if err != nil {
-			return nil, storeErr("scan level change", err)
-		}
-		out[pairKey{e.Family, e.Class}] = e
-	}
-	return out, storeErr("read level changes", rows.Err())
+	err := s.queryEach(ctx, "read level changes", lastChangesSQL,
+		[]any{s.deployment, s.database, families, classes}, func(rows pgx.Rows) error {
+			e, err := scanEvent(rows)
+			if err != nil {
+				return err
+			}
+			out[pairKey{e.Family, e.Class}] = e
+			return nil
+		})
+	return out, err
 }
 
 // stamp is a nullable time for an API row.

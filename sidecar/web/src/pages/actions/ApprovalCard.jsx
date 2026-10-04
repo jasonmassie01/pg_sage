@@ -85,6 +85,19 @@ function WhySection({ why }) {
   )
 }
 
+// TrustLine is the action class's trust on the database (roadmap 1.2):
+// its level, evidence counts and path to the next level, in one line.
+function TrustLine({ trust }) {
+  if (!trust || !trust.line) return null
+  return (
+    <div data-testid="approval-trust" className="text-sm"
+      style={{ color: trust.unavailable ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+      {trust.line}{' '}
+      <a href="#/trust" className="underline">Trust page</a>
+    </div>
+  )
+}
+
 function EvidenceSection({ evidence }) {
   if (!Array.isArray(evidence) || evidence.length === 0) return null
   return (
@@ -190,6 +203,7 @@ export function ApprovalCard({ card, onDecided }) {
         </div>
       )}
       <WhySection why={card.why_approval} />
+      <TrustLine trust={card.trust} />
       <EvidenceSection evidence={card.evidence} />
       <RationaleSection rationale={card.rationale} />
       <PredictedSection predicted={card.predicted_effect} />

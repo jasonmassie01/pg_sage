@@ -64,7 +64,8 @@ type TrustView struct {
 	Rows          []TrustRow         `json:"rows"`
 }
 
-// TrustView builds the database's Trust view.
+// TrustView builds the database's Trust view with a constant number of
+// set-based statements, however many pairs it shows.
 func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 	pending, err := s.PendingProposals(ctx)
 	if err != nil {
@@ -74,51 +75,44 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 	for i := range pending {
 		byPair[pairKey{pending[i].Family, pending[i].Class}] = &pending[i]
 	}
-	changes, err := s.store.lastChanges(ctx)
+	grid := gridPairs()
+	changes, err := s.store.lastChanges(ctx, grid)
+	if err != nil {
+		return TrustView{}, err
+	}
+	levels, err := s.store.levelSet(ctx)
 	if err != nil {
 		return TrustView{}, err
 	}
 	now := s.now()
+	e, err := s.loadEvidence(ctx, grid,
+		evidenceNeeds{incident: true, records: true}, now)
+	if err != nil {
+		return TrustView{}, err
+	}
 	v := TrustView{Database: s.store.database, GeneratedAt: now,
 		Floor: s.floorStatus(ClassIndexCreate, now), Rows: []TrustRow{}}
 	if v.Grandfathered, err = s.Grandfathered(ctx); err != nil {
 		return TrustView{}, err
 	}
-	for _, f := range AllFamilies() {
-		for _, c := range ApplicableClasses(f) {
-			key := pairKey{f, c}
-			row, err := s.trustRow(ctx, f, c, byPair[key], changes[key])
-			if err != nil {
-				return TrustView{}, err
-			}
-			v.Rows = append(v.Rows, row)
+	for _, key := range grid {
+		st, ok := levels[key]
+		if !ok {
+			st = defaultState(key.family, key.class)
 		}
+		v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, key.family, key.class),
+			e.records[key], byPair[key], changes[key]))
 	}
 	return v, nil
 }
 
-func (s *Service) trustRow(ctx context.Context, f Family, c ActionClass, pending *Proposal,
-	change Event) (TrustRow, error) {
-	st, err := s.Granted(ctx, f, c)
-	if err != nil {
-		return TrustRow{}, err
-	}
-	ev, err := s.Evidence(ctx, f, c)
-	if err != nil {
-		return TrustRow{}, err
-	}
-	rec := ev.Record
-	if rec == nil {
-		r, err := s.store.ClassRecord(ctx, f, c)
-		if err != nil {
-			return TrustRow{}, err
-		}
-		rec = &r
-	}
+func (s *Service) trustRow(st State, ev Evidence, rec ClassRecord, pending *Proposal,
+	change Event) TrustRow {
+	f, c := st.Family, st.Class
 	spec, _ := Spec(c)
 	row := TrustRow{Family: f, Kind: KindIncident, Class: c, Level: st.Level,
 		Cap: CapForPair(f, c), Reversibility: spec.Reversibility, Provenance: st.Provenance,
-		ProvenanceRef: st.CarriedRef, Evidence: countsOf(*rec), Pending: pending,
+		ProvenanceRef: st.CarriedRef, Evidence: countsOf(rec), Pending: pending,
 		LastChange: lastChange(st, change)}
 	if IsSelfInitiated(f) {
 		row.Kind, row.OutcomeClass = KindSelfInitiated, OutcomeClassFor(c)
@@ -130,7 +124,7 @@ func (s *Service) trustRow(ctx context.Context, f Family, c ActionClass, pending
 		a := Assess(s.cfg.Thresholds, next, ev)
 		row.Next = &a
 	}
-	return row, nil
+	return row
 }
 
 func countsOf(r ClassRecord) TrustCounts {
@@ -151,16 +145,21 @@ func lastChange(st State, e Event) TrustChange {
 }
 
 // AnnotateTrust fills each row's effective level on this limiter's
-// database and the database-wide downgrade signals holding now.
+// database and the database-wide downgrade signals holding now: the
+// error budget and HA role read once, every family's safety record in
+// one statement.
 func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 	self := l.selfDowngrades(ctx)
+	safety, err := l.svc.store.safetySet(ctx, rowFamilies(v.Rows, false),
+		l.svc.now().Add(-l.svc.cfg.SafetyWindow))
 	byFamily := map[Family][]Downgrade{}
 	for i := range v.Rows {
 		row := &v.Rows[i]
 		downs := self
 		if !IsSelfInitiated(row.Family) {
 			if _, ok := byFamily[row.Family]; !ok {
-				byFamily[row.Family] = l.databaseDowngrades(ctx, row.Family)
+				byFamily[row.Family] = append(append([]Downgrade(nil), self...),
+					safetyDowngrades(safety[row.Family].n, err)...)
 			}
 			downs = byFamily[row.Family]
 		}
@@ -179,4 +178,16 @@ func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 		}
 		row.Effective = &level
 	}
+}
+
+// rowFamilies lists the distinct families of rows, self-initiated ones
+// only when self.
+func rowFamilies(rows []TrustRow, self bool) []string {
+	pairs := make([]pairKey, 0, len(rows))
+	for _, r := range rows {
+		if IsSelfInitiated(r.Family) == self {
+			pairs = append(pairs, pairKey{r.Family, r.Class})
+		}
+	}
+	return familiesOf(pairs)
 }
