@@ -35,6 +35,27 @@ truth: the managed-database API applies changes immediately, and rows added,
 removed, disabled or changed by another replica or by SQL are picked up within
 30 seconds with the same rules.
 
+### Where pg_sage keeps its data
+
+pg_sage bootstraps the `sage` schema in every monitored database and, with
+`--meta-db`, in the metadata database too. What is written where:
+
+| Data | Standalone / YAML fleet | Meta-db mode |
+|---|---|---|
+| Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: the first database that started) | metadata database |
+| Sage SRE investigations, SLOs, change events; the earned-trust ledger (levels, outcomes, proposals, shadow evidence) | control database | metadata database |
+| History: snapshots, query store, explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples | each monitored database | each monitored database |
+
+History stays with the database it describes: it is keyed by that database's
+object ids and `queryid`s, several reads join it with the database's own catalog
+and `pg_stat_statements`, and the action log, its outcomes and the decision ledger
+reference each other. Its cost there is bounded: catalog snapshots are stored as
+changes against a keyframe, history tables are partitioned by day where they grow
+fastest, `retention.*` and `retention.snapshots_max_pct` cap them, and
+`self_budget.storage_mb` (default 10 GB) raises `sage_self_budget` when the `sage`
+schema outgrows it. Keeping history outside the monitored database is not
+supported yet.
+
 The generated [per-field lifecycle reference](generated/config-lifecycles.md)
 is the authoritative list. Regenerate it from the typed registry with:
 
@@ -180,6 +201,10 @@ briefing:
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
+| `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
+| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. `0`-`3600000` |
+| `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
+| `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
@@ -428,6 +453,25 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
   --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
+```
+
+#### Profiling the sidecar
+
+`debug.pprof_enabled: true` (default `false`, restart to change) serves Go's profiler
+on the API listener at `/api/v1/debug/pprof/`, to signed-in **admins only**, through
+the same session login as every other API route; operators and viewers get 403,
+requests without a session (and MCP tokens) get 401, and with the setting off the
+path does not exist (404). It never runs on the Prometheus listener. Responses are
+`Cache-Control: no-store`. A CPU profile or trace takes `?seconds=1`-`25` (default 10,
+inside the API's 30 s request deadline). Enabling it also turns on light block and
+mutex sampling. Profiles reveal code paths, memory and the command line: turn it on
+while diagnosing, then off.
+
+```bash
+# goroutine dump of a running sidecar, no restart, no signal
+curl -b cookies.txt 'http://localhost:8080/api/v1/debug/pprof/goroutine?debug=2'
+# 10 s CPU profile, then: go tool pprof -top profile.pb.gz
+curl -b cookies.txt -o profile.pb.gz 'http://localhost:8080/api/v1/debug/pprof/profile?seconds=10'
 ```
 
 ### Agent-native autonomy
