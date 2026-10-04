@@ -105,7 +105,7 @@ func tokenize(sql string) []token {
 }
 
 func skipBlockComment(src []rune, i int) int {
-	for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+	for i+1 < len(src) && (src[i] != '*' || src[i+1] != '/') {
 		i++
 	}
 	return min(i+2, len(src))

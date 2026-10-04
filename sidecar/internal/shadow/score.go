@@ -224,8 +224,8 @@ func hypoJudgement(score string, h *hypoFact) judgement {
 // its own regression (already incorrect) and the no-gain revert of a
 // neutral index create (neutral).
 func scoreForVerdict(family, class, verdict, lifecycle string) (string, bool) {
-	if lifecycle == "rolled_back" && verdict != verify.OutcomeRegressed &&
-		!(verdict == verify.OutcomeNeutral && class == "index_create") {
+	noGainRevert := verdict == verify.OutcomeNeutral && class == "index_create"
+	if lifecycle == "rolled_back" && verdict != verify.OutcomeRegressed && !noGainRevert {
 		return ScoreIncorrect, true
 	}
 	switch verdict {
