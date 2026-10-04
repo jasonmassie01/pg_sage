@@ -57,14 +57,20 @@ type cycleStats struct {
 	s  analyzer.TuningStats
 }
 
-// noteCycle records the cycle's budget use and case counts.
-func (a *Agent) noteCycle(b *CycleBudget, asked, deferred int) {
+// noteCycle records the cycle's budget use and case counts; cy is nil
+// when the model was not asked at all.
+func (a *Agent) noteCycle(cy *cycle, asked, deferred int) {
 	t := a.settings.Tuning
-	reqs, tokens := b.Used()
 	a.last.mu.Lock()
 	defer a.last.mu.Unlock()
-	a.last.s = analyzer.TuningStats{TokensUsed: tokens,
-		TokenLimit: int64(t.MaxTokensPerCycle), RequestsUsed: int64(reqs),
+	s := analyzer.TuningStats{TokenLimit: int64(t.MaxTokensPerCycle),
 		RequestLimit: int64(t.MaxRequestsPerCycle), CasesAsked: int64(asked),
-		CasesDeferred: int64(deferred)}
+		CasesDeferred: int64(deferred), DayTokenLimit: a.settings.DailyTokenLimit,
+		DayTokensUsed: a.last.s.DayTokensUsed}
+	if cy != nil {
+		reqs, tokens := cy.budget.Used()
+		s.TokensUsed, s.RequestsUsed = tokens, int64(reqs)
+		s.DayTokensUsed = cy.day.used + cy.day.chargedTok
+	}
+	a.last.s = s
 }

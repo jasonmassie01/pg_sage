@@ -91,5 +91,17 @@ func tuningSettings(c *config.Config, cloudEnv, dbName string, hostMem int64) tu
 		MaxOutputTokens: c.LLM.OptimizerLLM.MaxOutputTokens,
 		Thresholds:      tuning.DefaultThresholds(),
 		MaxNewPerTable:  c.LLM.Optimizer.MaxNewPerTable,
+		DailyTokenLimit: tuningDailyTokens(c),
 	}
+}
+
+// tuningDailyTokens is the agent's durable daily token cap: the daily
+// budget of the client it uses (the optimizer LLM's when that is enabled
+// and has its own, else the general one), charged per database and UTC
+// day in sage.tuning_budget_day so a restart does not reset it.
+func tuningDailyTokens(c *config.Config) int64 {
+	if c.LLM.OptimizerLLM.Enabled && c.LLM.OptimizerLLM.TokenBudgetDaily > 0 {
+		return int64(c.LLM.OptimizerLLM.TokenBudgetDaily)
+	}
+	return int64(c.LLM.TokenBudgetDaily)
 }

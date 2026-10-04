@@ -86,5 +86,6 @@ func tuningBudget(mgr *fleet.DatabaseManager, name string) map[string]int64 {
 	}
 	return map[string]int64{"tokens_used": s.TokensUsed, "token_limit": s.TokenLimit,
 		"requests_used": s.RequestsUsed, "request_limit": s.RequestLimit,
-		"cases_asked": s.CasesAsked, "cases_deferred": s.CasesDeferred}
+		"cases_asked": s.CasesAsked, "cases_deferred": s.CasesDeferred,
+		"day_tokens_used": s.DayTokensUsed, "day_token_limit": s.DayTokenLimit}
 }

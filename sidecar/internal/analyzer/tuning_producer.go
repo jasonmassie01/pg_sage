@@ -39,6 +39,8 @@ type TuningStats struct {
 	RequestLimit  int64
 	CasesAsked    int64 // cases the model examined
 	CasesDeferred int64 // cases left for a later cycle (case cap, budget, model error)
+	DayTokensUsed int64 // tokens charged today (UTC), across restarts
+	DayTokenLimit int64 // the daily token cap (0 = none)
 }
 
 // TuningCategories are the finding categories the tuning agent owns: the

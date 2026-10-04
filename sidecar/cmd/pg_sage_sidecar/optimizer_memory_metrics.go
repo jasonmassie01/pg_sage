@@ -64,6 +64,11 @@ var tuningBudgetGauges = []tuningSeries{
 	{"pg_sage_tuning_cases_deferred", "Workload cases the last cycle left for a later " +
 		"cycle (case cap, budget, model error); their open findings stay open",
 		func(s analyzer.TuningStats) int64 { return s.CasesDeferred }},
+	{"pg_sage_tuning_budget_day_tokens_used", "Model tokens the tuning agent charged " +
+		"today (UTC), kept across restarts",
+		func(s analyzer.TuningStats) int64 { return s.DayTokensUsed }},
+	{"pg_sage_tuning_budget_day_tokens_limit", "The tuning agent's daily token cap " +
+		"(0 = none)", func(s analyzer.TuningStats) int64 { return s.DayTokenLimit }},
 }
 
 // writeOptimizerMemoryMetrics writes the counters per database, sorted.

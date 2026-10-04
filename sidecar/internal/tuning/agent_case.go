@@ -32,24 +32,39 @@ type cycle struct {
 	tools     *cycleTools
 	v         *validator
 	cal       Calibration
+	day       dayBudget
 }
 
-// askCases asks the model about the cases, within the cycle's case cap
-// and budget, and returns the ranked findings of what it admitted. Cases
-// left for later are asked first next cycle (longest waiting first), so a
-// cap or an exhausted budget never starves the same cases.
+// askCases asks the model about the cases, within the cycle's case cap,
+// its budget and what is left of the day's, and returns the ranked
+// findings of what it admitted. Cases left for later are asked first next
+// cycle (longest waiting first), so a cap or an exhausted budget never
+// starves the same cases.
 func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyzer.Finding {
 	t := a.settings.Tuning
-	cy.budget = NewCycleBudget(t.MaxRequestsPerCycle, int64(t.MaxTokensPerCycle))
+	tokens, ok := a.openDay(ctx, cy)
+	if !ok {
+		a.deferAll(cy, cases)
+		return nil
+	}
+	cy.budget = NewCycleBudget(t.MaxRequestsPerCycle, tokens)
 	cy.tools = a.cycleTools()
 	cy.v = a.newValidator(cy.cur, cy.w, cy.confirmed, a.operatorRejected(ctx))
 	cy.v.prepare(ctx, cy.prev)
 	cy.cal = a.calibration(ctx)
-	var judged []Judged
-	var deferred []string
-	asked, stopped := 0, false
+	judged, deferred, asked, stopped := a.askInTurn(ctx, cy, cases)
+	a.queue.advance(deferred)
+	a.logDeferred(deferred, stopped)
+	a.noteCycle(cy, asked, len(deferred))
+	return a.recordHints(ctx, a.rank(judged, cy.cal))
+}
+
+// askInTurn runs the cases in queue order until the case cap, the budget
+// or a spend that cannot be recorded stops the cycle.
+func (a *Agent) askInTurn(ctx context.Context, cy *cycle, cases []Case) (
+	judged []Judged, deferred []string, asked int, stopped bool) {
 	for _, c := range a.queue.order(cases) {
-		if stopped || asked >= t.MaxCasesPerCycle {
+		if stopped || asked >= a.settings.Tuning.MaxCasesPerCycle {
 			deferred = append(deferred, c.ID)
 			continue
 		}
@@ -61,16 +76,18 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 		}
 		res, stop := a.runCase(ctx, cy, c)
 		judged = append(judged, res...)
+		if err := a.chargeDay(ctx, cy); err != nil {
+			a.logFn("WARN", "tuning: the daily budget cannot record this cycle's spend, "+
+				"stopping: %v", err)
+			stop = true
+		}
 		if stop {
 			stopped, deferred = true, append(deferred, c.ID)
 			continue
 		}
 		asked++
 	}
-	a.queue.advance(deferred)
-	a.logDeferred(deferred, stopped)
-	a.noteCycle(cy.budget, asked, len(deferred))
-	return a.recordHints(ctx, a.rank(judged, cy.cal))
+	return judged, deferred, asked, stopped
 }
 
 func (a *Agent) operatorRejected(ctx context.Context) map[string]bool {

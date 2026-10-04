@@ -63,6 +63,7 @@ func TestTune_DailyBudgetSurvivesARestart(t *testing.T) {
 func TestTune_DailyBudgetIsAUTCDay(t *testing.T) {
 	s := defaultSettings()
 	s.DailyTokenLimit = 250
+	s.MaxOutputTokens = 100
 	h := newHarnessWith(t, s)
 	h.store.day = map[string][2]int64{t0.UTC().Format(time.DateOnly): {250, 3}}
 	next := t0.UTC().Truncate(24 * time.Hour).Add(24*time.Hour + time.Minute)

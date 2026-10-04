@@ -65,6 +65,11 @@ type Store interface {
 	// SettingActions are the setting and storage-parameter changes executed
 	// since then, oldest first, with their verification verdicts.
 	SettingActions(ctx context.Context, since time.Time) ([]SettingAction, error)
+	// DayBudgetUsed is the model spend charged on the UTC day of day.
+	DayBudgetUsed(ctx context.Context, day time.Time) (tokens, requests int64, err error)
+	// ChargeDayBudget adds spend to the UTC day of day; it survives
+	// restarts.
+	ChargeDayBudget(ctx context.Context, day time.Time, tokens, requests int64) error
 }
 
 // CatalogState is what Relations found, keyed by the names asked. A name

@@ -40,6 +40,9 @@ type Settings struct {
 	// MaxNewPerTable bounds new index proposals per table per cycle
 	// (llm.optimizer.max_new_per_table); 0 means 3.
 	MaxNewPerTable int
+	// DailyTokenLimit caps the model tokens per UTC day, charged durably
+	// to the database (0 = no daily cap; the spend is still recorded).
+	DailyTokenLimit int64
 }
 
 // Deps are the agent's collaborators. Model may be nil (the agent then

@@ -67,6 +67,9 @@ function BudgetLine({ b }) {
       Last cycle: {b.tokens_used} of {b.token_limit} tokens, {b.requests_used} of{' '}
       {b.request_limit} requests, {b.cases_asked} cases examined, {b.cases_deferred}{' '}
       deferred to later cycles (their open findings stay open).
+      {b.day_token_limit > 0 && (
+        <> Today (UTC): {b.day_tokens_used} of {b.day_token_limit} tokens.</>
+      )}
     </div>
   )
 }
