@@ -265,6 +265,8 @@ type OptimizerConfig struct {
 	PlanSource           string  `yaml:"plan_source"`
 	ConfidenceThreshold  float64 `yaml:"confidence_threshold"`
 	WriteImpactThreshPct float64 `yaml:"write_impact_threshold_pct"`
+	// RejectionMemory: optimizer_rejection_memory.go.
+	RejectionMemory OptimizerRejectionMemoryConfig `yaml:"rejection_memory"`
 }
 
 // OptimizerLLMConfig configures the dedicated optimizer LLM (reasoning-tier).
@@ -713,6 +715,9 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
 		return err
 	}
+	if err := c.LLM.Optimizer.RejectionMemory.validate(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
@@ -858,6 +863,7 @@ func newDefaults() *Config {
 				PlanSource:           DefaultOptPlanSource,
 				ConfidenceThreshold:  DefaultOptConfidenceThreshold,
 				WriteImpactThreshPct: DefaultOptWriteImpactThreshPct,
+				RejectionMemory:      DefaultOptimizerRejectionMemory(),
 			},
 			OptimizerLLM: OptimizerLLMConfig{
 				Enabled:           DefaultOptLLMEnabled,

@@ -404,6 +404,7 @@ func migrationStatements() []string {
 		ddlSelfExclIndexes(),
 		ddlGuardHistoryIndexes(),
 		ddlApprovalCards,
+		ddlOptimizerRejection,
 		ddlActionOutcome())
 }
 

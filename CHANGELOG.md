@@ -4,6 +4,21 @@
 
 ### What's new
 
+- **The index optimizer remembers what HypoPG already measured, so the model stops proposing the
+  same index every cycle.** On a real database the model suggested one index 18 times in three
+  hours under different names and INCLUDE lists, and every time the what-if measured 0% gain.
+  pg_sage now remembers each what-if rejection with the workload it was measured on. A repeat
+  of the same idea (same columns, operator classes, ordering and filter; any name; INCLUDE
+  columns reordered, added or removed) skips the what-if, and the model is told which shapes
+  were already measured. The idea is measured again once the workload or table changes
+  materially (a target query's calls or mean time, or the table's rows, change 2x; a target
+  query appears or disappears) or after 7 days. After three proposals in a row that were all
+  already measured, pg_sage stops asking the model about that table until something changes, so
+  the repeat costs neither a what-if nor an LLM call; both savings are exported as Prometheus
+  counters. Only model suggestions are remembered against:
+  deterministic findings such as missing foreign-key indexes and re-checks of open
+  recommendations are never skipped. Tune or turn it off under
+  `llm.optimizer.rejection_memory`.
 - **Every action that waits for you now comes as an approval card with the why, and you can
   decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
   do and to which objects, why it needs you (for example: HypoPG has not verified the index,

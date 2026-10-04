@@ -168,6 +168,9 @@ func (o *Optimizer) reverify(
 	case rejected:
 		o.logFn("optimizer", "dropping open %s on %s: %s",
 			rec.DDL, tc.Schema+"."+tc.Table, checked.WhatIfReason)
+		// Remembered so the model is told; memory never suppresses this
+		// re-evaluation itself.
+		o.memory.remember(ctx, tc, checked, o.cfg.HypoPGMinImprovePct)
 		return checked, false
 	case checked.WhatIf == WhatIfVerified:
 		o.logFn("optimizer", "open %s on %s is now verified by HypoPG (%.0f%% better)",

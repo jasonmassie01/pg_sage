@@ -127,6 +127,16 @@ var excludedExactKeys = map[string]bool{
 	"llm.token_parameter":       true,
 	"llm.tool_reasoning_effort": true,
 
+	// Optimizer what-if rejection memory: YAML-only, read when the
+	// optimizer is built (restart-bound).
+	"llm.optimizer.rejection_memory.enabled":            true,
+	"llm.optimizer.rejection_memory.max_age_days":       true,
+	"llm.optimizer.rejection_memory.call_volume_ratio":  true,
+	"llm.optimizer.rejection_memory.mean_time_ratio":    true,
+	"llm.optimizer.rejection_memory.row_estimate_ratio": true,
+	"llm.optimizer.rejection_memory.prompt_max_shapes":  true,
+	"llm.optimizer.rejection_memory.skip_llm_after":     true,
+
 	// Advisor sub-fields not exposed as overrides.
 	"advisor.vacuum_enabled":     true,
 	"advisor.wal_enabled":        true,

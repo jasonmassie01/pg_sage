@@ -46,7 +46,7 @@ func TestOptimizerDefaultsCallConfiguredLLM(t *testing.T) {
 	llmCfg.Endpoint, llmCfg.APIKey, llmCfg.Model = url, "k", "m"
 	client := llm.New(&llmCfg, fnNoopLog)
 	recs, tokens, rejected, err := defaultOptimizer(client).analyzeTable(
-		context.Background(), sampleTableContext())
+		context.Background(), sampleTableContext(), nil)
 	if err != nil {
 		t.Fatalf("analyzeTable: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestOptimizerDefaultLLMBlockWithoutEndpointNeverCalls(t *testing.T) {
 		t.Fatal("default llm block must not be usable without endpoint/key")
 	}
 	_, _, _, err := defaultOptimizer(client).analyzeTable(
-		context.Background(), sampleTableContext())
+		context.Background(), sampleTableContext(), nil)
 	if err == nil {
 		t.Fatal("analyzeTable succeeded without an LLM")
 	}

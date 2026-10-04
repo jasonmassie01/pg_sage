@@ -126,6 +126,13 @@
 | `llm.optimizer.min_snapshots` | `restart` | `-` |
 | `llm.optimizer.over_indexed_ratio_pct` | `restart` | `-` |
 | `llm.optimizer.plan_source` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.call_volume_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.enabled` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.max_age_days` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.mean_time_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.prompt_max_shapes` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.row_estimate_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `restart` | `-` |
 | `llm.optimizer.write_heavy_ratio_pct` | `restart` | `-` |
 | `llm.optimizer.write_impact_threshold_pct` | `restart` | `-` |
 | `llm.optimizer_llm.api_key` | `restart` | `-` |

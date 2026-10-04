@@ -10,6 +10,9 @@ import (
 
 const maxPromptChars = 16384 // ~4096 tokens at 4 chars/token
 
+// maxMeasuredSectionChars bounds the "Already measured" section.
+const maxMeasuredSectionChars = 2048
+
 // SystemPrompt returns the v2 system prompt for the index optimizer LLM.
 func SystemPrompt() string {
 	return `CRITICAL: Respond with ONLY a JSON array. No thinking, no reasoning, no explanation, no markdown fences, no text before or after the array. Start your response with [ and end with ].
@@ -32,6 +35,10 @@ Rules:
 11. If the plan shows Sort: external merge Disk or Hash Batches > 1, recommend work_mem tuning, NOT an index.
 12. If a query scans all rows for aggregation (GROUP BY on full table), recommend a materialized view, NOT an index.
 13. Composite index column order matters: a B-tree on (a, b) only helps queries that filter on "a" or "a AND b", NOT queries that filter only on "b". If an existing composite index has the filtered column in a non-leading position, recommend a new single-column index on that column or a reordered composite index. Do not assume an index on (a, b) covers WHERE b = ?.
+14. The table context may list index shapes under "Already measured": HypoPG measured each
+one on this workload and rejected it. Do not propose any of them again, under any name, and
+not with the INCLUDE list reordered, trimmed or extended; propose a materially different
+index or return [].
 
 Output ONLY valid JSON. No markdown fences, no commentary outside JSON.
 
@@ -158,6 +165,7 @@ func FormatPrompt(tc TableContext) string {
 				jp.Left, jp.Right, jp.Condition, len(jp.Queries))
 		}
 	}
+	writeMeasuredRejections(&b, tc.MeasuredRejections)
 
 	// Safety valve: if prompt is too large, rebuild with fewer queries.
 	prompt := b.String()
@@ -288,5 +296,23 @@ func humanBytes(b int64) string {
 		return fmt.Sprintf("%.1f KB", float64(b)/float64(kb))
 	default:
 		return fmt.Sprintf("%d B", b)
+	}
+}
+
+// writeMeasuredRejections lists the shapes rejection memory says HypoPG
+// already measured and rejected on this workload, within
+// maxMeasuredSectionChars (the lines are already bounded and sanitized).
+func writeMeasuredRejections(b *strings.Builder, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	b.WriteString("\n### Already measured (HypoPG what-if rejected on this workload)\n")
+	used := 0
+	for _, line := range lines {
+		if used+len(line)+1 > maxMeasuredSectionChars {
+			break
+		}
+		b.WriteString(line + "\n")
+		used += len(line) + 1
 	}
 }

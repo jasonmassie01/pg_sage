@@ -120,6 +120,14 @@ llm:
     max_new_per_table: 3
     over_indexed_ratio_pct: 80
     write_heavy_ratio_pct: 70
+    rejection_memory:            # skip re-measuring ideas HypoPG already rejected
+      enabled: true
+      max_age_days: 7
+      call_volume_ratio: 2       # material change: calls or mean time 2x, rows 2x,
+      mean_time_ratio: 2         # or a target query appears/disappears
+      row_estimate_ratio: 2
+      prompt_max_shapes: 5
+      skip_llm_after: 3          # stop asking the model after 3 wasted proposals
   optimizer_llm:                 # optional second model for optimizer
     endpoint: ""
     model: ""
@@ -279,6 +287,13 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.optimizer.enabled` | `true` | LLM index optimizer (HypoPG-validated, confidence-scored) |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
+| `llm.optimizer.rejection_memory.enabled` | `true` | Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the prompt lists the shapes already measured. Applies to model candidates only, never to deterministic findings or to re-checks of open recommendations. Rows live in `sage.optimizer_rejection` and age out with `retention.findings_days` (YAML only) |
+| `llm.optimizer.rejection_memory.max_age_days` | `7` | Days a rejection stays valid; then the idea may be measured again (1-90) |
+| `llm.optimizer.rejection_memory.call_volume_ratio` | `2` | A target query whose call count changed by at least this factor (up or down) is a material workload change (>1-1000) |
+| `llm.optimizer.rejection_memory.mean_time_ratio` | `2` | Same, for a target query's mean execution time (>1-1000) |
+| `llm.optimizer.rejection_memory.row_estimate_ratio` | `2` | Same, for the table's live-row estimate (>1-1000). A target query appearing or disappearing is always a material change |
+| `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the prompt as already measured (1-20) |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive proposals for a table were all memory hits or fresh what-if rejections, with no material change since the first of them, the optimizer stops asking the model about the table until a material change or `max_age_days` (1-100). Operator-requested runs always ask. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
 | `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily` |
 | `advisor.enabled` | `true` | LLM configuration advisor (vacuum, WAL, connections, memory, rewrites, bloat) |
 | `tuner.llm_enabled` | `true` | Let the query tuner ask the LLM for pg_hint_plan hints (YAML only) |
