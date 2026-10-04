@@ -15,7 +15,7 @@ import (
 // budget burn, failover, stale evidence, concurrent actions or a safety
 // regression. The promotion bar (Promotion) defaults to the spec's.
 type SREAutonomyConfig struct {
-	Enforce                  bool               `yaml:"enforce" doc:"Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true." warning:"false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."`
+	Enforce                  bool               `yaml:"enforce" doc:"Trust ledger decides every self-initiated class per database (L1 script, L2 approval, L3 unattended). false: the elapsed-time trust ramp decides instead (legacy). Default: true." warning:"false lets self-initiated actions run under the elapsed-time trust ramp without earned evidence."`
 	BenchResultsPath         string             `yaml:"bench_results_path" doc:"PGIncidentBench report, or a directory searched 3 levels deep, ingested at startup and hourly. A <report>.sigstore.json bundle is verified; reports for another build are refused."`
 	EvaluateIntervalMinutes  int                `yaml:"evaluate_interval_minutes" doc:"Minutes between promotion evaluations (pg_sage proposes, an admin approves), 5-1440. Default: 60."`
 	ReconcileIntervalSeconds int                `yaml:"reconcile_interval_seconds" doc:"Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."`
@@ -28,6 +28,9 @@ type SREAutonomyConfig struct {
 	Promotion                SREPromotionConfig `yaml:"promotion"`
 	GameDays                 SREGameDaysConfig  `yaml:"game_days"`
 	Canary                   SRECanaryConfig    `yaml:"canary"`
+
+	// ClassPromotion is the self-initiated classes' bar (roadmap 1.2).
+	ClassPromotion SREClassPromotionConfig `yaml:"class_promotion"`
 }
 
 // SREGameDaysConfig configures game days: PGIncidentBench fault programs
@@ -47,12 +50,14 @@ type SRECanaryConfig struct {
 }
 
 func defaultSREAutonomyConfig() SREAutonomyConfig {
-	return SREAutonomyConfig{Enforce: true, EvaluateIntervalMinutes: 60,
+	c := SREAutonomyConfig{Enforce: true, EvaluateIntervalMinutes: 60,
 		ReconcileIntervalSeconds: 60, MaxEvidenceAgeSeconds: 300,
 		ConcurrencyWindowMinutes: 15, SafetyWindowDays: 30, FailoverCooldownMinutes: 30,
 		ProposalTTLHours: 168, ReportRetentionDays: 90, Promotion: defaultSREPromotionConfig(),
 		GameDays: SREGameDaysConfig{IntervalHours: 168},
 		Canary:   SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10, SettleSeconds: 60}}
+	c.ClassPromotion = defaultSREClassPromotionConfig()
+	return c
 }
 
 var familyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -85,6 +90,9 @@ func (a SREAutonomyConfig) validate() error {
 		return fmt.Errorf("sre.autonomy.canary.regression_limit_pct must be 0-100, got %v", p)
 	}
 	if err := a.Promotion.validate(); err != nil {
+		return err
+	}
+	if err := a.ClassPromotion.validate(); err != nil {
 		return err
 	}
 	return a.GameDays.validate()

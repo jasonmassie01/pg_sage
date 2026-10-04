@@ -34,17 +34,17 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 		databaseID = &id
 	}
 	if !settings.Enforce {
-		logWarn(rt.spec.Scope, "db %q: sre.autonomy.enforce is false: incident-family "+
-			"actions (custodian freeze, WAL bounds) run under the trust ramp without "+
-			"earned evidence", rt.spec.Name)
+		logWarn(rt.spec.Scope, "db %q: sre.autonomy.enforce is false: self-initiated "+
+			"actions (custodians, index create/drop, GUC, vacuum, analyze, hints) run "+
+			"under the elapsed-time trust ramp without earned evidence", rt.spec.Name)
 	}
 	// The M5 SLO engine is built with the investigator, before execution.
 	err := processAutonomy().install(rt.ctx, ex, autonomyBinding{database: rt.spec.Name,
 		control: control, monitored: rt.spec.Pool, databaseID: databaseID,
 		settings: settings, budget: slobudget.New(rt.sloEngine)})
 	if err != nil {
-		logError(rt.spec.Scope, "db %q: earned-autonomy ledger unavailable; "+
-			"incident-family actions are blocked until it is: %v", rt.spec.Name, err)
+		logError(rt.spec.Scope, "db %q: trust ledger unavailable; self-initiated "+
+			"actions are blocked until it is: %v", rt.spec.Name, err)
 	}
 }
 

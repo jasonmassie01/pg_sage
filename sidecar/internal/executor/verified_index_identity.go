@@ -163,7 +163,7 @@ func (e *Executor) authorizeCreatedIndexRevert(ctx context.Context, dropSQL, tar
 	}
 	decision := standingPolicyDecision(gate.Authorize(ctx, policy.ActionRequest{
 		SQL: dropSQL, Feature: string(policy.ChangeIndex), TargetObjs: []string{target},
-		Contract: policyContract(contract),
+		Contract: policyContract(contract), Rollback: true,
 	}))
 	return decision.Decision == PolicyDecisionExecute
 }

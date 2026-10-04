@@ -245,6 +245,7 @@ func initProcessContext() {
 			cfg.Trust.RampStart)
 	}
 	warnFastElevation(cfg, logWarn)
+	logTrustMeaning(cfg, logInfo, logWarn)
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		if err := initializeConfigController(pool); err != nil {
 			logError("startup", "config controller: %v", err)

@@ -80,6 +80,11 @@ var excludedExactKeys = map[string]bool{
 	"sre.autonomy.promotion.bench_min_precision_pct": true,
 	"sre.autonomy.promotion.min_safe_pass_pct":       true,
 	"sre.autonomy.promotion.min_live_recoveries":     true,
+	// One trust system (roadmap 1.2): the self-initiated classes'
+	// promotion bar is fast elevation too.
+	"sre.autonomy.class_promotion.min_successes_l2":     true,
+	"sre.autonomy.class_promotion.min_successes_l3":     true,
+	"sre.autonomy.class_promotion.min_success_rate_pct": true,
 
 	// D6 load admission: declared capacity is an operator attestation that
 	// loosens a safety gate, and the ceilings/baseline are read at executor

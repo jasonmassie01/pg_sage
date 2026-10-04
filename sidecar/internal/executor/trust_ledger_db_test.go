@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // Integration (real Postgres, real ledger): the executor's gate reads
@@ -37,7 +38,10 @@ func analyzeFinding() analyzer.Finding {
 		RecommendedSQL: "ANALYZE public.trust_probe"}
 }
 
-func TestExecutorGateReadsTheRealLedger(t *testing.T) {
+// realLedgerExecutor is an executor whose gate reads a real ledger of a
+// fresh database, grandfathered from an autonomous, elapsed ramp.
+func realLedgerExecutor(t *testing.T) (*Executor, *earned.Service) {
+	t.Helper()
 	pool, ctx := requireDB(t)
 	deployment, err := earned.EnsureDeployment(ctx, pool)
 	if err != nil {
@@ -68,7 +72,12 @@ func TestExecutorGateReadsTheRealLedger(t *testing.T) {
 	doc := policy.UnattendedProfile()
 	doc.MaintenanceWindows = []string{"always"}
 	exec.EnableStandingPolicyDocument(doc, nil)
+	return exec, svc
+}
 
+func TestExecutorGateReadsTheRealLedger(t *testing.T) {
+	exec, svc := realLedgerExecutor(t)
+	ctx := context.Background()
 	got := exec.evaluateFindingPolicy(ctx, analyzeFinding(), false)
 	if got.Decision != PolicyDecisionExecute ||
 		got.BlockedReason != string(policy.ReasonAutonomyL3) {
@@ -91,5 +100,32 @@ func TestExecutorGateReadsTheRealLedger(t *testing.T) {
 		if got.Decision != step.decision || got.BlockedReason != string(step.reason) {
 			t.Fatalf("at %v: %+v, want %s/%s", step.to, got, step.decision, step.reason)
 		}
+	}
+}
+
+// A self-initiated custodian action at L2 (no incident family) is handed
+// off under its trust family, so its outcome and any rejection are
+// attributed to that pair.
+func TestSelfInitiatedHandoffKeyNamesTheTrustFamily(t *testing.T) {
+	pool, _ := requireDB(t)
+	limiter := &scopedCountingLimiter{limit: policy.AutonomyLimit{Level: 2, Granted: 2}}
+	exec := New(pool, autonomousConfig(), time.Now().Add(-60*24*time.Hour), noopExecLog)
+	exec.WithActionStore(store.NewActionStore(pool), "auto")
+	exec.WithAutonomy(limiter)
+	doc := policy.UnattendedProfile()
+	doc.MaintenanceWindows = []string{"always"}
+	exec.EnableStandingPolicyDocument(doc, nil)
+	exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
+	const key = "autonomy:hygiene:analyze:public.trust_handoff"
+	clearHandoffs(t, pool, key)
+	clearHandoffs(t, pool, "autonomy::analyze:public.trust_handoff")
+	err := exec.SubmitCustodianProposal(context.Background(), CustodianProposal{
+		Feature: "analyze", SQL: `ANALYZE "public"."trust_handoff"`,
+		TargetObjects: []string{"public.trust_handoff"}, ObservedAt: time.Now()})
+	if err != nil {
+		t.Fatalf("submit at L2: %v", err)
+	}
+	if n := pendingHandoffs(t, pool, key); n != 1 {
+		t.Fatalf("pending %s = %d, want 1", key, n)
 	}
 }

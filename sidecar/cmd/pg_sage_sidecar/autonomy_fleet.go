@@ -160,11 +160,18 @@ func (b autonomyMCPBackend) GetAutonomy(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	// One trust system (roadmap 1.2): the unified grid, self-initiated
+	// classes included, travels with the incident view (additive).
+	trust, err := e.Service.TrustView(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if e.Limiter != nil {
 		e.Limiter.Annotate(ctx, &v)
+		e.Limiter.AnnotateTrust(ctx, &trust)
 	}
-	return map[string]any{"database": name, "enforced": b.registry.Enforced(), "view": v},
-		nil
+	return map[string]any{"database": name, "enforced": b.registry.Enforced(), "view": v,
+		"trust": trust}, nil
 }
 
 // DowngradeAutonomy lowers a pair (or a family) for an MCP principal.

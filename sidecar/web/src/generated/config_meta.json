@@ -1253,6 +1253,23 @@
     "default": 60,
     "doc": "Seconds to wait after each change before measuring it, 0-3600. Default: 60."
   },
+  "sre.autonomy.class_promotion.min_success_rate_pct": {
+    "type": "float64",
+    "default": 80,
+    "doc": "Share of decided outcomes since the last demerit that must be successes for L3, 50-100. Insufficient and unverifiable verdicts count neither way. Default: 80."
+  },
+  "sre.autonomy.class_promotion.min_successes_l2": {
+    "type": "int",
+    "default": 3,
+    "doc": "Verified successes since the class's last demerit to propose L2 for a self-initiated class (tuning: improved; hygiene: improved or held neutral), 1-1000. Default: 3.",
+    "warning": "Lower values let pg_sage propose promotions after fewer verified outcomes."
+  },
+  "sre.autonomy.class_promotion.min_successes_l3": {
+    "type": "int",
+    "default": 10,
+    "doc": "Verified successes since the last demerit to propose L3 (unattended) for a self-initiated class, 1-10000, at least min_successes_l2. Default: 10.",
+    "warning": "Lower values let pg_sage auto-execute after fewer verified outcomes."
+  },
   "sre.autonomy.concurrency_window_minutes": {
     "type": "int",
     "default": 15,
@@ -1261,8 +1278,8 @@
   "sre.autonomy.enforce": {
     "type": "bool",
     "default": true,
-    "doc": "Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true.",
-    "warning": "false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."
+    "doc": "Trust ledger decides every self-initiated class per database (L1 script, L2 approval, L3 unattended). false: the elapsed-time trust ramp decides instead (legacy). Default: true.",
+    "warning": "false lets self-initiated actions run under the elapsed-time trust ramp without earned evidence."
   },
   "sre.autonomy.evaluate_interval_minutes": {
     "type": "int",
@@ -1719,7 +1736,7 @@
   "trust.level": {
     "type": "string",
     "default": "observation",
-    "doc": "Autonomy ceiling: observation is cases only; advisory auto executes eligible safe actions; autonomous auto executes eligible safe and moderate actions. Manual disables background actions.",
+    "doc": "Autonomy ceiling, never a grant: the trust ledger decides each class per database. observation: cases only; advisory: earned safe actions, moderate to approval; autonomous: safe and moderate.",
     "warning": "Changing trust can expand what execution_mode=auto may execute without human review."
   },
   "trust.maintenance_window": {
@@ -1730,19 +1747,19 @@
   "trust.ramp_moderate_hours": {
     "type": "int",
     "default": 744,
-    "doc": "Hours after ramp_start before MODERATE actions may run unattended, 1-8760 and at least ramp_safe_hours. Default: 744 (31 days). Actions that cannot be rolled back always wait at least 744.",
-    "warning": "Lower values let pg_sage act sooner after first start; the sidecar warns at startup."
+    "doc": "Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3: a floor, never a grant. 1-8760, \u003e= ramp_safe_hours. Default: 744. Irreversible: at least 744.",
+    "warning": "Lower values let pg_sage propose promotions sooner after first start; the sidecar warns at startup."
   },
   "trust.ramp_safe_hours": {
     "type": "int",
     "default": 192,
-    "doc": "Hours after ramp_start before SAFE actions may run unattended, 1-8760. Default: 192 (8 days). Actions that cannot be rolled back always wait at least 192.",
-    "warning": "Lower values let pg_sage act sooner after first start; the sidecar warns at startup."
+    "doc": "Minimum hours observed before pg_sage may propose a promotion to L2 (or L3 for SAFE classes): a floor, never a grant. 1-8760. Default: 192. Irreversible actions: at least 192.",
+    "warning": "Lower values let pg_sage propose promotions sooner after first start; the sidecar warns at startup."
   },
   "trust.ramp_start": {
     "type": "string",
     "default": "",
-    "doc": "RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."
+    "doc": "RFC3339 time pg_sage began observing the database; auto-persisted on first startup if empty. Observation time is the floor before a trust promotion can be proposed."
   },
   "trust.rollback_cooldown_days": {
     "type": "int",

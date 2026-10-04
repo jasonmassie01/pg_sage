@@ -10,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -20,7 +21,7 @@ import (
 // settings; demotions reach a human through the notification rules.
 
 func analyzeCustodianProposal() executor.CustodianProposal {
-	return executor.CustodianProposal{Feature: "schema_guard",
+	return executor.CustodianProposal{Feature: "analyze",
 		SQL: `ANALYZE "public"."orders"`, TargetObjects: []string{"public.orders"},
 		ObservedAt: time.Now()}
 }
@@ -199,5 +200,34 @@ func TestAutonomyServiceConfigMapsTheClassBar(t *testing.T) {
 	if c.Thresholds.ClassMinSuccessesL2 != 1 || c.Thresholds.ClassMinSuccessesL3 != 2 ||
 		c.Thresholds.ClassMinSuccessRate != 0.6 {
 		t.Fatalf("lowered class bar = %+v", c.Thresholds)
+	}
+}
+
+// MCP keeps its contract and gains the unified grid (additive).
+func TestAutonomyMCPGetCarriesTheTrustGrid(t *testing.T) {
+	pool := autonomyPool(t)
+	ledgers := newAutonomyLedgers(true)
+	db := uniqueDatabase("mcp")
+	svc, err := ledgers.ledgerFor(context.Background(), pool, db,
+		config.DefaultConfig().SRE.Autonomy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgers.registry.Register(db, earned.RegistryEntry{Service: svc,
+		Limiter: svc.Limiter(earned.Binding{Database: db})})
+	got, err := autonomyMCPBackend{registry: ledgers.registry}.GetAutonomy(
+		context.Background(), mcp.AutonomyRequest{Database: db})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := got.(map[string]any)
+	trust, ok := body["trust"].(earned.TrustView)
+	if !ok || body["view"] == nil || trust.Database != db || len(trust.Rows) == 0 {
+		t.Fatalf("get_autonomy = %+v", body)
+	}
+	for _, r := range trust.Rows {
+		if r.Effective == nil {
+			t.Fatalf("row %s/%s not annotated", r.Family, r.Class)
+		}
 	}
 }

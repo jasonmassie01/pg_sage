@@ -232,6 +232,9 @@
 | `sre.autonomy.canary.canary_instances` | `restart` | `-` |
 | `sre.autonomy.canary.regression_limit_pct` | `restart` | `-` |
 | `sre.autonomy.canary.settle_seconds` | `restart` | `-` |
+| `sre.autonomy.class_promotion.min_success_rate_pct` | `restart` | `-` |
+| `sre.autonomy.class_promotion.min_successes_l2` | `restart` | `-` |
+| `sre.autonomy.class_promotion.min_successes_l3` | `restart` | `-` |
 | `sre.autonomy.concurrency_window_minutes` | `restart` | `-` |
 | `sre.autonomy.enforce` | `restart` | `-` |
 | `sre.autonomy.evaluate_interval_minutes` | `restart` | `-` |
