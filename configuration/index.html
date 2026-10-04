@@ -479,6 +479,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#one-trust-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One trust system
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shadow-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shadow mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#verifying-actions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -533,6 +555,17 @@
   
     <nav class="md-nav" aria-label="Agent-native autonomy">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#blast-radius-budgets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Blast-radius budgets
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#retention-contracts" class="md-nav__link">
@@ -984,6 +1017,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#one-trust-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One trust system
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shadow-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shadow mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#verifying-actions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1038,6 +1093,17 @@
   
     <nav class="md-nav" aria-label="Agent-native autonomy">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#blast-radius-budgets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Blast-radius budgets
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#retention-contracts" class="md-nav__link">
@@ -1352,37 +1418,45 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="w">    </span><span class="nt">max_new_per_table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
 <a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a><span class="w">    </span><span class="nt">over_indexed_ratio_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">80</span>
 <a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a><span class="w">    </span><span class="nt">write_heavy_ratio_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">70</span>
-<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a><span class="w">  </span><span class="nt">optimizer_llm</span><span class="p">:</span><span class="w">                 </span><span class="c1"># optional second model for optimizer</span>
-<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
-<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
-<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_OPTIMIZER_LLM_API_KEY}</span>
-<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a>
-<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a><span class="nt">api</span><span class="p">:</span>
-<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:8080"</span>
-<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="w">  </span><span class="c1"># Web UI and /api/v1 endpoints are session-authenticated.</span>
-<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a><span class="w">  </span><span class="c1"># The first local admin is bootstrapped automatically.</span>
-<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a>
-<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a><span class="nt">alerting</span><span class="p">:</span>
-<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a><span class="w">  </span><span class="nt">check_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
-<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a><span class="w">  </span><span class="nt">slack_webhook_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_SLACK_WEBHOOK}</span>
-<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a><span class="w">  </span><span class="nt">pagerduty_routing_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_PAGERDUTY_KEY}</span>
-<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a><span class="w">  </span><span class="nt">routes</span><span class="p">:</span>
-<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span>
-<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a><span class="w">      </span><span class="nt">channels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">slack</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pagerduty</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a>
-<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a><span class="nt">prometheus</span><span class="p">:</span>
-<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:9187"</span>
-<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a>
-<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="nt">retention</span><span class="p">:</span>
-<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="w">  </span><span class="nt">snapshots_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
-<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a><span class="w">  </span><span class="nt">findings_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
-<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a><span class="w">  </span><span class="nt">actions_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span>
-<a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a><span class="w">  </span><span class="nt">explains_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
-<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="w">  </span><span class="nt">sage_size_warning_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a>
-<a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a><span class="nt">briefing</span><span class="p">:</span>
-<a id="__codelineno-2-68" name="__codelineno-2-68" href="#__codelineno-2-68"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">         </span><span class="c1"># cron expression</span>
+<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a><span class="w">    </span><span class="nt">rejection_memory</span><span class="p">:</span><span class="w">            </span><span class="c1"># skip re-measuring ideas HypoPG already rejected</span>
+<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="w">      </span><span class="nt">max_age_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7</span>
+<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a><span class="w">      </span><span class="nt">call_volume_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">       </span><span class="c1"># material change: calls or mean time 2x, rows 2x,</span>
+<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a><span class="w">      </span><span class="nt">mean_time_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">         </span><span class="c1"># or a target query appears/disappears</span>
+<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a><span class="w">      </span><span class="nt">row_estimate_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="w">      </span><span class="nt">prompt_max_shapes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="w">      </span><span class="nt">skip_llm_after</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">          </span><span class="c1"># stop asking the model after 3 wasted proposals</span>
+<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a><span class="w">  </span><span class="nt">optimizer_llm</span><span class="p">:</span><span class="w">                 </span><span class="c1"># optional second model for optimizer</span>
+<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_OPTIMIZER_LLM_API_KEY}</span>
+<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>
+<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a><span class="nt">api</span><span class="p">:</span>
+<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:8080"</span>
+<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a><span class="w">  </span><span class="c1"># Web UI and /api/v1 endpoints are session-authenticated.</span>
+<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a><span class="w">  </span><span class="c1"># The first local admin is bootstrapped automatically.</span>
+<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>
+<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a><span class="nt">alerting</span><span class="p">:</span>
+<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a><span class="w">  </span><span class="nt">check_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a><span class="w">  </span><span class="nt">slack_webhook_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_SLACK_WEBHOOK}</span>
+<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="w">  </span><span class="nt">pagerduty_routing_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_PAGERDUTY_KEY}</span>
+<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="w">  </span><span class="nt">routes</span><span class="p">:</span>
+<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span>
+<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a><span class="w">      </span><span class="nt">channels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">slack</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pagerduty</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a>
+<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="nt">prometheus</span><span class="p">:</span>
+<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:9187"</span>
+<a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a>
+<a id="__codelineno-2-68" name="__codelineno-2-68" href="#__codelineno-2-68"></a><span class="nt">retention</span><span class="p">:</span>
+<a id="__codelineno-2-69" name="__codelineno-2-69" href="#__codelineno-2-69"></a><span class="w">  </span><span class="nt">snapshots_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
+<a id="__codelineno-2-70" name="__codelineno-2-70" href="#__codelineno-2-70"></a><span class="w">  </span><span class="nt">findings_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
+<a id="__codelineno-2-71" name="__codelineno-2-71" href="#__codelineno-2-71"></a><span class="w">  </span><span class="nt">actions_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span>
+<a id="__codelineno-2-72" name="__codelineno-2-72" href="#__codelineno-2-72"></a><span class="w">  </span><span class="nt">explains_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
+<a id="__codelineno-2-73" name="__codelineno-2-73" href="#__codelineno-2-73"></a><span class="w">  </span><span class="nt">sage_size_warning_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-2-74" name="__codelineno-2-74" href="#__codelineno-2-74"></a>
+<a id="__codelineno-2-75" name="__codelineno-2-75" href="#__codelineno-2-75"></a><span class="nt">briefing</span><span class="p">:</span>
+<a id="__codelineno-2-76" name="__codelineno-2-76" href="#__codelineno-2-76"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">         </span><span class="c1"># cron expression</span>
 </code></pre></div>
 <hr />
 <h2 id="key-settings-reference">Key Settings Reference<a class="headerlink" href="#key-settings-reference" title="Permanent link">&para;</a></h2>
@@ -1463,7 +1537,7 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <tr>
 <td><code>trust.level</code></td>
 <td><code>observation</code></td>
-<td>Trust tier: <code>observation</code>, <code>advisory</code>, <code>autonomous</code></td>
+<td>Autonomy ceiling: <code>observation</code>, <code>advisory</code>, <code>autonomous</code>. The trust ledger decides each class's level; this is the most it may use, never a grant</td>
 </tr>
 <tr>
 <td><code>trust.maintenance_window</code></td>
@@ -1473,17 +1547,17 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <tr>
 <td><code>trust.ramp_start</code></td>
 <td>(auto)</td>
-<td>Auto-persisted on first start; set to override</td>
+<td>When pg_sage began observing the database. Auto-persisted on first start; set to override</td>
 </tr>
 <tr>
 <td><code>trust.ramp_safe_hours</code></td>
 <td><code>192</code></td>
-<td>Hours after <code>ramp_start</code> before SAFE actions may run unattended (8 days), <code>1</code>-<code>8760</code>. Actions that cannot be rolled back always wait at least <code>192</code></td>
+<td>Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, <code>1</code>-<code>8760</code>. A floor, never a grant. Actions that cannot be rolled back always wait at least <code>192</code></td>
 </tr>
 <tr>
 <td><code>trust.ramp_moderate_hours</code></td>
 <td><code>744</code></td>
-<td>Hours after <code>ramp_start</code> before MODERATE actions may run unattended (31 days), <code>1</code>-<code>8760</code>, at least <code>ramp_safe_hours</code>. Actions that cannot be rolled back always wait at least <code>744</code></td>
+<td>Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3, 31 days, <code>1</code>-<code>8760</code>, at least <code>ramp_safe_hours</code>. A floor, never a grant. Actions that cannot be rolled back always wait at least <code>744</code></td>
 </tr>
 </tbody>
 </table>
@@ -1516,6 +1590,148 @@ applies the table above. Trust never promotes <code>manual</code> to <code>auto<
 <p>HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and <code>VACUUM FULL</code> do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.</p>
+<h3 id="one-trust-system">One trust system<a class="headerlink" href="#one-trust-system" title="Permanent link">&para;</a></h3>
+<p>Every action class pg_sage runs on its own initiative has one level per database in the
+trust ledger: the incident remediations (see <a href="#sage-sre-earned-autonomy">Sage SRE earned autonomy</a>)
+and the self-initiated classes, grouped by their goal:</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Classes</th>
+<th>A success is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tuning</code></td>
+<td><code>index_create</code>, <code>config_guc</code> (GUC), <code>autovacuum_tuning</code> (reloption), <code>query_hint</code>, <code>statistics</code></td>
+<td>an <code>improved</code> verdict</td>
+</tr>
+<tr>
+<td><code>hygiene</code></td>
+<td><code>index_drop</code>, <code>vacuum</code>, <code>analyze</code>, <code>retention</code>, <code>reindex</code></td>
+<td>an <code>improved</code> verdict, or a <code>neutral</code> one that held (the action was not rolled back)</td>
+</tr>
+</tbody>
+</table>
+<p>The levels are the earned-autonomy levels: L1 writes the script (the default), L2 hands the
+action to one-click approval, L3 runs it unattended (SAFE classes at any time, MODERATE ones
+inside the maintenance window, one object at a time). Irreversible classes (<code>retention</code>)
+never exceed L1.</p>
+<p><strong>The ledger grants, the operator caps.</strong> <code>trust.level</code> and the <code>tier3_safe</code> /
+<code>tier3_moderate</code> flags are the operator's ceiling and kill switch, and stay so permanently:
+the ledger never grants past them, and lowering them takes autonomy back at once (without
+touching the earned levels, which return when the cap is raised). <code>execution_mode</code> and the
+standing policy cap the same way: <code>advisory</code> never runs a MODERATE class unattended whatever
+its level, and <code>tier3_moderate: false</code> keeps every MODERATE class at approval.</p>
+<p><strong>Evidence.</strong> The verification verdicts of sage.action_outcome are the evidence:
+<code>insufficient_evidence</code> and <code>unverifiable</code> count neither way. A <code>regressed</code> verdict, an
+operator's rollback of the action or an operator's rejection of its approval item demotes the
+class one level at once, records the cause in the history and notifies an operator through
+the notification rules for failed actions (<code>action_failed</code>). The automatic revert of a
+neutral index create (no gain) is not a demerit. A demerit already known when the level was
+set does not demote it again.</p>
+<p><strong>Promotion.</strong> pg_sage proposes one level up when the class has (defaults, configurable under
+<code>sre.autonomy.class_promotion</code>):
+- L2: <code>min_successes_l2</code> (3) verified successes since its last demerit, and the database
+  observed for at least <code>trust.ramp_safe_hours</code>;
+- L3: <code>min_successes_l3</code> (10) successes since the last demerit, <code>min_success_rate_pct</code> (80%)
+  of decided outcomes since then successful, and the database observed for at least
+  <code>trust.ramp_moderate_hours</code> (<code>trust.ramp_safe_hours</code> for SAFE classes).</p>
+<p>An admin approves every promotion (the Trust page, or the earned-autonomy API). The ramp is
+only a floor: it never grants anything by itself.</p>
+<p><strong>Existing configurations.</strong> On the first start of a database under the unified ledger, the
+level the time ramp had already given each self-initiated class is kept as a
+<strong>grandfathered</strong> level (L3 when it ran unattended, L2 when it queued for approval), once.
+Grandfathered levels demote like any other; the ramp elapsing later grants nothing. The
+startup log explains the new meaning of <code>trust.level</code> and the ramp, and lists what was
+grandfathered. <code>sre.autonomy.enforce: false</code> keeps the legacy behaviour (the ramp grants)
+and is logged as a warning. Rollbacks of pg_sage's own changes and owner-declared retention
+deletes are never withheld by the ledger.</p>
+<p>The <strong>Trust</strong> page (and <code>GET /api/v1/trust?database=</code>) shows every database x family x class
+with its level, effective level, evidence counts, last change and why, and the path to the
+next level. MCP <code>sre_get_autonomy</code> carries the same grid as <code>trust</code>. Each view is read with a
+fixed number of set-based statements per database, however many classes and outcomes it
+shows. Every approval card carries its action class's row as <code>trust</code> (level, evidence
+counts, path to the next level) and one <code>Trust:</code> line in Slack and Telegram.</p>
+<h3 id="shadow-mode">Shadow mode<a class="headerlink" href="#shadow-mode" title="Permanent link">&para;</a></h3>
+<p>Below a self-initiated class's earned level (anything under L3), pg_sage does not only stay
+quiet or queue for approval: it records a <strong>shadow decision</strong> for every action it would have
+taken. The decision holds the exact SQL, the rollback (for a configuration change, the one
+that restores the captured prior value), the prediction (the same model as real actions:
+targeted queries, metric, expected change, method), the evidence, and the gate's verdict had
+the class been trusted (for example "execute", or "queue for approval" when <code>trust.level</code>,
+the window or a multi-object target would still hold it). Shadow mode never runs anything and
+reads only catalogs, statistics views and sage tables, so it never locks a user object; it
+adds no EXPLAIN or HypoPG call to the cycle. The approval queue works as before; the shadow
+is recorded beside it. A finding is recorded at most once per day per fingerprint (class,
+object and normalized SQL); later sightings only count. A class promoted to L3 stops being
+shadowed; a demoted one resumes. With <code>sre.autonomy.enforce: false</code>, in <code>manual</code> mode or with
+the executor off, nothing is shadowed. Incident remediations keep their own evidence (bench,
+shadow reviews) and are not shadowed here.</p>
+<p><strong>Scoring.</strong> Each pending decision is scored later, deterministically, by the best evidence
+available, in this order (never from model text):</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>When</th>
+<th>Score</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>operator</code></td>
+<td>an operator decided the same proposal after it was recorded</td>
+<td>rejected: incorrect; approved: by the executed action's verdict</td>
+</tr>
+<tr>
+<td><code>applied</code></td>
+<td>the same change (matched by normalized SQL) ran later through pg_sage</td>
+<td>by its verification verdict</td>
+</tr>
+<tr>
+<td><code>external</code></td>
+<td>an index create or drop pg_sage wanted shows up in the catalog (a migration, psql)</td>
+<td>verified like pg_sage's own actions: call-weighted before/after windows around when it appeared (<code>verify.*</code>; drops over <code>verify.drop_window_hours</code>)</td>
+</tr>
+<tr>
+<td><code>hypopg</code></td>
+<td>an index create, after a day without the above, whose targeted queries still ran</td>
+<td>the optimizer's what-if bar (<code>optimizer.hypopg_min_improvement_pct</code>): verified is correct, rejected incorrect</td>
+</tr>
+<tr>
+<td><code>none</code></td>
+<td>nothing applied within 7 days</td>
+<td>unscored</td>
+</tr>
+</tbody>
+</table>
+<p>Verdicts map by the family's rule: <code>improved</code> is correct (hygiene: a <code>neutral</code> that held is
+correct too), <code>regressed</code> or an operator's rollback is incorrect, a tuning <code>neutral</code> is
+neutral, <code>insufficient_evidence</code> and <code>unverifiable</code> are unscored. A matched action still being
+verified is waited for (up to 21 days).</p>
+<p><strong>Trust.</strong> Only <code>external</code> and <code>hypopg</code> scores count toward promotion as shadow evidence:
+<code>operator</code> and <code>applied</code> scores rest on actions the ledger already counts as real outcomes,
+and counting them again would double the evidence. Shadow evidence counts like real evidence
+of the family (distinct decisions), is labelled "shadow" in the class record and in every
+promotion proposal (for example <code>10 (3 real, 7 shadow)</code>), and an admin still approves every
+promotion. L2 may be earned from shadow evidence alone (each action is still approved by a
+person); <strong>L3 needs at least 3 real verified successes</strong> since the last demerit, and shadow
+successes fill at most the rest of the L3 bar (7 of the default 10; when
+<code>min_successes_l3</code> is lowered, the real minimum follows it down and shadow fills nothing). An
+incorrect shadow decision resets the class's success streak but never demotes an earned
+level; only real regressions, rollbacks and rejections demote.</p>
+<p><strong>Surfaces.</strong> The Trust page shows, per class, the shadow decisions and their scores and, on
+demand, what pg_sage would have done (SQL, prediction, verdict had it been trusted, score and
+source). <code>GET /api/v1/shadow-decisions?database=&amp;class=&amp;status=&amp;score=&amp;limit=</code> serves the
+same per-class summary and the newest decisions; <code>GET /api/v1/trust</code> carries the summary per
+database as <code>shadow</code>. An approval card shows its class's shadow history and whether the
+proposal itself was a shadow decision (your decision then scores it). Prometheus:
+<code>pg_sage_shadow_decisions_total{database,class,verdict}</code> and
+<code>pg_sage_shadow_scores_total{database,class,score,source}</code>. Scored decisions age out with
+<code>retention.actions_days</code>; pending ones are kept until scored.</p>
 <h3 id="verifying-actions">Verifying actions<a class="headerlink" href="#verifying-actions" title="Permanent link">&para;</a></h3>
 <p>Every action pg_sage takes records, before it runs, what it expects: the queries it
 targets, the metric that should move and by how much, and how that was predicted (<code>hypopg</code>,
@@ -1720,6 +1936,41 @@ through the policy gate, trust level and execution mode, like any other recommen
 <td>Max new indexes per table per cycle</td>
 </tr>
 <tr>
+<td><code>llm.optimizer.rejection_memory.enabled</code></td>
+<td><code>true</code></td>
+<td>Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the prompt lists the shapes already measured. Applies to model candidates only, never to deterministic findings or to re-checks of open recommendations. Rows live in <code>sage.optimizer_rejection</code> and age out with <code>retention.findings_days</code> (YAML only)</td>
+</tr>
+<tr>
+<td><code>llm.optimizer.rejection_memory.max_age_days</code></td>
+<td><code>7</code></td>
+<td>Days a rejection stays valid; then the idea may be measured again (1-90)</td>
+</tr>
+<tr>
+<td><code>llm.optimizer.rejection_memory.call_volume_ratio</code></td>
+<td><code>2</code></td>
+<td>A target query whose call count changed by at least this factor (up or down) is a material workload change (&gt;1-1000)</td>
+</tr>
+<tr>
+<td><code>llm.optimizer.rejection_memory.mean_time_ratio</code></td>
+<td><code>2</code></td>
+<td>Same, for a target query's mean execution time (&gt;1-1000)</td>
+</tr>
+<tr>
+<td><code>llm.optimizer.rejection_memory.row_estimate_ratio</code></td>
+<td><code>2</code></td>
+<td>Same, for the table's live-row estimate (&gt;1-1000). A target query appearing or disappearing is always a material change</td>
+</tr>
+<tr>
+<td><code>llm.optimizer.rejection_memory.prompt_max_shapes</code></td>
+<td><code>5</code></td>
+<td>Most recent rejected shapes per table listed in the prompt as already measured (1-20)</td>
+</tr>
+<tr>
+<td><code>llm.optimizer.rejection_memory.skip_llm_after</code></td>
+<td><code>3</code></td>
+<td>After this many consecutive proposals for a table were all memory hits or fresh what-if rejections, with no material change since the first of them, the optimizer stops asking the model about the table until a material change or <code>max_age_days</code> (1-100). Operator-requested runs always ask. Exported as <code>pg_sage_optimizer_llm_calls_skipped_total{database}</code>; skipped what-ifs as <code>pg_sage_optimizer_whatif_skipped_total{database}</code></td>
+</tr>
+<tr>
 <td><code>llm.optimizer_llm.enabled</code></td>
 <td><code>false</code></td>
 <td>Dedicated optimizer model; adds a second client with its own <code>token_budget_daily</code></td>
@@ -1791,12 +2042,83 @@ to disabled (<code>clone.provider: none</code>) and stale clones are recommendat
   accepted and currently behaves like <code>park</code> (the action waits for the next
   cycle, not for the lease holder).</li>
 </ul>
+<h4 id="blast-radius-budgets">Blast-radius budgets<a class="headerlink" href="#blast-radius-budgets" title="Permanent link">&para;</a></h4>
+<p>Self-initiated changes are bounded per rolling 24-hour window by
+<code>blast_radius</code>. Housekeeping and performance changes have separate budgets,
+so a burst of index cleanup can never hold back an evidence-backed index or
+setting change:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">"blast_radius"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">"max_rows_rewritten"</span><span class="p">:</span><span class="w"> </span><span class="mi">5000000</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">"max_tables_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">"hygiene"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"max_tables_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="nt">"max_changes_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">}</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">},</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nt">"rate_limits"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"max_self_initiated_changes_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">}</span>
+</code></pre></div>
+<p>The performance budget is <code>blast_radius.max_tables_per_window</code> plus
+<code>rate_limits.max_self_initiated_changes_per_window</code> (a document may also
+spell it <code>blast_radius.performance: {max_tables_per_window,
+max_changes_per_window}</code>); <code>hygiene</code> is optional and defaults per field.</p>
+<ul>
+<li><strong>Kinds.</strong> <code>hygiene</code> is unused and redundant index drops (including drops in
+  leaked test schemas), <code>VACUUM</code> and <code>ANALYZE</code>. Everything else is
+  <code>performance</code>: index builds, reindexes, settings, autovacuum tuning, query
+  hints and any action type pg_sage does not recognize. The kind comes from the
+  action's typed contract (the statement that would run), never from evidence
+  or an LLM.</li>
+<li><strong><code>max_tables_per_window</code></strong>: distinct tables a kind may touch in the window,
+  counting the change being decided (an index counts as its table).
+  Re-touching a table already counted is free. <code>0</code> admits no table.</li>
+<li><strong><code>max_changes_per_window</code></strong>: self-initiated changes a kind may make in the
+  window. Operator-approved changes and <code>ddl_conflict</code> parks do not count.</li>
+<li><strong><code>max_rows_rewritten</code></strong>: one budget for both kinds. Each change is charged
+  pg_sage's estimate of the rows it rewrites, taken from <code>pg_class.reltuples</code>
+  (or the live-tuple count, whichever is larger, summed over every leaf
+  partition) when it is authorized: <code>VACUUM FULL</code>, <code>CLUSTER</code>, <code>REINDEX</code>
+  without <code>CONCURRENTLY</code>, and <code>ALTER TABLE</code> that changes a column type, sets
+  <code>LOGGED</code>/<code>UNLOGGED</code>, a tablespace or an access method, or adds a generated,
+  identity or non-literal-default column (a function default such as <code>now()</code>
+  is assumed to rewrite). Every other change rewrites <code>0</code> rows. A rewrite
+  whose table cannot be found is blocked (<code>policy_unavailable</code>), never
+  counted as <code>0</code>.</li>
+<li><strong>Defaults.</strong> Both profiles split the previous single limit (20 tables, 50
+  changes) evenly: 10 tables and 25 changes per kind.</li>
+<li><strong>Documents written before the split</strong> keep working unchanged:
+  <code>blast_radius.max_tables_per_window</code> and
+  <code>rate_limits.max_self_initiated_changes_per_window</code> are read as the
+  performance budget, and hygiene gets the defaults above (so such a policy
+  allows up to 10 hygiene tables on top of its old limit). A document may name
+  a performance limit both ways (also as a <code>performance</code> block) only if the
+  values agree. Saving a policy writes the performance budget in those
+  legacy fields, and a <code>hygiene</code> block only when it differs from the
+  default, so a sidecar from before the split still reads a saved policy
+  (it fails closed, <code>policy_unavailable</code>, on a customized hygiene block).</li>
+<li><strong>When a budget is full</strong> the change is parked (<code>blast_radius_exceeded</code> for
+  tables and rows, <code>rate_limit_exceeded</code> for changes) and retried next cycle.
+  The decision's <code>evidence.budget_detail</code> says which budget is full and when it
+  next frees, for example <code>hygiene budget full: 11 of 10 tables in the 24h
+  window; next frees at 2026-10-04T18:00:02Z</code>.</li>
+<li><strong>Concurrent candidates.</strong> An authorized change holds its slot from the
+  authorization until it has run (at most twice the DDL timeout plus a
+  minute, if the sidecar dies in between), so two candidates can never both
+  take the last slot, even across sidecar processes: the usage read and the
+  recorded decision share one transaction holding a
+  <code>pg_advisory_xact_lock</code> keyed by the database.</li>
+<li><strong>Emergency mitigations bypass the kind budgets.</strong> A wraparound <code>VACUUM</code>
+  while the XID runway is critical, a space-freeing <code>VACUUM</code>, unused-index
+  drop or <code>REINDEX</code> while the disk runway is critical (urgency critical with
+  the hard deadline still ahead, as the custodian computed it), and the
+  revert or rollback of a change pg_sage made itself are never parked by a
+  kind budget and are charged to none (<code>evidence.budget_kind = bypass</code>).
+  They are recorded with the reason <code>budget bypass: &lt;why&gt;</code> and still pass
+  every other check: change classes, guardrails, the refusal set, windows,
+  leases, lock ceilings and the shared <code>max_rows_rewritten</code> bound.</li>
+</ul>
 <h4 id="retention-contracts">Retention contracts<a class="headerlink" href="#retention-contracts" title="Permanent link">&para;</a></h4>
 <p>The only way pg_sage deletes user rows is a retention contract declared with the
 MCP tool <code>declare_table_contract</code>. The owner names both the window and the column
 whose age defines it; pg_sage never infers the column:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="nt">"table"</span><span class="p">:</span><span class="w"> </span><span class="s2">"public.events"</span><span class="p">,</span><span class="w"> </span><span class="nt">"append_only"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w"> </span><span class="nt">"retention"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"interval"</span><span class="p">:</span><span class="w"> </span><span class="s2">"90 days"</span><span class="p">,</span><span class="w"> </span><span class="nt">"column"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ingested_at"</span><span class="p">}}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span><span class="nt">"table"</span><span class="p">:</span><span class="w"> </span><span class="s2">"public.events"</span><span class="p">,</span><span class="w"> </span><span class="nt">"append_only"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w"> </span><span class="nt">"retention"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"interval"</span><span class="p">:</span><span class="w"> </span><span class="s2">"90 days"</span><span class="p">,</span><span class="w"> </span><span class="nt">"column"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ingested_at"</span><span class="p">}}</span>
 </code></pre></div>
 <ul>
 <li><code>retention.column</code> is required whenever <code>retention.interval</code> is set. It must
@@ -2640,19 +2962,19 @@ configurable, the spec value is the default, and each has a minimum: no setting 
 to skip its check.</p>
 <p>Use this only where you accept the risk:</p>
 <!-- fast-elevation-profile:start -->
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">trust</span><span class="p">:</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">ramp_safe_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">              </span><span class="c1"># SAFE actions after 1 hour (spec: 192)</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">ramp_moderate_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">          </span><span class="c1"># MODERATE actions after 4 hours (spec: 744)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nt">verify</span><span class="p">:</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">io_baseline_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># learned IO baseline after 2 hours (spec: 7 days)</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">drop_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># verify an index drop over 2 hours (spec: 168)</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nt">sre</span><span class="p">:</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">trust</span><span class="p">:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">ramp_safe_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">              </span><span class="c1"># propose L2 after 1 hour observed (spec: 192)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">ramp_moderate_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">          </span><span class="c1"># propose MODERATE L3 after 4 hours (spec: 744)</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nt">verify</span><span class="p">:</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">io_baseline_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># learned IO baseline after 2 hours (spec: 7 days)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">drop_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># verify an index drop over 2 hours (spec: 168)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="nt">sre</span><span class="p">:</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
 </code></pre></div>
 <!-- fast-elevation-profile:end -->
 
