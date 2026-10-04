@@ -2,13 +2,17 @@ package optimizer
 
 // Recommendation is a validated index recommendation from the optimizer.
 type Recommendation struct {
-	Table     string `json:"table"`
-	DDL       string `json:"ddl"`
-	DropDDL   string `json:"drop_ddl,omitempty"`
-	Rationale string `json:"rationale"`
-	Severity  string `json:"severity"`
-	IndexType string `json:"index_type"`
-	Category  string `json:"category"`
+	Table   string `json:"table"`
+	DDL     string `json:"ddl"`
+	DropDDL string `json:"drop_ddl,omitempty"`
+	// Alongside are in-flight index DDLs on the same table (queued or
+	// proposed, not built yet) the what-if creates as hypothetical indexes
+	// before measuring this one.
+	Alongside []string `json:"-"`
+	Rationale string   `json:"rationale"`
+	Severity  string   `json:"severity"`
+	IndexType string   `json:"index_type"`
+	Category  string   `json:"category"`
 	// IndexCategory is the LLM label; Category is fixed (missing_index).
 	IndexCategory           string   `json:"index_category,omitempty"`
 	AffectedQueries         []string `json:"affected_queries,omitempty"`

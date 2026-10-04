@@ -28,18 +28,21 @@ var systemPrompt = strings.Join([]string{
 		"object owned by the application's migrations becomes a migration for the " +
 		"application, so say so in the rationale.",
 	"5. Do not repeat an index shape listed as already measured and rejected.",
-	"6. An index costs every insert and non-HOT update; check write_cost on " +
+	"6. Do not propose an index an existing or in-flight index already serves, or one " +
+		"that would make such an index redundant (same leading keys with a weaker " +
+		"predicate or more keys): a replacement is not an independent create.",
+	"7. An index costs every insert and non-HOT update; check write_cost on " +
 		"write-heavy tables. Drop only indexes that are never used or covered by " +
 		"another index, never unique or primary keys.",
-	"7. work_mem applies per sort or hash node per connection: keep max_connections " +
+	"8. work_mem applies per sort or hash node per connection: keep max_connections " +
 		"x work_mem x hash_mem_multiplier within memory, and never above 256MB " +
 		"without saying why. Never set an autovacuum scale factor to 0.",
-	"8. Hints use pg_hint_plan syntax for one statement, table-scoped (IndexScan, " +
+	"9. Hints use pg_hint_plan syntax for one statement, table-scoped (IndexScan, " +
 		"BitmapScan, NoSeqScan, HashJoin, ...). Do not use Set(enable_seqscan off) " +
 		"or other planner toggles.",
-	"9. Extended statistics: 2 to 8 plain columns of one table, kinds ndistinct, " +
+	"10. Extended statistics: 2 to 8 plain columns of one table, kinds ndistinct, " +
 		"dependencies or mcv, when correlated columns are misestimated.",
-	"10. If nothing is warranted, answer {\"proposals\":[]} with a note.",
+	"11. If nothing is warranted, answer {\"proposals\":[]} with a note.",
 	llm.UntrustedDataRule,
 }, "\n")
 

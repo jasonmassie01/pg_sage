@@ -123,7 +123,7 @@ func judgeGolden(t *testing.T, gc goldenCase) []Judged {
 	if c.ID == "" {
 		t.Fatalf("fixture %s does not produce case %s", gc.Fixture, caseID)
 	}
-	pk := h.agent.packetFor(context.Background(), c, cur, w, confirmed)
+	pk := h.agent.packetFor(context.Background(), c, cur, w, confirmed, nil)
 	answer, err := ParseAnswer(gc.Answer)
 	if err != nil {
 		t.Fatalf("parse golden answer: %v", err)

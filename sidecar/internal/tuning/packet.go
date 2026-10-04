@@ -76,7 +76,7 @@ func (p *packetBuilder) text() string {
 
 // packetFor builds the packet of case c on snapshot cur.
 func (a *Agent) packetFor(ctx context.Context, c Case, cur *collector.Snapshot, w Workload,
-	confirmed []facts.Fact) packet {
+	confirmed []facts.Fact, inflight map[string][]string) packet {
 	header := fmt.Sprintf("Case %s (%s): %s\n", c.ID, c.Kind, c.Reason)
 	instructions := answerInstructions(a.allowedTypes())
 	p := &packetBuilder{evidence: evidenceSet{},
@@ -84,6 +84,7 @@ func (a *Agent) packetFor(ctx context.Context, c Case, cur *collector.Snapshot, 
 	p.line("Case %s, %s: %s", c.ID, c.Kind, c.Reason)
 	writeStatements(p, c)
 	a.writeTables(ctx, p, c, cur, w)
+	writeInFlight(p, c, inflight)
 	writeFacts(p, confirmed, a.now(), c.Tables)
 	writeSettings(p, cur)
 	return packet{Text: header + llm.UntrustedData("tuning_case", p.text()) + "\n\n" +
@@ -133,6 +134,17 @@ func (a *Agent) writeTables(ctx context.Context, p *packetBuilder, c Case,
 		a.writeTableContext(ctx, p, cur, name)
 		if ro := reloptions(cur, ts); ro != "" {
 			p.line("   storage parameters: %s", ro)
+		}
+	}
+}
+
+// writeInFlight lists the case tables' index creates that are queued or
+// proposed but not built: a candidate must not duplicate or subsume them.
+func writeInFlight(p *packetBuilder, c Case, inflight map[string][]string) {
+	for _, t := range c.Tables {
+		for _, ddl := range inflight[t] {
+			p.line("   in flight on %s (queued or proposed, not built): %s", t,
+				clip(oneLine(ddl), maxStatementChars))
 		}
 	}
 }

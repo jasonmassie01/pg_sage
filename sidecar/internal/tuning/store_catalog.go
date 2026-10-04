@@ -147,3 +147,29 @@ func relationRefs(tables, indexes []string) (refs, kinds []string,
 	add("i", indexes)
 	return refs, kinds, asked
 }
+
+const inFlightIndexesSQL = `/* pg_sage */
+SELECT proposed_sql FROM sage.action_queue
+WHERE status IN ('pending', 'approved') AND proposed_sql ILIKE 'CREATE%INDEX%'
+ORDER BY proposed_at DESC
+LIMIT 500`
+
+func (s *postgresStore) InFlightIndexes(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, inFlightIndexesSQL)
+	if err != nil {
+		return nil, fmt.Errorf("read in-flight indexes: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var sql string
+		if err := rows.Scan(&sql); err != nil {
+			return nil, fmt.Errorf("scan in-flight index: %w", err)
+		}
+		out = append(out, sql)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read in-flight indexes: %w", err)
+	}
+	return out, nil
+}

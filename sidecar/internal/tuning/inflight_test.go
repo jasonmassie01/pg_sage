@@ -131,3 +131,16 @@ func TestTune_OpenIndexFindingIsInFlightForOtherCases(t *testing.T) {
 		}
 	}
 }
+
+func TestPacket_ListsInFlightIndexes(t *testing.T) {
+	h := newHarness(t)
+	prev, cur := ordersPair()
+	w := ClassifyWorkload(cur, nil, t0)
+	cs := DetectCases(cur, prev, w, DefaultThresholds())
+	pk := h.agent.packetFor(context.Background(), cs[0], cur, w, nil,
+		map[string][]string{"public.orders": {inflightLive}})
+	if !strings.Contains(pk.Text, "in flight on public.orders") ||
+		!strings.Contains(pk.Text, "orders_live_status_created") {
+		t.Fatalf("the model sees the in-flight indexes: %s", pk.Text)
+	}
+}

@@ -155,7 +155,8 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 		}
 	}
 	if len(ask) > 0 && a.deps.Model != nil {
-		cy := &cycle{cur: cur, prev: prev, w: w, all: all, confirmed: confirmedOnly(all)}
+		cy := &cycle{cur: cur, prev: prev, w: w, all: all, confirmed: confirmedOnly(all),
+			open: kept}
 		out.Findings = append(out.Findings, a.askCases(ctx, cy, ask)...)
 	} else {
 		a.noteCycle(nil, 0, 0)

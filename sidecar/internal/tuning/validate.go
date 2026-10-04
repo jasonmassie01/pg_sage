@@ -63,6 +63,9 @@ const (
 	// ReasonVerificationPending: the setting's last change is still being
 	// verified.
 	ReasonVerificationPending Reason = "verification_pending"
+	// ReasonSubsumes: the index would make an existing or in-flight index
+	// redundant; a replacement is not an independent create.
+	ReasonSubsumes Reason = "subsumes_index"
 )
 
 // Judged is the decision on one proposal.
@@ -94,12 +97,13 @@ type validator struct {
 	window     evidenceWindow
 	history    map[string][]SettingAction
 	historyErr error
+	flight     inFlight
 }
 
 func (a *Agent) newValidator(cur *collector.Snapshot, w Workload, confirmed []facts.Fact,
 	rejected map[string]bool) *validator {
 	return &validator{a: a, cur: cur, w: w, confirmed: confirmed, rejected: rejected,
-		dropping: map[string]bool{}}
+		dropping: map[string]bool{}, flight: inFlight{err: errNoInFlight}}
 }
 
 func reject(p Proposal, r Reason, format string, args ...any) Judged {

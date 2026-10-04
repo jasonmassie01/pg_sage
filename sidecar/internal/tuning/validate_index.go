@@ -66,8 +66,12 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	if !ok {
 		return reject(p, ReasonUnavailable, "no table context for %s", table)
 	}
+	alongside, family, bad := v.overlap(p, table, ddl, tc)
+	if bad != nil {
+		return *bad
+	}
 	adm := v.a.deps.Indexes.Admit(ctx, optimizer.Recommendation{DDL: ddl, Severity: "info",
-		Rationale: p.Rationale, IndexType: spec.Method,
+		Rationale: p.Rationale, IndexType: spec.Method, Alongside: alongside,
 		Category: optimizer.OptimizerCategory}, tc)
 	switch adm.Outcome {
 	case optimizer.AdmitAccepted:
@@ -77,6 +81,9 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 		return reject(p, ReasonWhatIfRejected, "%s", adm.Reason)
 	default:
 		return reject(p, ReasonInvalid, "%s", adm.Reason)
+	}
+	if family != "" {
+		v.flight.families[family] = ddl
 	}
 	f := analyzer.OptimizerRecommendationFinding(adm.Rec, tc.PlanSource)
 	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: []string{table},

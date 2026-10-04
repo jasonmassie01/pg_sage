@@ -204,7 +204,7 @@ func TestPacket_LabelsStatementsWithoutAnInterval(t *testing.T) {
 	if len(cs) == 0 || cs[0].Statements[0].Windowed {
 		t.Fatalf("without a previous snapshot nothing is windowed: %+v", cs)
 	}
-	pk := h.agent.packetFor(context.Background(), cs[0], cur, w, nil)
+	pk := h.agent.packetFor(context.Background(), cs[0], cur, w, nil, nil)
 	if !strings.Contains(pk.Text, "no earlier sample") {
 		t.Fatalf("cumulative counters are labeled as such:\n%s", pk.Text)
 	}

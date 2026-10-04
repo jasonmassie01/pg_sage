@@ -218,9 +218,12 @@ func cloneDetail(d map[string]any) map[string]any {
 	return out
 }
 
-// prepare reads what every setting judgment of the cycle needs: the
-// interval the evidence covers and the recent setting changes.
-func (v *validator) prepare(ctx context.Context, prev *collector.Snapshot) {
+// prepare reads what the cycle's judgments need: the interval the evidence
+// covers, the recent setting changes and the in-flight indexes (queued, or
+// the open proposals).
+func (v *validator) prepare(ctx context.Context, prev *collector.Snapshot,
+	open []analyzer.Finding) {
+	v.loadInFlight(ctx, open)
 	if priorCounters(v.cur, prev) != nil {
 		v.window = evidenceWindow{from: prev.CollectedAt, to: v.cur.CollectedAt}
 	}

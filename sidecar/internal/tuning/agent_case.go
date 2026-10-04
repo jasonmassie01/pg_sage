@@ -33,6 +33,7 @@ type cycle struct {
 	v         *validator
 	cal       Calibration
 	day       dayBudget
+	open      []analyzer.Finding // the open findings kept this cycle
 }
 
 // askCases asks the model about the cases, within the cycle's case cap,
@@ -50,7 +51,7 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	cy.budget = NewCycleBudget(t.MaxRequestsPerCycle, tokens)
 	cy.tools = a.cycleTools()
 	cy.v = a.newValidator(cy.cur, cy.w, cy.confirmed, a.operatorRejected(ctx))
-	cy.v.prepare(ctx, cy.prev)
+	cy.v.prepare(ctx, cy.prev, cy.open)
 	cy.cal = a.calibration(ctx)
 	judged, deferred, asked, stopped := a.askInTurn(ctx, cy, cases)
 	a.queue.advance(deferred)
@@ -117,7 +118,7 @@ func (a *Agent) calibration(ctx context.Context) Calibration {
 // reports that the cycle must not ask about more cases (budget spent or
 // the provider refusing).
 func (a *Agent) runCase(ctx context.Context, cy *cycle, c Case) ([]Judged, bool) {
-	pk := a.packetFor(ctx, c, cy.cur, cy.w, cy.confirmed)
+	pk := a.packetFor(ctx, c, cy.cur, cy.w, cy.confirmed, cy.v.flight.ddl)
 	tb := a.newToolbox(c, cy.cur, cy.prev, cy.w, cy.tools)
 	conv := Conversation{System: systemPrompt, User: pk.Text + a.prefetch(ctx, tb, c),
 		Tools: a.toolSpecs(), Exec: tb.exec, MaxTurns: a.settings.Tuning.MaxTurnsPerCase,

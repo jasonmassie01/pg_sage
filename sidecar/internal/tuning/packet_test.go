@@ -23,7 +23,7 @@ func ordersPacket(t *testing.T, h *harness, confirmed []facts.Fact) packet {
 	if len(cs) == 0 {
 		t.Fatal("no case")
 	}
-	return h.agent.packetFor(context.Background(), cs[0], cur, w, confirmed)
+	return h.agent.packetFor(context.Background(), cs[0], cur, w, confirmed, nil)
 }
 
 func TestPacket_EvidenceAndContent(t *testing.T) {
@@ -58,7 +58,7 @@ func TestPacket_RedactsLiteralsAndNeutralizesDataTags(t *testing.T) {
 	if len(cs) != 1 {
 		t.Fatalf("cases = %v", caseIDs(cs))
 	}
-	pk := h.agent.packetFor(context.Background(), cs[0], cur, w, nil)
+	pk := h.agent.packetFor(context.Background(), cs[0], cur, w, nil, nil)
 	if strings.Contains(pk.Text, "alice@example.com") {
 		t.Fatal("string literals are redacted before the model sees them")
 	}
@@ -88,7 +88,7 @@ func TestPacket_IsBounded(t *testing.T) {
 		c.Statements = append(c.Statements, CaseStatement{QueryID: s.QueryID, Text: s.Query,
 			Class: ClassApp, Calls: 100, TotalMs: 49000})
 	}
-	pk := h.agent.packetFor(context.Background(), c, cur, w, nil)
+	pk := h.agent.packetFor(context.Background(), c, cur, w, nil, nil)
 	if len(pk.Text) > maxPacketBytes {
 		t.Fatalf("packet = %d bytes, bound %d", len(pk.Text), maxPacketBytes)
 	}
