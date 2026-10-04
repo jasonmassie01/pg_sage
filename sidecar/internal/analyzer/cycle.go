@@ -31,6 +31,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	if previous != nil {
 		filterSchemaExclusions(previous)
 	}
+	excluded := a.excludeFactSchemas(ctx, current, previous)
 
 	a.eval = newCycleEval()
 	// Load recently created indexes to prevent cooldown violations.
@@ -52,6 +53,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	all = append(all, a.checkSageFootprint(ctx, current)...)
 	all = append(all, a.checkSelfCost(ctx)...)
 	all = a.applyAppManaged(ctx, all)
+	all = a.applyFactFilter(ctx, all, excluded)
 	if current.Available("tables") && len(current.Tables) > 0 {
 		all = collapseCloneSchemas(current, all, a.cloneSignals(ctx))
 		a.eval.evaluated(CategoryCloneSchemas)

@@ -407,7 +407,8 @@ func migrationStatements() []string {
 		ddlOptimizerRejection,
 		ddlActionOutcome(),
 		ddlTrustLedger(),
-		ddlShadowMode())
+		ddlShadowMode(),
+		ddlFacts)
 }
 
 // ---------------------------------------------------------------------------

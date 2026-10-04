@@ -105,6 +105,8 @@ type Analyzer struct {
 	// selfCost meters pg_sage's own cost on this database (perf v1.8.3);
 	// read concurrently by /metrics.
 	selfCost *selfcost.Meter
+	// factFilter applies the confirmed facts (roadmap 2.3); nil: none.
+	factFilter FactFilter
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

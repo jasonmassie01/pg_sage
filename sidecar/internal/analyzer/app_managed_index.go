@@ -141,3 +141,16 @@ func (a *Analyzer) applyAppManaged(ctx context.Context, findings []Finding) []Fi
 	a.eval.evaluated(CategoryAppManagedIndex)
 	return markAppManaged(findings, managed)
 }
+
+// AppManagedIndex is the drop history of one index pg_sage dropped that
+// came back with the same definition.
+type AppManagedIndex = appManagedIndex
+
+// AppManagedIndexes returns, by lower-cased schema.index, the indexes
+// pg_sage dropped that exist again with the definition they had: the
+// evidence the facts detector cites when it proposes that the application's
+// migrations own them (roadmap 2.3).
+func AppManagedIndexes(ctx context.Context, q catalogread.Querier) (
+	map[string]AppManagedIndex, error) {
+	return loadAppManagedIndexes(ctx, q)
+}
