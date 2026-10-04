@@ -333,8 +333,8 @@ func (s *Service) recordOutcomeDemoting(ctx context.Context, o Outcome) (bool, *
 		d, err := s.demoteForDemerit(ctx, o, cause)
 		return true, d, err
 	}
-	if IsSelfInitiated(o.Family) ||
-		(o.Result != ResultHarmful && o.Result != ResultSafetyViolation) {
+	// A self-initiated harmful outcome is always a demerit (above).
+	if o.Result != ResultHarmful && o.Result != ResultSafetyViolation {
 		return true, nil, nil
 	}
 	return true, nil, s.demoteFamily(ctx, o)
