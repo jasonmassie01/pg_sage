@@ -28,6 +28,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Five-minute quickstart: quickstart.md
   - Walkthrough: walkthrough.md
   - Installation: installation.md
   - Configuration: configuration.md
