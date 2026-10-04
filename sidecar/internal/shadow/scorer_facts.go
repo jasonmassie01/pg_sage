@@ -25,11 +25,17 @@ type actionRow struct {
 	executedAt time.Time
 }
 
+// The verdict of an action is one primary-key read of sage.action_outcome
+// per row returned (a scalar subquery, evaluated after the LIMIT), never
+// a join the planner may answer by hashing the whole outcome table: it
+// did for a window of a few days (perf gate, 2026-10-04).
 const queueFactsSQL = `/* pg_sage */ SELECT q.id, q.proposed_sql, q.status, q.decided_at,
-	COALESCE(q.action_log_id, 0), COALESCE(o.verdict, ''), COALESCE(l.outcome, '')
+	COALESCE(q.action_log_id, 0),
+	COALESCE((SELECT o.verdict FROM sage.action_outcome o
+	          WHERE o.action_log_id = q.action_log_id), ''),
+	COALESCE(l.outcome, '')
 	FROM sage.action_queue q
 	LEFT JOIN sage.action_log l ON l.id = q.action_log_id
-	LEFT JOIN sage.action_outcome o ON o.action_log_id = q.action_log_id
 	WHERE q.decided_at >= $1 AND q.status IN ('approved', 'executed', 'rejected')
 	ORDER BY q.decided_at, q.id LIMIT $2`
 
@@ -58,9 +64,8 @@ func (s *Scorer) queueFacts(ctx context.Context, since time.Time) ([]queueRow, e
 }
 
 const actionFactsSQL = `/* pg_sage */ SELECT l.id, l.sql_executed, l.executed_at, l.outcome,
-	COALESCE(o.verdict, '')
+	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), '')
 	FROM sage.action_log l
-	LEFT JOIN sage.action_outcome o ON o.action_log_id = l.id
 	WHERE l.executed_at >= $1 AND l.outcome <> 'failed'
 	ORDER BY l.executed_at, l.id LIMIT $2`
 
