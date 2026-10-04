@@ -302,3 +302,41 @@ func TestStandingUsageRowsEstimateError(t *testing.T) {
 		t.Fatalf("err = %v, want a rows-rewritten estimate error", err)
 	}
 }
+
+// Post-test audit: decisions the ledger stored without targets (a nil
+// slice is the JSON null) or for read-only diagnostics must neither break
+// the window read nor hold a mutation slot.
+func TestStandingUsageToleratesNullTargetsAndSkipsReadOnly(t *testing.T) {
+	pool, ctx := isolatedSageDB(t)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, func(string, string, ...any) {})
+	decisions := ledger.NewService(ledger.NewPostgresRepository(pool))
+	for tier, sql := range map[string]string{
+		"moderate":  "ALTER SYSTEM SET work_mem = '8MB'",
+		"read_only": "SELECT pid FROM pg_locks WHERE NOT granted",
+	} {
+		if _, err := decisions.RecordDecision(ctx, ledger.DecisionInput{
+			Feature: "config_guc", Intent: "config_guc", Verdict: ledger.VerdictExecute,
+			Reason: "authorized", RiskTier: tier, PolicyVersion: 1,
+			ProposedSQL: sql,
+		}); err != nil {
+			t.Fatalf("record %s decision without targets: %v", tier, err)
+		}
+	}
+	var stored string
+	if err := pool.QueryRow(ctx, `SELECT target_objects::text FROM sage.decision
+		WHERE risk_tier = 'moderate'`).Scan(&stored); err != nil || stored != "null" {
+		t.Fatalf("stored targets = %q (%v), want the JSON null this test guards", stored, err)
+	}
+	got := perfUsage(t, exec, ctx, "public.t")
+	if got.SelfInitiatedChangesInWindow != 1 || got.TablesInWindow != 1 {
+		t.Fatalf("usage = %+v, want the moderate change held (1) and only the request's "+
+			"table; the read-only diagnostic holds nothing", got)
+	}
+	// The same target-less request re-authorizing does not count itself.
+	self := policy.ActionRequest{SQL: "ALTER SYSTEM SET work_mem = '8MB'",
+		Contract: &policy.ActionContract{ActionType: "alter_system_guc",
+			RiskTier: policy.RiskModerate}}
+	if got := usageOf(t, exec, ctx, self); got.SelfInitiatedChangesInWindow != 0 {
+		t.Fatalf("target-less re-authorization: usage = %+v, want 0 changes", got)
+	}
+}
