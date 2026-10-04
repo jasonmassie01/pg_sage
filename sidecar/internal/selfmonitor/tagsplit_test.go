@@ -38,6 +38,8 @@ func TestTagConn_EveryStatementOfAQueryIsTagged(t *testing.T) {
 			"PERFORM '$$;'; END $fn$; SELECT /* pg_sage */ 2",
 		"SELECT a$b$; SELECT 2": "SELECT /* pg_sage */ a$b$; SELECT /* pg_sage */ 2",
 		"SELECT $1; SELECT 2":   "SELECT /* pg_sage */ $1; SELECT /* pg_sage */ 2",
+		"SELECT $1$x$;$x$; SELECT 2": "SELECT /* pg_sage */ $1$x$;$x$; SELECT " +
+			"/* pg_sage */ 2",
 		"SELECT 1 -- a;b\n; SELECT 2": "SELECT /* pg_sage */ 1 -- a;b\n; SELECT " +
 			"/* pg_sage */ 2",
 		"SELECT 1 /* a; /* b; */ c; */; SELECT 2": "SELECT /* pg_sage */ 1 /* a; /* b; */ " +
@@ -115,6 +117,7 @@ func FuzzPlaceTags(f *testing.F) {
 		"SELECT 1; SELECT 2", "DO $$ BEGIN PERFORM 1; END $$; SELECT 'a;b'",
 		"/* pg_sage */ (SELECT 1); /* x */ SELECT \"q;\"", "SELECT a$b$; SELECT $1",
 		"SELECT E'\\'; x'", "-- c\n;;", "/* /* */", "$a$$a$;$$", "",
+		"A$$ $$;0", // found by fuzzing: the tag split the identifier A$$
 	} {
 		f.Add(seed)
 	}

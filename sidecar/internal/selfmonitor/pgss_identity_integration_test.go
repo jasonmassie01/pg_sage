@@ -49,6 +49,7 @@ func TestSelfIdentification_PgStatStatementsKeepsTheTag(t *testing.T) {
 func TestSelfIdentification_LeadingCommentOnlyKeptBefore18(t *testing.T) {
 	env := newIdentityEnv(t)
 	probe := env.probes("raw_leading")[0]
+	env.create(t, []identityProbe{probe})
 	raw, err := pgx.Connect(env.ctx, env.dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -82,6 +83,7 @@ type identityEnv struct {
 	admin      *pgx.Conn     // fixture setup and pg_stat_statements reads
 	suffix     string
 	versionNum int
+	fixtureSQL map[string]bool // the admin's own statements, not probes
 }
 
 func newIdentityEnv(t *testing.T) *identityEnv {
@@ -95,7 +97,8 @@ func newIdentityEnv(t *testing.T) *identityEnv {
 	}
 	t.Cleanup(func() { _ = admin.Close(context.Background()) })
 	env := &identityEnv{ctx: ctx, dsn: dsn, admin: admin,
-		suffix: fmt.Sprintf("%d", time.Now().UnixNano()%1_000_000_000_000)}
+		suffix:     fmt.Sprintf("%d", time.Now().UnixNano()%1_000_000_000_000),
+		fixtureSQL: map[string]bool{}}
 	if err := admin.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").
 		Scan(&env.versionNum); err != nil {
 		t.Fatalf("server version: %v", err)
@@ -128,8 +131,9 @@ func (e *identityEnv) probes(forms ...string) []identityProbe {
 func (e *identityEnv) create(t *testing.T, probes []identityProbe) {
 	t.Helper()
 	for _, p := range probes {
-		if _, err := e.admin.Exec(e.ctx, "CREATE TABLE IF NOT EXISTS "+p.table+
-			" (id int, v text)"); err != nil {
+		ddl := "CREATE TABLE IF NOT EXISTS " + p.table + " (id int, v text)"
+		e.fixtureSQL[ddl] = true
+		if _, err := e.admin.Exec(e.ctx, ddl); err != nil {
 			t.Fatalf("create %s: %v", p.table, err)
 		}
 		table := p.table
@@ -180,7 +184,8 @@ type pgssEntry struct {
 	advice  bool // workload.AdviceSQL over the stored text
 }
 
-// entries returns this database's pg_stat_statements entries naming table.
+// entries returns this database's pg_stat_statements entries naming table,
+// leaving out the fixture's own CREATE TABLE.
 func (e *identityEnv) entries(t *testing.T, table string) []pgssEntry {
 	t.Helper()
 	rows, err := e.admin.Query(e.ctx, `SELECT queryid, query, `+workload.AdviceSQL("query")+`
@@ -198,7 +203,13 @@ func (e *identityEnv) entries(t *testing.T, table string) []pgssEntry {
 	if err != nil {
 		t.Fatalf("scan pg_stat_statements: %v", err)
 	}
-	return out
+	probes := out[:0]
+	for _, x := range out {
+		if !e.fixtureSQL[x.text] {
+			probes = append(probes, x)
+		}
+	}
+	return probes
 }
 
 // identityProblems lists every form pg_stat_statements does not hold as
