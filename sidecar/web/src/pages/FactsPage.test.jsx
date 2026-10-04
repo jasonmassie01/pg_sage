@@ -199,6 +199,9 @@ describe('FactsPage decisions', () => {
     await waitFor(() => expect(posts(mock)).toHaveLength(1))
     expect(posts(mock)[0][0]).toBe('/api/v1/facts/7/reject?database=orders')
     expect(JSON.parse(posts(mock)[0][1].body)).toEqual({ note: 'app moved' })
+    // The card's buttons stay disabled until the revoke request settles; a
+    // click before then is ignored (CI: only one POST was sent).
+    await waitFor(() => expect(screen.getByTestId('fact-expire-7').disabled).toBe(false))
     fireEvent.click(screen.getByTestId('fact-expire-7'))
     await waitFor(() => expect(posts(mock)).toHaveLength(2))
     expect(posts(mock)[1][0]).toBe('/api/v1/facts/7/expire?database=orders')
