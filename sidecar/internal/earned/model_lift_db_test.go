@@ -73,7 +73,8 @@ func TestModelLift_ReportForAnotherBuildNeverCounts(t *testing.T) {
 func TestModelLift_V190ReportsStayReadable(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.svc.IngestEvalRun(f.ctx,
-		benchReport(fixtureEpoch.Add(-time.Hour), FamilyLockBlocking), SourceBench, "admin", ""); err != nil {
+		benchReport(fixtureEpoch.Add(-time.Hour), FamilyLockBlocking), SourceBench, "admin",
+		""); err != nil {
 		t.Fatalf("ingest a v1.9.0 report: %v", err)
 	}
 	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)

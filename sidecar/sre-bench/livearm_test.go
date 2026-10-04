@@ -114,21 +114,10 @@ func TestLiveModelArm(t *testing.T) {
 		t.Fatalf("%s=1 needs a live model (%s); refusing to measure the fake", EnvLiveArm,
 			EnvLLMURL)
 	}
-	split, err := ParseSplit(os.Getenv(EnvSplit))
-	if err != nil {
-		t.Fatal(err)
-	}
+	cases := splitCorpus(t)
 	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), llm.Caps.MaxWall+replayBudget)
 	t.Cleanup(cancel)
-	all, err := replay.Corpus()
-	if err != nil {
-		t.Fatalf("corpus: %v", err)
-	}
-	cases, err := replay.FilterSplit(all, split)
-	if err != nil {
-		t.Fatal(err)
-	}
 	e := NewEnv(ctx, t, dsn)
 	var version string
 	if err := e.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {

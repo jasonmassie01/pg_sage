@@ -31,8 +31,9 @@ func (r trailingRow) Scan(dest ...any) error { return r.Row.Scan(append(dest, r.
 // benchSet is, per family, the deployment's newest bench report that
 // scored it and counts for the running build (family "": the newest
 // report that scored any family; a replay-only model-lift report, which
-// carries no family cell, never stands in for the release bench). A report stamped for another build never counts; an
-// unstamped (operator) report does. Bench evidence is about pg_sage, not
+// carries no family cell, never stands in for the release bench). A
+// report stamped for another build never counts; an unstamped (operator)
+// report does. Bench evidence is about pg_sage, not
 // a database, so every database of the deployment shares it.
 func (s *PostgresStore) benchSet(ctx context.Context, families []Family) (
 	map[Family]*EvalRun, error) {

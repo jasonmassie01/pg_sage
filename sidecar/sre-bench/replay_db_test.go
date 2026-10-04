@@ -170,18 +170,7 @@ func TestReplayCorpus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
-	all, err := replay.Corpus()
-	if err != nil {
-		t.Fatalf("corpus: %v", err)
-	}
-	split, err := ParseSplit(os.Getenv(EnvSplit))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cases, err := replay.FilterSplit(all, split)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cases := splitCorpus(t)
 	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}}
 	rs := RunReplay(ctx, env, cases, arms)
 	if len(rs) != 2*len(cases) {
@@ -207,6 +196,24 @@ func TestReplayCorpus(t *testing.T) {
 			g.Family, g.Arm, g.Observed, g.Threshold)
 	}
 	checkReplayLift(t, rs, rep)
+}
+
+// splitCorpus is the embedded corpus, filtered by SAGE_BENCH_SPLIT.
+func splitCorpus(t *testing.T) []replay.Case {
+	t.Helper()
+	all, err := replay.Corpus()
+	if err != nil {
+		t.Fatalf("corpus: %v", err)
+	}
+	split, err := ParseSplit(os.Getenv(EnvSplit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases, err := replay.FilterSplit(all, split)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cases
 }
 
 // checkReplayLift holds the model lift to the real investigator's events
