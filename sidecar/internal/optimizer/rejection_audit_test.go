@@ -2,10 +2,13 @@ package optimizer
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 // Post-test audit additions: inputs the first round did not exercise.
@@ -47,5 +50,40 @@ func TestTableMemory_PromptLineTruncationKeepsUTF8(t *testing.T) {
 		!utf8.ValidString(lines[0]) || !strings.Contains(lines[0], "...") {
 		t.Fatalf("truncated line: len=%d valid=%t %q", len(lines[0]),
 			utf8.ValidString(lines[0]), lines[0])
+	}
+}
+
+// The per-table step moved into askModel/analyzeTables: a spent token
+// budget stops the cycle, a failing model trips the table's circuit, and
+// an open circuit skips the table without asking the model.
+func TestAskModel_BudgetAndFailureBranches(t *testing.T) {
+	model := newScriptedModel(t, recReply(lifeosDDL("a", "id")))
+	o, w, _ := memOptimizer(t, model, newMemStore(), zeroGain)
+	llmCfg := fnTestLLMConfig(model.srv.URL)
+	llmCfg.CooldownSeconds, llmCfg.TokenBudgetDaily = 0, 1
+	o.client = llm.New(llmCfg, fnNoopLog)
+	res := &Result{}
+	if o.askModel(context.Background(), claimsTable(), res, map[string]int{}) ||
+		!res.BudgetExhausted || w.calls.Load() != 0 {
+		t.Fatalf("spent budget must stop the cycle: %+v whatif=%d", res, w.calls.Load())
+	}
+
+	failing := newScriptedModel(t, "[]")
+	failing.status = http.StatusInternalServerError
+	o, w, _ = memOptimizer(t, failing, newMemStore(), zeroGain)
+	res = &Result{}
+	for range 3 {
+		if !o.askModel(context.Background(), claimsTable(), res, map[string]int{}) {
+			t.Fatal("a model error must not stop the cycle")
+		}
+	}
+	if st := o.breaker.GetState("public", "ai_claims"); st != CircuitOpen ||
+		len(res.Recommendations) != 0 || res.BudgetExhausted {
+		t.Fatalf("three failures: circuit %q, result %+v", st, res)
+	}
+	asked := len(failing.prompts)
+	o.analyzeTables(context.Background(), []TableContext{claimsTable()}, res)
+	if len(failing.prompts) != asked || w.calls.Load() != 0 {
+		t.Fatal("an open circuit must skip the table without asking the model")
 	}
 }
