@@ -12,7 +12,7 @@ import (
 // The limiter answers self-initiated requests from the same ledger: the
 // granted level of (database, trust family, class), capped by the class
 // and the contract, and by L1 while a database-wide downgrade signal
-// (error budget, HA role) or a concurrent action holds. A grandfathered
+// (error budget, HA role) holds. A grandfathered
 // or earned self-initiated level is not re-derived from evidence at every
 // authorization: it changes only by an approved promotion or a recorded
 // demotion. The stale-evidence signal belongs to incident snapshots.
@@ -56,11 +56,13 @@ func TestLimiterSelfInitiatedDowngradeSignals(t *testing.T) {
 		t.Fatalf("budget burn = %+v (%v)", got, err)
 	}
 	lf.budget.state = BudgetState{Configured: true}
+	// Another recent action on the object does not cap a self-initiated
+	// class: the executor's cascade cooldown and change leases serialize
+	// it (e2e CHECK-A05: the autovacuum tuning after a vacuum of a table).
 	lf.conc.count = 2
 	got, _ = lf.lim.Limit(lf.ctx, selfVacuum("public.orders"))
-	if got.Level != 1 || !strings.Contains(strings.Join(got.Reasons, ","),
-		DowngradeConcurrent) {
-		t.Fatalf("concurrent action = %+v", got)
+	if got.Level != 3 || got.Downgraded {
+		t.Fatalf("concurrent action capped a self-initiated class = %+v", got)
 	}
 	lf.conc.count = 0
 	lf.ha.state = HAState{Role: RoleReplica}

@@ -104,14 +104,17 @@ var _ policy.AutonomyScope = (*Limiter)(nil)
 
 // requestDowngrades evaluates every CHECK-40 signal for req. A source
 // that cannot answer is itself a downgrade (fail closed). A
-// self-initiated request carries no incident snapshot (the executor
-// re-reads the finding's current evidence before the gate) and no family
-// safety window (its demerits demote the class itself).
+// self-initiated request takes the database-wide signals only: it
+// carries no incident snapshot (the executor re-reads the finding's
+// current evidence before the gate), has no family safety window (its
+// demerits demote the class itself), and the executor's cascade cooldown
+// and change leases already serialize work on one object (a 15-minute
+// cap would withhold, say, the autovacuum tuning that follows a vacuum
+// of the same table, which the time ramp let run).
 func (l *Limiter) requestDowngrades(ctx context.Context, req policy.ActionRequest,
 	f Family) []Downgrade {
 	if IsSelfInitiated(f) {
-		out := l.selfDowngrades(ctx)
-		return append(out, l.concurrency(ctx, req)...)
+		return l.selfDowngrades(ctx)
 	}
 	out := l.databaseDowngrades(ctx, f)
 	out = append(out, l.evidenceAge(req.EvidenceObservedAt)...)
