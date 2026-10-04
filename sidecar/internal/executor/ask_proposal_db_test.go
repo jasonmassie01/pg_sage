@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -252,5 +253,53 @@ func TestProposeFindingForApproval_ConcurrentCallsQueueOnce(t *testing.T) {
 	if n != 1 || f.count(`SELECT count(*) FROM sage.action_queue WHERE finding_id = $1`,
 		id) != 1 {
 		t.Fatalf("%d proposals created; want exactly one queue item", n)
+	}
+}
+
+// fixedGate answers every request with one decision.
+type fixedGate struct{ d policy.Decision }
+
+func (g fixedGate) Authorize(context.Context, policy.ActionRequest) policy.Decision { return g.d }
+func (g fixedGate) Explain(context.Context, policy.ActionRequest) policy.Decision   { return g.d }
+
+// A self-initiated block that a person's approval lifts (the trust ramp,
+// approval required, budgets, windows, earned autonomy) is still queued
+// for that person; a block an approval cannot lift (emergency stop, a
+// replica, a binding fact, observe-only trust) is refused.
+func TestProposeFindingForApproval_QueuesWhatAnApprovalCanLift(t *testing.T) {
+	f := newAskProposalFixture(t)
+	liftable := []policy.Reason{policy.ReasonTrustRampNotSatisfied,
+		policy.ReasonApprovalRequired, policy.ReasonBudgetExceeded,
+		policy.ReasonOutsideMaintenanceWindow, policy.ReasonAutonomyLevel}
+	for i, reason := range liftable {
+		id := f.finding(fmt.Sprintf("public.ask_px_l%d", i), askPxCreate,
+			"DROP INDEX CONCURRENTLY public.ask_px_c", "open")
+		f.exec.WithPolicyGate(fixedGate{policy.Decision{Verdict: policy.VerdictBlocked,
+			Reason: reason, RiskTier: policy.RiskModerate}})
+		p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+		if err != nil || !p.Created || p.Decision.BlockedReason != string(reason) {
+			t.Errorf("%s: proposal = %+v (%v), want queued with the reason", reason, p, err)
+		}
+	}
+	hard := []policy.Decision{
+		{Verdict: policy.VerdictBlocked, Reason: policy.ReasonEmergencyStop},
+		{Verdict: policy.VerdictBlocked, Reason: policy.ReasonReplicaMutation},
+		{Verdict: policy.VerdictBlocked, Reason: policy.ReasonBoundByFact},
+		{Verdict: policy.VerdictBlocked, Reason: policy.ReasonChangeClassNotAllowed},
+		{Verdict: policy.VerdictBlocked, Reason: "some_future_reason"},
+		{Verdict: policy.VerdictObserveOnly, Reason: policy.ReasonObserveOnly},
+	}
+	for i, d := range hard {
+		id := f.finding(fmt.Sprintf("public.ask_px_h%d", i), askPxCreate,
+			"DROP INDEX CONCURRENTLY public.ask_px_c", "open")
+		f.exec.WithPolicyGate(fixedGate{d})
+		if _, err := f.exec.ProposeFindingForApproval(f.ctx, id); !errors.Is(err,
+			ErrProposalBlocked) {
+			t.Errorf("%s: err = %v, want ErrProposalBlocked", d.Reason, err)
+		}
+		if n := f.count(`SELECT count(*) FROM sage.action_queue WHERE finding_id = $1`,
+			id); n != 0 {
+			t.Errorf("%s queued %d items", d.Reason, n)
+		}
 	}
 }
