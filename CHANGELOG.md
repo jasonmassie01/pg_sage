@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Index cleanup can no longer hold back the changes that speed your database up.**
+  Housekeeping (unused and redundant index drops, VACUUM, ANALYZE) now has its own daily
+  budget, separate from evidence-backed performance changes (on one database, about 20
+  index drops in leaked test schemas used the whole day's budget and parked two verified
+  indexes for most of a day). A parked change now says which budget is full and when it
+  frees. `max_rows_rewritten` is enforced: changes that rewrite a table are charged its
+  estimated rows. Two changes can no longer both take the last slot of a budget, and a
+  waiting change is evaluated once per cycle instead of twice. Existing policies keep
+  their limit for performance changes; see [Blast-radius
+  budgets](docs/configuration.md#blast-radius-budgets).
+
 ## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
 
 ### What's new
