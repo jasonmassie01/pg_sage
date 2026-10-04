@@ -18,7 +18,8 @@
   expire when the objects they describe are gone. See `docs/facts.md`.
 - **Coding agents can fix database problems at their source.** pg_sage's MCP server now
   works with Claude Code and Cursor: one `claude mcp add` line with a scoped API token an
-  admin creates on the new MCP tokens page (read, propose, and approve only for a person's
+  admin creates on the new MCP tokens page (MCP is now served over HTTP by default and always
+  needs a token or a signed-in session; set `mcp.transport: stdio` to keep stdio) (read, propose, and approve only for a person's
   own token; limited to chosen databases; expiring; stored as a hash). Agents can see the top
   queries with their plans, run a safe EXPLAIN, try an index with HypoPG, lint a migration
   for lock level and rewrites, trace a query to the code that sends it (sqlcommenter tags,

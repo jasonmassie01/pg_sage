@@ -13,18 +13,14 @@ investigation, changing autonomy) stays with a person.
 
 ## Set up Claude Code in one line
 
-1. Serve MCP over HTTP: in `config.yaml` set
+MCP is on by default and served over HTTP at `/api/v1/mcp` on the API port, behind
+authentication: every MCP request needs a token (or a signed-in session); there is no
+anonymous MCP.
 
-   ```yaml
-   mcp:
-     enabled: true
-     transport: http      # POST /api/v1/mcp on the API port
-   ```
+1. An admin creates a token for the agent once: **MCP tokens** in the dashboard (or
+   `POST /api/v1/mcp/tokens`, below). The token is shown once.
 
-2. Create a token for the agent (an admin does this once): **MCP tokens** in the dashboard,
-   or `POST /api/v1/mcp/tokens` (below). The token is shown once.
-
-3. Add pg_sage to Claude Code:
+2. Add pg_sage to Claude Code:
 
    ```bash
    claude mcp add --transport http pg_sage https://pg-sage.example.com:8080/api/v1/mcp --header "Authorization: Bearer $PG_SAGE_MCP_TOKEN"
@@ -46,8 +42,9 @@ Cursor (`.cursor/mcp.json`):
 }
 ```
 
-With `transport: stdio` the sidecar process itself speaks MCP on stdin/stdout. Whatever
-launched it is treated as an agent: it can read and propose, never approve.
+To use stdio instead, set `mcp.transport: stdio`: the sidecar process itself then speaks
+MCP on stdin/stdout. Whatever launched it is treated as an agent: it can read and propose,
+never approve. `mcp.enabled: false` turns MCP off.
 
 ## Tokens
 
