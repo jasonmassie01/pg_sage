@@ -215,19 +215,39 @@ func TestStatisticsVerdictFromTheActionsOwnAnalyze(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteManual: %v", err)
 	}
-	waitAnalyzed(t, fx.ctx, fx.pool, "public."+fx.table)
-	time.Sleep(20 * time.Millisecond)
-	fx.capturePlans(t, time.Now().UTC())
 	plan, err := loadMonitorPlan(fx.ctx, fx.pool, id, r2MonitorConfig())
 	if err != nil {
 		t.Fatalf("load plan: %v", err)
 	}
+	waitBuiltSinceAction(t, fx.ctx, fx.pool, plan)
+	time.Sleep(20 * time.Millisecond)
+	fx.capturePlans(t, time.Now().UTC())
 	evidence := map[string]any{}
 	j := plan.judgeEstimates(fx.ctx, fx.pool, time.Now().Add(time.Second), evidence)
 	if j.Verdict != verify.OutcomeImproved {
 		t.Fatalf("estimates = %s (%s), want improved from the in-action ANALYZE",
 			j.Verdict, j.Reason)
 	}
+}
+
+// waitBuiltSinceAction waits until the table's analyze time is past the
+// action's own mark, as the verifier requires. Waiting for "any ANALYZE in
+// the last minute" also accepted the fixture's setup ANALYZE, and on PG14
+// the collector reports the action's ANALYZE up to ~500 ms later (CI:
+// "statistics not built yet").
+func waitBuiltSinceAction(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	plan monitorPlan) {
+	t.Helper()
+	for i := 0; i < 40; i++ {
+		var built *time.Time
+		if err := pool.QueryRow(ctx, statisticsBuiltSQL, plan.r2.StatisticsTable).
+			Scan(&built); err == nil && plan.builtSinceAction(built) {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("the action's ANALYZE of %s never showed in pg_stat_user_tables",
+		plan.r2.StatisticsTable)
 }
 
 // improvedThenRolledBack: the full monitor records an improved statistics
