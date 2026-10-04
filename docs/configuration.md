@@ -179,11 +179,11 @@ briefing:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `trust.level` | `observation` | Trust tier: `observation`, `advisory`, `autonomous` |
+| `trust.level` | `observation` | Autonomy ceiling: `observation`, `advisory`, `autonomous`. The trust ledger decides each class's level; this is the most it may use, never a grant |
 | `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window |
-| `trust.ramp_start` | (auto) | Auto-persisted on first start; set to override |
-| `trust.ramp_safe_hours` | `192` | Hours after `ramp_start` before SAFE actions may run unattended (8 days), `1`-`8760`. Actions that cannot be rolled back always wait at least `192` |
-| `trust.ramp_moderate_hours` | `744` | Hours after `ramp_start` before MODERATE actions may run unattended (31 days), `1`-`8760`, at least `ramp_safe_hours`. Actions that cannot be rolled back always wait at least `744` |
+| `trust.ramp_start` | (auto) | When pg_sage began observing the database. Auto-persisted on first start; set to override |
+| `trust.ramp_safe_hours` | `192` | Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, `1`-`8760`. A floor, never a grant. Actions that cannot be rolled back always wait at least `192` |
+| `trust.ramp_moderate_hours` | `744` | Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3, 31 days, `1`-`8760`, at least `ramp_safe_hours`. A floor, never a grant. Actions that cannot be rolled back always wait at least `744` |
 
 The trust model controls what pg_sage is allowed to do:
 
@@ -200,6 +200,55 @@ applies the table above. Trust never promotes `manual` to `auto`.
 HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
+
+### One trust system
+
+Every action class pg_sage runs on its own initiative has one level per database in the
+trust ledger: the incident remediations (see [Sage SRE earned autonomy](#sage-sre-earned-autonomy))
+and the self-initiated classes, grouped by their goal:
+
+| Family | Classes | A success is |
+|---|---|---|
+| `tuning` | `index_create`, `config_guc` (GUC), `autovacuum_tuning` (reloption), `query_hint`, `statistics` | an `improved` verdict |
+| `hygiene` | `index_drop`, `vacuum`, `analyze`, `retention`, `reindex` | an `improved` verdict, or a `neutral` one that held (the action was not rolled back) |
+
+The levels are the earned-autonomy levels: L1 writes the script (the default), L2 hands the
+action to one-click approval, L3 runs it unattended (SAFE classes at any time, MODERATE ones
+inside the maintenance window, one object at a time). Irreversible classes (`retention`)
+never exceed L1. `trust.level`, `execution_mode`, the `tier3_*` flags and the standing policy
+stay the ceiling: `advisory` never runs a MODERATE class unattended whatever its level.
+
+**Evidence.** The verification verdicts of sage.action_outcome are the evidence:
+`insufficient_evidence` and `unverifiable` count neither way. A `regressed` verdict, an
+operator's rollback of the action or an operator's rejection of its approval item demotes the
+class one level at once, records the cause in the history and notifies an operator through
+the notification rules for failed actions (`action_failed`). The automatic revert of a
+neutral index create (no gain) is not a demerit. A demerit already known when the level was
+set does not demote it again.
+
+**Promotion.** pg_sage proposes one level up when the class has (defaults, configurable under
+`sre.autonomy.class_promotion`):
+- L2: `min_successes_l2` (3) verified successes since its last demerit, and the database
+  observed for at least `trust.ramp_safe_hours`;
+- L3: `min_successes_l3` (10) successes since the last demerit, `min_success_rate_pct` (80%)
+  of decided outcomes since then successful, and the database observed for at least
+  `trust.ramp_moderate_hours` (`trust.ramp_safe_hours` for SAFE classes).
+
+An admin approves every promotion (the Trust page, or the earned-autonomy API). The ramp is
+only a floor: it never grants anything by itself.
+
+**Existing configurations.** On the first start of a database under the unified ledger, the
+level the time ramp had already given each self-initiated class is kept as a
+**grandfathered** level (L3 when it ran unattended, L2 when it queued for approval), once.
+Grandfathered levels demote like any other; the ramp elapsing later grants nothing. The
+startup log explains the new meaning of `trust.level` and the ramp, and lists what was
+grandfathered. `sre.autonomy.enforce: false` keeps the legacy behaviour (the ramp grants)
+and is logged as a warning. Rollbacks of pg_sage's own changes and owner-declared retention
+deletes are never withheld by the ledger.
+
+The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
+with its level, effective level, evidence counts, last change and why, and the path to the
+next level. MCP `sre_get_autonomy` carries the same grid as `trust`.
 
 ### Verifying actions
 
@@ -852,8 +901,8 @@ Use this only where you accept the risk:
 <!-- fast-elevation-profile:start -->
 ```yaml
 trust:
-  ramp_safe_hours: 1              # SAFE actions after 1 hour (spec: 192)
-  ramp_moderate_hours: 4          # MODERATE actions after 4 hours (spec: 744)
+  ramp_safe_hours: 1              # propose L2 after 1 hour observed (spec: 192)
+  ramp_moderate_hours: 4          # propose MODERATE L3 after 4 hours (spec: 744)
 verify:
   io_baseline_hours: 2            # learned IO baseline after 2 hours (spec: 7 days)
   drop_window_hours: 2            # verify an index drop over 2 hours (spec: 168)

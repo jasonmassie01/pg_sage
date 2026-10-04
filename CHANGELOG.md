@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **One trust system: earned evidence decides, time is only a floor.** Every action pg_sage
+  takes on its own (index create and drop, configuration changes, per-table autovacuum
+  settings, vacuum, analyze, query hints, retention, and the SRE remediations) now has one
+  trust level per database, earned from verified outcomes and approved by an admin. The trust
+  ramp no longer lets anything run by itself; it is the minimum time pg_sage must have watched
+  a database before it may propose a promotion. A regressed result, a rollback you make or an
+  approval you reject lowers that action's level by one at once, says why, and notifies you.
+  Autonomy your current settings already granted is kept as "grandfathered" on the first start,
+  and the startup log explains the new meaning of `trust.level` and the ramp settings. A new
+  **Trust** page (and `GET /api/v1/trust`) shows every database, action class, level, its
+  evidence (improved, neutral, regressed, rolled back, rejected), the last change and why, and
+  what is needed for the next level.
+
 ## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
 
 ### What's new
