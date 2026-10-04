@@ -240,3 +240,16 @@ Product calls 1-6 confirmed. Changes on the same branch (PR #111):
   other than the default without both prices fails closed before any call, because the
   spend cap is only as good as the prices. Contract test: no `gpt-` literal in `ci.yml`.
 - **Out of scope / follow-up:** the sidecar ingesting release assets.
+
+Follow-up verification (PG17 unless noted): modellift 100% (ok), earned 89.9% (ok; also
+PG14, PG18 ok; `-race` on the root-authority tests ok), schema 84.4% (ok; PG14, PG18 ok),
+startup 92.2%, api 79.2%, sre-bench 65.7%, cmd ok (one flake,
+`TestLocalBenchRunCountsForTheFamilyItCovered`, top-1 n 9 under load, passed on rerun in
+isolation; untouched code). e2e ok, perf gate (small) PASS, vitest 339 passed, dist rebuilt,
+golangci-lint 0 issues, actionlint ok, gitleaks no leaks. Phase-1 tests caught two test
+logic errors, fixed with the reason recorded: 28/30 needs 3 more (29/31 has a lower bound
+of 0.793), and bench reports are deployment-wide, so each database records the grant in
+its own history (the test now asserts that, not that billing records nothing).
+Mutation: 11 mutants of the new logic (transition rule both ways, settle-before-grant,
+database scoping, advisory lock, notify-error propagation, shortfall, overrides-needed
+source, price guard, hourly reconcile, install binding), all killed.
