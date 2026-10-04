@@ -194,28 +194,21 @@ func statisticsAction(t *testing.T, meanAfterMs float64) (*Executor, int64,
 			t.Fatalf("%s: %v", s, err)
 		}
 	}
-	waitAnalyzed(t, ctx, pool, "public."+table)
-	capture(time.Now().UTC())
-	seedQuerySamples(t, ctx, pool, qid, executedAt.Add(time.Second), 110, 40, meanAfterMs)
 	id := insertVerifiedAction(t, pool, verifiedActionRow{sql: sql,
 		before: withTarget(t, before, qid), executedAt: executedAt})
-	return exec, id, ctx
-}
-
-// waitAnalyzed waits for the statistics views to show the ANALYZE (PG14
-// reports through the collector).
-func waitAnalyzed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) {
-	t.Helper()
-	for i := 0; i < 40; i++ {
-		var done bool
-		if err := pool.QueryRow(ctx, `SELECT COALESCE(last_analyze > now() - interval
-			'1 minute', false) FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-			table).Scan(&done); err == nil && done {
-			return
-		}
-		time.Sleep(250 * time.Millisecond)
+	// Wait for the verifier's own condition (an ANALYZE after the action's
+	// mark): "any ANALYZE in the last minute" let PG14's late collector
+	// report hang the monitor until the test binary's 1 h timeout.
+	plan, err := loadMonitorPlan(ctx, pool, id, r2MonitorConfig())
+	if err != nil {
+		t.Fatalf("load plan: %v", err)
 	}
-	t.Fatalf("ANALYZE of %s never showed in pg_stat_user_tables", table)
+	waitBuiltSinceAction(t, ctx, pool, plan)
+	capture(time.Now().UTC())
+	seedQuerySamples(t, ctx, pool, qid, executedAt.Add(time.Second), 110, 40, meanAfterMs)
+	bounded, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	t.Cleanup(cancel)
+	return exec, id, bounded
 }
 
 func TestStatisticsThatFixEstimatesAreImproved(t *testing.T) {
