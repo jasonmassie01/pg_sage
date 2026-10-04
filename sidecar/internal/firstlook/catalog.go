@@ -45,7 +45,8 @@ func readStatsWindow(ctx context.Context, tx pgx.Tx) (StatsWindow, error) {
 }
 
 const indexesSQL = tag + `SELECT i.indexrelid, i.indrelid, n.nspname::text, t.relname::text,
-  c.relname::text, i.indkey::int2[], i.indclass::oid[], i.indcollation::oid[],
+  c.relname::text, i.indkey::int2[], i.indnkeyatts::int, i.indclass::oid[],
+  i.indcollation::oid[],
   am.amname::text, i.indisunique, i.indisprimary,
   EXISTS (SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conindid = i.indexrelid
           AND con.contype IN ('p', 'u', 'x')),
@@ -74,7 +75,7 @@ func readIndexes(ctx context.Context, tx pgx.Tx) ([]Index, bool, error) {
 	for rows.Next() {
 		var x Index
 		if err := rows.Scan(&x.OID, &x.TableOID, &x.Schema, &x.Table, &x.Name, &x.Columns,
-			&x.OpClasses, &x.Collations, &x.AccessMethod, &x.Unique, &x.Primary,
+			&x.KeyColumns, &x.OpClasses, &x.Collations, &x.AccessMethod, &x.Unique, &x.Primary,
 			&x.ConstraintBacked, &x.Valid, &x.Ready, &x.Predicate, &x.Expressions,
 			&x.SizeBytes, &x.Scans); err != nil {
 			return nil, false, fmt.Errorf("scan index: %w", err)

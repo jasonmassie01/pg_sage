@@ -238,3 +238,29 @@ func TestSortItemsOrdersBySeverityThenObject(t *testing.T) {
 		}
 	}
 }
+
+// Post-mutation audit.
+
+func TestTestSchemasReportEachSchemasOwnTraffic(t *testing.T) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	items := TestSchemas([]Schema{{Name: "test_idle", Tables: 1},
+		{Name: "tmp_busy", Tables: 1, Activity: 7}}, statsWindow(24*time.Hour, now), now)
+	byName := map[string]string{}
+	for _, it := range items {
+		byName[it.Object] = it.Detail
+	}
+	if !strings.Contains(byName["test_idle"], "no scans or writes") ||
+		!strings.Contains(byName["tmp_busy"], "7 scans and row writes") {
+		t.Fatalf("details = %v", byName)
+	}
+}
+
+func TestDescendingSequenceCappedByColumnType(t *testing.T) {
+	th := DefaultThresholds()
+	s := seq("desc_big", i64(-1_600_000_000), -9223372036854775808, -1, -1, "integer")
+	items, _ := SequenceRunway([]Sequence{s}, th)
+	if len(items) != 1 || items[0].Severity != SeverityWarning ||
+		!strings.Contains(items[0].Detail, "-2147483648") {
+		t.Fatalf("items = %+v, want a warning capped at the integer minimum", items)
+	}
+}

@@ -13,7 +13,9 @@ type Index struct {
 	OID, TableOID       uint32
 	Schema, Table, Name string
 	// Columns is pg_index.indkey: table column numbers, 0 for an expression.
+	// The first KeyColumns are key columns, the rest INCLUDE columns.
 	Columns      []int16
+	KeyColumns   int
 	OpClasses    []uint32
 	Collations   []uint32
 	AccessMethod string
@@ -49,6 +51,16 @@ func (x Index) object() string { return qualified(x.Schema, x.Name) }
 
 func (x Index) usable() bool { return x.Valid && x.Ready }
 
+// keys are the key columns (indnkeyatts); a zero KeyColumns means all.
+func (x Index) keys() []int16 {
+	if x.KeyColumns <= 0 || x.KeyColumns > len(x.Columns) {
+		return x.Columns
+	}
+	return x.Columns[:x.KeyColumns]
+}
+
+func (x Index) hasInclude() bool { return len(x.keys()) < len(x.Columns) }
+
 // InvalidIndexes reports indexes a failed concurrent build left invalid:
 // they cost writes and serve no reads.
 func InvalidIndexes(idx []Index) []Item {
@@ -75,8 +87,8 @@ func InvalidIndexes(idx []Index) []Item {
 
 // shapeKey identifies what an index stores and in which order.
 func shapeKey(x Index) string {
-	return fmt.Sprintf("%d|%s|%v|%v|%v|%s|%s", x.TableOID, x.AccessMethod, x.Columns,
-		x.OpClasses, x.Collations, x.Expressions, x.Predicate)
+	return fmt.Sprintf("%d|%s|%v|%d|%v|%v|%s|%s", x.TableOID, x.AccessMethod, x.Columns,
+		len(x.keys()), x.OpClasses, x.Collations, x.Expressions, x.Predicate)
 }
 
 // keepRank orders copies of the same index: the one to keep first.
@@ -190,15 +202,19 @@ func plainBtree(x Index) bool {
 		x.Expressions == "" && !slices.Contains(x.Columns, 0)
 }
 
-// isPrefix reports a's columns, operator classes and collations leading b's.
+// isPrefix reports a's key columns, operator classes and collations
+// leading b's key columns. a must have no INCLUDE columns; b's extra key or
+// INCLUDE columns serve every lookup a serves. Same-shape copies are exact
+// duplicates, reported before this runs.
 func isPrefix(a, b Index) bool {
-	n := len(a.Columns)
-	if n == 0 || n >= len(b.Columns) || len(a.OpClasses) < n || len(b.OpClasses) < n ||
-		len(a.Collations) < n || len(b.Collations) < n {
+	ak, bk := a.keys(), b.keys()
+	n := len(ak)
+	if n == 0 || a.hasInclude() || n > len(bk) || shapeKey(a) == shapeKey(b) ||
+		len(a.OpClasses) < n || len(b.OpClasses) < n || len(a.Collations) < n ||
+		len(b.Collations) < n {
 		return false
 	}
-	return slices.Equal(a.Columns, b.Columns[:n]) &&
-		slices.Equal(a.OpClasses[:n], b.OpClasses[:n]) &&
+	return slices.Equal(ak, bk[:n]) && slices.Equal(a.OpClasses[:n], b.OpClasses[:n]) &&
 		slices.Equal(a.Collations[:n], b.Collations[:n])
 }
 
@@ -294,7 +310,10 @@ func fkCovered(fk ForeignKey, idx []Index) bool {
 		if x.AccessMethod != "btree" && !hashSingle {
 			continue
 		}
-		lead := slices.Clone(x.Columns[:n])
+		if len(x.keys()) < n {
+			continue
+		}
+		lead := slices.Clone(x.keys()[:n])
 		want := slices.Clone(fk.Columns)
 		slices.Sort(lead)
 		slices.Sort(want)

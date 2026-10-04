@@ -167,3 +167,20 @@ func TestUnknownProviderFallsBackToSelfManaged(t *testing.T) {
 		}
 	}
 }
+
+func TestWithLibraryKeepsTheListAndAvoidsDuplicates(t *testing.T) {
+	cases := map[string]string{
+		"":                                    "pg_stat_statements",
+		"auto_explain":                        "auto_explain,pg_stat_statements",
+		" pg_stat_statements , auto_explain ": "auto_explain,pg_stat_statements",
+	}
+	for in, want := range cases {
+		in := in
+		if got := withLibrary(&in, "pg_stat_statements"); got != want {
+			t.Errorf("withLibrary(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := withLibrary(nil, "auto_explain"); got != "<existing libraries>,auto_explain" {
+		t.Errorf("unknown list = %q", got)
+	}
+}

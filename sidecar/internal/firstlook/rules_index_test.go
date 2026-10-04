@@ -325,3 +325,47 @@ func TestUnindexedForeignKeysMinRows(t *testing.T) {
 		t.Fatalf("nil fks gave %v", got)
 	}
 }
+
+// Post-mutation audit: INCLUDE columns, unique indexes without a constraint.
+
+func TestRedundancyUsesKeyColumnsOnly(t *testing.T) {
+	plain := btree(1, 10, "t_a", 1)
+	covering := btree(2, 10, "t_a_incl_b", 1, 2)
+	covering.KeyColumns, covering.OpClasses, covering.Collations = 1, []uint32{1978},
+		[]uint32{0}
+	twoKeys := btree(3, 10, "t_ab", 1, 2)
+	items, flagged := DuplicateIndexes([]Index{plain, covering, twoKeys})
+	if len(items) != 1 || items[0].Object != "public.t_a" || flagged[2] || flagged[3] {
+		t.Fatalf("items = %v, want only t_a (served by both wider indexes)", rulesOf(items))
+	}
+	// An INCLUDE column cannot serve a foreign key lookup.
+	fkB := fk(10, "fk_b", 2)
+	if got := UnindexedForeignKeys([]ForeignKey{fkB}, []Index{covering}, 0); len(got) != 1 {
+		t.Fatalf("an INCLUDE column covered a foreign key: %v", rulesOf(got))
+	}
+}
+
+func TestUniqueIndexWithoutConstraintIsNotRedundant(t *testing.T) {
+	u := btree(1, 10, "t_u", 1)
+	u.Unique = true
+	items, _ := DuplicateIndexes([]Index{u, btree(2, 10, "t_ab", 1, 2)})
+	if len(items) != 0 {
+		t.Fatalf("a unique index was reported redundant: %v", rulesOf(items))
+	}
+}
+
+func TestCoveringIndexAlone(t *testing.T) {
+	plain := btree(1, 10, "t_a", 1)
+	covering := btree(2, 10, "t_a_incl_b", 1, 2)
+	covering.KeyColumns, covering.OpClasses, covering.Collations = 1, []uint32{1978},
+		[]uint32{0}
+	items, _ := DuplicateIndexes([]Index{plain, covering})
+	if len(items) != 1 || items[0].Object != "public.t_a" {
+		t.Fatalf("items = %v, want t_a redundant to the covering index", rulesOf(items))
+	}
+	// (a) INCLUDE (b) does not serve a two-column foreign key on (a, b).
+	if got := UnindexedForeignKeys([]ForeignKey{fk(10, "fk_ab", 1, 2)},
+		[]Index{covering}, 0); len(got) != 1 {
+		t.Fatalf("a covering index served a two-column key: %v", rulesOf(got))
+	}
+}
