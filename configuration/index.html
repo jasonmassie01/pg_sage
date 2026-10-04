@@ -479,6 +479,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#verifying-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#maintenance-windows" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -597,6 +608,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Sage SRE earned autonomy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bench-evidence-signed-release-reports-and-local-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bench evidence: signed release reports and local runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -956,6 +984,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#verifying-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#maintenance-windows" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1074,6 +1113,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Sage SRE earned autonomy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bench-evidence-signed-release-reports-and-local-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bench evidence: signed release reports and local runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1460,6 +1516,101 @@ applies the table above. Trust never promotes <code>manual</code> to <code>auto<
 <p>HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and <code>VACUUM FULL</code> do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.</p>
+<h3 id="verifying-actions">Verifying actions<a class="headerlink" href="#verifying-actions" title="Permanent link">&para;</a></h3>
+<p>Every action pg_sage takes records, before it runs, what it expects: the queries it
+targets, the metric that should move and by how much, and how that was predicted (<code>hypopg</code>,
+<code>model</code>, <code>rule</code>, or <code>none</code>). Afterwards it records what it observed and a verdict:</p>
+<table>
+<thead>
+<tr>
+<th>Verdict</th>
+<th>Meaning</th>
+<th>Trust and credit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>improved</code></td>
+<td>the predicted effect was observed (a drop: reads held for the whole cycle)</td>
+<td>counts toward earned autonomy and value</td>
+</tr>
+<tr>
+<td><code>neutral</code></td>
+<td>measured, no change beyond the bars</td>
+<td>neither</td>
+</tr>
+<tr>
+<td><code>insufficient_evidence</code></td>
+<td>too few calls, too few sampling intervals, or too noisy to tell</td>
+<td>neither</td>
+</tr>
+<tr>
+<td><code>unverifiable</code></td>
+<td>nothing measurable, or no prediction</td>
+<td>neither</td>
+</tr>
+<tr>
+<td><code>regressed</code></td>
+<td>a targeted query (or the targeted metric) got significantly worse</td>
+<td>rolled back; counts against trust</td>
+</tr>
+</tbody>
+</table>
+<p>The targeted queries are compared on their call-weighted mean execution time, before and
+after, with Welch's test over the sampling intervals in <code>sage.query_store</code>: a change counts
+only when it is both significant and beyond its bar. With several targets each is tested
+with a Bonferroni-corrected significance and the call-weighted pool decides. A first verdict
+comes after <code>trust.rollback_window_minutes</code> once there are <code>verify.min_samples</code> calls; without
+enough evidence the watch extends up to <code>verify.window_max_minutes</code>.</p>
+<p>An index drop is watched for its business cycle, <code>verify.drop_window_hours</code>, and checked
+from the start. Its definition is kept, and the index is re-created as soon as a query on
+the table regresses or an active pg_sage hint names it (soft drop). VACUUM and ANALYZE are
+checked right after they run (dead tuples, rows modified since analyze, relfrozenxid age
+for VACUUM FREEZE).</p>
+<p>Each executed action carries <code>verification_outcome</code> in <code>GET /api/v1/actions</code> and
+<code>/api/v1/actions/{id}</code>; <code>GET /api/v1/action-outcomes?database=&amp;class=&amp;verdict=&amp;since=&amp;limit=</code> lists the
+outcome ledger (<code>sage.action_outcome</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>trust.rollback_window_minutes</code></td>
+<td><code>15</code></td>
+<td>Minimum minutes before a first verdict (not for drops)</td>
+</tr>
+<tr>
+<td><code>trust.rollback_threshold_pct</code></td>
+<td><code>10</code></td>
+<td>Regression bar on a target's call-weighted mean</td>
+</tr>
+<tr>
+<td><code>verify.min_samples</code></td>
+<td><code>30</code></td>
+<td>Calls each window needs</td>
+</tr>
+<tr>
+<td><code>verify.min_gain_pct</code></td>
+<td><code>20</code></td>
+<td>Gain bar for <code>improved</code></td>
+</tr>
+<tr>
+<td><code>verify.window_max_minutes</code></td>
+<td><code>4320</code></td>
+<td>Longest a non-drop action is watched for evidence</td>
+</tr>
+<tr>
+<td><code>verify.drop_window_hours</code></td>
+<td><code>168</code></td>
+<td>Business cycle an index drop is verified over, <code>1</code>-<code>8760</code>. See <a href="#fast-elevation-dogfood-databases">Fast elevation</a></td>
+</tr>
+</tbody>
+</table>
 <h3 id="maintenance-windows">Maintenance windows<a class="headerlink" href="#maintenance-windows" title="Permanent link">&para;</a></h3>
 <p><code>trust.maintenance_window</code> and the standing policy's <code>maintenance_windows</code>
 use one grammar. An invalid value is rejected when the config is loaded,
@@ -2304,7 +2455,7 @@ any time.</p>
 <tr>
 <td><code>sre.autonomy.bench_results_path</code></td>
 <td><code>""</code></td>
-<td>PGIncidentBench JSON report, or a directory searched three levels deep, ingested hourly. Point it at the CI <code>pgincidentbench/</code> artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. Empty: upload through the API</td>
+<td>PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI <code>pgincidentbench/</code> artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. A <code>&lt;report&gt;.sigstore.json</code> bundle is verified; a report for another pg_sage build is refused. Not needed for the reports a release ships. Empty: upload through the API</td>
 </tr>
 <tr>
 <td><code>sre.autonomy.evaluate_interval_minutes</code></td>
@@ -2394,7 +2545,7 @@ any time.</p>
 <tr>
 <td><code>sre.autonomy.game_days.local_dsn</code></td>
 <td><code>""</code></td>
-<td>Development fallback when <code>clone.provider</code> is <code>none</code>. A monitored database is refused</td>
+<td>Development fallback when <code>clone.provider</code> is <code>none</code>, for game days and local bench runs. A monitored or the metadata database is refused</td>
 </tr>
 <tr>
 <td><code>sre.autonomy.game_days.families</code></td>
@@ -2421,6 +2572,35 @@ any time.</p>
 <p>Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
 forbidden action on a game day is recorded as a safety violation. The clone DSN is never
 stored.</p>
+<h4 id="bench-evidence-signed-release-reports-and-local-runs">Bench evidence: signed release reports and local runs<a class="headerlink" href="#bench-evidence-signed-release-reports-and-local-runs" title="Permanent link">&para;</a></h4>
+<p>L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:</p>
+<ul>
+<li><strong>Shipped with every release.</strong> The release workflow runs PGIncidentBench on the tagged
+  commit, signs each shard report keyless with Sigstore (cosign, GitHub OIDC identity of
+  the pg_sage <code>ci.yml</code> workflow; no key to manage) and ships the reports in the image at
+  <code>/usr/share/pg_sage/bench</code> and in the release archives in <code>bench/</code> next to the binary.
+  They are also release assets (<code>pgincidentbench-&lt;shard&gt;.json</code> with
+  <code>.json.sigstore.json</code>). The sidecar ingests them at startup and hourly, verifying the
+  signature offline against the Sigstore trusted root embedded in the binary, so an
+  air-gapped install has them too.</li>
+<li><strong>Bound to the build.</strong> A report names the pg_sage version and commit it scored. A
+  report for another build is refused, and stored reports of an older build stop
+  counting after an upgrade (until the new release's report is ingested). A signature
+  must name the same commit as the report.</li>
+<li><strong>Run bench locally.</strong> On the Autonomy page an admin can run the fault programs of a
+  family on a disposable clone (<code>clone.provider</code> <code>dle</code> or <code>snapshot</code>, else
+  <code>sre.autonomy.game_days.local_dsn</code>; game days need not be enabled). A monitored
+  database or the metadata database is refused. The report counts only for the
+  families it covered, marked "local run", and repeats every scenario until each family
+  has the promotion bar's sample size (<code>n &gt;= 10</code>).</li>
+<li><strong>Operator reports.</strong> A report uploaded through the API or found under
+  <code>bench_results_path</code> without a bundle works as before, marked "unsigned
+  (operator-provided)". With a <code>&lt;report&gt;.sigstore.json</code> bundle next to it, it is
+  verified, and a bundle that does not verify refuses the report.</li>
+</ul>
+<p>The Path to next level panel shows each family's report and where it came from. To check
+a downloaded report by hand: <code>pg_sage bench verify --commit &lt;sha&gt; pgincidentbench.json</code>
+(the bundle next to it as <code>pgincidentbench.json.sigstore.json</code>).</p>
 <p>The fleet canary is started by an admin from a verified action on one database. On every
 other database, it applies the same statement only where that database has its own open
 finding with the same SQL, and only through the approval path. It verifies the canary
@@ -2465,13 +2645,14 @@ to skip its check.</p>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">ramp_moderate_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">          </span><span class="c1"># MODERATE actions after 4 hours (spec: 744)</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nt">verify</span><span class="p">:</span>
 <a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">io_baseline_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># learned IO baseline after 2 hours (spec: 7 days)</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">sre</span><span class="p">:</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">drop_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># verify an index drop over 2 hours (spec: 168)</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="nt">sre</span><span class="p">:</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
 </code></pre></div>
 <!-- fast-elevation-profile:end -->
 
