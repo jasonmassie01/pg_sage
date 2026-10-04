@@ -112,16 +112,16 @@ func TestSelfInitiatedHandoffKeyNamesTheTrustFamily(t *testing.T) {
 	exec := New(pool, autonomousConfig(), time.Now().Add(-60*24*time.Hour), noopExecLog)
 	exec.WithActionStore(store.NewActionStore(pool), "auto")
 	exec.WithAutonomy(limiter)
-	doc := policy.UnattendedProfile()
-	doc.MaintenanceWindows = []string{"always"}
-	exec.EnableStandingPolicyDocument(doc, nil)
+	// The package's other tests spend the 24-hour limits in the shared
+	// database; this test is about the handoff key, not those limits.
+	exec.EnableStandingPolicyDocument(unlimitedWindowPolicy(), nil)
 	exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
-	const key = "autonomy:hygiene:analyze:public.trust_handoff"
+	const key = "autonomy:hygiene:analyze:public.orders"
 	clearHandoffs(t, pool, key)
-	clearHandoffs(t, pool, "autonomy::analyze:public.trust_handoff")
+	clearHandoffs(t, pool, "autonomy::analyze:public.orders")
 	err := exec.SubmitCustodianProposal(context.Background(), CustodianProposal{
-		Feature: "analyze", SQL: `ANALYZE "public"."trust_handoff"`,
-		TargetObjects: []string{"public.trust_handoff"}, ObservedAt: time.Now()})
+		Feature: "analyze", SQL: `ANALYZE "public"."orders"`,
+		TargetObjects: []string{"public.orders"}, ObservedAt: time.Now()})
 	if err != nil {
 		t.Fatalf("submit at L2: %v", err)
 	}
