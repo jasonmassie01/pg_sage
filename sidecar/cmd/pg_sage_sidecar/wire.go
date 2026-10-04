@@ -141,6 +141,7 @@ func wireRouter(p WireParams) WireResult {
 	}
 	middlewares = append(middlewares, api.SessionAuthMiddleware(authPool))
 
+	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
 	router := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,
 		p.LLMMgr, &api.RuntimeDeps{
@@ -156,6 +157,9 @@ func wireRouter(p WireParams) WireResult {
 			MCPHandler: p.MCPHandler,
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 			Ask:        askServices(),
+			Specialist: specialistHandler,
+			// The request audit of the Postgres-specialist contract.
+			SpecialistAudit: specialistAudit,
 		},
 		middlewares...,
 	)

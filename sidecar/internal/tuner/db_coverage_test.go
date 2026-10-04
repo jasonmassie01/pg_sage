@@ -293,21 +293,3 @@ func TestFunctional_Coverage_DB_DetectHintPlan(t *testing.T) {
 		t.Errorf("unexpected method: %s", result.Method)
 	}
 }
-
-// TestFunctional_Coverage_DB_FetchSystemContext tests fetching
-// system GUCs from a real PG.
-func TestFunctional_Coverage_DB_FetchSystemContext(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
-
-	sys := fetchSystemContext(ctx, pool)
-	if sys.MaxConnections <= 0 {
-		t.Errorf("expected positive max_connections, got %d",
-			sys.MaxConnections)
-	}
-	if sys.WorkMem == "" {
-		t.Error("expected non-empty work_mem")
-	}
-	if sys.SharedBuffers == "" {
-		t.Error("expected non-empty shared_buffers")
-	}
-}

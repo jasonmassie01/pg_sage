@@ -51,6 +51,7 @@ can differ by managed-service constraints.
 
 ## Getting Started
 
+- [Five-minute quickstart](quickstart.md) — minimal role, read-only first look in minute 1
 - [Installation](installation.md) — Download, prerequisites, database user setup
 - [Try It Out](try-it-out.md) — local v1 smoke path and UI checklist
 - [Walkthroughs](walkthrough.md) — Platform-specific getting started guides

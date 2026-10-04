@@ -75,6 +75,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		AgentTools: fleetAgentTools{manager: fleetMgr, options: agentToolOptions(cfg)},
 		// Ask Sage (roadmap phase 3): read, and propose with the propose scope.
 		Ask: askServices(),
+		// The Postgres-specialist contract over MCP (roadmap phase 3).
+		Specialist: processSpecialistMCP{},
 	}
 }
 

@@ -2,14 +2,17 @@ package optimizer
 
 // Recommendation is a validated index recommendation from the optimizer.
 type Recommendation struct {
-	Table      string  `json:"table"`
-	DDL        string  `json:"ddl"`
-	DropDDL    string  `json:"drop_ddl,omitempty"`
-	Rationale  string  `json:"rationale"`
-	Severity   string  `json:"severity"`
-	Confidence float64 `json:"confidence"`
-	IndexType  string  `json:"index_type"`
-	Category   string  `json:"category"`
+	Table   string `json:"table"`
+	DDL     string `json:"ddl"`
+	DropDDL string `json:"drop_ddl,omitempty"`
+	// Alongside are in-flight index DDLs on the same table (queued or
+	// proposed, not built yet) the what-if creates as hypothetical indexes
+	// before measuring this one.
+	Alongside []string `json:"-"`
+	Rationale string   `json:"rationale"`
+	Severity  string   `json:"severity"`
+	IndexType string   `json:"index_type"`
+	Category  string   `json:"category"`
 	// IndexCategory is the LLM label; Category is fixed (missing_index).
 	IndexCategory           string   `json:"index_category,omitempty"`
 	AffectedQueries         []string `json:"affected_queries,omitempty"`
@@ -23,31 +26,14 @@ type Recommendation struct {
 	// PartitionedParent marks an index on a partitioned table: it is
 	// advisory, and PartitionPlan holds the ON ONLY / per-partition /
 	// ATTACH statements (nil for multi-level partitioning).
-	PartitionedParent bool     `json:"partitioned_parent,omitempty"`
-	PartitionPlan     []string `json:"partition_plan,omitempty"`
-	// ActionLevel is the confidence tier: safe, moderate, high_risk.
-	ActionLevel  string        `json:"action_level"`
-	ActionRisk   string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
-	CostEstimate *CostEstimate `json:"cost_estimate,omitempty"`
+	PartitionedParent bool          `json:"partitioned_parent,omitempty"`
+	PartitionPlan     []string      `json:"partition_plan,omitempty"`
+	ActionRisk        string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
+	CostEstimate      *CostEstimate `json:"cost_estimate,omitempty"`
 }
 
-// Result holds the output of one optimizer cycle.
-type Result struct {
-	TablesAnalyzed  int
-	Recommendations []Recommendation
-	Rejections      int
-	TokensUsed      int
-	PlanSource      string
-	BudgetExhausted bool
-	// MemorySkips counts LLM candidates whose what-if was skipped because
-	// rejection memory already measured the same idea on this workload.
-	MemorySkips int
-	// LLMCallsSkipped counts tables the model was not asked about because
-	// their recent proposals were all already measured (rejection memory).
-	LLMCallsSkipped int
-}
-
-// TableContext holds enriched per-table data for the LLM prompt.
+// TableContext holds a table's enriched data: what the tuning agent's tools
+// show and what admission validates and measures a candidate against.
 type TableContext struct {
 	Schema           string
 	Table            string
@@ -73,12 +59,9 @@ type TableContext struct {
 	PartitionChildren []string
 	NestedPartitions  bool
 	WriteRateKnown    bool // true when the table had recorded scan/write activity
-	// MeasuredRejections are prompt lines for shapes HypoPG already
-	// measured and rejected on this workload (rejection memory).
-	MeasuredRejections []string
-	// ConfirmedFacts are the operator-confirmed facts about the table
-	// (roadmap 2.3), as bounded prompt lines.
-	ConfirmedFacts []string
+	// PlanSource is where Plans came from: auto_explain, generic_plan,
+	// query_text_only (no plan captured) or none (not attempted).
+	PlanSource string
 }
 
 // ColumnInfo describes a table column.
@@ -127,5 +110,3 @@ type ColStat struct {
 	MostCommonVals  []string
 	MostCommonFreqs []float64
 }
-
-// ConfidenceInput and ComputeConfidence live in confidence.go.

@@ -78,6 +78,64 @@ func (a *Advisor) ShouldRun() bool {
 	return time.Since(a.lastRunAt) > a.cfg.Advisor.Interval()
 }
 
+// subAdvisor is one LLM sub-advisor and the category it owns. Vacuum and
+// memory tuning belong to the tuning agent (roadmap 2.2); the advisor
+// keeps instance capacity and maintenance advice.
+type subAdvisor struct {
+	name, category string
+	enabled        bool
+	run            func(context.Context) ([]analyzer.Finding, error)
+}
+
+func (a *Advisor) subAdvisors(snap, prev *collector.Snapshot) []subAdvisor {
+	c := a.cfg.Advisor
+	return []subAdvisor{
+		{"wal", "wal_tuning", c.WALEnabled, func(ctx context.Context) (
+			[]analyzer.Finding, error) {
+			return analyzeWAL(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+		}},
+		{"connections", "connection_tuning", c.ConnectionEnabled, func(ctx context.Context) (
+			[]analyzer.Finding, error) {
+			return analyzeConnections(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+		}},
+		{"rewrites", "query_rewrite", c.RewriteEnabled, func(ctx context.Context) (
+			[]analyzer.Finding, error) {
+			return analyzeQueryRewrites(ctx, a.pool, a.llmMgr, snap, a.cfg, a.logFn)
+		}},
+		{"bloat", "bloat_remediation", c.BloatEnabled, func(ctx context.Context) (
+			[]analyzer.Finding, error) {
+			return analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+		}},
+	}
+}
+
+// runSubAdvisors runs the enabled sub-advisors whose category has no open
+// finding; it returns their findings and how many hit the token budget.
+func (a *Advisor) runSubAdvisors(ctx context.Context, snap, prev *collector.Snapshot) (
+	[]analyzer.Finding, int) {
+	var all []analyzer.Finding
+	budgetErrors := 0
+	for _, sa := range a.subAdvisors(snap, prev) {
+		if !sa.enabled {
+			continue
+		}
+		if a.hasOpenFindings(ctx, sa.category) {
+			a.logFn("DEBUG", "advisor: %s: skipping, open findings exist", sa.name)
+			continue
+		}
+		findings, err := sa.run(ctx)
+		if err != nil {
+			a.logFn("WARN", "advisor: %s: %v", sa.name, err)
+			if isBudgetError(err) {
+				budgetErrors++
+			}
+			continue
+		}
+		all = append(all, findings...)
+	}
+	return all, budgetErrors
+}
+
 // Analyze runs all enabled sub-advisors and returns findings.
 func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	if !a.cfg.Advisor.Enabled {
@@ -100,111 +158,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 		return nil, nil
 	}
 
-	var all []analyzer.Finding
-	budgetErrors := 0
-
-	// Group 1: Configuration tuning
-	if a.cfg.Advisor.VacuumEnabled {
-		if a.hasOpenFindings(ctx, "vacuum_tuning") {
-			a.logFn("DEBUG", "advisor: vacuum: skipping, open findings exist")
-		} else {
-			findings, err := analyzeVacuum(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
-			if err != nil {
-				a.logFn("WARN", "advisor: vacuum: %v", err)
-				if isBudgetError(err) {
-					budgetErrors++
-				}
-			} else {
-				all = append(all, findings...)
-			}
-		}
-	}
-
-	if a.cfg.Advisor.WALEnabled {
-		if a.hasOpenFindings(ctx, "wal_tuning") {
-			a.logFn("DEBUG", "advisor: wal: skipping, open findings exist")
-		} else {
-			findings, err := analyzeWAL(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
-			if err != nil {
-				a.logFn("WARN", "advisor: wal: %v", err)
-				if isBudgetError(err) {
-					budgetErrors++
-				}
-			} else {
-				all = append(all, findings...)
-			}
-		}
-	}
-
-	if a.cfg.Advisor.ConnectionEnabled {
-		if a.hasOpenFindings(ctx, "connection_tuning") {
-			a.logFn("DEBUG",
-				"advisor: connections: skipping, open findings exist")
-		} else {
-			findings, err := analyzeConnections(ctx, a.llmMgr, snap, a.cfg, a.logFn)
-			if err != nil {
-				a.logFn("WARN", "advisor: connections: %v", err)
-				if isBudgetError(err) {
-					budgetErrors++
-				}
-			} else {
-				all = append(all, findings...)
-			}
-		}
-	}
-
-	// Group 2: Workload intelligence
-	if a.cfg.Advisor.MemoryEnabled {
-		if a.hasOpenFindings(ctx, "memory_tuning") {
-			a.logFn("DEBUG", "advisor: memory: skipping, open findings exist")
-		} else {
-			findings, err := analyzeMemory(ctx, a.llmMgr, snap, a.cfg, a.logFn)
-			if err != nil {
-				a.logFn("WARN", "advisor: memory: %v", err)
-				if isBudgetError(err) {
-					budgetErrors++
-				}
-			} else {
-				all = append(all, findings...)
-			}
-		}
-	}
-
-	if a.cfg.Advisor.RewriteEnabled {
-		if a.hasOpenFindings(ctx, "query_rewrite") {
-			a.logFn("DEBUG",
-				"advisor: rewrites: skipping, open findings exist")
-		} else {
-			findings, err := analyzeQueryRewrites(ctx, a.pool, a.llmMgr, snap, a.cfg, a.logFn)
-			if err != nil {
-				a.logFn("WARN", "advisor: rewrites: %v", err)
-				if isBudgetError(err) {
-					budgetErrors++
-				}
-			} else {
-				all = append(all, findings...)
-			}
-		}
-	}
-
-	if a.cfg.Advisor.BloatEnabled {
-		if a.hasOpenFindings(ctx, "bloat_remediation") {
-			a.logFn("DEBUG", "advisor: bloat: skipping, open findings exist")
-		} else {
-			findings, err := analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
-			if err != nil {
-				a.logFn("WARN", "advisor: bloat: %v", err)
-				if isBudgetError(err) {
-					budgetErrors++
-				}
-			} else {
-				all = append(all, findings...)
-			}
-		}
-	}
-
-	// Rewrite findings for cloud platforms (ALTER SYSTEM ->
-	// ALTER DATABASE, filter restart-requiring GUCs).
+	all, budgetErrors := a.runSubAdvisors(ctx, snap, prev)
 	cloudEnv := a.cloudEnv
 	if cloudEnv == "" {
 		cloudEnv = a.cfg.CloudEnvironment
@@ -213,8 +167,8 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	if dbName == "" {
 		dbName = a.cfg.Postgres.Database
 	}
-	all = applyHostMemoryGuard(all, a.hostMemoryBytes)
-	all = TransformForCloud(all, cloudEnv, dbName, snap.ConfigData.PGSettings)
+	all = GateConfigFindings(all, a.hostMemoryBytes, cloudEnv, dbName,
+		snap.ConfigData.PGSettings)
 
 	a.mu.Lock()
 	a.lastRunAt = time.Now()

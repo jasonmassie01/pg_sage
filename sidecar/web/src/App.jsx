@@ -14,6 +14,8 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
+import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
+import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyPage } from './pages/AutonomyPage'
@@ -163,7 +165,13 @@ export default function App() {
   const pageState = (() => {
     switch (routePath) {
       case '/':
-        return { title: 'Value', node: <ValuePage database={effectiveDB} /> }
+        return { title: 'Value', node: (
+          <div className="space-y-6">
+            <OnboardingPanel database={effectiveDB} />
+            <FirstLookPanel database={effectiveDB} />
+            <ValuePage database={effectiveDB} />
+          </div>
+        ) }
       case '/advanced':
         return { title: 'Snapshot & metrics',
           node: <Dashboard database={effectiveDB}

@@ -131,8 +131,12 @@ func (m *Monitor) read(ctx context.Context) (Snapshot, []error) {
 	if d, err := probes.WALDirectoryOf(run(probes.WALDirectoryProbe)); err == nil {
 		s.Dir = &d // without pg_monitor disk usage is simply not sampled
 	}
+	// wraparound_tables reads per-table statistics: on PostgreSQL 14 the
+	// backend first waits for a fresh stats collector file, which can take
+	// seconds on a loaded host, so it samples with its background budget.
 	var err error
-	s.Tables, err = probes.WraparoundTables(run(probes.WraparoundTablesProbe))
+	s.Tables, err = probes.WraparoundTables(m.runner.RunBackground(ctx,
+		probes.WraparoundTablesProbe, probes.Args{}))
 	s.TablesOK = note(probes.WraparoundTablesProbe, err)
 	s.Slots, err = probes.Slots(run(probes.ReplicationSlots))
 	s.SlotsOK = note(probes.ReplicationSlots, err)

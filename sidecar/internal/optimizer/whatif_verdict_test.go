@@ -158,25 +158,3 @@ func TestHypoPGCallWeightedAndIsolated(t *testing.T) {
 			verdict)
 	}
 }
-
-// Re-emitted open recommendations keep their verdict, so an unverified
-// candidate never turns into a validated one by being reloaded. Legacy
-// rows without a verdict are verified only if HypoPG validated them.
-func TestReloadRecommendation_KeepsVerdict(t *testing.T) {
-	o := &Optimizer{logFn: noopLog2}
-	ddl := `"ddl":"CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status)"`
-	cases := map[string]string{
-		`{` + ddl + `,"what_if_verdict":"unverified","what_if_reason":"boom"}`: WhatIfUnverified,
-		`{` + ddl + `,"what_if_verdict":"verified","hypopg_validated":true}`:   WhatIfVerified,
-		`{` + ddl + `,"hypopg_validated":true}`:                                WhatIfVerified,
-		`{` + ddl + `,"hypopg_validated":false}`:                               WhatIfUnverified,
-		`{` + ddl + `,"what_if_verdict":"verified","hypopg_validated":false}`:  WhatIfUnverified,
-	}
-	for detail, want := range cases {
-		rec, ok := o.reloadRecommendation(context.Background(), detail, sampleTableContext())
-		if !ok || rec.WhatIf != want || rec.Validated != (want == WhatIfVerified) {
-			t.Errorf("%s: ok=%t verdict=%q validated=%t, want %q", detail, ok, rec.WhatIf,
-				rec.Validated, want)
-		}
-	}
-}

@@ -257,8 +257,8 @@ func runwaySpecs() []Spec {
 	return []Spec{
 		needsStats(spec(XIDRunwayProbe, FamilyVacuum, ArgsNone,
 			Variant{MinVersion: 140000, SQL: xidRunwaySQL})),
-		versioned(capped(spec(WraparoundTablesProbe, FamilyVacuum, ArgsNone,
-			Variant{MinVersion: 140000, SQL: wraparoundTablesSQL}), 50), "v2"),
+		background(versioned(capped(spec(WraparoundTablesProbe, FamilyVacuum, ArgsNone,
+			Variant{MinVersion: 140000, SQL: wraparoundTablesSQL}), 50), "v2")),
 		capped(needsStats(spec(XminHorizon, FamilyVacuum, ArgsNone,
 			Variant{MinVersion: 140000, SQL: xminHorizonSQL})), 100),
 		spec(AutovacuumCancellations, FamilyVacuum, ArgsWindow,
@@ -273,6 +273,13 @@ func runwaySpecs() []Spec {
 		versioned(capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
 			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200), "v2"),
 	}
+}
+
+// background gives a spec the background budget for the runway monitor's
+// sampling (RunBackground); investigations keep StatementTimeout.
+func background(s Spec) Spec {
+	s.BackgroundTimeout = MaxBackgroundStatementTimeout
+	return s
 }
 
 // versioned sets a spec's version.

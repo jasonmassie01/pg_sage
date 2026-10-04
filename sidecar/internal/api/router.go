@@ -96,6 +96,11 @@ type RuntimeDeps struct {
 	Autonomy *AutonomyDeps
 	// Ask serves the Ask Sage routes (roadmap phase 3); nil omits them.
 	Ask *ask.Registry
+	// Specialist serves the Postgres-specialist contract under
+	// /api/v1/specialist/ (MCP tokens only); nil omits it. SpecialistAudit
+	// reads its request audit for the dashboard; nil omits the route.
+	Specialist      http.Handler
+	SpecialistAudit SpecialistAuditReader
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -171,6 +176,7 @@ func registerFleetScopedRoutes(
 	registerFactRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)
+	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp",
@@ -179,6 +185,7 @@ func registerFleetScopedRoutes(
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
 	apiMux.Handle("GET /api/v1/value", valueHandler(fleetValueReader(mgr)))
+	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }
 
 // registerControlPoolRoutes registers the routes backed by the control

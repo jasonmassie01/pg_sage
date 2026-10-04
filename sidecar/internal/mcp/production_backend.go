@@ -64,6 +64,8 @@ type ProductionDependencies struct {
 	AgentTools AgentToolBackend
 	// Ask serves ask_sage (roadmap phase 3); optional.
 	Ask AskBackend
+	// Specialist serves the Postgres-specialist contract tools; optional.
+	Specialist SpecialistBackend
 }
 
 type ProductionBackend struct {

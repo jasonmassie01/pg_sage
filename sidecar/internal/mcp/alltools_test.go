@@ -94,6 +94,11 @@ var allToolsArgs = map[string]string{
 	"get_source_fix_packet": `{"finding_id":7}`,
 	"report_source_fix": `{"finding_id":7,"stage":"pr_opened",` +
 		`"pr_url":"https://github.com/acme/app/pull/12"}`,
+	"specialist_open_investigation":   `{"symptom":{"summary":"slow"}}`,
+	"specialist_investigation_status": `{"investigation_id":"5f0c2a52-0d55-4a43-9a3c-0d6c1f6c9a11"}`,
+	"specialist_investigation_result": `{"investigation_id":"5f0c2a52-0d55-4a43-9a3c-0d6c1f6c9a11"}`,
+	"specialist_request_remediation": `{"investigation_id":"5f0c2a52-0d55-4a43-9a3c-0d6c1f6c9a11",` +
+		`"remediation_id":"custodian.0123456789abcdef"}`,
 }
 
 func (b *allToolsBackend) validArgs(tool string) string {
@@ -232,4 +237,10 @@ func (b *allToolsBackend) ReviewInvestigation(ctx context.Context, _ AutonomyReq
 func (b *allToolsBackend) EvaluateAutonomy(ctx context.Context, _ AutonomyRequest) (any,
 	error) {
 	return b.runbook(ctx, "sre_evaluate_autonomy")
+}
+
+func (b *allToolsBackend) SpecialistCall(ctx context.Context, tool string,
+	_ SpecialistCaller, _ string, _ json.RawMessage) (any, error) {
+	b.hit(ctx, tool)
+	return map[string]any{}, nil
 }

@@ -15,18 +15,3 @@ func newStandaloneLLMManager(general *llm.Client) *llm.Manager {
 		general, optimizerClient, cfg.LLM.OptimizerLLM.FallbackToGeneral,
 	)
 }
-
-// tunerLLMClients returns the tuner's primary client and its fallback. The
-// fallback is nil when it would be the primary itself: retrying a failed
-// call on the same client doubles latency and circuit-breaker failures.
-func tunerLLMClients(manager *llm.Manager) (primary, fallback *llm.Client) {
-	if manager == nil {
-		return nil, nil
-	}
-	primary = manager.ForPurpose("query_tuning")
-	if cfg.LLM.OptimizerLLM.FallbackToGeneral && manager.General != nil &&
-		manager.General != primary {
-		fallback = manager.General
-	}
-	return primary, fallback
-}

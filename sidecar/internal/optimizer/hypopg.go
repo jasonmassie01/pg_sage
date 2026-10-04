@@ -69,7 +69,7 @@ func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []Que
 			retErr = errors.Join(retErr, err)
 		}
 	}()
-	res, err = session.evaluate(ctx, rec.DDL, queries)
+	res, err = session.evaluate(ctx, rec.DDL, rec.Alongside, queries)
 	if err != nil {
 		return WhatIfResult{}, err
 	}

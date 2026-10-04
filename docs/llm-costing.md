@@ -6,7 +6,7 @@ recommended budgets.
 
 ## Defaults
 
-LLM features are on by default (`llm.enabled`, `llm.optimizer.enabled`,
+LLM features are on by default (`llm.enabled`, `tuning.enabled`, `llm.optimizer.enabled`,
 `advisor.enabled`, `tuner.llm_enabled`, `rca.narration_enabled`, `explain.enabled`)
 but spend nothing until `llm.endpoint` and `llm.api_key` are set. Once they are,
 `llm.token_budget_daily` (default 500,000 tokens) caps the general client's daily
@@ -22,8 +22,7 @@ turns all of them off.
 |---------|-----------------|-----------------|---------------------|----------------|
 | Briefing | `0 6 * * *` (daily) | 2,000-4,000 | 1 | ~3,000 |
 | Advisor | 3,600s (1h) | 1,500-3,000 | 24 | ~48,000 |
-| Optimizer | 600s (per analyzer cycle) | 3,000-6,000 | 10-20 | ~60,000 |
-| Tuner (LLM mode) | per analyzer cycle | 2,000-4,000 | 10-20 | ~40,000 |
+| Tuning agent | per analyzer cycle, only when a case exists | 3,000-8,000 per request | at most `tuning.max_requests_per_cycle` (12) per cycle | bounded by `tuning.max_tokens_per_cycle` (60,000) per cycle |
 
 **Typical daily total (all features, small-medium DB): ~150,000 tokens**
 
@@ -45,7 +44,7 @@ These features need good summarization but not deep SQL reasoning.
 **Recommended:** Gemini 2.5 Flash, Claude Haiku, GPT-4o-mini
 
 ### Optimizer LLM (`llm.optimizer_llm.*`)
-Used by: optimizer (index recommendations), tuner (hint generation).
+Used by: the tuning agent (index, configuration, statistics and hint proposals).
 These features analyze query plans and generate SQL — accuracy matters.
 **Recommended:** Gemini 2.5 Pro, Claude Sonnet, GPT-4o
 
@@ -87,11 +86,11 @@ llm:
 
 1. **Increase advisor interval** to 7,200s (2h) instead of 3,600s — saves ~50% advisor tokens
 2. **Keep briefing daily** (default) vs hourly — saves ~23x briefing tokens
-3. **Raise `min_query_calls`** to 100+ for optimizer and tuner — avoids analyzing one-off queries
+3. **Lower `tuning.max_requests_per_cycle` / `tuning.max_tokens_per_cycle`** — the tuning agent's per-database, per-cycle budget
 4. **Use Flash/Haiku for general**, Pro/Sonnet only for `optimizer_llm`
-5. **Disable unused advisors** — set `vacuum_enabled: false`, etc. for categories you don't need
+5. **Disable unused proposal types** — e.g. `advisor.vacuum_enabled: false` stops storage-parameter proposals
 6. **Set `context_budget_tokens`** lower (2048) if your schema is simple
-7. **Increase analyzer interval** to 1,200s+ for stable workloads — fewer optimizer/tuner cycles
+7. **Increase analyzer interval** to 1,200s+ for stable workloads — fewer tuning cycles
 
 ## Circuit Breaker
 

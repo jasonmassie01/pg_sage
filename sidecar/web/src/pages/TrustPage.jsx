@@ -4,6 +4,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { TrustTable } from './trust/TrustTable'
 import { ModelLift } from './trust/ModelLift'
+import { TuningCalibration } from './trust/TuningCalibration'
 
 // One trust system (roadmap 1.2): database x family x class. Each class
 // pg_sage runs on its own initiative has one level per database, earned
@@ -83,6 +84,7 @@ export function TrustPage({ database, user }) {
           isAdmin={user?.role === 'admin'} onApprove={onApprove} />
       ))}
       <ModelLift database={database} />
+      <TuningCalibration database={database} />
     </section>
   )
 }

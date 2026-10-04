@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -51,6 +52,7 @@ func producerPrediction(class string, detail map[string]any) (verify.Prediction,
 	if !ok {
 		return verify.Prediction{}, false
 	}
+	raw = exactTargetIDs(raw)
 	encoded, err := json.Marshal(raw)
 	if err != nil {
 		return verify.Prediction{}, false
@@ -61,6 +63,39 @@ func producerPrediction(class string, detail map[string]any) (verify.Prediction,
 	}
 	p.Class = class
 	return p, true
+}
+
+// exactTargetIDs reads target queryids a producer wrote as decimal strings
+// (the tuning agent does: they survive a JSON round trip that decodes
+// numbers as float64) as exact integers. A malformed entry is left as is,
+// so the prediction is ignored.
+func exactTargetIDs(raw map[string]any) map[string]any {
+	ids, ok := raw["target_queryids"].([]any)
+	if !ok {
+		if strs, isStrs := raw["target_queryids"].([]string); isStrs {
+			ids = make([]any, len(strs))
+			for i, s := range strs {
+				ids[i] = s
+			}
+		} else {
+			return raw
+		}
+	}
+	out := make([]any, len(ids))
+	for i, id := range ids {
+		out[i] = id
+		if s, isStr := id.(string); isStr {
+			if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+				out[i] = n
+			}
+		}
+	}
+	copied := make(map[string]any, len(raw))
+	for k, v := range raw {
+		copied[k] = v
+	}
+	copied["target_queryids"] = out
+	return copied
 }
 
 // estimatedLatencyPrediction turns a producer's estimated improvement into
