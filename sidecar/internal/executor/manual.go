@@ -149,7 +149,7 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 	}
 	r.executor.notifyPostDDL(ctx, r.sql)
 	if r.executor.settleConfigChange(ctx, actionID, r.config) {
-		r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+		r.executor.finishManualAction(ctx, actionID, r.sql, r.rollbackSQL)
 	}
 	return nil
 }
@@ -206,11 +206,12 @@ func (e *Executor) runManualSQL(
 
 // finishManualAction starts the verification monitor (which re-authorizes
 // rollback against the live operator gates) or verifies the action at once.
-func (e *Executor) finishManualAction(ctx context.Context, actionID int64, rollbackSQL string) {
+func (e *Executor) finishManualAction(ctx context.Context, actionID int64, sql,
+	rollbackSQL string) {
 	if actionID <= 0 {
 		return
 	}
-	if rollbackSQL == "" {
+	if rollbackSQL == "" && !monitoredWithoutRollback(sql) {
 		e.verifyImmediate(ctx, actionID)
 		return
 	}

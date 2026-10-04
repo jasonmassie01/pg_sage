@@ -342,14 +342,15 @@ func (e *Executor) watchVerifiedCreate(
 	}
 }
 
-// monitorFinding starts the verification monitor for a reversible action,
-// or verifies an irreversible one (VACUUM, ANALYZE) by its metric at once. The
-// monitor is detached from the execution deadline; Shutdown aborts it.
+// monitorFinding starts the verification monitor for a reversible action
+// (and for REINDEX / CREATE STATISTICS, watched without one), or verifies
+// VACUUM/ANALYZE by its metric at once. The monitor is detached from the
+// execution deadline; Shutdown aborts it.
 func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actionID int64) {
 	if actionID <= 0 {
 		return
 	}
-	if f.RollbackSQL == "" {
+	if f.RollbackSQL == "" && !monitoredWithoutRollback(f.RecommendedSQL) {
 		e.verifyImmediate(ctx, actionID)
 		return
 	}

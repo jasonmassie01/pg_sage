@@ -27,7 +27,7 @@ func TestVerificationClass(t *testing.T) {
 		"INSERT INTO hint_plan.hints (query_id, hints) VALUES (1, '')": verify.ClassQueryHint,
 		"DELETE FROM hint_plan.hints WHERE query_id = 1":               verify.ClassQueryHint,
 		"DELETE FROM public.events WHERE created_at < now()":           verify.ClassRetention,
-		"REINDEX INDEX CONCURRENTLY public.idx":                        "",
+		"REINDEX INDEX CONCURRENTLY public.idx":                        verify.ClassReindex,
 		"SELECT pg_cancel_backend(42)":                                 "",
 		"":                                                             "",
 	}
