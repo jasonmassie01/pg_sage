@@ -81,6 +81,7 @@
 | `custodian.wal.abandon_after_minutes` | `restart` | `-` |
 | `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` |
 | `databases` | `reconfigure` | `fleet_databases` |
+| `debug.pprof_enabled` | `restart` | `-` |
 | `defaults.analyzer_interval_seconds` | `reconfigure` | `fleet_databases` |
 | `defaults.collector_interval_seconds` | `reconfigure` | `fleet_databases` |
 | `defaults.execution_mode` | `reconfigure` | `fleet_databases` |

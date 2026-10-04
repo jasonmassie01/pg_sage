@@ -93,10 +93,16 @@ func TestPprof_CPUProfileAndTraceAreBounded(t *testing.T) {
 
 func TestPprof_UnknownProfileIsNotFound(t *testing.T) {
 	h := pprofRouter(t, true, testAdminUser())
-	for _, p := range []string{"nope", "../config", "heap/extra"} {
+	for _, p := range []string{"nope", "heap/extra"} {
 		if w := pprofGet(h, "/api/v1/debug/pprof/"+p); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", p, w.Code)
 		}
+	}
+	// A dot segment is cleaned by the mux, which redirects to the clean
+	// path (outside pprof); it never serves a profile.
+	w := pprofGet(h, "/api/v1/debug/pprof/../config")
+	if w.Code == http.StatusOK || strings.Contains(w.Header().Get("Location"), "pprof") {
+		t.Errorf("dot segment: %d to %q, want no profile", w.Code, w.Header().Get("Location"))
 	}
 }
 

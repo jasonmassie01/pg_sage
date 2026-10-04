@@ -95,6 +95,7 @@ type Config struct {
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
 	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
+	Debug       DebugConfig         `yaml:"debug"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
