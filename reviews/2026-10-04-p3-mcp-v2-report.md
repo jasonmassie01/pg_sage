@@ -204,3 +204,20 @@ All packages meet coverage thresholds (lowest touched: api 79.3%, cmd 79.8%, mcp
   `mcp:token:<id>`, not the cookie's user; invalid token + valid cookie → 401; the
   anonymous test stays. Tests that called MCP through a session now use tokens (rule
   change); the router golden records the route as `open:401`.
+
+## Follow-up 3: CI race in the HTTP subscription
+
+`TestHTTPSubscriptionStreamsListChanged` failed on CI (PG15, PG16): a product bug. The SSE
+subscription took its baseline tool-list fingerprint after flushing the acknowledgment, so
+a change made as soon as the client saw the acknowledgment became part of the baseline and
+was never announced. The baseline is now taken before the acknowledgment. Reproduced with
+the old code under CPU starvation (`--cpus=0.5`, 4 parallel binaries, `-cpu 1,4`, 1 failure
+in 120 runs); the fix passed 240 runs of the subscription and stdio tests under the same
+load and `-count=20 -cpu 1,4` alongside other packages. stdio registers a subscription
+before writing its acknowledgment, against a watcher baseline taken at startup, so it had
+no such window.
+
+Final runs after merging `origin/release/v1.10.0`: api (79.4%), cmd (79.9%), mcp, mcptoken,
+config, verify ok on PG17; e2e ok; small perf gate ok; golangci-lint 0 issues. One earlier
+cmd run hit the 10-minute default timeout while the stress containers ran in parallel; it
+passed in 519 s with `-timeout 1800s` once the machine was quiet.
