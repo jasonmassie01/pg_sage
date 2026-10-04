@@ -52,7 +52,7 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	if err := l.svc.store.checkDatabase(l.b.Database); err != nil {
 		return policy.AutonomyLimit{}, fmt.Errorf("limiter bound to another ledger: %w", err)
 	}
-	f, c := Family(strings.TrimSpace(req.IncidentFamily)), ClassFor(req)
+	f, c := FamilyForRequest(req)
 	st, err := l.svc.Granted(ctx, f, c)
 	if err != nil {
 		return policy.AutonomyLimit{}, err
@@ -61,14 +61,15 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	if !Applicable(f, c) {
 		level = MinLevel(level, L1)
 	}
-	out := policy.AutonomyLimit{Granted: int(st.Level), Class: string(c)}
+	out := policy.AutonomyLimit{Granted: int(st.Level), Class: string(c), Family: string(f)}
 	if st.Level < L2 {
 		out.Level = int(level)
 		return out, nil
 	}
 	// A carried-over level was granted by policy, not earned by evidence,
-	// so it does not decay with the evidence.
-	if level >= L2 && st.Provenance != ProvenanceCarriedOver {
+	// so it does not decay with the evidence. A self-initiated level
+	// changes only by an approved promotion or a recorded demotion.
+	if level >= L2 && st.Provenance != ProvenanceCarriedOver && !IsSelfInitiated(f) {
 		supported, err := l.svc.supportedLevel(ctx, f, c)
 		if err != nil {
 			return policy.AutonomyLimit{}, err
@@ -95,13 +96,35 @@ func contractCap(req policy.ActionRequest) Level {
 	return RollbackCap(req.Contract.RollbackClass)
 }
 
+// Governs reports whether the ledger judges req (policy.AutonomyScope):
+// an incident-family request or any self-initiated class (roadmap 1.2).
+func (l *Limiter) Governs(req policy.ActionRequest) bool { return Governs(req) }
+
+var _ policy.AutonomyScope = (*Limiter)(nil)
+
 // requestDowngrades evaluates every CHECK-40 signal for req. A source
-// that cannot answer is itself a downgrade (fail closed).
+// that cannot answer is itself a downgrade (fail closed). A
+// self-initiated request takes the database-wide signals only: it
+// carries no incident snapshot (the executor re-reads the finding's
+// current evidence before the gate), has no family safety window (its
+// demerits demote the class itself), and the executor's cascade cooldown
+// and change leases already serialize work on one object (a 15-minute
+// cap would withhold, say, the autovacuum tuning that follows a vacuum
+// of the same table, which the time ramp let run).
 func (l *Limiter) requestDowngrades(ctx context.Context, req policy.ActionRequest,
 	f Family) []Downgrade {
+	if IsSelfInitiated(f) {
+		return l.selfDowngrades(ctx)
+	}
 	out := l.databaseDowngrades(ctx, f)
 	out = append(out, l.evidenceAge(req.EvidenceObservedAt)...)
 	return append(out, l.concurrency(ctx, req)...)
+}
+
+// selfDowngrades are the database-wide signals of a self-initiated
+// class: error budget and HA role.
+func (l *Limiter) selfDowngrades(ctx context.Context) []Downgrade {
+	return append(l.budget(ctx), l.haState(ctx)...)
 }
 
 // databaseDowngrades are the signals that do not depend on one request:
@@ -183,7 +206,13 @@ func (l *Limiter) concurrency(ctx context.Context, req policy.ActionRequest) []D
 }
 
 func (l *Limiter) safety(ctx context.Context, f Family) []Downgrade {
-	n, err := l.svc.store.FamilyViolations(ctx, f, l.svc.now().Add(-l.svc.cfg.SafetyWindow))
+	return safetyDowngrades(l.svc.store.FamilyViolations(ctx, f,
+		l.svc.now().Add(-l.svc.cfg.SafetyWindow)))
+}
+
+// safetyDowngrades is the signal of a family's harmful or unsafe outcomes
+// in the window (n), or of its unreadable record.
+func safetyDowngrades(n int, err error) []Downgrade {
 	if err != nil {
 		return []Downgrade{{DowngradeSafetyRegression, "safety record unreadable: " +
 			err.Error()}}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/shadow"
 )
 
 func startPrometheusServer(addr string) *http.Server {
@@ -66,6 +67,8 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 	writeSLOMetrics(&b, ctx, fleetMgr)
 	writeSelfCostFromFleet(&b, fleetMgr)
+	writeOptimizerMemoryFromFleet(&b, fleetMgr)
+	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

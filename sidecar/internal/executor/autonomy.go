@@ -55,14 +55,22 @@ func custodianIncidentFamily(feature string) string {
 	return ""
 }
 
-// autonomyEvidence names the family and class of a family action in its
-// decision record, so live outcomes can be attributed to the pair.
+// autonomyEvidence names the ledger pair of an action in its decision
+// record, so live outcomes can be attributed to it: the incident family,
+// or the trust family of a self-initiated class (roadmap 1.2).
 func autonomyEvidence(evidence map[string]any, request policy.ActionRequest) {
-	if request.IncidentFamily == "" {
+	if request.IncidentFamily != "" {
+		evidence["incident_family"] = request.IncidentFamily
+		evidence["autonomy_class"] = string(earned.ClassFor(request))
 		return
 	}
-	evidence["incident_family"] = request.IncidentFamily
-	evidence["autonomy_class"] = string(earned.ClassFor(request))
+	if request.Contract == nil {
+		return
+	}
+	if family, class := earned.FamilyForRequest(request); family != "" {
+		evidence["trust_family"] = string(family)
+		evidence["autonomy_class"] = string(class)
+	}
 }
 
 // handOffForApproval queues an L2 handoff for a withheld custodian
@@ -84,8 +92,10 @@ func (e *Executor) handOffForApproval(
 		return false
 	}
 	request := custodianRequest(proposal)
-	key := earned.HandoffKey(earned.Family(request.IncidentFamily),
-		earned.ClassFor(request), proposal.TargetObjects)
+	// The ledger pair: the incident family, or the trust family of a
+	// self-initiated class (roadmap 1.2).
+	family, class := earned.FamilyForRequest(request)
+	key := earned.HandoffKey(family, class, proposal.TargetObjects)
 	if err := e.queueHandoff(ctx, proposer, proposal, request, key,
 		withheld.Decision); err != nil {
 		e.logFn("executor", "autonomy handoff %s failed: %v", key, err)
@@ -166,17 +176,35 @@ func (e *Executor) handoffFinding(
 }
 
 // OperatorBound is the operator's configured outer bound (executor on,
-// execution mode, trust level, tier toggles), read without touching the
-// database. The ledger carries over the autonomy it already grants.
+// execution mode, trust level, tier toggles, trust ramp), read without
+// touching the database. The ledger carries over (incident families) and
+// grandfathers (self-initiated classes) the autonomy it already grants.
 func (e *Executor) OperatorBound() policy.RuntimeState {
 	if e == nil {
 		return policy.RuntimeState{}
 	}
 	cfg, mode, enabled := e.policySnapshot()
-	bound := policy.RuntimeState{ExecutorEnabled: enabled, ExecutionMode: mode}
+	bound := policy.RuntimeState{ExecutorEnabled: enabled, ExecutionMode: mode,
+		RampStart: e.rampStart}
 	if cfg != nil {
 		bound.TrustLevel = cfg.Trust.Level
 		bound.Tier3Safe, bound.Tier3Moderate = cfg.Trust.Tier3Safe, cfg.Trust.Tier3Moderate
+		bound.SafeRampAge, bound.ModerateRampAge = cfg.Trust.SafeRamp(), cfg.Trust.ModerateRamp()
 	}
 	return bound
+}
+
+// RampFloor is the trust ramp as the ledger's promotion floor (roadmap
+// 1.2): the persisted ramp start and the configured ramp ages, read at
+// each evaluation so a config reload applies.
+func (e *Executor) RampFloor() earned.RampFloor {
+	if e == nil {
+		return earned.RampFloor{}
+	}
+	cfg, _, _ := e.policySnapshot()
+	floor := earned.RampFloor{Start: e.rampStart}
+	if cfg != nil {
+		floor.Safe, floor.Moderate = cfg.Trust.SafeRamp(), cfg.Trust.ModerateRamp()
+	}
+	return floor
 }

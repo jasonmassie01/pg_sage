@@ -120,6 +120,14 @@ llm:
     max_new_per_table: 3
     over_indexed_ratio_pct: 80
     write_heavy_ratio_pct: 70
+    rejection_memory:            # skip re-measuring ideas HypoPG already rejected
+      enabled: true
+      max_age_days: 7
+      call_volume_ratio: 2       # material change: calls or mean time 2x, rows 2x,
+      mean_time_ratio: 2         # or a target query appears/disappears
+      row_estimate_ratio: 2
+      prompt_max_shapes: 5
+      skip_llm_after: 3          # stop asking the model after 3 wasted proposals
   optimizer_llm:                 # optional second model for optimizer
     endpoint: ""
     model: ""
@@ -179,11 +187,11 @@ briefing:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `trust.level` | `observation` | Trust tier: `observation`, `advisory`, `autonomous` |
+| `trust.level` | `observation` | Autonomy ceiling: `observation`, `advisory`, `autonomous`. The trust ledger decides each class's level; this is the most it may use, never a grant |
 | `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window |
-| `trust.ramp_start` | (auto) | Auto-persisted on first start; set to override |
-| `trust.ramp_safe_hours` | `192` | Hours after `ramp_start` before SAFE actions may run unattended (8 days), `1`-`8760`. Actions that cannot be rolled back always wait at least `192` |
-| `trust.ramp_moderate_hours` | `744` | Hours after `ramp_start` before MODERATE actions may run unattended (31 days), `1`-`8760`, at least `ramp_safe_hours`. Actions that cannot be rolled back always wait at least `744` |
+| `trust.ramp_start` | (auto) | When pg_sage began observing the database. Auto-persisted on first start; set to override |
+| `trust.ramp_safe_hours` | `192` | Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, `1`-`8760`. A floor, never a grant. Actions that cannot be rolled back always wait at least `192` |
+| `trust.ramp_moderate_hours` | `744` | Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3, 31 days, `1`-`8760`, at least `ramp_safe_hours`. A floor, never a grant. Actions that cannot be rolled back always wait at least `744` |
 
 The trust model controls what pg_sage is allowed to do:
 
@@ -200,6 +208,119 @@ applies the table above. Trust never promotes `manual` to `auto`.
 HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
+
+### One trust system
+
+Every action class pg_sage runs on its own initiative has one level per database in the
+trust ledger: the incident remediations (see [Sage SRE earned autonomy](#sage-sre-earned-autonomy))
+and the self-initiated classes, grouped by their goal:
+
+| Family | Classes | A success is |
+|---|---|---|
+| `tuning` | `index_create`, `config_guc` (GUC), `autovacuum_tuning` (reloption), `query_hint`, `statistics` | an `improved` verdict |
+| `hygiene` | `index_drop`, `vacuum`, `analyze`, `retention`, `reindex` | an `improved` verdict, or a `neutral` one that held (the action was not rolled back) |
+
+The levels are the earned-autonomy levels: L1 writes the script (the default), L2 hands the
+action to one-click approval, L3 runs it unattended (SAFE classes at any time, MODERATE ones
+inside the maintenance window, one object at a time). Irreversible classes (`retention`)
+never exceed L1.
+
+**The ledger grants, the operator caps.** `trust.level` and the `tier3_safe` /
+`tier3_moderate` flags are the operator's ceiling and kill switch, and stay so permanently:
+the ledger never grants past them, and lowering them takes autonomy back at once (without
+touching the earned levels, which return when the cap is raised). `execution_mode` and the
+standing policy cap the same way: `advisory` never runs a MODERATE class unattended whatever
+its level, and `tier3_moderate: false` keeps every MODERATE class at approval.
+
+**Evidence.** The verification verdicts of sage.action_outcome are the evidence:
+`insufficient_evidence` and `unverifiable` count neither way. A `regressed` verdict, an
+operator's rollback of the action or an operator's rejection of its approval item demotes the
+class one level at once, records the cause in the history and notifies an operator through
+the notification rules for failed actions (`action_failed`). The automatic revert of a
+neutral index create (no gain) is not a demerit. A demerit already known when the level was
+set does not demote it again.
+
+**Promotion.** pg_sage proposes one level up when the class has (defaults, configurable under
+`sre.autonomy.class_promotion`):
+- L2: `min_successes_l2` (3) verified successes since its last demerit, and the database
+  observed for at least `trust.ramp_safe_hours`;
+- L3: `min_successes_l3` (10) successes since the last demerit, `min_success_rate_pct` (80%)
+  of decided outcomes since then successful, and the database observed for at least
+  `trust.ramp_moderate_hours` (`trust.ramp_safe_hours` for SAFE classes).
+
+An admin approves every promotion (the Trust page, or the earned-autonomy API). The ramp is
+only a floor: it never grants anything by itself.
+
+**Existing configurations.** On the first start of a database under the unified ledger, the
+level the time ramp had already given each self-initiated class is kept as a
+**grandfathered** level (L3 when it ran unattended, L2 when it queued for approval), once.
+Grandfathered levels demote like any other; the ramp elapsing later grants nothing. The
+startup log explains the new meaning of `trust.level` and the ramp, and lists what was
+grandfathered. `sre.autonomy.enforce: false` keeps the legacy behaviour (the ramp grants)
+and is logged as a warning. Rollbacks of pg_sage's own changes and owner-declared retention
+deletes are never withheld by the ledger.
+
+The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
+with its level, effective level, evidence counts, last change and why, and the path to the
+next level. MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
+fixed number of set-based statements per database, however many classes and outcomes it
+shows. Every approval card carries its action class's row as `trust` (level, evidence
+counts, path to the next level) and one `Trust:` line in Slack and Telegram.
+
+### Shadow mode
+
+Below a self-initiated class's earned level (anything under L3), pg_sage does not only stay
+quiet or queue for approval: it records a **shadow decision** for every action it would have
+taken. The decision holds the exact SQL, the rollback (for a configuration change, the one
+that restores the captured prior value), the prediction (the same model as real actions:
+targeted queries, metric, expected change, method), the evidence, and the gate's verdict had
+the class been trusted (for example "execute", or "queue for approval" when `trust.level`,
+the window or a multi-object target would still hold it). Shadow mode never runs anything and
+reads only catalogs, statistics views and sage tables, so it never locks a user object; it
+adds no EXPLAIN or HypoPG call to the cycle. The approval queue works as before; the shadow
+is recorded beside it. A finding is recorded at most once per day per fingerprint (class,
+object and normalized SQL); later sightings only count. A class promoted to L3 stops being
+shadowed; a demoted one resumes. With `sre.autonomy.enforce: false`, in `manual` mode or with
+the executor off, nothing is shadowed. Incident remediations keep their own evidence (bench,
+shadow reviews) and are not shadowed here.
+
+**Scoring.** Each pending decision is scored later, deterministically, by the best evidence
+available, in this order (never from model text):
+
+| Source | When | Score |
+|---|---|---|
+| `operator` | an operator decided the same proposal after it was recorded | rejected: incorrect; approved: by the executed action's verdict |
+| `applied` | the same change (matched by normalized SQL) ran later through pg_sage | by its verification verdict |
+| `external` | an index create or drop pg_sage wanted shows up in the catalog (a migration, psql) | verified like pg_sage's own actions: call-weighted before/after windows around when it appeared (`verify.*`; drops over `verify.drop_window_hours`) |
+| `hypopg` | an index create, after a day without the above, whose targeted queries still ran | the optimizer's what-if bar (`optimizer.hypopg_min_improvement_pct`): verified is correct, rejected incorrect |
+| `none` | nothing applied within 7 days | unscored |
+
+Verdicts map by the family's rule: `improved` is correct (hygiene: a `neutral` that held is
+correct too), `regressed` or an operator's rollback is incorrect, a tuning `neutral` is
+neutral, `insufficient_evidence` and `unverifiable` are unscored. A matched action still being
+verified is waited for (up to 21 days).
+
+**Trust.** Only `external` and `hypopg` scores count toward promotion as shadow evidence:
+`operator` and `applied` scores rest on actions the ledger already counts as real outcomes,
+and counting them again would double the evidence. Shadow evidence counts like real evidence
+of the family (distinct decisions), is labelled "shadow" in the class record and in every
+promotion proposal (for example `10 (3 real, 7 shadow)`), and an admin still approves every
+promotion. L2 may be earned from shadow evidence alone (each action is still approved by a
+person); **L3 needs at least 3 real verified successes** since the last demerit, and shadow
+successes fill at most the rest of the L3 bar (7 of the default 10; when
+`min_successes_l3` is lowered, the real minimum follows it down and shadow fills nothing). An
+incorrect shadow decision resets the class's success streak but never demotes an earned
+level; only real regressions, rollbacks and rejections demote.
+
+**Surfaces.** The Trust page shows, per class, the shadow decisions and their scores and, on
+demand, what pg_sage would have done (SQL, prediction, verdict had it been trusted, score and
+source). `GET /api/v1/shadow-decisions?database=&class=&status=&score=&limit=` serves the
+same per-class summary and the newest decisions; `GET /api/v1/trust` carries the summary per
+database as `shadow`. An approval card shows its class's shadow history and whether the
+proposal itself was a shadow decision (your decision then scores it). Prometheus:
+`pg_sage_shadow_decisions_total{database,class,verdict}` and
+`pg_sage_shadow_scores_total{database,class,score,source}`. Scored decisions age out with
+`retention.actions_days`; pending ones are kept until scored.
 
 ### Verifying actions
 
@@ -279,6 +400,13 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.optimizer.enabled` | `true` | LLM index optimizer (HypoPG-validated, confidence-scored) |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
+| `llm.optimizer.rejection_memory.enabled` | `true` | Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the prompt lists the shapes already measured. Applies to model candidates only, never to deterministic findings or to re-checks of open recommendations. Rows live in `sage.optimizer_rejection` and age out with `retention.findings_days` (YAML only) |
+| `llm.optimizer.rejection_memory.max_age_days` | `7` | Days a rejection stays valid; then the idea may be measured again (1-90) |
+| `llm.optimizer.rejection_memory.call_volume_ratio` | `2` | A target query whose call count changed by at least this factor (up or down) is a material workload change (>1-1000) |
+| `llm.optimizer.rejection_memory.mean_time_ratio` | `2` | Same, for a target query's mean execution time (>1-1000) |
+| `llm.optimizer.rejection_memory.row_estimate_ratio` | `2` | Same, for the table's live-row estimate (>1-1000). A target query appearing or disappearing is always a material change |
+| `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the prompt as already measured (1-20) |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive proposals for a table were all memory hits or fresh what-if rejections, with no material change since the first of them, the optimizer stops asking the model about the table until a material change or `max_age_days` (1-100). Operator-requested runs always ask. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
 | `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily` |
 | `advisor.enabled` | `true` | LLM configuration advisor (vacuum, WAL, connections, memory, rewrites, bloat) |
 | `tuner.llm_enabled` | `true` | Let the query tuner ask the LLM for pg_hint_plan hints (YAML only) |
@@ -336,6 +464,81 @@ The standing policy document also carries three safety fields, all enforced:
   count toward the retry limit or the self-initiated rate limit. `queue` is
   accepted and currently behaves like `park` (the action waits for the next
   cycle, not for the lease holder).
+
+#### Blast-radius budgets
+
+Self-initiated changes are bounded per rolling 24-hour window by
+`blast_radius`. Housekeeping and performance changes have separate budgets,
+so a burst of index cleanup can never hold back an evidence-backed index or
+setting change:
+
+```json
+"blast_radius": {
+  "max_rows_rewritten": 5000000,
+  "max_tables_per_window": 10,
+  "hygiene": {"max_tables_per_window": 10, "max_changes_per_window": 25}
+},
+"rate_limits": {"max_self_initiated_changes_per_window": 25}
+```
+
+The performance budget is `blast_radius.max_tables_per_window` plus
+`rate_limits.max_self_initiated_changes_per_window` (a document may also
+spell it `blast_radius.performance: {max_tables_per_window,
+max_changes_per_window}`); `hygiene` is optional and defaults per field.
+
+- **Kinds.** `hygiene` is unused and redundant index drops (including drops in
+  leaked test schemas), `VACUUM` and `ANALYZE`. Everything else is
+  `performance`: index builds, reindexes, settings, autovacuum tuning, query
+  hints and any action type pg_sage does not recognize. The kind comes from the
+  action's typed contract (the statement that would run), never from evidence
+  or an LLM.
+- **`max_tables_per_window`**: distinct tables a kind may touch in the window,
+  counting the change being decided (an index counts as its table).
+  Re-touching a table already counted is free. `0` admits no table.
+- **`max_changes_per_window`**: self-initiated changes a kind may make in the
+  window. Operator-approved changes and `ddl_conflict` parks do not count.
+- **`max_rows_rewritten`**: one budget for both kinds. Each change is charged
+  pg_sage's estimate of the rows it rewrites, taken from `pg_class.reltuples`
+  (or the live-tuple count, whichever is larger, summed over every leaf
+  partition) when it is authorized: `VACUUM FULL`, `CLUSTER`, `REINDEX`
+  without `CONCURRENTLY`, and `ALTER TABLE` that changes a column type, sets
+  `LOGGED`/`UNLOGGED`, a tablespace or an access method, or adds a generated,
+  identity or non-literal-default column (a function default such as `now()`
+  is assumed to rewrite). Every other change rewrites `0` rows. A rewrite
+  whose table cannot be found is blocked (`policy_unavailable`), never
+  counted as `0`.
+- **Defaults.** Both profiles split the previous single limit (20 tables, 50
+  changes) evenly: 10 tables and 25 changes per kind.
+- **Documents written before the split** keep working unchanged:
+  `blast_radius.max_tables_per_window` and
+  `rate_limits.max_self_initiated_changes_per_window` are read as the
+  performance budget, and hygiene gets the defaults above (so such a policy
+  allows up to 10 hygiene tables on top of its old limit). A document may name
+  a performance limit both ways (also as a `performance` block) only if the
+  values agree. Saving a policy writes the performance budget in those
+  legacy fields, and a `hygiene` block only when it differs from the
+  default, so a sidecar from before the split still reads a saved policy
+  (it fails closed, `policy_unavailable`, on a customized hygiene block).
+- **When a budget is full** the change is parked (`blast_radius_exceeded` for
+  tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
+  The decision's `evidence.budget_detail` says which budget is full and when it
+  next frees, for example `hygiene budget full: 11 of 10 tables in the 24h
+  window; next frees at 2026-10-04T18:00:02Z`.
+- **Concurrent candidates.** An authorized change holds its slot from the
+  authorization until it has run (at most twice the DDL timeout plus a
+  minute, if the sidecar dies in between), so two candidates can never both
+  take the last slot, even across sidecar processes: the usage read and the
+  recorded decision share one transaction holding a
+  `pg_advisory_xact_lock` keyed by the database.
+- **Emergency mitigations bypass the kind budgets.** A wraparound `VACUUM`
+  while the XID runway is critical, a space-freeing `VACUUM`, unused-index
+  drop or `REINDEX` while the disk runway is critical (urgency critical with
+  the hard deadline still ahead, as the custodian computed it), and the
+  revert or rollback of a change pg_sage made itself are never parked by a
+  kind budget and are charged to none (`evidence.budget_kind = bypass`).
+  They are recorded with the reason `budget bypass: <why>` and still pass
+  every other check: change classes, guardrails, the refusal set, windows,
+  leases, lock ceilings and the shared `max_rows_rewritten` bound.
 
 #### Retention contracts
 
@@ -852,8 +1055,8 @@ Use this only where you accept the risk:
 <!-- fast-elevation-profile:start -->
 ```yaml
 trust:
-  ramp_safe_hours: 1              # SAFE actions after 1 hour (spec: 192)
-  ramp_moderate_hours: 4          # MODERATE actions after 4 hours (spec: 744)
+  ramp_safe_hours: 1              # propose L2 after 1 hour observed (spec: 192)
+  ramp_moderate_hours: 4          # propose MODERATE L3 after 4 hours (spec: 744)
 verify:
   io_baseline_hours: 2            # learned IO baseline after 2 hours (spec: 7 days)
   drop_window_hours: 2            # verify an index drop over 2 hours (spec: 168)

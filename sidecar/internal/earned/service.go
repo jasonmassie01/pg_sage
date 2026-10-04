@@ -52,6 +52,9 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[pairKey]cachedLevel
+	// ramp is the trust ramp, the promotion floor of self-initiated
+	// classes (WithRamp); nil: unknown.
+	ramp func() RampFloor
 }
 
 type pairKey struct {
@@ -111,48 +114,22 @@ func defaultLevel(f Family) Level {
 	return L0
 }
 
-// Granted is a pair's human-approved level (its default when unchanged).
+// Granted is a pair's level (its default when unchanged): approved by a
+// human, carried over, grandfathered or demoted.
 func (s *Service) Granted(ctx context.Context, f Family, c ActionClass) (State, error) {
 	st, found, err := s.store.readLevel(ctx, s.store.pool, f, c)
 	if err != nil {
 		return State{}, err
 	}
 	if !found {
-		return State{Family: f, Class: c, Level: defaultLevel(f),
-			Provenance: ProvenanceLedger}, nil
+		return defaultState(f, c), nil
 	}
 	return st, nil
 }
 
-// Evidence collects everything behind a promotion of the pair now.
-func (s *Service) Evidence(ctx context.Context, f Family, c ActionClass) (Evidence, error) {
-	now := s.now()
-	ev := Evidence{Family: f, Class: c, At: now}
-	var err error
-	if ev.Bench, err = s.store.LatestBench(ctx, f); err != nil {
-		return Evidence{}, err
-	}
-	since := now.Add(-s.cfg.Thresholds.BenchMaxAge)
-	if ev.GameDays, err = s.store.GameDayRuns(ctx, since); err != nil {
-		return Evidence{}, err
-	}
-	shadowSince := now.Add(-s.cfg.Thresholds.ShadowDuration)
-	if ev.Shadow, err = s.store.ShadowStats(ctx, f, shadowSince); err != nil {
-		return Evidence{}, err
-	}
-	if ev.Live, err = s.store.LiveStats(ctx, f, c); err != nil {
-		return Evidence{}, err
-	}
-	n, last, err := s.store.familySafety(ctx, f, now.Add(-s.cfg.SafetyWindow))
-	if err != nil {
-		return Evidence{}, err
-	}
-	ev.FamilyViolations = n
-	if n > 0 {
-		clears := last.Add(s.cfg.SafetyWindow)
-		ev.ViolationsClearAt = &clears
-	}
-	return ev, nil
+// defaultState is a pair without a stored row.
+func defaultState(f Family, c ActionClass) State {
+	return State{Family: f, Class: c, Level: defaultLevel(f), Provenance: ProvenanceLedger}
 }
 
 // supportedLevel is the level the pair's current evidence supports,

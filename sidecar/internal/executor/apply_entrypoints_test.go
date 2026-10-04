@@ -121,13 +121,15 @@ func TestApplyEntryRunCycleReauthorizesUnderDeadline(t *testing.T) {
 	cfg.Trust.Level = "autonomous"
 	e := New(pool, cfg, time.Now().Add(-90*24*time.Hour), nopLog)
 	e.emergencyStopFn = func(context.Context) bool { return false }
-	gate := &reauthGate{refuseAt: 3,
+	// The cycle authorizes once before the waits (routing on that verdict, which
+	// Apply reuses) and re-authorizes once after them: the 2nd call.
+	gate := &reauthGate{refuseAt: 2,
 		decisionID: recordCustodianDecision(t, ctx, pool, "apply_probe", table)}
 	e.WithPolicyGate(gate)
 
 	e.RunCycle(ctx, false)
 
-	assertRefusedUnderDeadline(t, gate, 3, applyBudget(cfg))
+	assertRefusedUnderDeadline(t, gate, 2, applyBudget(cfg))
 	assertProbeUntouched(t, pool, table)
 }
 

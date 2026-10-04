@@ -150,6 +150,11 @@ type ActionRequest struct {
 	// LeaseHeld marks the re-authorization that follows this action's own
 	// change lease, which is therefore not a concurrent writer.
 	LeaseHeld bool
+	// Rollback marks a request that undoes a change pg_sage made. Only the
+	// executor's rollback paths set it. The trust ledger never withholds it
+	// and the kind budgets do not park it (BudgetBypassFor); the rest of the
+	// gate still binds.
+	Rollback bool
 }
 
 type Decision struct {
@@ -167,6 +172,15 @@ type Decision struct {
 	// SerializeMode is the policy's serialize_mode on an execute verdict:
 	// what a change lease conflict does (park, or wait in the lease queue).
 	SerializeMode string
+	// BudgetKind is the budget the request was charged to, and
+	// RowsRewritten its own estimate of rows rewritten, when the gate
+	// read usage (self-initiated, non-read-only requests).
+	BudgetKind    BudgetKind
+	RowsRewritten int64
+	// Trusted is what the gate would have decided had the request's ledger
+	// pair been trusted at L3; set only when the ledger withheld it
+	// (roadmap 1.4, shadow mode).
+	Trusted *TrustedVerdict
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
@@ -210,13 +224,23 @@ const (
 	ExecutionManual   = "manual"
 )
 
+// LimitUsage is the rolling window of the request's budget kind if the
+// request runs. Rows rewritten are one budget shared by every kind.
 type LimitUsage struct {
-	StorageBytes  int64
-	RowsRewritten int64
+	StorageBytes int64
+	// RowsRewritten is the window's recorded rewrites plus the request's
+	// own estimate, RequestRowsRewritten.
+	RowsRewritten        int64
+	RequestRowsRewritten int64
 	// TablesInWindow is the distinct tables the window holds if the
 	// request runs (the ones already touched plus the request's own).
 	TablesInWindow               int64
 	SelfInitiatedChangesInWindow int64
+	// TablesFreeAt, ChangesFreeAt and RowsFreeAt are when the window next
+	// frees a table, a change or rewritten rows (zero: nothing to free).
+	TablesFreeAt  time.Time
+	ChangesFreeAt time.Time
+	RowsFreeAt    time.Time
 }
 
 type Gate interface {
@@ -239,8 +263,16 @@ type GateConfig struct {
 	RecordDecisionDetailed func(context.Context, ActionRequest, Decision) (string, int64, error)
 	Now                    func() time.Time
 	// Autonomy is the earned-autonomy ledger (M7); nil leaves verdicts as
-	// trust, mode, tiers and windows decide them.
+	// trust, mode, tiers, the ramp and windows decide them. A limiter that
+	// implements AutonomyScope governs every request it names (roadmap
+	// 1.2); otherwise only incident-family requests.
 	Autonomy AutonomyLimiter
+	// Serialize, when set, runs the usage read and the decision record of
+	// a budget-spending request in one transaction holding a lock shared
+	// by every sidecar on the database. It returns the context Usage and
+	// the recorder run under and done(commit), which ends the transaction.
+	Serialize func(context.Context, ActionRequest) (context.Context, func(commit bool) error,
+		error)
 }
 
 var (

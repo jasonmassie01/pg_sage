@@ -4,11 +4,17 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
 type authorizationGate struct {
 	config GateConfig
+	// budgetMu serializes the budget section of budget-spending requests in
+	// this process (and keeps at most one connection waiting on the
+	// cross-process lock, GateConfig.Serialize): the recorded execute
+	// decision holds its slot, so a concurrent candidate reads it.
+	budgetMu sync.Mutex
 }
 
 func NewGate(config GateConfig) Gate {
@@ -20,6 +26,14 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
+	if !spendsBudget(req) {
+		return gate.finish(ctx, req, gate.evaluate(ctx, req))
+	}
+	gate.budgetMu.Lock()
+	defer gate.budgetMu.Unlock()
+	if gate.config.Serialize != nil {
+		return gate.authorizeSerialized(ctx, req)
+	}
 	return gate.finish(ctx, req, gate.evaluate(ctx, req))
 }
 
@@ -51,11 +65,11 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if runtime.TrustLevel != TrustAdvisory && runtime.TrustLevel != TrustAutonomous {
 		return blocked(ReasonUnknownTrustLevel, runtime.TrustLevel)
 	}
-	doc, decision, stop := gate.documentDecision(ctx, req)
+	doc, decision, stop, note := gate.documentDecision(ctx, req)
 	if !stop {
 		decision = withDocumentBounds(doc, gate.selfInitiatedDecision(doc, runtime, req))
 	}
-	return gate.restrictAutonomy(ctx, doc, runtime, req, decision)
+	return note.stamp(gate.restrictAutonomy(ctx, doc, runtime, req, decision))
 }
 
 // selfInitiatedDecision lets trust, mode, tier flags and ramp decide first.
@@ -64,7 +78,7 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 func (gate *authorizationGate) selfInitiatedDecision(
 	doc Document, runtime RuntimeState, req ActionRequest,
 ) Decision {
-	tier := tierDecision(runtime, req, gate.now())
+	tier := tierDecision(runtime, req, gate.now(), gate.selfGoverned(req))
 	if tier.Verdict != VerdictExecute {
 		return tier
 	}
@@ -100,34 +114,39 @@ func providerDecision(runtime RuntimeState, req ActionRequest) (Decision, bool) 
 }
 
 // documentDecision applies the standing policy document: change class,
-// approval requirements and usage limits.
+// approval requirements and the usage limits of the request's budget kind.
 func (gate *authorizationGate) documentDecision(
 	ctx context.Context, req ActionRequest,
-) (Document, Decision, bool) {
+) (Document, Decision, bool, budgetNote) {
 	doc, err := gate.policy(ctx, req)
 	if err != nil || ValidateDocument(doc) != nil {
-		return doc, blocked(ReasonPolicyUnavailable, errorDetail(err)), true
+		return doc, blocked(ReasonPolicyUnavailable, errorDetail(err)), true, budgetNote{}
 	}
 	if req.Contract.RiskTier == RiskReadOnly {
-		return doc, Decision{}, false // diagnostics mutate nothing
+		return doc, Decision{}, false, budgetNote{} // diagnostics mutate nothing
 	}
 	changeClass := ChangeClass(req.Feature)
 	if !containsChangeClass(doc.AllowedChangeClasses, changeClass) {
-		return doc, gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed), true
+		decision := gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed)
+		return doc, decision, true, budgetNote{}
 	}
 	if hasGuardrail(*req.Contract, GuardrailApprovalRequired) ||
 		isBackendSignal(req.Contract.ActionType) ||
 		containsChangeClass(doc.ApprovalRequiredClasses, changeClass) {
-		return doc, gate.decision(req, VerdictQueueApproval, ReasonApprovalRequired), true
+		decision := gate.decision(req, VerdictQueueApproval, ReasonApprovalRequired)
+		return doc, decision, true, budgetNote{}
 	}
 	usage, err := gate.usage(ctx, req)
 	if err != nil {
-		return doc, blocked(ReasonPolicyUnavailable, err.Error()), true
+		return doc, blocked(ReasonPolicyUnavailable, err.Error()), true, budgetNote{}
 	}
-	if decision, stop := limitDecision(doc, usage); stop {
-		return doc, decisionForRequest(req, decision), true
+	kind := BudgetKindFor(req)
+	note := budgetNote{read: true, kind: kind, rows: usage.RequestRowsRewritten,
+		bypass: BudgetBypassFor(req, gate.now())}
+	if decision, stop := limitDecision(doc, kind, usage, note.bypass != ""); stop {
+		return doc, decisionForRequest(req, decision), true, note
 	}
-	return doc, Decision{}, false
+	return doc, Decision{}, false, note
 }
 
 // isBackendSignal reports action types that cancel or terminate a session.
@@ -241,42 +260,6 @@ func (gate *authorizationGate) usage(
 	return gate.config.Usage(ctx, req)
 }
 
-func limitDecision(doc Document, usage LimitUsage) (Decision, bool) {
-	if budgetExceeded(doc.Budgets.StorageBytes, usage.StorageBytes) {
-		return blockedAs(VerdictPark, ReasonBudgetExceeded), true
-	}
-	if positiveExceeded(doc.BlastRadius.MaxRowsRewritten, usage.RowsRewritten, false) ||
-		positiveExceeded(doc.BlastRadius.MaxTablesPerWindow, usage.TablesInWindow, false) {
-		return blockedAs(VerdictPark, ReasonBlastRadiusExceeded), true
-	}
-	limit := doc.RateLimits.MaxSelfInitiatedChangesPerWindow
-	if positiveExceeded(limit, usage.SelfInitiatedChangesInWindow, true) {
-		return blockedAs(VerdictPark, ReasonRateLimitExceeded), true
-	}
-	return Decision{}, false
-}
-
-func budgetExceeded(limit BudgetLimit, usage int64) bool {
-	if limit.NoCap() {
-		return false
-	}
-	value, ok := limit.Value()
-	if !ok {
-		return true
-	}
-	return value == 0 || usage > value
-}
-
-func positiveExceeded(limit, usage int64, includeEqual bool) bool {
-	if limit == 0 {
-		return usage > 0
-	}
-	if includeEqual {
-		return usage >= limit
-	}
-	return usage > limit
-}
-
 func (gate *authorizationGate) windowDecision(
 	doc Document,
 	runtime RuntimeState,
@@ -352,11 +335,26 @@ func rampAge(configured, spec time.Duration, rollback RollbackClass) time.Durati
 	return max(configured, MinRampAge)
 }
 
-func rampSatisfied(runtime RuntimeState, minimum time.Duration, now time.Time) bool {
+// RampAge is the trust ramp an action of rollback class waits for, by the
+// gate's own rule (rampAge). The earned ledger uses it as the minimum
+// observation time before it may propose a promotion (roadmap 1.2).
+func RampAge(configured, spec time.Duration, rollback RollbackClass) time.Duration {
+	return rampAge(configured, spec, rollback)
+}
+
+// rampSatisfied reports an elapsed ramp. A self-initiated class the
+// ledger governs (ledgerDecides) is never held or granted by the clock:
+// its earned level decides, and the ramp only floors promotions.
+func rampSatisfied(runtime RuntimeState, minimum time.Duration, now time.Time,
+	ledgerDecides bool) bool {
+	if ledgerDecides {
+		return true
+	}
 	return !runtime.RampStart.IsZero() && now.Sub(runtime.RampStart) >= minimum
 }
 
-func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decision {
+func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time,
+	ledgerDecides bool) Decision {
 	if runtime.ExecutionMode == ExecutionApproval {
 		return decisionForRequest(
 			req, blockedAs(VerdictQueueApproval, ReasonApprovalRequired))
@@ -371,7 +369,8 @@ func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decisi
 			return decisionForRequest(req, blockedAs(VerdictExecute, ReasonAuthorized))
 		}
 	case RiskSafe:
-		if trusted && (!runtime.Tier3Safe || !rampSatisfied(runtime, safeRampAge, now)) {
+		if trusted && (!runtime.Tier3Safe ||
+			!rampSatisfied(runtime, safeRampAge, now, ledgerDecides)) {
 			return decisionForRequest(req, blocked(ReasonTrustRampNotSatisfied, ""))
 		}
 		if trusted {
@@ -379,7 +378,8 @@ func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decisi
 		}
 	case RiskModerate:
 		if runtime.TrustLevel == TrustAutonomous &&
-			(!runtime.Tier3Moderate || !rampSatisfied(runtime, moderateRampAge, now)) {
+			(!runtime.Tier3Moderate ||
+				!rampSatisfied(runtime, moderateRampAge, now, ledgerDecides)) {
 			return decisionForRequest(req, blocked(ReasonTrustRampNotSatisfied, ""))
 		}
 		if runtime.TrustLevel == TrustAutonomous {
@@ -452,27 +452,33 @@ func (gate *authorizationGate) finish(
 	req ActionRequest,
 	decision Decision,
 ) Decision {
+	recorded, _ := gate.record(ctx, req, decision) // a failed record is a blocked verdict
+	return recorded
+}
+
+// record stamps and records the decision. A failed record returns a
+// blocked policy_unavailable decision and the error.
+func (gate *authorizationGate) record(
+	ctx context.Context, req ActionRequest, decision Decision,
+) (Decision, error) {
 	decision = decisionForRequest(req, decision)
 	if gate.config.RecordDecisionDetailed != nil {
-		evidenceID, decisionID, err := gate.config.RecordDecisionDetailed(
-			ctx, req, decision,
-		)
+		evidenceID, decisionID, err := gate.config.RecordDecisionDetailed(ctx, req, decision)
 		if err != nil {
-			return blocked(ReasonPolicyUnavailable, err.Error())
+			return blocked(ReasonPolicyUnavailable, err.Error()), err
 		}
-		decision.EvidenceID = evidenceID
-		decision.DecisionID = decisionID
-		return decision
+		decision.EvidenceID, decision.DecisionID = evidenceID, decisionID
+		return decision, nil
 	}
 	if gate.config.RecordDecision == nil {
-		return decision
+		return decision, nil
 	}
 	evidenceID, err := gate.config.RecordDecision(ctx, req, decision)
 	if err != nil {
-		return blocked(ReasonPolicyUnavailable, err.Error())
+		return blocked(ReasonPolicyUnavailable, err.Error()), err
 	}
 	decision.EvidenceID = evidenceID
-	return decision
+	return decision, nil
 }
 
 func errorDetail(err error) string {

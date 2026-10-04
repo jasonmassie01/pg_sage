@@ -1085,7 +1085,7 @@ func TestFunctional_Validate_MaxNewPerTable(t *testing.T) {
 
 	tc := sampleTableContext()
 	tc.IndexCount = 1
-	accepted, _, _, err := o.analyzeTable(context.Background(), tc)
+	accepted, _, _, err := o.analyzeTable(context.Background(), tc, nil)
 	if err != nil {
 		t.Fatalf("analyzeTable error: %v", err)
 	}
@@ -1467,7 +1467,7 @@ func TestFunctional_LLMResponse_CleanJSON(t *testing.T) {
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
 	tc := sampleTableContext()
 	accepted, tokens, _, err := opt.analyzeTable(
-		context.Background(), tc,
+		context.Background(), tc, nil,
 	)
 	if err != nil {
 		t.Fatalf("analyzeTable error: %v", err)
@@ -1489,7 +1489,7 @@ func TestFunctional_LLMResponse_MarkdownWrapped(t *testing.T) {
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
 	tc := sampleTableContext()
 	accepted, _, _, err := opt.analyzeTable(
-		context.Background(), tc,
+		context.Background(), tc, nil,
 	)
 	if err != nil {
 		t.Fatalf("analyzeTable error: %v", err)
@@ -1511,7 +1511,7 @@ func TestFunctional_LLMResponse_ThinkingPrefix(t *testing.T) {
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
 	tc := sampleTableContext()
 	accepted, _, _, err := opt.analyzeTable(
-		context.Background(), tc,
+		context.Background(), tc, nil,
 	)
 	if err != nil {
 		t.Fatalf("analyzeTable error: %v", err)
@@ -1530,7 +1530,7 @@ func TestFunctional_LLMResponse_EmptyArray(t *testing.T) {
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
 	tc := sampleTableContext()
 	accepted, _, _, err := opt.analyzeTable(
-		context.Background(), tc,
+		context.Background(), tc, nil,
 	)
 	if err != nil {
 		t.Fatalf("analyzeTable error: %v", err)
@@ -1547,7 +1547,7 @@ func TestFunctional_LLMResponse_EmptyString(t *testing.T) {
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
 	tc := sampleTableContext()
 	accepted, _, _, err := opt.analyzeTable(
-		context.Background(), tc,
+		context.Background(), tc, nil,
 	)
 	// An empty completion is surfaced as an error (G3-B10), not as a
 	// successful "no recommendations" cycle.
@@ -1567,7 +1567,7 @@ func TestFunctional_LLMResponse_InvalidJSON(t *testing.T) {
 
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
 	tc := sampleTableContext()
-	_, _, _, err := opt.analyzeTable(context.Background(), tc)
+	_, _, _, err := opt.analyzeTable(context.Background(), tc, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response")
 	}
@@ -1590,7 +1590,7 @@ func TestFunctional_LLMResponse_FallbackClient(t *testing.T) {
 	)
 	tc := sampleTableContext()
 	accepted, _, _, err := opt.analyzeTable(
-		context.Background(), tc,
+		context.Background(), tc, nil,
 	)
 	if err != nil {
 		t.Fatalf("expected fallback to succeed, got error: %v", err)
@@ -1611,7 +1611,7 @@ func TestFunctional_LLMResponse_BothClientsFail(t *testing.T) {
 		t, fail1.URL, fail2.URL, cfg,
 	)
 	tc := sampleTableContext()
-	_, _, _, err := opt.analyzeTable(context.Background(), tc)
+	_, _, _, err := opt.analyzeTable(context.Background(), tc, nil)
 	if err == nil {
 		t.Fatal("expected error when both clients fail")
 	}

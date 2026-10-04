@@ -93,6 +93,14 @@ llm:
     max_include_columns: 3      # Max INCLUDE columns per recommendation
     over_indexed_ratio_pct: 150 # Index bytes > 150% of table bytes = over-indexed
     write_heavy_ratio_pct: 70   # Skip table if >70% of ops are writes
+    rejection_memory:           # Don't re-measure ideas HypoPG already rejected
+      enabled: true
+      max_age_days: 7           # Re-measure after a week regardless
+      call_volume_ratio: 2      # ...or when a target query's calls change 2x
+      mean_time_ratio: 2        # ...or its mean time changes 2x
+      row_estimate_ratio: 2     # ...or the table's rows change 2x
+      prompt_max_shapes: 5      # Rejected shapes listed in the prompt per table
+      skip_llm_after: 3         # Stop asking the model after 3 all-rejected proposals
   # optimizer_llm:              # Dedicated LLM for optimizer (inherits from llm.* if empty)
   #   enabled: true               # Off by default; adds its own token_budget_daily
   #   endpoint: ""

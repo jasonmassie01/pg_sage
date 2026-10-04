@@ -35,12 +35,11 @@ func (e *Executor) EnableStandingPolicyWithStore(
 		policyPool = e.pool
 	}
 	policyStore := policy.NewStore(policyPool)
-	ledgerService := ledger.NewService(ledger.NewPostgresRepository(e.pool))
 	scope := policy.Scope{DatabaseID: int64Pointer(databaseID)}
 	e.policyMu.Lock()
 	e.databaseID = databaseID
 	e.policyMu.Unlock()
-	e.WithPolicyGate(e.newStandingPolicyGate(policyStore, ledgerService, scope, databaseID))
+	e.WithPolicyGate(e.newStandingPolicyGate(policyStore, scope))
 	current, err := policyStore.Bootstrap(ctx, scope, profile, "system-bootstrap")
 	if err != nil {
 		return fmt.Errorf("bootstrap standing policy: %w", err)
@@ -61,7 +60,7 @@ func (e *Executor) warnInvalidStoredPolicy(current policy.Policy) {
 }
 
 func (e *Executor) newStandingPolicyGate(
-	store *policy.Store, decisions *ledger.Service, scope policy.Scope, databaseID *int,
+	store *policy.Store, scope policy.Scope,
 ) policy.Gate {
 	return policy.NewGate(policy.GateConfig{
 		Runtime: func(ctx context.Context, request policy.ActionRequest) (policy.RuntimeState, error) {
@@ -69,6 +68,7 @@ func (e *Executor) newStandingPolicyGate(
 		},
 		ValidateSQL: ValidateExecutorSQL,
 		Usage:       e.standingUsage,
+		Serialize:   e.serializeBudget,
 		Autonomy:    e.autonomyLimiter(),
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
@@ -88,9 +88,7 @@ func (e *Executor) newStandingPolicyGate(
 			if err != nil {
 				return "", 0, err
 			}
-			input := ledgerInput(databaseID, current.Version, request, decision)
-			recorded, err := decisions.RecordDecision(ctx, input)
-			return recorded.EvidenceID, recorded.ID, err
+			return e.recordStandingDecision(ctx, current.Version, request, decision)
 		},
 	})
 }
@@ -102,6 +100,7 @@ func ledgerInput(
 	evidenceID := ledger.NewEvidenceID()
 	evidence := cloneCustodianEvidence(request.Evidence)
 	evidence["off_window_ok"] = decision.OffWindowOK
+	stampBudgetEvidence(evidence, request, decision)
 	autonomyEvidence(evidence, request)
 	input := ledger.DecisionInput{
 		DatabaseID: databaseID, Feature: request.Feature, Intent: ledgerIntent(request),
@@ -111,6 +110,7 @@ func ledgerInput(
 		PolicyVersion: int(policyVersion), TargetObjects: request.TargetObjs,
 		EvidenceID: evidenceID,
 	}
+	budgetBypassReason(&input, decision)
 	if request.Deadline != nil {
 		input.DeadlineKind = string(request.Deadline.Kind)
 		input.DeadlineHardAt = &request.Deadline.HardAt
@@ -170,14 +170,12 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 		Autonomy: e.autonomyLimiter(),
 	}
 	if e.pool != nil {
-		decisions := ledger.NewService(ledger.NewPostgresRepository(e.pool))
 		config.Usage = e.standingUsage
+		config.Serialize = e.serializeBudget
 		config.RecordDecisionDetailed = func(
 			ctx context.Context, req policy.ActionRequest, decision policy.Decision,
 		) (string, int64, error) {
-			recorded, err := decisions.RecordDecision(ctx,
-				ledgerInput(e.databaseID, 1, req, decision))
-			return recorded.EvidenceID, recorded.ID, err
+			return e.recordStandingDecision(ctx, 1, req, decision)
 		}
 	}
 	e.WithPolicyGate(policy.NewGate(config))

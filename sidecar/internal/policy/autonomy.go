@@ -36,11 +36,22 @@ type AutonomyLimit struct {
 	Reasons    []string
 	// Class is the action class the ledger resolved.
 	Class string
+	// Family is the ledger family the request was judged under: its
+	// incident family, or the trust family of a self-initiated class.
+	Family string
 }
 
 // AutonomyLimiter answers the earned-autonomy level for a request.
 type AutonomyLimiter interface {
 	Limit(context.Context, ActionRequest) (AutonomyLimit, error)
+}
+
+// AutonomyScope is implemented by a limiter that governs more than the
+// incident families (roadmap 1.2, one trust system): every
+// self-initiated request it names. For such a request the trust ramp
+// never decides at authorization time; the ledger level does.
+type AutonomyScope interface {
+	Governs(ActionRequest) bool
 }
 
 // AutonomyDeadlineRecorder is implemented by a limiter that records the
@@ -59,11 +70,26 @@ const (
 )
 
 // governedByAutonomy reports whether the ledger restricts req: a
-// self-initiated mutation that remediates an incident family.
+// self-initiated mutation that remediates an incident family or, with a
+// scoped limiter, any self-initiated class it governs. Operator
+// approvals, rollbacks of pg_sage's own changes and owner-declared
+// actions are never pg_sage's own initiative.
 func (gate *authorizationGate) governedByAutonomy(req ActionRequest) bool {
-	return gate.config.Autonomy != nil && strings.TrimSpace(req.IncidentFamily) != "" &&
-		!req.OperatorApproved && req.Contract != nil &&
-		req.Contract.RiskTier != RiskReadOnly
+	if gate.config.Autonomy == nil || req.OperatorApproved || req.Rollback ||
+		req.Contract == nil || req.Contract.RiskTier == RiskReadOnly {
+		return false
+	}
+	if strings.TrimSpace(req.IncidentFamily) != "" {
+		return true
+	}
+	scope, ok := gate.config.Autonomy.(AutonomyScope)
+	return ok && !req.OwnerDeclared && scope.Governs(req)
+}
+
+// selfGoverned reports a governed request without an incident family: a
+// self-initiated class whose level the ledger alone decides.
+func (gate *authorizationGate) selfGoverned(req ActionRequest) bool {
+	return strings.TrimSpace(req.IncidentFamily) == "" && gate.governedByAutonomy(req)
 }
 
 // restrictAutonomy applies the ledger to an execute or approval verdict.
@@ -86,15 +112,19 @@ func (gate *authorizationGate) restrictAutonomy(
 	}
 	level := effectiveAutonomyLevel(limit, req.Contract.RollbackClass)
 	note := autonomyNote(level, limit, base)
+	trusted := gate.trustedVerdict(doc, runtime, req, base, limit, level)
 	switch {
 	case level < autonomyHandoffLevel && limit.Downgraded:
-		return restricted(req, VerdictObserveOnly, ReasonAutonomyDowngraded, note)
+		return withTrusted(restricted(req, VerdictObserveOnly, ReasonAutonomyDowngraded,
+			note), trusted)
 	case level < autonomyHandoffLevel:
-		return restricted(req, VerdictObserveOnly, ReasonAutonomyLevel, note)
+		return withTrusted(restricted(req, VerdictObserveOnly, ReasonAutonomyLevel, note),
+			trusted)
 	case level == autonomyHandoffLevel || base.Verdict == VerdictQueueApproval:
-		return restricted(req, VerdictQueueApproval, ReasonAutonomyHandoff, note)
+		return withTrusted(restricted(req, VerdictQueueApproval, ReasonAutonomyHandoff, note),
+			trusted)
 	}
-	if why := l3Blocker(doc, runtime, req, gate.now()); why != "" {
+	if why := l3Blocker(doc, runtime, req, gate.now(), gate.selfGoverned(req)); why != "" {
 		return restricted(req, VerdictQueueApproval, ReasonAutonomyHandoff, why+"; "+note)
 	}
 	base.Reason, base.OffWindowOK = ReasonAutonomyL3, false
@@ -150,10 +180,16 @@ func reversibilityCap(class RollbackClass) int {
 
 // l3Blocker names the L3 condition a request misses: exactly one target
 // object, and both the standing-policy window and any configured window
-// open. A deadline override does not stand in for the window at L3.
-func l3Blocker(doc Document, runtime RuntimeState, req ActionRequest, now time.Time) string {
+// open. A deadline override does not stand in for the window at L3. A
+// self-initiated class keeps its tier's window rule, which the gate has
+// already applied (SAFE classes never needed a window).
+func l3Blocker(doc Document, runtime RuntimeState, req ActionRequest, now time.Time,
+	self bool) string {
 	if len(req.TargetObjs) != 1 {
 		return "unbounded: L3 acts on exactly one object"
+	}
+	if self {
+		return ""
 	}
 	if !inAnyWindow(doc.MaintenanceWindows, now) ||
 		(runtime.WindowConfigured && !runtime.InConfiguredWindow) {
@@ -163,8 +199,12 @@ func l3Blocker(doc Document, runtime RuntimeState, req ActionRequest, now time.T
 }
 
 func autonomyNote(level int, limit AutonomyLimit, base Decision) string {
-	note := fmt.Sprintf("autonomy L%d (granted L%d, class %s); restricted %s",
-		level, limit.Granted, limit.Class, base.Reason)
+	pair := "class " + limit.Class
+	if limit.Family != "" {
+		pair = limit.Family + "/" + limit.Class
+	}
+	note := fmt.Sprintf("autonomy L%d (granted L%d, %s); restricted %s",
+		level, limit.Granted, pair, base.Reason)
 	if base.Detail != "" {
 		note += " (" + base.Detail + ")"
 	}

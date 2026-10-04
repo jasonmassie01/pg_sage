@@ -126,6 +126,13 @@
 | `llm.optimizer.min_snapshots` | `restart` | `-` |
 | `llm.optimizer.over_indexed_ratio_pct` | `restart` | `-` |
 | `llm.optimizer.plan_source` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.call_volume_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.enabled` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.max_age_days` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.mean_time_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.prompt_max_shapes` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.row_estimate_ratio` | `restart` | `-` |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `restart` | `-` |
 | `llm.optimizer.write_heavy_ratio_pct` | `restart` | `-` |
 | `llm.optimizer.write_impact_threshold_pct` | `restart` | `-` |
 | `llm.optimizer_llm.api_key` | `restart` | `-` |
@@ -232,6 +239,9 @@
 | `sre.autonomy.canary.canary_instances` | `restart` | `-` |
 | `sre.autonomy.canary.regression_limit_pct` | `restart` | `-` |
 | `sre.autonomy.canary.settle_seconds` | `restart` | `-` |
+| `sre.autonomy.class_promotion.min_success_rate_pct` | `restart` | `-` |
+| `sre.autonomy.class_promotion.min_successes_l2` | `restart` | `-` |
+| `sre.autonomy.class_promotion.min_successes_l3` | `restart` | `-` |
 | `sre.autonomy.concurrency_window_minutes` | `restart` | `-` |
 | `sre.autonomy.enforce` | `restart` | `-` |
 | `sre.autonomy.evaluate_interval_minutes` | `restart` | `-` |

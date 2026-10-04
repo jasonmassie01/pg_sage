@@ -55,5 +55,6 @@ func (c *Config) LoweredElevation() []LoweredSetting {
 	add(pre+"min_safe_pass_pct", p.MinSafePassPct, dp.MinSafePassPct, "percent")
 	add(pre+"min_live_recoveries", float64(p.MinLiveRecoveries),
 		float64(dp.MinLiveRecoveries), "recoveries")
+	loweredClassPromotion(a.ClassPromotion, add)
 	return out
 }

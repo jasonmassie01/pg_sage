@@ -99,7 +99,7 @@ func TestRead_MeasuresOnlyPgSageWork(t *testing.T) {
 	// makes the statement deltas negative: repeat the window then.
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
 		before, after := measureAppAndSage(t, ctx, pool)
-		return readProblems(before, after)
+		return append(readProblems(before, after), entryProblems(t, ctx, pool, before, after)...)
 	})
 }
 
@@ -134,18 +134,16 @@ func measureAppAndSage(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (R
 	return before, after
 }
 
-// readProblems checks the window counted pg_sage's work and not the
-// application's.
+// readProblems checks the window counted pg_sage's work. Whether the
+// application's statement was counted is checked per entry (entryProblems):
+// other packages' pg_sage-tagged work on the shared CI server also lands in
+// the window's sums (PG14 CI: 405 ms with the application not counted).
 func readProblems(before, after Reading) []string {
 	var problems []string
 	dbMs := after.DBTimeMs - before.DBTimeMs
 	if dbMs < 100 {
 		problems = append(problems, fmt.Sprintf(
 			"DB time delta = %.1f ms, want >= 100 (pg_sage's pg_sleep(0.1))", dbMs))
-	}
-	if dbMs >= 400 {
-		problems = append(problems, fmt.Sprintf(
-			"DB time delta = %.1f ms: the application's 400 ms statement was counted", dbMs))
 	}
 	if d := after.Calls - before.Calls; d < 3 {
 		problems = append(problems, fmt.Sprintf("calls delta = %d, want >= 3", d))
@@ -159,6 +157,54 @@ func readProblems(before, after Reading) []string {
 		problems = append(problems, fmt.Sprintf("cost between real readings = %+v", c))
 	}
 	return problems
+}
+
+// entryProblems checks the readings by pg_stat_statements entry: the
+// application's probe is never among pg_sage's statements, and pg_sage's
+// probe is, with at least its 100 ms of sleep in the window.
+func entryProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	before, after Reading) []string {
+	t.Helper()
+	var problems []string
+	for _, k := range probeKeys(t, ctx, pool, "selfcost_app_probe") {
+		if _, counted := after.Statements[k]; counted {
+			problems = append(problems, fmt.Sprintf(
+				"the application's statement (queryid %d) was counted", k.QueryID))
+		}
+	}
+	sage := probeKeys(t, ctx, pool, "selfcost_sage_probe")
+	var sageMs float64
+	for _, k := range sage {
+		sageMs += after.Statements[k].TimeMs - before.Statements[k].TimeMs
+	}
+	if len(sage) == 0 || sageMs < 100 {
+		problems = append(problems, fmt.Sprintf(
+			"pg_sage's probe: %d entries, %.1f ms in the window, want >= 100", len(sage),
+			sageMs))
+	}
+	return problems
+}
+
+// probeKeys returns the pg_stat_statements keys of this database's entries
+// whose text contains marker.
+func probeKeys(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	marker string) []StatementKey {
+	t.Helper()
+	rows, err := pool.Query(ctx, `SELECT userid, queryid, toplevel FROM pg_stat_statements
+		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+		  AND queryid IS NOT NULL AND strpos(query, $1) > 0`, marker)
+	if err != nil {
+		t.Fatalf("probe entries %s: %v", marker, err)
+	}
+	keys, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (StatementKey, error) {
+		var k StatementKey
+		err := r.Scan(&k.UserID, &k.QueryID, &k.TopLevel)
+		return k, err
+	})
+	if err != nil {
+		t.Fatalf("scan probe entries %s: %v", marker, err)
+	}
+	return keys
 }
 
 func TestRead_CanceledContextIsAnError(t *testing.T) {

@@ -61,6 +61,8 @@ func newCardFixture(t *testing.T) *cardFixture {
 	doc.MaintenanceWindows = []string{"always"}
 	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
 	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
+	doc.BlastRadius.Hygiene = policy.KindBudget{MaxTablesPerWindow: 1 << 30,
+		MaxChangesPerWindow: 1 << 30}
 	fx.exec.EnableStandingPolicyDocument(doc, nil)
 	fx.exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	fx.mgr = fleet.NewManager(cfg)

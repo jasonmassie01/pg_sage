@@ -34,6 +34,23 @@ func (e *Executor) evaluateStandingPolicy(
 	return standingPolicyDecision(gate.Authorize(ctx, findingRequest(finding, isReplica)))
 }
 
+// evaluateRollbackPolicy authorizes the rollback of a finding's executed
+// change. It is marked a rollback: undoing pg_sage's own change is never
+// withheld by the trust ledger (roadmap 1.2) nor parked by the kind budgets
+// (policy.BudgetBypassFor); the rest of the gate binds.
+func (e *Executor) evaluateRollbackPolicy(
+	ctx context.Context, f analyzer.Finding,
+) ActionPolicyDecision {
+	gate := e.StandingPolicyGate()
+	if gate == nil {
+		contract, _ := contractForFinding(f)
+		return noStandingPolicyDecision(contract)
+	}
+	request := findingRequest(f, false)
+	request.Rollback = true
+	return standingPolicyDecision(gate.Authorize(ctx, request))
+}
+
 // findingRequest is the standing-gate request for a background finding.
 func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
 	request := policy.ActionRequest{
@@ -100,6 +117,10 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 	for _, guardrail := range decision.Guardrails {
 		result.Guardrails = append(result.Guardrails, string(guardrail))
 	}
+	if t := decision.Trusted; t != nil {
+		result.TrustedVerdict, result.TrustedReason = string(t.Verdict), string(t.Reason)
+		result.TrustedDetail = t.Detail
+	}
 	// A plain authorization is not a blocked reason; informative execute
 	// reasons such as deadline_override are kept.
 	if decision.Reason == policy.ReasonAuthorized ||
@@ -126,3 +147,4 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)
 }
+

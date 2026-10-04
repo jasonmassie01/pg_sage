@@ -33,6 +33,12 @@ type ActionPolicyDecision struct {
 	// verdict: a change lease conflict parks (or refuses an operator) or
 	// waits in the lease queue.
 	SerializeMode string `json:"serialize_mode,omitempty"`
+	// TrustedVerdict is the gate's verdict had the action's ledger pair
+	// been trusted at L3 (a policy verdict), with its reason and detail;
+	// set only when the ledger withheld it (roadmap 1.4, shadow mode).
+	TrustedVerdict string `json:"trusted_verdict,omitempty"`
+	TrustedReason  string `json:"trusted_reason,omitempty"`
+	TrustedDetail  string `json:"trusted_detail,omitempty"`
 }
 
 func inMaintenanceWindowForPolicy(

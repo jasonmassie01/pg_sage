@@ -148,6 +148,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "findings", timeCol: "resolved_at", days: r.FindingsDays,
 			extra: "AND status = 'resolved'"},
 		{table: "briefings", timeCol: "generated_at", days: r.FindingsDays},
+		// Remembered what-if rejections age from their last measurement.
+		{table: "optimizer_rejection", timeCol: "measured_at", days: r.FindingsDays},
 		{table: "alert_log", timeCol: "sent_at", days: r.ActionsDays},
 		{table: "notification_log", timeCol: "sent_at", days: r.ActionsDays},
 		// Approval cards age from their follow-up (open cards are closed by the
@@ -171,6 +173,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			extra: keepRecommendation},
 		{table: "retention_run", timeCol: "created_at", days: r.ActionsDays},
 		{table: "admission_withheld", timeCol: "last_seen_at", days: r.ActionsDays},
+		// Shadow decisions (roadmap 1.4) age out once scored; a pending one
+		// is kept so it can still be scored.
+		{table: "shadow_decision", timeCol: "recorded_at", days: r.ActionsDays,
+			extra: "AND status <> 'pending'"},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is

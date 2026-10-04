@@ -93,6 +93,8 @@ func unlimitedWindowPolicy() policy.Document {
 	doc.MaintenanceWindows = []string{"always"}
 	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
 	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
+	doc.BlastRadius.Hygiene = policy.KindBudget{MaxTablesPerWindow: 1 << 30,
+		MaxChangesPerWindow: 1 << 30}
 	return doc
 }
 

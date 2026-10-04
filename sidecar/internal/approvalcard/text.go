@@ -61,6 +61,9 @@ func Text(c Card, now time.Time) string {
 	for _, r := range c.Why {
 		b.WriteString("- " + r.Text + "\n")
 	}
+	if c.Trust != nil {
+		fmt.Fprintf(&b, "\n%s\n", c.Trust.Line)
+	}
 	if len(c.Evidence) > 0 {
 		b.WriteString("\nEvidence:\n")
 		for _, e := range c.Evidence {

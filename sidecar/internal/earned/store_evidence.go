@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -20,10 +19,15 @@ const (
 	// ResultUnverified is an action that succeeded but whose effect no
 	// verification confirmed (P0-6): recorded, never promotion credit.
 	ResultUnverified = "unverified"
+	// ResultRejected is an operator's rejection of a proposed action, or
+	// an operator's rollback of an executed one (roadmap 1.2): a demerit.
+	ResultRejected = "rejected"
 
 	SourceExecutor = "executor"
 	SourceOperator = "operator"
 	SourceRollout  = "rollout"
+	// SourceRollback records an executed action an operator rolled back.
+	SourceRollback = "rollback"
 )
 
 // Outcome is one live (or game-day) result of a family action.
@@ -38,6 +42,14 @@ type Outcome struct {
 	Actor       string      `json:"actor"`
 	Detail      string      `json:"detail,omitempty"`
 	At          time.Time   `json:"at"`
+	// Verdict is the raw verdict behind a reconciled outcome (a
+	// sage.action_outcome verdict, rolled_back or rejected); ObservedAt is
+	// when the monitored database observed it; QueueID names a rejected
+	// approval item. A demerit observed before the pair's level was set
+	// was already known and does not demote it again.
+	Verdict    string     `json:"verdict,omitempty"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	QueueID    int64      `json:"queue_id,omitempty"`
 }
 
 // Review verdicts.
@@ -87,91 +99,25 @@ func (s *PostgresStore) upsertReview(ctx context.Context, r Review) error {
 	return nil
 }
 
-// ShadowStats counts the database's packet reviews of a family by a
-// person since since, and the first such review ever. Reviews recorded
-// through MCP are kept but are not evidence.
-func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Time) (Shadow,
-	error) {
-	var sh Shadow
-	var first *time.Time
-	err := s.pool.QueryRow(ctx, `SELECT
-		count(*) FILTER (WHERE reviewed_at >= $3),
-		count(*) FILTER (WHERE reviewed_at >= $3 AND verdict = 'accepted'),
-		min(reviewed_at)
-		FROM sage.sre_packet_reviews
-		WHERE deployment_id = $1 AND database_name = $4 AND family = $2
-		  AND counts_as_evidence`,
-		s.deployment, string(f), since, s.database).Scan(&sh.Reviewed, &sh.Accepted,
-		&first)
-	if first != nil {
-		sh.FirstReviewAt = first.UTC()
-	}
-	return sh, storeErr("read shadow record", err)
-}
-
 // insertOutcome records an outcome; false when that action's outcome
 // from that source is already recorded.
 func (s *PostgresStore) insertOutcome(ctx context.Context, o Outcome) (bool, error) {
 	if err := s.checkDatabase(o.Database); err != nil {
 		return false, err
 	}
-	var actionLogID any
-	if o.ActionLogID > 0 {
-		actionLogID = o.ActionLogID
-	}
 	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_autonomy_outcomes
 		(deployment_id, database_name, action_log_id, family, action_class, level, result,
-		 source, actor, detail, recorded_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''), $11)
+		 source, actor, detail, recorded_at, verdict, observed_at, queue_id)
+		VALUES ($1, $2, NULLIF($3::bigint, 0), $4, $5, $6, $7, $8, $9, NULLIF($10, ''), $11,
+		        NULLIF($12, ''), $13, NULLIF($14::bigint, 0))
 		ON CONFLICT DO NOTHING`,
-		s.deployment, o.Database, actionLogID, string(o.Family), string(o.Class),
-		int16(o.Level), o.Result, o.Source, o.Actor, o.Detail, o.At)
+		s.deployment, o.Database, o.ActionLogID, string(o.Family), string(o.Class),
+		int16(o.Level), o.Result, o.Source, o.Actor, o.Detail, o.At, o.Verdict,
+		o.ObservedAt, o.QueueID)
 	if err != nil {
 		return false, storeErr("record autonomy outcome", err)
 	}
 	return tag.RowsAffected() == 1, nil
-}
-
-// LiveStats counts the database's verified L2 recoveries, unverified and
-// harmful outcomes of a pair.
-func (s *PostgresStore) LiveStats(ctx context.Context, f Family, c ActionClass) (Live,
-	error) {
-	var l Live
-	err := s.pool.QueryRow(ctx, `SELECT
-		count(*) FILTER (WHERE result = 'verified_recovery' AND level = 2),
-		count(*) FILTER (WHERE result IN ('harmful', 'safety_violation')),
-		count(*) FILTER (WHERE result = 'unverified')
-		FROM sage.sre_autonomy_outcomes
-		WHERE deployment_id = $1 AND database_name = $2 AND family = $3
-		  AND action_class = $4`,
-		s.deployment, s.database, string(f), string(c)).Scan(&l.VerifiedL2,
-		&l.HarmfulPair, &l.Unverified)
-	return l, storeErr("read live record", err)
-}
-
-// FamilyViolations counts the database's harmful or unsafe outcomes of a
-// family since since.
-func (s *PostgresStore) FamilyViolations(ctx context.Context, f Family,
-	since time.Time) (int, error) {
-	n, _, err := s.familySafety(ctx, f, since)
-	return n, err
-}
-
-// familySafety counts the database's harmful or unsafe outcomes of a
-// family since since, with the newest one's time (zero without any).
-func (s *PostgresStore) familySafety(ctx context.Context, f Family, since time.Time) (int,
-	time.Time, error) {
-	var n int
-	var last *time.Time
-	err := s.pool.QueryRow(ctx, `SELECT count(*), max(recorded_at)
-		FROM sage.sre_autonomy_outcomes
-		WHERE deployment_id = $1 AND database_name = $2 AND family = $3
-		  AND recorded_at >= $4 AND result IN ('harmful', 'safety_violation')`,
-		s.deployment, s.database, string(f), since).Scan(&n, &last)
-	if err != nil || last == nil {
-		return n, time.Time{}, storeErr("read family safety record", err)
-	}
-	return n, last.UTC(), nil
 }
 
 // insertEvalRun stores a parsed report with its provenance; a report
@@ -282,30 +228,6 @@ func (s *PostgresStore) runningBuild() Build {
 		return Build{}
 	}
 	return s.build().Normalized()
-}
-
-// LatestBench is the deployment's newest bench report that counts for
-// the running build, or nil; with a family, the newest such report that
-// scored that family. A report stamped for another build never counts;
-// an unstamped (operator) report does. Bench evidence is about pg_sage,
-// not a database, so every database of the deployment shares it.
-func (s *PostgresStore) LatestBench(ctx context.Context, f Family) (*EvalRun, error) {
-	b := s.runningBuild()
-	run, err := s.scanEvalRun(s.pool.QueryRow(ctx, evalRunSelect+
-		` WHERE deployment_id = $1 AND source = 'bench'
-		  AND ($2 = '' OR cells @> jsonb_build_array(jsonb_build_object('family', $2::text)))
-		  AND ((pg_sage_version = '' AND pg_sage_commit = '')
-		    OR ($3 <> '' AND pg_sage_commit = $3)
-		    OR (($3 = '' OR pg_sage_commit = '') AND $4 <> '' AND pg_sage_version = $4))
-		  ORDER BY generated_at DESC, ingested_at DESC LIMIT 1`, s.deployment, string(f),
-		b.Commit, b.Version))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, storeErr("read latest bench report", err)
-	}
-	return &run, nil
 }
 
 // GameDayRuns lists the database's game-day reports generated since

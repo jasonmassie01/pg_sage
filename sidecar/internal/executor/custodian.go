@@ -46,6 +46,7 @@ func (e *Executor) SubmitVerifiedIndexProposal(
 			return e.runAuthorizedFinding(ctx, finding, 0, decision, nil), nil
 		},
 	})
+	e.shadowWithheldCustodian(ctx, proposal, err)
 	return custodianWithheld(err, "after admission")
 }
 
@@ -140,6 +141,7 @@ func (e *Executor) SubmitCustodianProposal(
 		},
 		Execute: run.execute, Verify: run.verify,
 	})
+	e.shadowWithheldCustodian(ctx, proposal, err)
 	if e.handOffForApproval(ctx, proposal, err) {
 		return nil
 	}
