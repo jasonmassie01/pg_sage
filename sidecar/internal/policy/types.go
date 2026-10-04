@@ -150,6 +150,9 @@ type ActionRequest struct {
 	// LeaseHeld marks the re-authorization that follows this action's own
 	// change lease, which is therefore not a concurrent writer.
 	LeaseHeld bool
+	// Rollback marks a request that undoes a change pg_sage made. The
+	// trust ledger never withholds it; the rest of the gate still binds.
+	Rollback bool
 }
 
 type Decision struct {
@@ -239,7 +242,9 @@ type GateConfig struct {
 	RecordDecisionDetailed func(context.Context, ActionRequest, Decision) (string, int64, error)
 	Now                    func() time.Time
 	// Autonomy is the earned-autonomy ledger (M7); nil leaves verdicts as
-	// trust, mode, tiers and windows decide them.
+	// trust, mode, tiers, the ramp and windows decide them. A limiter that
+	// implements AutonomyScope governs every request it names (roadmap
+	// 1.2); otherwise only incident-family requests.
 	Autonomy AutonomyLimiter
 }
 
