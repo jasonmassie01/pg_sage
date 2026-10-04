@@ -37,18 +37,12 @@ func TestMeasureDisk_ReadsUsageRetentionAndTrends(t *testing.T) {
 	pool, ctx := livePool(t)
 	seedDiskTrends(t, ctx, pool)
 	runner := probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))
-	m, err := MeasureDisk(ctx, runner, time.Hour)
-	if err != nil {
-		t.Fatalf("measure: %v", err)
-	}
+	m, keep := measureDiskWithStableKeep(t, ctx, pool, runner)
 	var dbBytes, walBytes float64
 	if err := pool.QueryRow(ctx, `SELECT pg_database_size(current_database())::float8,
 		(SELECT sum(size)::float8 FROM pg_ls_waldir())`).Scan(&dbBytes, &walBytes); err != nil {
 		t.Fatalf("direct: %v", err)
 	}
-	var keep float64
-	_ = pool.QueryRow(ctx, "SELECT pg_size_bytes(current_setting('max_slot_wal_keep_size'))::float8").
-		Scan(&keep)
 	if m.SlotKeepBytes != keep {
 		t.Fatalf("slot keep = %v, want %v", m.SlotKeepBytes, keep)
 	}
@@ -62,6 +56,38 @@ func TestMeasureDisk_ReadsUsageRetentionAndTrends(t *testing.T) {
 	if m.Disk.RatePerS < 3333.3 || m.Disk.RatePerS > 3333.4 {
 		t.Fatalf("disk rate = %v, want 1e6 bytes per 5 min", m.Disk.RatePerS)
 	}
+}
+
+// measureDiskWithStableKeep measures the disk while max_slot_wal_keep_size
+// holds still. The setting is cluster-wide and other packages' tests change
+// it (ALTER SYSTEM + reload) on the shared CI server, so a measurement is
+// only compared with a value read unchanged before and after it.
+func measureDiskWithStableKeep(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	runner ProbeRunner) (DiskMeasure, float64) {
+	t.Helper()
+	for attempt := 1; attempt <= 10; attempt++ {
+		before := slotKeepSetting(t, ctx, pool)
+		m, err := MeasureDisk(ctx, runner, time.Hour)
+		if err != nil {
+			t.Fatalf("measure: %v", err)
+		}
+		if after := slotKeepSetting(t, ctx, pool); after == before {
+			return m, before
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("max_slot_wal_keep_size changed during every one of 10 measurements")
+	return DiskMeasure{}, 0
+}
+
+func slotKeepSetting(t *testing.T, ctx context.Context, pool *pgxpool.Pool) float64 {
+	t.Helper()
+	var keep float64
+	if err := pool.QueryRow(ctx, "SELECT pg_size_bytes("+
+		"current_setting('max_slot_wal_keep_size'))::float8").Scan(&keep); err != nil {
+		t.Fatalf("read max_slot_wal_keep_size: %v", err)
+	}
+	return keep
 }
 
 func TestMeasureDisk_WithoutPGMonitorMeasuresNothing(t *testing.T) {
