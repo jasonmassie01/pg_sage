@@ -57,7 +57,7 @@ type WALCustodianConfig struct {
 
 type MCPConfig struct {
 	Enabled   bool   `yaml:"enabled" doc:"Enable the intent-level MCP server."`
-	Transport string `yaml:"transport" doc:"MCP transport: stdio or http."`
+	Transport string `yaml:"transport" doc:"MCP transport: http (default, credential required) or stdio."`
 }
 
 func (c *Config) validateAgentNative() error {

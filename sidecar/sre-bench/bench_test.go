@@ -75,7 +75,7 @@ func TestPGIncidentBench(t *testing.T) {
 		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
 		GeneratedAt: time.Now().UTC(), LLM: llm, PgSageVersion: sageVersion,
 		PgSageCommit: sageCommit})
-	report.Replay = benchReplay(t, ctx, env, cfg, version)
+	report.AttachReplay(benchReplay(t, ctx, env, cfg, version))
 	t.Log("\n" + report.Markdown())
 	jsonPath, mdPath, err := WriteReport(ReportDir(os.Getenv(EnvReportDir), t.TempDir()),
 		report)

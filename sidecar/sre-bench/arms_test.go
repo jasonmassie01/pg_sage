@@ -45,7 +45,10 @@ func TestLLMConfigFromEnv(t *testing.T) {
 			EnvLLMKey},
 	}
 	for _, c := range cases {
-		got, err := LLMConfigFromEnv(env(c.vars))
+		// Roadmap 2.4: a live endpoint also needs PG_SAGE_LIVE_LLM=1 and the
+		// run's caps (llmbudget_test.go covers them); these cases are about
+		// the endpoint, so they set both.
+		got, err := LLMConfigFromEnv(env(withLiveDefaults(c.vars)))
 		if c.wantErr != "" {
 			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 				t.Errorf("%s: err = %v, want one naming %q", c.name, err, c.wantErr)
@@ -55,10 +58,28 @@ func TestLLMConfigFromEnv(t *testing.T) {
 			}
 			continue
 		}
-		if err != nil || got != c.want {
+		if err != nil || got.Mode != c.want.Mode || got.URL != c.want.URL ||
+			got.Model != c.want.Model || got.APIKey != c.want.APIKey {
 			t.Errorf("%s: got %+v, %v; want %+v", c.name, got, err, c.want)
 		}
 	}
+}
+
+// withLiveDefaults adds the opt-in and the caps to the variables of a
+// live endpoint, keeping the case's own key and model (or their absence).
+func withLiveDefaults(vars map[string]string) map[string]string {
+	if vars[EnvLLMURL] == "" {
+		return vars
+	}
+	out := liveVars(nil)
+	delete(out, EnvLLMKey)
+	for k, v := range vars {
+		out[k] = v
+	}
+	if _, ok := vars[EnvLLMModel]; !ok {
+		delete(out, EnvLLMModel)
+	}
+	return out
 }
 
 func TestLLMConfig_NeverExposesTheKey(t *testing.T) {

@@ -88,6 +88,7 @@ type Executor struct {
 	emergencyStopFn    func(context.Context) bool
 	policyGate         policy.Gate
 	autonomy           policy.AutonomyLimiter // earned-autonomy ledger (M7)
+	facts              policy.FactBinder      // confirmed facts (roadmap 2.3)
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
 	hostCPU            HostCPUReader

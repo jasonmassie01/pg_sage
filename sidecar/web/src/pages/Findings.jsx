@@ -14,6 +14,8 @@ import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { formatTotal, useCursorPages } from '../lib/listPaging'
 import { LoadMore } from '../components/LoadMore'
+import { FactBadges } from '../components/FactBadges'
+import { FindingFactSections } from './facts/FindingFactSections'
 
 // Subsystem taxonomy — mirrors sidecar/internal/api/handlers.go
 // buildSourceClause. Displayed in the "Source" filter dropdown.
@@ -496,6 +498,9 @@ function FindingDetail({ row, canAct, onActionDone }) {
         style={{ color: 'var(--text-secondary)' }}>
         {row.recommendation}
       </p>
+      <FactBadges database={row.database_name} objects={[row.object_identifier]}
+        canDecide={canAct} onChanged={onActionDone} />
+      <FindingFactSections row={row} />
       {row.recommended_sql && (
         <div>
           <div className="text-xs font-medium mb-1"

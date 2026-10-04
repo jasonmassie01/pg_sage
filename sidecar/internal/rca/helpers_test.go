@@ -782,8 +782,10 @@ func TestDetectVacuumBlocked(t *testing.T) {
 				{
 					SchemaName: "public",
 					RelName:    "orders",
-					NLiveTup:   1000,
-					NDeadTup:   200, // 200/1200 ~= 16.7%
+					NLiveTup:   100000,
+					NDeadTup:   20000, // 20000/120000 ~= 16.7%
+					// Above the size floor (rca.vacuum_min_*).
+					TableBytes: 64 << 20,
 				},
 			},
 		}

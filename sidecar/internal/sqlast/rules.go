@@ -27,4 +27,7 @@ type Rules struct {
 	// storage parameter (key carries a "toast." namespace; value is "" for
 	// RESET and "true" for a bare option). Nil allows every parameter.
 	Reloption func(key, value string, reset bool) bool
+	// StatisticsName reports whether a statistics object name is pg_sage's
+	// own, the only kind CREATE/DROP STATISTICS may name. Nil refuses both.
+	StatisticsName func(name string) bool
 }

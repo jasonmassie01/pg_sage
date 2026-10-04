@@ -81,11 +81,13 @@ func (e *Executor) resumeOrphanedMonitors(ctx context.Context) error {
 	if e.pool == nil {
 		return nil
 	}
-	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT al.id, al.rollback_sql, al.sql_executed,
+	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT al.id,
+		COALESCE(al.rollback_sql, ''), al.sql_executed,
 		COALESCE(al.decision_id, 0), al.executed_at
 		FROM sage.action_log al
 		WHERE al.outcome IN ('monitoring', 'interrupted')
-		  AND COALESCE(al.rollback_sql, '') <> ''
+		  AND (COALESCE(al.rollback_sql, '') <> ''
+		       OR al.sql_executed ~* '^\s*(REINDEX|CREATE\s+STATISTICS)\s')
 		  AND NOT EXISTS (SELECT 1 FROM sage.verification v
 		                   WHERE v.action_log_id = al.id)
 		ORDER BY al.id`)

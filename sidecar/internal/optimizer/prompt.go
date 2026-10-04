@@ -166,6 +166,7 @@ func FormatPrompt(tc TableContext) string {
 		}
 	}
 	writeMeasuredRejections(&b, tc.MeasuredRejections)
+	writeConfirmedFacts(&b, tc.ConfirmedFacts)
 
 	// Safety valve: if prompt is too large, rebuild with fewer queries.
 	prompt := b.String()

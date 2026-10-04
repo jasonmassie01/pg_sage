@@ -26,7 +26,9 @@ func TestAgentNativeDefaultsMatchPrescribedSafetyValues(t *testing.T) {
 		cfg.Custodian.WAL.RetainedWALDiskPctCeiling != 10 {
 		t.Fatalf("WAL defaults = %#v", cfg.Custodian.WAL)
 	}
-	if !cfg.MCP.Enabled || cfg.MCP.Transport != "stdio" {
+	// MCP v2: HTTP is the default (the API server always runs and MCP over
+	// HTTP always needs a credential); stdio stays available.
+	if !cfg.MCP.Enabled || cfg.MCP.Transport != "http" {
 		t.Fatalf("MCP defaults = %#v", cfg.MCP)
 	}
 }

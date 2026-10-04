@@ -393,6 +393,7 @@ func migrationStatements() []string {
 		ddlRunwaySamples, ddlSRERunbooks, ddlSREAutonomy, ddlSREAutonomyCarryOver,
 		ddlSREAutonomyDatabaseScope,
 		ddlSREBenchProvenance,
+		ddlSREModelLift,
 		ddlHAIdentity,
 		ddlDebtExec,
 		ddlIncidentOpenIdentity,
@@ -407,7 +408,10 @@ func migrationStatements() []string {
 		ddlOptimizerRejection,
 		ddlActionOutcome(),
 		ddlTrustLedger(),
-		ddlShadowMode())
+		ddlShadowMode(),
+		ddlFacts,
+		ddlSREAutonomyRootAuthority,
+		ddlMCPv2)
 }
 
 // ---------------------------------------------------------------------------

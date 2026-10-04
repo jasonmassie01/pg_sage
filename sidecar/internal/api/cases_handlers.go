@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -286,7 +287,7 @@ func filterSelfMonitoringHintRows(
 ) []map[string]any {
 	out := rows[:0]
 	for _, row := range rows {
-		if selfmonitor.IsQueryText(stringValue(row["query_text"])) {
+		if workload.Excluded(stringValue(row["query_text"])) {
 			continue
 		}
 		out = append(out, row)

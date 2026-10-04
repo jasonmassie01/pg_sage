@@ -24,6 +24,10 @@ func replayRun(arm string, fam sre.TriggerKind, class string, gold Gold, root st
 	n int, opts ...func(*Result)) Result {
 	r := run(arm, fam, class, gold, root, id(fmt.Sprintf("replay/%s-%s-%d", fam, class, n)),
 		timed(4, time.Millisecond, 40*time.Millisecond))
+	// Roadmap 2.4: the replay quality gates read held-out cases only; these
+	// fixtures model the held-out set (replay_split_gates_test.go mixes in
+	// tuning cases).
+	r.Scenario.Split = replay.SplitHeldOut
 	for _, o := range opts {
 		o(&r)
 	}

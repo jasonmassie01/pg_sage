@@ -47,6 +47,7 @@ type chatopsDeps struct {
 	channels  *store.NotificationStore
 	ids       *chatops.Store
 	cards     *chatops.CardStore
+	factCards *chatops.FactCardStore
 	tolerance time.Duration
 }
 
@@ -56,7 +57,7 @@ func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	mgr *fleet.DatabaseManager, cfg *config.Config, rt RuntimeDeps) {
 	d := &chatopsDeps{mgr: mgr, ids: chatops.NewStore(pool), cards: chatops.NewCardStore(pool),
 		channels:  store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey),
-		tolerance: 5 * time.Minute}
+		tolerance: 5 * time.Minute, factCards: chatops.NewFactCardStore(pool)}
 	if cfg != nil {
 		d.tolerance = cfg.SRE.Actions.ChatOpsTolerance()
 	}
@@ -92,6 +93,10 @@ func (d *chatopsDeps) callbackHandler(provider string) http.HandlerFunc {
 		}
 		if a.CardToken != "" {
 			d.decideCard(w, r, ch, a, user)
+			return
+		}
+		if a.FactToken != "" {
+			d.decideFactCard(w, r, ch, a, user)
 			return
 		}
 		d.decide(w, r, ch, a, user)

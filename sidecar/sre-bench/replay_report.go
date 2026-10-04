@@ -59,6 +59,13 @@ type ReplayReport struct {
 	Gates         []GateResult  `json:"gates"`
 	Usage         []ArmUsage    `json:"model_usage,omitempty"`
 	Runs          []RunRecord   `json:"runs"`
+	// Roadmap 2.4: the held-out cases replayed, every arm's metrics on
+	// them (the quality gates read these), the model lift over the causal
+	// graph on them and a live model's spending.
+	HeldOutCases int           `json:"held_out_cases"`
+	HeldOutCells []CellRecord  `json:"held_out_cells"`
+	ModelLift    []LiftRecord  `json:"model_lift,omitempty"`
+	LLMBudget    *BudgetRecord `json:"llm_budget,omitempty"`
 }
 
 // BuildReplayReport scores replay results.
@@ -79,7 +86,31 @@ func BuildReplayReport(rs []Result, cases []replay.Case, meta ReplayMeta) Replay
 	for _, res := range rs {
 		r.Runs = append(r.Runs, runOf(res))
 	}
+	r.addHeldOut(rs, meta)
 	return r
+}
+
+// addHeldOut adds the held-out cells, the model lift and the budget.
+func (r *ReplayReport) addHeldOut(rs []Result, meta ReplayMeta) {
+	held := heldOutOnly(rs)
+	cases := map[string]bool{}
+	for _, res := range held {
+		cases[res.Scenario.ID] = true
+	}
+	r.HeldOutCases, r.HeldOutCells = len(cases), []CellRecord{}
+	if len(held) > 0 {
+		hs := Summarize(held, meta.Arms)
+		for _, arm := range hs.Arms {
+			for _, fam := range hs.Families {
+				r.HeldOutCells = append(r.HeldOutCells, cellOf(arm, fam, hs.Tally(arm, fam)))
+			}
+		}
+	}
+	budget := meta.LLM.budget.Record()
+	if meta.LLM.budget != nil {
+		r.LLMBudget = &budget
+	}
+	r.ModelLift = BuildModelLift(rs, meta.LLM.Mode, budget.Exhausted)
 }
 
 func corpusCounts(cases []replay.Case) []CorpusCount {
@@ -119,6 +150,7 @@ func (r ReplayReport) Markdown() string {
 	view.writeCells(&b)
 	view.writeModel(&b)
 	writeUsage(&b, r.Usage, r.LLM)
+	r.writeHeldOut(&b)
 	b.WriteString("\n### Replay gates\n\n")
 	b.WriteString(row("gate", "family", "arm", "status", "observed", "threshold", "note"))
 	b.WriteString(separator(7))

@@ -97,33 +97,70 @@ func modelProbeOf(p ProposedProbe) *ModelProbe {
 }
 
 // finish runs the verifier pass on the accepted review, records what was
-// rejected, a disagreement or the accepted review, and returns what is
-// stored beside the deterministic diagnosis.
+// rejected, a disagreement or the accepted review, and returns the
+// diagnosis to conclude (re-rooted only by an earned root authority) and
+// what is stored beside it.
 func (s *modelSession) finish(ctx context.Context, d causal.Diagnosis, review modelReview,
-	out modelOutcome) (modelOutcome, error) {
+	out modelOutcome) (causal.Diagnosis, modelOutcome, error) {
 	stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
 	if err != nil {
-		return modelOutcome{}, err
+		return d, modelOutcome{}, err
 	}
 	v := verifyReview(review, d, stored)
 	if v.disagreed {
-		s.c.logFn("INFO", "sre: investigation %s: the model ranks %s first; the "+
-			"graph's root cause %s stands", s.inv.ID, v.modelRoot, v.graphRoot)
-		return modelOutcome{probe: out.probe, memory: out.memory}, s.c.store.RecordEvent(
-			ctx, s.lease,
-			EventModelDisagreed, map[string]any{"graph_root": v.graphRoot,
-				"model_root": v.modelRoot, "turns": s.inv.ModelTurns + s.turns})
+		return s.contest(ctx, d, review, v, out, stored)
 	}
+	out, err = s.accept(ctx, v, out)
+	return d, out, err
+}
+
+// accept records the verifier's rejections and the accepted review.
+func (s *modelSession) accept(ctx context.Context, v verdict, out modelOutcome) (
+	modelOutcome, error) {
 	for _, rej := range v.rejected {
 		if err := s.rejected(ctx, rej, stageVerify); err != nil {
 			return modelOutcome{}, err
 		}
 	}
 	out.ranking, out.narrative = rankingOf(v.review), narrativeOf(v.review)
-	if out.empty() {
+	if out.ranking == nil && out.narrative == nil && out.probe == nil {
 		return out, nil
 	}
 	return out, s.c.store.RecordEvent(ctx, s.lease, EventModelReviewed, s.reviewed(out))
+}
+
+// contest settles a model ranking that contests the graph's conclusive
+// root (roadmap 2.4): adopted when the family's root authority was
+// earned, else advisory with only the contest kept.
+func (s *modelSession) contest(ctx context.Context, d causal.Diagnosis, review modelReview,
+	v verdict, out modelOutcome, stored []Evidence) (causal.Diagnosis, modelOutcome, error) {
+	g := s.c.rootAuthority(ctx, s.inv, string(d.Family))
+	mc := &ModelContest{Label: ModelContestLabel, GraphRoot: v.graphRoot,
+		ModelRoot: v.modelRoot, Authority: ContestAdvisory, Reason: g.Reason}
+	adopted, ok := d, false
+	if g.Granted {
+		if adopted, ok = adoptRoot(d, v.modelRoot); !ok {
+			mc.Reason = "the model's root is not an open hypothesis, so it stays advisory"
+		}
+	}
+	if ok {
+		mc.Authority = ContestAdopted
+	}
+	payload := map[string]any{"graph_root": v.graphRoot, "model_root": v.modelRoot,
+		"turns": s.inv.ModelTurns + s.turns, "authority": mc.Authority, "reason": mc.Reason}
+	if err := s.c.store.RecordEvent(ctx, s.lease, EventModelDisagreed, payload); err != nil {
+		return d, modelOutcome{}, err
+	}
+	if !ok {
+		s.c.logFn("INFO", "sre: investigation %s: the model ranks %s first; the graph's "+
+			"root cause %s stands (%s)", s.inv.ID, v.modelRoot, v.graphRoot, mc.Reason)
+		return d, modelOutcome{probe: out.probe, memory: out.memory, contest: mc}, nil
+	}
+	s.c.logFn("INFO", "sre: investigation %s: the model's root cause %s replaces the "+
+		"graph's %s (%s)", s.inv.ID, v.modelRoot, v.graphRoot, mc.Reason)
+	out.contest, out.graph = mc, &d
+	out, err := s.accept(ctx, verifyReview(review, adopted, stored), out)
+	return adopted, out, err
 }
 
 func (s *modelSession) reviewed(out modelOutcome) map[string]any {

@@ -44,6 +44,7 @@ test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_
 # PGIncidentBench runs in its own CI steps (SAGE_BENCH_RUN=1, sharded by SAGE_BENCH_FAMILIES),
 # not inside ./... suites.
 sre-bench TestPGIncidentBench # dedicated "PGIncidentBench (...)" CI steps set SAGE_BENCH_RUN=1
+sre-bench TestLiveModelArm # nightly live-model arm (ci.yml bench-live) only: SAGE_BENCH_LIVE_ARM=1 + PG_SAGE_LIVE_LLM=1 opt-in
 internal/ha TestContainer_FailoverWhileDownOpensTheCooldown # needs a disposable standby to promote (SAGE_TEST_HA_STANDBY_URL)
 internal/sre/causal TestContainer_(Restart|Promotion)BetweenSamplesInvalidatesComparisons # restarts/promotes a disposable server (SAGE_TEST_RESTARTABLE_SUPERUSER_URL, SAGE_TEST_CAUSAL_STANDBY_URL)
 internal/sre/pooler TestPgBouncer_.* # needs a PgBouncer (SAGE_TEST_PGBOUNCER_ADMIN_URL, SAGE_TEST_PGBOUNCER_CLIENT_URL)

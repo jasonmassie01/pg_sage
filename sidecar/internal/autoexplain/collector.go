@@ -14,7 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // CollectorConfig holds configuration for the auto_explain
@@ -101,7 +101,7 @@ func (c *Collector) Collect(ctx context.Context) error {
 		if err := rows.Scan(&cand.queryID, &cand.query); err != nil {
 			return fmt.Errorf("scan candidate: %w", err)
 		}
-		if selfmonitor.IsQueryText(cand.query) {
+		if workload.Excluded(cand.query) {
 			continue
 		}
 		candidates = append(candidates, cand)
@@ -137,7 +137,7 @@ var candidateSQL = `
 				SELECT oid FROM pg_database
 				WHERE datname = current_database()
 			)
-			AND ` + selfmonitor.StatementExclusionSQL("s.query") + `
+			AND ` + workload.AdviceSQL("s.query") + `
 			AND e.id IS NULL
 		ORDER BY s.mean_exec_time DESC
 		LIMIT $2`

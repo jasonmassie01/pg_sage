@@ -61,6 +61,9 @@ type Scenario struct {
 	Gold    Gold
 	Subject string
 	Program Program
+	// Split is a replay case's split (replay.SplitHeldOut or
+	// replay.SplitTuning); empty for a fault program.
+	Split string
 }
 
 // Outcome is one arm's diagnosis of a run. Ranked lists the hypotheses
@@ -86,7 +89,9 @@ type Outcome struct {
 // reviews, fallbacks to the deterministic result and disagreements with
 // a conclusive graph; the narrated claims and how many cite evidence of
 // the investigation that still verifies; the first node of the stored
-// model ranking; and the model traffic the tap saw.
+// model ranking; the roots of a disagreement (the graph's conclusive
+// root, the model's top-ranked one and the authority it got, roadmap
+// 2.4); and the model traffic the tap saw.
 type ModelStats struct {
 	Turns          int      `json:"model_turns"`
 	Reviewed       int      `json:"model_reviewed"`
@@ -95,6 +100,9 @@ type ModelStats struct {
 	Claims         int      `json:"claims"`
 	ClaimsResolved int      `json:"claims_resolved"`
 	RankedFirst    string   `json:"model_ranked_first,omitempty"`
+	GraphRoot      string   `json:"graph_root,omitempty"`
+	ModelRoot      string   `json:"model_root,omitempty"`
+	Authority      string   `json:"authority,omitempty"`
 	Usage          TapUsage `json:"usage"`
 }
 

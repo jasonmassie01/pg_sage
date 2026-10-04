@@ -70,6 +70,7 @@ func (e *Executor) newStandingPolicyGate(
 		Usage:       e.standingUsage,
 		Serialize:   e.serializeBudget,
 		Autonomy:    e.autonomyLimiter(),
+		Facts:       executorFacts{e},
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
 			if err != nil {
@@ -168,6 +169,7 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 		},
 		Now:      now,
 		Autonomy: e.autonomyLimiter(),
+		Facts:    executorFacts{e},
 	}
 	if e.pool != nil {
 		config.Usage = e.standingUsage

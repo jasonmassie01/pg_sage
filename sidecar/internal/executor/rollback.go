@@ -102,6 +102,10 @@ func finishRegressed(
 	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
 ) {
 	logFn("rollback", "action %d regressed: %s", plan.actionID, o.Reason)
+	if plan.rollbackSQL == "" {
+		finishUnrollable(ctx, pool, plan, o, logFn)
+		return
+	}
 	rollbackRegressedAction(ctx, pool, plan.actionID, plan.rollbackSQL, cfg, logFn)
 	var outcome string
 	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT outcome FROM sage.action_log

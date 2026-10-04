@@ -50,7 +50,9 @@ func (s *TelegramSender) Send(ctx context.Context, ch Channel, evt Event) error 
 	}
 	msg := map[string]any{"text": TruncateRunes(text, telegramTextMax),
 		"disable_web_page_preview": true}
-	if token := cardToken(evt); token != "" {
+	if token := factToken(evt); token != "" {
+		msg["reply_markup"] = factKeyboard(token)
+	} else if token := cardToken(evt); token != "" {
 		msg["reply_markup"] = cardKeyboard(token)
 	} else if id, ok := approvalProposal(evt); ok {
 		msg["reply_markup"] = map[string]any{"inline_keyboard": [][]map[string]string{{

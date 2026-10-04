@@ -1,7 +1,20 @@
 import { useAPI } from '../../hooks/useAPI'
 import { EmptyState } from '../../components/EmptyState'
+import { FactBadges } from '../../components/FactBadges'
 import { ApprovalCard } from './ApprovalCard'
 import { PendingErrors } from './PendingErrors'
+
+// CardFacts shows the binding facts about a card's targets (roadmap 2.3).
+// Approval cards are only loaded for operators and admins (Actions gates
+// the /approvals fetch on that role), so proposed facts can be decided
+// here; a decision refreshes the cards, since it can change what the
+// queued action may do.
+function CardFacts({ card, onDecided }) {
+  return (
+    <FactBadges database={card.database} objects={card.targets} canDecide
+      onChanged={onDecided} />
+  )
+}
 
 // PendingCardsView is the Pending Approval tab's default view: one
 // approval card per waiting action, with the compact table one click away.
@@ -26,7 +39,8 @@ export function PendingCardsView({ cards, errors, onShowTable, onDecided }) {
         </div>
       ) : cards.map(card => (
         <ApprovalCard key={`${card.database}:${card.queue_id}`} card={card}
-          onDecided={onDecided} />
+          onDecided={onDecided}
+          facts={<CardFacts card={card} onDecided={onDecided} />} />
       ))}
     </div>
   )
@@ -40,7 +54,8 @@ export function ApprovalCardDetail({ action, onDecided }) {
   if (!data?.card) return null
   return (
     <div data-testid="approval-card-detail">
-      <ApprovalCard card={data.card} onDecided={onDecided} />
+      <ApprovalCard card={data.card} onDecided={onDecided}
+        facts={<CardFacts card={data.card} onDecided={onDecided} />} />
     </div>
   )
 }

@@ -48,6 +48,7 @@ type Action struct {
 	Decision    Decision
 	ProposalID  string // a Sage SRE proposal button
 	CardToken   string // an approval-card button
+	FactToken   string // a fact-card button (roadmap 2.3)
 	Nonce       string // replay key, unique per delivery
 	ResponseURL string // Slack follow-up URL
 	CallbackID  string // Telegram callback query id
@@ -116,6 +117,13 @@ var slackCardActions = map[string]Decision{
 // setSlackDecision reads a button: a card button carries a card token, a
 // proposal button a proposal id.
 func (out *Action) setSlackDecision(actionID, value string) error {
+	if d, ok := slackFactActions[actionID]; ok {
+		if !ValidCardToken(value) {
+			return fmt.Errorf("%w: bad fact card token", ErrMalformed)
+		}
+		out.Decision, out.FactToken = d, value
+		return nil
+	}
 	if d, ok := slackCardActions[actionID]; ok {
 		if !ValidCardToken(value) {
 			return fmt.Errorf("%w: bad card token", ErrMalformed)
@@ -174,9 +182,12 @@ func ParseTelegram(body []byte) (Action, error) {
 		UserName: c.From.Username, CallbackID: c.ID,
 		Nonce: "update:" + strconv.FormatInt(*u.UpdateID, 10)}
 	var err error
-	if strings.HasPrefix(c.Data, cardDataPrefix) {
+	switch {
+	case strings.HasPrefix(c.Data, factDataPrefix):
+		err = a.setFactData(c.Data)
+	case strings.HasPrefix(c.Data, cardDataPrefix):
 		err = a.setCardData(c.Data)
-	} else {
+	default:
 		a.Decision, a.ProposalID, err = parseCallbackData(c.Data)
 	}
 	if err != nil {

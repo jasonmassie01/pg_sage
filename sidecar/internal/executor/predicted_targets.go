@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/verify"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // verifyTargetLimit bounds the queries an action is judged on (and the
@@ -21,7 +21,7 @@ const verifyTargetLimit = 10
 // table, and is read once per action.
 var tableStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-	  AND s.query ~* $1 AND ` + selfmonitor.StatementExclusionSQL("s.query") + `
+	  AND s.query ~* $1 AND ` + workload.AdviceSQL("s.query") + `
 	GROUP BY s.queryid ORDER BY sum(s.calls) DESC LIMIT $2`
 
 // workloadStatementsSQL is the statements a server setting is likely to
@@ -30,7 +30,7 @@ var tableStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements
 var workloadStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND (NOT $1 OR s.temp_blks_written > 0) AND ` +
-	selfmonitor.StatementExclusionSQL("s.query") + `
+	workload.AdviceSQL("s.query") + `
 	GROUP BY s.queryid
 	ORDER BY CASE WHEN $1 THEN sum(s.temp_blks_written)::float8
 	              ELSE sum(s.total_exec_time) END DESC

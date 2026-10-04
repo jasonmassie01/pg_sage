@@ -70,6 +70,9 @@ func (s Summary) validateModel(hs []HypothesisRecord, concluded bool) error {
 	if err := s.Narrative.validate(); err != nil {
 		return err
 	}
+	if err := s.ModelContest.validate(hs, s.Root, concluded); err != nil {
+		return err
+	}
 	return s.ModelProbe.validate()
 }
 

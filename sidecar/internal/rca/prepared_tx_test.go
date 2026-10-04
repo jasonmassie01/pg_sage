@@ -312,8 +312,9 @@ func TestTreeVacuumBlocked_Branch2_PreparedXacts(t *testing.T) {
 			{
 				SchemaName: "public",
 				RelName:    "orders",
-				NLiveTup:   1000,
-				NDeadTup:   200, // triggers vacuum_blocked
+				NLiveTup:   100000,
+				NDeadTup:   20000, // triggers vacuum_blocked
+				TableBytes: 64 << 20,
 			},
 		},
 		Locks: []collector.LockInfo{

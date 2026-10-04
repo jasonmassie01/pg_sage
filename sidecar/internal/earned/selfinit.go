@@ -34,8 +34,9 @@ const (
 
 // selfClass declares one self-initiated class: its family, the tier its
 // contract runs at (which ramp floors its L3) and the verification class
-// (sage.action_outcome.action_class) its evidence is recorded under; ""
-// for classes Phase 1.3 does not verify, which can never earn credit.
+// (sage.action_outcome.action_class) its evidence is recorded under. Every
+// class has one since dogfood round 2 (statistics: row estimates and time;
+// reindex: index size, validity and the table's queries).
 type selfClass struct {
 	family  Family
 	class   ActionClass
@@ -48,12 +49,12 @@ var selfClasses = []selfClass{
 	{FamilyTuning, ClassConfigGUC, policy.RiskModerate, verify.ClassGUC},
 	{FamilyTuning, ClassAutovacuumTuning, policy.RiskModerate, verify.ClassReloption},
 	{FamilyTuning, ClassQueryHint, policy.RiskModerate, verify.ClassQueryHint},
-	{FamilyTuning, ClassStatistics, policy.RiskModerate, ""},
+	{FamilyTuning, ClassStatistics, policy.RiskModerate, verify.ClassStatistics},
 	{FamilyHygiene, ClassIndexDrop, policy.RiskModerate, verify.ClassIndexDrop},
 	{FamilyHygiene, ClassVacuum, policy.RiskSafe, verify.ClassVacuum},
 	{FamilyHygiene, ClassAnalyze, policy.RiskSafe, verify.ClassAnalyze},
 	{FamilyHygiene, ClassRetention, policy.RiskModerate, verify.ClassRetention},
-	{FamilyHygiene, ClassReindex, policy.RiskModerate, ""},
+	{FamilyHygiene, ClassReindex, policy.RiskModerate, verify.ClassReindex},
 }
 
 var selfFamilyOrder = []Family{FamilyTuning, FamilyHygiene}
@@ -167,6 +168,8 @@ func classForActionLabel(label string) ActionClass {
 		return ClassIndexDrop
 	case "reindex":
 		return ClassReindex
+	case "create_statistics":
+		return ClassStatistics
 	case "vacuum":
 		return ClassVacuum
 	case "analyze":

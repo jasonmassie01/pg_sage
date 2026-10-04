@@ -58,6 +58,10 @@ type ProductionDependencies struct {
 	Actions SREActionBackend
 	// Autonomy serves the earned-autonomy tools; optional.
 	Autonomy AutonomyBackend
+	// Facts serves the binding-fact tools (roadmap 2.3); optional.
+	Facts FactBackend
+	// AgentTools serves the coding-agent tools (roadmap phase 3); optional.
+	AgentTools AgentToolBackend
 }
 
 type ProductionBackend struct {
@@ -73,6 +77,7 @@ func NewProductionBackend(
 		dependencies.Guarantees == nil {
 		return nil, ErrProductionDependencyUnavailable
 	}
+	dependencies.Gate = NeverApproved(dependencies.Gate)
 	return &ProductionBackend{dependencies: dependencies}, nil
 }
 

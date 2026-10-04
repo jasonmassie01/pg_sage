@@ -76,6 +76,10 @@ type Summary struct {
 	ModelRanking *ModelRanking `json:"model_ranking,omitempty"`
 	Narrative    *Narrative    `json:"narrative,omitempty"`
 	ModelProbe   *ModelProbe   `json:"model_probe,omitempty"`
+	// ModelContest (roadmap 2.4) is a model ranking that contested the
+	// graph's conclusive root: advisory (the graph's root stands) unless
+	// the family's root authority was earned on the held-out bench.
+	ModelContest *ModelContest `json:"model_contest,omitempty"`
 	// CustomerImpact (M5) is the customer-impact claim bound to the SLO
 	// status evidence; only a registered app SLI can claim it.
 	CustomerImpact *CustomerImpact `json:"customer_impact,omitempty"`

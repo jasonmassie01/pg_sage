@@ -172,6 +172,11 @@ var excludedExactKeys = map[string]bool{
 	"rca.stale_after_hours":                 true,
 	"sre.runways.sequence_interval_seconds": true,
 
+	// Dogfood round 2: the vacuum_blocked size floor is validated at load
+	// (1-max), like rca.stale_after_hours, so it is YAML-only.
+	"rca.vacuum_min_dead_tuples": true,
+	"rca.vacuum_min_table_mb":    true,
+
 	// Sage SRE M2: read once when a database runtime is built (restart
 	// lifecycle) and validated at load, so they are YAML-only.
 	"sre.automatic_start":          true,

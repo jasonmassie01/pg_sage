@@ -9,7 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/llm"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // LLMJsonbAnalyzer enriches JSONB findings with query-level evidence
@@ -42,7 +42,7 @@ var slowQuerySQL = `
 SELECT query, calls, mean_exec_time, rows
   FROM pg_stat_statements
  WHERE query ~* any($1)
-   AND ` + selfmonitor.StatementExclusionSQL("query") + `
+   AND ` + workload.AdviceSQL("query") + `
  ORDER BY mean_exec_time DESC
  LIMIT 50`
 

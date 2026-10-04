@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings, Gauge,
-  Bot, Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck,
+  Bot, Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { EmergencyStopControl } from './EmergencyStopControl'
@@ -32,6 +32,8 @@ const NAV_GROUPS = [
         tid: 'nav-slos' },
       { path: '#/trust', icon: ShieldCheck, label: 'Trust',
         tid: 'nav-trust' },
+      { path: '#/facts', icon: BookCheck, label: 'Facts',
+        tid: 'nav-facts' },
       { path: '#/agent-dbs', icon: Bot, label: 'Agent DBs',
         tid: 'nav-agent-dbs' },
       { path: '#/manage-databases', icon: Server,
@@ -39,6 +41,8 @@ const NAV_GROUPS = [
         tid: 'nav-databases' },
       { path: '#/settings', icon: Settings, label: 'Settings',
         admin: true, tid: 'nav-settings' },
+      { path: '#/mcp-tokens', icon: KeyRound, label: 'MCP tokens',
+        admin: true, tid: 'nav-mcp-tokens' },
     ],
   },
 ]

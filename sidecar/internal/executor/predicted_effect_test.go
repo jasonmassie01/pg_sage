@@ -103,7 +103,7 @@ func TestPredictionForMaintenance(t *testing.T) {
 }
 
 func TestPredictionForUnknownClassIsNone(t *testing.T) {
-	for _, class := range []string{"", "reindex", verify.ClassGUC, verify.ClassReloption} {
+	for _, class := range []string{"", "unverified_kind", verify.ClassGUC, verify.ClassReloption} {
 		p := predictionFromDetail(class, map[string]any{"estimated_improvement_pct": 50.0})
 		if p.Predicts() {
 			t.Errorf("class %q: prediction = %+v; GUC and reloption predictions come "+

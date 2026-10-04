@@ -1,0 +1,65 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "plan-flip-after-stats-refresh",
+  "family": "plan_regression",
+  "class": "positive",
+  "description": "An autovacuum ANALYZE on orders refreshed the statistics at 09:42; the order-history query switched from a nested-loop index scan to a hash join over a sequential scan, and its mean latency went from 4.1 ms to 38.7 ms.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-03T10:05:12Z",
+  "subject": "queryid 4823190576612340117",
+  "tags": [
+    "post_r1",
+    "plan_flip"
+  ],
+  "gold": {
+    "root": "plan_flip_regression",
+    "rationale": "plan_hash changed at the regression point and the new plan is 9.4 times slower over hundreds of calls on each side; the steady queries on the same tables rule out a server-wide slowdown."
+  },
+  "observations": [
+    {
+      "probe": "plan_regressions",
+      "status": "ok",
+      "offset_ms": 85,
+      "rows": [
+        {
+          "queryid": 4823190576612340117,
+          "previous_plan_hash": "v1:3f9c2e71b04d8a6615e2c0a9d7f4b183",
+          "current_plan_hash": "v1:c81a5d04e9f27b3360d4a1e8b2c97f05",
+          "plan_flipped": true,
+          "flipped_at": "2026-09-03T09:42:30Z",
+          "before_calls": 412,
+          "before_mean_ms": 4.118,
+          "after_calls": 386,
+          "after_mean_ms": 38.731
+        },
+        {
+          "queryid": -1290457713360211844,
+          "previous_plan_hash": null,
+          "current_plan_hash": "v1:5d7e0b92a4c13f86e01b7d2a9c46f318",
+          "plan_flipped": false,
+          "flipped_at": null,
+          "before_calls": 2210,
+          "before_mean_ms": 0.842,
+          "after_calls": 2187,
+          "after_mean_ms": 0.871
+        },
+        {
+          "queryid": 733018845290017356,
+          "previous_plan_hash": null,
+          "current_plan_hash": "v1:e2b4c6081f3a5d97b8c0e1f2a4d6c839",
+          "plan_flipped": false,
+          "flipped_at": null,
+          "before_calls": 95,
+          "before_mean_ms": 12.06,
+          "after_calls": 101,
+          "after_mean_ms": 11.94
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 115
+    }
+  ]
+}

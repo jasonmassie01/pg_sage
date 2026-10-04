@@ -20,6 +20,8 @@ type Dispatcher struct {
 	logFn   func(string, string, ...any)
 	// cards mints approval-card tokens; nil sends cards without buttons.
 	cards CardTokenIssuer
+	// factCards mints fact-card tokens (roadmap 2.3); nil: no buttons.
+	factCards FactTokenIssuer
 }
 
 // NewDispatcher creates a Dispatcher that reads rules and channels from
@@ -96,10 +98,12 @@ func (d *Dispatcher) deliver(
 	ctx context.Context, sender Sender, ch Channel, event Event,
 ) error {
 	event, revoke := d.withCardToken(ctx, ch, event)
+	event, revokeFact := d.withFactToken(ctx, ch, event)
 	sendErr := RedactError(sender.Send(ctx, ch, event))
 	status, errMsg := "sent", ""
 	if sendErr != nil {
 		revoke()
+		revokeFact()
 		status, errMsg = "error", sendErr.Error()
 	}
 	return d.logDelivery(ctx, ch.ID, event, status, errMsg)

@@ -136,9 +136,9 @@ func (s *PostgresStore) insertEvalRun(ctx context.Context, run EvalRun) (EvalRun
 	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_eval_runs
 		(deployment_id, id, source, schema_version, generated_at, ingested_at, ingested_by,
 		 database_name, report_sha256, gated_arms, cells, origin, pg_sage_version,
-		 pg_sage_commit, signature)
+		 pg_sage_commit, signature, model_lift)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13, $14,
-		        $15)
+		        $15, $16)
 		ON CONFLICT (deployment_id, report_sha256) DO NOTHING`,
 		append([]any{s.deployment}, args...)...)
 	if err != nil {
@@ -164,15 +164,20 @@ func evalRunArgs(run EvalRun) ([]any, error) {
 	if err != nil || len(sum) != 32 {
 		return nil, fmt.Errorf("%w: report hash", ErrInvalidReport)
 	}
-	var signature []byte
+	var signature, lift []byte
 	if run.Signature != nil {
 		if signature, err = json.Marshal(run.Signature); err != nil {
 			return nil, fmt.Errorf("%w: encode signature: %v", ErrInvalidReport, err)
 		}
 	}
+	if run.ModelLift != nil {
+		if lift, err = json.Marshal(run.ModelLift); err != nil {
+			return nil, fmt.Errorf("%w: encode model lift: %v", ErrInvalidReport, err)
+		}
+	}
 	return []any{run.ID, run.Source, run.Schema, run.GeneratedAt, run.IngestedAt,
 		run.IngestedBy, run.Database, sum, gated, cells, run.Origin, run.Build.Version,
-		run.Build.Commit, signature}, nil
+		run.Build.Commit, signature, lift}, nil
 }
 
 // duplicateEvalRun reads the stored copy of run; an unsigned copy is
@@ -195,14 +200,15 @@ func (s *PostgresStore) duplicateEvalRun(ctx context.Context, run EvalRun, sum,
 
 const evalRunSelect = `SELECT id::text, source, schema_version, generated_at, ingested_at,
 	ingested_by, COALESCE(database_name, ''), encode(report_sha256, 'hex'), gated_arms,
-	cells, origin, pg_sage_version, pg_sage_commit, signature FROM sage.sre_eval_runs`
+	cells, origin, pg_sage_version, pg_sage_commit, signature, model_lift
+	FROM sage.sre_eval_runs`
 
 func (s *PostgresStore) scanEvalRun(row pgx.Row) (EvalRun, error) {
 	var run EvalRun
-	var gated, cells, signature []byte
+	var gated, cells, signature, lift []byte
 	err := row.Scan(&run.ID, &run.Source, &run.Schema, &run.GeneratedAt, &run.IngestedAt,
 		&run.IngestedBy, &run.Database, &run.SHA256, &gated, &cells, &run.Origin,
-		&run.Build.Version, &run.Build.Commit, &signature)
+		&run.Build.Version, &run.Build.Commit, &signature, &lift)
 	if err != nil {
 		return EvalRun{}, err
 	}
@@ -216,6 +222,12 @@ func (s *PostgresStore) scanEvalRun(row pgx.Row) (EvalRun, error) {
 		run.Signature = &ReportSignature{}
 		if err := json.Unmarshal(signature, run.Signature); err != nil {
 			return EvalRun{}, fmt.Errorf("decode signature: %w", err)
+		}
+	}
+	if lift != nil {
+		run.ModelLift = &ModelLift{}
+		if err := json.Unmarshal(lift, run.ModelLift); err != nil {
+			return EvalRun{}, fmt.Errorf("decode model lift: %w", err)
 		}
 	}
 	return run.WithProvenance(), nil

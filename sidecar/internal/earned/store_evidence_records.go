@@ -12,7 +12,7 @@ import (
 const benchSetSQL = `/* pg_sage */ SELECT r.*, f.family FROM unnest($4::text[]) AS f(family)
 CROSS JOIN LATERAL (` + evalRunSelect + `
 	 WHERE deployment_id = $1 AND source = 'bench'
-	   AND (f.family = ''
+	   AND ((f.family = '' AND cells @? '$[*] ? (@.family != "all")')
 	        OR cells @> jsonb_build_array(jsonb_build_object('family', f.family)))
 	   AND ((pg_sage_version = '' AND pg_sage_commit = '')
 	     OR ($2 <> '' AND pg_sage_commit = $2)
@@ -30,8 +30,10 @@ func (r trailingRow) Scan(dest ...any) error { return r.Row.Scan(append(dest, r.
 
 // benchSet is, per family, the deployment's newest bench report that
 // scored it and counts for the running build (family "": the newest
-// report at all). A report stamped for another build never counts; an
-// unstamped (operator) report does. Bench evidence is about pg_sage, not
+// report that scored any family; a replay-only model-lift report, which
+// carries no family cell, never stands in for the release bench). A
+// report stamped for another build never counts; an unstamped (operator)
+// report does. Bench evidence is about pg_sage, not
 // a database, so every database of the deployment shares it.
 func (s *PostgresStore) benchSet(ctx context.Context, families []Family) (
 	map[Family]*EvalRun, error) {

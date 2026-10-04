@@ -867,8 +867,8 @@
   },
   "mcp.transport": {
     "type": "string",
-    "default": "stdio",
-    "doc": "MCP transport: stdio or http."
+    "default": "http",
+    "doc": "MCP transport: http (default, credential required) or stdio."
   },
   "meta_db": {
     "type": "string",
@@ -1056,6 +1056,16 @@
     "type": "int",
     "default": 24,
     "doc": "Hours an open incident may go unseen before pg_sage resolves it as stale (no notification when it was last seen that long ago). 1-8760, at least the dedup window. Default: 24."
+  },
+  "rca.vacuum_min_dead_tuples": {
+    "type": "int",
+    "default": 1000,
+    "doc": "Fewest dead tuples a table needs before its dead-tuple ratio counts toward the vacuum_blocked (autovacuum falling behind) incident. 1-1000000000. Default: 1000."
+  },
+  "rca.vacuum_min_table_mb": {
+    "type": "int",
+    "default": 8,
+    "doc": "Smallest heap, in MB, a table needs before its dead-tuple ratio counts toward the vacuum_blocked incident. 1-1048576. Default: 8."
   },
   "rca.wal_spike_multiplier": {
     "type": "float64",

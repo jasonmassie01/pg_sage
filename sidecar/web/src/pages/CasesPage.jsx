@@ -5,6 +5,10 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { SQLBlock } from '../components/SQLBlock'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
+import { FactBadges } from '../components/FactBadges'
+import { FindingFactSections } from './facts/FindingFactSections'
+import { caseFactTarget } from '../lib/caseFacts'
+import { canDecideFacts } from '../lib/facts'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -158,6 +162,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
 function CaseCard({ caseRow, user, investigation, onDone }) {
   const candidate = caseRow.action_candidates?.[0]
   const candidateGuardrails = guardrails(candidate)
+  const factTarget = caseFactTarget(caseRow)
 
   return (
     <article className="rounded border p-3"
@@ -196,7 +201,8 @@ function CaseCard({ caseRow, user, investigation, onDone }) {
           {caseRow.why}
         </div>
       )}
-      <EvidenceList evidence={caseRow.evidence || []} />
+      <CaseFacts target={factTarget} user={user} onDone={onDone} />
+      <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />
       {candidateGuardrails.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5"
           aria-label="Action guardrails">
@@ -235,7 +241,18 @@ function CaseCard({ caseRow, user, investigation, onDone }) {
   )
 }
 
-function EvidenceList({ evidence }) {
+// CaseFacts shows the binding facts about a finding case's object.
+function CaseFacts({ target, user, onDone }) {
+  if (!target) return null
+  return (
+    <div className="mt-3">
+      <FactBadges database={target.database} objects={[target.object]}
+        canDecide={canDecideFacts(user)} onChanged={onDone} />
+    </div>
+  )
+}
+
+function EvidenceList({ evidence, category }) {
   const visibleEvidence = evidence.filter(item =>
     item?.summary || Object.keys(item?.detail || {}).length > 0,
   )
@@ -246,20 +263,22 @@ function EvidenceList({ evidence }) {
         <EvidenceItem
           key={`${item.type || 'evidence'}-${index}`}
           evidence={item}
+          category={category}
         />
       ))}
     </div>
   )
 }
 
-function EvidenceItem({ evidence }) {
+// Keys rendered by their own section, not as key/value chips.
+const SECTION_KEYS = new Set(['query', 'normalized_query', 'sample_query', 'cleanup_sql'])
+
+function EvidenceItem({ evidence, category }) {
   const detail = evidence.detail || {}
   const query = detail.query || detail.normalized_query || detail.sample_query
   const scalarEntries = Object.entries(detail)
     .filter(([key, value]) =>
-      key !== 'query' &&
-      key !== 'normalized_query' &&
-      key !== 'sample_query' &&
+      !SECTION_KEYS.has(key) &&
       value !== null &&
       value !== undefined &&
       typeof value !== 'object',
@@ -290,6 +309,7 @@ function EvidenceItem({ evidence }) {
           <SQLBlock sql={String(query)} />
         </div>
       )}
+      <FindingFactSections row={{ category, detail }} />
     </section>
   )
 }

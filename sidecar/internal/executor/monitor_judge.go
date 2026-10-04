@@ -45,6 +45,9 @@ func (p monitorPlan) judge(
 	o := verify.Outcome{ActionLogID: p.actionID, Class: p.class, Predicted: p.prediction,
 		WindowStart: &start, WindowEnd: &end, Evidence: map[string]any{}}
 	queries := p.judgeQueries(ctx, pool, cfg, now, o.Evidence)
+	if isR2Class(p.class) {
+		return p.judgeR2(ctx, pool, now, queries, o)
+	}
 	metric := p.judgeMetric(ctx, pool, now, o.Evidence)
 	if miss := p.softDropMiss(ctx, pool, queries); miss != "" {
 		o.Verdict, o.Reason = verify.OutcomeRegressed, softDropReason(miss, queries)

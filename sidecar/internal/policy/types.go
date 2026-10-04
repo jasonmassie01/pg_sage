@@ -273,6 +273,9 @@ type GateConfig struct {
 	// the recorder run under and done(commit), which ends the transaction.
 	Serialize func(context.Context, ActionRequest) (context.Context, func(commit bool) error,
 		error)
+	// Facts answers which confirmed facts bind a request (roadmap 2.3); nil
+	// consults none. A binding blocks the request: facts only narrow.
+	Facts FactBinder
 }
 
 var (
