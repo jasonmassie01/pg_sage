@@ -24,7 +24,8 @@ const sageTag = "/* pg_sage */ "
 // Means and the population stddev are recombined from per-row calls.
 // The %[1]s and %[2]s verbs are the block read/write time expressions
 // chosen by blockTimeColumns (PG17 renamed blk_*_time to
-// shared_/local_blk_*_time); %[3]d is the row limit.
+// shared_/local_blk_*_time); %[3]d, and the final %d after them, is the
+// row limit.
 //
 // The candidates are ranked on the counters alone (showtext false), and
 // only their texts are matched against the self-exclusion and aggregated
@@ -35,11 +36,11 @@ const sageTag = "/* pg_sage */ "
 // statements among the top ones.
 const queryStatsWith = sageTag + `
 WITH ranked AS (
-    SELECT c.queryid FROM pg_stat_statements(false) c
-     WHERE c.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-       AND c.queryid IS NOT NULL
-     GROUP BY c.queryid
-     ORDER BY sum(c.total_exec_time) DESC
+    SELECT queryid FROM pg_stat_statements(false)
+     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+       AND queryid IS NOT NULL
+     GROUP BY queryid
+     ORDER BY sum(total_exec_time) DESC
      LIMIT 2 * %[3]d
 ), candidates AS MATERIALIZED (
     SELECT s.* FROM pg_stat_statements(true) s JOIN ranked r ON r.queryid = s.queryid
@@ -80,7 +81,7 @@ var queryStatsFrom = `
  WHERE ` + strings.ReplaceAll(selfmonitor.StatementExclusionSQL("query"), "%", "%%") + `
  GROUP BY queryid
  ORDER BY sum(total_exec_time) DESC
- LIMIT %[3]d`
+ LIMIT %d`
 
 var queryStatsSQL = queryStatsSelect + queryStatsFrom
 
