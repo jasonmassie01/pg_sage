@@ -1,4 +1,5 @@
 import { checkText } from '../autonomy/checkText'
+import { ShadowDecisions, ShadowSummary } from './ShadowDecisions'
 
 // One database's trust grid for one kind (self-initiated classes or
 // incident remediations): level, evidence counts, last change and why,
@@ -21,7 +22,7 @@ const KIND_NOTE = {
     + '(Advanced > Earned autonomy).',
 }
 
-export function TrustTable({ database, kind, rows, isAdmin, onApprove }) {
+export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = [] }) {
   if (rows.length === 0) return null
   return (
     <div data-testid={`trust-section-${database}-${kind}`} className="space-y-1">
@@ -43,7 +44,8 @@ export function TrustTable({ database, kind, rows, isAdmin, onApprove }) {
           <tbody>
             {rows.map(row => (
               <TrustRow key={`${row.family}-${row.class}`} database={database}
-                row={row} isAdmin={isAdmin} onApprove={onApprove} />
+                row={row} isAdmin={isAdmin} onApprove={onApprove}
+                shadow={shadow.find(s => s.family === row.family && s.class === row.class)} />
             ))}
           </tbody>
         </table>
@@ -52,7 +54,7 @@ export function TrustTable({ database, kind, rows, isAdmin, onApprove }) {
   )
 }
 
-function TrustRow({ database, row, isAdmin, onApprove }) {
+function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
   return (
     <tr data-testid={`trust-row-${database}-${row.family}-${row.class}`}
       style={{ borderTop: '1px solid var(--border)' }}>
@@ -66,6 +68,12 @@ function TrustRow({ database, row, isAdmin, onApprove }) {
       <td className={cell}><Level row={row} /></td>
       <td className={cell} data-testid="trust-evidence" style={muted}>
         <Evidence counts={row.evidence || {}} />
+        {shadow && (
+          <div className="mt-1">
+            <ShadowSummary summary={shadow} />
+            <ShadowDecisions database={database} cls={row.class} />
+          </div>
+        )}
       </td>
       <td className={cell} data-testid="trust-last-change" style={muted}>
         <LastChange change={row.last_change || {}} />
@@ -116,10 +124,19 @@ function Evidence({ counts }) {
     `${counts.rejected || 0} rejected`,
   ]
   const unknown = (counts.insufficient || 0) + (counts.unverifiable || 0)
+  const shadowScored = (counts.shadow_correct || 0) + (counts.shadow_incorrect || 0)
+    + (counts.shadow_neutral || 0)
   return (
     <span>
       {parts.join(' · ')}
       {unknown > 0 && <span> ({unknown} not judged)</span>}
+      {shadowScored > 0 && (
+        <div>
+          shadow evidence: {counts.shadow_correct || 0} shadow correct
+          {' · '}{counts.shadow_incorrect || 0} shadow incorrect
+          {' · '}{counts.shadow_neutral || 0} shadow neutral
+        </div>
+      )}
     </span>
   )
 }

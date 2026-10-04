@@ -49,6 +49,8 @@ type ReconcileResult struct {
 	// actions and operator rejections; Demoted the demotions it caused.
 	SelfRecorded int `json:"self_recorded"`
 	Demoted      int `json:"demoted"`
+	// ShadowRecorded counts the new shadow evidence (roadmap 1.4).
+	ShadowRecorded int `json:"shadow_recorded"`
 }
 
 // Reconciler turns one monitored database's executed family actions into
@@ -113,7 +115,8 @@ func (r *Reconciler) RunOnce(ctx context.Context) (ReconcileResult, error) {
 			return res, err
 		}
 	}
-	return res, errors.Join(notifyErr, r.selfInitiated(ctx, &res))
+	selfErr := r.selfInitiated(ctx, &res)
+	return res, errors.Join(notifyErr, selfErr, r.shadowEvidence(ctx, &res))
 }
 
 func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResult) error {

@@ -170,6 +170,10 @@ type Decision struct {
 	// SerializeMode is the policy's serialize_mode on an execute verdict:
 	// what a change lease conflict does (park, or wait in the lease queue).
 	SerializeMode string
+	// Trusted is what the gate would have decided had the request's ledger
+	// pair been trusted at L3; set only when the ledger withheld it
+	// (roadmap 1.4, shadow mode).
+	Trusted *TrustedVerdict
 }
 
 // RuntimeState is the live authority snapshot for one authorization.

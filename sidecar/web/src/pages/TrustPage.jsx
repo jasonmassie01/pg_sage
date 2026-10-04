@@ -98,7 +98,7 @@ function DatabaseTrust({ view, isAdmin, onApprove }) {
       {['self_initiated', 'incident'].map(kind => (
         <TrustTable key={kind} database={view.database} kind={kind}
           rows={rows.filter(r => r.kind === kind)} isAdmin={isAdmin}
-          onApprove={onApprove} />
+          onApprove={onApprove} shadow={view.shadow || []} />
       ))}
     </div>
   )

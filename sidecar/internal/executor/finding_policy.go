@@ -116,6 +116,10 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 	for _, guardrail := range decision.Guardrails {
 		result.Guardrails = append(result.Guardrails, string(guardrail))
 	}
+	if t := decision.Trusted; t != nil {
+		result.TrustedVerdict, result.TrustedReason = string(t.Verdict), string(t.Reason)
+		result.TrustedDetail = t.Detail
+	}
 	// A plain authorization is not a blocked reason; informative execute
 	// reasons such as deadline_override are kept.
 	if decision.Reason == policy.ReasonAuthorized ||

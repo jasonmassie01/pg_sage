@@ -86,7 +86,11 @@ func (l Loader) ForAction(ctx context.Context, a store.QueuedAction) (Card, erro
 	if in.Snooze, err = l.snooze(ctx, a.ID); err != nil {
 		return Card{}, err
 	}
-	return Assemble(in), nil
+	c := Assemble(in)
+	if c.ShadowHistory, err = l.shadowHistory(ctx, a); err != nil {
+		return Card{}, err
+	}
+	return c, nil
 }
 
 // optional maps "no row" to nil and wraps every other error.

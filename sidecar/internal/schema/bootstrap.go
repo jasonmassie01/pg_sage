@@ -405,7 +405,8 @@ func migrationStatements() []string {
 		ddlGuardHistoryIndexes(),
 		ddlApprovalCards,
 		ddlActionOutcome(),
-		ddlTrustLedger())
+		ddlTrustLedger(),
+		ddlShadowMode())
 }
 
 // ---------------------------------------------------------------------------

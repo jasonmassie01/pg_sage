@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -44,6 +45,9 @@ type Card struct {
 	SnoozeReason   string             `json:"snooze_reason,omitempty"`
 	// CardHash binds a decision to exactly this content (ContentHash).
 	CardHash string `json:"card_hash"`
+	// ShadowHistory is the action class's shadow record (roadmap 1.4);
+	// not part of the hash: it changes as decisions score, the action not.
+	ShadowHistory *shadow.History `json:"shadow_history,omitempty"`
 }
 
 // FindingRef is the finding behind the action.

@@ -15,13 +15,19 @@ const (
 	CauseRolledBack = "rolled_back"
 	CauseRejected   = "rejected"
 	CauseHarmful    = "harmful"
+	// CauseShadowIncorrect is an incorrect shadow decision (roadmap 1.4):
+	// a demerit for promotion (it resets the streak), never a demotion.
+	CauseShadowIncorrect = "shadow_incorrect"
 )
 
 // ClassRecord is one pair's verdict record on one database: counts of
 // every outcome ever recorded, and the credited (Successes) and decided
 // but uncredited (Uncredited: a tuning neutral, or a hygiene neutral that
 // did not hold) outcomes since the last demerit. Insufficient evidence
-// and unverifiable verdicts count neither way.
+// and unverifiable verdicts count neither way. Successes and Uncredited
+// include shadow evidence (roadmap 1.4), whose share is ShadowSuccesses
+// and ShadowUncredited (distinct decisions); Shadow* are the shadow
+// scores ever recorded.
 type ClassRecord struct {
 	Improved      int        `json:"improved"`
 	Neutral       int        `json:"neutral"`
@@ -34,6 +40,13 @@ type ClassRecord struct {
 	Uncredited    int        `json:"uncredited_since_demerit"`
 	LastDemeritAt *time.Time `json:"last_demerit_at,omitempty"`
 	LastDemerit   string     `json:"last_demerit,omitempty"`
+
+	// Shadow evidence (roadmap 1.4).
+	ShadowCorrect    int `json:"shadow_correct"`
+	ShadowIncorrect  int `json:"shadow_incorrect"`
+	ShadowNeutral    int `json:"shadow_neutral"`
+	ShadowSuccesses  int `json:"shadow_successes_since_demerit"`
+	ShadowUncredited int `json:"shadow_uncredited_since_demerit"`
 }
 
 // RampFloor is the trust ramp as the ledger's promotion floor: when
@@ -144,9 +157,9 @@ func selfChecks(th Thresholds, target Level, ev Evidence) []Check {
 	if target >= L3 {
 		minimum = th.ClassMinSuccessesL3
 	}
-	checks = append(checks, successesCheck(minimum, target, ev))
+	checks = append(checks, successesCheck(th, minimum, target, ev))
 	if target >= L3 {
-		checks = append(checks, rateCheck(th, ev))
+		checks = append(checks, realSuccessesCheck(th, ev), rateCheck(th, ev))
 	}
 	return checks
 }
@@ -189,16 +202,19 @@ func floorCheck(target Level, ev Evidence) Check {
 	return c
 }
 
-func successesCheck(minimum int, target Level, ev Evidence) Check {
-	got := 0
-	if ev.Record != nil {
-		got = ev.Record.Successes
+// successesCheck counts verified successes since the last demerit, real
+// and shadow; at L3 shadow successes fill at most shadowCap of the bar.
+func successesCheck(th Thresholds, minimum int, target Level, ev Evidence) Check {
+	got, real, shadow, over := countedSuccesses(th, target, ev.Record)
+	observed := fmt.Sprint(got)
+	if ev.Record != nil && ev.Record.ShadowSuccesses > 0 {
+		observed = successSplit(got, real, shadow, over)
 	}
 	what := "improved"
 	if ev.Family == FamilyHygiene {
 		what = "improved, or neutral that held its window,"
 	}
-	c := Check{Name: "class_successes", Met: got >= minimum, Observed: fmt.Sprint(got),
+	c := Check{Name: "class_successes", Met: got >= minimum, Observed: observed,
 		Required: fmt.Sprintf(">= %d verified successes since the last demerit", minimum)}
 	if !c.Met {
 		how := "run pg_sage's proposal for it (Findings, take action)"

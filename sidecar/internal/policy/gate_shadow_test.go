@@ -114,7 +114,11 @@ func TestNoTrustedVerdictOutsideTheLedger(t *testing.T) {
 // Explain (no recording) carries the same trusted verdict.
 func TestExplainCarriesTheTrustedVerdict(t *testing.T) {
 	f, limiter := newScopedFixture(1)
-	d := f.scopedGate(limiter).Explain(context.Background(), selfVacuumRequest())
+	explainer, ok := f.scopedGate(limiter).(Explainer)
+	if !ok {
+		t.Fatal("the gate does not explain")
+	}
+	d := explainer.Explain(context.Background(), selfVacuumRequest())
 	if d.Trusted == nil || d.Trusted.Verdict != VerdictExecute {
 		t.Fatalf("explain: %+v", d)
 	}

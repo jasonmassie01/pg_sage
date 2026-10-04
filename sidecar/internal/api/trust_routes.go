@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 
-	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -50,7 +49,7 @@ func (h autonomyHandlers) trust(w http.ResponseWriter, r *http.Request) {
 		}
 		names = []string{name}
 	}
-	views := make([]earned.TrustView, 0, len(names))
+	views := make([]trustDatabaseView, 0, len(names))
 	for _, name := range names {
 		entry, ok := h.deps.Ledgers.Lookup(name)
 		if !ok {
@@ -64,7 +63,7 @@ func (h autonomyHandlers) trust(w http.ResponseWriter, r *http.Request) {
 		if entry.Limiter != nil {
 			entry.Limiter.AnnotateTrust(r.Context(), &v)
 		}
-		views = append(views, v)
+		views = append(views, withShadow(r.Context(), h.mgr, v))
 	}
 	jsonResponse(w, map[string]any{"databases": views,
 		"enforced": h.deps.Ledgers.Enforced(), "meaning": trustMeaning})

@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { SQLBlock } from '../../components/SQLBlock'
 import { useToast } from '../../components/Toast'
+import { ShadowHistory } from './ShadowHistory'
 
 // ApprovalCard shows one queued action with the why (roadmap 1.5): what
 // pg_sage wants to do, why it needs a person, the cited evidence, the
@@ -195,6 +196,7 @@ export function ApprovalCard({ card, onDecided }) {
       <Section title="SQL" testId="approval-sql"><SQLBlock sql={card.sql} /></Section>
       <RollbackSection rollback={card.rollback} />
       <RiskSection risk={card.risk} />
+      <ShadowHistory history={card.shadow_history} />
       <ApprovalActions card={card} onDecided={onDecided} />
     </div>
   )

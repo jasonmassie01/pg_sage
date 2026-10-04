@@ -10,48 +10,77 @@ import (
 
 // classRecordSQL counts a pair's outcomes on the database, and its
 // credited and uncredited decided outcomes since its last demerit. Rows
-// recorded before outcomes kept their verdict count by result.
+// recorded before outcomes kept their verdict count by result. Shadow
+// evidence (roadmap 1.4) is counted apart: by score, and since the last
+// demerit by distinct decision (fingerprint); an incorrect shadow
+// decision is a demerit for this count (it never demotes).
 const classRecordSQL = `WITH pair AS (
 	SELECT verdict, result, COALESCE(observed_at, recorded_at) AS at
 	  FROM sage.sre_autonomy_outcomes
 	 WHERE deployment_id = $1 AND database_name = $2 AND family = $3
 	   AND action_class = $4
+), sh AS (
+	SELECT score, observed_at AS at, fingerprint FROM sage.trust_shadow_evidence
+	 WHERE deployment_id = $1 AND database_name = $2 AND family = $3
+	   AND action_class = $4
 ), last AS (
-	SELECT at, COALESCE(verdict, result) AS cause FROM pair
-	 WHERE result IN ('harmful', 'safety_violation', 'rejected')
-	 ORDER BY at DESC LIMIT 1
-)
-SELECT
+	SELECT at, cause FROM (
+		SELECT at, COALESCE(verdict, result) AS cause FROM pair
+		 WHERE result IN ('harmful', 'safety_violation', 'rejected')
+		UNION ALL
+		SELECT at, 'shadow_incorrect' FROM sh WHERE score = 'incorrect'
+	) d ORDER BY at DESC LIMIT 1
+), real_counts AS (
+	SELECT
 	count(*) FILTER (WHERE verdict = 'improved'
-	                    OR (verdict IS NULL AND result = 'verified_recovery')),
-	count(*) FILTER (WHERE verdict = 'neutral'),
+	                    OR (verdict IS NULL AND result = 'verified_recovery')) AS improved,
+	count(*) FILTER (WHERE verdict = 'neutral') AS neutral,
 	count(*) FILTER (WHERE verdict = 'regressed'
-	                    OR (verdict IS NULL AND result IN ('harmful', 'safety_violation'))),
-	count(*) FILTER (WHERE verdict = 'rolled_back'),
+	                    OR (verdict IS NULL AND result IN ('harmful', 'safety_violation')))
+	                    AS regressed,
+	count(*) FILTER (WHERE verdict = 'rolled_back') AS rolled_back,
 	count(*) FILTER (WHERE verdict = 'rejected'
-	                    OR (verdict IS NULL AND result = 'rejected')),
-	count(*) FILTER (WHERE verdict = 'insufficient_evidence'),
+	                    OR (verdict IS NULL AND result = 'rejected')) AS rejected,
+	count(*) FILTER (WHERE verdict = 'insufficient_evidence') AS insufficient,
 	count(*) FILTER (WHERE verdict = 'unverifiable'
-	                    OR (verdict IS NULL AND result = 'unverified')),
+	                    OR (verdict IS NULL AND result = 'unverified')) AS unverifiable,
 	count(*) FILTER (WHERE result = 'verified_recovery'
-	                   AND (l.at IS NULL OR pair.at > l.at)),
+	                   AND (l.at IS NULL OR pair.at > l.at)) AS successes,
 	count(*) FILTER (WHERE result = 'unverified' AND verdict = 'neutral'
-	                   AND (l.at IS NULL OR pair.at > l.at)),
-	max(l.at), max(l.cause)
-FROM pair LEFT JOIN last l ON true`
+	                   AND (l.at IS NULL OR pair.at > l.at)) AS uncredited
+	FROM pair LEFT JOIN last l ON true
+), shadow_counts AS (
+	SELECT count(*) FILTER (WHERE score = 'correct') AS correct,
+	count(*) FILTER (WHERE score = 'incorrect') AS incorrect,
+	count(*) FILTER (WHERE score = 'neutral') AS neutral,
+	count(DISTINCT fingerprint) FILTER (WHERE score = 'correct'
+	                   AND (l.at IS NULL OR sh.at > l.at)) AS successes,
+	count(DISTINCT fingerprint) FILTER (WHERE score = 'neutral'
+	                   AND (l.at IS NULL OR sh.at > l.at)) AS uncredited
+	FROM sh LEFT JOIN last l ON true
+)
+SELECT r.improved, r.neutral, r.regressed, r.rolled_back, r.rejected, r.insufficient,
+	r.unverifiable, r.successes, r.uncredited, s.correct, s.incorrect, s.neutral,
+	s.successes, s.uncredited, l.at, l.cause
+FROM real_counts r CROSS JOIN shadow_counts s LEFT JOIN last l ON true`
 
-// ClassRecord reads a pair's verdict record on the database.
+// ClassRecord reads a pair's verdict record on the database, real and
+// shadow evidence apart and together.
 func (s *PostgresStore) ClassRecord(ctx context.Context, f Family, c ActionClass) (
 	ClassRecord, error) {
 	var r ClassRecord
 	var cause *string
+	var realSuccesses, realUncredited int
 	err := s.pool.QueryRow(ctx, classRecordSQL, s.deployment, s.database, string(f),
 		string(c)).Scan(&r.Improved, &r.Neutral, &r.Regressed, &r.RolledBack, &r.Rejected,
-		&r.Insufficient, &r.Unverifiable, &r.Successes, &r.Uncredited, &r.LastDemeritAt,
-		&cause)
+		&r.Insufficient, &r.Unverifiable, &realSuccesses, &realUncredited, &r.ShadowCorrect,
+		&r.ShadowIncorrect, &r.ShadowNeutral, &r.ShadowSuccesses, &r.ShadowUncredited,
+		&r.LastDemeritAt, &cause)
 	if err != nil {
 		return ClassRecord{}, storeErr("read class record", err)
 	}
+	r.Successes = realSuccesses + r.ShadowSuccesses
+	r.Uncredited = realUncredited + r.ShadowUncredited
 	if r.LastDemeritAt != nil {
 		at := r.LastDemeritAt.UTC()
 		r.LastDemeritAt = &at
@@ -66,7 +95,7 @@ func (s *PostgresStore) ClassRecord(ctx context.Context, f Family, c ActionClass
 // one, a result).
 func demeritName(stored string) string {
 	switch stored {
-	case CauseRegressed, CauseRolledBack, CauseRejected:
+	case CauseRegressed, CauseRolledBack, CauseRejected, CauseShadowIncorrect:
 		return stored
 	}
 	return CauseHarmful

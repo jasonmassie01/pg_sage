@@ -19,6 +19,10 @@ type TrustCounts struct {
 	Rejected     int `json:"rejected"`
 	Insufficient int `json:"insufficient"`
 	Unverifiable int `json:"unverifiable"`
+	// Shadow scores the ledger counts (roadmap 1.4).
+	ShadowCorrect   int `json:"shadow_correct"`
+	ShadowIncorrect int `json:"shadow_incorrect"`
+	ShadowNeutral   int `json:"shadow_neutral"`
 }
 
 // TrustChange is a pair's last level change: the history event (Event)
@@ -132,7 +136,8 @@ func (s *Service) trustRow(ctx context.Context, f Family, c ActionClass, pending
 func countsOf(r ClassRecord) TrustCounts {
 	return TrustCounts{Improved: r.Improved, Neutral: r.Neutral, Regressed: r.Regressed,
 		RolledBack: r.RolledBack, Rejected: r.Rejected, Insufficient: r.Insufficient,
-		Unverifiable: r.Unverifiable}
+		Unverifiable: r.Unverifiable, ShadowCorrect: r.ShadowCorrect,
+		ShadowIncorrect: r.ShadowIncorrect, ShadowNeutral: r.ShadowNeutral}
 }
 
 func lastChange(st State, e Event) TrustChange {

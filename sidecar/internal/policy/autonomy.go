@@ -112,13 +112,17 @@ func (gate *authorizationGate) restrictAutonomy(
 	}
 	level := effectiveAutonomyLevel(limit, req.Contract.RollbackClass)
 	note := autonomyNote(level, limit, base)
+	trusted := gate.trustedVerdict(doc, runtime, req, base, limit, level)
 	switch {
 	case level < autonomyHandoffLevel && limit.Downgraded:
-		return restricted(req, VerdictObserveOnly, ReasonAutonomyDowngraded, note)
+		return withTrusted(restricted(req, VerdictObserveOnly, ReasonAutonomyDowngraded,
+			note), trusted)
 	case level < autonomyHandoffLevel:
-		return restricted(req, VerdictObserveOnly, ReasonAutonomyLevel, note)
+		return withTrusted(restricted(req, VerdictObserveOnly, ReasonAutonomyLevel, note),
+			trusted)
 	case level == autonomyHandoffLevel || base.Verdict == VerdictQueueApproval:
-		return restricted(req, VerdictQueueApproval, ReasonAutonomyHandoff, note)
+		return withTrusted(restricted(req, VerdictQueueApproval, ReasonAutonomyHandoff, note),
+			trusted)
 	}
 	if why := l3Blocker(doc, runtime, req, gate.now(), gate.selfGoverned(req)); why != "" {
 		return restricted(req, VerdictQueueApproval, ReasonAutonomyHandoff, why+"; "+note)

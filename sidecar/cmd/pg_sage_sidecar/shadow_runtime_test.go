@@ -19,7 +19,7 @@ func TestShadowScorerOptionsFollowTheConfig(t *testing.T) {
 	cfg.Verify.WindowMinutes, cfg.Verify.WindowMaxMinutes = 45, 600
 	cfg.Verify.DropWindowHours = 12
 	cfg.Verify.MinGainPct, cfg.Verify.RegressPct, cfg.Verify.MinSamples = 25, 12, 40
-	cfg.Optimizer.HypoPGMinImprovePct = 15
+	cfg.LLM.Optimizer.HypoPGMinImprovePct = 15
 	o := shadowScorerOptions(cfg, "orders")
 	if o.Database != "orders" || o.VerifyWindow != 45*time.Minute ||
 		o.VerifyMaxWindow != 600*time.Minute || o.DropWindow != 12*time.Hour ||

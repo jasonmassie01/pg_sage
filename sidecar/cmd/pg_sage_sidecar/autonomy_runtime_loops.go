@@ -63,6 +63,7 @@ func (rt *databaseRuntime) startAutonomyLoops() {
 	}
 	rec := earned.NewReconciler(entry.Service, rt.spec.Pool, rt.spec.Name, notifier)
 	name := rt.spec.Name
+	rt.startShadowScoring()
 	rt.start(func() {
 		every(rt.ctx, settings.ReconcileInterval(), func(ctx context.Context) {
 			if _, err := rec.RunOnce(ctx); err != nil {
