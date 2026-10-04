@@ -377,3 +377,22 @@ func TestNoSecondShadowInsideTheWindowAfterScoring(t *testing.T) {
 		t.Fatalf("decisions inside the window after scoring = %d, want 1", len(got))
 	}
 }
+
+// trust.level observation is the ceiling: the gate stops before the
+// ledger, yet pg_sage still records what it would have done (that is how
+// a new install earns trust), with the ceiling's verdict as the verdict
+// had the class been trusted.
+func TestShadowRecordedUnderTheObservationCeiling(t *testing.T) {
+	r := newShadowRig(t, false)
+	if err := r.exec.SetTrustLevel("observation"); err != nil {
+		t.Fatal(err)
+	}
+	f := r.analyzeFinding("shadow_observation")
+	r.exec.processFinding(r.ctx, f, false, nil)
+	got := r.shadows(f.ObjectIdentifier)
+	if len(got) != 1 || got[0].GateVerdict != "observe_only" ||
+		got[0].GateReason != "observe_only" || got[0].TrustedVerdict != "observe_only" ||
+		got[0].GrantedLevel != 1 {
+		t.Fatalf("shadow under the observation ceiling: %+v", got)
+	}
+}

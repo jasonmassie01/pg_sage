@@ -68,7 +68,7 @@ func (e *Executor) recordShadow(ctx context.Context, req policy.ActionRequest,
 		return
 	}
 	family, class := earned.FamilyForRequest(req)
-	if req.Contract == nil || req.IncidentFamily != "" || !earned.IsSelfInitiated(family) {
+	if req.Contract == nil || !earned.IsSelfInitiated(family) {
 		return
 	}
 	shape := shadow.Shape(f.RecommendedSQL)
