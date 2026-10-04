@@ -39,15 +39,22 @@ reach the model as fenced data. A table comment, a query or a finding title that
 
 Ask Sage **never executes, approves, rejects or confirms anything**, whatever the question
 or the data says. A caller who may propose (the operator or admin role in the UI and API,
-or an MCP token with the `propose` scope) can have it do two things, each at most once per
+or an MCP token with the `propose` scope) can have it do three things, each at most once per
 question:
 
 - **Open an investigation** of a symptom (the operator trigger; read-only probes).
+- **Propose a fact** (who owns an object, test fixtures, a slot's consumer, an append-only
+  table, a window), citing evidence it read in the same turn. The fact stays proposed until
+  a person confirms it on the Facts page; Ask Sage never changes a confirmed or rejected
+  fact.
 - **Queue one of pg_sage's own open findings for approval.** The finding's own SQL is
   queued with its rollback and predicted effect, after the policy gate's verdict: a
   blocked proposal is not queued, and a proposal the gate would run on its own is still
   only queued. Only typed actions qualify, and a reversible action needs its rollback
-  SQL. A person approves or rejects it on the Actions page.
+  SQL. A person approves or rejects it on the Actions page. The queued item records
+  `proposed_via: ask_sage` and the asking user (`proposed_by`); the approval card shows
+  "Proposed via Ask Sage by ...", and the decision recorded when the approval runs carries
+  both in its evidence.
 
 Viewers, and MCP tokens with only the `read` scope, can ask but are not offered either
 write. An agent token can ask and propose, never approve.

@@ -53,6 +53,7 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 	if runner != nil && runner.Owns(action) {
 		return runner.RunApproved(ctx, action, approvedBy)
 	}
+	ctx = withProposalOrigin(ctx, action)
 	id, err := e.ExecuteManual(ctx, action.FindingID, action.ProposedSQL,
 		action.RollbackSQL, &approvedBy)
 	return ApprovedRun{ActionLogID: id}, err

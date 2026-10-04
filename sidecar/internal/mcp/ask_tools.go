@@ -34,9 +34,9 @@ func askTools() []Tool {
 		"database. The answer is built only from evidence it reads (findings, actions and " +
 		"their verification outcomes, the trust ledger, facts, incidents, investigations, " +
 		"the catalog, configuration); every statement cites that evidence and what it " +
-		"could not verify is said. With the propose scope it may open an investigation " +
-		"or queue one of pg_sage's findings for a person's approval; it never executes " +
-		"or approves",
+		"could not verify is said. With the propose scope it may open an investigation, " +
+		"queue one of pg_sage's findings for a person's approval or propose a fact a " +
+		"person confirms; it never executes, approves or confirms",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"database":{"type":` +
 			`"string","description":"fleet database name"},"question":{"type":"string",` +
 			`"minLength":1,"maxLength":2000},"conversation_id":{"type":"string",` +

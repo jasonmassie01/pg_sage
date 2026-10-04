@@ -50,7 +50,8 @@ type Proposal struct {
 
 // Proposer queues one of pg_sage's own findings for a person's approval
 // through the policy gate; it never executes. Errors wrap ErrRefused (not
-// proposable) or ErrBlocked (the gate blocks it).
+// proposable) or ErrBlocked (the gate blocks it). actor is the asking
+// caller, recorded as the item's proposed_by with proposed_via ask_sage.
 type Proposer interface {
 	ProposeFinding(ctx context.Context, findingID int64, actor string) (Proposal, error)
 }

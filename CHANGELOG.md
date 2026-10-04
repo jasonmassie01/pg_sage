@@ -64,9 +64,12 @@
   statement cites its evidence and its numbers; uncited or ungrounded statements are dropped
   and the answer says what it could not verify ("not observed" is a valid answer). Ask Sage
   runs on the investigator's tool loop and can never execute, approve or confirm anything.
-  Operators (and MCP tokens with the propose scope) can have it open an investigation or
-  queue one of pg_sage's own findings for approval, with its rollback, predicted effect and
-  the policy gate's verdict; a person approves on the Actions page. Database text, finding
+  Operators (and MCP tokens with the propose scope) can have it open an investigation,
+  queue one of pg_sage's own findings for approval (with its rollback, predicted effect and
+  the policy gate's verdict; a person approves on the Actions page), or propose a fact that
+  stays proposed until a person confirms it. Queued items record that Ask Sage proposed them
+  and for whom (`proposed_via`, `proposed_by`), shown on the approval card and kept in the
+  decision recorded when the approval runs. Database text, finding
   titles and query text reach the model as fenced data. It has its own daily LLM budget per
   database and per user (`ask.*`), kept across restarts, and conversations are kept for
   `ask.retention_days`.

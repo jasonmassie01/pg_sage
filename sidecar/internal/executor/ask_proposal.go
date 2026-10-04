@@ -31,6 +31,25 @@ var (
 	ErrApprovalQueueUnavailable = errors.New("no approval queue to propose to")
 )
 
+// ProposedViaAskSage marks an item Ask Sage proposed.
+const ProposedViaAskSage = "ask_sage"
+
+// ProposalOrigin is how an item was proposed (Via, a known surface) and by
+// whom (By, the asking user); both are recorded on the queued item, shown
+// on its approval card and carried into the decision of its approval.
+type ProposalOrigin struct {
+	Via string
+	By  string
+}
+
+func (o ProposalOrigin) check() error {
+	if o.Via != ProposedViaAskSage || strings.TrimSpace(o.By) == "" || len(o.By) > 200 {
+		return fmt.Errorf("%w: a proposal needs its origin (via %q, by %q)",
+			ErrNotProposable, o.Via, o.By)
+	}
+	return nil
+}
+
 // askProposalTTL is how long a proposal waits for a person.
 const askProposalTTL = 24 * time.Hour
 
@@ -55,7 +74,10 @@ type proposableFinding struct {
 // ProposeFindingForApproval queues finding findingID for a person's
 // approval. It never executes anything.
 func (e *Executor) ProposeFindingForApproval(ctx context.Context,
-	findingID int64) (FindingProposal, error) {
+	findingID int64, origin ProposalOrigin) (FindingProposal, error) {
+	if err := origin.check(); err != nil {
+		return FindingProposal{}, err
+	}
 	proposer, err := e.approvalQueue()
 	if err != nil {
 		return FindingProposal{}, err
@@ -83,7 +105,7 @@ func (e *Executor) ProposeFindingForApproval(ctx context.Context,
 		p.QueueID = id
 		return p, err
 	}
-	return e.queueProposal(ctx, proposer, p, f, contract)
+	return e.queueProposal(ctx, proposer, p, f, contract, origin)
 }
 
 // approvalLifts are the gate's blocks of pg_sage's own initiative that a
@@ -214,14 +236,15 @@ func (e *Executor) pendingProposal(ctx context.Context, id int64) (int, bool, er
 }
 
 func (e *Executor) queueProposal(ctx context.Context, proposer ActionMetadataProposer,
-	p FindingProposal, f proposableFinding, contract ActionContract) (FindingProposal,
-	error) {
+	p FindingProposal, f proposableFinding, contract ActionContract,
+	origin ProposalOrigin) (FindingProposal, error) {
 	expires := time.Now().UTC().Add(askProposalTTL)
 	meta := store.ActionProposalMetadata{ActionType: p.ActionType,
 		IdentityKey:    strings.Join([]string{f.category, f.object, p.ActionType}, ":"),
 		PolicyDecision: p.Decision.Decision, Guardrails: p.Decision.Guardrails,
 		VerificationStatus: "not_started", ExpiresAt: &expires,
-		ShadowToilMinutes: estimatedToilForActionType(p.ActionType)}
+		ShadowToilMinutes: estimatedToilForActionType(p.ActionType),
+		ProposedVia:       origin.Via, ProposedBy: origin.By}
 	risk := p.Decision.RiskTier
 	if risk == "" {
 		risk = contract.BaseRiskTier
@@ -234,4 +257,25 @@ func (e *Executor) queueProposal(ctx context.Context, proposer ActionMetadataPro
 	p.QueueID, p.Created = id, true
 	e.requestApproval(ctx, "Ask Sage proposal: "+f.title, p.SQL, risk, 0, id)
 	return p, nil
+}
+
+type proposalOriginKey struct{}
+
+// withProposalOrigin carries an approved item's origin to the decision
+// its approval records.
+func withProposalOrigin(ctx context.Context, a store.QueuedAction) context.Context {
+	if a.ProposedVia == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, proposalOriginKey{},
+		ProposalOrigin{Via: a.ProposedVia, By: a.ProposedBy})
+}
+
+// addProposalOrigin records the origin in a decision's evidence.
+func addProposalOrigin(ctx context.Context, evidence map[string]any) {
+	o, ok := ctx.Value(proposalOriginKey{}).(ProposalOrigin)
+	if !ok || evidence == nil {
+		return
+	}
+	evidence["proposed_via"], evidence["proposed_by"] = o.Via, o.By
 }

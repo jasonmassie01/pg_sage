@@ -1,6 +1,6 @@
 // AnswerActions shows what Ask Sage set in motion: proposals queued for a
-// person to approve on the Actions page, and investigations opened on the
-// Cases page. Ask Sage can never execute or approve anything, so this
+// person to approve on the Actions page, facts proposed for a person to
+// confirm on the Facts page, and investigations opened on the Cases page. Ask Sage can never execute or approve anything, so this
 // component renders links only, never an approve or execute control.
 
 const muted = { color: 'var(--text-secondary)' }
@@ -22,7 +22,21 @@ const INVESTIGATION_TEXT = {
   failed: 'Investigation failed',
 }
 
-const PENDING = new Set(['queued', 'already_pending', 'opened', 'joined'])
+const FACT_TEXT = {
+  proposed: 'Fact proposed',
+  already_pending: 'Fact already proposed',
+  refused: 'Fact refused',
+  failed: 'Fact failed',
+}
+
+const TEXTS = { proposal: PROPOSAL_TEXT, fact: FACT_TEXT }
+
+const LINKS = {
+  proposal: ['#/actions', 'Review it on the Actions page (a person approves it there)'],
+  fact: ['#/facts', 'Review it on the Facts page (a person confirms it there)'],
+}
+
+const PENDING = new Set(['queued', 'already_pending', 'opened', 'joined', 'proposed'])
 
 export function AnswerActions({ actions }) {
   if (!actions.length) return null
@@ -36,7 +50,7 @@ export function AnswerActions({ actions }) {
 
 function ActionItem({ action }) {
   const isProposal = action.kind === 'proposal'
-  const table = isProposal ? PROPOSAL_TEXT : INVESTIGATION_TEXT
+  const table = Object.hasOwn(TEXTS, action.kind) ? TEXTS[action.kind] : INVESTIGATION_TEXT
   const headline = Object.hasOwn(table, action.status)
     ? table[action.status] : `${action.kind}: ${action.status}`
   const ok = PENDING.has(action.status)
@@ -48,7 +62,7 @@ function ActionItem({ action }) {
       </div>
       {action.reason && <div style={muted}>Reason: {action.reason}</div>}
       {isProposal && <ProposalDetail action={action} />}
-      {ok && <ActionLink isProposal={isProposal} />}
+      {ok && <ActionLink kind={action.kind} />}
     </div>
   )
 }
@@ -76,12 +90,8 @@ function SQL({ label, text }) {
   )
 }
 
-function ActionLink({ isProposal }) {
-  return isProposal
-    ? <a href="#/actions" className="text-xs underline" style={accent}>
-      Review it on the Actions page (a person approves it there)
-    </a>
-    : <a href="#/cases" className="text-xs underline" style={accent}>
-      Follow it on the Cases page
-    </a>
+function ActionLink({ kind }) {
+  const [href, text] = Object.hasOwn(LINKS, kind)
+    ? LINKS[kind] : ['#/cases', 'Follow it on the Cases page']
+  return <a href={href} className="text-xs underline" style={accent}>{text}</a>
 }

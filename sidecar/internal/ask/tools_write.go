@@ -42,7 +42,7 @@ func (ss *session) propose(ctx context.Context, raw json.RawMessage) (agentloop.
 	if !ss.claimOnce(&ss.proposed) {
 		return agentloop.Output{}, invalidArgs("one proposal per question")
 	}
-	p, err := ss.s.d.Proposer.ProposeFinding(ctx, a.FindingID, "ask:"+ss.caller.Actor)
+	p, err := ss.s.d.Proposer.ProposeFinding(ctx, a.FindingID, ss.caller.Actor)
 	if err != nil {
 		return ss.refusedWrite(ActionProposal, fmt.Sprintf("finding %d", a.FindingID), err)
 	}

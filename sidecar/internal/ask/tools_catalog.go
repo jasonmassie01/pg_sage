@@ -31,13 +31,12 @@ func (ss *session) catalogTools() []agentloop.Tool {
 			"indexes, its comment and vacuum/analyze times.", `"table":{"type":"string",`+
 			`"description":"schema-qualified name, e.g. public.orders","maxLength":130}`,
 			[]string{"table"}, ss.describeTable),
-		tool("explain_config", "Explain one pg_sage configuration key: what it does, its "+
-			"current value (never secrets) and whether a change needs a restart.",
-			`"key":{"type":"string","description":"YAML path, e.g. ask.retention_days",`+
-				`"maxLength":100}`, []string{"key"}, ss.explainConfig),
-		tool("explain_concept", "Explain a pg_sage concept: "+strings.Join(
-			ConceptTopics(), ", ")+".", `"topic":{"type":"string","enum":`+
-			conceptEnum()+`}`, []string{"topic"}, ss.explainConcept),
+		tool("explain", "Explain one pg_sage configuration key (what it does, its current "+
+			"value, never secrets, and whether a change needs a restart) or one concept ("+
+			strings.Join(ConceptTopics(), ", ")+"). Give config_key or concept.",
+			`"config_key":{"type":"string","description":"YAML path, e.g. `+
+				`ask.retention_days","maxLength":100},"concept":{"type":"string","enum":`+
+				conceptEnum()+`}`, nil, ss.explain),
 	}
 }
 
@@ -100,22 +99,38 @@ func (ss *session) tableText(ctx context.Context, schema, name string) (string, 
 	return b.String(), nil
 }
 
-func (ss *session) explainConfig(_ context.Context, raw json.RawMessage) (agentloop.Output,
+// explain answers exactly one of a configuration key or a concept.
+func (ss *session) explain(_ context.Context, raw json.RawMessage) (agentloop.Output,
 	error) {
 	var a struct {
-		Key string `json:"key"`
+		ConfigKey string `json:"config_key"`
+		Concept   string `json:"concept"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return agentloop.Output{}, err
 	}
-	if !configKey.MatchString(a.Key) {
-		return agentloop.Output{}, invalidArgs("key must be a YAML path like ask.enabled")
+	switch {
+	case (a.ConfigKey == "") == (a.Concept == ""):
+		return agentloop.Output{}, invalidArgs("give exactly one of config_key or concept")
+	case a.Concept != "":
+		return ss.explainConcept(a.Concept)
 	}
-	id := "config:" + a.Key
-	doc, ok := config.DescribeField(ss.s.d.Settings, a.Key)
+	return ss.explainConfig(a.ConfigKey)
+}
+
+func (ss *session) explainConfig(key string) (agentloop.Output, error) {
+	if !configKey.MatchString(key) {
+		return agentloop.Output{}, invalidArgs("config_key must be a YAML path like ask.enabled")
+	}
+	id := "config:" + key
+	doc, ok := config.DescribeField(ss.s.d.Settings, key)
 	if !ok {
-		return ss.cite(id, "not_found", "pg_sage has no configuration key "+a.Key), nil
+		return ss.cite(id, "not_found", "pg_sage has no configuration key "+key), nil
 	}
+	return ss.cite(id, "ok", configText(doc)), nil
+}
+
+func configText(doc config.FieldDoc) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %s\nlifecycle: %s", doc.Path, oneLine(doc.Doc), doc.Lifecycle)
 	if doc.Lifecycle == string(config.LifecycleRestart) {
@@ -124,30 +139,19 @@ func (ss *session) explainConfig(_ context.Context, raw json.RawMessage) (agentl
 	if w := oneLine(doc.Warning); w != "" {
 		b.WriteString("\nwarning: " + w)
 	}
-	switch {
-	case doc.HasValue:
-		raw, err := json.Marshal(doc.Value)
-		if err != nil {
-			return agentloop.Output{}, fmt.Errorf("encode %s: %w", a.Key, err)
-		}
+	raw, err := json.Marshal(doc.Value)
+	if doc.HasValue && err == nil {
 		fmt.Fprintf(&b, "\ncurrent value: %s", raw)
-	default:
+	} else {
 		b.WriteString("\ncurrent value: not shown (secret or may carry a credential)")
 	}
-	return ss.cite(id, "ok", b.String()), nil
+	return b.String()
 }
 
-func (ss *session) explainConcept(_ context.Context, raw json.RawMessage) (
-	agentloop.Output, error) {
-	var a struct {
-		Topic string `json:"topic"`
-	}
-	if err := decodeArgs(raw, &a); err != nil {
-		return agentloop.Output{}, err
-	}
-	text, ok := concepts[a.Topic]
+func (ss *session) explainConcept(topic string) (agentloop.Output, error) {
+	text, ok := concepts[topic]
 	if !ok {
-		return agentloop.Output{}, invalidArgs("unknown topic %q", a.Topic)
+		return agentloop.Output{}, invalidArgs("unknown concept %q", topic)
 	}
-	return ss.cite("doc:"+a.Topic, "ok", text), nil
+	return ss.cite("doc:"+topic, "ok", text), nil
 }

@@ -732,7 +732,7 @@ Scope: `propose`
 
 ### `ask_sage`
 
-Ask pg_sage's DBA a question about a database. The answer is built only from evidence it reads (findings, actions and their verification outcomes, the trust ledger, facts, incidents, investigations, the catalog, configuration); every statement cites that evidence and what it could not verify is said. With the propose scope it may open an investigation or queue one of pg_sage's findings for a person's approval; it never executes or approves.
+Ask pg_sage's DBA a question about a database. The answer is built only from evidence it reads (findings, actions and their verification outcomes, the trust ledger, facts, incidents, investigations, the catalog, configuration); every statement cites that evidence and what it could not verify is said. With the propose scope it may open an investigation, queue one of pg_sage's findings for a person's approval or propose a fact a person confirms; it never executes, approves or confirms.
 
 Scope: `read`
 

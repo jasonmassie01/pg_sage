@@ -12,6 +12,10 @@ package schema
 // sage.ask_budget_day is Ask Sage's own persisted daily token budget,
 // separate from the investigator's and the tuning agent's: one row per
 // (UTC day, actor), and the database's total under actor '*'.
+//
+// sage.action_queue.proposed_via and proposed_by record how an item was
+// proposed ('ask_sage') and by whom (the asking user); NULL for items
+// pg_sage queued on its own.
 const ddlAsk = `
 CREATE TABLE IF NOT EXISTS sage.ask_conversations (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -43,4 +47,17 @@ CREATE TABLE IF NOT EXISTS sage.ask_budget_day (
     updated_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (day, actor)
 );
+ALTER TABLE sage.action_queue ADD COLUMN IF NOT EXISTS proposed_via text;
+ALTER TABLE sage.action_queue ADD COLUMN IF NOT EXISTS proposed_by text;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'action_queue_proposed_via_check'
+                     AND conrelid = 'sage.action_queue'::regclass) THEN
+        ALTER TABLE sage.action_queue ADD CONSTRAINT action_queue_proposed_via_check
+            CHECK ((proposed_via IS NULL OR proposed_via IN ('ask_sage'))
+                   AND (proposed_by IS NULL OR length(proposed_by) BETWEEN 1 AND 200));
+    END IF;
+END
+$$;
 `

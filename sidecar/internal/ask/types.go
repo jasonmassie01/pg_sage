@@ -54,6 +54,7 @@ const (
 const (
 	ActionProposal      = "proposal"
 	ActionInvestigation = "investigation"
+	ActionFact          = "fact"
 
 	ActionQueued  = "queued"
 	ActionPending = "already_pending"
@@ -62,6 +63,8 @@ const (
 	ActionFailed  = "failed"
 	ActionOpened  = "opened"
 	ActionJoined  = "joined"
+	// ActionProposedFact: a fact recorded as proposed, waiting for a person.
+	ActionProposedFact = "proposed"
 )
 
 // Limits.

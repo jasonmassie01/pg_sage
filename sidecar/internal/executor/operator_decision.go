@@ -22,6 +22,7 @@ func (e *Executor) authorizeOperatorAction(
 		return policy.Decision{}, fmt.Errorf("%s", reasonNoStandingPolicy)
 	}
 	request, _ := operatorRequest(sql, findingID, approvedBy)
+	addProposalOrigin(ctx, request.Evidence)
 	decision := gate.Authorize(ctx, request)
 	if decision.Verdict != policy.VerdictExecute {
 		return policy.Decision{}, fmt.Errorf("policy refused operator action: %s",

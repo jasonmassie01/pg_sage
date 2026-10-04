@@ -21,6 +21,7 @@ type session struct {
 	actions  []ActionTaken
 	proposed bool
 	opened   bool
+	factDone bool
 }
 
 func (s *Service) newSession(c Caller) *session {
@@ -34,7 +35,7 @@ func (ss *session) tools() []agentloop.Tool {
 	out := ss.recordTools()
 	out = append(out, ss.catalogTools()...)
 	if ss.s.d.Investigations != nil {
-		out = append(out, ss.investigationTools()...)
+		out = append(out, ss.investigationsTool())
 	}
 	if ss.s.d.Trust != nil {
 		out = append(out, ss.trustTool())
@@ -47,6 +48,9 @@ func (ss *session) tools() []agentloop.Tool {
 	}
 	if ss.caller.MayPropose && ss.s.d.Proposer != nil {
 		out = append(out, ss.proposeTool())
+	}
+	if ss.caller.MayPropose {
+		out = append(out, ss.proposeFactTool())
 	}
 	return out
 }

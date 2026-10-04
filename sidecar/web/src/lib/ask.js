@@ -39,7 +39,7 @@ const CITATION_ROUTES = new Map([
   ['incidents', '#/cases'],
   ['action', '#/actions'], ['actions', '#/actions'],
   ['approvals', '#/actions'], ['proposal', '#/actions'],
-  ['trust', '#/trust'], ['facts', '#/facts'],
+  ['trust', '#/trust'], ['facts', '#/facts'], ['fact', '#/facts'],
 ])
 
 export function citationHref(kind) {

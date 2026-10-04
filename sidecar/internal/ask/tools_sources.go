@@ -20,24 +20,27 @@ var investigationID = regexp.MustCompile(`^[0-9a-fA-F-]{1,64}$`)
 
 const maxSourceRunes = 3500
 
-func (ss *session) investigationTools() []agentloop.Tool {
-	return []agentloop.Tool{
-		tool("list_investigations", "List the database's recent investigations with "+
-			"their state, subject and root cause.", `"limit":{"type":"integer",`+
-			`"minimum":1,"maximum":20}`, nil, ss.listInvestigations),
-		tool("get_investigation", "Read one investigation: hypotheses, evidence and its "+
-			"conclusion.", `"id":{"type":"string","maxLength":64}`, []string{"id"},
-			ss.getInvestigation),
-	}
+func (ss *session) investigationsTool() agentloop.Tool {
+	return tool("investigations", "List the database's recent investigations (state, "+
+		"subject, root cause), or read one by id: hypotheses, evidence and conclusion.",
+		`"id":{"type":"string","maxLength":64},"limit":{"type":"integer","minimum":1,`+
+			`"maximum":20}`, nil, ss.investigations)
 }
 
-func (ss *session) listInvestigations(ctx context.Context, raw json.RawMessage) (
+func (ss *session) investigations(ctx context.Context, raw json.RawMessage) (
 	agentloop.Output, error) {
 	var a struct {
-		Limit *int `json:"limit"`
+		ID    string `json:"id"`
+		Limit *int   `json:"limit"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return agentloop.Output{}, err
+	}
+	if a.ID != "" {
+		if a.Limit != nil {
+			return agentloop.Output{}, invalidArgs("give an id or a limit, not both")
+		}
+		return ss.investigation(ctx, a.ID)
 	}
 	limit, err := limitOf(a.Limit, 10, 20)
 	if err != nil {
@@ -50,24 +53,18 @@ func (ss *session) listInvestigations(ctx context.Context, raw json.RawMessage) 
 	return ss.cite("investigations:recent", "ok", clip(string(out), maxSourceRunes)), nil
 }
 
-func (ss *session) getInvestigation(ctx context.Context, raw json.RawMessage) (
-	agentloop.Output, error) {
-	var a struct {
-		ID string `json:"id"`
-	}
-	if err := decodeArgs(raw, &a); err != nil {
-		return agentloop.Output{}, err
-	}
-	if !investigationID.MatchString(a.ID) {
+func (ss *session) investigation(ctx context.Context, invID string) (agentloop.Output,
+	error) {
+	if !investigationID.MatchString(invID) {
 		return agentloop.Output{}, invalidArgs("id must be an investigation id")
 	}
-	id := "investigation:" + a.ID
-	out, err := ss.s.d.Investigations.Investigation(ctx, a.ID)
+	id := "investigation:" + invID
+	out, err := ss.s.d.Investigations.Investigation(ctx, invID)
 	if errors.Is(err, ErrNotFound) {
-		return ss.cite(id, "not_found", "investigation "+a.ID+" does not exist"), nil
+		return ss.cite(id, "not_found", "investigation "+invID+" does not exist"), nil
 	}
 	if err != nil {
-		return agentloop.Output{}, fmt.Errorf("read investigation %s: %w", a.ID, err)
+		return agentloop.Output{}, fmt.Errorf("read investigation %s: %w", invID, err)
 	}
 	return ss.cite(id, "ok", clip(string(out), maxSourceRunes)), nil
 }

@@ -30,6 +30,7 @@ func Assemble(in Inputs) Card {
 	c.Risk = riskOf(in, c)
 	c.Why = whyOf(in, c.ActionType)
 	c.Trust = trustOf(in)
+	c.Origin = originOf(a)
 	if s := in.Snooze; s != nil && s.Until.After(now) {
 		until := s.Until
 		c.SnoozedUntil, c.SnoozeReason = &until, s.Reason

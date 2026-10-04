@@ -66,8 +66,8 @@ func (rt *databaseRuntime) startAsk() {
 
 // findingProposer is the executor's queue-never-execute proposal path.
 type findingProposer interface {
-	ProposeFindingForApproval(ctx context.Context, findingID int64) (
-		executor.FindingProposal, error)
+	ProposeFindingForApproval(ctx context.Context, findingID int64,
+		origin executor.ProposalOrigin) (executor.FindingProposal, error)
 }
 
 type askProposer struct{ inner findingProposer }
@@ -77,7 +77,8 @@ func (p askProposer) ProposeFinding(ctx context.Context, findingID int64,
 	if p.inner == nil {
 		return ask.Proposal{}, fmt.Errorf("%w: no executor", ask.ErrUnavailable)
 	}
-	fp, err := p.inner.ProposeFindingForApproval(ctx, findingID)
+	fp, err := p.inner.ProposeFindingForApproval(ctx, findingID,
+		executor.ProposalOrigin{Via: executor.ProposedViaAskSage, By: actor})
 	switch {
 	case errors.Is(err, executor.ErrNotProposable):
 		return ask.Proposal{}, fmt.Errorf("%w: %v", ask.ErrRefused, err)
