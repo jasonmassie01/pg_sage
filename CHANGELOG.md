@@ -25,6 +25,10 @@
 - **The collector retries a statistics read that timed out once.** A category whose read hit
   a statement or lock timeout is read again in the same cycle (at most two retries a cycle),
   and a timed-out read names its phase in the log.
+- **pg_sage reads query texts from pg_stat_statements only where it needs them.** The
+  temp-spill probe no longer reads any text, and the collector ranks statements on their
+  counters before reading the texts of the ones it keeps: on a server with 45,000 entries
+  these reads take about half the time.
 - **Runway sampling on PostgreSQL 14 tolerates a slow statistics collector.** On PostgreSQL
   14 a backend waits for a fresh statistics file before it reads table statistics, which can
   take seconds on a loaded host; the runway monitor now reads wraparound_tables with its
