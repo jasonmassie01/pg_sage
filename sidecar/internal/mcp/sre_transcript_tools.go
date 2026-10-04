@@ -37,18 +37,21 @@ func (s *Server) callTranscriptTool(ctx context.Context, raw json.RawMessage) (a
 	*rpcError) {
 	backend, ok := s.backend.(TranscriptBackend)
 	if !ok {
-		return nil, failure(-32603, "transcripts unavailable")
+		return nil, failure(codeInternal, "transcripts unavailable")
 	}
 	var req InvestigationRequest
 	if !decodeStrict(raw, &req) || req.InvestigationID == "" {
-		return nil, failure(-32602, "invalid arguments")
+		return nil, failure(codeInvalidParams, "invalid arguments")
 	}
-	if req.KeepIdentifiers && !canMutate(ctx) {
-		return nil, failure(-32001, "operator or admin role required to keep identifiers")
+	// Unredacted identifiers are a person's operator view (approve scope,
+	// never an agent), like the replay-case export's.
+	if req.KeepIdentifiers && !mayCall(ctx, ScopeApprove) {
+		return nil, failure(codeScopeRequired, "approve scope required to keep "+
+			"identifiers: an operator or admin role")
 	}
 	result, err := backend.GetTranscript(ctx, req, req.KeepIdentifiers)
 	if errors.Is(err, sre.ErrNoTranscript) {
-		return nil, failure(-32004, "no investigator transcript")
+		return nil, failure(codeNotFound, "no investigator transcript")
 	}
 	if err != nil {
 		return nil, sreFailure(err)

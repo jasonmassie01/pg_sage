@@ -36,8 +36,8 @@ func TestTranscriptTool_ListedReadOnlyAndStrict(t *testing.T) {
 			schema["additionalProperties"] != false {
 			t.Fatalf("schema is not strict: %s", tool.InputSchema)
 		}
-		if mutatingTools[tool.Name] {
-			t.Fatal("sre_get_transcript is marked mutating")
+		if scope, _ := RequiredScope(tool.Name, nil); scope != ScopeRead {
+			t.Fatalf("sre_get_transcript needs %s scope, want read", scope)
 		}
 		return
 	}
