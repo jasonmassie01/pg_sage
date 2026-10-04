@@ -144,20 +144,37 @@ func perfRouter(t *testing.T) http.Handler {
 	return router
 }
 
-// callPerfEndpoints calls every list endpoint and records its status and
-// latency.
-func callPerfEndpoints(router http.Handler, session string) []perfgate.Endpoint {
-	out := make([]perfgate.Endpoint, 0, len(perfEndpoints))
+// callPerfEndpoints calls every list endpoint once to warm it up (pgx
+// prepares its statements, caches fill), then samples rounds of calls,
+// interleaved so one slow moment on the host does not land on one
+// endpoint's every sample, and charges each endpoint its median.
+func callPerfEndpoints(router http.Handler, session string, samples int) []perfgate.Endpoint {
 	for _, path := range perfEndpoints {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		req.AddCookie(&http.Cookie{Name: "sage_session", Value: session})
-		w := httptest.NewRecorder()
-		start := time.Now()
-		router.ServeHTTP(w, req)
-		out = append(out, perfgate.Endpoint{Path: path, Status: w.Code,
-			Duration: time.Since(start)})
+		callPerfEndpoint(router, session, path)
+	}
+	statuses := make([][]int, len(perfEndpoints))
+	durations := make([][]time.Duration, len(perfEndpoints))
+	for range samples {
+		for i, path := range perfEndpoints {
+			status, d := callPerfEndpoint(router, session, path)
+			statuses[i] = append(statuses[i], status)
+			durations[i] = append(durations[i], d)
+		}
+	}
+	out := make([]perfgate.Endpoint, 0, len(perfEndpoints))
+	for i, path := range perfEndpoints {
+		out = append(out, perfgate.NewEndpoint(path, statuses[i], durations[i]))
 	}
 	return out
+}
+
+func callPerfEndpoint(router http.Handler, session, path string) (int, time.Duration) {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.AddCookie(&http.Cookie{Name: "sage_session", Value: session})
+	w := httptest.NewRecorder()
+	start := time.Now()
+	router.ServeHTTP(w, req)
+	return w.Code, time.Since(start)
 }
 
 // startPerfWorkload runs a light application workload on the hot tables

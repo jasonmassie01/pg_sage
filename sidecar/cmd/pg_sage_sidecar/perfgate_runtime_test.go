@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/testsupport/perfgate"
 )
 
@@ -51,9 +53,13 @@ func runPerfRuntime(
 	warm := readPerfCounters(t, ctx, harness, logs, true)
 
 	steadyStart := time.Now()
+	cpuStart := perfProcessCPU(t)
 	time.Sleep(timing.Window / 2)
-	endpoints := callPerfEndpoints(router, session)
+	apiStart := perfProcessCPU(t)
+	endpoints := callPerfEndpoints(router, session, perfEndpointSamples(t))
+	apiCPU := perfProcessCPU(t) - apiStart
 	time.Sleep(time.Until(steadyStart.Add(timing.Window)))
+	cpu := perfProcessCPU(t) - cpuStart - apiCPU
 	stopWorkload()
 	stopPerfRuntime(t, monitored)
 	end := readPerfCounters(t, ctx, harness, logs, false)
@@ -61,6 +67,7 @@ func runPerfRuntime(
 	warmup := perfPhase("warmup", false, timing.Warmup, 0, base, warm)
 	steady := perfPhase("steady", true, timing.Window, timing.Cycles(), warm, end)
 	steady.Endpoints = endpoints
+	steady.ProcessCPU, steady.CPUKnown = cpu, true
 	explainPerfPhases(t, ctx, harness, &warmup, &steady)
 	return []perfgate.Phase{warmup, steady}
 }
@@ -86,6 +93,27 @@ func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config
 		SSLMode: "disable", MaxConnections: 6,
 	}
 	return c
+}
+
+// perfProcessCPU is the test process's CPU time: the runtime under test
+// plus the light workload and harness reads (the API calls are measured
+// and subtracted apart).
+func perfProcessCPU(t *testing.T) time.Duration {
+	t.Helper()
+	cpu, ok := selfbudget.ProcessCPU()
+	if !ok {
+		t.Fatal("process CPU time is not readable: gate G cannot be measured")
+	}
+	return cpu
+}
+
+func perfEndpointSamples(t *testing.T) int {
+	t.Helper()
+	n, err := perfgate.EndpointSamplesFromEnv(os.Getenv)
+	if err != nil {
+		t.Fatalf("endpoint samples: %v", err)
+	}
+	return n
 }
 
 func readPerfCounters(
