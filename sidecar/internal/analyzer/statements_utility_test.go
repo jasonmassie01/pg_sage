@@ -13,7 +13,7 @@ import (
 // deterministic, cites the counts and says what to change, with the
 // restart caveat for pg_stat_statements.max.
 
-func usageSnap(max int, u *collector.StatStatementsUsage) *collector.Snapshot {
+func pgssUsageSnap(max int, u *collector.StatStatementsUsage) *collector.Snapshot {
 	return &collector.Snapshot{
 		Queries: make([]collector.QueryStats, 500), // the collector's top-N cap
 		System:  collector.SystemStats{StatStatementsMax: max, StatStatements: u},
@@ -26,7 +26,7 @@ func lifeosUsage() *collector.StatStatementsUsage {
 }
 
 func TestStatStatementsCapacity_UtilityDominatedRecommendsTrackUtilityOff(t *testing.T) {
-	got := ruleStatStatementsCapacity(usageSnap(5000, lifeosUsage()), nil, testConfig(), nil)
+	got := ruleStatStatementsCapacity(pgssUsageSnap(5000, lifeosUsage()), nil, testConfig(), nil)
 	if len(got) != 1 {
 		t.Fatalf("findings = %+v, want one", got)
 	}
@@ -63,7 +63,7 @@ func TestStatStatementsCapacity_UtilityDominatedRecommendsTrackUtilityOff(t *tes
 func TestStatStatementsCapacity_UsesTrueEntryCount(t *testing.T) {
 	u := &collector.StatStatementsUsage{Entries: 4100, Utility: 100, TrackUtility: "on",
 		Dealloc: 0, Classified: true}
-	got := ruleStatStatementsCapacity(usageSnap(5000, u), nil, testConfig(), nil)
+	got := ruleStatStatementsCapacity(pgssUsageSnap(5000, u), nil, testConfig(), nil)
 	if len(got) != 1 || got[0].Severity != "warning" || got[0].Detail["tracked_queries"] != 4100 {
 		t.Fatalf("findings = %+v, want a warning at 4100 of 5000", got)
 	}
@@ -90,7 +90,7 @@ func TestStatStatementsCapacity_Boundaries(t *testing.T) {
 	for _, c := range cases {
 		u := &collector.StatStatementsUsage{Entries: c.entries, Utility: c.util,
 			TrackUtility: "on", Classified: true}
-		got := ruleStatStatementsCapacity(usageSnap(5000, u), nil, testConfig(), nil)
+		got := ruleStatStatementsCapacity(pgssUsageSnap(5000, u), nil, testConfig(), nil)
 		if len(got) != c.wantFindings {
 			t.Errorf("%s: %d findings, want %d", c.name, len(got), c.wantFindings)
 			continue
@@ -107,7 +107,7 @@ func TestStatStatementsCapacity_Boundaries(t *testing.T) {
 func TestStatStatementsCapacity_TrackUtilityAlreadyOff(t *testing.T) {
 	u := lifeosUsage()
 	u.TrackUtility = "off"
-	got := ruleStatStatementsCapacity(usageSnap(5000, u), nil, testConfig(), nil)
+	got := ruleStatStatementsCapacity(pgssUsageSnap(5000, u), nil, testConfig(), nil)
 	if len(got) != 1 || strings.Contains(got[0].Recommendation, "track_utility = off") {
 		t.Fatalf("findings = %+v, want max advice only", got)
 	}
@@ -117,7 +117,7 @@ func TestStatStatementsCapacity_TrackUtilityAlreadyOff(t *testing.T) {
 // an unknown dealloc count are not invented.
 func TestStatStatementsCapacity_UnknownsStayUnknown(t *testing.T) {
 	u := &collector.StatStatementsUsage{Entries: 4900, Dealloc: -1, TrackUtility: "on"}
-	got := ruleStatStatementsCapacity(usageSnap(5000, u), nil, testConfig(), nil)
+	got := ruleStatStatementsCapacity(pgssUsageSnap(5000, u), nil, testConfig(), nil)
 	if len(got) != 1 {
 		t.Fatalf("findings = %+v, want one", got)
 	}
@@ -134,7 +134,7 @@ func TestStatStatementsCapacity_UnknownsStayUnknown(t *testing.T) {
 
 // No usage read (older snapshots): the legacy count of collected queries.
 func TestStatStatementsCapacity_NilUsageFallsBack(t *testing.T) {
-	got := ruleStatStatementsCapacity(usageSnap(550, nil), nil, testConfig(), nil)
+	got := ruleStatStatementsCapacity(pgssUsageSnap(550, nil), nil, testConfig(), nil)
 	if len(got) != 1 || got[0].Detail["tracked_queries"] != 500 {
 		t.Fatalf("findings = %+v, want the legacy 500 of 550", got)
 	}
