@@ -19,6 +19,7 @@ import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyPage } from './pages/AutonomyPage'
 import { TrustPage } from './pages/TrustPage'
 import { FactsPage } from './pages/FactsPage'
+import { MCPTokensPage } from './pages/MCPTokensPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -237,6 +238,9 @@ export default function App() {
       case '/users':
         return isAdmin ? { title: 'Users',
           node: <UsersPage currentUser={user} /> } : denied
+      case '/mcp-tokens':
+        return isAdmin ? { title: 'MCP tokens', node: <MCPTokensPage /> }
+          : denied
       default:
         return { title: 'Not found', node: <NotFound /> }
     }
