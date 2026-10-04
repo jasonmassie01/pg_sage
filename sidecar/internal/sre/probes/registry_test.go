@@ -43,8 +43,10 @@ func specVersion(id ID) string {
 	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe,
 		WraparoundTablesProbe, RunwayTrendsProbe:
 		return "v2"
-	case LockChains, LockGraph, LongTransactions, LWLockWaits, TempSpillStatements:
+	case LockChains, LockGraph, LongTransactions, LWLockWaits:
 		return "v2" // v2: pg_sage's own sessions and statements left out
+	case TempSpillStatements:
+		return "v3" // v3: no query text; own_role marks pg_sage's role
 	}
 	return "v1"
 }
