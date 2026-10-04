@@ -159,6 +159,9 @@ type CoordinatorDeps struct {
 	// Advisor attaches custodian proposals to conclusive runway diagnoses;
 	// nil attaches none.
 	Advisor ActionAdvisor
+	// RootAuthority decides per family whether the model may override a
+	// conclusive graph root (roadmap 2.4); nil keeps model roots advisory.
+	RootAuthority RootAuthority
 }
 
 // Coordinator runs one database's investigations.
@@ -176,6 +179,7 @@ type Coordinator struct {
 	notices    *OnceLog
 	signals    []probes.ID
 	advisor    ActionAdvisor
+	authority  RootAuthority
 
 	mu    sync.Mutex
 	scope Scope
@@ -210,7 +214,8 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		triggers: d.Triggers, signals: signalIDs(d.Signals),
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
-		sleep: wait, model: d.Model, notices: notices, advisor: d.Advisor}, nil
+		sleep: wait, model: d.Model, notices: notices, advisor: d.Advisor,
+		authority: d.RootAuthority}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

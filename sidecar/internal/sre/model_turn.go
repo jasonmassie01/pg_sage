@@ -38,15 +38,20 @@ type modelOutcome struct {
 	// memory is what the turn was offered as context; it is not model
 	// output and is kept whatever the model replied.
 	memory *MemoryRef
+	// contest is a model ranking that contested the graph's conclusive
+	// root (roadmap 2.4); graph is the graph's own diagnosis when the
+	// contest re-rooted it, for a fallback conclusion.
+	contest *ModelContest
+	graph   *causal.Diagnosis
 }
 
 func (o modelOutcome) empty() bool {
-	return o.ranking == nil && o.narrative == nil && o.probe == nil
+	return o.ranking == nil && o.narrative == nil && o.probe == nil && o.contest == nil
 }
 
 func (o modelOutcome) apply(s *Summary) {
 	s.ModelRanking, s.Narrative, s.ModelProbe = o.ranking, o.narrative, o.probe
-	s.Memory = o.memory
+	s.Memory, s.ModelContest = o.memory, o.contest
 }
 
 // modelSession is one investigation run's use of the model.
@@ -88,7 +93,7 @@ func (c *Coordinator) consultModel(ctx context.Context, lease Lease, inv Investi
 			return s.lease, d, modelOutcome{memory: s.memoryRef}, err
 		}
 	}
-	out, err = s.finish(ctx, d, review, out)
+	d, out, err = s.finish(ctx, d, review, out)
 	return s.lease, d, out, err
 }
 

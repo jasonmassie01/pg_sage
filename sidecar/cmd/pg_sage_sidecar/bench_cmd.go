@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -19,9 +21,13 @@ import (
 // the reports it just signed; an operator can run it on downloaded
 // release assets.
 
-const benchUsage = "usage: pg_sage bench verify [--commit SHA] <pgincidentbench.json>"
+const benchUsage = "usage: pg_sage bench verify [--commit SHA] <pgincidentbench.json>\n" +
+	"       pg_sage bench export-replay --investigation ID [--keep-identifiers] [--out FILE]"
 
 func runBenchCommand(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "export-replay" {
+		return runExportReplay(context.Background(), args[1:], os.Getenv, stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "verify" {
 		_, _ = fmt.Fprintln(stderr, benchUsage)
 		return 2
