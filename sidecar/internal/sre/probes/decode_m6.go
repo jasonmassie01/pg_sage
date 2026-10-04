@@ -61,6 +61,8 @@ type SpillStatement struct {
 	TotalExecMS     float64
 	BlockSize       float64
 	StatsReset      time.Time
+	// OwnRole marks a statement run by the probing (pg_sage's) role.
+	OwnRole bool
 }
 
 // TempBytesWritten is the temp blocks written in bytes (NaN if unknown).
@@ -180,7 +182,8 @@ func SpillStatements(res Result) ([]SpillStatement, error) {
 			TempBlksRead:    floatField(r, "temp_blks_read"),
 			TotalExecMS:     floatField(r, "total_exec_ms"),
 			BlockSize:       floatField(r, "block_size"),
-			StatsReset:      timeField(r, "stats_reset")})
+			StatsReset:      timeField(r, "stats_reset"),
+			OwnRole:         r["own_role"] == true})
 	}
 	return out, nil
 }

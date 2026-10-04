@@ -88,6 +88,42 @@
   results posted back only to endpoints you configure; the MCP tokens page
   shows which agent asked what. See `docs/specialist.md`.
 
+### What's new
+
+- **pg_sage now says when pg_stat_statements is full of utility statements.** The capacity
+  finding used to count only the 500 statements pg_sage reads, so it never fired on a
+  database at 98% of `pg_stat_statements.max`. It now counts every entry and, near the
+  limit, how many are utility statements such as pg_dump's `COPY ... TO stdout`, with the
+  deallocations so far. When those are at least half, it recommends
+  `pg_stat_statements.track_utility = off` (a reload, no restart) or a higher
+  `pg_stat_statements.max` (which needs a server restart), citing the counts. It is advice:
+  pg_sage does not change the setting itself.
+
+### Fixed
+
+- **Cheap diagnostic probes no longer time out because pg_sage itself was busy.** A probe's
+  time limit used to start before it had a database connection, so on a busy connection
+  pool a 0.1 ms catalog read (xid_runway, wraparound_tables, checkpoint_activity) could fail
+  with `deadline_exceeded`. Waiting for a slot, waiting for a connection and running the
+  query now each have their own limit. A probe that fails says which of them ran out
+  (queue_wait, pool_acquire, server_execution or lock_wait) with the time each took, and a
+  probe that hit a server-side timeout is tried once more when the caller has time left.
+- **The collector retries a statistics read that timed out once.** A category whose read hit
+  a statement or lock timeout is read again in the same cycle (at most two retries a cycle),
+  and a timed-out read names its phase in the log.
+- **pg_sage reads query texts from pg_stat_statements only where it needs them.** The
+  temp-spill probe no longer reads any text, and the collector ranks statements on their
+  counters before reading the texts of the ones it keeps: on a server with 45,000 entries
+  these reads take about half the time.
+- **Runway sampling on PostgreSQL 14 tolerates a slow statistics collector.** On PostgreSQL
+  14 a backend waits for a fresh statistics file before it reads table statistics, which can
+  take seconds on a loaded host; the runway monitor now reads wraparound_tables with its
+  2 s background limit. Investigations keep 500 ms.
+- **Two flaky PGIncidentBench scenarios are reliable again.** disk-slow-consumer-fill read a
+  slot's retained WAL before the WAL was written, because an earlier scenario left its
+  connection committing asynchronously; seq-cycling-near-limit failed on PostgreSQL 14 when
+  the statistics collector was slow.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new
