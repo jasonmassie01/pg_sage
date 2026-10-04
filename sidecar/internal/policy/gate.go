@@ -56,6 +56,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if decision, stop := providerDecision(runtime, req); stop {
 		return decision
 	}
+	if decision, stop := gate.factDecision(ctx, req); stop {
+		return decision
+	}
 	if req.OperatorApproved {
 		return gate.operatorDecision(ctx, runtime, req)
 	}
