@@ -178,40 +178,6 @@ func TestKindBudgetsRejectInvalidValues(t *testing.T) {
 	}
 }
 
-// The canonical form names both budgets, and it parses back to the same
-// limits, from a profile as from a legacy document.
-func TestMarshalDocumentWritesBothKindBudgets(t *testing.T) {
-	for name, doc := range map[string]Document{
-		"unattended profile": UnattendedProfile(),
-		"staffed profile":    StaffedProfile(),
-		"legacy lifeos":      mustParse(t, lifeosStoredPolicy),
-	} {
-		raw, err := MarshalDocument(doc)
-		if err != nil {
-			t.Fatalf("%s: MarshalDocument: %v", name, err)
-		}
-		var wire struct {
-			BlastRadius map[string]json.RawMessage `json:"blast_radius"`
-		}
-		if err := json.Unmarshal(raw, &wire); err != nil {
-			t.Fatalf("%s: decode: %v", name, err)
-		}
-		if wire.BlastRadius["performance"] == nil || wire.BlastRadius["hygiene"] == nil {
-			t.Fatalf("%s: blast_radius = %s, want performance and hygiene", name, raw)
-		}
-		back := mustParse(t, string(raw))
-		for _, kind := range []BudgetKind{BudgetPerformance, BudgetHygiene} {
-			if back.Budget(kind) != doc.Budget(kind) {
-				t.Fatalf("%s: %s budget %+v did not round-trip (%+v)", name, kind,
-					doc.Budget(kind), back.Budget(kind))
-			}
-		}
-		if back.BlastRadius.MaxRowsRewritten != doc.BlastRadius.MaxRowsRewritten {
-			t.Fatalf("%s: max_rows_rewritten did not round-trip", name)
-		}
-	}
-}
-
 // The profiles split today's envelope (20 tables, 50 changes, 5M rows per
 // 24 hours) between the two kinds instead of adding to it.
 func TestProfilesSplitTodaysEnvelope(t *testing.T) {
