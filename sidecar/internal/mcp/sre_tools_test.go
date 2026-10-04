@@ -67,6 +67,11 @@ func callSRETool(t *testing.T, s *Server, ctx context.Context, name, args string
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		t.Fatalf("response: %v (%s)", err, raw)
 	}
+	if resp.Result["isError"] == true { // a tool execution error (MCP 2025-06-18+)
+		structured, _ := resp.Result["structuredContent"].(map[string]any)
+		failure, _ := structured["error"].(map[string]any)
+		return nil, failure
+	}
 	return resp.Result, resp.Error
 }
 
@@ -89,7 +94,7 @@ func TestSRETools_ListedAsReadOnlyWithStrictSchemas(t *testing.T) {
 			schema["additionalProperties"] != false {
 			t.Errorf("%s schema is not strict: %s", name, tool.InputSchema)
 		}
-		if mutatingTools[name] {
+		if scope, _ := RequiredScope(name, nil); scope != ScopeRead {
 			t.Errorf("%s is marked mutating; it is read-only", name)
 		}
 	}

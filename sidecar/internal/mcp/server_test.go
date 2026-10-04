@@ -206,10 +206,12 @@ func TestMalformedAndInvalidRequestsReturnProtocolErrors(t *testing.T) {
 		{name: "unknown method", body: `{
 			"jsonrpc":"2.0","id":1,"method":"database/execute","params":{}
 		}`, code: -32601},
+		// MCP 2025-06-18 and later: an unknown tool is invalid params
+		// (-32602, "Unknown tool: ..."), not an unknown method.
 		{name: "unknown tool", body: `{
 			"jsonrpc":"2.0","id":1,"method":"tools/call",
 			"params":{"name":"execute_sql","arguments":{"sql":"DROP TABLE users"}}
-		}`, code: -32601},
+		}`, code: -32602},
 		{name: "missing intent", body: `{
 			"jsonrpc":"2.0","id":1,"method":"tools/call",
 			"params":{"name":"request_change","arguments":{"database_id":42}}
@@ -345,6 +347,24 @@ func invoke(
 	decoder.UseNumber()
 	var response protocolResponse
 	require.NoError(t, decoder.Decode(&response))
+	return liftToolError(response)
+}
+
+// liftToolError reads a tools/call execution error (an isError result,
+// MCP 2025-06-18+) into Error, so assertions on the distinguishable
+// error code hold whichever way the failure travels. Protocol errors
+// already arrive in Error.
+func liftToolError(response protocolResponse) protocolResponse {
+	result, ok := response.Result.(map[string]any)
+	if !ok || result["isError"] != true {
+		return response
+	}
+	structured, _ := result["structuredContent"].(map[string]any)
+	failure, _ := structured["error"].(map[string]any)
+	code, _ := failure["code"].(json.Number)
+	number, _ := code.Int64()
+	message, _ := failure["message"].(string)
+	response.Error = protocolFailure{Code: int(number), Message: message}
 	return response
 }
 

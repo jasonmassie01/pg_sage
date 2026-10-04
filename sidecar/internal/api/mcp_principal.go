@@ -1,27 +1,33 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
-	"strconv"
 
-	"github.com/pg-sage/sidecar/internal/mcp"
+	"github.com/pg-sage/sidecar/internal/mcptoken"
 )
 
-// bindMCPPrincipal binds the authenticated session user to the MCP
-// request so the MCP server can enforce per-tool roles and persist the
-// real actor (G6-B02 / SURF-01). Requests without a user fail closed.
-func bindMCPPrincipal(next http.Handler) http.Handler {
+// mcpTokenRequired tells a caller without an MCP token how to get one.
+const mcpTokenRequired = "MCP over HTTP needs an MCP token: an admin creates one under " +
+	"MCP tokens in the dashboard; send it as Authorization: Bearer <token>"
+
+// bindMCPPrincipal authenticates the MCP endpoint with an MCP API token
+// and binds the principal the token grants, so the MCP server enforces its
+// scopes and databases and records the token as the actor (G6-B02 /
+// SURF-01). MCP over HTTP is token-only: a dashboard session cookie never
+// authenticates it (a browser sends the cookie cross-site; MCP clients
+// send bearer tokens), and an invalid token never falls back to anything.
+func bindMCPPrincipal(next http.Handler, tokens *mcptoken.Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user := UserFromContext(r.Context())
-		if user == nil {
-			jsonError(w, "authentication required",
-				http.StatusUnauthorized)
+		secret, ok := bearerCredential(r)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", `Bearer realm="pg_sage MCP"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": mcpTokenRequired, "code": "mcp_token_required"})
 			return
 		}
-		ctx := mcp.WithPrincipal(r.Context(), mcp.Principal{
-			Actor: "user:" + strconv.Itoa(user.ID),
-			Role:  user.Role,
-		})
-		next.ServeHTTP(w, r.WithContext(ctx))
+		serveMCPToken(w, r, next, tokens, secret)
 	})
 }

@@ -5,12 +5,38 @@ import (
 	"strings"
 )
 
+// Scope is what a principal may do through MCP: read, propose (pg_sage
+// still decides through policy.Gate) or approve (a person's decision:
+// confirming facts and the declarations imported as confirmed facts,
+// reviewing or downgrading autonomy).
+type Scope string
+
+// Scopes.
+const (
+	ScopeRead    Scope = "read"
+	ScopePropose Scope = "propose"
+	ScopeApprove Scope = "approve"
+)
+
+// Principal kinds. A session user (Kind "") is a person; an agent token
+// or the stdio client is an agent, which can never approve.
+const (
+	KindHuman = "human"
+	KindAgent = "agent"
+)
+
 // Principal is the authenticated caller bound to an MCP request by the
-// transport (the HTTP API binds the session user; stdio binds the
-// local process owner). Tool arguments can never set it.
+// transport (the HTTP API binds the session user or the API token; stdio
+// binds the local client). Tool arguments can never set it.
 type Principal struct {
-	Actor string // stable identity, e.g. "user:42"
-	Role  string // "admin", "operator" or "viewer"
+	Actor string // stable identity, e.g. "user:42" or "token:<id>"
+	Role  string // "admin", "operator" or "viewer" (session users, token owners)
+	Kind  string // "" or KindHuman for people, KindAgent for agents
+	// Scopes are the granted scopes; nil derives them from Role.
+	Scopes []Scope
+	// Databases are the databases the principal may use; nil is all.
+	Databases []string
+	TokenID   string
 }
 
 type principalKey struct{}
@@ -39,27 +65,67 @@ func ActorFromContext(ctx context.Context) string {
 	return "mcp:" + strings.TrimSpace(p.Actor)
 }
 
-// mutatingTools change policy, metadata or database state and require
-// an operator or admin principal (G6-B02 / SURF-01).
-var mutatingTools = map[string]bool{
-	"propose_policy_change": true, "request_change": true,
-	"optimize_query": true, "apply_migration": true,
-	"ensure_fk_indexes": true, "declare_table_contract": true,
-	"register_consumer": true, "set_maintenance_policy": true,
-	"sre_propose_action": true, "sre_request_execution": true,
-	"sre_downgrade_autonomy": true, "sre_review_investigation": true,
-	"sre_evaluate_autonomy": true, "propose_fact": true, "decide_fact": true,
+// roleScopes are the scopes a session role grants.
+func roleScopes(role string) []Scope {
+	switch role {
+	case "admin", "operator":
+		return []Scope{ScopeRead, ScopePropose, ScopeApprove}
+	case "viewer":
+		return []Scope{ScopeRead}
+	}
+	return nil
 }
 
-func canMutate(ctx context.Context) bool {
-	p, ok := PrincipalFromContext(ctx)
-	if !ok || strings.TrimSpace(p.Actor) == "" {
+// Has reports whether p holds s. A blank actor holds nothing, and an agent
+// never holds approve, whatever its scopes say.
+func (p Principal) Has(s Scope) bool {
+	if strings.TrimSpace(p.Actor) == "" || (s == ScopeApprove && p.Kind == KindAgent) {
 		return false
 	}
-	return p.Role == "admin" || p.Role == "operator"
+	scopes := p.Scopes
+	if scopes == nil && p.Kind != KindAgent {
+		scopes = roleScopes(p.Role)
+	}
+	for _, have := range scopes {
+		if have == s {
+			return true
+		}
+	}
+	return false
 }
 
-// stdioPrincipal is bound to the stdio transport: only the local
-// process owner, who already holds the sidecar's credentials, can
-// reach it.
-var stdioPrincipal = Principal{Actor: "stdio", Role: "operator"}
+// MayUseDatabase reports whether p may name database name.
+func (p Principal) MayUseDatabase(name string) bool {
+	if p.Databases == nil {
+		return true
+	}
+	for _, allowed := range p.Databases {
+		if name != "" && allowed == name {
+			return true
+		}
+	}
+	return false
+}
+
+// stdioPrincipal is bound to the stdio transport. Whatever launched the
+// process over stdio is a program (a coding agent), so it can read and
+// propose; approvals stay with a person in pg_sage's UI or API.
+var stdioPrincipal = Principal{Actor: "stdio", Kind: KindAgent,
+	Scopes: []Scope{ScopeRead, ScopePropose}}
+
+type databaseKey struct{}
+
+// WithDatabase returns ctx carrying the database the server resolved for
+// the request; backends route by it. An empty name is not stored.
+func WithDatabase(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, databaseKey{}, name)
+}
+
+// DatabaseFromContext returns the resolved database, if any.
+func DatabaseFromContext(ctx context.Context) (string, bool) {
+	name, ok := ctx.Value(databaseKey{}).(string)
+	return name, ok && name != ""
+}

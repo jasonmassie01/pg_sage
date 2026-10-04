@@ -213,5 +213,5 @@ const (
 	DefaultWALAbandonAfterMinutes    = 1440
 	DefaultWALRetainedDiskPctCeiling = 10.0
 	DefaultMCPEnabled                = true
-	DefaultMCPTransport              = "stdio"
+	DefaultMCPTransport              = "http"
 )

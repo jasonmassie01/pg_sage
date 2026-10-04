@@ -325,6 +325,10 @@ func waitForResume(t *testing.T, pool *pgxpool.Pool, id int64) {
 // deadline: the queue is bounded even across a crash.
 func TestLeaseQueueAbandonedEntryExpiresAtDeadline(t *testing.T) {
 	h := newQueueHarness(t)
+	// The deadline is the server's now() at insert + 400 ms, so the wait is
+	// measured from before the insert: the setup after it (queue, manager)
+	// took ~185 ms on a loaded CI runner and made a full wait look short.
+	started := time.Now()
 	_, err := h.pool.Exec(context.Background(), `INSERT INTO sage.lease_queue
 		(request_key, object_keys, kind, actor, intent, decision_id, instance,
 		 heartbeat_at, deadline_at)
@@ -337,7 +341,6 @@ func TestLeaseQueueAbandonedEntryExpiresAtDeadline(t *testing.T) {
 	}
 	queue := NewLeaseQueue(h.pool, nil, testQueueConfig(), "instance-a")
 	manager := h.manager()
-	started := time.Now()
 
 	id, err := queue.Acquire(boundedCtx(t), h.request("behind", manager))
 

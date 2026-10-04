@@ -11,7 +11,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
+// MCP over HTTP is token-only: the API session middleware does not
+// authenticate it (a dashboard session alone is refused); an MCP token does.
 func TestHTTPMCPTransportMountsBehindAPIAuthentication(t *testing.T) {
+	pool := surfacePool(t)
+	t.Setenv("PG_SAGE_LIVE_PROVISIONING", "0")
 	cfg := config.DefaultConfig()
 	cfg.MCP.Enabled = true
 	cfg.MCP.Transport = "http"
@@ -21,22 +25,15 @@ func TestHTTPMCPTransportMountsBehindAPIAuthentication(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`))
 	})
-	router := NewRouterFullRuntime(
-		nil,
-		cfg,
-		nil,
-		nil,
-		nil,
-		nil,
-		&RuntimeDeps{MCPHandler: mcpHandler},
-		testMCPAuthentication,
-	)
+	router := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+		&RuntimeDeps{MCPHandler: mcpHandler}, SessionAuthMiddleware(pool))
 
 	unauthenticated := postMCPRequest(router, "")
 	require.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
 	require.Zero(t, calls.Load())
 
-	authenticated := postMCPRequest(router, "test-session")
+	authenticated := postMCPRequest(withBearer(router, mcpRoleToken(t, pool,
+		"viewer").Secret), "")
 	require.Equal(t, http.StatusOK, authenticated.Code)
 	require.Equal(t, int32(1), calls.Load())
 	require.Equal(t, "application/json", authenticated.Header().Get("Content-Type"))
@@ -92,8 +89,6 @@ func testMCPAuthentication(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
 			return
 		}
-		// Real session auth always places the user on the context;
-		// the MCP mount now requires it (G6-B02).
 		next.ServeHTTP(w, withUser(request, testViewerUser()))
 	})
 }
