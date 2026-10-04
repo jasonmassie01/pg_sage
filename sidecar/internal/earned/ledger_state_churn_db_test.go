@@ -27,29 +27,65 @@ func ledgerStateRow(t *testing.T, f *fixture) (string, string) {
 	return ctid, xmin
 }
 
-// tableUpdates is n_tup_upd of a sage table once the statistics are
-// flushed (pg_stat_force_next_flush on PG15+; PG14 reports through the
-// collector, so it is polled until two reads agree).
+// tableUpdates is n_tup_upd of a sage table once every backend's counts
+// have reached the statistics view. PG15+ flushes on request
+// (pg_stat_force_next_flush). PG14 reports through the collector, and a
+// backend that reported less than PGSTAT_STAT_INTERVAL (500 ms) ago keeps
+// its counts pending until its next transaction, so a pooled connection
+// may report the first pass's update in the middle of the later passes
+// (CI integration-matrix 14). There the pool is reset (an exiting backend
+// reports what it holds) and the value must hold across reads spanning
+// at least statsSettle. The row's ctid/xmin stays the primary proof.
 func tableUpdates(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) int64 {
 	t.Helper()
-	_, _ = pool.Exec(ctx, `DO $$ BEGIN
-		IF current_setting('server_version_num')::int >= 150000 THEN
-			PERFORM pg_stat_force_next_flush();
-		END IF; END $$`)
-	var prev int64 = -1
-	for i := 0; i < 20; i++ {
-		var n int64
-		if err := pool.QueryRow(ctx, `SELECT n_tup_upd FROM pg_stat_user_tables
-			WHERE relid = to_regclass($1)`, "sage."+table).Scan(&n); err != nil {
-			t.Fatalf("read n_tup_upd of %s: %v", table, err)
-		}
-		if n == prev {
-			return n
-		}
-		prev = n
-		time.Sleep(250 * time.Millisecond)
+	var version int
+	if err := pool.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").
+		Scan(&version); err != nil {
+		t.Fatalf("read server version: %v", err)
 	}
-	return prev
+	if version >= 150000 {
+		if _, err := pool.Exec(ctx, "SELECT pg_stat_force_next_flush()"); err != nil {
+			t.Fatalf("flush statistics: %v", err)
+		}
+		return readTableUpdates(t, ctx, pool, table)
+	}
+	pool.Reset()
+	return settledTableUpdates(t, ctx, pool, table)
+}
+
+// statsSettle is how long a PG14 reading must stay unchanged: three
+// collector reporting intervals.
+const statsSettle = 1500 * time.Millisecond
+
+func settledTableUpdates(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table string) int64 {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	value, since := readTableUpdates(t, ctx, pool, table), time.Now()
+	for time.Now().Before(deadline) {
+		time.Sleep(250 * time.Millisecond)
+		n := readTableUpdates(t, ctx, pool, table)
+		if n != value {
+			value, since = n, time.Now()
+			continue
+		}
+		if time.Since(since) >= statsSettle {
+			return value
+		}
+	}
+	t.Fatalf("n_tup_upd of sage.%s never settled for %s", table, statsSettle)
+	return 0
+}
+
+func readTableUpdates(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table string) int64 {
+	t.Helper()
+	var n int64
+	if err := pool.QueryRow(ctx, `SELECT n_tup_upd FROM pg_stat_user_tables
+		WHERE relid = to_regclass($1)`, "sage."+table).Scan(&n); err != nil {
+		t.Fatalf("read n_tup_upd of %s: %v", table, err)
+	}
+	return n
 }
 
 func TestReconcileWithoutNewEvidenceDoesNotRewriteLedgerState(t *testing.T) {
