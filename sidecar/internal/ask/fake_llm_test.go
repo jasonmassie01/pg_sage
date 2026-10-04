@@ -110,16 +110,6 @@ func prompt(t *testing.T, body string) string {
 	return b.String()
 }
 
-// offeredTools lists the native tool names of a request.
-func offeredTools(t *testing.T, body string) []string {
-	t.Helper()
-	var out []string
-	for _, tool := range decodeRequest(t, body).Tools {
-		out = append(out, tool.Function.Name)
-	}
-	return out
-}
-
 func writeCompletion(w http.ResponseWriter, msg map[string]any) {
 	writeCompletionUsage(w, msg, 300)
 }
