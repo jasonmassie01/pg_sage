@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
-	"github.com/pg-sage/sidecar/internal/approvalcard"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -223,12 +222,9 @@ func TestSupersedeStaleApprovals(t *testing.T) {
 				w[1])
 		}
 	}
-	// The approval card's follow-up reads the closed item with its reason.
-	o, err := approvalcard.ReadOutcome(h.ctx, h.exec.pool, coveredID)
-	if err != nil || !o.Final || o.Verdict != "superseded" ||
-		!strings.Contains(o.Detail, h.table+"_cov") {
-		t.Fatalf("card outcome = %+v (%v), want final superseded with the reason", o, err)
-	}
+	// The approval card follow-up closes a superseded item in its chat with
+	// this reason (approvalcard TestReadOutcomeOfUnexecutedItems; that
+	// package imports this one, so it is not called from here).
 	if again, err := h.exec.supersedeStaleApprovals(h.ctx); err != nil || again != 0 {
 		t.Fatalf("second sweep superseded %d (%v), want 0", again, err)
 	}
@@ -279,7 +275,10 @@ func TestManualCreateIndexUsesTheCoverageRule(t *testing.T) {
 	for _, tc := range cases {
 		done, _, err := h.exec.prepareManualCreateIndex(h.ctx, 0, tc.sql, "", map[string]any{},
 			nil, 0)
-		if err != nil || done != tc.done {
+		// A covered create then meets the operator mutation gates, which
+		// this fixture's default observation trust refuses: done is the
+		// coverage decision under test.
+		if done != tc.done || (!tc.done && err != nil) {
 			t.Errorf("%s: done=%v err=%v, want done=%v", tc.sql, done, err, tc.done)
 		}
 	}
