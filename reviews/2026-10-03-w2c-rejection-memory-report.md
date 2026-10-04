@@ -219,3 +219,10 @@ ignored, useful never resets, streak never restarts, empty reply resets, each op
 removed, each counter not incremented, rejections not counted, never skip, streak not per
 table); all killed. The "never restarts" mutant first survived; I added
 `TestModelSkip_MaterialChangeMidStreakRestartsCount`, which kills it.
+
+Follow-up test results (PG17): touched packages (optimizer 92.4%, config 91.1%, schema 83.8%,
+retention 86.9%, store 76.1%, analyzer 91.5%, cmd/pg_sage_sidecar 81.4%) all ok after one
+fix: the config-consistency guard caught `skip_llm_after` missing from the YAML-only key list
+(my omission in the tests-first commit; fixed in ed90d621). 0 skips in touched packages.
+`-race` optimizer and analyzer: ok. e2e: ok (20 passed, 13 live-LLM skips). Small perf gate:
+PASS. golangci-lint: 0 issues.
