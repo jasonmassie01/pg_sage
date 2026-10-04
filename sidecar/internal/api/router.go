@@ -120,7 +120,7 @@ func NewRouterFullRuntime(
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
-		registerApprovalCardRoutes(apiMux, mgr)
+		registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
 	}
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
@@ -163,6 +163,8 @@ func registerFleetScopedRoutes(
 	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
 	registerSRESignalRoutes(apiMux, mgr, cfg)
 	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
+	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
+	registerShadowRoutes(apiMux, mgr)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(rt.MCPHandler))

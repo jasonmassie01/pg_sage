@@ -34,6 +34,32 @@
   version stays readable by older ones; see [Blast-radius
   budgets](docs/configuration.md#blast-radius-budgets).
 
+- **One trust system: earned evidence decides, time is only a floor.** Every action pg_sage
+  takes on its own (index create and drop, configuration changes, per-table autovacuum
+  settings, vacuum, analyze, query hints, retention, and the SRE remediations) now has one
+  trust level per database, earned from verified outcomes and approved by an admin. The trust
+  ramp no longer lets anything run by itself; it is the minimum time pg_sage must have watched
+  a database before it may propose a promotion. A regressed result, a rollback you make or an
+  approval you reject lowers that action's level by one at once, says why, and notifies you.
+  Autonomy your current settings already granted is kept as "grandfathered" on the first start,
+  and the startup log explains the new meaning of `trust.level` and the ramp settings. A new
+  **Trust** page (and `GET /api/v1/trust`) shows every database, action class, level, its
+  evidence (improved, neutral, regressed, rolled back, rejected), the last change and why, and
+  what is needed for the next level.
+
+- **Shadow mode: pg_sage earns trust from what it would have done.** Below an action's earned
+  trust level, pg_sage now records every action it would have taken (the exact SQL, how to
+  undo it, its predicted effect and what it would have done if trusted) and never runs it.
+  Each one is scored later from what really happened: your decision on the same proposal, the
+  same change made later through pg_sage or by a migration (verified like pg_sage's own
+  actions), or a HypoPG what-if for index creates. Changes made outside pg_sage and what-ifs
+  count toward promotion as "shadow" evidence: shadow evidence alone can earn one-click
+  approval (L2), but running unattended (L3) still needs at least 3 real verified successes,
+  and every promotion still needs an admin. A wrong shadow decision delays promotion but never
+  lowers a level you already granted. The Trust page shows each action's shadow decisions,
+  their scores and what pg_sage would have done; approval cards show the action's shadow
+  history; `GET /api/v1/shadow-decisions` and two Prometheus counters expose the same.
+
 - **Every action that waits for you now comes as an approval card with the why, and you can
   decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
   do and to which objects, why it needs you (for example: HypoPG has not verified the index,

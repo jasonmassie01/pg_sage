@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { SQLBlock } from '../../components/SQLBlock'
 import { useToast } from '../../components/Toast'
+import { ShadowHistory } from './ShadowHistory'
 
 // ApprovalCard shows one queued action with the why (roadmap 1.5): what
 // pg_sage wants to do, why it needs a person, the cited evidence, the
@@ -80,6 +81,19 @@ function WhySection({ why }) {
       <ul className="list-disc ml-5 text-sm" style={{ color: 'var(--text-primary)' }}>
         {reasons.map(r => <li key={r.code + r.text}>{r.text}</li>)}
       </ul>
+    </div>
+  )
+}
+
+// TrustLine is the action class's trust on the database (roadmap 1.2):
+// its level, evidence counts and path to the next level, in one line.
+function TrustLine({ trust }) {
+  if (!trust || !trust.line) return null
+  return (
+    <div data-testid="approval-trust" className="text-sm"
+      style={{ color: trust.unavailable ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+      {trust.line}{' '}
+      <a href="#/trust" className="underline">Trust page</a>
     </div>
   )
 }
@@ -189,12 +203,14 @@ export function ApprovalCard({ card, onDecided }) {
         </div>
       )}
       <WhySection why={card.why_approval} />
+      <TrustLine trust={card.trust} />
       <EvidenceSection evidence={card.evidence} />
       <RationaleSection rationale={card.rationale} />
       <PredictedSection predicted={card.predicted_effect} />
       <Section title="SQL" testId="approval-sql"><SQLBlock sql={card.sql} /></Section>
       <RollbackSection rollback={card.rollback} />
       <RiskSection risk={card.risk} />
+      <ShadowHistory history={card.shadow_history} />
       <ApprovalActions card={card} onDecided={onDecided} />
     </div>
   )

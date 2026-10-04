@@ -417,6 +417,18 @@ func assertBinaryExpectations(
 				return n == "0", fmt.Sprintf("failed=%s %s", n, detail)
 			},
 		},
+		{
+			// Roadmap 1.4: shadow mode records only below a class's earned
+			// level; every class here is trusted (grandfathered L3), so the
+			// binary's shadow ledger exists and holds no trusted-class row.
+			id:   "CHECK-A10",
+			desc: "shadow mode: no shadow decision for a class trusted at L3",
+			check: func(p *pgxpool.Pool) (bool, string) {
+				n := quickScalar(p, `SELECT count(*)::text FROM sage.shadow_decision
+					WHERE granted_level >= 3`)
+				return n == "0", fmt.Sprintf("trusted_class_shadows=%s", n)
+			},
+		},
 	}
 
 	deadline := time.Now().Add(pipelineBinaryDeadline)

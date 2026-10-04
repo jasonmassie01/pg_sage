@@ -62,6 +62,7 @@ func (e *Executor) processFinding(
 	// The revision's evidence is immutable; the gate needs the current one.
 	f = e.currentGateEvidence(ctx, f, findingID, cand)
 	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
+	e.recordShadow(ctx, findingRequest(f, isReplica), f, findingID, cand, decision)
 	switch decision.Decision {
 	case PolicyDecisionExecute:
 	case PolicyDecisionQueueApproval:

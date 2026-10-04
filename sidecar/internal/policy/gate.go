@@ -78,7 +78,7 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 func (gate *authorizationGate) selfInitiatedDecision(
 	doc Document, runtime RuntimeState, req ActionRequest,
 ) Decision {
-	tier := tierDecision(runtime, req, gate.now())
+	tier := tierDecision(runtime, req, gate.now(), gate.selfGoverned(req))
 	if tier.Verdict != VerdictExecute {
 		return tier
 	}
@@ -335,11 +335,26 @@ func rampAge(configured, spec time.Duration, rollback RollbackClass) time.Durati
 	return max(configured, MinRampAge)
 }
 
-func rampSatisfied(runtime RuntimeState, minimum time.Duration, now time.Time) bool {
+// RampAge is the trust ramp an action of rollback class waits for, by the
+// gate's own rule (rampAge). The earned ledger uses it as the minimum
+// observation time before it may propose a promotion (roadmap 1.2).
+func RampAge(configured, spec time.Duration, rollback RollbackClass) time.Duration {
+	return rampAge(configured, spec, rollback)
+}
+
+// rampSatisfied reports an elapsed ramp. A self-initiated class the
+// ledger governs (ledgerDecides) is never held or granted by the clock:
+// its earned level decides, and the ramp only floors promotions.
+func rampSatisfied(runtime RuntimeState, minimum time.Duration, now time.Time,
+	ledgerDecides bool) bool {
+	if ledgerDecides {
+		return true
+	}
 	return !runtime.RampStart.IsZero() && now.Sub(runtime.RampStart) >= minimum
 }
 
-func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decision {
+func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time,
+	ledgerDecides bool) Decision {
 	if runtime.ExecutionMode == ExecutionApproval {
 		return decisionForRequest(
 			req, blockedAs(VerdictQueueApproval, ReasonApprovalRequired))
@@ -354,7 +369,8 @@ func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decisi
 			return decisionForRequest(req, blockedAs(VerdictExecute, ReasonAuthorized))
 		}
 	case RiskSafe:
-		if trusted && (!runtime.Tier3Safe || !rampSatisfied(runtime, safeRampAge, now)) {
+		if trusted && (!runtime.Tier3Safe ||
+			!rampSatisfied(runtime, safeRampAge, now, ledgerDecides)) {
 			return decisionForRequest(req, blocked(ReasonTrustRampNotSatisfied, ""))
 		}
 		if trusted {
@@ -362,7 +378,8 @@ func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decisi
 		}
 	case RiskModerate:
 		if runtime.TrustLevel == TrustAutonomous &&
-			(!runtime.Tier3Moderate || !rampSatisfied(runtime, moderateRampAge, now)) {
+			(!runtime.Tier3Moderate ||
+				!rampSatisfied(runtime, moderateRampAge, now, ledgerDecides)) {
 			return decisionForRequest(req, blocked(ReasonTrustRampNotSatisfied, ""))
 		}
 		if runtime.TrustLevel == TrustAutonomous {

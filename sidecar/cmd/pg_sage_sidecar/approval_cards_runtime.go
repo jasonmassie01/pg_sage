@@ -39,9 +39,16 @@ func executorDispatcher(d *notify.Dispatcher, pool *pgxpool.Pool, name string,
 	if d == nil {
 		return nil
 	}
-	l := approvalcard.Loader{Pool: pool, Database: name}
+	l := approvalCardLoader(pool, name, "")
 	return approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper).
 		WithTrust(ex.TrustLevel)
+}
+
+// approvalCardLoader reads a database's cards with the executor's trust
+// level and each card's class trust from the process's trust ledgers.
+func approvalCardLoader(pool *pgxpool.Pool, name, trustLevel string) approvalcard.Loader {
+	return approvalcard.Loader{Pool: pool, Database: name, TrustLevel: trustLevel,
+		Trust: processAutonomy().registry}
 }
 
 // startApprovalCardLoop runs the follow-up and snooze loop until ctx ends.
@@ -82,8 +89,7 @@ func runApprovalCardCycle(ctx context.Context, f *approvalcard.Followups,
 		if inst == nil || inst.Pool == nil || inst.Executor == nil {
 			continue
 		}
-		l := approvalcard.Loader{Pool: inst.Pool, Database: inst.Name,
-			TrustLevel: inst.Executor.TrustLevel()}
+		l := approvalCardLoader(inst.Pool, inst.Name, inst.Executor.TrustLevel())
 		n := approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper)
 		if _, err := approvalcard.RenotifySnoozed(ctx, l, n); err != nil {
 			logWarn("approvals", "db %q: re-send snoozed approval cards: %v", inst.Name, err)

@@ -64,11 +64,14 @@ func carryCap(c ActionClass) Level {
 }
 
 // effectiveCap is the cap the gate applies to a pair: a carried level
-// keeps the autonomy policy granted (up to carryCap), an earned one the
-// promotion cap.
+// keeps the autonomy policy granted (up to carryCap), an earned or
+// grandfathered one the pair's promotion cap.
 func effectiveCap(st State, c ActionClass) Level {
 	if st.Provenance == ProvenanceCarriedOver {
 		return carryCap(c)
+	}
+	if IsSelfInitiated(st.Family) {
+		return CapForPair(st.Family, c)
 	}
 	return CapFor(c)
 }

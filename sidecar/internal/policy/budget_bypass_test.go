@@ -36,7 +36,7 @@ func TestBudgetBypassForIsDeterministic(t *testing.T) {
 	expired.HardAt = bypassNow.Add(-time.Minute)
 	unknownKind := criticalDeadline(DeadlineKind("memory"))
 	rollback := hygieneRequest("public.idx_created")
-	rollback.RevertsOwnChange = true
+	rollback.Rollback = true
 	diskDrop := hygieneRequest("public.idx_unused")
 	diskDrop.Deadline = criticalDeadline(DeadlineDisk)
 	diskConfig := contractRequest("alter_system_guc", "ALTER SYSTEM SET work_mem = '4MB'",

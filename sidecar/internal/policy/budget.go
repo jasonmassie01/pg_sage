@@ -215,7 +215,7 @@ func BudgetBypassFor(req ActionRequest, now time.Time) string {
 	switch {
 	case action == "revert_created_index":
 		return "revert of an index pg_sage created"
-	case req.RevertsOwnChange:
+	case req.Rollback:
 		return "rollback of pg_sage's own change"
 	}
 	deadline := req.Deadline

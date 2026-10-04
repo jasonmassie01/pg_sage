@@ -100,6 +100,26 @@ describe('ApprovalCard', () => {
     expect(screen.getByTestId('approval-rollback')).toHaveTextContent('Nothing to undo')
   })
 
+  it('shows the class trust as one line with a link to the Trust page', () => {
+    const line = 'Trust: tuning/index_create at L1 (cap L3); evidence 1 improved, ' +
+      '0 neutral, 0 regressed, 0 rolled back, 0 rejected; next L2: 2 more successes'
+    render(<ApprovalCard card={card({ trust: { family: 'tuning', class: 'index_create',
+      level: 'L1', cap: 'L3', next_level: 'L2', line,
+      evidence: { improved: 1, neutral: 0, regressed: 0, rolled_back: 0, rejected: 0 } } })} />)
+    const trust = screen.getByTestId('approval-trust')
+    expect(trust).toHaveTextContent(line)
+    expect(within(trust).getByRole('link')).toHaveAttribute('href', '#/trust')
+  })
+
+  it('shows unavailable trust and nothing without a ledger', () => {
+    const { unmount } = render(<ApprovalCard card={card({ trust: {
+      unavailable: 'ledger unreachable', line: 'Trust: unavailable (ledger unreachable)' } })} />)
+    expect(screen.getByTestId('approval-trust')).toHaveTextContent('Trust: unavailable')
+    unmount()
+    render(<ApprovalCard card={card()} />)
+    expect(screen.queryByTestId('approval-trust')).toBeNull()
+  })
+
   it('approves with the card hash and reports execution truthfully', async () => {
     mockFetch(200, { ok: true, executed: true, status: 'approved',
       verification_status: 'monitoring', queue_id: 41 })

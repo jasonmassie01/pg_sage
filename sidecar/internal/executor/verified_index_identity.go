@@ -163,7 +163,7 @@ func (e *Executor) authorizeCreatedIndexRevert(ctx context.Context, dropSQL, tar
 	}
 	decision := standingPolicyDecision(gate.Authorize(ctx, policy.ActionRequest{
 		SQL: dropSQL, Feature: string(policy.ChangeIndex), TargetObjs: []string{target},
-		Contract: policyContract(contract),
+		Contract: policyContract(contract), Rollback: true,
 	}))
 	// A revert restores the state before a verified build; like a rollback,
 	// its authorization holds no budget slot.

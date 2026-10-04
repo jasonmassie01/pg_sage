@@ -103,7 +103,8 @@ func (s *Service) classView(ctx context.Context, ev Evidence, pending *Proposal)
 		return ClassView{}, err
 	}
 	spec, _ := Spec(ev.Class)
-	row := ClassView{Class: ev.Class, Reversibility: spec.Reversibility, Cap: spec.Cap,
+	row := ClassView{Class: ev.Class, Reversibility: spec.Reversibility,
+		Cap:     CapForPair(ev.Family, ev.Class),
 		Granted: st.Level, Supported: SupportedLevel(s.cfg.Thresholds, ev),
 		Version: st.Version, ChangedBy: st.ChangedBy, Reason: st.Reason,
 		Pending: pending, Live: ev.Live, Provenance: st.Provenance,
@@ -112,7 +113,7 @@ func (s *Service) classView(ctx context.Context, ev Evidence, pending *Proposal)
 		at := st.ChangedAt
 		row.ChangedAt = &at
 	}
-	if next := st.Level + 1; next <= spec.Cap && next.Grantable() {
+	if next := st.Level + 1; next <= row.Cap && next.Grantable() {
 		a := Assess(s.cfg.Thresholds, next, ev)
 		row.Next = &a
 	}

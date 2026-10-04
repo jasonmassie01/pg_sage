@@ -20,6 +20,9 @@ const maxAcceptedSearch = 10000
 
 // guide fills c.How (and c.ETA) for an unmet check.
 func guide(th Thresholds, ev Evidence, c *Check) {
+	if c.How != "" {
+		return // the check wrote its own instruction (self-initiated classes)
+	}
 	switch {
 	case strings.HasPrefix(c.Name, "shadow_"):
 		guideShadow(th, ev, c)

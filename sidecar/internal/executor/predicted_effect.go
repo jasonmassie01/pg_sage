@@ -111,6 +111,23 @@ func detailFloat(v any) (float64, bool) {
 func (e *Executor) predictAction(
 	ctx context.Context, sql string, detail map[string]any, before map[string]any,
 ) verify.Prediction {
+	p := e.predictEffect(ctx, sql, detail, before)
+	if len(p.TargetQueryIDs) > 0 {
+		before["target_queryids"] = p.TargetQueryIDs
+		before["verify_baseline"] = e.freezeBaseline(ctx, verificationClass(sql),
+			p.TargetQueryIDs)
+	}
+	before["predicted_effect"] = p
+	return p
+}
+
+// predictEffect is an action's predicted effect with its targeted queries
+// and, for maintenance, the metric's value now; it reads statistics and
+// catalogs only. Shadow decisions (roadmap 1.4) record the same
+// prediction without freezing a verification baseline.
+func (e *Executor) predictEffect(
+	ctx context.Context, sql string, detail map[string]any, before map[string]any,
+) verify.Prediction {
 	class := verificationClass(sql)
 	p := predictionFromDetail(class, detail)
 	switch class {
@@ -129,11 +146,6 @@ func (e *Executor) predictAction(
 		}
 		e.maintenanceBaseline(ctx, sql, &p, before)
 	}
-	if len(p.TargetQueryIDs) > 0 {
-		before["target_queryids"] = p.TargetQueryIDs
-		before["verify_baseline"] = e.freezeBaseline(ctx, class, p.TargetQueryIDs)
-	}
-	before["predicted_effect"] = p
 	return p
 }
 

@@ -61,7 +61,8 @@ func processAutonomy() *autonomyLedgers {
 // included (the spec's unless sre.autonomy.promotion lowers it).
 func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	c := earned.DefaultConfig()
-	c.Thresholds = promotionThresholds(s.Promotion)
+	c.Thresholds = classPromotionThresholds(promotionThresholds(s.Promotion),
+		s.ClassPromotion)
 	c.ProposalTTL, c.MaxEvidenceAge = s.ProposalTTL(), s.MaxEvidenceAge()
 	c.ConcurrencyWindow, c.SafetyWindow = s.ConcurrencyWindow(), s.SafetyWindow()
 	c.FailoverCooldown = s.FailoverCooldown()
@@ -111,13 +112,19 @@ type autonomyBinding struct {
 	budget earned.BudgetSource
 }
 
-// failClosedLimiter answers every family action with the ledger's error,
-// so the gate blocks rather than falls back to the trust ramp.
+// failClosedLimiter answers every governed action (incident families and
+// self-initiated classes) with the ledger's error, so the gate blocks
+// rather than falls back to the trust ramp.
 type failClosedLimiter struct{ err error }
 
 func (l failClosedLimiter) Limit(context.Context, policy.ActionRequest) (
 	policy.AutonomyLimit, error) {
 	return policy.AutonomyLimit{}, l.err
+}
+
+// Governs is the ledger's own scope (policy.AutonomyScope).
+func (l failClosedLimiter) Governs(req policy.ActionRequest) bool {
+	return earned.Governs(req)
 }
 
 // install binds the database to its ledger and, when enforced, installs
@@ -135,6 +142,15 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		// Keep the autonomy this database's configuration already grants
 		// (coordinator decision 2026-10-02): M7 gates new autonomy only.
 		_, err = svc.SeedCarriedOver(ctx, b.database, ex.OperatorBound())
+	}
+	if err == nil {
+		// One trust system (roadmap 1.2): the ramp floors promotions, and
+		// what the ramp already granted self-initiated classes is kept,
+		// once, as grandfathered levels that demote normally.
+		svc.WithRamp(ex.RampFloor)
+		var rep earned.GrandfatherReport
+		rep, err = svc.SeedGrandfathered(ctx, b.database, ex.OperatorBound())
+		logGrandfathered(rep, logInfo)
 	}
 	if err != nil {
 		if b.settings.Enforce {

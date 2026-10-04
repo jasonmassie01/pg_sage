@@ -88,7 +88,8 @@ func (s *Service) checkDecidable(ctx context.Context, p Proposal) error {
 		}
 		return fmt.Errorf("%w: %s expired at %s", ErrProposalExpired, p.ID, p.ExpiresAt)
 	}
-	if p.To > CapFor(p.Class) || !p.To.Grantable() || !Applicable(p.Family, p.Class) {
+	if p.To > CapForPair(p.Family, p.Class) || !p.To.Grantable() ||
+		!Applicable(p.Family, p.Class) {
 		return fmt.Errorf("%w: %s above the cap of %s", ErrInvalidRequest, p.To, p.Class)
 	}
 	return nil
@@ -274,10 +275,11 @@ func validateOutcome(o Outcome) error {
 	switch {
 	case o.Result != ResultVerifiedRecovery && o.Result != ResultNotRecovered &&
 		o.Result != ResultHarmful && o.Result != ResultSafetyViolation &&
-		o.Result != ResultUnverified:
+		o.Result != ResultUnverified && o.Result != ResultRejected:
 		return fmt.Errorf("%w: result %q", ErrInvalidRequest, o.Result)
 	case o.Source != SourceExecutor && o.Source != SourceOperator &&
-		o.Source != SourceGameDay && o.Source != SourceRollout && o.Source != SourceBench:
+		o.Source != SourceGameDay && o.Source != SourceRollout && o.Source != SourceBench &&
+		o.Source != SourceRollback:
 		return fmt.Errorf("%w: source %q", ErrInvalidRequest, o.Source)
 	case !KnownFamily(o.Family) || !knownClass(o.Class):
 		return fmt.Errorf("%w: pair %s/%s", ErrInvalidRequest, o.Family, o.Class)
@@ -308,19 +310,34 @@ func (s *Service) RecordOutcomeOnce(ctx context.Context, o Outcome) (bool, error
 
 // recordOutcome records o and reports whether it was new.
 func (s *Service) recordOutcome(ctx context.Context, o Outcome) (bool, error) {
+	inserted, _, err := s.recordOutcomeDemoting(ctx, o)
+	return inserted, err
+}
+
+// recordOutcomeDemoting records o, applies what it means for the pair's
+// level and returns the one-level demotion it caused, if any: a demerit
+// demotes its pair one level (roadmap 1.2); a harmful or unsafe incident
+// outcome demotes every class of the family to at most L1 (M7).
+func (s *Service) recordOutcomeDemoting(ctx context.Context, o Outcome) (bool, *Demotion,
+	error) {
 	if err := validateOutcome(o); err != nil {
-		return false, err
+		return false, nil, err
 	}
 	o.At = s.now()
 	inserted, err := s.store.insertOutcome(ctx, o)
 	s.invalidate()
 	if err != nil || !inserted {
-		return false, err
+		return false, nil, err
 	}
+	if cause, ok := demeritCause(o); ok {
+		d, err := s.demoteForDemerit(ctx, o, cause)
+		return true, d, err
+	}
+	// A self-initiated harmful outcome is always a demerit (above).
 	if o.Result != ResultHarmful && o.Result != ResultSafetyViolation {
-		return true, nil
+		return true, nil, nil
 	}
-	return true, s.demoteFamily(ctx, o)
+	return true, nil, s.demoteFamily(ctx, o)
 }
 
 // demoteFamily lowers every class of o.Family to at most L1.
@@ -349,8 +366,9 @@ func (s *Service) RecordReview(ctx context.Context, r Review) error {
 	switch {
 	case r.Verdict != VerdictAccepted && r.Verdict != VerdictRejected:
 		return fmt.Errorf("%w: verdict %q", ErrInvalidRequest, r.Verdict)
-	case !KnownFamily(r.Family):
-		return fmt.Errorf("%w: family %q", ErrInvalidRequest, r.Family)
+	case !IsIncidentFamily(r.Family):
+		return fmt.Errorf("%w: family %q has no investigation packets", ErrInvalidRequest,
+			r.Family)
 	case !uuidPattern.MatchString(r.InvestigationID):
 		return fmt.Errorf("%w: investigation id", ErrInvalidRequest)
 	case !reviewerAllowed(r.Reviewer):
