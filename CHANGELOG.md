@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### What's new
+
+- **The index optimizer remembers what HypoPG already measured, so the model stops proposing the
+  same index every cycle.** On a real database the model suggested one index 18 times in three
+  hours under different names and INCLUDE lists, and every time the what-if measured 0% gain.
+  pg_sage now remembers each what-if rejection with the workload it was measured on. A repeat
+  of the same idea (same columns, operator classes, ordering and filter; any name; INCLUDE
+  columns reordered, added or removed) skips the what-if, and the model is told which shapes
+  were already measured. The idea is measured again once the workload or table changes
+  materially (a target query's calls or mean time, or the table's rows, change 2x; a target
+  query appears or disappears) or after 7 days. Only model suggestions are remembered against:
+  deterministic findings such as missing foreign-key indexes and re-checks of open
+  recommendations are never skipped. Tune or turn it off under
+  `llm.optimizer.rejection_memory`.
+
 ## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
 
 ### What's new

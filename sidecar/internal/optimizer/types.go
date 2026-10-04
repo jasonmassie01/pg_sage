@@ -39,6 +39,9 @@ type Result struct {
 	TokensUsed      int
 	PlanSource      string
 	BudgetExhausted bool
+	// MemorySkips counts LLM candidates whose what-if was skipped because
+	// rejection memory already measured the same idea on this workload.
+	MemorySkips int
 }
 
 // TableContext holds enriched per-table data for the LLM prompt.
@@ -67,6 +70,9 @@ type TableContext struct {
 	PartitionChildren []string
 	NestedPartitions  bool
 	WriteRateKnown    bool // true when the table had recorded scan/write activity
+	// MeasuredRejections are prompt lines for shapes HypoPG already
+	// measured and rejected on this workload (rejection memory).
+	MeasuredRejections []string
 }
 
 // ColumnInfo describes a table column.

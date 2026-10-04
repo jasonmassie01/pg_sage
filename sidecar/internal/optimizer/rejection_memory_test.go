@@ -136,9 +136,9 @@ func storedRejection(t *testing.T, ddl string, age time.Duration) rejection {
 	tc := memTable()
 	return rejection{Schema: tc.Schema, Table: tc.Table, Shape: mustShape(t, ddl), DDL: ddl,
 		ImprovementPct: 0, MinImprovementPct: 10,
-		Reason:       "call-weighted improvement 0.0% is below the 10.0% minimum",
-		Workload:     workloadOf(tc), RowEstimate: tc.LiveTuples,
-		MeasuredAt:   memNow.Add(-age), MeasureCount: 1}
+		Reason:   "call-weighted improvement 0.0% is below the 10.0% minimum",
+		Workload: workloadOf(tc), RowEstimate: tc.LiveTuples,
+		MeasuredAt: memNow.Add(-age), MeasureCount: 1}
 }
 
 func TestMemorySettings_DefaultsWithoutConfig(t *testing.T) {
@@ -426,7 +426,7 @@ func TestRejectionMemory_RememberRecordsEvidence(t *testing.T) {
 	store := newMemStore()
 	m := testMemory(store, nil)
 	rec := Recommendation{DDL: lifeosDDL("a", "id, status"), EstimatedImprovementPct: 0.4,
-		WhatIf: WhatIfRejected,
+		WhatIf:       WhatIfRejected,
 		WhatIfReason: "call-weighted improvement 0.4% is below the 10.0% minimum"}
 	r, ok := m.remember(context.Background(), memTable(), rec, 10)
 	if !ok || store.records != 1 {

@@ -19,7 +19,7 @@ func analyzeOne(t *testing.T, recs []Recommendation) ([]Recommendation, int) {
 	srv := makeLLMServer(t, fnTestRecJSON(recs), 50)
 	t.Cleanup(srv.Close)
 	opt := newTestOptimizer(t, srv.URL, fnTestOptimizerConfig())
-	accepted, _, rejected, err := opt.analyzeTable(context.Background(), sampleTableContext())
+	accepted, _, rejected, err := opt.analyzeTable(context.Background(), sampleTableContext(), nil)
 	if err != nil {
 		t.Fatalf("analyzeTable: %v", err)
 	}
@@ -136,7 +136,7 @@ func analyzeWithWhatIf(t *testing.T, w whatIfValidator, threshold float64) ([]Re
 	opt.whatIf = w
 	tc := sampleTableContext()
 	tc.WriteRateKnown = true
-	accepted, _, rejected, err := opt.analyzeTable(context.Background(), tc)
+	accepted, _, rejected, err := opt.analyzeTable(context.Background(), tc, nil)
 	if err != nil {
 		t.Fatalf("analyzeTable: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestAnalyzeTable_SameFallbackNotRetried(t *testing.T) {
 	opt := New(client, client, nil, fnTestOptimizerConfig(), 160000, 8192, fnNoopLog)
 	unavailable := false
 	opt.hypopg.available = &unavailable
-	if _, _, _, err := opt.analyzeTable(context.Background(), sampleTableContext()); err == nil {
+	if _, _, _, err := opt.analyzeTable(context.Background(), sampleTableContext(), nil); err == nil {
 		t.Fatal("expected error from failing provider")
 	}
 	if got := calls.Load(); got != 1 {

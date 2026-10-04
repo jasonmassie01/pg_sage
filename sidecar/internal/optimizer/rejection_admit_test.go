@@ -128,7 +128,7 @@ type cycleOutcome struct {
 
 func runMemCycle(ctx context.Context, o *Optimizer, tc TableContext) cycleOutcome {
 	v := o.memory.view(ctx, tc)
-	recs, _, rej, err := o.analyzeTableMemo(ctx, tc, v)
+	recs, _, rej, err := o.analyzeTable(ctx, tc, v)
 	return cycleOutcome{recs: recs, rejections: rej, skipped: v.skipped, err: err}
 }
 

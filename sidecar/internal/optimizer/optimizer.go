@@ -36,6 +36,7 @@ type Optimizer struct {
 	hypopg         *HypoPG
 	whatIf         whatIfValidator // defaults to hypopg; tests inject fakes
 	breaker        *CircuitBreaker
+	memory         *rejectionMemory // nil: rejection memory off or no database
 	maxOutput      int
 	logFn          func(string, string, ...any)
 	// catalogTimeouts bound the context builder's catalog reads.
@@ -81,6 +82,10 @@ func New(
 		catalogTimeouts: catalogread.Default(),
 	}
 	o.whatIf = o.hypopg
+	if pool != nil && cfg.RejectionMemory.Enabled {
+		o.memory = newRejectionMemory(newPGRejectionStore(pool),
+			memorySettingsFrom(cfg.RejectionMemory), logFn)
+	}
 	for _, opt := range options {
 		opt(o)
 	}
@@ -156,50 +161,7 @@ func (o *Optimizer) Analyze(
 		contexts[i].Queries = GroupByFingerprint(contexts[i].Queries)
 		contexts[i].JoinPairs = DetectJoinPairs(contexts[i].Queries)
 	}
-
-	for _, tc := range contexts {
-		if o.breaker.ShouldSkip(tc.Schema, tc.Table) {
-			o.logFn("optimizer",
-				"circuit open for %s.%s, skipping", tc.Schema, tc.Table,
-			)
-			continue
-		}
-		if open, hasOpen := o.openRecommendations(ctx, tc); hasOpen {
-			// Re-emit the pending candidates so the analyzer keeps them
-			// open instead of resolving them for not reappearing (C06).
-			o.logFn("optimizer",
-				"skipping %s.%s: %d open index recommendation(s) re-emitted",
-				tc.Schema, tc.Table, len(open),
-			)
-			result.Recommendations = append(result.Recommendations, open...)
-			continue
-		}
-		recs, tokens, rejections, err := o.analyzeTable(ctx, tc)
-		if err != nil {
-			if isBudgetExhausted(err) {
-				o.logFn("WARN",
-					"optimizer: daily token budget exhausted, "+
-						"skipping remaining tables (%s.%s and after)",
-					tc.Schema, tc.Table,
-				)
-				result.BudgetExhausted = true
-				break
-			}
-			o.logFn("optimizer",
-				"table %s.%s: %v", tc.Schema, tc.Table, err,
-			)
-			if shouldTripTableCircuit(err) {
-				o.breaker.RecordFailure(tc.Schema, tc.Table)
-			}
-			continue
-		}
-		if len(recs) > 0 {
-			o.breaker.RecordSuccess(tc.Schema, tc.Table)
-		}
-		result.TokensUsed += tokens
-		result.Rejections += rejections
-		result.Recommendations = append(result.Recommendations, recs...)
-	}
+	o.analyzeTables(ctx, contexts, result)
 	return result, nil
 }
 
@@ -207,10 +169,15 @@ func shouldTripTableCircuit(err error) bool {
 	return err != nil && !errors.Is(err, llm.ErrRequestCooldown)
 }
 
+// analyzeTable asks the model for one table and admits its candidates. mem
+// is the table's rejection memory for this cycle (nil: none): it feeds the
+// already-measured shapes to the prompt and suppresses repeats.
 func (o *Optimizer) analyzeTable(
 	ctx context.Context,
 	tc TableContext,
+	mem *tableMemory,
 ) ([]Recommendation, int, int, error) {
+	tc.MeasuredRejections = mem.promptLines()
 	response, tokens, err := o.chat(ctx, SystemPrompt(), FormatPrompt(tc))
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("llm chat: %w", err)
@@ -224,7 +191,7 @@ func (o *Optimizer) analyzeTable(
 	var accepted []Recommendation
 	rejections := 0
 	for _, rec := range recs {
-		rec, ok := o.admit(ctx, rec, tc)
+		rec, ok := o.admit(ctx, rec, tc, mem)
 		if !ok {
 			rejections++
 			continue
@@ -256,9 +223,11 @@ func (o *Optimizer) chat(ctx context.Context, system, prompt string) (string, in
 }
 
 // admit canonicalizes, validates, HypoPG-checks and scores one LLM
-// recommendation. It returns false when the recommendation is rejected.
+// recommendation. It returns false when the recommendation is rejected. A
+// candidate rejection memory already measured on this workload skips the
+// what-if; a new what-if rejection is remembered.
 func (o *Optimizer) admit(
-	ctx context.Context, rec Recommendation, tc TableContext,
+	ctx context.Context, rec Recommendation, tc TableContext, mem *tableMemory,
 ) (Recommendation, bool) {
 	rec, err := canonicalizeRecommendation(rec, tc)
 	if err != nil {
@@ -272,10 +241,16 @@ func (o *Optimizer) admit(
 		)
 		return rec, false
 	}
+	if _, seen := mem.suppress(rec); seen {
+		return rec, false // counted in the cycle's DEBUG summary
+	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
 	if rejected {
 		o.logFn("optimizer", "rejected %s on %s: %s",
 			rec.DDL, rec.Table, rec.WhatIfReason)
+		if r, ok := o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct); ok {
+			mem.learn(r)
+		}
 		return rec, false
 	}
 	rec = o.scoreConfidence(rec, tc)

@@ -699,6 +699,36 @@
     "default": "auto",
     "doc": ""
   },
+  "llm.optimizer.rejection_memory.call_volume_ratio": {
+    "type": "float64",
+    "default": 2,
+    "doc": "A target query whose call count grew or shrank by at least this factor since the rejection is a material workload change. Range \u003e1-1000. Default: 2."
+  },
+  "llm.optimizer.rejection_memory.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Remember HypoPG what-if rejections of LLM index candidates: skip re-measuring the same idea and tell the model it was measured. LLM candidates only. Default: true."
+  },
+  "llm.optimizer.rejection_memory.max_age_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Days a remembered rejection stays valid; after that the idea may be measured again. Range 1-90. Default: 7."
+  },
+  "llm.optimizer.rejection_memory.mean_time_ratio": {
+    "type": "float64",
+    "default": 2,
+    "doc": "A target query whose mean execution time grew or shrank by at least this factor is a material workload change. Range \u003e1-1000. Default: 2."
+  },
+  "llm.optimizer.rejection_memory.prompt_max_shapes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Most recently rejected shapes per table listed in the optimizer prompt as already measured. Range 1-20. Default: 5."
+  },
+  "llm.optimizer.rejection_memory.row_estimate_ratio": {
+    "type": "float64",
+    "default": 2,
+    "doc": "A table whose live-row estimate grew or shrank by at least this factor is a material change. Range \u003e1-1000. Default: 2."
+  },
   "llm.optimizer.write_heavy_ratio_pct": {
     "type": "int",
     "default": 70,
