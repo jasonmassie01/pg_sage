@@ -109,8 +109,8 @@ func pathOf(a earned.Assessment) []string {
 		if c.Met {
 			continue
 		}
-		step := c.How
-		if strings.TrimSpace(step) == "" {
+		step := strings.TrimRight(strings.TrimSpace(c.How), ".")
+		if step == "" {
 			step = fmt.Sprintf("%s: %s of %s", c.Name, orUnknown(c.Observed), c.Required)
 		}
 		if c.ETA != nil {

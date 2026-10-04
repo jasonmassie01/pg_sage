@@ -63,11 +63,19 @@ func TestApprovalCardCarriesTheClassTrust(t *testing.T) {
 			t.Fatalf("evidence lacks %q: %v", k, ev)
 		}
 	}
+	// The list holds other tests' items of the shared database too: find
+	// the fixture's own card.
 	code, list := cardCall(t, h, http.MethodGet, "/api/v1/approvals?database=orders", nil)
 	cards, _ := list["cards"].([]any)
-	if code != http.StatusOK || len(cards) == 0 ||
-		cards[0].(map[string]any)["trust"] == nil {
-		t.Fatalf("list: %d %v", code, list)
+	var mine map[string]any
+	for _, c := range cards {
+		m, _ := c.(map[string]any)
+		if id, _ := m["queue_id"].(float64); int(id) == fx.queueID {
+			mine = m
+		}
+	}
+	if code != http.StatusOK || mine == nil || mine["trust"] == nil {
+		t.Fatalf("list: %d, card %d = %v", code, fx.queueID, mine)
 	}
 }
 
