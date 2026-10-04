@@ -122,44 +122,14 @@ func (s *Service) Granted(ctx context.Context, f Family, c ActionClass) (State, 
 		return State{}, err
 	}
 	if !found {
-		return State{Family: f, Class: c, Level: defaultLevel(f),
-			Provenance: ProvenanceLedger}, nil
+		return defaultState(f, c), nil
 	}
 	return st, nil
 }
 
-// Evidence collects everything behind a promotion of the pair now.
-func (s *Service) Evidence(ctx context.Context, f Family, c ActionClass) (Evidence, error) {
-	now := s.now()
-	ev := Evidence{Family: f, Class: c, At: now}
-	if IsSelfInitiated(f) {
-		return s.selfEvidence(ctx, ev)
-	}
-	var err error
-	if ev.Bench, err = s.store.LatestBench(ctx, f); err != nil {
-		return Evidence{}, err
-	}
-	since := now.Add(-s.cfg.Thresholds.BenchMaxAge)
-	if ev.GameDays, err = s.store.GameDayRuns(ctx, since); err != nil {
-		return Evidence{}, err
-	}
-	shadowSince := now.Add(-s.cfg.Thresholds.ShadowDuration)
-	if ev.Shadow, err = s.store.ShadowStats(ctx, f, shadowSince); err != nil {
-		return Evidence{}, err
-	}
-	if ev.Live, err = s.store.LiveStats(ctx, f, c); err != nil {
-		return Evidence{}, err
-	}
-	n, last, err := s.store.familySafety(ctx, f, now.Add(-s.cfg.SafetyWindow))
-	if err != nil {
-		return Evidence{}, err
-	}
-	ev.FamilyViolations = n
-	if n > 0 {
-		clears := last.Add(s.cfg.SafetyWindow)
-		ev.ViolationsClearAt = &clears
-	}
-	return ev, nil
+// defaultState is a pair without a stored row.
+func defaultState(f Family, c ActionClass) State {
+	return State{Family: f, Class: c, Level: defaultLevel(f), Provenance: ProvenanceLedger}
 }
 
 // supportedLevel is the level the pair's current evidence supports,

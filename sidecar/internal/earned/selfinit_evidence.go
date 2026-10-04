@@ -1,7 +1,6 @@
 package earned
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -120,16 +119,6 @@ func (s *Service) floorStatus(c ActionClass, now time.Time) *FloorStatus {
 	}
 	return &FloorStatus{Known: true, Start: r.Start.UTC(), Observed: now.Sub(r.Start),
 		RequiredL2: r.For(L2, c), RequiredL3: r.For(L3, c)}
-}
-
-// selfEvidence is a self-initiated pair's evidence: its record and floor.
-func (s *Service) selfEvidence(ctx context.Context, ev Evidence) (Evidence, error) {
-	rec, err := s.store.ClassRecord(ctx, ev.Family, ev.Class)
-	if err != nil {
-		return Evidence{}, err
-	}
-	ev.Record, ev.Floor = &rec, s.floorStatus(ev.Class, ev.At)
-	return ev, nil
 }
 
 // selfChecks are a self-initiated class's requirements for target (L2,

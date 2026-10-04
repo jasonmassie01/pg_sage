@@ -72,6 +72,8 @@ func recordSpread(t *testing.T, f *fixture) {
 	outcomes := []Outcome{
 		{Family: FamilyWraparound, Class: ClassFreeze, Result: ResultHarmful},
 		{Family: FamilyWraparound, Class: ClassFreeze, Result: ResultVerifiedRecovery},
+		{Family: FamilyLockBlocking, Class: ClassBackendCancel,
+			Result: ResultVerifiedRecovery},
 		{Family: FamilyTuning, Class: ClassIndexCreate, Result: ResultVerifiedRecovery,
 			Verdict: "improved"},
 		{Family: FamilyTuning, Class: ClassConfigGUC, Result: ResultHarmful,
@@ -164,6 +166,7 @@ func TestTrustViewAgreesWithPerPairReads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		checkPairReads(t, f, row, ev)
 		want := Assess(f.svc.cfg.Thresholds, row.Next.Target, ev)
 		if !reflect.DeepEqual(want, *row.Next) {
 			t.Fatalf("%s/%s next: view %+v, per pair %+v", row.Family, row.Class,
@@ -191,4 +194,26 @@ func statementList(rec *testdb.QueryRecorder) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// checkPairReads holds a pair's evidence against the store's own reads of
+// that pair, so a set row is never attributed to another pair.
+func checkPairReads(t *testing.T, f *fixture, row TrustRow, ev Evidence) {
+	t.Helper()
+	if IsSelfInitiated(row.Family) {
+		return
+	}
+	live, err := f.store.LiveStats(f.ctx, row.Family, row.Class)
+	if err != nil {
+		t.Fatal(err)
+	}
+	since := f.clock.Now().Add(-f.svc.cfg.SafetyWindow)
+	n, err := f.store.FamilyViolations(f.ctx, row.Family, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Live != live || ev.FamilyViolations != n {
+		t.Fatalf("%s/%s: evidence live %+v violations %d, store %+v %d", row.Family,
+			row.Class, ev.Live, ev.FamilyViolations, live, n)
+	}
 }

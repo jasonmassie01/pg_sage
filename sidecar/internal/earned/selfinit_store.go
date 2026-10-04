@@ -8,60 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// classRecordSQL counts a pair's outcomes on the database, and its
-// credited and uncredited decided outcomes since its last demerit. Rows
-// recorded before outcomes kept their verdict count by result.
-const classRecordSQL = `WITH pair AS (
-	SELECT verdict, result, COALESCE(observed_at, recorded_at) AS at
-	  FROM sage.sre_autonomy_outcomes
-	 WHERE deployment_id = $1 AND database_name = $2 AND family = $3
-	   AND action_class = $4
-), last AS (
-	SELECT at, COALESCE(verdict, result) AS cause FROM pair
-	 WHERE result IN ('harmful', 'safety_violation', 'rejected')
-	 ORDER BY at DESC LIMIT 1
-)
-SELECT
-	count(*) FILTER (WHERE verdict = 'improved'
-	                    OR (verdict IS NULL AND result = 'verified_recovery')),
-	count(*) FILTER (WHERE verdict = 'neutral'),
-	count(*) FILTER (WHERE verdict = 'regressed'
-	                    OR (verdict IS NULL AND result IN ('harmful', 'safety_violation'))),
-	count(*) FILTER (WHERE verdict = 'rolled_back'),
-	count(*) FILTER (WHERE verdict = 'rejected'
-	                    OR (verdict IS NULL AND result = 'rejected')),
-	count(*) FILTER (WHERE verdict = 'insufficient_evidence'),
-	count(*) FILTER (WHERE verdict = 'unverifiable'
-	                    OR (verdict IS NULL AND result = 'unverified')),
-	count(*) FILTER (WHERE result = 'verified_recovery'
-	                   AND (l.at IS NULL OR pair.at > l.at)),
-	count(*) FILTER (WHERE result = 'unverified' AND verdict = 'neutral'
-	                   AND (l.at IS NULL OR pair.at > l.at)),
-	max(l.at), max(l.cause)
-FROM pair LEFT JOIN last l ON true`
-
-// ClassRecord reads a pair's verdict record on the database.
-func (s *PostgresStore) ClassRecord(ctx context.Context, f Family, c ActionClass) (
-	ClassRecord, error) {
-	var r ClassRecord
-	var cause *string
-	err := s.pool.QueryRow(ctx, classRecordSQL, s.deployment, s.database, string(f),
-		string(c)).Scan(&r.Improved, &r.Neutral, &r.Regressed, &r.RolledBack, &r.Rejected,
-		&r.Insufficient, &r.Unverifiable, &r.Successes, &r.Uncredited, &r.LastDemeritAt,
-		&cause)
-	if err != nil {
-		return ClassRecord{}, storeErr("read class record", err)
-	}
-	if r.LastDemeritAt != nil {
-		at := r.LastDemeritAt.UTC()
-		r.LastDemeritAt = &at
-	}
-	if cause != nil {
-		r.LastDemerit = demeritName(*cause)
-	}
-	return r, nil
-}
-
 // demeritName names a stored demerit (a verdict or, for rows without
 // one, a result).
 func demeritName(stored string) string {

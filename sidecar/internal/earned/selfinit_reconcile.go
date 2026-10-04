@@ -185,7 +185,7 @@ func (r *Reconciler) rejectionFacts(ctx context.Context, cursor *time.Time) ([]s
 			if err := rows.Scan(&id, &actionType, &sql, &identity, &at, &by); err != nil {
 				return selfFact{}, false, err
 			}
-			f, c := rejectedPair(actionType, sql, identity)
+			f, c := PairForQueued(actionType, sql, identity)
 			ts := at.UTC()
 			o := Outcome{Database: r.database, QueueID: id, Family: f, Class: c, Level: L2,
 				Result: ResultRejected, Source: SourceOperator, Verdict: CauseRejected,
@@ -195,8 +195,10 @@ func (r *Reconciler) rejectionFacts(ctx context.Context, cursor *time.Time) ([]s
 		})
 }
 
-// rejectedPair is the ledger pair of a rejected approval item.
-func rejectedPair(actionType, sql, identity string) (Family, ActionClass) {
+// PairForQueued is the ledger pair of an approval item: the pair of its
+// autonomy handoff key, else the trust family of its self-initiated
+// class; family "" when the ledger does not judge it.
+func PairForQueued(actionType, sql, identity string) (Family, ActionClass) {
 	if strings.HasPrefix(identity, HandoffKeyPrefix) {
 		if f, c, ok := parseHandoffKey(identity); ok {
 			return f, c

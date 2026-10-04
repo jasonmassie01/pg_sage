@@ -206,7 +206,13 @@ func (l *Limiter) concurrency(ctx context.Context, req policy.ActionRequest) []D
 }
 
 func (l *Limiter) safety(ctx context.Context, f Family) []Downgrade {
-	n, err := l.svc.store.FamilyViolations(ctx, f, l.svc.now().Add(-l.svc.cfg.SafetyWindow))
+	return safetyDowngrades(l.svc.store.FamilyViolations(ctx, f,
+		l.svc.now().Add(-l.svc.cfg.SafetyWindow)))
+}
+
+// safetyDowngrades is the signal of a family's harmful or unsafe outcomes
+// in the window (n), or of its unreadable record.
+func safetyDowngrades(n int, err error) []Downgrade {
 	if err != nil {
 		return []Downgrade{{DowngradeSafetyRegression, "safety record unreadable: " +
 			err.Error()}}
