@@ -126,3 +126,19 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)
 }
+
+// evaluateRollbackPolicy authorizes the executor's own rollback of a
+// change it made: the standing gate as for any change, except that the
+// kind budgets do not park it (policy.BudgetBypassFor).
+func (e *Executor) evaluateRollbackPolicy(
+	ctx context.Context, f analyzer.Finding,
+) ActionPolicyDecision {
+	gate := e.StandingPolicyGate()
+	if gate == nil {
+		contract, _ := contractForFinding(f)
+		return noStandingPolicyDecision(contract)
+	}
+	request := findingRequest(f, false)
+	request.RevertsOwnChange = true
+	return standingPolicyDecision(gate.Authorize(ctx, request))
+}

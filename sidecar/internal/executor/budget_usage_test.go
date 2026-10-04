@@ -93,7 +93,7 @@ func TestStandingUsageChargesEachKindSeparately(t *testing.T) {
 	exec := New(pool, config.DefaultConfig(), time.Time{}, func(string, string, ...any) {})
 	spendKind(t, pool, ctx, "hygiene", 0, "test_a.idx_1", "test_a.idx_2", "test_b.idx_3")
 	spendKind(t, pool, ctx, "performance", 0, "public.events|btree(a)")
-	spendWindow(t, pool, ctx, "index", "public.legacy") // no kind: performance
+	spendWindow(t, pool, ctx, "index", "public.legacy")       // no kind: performance
 	spendKind(t, pool, ctx, "maintenance", 0, "public.bogus") // unknown: performance
 
 	perf := perfUsage(t, exec, ctx, "public.memories")

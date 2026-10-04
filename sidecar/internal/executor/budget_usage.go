@@ -3,8 +3,10 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -47,7 +49,7 @@ func (e *Executor) standingUsage(
 		targets = []string{}
 	}
 	var changesFree, tablesFree, rowsFree *time.Time
-	err = e.pool.QueryRow(ctx, standingUsageSQL, operatorDecisionIntent, targets,
+	err = e.usageRow(ctx, standingUsageSQL, operatorDecisionIntent, targets,
 		string(policy.BudgetKindFor(request)), e.budgetHoldHorizon().Seconds(), request.SQL,
 	).Scan(&usage.SelfInitiatedChangesInWindow, &usage.TablesInWindow, &usage.RowsRewritten,
 		&changesFree, &tablesFree, &rowsFree)
@@ -107,12 +109,19 @@ func stampBudgetEvidence(
 	evidence map[string]any, request policy.ActionRequest, decision policy.Decision,
 ) {
 	for _, key := range []string{budgetKindKey, rowsRewrittenKey, budgetDetailKey,
-		budgetReleasedKey} {
+		budgetReleasedKey, "gate_reason"} {
 		delete(evidence, key)
 	}
-	evidence[budgetKindKey] = string(policy.BudgetKindFor(request))
+	kind := policy.BudgetKindFor(request)
+	if decision.BudgetKind == policy.BudgetBypass {
+		kind = policy.BudgetBypass // charged to no kind budget
+	}
+	evidence[budgetKindKey] = string(kind)
 	if decision.BudgetKind != "" {
 		evidence[rowsRewrittenKey] = decision.RowsRewritten
+	}
+	if kind == policy.BudgetBypass && decision.Detail != "" {
+		evidence[budgetDetailKey] = decision.Detail
 	}
 	switch decision.Reason {
 	case policy.ReasonBlastRadiusExceeded, policy.ReasonRateLimitExceeded,
@@ -162,7 +171,8 @@ WITH executed AS (
 	SELECT CASE jsonb_typeof(s.targets) WHEN 'array' THEN s.targets
 	            ELSE '[]'::jsonb END AS targets,
 	       s.spent_at,
-	       CASE WHEN s.evidence->>'` + budgetKindKey + `' = 'hygiene' THEN 'hygiene'
+	       CASE s.evidence->>'` + budgetKindKey + `' WHEN 'hygiene' THEN 'hygiene'
+	            WHEN 'bypass' THEN 'bypass'
 	            ELSE 'performance' END AS kind,
 	       COALESCE((s.evidence->>'` + rowsRewrittenKey + `')::bigint, 0) AS rows_rewritten
 	  FROM (SELECT * FROM executed UNION ALL SELECT * FROM held) s
@@ -183,3 +193,18 @@ SELECT (SELECT count(*) FROM mine),
        (SELECT min(spent_at) FROM mine) + interval '24 hours',
        (SELECT min(last_at) FROM touched WHERE tbl <> '') + interval '24 hours',
        (SELECT min(spent_at) FROM spent WHERE rows_rewritten > 0) + interval '24 hours'`
+
+// budgetBypassReason records an executed emergency mitigation under the
+// reason "budget bypass: <why>" (owner decision 2026-10-03), keeping the
+// gate's own reason code in evidence.gate_reason. Withheld decisions keep
+// the gate's reason.
+func budgetBypassReason(input *ledger.DecisionInput, decision policy.Decision) {
+	if decision.BudgetKind != policy.BudgetBypass || decision.Verdict != policy.VerdictExecute {
+		return
+	}
+	input.Evidence["gate_reason"] = string(decision.Reason)
+	input.Reason = "budget bypass"
+	if strings.HasPrefix(decision.Detail, "budget bypass: ") {
+		input.Reason = decision.Detail
+	}
+}
