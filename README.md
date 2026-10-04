@@ -91,6 +91,7 @@ See the [docs/](docs/) directory for guides and reference:
 - [Deployment](docs/deployment.md) -- production hardening, resource sizing
 - [Security](docs/security.md) -- permissions model, network, secrets management
 - [Sage SRE: permissions and data flow](docs/sage-sre-permissions-and-data-flow.md) -- what investigations read, the roles each provider needs, what is sent to the LLM (redaction and fencing), retention, and how to turn each part off
+- [MCP for coding agents](docs/mcp.md) -- connect Claude Code or Cursor with a scoped token; source-fix packets verified after deploy
 - [Agent DB Deployments](docs/agent-db-deployments.md) -- agent provisioning, tuning hints, cost, backups, cleanup, and API flow
 - [AgentDB Cloud Provider Setup](docs/runbooks/agentdb-cloud-provider-setup.md) -- AWS, GCP, and Databricks credentials, safety gates, live tests, and cleanup
 - [SQL Reference](docs/sql-reference.md) -- schema tables and diagnostic queries

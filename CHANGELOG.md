@@ -16,6 +16,20 @@
   cleanup script you run; a CDC slot is never dropped or advanced; an archive keeps its
   data and indexes. Every blocked action names the fact, who confirmed it and when. Facts
   expire when the objects they describe are gone. See `docs/facts.md`.
+- **Coding agents can fix database problems at their source.** pg_sage's MCP server now
+  works with Claude Code and Cursor: one `claude mcp add` line with a scoped API token an
+  admin creates on the new MCP tokens page (read, propose, and approve only for a person's
+  own token; limited to chosen databases; expiring; stored as a hash). Agents can see the top
+  queries with their plans, run a safe EXPLAIN, try an index with HypoPG, lint a migration
+  for lock level and rewrites, trace a query to the code that sends it (sqlcommenter tags,
+  `application_name`), and propose that an object belongs to the app's migrations. For a
+  finding, pg_sage hands the agent a cited source-fix packet (the migration, the evidence,
+  the code it touches, how it will be checked), the agent opens the PR, reports the deploy,
+  and pg_sage measures the targeted queries before and after and returns its verdict. Agents
+  can never approve anything or bypass the policy gate. Every tool now takes a `database`
+  argument for fleets, `apply_migration` accepts the arguments it documents and is checked by
+  the gate before any rehearsal, and the server follows the current MCP protocol (both the
+  handshake versions and 2026-07-28). See `docs/mcp.md`.
 
 ## v1.9.0 (2026-10-04) -- Earned trust: verified actions, shadow mode, approval cards
 
