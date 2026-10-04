@@ -63,6 +63,7 @@ type Agent struct {
 	logFn      func(string, string, ...any)
 	memory     *caseMemory
 	modelSkips atomic.Int64
+	cappedN    atomic.Int64
 	mu         sync.Mutex // one cycle at a time
 
 	tcMu    sync.Mutex
@@ -101,13 +102,14 @@ func New(s Settings, d Deps, logFn func(string, string, ...any)) *Agent {
 
 func (a *Agent) now() time.Time { return a.deps.Now() }
 
-// Stats are the agent's counters: what-ifs rejection memory skipped and
-// model calls case memory skipped.
+// Stats are the agent's counters: what-ifs rejection memory skipped, model
+// calls case memory skipped and admitted proposals the cycle cap cut.
 func (a *Agent) Stats() analyzer.TuningStats {
 	if a == nil {
 		return analyzer.TuningStats{}
 	}
-	s := analyzer.TuningStats{ModelCallsSkipped: a.modelSkips.Load()}
+	s := analyzer.TuningStats{ModelCallsSkipped: a.modelSkips.Load(),
+		ProposalsCapped: a.cappedN.Load()}
 	if a.deps.Indexes != nil {
 		s.WhatIfSkipped = a.deps.Indexes.MemoryStats().WhatIfSkipped
 	}

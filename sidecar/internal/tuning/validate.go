@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -70,6 +71,9 @@ type Judged struct {
 	Tables     []string
 	Confidence Confidence
 	Case       Case
+	// Hint is the checked hint the tuner records if the proposal survives
+	// the cycle's cap (query hints only).
+	Hint *tuner.HintProposal
 }
 
 // validator judges the proposals of one cycle.

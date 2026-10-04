@@ -331,7 +331,7 @@ func (t *Tuner) processCandidate(
 		return staleFindings
 	}
 
-	// The tuning agent proposes model-reasoned hints through ProposeHint
+	// The tuning agent proposes model-reasoned hints through CheckHint
 	// (roadmap 2.2); this pass is the deterministic rules only.
 	prescriptions := t.prescribeAll(symptoms)
 	if len(prescriptions) == 0 {

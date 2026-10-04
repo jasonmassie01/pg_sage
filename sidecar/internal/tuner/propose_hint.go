@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
-// Refusals of ProposeHint.
+// Refusals of CheckHint and RecordHint.
 var (
 	// ErrHintsUnavailable: pg_hint_plan or its hint table is missing.
 	ErrHintsUnavailable = errors.New("pg_hint_plan hint table unavailable")
@@ -41,31 +41,61 @@ func (t *Tuner) HintsAvailable() bool {
 		t.hintPlan.HintTableReady
 }
 
-// ProposeHint turns an agent hint into a query_tuning finding with the
+// CheckHint turns an agent hint into a query_tuning finding with the
 // tuner's own safeguards: pg_hint_plan syntax, the Set() allowlist and the
-// work_mem clamp, one hint per statement (proposed or active hints and the
-// cooldown), and the sage.query_hints record. The statement then cools
-// down, so the tuner's deterministic pass leaves it alone.
-func (t *Tuner) ProposeHint(ctx context.Context, p HintProposal) (analyzer.Finding, error) {
-	if !t.HintsAvailable() {
-		return analyzer.Finding{}, ErrHintsUnavailable
-	}
-	hint, err := t.checkHint(p)
+// work_mem clamp, and one hint per statement (proposed or active hints and
+// the cooldown). It has no side effects: the agent records only the hints
+// it keeps after its per-cycle cap, through RecordHint.
+func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding, error) {
+	hint, err := t.admitHint(p)
 	if err != nil {
 		return analyzer.Finding{}, err
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.coolingErr(ctx, p.QueryID); err != nil {
+		return analyzer.Finding{}, err
+	}
+	return agentHintFinding(p, hint), nil
+}
+
+// RecordHint records a checked hint in sage.query_hints and cools the
+// statement down, so the tuner's deterministic pass leaves it alone. It
+// repeats CheckHint's refusals, so a statement hinted since is refused.
+func (t *Tuner) RecordHint(ctx context.Context, p HintProposal) error {
+	hint, err := t.admitHint(p)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := t.coolingErr(ctx, p.QueryID); err != nil {
+		return err
+	}
+	t.upsertQueryHint(ctx, p.QueryID, hint, agentSymptom, "", "")
+	t.recordTuned(p.QueryID)
+	return nil
+}
+
+// admitHint requires pg_hint_plan and a valid hint; it returns the
+// canonical hint.
+func (t *Tuner) admitHint(p HintProposal) (string, error) {
+	if !t.HintsAvailable() {
+		return "", ErrHintsUnavailable
+	}
+	return t.checkHint(p)
+}
+
+// coolingErr refuses a statement with a proposed or active hint or in its
+// cooldown. The caller holds t.mu.
+func (t *Tuner) coolingErr(ctx context.Context, queryID int64) error {
 	if len(t.recentlyTuned) == 0 {
 		t.loadActiveHints(ctx)
 	}
-	if _, cooling := t.recentlyTuned[p.QueryID]; cooling {
-		return analyzer.Finding{}, fmt.Errorf("%w: queryid %d", ErrHintExists, p.QueryID)
+	if _, cooling := t.recentlyTuned[queryID]; cooling {
+		return fmt.Errorf("%w: queryid %d", ErrHintExists, queryID)
 	}
-	f := agentHintFinding(p, hint)
-	t.upsertQueryHint(ctx, p.QueryID, hint, agentSymptom, "", "")
-	t.recordTuned(p.QueryID)
-	return f, nil
+	return nil
 }
 
 // checkHint validates the proposal and returns its canonical hint.

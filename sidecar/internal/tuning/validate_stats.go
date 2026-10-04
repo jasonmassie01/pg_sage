@@ -160,7 +160,8 @@ func statsFinding(table, schema, rel string, cols, kinds []string,
 }
 
 // judgeHint admits a pg_hint_plan hint for a case statement through the
-// tuner, which validates, clamps and records it.
+// tuner, which validates and clamps it; it is recorded only if it survives
+// the cycle's cap (Agent.recordHints).
 func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 	qid := int64(p.QueryID)
 	idx := slices.IndexFunc(c.Statements, func(s CaseStatement) bool {
@@ -173,9 +174,9 @@ func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 	if _, why := predictedChange(p, true); why != "" {
 		return reject(p, ReasonInvalid, "%s", why)
 	}
-	f, err := v.a.deps.Hints.ProposeHint(ctx, tuner.HintProposal{QueryID: qid,
-		Query: c.Statements[idx].Text, Hint: p.Hint, Rationale: p.Rationale,
-		Detail: map[string]any{"producer": Producer, "case_id": c.ID}})
+	hp := tuner.HintProposal{QueryID: qid, Query: c.Statements[idx].Text, Hint: p.Hint,
+		Rationale: p.Rationale, Detail: map[string]any{"producer": Producer, "case_id": c.ID}}
+	f, err := v.a.deps.Hints.CheckHint(ctx, hp)
 	switch {
 	case errors.Is(err, tuner.ErrHintsUnavailable):
 		return reject(p, ReasonDisabled, "%v", err)
@@ -189,5 +190,5 @@ func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 		TargetQueryIDs: []int64{qid}, Source: PredictionSource,
 		Note: "the model's estimate"}
 	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: c.Tables,
-		Class: verify.ClassQueryHint, Prediction: pred}
+		Class: verify.ClassQueryHint, Prediction: pred, Hint: &hp}
 }

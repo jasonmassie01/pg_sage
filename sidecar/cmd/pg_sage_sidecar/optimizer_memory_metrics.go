@@ -39,6 +39,9 @@ var optimizerMemoryCounters = []struct {
 	{"pg_sage_optimizer_llm_calls_skipped_total", "Tuning agent model calls skipped " +
 		"because the case's recent answers were all wasted and it has not changed",
 		func(s analyzer.TuningStats) int64 { return s.ModelCallsSkipped }},
+	{"pg_sage_tuning_proposals_capped_total", "Admitted tuning agent proposals the " +
+		"per-cycle caps cut before anything was recorded; they wait for a later cycle",
+		func(s analyzer.TuningStats) int64 { return s.ProposalsCapped }},
 }
 
 // writeOptimizerMemoryMetrics writes the counters per database, sorted.

@@ -32,10 +32,12 @@ type FactSource interface {
 	List(ctx context.Context, f facts.Filter) ([]facts.Fact, error)
 }
 
-// HintSink turns a hint into a finding with the tuner's safeguards.
+// HintSink turns a hint into a finding with the tuner's safeguards
+// (CheckHint, no side effects) and records the hints the agent keeps.
 type HintSink interface {
 	HintsAvailable() bool
-	ProposeHint(ctx context.Context, p tuner.HintProposal) (analyzer.Finding, error)
+	CheckHint(ctx context.Context, p tuner.HintProposal) (analyzer.Finding, error)
+	RecordHint(ctx context.Context, p tuner.HintProposal) error
 }
 
 // Store is what the agent reads from the sage schema and the catalog.

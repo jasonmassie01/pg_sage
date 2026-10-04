@@ -1,6 +1,7 @@
 package tuning
 
 import (
+	"context"
 	"math"
 	"slices"
 	"sort"
@@ -30,7 +31,7 @@ type ranked struct {
 // rank records each admitted proposal's calibrated confidence, orders
 // them by tier, confidence, case weight and predicted size, and keeps the
 // best within the per-table index cap and the cycle's proposal cap.
-func (a *Agent) rank(judged []Judged, cal Calibration) []analyzer.Finding {
+func (a *Agent) rank(judged []Judged, cal Calibration) []Judged {
 	threshold := a.settings.ConfidenceThreshold
 	rs := make([]ranked, 0, len(judged))
 	for _, j := range judged {
@@ -76,14 +77,14 @@ func magnitude(j Judged) float64 {
 
 // capped applies llm.optimizer.max_new_per_table to index creates and
 // tuning.max_proposals_per_cycle to everything.
-func (a *Agent) capped(rs []ranked) []analyzer.Finding {
+func (a *Agent) capped(rs []ranked) []Judged {
 	perTable := a.settings.MaxNewPerTable
 	if perTable <= 0 {
 		perTable = defaultMaxNewPerTable
 	}
 	limit := a.settings.Tuning.MaxProposalsPerCycle
 	indexes := map[string]int{}
-	var out []analyzer.Finding
+	var out []Judged
 	cut := 0
 	for _, r := range rs {
 		if r.j.Proposal.Type == ProposeIndexCreate && len(r.j.Tables) > 0 {
@@ -97,9 +98,10 @@ func (a *Agent) capped(rs []ranked) []analyzer.Finding {
 			cut++
 			continue
 		}
-		out = append(out, *r.j.Finding)
+		out = append(out, r.j)
 	}
 	if cut > 0 {
+		a.cappedN.Add(int64(cut))
 		a.logFn("INFO", "tuning: %d admitted proposal(s) beyond the cap (%d per cycle, "+
 			"%d new indexes per table) wait for a later cycle", cut, limit, perTable)
 	}
@@ -145,4 +147,23 @@ func reloptions(snap *collector.Snapshot, ts collector.TableStats) string {
 		}
 	}
 	return ""
+}
+
+// recordHints records the kept query hints with the tuner (nothing is
+// recorded before the cap) and returns the kept findings. A hint the tuner
+// will not record, such as a statement hinted since it was checked, is
+// dropped.
+func (a *Agent) recordHints(ctx context.Context, kept []Judged) []analyzer.Finding {
+	out := make([]analyzer.Finding, 0, len(kept))
+	for _, j := range kept {
+		if j.Hint != nil {
+			if err := a.deps.Hints.RecordHint(ctx, *j.Hint); err != nil {
+				a.logFn("WARN", "tuning: hint for queryid %d not recorded, dropped: %v",
+					j.Hint.QueryID, err)
+				continue
+			}
+		}
+		out = append(out, *j.Finding)
+	}
+	return out
 }

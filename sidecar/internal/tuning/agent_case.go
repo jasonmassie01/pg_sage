@@ -66,7 +66,7 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	if left > 0 {
 		a.logFn("INFO", "tuning: %d case(s) left for later", left)
 	}
-	return a.rank(judged, cy.cal)
+	return a.recordHints(ctx, a.rank(judged, cy.cal))
 }
 
 func (a *Agent) operatorRejected(ctx context.Context) map[string]bool {
