@@ -112,6 +112,7 @@ func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
 	raw, _ := json.Marshal(before)
 	id := insertVerifiedAction(t, pool, verifiedActionRow{sql: sql, before: string(raw),
 		executedAt: time.Now().UTC()})
+	waitXminHorizonPast(t, ctx, pool, "public."+table)
 	if _, err := pool.Exec(ctx, sql); err != nil {
 		t.Fatalf("vacuum freeze: %v", err)
 	}
@@ -122,4 +123,29 @@ func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
 	if got.Verdict != verify.OutcomeImproved || got.Observed.Metric != verify.MetricFrozenXIDAge {
 		t.Fatalf("freeze outcome = %+v, want improved on relfrozenxid age", got)
 	}
+}
+
+// waitXminHorizonPast waits until no other backend's snapshot is older than
+// the table's relfrozenxid. VACUUM FREEZE can only advance relfrozenxid to
+// the oldest running xmin, and on the shared CI server another package's
+// open transaction held it behind the new table, so the age could not drop
+// (PG15 CI: neutral instead of improved).
+func waitXminHorizonPast(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table string) {
+	t.Helper()
+	for i := 0; i < 120; i++ {
+		var clear bool
+		if err := pool.QueryRow(ctx, `SELECT NOT EXISTS (
+			SELECT 1 FROM pg_stat_activity a, pg_class c
+			WHERE c.oid = to_regclass($1) AND a.pid <> pg_backend_pid()
+			  AND a.backend_xmin IS NOT NULL
+			  AND age(a.backend_xmin) >= age(c.relfrozenxid))`, table).Scan(&clear); err != nil {
+			t.Fatalf("read the xmin horizon: %v", err)
+		}
+		if clear {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("another backend held the xmin horizon behind %s for 30 s", table)
 }
