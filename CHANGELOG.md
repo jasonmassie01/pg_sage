@@ -19,7 +19,15 @@
   rejections). Every proposal carries a confidence calibrated on the outcomes of comparable
   past actions, or says "uncalibrated" when there are too few; approval cards and the Trust
   page show it, and a low calibrated confidence needs an operator. The fixed-weight
-  optimizer confidence score is gone. See `docs/configuration.md#tuning-agent`.
+  optimizer confidence score is gone. Lessons from dogfooding are built in: open
+  recommendations the agent did not examine stay open (only the catalog can retire one),
+  cases the budget cannot reach go first next cycle, the daily token budget is kept in the
+  database so a restart does not reset it, a proposal cut by the cycle cap leaves no trace,
+  setting changes need evidence measured in the last interval and after the previous
+  change's verification (a third change in the same direction within 7 days needs an
+  operator), and an index is never proposed beside an existing or in-flight index that
+  already serves it or that it would make redundant. See
+  `docs/configuration.md#tuning-agent`.
 
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 

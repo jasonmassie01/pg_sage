@@ -452,6 +452,27 @@ number. When the calibrated rate's 95% lower bound is under
 ranked calibrated-confident first, then uncalibrated, then calibrated-doubtful. The Trust
 page and `GET /api/v1/tuning/calibration?database=` show the reliability bins.
 
+Safeguards learned from dogfooding:
+
+- **Open findings are never resolved by absence.** A recommendation the agent did not
+  examine this cycle stays open unchanged; only catalog evidence retires one (its table is
+  gone, an existing index covers it, the index it would drop is gone).
+- **Daily budget survives restarts.** The agent charges its model tokens per database and
+  UTC day to `sage.tuning_budget_day`, capped at the daily token budget of the client it
+  uses (`llm.optimizer_llm.token_budget_daily` when the optimizer LLM is enabled and sets
+  one, else `llm.token_budget_daily`). Exported as
+  `pg_sage_tuning_budget_day_tokens_{used,limit}{database}`.
+- **Settings change on fresh evidence only.** A setting or storage parameter needs counters
+  measured over the last snapshot interval (a `work_mem` change needs temp spills in it;
+  cumulative totals since a statistics reset are never evidence), waits while its last
+  change is being verified, needs evidence measured after that change once it is decided,
+  and needs an operator when it would be the third change in the same direction within
+  7 days (the history is on the approval card).
+- **No overlapping indexes.** An index candidate is refused when an existing or in-flight
+  index (queued, or an open proposal) already serves it, or when it would make one
+  redundant; one proposal per table and leading key per cycle; HypoPG measures it with the
+  in-flight indexes present.
+
 | Parameter | Default | Description |
 |---|---|---|
 | `tuning.enabled` | `true` | Run the tuning agent when an LLM is usable |

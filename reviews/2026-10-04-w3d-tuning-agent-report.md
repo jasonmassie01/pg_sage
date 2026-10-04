@@ -249,3 +249,37 @@ resolved it. In #115 (tests first, `keep_open_test.go`, `store_relations_db_test
 
 The metrics test expectations for `pg_sage_tuning_proposals_capped_total` were
 missing from the hint-cap commit (a script edit did not apply); they are added here.
+
+## Follow-up: settings ratchet, durable daily budget, overlapping indexes (lifeos, v1.10.0)
+
+Each fix landed tests first (`setting_history_test.go`, `store_history_db_test.go`,
+`day_budget_test.go`, `store_day_budget_db_test.go`, `inflight_test.go`,
+`optimizer/subsumes_test.go`, `optimizer/hypopg_alongside_test.go`).
+
+1. **work_mem ratchet** (actions 6407, 6409; cumulative pg_stat_database temp totals as
+   evidence). Setting and storage-parameter proposals need counters measured over the
+   snapshot interval; a spill setting needs temp blocks the case statements wrote in it.
+   Statements without an earlier sample are labeled cumulative in the packet and the
+   statement tool no longer returns cumulative counters. Each change is judged against the
+   setting's ledger history (`SettingActions`, 7 days): refused while the last change's
+   verification is open, refused unless the evidence window starts after the last change
+   once decided, and `approval_required` with the history (`setting_history`) when it
+   would be the third same-direction change in 7 days (two earlier: gated; one: not).
+   Unreadable history refuses setting proposals.
+2. **Daily budget reset by restart.** The agent charges spend after each case to
+   `sage.tuning_budget_day` (new table, retention by `updated_at`) per database and UTC
+   day, caps each cycle at what is left, asks nothing when less than one request's output
+   reservation is left or the day is unreadable, and stops the cycle when a charge fails.
+   The cap is the daily token budget of the client the agent uses. The SRE investigator's
+   `sre_budget_reservations` was not reused: it is keyed by SRE deployment and database
+   bindings (uuid foreign keys) and lives in W3-B's package.
+3. **Overlapping indexes** (actions 6410, 6411). `optimizer.Subsumes` adds predicate
+   implication to the coverage rule. A candidate is refused when an existing or in-flight
+   index (pending or approved `sage.action_queue` creates, open index proposals) serves it,
+   refused when it would make one redundant, and refused as a second proposal for the same
+   table and leading key in a cycle. HypoPG builds the in-flight indexes as hypothetical
+   ones before measuring. The packet lists them.
+
+Open question: a true replacement (create the wider index and drop the subsumed one as
+one action with one prediction) needs executor support for a composite action; until
+then the agent refuses such candidates instead of proposing an independent create.
