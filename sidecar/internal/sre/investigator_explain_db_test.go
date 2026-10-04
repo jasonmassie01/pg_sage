@@ -19,6 +19,8 @@ import (
 // single read statement is explained, plan-only (no ANALYZE ever, so the
 // statement never runs), in a read-only transaction under the probe
 // timeouts; the evidence carries plan node shapes, never query text.
+// A normalized statement ($n parameters) gets its generic plan, never a
+// plan for constant NULLs (the plan must still read the table).
 
 func explainTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	t.Helper()
@@ -56,29 +58,12 @@ func statementID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql, mar
 	return id
 }
 
-func serverVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
-	t.Helper()
-	var v int
-	if err := pool.QueryRow(ctx,
-		"SELECT current_setting('server_version_num')::int").Scan(&v); err != nil {
-		t.Fatalf("version: %v", err)
-	}
-	return v
-}
-
 func TestStatementExplainer_ExplainsAReadStatementPlanOnly(t *testing.T) {
 	_, pool, ctx := liveStore(t, DefaultLimits())
 	tbl := explainTable(t, ctx, pool)
 	id := statementID(t, ctx, pool, "SELECT v FROM "+tbl+" WHERE v LIKE 'v1%'",
 		"FROM "+tbl+" WHERE v LIKE")
 	res := NewStatementExplainer(pool).ExplainStatement(ctx, id)
-	if serverVersion(t, ctx, pool) < 160000 {
-		if res.Status != probes.StatusUnsupported || res.Reason != ReasonGenericPlan {
-			t.Fatalf("PG < 16, a normalized statement: %+v, want unsupported %s", res,
-				ReasonGenericPlan)
-		}
-		return
-	}
 	if res.Status != probes.StatusOK || res.ProbeID != ExplainProbeID || len(res.Rows) == 0 {
 		t.Fatalf("explain = %+v", res)
 	}
@@ -143,11 +128,6 @@ func TestStatementExplainer_IsBoundedByTheProbeTimeout(t *testing.T) {
 
 func TestInvestigator_ExplainToolStoresPlanEvidence(t *testing.T) {
 	st, pool, ctx := liveStore(t, budgetLimits())
-	if serverVersion(t, ctx, pool) < 160000 {
-		t.Log("PG < 16: normalized statements need GENERIC_PLAN; covered as unsupported " +
-			"in TestStatementExplainer_ExplainsAReadStatementPlanOnly")
-		return
-	}
 	tbl := explainTable(t, ctx, pool)
 	id := statementID(t, ctx, pool, "SELECT v FROM "+tbl+" WHERE id = $1",
 		"FROM "+tbl+" WHERE id", 7)

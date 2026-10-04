@@ -15,7 +15,7 @@ import (
 // Redaction is the replay export's (#111): identifiers become keyed
 // hashes unless the operator keeps them; secrets never survive.
 
-func secretRunner() *scriptedRunner {
+func txSecretRunner() *scriptedRunner {
 	r := idleChainRunner()
 	r.script(probes.LongTransactions, rows(probes.LongTransactions, probes.Row{
 		"pid": int64(4242), "state": "idle in transaction", "xact_age_s": 95.0,
@@ -39,7 +39,7 @@ func transcriptInvestigation(t *testing.T) (*Service, Investigation) {
 			return invFinal{Outcome: "agree", Claims: []invClaim{
 				idleClaim(aliasOf(t, body, probes.LockGraph, "ok"))}}
 		}))
-	c, _ := investigatorCoordinator(t, ctx, st, secretRunner(), m.client(), invOptions{})
+	c, _ := investigatorCoordinator(t, ctx, st, txSecretRunner(), m.client(), invOptions{})
 	inv := startAndRun(t, ctx, c, lockTrigger("inv-transcript"))
 	return NewService("db1", c, st), inv
 }

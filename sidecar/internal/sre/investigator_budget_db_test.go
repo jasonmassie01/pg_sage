@@ -17,10 +17,14 @@ func invTokens(in, out int64, key string) TokenRequest {
 func TestReserveInvestigator_ChargesTheInvestigationCapInclusively(t *testing.T) {
 	st, _, ctx := liveStore(t, budgetLimits())
 	lease := claimed(t, st, "pid 9001")
-	if _, err := st.ReserveInvestigator(ctx, lease, invTokens(600, 400, "inv-1"), 2000); err != nil {
+	reserve := func(in, out int64, key string) error {
+		_, err := st.ReserveInvestigator(ctx, lease, invTokens(in, out, key), 2000)
+		return err
+	}
+	if err := reserve(600, 400, "inv-1"); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	if _, err := st.ReserveInvestigator(ctx, lease, invTokens(700, 300, "inv-2"), 2000); err != nil {
+	if err := reserve(700, 300, "inv-2"); err != nil {
 		t.Fatalf("a call reaching the cap exactly was refused: %v", err)
 	}
 	_, err := st.ReserveInvestigator(ctx, lease, invTokens(1, 1, "inv-3"), 2000)

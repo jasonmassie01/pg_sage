@@ -56,3 +56,7 @@ func classify(err error) (Status, string) {
 		return StatusError, "query_failed"
 	}
 }
+
+// Classify maps an error of a read the probe runner did not make (the
+// investigator's plan-only EXPLAIN) to the same typed status and reason.
+func Classify(err error) (Status, string) { return classify(err) }

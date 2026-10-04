@@ -64,6 +64,15 @@ func TestInvestigator_AgreesAndCitesToolEvidence(t *testing.T) {
 	if g := stepsOf(run, ToolGraphState); len(g) != 1 || g[0].EvidenceID != "" {
 		t.Fatalf("graph_state steps = %+v, want one, not evidence", g)
 	}
+	assertCitesStored(t, inv, stored, probesRun[0].EvidenceID)
+	assertAgreedOnTheInvestigatorPath(t, st, inv)
+}
+
+// assertCitesStored checks the narrative's two claims cite this
+// investigation's evidence, the second the run_probe result.
+func assertCitesStored(t *testing.T, inv Investigation, stored map[UUID]Evidence,
+	probeEvidence UUID) {
+	t.Helper()
 	n := inv.Summary.Narrative
 	if n == nil || len(n.Claims) != 2 {
 		t.Fatalf("narrative = %+v, want 2 cited claims", n)
@@ -75,10 +84,16 @@ func TestInvestigator_AgreesAndCitesToolEvidence(t *testing.T) {
 			}
 		}
 	}
-	if n.Claims[1].EvidenceIDs[0] != probesRun[0].EvidenceID {
+	if n.Claims[1].EvidenceIDs[0] != probeEvidence {
 		t.Fatalf("second claim cites %s, want the run_probe evidence %s",
-			n.Claims[1].EvidenceIDs[0], probesRun[0].EvidenceID)
+			n.Claims[1].EvidenceIDs[0], probeEvidence)
 	}
+}
+
+// assertAgreedOnTheInvestigatorPath checks the agreement, its event and
+// that only the investigator's reservations were used.
+func assertAgreedOnTheInvestigatorPath(t *testing.T, st *PostgresStore, inv Investigation) {
+	t.Helper()
 	mc := inv.Summary.ModelConclusion
 	if mc == nil || mc.Outcome != ModelAgreed || mc.Authority != ContestAdvisory {
 		t.Fatalf("model conclusion = %+v", mc)
@@ -102,16 +117,19 @@ func TestInvestigator_PromptCarriesTheGraphTheEvidenceAndTheBudget(t *testing.T)
 	m := agreeingTranscript(t)
 	c, _ := investigatorCoordinator(t, ctx, st, longTxRunner(), m.client(), invOptions{})
 	startAndRun(t, ctx, c, lockTrigger("inv-prompt"))
-	first := m.body(t, 0)
-	if !containsAll(first, "idle_in_tx_holder", "conclusive", "E1 [lock_graph ok]",
-		ToolRunProbe, ToolSubmit, "unmodeled", `<data label=\"evidence`) {
+	first := requestText(t, m.body(t, 0))
+	// Evidence of one step is ordered by observation time, which can tie
+	// at the store's microsecond precision: the lock graph has some alias.
+	if !containsAll(first, "idle_in_tx_holder", "conclusive", ToolRunProbe, ToolSubmit,
+		"unmodeled", `<data label="evidence`) ||
+		!regexp.MustCompile(`E\d+ \[lock_graph ok\]`).MatchString(first) {
 		t.Fatalf("first prompt misses the graph, evidence or tools: %s", first)
 	}
 	narrow := DefaultInvestigatorPlans()[PlanNarrow]
 	if !strings.Contains(first, itoa(int64(narrow.MaxSteps))+" model steps") {
 		t.Fatalf("first prompt does not state the step budget: %s", first)
 	}
-	if strings.Contains(first, `"name":"`+ToolExplain+`"`) {
+	if strings.Contains(m.body(t, 0), `"name":"`+ToolExplain+`"`) {
 		t.Fatal("the narrow plan offered EXPLAIN without an explainer")
 	}
 }

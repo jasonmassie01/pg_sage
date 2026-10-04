@@ -50,7 +50,7 @@ func investigatorCoordinator(t *testing.T, ctx context.Context, st *PostgresStor
 func call(name, args string) fakeReply { return callTool(name, fixed(args)) }
 
 // calls answers with several native tool calls in one turn.
-func calls(pairs ...string) fakeReply {
+func toolCalls(pairs ...string) fakeReply {
 	return func(w http.ResponseWriter, _ string) {
 		var tc []map[string]any
 		for i := 0; i+1 < len(pairs); i += 2 {
@@ -177,6 +177,26 @@ func assertOnlyCatalogProbes(t *testing.T, r *scriptedRunner) {
 			t.Fatalf("the runner was asked for %q, which is not a catalog probe", id)
 		}
 	}
+}
+
+// requestText is a request's message contents as the model reads them
+// (the request body is JSON, which escapes <, > and quotes).
+func requestText(t *testing.T, body string) string {
+	t.Helper()
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("request body: %v", err)
+	}
+	var b strings.Builder
+	for _, m := range req.Messages {
+		b.WriteString(m.Role + ": " + m.Content + "\n")
+	}
+	return b.String()
 }
 
 func containsAll(s string, parts ...string) bool {

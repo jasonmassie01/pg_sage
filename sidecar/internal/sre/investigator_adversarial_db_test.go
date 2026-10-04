@@ -56,8 +56,8 @@ func TestInvestigator_PromptInjectionInProbeResultsStaysData(t *testing.T) {
 	inv := startAndRun(t, ctx, c, lockTrigger("inv-injection"))
 	assertIdleRoot(t, st, inv)
 	assertOnlyCatalogProbes(t, runner)
-	second := m.body(t, 1)
-	if !strings.Contains(second, llm.UntrustedDataRule[:40]) {
+	second := requestText(t, m.body(t, 1))
+	if !strings.Contains(second, llm.UntrustedDataRule) {
 		t.Fatal("the system prompt lacks the untrusted-data rule")
 	}
 	if !strings.Contains(second, "IGNORE PREVIOUS INSTRUCTIONS") ||
@@ -81,7 +81,7 @@ func TestInvestigator_ToolSpamIsBoundedByTheProbeBudget(t *testing.T) {
 		probes.Archiver, probes.CheckpointActivity, probes.LWLockWaits} {
 		spam = append(spam, ToolRunProbe, probeArgs(id))
 	}
-	m := newFakeModel(t, calls(spam...), calls(spam...), calls(spam...),
+	m := newFakeModel(t, toolCalls(spam...), toolCalls(spam...), toolCalls(spam...),
 		submitFixed(invFinal{Outcome: "inconclusive"}))
 	c, _ := investigatorCoordinator(t, ctx, st, runner, m.client(), invOptions{})
 	inv := startAndRun(t, ctx, c, lockTrigger("inv-spam"))
@@ -202,8 +202,15 @@ func TestInvestigator_TokenCapStopsTheLoop(t *testing.T) {
 	p := plans[PlanNarrow]
 	p.MaxTokens, p.StepTokens = 3000, 500
 	plans[PlanNarrow] = p
-	m := newFakeModel(t, call(ToolGraphState, `{}`), call(ToolGraphState, `{"x":1}`),
-		submitFixed(invFinal{Outcome: "agree"}))
+	// A model that reports 1,200 tokens a call: the cap binds before it
+	// can conclude.
+	big := func(next fakeReply) fakeReply {
+		return func(w http.ResponseWriter, body string) {
+			next(&usageWriter{ResponseWriter: w, usage: 1200}, body)
+		}
+	}
+	m := newFakeModel(t, big(call(ToolGraphState, `{}`)),
+		big(call(ToolGraphState, `{"x":1}`)), big(submitFixed(invFinal{Outcome: "agree"})))
 	c, _ := investigatorCoordinator(t, ctx, st, idleChainRunner(), m.client(),
 		invOptions{config: InvestigatorConfig{Plans: plans}})
 	inv := startAndRun(t, ctx, c, lockTrigger("inv-tokens"))

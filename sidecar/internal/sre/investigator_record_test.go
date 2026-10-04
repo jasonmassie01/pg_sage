@@ -60,6 +60,10 @@ func TestModelConclusion_ValidateMatchesTheRoot(t *testing.T) {
 			t.Errorf("valid case %d (%+v) refused: %v", i, mc, err)
 		}
 	}
+}
+
+func TestModelConclusion_ValidateRefusesWhatDoesNotMatch(t *testing.T) {
+	hs := lockHypotheses()
 	bad := map[string]func(*ModelConclusion){
 		"no label":             func(m *ModelConclusion) { m.Label = "" },
 		"unknown outcome":      func(m *ModelConclusion) { m.Outcome = "vibes" },

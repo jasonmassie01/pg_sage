@@ -27,7 +27,7 @@ func statelessModel(t *testing.T, usage int) *fakeModel {
 	reply := func(w http.ResponseWriter, body string) {
 		rec := &usageWriter{ResponseWriter: w, usage: usage}
 		if strings.Count(body, `"role":"tool"`) == 0 {
-			calls(ToolRunProbe, probeArgs(probes.ConnectionSaturation),
+			toolCalls(ToolRunProbe, probeArgs(probes.ConnectionSaturation),
 				ToolStatView, `{"view":"database"}`)(rec, body)
 			return
 		}

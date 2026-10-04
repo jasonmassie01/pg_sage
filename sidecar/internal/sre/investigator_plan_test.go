@@ -53,15 +53,17 @@ func TestInvestigatorPlans_SelectionIsByTrigger(t *testing.T) {
 func TestInvestigatorPlan_ValidateBounds(t *testing.T) {
 	ok := DefaultInvestigatorPlans()[PlanBroad]
 	cases := map[string]func(*InvestigatorPlan){
-		"empty name":       func(p *InvestigatorPlan) { p.Name = "" },
-		"zero steps":       func(p *InvestigatorPlan) { p.MaxSteps = 0 },
-		"steps over":       func(p *InvestigatorPlan) { p.MaxSteps = CeilingInvestigatorSteps + 1 },
-		"negative probes":  func(p *InvestigatorPlan) { p.MaxProbes = -1 },
-		"probes over":      func(p *InvestigatorPlan) { p.MaxProbes = CeilingProbes + 1 },
-		"zero wall":        func(p *InvestigatorPlan) { p.Wall = 0 },
-		"wall over":        func(p *InvestigatorPlan) { p.Wall = CeilingActive + time.Second },
-		"zero tokens":      func(p *InvestigatorPlan) { p.MaxTokens = 0 },
-		"tokens over":      func(p *InvestigatorPlan) { p.MaxTokens = CeilingInvestigatorTokens + 1 },
+		"empty name":      func(p *InvestigatorPlan) { p.Name = "" },
+		"zero steps":      func(p *InvestigatorPlan) { p.MaxSteps = 0 },
+		"steps over":      func(p *InvestigatorPlan) { p.MaxSteps = CeilingInvestigatorSteps + 1 },
+		"negative probes": func(p *InvestigatorPlan) { p.MaxProbes = -1 },
+		"probes over":     func(p *InvestigatorPlan) { p.MaxProbes = CeilingProbes + 1 },
+		"zero wall":       func(p *InvestigatorPlan) { p.Wall = 0 },
+		"wall over":       func(p *InvestigatorPlan) { p.Wall = CeilingActive + time.Second },
+		"zero tokens":     func(p *InvestigatorPlan) { p.MaxTokens = 0 },
+		"tokens over": func(p *InvestigatorPlan) {
+			p.MaxTokens = CeilingInvestigatorTokens + 1
+		},
 		"zero step tokens": func(p *InvestigatorPlan) { p.StepTokens = 0 },
 		"step over total":  func(p *InvestigatorPlan) { p.StepTokens = int(p.MaxTokens) + 1 },
 		"unknown tool":     func(p *InvestigatorPlan) { p.Tools = append(p.Tools, "run_sql") },
