@@ -16,6 +16,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -52,6 +53,10 @@ type Card struct {
 	// ShadowHistory is the action class's shadow record (roadmap 1.4);
 	// not part of the hash: it changes as decisions score, the action not.
 	ShadowHistory *shadow.History `json:"shadow_history,omitempty"`
+	// VerificationWait is another change still being verified on this
+	// change's object (one change per object); approving overrides it. Not
+	// part of the hash: it ends when that verdict lands.
+	VerificationWait *VerificationWait `json:"verification_wait,omitempty"`
 }
 
 // FindingRef is the finding behind the action.
@@ -154,6 +159,10 @@ type Inputs struct {
 	// a class the ledger does not judge); TrustErr an unreadable ledger.
 	Trust    *earned.TrustRow
 	TrustErr error
+	// Waits are the changes in flight on the action's objects; WaitsErr an
+	// unreadable in-flight state.
+	Waits    []policy.PendingVerification
+	WaitsErr error
 	Now      time.Time
 }
 

@@ -98,6 +98,18 @@ function TrustLine({ trust }) {
   )
 }
 
+// WaitLine is another change still being verified on this change's object
+// (one change per object): approving overrides that verification.
+function WaitLine({ wait }) {
+  if (!wait || !wait.line) return null
+  return (
+    <div data-testid="approval-verification-wait" className="text-sm"
+      style={{ color: 'var(--yellow)' }}>
+      {wait.line}
+    </div>
+  )
+}
+
 function EvidenceSection({ evidence }) {
   if (!Array.isArray(evidence) || evidence.length === 0) return null
   return (
@@ -206,6 +218,7 @@ export function ApprovalCard({ card, onDecided, facts = null }) {
       )}
       <WhySection why={card.why_approval} />
       <TrustLine trust={card.trust} />
+      <WaitLine wait={card.verification_wait} />
       {facts}
       <EvidenceSection evidence={card.evidence} />
       <RationaleSection rationale={card.rationale} />

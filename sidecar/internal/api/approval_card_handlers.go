@@ -54,6 +54,7 @@ func (h *approvalCardHandlers) cardLoader(inst *fleet.DatabaseInstance) approval
 	}
 	if inst.Executor != nil {
 		l.TrustLevel = inst.Executor.TrustLevel()
+		l.Waits = inst.Executor.VerificationWaits()
 	}
 	return l
 }

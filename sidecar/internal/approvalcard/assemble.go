@@ -28,7 +28,8 @@ func Assemble(in Inputs) Card {
 	c.Predicted = predictedOf(in)
 	c.Rollback = rollbackOf(a, in.Contract)
 	c.Risk = riskOf(in, c)
-	c.Why = whyOf(in, c.ActionType)
+	c.VerificationWait = waitOf(in, now)
+	c.Why = append(whyOf(in, c.ActionType), waitReason(c.VerificationWait)...)
 	c.Trust = trustOf(in)
 	if s := in.Snooze; s != nil && s.Until.After(now) {
 		until := s.Until

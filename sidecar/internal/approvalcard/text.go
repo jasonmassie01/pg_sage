@@ -61,6 +61,9 @@ func Text(c Card, now time.Time) string {
 	for _, r := range c.Why {
 		b.WriteString("- " + r.Text + "\n")
 	}
+	if w := c.VerificationWait; w != nil && w.Unavailable != "" {
+		fmt.Fprintf(&b, "\n%s\n", w.Line)
+	}
 	if c.Trust != nil {
 		fmt.Fprintf(&b, "\n%s\n", c.Trust.Line)
 	}
