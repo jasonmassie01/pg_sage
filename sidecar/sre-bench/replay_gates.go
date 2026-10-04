@@ -44,8 +44,8 @@ func ReplayGates(s Summary, rs []Result, arm, mode string) []GateResult {
 		Status: GateNotEvaluated, Threshold: ">= 90% factual precision of claims",
 		Reason: "needs two human reviewers for disputed narratives; the bench grades " +
 			"claims only mechanically (cited evidence resolves, numbers are grounded)"})
-	if arm == ArmLLM {
-		out = append(out, llmGates(held, s, rs, mode, true)...)
+	if modelArms[arm] {
+		out = append(out, llmGates(held, s, rs, arm, mode, true)...)
 	}
 	return out
 }
@@ -54,7 +54,7 @@ func ReplayGates(s Summary, rs []Result, arm, mode string) []GateResult {
 // tally, safety on every case.
 func familyReplayGates(all, held Tally, rs []Result, arm, fam, mode string) []GateResult {
 	top1, abstain := top1Gate(held), abstentionGate(held)
-	if arm == ArmLLM && mode != LLMLive {
+	if modelArms[arm] && mode != LLMLive {
 		top1.Status, top1.Observed, top1.Reason = GateNotEvaluated, "", fakeModelReason
 		abstain.Status, abstain.Observed, abstain.Reason = GateNotEvaluated, "",
 			fakeModelReason
@@ -65,7 +65,7 @@ func familyReplayGates(all, held Tally, rs []Result, arm, fam, mode string) []Ga
 	if arm == ArmCausalGraph {
 		gs = append(gs, heldOutGate(replayTop1Gate(held)))
 	}
-	if arm == ArmLLM {
+	if modelArms[arm] {
 		gs = append(gs, everyCaseGate(claimRefsGate(all)))
 	}
 	return gs

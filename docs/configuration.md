@@ -740,7 +740,54 @@ the investigation reports the evidence as unavailable instead of guessing. Stand
 evidence (paused replay, standby queries holding replay back) is only visible when pg_sage
 monitors the standby itself.
 
-**Model turn (on by default whenever an LLM is configured).** After the causal graph has
+**Tool-calling investigator (the default model mode, `sre.llm.mode: investigator`).**
+Instead of the single review turn below, the model plans its own reads after the causal graph
+has scored the hypotheses. Every tool only reads:
+
+- catalog probes with typed arguments;
+- three pg_stat views (`database`, `tables`, `statements`), registered as catalog probes;
+- a plan-only `EXPLAIN` of a statement by its `pg_stat_statements` queryid (the broad plan, and the narrow plan of a plan-regression investigation).
+  It is never `ANALYZE` and never runs the statement. It plans the generic plan in a
+  read-only transaction and returns node shapes only, never query text;
+- the graph's current state and operator-confirmed facts.
+
+No tool can change anything. Remediation stays a typed proposal through the policy gate.
+
+The loop is bounded by its plan:
+
+| Plan | Used for | Model steps | Probes | Wall clock | Tokens |
+|---|---|---|---|---|---|
+| broad | operator-started investigations (`POST /api/v1/databases/{db}/investigations`) and SLO burn | 10 | 6 | 90 s | 64k |
+| narrow | detector and incident triggers (plan regressions also get the plan-only `EXPLAIN`) | 5 | 3 | 45 s | 32k |
+
+Probes count against the investigation's 12-probe ceiling. Each model call is reserved in the
+same durable budget ledger as the review turn, before it is sent. Every tool call is stored as
+evidence with its SHA-256 digest. Repeated calls, unknown tools, calls over the budget and
+malformed replies are refused, counted and shown.
+
+The model finishes with `submit_conclusion`, whose outcome is one of:
+
+- `agree`: it agrees with the graph's conclusive root;
+- `conclude`: it names a graph node on an inconclusive graph;
+- `contest`: it names another graph node against a conclusive root;
+- `unmodeled`: it names a cause the graph has no node for;
+- `inconclusive`.
+
+Each claim must cite evidence ids, and every number in a claim must appear in the cited
+evidence. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
+unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
+advisory unless its family has earned model-root authority from held-out bench results, and
+the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The
+model's reads can conclude an inconclusive graph, but never move or drop a conclusive root;
+only an adopted contest can. When the loop stops without a usable answer (step, token or
+wall-clock budget, rate limit, timeout, malformed replies), the graph's diagnosis stands and a
+`model_rejected` event gives the reason. Providers without native tool calls get a JSON action
+protocol automatically. The transcript (the plan, each tool call with its result and digest,
+the citations, and the stop reason) is shown in the investigation view. It is also served,
+redacted, at `GET /api/v1/databases/{db}/investigations/{id}/transcript` and by the MCP tool
+`sre_get_transcript`. Unredacted identifiers (`?keep_identifiers=true`) need the operator role.
+
+**Review turn (`sre.llm.mode: review`).** After the causal graph has
 scored the hypotheses, the configured LLM (`llm.*`) reviews the result. It may only:
 
 - reorder the graph's own open hypotheses (shown separately as "model ranking", never merged
@@ -778,6 +825,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
 | `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
 | `sre.llm.enabled` | `true` | Model turn in investigations, used whenever an LLM is configured. `false` keeps investigations deterministic. Restart to change |
+| `sre.llm.mode` | `investigator` | `investigator`: the model plans read-only probes within the plan's budget and concludes with cited evidence. `review`: one cheaper review turn. Restart to change |
 | `sre.detectors.window_seconds` | `300` | Seconds over which checkpoint and temp-file growth is measured, `60`-`3600`. Keep it at least twice `sre.trigger_interval_seconds`; a shorter window cannot see growth between two polls, and the sidecar warns at startup |
 | `sre.detectors.checkpoint_requested` | `3` | Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), `1`-`1000` |
 | `sre.detectors.temp_file_mb` | `1024` | MiB of temp files this database writes within the window that are a temp-file explosion, `1`-`1048576` |

@@ -278,6 +278,7 @@
 | `sre.detectors.window_seconds` | `restart` | `-` |
 | `sre.evidence_retention_days` | `restart` | `-` |
 | `sre.llm.enabled` | `restart` | `-` |
+| `sre.llm.mode` | `restart` | `-` |
 | `sre.poolers` | `restart` | `-` |
 | `sre.runways.disk_critical_hours` | `restart` | `-` |
 | `sre.runways.disk_horizon_hours` | `restart` | `-` |

@@ -63,6 +63,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry) *ht
 	registerSREActionRoutes(mux, mgr)
 	registerRunbookRoutes(mux, mgr, ledgers)
 	registerReplayCaseRoute(mux, mgr)
+	registerTranscriptRoute(mux, mgr)
 	return mux
 }
 

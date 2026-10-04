@@ -45,6 +45,12 @@ type replayModeler interface {
 	replayModel(sc Scenario) (*llm.Client, *ModelTap, func(), error)
 }
 
+// replayInvestigatorArm is a replay arm that runs the tool-calling
+// investigator instead of the review turn.
+type replayInvestigatorArm interface {
+	replayInvestigator() *sre.InvestigatorConfig
+}
+
 func (CausalGraph) replayModel(Scenario) (*llm.Client, *ModelTap, func(), error) {
 	return nil, nil, func() {}, nil
 }
@@ -90,7 +96,12 @@ func (e *Env) replay(ctx context.Context, c replay.Case, sc Scenario,
 	if err != nil {
 		return Outcome{}, nil, err
 	}
-	run, err := e.startInvestigation(ctx, sc, runner, replaySignals(runner), noWait, model)
+	var inv *sre.InvestigatorConfig
+	if ia, ok := m.(replayInvestigatorArm); ok {
+		inv = ia.replayInvestigator()
+	}
+	run, err := e.startInvestigation(ctx, sc, runner, replaySignals(runner), noWait, model,
+		inv)
 	if err != nil {
 		return Outcome{}, nil, fmt.Errorf("investigate: %w", err)
 	}

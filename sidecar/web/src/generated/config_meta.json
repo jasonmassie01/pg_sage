@@ -1490,6 +1490,11 @@
     "default": true,
     "doc": "Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."
   },
+  "sre.llm.mode": {
+    "type": "string",
+    "default": "investigator",
+    "doc": "investigator: the model plans read-only probes and concludes with cited evidence (advisory). review: one cheaper review turn. Default: investigator."
+  },
   "sre.poolers[].databases": {
     "type": "[]string",
     "default": null,

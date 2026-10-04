@@ -29,7 +29,7 @@ import (
 // statements (pg_stat_statements hides their query ids).
 var activityProbes = []ID{LockChains, LockGraph, LongTransactions, BackendIdentity,
 	ConnectionSaturation, ReplicationLag, VacuumProgress, LWLockWaits, StandbyReplayState,
-	TempSpillStatements, XIDRunwayProbe, XminHorizon}
+	TempSpillStatements, XIDRunwayProbe, XminHorizon, StatStatements}
 
 func TestCatalog_ActivityProbesDeclareTheirRole(t *testing.T) {
 	need := map[ID]bool{}

@@ -73,6 +73,12 @@ func (s Summary) validateModel(hs []HypothesisRecord, concluded bool) error {
 	if err := s.ModelContest.validate(hs, s.Root, concluded); err != nil {
 		return err
 	}
+	if err := s.ModelConclusion.validate(hs, s.Root, concluded); err != nil {
+		return err
+	}
+	if err := s.Investigator.validate(); err != nil {
+		return err
+	}
 	return s.ModelProbe.validate()
 }
 
@@ -165,5 +171,5 @@ func (s Summary) modelRefs() []UUID {
 	if s.ModelProbe != nil && s.ModelProbe.EvidenceID != "" {
 		out = append(out, s.ModelProbe.EvidenceID)
 	}
-	return out
+	return append(out, s.Investigator.evidenceRefs()...)
 }

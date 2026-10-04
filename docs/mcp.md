@@ -343,6 +343,18 @@ Scope: `read`
 | `evidence_id` | string | yes | format uuid |
 | `investigation_id` | string | yes | format uuid |
 
+### `sre_get_transcript`
+
+Read the tool-calling investigator's transcript of one investigation: plan, each tool call with its redacted result and digest, cited claims and the outcome with its authority.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `investigation_id` | string | yes | format uuid |
+| `keep_identifiers` | boolean | no | operators only: keep identifiers instead of keyed hashes |
+
 ### `sre_propose_action`
 
 Propose the evidence-matched mitigation of a concluded investigation (cancel of the one root backend) with its repair contract and policy verdict, or why there is none. Never executes anything.
