@@ -34,7 +34,16 @@
   table's queries not regressing, and its verdict now counts on the Trust page instead of only
   carrying a level over. Extended statistics are verified by whether the targeted queries'
   row estimates got better (from sampled plans with actual rows) without their latency getting
-  worse; pg_sage does not run `CREATE STATISTICS` itself yet, so this applies once it does.
+  worse.
+- **pg_sage can create extended statistics.** It runs `CREATE STATISTICS` on correlated
+  columns and the `ANALYZE` that builds it as one action (one transaction, one entry in the
+  action log), and verifies it by the row estimates of the targeted queries. Only its own
+  form runs: a `sage_stx_` object in the table's schema, of kinds `ndistinct`, `dependencies`
+  and `mcv`, on 2 to 8 plain columns of one table, taking the same `SHARE UPDATE EXCLUSIVE`
+  lock as `ANALYZE` (reads and writes continue). It is undone by dropping exactly that object,
+  by hand or automatically when the targeted queries regress. It is policy change class
+  `analyze` and trust class statistics (tuning family), so it goes through the same approval,
+  budgets and earned trust as every other action.
 
 ## v1.9.0 (2026-10-04) -- Earned trust: verified actions, shadow mode, approval cards
 

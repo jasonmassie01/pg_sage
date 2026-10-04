@@ -14,6 +14,7 @@ lifeos container was touched.
 | 3 | sage tables with high dead-tuple ratios (`trust_ledger_state` 1 live / 3 dead, `query_hints` 1 / 8, `action_queue` 6 / 4, ...) | No rewrite of unchanged ledger cursors. Small-table autovacuum settings for 7 small state tables. | `earned/selfinit_store.go`, `selfinit_shadow_reconcile.go`, `schema/storage_migration.go` |
 | 4 | The trust ledger could not earn `statistics` or `reindex` (no verifier, outcome class `""`) | Deterministic verifiers in `internal/verify`, wired into the post-action monitor. The ledger maps both classes. | `verify/statistics.go`, `estimates.go`, `reindex.go`; `executor/verify_r2.go`, `monitor_r2.go`; `earned/selfinit.go` |
 | 5 | Pending queue item 6 proposed `graph_nodes (node_type, name)` beside an index on `(node_type, name) INCLUDE (id)`. Queue item 5's finding (18007) was already resolved. | The coverage rule runs on every queue and execute path. Pending items whose reason is gone are superseded each cycle. | `optimizer/covered.go`, `executor/queue_hygiene.go`, `apply_finding.go`, `manual.go` |
+| 6 | (Owner decision on PR #110) pg_sage could verify `CREATE STATISTICS` but not run it | The executor runs the pg_sage form with its `ANALYZE` as one action, reversible by dropping exactly that object, through `policy.Gate` | `extstats/extstats.go`, `sqlast/statistics_cgo.go`, `executor/statistics_action.go`, `contract_statistics.go` |
 
 ## 1. Diagnostic statements in advice
 
@@ -254,6 +255,83 @@ transition, so no "would have detected" reconstruction is needed. Tests:
 - `TestOperatorRejectionOfAStillPendingItemIsADemerit`;
 - the refused Reject in `TestSupersedeStaleApprovals`.
 
+## 6. CREATE STATISTICS execution (owner decision 2026-10-04)
+
+The owner's answers on PR #110: let pg_sage execute `CREATE STATISTICS`; keep the 8 MB /
+1000 dead-tuple floors; the stale-item rule stands (the queue status decides, supersession
+blocks a later rejection, an operator rejecting a still-pending item stays a demerit).
+
+**The form pg_sage runs** (`internal/extstats`, one parser for the executor and the case
+scripts):
+
+```
+CREATE STATISTICS [IF NOT EXISTS] <schema>.sage_stx_<...> [(ndistinct|dependencies|mcv, ...)]
+    ON <col>, <col>[, ... up to 8] FROM <schema>.<table>
+```
+
+- The object is in the table's own schema and its name starts with `sage_stx_` (at most 63
+  bytes, so PostgreSQL never truncates it). The kinds are only the ones the verifier judges.
+  Columns are plain columns of one table, never expressions.
+- The inverse is `DROP STATISTICS IF EXISTS <schema>.<name>` of exactly that object, never
+  `CASCADE`, never a list. Only `sage_stx_` objects can be dropped.
+- Two layers refuse everything else: the text allowlist (`validate.go`, new prefixes
+  `CREATE STATISTICS` / `DROP STATISTICS` with the extstats check) and the parse tree
+  (`sqlast`, `CreateStatsStmt` and `DROP STATISTICS` checked against
+  `Rules.StatisticsName`; a nil rule refuses both). Protected schemas are refused by both.
+
+**The action.**
+- `create_statistics` is a typed contract. Risk moderate, rollback class reversible, no
+  approval guardrail (the earned ledger decides, like other classes). The lock is SHARE UPDATE
+  EXCLUSIVE on the table. A real-PG test reads `pg_locks` inside the transaction: CREATE
+  STATISTICS and ANALYZE hold `ShareUpdateExclusiveLock` and nothing stronger.
+- `ExecStatistics` runs the CREATE and `ANALYZE <schema>.<table>` in one transaction under
+  statement_timeout (per statement) and the decision's lock_timeout. A failure of either
+  leaves nothing behind (tested with a held lock). It is recorded as one action with one
+  `action_log` row. The ANALYZE is not a separate hygiene action.
+- The rollback is derived when the finding or approval has none. A given rollback that does not
+  drop exactly the created object refuses the action before anything runs (operator path and
+  background path), like `checkIndexRollback` for indexes.
+- `revert_created_statistics` is the rollback's contract. Its drop kind is derivable (the
+  definition is the action's own SQL), so it is never `non_dup_object_drop`. A rollback
+  bypasses the ledger, as for every class.
+
+**Gate integration.** The action goes through `policy.Gate` like every other action. Nothing
+statistics-specific was added to the gate:
+- **Change class `analyze`** (planner statistics). A new policy class would need a stored
+  policy migration in the policy-gate area (W3-C). Operators who disallow `analyze` also
+  disallow this (tested).
+- **Trust class `statistics`, tuning family** (`earned.ClassFor`, already declared). Budget
+  kind performance. The ledger level decides execute (L3), handoff (L2) or observe (L1).
+  Tested through the real gate with a ledger that resolves the request the way `earned` does.
+- **Binding facts from PR #109.** When that PR merges, they attach to the same
+  `policy.ActionRequest`, with no statistics-specific hook.
+
+**Verifier fix found on the way.** The in-action ANALYZE runs before
+`action_log.executed_at` is stamped. The verifier required an ANALYZE after `executed_at`, so
+it would have waited for the next autoanalyze. `statisticsBaseline` now records the table's
+last analyze time before the action, in PostgreSQL's clock (`statistics_analyze_mark`). The
+judge requires a build after that mark. Older rows fall back to `executed_at`. The
+mutation-checked test fails without the mark.
+
+**Labels.** The `action_log` label is `create_statistics`. Before, it fell through to `ddl`,
+and a column or table named `analyze...` made it `analyze`. The ledger's label fallback maps
+it to the statistics class.
+
+**Tests for this follow-up.** PG17 (`pgsage-ag8`): executor ok (87.8%), extstats 97.3%,
+sqlast 94.8%, cases 89.8%, earned 89.7%, approvalcard 89.3%, sre/runbook, api and policy ok.
+e2e ok (206 s). Small perf gate PASS (168 s). PG14 (:55414) and PG18 (:55418) ok on executor,
+extstats, sqlast, cases, earned and approvalcard. golangci-lint 0 issues. Mutants M27-M37:
+11/11 killed (M32 and M37 survived the first round; the redundant expression clause was
+removed, and two background-path tests were added).
+
+The PG14 CI failure of `TestReconcileWithoutNewEvidenceDoesNotRewriteLedgerState` (collector
+lag, ctid/xmin unchanged) was fixed in the measurement: pool reset, then a value stable for
+1.5 s. PG14 -count=10: 10/10.
+
+**Not done (no producer).** No analyzer rule emits `CREATE STATISTICS` in the pg_sage form
+today. The `query_create_statistics` case category projects one if a finding carries it. LLM
+or external SQL in any other form is still refused (no contract, so the gate fails closed).
+
 ## Product decisions
 
 1. **The workload rule filters advice, not observation.** Incident evidence and capacity keep
@@ -276,6 +354,9 @@ transition, so no "would have detected" reconstruction is needed. Tests:
    operator.
 8. **Families unchanged.** statistics is tuning, reindex is hygiene, as `internal/earned`
    already declared.
+9. **CREATE STATISTICS is policy change class `analyze`.** Not a new class: no stored-policy
+   migration, and an operator who forbids planner-statistics changes forbids both. Its trust
+   class stays `statistics`.
 
 ## Test Results
 
@@ -393,6 +474,7 @@ killed** (script kept outside the repo).
 | M13-M18 | q-error, Limit / never-executed, doubling boundary, shrink boundary, `DecideReindex` / `DecideStatistics` |
 | M19-M21 | monitor routing, unrollable regression, ledger mapping |
 | M22-M26 | UNIQUE coverage, sweep rules, covered-create skip, manual path |
+| M27-M37 | CREATE STATISTICS: in-action ANALYZE, name prefix, schema match, rollback identity (parser, executor, both paths), parse-tree table schema and plain columns, change class, derivable drop |
 
 **Fakes.** Every new rule has a real-Postgres test:
 - the workload SQL parity, on real `pg_stat_statements`;
@@ -422,13 +504,8 @@ containers now carry `--label owner=dfr2`.
 
 ## What is left / open questions
 
-- **The executor cannot run `CREATE STATISTICS`.** It is not in the executor allowlist, and
-  `create_statistics` is `change_class_not_allowed` even for operators in the policy profile.
-  No producer emits it today. The verifier is wired and tested, and becomes live once the gate
-  allows the class. That gate change belongs with the policy gate (W3-C's area) and needs a
-  product decision. Until then the ledger can earn `reindex` but not `statistics`.
-- **Open question.** Should the operator path also run `ANALYZE` after an approved
-  `CREATE STATISTICS` (the contract's execution plan)? The verifier waits for that ANALYZE
-  either way.
-- **Open question.** Lower `rca.vacuum_min_table_mb` for very small databases? 8 MB was chosen
-  so that bloat which cannot matter never pages.
+- **Resolved by the owner (section 6).** pg_sage now runs `CREATE STATISTICS` with its
+  ANALYZE as one action. The 8 MB / 1000 dead-tuple floors stay. The stale-item rule is
+  confirmed.
+- **Follow-up.** No analyzer rule emits the pg_sage `CREATE STATISTICS` form yet, so the
+  ledger can earn `statistics` only from operator-approved actions until one does.
