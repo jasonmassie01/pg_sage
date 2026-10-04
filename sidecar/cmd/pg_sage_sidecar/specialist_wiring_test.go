@@ -180,7 +180,8 @@ func TestSpecialistMCPBackend_MapsTheCaller(t *testing.T) {
 		Kind: "agent", Scopes: []string{"read"}}
 	_, err = rt.mcp.SpecialistCall(context.Background(), "specialist_request_remediation",
 		caller, "orders", json.RawMessage(`{"investigation_id":`+
-			`"44444444-4444-4444-8444-444444444444","remediation_id":"custodian.0123456789abcdef"}`))
+			`"44444444-4444-4444-8444-444444444444",`+
+			`"remediation_id":"custodian.0123456789abcdef"}`))
 	if !errors.Is(err, specialist.ErrScope) {
 		t.Fatalf("read caller requesting: %v", err)
 	}

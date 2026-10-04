@@ -93,6 +93,11 @@ type RuntimeDeps struct {
 	NotificationTargetPolicy notify.TargetPolicy
 	// Autonomy serves the Sage SRE earned-autonomy routes (M7); nil omits.
 	Autonomy *AutonomyDeps
+	// Specialist serves the Postgres-specialist contract under
+	// /api/v1/specialist/ (MCP tokens only); nil omits it. SpecialistAudit
+	// reads its request audit for the dashboard; nil omits the route.
+	Specialist      http.Handler
+	SpecialistAudit SpecialistAuditReader
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -167,6 +172,7 @@ func registerFleetScopedRoutes(
 	registerShadowRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
+	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp",

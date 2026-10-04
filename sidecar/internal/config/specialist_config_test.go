@@ -41,7 +41,8 @@ func TestSpecialistPartialSectionKeepsDefaults(t *testing.T) {
 
 func TestSpecialistAdaptersFromYAML(t *testing.T) {
 	cfg, err := loadRCAYAML(t, "specialist:\n  keep_identifiers: false\n"+
-		"  pagerduty:\n    signing_secret: s3cret\n    services: [\"PSVC1=orders:lock_blocking\"]\n"+
+		"  pagerduty:\n    signing_secret: s3cret\n"+
+		"    services: [\"PSVC1=orders:lock_blocking\"]\n"+
 		"    api_url: https://api.pagerduty.com\n    api_token: tok\n"+
 		"    from_email: sre@example.com\n"+
 		"  webhook:\n    signing_secret: wh\n    result_url: https://hooks.example.com/sage\n"+
