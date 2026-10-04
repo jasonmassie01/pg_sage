@@ -54,11 +54,11 @@ type RunConfig struct {
 }
 
 // DefaultConfig is every arm of PGIncidentBench v1: the causal graph
-// (LLM off), the LLM-on arm with llm's model, always-escalate and
-// rules-only.
+// (LLM off), the LLM-on arm and the tool-calling investigator with llm's
+// model, always-escalate and rules-only.
 func DefaultConfig(repeats int, llm LLMConfig) RunConfig {
-	return RunConfig{Repeats: repeats, Live: []LiveArm{CausalGraph{}, LLMArm{Config: llm}},
-		Derived: []DerivedArm{AlwaysEscalate{}, RulesOnly{}}}
+	return RunConfig{Repeats: repeats, Live: []LiveArm{CausalGraph{}, LLMArm{Config: llm},
+		InvestigatorArm{Config: llm}}, Derived: []DerivedArm{AlwaysEscalate{}, RulesOnly{}}}
 }
 
 // ArmNames lists the live arms (ready or not), then the derived arms.
@@ -106,7 +106,7 @@ func (CausalGraph) Ready() (bool, string) { return true, "" }
 
 // Investigate implements LiveArm: no model.
 func (CausalGraph) Investigate(ctx context.Context, e *Env, sc Scenario) (Trace, error) {
-	return e.investigate(ctx, sc, nil)
+	return e.investigate(ctx, sc, nil, nil)
 }
 
 // errNotReady is returned by an arm asked to run before it is ready.
@@ -143,7 +143,7 @@ func (a LLMArm) Investigate(ctx context.Context, e *Env, sc Scenario) (Trace, er
 		return Trace{}, err
 	}
 	defer done()
-	tr, err := e.investigate(ctx, sc, client)
+	tr, err := e.investigate(ctx, sc, client, nil)
 	if err == nil && tr.Outcome.Model != nil {
 		tr.Outcome.Model.Usage = tap.Usage()
 	}

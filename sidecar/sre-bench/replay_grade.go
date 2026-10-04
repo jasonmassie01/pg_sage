@@ -95,8 +95,16 @@ func claimRefs(sum sre.Summary, ev []sre.Evidence) (claims, resolved int) {
 	return claims, resolved
 }
 
-// rankedFirst is the first node of the stored model ranking, if any.
+// rankedFirst is the model's pick: the investigator's root (an
+// unmodeled cause is UnmodeledPick; an inconclusive one none), else the
+// first node of the stored model ranking, if any.
 func rankedFirst(sum sre.Summary) string {
+	if mc := sum.ModelConclusion; mc != nil {
+		if mc.Outcome == sre.ModelUnmodeled {
+			return UnmodeledPick
+		}
+		return mc.Root
+	}
 	if sum.ModelRanking == nil || len(sum.ModelRanking.Nodes) == 0 {
 		return ""
 	}
