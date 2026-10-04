@@ -163,7 +163,7 @@ func TestSREInvestigator_AdoptsTheModelRootOnlyWithLedgerAuthority(t *testing.T)
 		authority string
 	}{{16, 16, sre.ContestAdopted}, {15, 15, sre.ContestAdvisory}} {
 		svc, err := newSREInvestigator(sreInvestigatorDeps{control: pool, monitored: pool,
-			runner: twoEdgeRunner{}, name: "w3a_db", settings: config.DefaultConfig().SRE,
+			runner: twoEdgeRunner{}, name: "w3a_db", settings: reviewSettings(),
 			llm: testLLMClient(reversingModel(t), true), dailyTokens: 500000,
 			notices: &sre.OnceLog{}, runtimeKey: fmt.Sprintf("w3a:%d", time.Now().UnixNano()),
 			logFn: func(string, string, ...any) {},

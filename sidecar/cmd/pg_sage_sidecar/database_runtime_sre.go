@@ -75,7 +75,8 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
-		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority})
+		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority,
+		Investigator: sreInvestigatorConfig(d.settings, d.monitored)})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}

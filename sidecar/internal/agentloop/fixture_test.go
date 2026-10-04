@@ -189,11 +189,3 @@ func lastUserText(r request) string {
 	}
 	return ""
 }
-
-func allText(r request) string {
-	var b strings.Builder
-	for _, m := range r.msgs {
-		b.WriteString(m.Role + ": " + m.Content + "\n")
-	}
-	return b.String()
-}
