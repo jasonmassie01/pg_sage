@@ -294,3 +294,83 @@ The merge with `release/wave1` sits on top of these commits:
 `test(policy)` (tests first), `feat(policy)`, `fix(executor)` (kind charging, rows,
 holds), `fix(executor)` (one evaluation per park), `test(executor)` (audit),
 `docs(policy)`.
+
+## 8. Follow-up: owner decisions on the open questions
+
+The owner answered open questions 1 to 4 on 2026-10-03. Questions 1 to 3 are implemented
+below. Question 4 (snapstore) is fixed on `release/wave1` in `f6f25009`, and that fix is
+merged here. I pushed that merge on its own first (`f181ac83`), then added the follow-up
+work on top of it.
+
+1. **Emergency mitigations bypass the kind budgets.**
+   - `policy.BudgetBypassFor` decides the bypass from the typed contract plus the
+     custodian's deadline, never from evidence. Three cases qualify:
+     - `vacuum_table` while the XID runway is critical. "Critical" means urgency
+       critical and a hard deadline that is still ahead.
+     - A space-freeing action (`vacuum_table`, `drop_unused_index`,
+       `reindex_concurrently`) while the disk runway is critical.
+     - `revert_created_index`, or a rollback request flagged `RevertsOwnChange`. Only
+       the executor's automatic rollback path sets that flag.
+   - A bypassed change still goes through change classes, guardrails, the refusal set,
+     windows, leases, lock ceilings and the shared `max_rows_rewritten` bound.
+   - It is charged to no kind: it is recorded as `budget_kind = bypass` and left out of
+     every kind window.
+   - The ledger records its reason as `budget bypass: <why>`. The gate's own reason code
+     moves to `evidence.gate_reason`, while the in-memory `Decision.Reason` code is
+     unchanged, so existing consumers see the same values.
+   - Product call: no custodian produces disk deadlines today. Only the freeze custodian
+     emits a critical XID deadline, so the disk branch is ready but not yet exercised in
+     production.
+2. **Cross-process race closed.**
+   - `GateConfig.Serialize` → `Executor.serializeBudget` opens one transaction with
+     `pg_advisory_xact_lock(0x53616765 "Sage", database id)`.
+   - Both the usage read (`usageRow`) and the decision record
+     (`ledger.NewTxRepository`) run inside that transaction.
+   - The in-process mutex stays, so at most one connection per process waits on the lock.
+   - Integration test: two pools and two gate instances race for the last slot on real
+     Postgres, through both a slowed gate and the production gates. Exactly one wins.
+   - Limitation: a fingerprint upsert that hits a missing unique index inside the
+     transaction cannot fall back to a plain insert. It fails closed with
+     `policy_unavailable` instead.
+3. **Downgrade-safe saves.**
+   - A saved policy always writes `blast_radius.max_tables_per_window` and
+     `rate_limits.max_self_initiated_changes_per_window` with the performance budget.
+   - It writes a `hygiene` block only when that block differs from the default.
+   - Deviation from the brief: the old parser is strict (`DisallowUnknownFields`), so
+     writing the `performance` and `hygiene` blocks next to the legacy fields would
+     still make older sidecars reject the document. Only a policy with a customized
+     hygiene budget is unreadable by an older sidecar, which then fails closed. The test
+     pins both cases.
+   - Documents that set both the legacy fields and the `performance` block parse as long
+     as the values agree.
+
+**Mutation testing** (follow-up): 17 mutants run, all 17 killed.
+
+- **Policy (9):** no bypass; a non-critical deadline bypassing; an expired deadline
+  bypassing; any action bypassing on an XID deadline; the bypass skipping the rows bound;
+  no serialization; a commit error ignored; legacy fields not saved; hygiene always saved.
+- **Executor (8):**
+  - no advisory lock: killed by the two-pool race test;
+  - usage read outside the transaction, decision record outside the transaction: both
+    killed by the audit test `TestBudgetSectionSharesOneTransaction`. The race test alone
+    let them survive, because the lock by itself already orders the processes;
+  - bypass changes counted as performance; the bypass reason not recorded; the rollback
+    not flagged; the database key ignored.
+
+**Bugs found:** the audit test first hung for the 10-minute timeout when an assertion
+failed, because the open transaction blocked the pool from closing. It now ends the
+transaction in `t.Cleanup`. The killed runs also left fixture databases behind on my
+PG17, and a later run collided with one of them. I dropped those leftovers; they were
+only on `pgsage-ag7`.
+
+**Follow-up test results** (Docker golang:1.25, `-count=1`):
+
+- **PG17, touched packages:** policy 90.7%, executor 87.3%, ledger 87.4%, api 79.0%,
+  autonomy 84.0%, mcp 79.5%, cmd/pg_sage_sidecar 81.4%. All ok.
+- **e2e:** ok (176 s).
+- **Perf gate:** `PG_SAGE_PERF_SCALE=small` ok (163 s).
+- **PG14 and PG18** (policy, executor, ledger): ok.
+- **`-race`** (policy, executor, ledger): ok.
+- **Lint:** `golangci-lint run ./...` reports 0 issues.
+- **Skips:** none in the touched packages.
+- **Coverage:** every touched package is at or above 70% (lowest: api 79.0%).
