@@ -966,8 +966,9 @@ func TestAnalyze_VacuumBlocked_XminHolder(t *testing.T) {
 			{
 				SchemaName: "public",
 				RelName:    "orders",
-				NLiveTup:   1000,
-				NDeadTup:   200,
+				NLiveTup:   100000,
+				NDeadTup:   20000,
+				TableBytes: 64 << 20,
 			},
 		},
 		Locks: []collector.LockInfo{

@@ -355,6 +355,8 @@ type RCAConfig struct {
 	EscalationCycles         int     `yaml:"escalation_cycles" doc:"Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5."`
 	ResolutionCycles         int     `yaml:"resolution_cycles" doc:"Consecutive clear cycles before an incident auto-resolves. Default: 2."`
 	StaleAfterHours          int     `yaml:"stale_after_hours" doc:"Hours an open incident may go unseen before pg_sage resolves it as stale (no notification when it was last seen that long ago). 1-8760, at least the dedup window. Default: 24."`
+	VacuumMinDeadTuples      int     `yaml:"vacuum_min_dead_tuples" doc:"Fewest dead tuples a table needs before its dead-tuple ratio counts toward the vacuum_blocked (autovacuum falling behind) incident. 1-1000000000. Default: 1000."`
+	VacuumMinTableMB         int     `yaml:"vacuum_min_table_mb" doc:"Smallest heap, in MB, a table needs before its dead-tuple ratio counts toward the vacuum_blocked incident. 1-1048576. Default: 8."`
 	ConnectionSaturationPct  int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
 	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
 	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
@@ -958,6 +960,8 @@ func newDefaults() *Config {
 			EscalationCycles:         DefaultRCAEscalationCycles,
 			ResolutionCycles:         DefaultRCAResolutionCycles,
 			StaleAfterHours:          DefaultRCAStaleAfterHours,
+			VacuumMinDeadTuples:      DefaultRCAVacuumMinDeadTuples,
+			VacuumMinTableMB:         DefaultRCAVacuumMinTableMB,
 			ConnectionSaturationPct:  DefaultRCAConnectionSaturationPct,
 			ReplicationLagThresholdS: DefaultRCAReplicationLagThresholdS,
 			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,

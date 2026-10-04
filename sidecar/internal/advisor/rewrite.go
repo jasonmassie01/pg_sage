@@ -3,6 +3,7 @@ package advisor
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 const rewriteSystemPrompt = `You are a PostgreSQL query optimization expert.
@@ -43,68 +44,9 @@ func analyzeQueryRewrites(
 	cfg *config.Config,
 	logFn func(string, string, ...any),
 ) ([]analyzer.Finding, error) {
-	// Select candidate queries: top by total time, or high temp writes.
-	type candidate struct {
-		query  collector.QueryStats
-		reason string
-	}
-	var candidates []candidate
-
-	// Top 10 by total exec time.
-	sorted := make([]collector.QueryStats, len(snap.Queries))
-	copy(sorted, snap.Queries)
-
-	// Simple sort by total time desc.
-	for i := 0; i < len(sorted) && i < 10; i++ {
-		maxIdx := i
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[j].TotalExecTime > sorted[maxIdx].TotalExecTime {
-				maxIdx = j
-			}
-		}
-		sorted[i], sorted[maxIdx] = sorted[maxIdx], sorted[i]
-	}
-
-	for i := 0; i < len(sorted) && i < 10; i++ {
-		q := sorted[i]
-		if q.Calls < 100 || q.MeanExecTime < 50 {
-			continue
-		}
-		if selfmonitor.IsQueryText(q.Query) {
-			continue
-		}
-		candidates = append(candidates,
-			candidate{q, "high total time"},
-		)
-	}
-
-	// Queries with temp spills.
-	for _, q := range snap.Queries {
-		if q.TempBlksWritten > 0 && q.Calls > 50 {
-			if selfmonitor.IsQueryText(q.Query) {
-				continue
-			}
-			candidates = append(candidates,
-				candidate{q, "temp spills"},
-			)
-		}
-	}
-
-	if len(candidates) == 0 {
+	unique := selectRewriteCandidates(snap)
+	if len(unique) == 0 {
 		return nil, nil
-	}
-
-	// Deduplicate by queryid.
-	seen := make(map[int64]bool)
-	var unique []candidate
-	for _, c := range candidates {
-		if !seen[c.query.QueryID] {
-			seen[c.query.QueryID] = true
-			unique = append(unique, c)
-		}
-	}
-	if len(unique) > 10 {
-		unique = unique[:10]
 	}
 
 	// Per-query dedup: skip candidates that already have an open
@@ -113,7 +55,7 @@ func analyzeQueryRewrites(
 	if pool != nil {
 		existing := openRewriteQueryIDs(ctx, pool, logFn)
 		if len(existing) > 0 {
-			var filtered []candidate
+			var filtered []rewriteCandidate
 			for _, c := range unique {
 				if existing[c.query.QueryID] {
 					logFn("DEBUG",
@@ -177,6 +119,43 @@ func analyzeQueryRewrites(
 		findings = append(findings, f)
 	}
 	return findings, nil
+}
+
+// rewriteCandidate is a statement offered to the rewrite advisor, with
+// why it was picked.
+type rewriteCandidate struct {
+	query  collector.QueryStats
+	reason string
+}
+
+// selectRewriteCandidates picks at most 10 workload statements
+// (internal/workload): the heaviest by total time among the top 10, then
+// those spilling to temp files, each once.
+func selectRewriteCandidates(snap *collector.Snapshot) []rewriteCandidate {
+	queries := workload.Queries(snap.Queries)
+	sort.SliceStable(queries, func(i, j int) bool {
+		return queries[i].TotalExecTime > queries[j].TotalExecTime
+	})
+	var candidates []rewriteCandidate
+	for i := 0; i < len(queries) && i < 10; i++ {
+		if q := queries[i]; q.Calls >= 100 && q.MeanExecTime >= 50 {
+			candidates = append(candidates, rewriteCandidate{q, "high total time"})
+		}
+	}
+	for _, q := range queries {
+		if q.TempBlksWritten > 0 && q.Calls > 50 {
+			candidates = append(candidates, rewriteCandidate{q, "temp spills"})
+		}
+	}
+	seen := make(map[int64]bool)
+	var unique []rewriteCandidate
+	for _, c := range candidates {
+		if !seen[c.query.QueryID] && len(unique) < 10 {
+			seen[c.query.QueryID] = true
+			unique = append(unique, c)
+		}
+	}
+	return unique
 }
 
 // openRewriteQueryIDs returns the set of queryids that already have

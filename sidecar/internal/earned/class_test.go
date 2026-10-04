@@ -34,6 +34,8 @@ func TestClassForMapsExecutorContracts(t *testing.T) {
 		{"revert created index", "revert_created_index", "index", "", ClassIndexDrop},
 		{"reindex", "reindex_concurrently", "index", "", ClassReindex},
 		{"statistics", "create_statistics", "", "", ClassStatistics},
+		{"revert created statistics", "revert_created_statistics", "analyze", "",
+			ClassStatistics},
 		{"apply hint", "apply_query_hint", "query_hint", "", ClassQueryHint},
 		{"retire hint", "retire_query_hint", "query_hint", "", ClassQueryHint},
 		{"wal bound", "alter_system_guc", "config_guc",

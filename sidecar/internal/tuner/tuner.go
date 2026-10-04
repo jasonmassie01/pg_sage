@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/llm"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Tuner produces per-query tuning findings from plan analysis.
@@ -297,7 +297,7 @@ WHERE calls >= $1
   AND dbid = (
       SELECT oid FROM pg_database WHERE datname = current_database()
   )
-  AND ` + selfmonitor.StatementExclusionSQL("query") + `
+  AND ` + workload.AdviceSQL("query") + `
   AND (mean_exec_time > 100
        OR temp_blks_written > 0
        OR (mean_plan_time > 0
@@ -305,10 +305,13 @@ WHERE calls >= $1
 ORDER BY mean_exec_time * calls DESC
 LIMIT 50`
 
+// filterSelfMonitoringCandidates keeps workload candidates
+// (internal/workload): never pg_sage's own statements or diagnostic
+// tooling.
 func filterSelfMonitoringCandidates(candidates []candidate) []candidate {
 	out := candidates[:0]
 	for _, c := range candidates {
-		if selfmonitor.IsQueryText(c.Query) {
+		if workload.Excluded(c.Query) {
 			continue
 		}
 		out = append(out, c)

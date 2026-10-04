@@ -36,7 +36,7 @@ func ruleTotalTimeHeavy(
 	}
 
 	var findings []Finding
-	for _, q := range current.Queries {
+	for _, q := range adviceQueries(current) {
 		prev, ok := prevTotal[q.QueryID]
 		if !ok {
 			continue
@@ -100,7 +100,7 @@ func ruleHighFreqFirstCycle(
 		return nil
 	}
 	var candidates []collector.QueryStats
-	for _, q := range current.Queries {
+	for _, q := range adviceQueries(current) {
 		if q.Calls > 10000 {
 			candidates = append(candidates, q)
 		}

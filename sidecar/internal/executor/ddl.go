@@ -75,9 +75,15 @@ func ExecInTransaction(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return fmt.Errorf("SQL validation: %w", err)
 	}
+	return execStatementsInTransaction(ctx, pool, timeout, applyDDLOpts(opts), sql)
+}
 
-	o := applyDDLOpts(opts)
-
+// execStatementsInTransaction runs already validated statements in one
+// transaction under statement_timeout and lock_timeout: all or none.
+func execStatementsInTransaction(
+	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
+	statements ...string,
+) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -108,9 +114,10 @@ func ExecInTransaction(
 		}
 	}
 
-	_, err = tx.Exec(ctx, sql)
-	if err != nil {
-		return wrapDDLError(err)
+	for _, sql := range statements {
+		if _, err := tx.Exec(ctx, sql); err != nil {
+			return wrapDDLError(err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

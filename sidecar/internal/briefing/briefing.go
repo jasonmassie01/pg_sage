@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // cronSchedule holds pre-parsed bitmasks for each cron field.
@@ -197,6 +198,13 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 	return structured, nil
 }
 
+// openAdviceSQL selects the open findings the briefing may present: none
+// about pg_sage's own statements or diagnostic tooling (internal/workload;
+// lifeos 2026-10-04 told the operator to "investigate" an EXPLAIN ANALYZE).
+// The analyzer no longer opens such findings and resolves older ones; this
+// keeps them out of the LLM input until it has.
+var openAdviceSQL = `status = 'open' AND ` + workload.FindingAdviceSQL("detail")
+
 func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 	var result string
 	var totalOpen int
@@ -209,7 +217,7 @@ func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 					object_identifier,
 					occurrence_count
 				FROM sage.findings
-				WHERE status = 'open'
+				WHERE `+openAdviceSQL+`
 				ORDER BY
 					CASE severity
 						WHEN 'critical' THEN 0
@@ -222,7 +230,7 @@ func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 			'[]'::json
 		)::text,
 		coalesce(
-			(SELECT count(*) FROM sage.findings WHERE status = 'open'),
+			(SELECT count(*) FROM sage.findings WHERE `+openAdviceSQL+`),
 			0
 		)
 	`, maxBriefingFindings).Scan(&result, &totalOpen)

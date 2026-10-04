@@ -123,7 +123,7 @@ func (v *Validator) checkDuplicate(
 		if have, ok := shapeOf(idx.Definition); ok && have == want {
 			return false, "duplicate of existing index " + idx.Name
 		}
-		if coveredBy(rec.DDL, idx.Definition) {
+		if CoveredBy(rec.DDL, idx.Definition) {
 			return false, "covered by existing index " + idx.Name
 		}
 	}

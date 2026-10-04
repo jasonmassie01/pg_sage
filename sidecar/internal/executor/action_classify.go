@@ -37,6 +37,10 @@ func actionTypeForProposalSQL(sql string) string {
 		return "apply_query_hint"
 	case strings.HasPrefix(upper, "DELETE FROM HINT_PLAN.HINTS"):
 		return "retire_query_hint"
+	case isPgSageCreateStatistics(sql):
+		return "create_statistics"
+	case isPgSageDropStatistics(sql):
+		return "revert_created_statistics"
 	default:
 		return ""
 	}

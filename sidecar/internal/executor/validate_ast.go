@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 
+	"github.com/pg-sage/sidecar/internal/extstats"
 	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/sqlast"
 )
@@ -16,6 +17,7 @@ var executorASTRules = sqlast.Rules{
 		opt := pgconf.Reloption{Key: key, Value: value}
 		return pgconf.CheckExecutableReloption(opt, reset) == nil
 	},
+	StatisticsName: extstats.OwnName,
 }
 
 // astValidationAvailable is swapped only by AssumeASTValidationForTests.

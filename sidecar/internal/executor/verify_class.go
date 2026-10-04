@@ -8,8 +8,8 @@ import (
 
 // verificationClass names the Phase 1.3 action class of a statement: what
 // its verification measures (verify.Class*). It is "" for statements
-// outside the verified classes (REINDEX, backend signals, ...), whose
-// success is never credited without a post-check of their own.
+// outside the verified classes (backend signals, ...), whose success is
+// never credited without a post-check of their own.
 func verificationClass(sql string) string {
 	upper := strings.ToUpper(normalizeSQLText(sql))
 	has := func(prefix string) bool { return strings.HasPrefix(upper, prefix) }
@@ -18,6 +18,10 @@ func verificationClass(sql string) string {
 		return verify.ClassIndexCreate
 	case has("DROP INDEX"):
 		return verify.ClassIndexDrop
+	case has("REINDEX"):
+		return verify.ClassReindex
+	case has("CREATE STATISTICS"):
+		return verify.ClassStatistics
 	case has("ALTER SYSTEM "):
 		return verify.ClassGUC
 	case has("ALTER DATABASE ") && (strings.Contains(upper, " SET ") ||

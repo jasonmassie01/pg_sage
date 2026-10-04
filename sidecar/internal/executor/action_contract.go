@@ -130,6 +130,8 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return retentionDeleteContract(), true
 	case "revert_created_index":
 		return revertCreatedIndexContract(), true
+	case "revert_created_statistics":
+		return revertCreatedStatisticsContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
@@ -786,39 +788,6 @@ func retireQueryHintContract() ActionContract {
 		RollbackClass: "reversible",
 		Cooldown:      "query-scoped",
 		AuditFields:   []string{"case_id", "database", "queryid", "hint_text"},
-	}
-}
-
-func createStatisticsContract() ActionContract {
-	return ActionContract{
-		ActionType:      "create_statistics",
-		BaseRiskTier:    "moderate",
-		ProviderSupport: portableActionProviders(),
-		RequiredPermissions: []string{
-			"CREATE privilege on schema or table ownership",
-		},
-		Prechecks: []string{
-			"correlated predicate evidence still exists",
-			"statistics object does not already exist",
-			"sample query is attached for verification",
-		},
-		Guardrails: []string{
-			"approval required",
-			"run ANALYZE after CREATE STATISTICS",
-			"verification SQL required",
-		},
-		ExecutionPlan: []string{"CREATE STATISTICS ...; ANALYZE table"},
-		SuccessCriteria: []string{
-			"extended statistics object exists",
-			"planner row estimates improve",
-		},
-		PostChecks: []string{
-			"verify pg_statistic_ext row",
-			"compare EXPLAIN row estimates",
-		},
-		RollbackClass: "reversible",
-		Cooldown:      "query-scoped",
-		AuditFields:   []string{"case_id", "database", "statistics_name"},
 	}
 }
 

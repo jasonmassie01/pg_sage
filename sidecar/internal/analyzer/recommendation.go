@@ -46,7 +46,7 @@ func (a *Analyzer) recordRecommendations(
 	version := a.currentPolicyVersion(ctx)
 	active := make(map[string]map[string]bool, len(evaluated))
 	for _, f := range findings {
-		if strings.TrimSpace(f.RecommendedSQL) == "" || isSelfMonitoringFinding(f) {
+		if strings.TrimSpace(f.RecommendedSQL) == "" || excludedFromAdvice(f) {
 			continue
 		}
 		p := RecommendationProposal(a.databaseName, f)

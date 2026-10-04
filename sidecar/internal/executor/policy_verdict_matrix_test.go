@@ -45,7 +45,8 @@ var baselineVerdicts = []matrixRow{
 	{"autonomous", "retire_query_hint", "execute", "authorized"},
 	{"autonomous", "apply_query_hint", "queue_approval", "approval_required"},
 	{"autonomous", "investigate_query_plan", "blocked", "change_class_not_allowed"},
-	{"autonomous", "create_statistics", "blocked", "change_class_not_allowed"},
+	{"autonomous", "create_statistics", "execute", "authorized"},
+	{"autonomous", "revert_created_statistics", "execute", "authorized"},
 	{"autonomous", "prepare_parameterized_query", "blocked", "change_class_not_allowed"},
 	{"autonomous", "retention_delete", "execute", "authorized"},
 	{"autonomous", "revert_created_index", "execute", "authorized"},
@@ -75,7 +76,8 @@ var baselineVerdicts = []matrixRow{
 	{"advisory", "retire_query_hint", "execute", "authorized"},
 	{"advisory", "apply_query_hint", "queue_approval", "approval_required"},
 	{"advisory", "investigate_query_plan", "blocked", "change_class_not_allowed"},
-	{"advisory", "create_statistics", "blocked", "change_class_not_allowed"},
+	{"advisory", "create_statistics", "queue_approval", "approval_required"},
+	{"advisory", "revert_created_statistics", "queue_approval", "approval_required"},
 	{"advisory", "prepare_parameterized_query", "blocked", "change_class_not_allowed"},
 	{"advisory", "retention_delete", "queue_approval", "approval_required"},
 	{"advisory", "revert_created_index", "queue_approval", "approval_required"},
@@ -105,7 +107,8 @@ var baselineVerdicts = []matrixRow{
 	{"operator", "retire_query_hint", "execute", "operator_approved"},
 	{"operator", "apply_query_hint", "execute", "operator_approved"},
 	{"operator", "investigate_query_plan", "blocked", "change_class_not_allowed"},
-	{"operator", "create_statistics", "blocked", "change_class_not_allowed"},
+	{"operator", "create_statistics", "execute", "operator_approved"},
+	{"operator", "revert_created_statistics", "execute", "operator_approved"},
 	{"operator", "prepare_parameterized_query", "blocked", "change_class_not_allowed"},
 	{"operator", "retention_delete", "execute", "operator_approved"},
 	{"operator", "revert_created_index", "execute", "operator_approved"},
@@ -123,6 +126,11 @@ var baselineVerdicts = []matrixRow{
 	{"operator", "online_migration", "execute", "operator_approved"},
 }
 
+// create_statistics rows changed with the owner decision of 2026-10-04 (PR
+// #110): pg_sage executes the pg_sage form of CREATE STATISTICS as a typed,
+// reversible, moderate action in change class analyze (it was
+// change_class_not_allowed); revert_created_statistics is its rollback.
+//
 // intendedVerdictChanges lists rows whose verdict the precise refusal
 // mapping is meant to change, keyed "scenario/actionType". Empty: no action
 // in today's catalog changes verdict under the built-in profiles.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/extstats"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
@@ -94,6 +95,10 @@ func (e *Executor) logRefusedAction(
 func categorizeAction(sql string) string {
 	upper := strings.ToUpper(sql)
 	switch {
+	case extstats.IsCreate(sql):
+		return "create_statistics"
+	case extstats.IsDrop(sql):
+		return "drop_statistics"
 	case strings.Contains(upper, "CREATE INDEX"):
 		return "create_index"
 	case strings.Contains(upper, "DROP INDEX"):

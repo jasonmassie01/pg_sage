@@ -31,7 +31,9 @@ func (s *PostgresStore) cursors(ctx context.Context) (selfCursors, error) {
 	return c, storeErr("read reconcile cursors", err)
 }
 
-// saveCursors moves the database's cursors forward (never back).
+// saveCursors moves the database's cursors forward (never back). A pass
+// that moved none writes nothing: rewriting the row every reconcile pass
+// left sage.trust_ledger_state 75% dead on lifeos (dogfood round 2).
 func (s *PostgresStore) saveCursors(ctx context.Context, c selfCursors) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO sage.trust_ledger_state
 		(deployment_id, database_name, verdict_cursor, rollback_cursor, rejection_cursor)
@@ -43,7 +45,12 @@ func (s *PostgresStore) saveCursors(ctx context.Context, c selfCursors) error {
 		                             EXCLUDED.rollback_cursor),
 		  rejection_cursor = GREATEST(trust_ledger_state.rejection_cursor,
 		                              EXCLUDED.rejection_cursor),
-		  updated_at = clock_timestamp()`,
+		  updated_at = clock_timestamp()
+		WHERE (GREATEST(trust_ledger_state.verdict_cursor, EXCLUDED.verdict_cursor),
+		       GREATEST(trust_ledger_state.rollback_cursor, EXCLUDED.rollback_cursor),
+		       GREATEST(trust_ledger_state.rejection_cursor, EXCLUDED.rejection_cursor))
+		  IS DISTINCT FROM (trust_ledger_state.verdict_cursor,
+		       trust_ledger_state.rollback_cursor, trust_ledger_state.rejection_cursor)`,
 		s.deployment, s.database, c.verdict, c.rollback, c.rejection)
 	return storeErr("save reconcile cursors", err)
 }

@@ -46,6 +46,10 @@ const (
 	ClassAnalyze     = "analyze"
 	ClassQueryHint   = "query_hint"
 	ClassRetention   = "retention"
+	// Dogfood round 2: CREATE STATISTICS (judged by row estimates) and
+	// REINDEX (judged by index size and validity).
+	ClassStatistics = "statistics"
+	ClassReindex    = "reindex"
 )
 
 // Metrics a prediction can name (config metrics are named by the
@@ -56,6 +60,11 @@ const (
 	MetricModsSinceAnalyze = "n_mod_since_analyze"
 	MetricRowsDeleted      = "rows_deleted"
 	MetricFrozenXIDAge     = "relfrozenxid_age"
+	// MetricRowEstimateError is the targets' row-estimate error: the
+	// median worst-node q-error of sampled plans with actual rows.
+	MetricRowEstimateError = "row_estimate_error"
+	// MetricIndexBytes is the size of a REINDEX target's indexes.
+	MetricIndexBytes = "index_bytes"
 )
 
 // PredictionTolerance is the share of a predicted change the observed one

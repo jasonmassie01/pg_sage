@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/extstats"
 )
 
 func enrichDDLSafetyCandidate(
@@ -205,6 +207,9 @@ func rollbackSQLForCandidate(candidate ActionCandidate) string {
 	}
 	if strings.HasPrefix(strings.ToUpper(sql), "DROP INDEX CONCURRENTLY ") {
 		return "-- Recreate the dropped index from version control."
+	}
+	if c, err := extstats.ParseCreate(sql); err == nil {
+		return c.Rollback() + ";"
 	}
 	return ""
 }

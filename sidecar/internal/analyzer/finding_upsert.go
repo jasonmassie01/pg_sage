@@ -58,7 +58,7 @@ func UpsertFindingsWithResult(
 ) (UpsertResult, error) {
 	var res UpsertResult
 	for _, f := range findings {
-		if isSelfMonitoringFinding(f) {
+		if excludedFromAdvice(f) {
 			continue
 		}
 		outcome, err := upsertOne(ctx, pool, f)

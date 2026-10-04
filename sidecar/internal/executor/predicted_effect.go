@@ -38,6 +38,8 @@ func predictionFromDetail(class string, detail map[string]any) verify.Prediction
 			"ANALYZE resets the rows modified since the last analyze")
 	case verify.ClassGUC, verify.ClassReloption:
 		return verify.NoPrediction(class, "no targeted metric to verify this change")
+	case verify.ClassStatistics, verify.ClassReindex:
+		return r2Prediction(class, detail)
 	}
 	return verify.NoPrediction(class, "no predicted effect for this kind of action")
 }
@@ -145,6 +147,10 @@ func (e *Executor) predictEffect(
 				"VACUUM (FREEZE) advances the table's relfrozenxid")
 		}
 		e.maintenanceBaseline(ctx, sql, &p, before)
+	case verify.ClassStatistics:
+		e.statisticsBaseline(ctx, sql, &p, before)
+	case verify.ClassReindex:
+		e.reindexBaseline(ctx, sql, &p, before)
 	}
 	return p
 }

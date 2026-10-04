@@ -78,53 +78,6 @@ func createIndexIdentifier(sql string) string {
 	return strings.ToLower(token)
 }
 
-func (e *Executor) createIndexCoverageExists(
-	ctx context.Context,
-	sql string,
-) (bool, error) {
-	schemaName, tableName, cols, ok := parseCreateIndexTarget(sql)
-	if !ok || len(cols) == 0 {
-		return false, nil
-	}
-	if schemaName == "" {
-		schemaName = "public"
-	}
-
-	var one int
-	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ WITH indexed AS (
-		    SELECT i.indexrelid,
-		           array_agg(a.attname::text ORDER BY ord.n) AS cols
-		      FROM pg_index i
-		      JOIN pg_class tbl ON tbl.oid = i.indrelid
-		      JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-		      JOIN unnest(i.indkey) WITH ORDINALITY AS ord(attnum, n)
-		           ON ord.attnum > 0
-		      JOIN pg_attribute a
-		           ON a.attrelid = tbl.oid
-		          AND a.attnum = ord.attnum
-		     WHERE ns.nspname = $1
-		       AND tbl.relname = $2
-		       AND i.indisvalid
-		       AND i.indisready
-		       AND i.indpred IS NULL
-		     GROUP BY i.indexrelid
-		)
-		SELECT 1
-		  FROM indexed
-		 WHERE cols[1:cardinality($3::text[])] = $3::text[]
-		 LIMIT 1`,
-		schemaName, tableName, cols,
-	).Scan(&one)
-	if err == nil {
-		return true, nil
-	}
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
-	return false, err
-}
-
 func parseCreateIndexTarget(sql string) (string, string, []string, bool) {
 	compact := strings.Join(strings.Fields(strings.TrimSuffix(
 		strings.TrimSpace(sql), ";")), " ")
