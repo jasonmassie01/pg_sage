@@ -56,7 +56,7 @@ func (c *Coordinator) investigate(ctx context.Context, lease Lease, inv Investig
 	if err != nil {
 		return s.lease, d, none, err
 	}
-	return s.finish(ctx, res)
+	return s.finish(ctx, d, res)
 }
 
 // loopConfig is the agent loop's run under the plan, within the active
@@ -103,12 +103,17 @@ func seedEvidence(d causal.Diagnosis, ev []Evidence) []agentloop.Evidence {
 }
 
 // finish re-diagnoses on all evidence and applies the model's answer
-// under the authority rule.
-func (s *investigatorSession) finish(ctx context.Context, res agentloop.Result) (Lease,
-	causal.Diagnosis, modelOutcome, error) {
+// under the authority rule. The model's reads may conclude an
+// inconclusive graph (as the review turn's probe may) but never move or
+// drop a conclusive root: that is the contest path's, under authority.
+func (s *investigatorSession) finish(ctx context.Context, prior causal.Diagnosis,
+	res agentloop.Result) (Lease, causal.Diagnosis, modelOutcome, error) {
 	d, stored, err := s.diagnosis(ctx)
 	if err != nil {
-		return s.lease, d, modelOutcome{memory: s.memoryRef}, err
+		return s.lease, prior, modelOutcome{memory: s.memoryRef}, err
+	}
+	if prior.Conclusive {
+		d = prior
 	}
 	run := s.transcript(res)
 	out := modelOutcome{memory: s.memoryRef, run: run}
