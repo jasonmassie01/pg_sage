@@ -36,7 +36,8 @@ type RunbookBackend interface {
 	SimilarIncidents(context.Context, RunbookRequest) (any, error)
 }
 
-// runbookToolNames maps each tool to whether it writes (operator).
+// runbookToolNames maps each tool to whether it writes (propose scope,
+// checked with every tool's scope in callTool).
 var runbookToolNames = map[string]bool{"sre_list_runbooks": false,
 	"sre_get_runbook": false, "sre_runbook_runs": false, "sre_similar_incidents": false,
 	"sre_draft_runbook": true, "sre_compile_runbook": true}
@@ -75,9 +76,6 @@ func runbookTools() []Tool {
 
 func (s *Server) callRunbookTool(ctx context.Context, name string,
 	raw json.RawMessage) (any, *rpcError) {
-	if runbookToolNames[name] && !canMutate(ctx) {
-		return nil, failure(-32001, "operator or admin role required")
-	}
 	backend, ok := s.backend.(RunbookBackend)
 	if !ok {
 		return nil, failure(-32603, "runbooks unavailable")

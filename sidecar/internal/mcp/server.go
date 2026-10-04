@@ -1,24 +1,44 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
+	"unicode"
 )
 
+// Server is pg_sage's MCP server: protocol handling, tool registry,
+// scope and database checks, and routing to the backends.
 type Server struct {
-	backend Backend
-	tools   []Tool
+	backend   Backend
+	tools     []Tool
+	directory Directory
+	version   string
 }
 
+// NewServer returns a server over backend. Backends that also implement
+// the optional tool interfaces (facts, investigations, coding-agent
+// tools, ...) serve those tools; the others report them unavailable.
 func NewServer(backend Backend) *Server {
-	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
-	tools = append(append(tools, signalTools()...), runbookTools()...)
-	tools = append(tools, autonomyTools()...)
-	return &Server{backend: backend, tools: append(tools, factTools()...)}
+	return &Server{backend: backend, tools: toolDefinitions(), version: "dev"}
 }
 
+// WithDirectory sets the fleet the server validates `database` against.
+func (s *Server) WithDirectory(directory Directory) *Server {
+	s.directory = directory
+	return s
+}
+
+// WithVersion sets the version reported in serverInfo.
+func (s *Server) WithVersion(version string) *Server {
+	if version != "" {
+		s.version = version
+	}
+	return s
+}
+
+// Tools returns every tool definition (without per-caller database enums).
 func (s *Server) Tools() []Tool { return append([]Tool(nil), s.tools...) }
 
 type rpcRequest struct {
@@ -36,109 +56,94 @@ type rpcResponse struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
-// Handle answers one JSON-RPC message. It returns nil for a notification
-// (no id, or any notifications/* method): JSON-RPC forbids replying to
-// one, and over stdio a stray line would be read as the next response.
-func (s *Server) Handle(ctx context.Context, raw json.RawMessage) []byte {
-	var request rpcRequest
-	if err := json.Unmarshal(raw, &request); err != nil {
-		return encodeResponse(rpcResponse{JSONRPC: "2.0", Error: failure(-32700, "parse error")})
+// toolFamily routes one family of tools.
+type toolFamily func(s *Server, ctx context.Context, name string,
+	arguments json.RawMessage) (any, *rpcError)
+
+func familyOf(name string) toolFamily {
+	switch _, runbook := runbookToolNames[name]; {
+	case sreToolNames[name] || runbook:
+		return (*Server).callSRETool
+	case signalToolNames[name]:
+		return (*Server).callSignalTool
+	case sreActionToolNames[name]:
+		return (*Server).callSREActionTool
+	case autonomyToolNames[name]:
+		return (*Server).callAutonomyTool
+	case factToolNames[name]:
+		return (*Server).callFactTool
+	case agentToolNames[name]:
+		return (*Server).callAgentTool
+	case name == "list_databases":
+		return (*Server).listDatabases
 	}
-	if request.JSONRPC != "2.0" || request.Method == "" {
-		return encodeResponse(rpcResponse{JSONRPC: "2.0", ID: request.ID,
-			Error: failure(-32600, "invalid request")})
-	}
-	if len(request.ID) == 0 || strings.HasPrefix(request.Method, "notifications/") {
-		return nil
-	}
-	response := rpcResponse{JSONRPC: "2.0", ID: request.ID}
-	switch request.Method {
-	case "ping":
-		response.Result = map[string]any{}
-	case "initialize":
-		response.Result = map[string]any{"protocolVersion": "2025-03-26",
-			"capabilities": map[string]any{"tools": map[string]any{}},
-			"serverInfo":   map[string]string{"name": "pg_sage", "version": "1"}}
-	case "tools/list":
-		response.Result = map[string]any{"tools": s.Tools()}
-	case "tools/call":
-		response.Result, response.Error = s.callTool(ctx, request.Params)
-	default:
-		response.Error = failure(-32601, "method not found")
-	}
-	return encodeResponse(response)
+	return (*Server).callIntentTool
 }
 
-func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcError) {
+// callTool answers tools/call. Protocol problems (an unknown tool,
+// params that are not a call) are JSON-RPC errors; everything the caller
+// can correct is an isError result.
+func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]any,
+	*rpcError) {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &call); err != nil || call.Name == "" {
-		return nil, failure(-32602, "invalid tool arguments")
+		return nil, failure(codeInvalidParams, "invalid tool call: name is required")
 	}
-	if mutatingTools[call.Name] && !canMutate(ctx) {
-		return nil, failure(-32001, "operator or admin role required")
+	if !knownTool(call.Name) {
+		return nil, failure(codeInvalidParams, "Unknown tool: "+printableName(call.Name))
 	}
-	if _, runbookTool := runbookToolNames[call.Name]; sreToolNames[call.Name] || runbookTool {
-		return s.callSRETool(ctx, call.Name, call.Arguments)
+	arguments, ok := objectArguments(call.Arguments)
+	if !ok {
+		return nil, failure(codeInvalidParams, "tool arguments must be a JSON object")
 	}
-	if signalToolNames[call.Name] {
-		return s.callSignalTool(ctx, call.Name, call.Arguments)
+	if failed := authorizeTool(ctx, call.Name, arguments); failed != nil {
+		return toolError(failed), nil
 	}
-	if sreActionToolNames[call.Name] {
-		return s.callSREActionTool(ctx, call.Name, call.Arguments)
+	ctx, arguments, failed := s.bindDatabase(ctx, call.Name, arguments)
+	if failed != nil {
+		return toolError(failed), nil
 	}
-	if autonomyToolNames[call.Name] {
-		return s.callAutonomyTool(ctx, call.Name, call.Arguments)
-	}
-	if factToolNames[call.Name] {
-		return s.callFactTool(ctx, call.Name, call.Arguments)
-	}
-	var result any
-	var err error
-	switch call.Name {
-	case "get_policy":
-		var request PolicyRequest
-		if !decodeArguments(call.Arguments, &request) {
-			return nil, failure(-32602, "invalid arguments")
+	result, failed := familyOf(call.Name)(s, ctx, call.Name, arguments)
+	if failed != nil {
+		if failed.Code == codeCancelled {
+			return nil, failed
 		}
-		result, err = s.backend.GetPolicy(ctx, request)
-	case "propose_policy_change":
-		var request PolicyProposalRequest
-		if !decodeArguments(call.Arguments, &request) || emptyJSON(request.Delta) {
-			return nil, failure(-32602, "delta is required")
-		}
-		result, err = s.backend.ProposePolicyChange(ctx, request)
-	case "request_change":
-		var request ChangeRequest
-		if !decodeArguments(call.Arguments, &request) || emptyJSON(request.Intent) {
-			return nil, failure(-32602, "intent is required")
-		}
-		result, err = s.backend.RequestChange(ctx, request)
-	case "get_ledger":
-		var request LedgerRequest
-		if !decodeArguments(call.Arguments, &request) {
-			return nil, failure(-32602, "invalid arguments")
-		}
-		result, err = s.backend.GetLedger(ctx, request)
-	case "optimize_query", "apply_migration", "ensure_fk_indexes",
-		"declare_table_contract", "register_consumer", "set_maintenance_policy",
-		"get_guarantee_status", "get_value":
-		backend, ok := s.backend.(IntentBackend)
-		if !ok {
-			return nil, failure(-32603, "internal error")
-		}
-		if len(call.Arguments) == 0 {
-			call.Arguments = json.RawMessage(`{}`)
-		}
-		result, err = backend.RequestIntent(ctx, call.Name, call.Arguments)
-	default:
-		return nil, failure(-32601, "tool not found")
+		return toolError(failed), nil
 	}
-	return toolResult(result, err)
+	if structured, ok := result.(map[string]any); ok {
+		return structured, nil
+	}
+	return toolSuccess(result), nil
+}
+
+// objectArguments returns the arguments when they are a JSON object
+// (absent or null count as {}).
+func objectArguments(raw json.RawMessage) (json.RawMessage, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return json.RawMessage(`{}`), true
+	}
+	return trimmed, trimmed[0] == '{' && json.Valid(trimmed)
+}
+
+// printableName bounds an unknown tool name before it is echoed.
+func printableName(name string) string {
+	out := make([]rune, 0, 64)
+	for _, r := range name {
+		if len(out) == 64 {
+			return string(out) + "..."
+		}
+		if unicode.IsPrint(r) && r != '<' && r != '>' {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }
 
 // toolSuccess is a tools/call result: the MCP content[] array with the
@@ -155,15 +160,15 @@ func toolSuccess(result any) map[string]any {
 	}
 }
 
-// toolResult wraps a tool's result, or maps its error to a JSON-RPC error.
+// toolResult wraps a tool's result, or maps its error.
 func toolResult(result any, err error) (any, *rpcError) {
 	if err == nil {
 		return toolSuccess(result), nil
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return nil, failure(-32800, "request cancelled")
+		return nil, failure(codeCancelled, "request cancelled")
 	}
-	return nil, failure(-32603, "internal error")
+	return nil, failure(codeInternal, "internal error")
 }
 
 func decodeArguments(raw json.RawMessage, target any) bool {
@@ -175,50 +180,7 @@ func decodeArguments(raw json.RawMessage, target any) bool {
 func emptyJSON(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null" || string(raw) == "{}"
 }
-func failure(code int, message string) *rpcError { return &rpcError{code, message} }
-func encodeResponse(response rpcResponse) []byte { raw, _ := json.Marshal(response); return raw }
-
-func intentTools() []Tool {
-	object := func(properties string, required string) json.RawMessage {
-		return json.RawMessage(`{"type":"object","properties":` + properties +
-			`,"required":` + required + `,"additionalProperties":false}`)
-	}
-	return []Tool{
-		{Name: "get_policy", Description: "Read standing policy",
-			InputSchema: object(`{"database_id":{"type":"integer"}}`, `[]`)},
-		{Name: "propose_policy_change", Description: "Propose policy delta",
-			InputSchema: object(`{"database_id":{"type":"integer"},"delta":{"type":"object"},`+
-				`"caller_claims":{"type":"object"}}`, `["delta"]`)},
-		{Name: "request_change", Description: "Request an intent-level database change",
-			InputSchema: object(`{"database_id":{"type":"integer"},"intent":{"type":"object"},`+
-				`"caller_claims":{"type":"object"}}`, `["intent"]`)},
-		{Name: "optimize_query", Description: "Optimize a query under standing policy",
-			InputSchema: object(`{"query_id":{"type":"integer"},"query_text":{"type":"string"},`+
-				`"goal":{"const":"latency"},"constraints":{"type":"object"}}`, `["goal"]`)},
-		{Name: "apply_migration", Description: "Plan and rehearse an online migration",
-			InputSchema: object(`{"ddl":{"type":"string"},"intent":{"type":"object"},`+
-				`"constraints":{"type":"object"}}`, `[]`)},
-		{Name: "ensure_fk_indexes", Description: "Ensure foreign keys have supporting indexes",
-			InputSchema: object(`{"schema":{"type":"string"}}`, `["schema"]`)},
-		{Name: "declare_table_contract", Description: "Declare table intent constraints. " +
-			"retention needs both interval and column (the timestamptz, timestamp or date " +
-			"column whose age defines retention); pg_sage never infers the column",
-			InputSchema: object(`{"table":{"type":"string"},"append_only":{"type":"boolean"},`+
-				`"retention":{"type":"object","properties":{"interval":{"type":"string"},`+
-				`"column":{"type":"string"}},"required":["interval","column"]},`+
-				`"expected_pk":{"type":"string"},`+
-				`"exemptions":{"type":"array","items":{"type":"string"}}}`, `["table"]`)},
-		{Name: "register_consumer", Description: "Protect a replication slot consumer",
-			InputSchema: object(`{"slot_name":{"type":"string"},"owner":{"type":"string"}}`,
-				`["slot_name","owner"]`)},
-		{Name: "set_maintenance_policy", Description: "Propose a maintenance policy patch",
-			InputSchema: object(`{"scope":{"type":"object"},"patch":{"type":"object"}}`,
-				`["scope","patch"]`)},
-		{Name: "get_guarantee_status", Description: "Read machine-readable invariant status",
-			InputSchema: object(`{}`, `[]`)},
-		{Name: "get_value", Description: "Read verified DBA-hours saved",
-			InputSchema: object(`{}`, `[]`)},
-		{Name: "get_ledger", Description: "Read evidence ledger",
-			InputSchema: object(`{"filter":{"type":"object"}}`, `[]`)},
-	}
+func failure(code int, message string) *rpcError {
+	return &rpcError{Code: code, Message: message}
 }
+func encodeResponse(response rpcResponse) []byte { raw, _ := json.Marshal(response); return raw }
