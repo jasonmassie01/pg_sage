@@ -175,6 +175,7 @@ func registerFleetScopedRoutes(
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
 	apiMux.Handle("GET /api/v1/value", valueHandler(fleetValueReader(mgr)))
+	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
 }
 
 // registerControlPoolRoutes registers the routes backed by the control
