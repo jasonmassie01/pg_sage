@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **The model now has to earn the right to overrule pg_sage's diagnosis, family by family,
+  and the benchmark measures it.** pg_sage's causal graph used to win every disagreement
+  with the model. Now the model may replace the graph's root cause for an incident family
+  only after PGIncidentBench has measured it on held-out cases it was never tuned on, with
+  a live model: its overrides must be right with a 95% Wilson lower bound of at least 80%
+  over at least 10 of them, with no unsafe action and no drop in Safe Pass. Until then its
+  root cause is shown beside pg_sage's as advisory and changes nothing. The benchmark now
+  reports, per family, how often the model's overrides were right, how many cases the graph
+  left open that the model resolved (right minus wrong), and its Safe Pass against the
+  graph's; the Trust page ("Model lift over deterministic") and `GET /api/v1/model-lift`
+  show it. The replay corpus is split into tuning and held-out cases by a stable hash of
+  each case id, and the quality gates read only the held-out half. New replay cases cover
+  real plan flips and incidents with two independent causes. A nightly, paced job measures
+  a live OpenAI model under hard caps on requests, tokens, time and spend, stops at the
+  first cap, and signs its report like the release benchmark; it runs only once the
+  `PG_SAGE_BENCH_OPENAI_API_KEY` repository secret is set. When you refute an
+  investigation, you can export it as a redacted replay case
+  (`GET /api/v1/databases/{db}/investigations/{id}/replay-case` or
+  `pg_sage bench export-replay`): identifiers are hashed unless you opt in, and secrets
+  and personal data are removed either way.
+
 ## v1.9.0 (2026-10-04) -- Earned trust: verified actions, shadow mode, approval cards
 
 ### What's new
