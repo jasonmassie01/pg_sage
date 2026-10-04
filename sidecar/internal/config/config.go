@@ -94,6 +94,7 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -717,6 +718,9 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
 		return err
 	}
+	if err := c.SelfBudget.validate(); err != nil {
+		return err
+	}
 	if err := c.LLM.Optimizer.RejectionMemory.validate(); err != nil {
 		return err
 	}
@@ -1034,7 +1038,8 @@ func newDefaults() *Config {
 				RetainedWALDiskPctCeiling: DefaultWALRetainedDiskPctCeiling,
 			},
 		},
-		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		MCP:        MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		SelfBudget: DefaultSelfBudget(),
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},

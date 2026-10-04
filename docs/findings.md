@@ -347,6 +347,46 @@ Sage monitoring used 4200 ms of database time per collector cycle on lifeos (bud
 
 ---
 
+### sage_self_budget
+
+Detects pg_sage exceeding the budget it declares for itself.
+
+**Severity:** warning
+
+**What it detects:** pg_sage used more than its `self_budget` of one or more resources
+on this database: the sidecar process's CPU per collector cycle
+(`self_budget.cpu_ms_per_cycle`, default 600 ms, 1% of one core at the default 60 s
+interval), its own statements' database time per hour
+(`self_budget.db_time_ms_per_hour`, off by default because
+`analyzer.self_cost_budget_ms` already budgets it per cycle), the shared blocks they
+touch per hour (`self_budget.blocks_per_hour`, default 18,000,000) and the size of the
+`sage` schema (`self_budget.storage_mb`, default 10240). One finding lists every
+resource over budget with what it used, and names the top consumers: pg_sage's five
+costliest statements of the window (database time, calls, blocks; text shown without
+the tag) and its busiest loops (collector and analyzer busy time). CPU is a process
+figure: when one sidecar monitors several databases, each database's finding reports
+the same process CPU. A resource that could not be measured (first cycle after a
+start, no `pg_stat_statements`) keeps the open finding open; `0` disables a resource.
+The same figures are exported as `pg_sage_self_cpu_ms_per_cycle`,
+`pg_sage_self_db_time_ms_per_hour`, `pg_sage_self_blocks_per_hour`,
+`pg_sage_self_budget{resource}`, `pg_sage_self_budget_exceeded{database,resource}` and
+`pg_sage_self_loop_busy_seconds_total{loop}`.
+
+**Example output:**
+
+```
+Sage monitoring exceeded its own cpu, storage budget on lifeos
+```
+
+**Recommended action:** Start with the top statements and loops in the finding.
+Lengthen `collector.interval_seconds` or `analyzer.interval_seconds`, turn off
+components you do not use, shorten retention for storage, or raise the `self_budget`
+value if the cost is expected. To see where the sidecar's CPU goes, enable
+`debug.pprof_enabled` and take a CPU profile (see
+[configuration](configuration.md#profiling-the-sidecar)).
+
+---
+
 ### checkpoint_pressure
 
 Detects high checkpoint frequency.

@@ -46,7 +46,8 @@ type StatementKey struct {
 type StatementCounters struct {
 	TimeMs float64 // execution + planning
 	Calls  int64
-	Blocks int64 // shared blocks hit + read
+	Blocks int64  // shared blocks hit + read
+	Text   string // the normalized statement, first 2000 characters
 }
 
 // Cost is pg_sage's cost per collector cycle between two readings.
@@ -78,7 +79,7 @@ type Querier interface {
 // statementsSQL sums this database's pg_sage-tagged statements.
 const statementsSQL = `/* pg_sage */ SELECT userid, queryid, toplevel,
   (total_exec_time + total_plan_time)::float8, calls,
-  (shared_blks_hit + shared_blks_read)::int8
+  (shared_blks_hit + shared_blks_read)::int8, left(query, 2000)
 FROM pg_stat_statements
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND queryid IS NOT NULL AND strpos(query, '/* pg_sage') > 0`
@@ -132,7 +133,7 @@ func readStatements(ctx context.Context, q Querier) (map[StatementKey]StatementC
 		var k StatementKey
 		var s StatementCounters
 		if err := rows.Scan(&k.UserID, &k.QueryID, &k.TopLevel, &s.TimeMs, &s.Calls,
-			&s.Blocks); err != nil {
+			&s.Blocks, &s.Text); err != nil {
 			return nil, err
 		}
 		out[k] = s
@@ -211,6 +212,7 @@ type Meter struct {
 	mu   sync.Mutex
 	prev Reading
 	last Cost
+	top  []StatementCost
 }
 
 // NewMeter returns an empty meter.
@@ -224,6 +226,10 @@ func (m *Meter) Observe(r Reading, cycle time.Duration) Cost {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c := Between(m.prev, r, cycle)
+	m.top = nil
+	if c.DBTimeKnown {
+		m.top = TopStatements(m.prev.Statements, r.Statements, TopN)
+	}
 	m.prev, m.last = r, c
 	return c
 }

@@ -32,7 +32,7 @@ func TestWriteSelfBudgetMetrics(t *testing.T) {
 		`pg_sage_self_blocks_per_hour{database="zeta"} 70000`,
 		`pg_sage_self_budget{resource="cpu"} 600`,
 		`pg_sage_self_budget{resource="db_time"} 180000`,
-		`pg_sage_self_budget{resource="io"} 1.8e+07`,
+		`pg_sage_self_budget{resource="io"} 18000000`,
 		`pg_sage_self_budget{resource="storage"} 1073741824`,
 		`pg_sage_self_budget_exceeded{database="zeta",resource="cpu"} 1`,
 		`pg_sage_self_budget_exceeded{database="zeta",resource="db_time"} 0`,
@@ -72,7 +72,7 @@ func TestWriteSelfBudgetMetrics_DisabledResources(t *testing.T) {
 		strings.Contains(out, "pg_sage_self_budget_exceeded{") {
 		t.Fatalf("disabled budget exported:\n%s", out)
 	}
-	if !strings.Contains(out, "pg_sage_self_cpu_ms_per_cycle 1e+09") {
+	if !strings.Contains(out, "pg_sage_self_cpu_ms_per_cycle 1000000000") {
 		t.Fatalf("usage must still be exported:\n%s", out)
 	}
 }

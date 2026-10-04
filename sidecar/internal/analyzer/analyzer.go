@@ -105,6 +105,9 @@ type Analyzer struct {
 	// selfCost meters pg_sage's own cost on this database (perf v1.8.3);
 	// read concurrently by /metrics.
 	selfCost *selfcost.Meter
+	// selfBudget meters the declared self-budget (CPU, loops); read
+	// concurrently by /metrics.
+	selfBudget *selfBudgetMeter
 	// factFilter applies the confirmed facts (roadmap 2.3); nil: none.
 	factFilter FactFilter
 }
@@ -143,9 +146,10 @@ func New(
 			InvalidFirstSeen: make(map[string]time.Time),
 			IndexOID:         make(map[string]uint32),
 		},
-		logFn:    logFn,
-		recs:     newRecommendationStore(pool),
-		selfCost: selfcost.NewMeter(),
+		logFn:      logFn,
+		recs:       newRecommendationStore(pool),
+		selfCost:   selfcost.NewMeter(),
+		selfBudget: newSelfBudgetMeter(),
 	}
 }
 
@@ -180,7 +184,7 @@ func (a *Analyzer) Run(ctx context.Context) {
 	a.logFn("INFO", "analyzer started, interval=%s", a.cfg.Analyzer.Interval())
 
 	// Run once immediately.
-	a.cycle(ctx)
+	a.trackedCycle(ctx)
 
 	for {
 		select {
@@ -188,7 +192,7 @@ func (a *Analyzer) Run(ctx context.Context) {
 			a.logFn("INFO", "analyzer stopped")
 			return
 		case <-ticker.C:
-			a.cycle(ctx)
+			a.trackedCycle(ctx)
 		}
 	}
 }

@@ -74,7 +74,7 @@ func TestTopStatements_TiesAreStable(t *testing.T) {
 func TestStatementText(t *testing.T) {
 	cases := map[string]string{
 		"SELECT /* pg_sage */ 1":                      "SELECT 1",
-		"/* pg_sage */ SELECT\n\t a,\n b FROM t":       "SELECT a, b FROM t",
+		"/* pg_sage */ SELECT\n\t a,\n b FROM t":      "SELECT a, b FROM t",
 		"WITH /* pg_sage sre:runway v2 */ x AS (...)": "WITH x AS (...)",
 		"SELECT /* other */ 1":                        "SELECT /* other */ 1",
 		"":                                            "",

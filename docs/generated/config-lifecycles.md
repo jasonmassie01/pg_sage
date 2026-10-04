@@ -226,6 +226,10 @@
 | `schema_lint.include_schemas` | `restart` | `-` |
 | `schema_lint.min_table_rows` | `restart` | `-` |
 | `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` |
+| `self_budget.blocks_per_hour` | `restart` | `-` |
+| `self_budget.cpu_ms_per_cycle` | `restart` | `-` |
+| `self_budget.db_time_ms_per_hour` | `restart` | `-` |
+| `self_budget.storage_mb` | `restart` | `-` |
 | `sre.actions.approval_ttl_minutes` | `restart` | `-` |
 | `sre.actions.chatops_tolerance_seconds` | `restart` | `-` |
 | `sre.actions.max_evidence_age_seconds` | `restart` | `-` |
