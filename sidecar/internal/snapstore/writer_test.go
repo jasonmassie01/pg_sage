@@ -92,9 +92,8 @@ func TestPlan_LargeDeltaBecomesKeyframe(t *testing.T) {
 	}
 }
 
-// Categories without a stable element identity (system, locks, io,
-// config_data, replication) are always stored in full and never become a
-// base.
+// The categories stored in full (system, locks, replication: see
+// Coverage) never become a base.
 func TestPlan_NonCatalogCategoryIsAlwaysFull(t *testing.T) {
 	w := NewWriter()
 	doc := []byte(`{"db_size_bytes":1}`)
