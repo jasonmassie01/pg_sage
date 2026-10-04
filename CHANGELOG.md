@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+### What's new
+
 - **Index cleanup can no longer hold back the changes that speed your database up.**
   Housekeeping (unused and redundant index drops, VACUUM, ANALYZE) now has its own daily
   budget, separate from evidence-backed performance changes (on one database, about 20
@@ -12,25 +14,6 @@
   waiting change is evaluated once per cycle instead of twice. Existing policies keep
   their limit for performance changes; see [Blast-radius
   budgets](docs/configuration.md#blast-radius-budgets).
-
-## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
-
-### What's new
-
-- **Only HypoPG-verified index advice runs unattended, whatever its age.** Index advice saved by
-  older pg_sage versions under per-type categories (covering, partial, composite) skipped the
-  what-if gate; it is now held for approval until re-verified, and an existing index that
-  already covers a candidate rules it out. Stale rollback SQL from those versions is repaired,
-  and an action withheld for its own content is recorded once instead of retried every cycle.
-- **The blast-radius limit holds at its configured number of tables**, and a change to an index
-  counts against its table once.
-- **Session counts are the application's sessions only** (autovacuum, replication and parallel
-  workers no longer inflate them), and **a stop signal during startup shuts pg_sage down
-  cleanly**.
-- **Steadier CI:** 29 tests that depended on timing or server-wide state now isolate it.
-
-
-### What's new
 
 - **Every action that waits for you now comes as an approval card with the why, and you can
   decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
@@ -46,8 +29,6 @@
   the approver's name. Once the action is verified (or rolled back), pg_sage posts the
   result back to the same chat. A snoozed action stays behind approval until the snooze
   ends, then pg_sage asks again; a rejected one stays behind approval as before.
-
-### What's new
 
 - **Every release ships its own signed benchmark, so earning L2 no longer means copying CI
   files.** The release build signs its PGIncidentBench reports with Sigstore (no key to
@@ -89,6 +70,24 @@
   unverifiable count for nothing either way, and a regression is rolled back and counts
   against trust. VACUUM and ANALYZE are verified by the dead tuples and modified rows they
   were meant to clear instead of being marked successful at once.
+
+
+## v1.8.5 (2026-10-03) -- Safety: only verified index advice runs unattended
+
+### What's new
+
+- **Only HypoPG-verified index advice runs unattended, whatever its age.** Index advice saved by
+  older pg_sage versions under per-type categories (covering, partial, composite) skipped the
+  what-if gate; it is now held for approval until re-verified, and an existing index that
+  already covers a candidate rules it out. Stale rollback SQL from those versions is repaired,
+  and an action withheld for its own content is recorded once instead of retried every cycle.
+- **The blast-radius limit holds at its configured number of tables**, and a change to an index
+  counts against its table once.
+- **Session counts are the application's sessions only** (autovacuum, replication and parallel
+  workers no longer inflate them), and **a stop signal during startup shuts pg_sage down
+  cleanly**.
+- **Steadier CI:** 29 tests that depended on timing or server-wide state now isolate it.
+
 
 ### Fixed
 
