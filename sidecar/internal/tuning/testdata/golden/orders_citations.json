@@ -1,0 +1,11 @@
+{
+  "description": "Every proposal cites evidence the agent holds, predicts its effect and stays inside its case.",
+  "fixture": "orders",
+  "answer": "{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\",\"value\":\"64MB\",\"expected_change_pct\":-70},{\"type\":\"guc\",\"name\":\"work_mem\",\"value\":\"32MB\",\"evidence\":[\"S1\",\"R9\"],\"expected_change_pct\":-70},{\"type\":\"guc\",\"name\":\"work_mem\",\"value\":\"16MB\",\"evidence\":[\"S1\"]},{\"type\":\"query_hint\",\"queryid\":424242,\"hint\":\"SeqScan(orders)\",\"evidence\":[\"S1\"],\"expected_change_pct\":-10}]}",
+  "expect": [
+    {"type": "guc", "verdict": "rejected", "reason": "uncited"},
+    {"type": "guc", "verdict": "rejected", "reason": "unknown_evidence"},
+    {"type": "guc", "verdict": "rejected", "reason": "no_prediction"},
+    {"type": "query_hint", "verdict": "rejected", "reason": "out_of_case"}
+  ]
+}

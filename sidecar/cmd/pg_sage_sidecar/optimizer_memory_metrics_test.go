@@ -4,16 +4,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
 // Rejection-memory counters are exported per database: what-if evaluations
-// and LLM calls the optimizer skipped because the idea was already measured.
+// the index admission skipped because the idea was already measured, and
+// model calls the tuning agent skipped for a case whose recent answers were
+// all wasted (the metric names predate the agent and are kept).
 
 func TestWriteOptimizerMemoryMetrics(t *testing.T) {
 	var b strings.Builder
-	writeOptimizerMemoryMetrics(&b, map[string]optimizer.MemoryStats{
-		"zeta":  {WhatIfSkipped: 4, LLMCallsSkipped: 2},
+	writeOptimizerMemoryMetrics(&b, map[string]analyzer.TuningStats{
+		"zeta":  {WhatIfSkipped: 4, ModelCallsSkipped: 2},
 		"alpha": {},
 	})
 	out := b.String()
@@ -48,7 +50,7 @@ func TestWriteOptimizerMemoryMetrics_NothingWithoutOptimizers(t *testing.T) {
 // format.
 func TestWriteOptimizerMemoryMetrics_QuotesDatabaseNames(t *testing.T) {
 	var b strings.Builder
-	writeOptimizerMemoryMetrics(&b, map[string]optimizer.MemoryStats{`we"ird`: {}})
+	writeOptimizerMemoryMetrics(&b, map[string]analyzer.TuningStats{`we"ird`: {}})
 	if !strings.Contains(b.String(), `{database="we\"ird"} 0`) {
 		t.Fatalf("label not escaped:\n%s", b.String())
 	}

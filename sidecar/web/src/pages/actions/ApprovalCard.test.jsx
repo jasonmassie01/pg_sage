@@ -89,6 +89,24 @@ describe('ApprovalCard', () => {
     expect(screen.getByTestId('approval-expiry')).toHaveTextContent(/Expires in [45]h/)
   })
 
+  it('shows the tuning agent calibration instead of an invented confidence', () => {
+    render(<ApprovalCard card={card({ rationale: { source: 'llm',
+      text: 'Seq scans on orders filter by customer_id',
+      calibration: 'uncalibrated (2 of 5 outcomes)' } })} />)
+    const rationale = screen.getByTestId('approval-rationale')
+    expect(rationale).toHaveTextContent('uncalibrated (2 of 5 outcomes)')
+    expect(rationale).not.toHaveTextContent('confidence')
+  })
+
+  it('shows a calibrated confidence with its evidence', () => {
+    render(<ApprovalCard card={card({ rationale: { source: 'llm', text: 'x',
+      confidence: 0.8,
+      calibration: '8 of 10 comparable actions improved (25-50% predicted)' } })} />)
+    const rationale = screen.getByTestId('approval-rationale')
+    expect(rationale).toHaveTextContent('calibrated confidence 80%')
+    expect(rationale).toHaveTextContent('8 of 10 comparable actions improved')
+  })
+
   it('renders a minimal card without optional sections', () => {
     render(<ApprovalCard card={card({ rationale: null, evidence: [],
       predicted_effect: {}, rollback: { class: '', sql: '', note: 'Nothing to undo' },
