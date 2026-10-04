@@ -52,6 +52,26 @@ func Summary(c Card) string {
 	return strings.Join(parts, "; ")
 }
 
+// rationaleLabel names the rationale's source and its confidence: the
+// tuning agent's calibration when it has one, else a producer's own
+// confidence; an uncalibrated proposal shows no number.
+func rationaleLabel(r *Rationale) string {
+	label := "Rationale"
+	if r.Source == "llm" {
+		label = "Model rationale"
+	}
+	switch {
+	case r.Calibration != "" && r.Confidence != nil:
+		return label + fmt.Sprintf(" (calibrated confidence %.0f%%: %s)", *r.Confidence*100,
+			r.Calibration)
+	case r.Calibration != "":
+		return label + " (" + r.Calibration + ")"
+	case r.Confidence != nil:
+		return label + fmt.Sprintf(" (confidence %.0f%%)", *r.Confidence*100)
+	}
+	return label
+}
+
 // Text renders a card as plain chat text (no markup), within MaxTextRunes.
 func Text(c Card, now time.Time) string {
 	var b strings.Builder
@@ -71,14 +91,7 @@ func Text(c Card, now time.Time) string {
 		}
 	}
 	if r := c.Rationale; r != nil {
-		label := "Rationale"
-		if r.Source == "llm" {
-			label = "Model rationale"
-		}
-		if r.Confidence != nil {
-			label += fmt.Sprintf(" (confidence %.0f%%)", *r.Confidence*100)
-		}
-		fmt.Fprintf(&b, "\n%s: %s\n", label, truncate(r.Text, 600))
+		fmt.Fprintf(&b, "\n%s: %s\n", rationaleLabel(r), truncate(r.Text, 600))
 	}
 	if s := Summary(c); s != "" {
 		fmt.Fprintf(&b, "\nPredicted effect: %s\n", s)
