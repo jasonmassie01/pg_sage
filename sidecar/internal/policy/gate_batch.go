@@ -23,12 +23,31 @@ func (gate *authorizationGate) ExplainBatch(
 	snapshot.config.RecordDecisionDetailed = nil
 	snapshot.config.Runtime = memoize(gate.config.Runtime)
 	snapshot.config.Policy = memoize(gate.config.Policy)
-	snapshot.config.Usage = memoize(gate.config.Usage)
+	snapshot.config.Usage = memoizeUsageByKind(gate.config.Usage)
 	decisions := make([]Decision, len(requests))
 	for i, request := range requests {
 		decisions[i] = snapshot.Explain(ctx, request)
 	}
 	return decisions
+}
+
+// memoizeUsageByKind caches usage per budget kind for the batch: each kind
+// has its own budget, so a hygiene family is not explained against the
+// performance window. A nil reader stays nil.
+func memoizeUsageByKind(
+	read func(context.Context, ActionRequest) (LimitUsage, error),
+) func(context.Context, ActionRequest) (LimitUsage, error) {
+	if read == nil {
+		return nil
+	}
+	readers := map[BudgetKind]func(context.Context, ActionRequest) (LimitUsage, error){}
+	return func(ctx context.Context, req ActionRequest) (LimitUsage, error) {
+		kind := BudgetKindFor(req)
+		if readers[kind] == nil {
+			readers[kind] = memoize(read)
+		}
+		return readers[kind](ctx, req)
+	}
 }
 
 // memoize caches the first result (and error) of read for the batch. A nil

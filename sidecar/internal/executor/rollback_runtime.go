@@ -47,7 +47,10 @@ func (e *Executor) standingRollbackAuthorizer(
 	return func(ctx context.Context, rollbackSQL string) bool {
 		candidate := finding
 		candidate.RecommendedSQL = rollbackSQL
-		decision := e.evaluateFindingPolicy(ctx, candidate, false)
+		decision := e.evaluateRollbackPolicy(ctx, candidate)
+		// A rollback restores the prior state and never counted toward a
+		// budget: its authorization holds no slot.
+		e.releaseBudget(ctx, decision.DecisionID)
 		return decision.Decision == PolicyDecisionExecute
 	}
 }

@@ -352,6 +352,81 @@ The standing policy document also carries three safety fields, all enforced:
   accepted and currently behaves like `park` (the action waits for the next
   cycle, not for the lease holder).
 
+#### Blast-radius budgets
+
+Self-initiated changes are bounded per rolling 24-hour window by
+`blast_radius`. Housekeeping and performance changes have separate budgets,
+so a burst of index cleanup can never hold back an evidence-backed index or
+setting change:
+
+```json
+"blast_radius": {
+  "max_rows_rewritten": 5000000,
+  "max_tables_per_window": 10,
+  "hygiene": {"max_tables_per_window": 10, "max_changes_per_window": 25}
+},
+"rate_limits": {"max_self_initiated_changes_per_window": 25}
+```
+
+The performance budget is `blast_radius.max_tables_per_window` plus
+`rate_limits.max_self_initiated_changes_per_window` (a document may also
+spell it `blast_radius.performance: {max_tables_per_window,
+max_changes_per_window}`); `hygiene` is optional and defaults per field.
+
+- **Kinds.** `hygiene` is unused and redundant index drops (including drops in
+  leaked test schemas), `VACUUM` and `ANALYZE`. Everything else is
+  `performance`: index builds, reindexes, settings, autovacuum tuning, query
+  hints and any action type pg_sage does not recognize. The kind comes from the
+  action's typed contract (the statement that would run), never from evidence
+  or an LLM.
+- **`max_tables_per_window`**: distinct tables a kind may touch in the window,
+  counting the change being decided (an index counts as its table).
+  Re-touching a table already counted is free. `0` admits no table.
+- **`max_changes_per_window`**: self-initiated changes a kind may make in the
+  window. Operator-approved changes and `ddl_conflict` parks do not count.
+- **`max_rows_rewritten`**: one budget for both kinds. Each change is charged
+  pg_sage's estimate of the rows it rewrites, taken from `pg_class.reltuples`
+  (or the live-tuple count, whichever is larger, summed over every leaf
+  partition) when it is authorized: `VACUUM FULL`, `CLUSTER`, `REINDEX`
+  without `CONCURRENTLY`, and `ALTER TABLE` that changes a column type, sets
+  `LOGGED`/`UNLOGGED`, a tablespace or an access method, or adds a generated,
+  identity or non-literal-default column (a function default such as `now()`
+  is assumed to rewrite). Every other change rewrites `0` rows. A rewrite
+  whose table cannot be found is blocked (`policy_unavailable`), never
+  counted as `0`.
+- **Defaults.** Both profiles split the previous single limit (20 tables, 50
+  changes) evenly: 10 tables and 25 changes per kind.
+- **Documents written before the split** keep working unchanged:
+  `blast_radius.max_tables_per_window` and
+  `rate_limits.max_self_initiated_changes_per_window` are read as the
+  performance budget, and hygiene gets the defaults above (so such a policy
+  allows up to 10 hygiene tables on top of its old limit). A document may name
+  a performance limit both ways (also as a `performance` block) only if the
+  values agree. Saving a policy writes the performance budget in those
+  legacy fields, and a `hygiene` block only when it differs from the
+  default, so a sidecar from before the split still reads a saved policy
+  (it fails closed, `policy_unavailable`, on a customized hygiene block).
+- **When a budget is full** the change is parked (`blast_radius_exceeded` for
+  tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
+  The decision's `evidence.budget_detail` says which budget is full and when it
+  next frees, for example `hygiene budget full: 11 of 10 tables in the 24h
+  window; next frees at 2026-10-04T18:00:02Z`.
+- **Concurrent candidates.** An authorized change holds its slot from the
+  authorization until it has run (at most twice the DDL timeout plus a
+  minute, if the sidecar dies in between), so two candidates can never both
+  take the last slot, even across sidecar processes: the usage read and the
+  recorded decision share one transaction holding a
+  `pg_advisory_xact_lock` keyed by the database.
+- **Emergency mitigations bypass the kind budgets.** A wraparound `VACUUM`
+  while the XID runway is critical, a space-freeing `VACUUM`, unused-index
+  drop or `REINDEX` while the disk runway is critical (urgency critical with
+  the hard deadline still ahead, as the custodian computed it), and the
+  revert or rollback of a change pg_sage made itself are never parked by a
+  kind budget and are charged to none (`evidence.budget_kind = bypass`).
+  They are recorded with the reason `budget bypass: <why>` and still pass
+  every other check: change classes, guardrails, the refusal set, windows,
+  leases, lock ceilings and the shared `max_rows_rewritten` bound.
+
 #### Retention contracts
 
 The only way pg_sage deletes user rows is a retention contract declared with the

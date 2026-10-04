@@ -35,6 +35,11 @@ type ActionIntent struct {
 	// authorization (operator approvals). It runs at both authorization
 	// points.
 	Authorize func(context.Context) (ActionPolicyDecision, error)
+	// FirstDecision is the gate's authorization of Request that the caller
+	// made just before Apply to route the change (the executor cycle). It is
+	// Apply's first authorization, so the gate evaluates the change once
+	// before the waits; the re-authorization after them still asks it.
+	FirstDecision *ActionPolicyDecision
 	// Lease is the finding whose change takes a typed-target lease on its
 	// targets when it is a leased mutation; nil takes none.
 	Lease *analyzer.Finding
@@ -86,9 +91,16 @@ func (e *WithheldError) Unwrap() error { return ErrActionWithheld }
 // change made while the action waited stops it. It returns the action_log
 // id; a policy refusal is a *WithheldError.
 func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error) {
+	// The gate's execute decisions hold their budget slot until the change
+	// they authorized returns; its action_log row then carries the usage.
+	var held []int64
+	if intent.Authorize == nil {
+		defer func() { e.releaseBudget(ctx, held...) }()
+	}
 	waitCtx, cancelWait := context.WithTimeout(ctx, e.applyTimeout())
 	defer cancelWait()
 	first, err := e.authorizeIntent(waitCtx, intent, false)
+	held = append(held, first.DecisionID)
 	if err != nil {
 		return 0, err
 	}
@@ -103,6 +115,7 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	// the earned-autonomy ledger must not count as a concurrent writer.
 	intent.Request.LeaseHeld = leased
 	final, err := e.authorizeIntent(runCtx, intent, true)
+	held = append(held, final.DecisionID)
 	if err != nil {
 		return 0, err
 	}
@@ -126,7 +139,10 @@ func (e *Executor) authorizeIntent(
 		Decision: PolicyDecisionBlocked, RiskTier: "unknown",
 		BlockedReason: reasonNoStandingPolicy,
 	}
-	if gate != nil {
+	switch {
+	case !reauthorize && intent.FirstDecision != nil:
+		decision = *intent.FirstDecision
+	case gate != nil:
 		decision = standingPolicyDecision(gate.Authorize(ctx, intent.Request))
 	}
 	if decision.Decision != PolicyDecisionExecute {

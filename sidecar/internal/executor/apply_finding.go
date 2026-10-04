@@ -62,19 +62,25 @@ func (e *Executor) processFinding(
 	// The revision's evidence is immutable; the gate needs the current one.
 	f = e.currentGateEvidence(ctx, f, findingID, cand)
 	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
-	if decision.Decision == PolicyDecisionBlocked ||
-		decision.Decision == PolicyDecisionObserveOnly {
-		return
-	}
-	if decision.Decision == PolicyDecisionQueueApproval {
+	switch decision.Decision {
+	case PolicyDecisionExecute:
+	case PolicyDecisionQueueApproval:
 		e.queueFinding(ctx, f, findingID, decision, cand)
+		return
+	default:
+		// Blocked, observe-only and parked verdicts are recorded; the next
+		// cycle evaluates the candidate again, Apply must not (lifeos: a
+		// park fell through to Apply and was evaluated twice per cycle).
 		return
 	}
 	if CheckHysteresis(ctx, e.pool, findingID, e.cfg.Trust.RollbackCooldownDays) {
+		e.releaseBudget(ctx, decision.DecisionID)
 		e.logFn("executor", "skipping %q — rolled back recently (cooldown)", f.Title)
 		return
 	}
-	_, err := e.Apply(ctx, e.findingIntent(f, findingID, isReplica, cand))
+	intent := e.findingIntent(f, findingID, isReplica, cand)
+	intent.FirstDecision = &decision
+	_, err := e.Apply(ctx, intent)
 	if errors.Is(err, ErrDDLSlotUnavailable) {
 		e.logFn("executor", "DDL concurrency limit reached, skipping %s", f.RecommendedSQL)
 	}

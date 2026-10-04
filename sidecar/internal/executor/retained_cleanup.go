@@ -139,6 +139,8 @@ func (e *Executor) reviewSupersededIndexCleanup(
 	candidate := analyzer.Finding{RecommendedSQL: sql, ObjectType: "index",
 		ObjectIdentifier: target, Title: "Retained index superseded cleanup"}
 	decision := e.evaluateFindingPolicy(ctx, candidate, false)
+	// The cleanup is only recorded for review below: nothing runs.
+	e.releaseBudget(ctx, decision.DecisionID)
 	if decision.Decision != PolicyDecisionExecute {
 		return errors.New("standing policy withheld superseded-index cleanup")
 	}

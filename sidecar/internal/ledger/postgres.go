@@ -6,14 +6,30 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type PostgresRepository struct{ pool *pgxpool.Pool }
+// querier is what the repository runs statements on: a pool, or a
+// transaction (NewTxRepository).
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+type PostgresRepository struct{ pool querier }
 
 func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
+}
+
+// NewTxRepository records inside tx, so a decision commits or rolls back
+// with the transaction it was decided in (the standing gate's budget
+// lock). A fingerprint upsert that fails there aborts the transaction:
+// there is no plain-insert fallback inside it.
+func NewTxRepository(tx pgx.Tx) *PostgresRepository {
+	return &PostgresRepository{pool: tx}
 }
 
 func (r *PostgresRepository) InsertDecision(
