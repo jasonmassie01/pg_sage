@@ -22,9 +22,31 @@ const sageTag = "/* pg_sage */ "
 // same statement run by two roles (or top-level and nested) would otherwise
 // produce duplicate query_store samples with one captured_at (G1-B05).
 // Means and the population stddev are recombined from per-row calls.
-// The two %s verbs are the block read/write time expressions chosen by
-// blockTimeColumns (PG17 renamed blk_*_time to shared_/local_blk_*_time).
-const queryStatsSelect = sageTag + `
+// The %[1]s and %[2]s verbs are the block read/write time expressions
+// chosen by blockTimeColumns (PG17 renamed blk_*_time to
+// shared_/local_blk_*_time); %[3]d is the row limit.
+//
+// The candidates are ranked on the counters alone (showtext false), and
+// only their texts are matched against the self-exclusion and aggregated
+// (coordinator audit, 2026-10-04): on a 45k-entry server with 14 MB of
+// text, sorting every entry with its text spilled 16 MB to disk and the
+// regex ran on all of them (265-325 ms of the 500 ms budget); ranking
+// first took 156-178 ms. Twice the limit leaves room for pg_sage's own
+// statements among the top ones.
+const queryStatsWith = sageTag + `
+WITH ranked AS (
+    SELECT c.queryid FROM pg_stat_statements(false) c
+     WHERE c.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+       AND c.queryid IS NOT NULL
+     GROUP BY c.queryid
+     ORDER BY sum(c.total_exec_time) DESC
+     LIMIT 2 * %[3]d
+), candidates AS MATERIALIZED (
+    SELECT s.* FROM pg_stat_statements(true) s JOIN ranked r ON r.queryid = s.queryid
+     WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+)`
+
+const queryStatsSelect = queryStatsWith + `
 SELECT COALESCE(queryid, 0) AS queryid,
        (array_agg(query ORDER BY calls DESC))[1] AS query,
        sum(calls)::bigint AS calls,
@@ -40,8 +62,8 @@ SELECT COALESCE(queryid, 0) AS queryid,
        sum(shared_blks_hit)::bigint, sum(shared_blks_read)::bigint,
        sum(shared_blks_dirtied)::bigint, sum(shared_blks_written)::bigint,
        sum(temp_blks_read)::bigint, sum(temp_blks_written)::bigint,
-       COALESCE(sum(%s), 0)::float8 AS blk_read_time,
-       COALESCE(sum(%s), 0)::float8 AS blk_write_time`
+       COALESCE(sum(%[1]s), 0)::float8 AS blk_read_time,
+       COALESCE(sum(%[2]s), 0)::float8 AS blk_write_time`
 
 const queryStatsWALColumns = `,
        sum(wal_records)::bigint, sum(wal_fpi)::bigint, sum(wal_bytes)::bigint`
@@ -51,16 +73,14 @@ const queryStatsPlanColumns = `,
        COALESCE(sum(total_plan_time) / NULLIF(sum(plans), 0), 0)::float8
          AS mean_plan_time`
 
-// queryStatsFrom leaves pg_sage's own statements out (a format string:
-// the predicate's % are doubled).
+// queryStatsFrom leaves pg_sage's own statements out of the candidates (a
+// format string: the predicate's % are doubled).
 var queryStatsFrom = `
-  FROM pg_stat_statements
- WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-   AND queryid IS NOT NULL
-   AND ` + strings.ReplaceAll(selfmonitor.StatementExclusionSQL("query"), "%", "%%") + `
+  FROM candidates
+ WHERE ` + strings.ReplaceAll(selfmonitor.StatementExclusionSQL("query"), "%", "%%") + `
  GROUP BY queryid
  ORDER BY sum(total_exec_time) DESC
- LIMIT %d`
+ LIMIT %[3]d`
 
 var queryStatsSQL = queryStatsSelect + queryStatsFrom
 

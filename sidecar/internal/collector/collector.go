@@ -44,6 +44,7 @@ type Collector struct {
 	sequences      sequenceCache
 	seqCoverage    SequenceCoverage
 	dbSize         dbSizeCache
+	pgssClass      classCache
 	exactTopN      int           // relations sized exactly per cycle
 	seqPageSize    int           // sequences per catalog transaction
 	seqScanCap     int           // sequences read per cycle

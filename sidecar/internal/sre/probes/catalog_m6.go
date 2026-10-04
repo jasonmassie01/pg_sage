@@ -83,22 +83,26 @@ ORDER BY g.bytes DESC, g.pid
 LIMIT $1`
 
 // tempSpillStatementsSQL reads this database's statements that wrote
-// temp blocks, without returning their text. v2: the text is read (not
-// returned) to leave pg_sage's own statements out; the probe is reactive
-// (a temp-file incident), so reading the query texts once is acceptable.
-var tempSpillStatementsSQL = `/* pg_sage sre:temp_spill_statements v2 */
+// temp blocks from pg_stat_statements' counters alone. v3 never loads the
+// query texts: matching every entry's text to leave pg_sage's own out took
+// 300-370 ms of the 500 ms budget on a 45k-entry server. own_role marks
+// the statements run by the probing role (pg_sage's); when pg_sage shares
+// the application's role it marks those too, so it is a marker, not a
+// filter.
+var tempSpillStatementsSQL = `/* pg_sage sre:temp_spill_statements v3 */
 SELECT s.queryid, sum(s.calls)::int8 AS calls,
        sum(s.temp_blks_written)::int8 AS temp_blks_written,
        sum(s.temp_blks_read)::int8 AS temp_blks_read,
        sum(s.total_exec_time)::float8 AS total_exec_ms,
        pg_catalog.current_setting('block_size')::int8 AS block_size,
        (SELECT i.stats_reset FROM ` + ExtSchemaToken + `.pg_stat_statements_info i)
-           AS stats_reset
-FROM ` + ExtSchemaToken + `.pg_stat_statements(true) s
+           AS stats_reset,
+       bool_or(s.userid = (SELECT r.oid FROM pg_catalog.pg_roles r
+                           WHERE r.rolname = current_user)) AS own_role
+FROM ` + ExtSchemaToken + `.pg_stat_statements(showtext => false) s
 WHERE s.dbid = (SELECT d.oid FROM pg_catalog.pg_database d
                 WHERE d.datname = pg_catalog.current_database())
   AND s.queryid IS NOT NULL AND s.temp_blks_written > 0
-  AND ` + notSelfStatement("s.query") + `
 GROUP BY s.queryid
 ORDER BY 3 DESC, 1
 LIMIT $1`
@@ -170,7 +174,7 @@ func tempSpillStatementsSpec() Spec {
 	s := needsStats(spec(TempSpillStatements, FamilyTempFiles, ArgsNone,
 		Variant{MinVersion: 140000, SQL: tempSpillStatementsSQL}))
 	s.Extension = "pg_stat_statements"
-	return versioned(s, "v2")
+	return versioned(s, "v3")
 }
 
 func standbyReplayStateSpec() Spec {

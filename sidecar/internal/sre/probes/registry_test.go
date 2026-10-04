@@ -98,16 +98,14 @@ func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 	}
 }
 
-// Probes never return raw query text or other free text that could carry
-// literals: only identities, states, counts and ages.
+// Probes never read or return raw query text or other free text that
+// could carry literals: only identities, states, counts and ages.
 func TestCatalog_NeverSelectsQueryText(t *testing.T) {
 	queryColumn := regexp.MustCompile(`(?i)(\.|[\s,(])query\b`)
 	for _, id := range Catalog().IDs() {
 		spec, _ := Catalog().Spec(id)
 		for _, v := range spec.Variants {
-			// The self-exclusion predicate reads the text, never returns it.
-			sql := strings.ReplaceAll(v.SQL, notSelfStatement("s.query"), "")
-			if m := queryColumn.FindString(sql); m != "" {
+			if m := queryColumn.FindString(v.SQL); m != "" {
 				t.Errorf("%s selects query text (%q)", id, m)
 			}
 		}
