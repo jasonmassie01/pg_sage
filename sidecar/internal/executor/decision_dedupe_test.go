@@ -68,8 +68,8 @@ func (g *countingGate) count() int {
 	return g.calls
 }
 
-// A blocked verdict ends processing after one authorization (a parked one
-// goes on to Apply, which re-authorizes after its waits).
+// A blocked verdict ends processing after one authorization, as a parked
+// one does (see parked_once_test.go).
 func TestCheapSkipsRunBeforeTheGate(t *testing.T) {
 	fx := newRecFixture(t, autovacuumProbe2, policy.VerdictBlocked)
 	gate := &countingGate{inner: fixedGate{verdict: policy.VerdictBlocked}}

@@ -35,6 +35,11 @@ type ActionIntent struct {
 	// authorization (operator approvals). It runs at both authorization
 	// points.
 	Authorize func(context.Context) (ActionPolicyDecision, error)
+	// FirstDecision is the gate's authorization of Request that the caller
+	// made just before Apply to route the change (the executor cycle). It is
+	// Apply's first authorization, so the gate evaluates the change once
+	// before the waits; the re-authorization after them still asks it.
+	FirstDecision *ActionPolicyDecision
 	// Lease is the finding whose change takes a typed-target lease on its
 	// targets when it is a leased mutation; nil takes none.
 	Lease *analyzer.Finding
@@ -134,7 +139,10 @@ func (e *Executor) authorizeIntent(
 		Decision: PolicyDecisionBlocked, RiskTier: "unknown",
 		BlockedReason: reasonNoStandingPolicy,
 	}
-	if gate != nil {
+	switch {
+	case !reauthorize && intent.FirstDecision != nil:
+		decision = *intent.FirstDecision
+	case gate != nil:
 		decision = standingPolicyDecision(gate.Authorize(ctx, intent.Request))
 	}
 	if decision.Decision != PolicyDecisionExecute {
