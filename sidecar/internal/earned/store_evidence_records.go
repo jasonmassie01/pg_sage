@@ -37,13 +37,18 @@ func (r trailingRow) Scan(dest ...any) error { return r.Row.Scan(append(dest, r.
 // a database, so every database of the deployment shares it.
 func (s *PostgresStore) benchSet(ctx context.Context, families []Family) (
 	map[Family]*EvalRun, error) {
+	out := map[Family]*EvalRun{}
+	return out, s.readBench(ctx, s, families, out)
+}
+
+func (s *PostgresStore) readBench(ctx context.Context, r reads, families []Family,
+	out map[Family]*EvalRun) error {
 	names := make([]string, 0, len(families))
 	for _, f := range families {
 		names = append(names, string(f))
 	}
 	b := s.runningBuild()
-	out := map[Family]*EvalRun{}
-	err := s.queryEach(ctx, "read latest bench report", benchSetSQL,
+	return r.each(ctx, "read latest bench report", benchSetSQL,
 		[]any{s.deployment, b.Commit, b.Version, names}, func(rows pgx.Rows) error {
 			var f string
 			run, err := s.scanEvalRun(trailingRow{Row: rows, extra: &f})
@@ -53,7 +58,6 @@ func (s *PostgresStore) benchSet(ctx context.Context, families []Family) (
 			out[Family(f)] = &run
 			return nil
 		})
-	return out, err
 }
 
 // LatestBench is the deployment's newest bench report that counts for
@@ -126,9 +130,14 @@ const classRecordSetSQL = `/* pg_sage */ SELECT p.family, p.action_class,
 // evidence apart (Shadow*) and together (Successes, Uncredited).
 func (s *PostgresStore) classRecordSet(ctx context.Context, pairs []pairKey) (
 	map[pairKey]ClassRecord, error) {
-	families, classes := pairArrays(pairs)
 	out := map[pairKey]ClassRecord{}
-	err := s.queryEach(ctx, "read class record", classRecordSetSQL,
+	return out, s.readClassRecords(ctx, s, pairs, out)
+}
+
+func (s *PostgresStore) readClassRecords(ctx context.Context, rd reads, pairs []pairKey,
+	out map[pairKey]ClassRecord) error {
+	families, classes := pairArrays(pairs)
+	return rd.each(ctx, "read class record", classRecordSetSQL,
 		[]any{s.deployment, s.database, families, classes}, func(rows pgx.Rows) error {
 			var f, c string
 			var r ClassRecord
@@ -151,7 +160,6 @@ func (s *PostgresStore) classRecordSet(ctx context.Context, pairs []pairKey) (
 			out[pairKey{Family(f), ActionClass(c)}] = r
 			return nil
 		})
-	return out, err
 }
 
 // ClassRecord reads a pair's verdict record on the database.
@@ -164,15 +172,11 @@ func (s *PostgresStore) ClassRecord(ctx context.Context, f Family, c ActionClass
 	return set[pairKey{f, c}], nil
 }
 
-// levelSet is every stored pair of the database.
-func (s *PostgresStore) levelSet(ctx context.Context) (map[pairKey]State, error) {
-	levels, err := s.Levels(ctx)
-	if err != nil {
-		return nil, err
-	}
+// levelMap keys stored states by pair.
+func levelMap(levels []State) map[pairKey]State {
 	out := make(map[pairKey]State, len(levels))
 	for _, st := range levels {
 		out[pairKey{st.Family, st.Class}] = st
 	}
-	return out, nil
+	return out
 }

@@ -15,10 +15,10 @@ import (
 
 // Perf regression (2026-10-04): the Trust view's family safety read
 // fetched every outcome of the window (20,000 rows in the small perf
-// gate, two reads per view) to count the harmful ones, and the
-// reconciler's read of decided action verdicts had no index on
-// decided_at, so it would scan sage.action_outcome whole once that table
-// grows. On a seeded history both reads touch only what they return.
+// gate, two reads per view) to count the harmful ones. On a seeded
+// history it touches only what it returns; the reconciler's read of
+// decided verdicts stays on its decided_at index (trust ledger migration)
+// now that the gate seeds sage.action_outcome.
 
 func seededLedgerPool(t *testing.T, name string) (*pgxpool.Pool, perfgate.Binding) {
 	t.Helper()

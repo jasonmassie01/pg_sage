@@ -73,12 +73,11 @@ const lastChangesSQL = `/* pg_sage */ SELECT e.id, e.family, e.action_class, e.e
 		                         'carried_over', 'grandfathered', 'database_scoped')
 		 ORDER BY ev.created_at DESC, ev.id DESC LIMIT 1) e`
 
-// lastChanges reads the newest level-changing event of each pair.
-func (s *PostgresStore) lastChanges(ctx context.Context, pairs []pairKey) (
-	map[pairKey]Event, error) {
+// readLastChanges reads the newest level-changing event of each pair.
+func (s *PostgresStore) readLastChanges(ctx context.Context, r reads, pairs []pairKey,
+	out map[pairKey]Event) error {
 	families, classes := pairArrays(pairs)
-	out := map[pairKey]Event{}
-	err := s.queryEach(ctx, "read level changes", lastChangesSQL,
+	return r.each(ctx, "read level changes", lastChangesSQL,
 		[]any{s.deployment, s.database, families, classes}, func(rows pgx.Rows) error {
 			e, err := scanEvent(rows)
 			if err != nil {
@@ -87,7 +86,6 @@ func (s *PostgresStore) lastChanges(ctx context.Context, pairs []pairKey) (
 			out[pairKey{e.Family, e.Class}] = e
 			return nil
 		})
-	return out, err
 }
 
 // stamp is a nullable time for an API row.

@@ -62,38 +62,62 @@ type TrustView struct {
 	Floor         *FloorStatus       `json:"floor"`
 	Grandfathered *GrandfatherReport `json:"grandfathered,omitempty"`
 	Rows          []TrustRow         `json:"rows"`
+	// safety is the incident families' safety record the view read, for
+	// AnnotateTrust to reuse; nil when the view did not read it.
+	safety map[Family]familySafetyRow
 }
 
-// TrustView builds the database's Trust view with a constant number of
-// set-based statements, however many pairs it shows.
+// trustReads is everything a Trust view reads, filled by one batch.
+type trustReads struct {
+	pending []Proposal
+	changes map[pairKey]Event
+	levels  []State
+	grand   *GrandfatherReport
+	e       *evidenceSet
+}
+
+// TrustView builds the database's Trust view: the proposal expiry, then
+// every read in one pipelined round trip, however many pairs it shows.
 func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
-	pending, err := s.PendingProposals(ctx)
-	if err != nil {
+	if err := s.expire(ctx); err != nil {
 		return TrustView{}, err
-	}
-	byPair := map[pairKey]*Proposal{}
-	for i := range pending {
-		byPair[pairKey{pending[i].Family, pending[i].Class}] = &pending[i]
 	}
 	grid := gridPairs()
-	changes, err := s.store.lastChanges(ctx, grid)
-	if err != nil {
-		return TrustView{}, err
-	}
-	levels, err := s.store.levelSet(ctx)
-	if err != nil {
-		return TrustView{}, err
-	}
 	now := s.now()
-	e, err := s.loadEvidence(ctx, grid,
-		evidenceNeeds{incident: true, records: true}, now)
-	if err != nil {
+	in := trustReads{changes: map[pairKey]Event{}, e: newEvidenceSet(now)}
+	b := &readBatch{}
+	for _, queue := range []func() error{
+		func() error { return s.store.readProposals(ctx, b, StatusPending, 200, &in.pending) },
+		func() error { return s.store.readLastChanges(ctx, b, grid, in.changes) },
+		func() error { return s.store.readLevels(ctx, b, &in.levels) },
+		func() error {
+			return s.queueEvidence(ctx, b, grid,
+				evidenceNeeds{incident: true, records: true}, in.e)
+		},
+		func() error { return s.store.readGrandfather(ctx, b, &in.grand) },
+	} {
+		if err := queue(); err != nil {
+			return TrustView{}, err
+		}
+	}
+	if err := s.store.runBatch(ctx, b); err != nil {
 		return TrustView{}, err
 	}
+	return s.buildTrustView(grid, now, in), nil
+}
+
+// buildTrustView assembles the view from its reads.
+func (s *Service) buildTrustView(grid []pairKey, now time.Time, in trustReads) TrustView {
+	byPair := map[pairKey]*Proposal{}
+	for i := range in.pending {
+		byPair[pairKey{in.pending[i].Family, in.pending[i].Class}] = &in.pending[i]
+	}
+	levels, e, changes := levelMap(in.levels), *in.e, in.changes
 	v := TrustView{Database: s.store.database, GeneratedAt: now,
-		Floor: s.floorStatus(ClassIndexCreate, now), Rows: []TrustRow{}}
-	if v.Grandfathered, err = s.Grandfathered(ctx); err != nil {
-		return TrustView{}, err
+		Floor: s.floorStatus(ClassIndexCreate, now), Rows: []TrustRow{},
+		Grandfathered: in.grand}
+	if e.safetyRead {
+		v.safety = e.safety
 	}
 	for _, key := range grid {
 		st, ok := levels[key]
@@ -103,7 +127,7 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 		v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, key.family, key.class),
 			e.records[key], byPair[key], changes[key]))
 	}
-	return v, nil
+	return v
 }
 
 func (s *Service) trustRow(st State, ev Evidence, rec ClassRecord, pending *Proposal,
@@ -150,8 +174,11 @@ func lastChange(st State, e Event) TrustChange {
 // one statement.
 func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
 	self := l.selfDowngrades(ctx)
-	safety, err := l.svc.store.safetySet(ctx, rowFamilies(v.Rows, false),
-		l.svc.now().Add(-l.svc.cfg.SafetyWindow))
+	safety, err := v.safety, error(nil)
+	if safety == nil {
+		safety, err = l.svc.store.safetySet(ctx, rowFamilies(v.Rows, false),
+			l.svc.now().Add(-l.svc.cfg.SafetyWindow))
+	}
 	byFamily := map[Family][]Downgrade{}
 	for i := range v.Rows {
 		row := &v.Rows[i]

@@ -213,22 +213,26 @@ func (s *PostgresStore) readLevel(ctx context.Context, q querier, f Family,
 
 // Levels lists every stored pair of the database.
 func (s *PostgresStore) Levels(ctx context.Context) ([]State, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+levelColumns+`
-		FROM sage.sre_family_autonomy WHERE deployment_id = $1 AND database_name = $2
-		ORDER BY family, action_class`, s.deployment, s.database)
-	if err != nil {
-		return nil, storeErr("list autonomy levels", err)
-	}
-	defer rows.Close()
 	var out []State
-	for rows.Next() {
-		st, err := scanState(rows)
-		if err != nil {
-			return nil, storeErr("scan autonomy level", err)
-		}
-		out = append(out, st)
+	if err := s.readLevels(ctx, s, &out); err != nil {
+		return nil, err
 	}
-	return out, storeErr("list autonomy levels", rows.Err())
+	return out, nil
+}
+
+// readLevels appends every stored pair of the database to out.
+func (s *PostgresStore) readLevels(ctx context.Context, r reads, out *[]State) error {
+	return r.each(ctx, "list autonomy levels", `SELECT `+levelColumns+`
+		FROM sage.sre_family_autonomy WHERE deployment_id = $1 AND database_name = $2
+		ORDER BY family, action_class`, []any{s.deployment, s.database},
+		func(rows pgx.Rows) error {
+			st, err := scanState(rows)
+			if err != nil {
+				return err
+			}
+			*out = append(*out, st)
+			return nil
+		})
 }
 
 // levelChange is one compare-and-set of a pair's level.
