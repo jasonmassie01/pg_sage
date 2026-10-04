@@ -41,8 +41,8 @@ per analyzer cycle as the analyzer's tuning producer:
    used: index creates through the optimizer's what-if admission and rejection memory;
    drops only for covered indexes or indexes unused for 7+ days of stats; GUCs through
    `advisor.GateConfigFindings` (validation, host-memory guard, allowlist, cloud
-   transform); hints through `tuner.ProposeHint` (syntax validation, allowlist,
-   clamp); binding facts redirect to a source-fix packet or drop the proposal.
+   transform); hints through `tuner.CheckHint` (syntax validation, allowlist,
+   clamp; no side effects); binding facts redirect to a source-fix packet or drop the proposal.
 6. **Calibrated confidence** (`calibration.go`): decided outcomes from
    `sage.action_outcome` per action class and prediction method, binned by predicted
    |change| (0-10, 10-25, 25-50, 50+ %), Wilson lower bound (z = 1.96) of "tolerance
@@ -81,7 +81,7 @@ Config: new `tuning:` block (`enabled`, `max_cases_per_cycle` 3,
   context builder (now `table_context.go`) stay and are what the agent calls.
 - `internal/tuner`: `llm_prescriber.go`, `prompt.go`, `context.go`, `WithLLM`,
   `LLMEnabled`. Hint validation moved to `hint_validate.go`; the deterministic hint
-  rules are unchanged; `ProposeHint` is the agent's entry point.
+  rules are unchanged; `CheckHint` (no side effects) and `RecordHint` are the agent's entry points.
 - `internal/advisor`: `vacuum.go`, `memory.go` (their prompts). WAL, connections,
   query rewrites and bloat advice stay, now table-driven.
 - `internal/analyzer`: `optimizer_stats.go`; the optimizer slot is now a
@@ -214,18 +214,16 @@ survivors are equivalent: `splitFacts` status filter (`facts.Bind` already requi
 confirmed fact) and the statistics minimum column count (`extstats.ParseCreate`
 refuses fewer than 2 before the agent's check).
 
-## Open questions
+## Open questions (answered by the coordinator)
 
-1. Advisor WAL, connections, rewrites and bloat still have their own prompts. Fold
-   them into the agent as more proposal types, or keep them as fleet-level advice?
-2. Bench: the agent is benched by the golden corpus (8 recorded cases with a fake
-   model). There is no sre-bench arm for it yet; should 2.2 get one before release?
-3. `tuner.ProposeHint` records the hint when the proposal is validated, before the
-   per-cycle cap; a hint cut by the cap is still recorded. Acceptable, or move the
-   hint write after ranking?
-4. Host memory is not wired in production (`host_memory_bytes` 0), so the memory
-   guard leaves `shared_buffers` proposals advisory-only. Wire it from the provider?
-5. `release/v1.10.0` cut its CHANGELOG while this branch was open, so the tuning
-   agent's bullet sits under a new `## Unreleased` above `## v1.10.0` (everything from
-   `## v1.10.0` down matches the release branch, from `## v1.9.0` down matches master).
-   Ship it in v1.10.0 (move the bullet) or in the next release?
+1. Advisor WAL, connections, rewrites and bloat prompts: they become tuning-agent
+   proposal types in a follow-up PR after #115 merges.
+2. A PGIncidentBench arm for 2.2: later, alongside the other arms.
+3. A hint was recorded in `sage.query_hints` (and cooled down) when judged, before the
+   per-cycle cap. Not acceptable: fixed in #115 (tests first, `hint_cap_test.go`).
+   `tuner.ProposeHint` split into `CheckHint` (no side effects) and `RecordHint`; the
+   agent records only the hints kept after ranking and the cap (cap N with N+1 hints
+   records exactly N), drops a hint the tuner will no longer record, and counts what
+   the caps cut in `pg_sage_tuning_proposals_capped_total` next to the cap log line.
+4. `shared_buffers` advisory-only without host memory: fine.
+5. Ships in v1.11.0: the bullet stays under `## Unreleased`.
