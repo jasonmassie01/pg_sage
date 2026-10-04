@@ -227,3 +227,25 @@ refuses fewer than 2 before the agent's check).
    the caps cut in `pg_sage_tuning_proposals_capped_total` next to the cap log line.
 4. `shared_buffers` advisory-only without host memory: fine.
 5. Ships in v1.11.0: the bullet stays under `## Unreleased`.
+
+## Follow-up: unexamined work keeps its findings (lifeos, v1.9.0)
+
+On lifeos the old optimizer's exhausted daily budget never reached `public.memories`,
+so its open HypoPG-verified index (finding 18635) was not re-emitted and the analyzer
+resolved it. In #115 (tests first, `keep_open_test.go`, `store_relations_db_test.go`):
+
+1. Every open finding in the agent's categories is re-emitted unchanged, whether or
+   not its table or case was examined this cycle (budget, case cap, model error, no
+   case). Only deterministic catalog evidence resolves one: its table no longer
+   exists, an existing valid index covers the index it would create, or the index it
+   would drop is gone (one catalog read per cycle, `Relations`). An unreadable catalog
+   resolves nothing. This replaces the earlier product call that let open findings of
+   vanished cases and pre-agent advisor findings resolve.
+2. Cases a cycle cannot reach are deferred and asked first next cycle, longest waiting
+   first, then by value (call-weighted time); the deferral is logged with the case ids.
+3. The last cycle's tokens and requests used vs limit, cases asked and cases deferred
+   are exported (`pg_sage_tuning_budget_*`, `pg_sage_tuning_cases_*`) and returned by
+   `GET /api/v1/tuning/calibration` as `budget`, shown on the Trust page.
+
+The metrics test expectations for `pg_sage_tuning_proposals_capped_total` were
+missing from the hint-cap commit (a script edit did not apply); they are added here.

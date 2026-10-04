@@ -59,6 +59,17 @@ type Store interface {
 	// ColumnStats are pg_stats of the named columns, in request order.
 	ColumnStats(ctx context.Context, schema, table string, cols []string) (
 		[]ColumnStat, error)
+	// Relations reports which of the tables and indexes exist and the valid
+	// index definitions of the existing tables, in one catalog read.
+	Relations(ctx context.Context, tables, indexes []string) (CatalogState, error)
+}
+
+// CatalogState is what Relations found, keyed by the names asked. A name
+// that is not a qualified identifier is absent: unknown, never "gone".
+type CatalogState struct {
+	Tables    map[string]bool
+	Indexes   map[string]bool
+	IndexDefs map[string][]string
 }
 
 // Plan sources.

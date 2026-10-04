@@ -61,6 +61,16 @@ async function loadCalibration(database) {
   return body
 }
 
+function BudgetLine({ b }) {
+  return (
+    <div data-testid="tuning-budget" style={muted}>
+      Last cycle: {b.tokens_used} of {b.token_limit} tokens, {b.requests_used} of{' '}
+      {b.request_limit} requests, {b.cases_asked} cases examined, {b.cases_deferred}{' '}
+      deferred to later cycles (their open findings stay open).
+    </div>
+  )
+}
+
 export function TuningCalibration({ database }) {
   const one = database && database !== 'all'
   const [state, setState] = useState({ loading: one, data: null, error: null })
@@ -87,6 +97,7 @@ export function TuningCalibration({ database }) {
         </div>
       )}
       {state.loading && <div style={muted}>Loading…</div>}
+      {state.data?.budget && <BudgetLine b={state.data.budget} />}
       {state.error && (
         <div role="alert" style={{ color: 'var(--red)' }}>
           Could not load the tuning calibration: {state.error}

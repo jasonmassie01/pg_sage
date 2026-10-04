@@ -57,7 +57,7 @@ describe('TuningCalibration', () => {
       .toHaveTextContent('uncalibrated')
   })
 
-  it('shows the last cycle's budget use and the deferred cases', async () => {
+  it('shows the budget use of the last cycle and the deferred cases', async () => {
     mockFetch({ database: 'orders', min_outcomes: 5, window_days: 180, classes: [],
       budget: { tokens_used: 41000, token_limit: 60000, requests_used: 12,
         request_limit: 12, cases_asked: 2, cases_deferred: 5 } })

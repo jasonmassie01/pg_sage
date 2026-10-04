@@ -31,6 +31,14 @@ type TuningStats struct {
 	WhatIfSkipped     int64 // what-ifs rejection memory skipped (already measured)
 	ModelCallsSkipped int64 // cases not sent to the model (wasted before, unchanged)
 	ProposalsCapped   int64 // admitted proposals the per-cycle caps cut (never recorded)
+
+	// The last cycle's model budget use and the cases it left for later.
+	TokensUsed    int64
+	TokenLimit    int64
+	RequestsUsed  int64
+	RequestLimit  int64
+	CasesAsked    int64 // cases the model examined
+	CasesDeferred int64 // cases left for a later cycle (case cap, budget, model error)
 }
 
 // TuningCategories are the finding categories the tuning agent owns: the

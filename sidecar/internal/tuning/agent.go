@@ -64,6 +64,8 @@ type Agent struct {
 	memory     *caseMemory
 	modelSkips atomic.Int64
 	cappedN    atomic.Int64
+	queue      caseQueue
+	last       cycleStats
 	mu         sync.Mutex // one cycle at a time
 
 	tcMu    sync.Mutex
@@ -108,8 +110,10 @@ func (a *Agent) Stats() analyzer.TuningStats {
 	if a == nil {
 		return analyzer.TuningStats{}
 	}
-	s := analyzer.TuningStats{ModelCallsSkipped: a.modelSkips.Load(),
-		ProposalsCapped: a.cappedN.Load()}
+	a.last.mu.Lock()
+	s := a.last.s
+	a.last.mu.Unlock()
+	s.ModelCallsSkipped, s.ProposalsCapped = a.modelSkips.Load(), a.cappedN.Load()
 	if a.deps.Indexes != nil {
 		s.WhatIfSkipped = a.deps.Indexes.MemoryStats().WhatIfSkipped
 	}
@@ -139,7 +143,7 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 	if err != nil {
 		return analyzer.TuningOutput{Failed: cats}, err
 	}
-	kept, busy := reemit(open, cases)
+	kept, busy := a.keepOpen(ctx, open, cases)
 	out := analyzer.TuningOutput{Evaluated: cats, Findings: kept}
 	var ask []Case
 	for _, c := range cases {
@@ -150,6 +154,8 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 	if len(ask) > 0 && a.deps.Model != nil {
 		cy := &cycle{cur: cur, prev: prev, w: w, all: all, confirmed: confirmedOnly(all)}
 		out.Findings = append(out.Findings, a.askCases(ctx, cy, ask)...)
+	} else {
+		a.noteCycle(nil, 0, 0)
 	}
 	out.IndexTables = indexTables(out.Findings)
 	return out, nil

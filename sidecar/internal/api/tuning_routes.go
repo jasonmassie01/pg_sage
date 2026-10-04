@@ -48,7 +48,8 @@ func tuningCalibrationHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		cal := tuning.Calibrate(samples, t.CalibrationMinOutcomes)
 		jsonResponse(w, map[string]any{"database": selected.name,
 			"min_outcomes": cal.MinOutcomes, "window_days": t.CalibrationWindowDays,
-			"classes": cal.Classes, "excluded": cal.Excluded})
+			"classes": cal.Classes, "excluded": cal.Excluded,
+			"budget": tuningBudget(mgr, selected.name)})
 	}
 }
 
@@ -67,4 +68,23 @@ func calibrationSettings(mgr *fleet.DatabaseManager) config.TuningConfig {
 		t.CalibrationWindowDays = c.CalibrationWindowDays
 	}
 	return t
+}
+
+// tuningBudget is the agent's last-cycle budget use for the database, or
+// nil when it runs no tuning agent.
+func tuningBudget(mgr *fleet.DatabaseManager, name string) map[string]int64 {
+	if mgr == nil {
+		return nil
+	}
+	inst := mgr.GetInstance(name)
+	if inst == nil {
+		return nil
+	}
+	s, ok := inst.Analyzer.TuningStats()
+	if !ok {
+		return nil
+	}
+	return map[string]int64{"tokens_used": s.TokensUsed, "token_limit": s.TokenLimit,
+		"requests_used": s.RequestsUsed, "request_limit": s.RequestLimit,
+		"cases_asked": s.CasesAsked, "cases_deferred": s.CasesDeferred}
 }

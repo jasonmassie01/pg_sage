@@ -459,7 +459,7 @@ page and `GET /api/v1/tuning/calibration?database=` show the reliability bins.
 | `tuning.max_requests_per_cycle` | `12` | Model requests (tool turns included) per database per cycle (1-200) |
 | `tuning.max_tokens_per_cycle` | `60000` | Model tokens per database per cycle, charged before each request (1000-2000000) |
 | `tuning.max_turns_per_case` | `6` | Model turns per case; the last must answer without tools (1-20) |
-| `tuning.max_proposals_per_cycle` | `10` | New findings per cycle, best ranked first (1-100). The cap applies before anything is recorded: a cut proposal (a query hint included) leaves no trace and is counted in `pg_sage_tuning_proposals_capped_total{database}` |
+| `tuning.max_proposals_per_cycle` | `10` | New findings per cycle, best ranked first (1-100). The cap applies before anything is recorded: a cut proposal (a query hint included) leaves no trace and is counted in `pg_sage_tuning_proposals_capped_total{database}`. Cases a cycle cannot reach (case cap, budget, model error) are deferred and asked first in the next cycles, longest waiting first; open findings the agent did not examine are kept unchanged, never resolved by absence. The last cycle's use is exported as `pg_sage_tuning_budget_{tokens,requests}_{used,limit}{database}`, `pg_sage_tuning_cases_asked{database}` and `pg_sage_tuning_cases_deferred{database}`, and shown on the Trust page |
 | `tuning.calibration_min_outcomes` | `5` | Decided outcomes a class and method need before a confidence is shown (1-1000) |
 | `tuning.calibration_window_days` | `180` | Days of decided outcomes the calibration reads (1-3650) |
 

@@ -29,6 +29,16 @@ func TestWriteOptimizerMemoryMetrics(t *testing.T) {
 		"# HELP pg_sage_optimizer_llm_calls_skipped_total ",
 		"# TYPE pg_sage_optimizer_llm_calls_skipped_total counter\n",
 		"pg_sage_optimizer_llm_calls_skipped_total{database=\"zeta\"} 2\n",
+		"# TYPE pg_sage_tuning_proposals_capped_total counter\n",
+		"pg_sage_tuning_proposals_capped_total{database=\"zeta\"} 3\n",
+		"# TYPE pg_sage_tuning_budget_tokens_used gauge\n",
+		"pg_sage_tuning_budget_tokens_used{database=\"zeta\"} 41000\n",
+		"pg_sage_tuning_budget_tokens_limit{database=\"zeta\"} 60000\n",
+		"pg_sage_tuning_budget_requests_used{database=\"zeta\"} 12\n",
+		"pg_sage_tuning_budget_requests_limit{database=\"zeta\"} 12\n",
+		"pg_sage_tuning_cases_asked{database=\"zeta\"} 2\n",
+		"# TYPE pg_sage_tuning_cases_deferred gauge\n",
+		"pg_sage_tuning_cases_deferred{database=\"zeta\"} 5\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("metrics output lacks %q:\n%s", want, out)

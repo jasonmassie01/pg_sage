@@ -35,7 +35,9 @@ type cycle struct {
 }
 
 // askCases asks the model about the cases, within the cycle's case cap
-// and budget, and returns the ranked findings of what it admitted.
+// and budget, and returns the ranked findings of what it admitted. Cases
+// left for later are asked first next cycle (longest waiting first), so a
+// cap or an exhausted budget never starves the same cases.
 func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyzer.Finding {
 	t := a.settings.Tuning
 	cy.budget = NewCycleBudget(t.MaxRequestsPerCycle, int64(t.MaxTokensPerCycle))
@@ -43,10 +45,11 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	cy.v = a.newValidator(cy.cur, cy.w, cy.confirmed, a.operatorRejected(ctx))
 	cy.cal = a.calibration(ctx)
 	var judged []Judged
-	asked, left := 0, 0
-	for i, c := range cases {
-		if asked >= t.MaxCasesPerCycle {
-			left++
+	var deferred []string
+	asked, stopped := 0, false
+	for _, c := range a.queue.order(cases) {
+		if stopped || asked >= t.MaxCasesPerCycle {
+			deferred = append(deferred, c.ID)
 			continue
 		}
 		if a.memory.skip(c, a.now()) {
@@ -55,17 +58,17 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 				"is unchanged, not asking again", c.ID)
 			continue
 		}
-		asked++
 		res, stop := a.runCase(ctx, cy, c)
 		judged = append(judged, res...)
 		if stop {
-			left += len(cases) - i - 1
-			break
+			stopped, deferred = true, append(deferred, c.ID)
+			continue
 		}
+		asked++
 	}
-	if left > 0 {
-		a.logFn("INFO", "tuning: %d case(s) left for later", left)
-	}
+	a.queue.advance(deferred)
+	a.logDeferred(deferred, stopped)
+	a.noteCycle(cy.budget, asked, len(deferred))
 	return a.recordHints(ctx, a.rank(judged, cy.cal))
 }
 
@@ -174,41 +177,6 @@ func (a *Agent) prefetch(ctx context.Context, tb *toolbox, c Case) string {
 		Arguments: []byte(args)})
 	return "\n\nPre-fetched tool result (statement " + fmt.Sprint(c.Statements[0].QueryID) +
 		"):\n" + res
-}
-
-// reemit keeps the open findings whose case is still live: the agent's own
-// by case, and earlier index advice by its table. Their cases are not
-// asked again while they are open.
-func reemit(open []analyzer.Finding, cases []Case) ([]analyzer.Finding, map[string]bool) {
-	live := map[string]bool{}
-	byTable := map[string][]string{}
-	for _, c := range cases {
-		live[c.ID] = true
-		for _, t := range c.Tables {
-			byTable[t] = append(byTable[t], c.ID)
-		}
-	}
-	busy := map[string]bool{}
-	var kept []analyzer.Finding
-	for _, f := range open {
-		if producer, _ := f.Detail["producer"].(string); producer == Producer {
-			if id, _ := f.Detail["case_id"].(string); live[id] {
-				kept, busy[id] = append(kept, f), true
-			}
-			continue
-		}
-		if !isLegacyIndexFinding(f) {
-			continue
-		}
-		table := canonicalRef(analyzer.OptimizerFindingTable(f))
-		if ids := byTable[table]; len(ids) > 0 {
-			kept = append(kept, f)
-			for _, id := range ids {
-				busy[id] = true
-			}
-		}
-	}
-	return kept, busy
 }
 
 // isLegacyIndexFinding is index advice of the optimizer before the agent

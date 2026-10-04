@@ -82,3 +82,68 @@ func (s *postgresStore) ColumnStats(ctx context.Context, schema, table string, c
 	}
 	return out, nil
 }
+
+const relationsSQL = `/* pg_sage */
+SELECT r.ref, r.kind, c.oid IS NOT NULL,
+       ARRAY(SELECT pg_catalog.pg_get_indexdef(i.indexrelid)
+             FROM pg_catalog.pg_index i
+             WHERE r.kind = 't' AND i.indrelid = c.oid AND i.indisvalid
+             ORDER BY 1)
+FROM unnest($1::text[], $2::text[]) AS r(ref, kind)
+LEFT JOIN pg_catalog.pg_class c ON c.oid = pg_catalog.to_regclass(r.ref)`
+
+func (s *postgresStore) Relations(ctx context.Context, tables, indexes []string) (
+	CatalogState, error) {
+	st := CatalogState{Tables: map[string]bool{}, Indexes: map[string]bool{},
+		IndexDefs: map[string][]string{}}
+	refs, kinds, asked := relationRefs(tables, indexes)
+	if len(refs) == 0 {
+		return st, nil
+	}
+	rows, err := catalogread.New(s.pool, s.timeouts).Query(ctx, relationsSQL, refs, kinds)
+	if err != nil {
+		return CatalogState{}, fmt.Errorf("read relations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ref, kind string
+		var exists bool
+		var defs []string
+		if err := rows.Scan(&ref, &kind, &exists, &defs); err != nil {
+			return CatalogState{}, fmt.Errorf("scan relations: %w", err)
+		}
+		for _, name := range asked[kind+ref] {
+			if kind == "t" {
+				st.Tables[name], st.IndexDefs[name] = exists, defs
+			} else {
+				st.Indexes[name] = exists
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return CatalogState{}, fmt.Errorf("read relations: %w", err)
+	}
+	return st, nil
+}
+
+// relationRefs are the canonical names to look up, their kinds ("t", "i")
+// and the names asked for each; names that do not parse are left out.
+func relationRefs(tables, indexes []string) (refs, kinds []string,
+	asked map[string][]string) {
+	asked = map[string][]string{}
+	add := func(kind string, names []string) {
+		for _, name := range names {
+			ref := canonicalRef(name)
+			if ref == "" {
+				continue
+			}
+			if _, seen := asked[kind+ref]; !seen {
+				refs, kinds = append(refs, ref), append(kinds, kind)
+			}
+			asked[kind+ref] = append(asked[kind+ref], name)
+		}
+	}
+	add("t", tables)
+	add("i", indexes)
+	return refs, kinds, asked
+}

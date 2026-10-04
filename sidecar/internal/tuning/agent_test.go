@@ -263,7 +263,7 @@ func TestTune_MaxCasesPerCycle(t *testing.T) {
 	if h.model.callCount() != 1 {
 		t.Fatalf("model calls = %d, want 1 (one case per cycle)", h.model.callCount())
 	}
-	if !h.logs.contains("2 case(s) left for later") {
+	if !h.logs.contains("2 case(s) deferred to a later cycle") {
 		t.Fatalf("logs = %v", h.logs.lines)
 	}
 }
