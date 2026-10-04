@@ -437,7 +437,7 @@ configure the closed-loop autonomy stack. MCP is an intent-level JSON-RPC
 surface: it exposes policy, change-request, and evidence-ledger tools, never
 raw SQL execution. Caller claims are recorded as untrusted input and do not
 grant authority. MCP is served over HTTP by default (`mcp.transport: http`,
-`POST /api/v1/mcp`), always behind a token or a signed-in session; set
+`POST /api/v1/mcp`), accepting only MCP API tokens (never a session); set
 `mcp.transport: stdio` for stdio. See [MCP for coding agents](mcp.md).
 
 The default `unattended` policy profile permits explicitly bounded deadline

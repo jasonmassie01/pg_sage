@@ -87,7 +87,8 @@ Bug fix found on the way: `internal/explain` planned pg_stat_statements text wit
 14. Lint verdict: risky >= 0.7, review >= 0.3 or any rewrite / ACCESS EXCLUSIVE, else safe;
     unrecognized DDL is said to be unproven, not safe.
 15. Default `mcp.transport` is now `http` (coordinator decision; the API server always
-    runs) and MCP over HTTP always needs a token or a signed-in session: tested for every
+    runs) and MCP over HTTP is token-only (a later coordinator decision: a session cookie
+    never authenticates it, CSRF risk): tested for every
     method, with no or bad credentials, with and without the session middleware. stdio
     stays available. Setup = a token in the UI + one `claude mcp add` line.
 16. HTTP subscriptions close gracefully before the API's 30 s request deadline (clients
@@ -192,3 +193,14 @@ All packages meet coverage thresholds (lowest touched: api 79.3%, cmd 79.8%, mcp
 - Results: config, api (79.4%), cmd (79.9%), mcp, mcptoken, agenttools, schema, retention,
   explain, workload ok on PG17; e2e ok; small perf gate ok; golangci-lint 0 issues; vitest
   75 files, 443 passed, 0 failed, 0 skipped; lint clean.
+
+## Follow-up 2: token-only MCP over HTTP
+
+- `POST /api/v1/mcp` accepts only `Authorization: Bearer <mcp token>`; the session
+  middleware leaves the path to the token check, and a request with only a session cookie
+  gets 401 `{"code":"mcp_token_required"}` explaining how to create a token.
+- Tests: session cookie without token → 401; a read-only token sent with an admin's cookie
+  is refused propose (the cookie lends nothing) and a full token is recorded as
+  `mcp:token:<id>`, not the cookie's user; invalid token + valid cookie → 401; the
+  anonymous test stays. Tests that called MCP through a session now use tokens (rule
+  change); the router golden records the route as `open:401`.

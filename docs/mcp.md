@@ -14,8 +14,9 @@ investigation, changing autonomy) stays with a person.
 ## Set up Claude Code in one line
 
 MCP is on by default and served over HTTP at `/api/v1/mcp` on the API port, behind
-authentication: every MCP request needs a token (or a signed-in session); there is no
-anonymous MCP.
+authentication: every MCP request needs an MCP token. A dashboard session cookie never
+authenticates MCP (a browser would send it cross-site); without a token the endpoint answers
+401 with `"code": "mcp_token_required"`. There is no anonymous MCP.
 
 1. An admin creates a token for the agent once: **MCP tokens** in the dashboard (or
    `POST /api/v1/mcp/tokens`, below). The token is shown once.
