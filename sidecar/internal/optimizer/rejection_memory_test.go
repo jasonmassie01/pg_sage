@@ -144,8 +144,8 @@ func storedRejection(t *testing.T, ddl string, age time.Duration) rejection {
 func TestMemorySettings_DefaultsWithoutConfig(t *testing.T) {
 	s := defaultMemorySettings()
 	if s.MaxAge != 7*24*time.Hour || s.CallRatio != 2 || s.MeanRatio != 2 ||
-		s.RowRatio != 2 || s.PromptMax != 5 {
-		t.Fatalf("zero config settings = %+v, want 7d, 2x, 2x, 2x, 5 shapes", s)
+		s.RowRatio != 2 || s.PromptMax != 5 || s.SkipLLMAfter != 3 {
+		t.Fatalf("zero config settings = %+v, want 7d, 2x, 2x, 2x, 5 shapes, 3", s)
 	}
 	d := memorySettingsFrom(config.DefaultConfig().LLM.Optimizer.RejectionMemory)
 	if d != s {
@@ -156,20 +156,21 @@ func TestMemorySettings_DefaultsWithoutConfig(t *testing.T) {
 func TestMemorySettings_ConfiguredAndInvalidValues(t *testing.T) {
 	s := memorySettingsFrom(config.OptimizerRejectionMemoryConfig{Enabled: true,
 		MaxAgeDays: 3, CallVolumeRatio: 4, MeanTimeRatio: 1.5, RowEstimateRatio: 10,
-		PromptMaxShapes: 2})
+		PromptMaxShapes: 2, SkipLLMAfter: 7})
 	if s.MaxAge != 72*time.Hour || s.CallRatio != 4 || s.MeanRatio != 1.5 ||
-		s.RowRatio != 10 || s.PromptMax != 2 {
+		s.RowRatio != 10 || s.PromptMax != 2 || s.SkipLLMAfter != 7 {
 		t.Fatalf("configured settings = %+v", s)
 	}
 	bad := memorySettingsFrom(config.OptimizerRejectionMemoryConfig{MaxAgeDays: -1,
 		CallVolumeRatio: 1, MeanTimeRatio: 0.5, RowEstimateRatio: math.NaN(),
-		PromptMaxShapes: -3})
+		PromptMaxShapes: -3, SkipLLMAfter: -1})
 	if bad != defaultMemorySettings() {
 		t.Fatalf("invalid values must fall back to defaults, got %+v", bad)
 	}
 	if c := memorySettingsFrom(config.OptimizerRejectionMemoryConfig{
-		PromptMaxShapes: 500}); c.PromptMax != 20 {
-		t.Fatalf("prompt shapes = %d, want the cap of 20", c.PromptMax)
+		PromptMaxShapes: 500, SkipLLMAfter: 5000}); c.PromptMax != 20 || c.SkipLLMAfter != 100 {
+		t.Fatalf("caps: prompt shapes %d (want 20), skip after %d (want 100)", c.PromptMax,
+			c.SkipLLMAfter)
 	}
 }
 
