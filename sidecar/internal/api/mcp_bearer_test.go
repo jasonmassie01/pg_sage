@@ -307,13 +307,15 @@ func TestMCPBearerInvalidDoesNotFallBackToSession(t *testing.T) {
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call",` +
 		`"params":{"name":"list_facts","arguments":{"database":"orders"}}}`
 
-	// Control: the session alone is accepted.
-	requireToolOK(t, rpcResult(t, f.send(http.MethodPost, "/api/v1/mcp", "", session, body)))
-	require.Len(t, f.backend.snapshot(), 1)
+	// MCP over HTTP is token-only (product rule change): the valid admin
+	// session alone is refused too.
+	alone := f.send(http.MethodPost, "/api/v1/mcp", "", session, body)
+	require.Equal(t, http.StatusUnauthorized, alone.Code, alone.Body.String())
+	require.Contains(t, alone.Body.String(), "mcp_token_required")
 
 	w := f.send(http.MethodPost, "/api/v1/mcp", "Bearer pgs_mcp_garbage", session, body)
 	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
-	require.Len(t, f.backend.snapshot(), 1, "an invalid bearer must not fall back")
+	require.Empty(t, f.backend.snapshot(), "an invalid bearer must not fall back")
 }
 
 func TestMCPBearerOperatorTokenFollowsOwner(t *testing.T) {
