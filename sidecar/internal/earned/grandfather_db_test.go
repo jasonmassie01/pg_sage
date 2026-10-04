@@ -16,7 +16,7 @@ import (
 // grandfathered levels, once per database. The ramp never grants again
 // afterwards; grandfathered levels demote like any other.
 
-func autonomousBound(now time.Time, rampAge time.Duration) policy.RuntimeState {
+func rampBound(now time.Time, rampAge time.Duration) policy.RuntimeState {
 	return policy.RuntimeState{ExecutorEnabled: true, ExecutionMode: policy.ExecutionAuto,
 		TrustLevel: policy.TrustAutonomous, Tier3Safe: true, Tier3Moderate: true,
 		RampStart: now.Add(-rampAge)}
@@ -40,7 +40,7 @@ func (f *fixture) state(family Family, class ActionClass) State {
 func TestSeedGrandfatheredKeepsRampAutonomyOnce(t *testing.T) {
 	f := newFixture(t)
 	now := f.clock.Now()
-	rep, err := f.svc.SeedGrandfathered(f.ctx, f.db, autonomousBound(now, 60*24*time.Hour))
+	rep, err := f.svc.SeedGrandfathered(f.ctx, f.db, rampBound(now, 60*24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestSeedGrandfatheredKeepsRampAutonomyOnce(t *testing.T) {
 func TestSeedGrandfatheredRampNeverGrantsLater(t *testing.T) {
 	f := newFixture(t)
 	now := f.clock.Now()
-	young := autonomousBound(now, time.Hour)
+	young := rampBound(now, time.Hour)
 	rep, err := f.svc.SeedGrandfathered(f.ctx, f.db, young)
 	if err != nil || !rep.Migrated || len(rep.Seeded) != 0 {
 		t.Fatalf("young ramp seeding = %+v (%v)", rep, err)
@@ -101,7 +101,7 @@ func TestSeedGrandfatheredRampNeverGrantsLater(t *testing.T) {
 
 func TestSeedGrandfatheredAdvisoryKeepsApprovals(t *testing.T) {
 	f := newFixture(t)
-	bound := autonomousBound(f.clock.Now(), time.Hour)
+	bound := rampBound(f.clock.Now(), time.Hour)
 	bound.TrustLevel = policy.TrustAdvisory
 	if _, err := f.svc.SeedGrandfathered(f.ctx, f.db, bound); err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestSeedGrandfatheredKeepsExistingRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := f.svc.SeedGrandfathered(f.ctx, f.db,
-		autonomousBound(f.clock.Now(), 90*24*time.Hour)); err != nil {
+		rampBound(f.clock.Now(), 90*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if st := f.state(FamilyHygiene, ClassIndexDrop); st.Level != L0 ||
@@ -136,7 +136,7 @@ func TestSeedGrandfatheredIsPerDatabase(t *testing.T) {
 	f := newFixture(t)
 	g := f.sibling("billing")
 	now := f.clock.Now()
-	bound := autonomousBound(now, 60*24*time.Hour)
+	bound := rampBound(now, 60*24*time.Hour)
 	if _, err := f.svc.SeedGrandfathered(f.ctx, f.db, bound); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestSeedGrandfatheredIsPerDatabase(t *testing.T) {
 
 func TestSeedGrandfatheredConcurrentStartsSeedOnce(t *testing.T) {
 	f := newFixture(t)
-	bound := autonomousBound(f.clock.Now(), 60*24*time.Hour)
+	bound := rampBound(f.clock.Now(), 60*24*time.Hour)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	migrated, seeded := 0, 0
@@ -192,7 +192,7 @@ func TestSeedGrandfatheredConcurrentStartsSeedOnce(t *testing.T) {
 func TestGrandfatheredLevelDemotesNormally(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.svc.SeedGrandfathered(f.ctx, f.db,
-		autonomousBound(f.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(f.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	f.clock.Advance(time.Minute)

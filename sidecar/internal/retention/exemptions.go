@@ -41,6 +41,8 @@ var coreExemptions = map[string]string{
 	"sre_autonomy_outcomes":  "append-only live outcomes; promotion evidence",
 	"sre_packet_reviews":     "operator shadow reviews; promotion evidence, one per review",
 	"sre_game_days":          "game-day runs; low volume (at most one per interval_hours)",
+	"trust_ledger_state": "one row per database: when its time-ramp autonomy was " +
+		"grandfathered into the trust ledger, and the reconcile cursors",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",

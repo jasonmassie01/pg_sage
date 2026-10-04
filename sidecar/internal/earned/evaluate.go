@@ -35,7 +35,8 @@ type Evaluation struct {
 }
 
 // Evaluate expires stale proposals, then proposes one level up for every
-// applicable pair whose evidence supports it, below its cap and without a
+// applicable pair of every ledger family (incident and self-initiated)
+// whose evidence supports it, below its cap and without a
 // pending proposal, and explains every pair it did not propose. It never
 // changes a level.
 func (s *Service) Evaluate(ctx context.Context) (Evaluation, error) {
@@ -51,7 +52,7 @@ func (s *Service) Evaluate(ctx context.Context) (Evaluation, error) {
 	for _, p := range pending {
 		waiting[pairKey{p.Family, p.Class}] = p.ID
 	}
-	for _, f := range Families() {
+	for _, f := range AllFamilies() {
 		for _, c := range ApplicableClasses(f) {
 			if err := s.evaluateOne(ctx, f, c, waiting, &e); err != nil {
 				return e, err
@@ -69,7 +70,7 @@ func (s *Service) evaluateOne(ctx context.Context, f Family, c ActionClass,
 	}
 	np := NotProposed{Family: f, Class: c, Granted: st.Level}
 	target := st.Level + 1
-	if target > CapFor(c) || !target.Grantable() {
+	if target > CapForPair(f, c) || !target.Grantable() {
 		np.Reason = NotProposedAtCap
 		e.NotProposed = append(e.NotProposed, np)
 		return nil

@@ -20,10 +20,15 @@ const (
 	// ResultUnverified is an action that succeeded but whose effect no
 	// verification confirmed (P0-6): recorded, never promotion credit.
 	ResultUnverified = "unverified"
+	// ResultRejected is an operator's rejection of a proposed action, or
+	// an operator's rollback of an executed one (roadmap 1.2): a demerit.
+	ResultRejected = "rejected"
 
 	SourceExecutor = "executor"
 	SourceOperator = "operator"
 	SourceRollout  = "rollout"
+	// SourceRollback records an executed action an operator rolled back.
+	SourceRollback = "rollback"
 )
 
 // Outcome is one live (or game-day) result of a family action.
@@ -38,6 +43,14 @@ type Outcome struct {
 	Actor       string      `json:"actor"`
 	Detail      string      `json:"detail,omitempty"`
 	At          time.Time   `json:"at"`
+	// Verdict is the raw verdict behind a reconciled outcome (a
+	// sage.action_outcome verdict, rolled_back or rejected); ObservedAt is
+	// when the monitored database observed it; QueueID names a rejected
+	// approval item. A demerit observed before the pair's level was set
+	// was already known and does not demote it again.
+	Verdict    string     `json:"verdict,omitempty"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	QueueID    int64      `json:"queue_id,omitempty"`
 }
 
 // Review verdicts.
@@ -115,17 +128,15 @@ func (s *PostgresStore) insertOutcome(ctx context.Context, o Outcome) (bool, err
 	if err := s.checkDatabase(o.Database); err != nil {
 		return false, err
 	}
-	var actionLogID any
-	if o.ActionLogID > 0 {
-		actionLogID = o.ActionLogID
-	}
 	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_autonomy_outcomes
 		(deployment_id, database_name, action_log_id, family, action_class, level, result,
-		 source, actor, detail, recorded_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''), $11)
+		 source, actor, detail, recorded_at, verdict, observed_at, queue_id)
+		VALUES ($1, $2, NULLIF($3::bigint, 0), $4, $5, $6, $7, $8, $9, NULLIF($10, ''), $11,
+		        NULLIF($12, ''), $13, NULLIF($14::bigint, 0))
 		ON CONFLICT DO NOTHING`,
-		s.deployment, o.Database, actionLogID, string(o.Family), string(o.Class),
-		int16(o.Level), o.Result, o.Source, o.Actor, o.Detail, o.At)
+		s.deployment, o.Database, o.ActionLogID, string(o.Family), string(o.Class),
+		int16(o.Level), o.Result, o.Source, o.Actor, o.Detail, o.At, o.Verdict,
+		o.ObservedAt, o.QueueID)
 	if err != nil {
 		return false, storeErr("record autonomy outcome", err)
 	}

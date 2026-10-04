@@ -21,7 +21,7 @@ func notProposed(e Evaluation, f Family, c ActionClass) *NotProposed {
 
 func applicablePairs() int {
 	n := 0
-	for _, f := range Families() {
+	for _, f := range AllFamilies() {
 		n += len(ApplicableClasses(f))
 	}
 	return n

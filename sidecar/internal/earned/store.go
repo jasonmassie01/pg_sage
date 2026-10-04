@@ -63,16 +63,21 @@ type State struct {
 	// Stored is false for a default level nobody has changed.
 	Stored bool `json:"stored"`
 	// Provenance is ProvenanceCarriedOver for a level carried over from
-	// the policy before M7 (CarriedRef names the decision), else
-	// ProvenanceLedger.
+	// the policy before M7 (CarriedRef names the decision),
+	// ProvenanceGrandfathered for one kept from the time ramp (CarriedRef
+	// says what granted it), else ProvenanceLedger.
 	Provenance string `json:"provenance"`
 	CarriedRef string `json:"carried_ref,omitempty"`
 }
 
-// Level provenances.
+// Level provenances. A grandfathered level is the autonomy the time ramp
+// had granted a self-initiated class on the day the unified ledger took
+// over (roadmap 1.2); CarriedRef then says what granted it. Unlike a
+// carried-over level it demotes like any other.
 const (
-	ProvenanceLedger      = "ledger"
-	ProvenanceCarriedOver = "carried_over"
+	ProvenanceLedger        = "ledger"
+	ProvenanceCarriedOver   = "carried_over"
+	ProvenanceGrandfathered = "grandfathered"
 )
 
 // PostgresStore keeps one database's ledger of a deployment in the sage

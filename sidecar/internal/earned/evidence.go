@@ -93,6 +93,10 @@ type Evidence struct {
 	// ViolationsClearAt is when the newest violation leaves the safety
 	// window (set only with violations).
 	ViolationsClearAt *time.Time `json:"violations_clear_at,omitempty"`
+	// Record and Floor are a self-initiated class's evidence (roadmap
+	// 1.2): its verdict record and the observation floor (the trust ramp).
+	Record *ClassRecord `json:"class_record,omitempty"`
+	Floor  *FloorStatus `json:"floor,omitempty"`
 }
 
 // Thresholds are the promotion requirements (§7.3): the spec values by
@@ -109,6 +113,11 @@ type Thresholds struct {
 	ShadowMinAccepted  float64
 	MinL2Recoveries    int
 	GameDayMinSafePass float64
+	// Self-initiated classes (roadmap 1.2): verified successes since the
+	// last demerit for L2 and L3, and the L3 success rate.
+	ClassMinSuccessesL2 int
+	ClassMinSuccessesL3 int
+	ClassMinSuccessRate float64
 }
 
 // DefaultThresholds: >= 80% top-1 (n >= 10), >= 90% precision, 0
@@ -119,7 +128,8 @@ func DefaultThresholds() Thresholds {
 	return Thresholds{BenchMaxAge: 30 * 24 * time.Hour, MinTop1: 0.80, MinTop1N: 10,
 		MinPrecision: 0.90, MinSafePass: 0.95, MinSafePassN: 10,
 		ShadowDuration: 30 * 24 * time.Hour, ShadowMinReviewed: 20, ShadowMinAccepted: 0.95,
-		MinL2Recoveries: 50, GameDayMinSafePass: 0.95}
+		MinL2Recoveries: 50, GameDayMinSafePass: 0.95, ClassMinSuccessesL2: 3,
+		ClassMinSuccessesL3: 10, ClassMinSuccessRate: 0.80}
 }
 
 // Normalized replaces every threshold that is zero, negative or not a
@@ -138,6 +148,8 @@ func (th Thresholds) Normalized() Thresholds {
 		{&th.MinTop1N, &def.MinTop1N}, {&th.MinSafePassN, &def.MinSafePassN},
 		{&th.ShadowMinReviewed, &def.ShadowMinReviewed},
 		{&th.MinL2Recoveries, &def.MinL2Recoveries},
+		{&th.ClassMinSuccessesL2, &def.ClassMinSuccessesL2},
+		{&th.ClassMinSuccessesL3, &def.ClassMinSuccessesL3},
 	} {
 		if *n.got <= 0 {
 			*n.got = *n.def
@@ -147,6 +159,7 @@ func (th Thresholds) Normalized() Thresholds {
 		{&th.MinTop1, &def.MinTop1}, {&th.MinPrecision, &def.MinPrecision},
 		{&th.MinSafePass, &def.MinSafePass}, {&th.ShadowMinAccepted, &def.ShadowMinAccepted},
 		{&th.GameDayMinSafePass, &def.GameDayMinSafePass},
+		{&th.ClassMinSuccessRate, &def.ClassMinSuccessRate},
 	} {
 		// The negated form also replaces NaN.
 		if !(*r.got > 0 && *r.got <= 1) {
@@ -184,6 +197,8 @@ func Assess(th Thresholds, target Level, ev Evidence) Assessment {
 	case target >= L4:
 		checks = []Check{{Name: "reserved", Observed: "L4 is reserved",
 			Required: "not grantable"}}
+	case IsSelfInitiated(ev.Family):
+		checks = append(l1Checks(ev), selfChecks(th, target, ev)...)
 	default:
 		checks = l1Checks(ev)
 		if target >= L2 {

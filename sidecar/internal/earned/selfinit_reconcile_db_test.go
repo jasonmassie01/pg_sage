@@ -170,7 +170,7 @@ func TestSelfReconcileRecordsVerdictsAsEvidence(t *testing.T) {
 
 func (f *fixture) grandfatherAt(level Level) {
 	f.t.Helper()
-	bound := autonomousBound(f.clock.Now(), 90*24*time.Hour)
+	bound := rampBound(f.clock.Now(), 90*24*time.Hour)
 	if level == L2 {
 		bound.TrustLevel = policy.TrustAdvisory
 	}
@@ -459,4 +459,37 @@ func unmetCheck(checks []Check, name string) (Check, bool) {
 		}
 	}
 	return Check{}, false
+}
+
+// Successes count only since the last demerit: a demoted class re-earns
+// its level from scratch; all-time counts stay visible.
+func TestClassRecordCountsSuccessesSinceTheLastDemerit(t *testing.T) {
+	f := newSelfFixture(t)
+	for i := 0; i < 3; i++ {
+		f.selfAction("analyze_table", "ANALYZE public.orders", "analyze", "success",
+			"improved", "operator_approved", 3*time.Hour)
+	}
+	f.selfAction("analyze_table", "ANALYZE public.orders", "analyze", "success",
+		"regressed", "operator_approved", 2*time.Hour)
+	f.selfAction("analyze_table", "ANALYZE public.orders", "analyze", "success",
+		"improved", "operator_approved", time.Hour)
+	f.selfAction("analyze_table", "ANALYZE public.orders", "analyze", "success",
+		"neutral", "operator_approved", time.Hour)
+	f.selfAction("create_index_concurrently", "CREATE INDEX CONCURRENTLY i ON t (a)",
+		"index_create", "success", "neutral", "operator_approved", time.Hour)
+	if _, err := NewReconciler(f.svc, f.pool, f.db, nil).RunOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := f.store.ClassRecord(f.ctx, FamilyHygiene, ClassAnalyze)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Improved != 4 || rec.Neutral != 1 || rec.Regressed != 1 || rec.Successes != 2 ||
+		rec.Uncredited != 0 || rec.LastDemerit != CauseRegressed {
+		t.Fatalf("hygiene/analyze record = %+v", rec)
+	}
+	create, err := f.store.ClassRecord(f.ctx, FamilyTuning, ClassIndexCreate)
+	if err != nil || create.Successes != 0 || create.Uncredited != 1 || create.Neutral != 1 {
+		t.Fatalf("tuning/index_create record = %+v (%v)", create, err)
+	}
 }

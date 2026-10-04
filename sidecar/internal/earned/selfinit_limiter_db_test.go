@@ -31,7 +31,7 @@ func TestLimiterSelfInitiatedUsesTheLedger(t *testing.T) {
 		t.Fatalf("default self level = %+v (%v)", got, err)
 	}
 	if _, err := lf.svc.SeedGrandfathered(lf.ctx, lf.db,
-		autonomousBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	got, err = lf.lim.Limit(lf.ctx, selfVacuum("public.orders"))
@@ -46,7 +46,7 @@ func TestLimiterSelfInitiatedUsesTheLedger(t *testing.T) {
 func TestLimiterSelfInitiatedDowngradeSignals(t *testing.T) {
 	lf := newLimiterFixture(t)
 	if _, err := lf.svc.SeedGrandfathered(lf.ctx, lf.db,
-		autonomousBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	lf.budget.state = BudgetState{Configured: true, FastBurning: true, Detail: "burning"}
@@ -75,7 +75,7 @@ func TestLimiterSelfInitiatedDowngradeSignals(t *testing.T) {
 func TestLimiterSelfInitiatedIgnoresEvidenceAge(t *testing.T) {
 	lf := newLimiterFixture(t)
 	if _, err := lf.svc.SeedGrandfathered(lf.ctx, lf.db,
-		autonomousBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	got, err := lf.lim.Limit(lf.ctx, selfVacuum("public.orders"))
@@ -95,7 +95,7 @@ func TestLimiterSelfInitiatedIgnoresEvidenceAge(t *testing.T) {
 func TestLimiterSelfInitiatedHasNoFamilySafetyCap(t *testing.T) {
 	lf := newLimiterFixture(t)
 	if _, err := lf.svc.SeedGrandfathered(lf.ctx, lf.db,
-		autonomousBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if err := lf.svc.RecordOutcome(lf.ctx, Outcome{Database: lf.db, Family: FamilyTuning,
@@ -131,7 +131,7 @@ func TestLimiterGovernsOnlyTrustFamilies(t *testing.T) {
 func TestLimiterSelfInitiatedContractCap(t *testing.T) {
 	lf := newLimiterFixture(t)
 	if _, err := lf.svc.SeedGrandfathered(lf.ctx, lf.db,
-		autonomousBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	req := selfVacuum("public.orders")

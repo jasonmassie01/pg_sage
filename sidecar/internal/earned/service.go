@@ -52,6 +52,9 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[pairKey]cachedLevel
+	// ramp is the trust ramp, the promotion floor of self-initiated
+	// classes (WithRamp); nil: unknown.
+	ramp func() RampFloor
 }
 
 type pairKey struct {
@@ -111,7 +114,8 @@ func defaultLevel(f Family) Level {
 	return L0
 }
 
-// Granted is a pair's human-approved level (its default when unchanged).
+// Granted is a pair's level (its default when unchanged): approved by a
+// human, carried over, grandfathered or demoted.
 func (s *Service) Granted(ctx context.Context, f Family, c ActionClass) (State, error) {
 	st, found, err := s.store.readLevel(ctx, s.store.pool, f, c)
 	if err != nil {
@@ -128,6 +132,9 @@ func (s *Service) Granted(ctx context.Context, f Family, c ActionClass) (State, 
 func (s *Service) Evidence(ctx context.Context, f Family, c ActionClass) (Evidence, error) {
 	now := s.now()
 	ev := Evidence{Family: f, Class: c, At: now}
+	if IsSelfInitiated(f) {
+		return s.selfEvidence(ctx, ev)
+	}
 	var err error
 	if ev.Bench, err = s.store.LatestBench(ctx, f); err != nil {
 		return Evidence{}, err

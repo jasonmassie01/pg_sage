@@ -47,6 +47,7 @@ const (
 	ClassBackendTerminate  ActionClass = "backend_terminate"
 	ClassSchemaChange      ActionClass = "schema_change"
 	ClassSequenceMigration ActionClass = "sequence_migration"
+	ClassRetention         ActionClass = "retention"
 	ClassUnclassified      ActionClass = "unclassified"
 	AllClasses             ActionClass = "*"
 )
@@ -101,6 +102,8 @@ var classSpecs = []ClassSpec{
 	{ClassSchemaChange, Irreversible, L1, []string{"alter_table"}, "ALTER TABLE"},
 	{ClassSequenceMigration, Irreversible, L1, []string{"prepare_sequence_capacity_migration"},
 		"sequence capacity migration"},
+	{ClassRetention, Irreversible, L1, []string{"retention_delete"},
+		"bounded retention delete of user rows"},
 	{ClassUnclassified, Irreversible, L1, nil, "any action without a known class"},
 }
 
@@ -187,13 +190,19 @@ var applicable = map[Family][]ActionClass{
 		ClassBackendCancel, ClassBackendTerminate},
 	FamilyDiskWAL:  {ClassWALBound, ClassSlotDrop},
 	FamilySequence: {ClassSequenceMigration},
+	// Self-initiated trust families (roadmap 1.2, selfinit.go).
+	FamilyTuning: {ClassIndexCreate, ClassConfigGUC, ClassAutovacuumTuning,
+		ClassQueryHint, ClassStatistics},
+	FamilyHygiene: {ClassIndexDrop, ClassVacuum, ClassAnalyze, ClassRetention,
+		ClassReindex},
 }
 
 var familyOrder = []Family{FamilyLockBlocking, FamilyConnections, FamilyWAL,
 	FamilyPlanRegression, FamilyCheckpoint, FamilyTempFiles, FamilyReplicationLag,
 	FamilyLWLock, FamilyWraparound, FamilyDiskWAL, FamilySequence}
 
-// Families lists the known incident families.
+// Families lists the incident families (AllFamilies adds the
+// self-initiated trust families).
 func Families() []Family { return append([]Family(nil), familyOrder...) }
 
 // KnownFamily reports a shipped incident family.

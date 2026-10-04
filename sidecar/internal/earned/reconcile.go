@@ -45,11 +45,17 @@ type ReconcileResult struct {
 	Notified int `json:"notified"`
 	Pending  int `json:"pending"`
 	Skipped  int `json:"skipped"`
+	// SelfRecorded counts the new trust evidence of self-initiated
+	// actions and operator rejections; Demoted the demotions it caused.
+	SelfRecorded int `json:"self_recorded"`
+	Demoted      int `json:"demoted"`
 }
 
 // Reconciler turns one monitored database's executed family actions into
 // ledger outcomes: approved L2 handoffs and L3 auto-executions, matched
-// to their action_log row and verification verdict.
+// to their action_log row and verification verdict; and its
+// self-initiated actions' verdicts, operator rollbacks and rejections
+// into trust evidence (selfinit_reconcile.go).
 type Reconciler struct {
 	svc      *Service
 	pool     *pgxpool.Pool
@@ -107,7 +113,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (ReconcileResult, error) {
 			return res, err
 		}
 	}
-	return res, notifyErr
+	return res, errors.Join(notifyErr, r.selfInitiated(ctx, &res))
 }
 
 func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResult) error {

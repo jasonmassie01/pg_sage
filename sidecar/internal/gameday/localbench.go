@@ -136,7 +136,9 @@ func (b *LocalBench) Start(ctx context.Context, families []string) (LocalBenchRu
 // run as in progress.
 func (b *LocalBench) begin(families []string) (LocalBenchRun, error) {
 	for _, f := range families {
-		if !earned.KnownFamily(earned.Family(f)) {
+		// The bench exercises incident families; a self-initiated trust
+		// family (tuning, hygiene) has no fault program.
+		if !earned.IsIncidentFamily(earned.Family(f)) {
 			return LocalBenchRun{}, fmt.Errorf("%w: %q", ErrUnknownFamily, f)
 		}
 	}

@@ -20,7 +20,10 @@ func trustRow(v TrustView, f Family, c ActionClass) (TrustRow, bool) {
 	return TrustRow{}, false
 }
 
-func TestTrustViewCoversBothKinds(t *testing.T) {
+// trustViewFixture grandfathers a database, records an improved and a
+// neutral index create and a rejected one, and reads its Trust view.
+func trustViewFixture(t *testing.T) (*fixture, TrustView) {
+	t.Helper()
 	f := newSelfFixture(t)
 	f.svc.WithRamp(func() RampFloor {
 		return RampFloor{Start: f.clock.Now().Add(-2 * time.Hour), Safe: time.Hour,
@@ -42,6 +45,11 @@ func TestTrustViewCoversBothKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return f, v
+}
+
+func TestTrustViewSelfInitiatedRow(t *testing.T) {
+	f, v := trustViewFixture(t)
 	if v.Database != f.db || v.Grandfathered == nil || v.Floor == nil || !v.Floor.Known {
 		t.Fatalf("view header = %+v", v)
 	}
@@ -61,6 +69,10 @@ func TestTrustViewCoversBothKinds(t *testing.T) {
 	if row.Next == nil || row.Next.Target != L3 {
 		t.Fatalf("next = %+v", row.Next)
 	}
+}
+
+func TestTrustViewCoversBothKinds(t *testing.T) {
+	f, v := trustViewFixture(t)
 	vac, _ := trustRow(v, FamilyHygiene, ClassVacuum)
 	if vac.Provenance != ProvenanceGrandfathered || vac.ProvenanceRef == "" ||
 		vac.LastChange.Event != EventGrandfathered || vac.Next != nil {
@@ -90,7 +102,7 @@ func TestTrustViewCoversBothKinds(t *testing.T) {
 func TestTrustViewAnnotateEffective(t *testing.T) {
 	lf := newLimiterFixture(t)
 	if _, err := lf.svc.SeedGrandfathered(lf.ctx, lf.db,
-		autonomousBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
+		rampBound(lf.clock.Now(), 60*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	v, err := lf.svc.TrustView(lf.ctx)

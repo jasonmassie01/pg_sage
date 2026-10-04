@@ -32,6 +32,9 @@ const (
 	// EventDatabaseScoped records a database adopting a deployment-wide
 	// level stored before the ledger was per database (AdoptLegacy).
 	EventDatabaseScoped EventType = "database_scoped"
+	// EventGrandfathered seeds a self-initiated class at the level the time
+	// ramp granted it when the unified ledger took over (roadmap 1.2).
+	EventGrandfathered EventType = "grandfathered"
 )
 
 // Event is one ledger history entry.
