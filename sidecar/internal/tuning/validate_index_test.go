@@ -22,7 +22,8 @@ func ordersCase() Case {
 		Tables: []string{"public.orders"},
 		Statements: []CaseStatement{{QueryID: 101,
 			Text: "SELECT * FROM public.orders WHERE customer_id = $1", Class: ClassApp,
-			Calls: 600, TotalMs: 6000, MeanMs: 10, Share: 0.9}}}
+			Calls: 600, TotalMs: 6000, MeanMs: 10, Share: 0.9, Windowed: true,
+			TempBlksWritten: 4800}}}
 }
 
 func ordersEvidence() evidenceSet {
@@ -62,10 +63,18 @@ func validationSnap() *collector.Snapshot {
 
 func judgeOne(t *testing.T, h *harness, confirmed []facts.Fact, p Proposal) Judged {
 	t.Helper()
+	return judgeCase(t, h, confirmed, ordersCase(), p)
+}
+
+// judgeCase judges p for case c over ordersPair's interval (t0 to t0+5m).
+func judgeCase(t *testing.T, h *harness, confirmed []facts.Fact, c Case, p Proposal) Judged {
+	t.Helper()
+	prev, _ := ordersPair()
 	cur := validationSnap()
 	v := h.agent.newValidator(cur, ClassifyWorkload(cur, confirmed, t0), confirmed,
 		h.store.rejected)
-	return v.judge(context.Background(), ordersCase(), ordersEvidence(), p)
+	v.prepare(context.Background(), prev)
+	return v.judge(context.Background(), c, ordersEvidence(), p)
 }
 
 func createProposal() Proposal {

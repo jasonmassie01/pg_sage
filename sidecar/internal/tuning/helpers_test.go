@@ -334,6 +334,22 @@ type fakeStore struct {
 	openCalls int
 	catalog   *CatalogState // nil: every table and index exists, no index defs
 	catErr    error
+	actions   []SettingAction
+	actErr    error
+}
+
+func (s *fakeStore) SettingActions(_ context.Context, since time.Time) (
+	[]SettingAction, error) {
+	if s.actErr != nil {
+		return nil, s.actErr
+	}
+	var out []SettingAction
+	for _, a := range s.actions {
+		if !a.ExecutedAt.Before(since) {
+			out = append(out, a)
+		}
+	}
+	return out, nil
 }
 
 func (s *fakeStore) Relations(_ context.Context, tables, indexes []string) (
