@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // The identity one-change-per-object serializes on is derived from the
@@ -90,8 +92,12 @@ func TestWaitTimesFollowTheVerificationWindows(t *testing.T) {
 			at.Add(39 * time.Minute), at.Add(73 * time.Hour), at.Add(73 * time.Hour)},
 		{"index create", "CREATE INDEX CONCURRENTLY i ON public.memories (a)",
 			at.Add(time.Minute), at.Add(time.Hour), at.Add(73 * time.Hour)},
-		{"index drop waits its business cycle", "DROP INDEX CONCURRENTLY public.i",
-			at.Add(time.Hour), at.Add(168 * time.Hour), at.Add(169 * time.Hour)},
+		// Owner decision (PR #122): a drop holds its table only until its first
+		// window concludes; its soft-drop monitoring watches the business cycle.
+		{"index drop holds only its first window", "DROP INDEX CONCURRENTLY public.i",
+			at.Add(time.Minute), at.Add(15 * time.Minute), at.Add(15 * time.Minute)},
+		{"index drop after its first window", "DROP INDEX CONCURRENTLY public.i",
+			at.Add(time.Hour), at.Add(15 * time.Minute), at.Add(15 * time.Minute)},
 		{"reloption", "ALTER TABLE public.t SET (fillfactor = 90)", at,
 			at.Add(15 * time.Minute), at.Add(73 * time.Hour)},
 	}
@@ -100,6 +106,45 @@ func TestWaitTimesFollowTheVerificationWindows(t *testing.T) {
 		if !until.Equal(tc.wantUntil) || !hard.Equal(tc.wantHard) {
 			t.Errorf("%s: until %s hard %s, want %s / %s", tc.name, until, hard,
 				tc.wantUntil, tc.wantHard)
+		}
+	}
+}
+
+// Why a wait ends without a verdict: a drop's first window concluding, or
+// the hard deadline for everything else.
+func TestWaitReleaseCause(t *testing.T) {
+	cases := map[string]string{
+		"DROP INDEX CONCURRENTLY public.i":                  policy.ReleaseDropFirstWindow,
+		"CREATE INDEX CONCURRENTLY i ON public.t (a)":       policy.ReleaseHardDeadline,
+		"ALTER SYSTEM SET work_mem = '9MB'":                 policy.ReleaseHardDeadline,
+		"ALTER TABLE public.t SET (fillfactor = 90)":        policy.ReleaseHardDeadline,
+		"REINDEX INDEX CONCURRENTLY public.idx_memories_ok": policy.ReleaseHardDeadline,
+	}
+	for sql, want := range cases {
+		if got := waitRelease(sql); got != want {
+			t.Errorf("waitRelease(%q) = %q, want %q", sql, got, want)
+		}
+	}
+}
+
+// Partition-tree scope: index, statistics and reloption changes share one
+// object across a partitioned table, its partitions and their indexes;
+// VACUUM, ANALYZE and settings do not.
+func TestPartitionScopedClasses(t *testing.T) {
+	cases := map[string]bool{
+		"CREATE INDEX CONCURRENTLY i ON public.t (a)":                      true,
+		"DROP INDEX CONCURRENTLY public.i":                                 true,
+		"REINDEX INDEX CONCURRENTLY public.i":                              true,
+		"CREATE STATISTICS public.s (dependencies) ON a, b FROM public.t":  true,
+		"ALTER TABLE public.t SET (autovacuum_vacuum_scale_factor = 0.02)": true,
+		"VACUUM (FREEZE) public.t":                                         false,
+		"ANALYZE public.t":                                                 false,
+		"ALTER SYSTEM SET work_mem = '9MB'":                                false,
+		"":                                                                 false,
+	}
+	for sql, want := range cases {
+		if got := partitionScoped(sql); got != want {
+			t.Errorf("partitionScoped(%q) = %v, want %v", sql, got, want)
 		}
 	}
 }

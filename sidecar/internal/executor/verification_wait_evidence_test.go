@@ -139,3 +139,33 @@ func TestCountersSkipAnUnnamedExecutor(t *testing.T) {
 		}
 	}
 }
+
+// A drop's first-window release is recorded with its reason and counted
+// under its own cause.
+func TestLedgerAndCountersRecordTheDropRelease(t *testing.T) {
+	drop := waitFor(6420)
+	drop.Release = policy.ReleaseDropFirstWindow
+	in := ledgerInput(nil, 1, findingRequest(waitGUCFinding("work_mem", "10MB"), false),
+		policy.Decision{Verdict: policy.VerdictExecute, Reason: policy.ReasonAuthorized,
+			VerificationWait: &policy.VerificationWait{
+				Released: []policy.PendingVerification{drop, waitFor(6400)}}})
+	entries := in.Evidence["verification_wait_released"].([]any)
+	first, second := entries[0].(map[string]any), entries[1].(map[string]any)
+	if first["release_reason"] != "drop's first window concluded" ||
+		second["release_reason"] != "hard deadline passed without a verdict" {
+		t.Fatalf("release entries %v", entries)
+	}
+	db := fmt.Sprintf("drop_%d", time.Now().UnixNano())
+	countDecision(db, policy.Decision{Verdict: policy.VerdictExecute,
+		VerificationWait: &policy.VerificationWait{
+			Released: []policy.PendingVerification{drop, waitFor(6400)}}})
+	causes := map[string]int64{}
+	for _, c := range WaitReleaseCounts() {
+		if c.Database == db {
+			causes[c.Cause] = c.Count
+		}
+	}
+	if causes["drop_first_window"] != 1 || causes["hard_deadline"] != 1 {
+		t.Fatalf("release causes %v", causes)
+	}
+}

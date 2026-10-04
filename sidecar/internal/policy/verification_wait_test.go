@@ -354,3 +354,42 @@ func TestWaitConcurrentAuthorizationsAllPark(t *testing.T) {
 		t.Fatalf("tracker calls %d, want 8", tracker.calls)
 	}
 }
+
+// Owner decision (PR #122): a drop's wait ends when its first window
+// concludes; the release says so (its soft-drop monitoring continues).
+func TestWaitDropFirstWindowReleaseIsRecorded(t *testing.T) {
+	drop := PendingVerification{ActionID: 6420, Object: "table:public.memories",
+		Until: waitNow.Add(-time.Second), HardDeadline: waitNow.Add(-time.Second),
+		Release: ReleaseDropFirstWindow}
+	tracker := &fakeTracker{pending: []PendingVerification{drop}}
+	d := newWaitGate(t, gateFixture{}, tracker).Authorize(context.Background(),
+		validIndexRequest())
+	assertDecision(t, d, VerdictExecute, ReasonAuthorized)
+	if d.VerificationWait == nil || len(d.VerificationWait.Released) != 1 ||
+		!strings.Contains(d.Detail, "verification of action 6420: drop's first window "+
+			"concluded") || strings.Contains(d.Detail, "hard deadline") {
+		t.Fatalf("decision %+v, want the drop's first-window release recorded", d)
+	}
+	// At the first window's end exactly the wait is over; a second before, it parks.
+	drop.HardDeadline, drop.Until = waitNow, waitNow
+	tracker.pending = []PendingVerification{drop}
+	d = newWaitGate(t, gateFixture{}, tracker).Authorize(context.Background(),
+		validIndexRequest())
+	assertDecision(t, d, VerdictExecute, ReasonAuthorized)
+	drop.HardDeadline, drop.Until = waitNow.Add(time.Second), waitNow.Add(time.Second)
+	tracker.pending = []PendingVerification{drop}
+	d = newWaitGate(t, gateFixture{}, tracker).Authorize(context.Background(),
+		validIndexRequest())
+	assertDecision(t, d, VerdictPark, ReasonAwaitingVerification)
+}
+
+func TestReleaseReasonsAndCauses(t *testing.T) {
+	drop := PendingVerification{ActionID: 1, Release: ReleaseDropFirstWindow}
+	plain := PendingVerification{ActionID: 2}
+	if drop.ReleaseCause() != "drop_first_window" || plain.ReleaseCause() != "hard_deadline" ||
+		drop.ReleaseReason() != "drop's first window concluded" ||
+		plain.ReleaseReason() != "hard deadline passed without a verdict" {
+		t.Fatalf("causes %q/%q reasons %q/%q", drop.ReleaseCause(), plain.ReleaseCause(),
+			drop.ReleaseReason(), plain.ReleaseReason())
+	}
+}

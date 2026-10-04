@@ -149,3 +149,25 @@ func TestLoaderReadsTheWaitOfTheQueuedChange(t *testing.T) {
 		t.Fatalf("unreadable waits: card err %v, wait %+v", err, c.VerificationWait)
 	}
 }
+
+// Owner decision (PR #122): a drop's wait released at its first window is
+// shown, so the operator knows the drop is still watched over its cycle.
+func TestCardShowsADropReleasedAtItsFirstWindow(t *testing.T) {
+	in := memoriesCard()
+	drop := indexWait(6420)
+	drop.HardDeadline = now.Add(-time.Minute)
+	drop.Release = policy.ReleaseDropFirstWindow
+	in.Waits = []policy.PendingVerification{drop}
+	w := Assemble(in).VerificationWait
+	if w == nil || len(w.ActionIDs) != 0 || len(w.Released) != 1 ||
+		!strings.Contains(w.Line, "verification of action 6420: drop's first window "+
+			"concluded") || strings.Contains(w.Line, "overrides") {
+		t.Fatalf("wait %+v, want the drop's release shown without an override", w)
+	}
+	in.Waits = append(in.Waits, indexWait(6410))
+	w = Assemble(in).VerificationWait
+	if w == nil || w.ActionIDs[0] != 6410 || !strings.Contains(w.Line, "overrides pending "+
+		"verification of action 6410") || !strings.Contains(w.Line, "action 6420: drop's") {
+		t.Fatalf("wait %+v, want the live wait and the drop's release", w)
+	}
+}

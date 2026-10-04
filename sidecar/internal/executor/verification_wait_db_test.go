@@ -269,7 +269,7 @@ func TestOneChange_DroppedIndexIdentifiesItsTable(t *testing.T) {
 		lifeos6411Where)
 	first := recordInFlight(t, pool, ctx, "DROP INDEX CONCURRENTLY public.idx_memories_gone",
 		"CREATE INDEX CONCURRENTLY idx_memories_gone ON public.memories USING btree (status)",
-		"monitoring", time.Hour)
+		"monitoring", 5*time.Minute) // inside the drop's first window (15 min)
 	requireParkedOn(t, authorizeFinding(t, exec, ctx, second), first)
 }
 
