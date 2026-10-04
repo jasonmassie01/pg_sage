@@ -1,9 +1,61 @@
 # Changelog
 
-## Unreleased
+## v1.9.0 (2026-10-04) -- Earned trust: verified actions, shadow mode, approval cards
 
 ### What's new
 
+- **One trust system: earned evidence decides, time is only a floor.** Every action pg_sage
+  takes on its own (index create and drop, configuration changes, per-table autovacuum
+  settings, vacuum, analyze, query hints, retention, and the SRE remediations) now has one
+  trust level per database, earned from verified outcomes and approved by an admin. The trust
+  ramp no longer lets anything run by itself; it is the minimum time pg_sage must have watched
+  a database before it may propose a promotion. A regressed result, a rollback you make or an
+  approval you reject lowers that action's level by one at once, says why, and notifies you.
+  Autonomy your current settings already granted is kept as "grandfathered" on the first start,
+  and the startup log explains the new meaning of `trust.level` and the ramp settings. A new
+  **Trust** page (and `GET /api/v1/trust`) shows every database, action class, level, its
+  evidence (improved, neutral, regressed, rolled back, rejected), the last change and why, and
+  what is needed for the next level.
+- **Shadow mode: pg_sage earns trust from what it would have done.** Below an action's earned
+  trust level, pg_sage now records every action it would have taken (the exact SQL, how to
+  undo it, its predicted effect and what it would have done if trusted) and never runs it.
+  Each one is scored later from what really happened: your decision on the same proposal, the
+  same change made later through pg_sage or by a migration (verified like pg_sage's own
+  actions), or a HypoPG what-if for index creates. Changes made outside pg_sage and what-ifs
+  count toward promotion as "shadow" evidence: shadow evidence alone can earn one-click
+  approval (L2), but running unattended (L3) still needs at least 3 real verified successes,
+  and every promotion still needs an admin. A wrong shadow decision delays promotion but never
+  lowers a level you already granted. The Trust page shows each action's shadow decisions,
+  their scores and what pg_sage would have done; approval cards show the action's shadow
+  history; `GET /api/v1/shadow-decisions` and two Prometheus counters expose the same.
+- **Every action that waits for you now comes as an approval card with the why, and you can
+  decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
+  do and to which objects, why it needs you (for example: HypoPG has not verified the index,
+  trust level is advisory, the setting needs a restart, or you rejected this exact change
+  before), the evidence with its numbers, the model's rationale, the predicted effect, the
+  exact SQL and how to undo it, the lock it takes and when the request expires. Approve,
+  Reject (with a reason) and Snooze buttons now come with every action type in Slack and
+  Telegram, not only with SRE query cancels. A chat button works once, only for the chat it
+  was sent to, only for a chat user linked to a pg_sage operator or admin, and only while
+  the action is unchanged: if its SQL changed after the card was sent, the approval is
+  refused. Approvals from chat run through the same checks as the UI and are recorded under
+  the approver's name. Once the action is verified (or rolled back), pg_sage posts the
+  result back to the same chat. A snoozed action stays behind approval until the snooze
+  ends, then pg_sage asks again; a rejected one stays behind approval as before.
+- **Index cleanup can no longer hold back the changes that speed your database up.**
+  Housekeeping (unused and redundant index drops, VACUUM, ANALYZE) now has its own daily
+  budget, separate from evidence-backed performance changes (on one database, about 20
+  index drops in leaked test schemas used the whole day's budget and parked two verified
+  indexes for most of a day). A parked change now says which budget is full and when it
+  frees. `max_rows_rewritten` is enforced: changes that rewrite a table are charged its
+  estimated rows. Two changes can no longer both take the last slot of a budget, even
+  from two pg_sage processes on one database, and a waiting change is evaluated once per
+  cycle instead of twice. Emergencies are never held back by these budgets: a wraparound
+  freeze or disk-space cleanup when the runway is critical, and the undo of pg_sage's own
+  change, still pass every other safety check and are recorded as a budget bypass.
+  Existing policies keep their limit for performance changes, and a policy saved by this
+  version stays readable by older ones; see [Blast-radius
+  budgets](docs/configuration.md#blast-radius-budgets).
 - **The index optimizer remembers what HypoPG already measured, so the model stops proposing the
   same index every cycle.** On a real database the model suggested one index 18 times in three
   hours under different names and INCLUDE lists, and every time the what-if measured 0% gain.
@@ -19,62 +71,6 @@
   deterministic findings such as missing foreign-key indexes and re-checks of open
   recommendations are never skipped. Tune or turn it off under
   `llm.optimizer.rejection_memory`.
-- **Index cleanup can no longer hold back the changes that speed your database up.**
-  Housekeeping (unused and redundant index drops, VACUUM, ANALYZE) now has its own daily
-  budget, separate from evidence-backed performance changes (on one database, about 20
-  index drops in leaked test schemas used the whole day's budget and parked two verified
-  indexes for most of a day). A parked change now says which budget is full and when it
-  frees. `max_rows_rewritten` is enforced: changes that rewrite a table are charged its
-  estimated rows. Two changes can no longer both take the last slot of a budget, even
-  from two pg_sage processes on one database, and a waiting change is evaluated once per
-  cycle instead of twice. Emergencies are never held back by these budgets: a wraparound
-  freeze or disk-space cleanup when the runway is critical, and the undo of pg_sage's own
-  change, still pass every other safety check and are recorded as a budget bypass.
-  Existing policies keep their limit for performance changes, and a policy saved by this
-  version stays readable by older ones; see [Blast-radius
-  budgets](docs/configuration.md#blast-radius-budgets).
-
-- **One trust system: earned evidence decides, time is only a floor.** Every action pg_sage
-  takes on its own (index create and drop, configuration changes, per-table autovacuum
-  settings, vacuum, analyze, query hints, retention, and the SRE remediations) now has one
-  trust level per database, earned from verified outcomes and approved by an admin. The trust
-  ramp no longer lets anything run by itself; it is the minimum time pg_sage must have watched
-  a database before it may propose a promotion. A regressed result, a rollback you make or an
-  approval you reject lowers that action's level by one at once, says why, and notifies you.
-  Autonomy your current settings already granted is kept as "grandfathered" on the first start,
-  and the startup log explains the new meaning of `trust.level` and the ramp settings. A new
-  **Trust** page (and `GET /api/v1/trust`) shows every database, action class, level, its
-  evidence (improved, neutral, regressed, rolled back, rejected), the last change and why, and
-  what is needed for the next level.
-
-- **Shadow mode: pg_sage earns trust from what it would have done.** Below an action's earned
-  trust level, pg_sage now records every action it would have taken (the exact SQL, how to
-  undo it, its predicted effect and what it would have done if trusted) and never runs it.
-  Each one is scored later from what really happened: your decision on the same proposal, the
-  same change made later through pg_sage or by a migration (verified like pg_sage's own
-  actions), or a HypoPG what-if for index creates. Changes made outside pg_sage and what-ifs
-  count toward promotion as "shadow" evidence: shadow evidence alone can earn one-click
-  approval (L2), but running unattended (L3) still needs at least 3 real verified successes,
-  and every promotion still needs an admin. A wrong shadow decision delays promotion but never
-  lowers a level you already granted. The Trust page shows each action's shadow decisions,
-  their scores and what pg_sage would have done; approval cards show the action's shadow
-  history; `GET /api/v1/shadow-decisions` and two Prometheus counters expose the same.
-
-- **Every action that waits for you now comes as an approval card with the why, and you can
-  decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
-  do and to which objects, why it needs you (for example: HypoPG has not verified the index,
-  trust level is advisory, the setting needs a restart, or you rejected this exact change
-  before), the evidence with its numbers, the model's rationale, the predicted effect, the
-  exact SQL and how to undo it, the lock it takes and when the request expires. Approve,
-  Reject (with a reason) and Snooze buttons now come with every action type in Slack and
-  Telegram, not only with SRE query cancels. A chat button works once, only for the chat it
-  was sent to, only for a chat user linked to a pg_sage operator or admin, and only while
-  the action is unchanged: if its SQL changed after the card was sent, the approval is
-  refused. Approvals from chat run through the same checks as the UI and are recorded under
-  the approver's name. Once the action is verified (or rolled back), pg_sage posts the
-  result back to the same chat. A snoozed action stays behind approval until the snooze
-  ends, then pg_sage asks again; a rejected one stays behind approval as before.
-
 - **Every release ships its own signed benchmark, so earning L2 no longer means copying CI
   files.** The release build signs its PGIncidentBench reports with Sigstore (no key to
   manage) and puts them in the image, in the release archive next to the binary and on the
