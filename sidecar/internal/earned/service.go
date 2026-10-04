@@ -55,6 +55,9 @@ type Service struct {
 	// ramp is the trust ramp, the promotion floor of self-initiated
 	// classes (WithRamp); nil: unknown.
 	ramp func() RampFloor
+	// rootNotifier tells the operator about model-root authority changes
+	// (WithRootAuthorityNotifier); nil: recorded only.
+	rootNotifier RootAuthorityNotifier
 }
 
 type pairKey struct {

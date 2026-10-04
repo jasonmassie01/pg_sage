@@ -14,7 +14,7 @@ import (
 // good as the prices, so a run with another model and no prices fails
 // closed before any call.
 
-func liveEnv(m map[string]string) func(string) string {
+func endpointEnv(m map[string]string) func(string) string {
 	base := map[string]string{EnvLLMURL: "https://api.openai.com/v1", EnvLLMKey: "k"}
 	for k, v := range m {
 		base[k] = v
@@ -29,7 +29,7 @@ func TestLiveArmEnv_DefaultModelWithItsPrices(t *testing.T) {
 		"default by name":  {EnvLLMModel: DefaultLiveModel},
 		"blank prices too": {EnvLLMPriceIn: " ", EnvLLMPriceOut: ""},
 	} {
-		got, err := LiveArmEnv(liveEnv(in))
+		got, err := LiveArmEnv(endpointEnv(in))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -48,7 +48,7 @@ func TestLiveArmEnv_DefaultModelWithItsPrices(t *testing.T) {
 }
 
 func TestLiveArmEnv_ExplicitPricesWinForTheDefaultModel(t *testing.T) {
-	got, err := LiveArmEnv(liveEnv(map[string]string{EnvLLMPriceIn: "0.2",
+	got, err := LiveArmEnv(endpointEnv(map[string]string{EnvLLMPriceIn: "0.2",
 		EnvLLMPriceOut: "0.9"}))
 	if err != nil || got(EnvLLMModel) != DefaultLiveModel || got(EnvLLMPriceIn) != "0.2" ||
 		got(EnvLLMPriceOut) != "0.9" {
@@ -69,7 +69,7 @@ func TestLiveArmEnv_AnotherModelNeedsItsOwnPrices(t *testing.T) {
 		"no input price": {map[string]string{EnvLLMModel: "o9-large", EnvLLMPriceOut: "9"},
 			[]string{EnvLLMPriceIn}},
 	} {
-		_, err := LiveArmEnv(liveEnv(c.in))
+		_, err := LiveArmEnv(endpointEnv(c.in))
 		if err == nil {
 			t.Fatalf("%s: another model without its prices was accepted", name)
 		}
@@ -79,7 +79,7 @@ func TestLiveArmEnv_AnotherModelNeedsItsOwnPrices(t *testing.T) {
 			}
 		}
 	}
-	got, err := LiveArmEnv(liveEnv(map[string]string{EnvLLMModel: "o9-large",
+	got, err := LiveArmEnv(endpointEnv(map[string]string{EnvLLMModel: "o9-large",
 		EnvLLMPriceIn: "3", EnvLLMPriceOut: "9"}))
 	if err != nil || got(EnvLLMModel) != "o9-large" || got(EnvLLMPriceIn) != "3" ||
 		got(EnvLLMPriceOut) != "9" {
@@ -101,7 +101,7 @@ func TestLiveArmEnv_NoEndpointIsUnchanged(t *testing.T) {
 func TestLiveArmEnv_FeedsALiveConfiguration(t *testing.T) {
 	in := map[string]string{EnvLiveLLM: "1", EnvLLMMaxRequests: "10",
 		EnvLLMMaxTokens: "1000", EnvLLMMaxWall: "1m", EnvLLMMaxSpend: "1"}
-	getenv, err := LiveArmEnv(liveEnv(in))
+	getenv, err := LiveArmEnv(endpointEnv(in))
 	if err != nil {
 		t.Fatal(err)
 	}

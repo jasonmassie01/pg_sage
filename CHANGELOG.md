@@ -17,7 +17,12 @@
   real plan flips and incidents with two independent causes. A nightly, paced job measures
   a live OpenAI model under hard caps on requests, tokens, time and spend, stops at the
   first cap, and signs its report like the release benchmark; it runs only once the
-  `PG_SAGE_BENCH_OPENAI_API_KEY` repository secret is set. When you refute an
+  `PG_SAGE_BENCH_OPENAI_API_KEY` repository secret is set. It also runs on every release
+  tag and attaches its signed report to the GitHub release (`pgincidentbench-live.*`)
+  without ever holding the release back. The Trust page says, per family, how many more
+  correct held-out overrides the model needs, and a family earning or losing the right is
+  recorded in the trust history with the report that decided it and sent through your
+  notification rules. When you refute an
   investigation, you can export it as a redacted replay case
   (`GET /api/v1/databases/{db}/investigations/{id}/replay-case` or
   `pg_sage bench export-replay`): identifiers are hashed unless you opt in, and secrets

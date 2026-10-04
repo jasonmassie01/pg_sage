@@ -152,7 +152,9 @@ func TestLiveReportIsSignedOnTagsTheSameWay(t *testing.T) {
 var liveAssets = []string{"pgincidentbench-live.json",
 	"pgincidentbench-live.json.sigstore.json", "pgincidentbench-live.md"}
 
-func TestSignedLiveReportIsAttachedToTheRelease(t *testing.T) {
+// liveAssetJob is the one job that waits for bench-live.
+func liveAssetJob(t *testing.T) (string, liveCIJob) {
+	t.Helper()
 	jobs := liveCIJobs(t)
 	var name string
 	for n, j := range jobs {
@@ -163,7 +165,11 @@ func TestSignedLiveReportIsAttachedToTheRelease(t *testing.T) {
 			name = n
 		}
 	}
-	job := jobs[name]
+	return name, jobs[name]
+}
+
+func TestSignedLiveReportIsAttachedToTheRelease(t *testing.T) {
+	name, job := liveAssetJob(t)
 	if name == "" || !slices.Contains(job.needs(), "release") {
 		t.Fatalf("no job attaches the live report after the release (%q needs %v)", name,
 			job.needs())

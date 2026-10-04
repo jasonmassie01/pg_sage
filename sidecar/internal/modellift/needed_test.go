@@ -13,7 +13,7 @@ func TestMoreCorrectOverridesNeeded_Boundaries(t *testing.T) {
 		{15, 15, 1}, // 15/15 has a lower bound of 0.796
 		{16, 16, 0}, // 16/16 passes (0.806)
 		{29, 30, 0}, // passes at 29/30
-		{28, 30, 1}, // 29/31 is the first passing count
+		{28, 30, 3}, // 29/31 (0.793) and 30/32 fail; 31/33 passes
 		{9, 9, 7},   // 16/16 again
 		{10, 10, 6},
 	} {

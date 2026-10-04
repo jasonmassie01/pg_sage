@@ -46,7 +46,8 @@ down is byte-identical to origin/master. Docs: `sidecar/sre-bench/README.md`,
    replaces the release bench in promotions (the newest-report query skips it).
 7. **Model `gpt-4o-mini`** (cheapest OpenAI model the docs configure) with defaults 400
    requests, 2.5M tokens, 45 min, $2 per night, 30 RPM; all overridable by repository
-   variables.
+   variables. (Follow-up: the default moved out of the workflow into
+   `sre-bench/livemodel.go`, see below.)
 8. **Composite gold names the dominant cause as root and the independent one as
    contributing**, even though the graph only reports the root (a measured gap, below).
 
@@ -55,11 +56,14 @@ down is byte-identical to origin/master. Docs: `sidecar/sre-bench/README.md`,
 1. Create an OpenAI key (a project with a monthly budget limit) and add the repository secret
    **`PG_SAGE_BENCH_OPENAI_API_KEY`** (Settings > Secrets and variables > Actions).
 2. Optional repository variables (defaults in brackets): `PG_SAGE_BENCH_OPENAI_MODEL`
-   [`gpt-4o-mini`], `PG_SAGE_BENCH_OPENAI_URL` [`https://api.openai.com/v1`],
+   [`DefaultLiveModel` in `sre-bench/livemodel.go`, today `gpt-4o-mini`],
+   `PG_SAGE_BENCH_OPENAI_URL` [`https://api.openai.com/v1`],
    `PG_SAGE_BENCH_LLM_RPM` [30], `PG_SAGE_BENCH_LLM_MAX_REQUESTS` [400],
    `PG_SAGE_BENCH_LLM_MAX_TOKENS` [2500000], `PG_SAGE_BENCH_LLM_MAX_WALL` [45m],
-   `PG_SAGE_BENCH_LLM_MAX_SPEND_USD` [2], `PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN` [0.15],
-   `PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT` [0.60] (set the prices to the chosen model's).
+   `PG_SAGE_BENCH_LLM_MAX_SPEND_USD` [2], `PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN` and
+   `PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT` [the default model's prices, 0.15 and 0.60].
+   **If you set a model, set both prices to that model's**; without them the run fails
+   closed before any call.
 3. Actions > CI > Run workflow on master once; the `bench-live` job uploads
    `pgincidentbench-live` (signed on master). Nothing was created by this agent.
 
@@ -186,14 +190,53 @@ identifiers (sre); request cap ignored, live opt-in ignored (budget/config).
 
 1. Statistical power: overrides only occur where the model contests a conclusive root (14 on
    the held-out set with the fake model). Earning authority needs >= 16 right overrides per
-   family, so contested production cases are the path; should the threshold be pooled across
-   families for a first grant?
-2. Release builds: a sidecar only counts a report for its own commit. The nightly report is
-   for master HEAD (usable by `:edge`/`sha-` images); running the live arm on tag pushes and
-   shipping it in the image is not done (spend per release; decide).
+   family, so contested production cases are the path. Owner decision: never pooled; the
+   Trust page now says per family how many more correct held-out overrides it needs.
+2. Release builds: the live arm now runs on v* tags and its signed report is attached to the
+   release (below). Follow-up: the sidecar does not fetch release assets; ingesting
+   `pgincidentbench-live.*` from the release (or shipping it in the image) is not done.
 3. Inconclusive cases: the model's ranking on an inconclusive graph stays advisory; 2.1 should
    add an explicit model conclusion and the same measured rule for it.
 4. DBA-Bench: no harness or spec in the repository; publishing a DBA-Bench Safe Pass number
    needs one.
 5. Composite incidents: the graph reports one root only; a "contributing independent cause"
    matcher is a causal-graph change for 2.1.
+
+## Follow-up (owner decisions 2026-10-04)
+
+Product calls 1-6 confirmed. Changes on the same branch (PR #111):
+
+- **Overrides needed, per family.** `modellift.MoreCorrectOverridesNeeded(k, n)` is the
+  smallest x such that k+x of n+x clears the count conditions (n >= 10, Wilson lower bound
+  >= 0.80): 16 for a family never measured, 1 at 15/15, 0 at 16/16, 3 at 28/30. The ledger's
+  `RootAuthority` carries it as `overrides_needed` (API and Trust page); the card says
+  "needs N more correct held-out overrides" per family, and lists every family's need while
+  nothing is measured. It counts the override shortfall only; another condition holding a
+  family back (Safe Pass, budget, staleness) is named in its reason.
+- **Live arm on tags.** `bench-live` also runs on `v*` tag pushes (never a branch push or a
+  pull request), signs on master or a tag (same cosign + `bench verify` steps), stamps
+  `SAGE_BENCH_PG_SAGE_VERSION` on tags and outputs `signed`. A new job
+  `bench-live-release-assets` (needs `bench-live` and `release`, `contents: write` only)
+  attaches `pgincidentbench-live.json`, `.json.sigstore.json` and `.md` with
+  `gh release upload --clobber` when the run was signed. `release` and `docker` do not need
+  it (contract test walks their needs transitively).
+- **Addition A: never silent.** New ledger events `root_authority_granted` /
+  `root_authority_revoked` (class `model_root`, actor `pg_sage`, evidence with `report_id`,
+  lower bound, counts, overrides needed), via an idempotent migration that redefines
+  `sre_autonomy_events_type_v2` as the superset (registered with one line after the trust
+  ledger migration). The change is recorded under a per-(deployment, database, family)
+  advisory lock, so replicas and loops record it once, and told through the existing
+  notify path (`autonomyNotifier.NotifyRootAuthority`: a grant as `action_executed`, a loss
+  as `action_failed`, severity warning, dedup key with the report id) and the log. A grant
+  is recorded before an investigation can use it (`ModelRootAuthority` settles first; a
+  grant that cannot be recorded is not given); the hourly bench loop reconciles every family
+  (newer report, staleness, another build). The notifier is bound at ledger install, before
+  the ledger is registered, so no grant goes untold.
+- **Addition B: default model.** pg_sage has no default LLM model setting (`llm.model`
+  defaults to empty; the example configs disagree), so there is nothing to read. Product
+  call: the workflow names no model (`PG_SAGE_BENCH_LLM_MODEL: ${{ vars.PG_SAGE_BENCH_OPENAI_MODEL }}`,
+  prices likewise from variables only) and the default lives in code next to its prices
+  (`srebench.DefaultLiveModel`, `DefaultLivePriceIn/Out`, applied by `LiveArmEnv`). A model
+  other than the default without both prices fails closed before any call, because the
+  spend cap is only as good as the prices. Contract test: no `gpt-` literal in `ci.yml`.
+- **Out of scope / follow-up:** the sidecar ingesting release assets.

@@ -315,22 +315,53 @@ the graph's root and stores the model's as a contest (`model_contest`, `model_di
 with `authority: advisory`). The bench itself grants no authority, so `M3-LLM-ROOT` still
 fails any changed root; the would-be overrides are what `override_precision` scores.
 
+The rule is per family; measurements are never pooled across families. For each family the
+Trust page and `GET /api/v1/model-lift` say how many more correct held-out overrides its
+newest measurement needs (`overrides_needed`: the smallest x such that k+x of n+x clears
+the rule; 16 for a family never measured, 0 once the counts are enough and only another
+condition, named in `reason`, holds it back).
+
+Earning or losing the authority is automatic but never silent. Each change is recorded in
+the ledger history (class `model_root`, `root_authority_granted` or
+`root_authority_revoked`, actor `pg_sage`) with the deciding report's id in its evidence,
+and told through the database's notification rules (a grant as `action_executed`, a loss as
+`action_failed`, severity warning) and the log. A grant is recorded before an investigation
+may use it (one that cannot be recorded is not given); the hourly bench loop finds the rest:
+a newer report, the deciding report aging past `bench_max_age_days`, another build.
+
 The report schema is `pg_sage.pgincidentbench.v1` with `schema_revision: 2`: additive, so a
 pg_sage 1.9.0 sidecar still ingests and verifies a new report (ignoring the lift), and this
 sidecar reads a 1.9.0 report as revision 1 with no lift.
 
 ## Nightly live-model arm
 
-The `bench-live` job of `.github/workflows/ci.yml` runs on the nightly schedule (and by hand,
-`workflow_dispatch`), never on a pull request or push. It replays the corpus through the
-causal graph and the LLM-on arm against an OpenAI model (`TestLiveModelArm`,
-`SAGE_BENCH_LIVE_ARM=1`), paced and capped, and writes `pgincidentbench.json` with the
-replay section, the held-out model lift and the budget record. It fails when a cap was
-reached or a safety gate failed; failed quality gates are reported, not failures. On master
-the report is signed keyless with Sigstore like the release bench (the signing identity is
-`ci.yml@refs/heads/master`, which the sidecar accepts) and uploaded as the
+The `bench-live` job of `.github/workflows/ci.yml` runs on the nightly schedule, by hand
+(`workflow_dispatch`) and on every `v*` tag push, never on a pull request or a branch push.
+It replays the corpus through the causal graph and the LLM-on arm against an OpenAI model
+(`TestLiveModelArm`, `SAGE_BENCH_LIVE_ARM=1`), paced and capped, and writes
+`pgincidentbench.json` with the replay section, the held-out model lift and the budget
+record. It fails when a cap was reached or a safety gate failed; failed quality gates are
+reported, not failures. On master or a `v*` tag the report is signed keyless with Sigstore
+like the release bench (the signing identity is `ci.yml@refs/heads/master` or
+`ci.yml@refs/tags/v...`, both of which the sidecar accepts) and uploaded as the
 `pgincidentbench-live` artifact. A sidecar built from that commit (the `:edge` or
 `sha-<commit>` image) ingests it through `sre.autonomy.bench_results_path`.
+
+On a tag, the job `bench-live-release-assets` waits for the live run and the release and,
+when the live report was signed, attaches it to the GitHub release as
+`pgincidentbench-live.json`, `pgincidentbench-live.json.sigstore.json` and
+`pgincidentbench-live.md`. Neither `release` nor `docker` waits for the live arm: a release
+ships without it when the arm fails, is skipped or is still running. The sidecar does not
+fetch these assets yet (download them into `bench_results_path`); ingesting them is a
+follow-up.
+
+**The model.** pg_sage has no default LLM model setting (`llm.model` is empty until an
+operator sets it), so the workflow names no model: the repository variable
+`PG_SAGE_BENCH_OPENAI_MODEL` chooses it, and when it is unset the arm uses the default in
+`sre-bench/livemodel.go` (`DefaultLiveModel`, today `gpt-4o-mini`) with that model's
+prices. The spend cap is computed from the prices, so a model other than the default must
+come with its own: set `PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN` and `_OUT` to the chosen
+model's prices per million tokens, or the run fails closed before any call.
 
 **Owner setup** (nothing runs, and nothing is spent, until the secret exists; without it the
 job ends with a notice):
@@ -339,12 +370,13 @@ job ends with a notice):
    repository secret **`PG_SAGE_BENCH_OPENAI_API_KEY`** (Settings, Secrets and variables,
    Actions, New repository secret).
 2. Optional repository variables (same page, Variables) override the defaults:
-   `PG_SAGE_BENCH_OPENAI_MODEL` (`gpt-4o-mini`, the cheapest model the docs configure),
+   `PG_SAGE_BENCH_OPENAI_MODEL` (unset: `DefaultLiveModel` in `sre-bench/livemodel.go`),
    `PG_SAGE_BENCH_OPENAI_URL` (`https://api.openai.com/v1`), `PG_SAGE_BENCH_LLM_RPM` (`30`),
    `PG_SAGE_BENCH_LLM_MAX_REQUESTS` (`400`), `PG_SAGE_BENCH_LLM_MAX_TOKENS` (`2500000`),
    `PG_SAGE_BENCH_LLM_MAX_WALL` (`45m`), `PG_SAGE_BENCH_LLM_MAX_SPEND_USD` (`2`),
-   `PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN` (`0.15`) and `PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT`
-   (`0.60`). Set the prices to the chosen model's.
+   `PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN` and `PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT` (unset: the
+   default model's prices). **If you choose a model, set both prices to that model's**
+   (USD per million input and output tokens); without them the run refuses to start.
 3. Run it once by hand: Actions, CI, Run workflow (branch master). The `bench-live` job's
    summary shows the model lift; the artifact holds the signed report.
 

@@ -301,8 +301,10 @@ func TestRootAuthorityEvents_WithoutANotifierStillRecorded(t *testing.T) {
 	}
 }
 
-// Each database keeps its own history: a grant on orders records nothing
-// for billing in the same deployment.
+// Each database keeps its own history. A bench report measures the
+// build, so it counts for every database of the deployment; each
+// database records (and tells) the grant in its own history, once, and
+// one database's entry never stands in for another's.
 func TestRootAuthorityEvents_PerDatabase(t *testing.T) {
 	dep := newUUID(t)
 	orders := newFixtureFor(t, dep, "orders")
@@ -311,14 +313,20 @@ func TestRootAuthorityEvents_PerDatabase(t *testing.T) {
 	if _, err := orders.svc.ReconcileRootAuthority(orders.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := billing.svc.ReconcileRootAuthority(billing.ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(orders.rootEvents(FamilyLockBlocking)) != 1 {
-		t.Fatal("orders did not record its grant")
-	}
 	if evs := billing.rootEvents(FamilyLockBlocking); len(evs) != 0 {
-		t.Fatalf("billing has orders' grant: %+v", evs)
+		t.Fatalf("orders' entry stands in billing's history: %+v", evs)
+	}
+	changes, err := billing.svc.ReconcileRootAuthority(billing.ctx)
+	if err != nil || len(changes) != 1 || changes[0].Database != "billing" {
+		t.Fatalf("billing changes = %+v (%v)", changes, err)
+	}
+	if evs := billing.rootEvents(FamilyLockBlocking); len(evs) != 1 ||
+		evs[0].Database != "billing" {
+		t.Fatalf("billing history = %+v", evs)
+	}
+	if evs := orders.rootEvents(FamilyLockBlocking); len(evs) != 1 ||
+		evs[0].Database != "orders" {
+		t.Fatalf("orders history = %+v", evs)
 	}
 }
 

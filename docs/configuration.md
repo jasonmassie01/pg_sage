@@ -958,8 +958,12 @@ days old), and the newest live measurement of each family decides. A model's own
 never counts. Actions that follow an adopted root still pass the family's earned levels.
 The Trust page's "Model lift over deterministic" card and `GET /api/v1/model-lift[?database=]`
 show each family's lift (Safe Pass against the graph, override precision, inconclusive-case
-lift) and whether the model may override. See `sidecar/sre-bench/README.md` ("Model lift",
-"Nightly live-model arm").
+lift), whether the model may override, and how many more correct held-out overrides the
+family needs (`overrides_needed`; families are never pooled). A family earning or losing
+the authority is recorded in the trust history (`root_authority_granted` /
+`root_authority_revoked`, with the deciding report's id) and told through your notification
+rules (`action_executed` for a grant, `action_failed` for a loss). See
+`sidecar/sre-bench/README.md` ("Model lift", "Nightly live-model arm").
 
 **Contested investigations become replay cases.** After you refute an investigation (or
 confirm it with another actual root), `GET /api/v1/databases/{db}/investigations/{id}/replay-case`

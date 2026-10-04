@@ -98,8 +98,13 @@ type RootAuthority struct {
 	Status  string            `json:"status"`
 	Reason  string            `json:"reason"`
 	Rule    modellift.Verdict `json:"rule"`
-	Lift    *LiftRecord       `json:"lift,omitempty"`
-	Report  *BenchSummary     `json:"report,omitempty"`
+	// OverridesNeeded is how many more correct held-out overrides the
+	// family's newest measurement needs to clear the rule's count
+	// conditions (0: enough; the reason names anything else holding it
+	// back). Per family: measurements are never pooled across families.
+	OverridesNeeded int           `json:"overrides_needed"`
+	Lift            *LiftRecord   `json:"lift,omitempty"`
+	Report          *BenchSummary `json:"report,omitempty"`
 }
 
 // noMeasurement is why a family without a measurement stays advisory.
@@ -112,12 +117,14 @@ func rootAuthorityOf(run *EvalRun, family Family, now time.Time,
 	maxAge time.Duration) RootAuthority {
 	a := RootAuthority{Family: family, Status: RootAdvisory, Reason: noMeasurement,
 		Rule: modellift.Verdict{Threshold: modellift.MinOverrideLowerBound,
-			MinOverrides: modellift.MinOverrides}}
+			MinOverrides: modellift.MinOverrides},
+		OverridesNeeded: modellift.MoreCorrectOverridesNeeded(0, 0)}
 	rec := heldOutRecord(run, family)
 	if rec == nil {
 		return a
 	}
 	a.Lift, a.Report = rec, SummarizeBench(run)
+	a.OverridesNeeded = modellift.MoreCorrectOverridesNeeded(rec.Overrides.K, rec.Overrides.N)
 	switch age := now.Sub(run.GeneratedAt); {
 	case age < 0:
 		a.Reason = "the newest measurement was generated after now"
@@ -157,14 +164,24 @@ func heldOutRecord(run *EvalRun, family Family) *LiftRecord {
 }
 
 // ModelRootAuthority is family's model-root authority from the newest
-// measurement counting for the running build (a live one first).
+// measurement counting for the running build (a live one first). A
+// change since the history's last entry is recorded (and told) first: an
+// investigation is never granted authority the history does not show,
+// and a grant that cannot be recorded is not given. A failed
+// notification does not withhold it (the history and the notifier's own
+// log keep it).
 func (s *Service) ModelRootAuthority(ctx context.Context, family Family) (RootAuthority,
 	error) {
 	set, err := s.store.modelLiftSet(ctx, []Family{family})
 	if err != nil {
 		return RootAuthority{}, err
 	}
-	return rootAuthorityOf(set[family], family, s.now(), s.cfg.Thresholds.BenchMaxAge), nil
+	a := rootAuthorityOf(set[family], family, s.now(), s.cfg.Thresholds.BenchMaxAge)
+	if _, err := s.settleRootAuthority(ctx, a); err != nil {
+		return RootAuthority{Family: family, Status: RootAdvisory, Reason: "the trust " +
+			"ledger could not record the model-root authority, so it is not given"}, err
+	}
+	return a, nil
 }
 
 // modelLiftMeaning explains the view.

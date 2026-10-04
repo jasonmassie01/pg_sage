@@ -380,17 +380,25 @@ jobs:
   # OpenAI model, paced and under hard caps (requests, tokens, wall time,
   # estimated spend); a cap fails the run closed. The report carries the
   # held-out model lift the trust ledger reads for each family's model-root
-  # authority, and on master it is signed keyless like the release bench
-  # (this workflow's identity is the one the sidecar accepts). Never on a
-  # pull request or push; without the PG_SAGE_BENCH_OPENAI_API_KEY secret it
-  # skips with a notice (setup: sidecar/sre-bench/README.md).
+  # authority, and on master or a v* tag it is signed keyless like the
+  # release bench (this workflow's identity is the one the sidecar
+  # accepts). It also runs on every v* tag, where bench-live-release-assets
+  # attaches the signed report to the release; neither release nor docker
+  # waits for it. Never on a pull request or a branch push; without the
+  # PG_SAGE_BENCH_OPENAI_API_KEY secret it skips with a notice (setup:
+  # sidecar/sre-bench/README.md). The model is the repository variable
+  # PG_SAGE_BENCH_OPENAI_MODEL, else the default in sre-bench/livemodel.go.
   bench-live:
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
     services:
       postgres:
         image: pgvector/pgvector:0.8.2-pg17
@@ -409,6 +417,7 @@ jobs:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
       SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench-live
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
+      SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -441,24 +450,31 @@ jobs:
           PG_SAGE_LIVE_LLM: "1"
           SAGE_BENCH_LIVE_ARM: "1"
           PG_SAGE_BENCH_LLM_URL: ${{ vars.PG_SAGE_BENCH_OPENAI_URL || 'https://api.openai.com/v1' }}
-          PG_SAGE_BENCH_LLM_MODEL: ${{ vars.PG_SAGE_BENCH_OPENAI_MODEL || 'gpt-4o-mini' }}
+          PG_SAGE_BENCH_LLM_MODEL: ${{ vars.PG_SAGE_BENCH_OPENAI_MODEL }}
           PG_SAGE_BENCH_LLM_KEY: ${{ secrets.PG_SAGE_BENCH_OPENAI_API_KEY }}
           PG_SAGE_BENCH_LLM_RPM: ${{ vars.PG_SAGE_BENCH_LLM_RPM || '30' }}
           PG_SAGE_BENCH_LLM_MAX_REQUESTS: ${{ vars.PG_SAGE_BENCH_LLM_MAX_REQUESTS || '400' }}
           PG_SAGE_BENCH_LLM_MAX_TOKENS: ${{ vars.PG_SAGE_BENCH_LLM_MAX_TOKENS || '2500000' }}
           PG_SAGE_BENCH_LLM_MAX_WALL: ${{ vars.PG_SAGE_BENCH_LLM_MAX_WALL || '45m' }}
           PG_SAGE_BENCH_LLM_MAX_SPEND_USD: ${{ vars.PG_SAGE_BENCH_LLM_MAX_SPEND_USD || '2' }}
-          PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN: ${{ vars.PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN || '0.15' }}
-          PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT: ${{ vars.PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT || '0.60' }}
+          # Empty: the default model's prices (sre-bench/livemodel.go). Set
+          # both for any other model, or the run fails closed.
+          PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN: ${{ vars.PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN }}
+          PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT: ${{ vars.PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT }}
         run: go test ./sre-bench -run '^TestLiveModelArm$' -count=1 -timeout 3600s -v
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        if: steps.secret.outputs.ready == 'true' && github.ref == 'refs/heads/master'
+        if: >-
+          steps.secret.outputs.ready == 'true' &&
+          (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
 
       # Only a run that passed (no cap reached, no safety gate failed) is
       # signed: a failed run's report stays an unsigned artifact.
-      - name: Sign the live-model report (master only)
-        if: steps.secret.outputs.ready == 'true' && github.ref == 'refs/heads/master'
+      - name: Sign the live-model report (master or a v* tag)
+        id: sign
+        if: >-
+          steps.secret.outputs.ready == 'true' &&
+          (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
         working-directory: sidecar
         env:
           IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
@@ -471,6 +487,7 @@ jobs:
             --certificate-oidc-issuer "$ISSUER" "$f"
           go run ./cmd/sigstore_trusted_root -o internal/benchsig/trusted_root.json
           go run ./cmd/pg_sage_sidecar bench verify --commit "$GITHUB_SHA" "$f"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && steps.secret.outputs.ready == 'true' }}
@@ -478,6 +495,39 @@ jobs:
           name: pgincidentbench-live
           path: pgincidentbench-live/
           if-no-files-found: warn
+
+  # Roadmap 2.4: a v* tag's signed live-model report goes on the GitHub
+  # release as assets once both have finished. Only this job waits for
+  # bench-live; the release is never held back by it (an unsigned, failed
+  # or skipped live run attaches nothing). Ingesting these assets in the
+  # sidecar is a follow-up.
+  bench-live-release-assets:
+    runs-on: ubuntu-latest
+    needs: [bench-live, release]
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.bench-live.outputs.signed == 'true'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pgincidentbench-live
+          path: live
+
+      - name: Attach the signed live-model report to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          cp live/pgincidentbench.json assets/pgincidentbench-live.json
+          cp live/pgincidentbench.json.sigstore.json assets/pgincidentbench-live.json.sigstore.json
+          cp live/pgincidentbench.md assets/pgincidentbench-live.md
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
+            assets/pgincidentbench-live.json \
+            assets/pgincidentbench-live.json.sigstore.json \
+            assets/pgincidentbench-live.md
 
   docker:
     runs-on: ubuntu-latest

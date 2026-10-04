@@ -106,7 +106,11 @@ func TestLiveModelArm(t *testing.T) {
 		t.Skipf("set %s=1 (with %s=1 and the caps) to run the nightly live-model arm",
 			EnvLiveArm, EnvLiveLLM)
 	}
-	llm, err := LLMConfigFromEnv(os.Getenv)
+	getenv, err := LiveArmEnv(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	llm, err := LLMConfigFromEnv(getenv)
 	if err != nil {
 		t.Fatal(err)
 	}

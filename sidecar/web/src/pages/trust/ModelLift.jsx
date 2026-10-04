@@ -5,7 +5,9 @@ import { useEffect, useState } from 'react'
 // /api/v1/model-lift): the model's Safe Pass against the causal graph's,
 // its override precision with the Wilson lower bound the rule reads, the
 // inconclusive-case lift, and whether the model may override the graph's
-// root for the family or its roots stay advisory (L1), with the reason.
+// root for the family or its roots stay advisory (L1), with the reason,
+// and, per family (never pooled), how many more correct held-out
+// overrides it needs to clear the rule.
 
 const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 const muted = { color: 'var(--text-secondary)' }
@@ -21,6 +23,19 @@ function points(a, b) {
 
 function signed(n) {
   return `${n > 0 ? '+' : ''}${n}`
+}
+
+function needsText(n) {
+  return `needs ${n} more correct held-out override${n === 1 ? '' : 's'}`
+}
+
+function Needed({ a }) {
+  if (a.granted || !(a.overrides_needed > 0)) return null
+  return (
+    <div className="text-xs" data-testid="model-lift-needed" style={strong}>
+      {needsText(a.overrides_needed)}
+    </div>
+  )
 }
 
 function LiftRow({ a }) {
@@ -54,6 +69,7 @@ function LiftRow({ a }) {
         <span style={{ color: a.granted ? 'var(--green)' : 'var(--text-secondary)' }}>
           {a.granted ? 'model may override the graph' : 'advisory (L1)'}
         </span>
+        <Needed a={a} />
         <div className="text-xs" style={muted}>{a.reason}</div>
       </td>
     </tr>
@@ -100,6 +116,13 @@ export function ModelLift({ database }) {
         <div data-testid="model-lift-empty" style={muted}>
           No held-out live-model measurement yet: model-sourced roots stay advisory (L1)
           for every family.
+          {families.some(f => f.overrides_needed > 0) && (
+            <ul className="mt-1" data-testid="model-lift-needs">
+              {families.filter(f => f.overrides_needed > 0).map(f => (
+                <li key={f.family}>{f.family} {needsText(f.overrides_needed)}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {report && (
