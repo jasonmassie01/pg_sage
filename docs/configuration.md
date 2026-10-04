@@ -544,6 +544,49 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
   every other check: change classes, guardrails, the refusal set, windows,
   leases, lock ceilings and the shared `max_rows_rewritten` bound.
 
+#### One change per object
+
+pg_sage changes one object at a time and waits for the verdict before the
+next change to it. An object is a setting (`work_mem` is one object whether it
+is changed with `ALTER SYSTEM`, `ALTER DATABASE` or `ALTER ROLE`) or a table
+with its indexes (an index, its reloptions, `VACUUM`, `ANALYZE` and extended
+statistics on a table are all changes to that table). The identity comes from
+the statement and the catalog, never from evidence or an LLM.
+
+- **What waits.** A self-initiated change whose object has another change in
+  flight is parked with reason `awaiting_verification`. In flight means an
+  executed action still being watched (`sage.action_log.outcome` monitoring,
+  pending, interrupted or rolling back), one whose verdict in
+  `sage.action_outcome` is still pending, or a self-initiated change the gate
+  has authorized that has not run yet (so two proposals for one table in the
+  same cycle never both run; an operator's change runs at once and holds its
+  object through its action). The decision's detail and `evidence.verification_wait` name the
+  action and until when, for example `awaiting verification of action 6407
+  (until 2026-10-04T18:10:00Z) on guc:work_mem`. A change that would otherwise
+  need approval is still queued; its approval card shows the wait.
+- **When it resumes.** The parked change is evaluated again every cycle and
+  runs once the verification concludes (improved, neutral, regressed,
+  insufficient evidence, unverifiable, or rolled back).
+- **Never forever.** A verification that passes its hard deadline without a
+  verdict releases the wait, and the release is recorded on the decision
+  (`evidence.verification_wait_released`). The hard deadline is the
+  verification cap (`verify.window_max_minutes`, or `verify.drop_window_hours`
+  for an index drop) plus one hour after the action ran; an authorized change
+  that has not run holds its object for at most twice the DDL timeout plus a
+  minute.
+- **Never waits.** Rollbacks and reverts of pg_sage's own changes (including the
+  rollback of the change being verified), emergency mitigations (the same
+  cases that bypass the budgets above), owner-declared retention deletes and
+  read-only diagnostics.
+- **Operator override.** Approving a queued change runs it even while the
+  object waits; the approval card says so first ("approving overrides pending
+  verification of action N") and the decision records
+  `evidence.verification_override`.
+- **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts every park
+  by reason (one per evaluation), and
+  `pg_sage_verification_wait_releases_total{database,cause}` the waits that
+  ended without a verdict (`operator_override`, `hard_deadline`).
+
 #### Retention contracts
 
 The only way pg_sage deletes user rows is a retention contract declared with the

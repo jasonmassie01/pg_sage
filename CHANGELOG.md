@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **pg_sage now makes one change at a time to a setting or a table, and waits for the
+  verdict before the next.** On 2026-10-04 lifeos got `work_mem = '10MB'` 39 minutes
+  after `work_mem = '9MB'`, while the first change was still being measured, and a second
+  index on `public.memories` ten minutes after a first one it subsumed: overlapping
+  changes make every verdict meaningless. Now a change pg_sage starts on its own waits
+  while an earlier change to the same object (the same GUC, or the same table and its
+  indexes) is still being verified, or authorized and about to run. The decision log and
+  the approval card say which action it waits for and until when; it runs by itself once
+  the verdict lands (improved, neutral, regressed, insufficient evidence, unverifiable or
+  rolled back) and never waits past that verification's hard deadline (the verification
+  cap or the drop's business cycle, plus an hour), which is recorded. Rollbacks and
+  reverts of pg_sage's own changes and emergencies (a critical wraparound freeze, a
+  critical disk runway) never wait. Approving a queued change overrides the wait, and the
+  approval card says so before you click ("approving overrides pending verification of
+  action N"); the override is recorded on the decision. `/metrics` gains
+  `pg_sage_policy_parks_total{database,reason}` and
+  `pg_sage_verification_wait_releases_total{database,cause}`.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new
