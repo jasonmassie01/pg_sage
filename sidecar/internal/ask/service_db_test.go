@@ -378,19 +378,21 @@ func TestAsk_BudgetExhaustedMidRun(t *testing.T) {
 		writeCompletionUsage(w, map[string]any{"role": "assistant", "content": "",
 			"tool_calls": []map[string]any{{"id": "c1", "type": "function",
 				"function": map[string]any{"name": "get_finding",
-					"arguments": `{"id":` + itoa(id) + `}`}}}}, 45_000)
+					"arguments": `{"id":` + itoa(id) + `}`}}}}, 49_000)
 	}
 	m := newFakeLLM(t, big, answer(func(string) answerArgs { return answerArgs{} }))
 	d := f.deps(m)
-	d.Config.DailyTokensPerUser = 50_000
+	// The per-question cap is raised so the run reaches the daily budget
+	// rather than its own token cap.
+	d.Config.DailyTokensPerUser, d.Config.MaxTokensPerQuestion = 50_000, 200_000
 	s := f.service(d)
 	a := mustAsk(t, s, viewer, "Why?", "")
 	if a.Status != StatusBudget || m.calls() != 1 {
 		t.Fatalf("answer = %+v after %d calls", a, m.calls())
 	}
 	b, _ := s.BudgetStatus(context.Background(), viewer)
-	if b.UserUsed != 45_000 {
-		t.Fatalf("usage = %+v, want the reported 45000", b)
+	if b.UserUsed != 49_000 {
+		t.Fatalf("usage = %+v, want the reported 49000", b)
 	}
 	// The next question is refused before any model call.
 	again := mustAsk(t, s, viewer, "And now?", "")
