@@ -237,7 +237,7 @@ func TestProposal_OperatorAndAgentQueueOneTypedProposal(t *testing.T) {
 			d.Proposer = proposer
 			a := mustAsk(t, f.service(d), c, "Propose the fix for the missing index", "")
 			if proposer.count() != 1 || proposer.calls[0].findingID != fid ||
-				proposer.calls[0].actor != "ask:"+c.Actor {
+				proposer.calls[0].actor != c.Actor {
 				t.Fatalf("proposer calls = %+v", proposer.calls)
 			}
 			if a.Transcript.Rejected[agentloop.RejectInvalidArgs] != 1 {

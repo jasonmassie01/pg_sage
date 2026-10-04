@@ -245,22 +245,23 @@ func TestTool_ExplainConfigNeverShowsSecrets(t *testing.T) {
 	d.Settings.LLM.APIKey = "sk-top-secret"
 	d.Settings.Ask.RetentionDays = 14
 	s := f.service(d)
-	out := mustTool(t, s, viewer, "explain_config", `{"key":"ask.retention_days"}`)
+	out := mustTool(t, s, viewer, "explain", `{"config_key":"ask.retention_days"}`)
 	if out.Evidence.ID != "config:ask.retention_days" || !strings.Contains(out.Text, "14") ||
 		!strings.Contains(out.Text, "restart") {
 		t.Fatalf("config = %s", out.Text)
 	}
-	secret := mustTool(t, s, viewer, "explain_config", `{"key":"llm.api_key"}`)
+	secret := mustTool(t, s, viewer, "explain", `{"config_key":"llm.api_key"}`)
 	if strings.Contains(secret.Text, "sk-top-secret") || !strings.Contains(secret.Text,
 		"not shown") {
 		t.Fatalf("secret = %s", secret.Text)
 	}
-	if nf := mustTool(t, s, viewer, "explain_config", `{"key":"no.such_key"}`); nf.Status !=
+	if nf := mustTool(t, s, viewer, "explain", `{"config_key":"no.such_key"}`); nf.Status !=
 		"not_found" {
 		t.Fatalf("unknown key = %+v", nf)
 	}
-	for _, bad := range []string{`{"key":"ASK; DROP"}`, `{"key":""}`, `{}`} {
-		wantInvalid(t, s, viewer, "explain_config", bad)
+	for _, bad := range []string{`{"config_key":"ASK; DROP"}`, `{"config_key":""}`, `{}`,
+		`{"config_key":"ask.enabled","concept":"facts"}`} {
+		wantInvalid(t, s, viewer, "explain", bad)
 	}
 }
 
@@ -268,16 +269,16 @@ func TestTool_ExplainConcept(t *testing.T) {
 	f := newFixture(t)
 	s := f.service(f.deps(nil))
 	for _, topic := range ConceptTopics() {
-		out := mustTool(t, s, viewer, "explain_concept", `{"topic":"`+topic+`"}`)
+		out := mustTool(t, s, viewer, "explain", `{"concept":"`+topic+`"}`)
 		if out.Evidence.ID != "doc:"+topic || len(out.Text) < 80 {
 			t.Errorf("%s = %+v", topic, out)
 		}
 	}
-	trust := mustTool(t, s, viewer, "explain_concept", `{"topic":"ask_sage"}`)
+	trust := mustTool(t, s, viewer, "explain", `{"concept":"ask_sage"}`)
 	if !strings.Contains(trust.Text, "never executes") {
 		t.Fatalf("ask_sage concept does not state the limit: %s", trust.Text)
 	}
-	wantInvalid(t, s, viewer, "explain_concept", `{"topic":"astrology"}`)
+	wantInvalid(t, s, viewer, "explain", `{"concept":"astrology"}`)
 }
 
 func TestTool_InvestigationsAndTrustThroughSources(t *testing.T) {
@@ -288,15 +289,15 @@ func TestTool_InvestigationsAndTrustThroughSources(t *testing.T) {
 	d.Investigations = inv
 	d.Trust = fakeTrust(`{"rows":[{"family":"index","class":"create","level":2}]}`)
 	s := f.service(d)
-	list := mustTool(t, s, viewer, "list_investigations", `{}`)
+	list := mustTool(t, s, viewer, "investigations", `{}`)
 	if list.Evidence.ID != "investigations:recent" || !strings.Contains(list.Text, "6f1c") {
 		t.Fatalf("list = %+v", list)
 	}
-	one := mustTool(t, s, viewer, "get_investigation", `{"id":"6f1c"}`)
+	one := mustTool(t, s, viewer, "investigations", `{"id":"6f1c"}`)
 	if one.Evidence.ID != "investigation:6f1c" || !strings.Contains(one.Text, `"probe_count":4`) {
 		t.Fatalf("detail = %+v", one)
 	}
-	if nf := mustTool(t, s, viewer, "get_investigation", `{"id":"0000"}`); nf.Status !=
+	if nf := mustTool(t, s, viewer, "investigations", `{"id":"0000"}`); nf.Status !=
 		"not_found" {
 		t.Fatalf("missing investigation = %+v", nf)
 	}
@@ -304,8 +305,9 @@ func TestTool_InvestigationsAndTrustThroughSources(t *testing.T) {
 	if trust.Evidence.ID != "trust:testdb" || !strings.Contains(trust.Text, `"level":2`) {
 		t.Fatalf("trust = %+v", trust)
 	}
+	wantInvalid(t, s, viewer, "investigations", `{"id":"6f1c","limit":3}`)
 	inv.err = errors.New("store down")
-	if _, err := runTool(t, s, viewer, "list_investigations", `{}`); err == nil ||
+	if _, err := runTool(t, s, viewer, "investigations", `{}`); err == nil ||
 		errors.Is(err, agentloop.ErrInvalidArgs) || !strings.Contains(err.Error(), "store down") {
 		t.Fatalf("a source failure must be a tool error naming its cause: %v", err)
 	}
@@ -315,8 +317,8 @@ func TestTool_SourcesAbsentMeansToolsAbsent(t *testing.T) {
 	f := newFixture(t)
 	s := f.service(f.deps(nil))
 	names := toolNames(s.newSession(operator).tools())
-	for _, absent := range []string{"list_investigations", "get_investigation",
-		"trust_ledger", "top_queries", "open_investigation", "propose_action"} {
+	for _, absent := range []string{"investigations", "trust_ledger", "top_queries",
+		"open_investigation", "propose_action"} {
 		if names[absent] {
 			t.Errorf("%s offered without its source", absent)
 		}

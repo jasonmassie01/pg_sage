@@ -103,13 +103,16 @@ func (f *askProposalFixture) count(q string, args ...any) int {
 	return n
 }
 
+// askOrigin is who proposed: Ask Sage, for user 1.
+var askOrigin = ProposalOrigin{Via: ProposedViaAskSage, By: "user:1"}
+
 const askPxCreate = "CREATE INDEX CONCURRENTLY ask_px_c ON public.ask_px (c)"
 
 func TestProposeFindingForApproval_QueuesAndNeverExecutes(t *testing.T) {
 	f := newAskProposalFixture(t)
 	id := f.finding("public.ask_px", askPxCreate, "DROP INDEX CONCURRENTLY public.ask_px_c",
 		"open")
-	p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+	p, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 	if err != nil {
 		t.Fatalf("propose: %v", err)
 	}
@@ -145,7 +148,7 @@ func TestProposeFindingForApproval_QueuesAndNeverExecutes(t *testing.T) {
 			t.Fatalf("a proposal asked the gate with approval flags: %+v", r)
 		}
 	}
-	again, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+	again, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 	if err != nil || again.Created || again.QueueID != p.QueueID {
 		t.Fatalf("second proposal = %+v (%v), want the pending item %d", again, err, p.QueueID)
 	}
@@ -157,7 +160,7 @@ func TestProposeFindingForApproval_QueuesAndNeverExecutes(t *testing.T) {
 func TestProposeFindingForApproval_NoRollbackNeededIsAllowed(t *testing.T) {
 	f := newAskProposalFixture(t)
 	id := f.finding("public.ask_px", "ANALYZE public.ask_px", "", "open")
-	p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+	p, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 	if err != nil || !p.Created || p.RollbackClass != "no_rollback_needed" {
 		t.Fatalf("analyze proposal = %+v (%v)", p, err)
 	}
@@ -176,7 +179,7 @@ func TestProposeFindingForApproval_Refusals(t *testing.T) {
 		"truncate sql": f.finding("public.ask_px_u", "TRUNCATE public.ask_px", "", "open"),
 	}
 	for name, id := range cases {
-		_, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+		_, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 		if !errors.Is(err, ErrNotProposable) {
 			t.Errorf("%s: err = %v, want ErrNotProposable", name, err)
 		}
@@ -195,7 +198,7 @@ func TestProposeFindingForApproval_GateBlockQueuesNothing(t *testing.T) {
 	id := f.finding("public.ask_px", askPxCreate, "DROP INDEX CONCURRENTLY public.ask_px_c",
 		"open")
 	f.exec.WithPolicyGate(nil) // no standing gate: fail closed
-	p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+	p, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 	if !errors.Is(err, ErrProposalBlocked) || p.Decision.Decision != PolicyDecisionBlocked {
 		t.Fatalf("blocked proposal = %+v (%v)", p, err)
 	}
@@ -213,12 +216,12 @@ func TestProposeFindingForApproval_NoQueueOrExecutor(t *testing.T) {
 		"open")
 	bare := New(f.pool, autonomousTestConfig(), time.Now().Add(-90*24*time.Hour), noopExecLog)
 	bare.WithPolicyGate(f.gate)
-	if _, err := bare.ProposeFindingForApproval(f.ctx, id); !errors.Is(err,
+	if _, err := bare.ProposeFindingForApproval(f.ctx, id, askOrigin); !errors.Is(err,
 		ErrApprovalQueueUnavailable) {
 		t.Fatalf("no action store: err = %v", err)
 	}
 	var nilExec *Executor
-	if _, err := nilExec.ProposeFindingForApproval(f.ctx, id); !errors.Is(err,
+	if _, err := nilExec.ProposeFindingForApproval(f.ctx, id, askOrigin); !errors.Is(err,
 		ErrApprovalQueueUnavailable) {
 		t.Fatalf("nil executor: err = %v", err)
 	}
@@ -234,7 +237,7 @@ func TestProposeFindingForApproval_ConcurrentCallsQueueOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+			p, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 			if err != nil {
 				t.Errorf("propose: %v", err)
 				return
@@ -276,7 +279,7 @@ func TestProposeFindingForApproval_QueuesWhatAnApprovalCanLift(t *testing.T) {
 			"DROP INDEX CONCURRENTLY public.ask_px_c", "open")
 		f.exec.WithPolicyGate(askFixedGate{policy.Decision{Verdict: policy.VerdictBlocked,
 			Reason: reason, RiskTier: policy.RiskModerate}})
-		p, err := f.exec.ProposeFindingForApproval(f.ctx, id)
+		p, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
 		if err != nil || !p.Created || p.Decision.BlockedReason != string(reason) {
 			t.Errorf("%s: proposal = %+v (%v), want queued with the reason", reason, p, err)
 		}
@@ -293,7 +296,7 @@ func TestProposeFindingForApproval_QueuesWhatAnApprovalCanLift(t *testing.T) {
 		id := f.finding(fmt.Sprintf("public.ask_px_h%d", i), askPxCreate,
 			"DROP INDEX CONCURRENTLY public.ask_px_c", "open")
 		f.exec.WithPolicyGate(askFixedGate{d})
-		if _, err := f.exec.ProposeFindingForApproval(f.ctx, id); !errors.Is(err,
+		if _, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin); !errors.Is(err,
 			ErrProposalBlocked) {
 			t.Errorf("%s: err = %v, want ErrProposalBlocked", d.Reason, err)
 		}
@@ -301,5 +304,56 @@ func TestProposeFindingForApproval_QueuesWhatAnApprovalCanLift(t *testing.T) {
 			id); n != 0 {
 			t.Errorf("%s queued %d items", d.Reason, n)
 		}
+	}
+}
+
+// Owner decision (2026-10-04): a queued item records how it was proposed
+// (proposed_via) and by whom, and the decision recorded when a person's
+// approval runs it carries both in its evidence.
+func TestProposeFindingForApproval_RecordsProvenance(t *testing.T) {
+	f := newAskProposalFixture(t)
+	id := f.finding("public.ask_px", "ANALYZE public.ask_px", "", "open")
+	p, err := f.exec.ProposeFindingForApproval(f.ctx, id, askOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var via, by string
+	if err := f.pool.QueryRow(f.ctx, `SELECT proposed_via, proposed_by FROM sage.action_queue
+		WHERE id = $1`, p.QueueID).Scan(&via, &by); err != nil || via != "ask_sage" ||
+		by != "user:1" {
+		t.Fatalf("provenance = %q %q (%v)", via, by, err)
+	}
+	item, err := store.NewActionStore(f.pool).GetByID(f.ctx, p.QueueID)
+	if err != nil || item == nil || item.ProposedVia != "ask_sage" || item.ProposedBy != "user:1" {
+		t.Fatalf("queued action = %+v (%v)", item, err)
+	}
+	f.gate.requests = nil
+	if _, err := f.exec.RunApprovedAction(f.ctx, *item, 7); err != nil {
+		t.Fatalf("run approved: %v", err)
+	}
+	found := false
+	for _, r := range f.gate.requests {
+		if r.OperatorApproved && r.Evidence["proposed_via"] == "ask_sage" &&
+			r.Evidence["proposed_by"] == "user:1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the approval's decision lacks the provenance: %+v", f.gate.requests)
+	}
+}
+
+func TestProposeFindingForApproval_RequiresAnOrigin(t *testing.T) {
+	f := newAskProposalFixture(t)
+	id := f.finding("public.ask_px", "ANALYZE public.ask_px", "", "open")
+	for _, o := range []ProposalOrigin{{}, {Via: ProposedViaAskSage}, {By: "user:1"},
+		{Via: "chatgpt", By: "user:1"}} {
+		if _, err := f.exec.ProposeFindingForApproval(f.ctx, id, o); !errors.Is(err,
+			ErrNotProposable) {
+			t.Errorf("origin %+v: err = %v", o, err)
+		}
+	}
+	if n := f.count(`SELECT count(*) FROM sage.action_queue WHERE finding_id = $1`, id); n != 0 {
+		t.Fatalf("%d items queued without a valid origin", n)
 	}
 }

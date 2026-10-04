@@ -23,13 +23,14 @@ import (
 
 type fakeFindingProposer struct {
 	got    int64
+	origin executor.ProposalOrigin
 	result executor.FindingProposal
 	err    error
 }
 
 func (f *fakeFindingProposer) ProposeFindingForApproval(_ context.Context,
-	id int64) (executor.FindingProposal, error) {
-	f.got = id
+	id int64, origin executor.ProposalOrigin) (executor.FindingProposal, error) {
+	f.got, f.origin = id, origin
 	return f.result, f.err
 }
 
@@ -42,9 +43,10 @@ func TestAskProposer_MapsTheExecutorProposal(t *testing.T) {
 			RiskTier: "moderate", BlockedReason: "approval_required"},
 		Prediction: verify.Prediction{Class: "index_create", Method: "hypopg",
 			ExpectedChangePct: &pct}}}
-	p, err := askProposer{inner: fp}.ProposeFinding(context.Background(), 5, "ask:user:1")
-	if err != nil || fp.got != 5 {
-		t.Fatalf("propose: %v (got %d)", err, fp.got)
+	p, err := askProposer{inner: fp}.ProposeFinding(context.Background(), 5, "user:1")
+	if err != nil || fp.got != 5 || fp.origin != (executor.ProposalOrigin{
+		Via: executor.ProposedViaAskSage, By: "user:1"}) {
+		t.Fatalf("propose: %v (got %d, origin %+v)", err, fp.got, fp.origin)
 	}
 	if p.QueueID != 12 || !p.Created || p.Verdict != "queue_approval" || p.RiskTier != "moderate" ||
 		p.Reason != "approval_required" || p.RollbackSQL != "DROP INDEX ..." ||

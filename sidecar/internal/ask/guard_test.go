@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/agentloop"
 )
 
 // Owner decision 3: Ask Sage can open an investigation or queue a typed
@@ -18,9 +20,9 @@ import (
 // These tests pin that structurally: the exact tool set per caller, and
 // the package's imports and calls.
 
-var readTools = []string{"describe_table", "explain_concept", "explain_config", "get_action",
-	"get_finding", "get_investigation", "list_actions", "list_approvals", "list_facts",
-	"list_findings", "list_incidents", "list_investigations", "top_queries", "trust_ledger"}
+var readTools = []string{"describe_table", "explain", "get_action", "get_finding",
+	"investigations", "list_actions", "list_approvals", "list_facts", "list_findings",
+	"list_incidents", "top_queries", "trust_ledger"}
 
 func fullDeps(f *fixture) Deps {
 	d := f.deps(nil)
@@ -48,12 +50,13 @@ func TestGuard_ReadCallersGetOnlyReadTools(t *testing.T) {
 	}
 }
 
-func TestGuard_ProposersGetExactlyTwoWriteTools(t *testing.T) {
+func TestGuard_ProposersGetExactlyThreeWriteTools(t *testing.T) {
 	f := newFixture(t)
 	s := f.service(fullDeps(f))
 	for _, c := range []Caller{operator, agent} {
 		names := toolNames(s.newSession(c).tools())
-		want := append(append([]string{}, readTools...), "open_investigation", "propose_action")
+		want := append(append([]string{}, readTools...), "open_investigation", "propose_action",
+			"propose_fact")
 		sort.Strings(want)
 		if got := sortedNames(names); strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Fatalf("%s tools = %v, want %v", c.Actor, got, want)
@@ -124,5 +127,17 @@ func TestGuard_PackageCannotReachExecutionOrApproval(t *testing.T) {
 	}
 	if checked < 5 {
 		t.Fatalf("checked %d files; the guard is not looking at the package", checked)
+	}
+}
+
+// The loop refuses more tools than the LLM client accepts (llm.MaxTools);
+// the fullest tool set, a proposer's with every source, must fit.
+func TestGuard_FullToolsetFitsTheLoop(t *testing.T) {
+	f := newFixture(t)
+	s := f.service(fullDeps(f))
+	cfg := agentloop.Config{Task: "q", Tools: s.newSession(operator).tools(),
+		Final: finalTool(), Budget: DefaultBudget(), Protocol: agentloop.ProtocolAuto}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("the full tool set does not fit the loop: %v", err)
 	}
 }

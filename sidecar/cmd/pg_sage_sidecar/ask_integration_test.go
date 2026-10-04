@@ -106,12 +106,14 @@ func TestAskIntegration_ProposalIsQueuedByTheRealGateAndNeverExecuted(t *testing
 		!strings.Contains(string(a.Actions[0].Prediction), "index_create") {
 		t.Fatalf("actions = %+v", a.Actions)
 	}
-	var status string
+	var status, via, by string
 	var decidedBy *int
-	if err := pool.QueryRow(ctx, `SELECT status, decided_by FROM sage.action_queue
-		WHERE id = $1::int`, a.Actions[0].ID).Scan(&status, &decidedBy); err != nil ||
-		status != "pending" || decidedBy != nil {
-		t.Fatalf("queue item %s: %q %v (%v)", a.Actions[0].ID, status, decidedBy, err)
+	if err := pool.QueryRow(ctx, `SELECT status, decided_by, proposed_via, proposed_by
+		FROM sage.action_queue WHERE id = $1::int`, a.Actions[0].ID).Scan(&status,
+		&decidedBy, &via, &by); err != nil || status != "pending" || decidedBy != nil ||
+		via != "ask_sage" || by != "user:it" {
+		t.Fatalf("queue item %s: %q %v %q %q (%v)", a.Actions[0].ID, status, decidedBy, via,
+			by, err)
 	}
 	var created, logged int
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM pg_class
