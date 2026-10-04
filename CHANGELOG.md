@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **pg_sage recognizes all of its own statements on PostgreSQL 14 to 18.** Each statement
+  of a multi-statement query (pg_sage's schema setup) and a statement that starts with a
+  parenthesis now carry the `/* pg_sage */` tag where `pg_stat_statements` keeps it
+  (PostgreSQL 18 drops comments in front of a statement); before, the setup statements
+  (about a third of pg_sage's entries right after a start) were untagged and left out of
+  its self-cost. The API's connection test now runs as `pg_sage` and tagged, like every
+  other pg_sage session.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new
