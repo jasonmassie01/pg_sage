@@ -736,17 +736,7 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	cfg.Safety.LockTimeoutMs = 1234
 	c := New(pool, cfg, 170000, noopLog)
 	var seen []string
-	c.onCatalogQuery = func(ctx context.Context, tx pgx.Tx, sql string, _ []any) {
-		if !strings.Contains(sql, "candidates") {
-			return
-		}
-		var got string
-		if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout') || '/' ||
-			current_setting('lock_timeout')`).Scan(&got); err != nil {
-			got = "error: " + err.Error()
-		}
-		seen = append(seen, got)
-	}
+	c.onCatalogQuery = timeoutsIn("candidates", &seen)
 	if _, err := c.collectQueries(context.Background()); err != nil {
 		t.Fatalf("collect queries: %v", err)
 	}
@@ -765,5 +755,21 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	if statementTimeout != "0" || lockTimeout != "0" {
 		t.Fatalf("collector leaked timeouts into pool: statement=%q lock=%q",
 			statementTimeout, lockTimeout)
+	}
+}
+
+// timeoutsIn is a catalog hook recording, for each statement containing
+// marker, the statement and lock timeouts of its transaction.
+func timeoutsIn(marker string, seen *[]string) catalogHook {
+	return func(ctx context.Context, tx pgx.Tx, sql string, _ []any) {
+		if !strings.Contains(sql, marker) {
+			return
+		}
+		var got string
+		if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout') || '/' ||
+			current_setting('lock_timeout')`).Scan(&got); err != nil {
+			got = "error: " + err.Error()
+		}
+		*seen = append(*seen, got)
 	}
 }
