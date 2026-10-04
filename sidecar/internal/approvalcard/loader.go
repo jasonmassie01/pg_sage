@@ -19,7 +19,10 @@ type Loader struct {
 	Pool       *pgxpool.Pool
 	Database   string
 	TrustLevel string
-	Now        func() time.Time
+	// Trust reads the database's Trust view for each card's class trust
+	// (once per request); nil shows none.
+	Trust TrustSource
+	Now   func() time.Time
 }
 
 func (l Loader) now() time.Time {
@@ -41,7 +44,7 @@ func (l Loader) Card(ctx context.Context, queueID int) (Card, error) {
 	if err != nil {
 		return Card{}, fmt.Errorf("approvalcard: read queue item %d: %w", queueID, err)
 	}
-	return l.ForAction(ctx, *a)
+	return l.forAction(ctx, *a, l.readTrust(ctx))
 }
 
 // Pending returns the cards of every pending queue item.
@@ -54,8 +57,9 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 		return nil, fmt.Errorf("approvalcard: list pending: %w", err)
 	}
 	out := make([]Card, 0, len(actions))
+	trust := l.readTrust(ctx)
 	for _, a := range actions {
-		c, err := l.ForAction(ctx, a)
+		c, err := l.forAction(ctx, a, trust)
 		if err != nil {
 			return nil, err
 		}
@@ -66,7 +70,13 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 
 // ForAction reads a queue row's card inputs and assembles its card.
 func (l Loader) ForAction(ctx context.Context, a store.QueuedAction) (Card, error) {
+	return l.forAction(ctx, a, l.readTrust(ctx))
+}
+
+func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trustRead) (Card,
+	error) {
 	in := Inputs{Database: l.Database, Action: a, TrustLevel: l.TrustLevel, Now: l.now()}
+	trust.apply(&in, a)
 	if c, ok := executor.ContractForQueuedAction(a); ok {
 		in.Contract = &c
 	}

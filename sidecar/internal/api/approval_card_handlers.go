@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/approvalcard"
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -26,11 +27,17 @@ const (
 	defaultSnoozeHours = 4
 )
 
-type approvalCardHandlers struct{ mgr *fleet.DatabaseManager }
+// approvalCardHandlers serve the cards of the fleet's databases, each with
+// its class trust from the trust ledgers (nil: none).
+type approvalCardHandlers struct {
+	mgr     *fleet.DatabaseManager
+	ledgers *earned.Registry
+}
 
-func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
+func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
+	ledgers *earned.Registry) {
 	operatorUp := RequireRole("admin", "operator")
-	h := &approvalCardHandlers{mgr: mgr}
+	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers}
 	mux.Handle("GET /api/v1/approvals", operatorUp(http.HandlerFunc(h.list)))
 	mux.Handle("GET /api/v1/approvals/{id}", operatorUp(http.HandlerFunc(h.get)))
 	mux.Handle("POST /api/v1/approvals/{id}/approve", operatorUp(http.HandlerFunc(h.approve)))
@@ -38,9 +45,13 @@ func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) 
 	mux.Handle("POST /api/v1/approvals/{id}/snooze", operatorUp(http.HandlerFunc(h.snooze)))
 }
 
-// cardLoader reads one database's cards with its executor's trust level.
-func cardLoader(inst *fleet.DatabaseInstance) approvalcard.Loader {
+// cardLoader reads one database's cards with its executor's trust level
+// and its class trust from the ledgers.
+func (h *approvalCardHandlers) cardLoader(inst *fleet.DatabaseInstance) approvalcard.Loader {
 	l := approvalcard.Loader{Pool: inst.Pool, Database: inst.Name}
+	if h.ledgers != nil {
+		l.Trust = h.ledgers
+	}
 	if inst.Executor != nil {
 		l.TrustLevel = inst.Executor.TrustLevel()
 	}
@@ -58,7 +69,7 @@ func (h *approvalCardHandlers) list(w http.ResponseWriter, r *http.Request) {
 		if inst == nil || inst.Pool == nil || (db != "" && db != "all" && inst.Name != db) {
 			continue
 		}
-		got, err := cardLoader(inst).Pending(r.Context())
+		got, err := h.cardLoader(inst).Pending(r.Context())
 		if err != nil {
 			failures = append(failures, fleetReadFailure(inst.Name, "list approval cards", err))
 			continue
@@ -97,9 +108,9 @@ func (h *approvalCardHandlers) cardTarget(w http.ResponseWriter,
 }
 
 // loadCard reads the card of a target, answering 404 when it is missing.
-func loadCard(w http.ResponseWriter, r *http.Request, inst *fleet.DatabaseInstance,
-	id int) (approvalcard.Card, bool) {
-	c, err := cardLoader(inst).Card(r.Context(), id)
+func (h *approvalCardHandlers) loadCard(w http.ResponseWriter, r *http.Request,
+	inst *fleet.DatabaseInstance, id int) (approvalcard.Card, bool) {
+	c, err := h.cardLoader(inst).Card(r.Context(), id)
 	switch {
 	case errors.Is(err, approvalcard.ErrNotFound):
 		sreErrorCode(w, "queue item not found", "not_found", http.StatusNotFound)
@@ -116,7 +127,7 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, ok := loadCard(w, r, inst, id)
+	c, ok := h.loadCard(w, r, inst, id)
 	if !ok {
 		return
 	}
@@ -144,13 +155,14 @@ func decodeCardBody(w http.ResponseWriter, r *http.Request, out any) bool {
 
 // pendingCard loads the card of a pending item and checks the hash the
 // caller saw (when one is required or given).
-func pendingCard(w http.ResponseWriter, r *http.Request, inst *fleet.DatabaseInstance,
-	id int, seenHash string, required bool) (approvalcard.Card, bool) {
+func (h *approvalCardHandlers) pendingCard(w http.ResponseWriter, r *http.Request,
+	inst *fleet.DatabaseInstance, id int, seenHash string, required bool) (
+	approvalcard.Card, bool) {
 	if required && strings.TrimSpace(seenHash) == "" {
 		sreErrorCode(w, "card_hash is required", "invalid_request", http.StatusBadRequest)
 		return approvalcard.Card{}, false
 	}
-	c, ok := loadCard(w, r, inst, id)
+	c, ok := h.loadCard(w, r, inst, id)
 	if !ok {
 		return c, false
 	}
@@ -178,7 +190,7 @@ func (h *approvalCardHandlers) approve(w http.ResponseWriter, r *http.Request) {
 	if !decodeCardBody(w, r, &req) {
 		return
 	}
-	c, ok := pendingCard(w, r, inst, id, req.CardHash, true)
+	c, ok := h.pendingCard(w, r, inst, id, req.CardHash, true)
 	if !ok {
 		return
 	}
@@ -209,7 +221,7 @@ func (h *approvalCardHandlers) reject(w http.ResponseWriter, r *http.Request) {
 		sreErrorCode(w, "reason is required", "invalid_request", http.StatusBadRequest)
 		return
 	}
-	if _, ok := pendingCard(w, r, inst, id, req.CardHash, false); !ok {
+	if _, ok := h.pendingCard(w, r, inst, id, req.CardHash, false); !ok {
 		return
 	}
 	user := UserFromContext(r.Context())

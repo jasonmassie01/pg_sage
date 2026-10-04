@@ -120,7 +120,7 @@ func NewRouterFullRuntime(
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
-		registerApprovalCardRoutes(apiMux, mgr)
+		registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
 	}
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
