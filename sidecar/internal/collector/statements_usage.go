@@ -39,17 +39,23 @@ func nearStatementsCapacity(entries, max int) bool {
 // statementsEntriesSQL counts entries without reading their texts.
 const statementsEntriesSQL = sageTag + `SELECT count(*)::int FROM pg_stat_statements(false)`
 
-// statementsClassifySQL counts utility and COPY ... TO STDOUT entries by
-// each text's first keyword after leading comments and parentheses. A
-// text the role may not see (<insufficient privilege>) is neither.
-const statementsClassifySQL = sageTag + `
+// classifySQL counts the entries of source, the utility ones and the
+// COPY ... TO STDOUT ones, by each text's first keyword after leading
+// comments and parentheses. A text the role may not see (<insufficient
+// privilege>) is neither utility nor application.
+func classifySQL(source string) string {
+	return sageTag + `
 SELECT count(*)::int,
        count(*) FILTER (WHERE kw NOT IN ('select', 'insert', 'update', 'delete', 'merge',
                                          'with', 'values', 'table'))::int,
        count(*) FILTER (WHERE kw = 'copy' AND query ~* '\mto\s+stdout\M')::int
 FROM (SELECT query,
              lower(substring(query FROM '^(?:\s|/\*[^*]*\*/|\()*([A-Za-z]+)')) AS kw
-      FROM pg_stat_statements) s`
+      FROM ` + source + `) s`
+}
+
+// statementsClassifySQL classifies every pg_stat_statements entry.
+var statementsClassifySQL = classifySQL("pg_stat_statements")
 
 // statementsSettingsSQL reads track_utility and whether the info view
 // (pg_stat_statements 1.9+, PostgreSQL 14+) exists.
