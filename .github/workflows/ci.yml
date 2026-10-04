@@ -9,6 +9,8 @@ on:
   # Nightly: the performance gate at the large scale (5,000 tables).
   schedule:
     - cron: "17 6 * * *"
+  # Manual runs, e.g. the first live-model arm after its secret is set.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -372,6 +374,110 @@ jobs:
           name: sigstore-trusted-root
           path: sidecar/internal/benchsig/trusted_root.json
           if-no-files-found: error
+
+  # Roadmap 2.4: the nightly live-model arm. The replay corpus runs through
+  # the causal graph and the LLM-on arm against the cheapest configured
+  # OpenAI model, paced and under hard caps (requests, tokens, wall time,
+  # estimated spend); a cap fails the run closed. The report carries the
+  # held-out model lift the trust ledger reads for each family's model-root
+  # authority, and on master it is signed keyless like the release bench
+  # (this workflow's identity is the one the sidecar accepts). Never on a
+  # pull request or push; without the PG_SAGE_BENCH_OPENAI_API_KEY secret it
+  # skips with a notice (setup: sidecar/sre-bench/README.md).
+  bench-live:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench-live
+      SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the live model secret
+        id: secret
+        env:
+          OPENAI_KEY_PRESENT: ${{ secrets.PG_SAGE_BENCH_OPENAI_API_KEY != '' }}
+        run: |
+          if [ "$OPENAI_KEY_PRESENT" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Live-model bench skipped::The repository secret PG_SAGE_BENCH_OPENAI_API_KEY is not set, so the nightly live-model arm did not run. Setup: sidecar/sre-bench/README.md (Nightly live-model arm)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.secret.outputs.ready == 'true'
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Prepare PostgreSQL
+        if: steps.secret.outputs.ready == 'true'
+        run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} 17
+
+      - name: Live-model arm (replay corpus, capped)
+        if: steps.secret.outputs.ready == 'true'
+        working-directory: sidecar
+        env:
+          PG_SAGE_LIVE_LLM: "1"
+          SAGE_BENCH_LIVE_ARM: "1"
+          PG_SAGE_BENCH_LLM_URL: ${{ vars.PG_SAGE_BENCH_OPENAI_URL || 'https://api.openai.com/v1' }}
+          PG_SAGE_BENCH_LLM_MODEL: ${{ vars.PG_SAGE_BENCH_OPENAI_MODEL || 'gpt-4o-mini' }}
+          PG_SAGE_BENCH_LLM_KEY: ${{ secrets.PG_SAGE_BENCH_OPENAI_API_KEY }}
+          PG_SAGE_BENCH_LLM_RPM: ${{ vars.PG_SAGE_BENCH_LLM_RPM || '30' }}
+          PG_SAGE_BENCH_LLM_MAX_REQUESTS: ${{ vars.PG_SAGE_BENCH_LLM_MAX_REQUESTS || '400' }}
+          PG_SAGE_BENCH_LLM_MAX_TOKENS: ${{ vars.PG_SAGE_BENCH_LLM_MAX_TOKENS || '2500000' }}
+          PG_SAGE_BENCH_LLM_MAX_WALL: ${{ vars.PG_SAGE_BENCH_LLM_MAX_WALL || '45m' }}
+          PG_SAGE_BENCH_LLM_MAX_SPEND_USD: ${{ vars.PG_SAGE_BENCH_LLM_MAX_SPEND_USD || '2' }}
+          PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN: ${{ vars.PG_SAGE_BENCH_LLM_USD_PER_MTOK_IN || '0.15' }}
+          PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT: ${{ vars.PG_SAGE_BENCH_LLM_USD_PER_MTOK_OUT || '0.60' }}
+        run: go test ./sre-bench -run '^TestLiveModelArm$' -count=1 -timeout 3600s -v
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: steps.secret.outputs.ready == 'true' && github.ref == 'refs/heads/master'
+
+      # Only a run that passed (no cap reached, no safety gate failed) is
+      # signed: a failed run's report stays an unsigned artifact.
+      - name: Sign the live-model report (master only)
+        if: steps.secret.outputs.ready == 'true' && github.ref == 'refs/heads/master'
+        working-directory: sidecar
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
+          ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          set -euo pipefail
+          f="$SAGE_BENCH_REPORT_DIR/pgincidentbench.json"
+          cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          cosign verify-blob --bundle "$f.sigstore.json" --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" "$f"
+          go run ./cmd/sigstore_trusted_root -o internal/benchsig/trusted_root.json
+          go run ./cmd/pg_sage_sidecar bench verify --commit "$GITHUB_SHA" "$f"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.secret.outputs.ready == 'true' }}
+        with:
+          name: pgincidentbench-live
+          path: pgincidentbench-live/
+          if-no-files-found: warn
 
   docker:
     runs-on: ubuntu-latest
