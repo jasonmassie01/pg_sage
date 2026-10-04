@@ -108,3 +108,19 @@ func TestTrackerConcurrentFirstFindingRecordsOnce(t *testing.T) {
 		t.Fatalf("first finding recorded %d times, want once", wins.Load())
 	}
 }
+
+func TestTrackerForgetRunKeepsAReplacement(t *testing.T) {
+	tr := NewTracker()
+	old := time.Now()
+	tr.Start("app", old)
+	replacement := old.Add(time.Minute)
+	tr.Start("app", replacement)
+	tr.ForgetRun("app", old)
+	if len(tr.Snapshot()) != 1 {
+		t.Fatal("the old runtime's removal erased its replacement's measurement")
+	}
+	tr.ForgetRun("app", replacement)
+	if len(tr.Snapshot()) != 0 {
+		t.Fatal("the current runtime's removal kept its measurement")
+	}
+}
