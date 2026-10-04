@@ -17,6 +17,19 @@
   evidence (improved, neutral, regressed, rolled back, rejected), the last change and why, and
   what is needed for the next level.
 
+- **Shadow mode: pg_sage earns trust from what it would have done.** Below an action's earned
+  trust level, pg_sage now records every action it would have taken (the exact SQL, how to
+  undo it, its predicted effect and what it would have done if trusted) and never runs it.
+  Each one is scored later from what really happened: your decision on the same proposal, the
+  same change made later through pg_sage or by a migration (verified like pg_sage's own
+  actions), or a HypoPG what-if for index creates. Changes made outside pg_sage and what-ifs
+  count toward promotion as "shadow" evidence: shadow evidence alone can earn one-click
+  approval (L2), but running unattended (L3) still needs at least 3 real verified successes,
+  and every promotion still needs an admin. A wrong shadow decision delays promotion but never
+  lowers a level you already granted. The Trust page shows each action's shadow decisions,
+  their scores and what pg_sage would have done; approval cards show the action's shadow
+  history; `GET /api/v1/shadow-decisions` and two Prometheus counters expose the same.
+
 - **Every action that waits for you now comes as an approval card with the why, and you can
   decide it in one click in the UI, Slack or Telegram.** A card says what pg_sage wants to
   do and to which objects, why it needs you (for example: HypoPG has not verified the index,

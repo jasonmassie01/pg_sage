@@ -250,6 +250,61 @@ The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x fa
 with its level, effective level, evidence counts, last change and why, and the path to the
 next level. MCP `sre_get_autonomy` carries the same grid as `trust`.
 
+### Shadow mode
+
+Below a self-initiated class's earned level (anything under L3), pg_sage does not only stay
+quiet or queue for approval: it records a **shadow decision** for every action it would have
+taken. The decision holds the exact SQL, the rollback (for a configuration change, the one
+that restores the captured prior value), the prediction (the same model as real actions:
+targeted queries, metric, expected change, method), the evidence, and the gate's verdict had
+the class been trusted (for example "execute", or "queue for approval" when `trust.level`,
+the window or a multi-object target would still hold it). Shadow mode never runs anything and
+reads only catalogs, statistics views and sage tables, so it never locks a user object; it
+adds no EXPLAIN or HypoPG call to the cycle. The approval queue works as before; the shadow
+is recorded beside it. A finding is recorded at most once per day per fingerprint (class,
+object and normalized SQL); later sightings only count. A class promoted to L3 stops being
+shadowed; a demoted one resumes. With `sre.autonomy.enforce: false`, in `manual` mode or with
+the executor off, nothing is shadowed. Incident remediations keep their own evidence (bench,
+shadow reviews) and are not shadowed here.
+
+**Scoring.** Each pending decision is scored later, deterministically, by the best evidence
+available, in this order (never from model text):
+
+| Source | When | Score |
+|---|---|---|
+| `operator` | an operator decided the same proposal after it was recorded | rejected: incorrect; approved: by the executed action's verdict |
+| `applied` | the same change (matched by normalized SQL) ran later through pg_sage | by its verification verdict |
+| `external` | an index create or drop pg_sage wanted shows up in the catalog (a migration, psql) | verified like pg_sage's own actions: call-weighted before/after windows around when it appeared (`verify.*`; drops over `verify.drop_window_hours`) |
+| `hypopg` | an index create, after a day without the above, whose targeted queries still ran | the optimizer's what-if bar (`optimizer.hypopg_min_improvement_pct`): verified is correct, rejected incorrect |
+| `none` | nothing applied within 7 days | unscored |
+
+Verdicts map by the family's rule: `improved` is correct (hygiene: a `neutral` that held is
+correct too), `regressed` or an operator's rollback is incorrect, a tuning `neutral` is
+neutral, `insufficient_evidence` and `unverifiable` are unscored. A matched action still being
+verified is waited for (up to 21 days).
+
+**Trust.** Only `external` and `hypopg` scores count toward promotion as shadow evidence:
+`operator` and `applied` scores rest on actions the ledger already counts as real outcomes,
+and counting them again would double the evidence. Shadow evidence counts like real evidence
+of the family (distinct decisions), is labelled "shadow" in the class record and in every
+promotion proposal (for example `10 (3 real, 7 shadow)`), and an admin still approves every
+promotion. L2 may be earned from shadow evidence alone (each action is still approved by a
+person); **L3 needs at least 3 real verified successes** since the last demerit, and shadow
+successes fill at most the rest of the L3 bar (7 of the default 10; when
+`min_successes_l3` is lowered, the real minimum follows it down and shadow fills nothing). An
+incorrect shadow decision resets the class's success streak but never demotes an earned
+level; only real regressions, rollbacks and rejections demote.
+
+**Surfaces.** The Trust page shows, per class, the shadow decisions and their scores and, on
+demand, what pg_sage would have done (SQL, prediction, verdict had it been trusted, score and
+source). `GET /api/v1/shadow-decisions?database=&class=&status=&score=&limit=` serves the
+same per-class summary and the newest decisions; `GET /api/v1/trust` carries the summary per
+database as `shadow`. An approval card shows its class's shadow history and whether the
+proposal itself was a shadow decision (your decision then scores it). Prometheus:
+`pg_sage_shadow_decisions_total{database,class,verdict}` and
+`pg_sage_shadow_scores_total{database,class,score,source}`. Scored decisions age out with
+`retention.actions_days`; pending ones are kept until scored.
+
 ### Verifying actions
 
 Every action pg_sage takes records, before it runs, what it expects: the queries it
