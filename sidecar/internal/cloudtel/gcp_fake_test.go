@@ -237,6 +237,15 @@ func (f *fakeGCP) serveMonitoring(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter := r.URL.Query().Get("filter")
+	// Cloud Monitoring answers a filter that matches several metric types
+	// with 400 INVALID_ARGUMENT (found against a live Cloud SQL instance).
+	if strings.Count(filter, cloudSQLMetric) != 1 || strings.Contains(filter, "metric.type = one_of") {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
+			"code": 400, "status": "INVALID_ARGUMENT", "message": "The provided filter " +
+				"matches more than one metric."}})
+		return
+	}
 	f.mu.Lock()
 	f.filters = append(f.filters, filter)
 	series := append([]gcpSeries(nil), f.series...)

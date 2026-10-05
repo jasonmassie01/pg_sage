@@ -116,8 +116,18 @@ var (
 	standardTier = regexp.MustCompile(`^db-n1-(standard|highmem)-([0-9]+)$`)
 )
 
+// sharedCoreTierMemory: shared-core tiers have fixed RAM (db-f1-micro as
+// Cloud Monitoring reports its memory/quota; db-g1-small 1.7 GB).
+var sharedCoreTierMemory = map[string]float64{
+	"db-f1-micro": 643825664,
+	"db-g1-small": 1.7e9,
+}
+
 // tierMemoryBytes is the RAM of a Cloud SQL machine tier (0: unknown).
 func tierMemoryBytes(tier string) float64 {
+	if mem, ok := sharedCoreTierMemory[tier]; ok {
+		return mem
+	}
 	if m := customTier.FindStringSubmatch(tier); m != nil {
 		mb, _ := strconv.ParseFloat(m[2], 64)
 		return mb * (1 << 20)

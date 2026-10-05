@@ -11,7 +11,8 @@ import (
 )
 
 // Cloud Monitoring timeSeries.list for the cloudsql_database resource:
-// one request for every metric of the instance and its replicas.
+// one request per metric (a filter may match only one metric type), each
+// covering the instance and its replicas.
 
 const cloudSQLMetric = "cloudsql.googleapis.com/database/"
 
@@ -48,13 +49,22 @@ func quoteList(values []string) string {
 
 func (s *GCPSource) timeSeries(ctx context.Context, primary string, replicas []string,
 	now time.Time) ([]tsSeries, error) {
-	metrics := make([]string, len(cloudSQLMetrics))
-	for i, m := range cloudSQLMetrics {
-		metrics[i] = cloudSQLMetric + m
+	ids := quoteList(append([]string{primary}, replicas...))
+	var out []tsSeries
+	for _, m := range cloudSQLMetrics {
+		series, err := s.metricSeries(ctx, cloudSQLMetric+m, ids, now)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, series...)
 	}
-	ids := append([]string{primary}, replicas...)
-	filter := fmt.Sprintf(`metric.type = one_of(%s) AND resource.labels.database_id = `+
-		`one_of(%s)`, quoteList(metrics), quoteList(ids))
+	return out, nil
+}
+
+func (s *GCPSource) metricSeries(ctx context.Context, metric, ids string,
+	now time.Time) ([]tsSeries, error) {
+	filter := fmt.Sprintf(`metric.type = %s AND resource.labels.database_id = one_of(%s)`,
+		strconv.Quote(metric), ids)
 	q := url.Values{"filter": {filter},
 		"interval.startTime": {now.Add(-cloudWatchWindow).UTC().Format(time.RFC3339)},
 		"interval.endTime":   {now.Add(time.Minute).UTC().Format(time.RFC3339)}}

@@ -102,11 +102,14 @@ func TestGCPCollectCloudSQLHappyPath(t *testing.T) {
 			t.Fatalf("authorization = %q", b)
 		}
 	}
-	if f.called("monitoring") != 1 {
-		t.Fatalf("monitoring calls = %d, want one one_of query", f.called("monitoring"))
+	if f.called("monitoring") != len(cloudSQLMetrics) {
+		t.Fatalf("monitoring calls = %d, want one per metric (%d)", f.called("monitoring"),
+			len(cloudSQLMetrics))
 	}
-	if !strings.Contains(f.filters[0], "one_of(") {
-		t.Fatalf("filter = %q", f.filters[0])
+	for _, filter := range f.filters {
+		if !strings.Contains(filter, "resource.labels.database_id = one_of(") {
+			t.Fatalf("filter = %q, want the instance and its replicas in one query", filter)
+		}
 	}
 }
 
@@ -262,5 +265,24 @@ func TestGCPTargetReadsFlags(t *testing.T) {
 		target.InstanceID != "main" || !target.FlagsKnown ||
 		target.Flags["work_mem"] != "65536" || len(target.Flags) != 2 {
 		t.Fatalf("target = %+v", target)
+	}
+}
+
+// Shared-core tiers have fixed memory; db-f1-micro's is what Cloud
+// Monitoring reported as memory/quota on a live instance (643825664).
+func TestTierMemoryBytes(t *testing.T) {
+	cases := map[string]float64{
+		"db-f1-micro":         643825664,
+		"db-g1-small":         1.7 * 1e9,
+		"db-custom-2-7680":    7680 * 1024 * 1024,
+		"db-n1-standard-2":    7.5 * gibF,
+		"db-n1-highmem-4":     26 * gibF,
+		"db-perf-optimized-x": 0,
+		"":                    0,
+	}
+	for tier, want := range cases {
+		if got := tierMemoryBytes(tier); got != want {
+			t.Errorf("tierMemoryBytes(%q) = %v, want %v", tier, got, want)
+		}
 	}
 }
