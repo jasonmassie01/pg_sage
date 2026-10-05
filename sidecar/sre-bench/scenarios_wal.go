@@ -346,6 +346,15 @@ func slotActive(slot string, active bool) func(context.Context, *Env) error {
 	}
 }
 
+// runningXactsInterval: the background writer logs a running-xacts record
+// at most this often (LOG_SNAPSHOT_INTERVAL_MS), and a logical slot's
+// restart_lsn only moves at one. slotConfirmWait outlasts two of them, so
+// a keeping-up slot is not judged before its retention can shrink.
+const (
+	runningXactsInterval = 15 * time.Second
+	slotConfirmWait      = 2*runningXactsInterval + 15*time.Second
+)
+
 // keepsUp writes a little WAL in this database and waits until the
 // slot's consumer confirms past where it was, with under 1 MiB retained.
 func keepsUp(ctx context.Context, e *Env, slot string) error {
@@ -359,7 +368,8 @@ func keepsUp(ctx context.Context, e *Env, slot string) error {
 		INSERT INTO bench_wal SELECT g, 'x' FROM generate_series(1, 100) g`); err != nil {
 		return err
 	}
-	return waitFor(ctx, "slot consumer to confirm", func() (bool, error) {
+	return waitForWithin(ctx, "slot consumer to confirm", slotConfirmWait, func() (bool,
+		error) {
 		n, err := e.count(ctx, `SELECT count(*) FROM pg_catalog.pg_replication_slots
 			WHERE slot_name = $1 AND confirmed_flush_lsn > $2::pg_lsn
 			  AND pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) < $3`,
