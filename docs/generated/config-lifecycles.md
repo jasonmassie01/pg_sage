@@ -86,6 +86,7 @@
 | `custodian.wal.abandon_after_minutes` | `restart` | `-` |
 | `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` |
 | `databases` | `reconfigure` | `fleet_databases` |
+| `debug.pprof_enabled` | `restart` | `-` |
 | `defaults.analyzer_interval_seconds` | `reconfigure` | `fleet_databases` |
 | `defaults.collector_interval_seconds` | `reconfigure` | `fleet_databases` |
 | `defaults.execution_mode` | `reconfigure` | `fleet_databases` |
@@ -231,6 +232,10 @@
 | `schema_lint.include_schemas` | `restart` | `-` |
 | `schema_lint.min_table_rows` | `restart` | `-` |
 | `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` |
+| `self_budget.blocks_per_hour` | `restart` | `-` |
+| `self_budget.cpu_ms_per_cycle` | `restart` | `-` |
+| `self_budget.db_time_ms_per_hour` | `restart` | `-` |
+| `self_budget.storage_mb` | `restart` | `-` |
 | `specialist.enabled` | `restart` | `-` |
 | `specialist.keep_identifiers` | `restart` | `-` |
 | `specialist.max_open_per_identity` | `restart` | `-` |

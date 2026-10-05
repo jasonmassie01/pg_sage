@@ -35,6 +35,11 @@ type Budgets struct {
 	// updated columns are not indexed and its pages keep room for them.
 	HotUpdateMinPct float64
 	HotMinUpdates   int64
+	// SidecarCPUMsPerCycle (gate G): the sidecar process's CPU time per
+	// collector cycle in the steady phase, every component running once
+	// per (15 s) cycle. 310 ms measured at small scale (2026-10-04); 600
+	// leaves room for a loaded host, not for a regression that doubles it.
+	SidecarCPUMsPerCycle float64
 }
 
 // DefaultBudgets are the shipped limits.
@@ -48,13 +53,14 @@ func DefaultBudgets() Budgets {
 		EndpointMaxMs:         1000,
 		HotUpdateMinPct:       50,
 		HotMinUpdates:         5,
+		SidecarCPUMsPerCycle:  600,
 	}
 }
 
 func (b Budgets) validate() error {
 	if b.SeqScanMinRows <= 0 || b.StatementMeanMs <= 0 || b.CycleDBTimeMs <= 0 ||
 		b.RowsWrittenPerCycle <= 0 || b.CatalogStatementMaxMs <= 0 || b.EndpointMaxMs <= 0 ||
-		b.HotUpdateMinPct <= 0 || b.HotMinUpdates <= 0 {
+		b.HotUpdateMinPct <= 0 || b.HotMinUpdates <= 0 || b.SidecarCPUMsPerCycle <= 0 {
 		return fmt.Errorf("perfgate: every budget must be positive: %+v", b)
 	}
 	return nil

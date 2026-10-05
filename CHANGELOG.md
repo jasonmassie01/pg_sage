@@ -22,6 +22,28 @@
   database and per user (`ask.*`), kept across restarts, and conversations are kept for
   `ask.retention_days`.
 
+- **pg_sage keeps to a budget it declares for itself, and the Trust page stays fast under
+  load.** A new `self_budget` section declares what pg_sage may cost: the sidecar's CPU per
+  collector cycle (default 600 ms, 1% of a core), its own statements' database time and
+  shared blocks per hour, and the size of the `sage` schema (default 10 GB). Each is
+  measured continuously and exported (`pg_sage_self_cpu_ms_per_cycle`,
+  `pg_sage_self_db_time_ms_per_hour`, `pg_sage_self_blocks_per_hour`,
+  `pg_sage_self_budget`, `pg_sage_self_budget_exceeded`, loop busy time); going over
+  raises one `sage_self_budget` finding that names the resources and the top consumers
+  (pg_sage's costliest statements and busiest loops). Admins can now profile a running
+  sidecar without restarting or signalling it: `debug.pprof_enabled` (off by default)
+  serves Go's profiler at `/api/v1/debug/pprof/` behind the normal login, admins only.
+  `GET /api/v1/trust` sent 17 statements one after another and took 1.2-2.1 s on a busy
+  host; it now sends its ledger reads in one pipelined round trip (7 round trips in all,
+  median 11-22 ms in the performance gate), reads the safety record once, and two new
+  indexes keep the safety read and the shadow summary from reading whole history tables.
+  The shadow scorer and the trust reconciler read each action's verification verdict by
+  key instead of scanning every verdict. The performance gate now charges each API
+  endpoint the median of five calls after a warm-up call, budgets the sidecar's CPU per
+  cycle, and seeds verification outcomes so their scans are caught. Where pg_sage keeps
+  its data in each mode is now documented; keeping history outside the monitored database
+  is not supported yet.
+
 ### Fixed
 
 - **pg_sage now makes one change at a time to a setting or a table, and waits for the

@@ -413,6 +413,7 @@ func migrationStatements() []string {
 		ddlFacts,
 		ddlSREAutonomyRootAuthority,
 		ddlMCPv2,
+		ddlObserverIndexes,
 		ddlTuningBudgetDay,
 		ddlOnboarding,
 		ddlSpecialist,

@@ -49,6 +49,7 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	fmt.Fprintf(sb, "| %s | HTTP 200 within %.0f ms |\n", GateEndpoint, b.EndpointMaxMs)
 	fmt.Fprintf(sb, "| %s | at least %.0f%% of updates for a table updated %d+ times "+
 		"(steady phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
+	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase) |\n", GateSidecarCPU, b.SidecarCPUMsPerCycle)
 }
 
 func writeOffenderTable(sb *strings.Builder, offenders []Offender) {
@@ -157,11 +158,19 @@ func growthPerHour(t TableDelta, window time.Duration) string {
 }
 
 func writeEndpoints(sb *strings.Builder, phases []Phase) {
-	sb.WriteString("\n## API list endpoints\n\n| endpoint | status | ms |\n|---|---|---|\n")
+	sb.WriteString("\n## API list endpoints\n\n" +
+		"| endpoint | status | median ms | max ms | calls |\n|---|---|---|---|---|\n")
 	for _, p := range phases {
 		for _, e := range p.Endpoints {
-			fmt.Fprintf(sb, "| %s | %d | %.1f |\n", e.Path, e.Status,
-				float64(e.Duration)/float64(time.Millisecond))
+			fmt.Fprintf(sb, "| %s | %d | %.1f | %.1f | %d |\n", e.Path, e.Status,
+				float64(e.Duration)/float64(time.Millisecond),
+				float64(e.Max())/float64(time.Millisecond), e.Calls())
+		}
+	}
+	for _, p := range phases {
+		if p.CPUKnown && p.Steady {
+			fmt.Fprintf(sb, "\n%s phase sidecar CPU: %.1f ms per cycle (%s over %d cycles)\n",
+				p.Name, CPUPerCycleMs(p), p.ProcessCPU.Round(time.Millisecond), p.Cycles)
 		}
 	}
 }

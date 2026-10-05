@@ -96,6 +96,8 @@ type Config struct {
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
 	Ask         AskConfig           `yaml:"ask"`
+	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
+	Debug       DebugConfig         `yaml:"debug"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
 
@@ -727,6 +729,9 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
 		return err
 	}
+	if err := c.SelfBudget.validate(); err != nil {
+		return err
+	}
 	if err := c.LLM.Optimizer.RejectionMemory.validate(); err != nil {
 		return err
 	}
@@ -1049,8 +1054,9 @@ func newDefaults() *Config {
 				RetainedWALDiskPctCeiling: DefaultWALRetainedDiskPctCeiling,
 			},
 		},
-		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
-		Ask: defaultAskConfig(),
+		MCP:        MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		Ask:        defaultAskConfig(),
+		SelfBudget: DefaultSelfBudget(),
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},

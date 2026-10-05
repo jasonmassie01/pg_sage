@@ -73,7 +73,12 @@ const shadowSetSQL = `/* pg_sage */ SELECT f.family, s.reviewed, s.accepted, s.f
 func (s *PostgresStore) shadowSet(ctx context.Context, families []string,
 	since time.Time) (map[Family]Shadow, error) {
 	out := map[Family]Shadow{}
-	err := s.queryEach(ctx, "read shadow record", shadowSetSQL,
+	return out, s.readShadow(ctx, s, families, since, out)
+}
+
+func (s *PostgresStore) readShadow(ctx context.Context, r reads, families []string,
+	since time.Time, out map[Family]Shadow) error {
+	return r.each(ctx, "read shadow record", shadowSetSQL,
 		[]any{s.deployment, s.database, families, since}, func(rows pgx.Rows) error {
 			var f string
 			var sh Shadow
@@ -87,7 +92,6 @@ func (s *PostgresStore) shadowSet(ctx context.Context, families []string,
 			out[Family(f)] = sh
 			return nil
 		})
-	return out, err
 }
 
 // ShadowStats is one family's shadow record on the database.
@@ -114,9 +118,14 @@ const liveSetSQL = `/* pg_sage */ SELECT p.family, p.action_class, l.verified, l
 // unverified outcomes.
 func (s *PostgresStore) liveSet(ctx context.Context, pairs []pairKey) (map[pairKey]Live,
 	error) {
-	families, classes := pairArrays(pairs)
 	out := map[pairKey]Live{}
-	err := s.queryEach(ctx, "read live record", liveSetSQL,
+	return out, s.readLive(ctx, s, pairs, out)
+}
+
+func (s *PostgresStore) readLive(ctx context.Context, r reads, pairs []pairKey,
+	out map[pairKey]Live) error {
+	families, classes := pairArrays(pairs)
+	return r.each(ctx, "read live record", liveSetSQL,
 		[]any{s.deployment, s.database, families, classes}, func(rows pgx.Rows) error {
 			var f, c string
 			var l Live
@@ -127,7 +136,6 @@ func (s *PostgresStore) liveSet(ctx context.Context, pairs []pairKey) (map[pairK
 			out[pairKey{Family(f), ActionClass(c)}] = l
 			return nil
 		})
-	return out, err
 }
 
 // LiveStats is one pair's live record on the database.
@@ -156,7 +164,12 @@ const safetySetSQL = `/* pg_sage */ SELECT f.family, s.n, s.last
 func (s *PostgresStore) safetySet(ctx context.Context, families []string,
 	since time.Time) (map[Family]familySafetyRow, error) {
 	out := map[Family]familySafetyRow{}
-	err := s.queryEach(ctx, "read family safety record", safetySetSQL,
+	return out, s.readSafety(ctx, s, families, since, out)
+}
+
+func (s *PostgresStore) readSafety(ctx context.Context, r reads, families []string,
+	since time.Time, out map[Family]familySafetyRow) error {
+	return r.each(ctx, "read family safety record", safetySetSQL,
 		[]any{s.deployment, s.database, since, families}, func(rows pgx.Rows) error {
 			var f string
 			var row familySafetyRow
@@ -170,7 +183,6 @@ func (s *PostgresStore) safetySet(ctx context.Context, families []string,
 			out[Family(f)] = row
 			return nil
 		})
-	return out, err
 }
 
 // FamilyViolations counts the database's harmful or unsafe outcomes of a

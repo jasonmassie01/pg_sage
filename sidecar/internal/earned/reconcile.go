@@ -158,13 +158,13 @@ func classifyOutcome(outcome, verification string, settled bool) (string, bool) 
 }
 
 const handoffSQL = `/* pg_sage */ SELECT q.identity_key, l.id, l.outcome,
-	COALESCE(v.verdict, ''), COALESCE(o.verdict, ''),
+	COALESCE(v.verdict, ''),
+	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), ''),
 	l.executed_at < now() - make_interval(secs => $2::double precision),
 	l.sql_executed, l.executed_at
 	FROM sage.action_queue q
 	JOIN sage.action_log l ON l.id = q.action_log_id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
-	LEFT JOIN sage.action_outcome o ON o.action_log_id = l.id
 	WHERE q.identity_key LIKE 'autonomy:%'
 	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
 	ORDER BY l.id LIMIT 1000`
@@ -213,13 +213,13 @@ func parseHandoffKey(key string) (Family, ActionClass, bool) {
 // them). Operator approvals are the handoff path's.
 const autoExecutionSQL = `/* pg_sage */ SELECT d.evidence->>'incident_family',
 	COALESCE(d.evidence->>'autonomy_class', ''), d.reason, l.id, l.outcome,
-	COALESCE(v.verdict, ''), COALESCE(o.verdict, ''),
+	COALESCE(v.verdict, ''),
+	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), ''),
 	l.executed_at < now() - make_interval(secs => $2::double precision),
 	l.sql_executed, l.executed_at
 	FROM sage.decision d
 	JOIN sage.action_log l ON l.decision_id = d.id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
-	LEFT JOIN sage.action_outcome o ON o.action_log_id = l.id
 	WHERE d.verdict = 'execute' AND d.evidence ? 'incident_family'
 	  AND d.reason <> 'operator_approved'
 	  AND l.executed_at > now() - make_interval(secs => $1::double precision)

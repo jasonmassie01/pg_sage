@@ -69,6 +69,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 	writeSLOMetrics(&b, ctx, fleetMgr)
 	writeSelfCostFromFleet(&b, fleetMgr)
+	writeSelfBudgetFromFleet(&b, fleetMgr)
 	writeOptimizerMemoryFromFleet(&b, fleetMgr)
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
 	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
