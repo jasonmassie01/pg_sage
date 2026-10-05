@@ -17,10 +17,6 @@ linters:
         linters:
           - errcheck
           - staticcheck
-      - path: cmd/pg_sage_sidecar/main.go
-        linters:
-          - errcheck
-          - gosimple
       - path: internal/executor/ddl.go
         text: "Error return value of `tx.Rollback`"
       - path: internal/schema/bootstrap.go
