@@ -20,6 +20,7 @@ import { verdictLabel } from '../lib/verificationOutcome'
 import { RecommendationsTab } from './actions/RecommendationsTab'
 import { revisionPin } from './actions/recommendation'
 import { ApprovalCardDetail, PendingCardsView } from './actions/ApprovalCards'
+import { ManagedChanges } from './actions/ManagedChanges'
 
 function actionStatus(row) {
   return row.status || row.action_status || row.outcome || 'unknown'
@@ -101,6 +102,7 @@ export function Actions({ database, user }) {
         <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
+        <ManagedChanges database={database} canDecide={canReview} />
         <ExecutedTab data={data} paging={paging} loading={loading}
           error={error} refetch={refetch} user={user} />
       </div>
@@ -114,6 +116,7 @@ export function Actions({ database, user }) {
       <TabBar tab={activeTab} setTab={setTab}
         pendingCount={pendingData?.total || 0}
         canReview={canReview} />
+      <ManagedChanges database={database} canDecide={canReview} />
       <PendingTab data={pendingData}
         loading={pendingLoading}
         error={pendingError}
