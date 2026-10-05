@@ -88,7 +88,9 @@ func TestAsk_HallucinatedAndUngroundedClaimsAreDropped(t *testing.T) {
 			return answerArgs{Claims: []claimArg{
 				{Text: "Finding " + itoa(id) + " is about public.orders.",
 					EvidenceIDs: []string{alias}},
-				{Text: "The index will make it 37 times faster.", EvidenceIDs: []string{alias}},
+				// A number no timestamp, id or count in the evidence can contain: "37"
+				// matched a timestamp minute on CI (PR #127).
+				{Text: "The index will make it 8675309 times faster.", EvidenceIDs: []string{alias}},
 				{Text: "Autovacuum is broken.", EvidenceIDs: []string{"E9"}},
 				{Text: "Replication lag is high.", EvidenceIDs: nil},
 			}}
@@ -108,7 +110,7 @@ func TestAsk_HallucinatedAndUngroundedClaimsAreDropped(t *testing.T) {
 			t.Errorf("no %s drop in %+v", r, a.Dropped)
 		}
 	}
-	for _, bad := range []string{"37 times", "Autovacuum is broken", "Replication lag"} {
+	for _, bad := range []string{"8675309 times", "Autovacuum is broken", "Replication lag"} {
 		if strings.Contains(a.Text, bad) {
 			t.Errorf("dropped claim %q reached the answer text", bad)
 		}
