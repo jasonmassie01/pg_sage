@@ -8,6 +8,7 @@ import { ConfigTooltip } from '../components/ConfigTooltip'
 import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
+import { DerivedSettings } from './settings/DerivedSettings'
 import {
   ShieldAlert, Save, RotateCcw, Check, X,
 } from 'lucide-react'
@@ -376,6 +377,7 @@ export function SettingsPage({ database, databaseId }) {
         </button>
       </div>
       {tab === 'General' && <ShadowModePage database={database} />}
+      {tab === 'General' && <DerivedSettings database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{
