@@ -80,6 +80,10 @@ func TestManagedIntentOnlyForSupportedProviders(t *testing.T) {
 	if in, ok := managedparam.IntentFromDetail(f.Detail); !ok || in.Parameter != "max_wal_size" {
 		t.Fatalf("restricted max_wal_size on rds = %+v", f.Detail)
 	}
+	// Not restart-required, yet a managed change still needs an operator.
+	if _, approval := f.Detail[analyzer.DetailApprovalRequired]; !approval {
+		t.Fatalf("a managed max_wal_size change needs an operator: %v", f.Detail)
+	}
 	// A setting ALTER DATABASE can carry keeps its SQL and gets no intent.
 	f = gateOne(t, "ALTER SYSTEM SET work_mem = '64MB'", "rds", host)
 	if _, ok := managedparam.IntentFromDetail(f.Detail); ok ||
@@ -110,8 +114,15 @@ func TestMemoryPressureWithholdsIncreases(t *testing.T) {
 	if up.RecommendedSQL != "" || !strings.Contains(up.Recommendation, "available") {
 		t.Fatalf("raising work_mem under memory pressure: %+v", up)
 	}
-	down := gateOne(t, "ALTER SYSTEM SET work_mem = '2MB'", "", pressure)
-	if down.RecommendedSQL == "" {
+	// Lowering (16MB running -> 8MB) relieves pressure. 2MB would be below
+	// the documented safe minimum and dropped by the range gate.
+	high := []collector.PGSetting{{Name: "work_mem", Setting: "16384", Unit: "kB"}}
+	out := GateConfigFindingsHost([]analyzer.Finding{configFinding(
+		"ALTER SYSTEM SET work_mem = '8MB'")}, pressure, "", "app", high)
+	if len(out) != 1 {
+		t.Fatalf("findings = %+v", out)
+	}
+	if down := out[0]; down.RecommendedSQL == "" {
 		t.Fatalf("lowering work_mem relieves pressure and stays executable: %+v", down)
 	}
 	notMem := gateOne(t, "ALTER SYSTEM SET random_page_cost = '1.1'", "", pressure)

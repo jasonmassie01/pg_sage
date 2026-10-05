@@ -26,12 +26,12 @@ func TestHostGuardReaderContributesWithholdReasons(t *testing.T) {
 		reasons: []string{"replica lag 45s exceeds 30s"}})
 	got, err := source.LoadEvidence(context.Background())
 	if err != nil || got.CPUPct == nil || *got.CPUPct != 30 ||
-		len(got.HostWithhold) != 1 || got.HostWithhold[0] != "replica lag 45s exceeds 30s" {
+		got.HostWithhold != "replica lag 45s exceeds 30s" {
 		t.Fatalf("guarding reader evidence = %+v, %v", got, err)
 	}
 	e.WithHostCPUReader(testHostCPU{cpu: 30})
 	got, err = source.LoadEvidence(context.Background())
-	if err != nil || len(got.HostWithhold) != 0 {
+	if err != nil || got.HostWithhold != "" {
 		t.Fatalf("plain reader must add no reasons: %+v, %v", got.HostWithhold, err)
 	}
 }
@@ -44,7 +44,7 @@ func TestHostGuardReaderWithoutCPU(t *testing.T) {
 	e.WithHostCPUReader(guardingHostCPU{testHostCPU: testHostCPU{err: context.DeadlineExceeded},
 		reasons: []string{"free storage 3.0% is below 10%"}})
 	got, err := evidenceSource(e).LoadEvidence(context.Background())
-	if err != nil || got.CPUPct != nil || len(got.HostWithhold) != 1 {
+	if err != nil || got.CPUPct != nil || got.HostWithhold != "free storage 3.0% is below 10%" {
 		t.Fatalf("evidence = %+v, %v", got, err)
 	}
 }

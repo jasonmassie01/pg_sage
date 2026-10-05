@@ -24,7 +24,7 @@ func TestDecideAdmissionHostWithhold(t *testing.T) {
 		t.Fatalf("fixture must be admitted without telemetry: %+v", base)
 	}
 	ev := admittedEvidence()
-	ev.HostWithhold = []string{"replica lag 45s exceeds 30s"}
+	ev.HostWithhold = "replica lag 45s exceeds 30s"
 	got := DecideAdmission(ev, opts)
 	if got.OK || got.Reason != ReasonHostTelemetry ||
 		!strings.Contains(got.Detail, "replica lag 45s") {
@@ -39,7 +39,7 @@ func TestDecideAdmissionHostWithholdKeepsEarlierRefusal(t *testing.T) {
 	ev := admittedEvidence()
 	high := 95.0
 	ev.CPUPct = &high
-	ev.HostWithhold = []string{"free storage 3.0% is below 10%"}
+	ev.HostWithhold = "free storage 3.0% is below 10%"
 	got := DecideAdmission(ev, DefaultOptions())
 	if got.OK || got.Reason != ReasonCPUCeiling {
 		t.Fatalf("the first refusal stands: %+v", got)
@@ -48,11 +48,11 @@ func TestDecideAdmissionHostWithholdKeepsEarlierRefusal(t *testing.T) {
 
 func TestDecideAdmissionEmptyHostWithholdIsNeutral(t *testing.T) {
 	ev := admittedEvidence()
-	ev.HostWithhold = []string{}
+	ev.HostWithhold = ""
 	if got := DecideAdmission(ev, DefaultOptions()); !got.OK {
 		t.Fatalf("no reasons must not withhold: %+v", got)
 	}
-	ev.HostWithhold = []string{"  "}
+	ev.HostWithhold = "  "
 	if got := DecideAdmission(ev, DefaultOptions()); !got.OK {
 		t.Fatalf("blank reasons must not withhold: %+v", got)
 	}
