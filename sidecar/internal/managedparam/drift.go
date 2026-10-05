@@ -45,7 +45,7 @@ func DetectDrift(target Target, settings []collector.PGSetting) []Drift {
 	var out []Drift
 	for name, configured := range configuredValues(target) {
 		s, ok := running[name]
-		if !ok || strings.HasPrefix(configured, "{") || sameValue(configured, s.Setting) {
+		if !ok || strings.HasPrefix(configured, "{") || inEffect(name, configured, s.Setting) {
 			continue
 		}
 		out = append(out, classify(name, configured, s, target))
@@ -89,6 +89,37 @@ func classify(name, configured string, s collector.PGSetting, t Target) Drift {
 			"take effect", name, configured, s.Setting)
 	}
 	return d
+}
+
+// preloadLists are the library lists a provider adds its own libraries to
+// (RDS: rdsutils, rds_casts; Cloud SQL: its insights libraries).
+var preloadLists = map[string]bool{
+	"shared_preload_libraries":  true,
+	"session_preload_libraries": true,
+	"local_preload_libraries":   true,
+}
+
+func inEffect(name, configured, running string) bool {
+	if preloadLists[name] {
+		return librariesInEffect(configured, running)
+	}
+	return sameValue(configured, running)
+}
+
+// librariesInEffect: every configured library runs; extra running
+// libraries are the provider's own.
+func librariesInEffect(configured, running string) bool {
+	have := map[string]bool{}
+	for _, lib := range strings.Split(running, ",") {
+		have[strings.ToLower(strings.TrimSpace(lib))] = true
+	}
+	for _, lib := range strings.Split(configured, ",") {
+		lib = strings.ToLower(strings.TrimSpace(lib))
+		if lib != "" && !have[lib] {
+			return false
+		}
+	}
+	return true
 }
 
 // sameValue compares numerically when both parse, as booleans when both
