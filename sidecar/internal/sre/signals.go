@@ -93,8 +93,9 @@ func addSignals(plan []planStep, ok bool, window time.Duration,
 	return plan, true
 }
 
-// sloBurnPlan triages an SLO burn: lock, connection and plan evidence
-// plus pg_sage's own actions (7 probes, 9 with both signals).
+// sloBurnPlan triages an SLO burn, or an operator-started investigation
+// (roadmap 2.1): lock, connection and plan evidence plus pg_sage's own
+// actions (6 probes, 8 with both signals).
 func sloBurnPlan(actions probeCall) []planStep {
 	return []planStep{{calls: append(calls(probes.LockGraph, probes.PreparedXacts,
 		probes.LongTransactions, probes.ConnectionSaturation, probes.PlanRegressions),

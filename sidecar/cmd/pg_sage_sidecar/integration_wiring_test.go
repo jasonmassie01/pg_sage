@@ -26,9 +26,9 @@ func TestStandaloneLLMManagerUsesDedicatedOptimizerClient(t *testing.T) {
 	if manager.ForPurpose("index_optimization") != tuning {
 		t.Fatal("index optimization and query tuning use different optimizer clients")
 	}
-	primary, fallback := tunerLLMClients(manager)
+	primary, fallback := tuningModels(manager)
 	if primary != tuning || fallback != llmClient {
-		t.Fatalf("tuner clients = (%p, %p), want (optimizer, general)", primary, fallback)
+		t.Fatalf("tuning clients = (%p, %p), want (optimizer, general)", primary, fallback)
 	}
 	if _, ok := llmClients.TokenStatus()["optimizer"]; !ok {
 		t.Fatal("standalone optimizer client is not tracked by the registry")
@@ -42,7 +42,7 @@ func TestStandaloneTunerFallbackNeverRetriesSameClient(t *testing.T) {
 
 	manager := newStandaloneLLMManager(llmClient)
 
-	primary, fallback := tunerLLMClients(manager)
+	primary, fallback := tuningModels(manager)
 	if primary != llmClient {
 		t.Fatal("without optimizer_llm, tuning must use the general client")
 	}
@@ -51,9 +51,9 @@ func TestStandaloneTunerFallbackNeverRetriesSameClient(t *testing.T) {
 	}
 }
 
-func TestTunerLLMClientsNilManager(t *testing.T) {
+func TestTuningModelsNilManager(t *testing.T) {
 	var none *llm.Manager
-	if primary, fallback := tunerLLMClients(none); primary != nil || fallback != nil {
+	if primary, fallback := tuningModels(none); primary != nil || fallback != nil {
 		t.Fatal("nil manager yielded LLM clients")
 	}
 }

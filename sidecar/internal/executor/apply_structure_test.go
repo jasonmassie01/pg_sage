@@ -63,7 +63,7 @@ func callFunExpr(call *ast.CallExpr) ast.Expr {
 func TestEveryExecutionEntryPointCallsApply(t *testing.T) {
 	decls := executorDecls(t)
 	for _, entry := range []string{
-		"processFinding", "ExecuteManual", "SubmitCustodianProposal",
+		"processFinding", "ExecuteManual", "SubmitCustodianProposalDecision",
 		"SubmitVerifiedIndexProposal", "ExecuteRetention",
 	} {
 		fn := decls[entry]
@@ -82,6 +82,7 @@ func TestEveryExecutionEntryPointCallsApply(t *testing.T) {
 		{"processCandidate", "processFinding"},
 		{"processCandidate", "runOperatorApproval"},
 		{"runOperatorApproval", "ExecuteManual"},
+		{"SubmitCustodianProposal", "SubmitCustodianProposalDecision"},
 	} {
 		if !callsMethod(decls[edge[0]], edge[1]) {
 			t.Errorf("%s does not call %s", edge[0], edge[1])

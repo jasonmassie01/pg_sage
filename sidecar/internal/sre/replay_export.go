@@ -100,6 +100,34 @@ type ReplayCaseExport struct {
 	GraphRootPreserved bool          `json:"graph_root_preserved"`
 	Notes              []string      `json:"notes"`
 	Promote            string        `json:"promote"`
+	// ModelContest is the model's own disagreement with the graph, when
+	// the investigator (roadmap 2.1) or the review turn recorded one.
+	ModelContest *ReplayModelContest `json:"model_contest,omitempty"`
+}
+
+// ModelContestTag tags a case whose investigation the model contested.
+const ModelContestTag = "model_contested"
+
+// ReplayModelContest is the model's position on a contested case.
+type ReplayModelContest struct {
+	Outcome   string `json:"outcome"`
+	ModelRoot string `json:"model_root,omitempty"`
+	GraphRoot string `json:"graph_root,omitempty"`
+	Authority string `json:"authority"`
+}
+
+// modelContestOf is the model's disagreement with the graph, if any.
+func modelContestOf(s Summary) *ReplayModelContest {
+	if mc := s.ModelConclusion; mc != nil && mc.Outcome != ModelAgreed &&
+		mc.Outcome != ModelInconclusive {
+		return &ReplayModelContest{Outcome: mc.Outcome, ModelRoot: mc.Root,
+			GraphRoot: mc.GraphRoot, Authority: mc.Authority}
+	}
+	if c := s.ModelContest; c != nil {
+		return &ReplayModelContest{Outcome: ModelContested, ModelRoot: c.ModelRoot,
+			GraphRoot: c.GraphRoot, Authority: c.Authority}
+	}
+	return nil
 }
 
 // ExportReplayCase exports one of this database's contested
@@ -133,10 +161,13 @@ func ExportReplayCaseFromStore(ctx context.Context, st *PostgresStore, scope Sco
 }
 
 // graphRootOf is the causal graph's own root (before any adopted model
-// root).
+// root, from a contest or from the investigator's conclusion).
 func graphRootOf(s Summary) string {
 	if s.ModelContest != nil && s.ModelContest.Authority == ContestAdopted {
 		return s.ModelContest.GraphRoot
+	}
+	if mc := s.ModelConclusion; mc != nil && mc.Authority == ContestAdopted {
+		return mc.GraphRoot
 	}
 	return s.Root
 }
@@ -185,6 +216,9 @@ func BuildReplayCase(inv Investigation, ev []Evidence, out *Outcome,
 			GraphRoot: graphRoot, RecordedAt: out.RecordedAt},
 		Promote: replayPromoteNotes, Notes: []string{}}
 	exp.GraphRootPreserved, exp.Notes = preserved(inv, doc, graphRoot)
+	if exp.ModelContest = modelContestOf(inv.Summary); exp.ModelContest != nil {
+		exp.Case.Tags = append(exp.Case.Tags, ModelContestTag)
+	}
 	return exp, nil
 }
 
@@ -245,6 +279,9 @@ func (r redactor) observations(detected time.Time, ev []Evidence) ([]ReplayObser
 	}
 	out := make([]ReplayObservation, 0, len(ev))
 	for _, e := range ev {
+		if probes.ID(e.ProbeID) == ExplainProbeID {
+			continue // a plan-only EXPLAIN is no catalog probe a replay can serve
+		}
 		o, err := r.observation(detected, e)
 		if err != nil {
 			return nil, err
@@ -274,18 +311,26 @@ func (r redactor) observation(detected time.Time, e Evidence) (ReplayObservation
 			"detection, outside the replay window (-%s..%s)", ErrNotExportable, e.ID,
 			offset.Round(time.Second), replayLookback, replayLookahead)
 	}
-	o := ReplayObservation{Probe: res.ProbeID, Status: res.Status,
-		OffsetMS: offset.Milliseconds(), Reason: r.code(res.Reason),
-		Error: r.text(res.Error), Truncated: res.Truncated}
 	limit := detected.Add(replayLookahead)
 	for _, row := range res.Rows {
 		if err := rowInWindow(row, limit); err != nil {
 			return ReplayObservation{}, fmt.Errorf("%w: evidence %s: %v", ErrNotExportable,
 				e.ID, err)
 		}
+	}
+	o := r.result(res)
+	o.OffsetMS = offset.Milliseconds()
+	return o, nil
+}
+
+// result redacts one probe result's reason, error and rows.
+func (r redactor) result(res probes.Result) ReplayObservation {
+	o := ReplayObservation{Probe: res.ProbeID, Status: res.Status,
+		Reason: r.code(res.Reason), Error: r.text(res.Error), Truncated: res.Truncated}
+	for _, row := range res.Rows {
 		o.Rows = append(o.Rows, probes.Row(r.row(row)))
 	}
-	return o, nil
+	return o
 }
 
 // rowInWindow refuses a row timestamp after the replay window.

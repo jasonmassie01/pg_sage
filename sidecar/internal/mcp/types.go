@@ -77,6 +77,8 @@ type InvestigationRequest struct {
 	InvestigationID string `json:"investigation_id,omitempty"`
 	EvidenceID      string `json:"evidence_id,omitempty"`
 	CaseID          string `json:"case_id,omitempty"`
+	// KeepIdentifiers is sre_get_transcript's operator opt-in.
+	KeepIdentifiers bool `json:"keep_identifiers,omitempty"`
 }
 
 // InvestigationBackend serves the read-only Sage SRE tools.

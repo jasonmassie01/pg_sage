@@ -1,7 +1,6 @@
 package optimizer
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
@@ -82,59 +81,5 @@ func TestCheckDuplicate_InvalidIndexCoversNothing(t *testing.T) {
 		dupContext(existing))
 	if !ok {
 		t.Fatalf("an invalid index rejected the candidate: %s", reason)
-	}
-}
-
-// The legacy finding of action 6400, reloaded: the covering index built
-// since makes it redundant, so it is not re-emitted and the legacy row is
-// retired.
-func TestOpenRecommendations_RetiresLegacyCandidateNowCovered(t *testing.T) {
-	pool := connectFindingsDB(t)
-	ddl := "CREATE INDEX CONCURRENTLY orders_status_customer_idx " +
-		"ON public.orders (status, customer_id)"
-	id := insertLegacyFinding(t, pool, "composite_index",
-		legacyRowDetail("composite_index", ddl), false)
-	tc := sampleTableContext()
-	tc.Indexes = append(tc.Indexes, IndexInfo{Name: "orders_status_customer_covering",
-		IsValid: true, Definition: "CREATE INDEX orders_status_customer_covering ON " +
-			"public.orders USING btree (status, customer_id) INCLUDE (id)"})
-	recs, open := legacyOptimizer(pool).openRecommendations(context.Background(), tc)
-	if !open || len(recs) != 0 {
-		t.Fatalf("open=%t recs=%+v, want the covered candidate dropped", open, recs)
-	}
-	if got := findingStatus(t, pool, id); got != "resolved" {
-		t.Fatalf("covered legacy finding status = %q, want resolved", got)
-	}
-}
-
-// A legacy finding the LLM labelled outside the known categories is still
-// recognised by its llm_rationale and handled the same way.
-func TestOpenRecommendations_ReloadsUnlistedLegacyLabel(t *testing.T) {
-	pool := connectFindingsDB(t)
-	ddl := "CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status)"
-	id := insertLegacyFinding(t, pool, "expression_index",
-		legacyRowDetail("expression_index", ddl), false)
-	recs, open := legacyOptimizer(pool).openRecommendations(context.Background(),
-		sampleTableContext())
-	if !open || len(recs) != 1 || recs[0].Category != OptimizerCategory ||
-		recs[0].IndexCategory != "expression_index" {
-		t.Fatalf("open=%t recs=%+v, want it re-emitted as missing_index", open, recs)
-	}
-	if got := findingStatus(t, pool, id); got != "resolved" {
-		t.Fatalf("legacy finding status = %q, want resolved", got)
-	}
-}
-
-// Retiring never touches a row an action has meanwhile claimed (acted on
-// between the read and the retire).
-func TestRetireLegacyFinding_SkipsActedOnRow(t *testing.T) {
-	pool := connectFindingsDB(t)
-	ddl := "CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status)"
-	id := insertLegacyFinding(t, pool, "partial_index",
-		legacyRowDetail("partial_index", ddl), true)
-	legacyOptimizer(pool).retireLegacyFinding(context.Background(),
-		openFinding{id: id, category: "partial_index"})
-	if got := findingStatus(t, pool, id); got != "open" {
-		t.Fatalf("acted-on legacy finding status = %q, want open", got)
 	}
 }

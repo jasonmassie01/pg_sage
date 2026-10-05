@@ -164,10 +164,16 @@ func TestFleetLLMBudgetScopesEveryConsumer(t *testing.T) {
 	assertCallOmitsGlobal(t, advisorFn, "advisor", "New", "llmMgr")
 	execution := productionFunction(t, "database_runtime_exec.go", "startExecution")
 	assertCallOmitsGlobal(t, execution, "briefing", "New", "llmClient")
-	optimizerFn := productionFunction(t, "database_runtime_monitor.go", "newOptimizer")
-	assertMethodReceiverOmitsGlobal(t, optimizerFn, "ForPurpose", "llmMgr")
+	tuningFn := productionFunction(t, "database_runtime_tuning.go", "newTuningAgent")
+	if expressionContainsIdentifier(tuningFn.Body, "llmMgr") {
+		t.Error("the tuning agent reads the shared global llmMgr")
+	}
+	modelsFn := productionFunction(t, "database_runtime_tuning.go", "tuningModels")
+	assertMethodReceiverOmitsGlobal(t, modelsFn, "ForPurpose", "llmMgr")
 	tunerFn := productionFunction(t, "database_runtime_monitor.go", "newTuner")
-	assertMethodArgumentOmitsGlobal(t, tunerFn, "WithLLM", "llmMgr")
+	if callsSelector(tunerFn, "WithLLM") {
+		t.Error("the tuner has no LLM path: hints come from the tuning agent")
+	}
 	rcaFn := productionFunction(t, "database_runtime_logs.go", "wireRCA")
 	if !callsSelector(rcaFn, "WithLLM") {
 		t.Error("RCA engine is not wired to a database-scoped LLM client")

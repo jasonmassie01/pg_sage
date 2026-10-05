@@ -3,8 +3,12 @@ package probes
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
@@ -100,41 +104,76 @@ func TestLWLockWaitsProbeCountsApplicationBackendsOnly(t *testing.T) {
 	}
 }
 
-func TestTempSpillProbeLeavesOutPgSageStatements(t *testing.T) {
+// temp_spill_statements v3 reads pg_stat_statements without its text
+// (showtext => false): loading and matching every entry's text took
+// 300-370 ms of the 500 ms budget on a 45k-entry server. pg_sage's own
+// statements are no longer told apart by text; own_role marks those run
+// by the probing role (pg_sage's), and other roles' statements are not.
+func TestTempSpillProbeMarksOwnRoleWithoutText(t *testing.T) {
 	pool, ctx := livePool(t)
 	if err := pgssReady(ctx, pool); err != nil {
 		t.Skipf("pg_stat_statements unavailable: %v", err)
 	}
-	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
-	// Another package's unscoped pg_stat_statements_reset() can clear the
-	// entries between the spill and the probe: repeat then.
+	spec, _ := Catalog().Spec(TempSpillStatements)
+	sql := spec.Variants[0].SQL
+	if !strings.Contains(sql, "showtext => false") || strings.Contains(sql, "s.query ") ||
+		strings.Contains(sql, "s.query)") {
+		t.Fatalf("temp_spill_statements reads query text: %s", sql)
+	}
+	app := otherRolePool(t, ctx, pool, "sre_spill_app")
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
-		spill(t, ctx, pool, `SELECT count(*) FROM (SELECT g, g + 1 AS h
+		spill(t, ctx, app, `SELECT count(*) FROM (SELECT g, g + 1 AS h
 			FROM generate_series(1, 100000) g ORDER BY md5(g::text)) s`)
-		spill(t, ctx, sage, `SELECT count(*) FROM (SELECT g, g + 2, g + 3
+		spill(t, ctx, pool, `SELECT count(*) FROM (SELECT g, g + 2, g + 3
 			FROM generate_series(1, 100000) g ORDER BY md5(g::text) DESC) s`)
 		appID := queryIDLike(ctx, pool, "%AS h%generate_series%")
-		sageID := queryIDLike(ctx, pool, "%md5(g::text) DESC%")
+		ownID := queryIDLike(ctx, pool, "%md5(g::text) DESC%")
 		ss, err := SpillStatements(run(ctx, pool, TempSpillStatements))
 		if err != nil {
 			t.Fatalf("temp_spill_statements: %v", err)
 		}
-		if appID == 0 || sageID == 0 {
+		if appID == 0 || ownID == 0 {
 			return []string{fmt.Sprintf("spilling statements not in pg_stat_statements "+
-				"(app %d, pg_sage %d)", appID, sageID)}
+				"(app %d, own %d)", appID, ownID)}
 		}
-		var sawApp bool
+		got := map[int64]SpillStatement{}
 		for _, s := range ss {
-			if s.QueryID == sageID {
-				t.Fatalf("pg_sage's spilling statement %d is in the probe", sageID)
-			}
-			sawApp = sawApp || s.QueryID == appID
+			got[s.QueryID] = s
 		}
-		if !sawApp {
-			return []string{fmt.Sprintf("application spill %d missing from %+v", appID, ss)}
+		a, okA := got[appID]
+		o, okO := got[ownID]
+		if !okA || !okO {
+			return []string{fmt.Sprintf("spills app %v own %v missing from %+v", okA, okO, ss)}
+		}
+		if a.OwnRole || !o.OwnRole {
+			t.Fatalf("own_role: app %v (want false), own %v (want true)", a.OwnRole, o.OwnRole)
 		}
 		return nil
 	})
+}
+
+// otherRolePool connects as a fresh login role that may use the fixture.
+func otherRolePool(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	prefix string) *pgxpool.Pool {
+	t.Helper()
+	role := fmt.Sprintf("%s_%d", prefix, os.Getpid())
+	ident := pgx.Identifier{role}.Sanitize()
+	if _, err := pool.Exec(ctx, "DROP ROLE IF EXISTS "+ident+
+		"; CREATE ROLE "+ident+" LOGIN PASSWORD 'sre-probe-test'"); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+ident+"; DROP ROLE IF EXISTS "+
+			ident)
+	})
+	u, _ := url.Parse(os.Getenv(testdb.EnvName))
+	u.User = url.UserPassword(role, "sre-probe-test")
+	other, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatalf("connect as %s: %v", role, err)
+	}
+	t.Cleanup(other.Close)
+	return other
 }
 
 // spill runs sql with work_mem 64kB on one session of pool (separate

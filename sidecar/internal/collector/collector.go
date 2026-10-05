@@ -45,6 +45,7 @@ type Collector struct {
 	sequences      sequenceCache
 	seqCoverage    SequenceCoverage
 	dbSize         dbSizeCache
+	pgssClass      classCache
 	exactTopN      int           // relations sized exactly per cycle
 	seqPageSize    int           // sequences per catalog transaction
 	seqScanCap     int           // sequences read per cycle
@@ -122,6 +123,13 @@ func (c *Collector) Run(ctx context.Context) {
 
 	c.logFn("INFO", "collector started, interval=%s", interval)
 
+	// Collect at startup, not one interval later: the first snapshot feeds
+	// the analyzer's first cycle within the first minute (five-minute time
+	// to value).
+	if ctx.Err() == nil {
+		c.cycle(ctx, ticker)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -198,8 +206,9 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	// old epoch on reset counters, which the counter-decrease check and
 	// the next cycle's epoch change both expose.
 	snap.StatsEpoch = c.collectStatementsEpoch(ctx)
+	retries := 0
 	for _, step := range c.catalogSteps() {
-		err := step.run(ctx, snap)
+		err := c.runStep(ctx, step, snap, &retries)
 		if err == nil {
 			continue
 		}
@@ -216,6 +225,8 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	c.collectExtras(ctx, snap)
 	// Collect pg_stat_statements.max for capacity monitoring.
 	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
+	snap.System.StatStatements = c.collectStatStatementsUsage(ctx,
+		snap.System.StatStatementsMax)
 
 	c.markStatsReset(snap)
 	return snap, nil

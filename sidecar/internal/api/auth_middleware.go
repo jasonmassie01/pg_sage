@@ -23,7 +23,7 @@ func SessionAuthMiddleware(
 		return http.HandlerFunc(func(
 			w http.ResponseWriter, r *http.Request,
 		) {
-			if shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) {
+			if shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) || isSpecialistRequest(r) {
 				next.ServeHTTP(w, r)
 				return
 			}

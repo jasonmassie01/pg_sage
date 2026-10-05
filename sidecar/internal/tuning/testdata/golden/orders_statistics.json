@@ -1,0 +1,11 @@
+{
+  "description": "Correlated customer_id and status predicates: extended statistics in the accepted form.",
+  "fixture": "orders",
+  "answer": "```json\n{\"proposals\":[{\"type\":\"create_statistics\",\"table\":\"public.orders\",\"columns\":[\"status\",\"customer_id\"],\"kinds\":[\"dependencies\"],\"rationale\":\"row estimate 100x low\",\"evidence\":[\"S1\"],\"expected_change_pct\":-60}]}\n```",
+  "expect": [
+    {"type": "create_statistics", "verdict": "admitted", "category": "query_create_statistics",
+     "sql": "CREATE STATISTICS IF NOT EXISTS public.sage_stx_orders_a26ff3e2 (dependencies) ON customer_id, status FROM public.orders",
+     "rollback": "DROP STATISTICS IF EXISTS public.sage_stx_orders_a26ff3e2",
+     "method": "model", "expected_change_pct": -60}
+  ]
+}

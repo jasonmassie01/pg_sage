@@ -15,7 +15,7 @@ import (
 // milestones; nothing here executes.
 
 var sreToolNames = map[string]bool{"sre_list_incidents": true,
-	"sre_get_investigation": true, "sre_get_evidence": true}
+	"sre_get_investigation": true, "sre_get_evidence": true, transcriptToolName: true}
 
 func sreTools() []Tool {
 	schema := func(properties, required string) json.RawMessage {
@@ -36,6 +36,7 @@ func sreTools() []Tool {
 			"item of an investigation",
 			InputSchema: schema(`{`+db+`,`+inv+`,"evidence_id":{"type":"string",`+
 				`"format":"uuid"}}`, `["investigation_id","evidence_id"]`)},
+		transcriptTool(),
 	}
 }
 
@@ -43,6 +44,9 @@ func (s *Server) callSRETool(ctx context.Context, name string,
 	raw json.RawMessage) (any, *rpcError) {
 	if _, ok := runbookToolNames[name]; ok {
 		return s.callRunbookTool(ctx, name, raw)
+	}
+	if name == transcriptToolName {
+		return s.callTranscriptTool(ctx, raw)
 	}
 	backend, ok := s.backend.(InvestigationBackend)
 	if !ok {
@@ -69,6 +73,9 @@ func (s *Server) callSRETool(ctx context.Context, name string,
 }
 
 func (r InvestigationRequest) valid(tool string) bool {
+	if r.KeepIdentifiers {
+		return false // only sre_get_transcript takes it
+	}
 	switch tool {
 	case "sre_get_investigation":
 		return r.InvestigationID != ""

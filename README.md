@@ -31,6 +31,10 @@ docker run --name pg_sage \
   -p 8080:8080 -p 9187:9187 ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
+From an empty install to the first finding in under a minute: see the
+[five-minute quickstart](docs/quickstart.md) (minimal role, read-only first, what you see
+in minute 1, minute 5 and hour 1).
+
 Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api/v1/` and `:9187/metrics`.
 
 For bounded, read-only pgvector recall and latency experiments, run

@@ -24,7 +24,7 @@ func toolDefinitions() []Tool {
 	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
 	tools = append(append(tools, signalTools()...), runbookTools()...)
 	tools = append(append(tools, autonomyTools()...), factTools()...)
-	tools = append(tools, agentTools()...)
+	tools = append(append(tools, agentTools()...), specialistTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}

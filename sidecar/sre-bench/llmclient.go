@@ -16,20 +16,32 @@ const (
 	benchLLMDailyTokens    = 50_000_000
 )
 
+// fakeServer is a scenario run's in-process fake model.
+type fakeServer interface {
+	URL() string
+	Close()
+}
+
 // tappedClient builds the run's model behind a model tap: a fresh fake
 // seeded by the scenario id, or the live endpoint. done stops the tap
 // (and the fake). An arm that is not ready gets no client.
 func (a LLMArm) tappedClient(sc Scenario) (*llm.Client, *ModelTap, func(), error) {
-	if ok, why := a.Ready(); !ok {
-		return nil, nil, nil, fmt.Errorf("%s: %w: %s", ArmLLM, errNotReady, why)
+	return tappedModel(a, a.Config, sc, func(id string) fakeServer { return NewFakeModel(id) })
+}
+
+// tappedModel is tappedClient for any model arm, with its fake.
+func tappedModel(arm LiveArm, c LLMConfig, sc Scenario,
+	fake func(string) fakeServer) (*llm.Client, *ModelTap, func(), error) {
+	if ok, why := arm.Ready(); !ok {
+		return nil, nil, nil, fmt.Errorf("%s: %w: %s", arm.Name(), errNotReady, why)
 	}
-	upstream, model, key, stop := a.Config.URL, a.Config.Model, a.Config.APIKey, func() {}
-	if a.Config.Mode != LLMLive {
-		fake := NewFakeModel(sc.ID)
-		upstream, model, key, stop = fake.URL(), FakeModelName, "fake", fake.Close
+	upstream, model, key, stop := c.URL, c.Model, c.APIKey, func() {}
+	if c.Mode != LLMLive {
+		f := fake(sc.ID)
+		upstream, model, key, stop = f.URL(), FakeModelName, "fake", f.Close
 	}
 	tap := NewModelTap(upstream)
-	tap.pace, tap.budget = a.Config.pace, a.Config.budget
+	tap.pace, tap.budget = c.pace, c.budget
 	cfg := config.LLMConfig{Enabled: true, TimeoutSeconds: benchLLMTimeoutSeconds,
 		TokenBudgetDaily: benchLLMDailyTokens, Endpoint: tap.URL(), Model: model,
 		APIKey: key}

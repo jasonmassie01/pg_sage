@@ -150,6 +150,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "briefings", timeCol: "generated_at", days: r.FindingsDays},
 		// Remembered what-if rejections age from their last measurement.
 		{table: "optimizer_rejection", timeCol: "measured_at", days: r.FindingsDays},
+		{table: "tuning_budget_day", timeCol: "updated_at", days: r.FindingsDays},
 		{table: "alert_log", timeCol: "sent_at", days: r.ActionsDays},
 		{table: "notification_log", timeCol: "sent_at", days: r.ActionsDays},
 		// Approval cards age from their follow-up (open cards are closed by the
@@ -186,6 +187,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// verdict is decided; decided ones age out like actions.
 		{table: "source_fix", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND verdict IS NOT NULL"},
+		// Specialist-contract requests (roadmap phase 3): the audit of what
+		// external agents asked; a result post still owed is kept.
+		{table: "specialist_requests", timeCol: "created_at", days: r.ActionsDays,
+			extra: "AND outbound <> 'pending'"},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is

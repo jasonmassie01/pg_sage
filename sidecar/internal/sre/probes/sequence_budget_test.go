@@ -47,18 +47,22 @@ func TestNewRegistry_BackgroundTimeoutBounds(t *testing.T) {
 	}
 }
 
-func TestCatalog_OnlySequenceRunwayHasABackgroundBudget(t *testing.T) {
+// Background budgets are for the runway monitor's sampling only:
+// sequence_runway (slow cadence) and wraparound_tables (per-table
+// statistics, which on PostgreSQL 14 wait for the stats collector).
+func TestCatalog_OnlyRunwaySamplingProbesHaveABackgroundBudget(t *testing.T) {
 	if MaxBackgroundStatementTimeout <= MaxStatementTimeout {
 		t.Fatalf("background ceiling %s must exceed the incident ceiling %s",
 			MaxBackgroundStatementTimeout, MaxStatementTimeout)
 	}
+	sampled := map[ID]bool{SequenceRunwayProbe: true, WraparoundTablesProbe: true}
 	for _, id := range Catalog().IDs() {
 		spec, _ := Catalog().Spec(id)
 		switch {
-		case id == SequenceRunwayProbe:
+		case sampled[id]:
 			if spec.BackgroundTimeout != MaxBackgroundStatementTimeout ||
 				spec.StatementTimeout != MaxStatementTimeout {
-				t.Errorf("sequence_runway budgets = %s / %s, want %s / %s",
+				t.Errorf("%s budgets = %s / %s, want %s / %s", id,
 					spec.StatementTimeout, spec.BackgroundTimeout,
 					MaxStatementTimeout, MaxBackgroundStatementTimeout)
 			}

@@ -76,6 +76,7 @@ type Config struct {
 	AutoExplain AutoExplainConfig   `yaml:"auto_explain"`
 	Forecaster  ForecasterConfig    `yaml:"forecaster"`
 	Tuner       TunerConfig         `yaml:"tuner"`
+	Tuning      TuningConfig        `yaml:"tuning"`
 	RCA         RCAConfig           `yaml:"rca"`
 	SRE         SREConfig           `yaml:"sre"`
 	Runaway     RunawayConfig       `yaml:"runaway"`
@@ -96,6 +97,8 @@ type Config struct {
 	MCP         MCPConfig           `yaml:"mcp"`
 	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
 	Debug       DebugConfig         `yaml:"debug"`
+	// Specialist is the Postgres-specialist contract other agents call.
+	Specialist SpecialistConfig `yaml:"specialist"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -255,7 +258,7 @@ type IndexOptimizerConfig struct {
 
 // OptimizerConfig controls the index optimizer v2 behavior.
 type OptimizerConfig struct {
-	Enabled              bool    `yaml:"enabled" doc:"Run the LLM index optimizer. On by default; needs a usable LLM. Its index changes execute only through the policy gate and trust level. Default: true."`
+	Enabled              bool    `yaml:"enabled" doc:"Let the tuning agent propose index creates (HypoPG-measured) and drops. Needs a usable LLM; index changes execute only through the policy gate and trust level. Default: true."`
 	MinQueryCalls        int     `yaml:"min_query_calls"`
 	MaxIndexesPerTable   int     `yaml:"max_indexes_per_table"`
 	MaxNewPerTable       int     `yaml:"max_new_per_table"`
@@ -287,10 +290,10 @@ type OptimizerLLMConfig struct {
 type AdvisorConfig struct {
 	Enabled           bool `yaml:"enabled" doc:"Run the LLM configuration advisor. On by default; needs a usable LLM at startup. Its changes execute only through the policy gate and trust level. Default: true."`
 	IntervalSeconds   int  `yaml:"interval_seconds"`
-	VacuumEnabled     bool `yaml:"vacuum_enabled"`
+	VacuumEnabled     bool `yaml:"vacuum_enabled" doc:"Let the tuning agent propose table storage parameters (autovacuum, fillfactor) for its write-amplification cases. Needs advisor.enabled. Default: true."`
 	WALEnabled        bool `yaml:"wal_enabled"`
 	ConnectionEnabled bool `yaml:"connection_enabled"`
-	MemoryEnabled     bool `yaml:"memory_enabled"`
+	MemoryEnabled     bool `yaml:"memory_enabled" doc:"Let the tuning agent propose server settings (work_mem and other memory, planner and autovacuum settings) for its cases. Needs advisor.enabled. Default: true."`
 	RewriteEnabled    bool `yaml:"rewrite_enabled"`
 	BloatEnabled      bool `yaml:"bloat_enabled"`
 }
@@ -437,7 +440,7 @@ type MigrationConfig struct {
 
 type TunerConfig struct {
 	Enabled                bool    `yaml:"enabled" doc:"Master switch for the per-query tuner. When false, no hints are written and Tune() is a no-op — the analyzer still runs."`
-	LLMEnabled             bool    `yaml:"llm_enabled" doc:"Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily. Default: true."`
+	LLMEnabled             bool    `yaml:"llm_enabled" doc:"Let the tuning agent propose per-query pg_hint_plan hints for its cases; the tuner validates, clamps and records them. The tuner's deterministic hint rules run either way. Default: true."`
 	WorkMemMaxMB           int     `yaml:"work_mem_max_mb" doc:"Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions."`
 	PlanTimeRatio          float64 `yaml:"plan_time_ratio" doc:"When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints."`
 	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold" doc:"Minimum actual-row count on a nested-loop inner that triggers the bad-nested-loop symptom. Smaller values increase sensitivity."`
@@ -695,6 +698,9 @@ func (c *Config) validate() error {
 	if err := c.SRE.validate(); err != nil {
 		return err
 	}
+	if err := c.Specialist.validate(); err != nil {
+		return err
+	}
 	if err := c.LLM.validateWire(); err != nil {
 		return err
 	}
@@ -723,6 +729,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.LLM.Optimizer.RejectionMemory.validate(); err != nil {
+		return err
+	}
+	if err := c.Tuning.validate(); err != nil {
 		return err
 	}
 	if err := c.Retention.validateDecisionsDays(); err != nil {
@@ -958,6 +967,7 @@ func newDefaults() *Config {
 			AnalyzeTimeoutMs:       DefaultTunerAnalyzeTimeoutMs,
 			MaxConcurrentAnalyze:   DefaultTunerMaxConcurrentAnalyze,
 		},
+		Tuning: DefaultTuning(),
 		RCA: RCAConfig{
 			Enabled:                  true,
 			LLMCorrelationThreshold:  DefaultRCALLMCorrelationThreshold,
@@ -973,7 +983,8 @@ func newDefaults() *Config {
 			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
 			NarrationEnabled:         DefaultRCANarrationEnabled,
 		},
-		SRE: defaultSREConfig(),
+		SRE:        defaultSREConfig(),
+		Specialist: defaultSpecialistConfig(),
 		Runaway: RunawayConfig{
 			Enabled: false,
 			Policies: []RunawayPolicy{

@@ -175,12 +175,21 @@ func investigateWith(t *testing.T, settings config.SREConfig,
 	return d.Investigation
 }
 
-func TestSREInvestigator_ModelTurnOnByDefault(t *testing.T) {
+// reviewSettings pins the M3 review turn; the default mode is the
+// tool-calling investigator (roadmap 2.1), tested in
+// sre_investigator_wiring_test.go.
+func reviewSettings() config.SREConfig {
+	s := config.DefaultConfig().SRE
+	s.LLM.Mode = config.SRELLMModeReview
+	return s
+}
+
+func TestSREInvestigator_ReviewModeTakesOneModelTurn(t *testing.T) {
 	srv, calls := countingModel(t)
-	inv := investigateWith(t, config.DefaultConfig().SRE, testLLMClient(srv.URL, true))
+	inv := investigateWith(t, reviewSettings(), testLLMClient(srv.URL, true))
 	if inv.Summary.Root != "idle_in_tx_holder" || inv.Summary.ModelRanking == nil ||
 		inv.ModelTurns != 1 || calls.Load() != 1 {
-		t.Fatalf("default config: root %q ranking %+v turns %d calls %d",
+		t.Fatalf("review mode: root %q ranking %+v turns %d calls %d",
 			inv.Summary.Root, inv.Summary.ModelRanking, inv.ModelTurns, calls.Load())
 	}
 }

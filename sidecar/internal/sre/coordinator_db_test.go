@@ -270,14 +270,28 @@ func TestCoordinator_PlanRegressionDiagnosesTheTriggeredQuery(t *testing.T) {
 	}
 }
 
-// A trigger without a probe plan fails explicitly instead of hanging.
-func TestCoordinator_TriggerWithoutAPlanFails(t *testing.T) {
+// An operator-started investigation ("Investigate now") runs the broad
+// triage plan (roadmap 2.1), with or without a model: lock, connection
+// and plan evidence and pg_sage's own actions. Before 2.1 it failed with
+// no_probe_plan; nothing in the scripted runner implicates a mechanism,
+// so it ends inconclusive with a reason, never failed.
+func TestCoordinator_OperatorTriggerRunsTheBroadTriage(t *testing.T) {
 	st, _, ctx := liveStore(t, DefaultLimits())
-	c, _ := testCoordinator(t, ctx, st, newScriptedRunner(), nil)
+	runner := newScriptedRunner()
+	c, _ := testCoordinator(t, ctx, st, runner, nil)
 	inv := startAndRun(t, ctx, c, Trigger{CaseID: "case:op", Kind: TriggerOperator,
 		Subject: "operator"})
-	if inv.State != StateFailed || inv.FailureCode != "no_probe_plan" {
-		t.Fatalf("operator trigger = %+v, want failed/no_probe_plan", inv)
+	if inv.State != StateInconclusive || inv.Summary.Reason == "" ||
+		inv.Summary.Family != "operator" {
+		t.Fatalf("operator trigger = %s family %q reason %q (%s), want an inconclusive "+
+			"operator triage", inv.State, inv.Summary.Family, inv.Summary.Reason,
+			inv.FailureCode)
+	}
+	for _, id := range []probes.ID{probes.LockGraph, probes.ConnectionSaturation,
+		probes.PlanRegressions, probes.SageActions} {
+		if runner.calls[id] == 0 {
+			t.Errorf("operator triage did not run %s (ran %v)", id, runner.calls)
+		}
 	}
 }
 

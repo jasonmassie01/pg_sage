@@ -11,7 +11,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
-	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
@@ -70,7 +69,7 @@ type Analyzer struct {
 	cfg          *config.Config
 	collector    *collector.Collector
 	extras       *RuleExtras
-	optimizer    *optimizer.Optimizer
+	tuning       TuningProducer
 	advisor      ConfigAdvisor
 	forecaster   WorkloadForecaster
 	tuner        QueryTuner
@@ -126,7 +125,7 @@ func New(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
 	coll *collector.Collector,
-	opt *optimizer.Optimizer,
+	tp TuningProducer,
 	adv ConfigAdvisor,
 	fc WorkloadForecaster,
 	qt QueryTuner,
@@ -136,7 +135,7 @@ func New(
 		pool:       pool,
 		cfg:        cfg,
 		collector:  coll,
-		optimizer:  opt,
+		tuning:     tp,
 		advisor:    adv,
 		forecaster: fc,
 		tuner:      qt,
@@ -183,8 +182,12 @@ func (a *Analyzer) Run(ctx context.Context) {
 
 	a.logFn("INFO", "analyzer started, interval=%s", a.cfg.Analyzer.Interval())
 
-	// Run once immediately.
-	a.trackedCycle(ctx)
+	// Run as soon as the collector's first snapshot exists (it collects at
+	// startup), not one interval later.
+	a.waitFirstSnapshot(ctx)
+	if ctx.Err() == nil {
+		a.trackedCycle(ctx)
+	}
 
 	for {
 		select {
@@ -193,6 +196,28 @@ func (a *Analyzer) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.trackedCycle(ctx)
+		}
+	}
+}
+
+// firstSnapshotPoll is how often the analyzer looks for the collector's
+// first snapshot before its first cycle.
+const firstSnapshotPoll = time.Second
+
+// waitFirstSnapshot waits, at most one analyzer interval, for the
+// collector's first snapshot.
+func (a *Analyzer) waitFirstSnapshot(ctx context.Context) {
+	if a.collector == nil {
+		return
+	}
+	deadline := time.Now().Add(a.cfg.Analyzer.Interval())
+	poll := time.NewTicker(firstSnapshotPoll)
+	defer poll.Stop()
+	for a.collector.LatestSnapshot() == nil && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-poll.C:
 		}
 	}
 }

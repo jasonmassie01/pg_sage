@@ -112,7 +112,7 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 		}
 		fallback := conclusionOf(d)
 		extra.apply(&fallback.Summary)
-		fallback.Summary.Memory = model.memory
+		fallback.Summary.Memory, fallback.Summary.Investigator = model.memory, model.run
 		_, err = c.store.Conclude(ctx, lease, fallback)
 	}
 	if errors.Is(err, ErrInvalidRequest) {
