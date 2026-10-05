@@ -65,16 +65,18 @@ func newTestWorker(t *testing.T, pool *pgxpool.Pool, r Resolver) *Worker {
 
 func TestWorkerCycleProposesFromFindings(t *testing.T) {
 	pool, ctx := testPool(t)
-	running := runningSetting(t, pool, "max_connections")
+	running := runningSetting(t, pool, "random_page_cost")
+	maxConns := runningSetting(t, pool, "max_connections")
 	target := rdsTarget()
+	delete(target.Params, "max_wal_size") // only max_connections drifts
 	target.Params["max_connections"] = GroupParam{Value: "9999", Source: "user",
 		ApplyType: "static", Modifiable: true}
 	r := &fakeResolver{target: target}
 	w := newTestWorker(t, pool, r)
 	sb := insertIntentFinding(t, pool, "instance:shared_buffers",
 		intent(t, "rds", "shared_buffers", "2GB"))
-	insertIntentFinding(t, pool, "instance:max_connections",
-		intent(t, "rds", "max_connections", running))
+	insertIntentFinding(t, pool, "instance:random_page_cost",
+		intent(t, "rds", "random_page_cost", running))
 	res, err := w.Cycle(ctx)
 	if err != nil {
 		t.Fatalf("Cycle: %v", err)
@@ -82,26 +84,10 @@ func TestWorkerCycleProposesFromFindings(t *testing.T) {
 	if res.Proposed != 2 || res.Applied != 1 || res.TargetError != "" {
 		t.Fatalf("cycle = %+v, want 2 proposed and the running one applied", res)
 	}
-	recs, err := w.store.List(ctx, nil, 10)
-	if err != nil || len(recs) != 2 {
-		t.Fatalf("records = %d, %v", len(recs), err)
-	}
-	for _, rec := range recs {
-		switch rec.Proposal.Parameter {
-		case "shared_buffers":
-			if rec.Status != StatusPending || rec.FindingID == nil || *rec.FindingID != sb ||
-				rec.Proposal.Target != "orders-pg16" || !rec.Proposal.RebootRequired {
-				t.Fatalf("shared_buffers = %+v", rec)
-			}
-		case "max_connections":
-			if rec.Status != StatusApplied {
-				t.Fatalf("a value already running is observed applied: %+v", rec)
-			}
-		}
-	}
+	assertCycleRecords(t, w, sb)
 	drift := w.Drift()
 	if len(drift) != 1 || drift[0].Parameter != "max_connections" ||
-		drift[0].Configured != "9999" || drift[0].Running != running {
+		drift[0].Configured != "9999" || drift[0].Running != maxConns {
 		t.Fatalf("drift = %+v", drift)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE sage.findings SET status = 'resolved'
@@ -111,6 +97,28 @@ func TestWorkerCycleProposesFromFindings(t *testing.T) {
 	res, err = w.Cycle(ctx)
 	if err != nil || res.Superseded != 1 {
 		t.Fatalf("resolved finding must supersede its proposal: %+v %v", res, err)
+	}
+}
+
+func assertCycleRecords(t *testing.T, w *Worker, sharedBuffersFinding int64) {
+	t.Helper()
+	recs, err := w.store.List(context.Background(), nil, 10)
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("records = %d, %v", len(recs), err)
+	}
+	for _, rec := range recs {
+		switch rec.Proposal.Parameter {
+		case "shared_buffers":
+			if rec.Status != StatusPending || rec.FindingID == nil ||
+				*rec.FindingID != sharedBuffersFinding ||
+				rec.Proposal.Target != "orders-pg16" || !rec.Proposal.RebootRequired {
+				t.Fatalf("shared_buffers = %+v", rec)
+			}
+		case "random_page_cost":
+			if rec.Status != StatusApplied {
+				t.Fatalf("a value already running is observed applied: %+v", rec)
+			}
+		}
 	}
 }
 

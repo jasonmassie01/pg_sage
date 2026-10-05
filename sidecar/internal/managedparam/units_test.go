@@ -2,6 +2,7 @@ package managedparam
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -41,15 +42,16 @@ func TestProviderValue(t *testing.T) {
 
 func TestProviderValueRejects(t *testing.T) {
 	cases := []struct{ parameter, value string }{
-		{"work_mem", "4mb"},             // units are case-sensitive in PostgreSQL
-		{"shared_buffers", "4097B"},     // not a whole number of 8kB pages
-		{"work_mem", "-1MB"},            // negative
-		{"work_mem", "99999999TB"},      // overflows the parameter range
-		{"unknown_param", "30s"},        // a unit on a parameter without a known base unit
-		{"work_mem", ""},                // empty
-		{"work_mem", "1 MB"},            // whitespace
-		{"jit", "maybe"},                // not a boolean or keyword we pass through
-		{"autovacuum_naptime", "1.5us"}, // below the base unit
+		{"work_mem", "4mb"},                        // units are case-sensitive in PostgreSQL
+		{"shared_buffers", "4097B"},                // not a whole number of 8kB pages
+		{"work_mem", "-1MB"},                       // negative
+		{"work_mem", "99999999TB"},                 // overflows the parameter range
+		{"unknown_param", "30s"},                   // a unit on a parameter without a known base unit
+		{"work_mem", ""},                           // empty
+		{"work_mem", "1 MB"},                       // whitespace
+		{"jit", "maybe"},                           // not a boolean or keyword we pass through
+		{"autovacuum_naptime", "1.5us"},            // below the base unit
+		{"unknown_param", strings.Repeat("9", 33)}, // longer than any value pg_sage proposes
 	}
 	for _, tc := range cases {
 		if got, _, err := ProviderValue("rds", tc.parameter, tc.value); !errors.Is(err,

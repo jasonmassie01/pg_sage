@@ -23,9 +23,11 @@ func rdsTarget() Target {
 		Params: map[string]GroupParam{
 			"shared_buffers": {Value: "{DBInstanceClassMemory/32768}", Source: "engine-default",
 				ApplyType: "static", Modifiable: true},
-			"work_mem":      {Value: "4096", Source: "user", ApplyType: "dynamic", Modifiable: true},
+			"work_mem": {Value: "4096", Source: "user", ApplyType: "dynamic",
+				Modifiable: true},
 			"rds.force_ssl": {Value: "1", Source: "system", ApplyType: "dynamic"},
-			"max_wal_size":  {Value: "2048", Source: "user", ApplyType: "dynamic", Modifiable: true},
+			"max_wal_size": {Value: "2048", Source: "user", ApplyType: "dynamic",
+				Modifiable: true},
 		}}
 }
 
@@ -51,7 +53,8 @@ func TestBuildRDSStaticParameter(t *testing.T) {
 	}
 	if !p.Rollback.Reset || !strings.HasPrefix(p.Rollback.CLI,
 		"aws rds reset-db-parameter-group --region us-east-1 --db-parameter-group-name "+
-			"orders-pg16 --parameters \"ParameterName=shared_buffers,ApplyMethod=pending-reboot\"") {
+			"orders-pg16 --parameters "+
+			"\"ParameterName=shared_buffers,ApplyMethod=pending-reboot\"") {
 		t.Fatalf("engine-default rollback must reset: %+v", p.Rollback)
 	}
 	if !strings.Contains(p.ConsoleURL, "region=us-east-1") ||
@@ -239,7 +242,7 @@ func TestBuildRejectsInvalidInput(t *testing.T) {
 // kind and target state.
 func TestBuildIsAlwaysApprovalOnly(t *testing.T) {
 	targets := []Target{rdsTarget(), cloudSQLTarget(), {Provider: "rds"},
-		{Provider: "cloud-sql", Project: "p-1", InstanceID: "i"}}
+		{Provider: "cloud-sql", Project: "proj-2", InstanceID: "i"}}
 	targets[0].Provider = "rds"
 	values := map[string]string{"shared_buffers": "2GB", "work_mem": "8MB",
 		"max_connections": "300", "autovacuum_naptime": "30s", "jit": "off",
