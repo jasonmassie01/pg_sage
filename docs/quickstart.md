@@ -83,11 +83,12 @@ catalog evidence it rests on, for example `pg_index.indisvalid = false`:
   provider (RDS, Aurora, Cloud SQL, AlloyDB, Azure or self-managed).
 
 The first look reads only the system catalog and the statistics views. It runs once, in
-one read-only transaction, never touches table data, and keeps every statement inside
-`safety.query_timeout_ms`. A check it cannot run (a missing privilege, a timeout) is shown
-as degraded, with the reason and the grant that fixes it. With a model configured
-(`llm.enabled`, `llm.endpoint`, `llm.api_key`), a short summary heads the list. The
-findings never depend on it.
+one read-only transaction, never touches table data, and gives every statement 5 s, or
+less if you set a lower `safety.query_timeout_ms` or a `statement_timeout` on pg_sage's
+role. A check it cannot run (a missing privilege, a timeout) is shown as degraded, with
+the reason and the grant that fixes it; one that timed out is retried once 30 s later.
+With a model configured (`llm.enabled`, `llm.endpoint`, `llm.api_key`), a short summary
+heads the list. The findings never depend on it.
 
 The same data is available from the API at `/api/v1/first-look` and `/api/v1/onboarding`,
 and from Prometheus as `pg_sage_time_to_first_finding_seconds`,
@@ -138,5 +139,5 @@ it from the first start.
 | pg_stat_statements not installed or not loaded | pg_sage still starts; the first look gives the steps; query analysis waits |
 | Sequences not readable | the sequence check is degraded and names the `GRANT SELECT ON ALL SEQUENCES` to run |
 | Query text hidden | a finding asks for `pg_read_all_stats` |
-| Slow catalog | each statement stops at `safety.query_timeout_ms`; the check is degraded, the others still run |
+| Slow catalog | each statement stops after 5 s (or your lower limit); the check is degraded, retried once 30 s later, and the others still run |
 | MCP for coding agents | turn on `mcp.enabled` with `mcp.transport` http, then create a token ([MCP guide](mcp.md)) |
