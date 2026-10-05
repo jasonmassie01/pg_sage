@@ -750,8 +750,8 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	cfg := testConfig()
 	cfg.HasWALColumns = false
 	cfg.HasPlanTimeColumns = false
-	cfg.Safety.QueryTimeoutMs = 75
-	cfg.Safety.LockTimeoutMs = 40
+	cfg.Safety.QueryTimeoutMs = 7500 // distinct values, with headroom on a loaded runner
+	cfg.Safety.LockTimeoutMs = 4100
 	c := New(pool, cfg, 170000, noopLog)
 
 	queries, err := c.collectQueries(context.Background())
@@ -761,7 +761,7 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	if len(queries) != 1 {
 		t.Fatalf("collected %d queries, want 1", len(queries))
 	}
-	if got, want := queries[0].Query, "75ms/40ms"; got != want {
+	if got, want := queries[0].Query, "7500ms/4100ms"; got != want {
 		t.Fatalf("collector query timeouts = %q, want %q", got, want)
 	}
 	var statementTimeout string
