@@ -137,6 +137,7 @@ func buildDatabaseRuntime(
 	rt.startActionOutcomeFeed() // M7: approved M5 runs feed the ledger
 	rt.startRunways()
 	rt.startAsk()
+	rt.startSelfConfig()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
@@ -213,6 +214,7 @@ func newDatabaseRuntime(
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()
+	rt.deriveSettingsAtStartup()
 	rt.initCloudTelemetry()
 	rt.resolveLLM()
 	rt.dispatcher = sharedNotifyDispatcher(spec.ControlPool)

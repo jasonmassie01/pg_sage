@@ -57,6 +57,22 @@
   `docs/managed-clouds.md` (`cloud_telemetry:` section, `GET /api/v1/cloud-telemetry`,
   `/api/v1/managed-changes`).
 
+- **pg_sage now sizes some of its own settings to your database.** Every configuration key
+  is classified: safety-critical (trust, approvals, credentials, endpoints, LLM provider,
+  anything that widens what pg_sage may do) and your preferences (notification routes,
+  windows, declared capacities) are never derived. For five keys that misbehave on large or
+  busy databases (the collector interval, the catalog read timeout, sequence sampling, the
+  temp-file and LWLock incident thresholds), pg_sage derives a value per database from
+  measured evidence when you leave the key unset, always inside bounds that never spend
+  more or widen authority. A new value first runs in shadow for 24 hours
+  (`self_config.soak_hours`), is compared with the current value's measured outcomes, and
+  is promoted only if it is not worse; restart-bound keys change at the next start. Every
+  step is recorded with its evidence, bounds and rule version. A value you set always wins;
+  the Configuration page's new "Derived settings" section shows each value with its evidence
+  and history and lets an admin pin the current value or unpin it
+  (`/api/v1/derived-settings`). Turn it off with `self_config.enabled: false`. See
+  `docs/generated/derived-settings.md`.
+
 ### Fixed
 
 - **pg_sage now makes one change at a time to a setting or a table, and waits for the

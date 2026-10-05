@@ -32,6 +32,7 @@ var excludedPrefixes = []string{
 	"debug.",
 	// managed-cloud telemetry identity and guard floors: YAML/env only, restart-bound
 	"cloud_telemetry.",
+	"self_config.", // derivation switch and soak: YAML only, safety-critical, restart-bound
 }
 
 // excludedExactKeys are individual keys that exist in the Config

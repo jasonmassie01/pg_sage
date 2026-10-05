@@ -173,6 +173,7 @@ func registerFleetScopedRoutes(
 	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
 	registerShadowRoutes(apiMux, mgr)
+	registerDerivedSettingsRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)

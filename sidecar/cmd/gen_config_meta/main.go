@@ -28,6 +28,7 @@ type fieldMeta struct {
 	Mode    string      `json:"mode,omitempty"`
 	DocsURL string      `json:"docs_url,omitempty"`
 	Secret  bool        `json:"secret,omitempty"`
+	Class   string      `json:"class,omitempty"`
 }
 
 // sensitiveSuffixes lists yaml-key terminal components that require
@@ -88,6 +89,8 @@ func run(args []string) error {
 		"optional output path for the generated field-lifecycle Markdown")
 	lifecycleOnly := fs.Bool("lifecycle-only", false,
 		"write only the lifecycle Markdown (requires -lifecycle-out)")
+	derivedOut := fs.String("derived-out", "",
+		"optional output path for the generated derived-settings Markdown")
 	strict := fs.Bool("strict", false,
 		"fail if any yaml-tagged field lacks a doc tag (CHECK-T01)")
 	if err := fs.Parse(args); err != nil {
@@ -118,6 +121,9 @@ func run(args []string) error {
 		return fmt.Errorf("write %s: %w", *out, err)
 	}
 	if err := writeLifecycleReference(*lifecycleOut); err != nil {
+		return err
+	}
+	if err := writeDerivedReference(*derivedOut); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr,
@@ -292,6 +298,7 @@ func buildFieldMeta(
 		Mode:    mode,
 		DocsURL: docsURL,
 		Secret:  secret,
+		Class:   keyClassFor(fullKey),
 	}, nil
 }
 

@@ -98,6 +98,7 @@ type Config struct {
 	Ask         AskConfig           `yaml:"ask"`
 	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
 	Debug       DebugConfig         `yaml:"debug"`
+	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
@@ -749,6 +750,9 @@ func (c *Config) validate() error {
 	if err := c.Retention.validateStorage(); err != nil {
 		return err
 	}
+	if err := c.SelfConfig.validate(); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
@@ -1065,6 +1069,7 @@ func newDefaults() *Config {
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
+		SelfConfig: defaultSelfConfigConfig(),
 	}
 }
 

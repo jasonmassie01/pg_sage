@@ -243,6 +243,13 @@ self_budget:
 # debug:
 #   pprof_enabled: false       # Go profiler at /api/v1/debug/pprof/, admins only
 
+# Derived settings: unset derivable keys are sized per database from
+# evidence, shadow-tested first. Keys you set here always win (and are
+# never derived). See ../docs/generated/derived-settings.md.
+self_config:
+  enabled: true
+  soak_hours: 24
+
 prometheus:
   listen_addr: "0.0.0.0:9187"
 
