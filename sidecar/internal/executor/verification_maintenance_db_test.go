@@ -93,10 +93,17 @@ func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
 	pool, ctx := requireDB(t)
 	table := fmt.Sprintf("vo_frz_%d", time.Now().UnixNano())
 	for _, sql := range []string{"CREATE TABLE public." + table + " (a int)",
-		"INSERT INTO public." + table + " SELECT generate_series(1, 100)",
-		"SELECT txid_current()"} {
+		"INSERT INTO public." + table + " SELECT generate_series(1, 100)"} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	// Age the table: right after creation its relfrozenxid age is ~5, so a
+	// freeze can only move it by a few and is judged "barely moved" (CI on
+	// PR #120: 5 -> 4, neutral). Each statement is its own transaction.
+	for i := 0; i < 200; i++ {
+		if _, err := pool.Exec(ctx, "SELECT txid_current()"); err != nil {
+			t.Fatalf("consume xid: %v", err)
 		}
 	}
 	t.Cleanup(func() {
