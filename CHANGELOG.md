@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.2.0 (2026-10-05) -- Ask Sage, self-configuration, managed clouds
 
 ### What's new
 
@@ -94,6 +94,19 @@
   action N"); the override is recorded on the decision. `/metrics` gains
   `pg_sage_policy_parks_total{database,reason}` and
   `pg_sage_verification_wait_releases_total{database,cause}`.
+
+### Upgrading
+
+- **Self-configuration is on by default.** On a database where you left them unset,
+  pg_sage may derive the collector interval, the catalog read timeout, sequence sampling
+  and the temp-file and LWLock incident thresholds, each after a 24-hour shadow run. A key
+  you set is never derived. Set `self_config.enabled: false` to keep the static defaults.
+- **Cloud telemetry is on by default** and needs no configuration on RDS, Aurora or Cloud
+  SQL beyond read-only credentials in the provider's standard chain. Without them it
+  reports `unavailable` and nothing else changes.
+- **New tables:** Ask Sage conversations and budgets, managed-change proposals and the
+  derived-settings ledger, plus two indexes for the Trust page's reads, are created at startup by
+  idempotent migrations.
 
 ## v2.1.0 (2026-10-04) -- The model drives: tool-calling investigator, tuning agent, specialist API
 
