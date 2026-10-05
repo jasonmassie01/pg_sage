@@ -75,7 +75,8 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
-		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority})
+		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority,
+		Investigator: sreInvestigatorConfig(d.settings, d.monitored)})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -100,6 +101,7 @@ func (rt *databaseRuntime) startInvestigator() {
 	signalProbes = append(signalProbes, poolerSignalsFor(rt.cfg.SRE.Poolers, rt.spec.Name,
 		logStructuredWrapper)...)
 	rt.runwayAdvisor = newRunwayAdvisorFor(rt.spec.Pool, rt.cfg, rt.spec.Name)
+	specialistCustodian.register(rt.spec.Name, rt.runwayAdvisor)
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,
 		runtimeKey: key, legacyID: legacy, settings: rt.cfg.SRE,

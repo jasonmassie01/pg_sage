@@ -47,10 +47,10 @@ func isCloneSuffixByte(b byte) bool {
 		b == '_' || b == '-'
 }
 
-// cloneFamilies maps each schema in a family to its family key (stem and
+// CloneFamilies maps each schema in a family to its family key (stem and
 // a short hash of its table names). A schema's shape is its sorted table
 // names; only schemas with a generated suffix can be clones.
-func cloneFamilies(snap *collector.Snapshot) map[string]string {
+func CloneFamilies(snap *collector.Snapshot) map[string]string {
 	if snap == nil {
 		return nil
 	}
@@ -81,7 +81,7 @@ func cloneFamilies(snap *collector.Snapshot) map[string]string {
 	return out
 }
 
-// familyMembers inverts cloneFamilies: family key -> sorted schemas.
+// familyMembers inverts CloneFamilies: family key -> sorted schemas.
 func familyMembers(families map[string]string) map[string][]string {
 	out := map[string][]string{}
 	for schema, key := range families {
@@ -100,7 +100,7 @@ func familyMembers(families map[string]string) map[string][]string {
 // informational schema-family finding.
 func collapseCloneSchemas(snap *collector.Snapshot, findings []Finding,
 	sig cloneSignals) []Finding {
-	families := cloneFamilies(snap)
+	families := CloneFamilies(snap)
 	if len(families) == 0 {
 		return findings
 	}

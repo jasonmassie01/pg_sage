@@ -4,13 +4,10 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
-	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/forecaster"
-	"github.com/pg-sage/sidecar/internal/llm"
-	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
@@ -22,9 +19,19 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.start(func() { rt.collector.Run(rt.ctx) })
 	rt.note("collector")
 	explain := rt.startAutoExplain()
+	// Interfaces stay true nils when a feature is off (no typed nils).
+	var queryTuner analyzer.QueryTuner
+	var tuningAgent analyzer.TuningProducer
+	qt := rt.newTuner()
+	if qt != nil {
+		queryTuner = qt
+	}
+	if agent := rt.newTuningAgent(explain, qt); agent != nil {
+		tuningAgent = agent
+	}
 	rt.analyzer = analyzer.New(
-		rt.spec.Pool, cfg, rt.collector, rt.newOptimizer(explain),
-		rt.newAdvisor(), rt.newForecaster(), rt.newTuner(),
+		rt.spec.Pool, cfg, rt.collector, tuningAgent,
+		rt.newAdvisor(), rt.newForecaster(), queryTuner,
 		logStructuredWrapper,
 	)
 	rt.analyzer.WithFactFilter(rt.factFilter())
@@ -52,14 +59,14 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startMigrationAdvisor()
 }
 
-// newCollector builds the stats collector. The advisor's configuration
-// snapshot is skipped when no advisor will consume it: advisor.enabled
-// defaults on, but the advisor runs only with a usable LLM.
+// newCollector builds the stats collector. The configuration snapshot is
+// skipped when neither the advisor nor the tuning agent will consume it:
+// both default on, but run only with a usable LLM.
 func (rt *databaseRuntime) newCollector() *collector.Collector {
 	result := collector.New(
 		rt.spec.Pool, rt.cfg, rt.pgVersion(), logStructuredWrapper,
 	)
-	if !rt.advisorActive() {
+	if !rt.advisorActive() && !rt.tuningActive() {
 		result.WithoutConfigSnapshots()
 	}
 	return result
@@ -105,34 +112,6 @@ func (rt *databaseRuntime) startAutoExplain() bool {
 	return avail.Available
 }
 
-// newOptimizer builds the index optimizer when its (possibly dedicated)
-// LLM client is usable. The result is a true nil when it is not.
-func (rt *databaseRuntime) newOptimizer(autoExplain bool) *optimizer.Optimizer {
-	if !cfg.LLM.Optimizer.Enabled || rt.llmManager == nil {
-		return nil
-	}
-	client := rt.llmManager.ForPurpose("index_optimization")
-	if client == nil || !client.IsEnabled() {
-		return nil
-	}
-	var fallback *llm.Client
-	if cfg.LLM.OptimizerLLM.FallbackToGeneral && client != rt.generalLLM {
-		fallback = rt.generalLLM
-	}
-	options := []func(*optimizer.Optimizer){
-		optimizer.WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety)),
-		optimizer.WithFacts(rt.facts),
-	}
-	if autoExplain {
-		options = append(options, optimizer.WithAutoExplain())
-	}
-	rt.note("optimizer")
-	return optimizer.New(
-		client, fallback, rt.spec.Pool, &cfg.LLM.Optimizer, rt.pgVersion(),
-		cfg.LLM.OptimizerLLM.MaxOutputTokens, logStructuredWrapper, options...,
-	)
-}
-
 // newAdvisor builds the config advisor. It targets the PostgreSQL database
 // name, not the instance name, when it rewrites settings for the provider.
 func (rt *databaseRuntime) newAdvisor() analyzer.ConfigAdvisor {
@@ -173,9 +152,10 @@ func forecasterConfig(c *config.Config) forecaster.ForecasterConfig {
 	}
 }
 
-// newTuner builds the query tuner, which runs rule-based without an LLM,
-// and starts its hint revalidation loop.
-func (rt *databaseRuntime) newTuner() analyzer.QueryTuner {
+// newTuner builds the query tuner, which runs its deterministic rules and
+// validates, clamps and records the tuning agent's hints, and starts its
+// hint revalidation loop.
+func (rt *databaseRuntime) newTuner() *tuner.Tuner {
 	if !cfg.Tuner.Enabled {
 		return nil
 	}
@@ -183,14 +163,8 @@ func (rt *databaseRuntime) newTuner() analyzer.QueryTuner {
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: pg_hint_plan detection: %v", rt.spec.Name, err)
 	}
-	var options []tuner.Option
-	if cfg.Tuner.LLMEnabled && rt.llmManager != nil {
-		options = append(options, tuner.WithLLM(tunerLLMClients(rt.llmManager)))
-	}
 	tunerCfg := tunerConfig(cfg)
-	result := tuner.New(
-		rt.spec.Pool, tunerCfg, hintPlan, logStructuredWrapper, options...,
-	)
+	result := tuner.New(rt.spec.Pool, tunerCfg, hintPlan, logStructuredWrapper)
 	rt.start(func() {
 		result.StartRevalidationLoop(rt.ctx, tunerCfg.RevalidationIntervalHours)
 	})
@@ -201,7 +175,6 @@ func (rt *databaseRuntime) newTuner() analyzer.QueryTuner {
 func tunerConfig(c *config.Config) tuner.TunerConfig {
 	return tuner.TunerConfig{
 		Enabled:                      c.Tuner.Enabled,
-		LLMEnabled:                   c.Tuner.LLMEnabled,
 		WorkMemMaxMB:                 c.Tuner.WorkMemMaxMB,
 		PlanTimeRatio:                c.Tuner.PlanTimeRatio,
 		NestedLoopRowThreshold:       c.Tuner.NestedLoopRowThreshold,

@@ -126,26 +126,8 @@ func cloneCustodianEvidence(source map[string]any) map[string]any {
 func (e *Executor) SubmitCustodianProposal(
 	ctx context.Context, proposal CustodianProposal,
 ) error {
-	if err := e.custodianBackoff(ctx, proposal.SQL); err != nil {
-		return err
-	}
-	run := &custodianRun{executor: e, proposal: proposal,
-		finding: custodianFinding(proposal)}
-	_, err := e.Apply(ctx, ActionIntent{
-		Request: custodianRequest(proposal), Lease: &run.finding, WaitForSlot: true,
-		Admit: func(context.Context, int64) error {
-			if e.pool == nil {
-				return fmt.Errorf("execute custodian proposal: database pool unavailable")
-			}
-			return nil
-		},
-		Execute: run.execute, Verify: run.verify,
-	})
-	e.shadowWithheldCustodian(ctx, proposal, err)
-	if e.handOffForApproval(ctx, proposal, err) {
-		return nil
-	}
-	return custodianWithheld(err, "after lease")
+	_, err := e.SubmitCustodianProposalDecision(ctx, proposal)
+	return err
 }
 
 // custodianRun carries one custodian change from execution to its
@@ -156,6 +138,10 @@ type custodianRun struct {
 	finding  analyzer.Finding
 	baseline custodianBaseline
 	managed  bool
+	// decision is the gate's verdict the change ran under; executed
+	// reports that the change itself succeeded.
+	decision ActionPolicyDecision
+	executed bool
 }
 
 // execute captures the verification baseline, applies the change (through
@@ -164,6 +150,7 @@ func (r *custodianRun) execute(
 	ctx context.Context, decision ActionPolicyDecision,
 ) (int64, error) {
 	e, decisionID := r.executor, decision.DecisionID
+	r.decision = decision
 	baseline, err := e.captureCustodianBaseline(ctx, r.proposal)
 	if err != nil {
 		return 0, fmt.Errorf("capture custodian verification baseline: %w", err)
@@ -180,6 +167,7 @@ func (r *custodianRun) execute(
 	if execErr != nil {
 		return actionID, fmt.Errorf("execute custodian proposal: %w", execErr)
 	}
+	r.executed = true
 	if managed {
 		updateActionOutcome(ctx, e.pool, actionID,
 			outcomeStatus(managedResult.InEffect), managedResult.Note)

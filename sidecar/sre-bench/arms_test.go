@@ -104,7 +104,8 @@ func TestLLMConfig_NeverExposesTheKey(t *testing.T) {
 
 func TestDefaultConfig_ListsEveryArm(t *testing.T) {
 	cfg := DefaultConfig(2, LLMConfig{Mode: LLMFake})
-	want := []string{ArmCausalGraph, ArmLLM, ArmAlwaysEscalate, ArmRulesOnly}
+	want := []string{ArmCausalGraph, ArmLLM, ArmInvestigator, ArmAlwaysEscalate,
+		ArmRulesOnly}
 	got := cfg.ArmNames()
 	if cfg.Repeats != 2 || strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("repeats %d arms %v, want %v", cfg.Repeats, got, want)
@@ -113,7 +114,8 @@ func TestDefaultConfig_ListsEveryArm(t *testing.T) {
 		t.Fatalf("pending %v: the LLM-on arm is wired and ready with the fake model", pending)
 	}
 	gated := cfg.Gated()
-	if len(gated) != 2 || gated[0] != ArmCausalGraph || gated[1] != ArmLLM {
+	if len(gated) != 3 || gated[0] != ArmCausalGraph || gated[1] != ArmLLM ||
+		gated[2] != ArmInvestigator {
 		t.Fatalf("gated %v: every live arm is held to the gates", gated)
 	}
 }

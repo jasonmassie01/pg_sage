@@ -17,7 +17,7 @@ func TestOptimizerMapping_CarriesWhatIfVerdict(t *testing.T) {
 		DDL:     "CREATE INDEX CONCURRENTLY idx_o ON public.orders (status)",
 		DropDDL: "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"idx_o\"",
 		WhatIf:  optimizer.WhatIfUnverified, WhatIfReason: "hypopg unavailable"}
-	f := optimizerRecommendationToFinding(rec, nil)
+	f := OptimizerRecommendationFinding(rec, "")
 	if f.Detail["what_if_verdict"] != "unverified" ||
 		f.Detail["what_if_reason"] != "hypopg unavailable" ||
 		f.Detail["hypopg_validated"] != false {
@@ -27,7 +27,7 @@ func TestOptimizerMapping_CarriesWhatIfVerdict(t *testing.T) {
 		t.Fatalf("unverified recommendation lost its SQL: %+v", f)
 	}
 	rec.WhatIf, rec.WhatIfReason, rec.Validated = optimizer.WhatIfVerified, "", true
-	f = optimizerRecommendationToFinding(rec, nil)
+	f = OptimizerRecommendationFinding(rec, "")
 	if f.Detail["what_if_verdict"] != "verified" || f.Detail["hypopg_validated"] != true {
 		t.Fatalf("verified detail = %+v", f.Detail)
 	}
@@ -44,7 +44,7 @@ func TestOptimizerMapping_PartitionedParentIsAdvisory(t *testing.T) {
 		DDL:               "CREATE INDEX CONCURRENTLY i ON public.events (status)",
 		DropDDL:           "DROP INDEX CONCURRENTLY IF EXISTS \"public\".\"i\"",
 		PartitionedParent: true, PartitionPlan: plan, WhatIf: optimizer.WhatIfUnverified}
-	f := optimizerRecommendationToFinding(rec, nil)
+	f := OptimizerRecommendationFinding(rec, "")
 	if f.RecommendedSQL != "" || f.RollbackSQL != "" {
 		t.Fatalf("partitioned parent kept executable SQL: %q / %q", f.RecommendedSQL,
 			f.RollbackSQL)

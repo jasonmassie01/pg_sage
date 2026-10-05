@@ -1,0 +1,11 @@
+{
+  "description": "A spilling top statement: raise work_mem within the documented range.",
+  "fixture": "orders",
+  "answer": "{\"proposals\":[{\"type\":\"guc\",\"name\":\"work_mem\",\"value\":\"64MB\",\"rationale\":\"sort spills\",\"evidence\":[\"S1\"],\"expected_change_pct\":-70},{\"type\":\"guc\",\"name\":\"work_mem\",\"value\":\"64TB\",\"evidence\":[\"S1\"],\"expected_change_pct\":-70}]}",
+  "expect": [
+    {"type": "guc", "verdict": "admitted", "category": "memory_tuning",
+     "sql": "ALTER SYSTEM SET work_mem = '64MB'", "rollback": "ALTER SYSTEM RESET work_mem",
+     "method": "model", "expected_change_pct": -70},
+    {"type": "guc", "verdict": "rejected", "reason": "invalid"}
+  ]
+}

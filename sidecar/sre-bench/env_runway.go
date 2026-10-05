@@ -57,13 +57,19 @@ func (e *Env) clearRunway(ctx context.Context) error {
 }
 
 // burnXIDs consumes n transaction IDs, one committed transaction each.
+// Each commits asynchronously (fast) with a transaction-local setting: a
+// session-level one stayed on the pooled connection, and a later fault
+// program's WAL was then not yet written when its manifestation was read.
 func (e *Env) burnXIDs(ctx context.Context, n int) error {
 	if n <= 0 {
 		return nil
 	}
 	return e.simple(ctx, fmt.Sprintf(`DO $$ BEGIN
-		PERFORM set_config('synchronous_commit', 'off', false);
-		FOR i IN 1..%d LOOP PERFORM pg_current_xact_id(); COMMIT; END LOOP; END $$`, n))
+		FOR i IN 1..%d LOOP
+			PERFORM set_config('synchronous_commit', 'off', true);
+			PERFORM pg_current_xact_id();
+			COMMIT;
+		END LOOP; END $$`, n))
 }
 
 // nextXID is the cluster's next transaction ID.
@@ -83,11 +89,16 @@ func (e *Env) xidRate(ctx context.Context, from int64, at time.Time) (float64, e
 	return float64(x-from) / time.Since(at).Seconds(), nil
 }
 
-// emitWAL writes about mb MiB of WAL without growing any table.
+// emitWAL writes about mb MiB of WAL without growing any table: one
+// transactional 1 MiB message per transaction, each committed
+// synchronously, so the WAL is written (pg_current_wal_lsn) when emitWAL
+// returns whatever the session's synchronous_commit.
 func (e *Env) emitWAL(ctx context.Context, mb int) error {
 	for i := 0; i < mb; i++ {
-		if _, err := e.Pool.Exec(ctx, `SELECT pg_logical_emit_message(true, 'bench',
-			repeat('w', 1048576))`); err != nil {
+		if err := e.simple(ctx, `BEGIN;
+			SET LOCAL synchronous_commit = on;
+			SELECT pg_logical_emit_message(true, 'bench', repeat('w', 1048576));
+			COMMIT`); err != nil {
 			return err
 		}
 	}

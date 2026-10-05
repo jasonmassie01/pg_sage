@@ -1,0 +1,18 @@
+{
+  "description": "A write-heavy table with a redundant index and dead-tuple churn: drop the covered index, tighten autovacuum.",
+  "fixture": "events",
+  "answer": "{\"proposals\":[{\"type\":\"index_drop\",\"index\":\"public.events_kind_idx\",\"rationale\":\"covered by events_kind_at_idx\",\"evidence\":[\"T1\"]},{\"type\":\"reloption\",\"table\":\"public.events\",\"option\":\"autovacuum_vacuum_scale_factor\",\"value\":\"0.02\",\"evidence\":[\"T1\"],\"expected_change_pct\":-40},{\"type\":\"index_create\",\"ddl\":\"CREATE INDEX CONCURRENTLY events_at_idx ON public.events (at)\",\"evidence\":[\"T1\"],\"expected_change_pct\":-20}]}",
+  "expect": [
+    {"type": "index_drop", "verdict": "admitted", "category": "tuning_index_drop",
+     "sql": "DROP INDEX CONCURRENTLY IF EXISTS public.events_kind_idx",
+     "rollback": "CREATE INDEX CONCURRENTLY events_kind_idx ON public.events USING btree (kind)",
+     "method": "rule", "expected_change_pct": 0},
+    {"type": "reloption", "verdict": "admitted", "category": "vacuum_tuning",
+     "sql": "ALTER TABLE public.events SET (autovacuum_vacuum_scale_factor = 0.02)",
+     "rollback": "ALTER TABLE public.events RESET (autovacuum_vacuum_scale_factor)",
+     "method": "model", "expected_change_pct": -40},
+    {"type": "index_create", "verdict": "admitted", "category": "missing_index",
+     "sql": "CREATE INDEX CONCURRENTLY events_at_idx ON public.events (at)",
+     "method": "hypopg", "expected_change_pct": -40}
+  ]
+}

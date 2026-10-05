@@ -1,0 +1,10 @@
+{
+  "description": "A top statement filtering on customer_id; the model proposes the index HypoPG verifies.",
+  "fixture": "orders",
+  "answer": "{\"proposals\":[{\"type\":\"index_create\",\"ddl\":\"CREATE INDEX CONCURRENTLY orders_customer_id_idx ON public.orders (customer_id)\",\"rationale\":\"sequential scan on customer_id\",\"evidence\":[\"S1\",\"T1\"],\"expected_change_pct\":-50}]}",
+  "expect": [
+    {"type": "index_create", "verdict": "admitted", "category": "missing_index",
+     "sql": "CREATE INDEX CONCURRENTLY orders_customer_id_idx ON public.orders (customer_id)",
+     "method": "hypopg", "expected_change_pct": -40}
+  ]
+}

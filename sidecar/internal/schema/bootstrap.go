@@ -411,7 +411,10 @@ func migrationStatements() []string {
 		ddlShadowMode(),
 		ddlFacts,
 		ddlSREAutonomyRootAuthority,
-		ddlMCPv2)
+		ddlMCPv2,
+		ddlTuningBudgetDay,
+		ddlOnboarding,
+		ddlSpecialist)
 }
 
 // ---------------------------------------------------------------------------

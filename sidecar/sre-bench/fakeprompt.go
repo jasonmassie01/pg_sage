@@ -76,7 +76,7 @@ type fakeReview struct {
 // narrates up to three claims citing real evidence ids, one quoting a
 // number of its evidence.
 func adversarialReview(p fakePrompt, seed uint64) fakeReview {
-	r := fakeReview{Ranking: make([]string, 0, len(p.open)), Claims: []fakeClaim{}}
+	r := fakeReview{Ranking: make([]string, 0, len(p.open))}
 	for i := len(p.open) - 1; i >= 0; i-- {
 		r.Ranking = append(r.Ranking, p.open[i])
 	}
@@ -85,15 +85,23 @@ func adversarialReview(p fakePrompt, seed uint64) fakeReview {
 			Args:      map[string]any{},
 			Rationale: "re-reading it tells the graph's last hypothesis from its first"}
 	}
-	for _, e := range p.evidence {
-		if len(r.Claims) == 3 {
+	r.Claims = fakeClaims(p.evidence)
+	return r
+}
+
+// fakeClaims narrates up to three claims citing real evidence ids, one
+// quoting a number of its evidence.
+func fakeClaims(ev []fakeEvidence) []fakeClaim {
+	out := []fakeClaim{}
+	for _, e := range ev {
+		if len(out) == 3 {
 			break
 		}
 		text := fmt.Sprintf("Evidence %s comes from the %s probe.", e.alias, e.probe)
 		if n := numberToken.FindString(e.text); n != "" {
 			text = fmt.Sprintf("The %s evidence (%s) reports %s.", e.probe, e.alias, n)
 		}
-		r.Claims = append(r.Claims, fakeClaim{Text: text, EvidenceIDs: []string{e.alias}})
+		out = append(out, fakeClaim{Text: text, EvidenceIDs: []string{e.alias}})
 	}
-	return r
+	return out
 }

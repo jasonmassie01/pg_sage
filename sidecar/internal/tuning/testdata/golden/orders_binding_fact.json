@@ -1,0 +1,10 @@
+{
+  "description": "public.orders is owned by the application's migrations: the index becomes a source-fix packet, never DDL.",
+  "fixture": "orders",
+  "facts": [{"id": 12, "type": "owned_by_app_migrations", "kind": "table", "subject": "public.orders"}],
+  "forbidden": ["CREATE INDEX"],
+  "answer": "{\"proposals\":[{\"type\":\"index_create\",\"ddl\":\"CREATE INDEX CONCURRENTLY orders_customer_id_idx ON public.orders (customer_id)\",\"evidence\":[\"S1\",\"F12\"],\"expected_change_pct\":-50}]}",
+  "expect": [
+    {"type": "index_create", "verdict": "redirected", "category": "missing_index", "sql": ""}
+  ]
+}

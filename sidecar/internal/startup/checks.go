@@ -9,6 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ErrStatementsUnavailable marks a missing or unreadable pg_stat_statements:
+// the one prerequisite pg_sage can run without. It degrades (catalog-only
+// first look and rules, no query statistics) instead of refusing to start.
+var ErrStatementsUnavailable = errors.New("pg_stat_statements is unavailable")
+
 // CheckResult holds the results of prerequisite checks.
 type CheckResult struct {
 	PGVersionNum       int
@@ -43,11 +48,11 @@ func RunChecks(ctx context.Context, pool *pgxpool.Pool) (*CheckResult, error) {
 	result.PGVersionNum = versionNum
 
 	if err := checkExtensionInstalled(ctx, pool); err != nil {
-		return nil, fmt.Errorf("pg_stat_statements check: %w", err)
+		return nil, statementsError(ctx, "pg_stat_statements check", err)
 	}
 
 	if err := checkExtensionReadable(ctx, pool); err != nil {
-		return nil, fmt.Errorf("pg_stat_statements access: %w", err)
+		return nil, statementsError(ctx, "pg_stat_statements access", err)
 	}
 
 	queryVisible, err := checkQueryTextVisible(ctx, pool)
@@ -215,4 +220,13 @@ func checkWALColumns(
 		return false, nil
 	}
 	return exists, nil
+}
+
+// statementsError marks a pg_stat_statements failure degradable, unless the
+// context ended: that is not a missing extension.
+func statementsError(ctx context.Context, what string, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s: %w", what, err)
+	}
+	return fmt.Errorf("%s: %w: %w", what, ErrStatementsUnavailable, err)
 }

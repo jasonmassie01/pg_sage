@@ -1,5 +1,118 @@
 # Changelog
 
+## v2.1.0 (2026-10-04) -- The model drives: tool-calling investigator, tuning agent, specialist API
+
+### What's new
+
+- **The model now investigates instead of only reviewing.** With an LLM configured,
+  pg_sage's investigations plan their own reads after the causal graph has scored the
+  hypotheses. The reads are catalog probes, pg_stat views, a plan-only `EXPLAIN` by
+  queryid, the graph's state and confirmed facts, and none of them can change anything.
+  Operator-started and SLO-burn investigations get a broad budget; detector triggers get a
+  narrow one. Steps, probes, wall clock and tokens are all capped, and every read is stored
+  as evidence with its digest. The model may agree with the graph, conclude an inconclusive
+  graph, contest a conclusive root, or name a cause the graph does not model. Every claim
+  must cite evidence, and uncited claims are dropped and counted. The model's root stays
+  advisory until its family earns root authority on the bench, and its own confidence is
+  never used. Contests are tagged in the replay-case export. The investigation view, the
+  API (`.../investigations/{id}/transcript`) and MCP (`sre_get_transcript`) show the
+  redacted transcript: the plan, each read with its result, and the citations. Set
+  `sre.llm.mode: review` to keep the single review turn. PGIncidentBench gains a
+  `causal-graph+investigator` arm, gated like the LLM-on arm and scored with scripted
+  adversarial transcripts.
+- **One tuning agent per database, with confidence it has earned.** The index optimizer,
+  the advisor's vacuum and memory prompts and the tuner's LLM hints are replaced by one
+  case-driven tuning agent. Each cycle it classifies the workload (application, tenant,
+  test-fixture, diagnostic and pg_sage statements; confirmed facts bind tables), finds the
+  cases worth tuning (a statement taking a large share of the workload's time, a
+  regression, write amplification) and asks the model about each case only, with
+  read-only tools (plans, HypoPG what-ifs, write cost, extended statistics, clone
+  rehearsal when configured) within a per-database budget per cycle (`tuning.*`). The model
+  answers with typed proposals only (index create or drop, setting, storage parameter,
+  extended statistics, query hint), each citing its evidence and predicting its effect;
+  pg_sage writes the SQL and keeps every gate (HypoPG what-if and rejection memory,
+  configuration allowlists, the tuner's hint checks, confirmed facts, earlier operator
+  rejections). Every proposal carries a confidence calibrated on the outcomes of comparable
+  past actions, or says "uncalibrated" when there are too few; approval cards and the Trust
+  page show it, and a low calibrated confidence needs an operator. The fixed-weight
+  optimizer confidence score is gone. Lessons from dogfooding are built in: open
+  recommendations the agent did not examine stay open (only the catalog can retire one),
+  cases the budget cannot reach go first next cycle, the daily token budget is kept in the
+  database so a restart does not reset it, a proposal cut by the cycle cap leaves no trace,
+  setting changes need evidence measured in the last interval and after the previous
+  change's verification (a third change in the same direction within 7 days needs an
+  operator), and an index is never proposed beside an existing or in-flight index that
+  already serves it or that it would make redundant. See
+  `docs/configuration.md#tuning-agent`.
+- **The Postgres specialist other agents call.** AWS DevOps Agent, PagerDuty,
+  Datadog or any HTTP/MCP client can now ask pg_sage what is wrong with a
+  database and why through a stable, versioned contract
+  (`pg_sage.specialist.v1`, OpenAPI at `/api/v1/specialist/openapi.json`):
+  open or attach an investigation, poll or stream it, and read a cited causal
+  chain with the root cause's source and authority, honest confidence
+  (uncalibrated unless the bench calibrated the family), missing evidence and
+  typed candidate remediations. Agents authenticate with MCP tokens (read to
+  investigate, propose to request a remediation); a requested remediation is
+  only a proposal that pg_sage's gate decides, and the caller gets the verdict.
+  PagerDuty incident webhooks and a generic signed webhook map onto it, with
+  results posted back only to endpoints you configure; the MCP tokens page
+  shows which agent asked what. See `docs/specialist.md`.
+- **A useful first look within a minute, read-only until you grant more.** pg_sage now
+  reads the catalog the moment it connects and shows a first look on the landing page in
+  about a second: invalid, duplicate, redundant and never-scanned indexes, unindexed
+  foreign keys, transaction ID and sequence runway, dead-tuple bloat estimates, leftover
+  test schemas (proposed as facts, never touched) and the exact steps to enable
+  pg_stat_statements, HypoPG and auto_explain on your provider. Each finding cites its
+  catalog evidence; it needs no query history, no superuser and no LLM. The collector
+  takes its first snapshot at startup and the analyzer runs on it right away, instead of
+  after 1 and 10 minutes. A first-run checklist (connected, extensions, first look, MCP
+  token, notifications, grant more) shows live status, and a "Grant more" guide explains
+  what each trust level allows and which grants it needs before it sets `trust.level`.
+  New installs only observe; upgraded installs keep their configured trust. A database
+  without pg_stat_statements now starts degraded instead of refusing to start. Time to
+  first finding is exported as `pg_sage_time_to_first_finding_seconds`. See
+  docs/quickstart.md.
+- **pg_sage now says when pg_stat_statements is full of utility statements.** The capacity
+  finding used to count only the 500 statements pg_sage reads, so it never fired on a
+  database at 98% of `pg_stat_statements.max`. It now counts every entry and, near the
+  limit, how many are utility statements such as pg_dump's `COPY ... TO stdout`, with the
+  deallocations so far. When those are at least half, it recommends
+  `pg_stat_statements.track_utility = off` (a reload, no restart) or a higher
+  `pg_stat_statements.max` (which needs a server restart), citing the counts. It is advice:
+  pg_sage does not change the setting itself.
+
+### Fixed
+
+- **pg_sage recognizes all of its own statements on PostgreSQL 14 to 18.** Each statement
+  of a multi-statement query (pg_sage's schema setup) and a statement that starts with a
+  parenthesis now carry the `/* pg_sage */` tag where `pg_stat_statements` keeps it
+  (PostgreSQL 18 drops comments in front of a statement); before, the setup statements
+  (about a third of pg_sage's entries right after a start) were untagged and left out of
+  its self-cost. The API's connection test now runs as `pg_sage` and tagged, like every
+  other pg_sage session.
+- **Cheap diagnostic probes no longer time out because pg_sage itself was busy.** A probe's
+  time limit used to start before it had a database connection, so on a busy connection
+  pool a 0.1 ms catalog read (xid_runway, wraparound_tables, checkpoint_activity) could fail
+  with `deadline_exceeded`. Waiting for a slot, waiting for a connection and running the
+  query now each have their own limit. A probe that fails says which of them ran out
+  (queue_wait, pool_acquire, server_execution or lock_wait) with the time each took, and a
+  probe that hit a server-side timeout is tried once more when the caller has time left.
+- **The collector retries a statistics read that timed out once.** A category whose read hit
+  a statement or lock timeout is read again in the same cycle (at most two retries a cycle),
+  and a timed-out read names its phase in the log.
+- **pg_sage reads query texts from pg_stat_statements only where it needs them.** The
+  temp-spill probe no longer reads any text, and the collector ranks statements on their
+  counters before reading the texts of the ones it keeps: on a server with 45,000 entries
+  these reads take about half the time.
+- **Runway sampling on PostgreSQL 14 tolerates a slow statistics collector.** On PostgreSQL
+  14 a backend waits for a fresh statistics file before it reads table statistics, which can
+  take seconds on a loaded host; the runway monitor now reads wraparound_tables with its
+  2 s background limit. Investigations keep 500 ms.
+- **Two flaky PGIncidentBench scenarios are reliable again.** disk-slow-consumer-fill read a
+  slot's retained WAL before the WAL was written, because an earlier scenario left its
+  connection committing asynchronously; seq-cycling-near-limit failed on PostgreSQL 14 when
+  the statistics collector was slow.
+
 ## v1.10.0 (2026-10-04) -- The model earns authority: binding facts, model measurement, MCP v2
 
 ### What's new

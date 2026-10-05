@@ -43,17 +43,3 @@ func TestRewriteCandidatesEmptySnapshot(t *testing.T) {
 		t.Fatalf("empty snapshot gave %d candidates", len(got))
 	}
 }
-
-func TestSpillSummaryCountsWorkloadOnly(t *testing.T) {
-	n, total, top := spillSummary(adviceQueries())
-	if n != 1 || total != 40 {
-		t.Fatalf("spilling queries = %d, temp blocks = %d; want 1 and 40 (workload only)",
-			n, total)
-	}
-	if len(top) != 1 || top[0].query != "SELECT * FROM orders WHERE a = $1" {
-		t.Fatalf("top spills = %+v, want only the application query", top)
-	}
-	if n, total, top := spillSummary(nil); n != 0 || total != 0 || len(top) != 0 {
-		t.Fatalf("nil queries: %d, %d, %v", n, total, top)
-	}
-}

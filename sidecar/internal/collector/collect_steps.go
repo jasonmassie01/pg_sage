@@ -1,6 +1,10 @@
 package collector
 
-import "context"
+import (
+	"context"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
+)
 
 // catalogStep reads one snapshot category.
 type catalogStep struct {
@@ -57,4 +61,31 @@ func (c *Collector) overrideStep(name string, fn func(context.Context, *Snapshot
 		c.stepOverrides = map[string]func(context.Context, *Snapshot) error{}
 	}
 	c.stepOverrides[name] = fn
+}
+
+// Retry budget of one collection cycle: a category whose read hit a
+// server-side timeout is read once more, and a cycle retries at most
+// maxCycleRetries categories (dogfood lifeos, 2026-10-04: the queries and
+// indexes reads timed out once in hours and ran in tens of ms after).
+const (
+	stepAttempts    = 2
+	maxCycleRetries = 2
+)
+
+// runStep reads one category, once more after a server-side timeout
+// while the cycle's retry budget lasts. A permanent failure (a missing
+// relation, a permission) is never retried.
+func (c *Collector) runStep(ctx context.Context, st catalogStep, snap *Snapshot,
+	retries *int) error {
+	err := st.run(ctx, snap)
+	for attempt := 1; err != nil && attempt < stepAttempts; attempt++ {
+		if *retries >= maxCycleRetries || ctx.Err() != nil || !catalogread.Retryable(err) {
+			return err
+		}
+		*retries++
+		c.logFn("INFO", "collector: %s timed out (%v); retrying it once this cycle",
+			st.name, err)
+		err = st.run(ctx, snap)
+	}
+	return err
 }

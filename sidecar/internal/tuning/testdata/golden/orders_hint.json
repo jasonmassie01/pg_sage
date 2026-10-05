@@ -1,0 +1,10 @@
+{
+  "description": "A per-query hint for the case statement goes through the tuner's pg_hint_plan path.",
+  "fixture": "orders",
+  "answer": "{\"proposals\":[{\"type\":\"query_hint\",\"queryid\":101,\"hint\":\"IndexScan(orders orders_customer_idx)\",\"rationale\":\"the planner prefers a seq scan\",\"evidence\":[\"S1\"],\"expected_change_pct\":-35}]}",
+  "expect": [
+    {"type": "query_hint", "verdict": "admitted", "category": "query_tuning",
+     "sql": "INSERT INTO hint_plan.hints (query_id, application_name, hints) SELECT 101, '', $sageqh$IndexScan(orders orders_customer_idx)$sageqh$ WHERE NOT EXISTS (SELECT 1 FROM hint_plan.hints WHERE query_id = 101 AND application_name = '')",
+     "method": "model", "expected_change_pct": -35}
+  ]
+}

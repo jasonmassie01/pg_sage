@@ -21,18 +21,22 @@ func IsTagged(sql string) bool {
 	return tagPattern.MatchString(sql)
 }
 
-// placeTag returns sql with a pg_sage tag right after its first keyword.
-// A leading pg_sage comment (it may name a component) is moved there; a
-// tag already there is left alone. A statement that does not start with
-// a keyword (a parenthesized query) gets the tag in front; text that
-// cannot be read (an unterminated comment, white space only) is returned
-// unchanged.
+// placeTag returns sql with a pg_sage tag right after its first keyword,
+// or after the opening parenthesis of a parenthesized query (PostgreSQL
+// 18 drops a comment in front of it). A leading pg_sage comment (it may
+// name a component) is moved there; a tag already there is left alone.
+// A statement that starts with anything else gets the tag in front; text
+// that cannot be read (an unterminated comment, white space only) is
+// returned unchanged.
 func placeTag(sql string) string {
 	i, tag, tagStart, tagEnd, ok := scanLeading(sql)
 	if !ok || i == len(sql) {
 		return sql
 	}
 	word := keywordEnd(sql, i)
+	if word == i && sql[i] == '(' {
+		word = i + 1
+	}
 	if word == i {
 		if tag != "" {
 			return sql
@@ -118,16 +122,12 @@ func firstComment(s string) string {
 }
 
 // keywordEnd is the end of the identifier-like word at sql[i:] (i itself
-// when there is none).
+// when there is none). It reads the word as the server and the statement
+// splitter do (identLen: '$' and digits may follow the first character),
+// so a tag never lands inside an identifier such as a$b.
 func keywordEnd(sql string, i int) int {
-	j := i
-	for j < len(sql) {
-		c := sql[j]
-		isLetter := c == '_' || (c|0x20 >= 'a' && c|0x20 <= 'z')
-		if !isLetter && (j == i || c < '0' || c > '9') {
-			break
-		}
-		j++
+	if i >= len(sql) || !isIdentStart(sql[i]) {
+		return i
 	}
-	return j
+	return i + identLen(sql[i:])
 }

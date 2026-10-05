@@ -1,51 +1,40 @@
-// Package optimizer is the single source of truth for index
-// recommendations (category = "missing_index"). Schema lint intentionally
-// does NOT register rules that propose new indexes — those live here,
-// where plan capture + HypoPG validation produce confidence-scored
-// recommendations instead of raw heuristics. If you find yourself adding
-// a "suggest an index" rule in schema/lint, it almost certainly belongs
-// in this package instead.
+// Package optimizer is the index toolbox of the tuning agent (roadmap
+// 2.2; internal/tuning) and the single source of truth for index
+// recommendations (category = "missing_index"). The model no longer runs
+// here: the agent hands over a candidate, and the optimizer keeps every
+// deterministic gate — the canonical form, the validator, rejection memory
+// and the HypoPG what-if — plus the table context the agent's tools read.
+// Schema lint intentionally does NOT register rules that propose new
+// indexes — those live here, where plan capture + HypoPG validation decide
+// admission instead of raw heuristics.
 package optimizer
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sort"
-	"strings"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
-	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/llm"
 )
 
-const defaultMaxNewPerTable = 3
-const maxTablesPerCycle = 10
-
-// Optimizer is the v2 index optimizer with plan-aware, HypoPG-validated
-// recommendations and confidence scoring.
+// Optimizer admits index candidates with plan-aware, HypoPG-validated
+// evidence.
 type Optimizer struct {
-	client         *llm.Client
-	fallbackClient *llm.Client
-	pool           *pgxpool.Pool
-	cfg            *config.OptimizerConfig
-	validator      *Validator
-	planner        *PlanCapture
-	hypopg         *HypoPG
-	whatIf         whatIfValidator // defaults to hypopg; tests inject fakes
-	breaker        *CircuitBreaker
-	memory         *rejectionMemory // nil: rejection memory off or no database
-	facts          FactSource       // nil: no confirmed facts in prompts
-	maxOutput      int
-	logFn          func(string, string, ...any)
+	pool      *pgxpool.Pool
+	cfg       *config.OptimizerConfig
+	validator *Validator
+	planner   *PlanCapture
+	hypopg    *HypoPG
+	whatIf    whatIfValidator  // defaults to hypopg; tests inject fakes
+	memory    *rejectionMemory // nil: rejection memory off or no database
+	logFn     func(string, string, ...any)
 	// catalogTimeouts bound the context builder's catalog reads.
 	catalogTimeouts catalogread.Timeouts
 
-	// whatIfSkips and llmSkips count rejection-memory skips (MemoryStats).
-	whatIfSkips, llmSkips atomic.Int64
+	// whatIfSkips counts candidates rejection memory skipped (MemoryStats).
+	whatIfSkips atomic.Int64
 }
 
 // WithCatalogReadTimeouts bounds the context builder's catalog reads
@@ -57,32 +46,22 @@ func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 
 // New creates an Optimizer with all sub-components.
 func New(
-	client *llm.Client,
-	fallbackClient *llm.Client,
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
 	pgVersionNum int,
-	maxOutputTokens int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
 ) *Optimizer {
-	if maxOutputTokens <= 0 {
-		maxOutputTokens = 8192
-	}
 	o := &Optimizer{
-		client:         client,
-		fallbackClient: fallbackClient,
-		pool:           pool,
-		cfg:            cfg,
-		validator:      NewValidator(pool, cfg, logFn),
+		pool:      pool,
+		cfg:       cfg,
+		validator: NewValidator(pool, cfg, logFn),
 		planner: NewPlanCapture(
 			pool, pgVersionNum, false,
 			cfg.PlanSource, logFn,
 		),
-		hypopg:    NewHypoPG(pool, logFn),
-		breaker:   NewCircuitBreaker(),
-		maxOutput: maxOutputTokens,
-		logFn:     logFn,
+		hypopg: NewHypoPG(pool, logFn),
+		logFn:  logFn,
 
 		catalogTimeouts: catalogread.Default(),
 	}
@@ -111,173 +90,79 @@ func WithAutoExplain() func(*Optimizer) {
 	}
 }
 
-// Analyze runs one optimizer cycle on the latest snapshot.
-func (o *Optimizer) Analyze(
-	ctx context.Context,
-	snap *collector.Snapshot,
-) (*Result, error) {
-	if snap == nil {
-		return nil, fmt.Errorf("nil snapshot")
+// ColdStart reports whether there are fewer than min_snapshots snapshots,
+// too little history to judge a workload. A failed check counts as cold
+// (fail closed) and is logged.
+func (o *Optimizer) ColdStart(ctx context.Context) bool {
+	if o.cfg.MinSnapshots <= 0 {
+		return false
 	}
-
+	if o.pool == nil {
+		return true
+	}
 	cold, err := CheckColdStart(ctx, o.pool, o.cfg.MinSnapshots)
 	if err != nil {
-		o.logFn("optimizer", "cold start check failed: %v", err)
+		o.logFn("WARN", "optimizer: cold start check failed: %v", err)
 	}
-	if cold {
-		o.logFn("optimizer",
-			"cold start: waiting for %d snapshots", o.cfg.MinSnapshots,
-		)
-		return &Result{PlanSource: "none"}, nil
-	}
-
-	contexts, planSource, err := BuildTableContexts(
-		ctx, catalogread.New(o.pool, o.catalogTimeouts), snap, o.planner,
-		int64(o.cfg.MinQueryCalls),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("build contexts: %w", err)
-	}
-
-	// Sort by total query time descending and cap to the most
-	// impactful tables to bound LLM calls per cycle.
-	sort.Slice(contexts, func(i, j int) bool {
-		return totalQueryTime(contexts[i].Queries) >
-			totalQueryTime(contexts[j].Queries)
-	})
-	if len(contexts) > maxTablesPerCycle {
-		o.logFn("optimizer",
-			"capping tables from %d to %d (by total query time)",
-			len(contexts), maxTablesPerCycle,
-		)
-		contexts = contexts[:maxTablesPerCycle]
-	}
-
-	o.logFn("optimizer",
-		"analyze: %d tables, %d queries in snapshot, plan_source=%s",
-		len(contexts), len(snap.Queries), planSource)
-
-	result := &Result{
-		TablesAnalyzed: len(contexts),
-		PlanSource:     planSource,
-	}
-
-	for i := range contexts {
-		contexts[i].Queries = GroupByFingerprint(contexts[i].Queries)
-		contexts[i].JoinPairs = DetectJoinPairs(contexts[i].Queries)
-	}
-	o.analyzeTables(ctx, contexts, result)
-	return result, nil
+	return cold
 }
 
-func shouldTripTableCircuit(err error) bool {
-	return err != nil && !errors.Is(err, llm.ErrRequestCooldown)
+// AdmissionOutcome is what admission decided about a candidate.
+type AdmissionOutcome string
+
+// Admission outcomes.
+const (
+	AdmitAccepted AdmissionOutcome = "admitted"
+	AdmitInvalid  AdmissionOutcome = "invalid"
+	AdmitMeasured AdmissionOutcome = "already_measured"
+	AdmitRejected AdmissionOutcome = "what_if_rejected"
+)
+
+// Admission is the decision on one candidate, with why when it is not
+// admitted. An admitted candidate is verified by HypoPG, or unverified
+// (no complete measurement), which the executor's gate sends to an
+// operator.
+type Admission struct {
+	Rec     Recommendation
+	Outcome AdmissionOutcome
+	Reason  string
 }
 
-// analyzeTable asks the model for one table and admits its candidates. mem
-// is the table's rejection memory for this cycle (nil: none): it feeds the
-// already-measured shapes to the prompt and suppresses repeats.
-func (o *Optimizer) analyzeTable(
-	ctx context.Context,
-	tc TableContext,
-	mem *tableMemory,
-) ([]Recommendation, int, int, error) {
-	tc.MeasuredRejections = mem.promptLines()
-	tc.ConfirmedFacts = o.confirmedFacts(ctx, tc)
-	response, tokens, err := o.chat(ctx, SystemPrompt(), FormatPrompt(tc))
-	if err != nil {
-		return nil, 0, 0, fmt.Errorf("llm chat: %w", err)
-	}
-
-	recs, err := parseRecommendations(response)
-	if err != nil {
-		return nil, tokens, 0, fmt.Errorf("parse: %w", err)
-	}
-
-	var accepted []Recommendation
-	rejections := 0
-	for _, rec := range recs {
-		rec, ok := o.admit(ctx, rec, tc, mem)
-		if !ok {
-			rejections++
-			continue
-		}
-		accepted = append(accepted, rec)
-	}
-	mem.finishProposal(tc, len(recs))
-
-	cap := o.maxNewPerTable()
-	if len(accepted) > cap {
-		accepted = accepted[:cap]
-	}
-
-	return accepted, tokens, rejections, nil
-}
-
-// chat calls the primary client and, on failure, a distinct fallback
-// client. A fallback that is the primary is not retried (G3-B15).
-func (o *Optimizer) chat(ctx context.Context, system, prompt string) (string, int, error) {
-	response, tokens, err := o.client.Chat(ctx, system, prompt, o.maxOutput)
-	if err != nil && o.fallbackClient != nil && o.fallbackClient != o.client {
-		o.logFn("optimizer",
-			"primary LLM failed, trying fallback: %v", err,
-		)
-		response, tokens, err = o.fallbackClient.Chat(
-			ctx, system, prompt, o.maxOutput,
-		)
-	}
-	return response, tokens, err
-}
-
-// admit canonicalizes, validates, HypoPG-checks and scores one LLM
-// recommendation. It returns false when the recommendation is rejected. A
-// candidate rejection memory already measured on this workload skips the
-// what-if; a new what-if rejection is remembered.
-func (o *Optimizer) admit(
-	ctx context.Context, rec Recommendation, tc TableContext, mem *tableMemory,
-) (Recommendation, bool) {
+// Admit canonicalizes, validates, checks rejection memory and HypoPG-
+// measures one candidate for tc. An idea rejection memory already measured
+// on this workload skips the what-if (unless an operator asked); a new
+// what-if rejection is remembered.
+func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableContext,
+) Admission {
 	rec, err := canonicalizeRecommendation(rec, tc)
 	if err != nil {
-		o.logFn("optimizer", "rejected %s on %s.%s: %v",
-			rec.DDL, tc.Schema, tc.Table, err)
-		return rec, false
+		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: err.Error()}
 	}
 	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
-		o.logFn("optimizer",
-			"rejected %s on %s: %s", rec.DDL, rec.Table, reason,
-		)
-		return rec, false
+		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
 	if !operatorRequested(ctx) {
-		if _, seen := mem.suppress(rec); seen {
-			return rec, false // counted in the cycle's DEBUG summary
+		if r, seen := o.memory.view(ctx, tc).suppress(rec); seen {
+			o.whatIfSkips.Add(1)
+			return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
+				"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
+				r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
 		}
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
 	if rejected {
-		o.logFn("optimizer", "rejected %s on %s: %s",
-			rec.DDL, rec.Table, rec.WhatIfReason)
-		mem.countRejection()
-		if r, ok := o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct); ok {
-			mem.learn(r)
-		}
-		return rec, false
+		o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct)
+		return Admission{Rec: rec, Outcome: AdmitRejected, Reason: rec.WhatIfReason}
 	}
-	rec = o.scoreConfidence(rec, tc)
-	// Record the queryids this index is expected to help so F1
-	// verify-and-revert can drop it if those queries regress (A2).
+	// The queryids the index is expected to help, for verify-and-revert.
 	rec.AffectedQueryIDs = contextQueryIDs(tc)
-	// Enforce the configured confidence threshold (default 0.5). A zero
-	// threshold (unset) disables the gate.
-	if o.cfg.ConfidenceThreshold > 0 &&
-		rec.Confidence < o.cfg.ConfidenceThreshold {
-		o.logFn("optimizer",
-			"below confidence threshold (%.2f < %.2f): %s on %s",
-			rec.Confidence, o.cfg.ConfidenceThreshold,
-			rec.DDL, rec.Table)
-		return rec, false
-	}
-	return rec, true
+	return Admission{Rec: rec, Outcome: AdmitAccepted}
+}
+
+// MeasuredRejections lists the newest shapes rejection memory already
+// measured and rejected on tc's workload, for the agent's case packet.
+func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []string {
+	return o.memory.view(ctx, tc).promptLines()
 }
 
 // enrichWithHypoPG measures the recommendation with hypothetical indexes
@@ -313,102 +198,9 @@ func (o *Optimizer) enrichWithHypoPG(
 	return rec, verdict == WhatIfRejected
 }
 
-func (o *Optimizer) scoreConfidence(
-	rec Recommendation,
-	tc TableContext,
-) Recommendation {
-	totalCalls := totalQueryCalls(tc.Queries)
-
-	// QueryVolume: based on max calls for any query hitting this table.
-	var maxCalls int64
-	for _, q := range tc.Queries {
-		if q.Calls > maxCalls {
-			maxCalls = q.Calls
-		}
-	}
-	var qv float64
-	switch {
-	case maxCalls >= 500:
-		qv = 1.0
-	case maxCalls >= 100:
-		qv = 0.7
-	case maxCalls >= 10:
-		qv = 0.4
-	default:
-		qv = 0.1
-	}
-
-	// PlanClarity: 1.0 if EXPLAIN plans available, 0.5 if query text only.
-	var pc float64
-	if len(tc.Plans) > 0 {
-		pc = 1.0
-	} else if len(tc.Queries) > 0 {
-		pc = 0.5
-	}
-
-	// WriteRateKnown: 1.0 only when the table recorded activity
-	// (G3-B23: WriteRate >= 0 was always true).
-	var wr float64
-	if tc.WriteRateKnown {
-		wr = 1.0
-	}
-
-	// HypoPGValidated: rejected verdicts never reach scoring (G3-B06),
-	// so this is 1.0 for a measured accept and 0 when unavailable.
-	var hv float64
-	if rec.Validated {
-		hv = 1.0
-	}
-
-	// SelectivityKnown: based on pg_stats data availability.
-	var sk float64
-	if len(tc.ColStats) > 0 {
-		hasDistinct := false
-		hasMCV := false
-		for _, s := range tc.ColStats {
-			if s.NDistinct != 0 {
-				hasDistinct = true
-			}
-			if len(s.MostCommonVals) > 0 {
-				hasMCV = true
-			}
-		}
-		if hasDistinct && hasMCV {
-			sk = 1.0
-		} else if hasDistinct {
-			sk = 0.5
-		}
-	}
-
-	// TableCallVolume: total queries/day hitting this table.
-	var tv float64
-	switch {
-	case totalCalls >= 1000:
-		tv = 1.0
-	case totalCalls >= 100:
-		tv = 0.6
-	case totalCalls >= 10:
-		tv = 0.3
-	default:
-		tv = 0.1
-	}
-
-	input := ConfidenceInput{
-		QueryVolume:      qv,
-		PlanClarity:      pc,
-		WriteRateKnown:   wr,
-		HypoPGValidated:  hv,
-		SelectivityKnown: sk,
-		TableCallVolume:  tv,
-	}
-	rec.Confidence = ComputeConfidence(input)
-	rec.ActionLevel = ActionLevel(rec.Confidence)
-	return rec
-}
-
-// contextQueryIDs returns the queryids the optimizer analyzed for a
-// table — the queries a new index is expected to help. Used by F1
-// verify-and-revert (A2) to drop an index that regresses them.
+// contextQueryIDs returns the queryids of a table's context — the queries
+// a new index is expected to help. Used by F1 verify-and-revert (A2) to
+// drop an index that regresses them.
 func contextQueryIDs(tc TableContext) []int64 {
 	ids := make([]int64, 0, len(tc.Queries))
 	for _, q := range tc.Queries {
@@ -419,32 +211,29 @@ func contextQueryIDs(tc TableContext) []int64 {
 	return ids
 }
 
-func (o *Optimizer) maxNewPerTable() int {
-	if o.cfg.MaxNewPerTable > 0 {
-		return o.cfg.MaxNewPerTable
-	}
-	return defaultMaxNewPerTable
+// MemoryStats are the rejection-memory counters since start.
+type MemoryStats struct {
+	WhatIfSkipped int64 // what-if evaluations skipped (already measured)
 }
 
-func totalQueryCalls(queries []QueryInfo) int64 {
-	var total int64
-	for _, q := range queries {
-		total += q.Calls
+// MemoryStats returns the rejection-memory counters (zero for nil).
+func (o *Optimizer) MemoryStats() MemoryStats {
+	if o == nil {
+		return MemoryStats{}
 	}
-	return total
+	return MemoryStats{WhatIfSkipped: o.whatIfSkips.Load()}
 }
 
-func totalQueryTime(queries []QueryInfo) float64 {
-	var total float64
-	for _, q := range queries {
-		total += q.TotalTimeMs
-	}
-	return total
+type operatorRequestKey struct{}
+
+// WithOperatorRequest marks an admission an operator asked for: every
+// candidate is measured, whatever rejection memory says (memory still
+// records what it measures).
+func WithOperatorRequest(ctx context.Context) context.Context {
+	return context.WithValue(ctx, operatorRequestKey{}, true)
 }
 
-// isBudgetExhausted returns true if the error indicates
-// the daily token budget has been exhausted.
-func isBudgetExhausted(err error) bool {
-	return err != nil &&
-		strings.Contains(err.Error(), "budget exhausted")
+func operatorRequested(ctx context.Context) bool {
+	requested, _ := ctx.Value(operatorRequestKey{}).(bool)
+	return requested
 }

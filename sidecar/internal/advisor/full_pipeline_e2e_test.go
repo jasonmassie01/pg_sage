@@ -18,10 +18,8 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Advisor.Enabled = true
 	cfg.Advisor.IntervalSeconds = 1
-	cfg.Advisor.VacuumEnabled = true
 	cfg.Advisor.WALEnabled = true
 	cfg.Advisor.ConnectionEnabled = true
-	cfg.Advisor.MemoryEnabled = true
 	cfg.Advisor.RewriteEnabled = true
 	cfg.Advisor.BloatEnabled = true
 	cfg.LLM.Enabled = true
@@ -35,15 +33,6 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	_ = adv
 
 	var totalFindings int
-
-	if vacFindings, err := analyzeVacuum(
-		context.Background(), mgr, snap, nil, cfg, logFn,
-	); err != nil {
-		t.Logf("vacuum error (non-fatal): %v", err)
-	} else {
-		totalFindings += len(vacFindings)
-		t.Logf("vacuum: %d findings", len(vacFindings))
-	}
 
 	if walFindings, err := analyzeWAL(
 		context.Background(), mgr, snap, nil, cfg, logFn,
@@ -61,15 +50,6 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	} else {
 		totalFindings += len(connFindings)
 		t.Logf("connection: %d findings", len(connFindings))
-	}
-
-	if memFindings, err := analyzeMemory(
-		context.Background(), mgr, snap, cfg, logFn,
-	); err != nil {
-		t.Logf("memory error (non-fatal): %v", err)
-	} else {
-		totalFindings += len(memFindings)
-		t.Logf("memory: %d findings", len(memFindings))
 	}
 
 	if rwFindings, err := analyzeQueryRewrites(
@@ -114,16 +94,7 @@ func TestFullPipeline_LLMFailure_GracefulDegradation(t *testing.T) {
 		t.Logf("[%s] "+msg, append([]any{level}, args...)...)
 	}
 
-	_, err := analyzeVacuum(
-		context.Background(), brokenMgr, snap, nil, cfg, logFn,
-	)
-	if err == nil {
-		t.Log("vacuum: no error (may have no qualifying tables)")
-	} else {
-		t.Logf("vacuum: error as expected: %v", err)
-	}
-
-	_, err = analyzeWAL(
+	_, err := analyzeWAL(
 		context.Background(), brokenMgr, snap, nil, cfg, logFn,
 	)
 	if err == nil {

@@ -283,8 +283,8 @@ func BuildReport(rs []Result, meta ReportMeta) Report {
 		switch {
 		case pending:
 			r.Gates = append(r.Gates, PendingGates(arm, why, s.Families)...)
-		case arm == ArmLLM:
-			r.Gates = append(r.Gates, llmArmGates(s, rs, meta.LLM.Mode)...)
+		case modelArms[arm]:
+			r.Gates = append(r.Gates, ModelArmGates(s, rs, arm, meta.LLM.Mode)...)
 		default:
 			r.Gates = append(r.Gates, EvaluateGates(s, arm)...)
 		}

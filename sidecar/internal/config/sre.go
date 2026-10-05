@@ -40,7 +40,8 @@ type SREConfig struct {
 // claims. Every reply is validated; the graph stays the authority and a
 // rejected reply falls back to the deterministic result.
 type SRELLMConfig struct {
-	Enabled bool `yaml:"enabled" doc:"Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."`
+	Enabled bool   `yaml:"enabled" doc:"Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."`
+	Mode    string `yaml:"mode" doc:"investigator: the model plans read-only probes and concludes with cited evidence (advisory). review: one cheaper review turn. Default: investigator."`
 }
 
 // Sage SRE defaults and bounds.
@@ -58,7 +59,7 @@ func defaultSREConfig() SREConfig {
 		SampleIntervalSeconds:  DefaultSRESampleIntervalSeconds,
 		EvidenceRetentionDays:  DefaultSREEvidenceRetentionDays,
 		TimelineRetentionDays:  DefaultSRETimelineRetentionDays,
-		LLM:                    SRELLMConfig{Enabled: true},
+		LLM:                    SRELLMConfig{Enabled: true, Mode: SRELLMModeInvestigator},
 		SLO:                    defaultSRESLOConfig(),
 		ChangeEvents:           defaultSREChangeEventsConfig(),
 		Actions:                defaultSREActionsConfig(),
@@ -110,6 +111,9 @@ func (s SREConfig) validate() error {
 			s.EvidenceRetentionDays)},
 	}
 	if err := s.Actions.validate(); err != nil {
+		return err
+	}
+	if err := s.LLM.validate(); err != nil {
 		return err
 	}
 	for _, c := range checks {

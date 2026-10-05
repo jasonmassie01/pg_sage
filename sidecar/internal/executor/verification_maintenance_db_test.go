@@ -93,10 +93,17 @@ func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
 	pool, ctx := requireDB(t)
 	table := fmt.Sprintf("vo_frz_%d", time.Now().UnixNano())
 	for _, sql := range []string{"CREATE TABLE public." + table + " (a int)",
-		"INSERT INTO public." + table + " SELECT generate_series(1, 100)",
-		"SELECT txid_current()"} {
+		"INSERT INTO public." + table + " SELECT generate_series(1, 100)"} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	// Age the table: right after creation its relfrozenxid age is ~5, so a
+	// freeze can only move it by a few and is judged "barely moved" (CI on
+	// PR #120: 5 -> 4, neutral). Each statement is its own transaction.
+	for i := 0; i < 200; i++ {
+		if _, err := pool.Exec(ctx, "SELECT txid_current()"); err != nil {
+			t.Fatalf("consume xid: %v", err)
 		}
 	}
 	t.Cleanup(func() {
@@ -125,8 +132,9 @@ func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
 	}
 }
 
-// waitXminHorizonPast waits until no other backend's snapshot is older than
-// the table's relfrozenxid. VACUUM FREEZE can only advance relfrozenxid to
+// waitXminHorizonPast waits until nothing that holds the xmin horizon (other
+// backends' snapshots, replication slots' xmin, prepared transactions) is
+// older than the table's relfrozenxid. VACUUM FREEZE can only advance relfrozenxid to
 // the oldest running xmin, and on the shared CI server another package's
 // open transaction held it behind the new table, so the age could not drop
 // (PG15 CI: neutral instead of improved).
@@ -135,11 +143,15 @@ func waitXminHorizonPast(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Helper()
 	for i := 0; i < 120; i++ {
 		var clear bool
-		if err := pool.QueryRow(ctx, `SELECT NOT EXISTS (
-			SELECT 1 FROM pg_stat_activity a, pg_class c
-			WHERE c.oid = to_regclass($1) AND a.pid <> pg_backend_pid()
-			  AND a.backend_xmin IS NOT NULL
-			  AND age(a.backend_xmin) >= age(c.relfrozenxid))`, table).Scan(&clear); err != nil {
+		if err := pool.QueryRow(ctx, `WITH c AS (SELECT relfrozenxid FROM pg_class
+			WHERE oid = to_regclass($1))
+		SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity a, c
+			WHERE a.pid <> pg_backend_pid() AND a.backend_xmin IS NOT NULL
+			  AND age(a.backend_xmin) >= age(c.relfrozenxid))
+		AND NOT EXISTS (SELECT 1 FROM pg_replication_slots s, c
+			WHERE s.xmin IS NOT NULL AND age(s.xmin) >= age(c.relfrozenxid))
+		AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts p, c
+			WHERE age(p.transaction) >= age(c.relfrozenxid))`, table).Scan(&clear); err != nil {
 			t.Fatalf("read the xmin horizon: %v", err)
 		}
 		if clear {

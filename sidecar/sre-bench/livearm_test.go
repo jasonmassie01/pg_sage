@@ -127,9 +127,14 @@ func TestLiveModelArm(t *testing.T) {
 	if err := e.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
 		t.Fatalf("server version: %v", err)
 	}
-	rs := RunReplay(ctx, e, cases, []LiveArm{CausalGraph{}, LLMArm{Config: llm}})
+	arm, err := LiveModelArmFromEnv(os.Getenv, llm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := RunReplay(ctx, e, cases, []LiveArm{CausalGraph{}, arm})
 	sageVersion, sageCommit := BuildFromEnv(os.Getenv)
-	report := BuildLiveReport(rs, cases, LiveMeta{LLM: llm, GeneratedAt: time.Now().UTC(),
+	report := BuildLiveReport(rs, cases, LiveMeta{LLM: llm, Arm: arm.Name(),
+		GeneratedAt:   time.Now().UTC(),
 		ServerVersion: version, PgSageVersion: sageVersion, PgSageCommit: sageCommit})
 	t.Log("\n" + report.Markdown())
 	jsonPath, mdPath, err := WriteReport(ReportDir(os.Getenv(EnvReportDir), t.TempDir()),

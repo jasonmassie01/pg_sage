@@ -52,6 +52,10 @@ type Runner struct {
 	reg    *Registry
 	global *Limiter
 	local  *Limiter
+	// acquireWait bounds the pool wait of one attempt (tests shorten it).
+	acquireWait time.Duration
+	// afterAttempt, when set, sees every attempt's result (tests).
+	afterAttempt func(attempt int, res Result)
 
 	versionMu sync.Mutex
 	version   int
@@ -63,7 +67,8 @@ func NewRunner(pool *pgxpool.Pool, reg *Registry, global *Limiter) *Runner {
 	if global == nil {
 		global = NewLimiter(MaxSidecarConcurrency)
 	}
-	return &Runner{pool: pool, reg: reg, global: global, local: NewLimiter(1)}
+	return &Runner{pool: pool, reg: reg, global: global, local: NewLimiter(1),
+		acquireWait: acquireWait}
 }
 
 // Run executes one probe and returns its typed result. It never panics
@@ -96,15 +101,60 @@ func (r *Runner) run(ctx context.Context, id ID, args Args, background bool) Res
 	if err := args.validate(spec.Args); err != nil {
 		return failed(res, StatusError, "invalid_args", err)
 	}
+	queued := time.Now()
 	release, err := r.acquire(ctx)
+	res.Timing.Queue = time.Since(queued)
 	if err != nil {
-		return failed(res, StatusError, "concurrency_limit", err)
+		return failedAt(res, PhaseQueue, StatusError, "concurrency_limit", err)
 	}
 	defer release()
+	return r.attempts(ctx, spec, args, res)
+}
+
+// attempts runs the probe, once more after a server-side timeout when
+// the retry budget and the caller's deadline allow. Timing sums the
+// attempts; ElapsedMS is the execution time alone.
+func (r *Runner) attempts(ctx context.Context, spec Spec, args Args, res Result) Result {
+	for attempt := 1; ; attempt++ {
+		out := r.attempt(ctx, spec, args, res)
+		out.Timing.Attempts = attempt
+		out.ElapsedMS = out.Timing.Execution.Milliseconds()
+		if r.afterAttempt != nil {
+			r.afterAttempt(attempt, out)
+		}
+		if out.Status.Usable() || !retryable(out.Reason, out.Phase) ||
+			!retryAllowed(ctx, spec, attempt) {
+			return out
+		}
+		res.Timing = out.Timing
+		if sleepCtx(ctx, retryBackoff()) != nil {
+			return out
+		}
+	}
+}
+
+// attempt takes a pool connection within acquireWait, then runs the
+// probe on it within the statement budget: the pool wait never spends
+// the statement's time.
+func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) Result {
+	wait := r.acquireWait
+	if wait <= 0 {
+		wait = acquireWait
+	}
+	actx, cancel := context.WithTimeout(ctx, wait)
+	began := time.Now()
+	conn, err := r.pool.Acquire(actx)
+	res.Timing.Acquire += time.Since(began)
+	cancel()
+	if err != nil {
+		st, reason := classify(err)
+		return failedAt(res, PhasePoolAcquire, st, reason, err)
+	}
+	defer conn.Release()
 	start := time.Now()
 	res.ObservedAt = start
-	res = r.runSpec(ctx, spec, args, res)
-	res.ElapsedMS = time.Since(start).Milliseconds()
+	res = r.runSpec(ctx, conn, spec, args, res)
+	res.Timing.Execution += time.Since(start)
 	return res
 }
 
@@ -123,21 +173,22 @@ func (r *Runner) acquire(ctx context.Context) (func(), error) {
 	return func() { r.global.release(); r.local.release() }, nil
 }
 
-func (r *Runner) runSpec(ctx context.Context, spec Spec, args Args, res Result) Result {
-	version, err := r.serverVersion(ctx)
+func (r *Runner) runSpec(ctx context.Context, conn *pgxpool.Conn, spec Spec, args Args,
+	res Result) Result {
+	version, err := r.serverVersion(ctx, conn)
 	if err != nil {
 		st, reason := classify(err)
-		return failed(res, st, reason, err)
+		return failedAt(res, PhaseExecution, st, reason, err)
 	}
 	variant, ok := spec.VariantFor(version)
 	if !ok {
-		return failed(res, StatusUnsupported, "pg_version",
+		return failedAt(res, PhaseExecution, StatusUnsupported, "pg_version",
 			fmt.Errorf("server_version_num %d", version))
 	}
-	res, err = r.execute(ctx, spec, variant, args, res)
+	res, err = r.execute(ctx, conn, spec, variant, args, res)
 	if err != nil {
 		st, reason := classify(err)
-		return failed(res, st, reason, err)
+		return failedAt(res, PhaseExecution, st, reason, err)
 	}
 	if len(res.Rows) == 0 {
 		res.Status, res.Reason = StatusEmpty, "no_rows"
@@ -147,16 +198,18 @@ func (r *Runner) runSpec(ctx context.Context, spec Spec, args Args, res Result) 
 	return res
 }
 
-func (r *Runner) serverVersion(ctx context.Context) (int, error) {
+// serverVersion reads the server version once, on the probe's own
+// connection: a busy pool at startup does not spend its budget.
+func (r *Runner) serverVersion(ctx context.Context, conn *pgxpool.Conn) (int, error) {
 	r.versionMu.Lock()
 	defer r.versionMu.Unlock()
 	if r.version > 0 {
 		return r.version, nil
 	}
-	vctx, cancel := context.WithTimeout(ctx, MaxStatementTimeout)
+	vctx, cancel := context.WithTimeout(ctx, MaxStatementTimeout+clientMargin)
 	defer cancel()
 	var raw string
-	if err := r.pool.QueryRow(vctx, "SHOW server_version_num").Scan(&raw); err != nil {
+	if err := conn.QueryRow(vctx, "SHOW server_version_num").Scan(&raw); err != nil {
 		return 0, err
 	}
 	v, err := strconv.Atoi(raw)
@@ -179,11 +232,11 @@ const sessionSettingsSQL = `SELECT
 // execute runs the probe in a read-only transaction whose settings are
 // local to it, reading at most MaxRows rows and MaxBytes of payload.
 func (r *Runner) execute(
-	ctx context.Context, spec Spec, v Variant, args Args, res Result,
+	ctx context.Context, conn *pgxpool.Conn, spec Spec, v Variant, args Args, res Result,
 ) (Result, error) {
-	qctx, cancel := context.WithTimeout(ctx, spec.StatementTimeout+time.Second)
+	qctx, cancel := context.WithTimeout(ctx, spec.StatementTimeout+clientMargin)
 	defer cancel()
-	tx, err := r.pool.BeginTx(qctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := conn.BeginTx(qctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return res, err
 	}

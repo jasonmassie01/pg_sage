@@ -35,14 +35,15 @@ func standaloneDefaultsRuntime(t *testing.T, endpoint, key string) *databaseRunt
 
 func TestDefaultsWithoutLLMWireDeterministicRuntime(t *testing.T) {
 	rt := standaloneDefaultsRuntime(t, "", "")
-	if !cfg.LLM.Enabled || !cfg.Advisor.Enabled || !cfg.LLM.Optimizer.Enabled {
-		t.Fatal("precondition: llm, advisor and optimizer default on")
+	if !cfg.LLM.Enabled || !cfg.Advisor.Enabled || !cfg.LLM.Optimizer.Enabled ||
+		!cfg.Tuning.Enabled {
+		t.Fatal("precondition: llm, advisor, optimizer and tuning default on")
 	}
 	if rt.llmOn {
 		t.Fatal("llmOn = true with no endpoint or key")
 	}
-	if opt := rt.newOptimizer(false); opt != nil {
-		t.Error("optimizer built without a usable LLM")
+	if agent := rt.newTuningAgent(false, nil); agent != nil {
+		t.Error("tuning agent built without a usable LLM")
 	}
 	if adv := rt.newAdvisor(); adv != nil {
 		t.Error("advisor built without a usable LLM")
@@ -63,8 +64,8 @@ func TestDefaultsWithLLMWireLLMComponents(t *testing.T) {
 	if !rt.llmOn {
 		t.Fatal("llmOn = false with endpoint and key configured")
 	}
-	if rt.newOptimizer(false) == nil {
-		t.Error("optimizer not built with a usable LLM")
+	if rt.newTuningAgent(false, nil) == nil {
+		t.Error("tuning agent not built with a usable LLM")
 	}
 	if rt.newAdvisor() == nil {
 		t.Error("advisor not built with a usable LLM")
@@ -75,22 +76,22 @@ func TestDefaultsWithLLMWireLLMComponents(t *testing.T) {
 	if llmMgr.Optimizer != nil {
 		t.Error("dedicated optimizer client built though optimizer_llm is off")
 	}
-	primary, fallback := tunerLLMClients(rt.llmManager)
+	primary, fallback := tuningModels(rt.llmManager)
 	if primary != llmClient || fallback != nil {
-		t.Errorf("tuner clients = %p/%p, want the general client only", primary, fallback)
+		t.Errorf("tuning clients = %p/%p, want the general client only", primary, fallback)
 	}
 }
 
 // Explicit opt-outs still win when an LLM is configured.
 func TestExplicitOptOutsWinWithConfiguredLLM(t *testing.T) {
 	rt := standaloneDefaultsRuntime(t, "http://127.0.0.1:1/v1", "fixture-key")
-	cfg.LLM.Optimizer.Enabled = false
+	cfg.Tuning.Enabled = false
 	cfg.Advisor.Enabled = false
-	if rt.newOptimizer(false) != nil || rt.newAdvisor() != nil {
-		t.Error("explicit optimizer/advisor false ignored")
+	if rt.newTuningAgent(false, nil) != nil || rt.newAdvisor() != nil {
+		t.Error("explicit tuning/advisor false ignored")
 	}
 	if rt.newCollector().CollectsConfigSnapshots() {
-		t.Error("config snapshot collected with advisor.enabled=false")
+		t.Error("config snapshot collected with advisor and tuning off")
 	}
 	cfg.LLM.Enabled = false
 	llmClient = llm.New(&cfg.LLM, nil)
