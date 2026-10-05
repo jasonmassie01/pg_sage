@@ -16,7 +16,7 @@
         <link rel="prev" href="../facts/">
       
       
-        <link rel="next" href="../specialist/">
+        <link rel="next" href="../ask-sage/">
       
       
         
@@ -1168,6 +1168,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#ask_sage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ask_sage
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1177,6 +1188,33 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ask-sage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask Sage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1969,6 +2007,17 @@
     <span class="md-ellipsis">
       
         specialist_request_remediation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask_sage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ask_sage
       
     </span>
   </a>
@@ -3805,6 +3854,39 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 <td>string</td>
 <td>yes</td>
 <td>pattern <code>^[a-z_]{1,32}\.[0-9a-f-]{8,36}$</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="ask_sage"><code>ask_sage</code><a class="headerlink" href="#ask_sage" title="Permanent link">&para;</a></h3>
+<p>Ask pg_sage's DBA a question about a database. The answer is built only from evidence it reads (findings, actions and their verification outcomes, the trust ledger, facts, incidents, investigations, the catalog, configuration); every statement cites that evidence and what it could not verify is said. With the propose scope it may open an investigation, queue one of pg_sage's findings for a person's approval or propose a fact a person confirms; it never executes, approves or confirms.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>conversation_id</code></td>
+<td>string</td>
+<td>no</td>
+<td>continue a conversation (its id from an earlier answer)</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>question</code></td>
+<td>string</td>
+<td>yes</td>
+<td>length 1-2000</td>
 </tr>
 </tbody>
 </table>

@@ -428,6 +428,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#where-pg_sage-keeps-its-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where pg_sage keeps its data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-flags" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -488,6 +499,17 @@
     <span class="md-ellipsis">
       
         Collection &amp; Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#derived-settings-self-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Derived settings (self-configuration)
       
     </span>
   </a>
@@ -580,6 +602,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Web UI and API Authentication">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#profiling-the-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiling the sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -599,6 +638,17 @@
     <span class="md-ellipsis">
       
         Blast-radius budgets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-change-per-object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One change per object
       
     </span>
   </a>
@@ -704,6 +754,17 @@
     <span class="md-ellipsis">
       
         Fast elevation (dogfood databases)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-sage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ask Sage
       
     </span>
   </a>
@@ -868,6 +929,33 @@
     
   
     MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ask-sage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask Sage
   
 
     
@@ -1069,6 +1157,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#where-pg_sage-keeps-its-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where pg_sage keeps its data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cli-flags" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1129,6 +1228,17 @@
     <span class="md-ellipsis">
       
         Collection &amp; Analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#derived-settings-self-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Derived settings (self-configuration)
       
     </span>
   </a>
@@ -1221,6 +1331,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Web UI and API Authentication">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#profiling-the-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profiling the sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -1240,6 +1367,17 @@
     <span class="md-ellipsis">
       
         Blast-radius budgets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-change-per-object" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One change per object
       
     </span>
   </a>
@@ -1352,6 +1490,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#ask-sage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ask Sage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1432,6 +1581,44 @@ still needs a restart. In meta-db mode <code>sage.databases</code> is the source
 truth: the managed-database API applies changes immediately, and rows added,
 removed, disabled or changed by another replica or by SQL are picked up within
 30 seconds with the same rules.</p>
+<h3 id="where-pg_sage-keeps-its-data">Where pg_sage keeps its data<a class="headerlink" href="#where-pg_sage-keeps-its-data" title="Permanent link">&para;</a></h3>
+<p>pg_sage bootstraps the <code>sage</code> schema in every monitored database and, with
+<code>--meta-db</code>, in the metadata database too. What is written where:</p>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Standalone / YAML fleet</th>
+<th>Meta-db mode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Logins, sessions, MCP tokens, notification channels and rules, standing policy</td>
+<td>the control database (standalone: the monitored database; YAML fleet: the first database that started)</td>
+<td>metadata database</td>
+</tr>
+<tr>
+<td>Sage SRE investigations, SLOs, change events; the earned-trust ledger (levels, outcomes, proposals, shadow evidence)</td>
+<td>control database</td>
+<td>metadata database</td>
+</tr>
+<tr>
+<td>History: snapshots, query store, explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples</td>
+<td>each monitored database</td>
+<td>each monitored database</td>
+</tr>
+</tbody>
+</table>
+<p>History stays with the database it describes: it is keyed by that database's
+object ids and <code>queryid</code>s, several reads join it with the database's own catalog
+and <code>pg_stat_statements</code>, and the action log, its outcomes and the decision ledger
+reference each other. Its cost there is bounded: catalog snapshots are stored as
+changes against a keyframe, history tables are partitioned by day where they grow
+fastest, <code>retention.*</code> and <code>retention.snapshots_max_pct</code> cap them, and
+<code>self_budget.storage_mb</code> (default 10 GB) raises <code>sage_self_budget</code> when the <code>sage</code>
+schema outgrows it. Keeping history outside the monitored database is not
+supported yet.</p>
 <p>The generated <a href="../generated/config-lifecycles/">per-field lifecycle reference</a>
 is the authoritative list. Regenerate it from the typed registry with:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
@@ -1672,6 +1859,26 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td>Raise a <code>sage_self_cost</code> finding when pg_sage's own statements (the <code>pg_stat_statements</code> entries carrying the <code>/* pg_sage */</code> tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. <code>0</code> disables the finding; the <code>pg_sage_self_*</code> Prometheus metrics are exported either way. <code>0</code>-<code>3600000</code></td>
 </tr>
 <tr>
+<td><code>self_budget.cpu_ms_per_cycle</code></td>
+<td><code>600</code></td>
+<td>CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises <code>sage_self_budget</code>. <code>0</code> disables. <code>0</code>-<code>3600000</code></td>
+</tr>
+<tr>
+<td><code>self_budget.db_time_ms_per_hour</code></td>
+<td><code>0</code></td>
+<td>Database time pg_sage's own statements may use per hour on each database, in ms. <code>0</code> keeps <code>analyzer.self_cost_budget_ms</code> (per collector cycle) as the database-time budget, so one breach never raises two findings. <code>0</code>-<code>3600000</code></td>
+</tr>
+<tr>
+<td><code>self_budget.blocks_per_hour</code></td>
+<td><code>18000000</code></td>
+<td>Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). <code>0</code> disables. <code>0</code>-<code>1000000000000</code></td>
+</tr>
+<tr>
+<td><code>self_budget.storage_mb</code></td>
+<td><code>10240</code></td>
+<td>Size the <code>sage</code> schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative <code>retention.sage_size_warning_pct</code>. <code>0</code> disables. <code>0</code>-<code>10485760</code></td>
+</tr>
+<tr>
 <td><code>rca.lock_chain_interval_seconds</code></td>
 <td><code>60</code></td>
 <td>Seconds between lock-chain fast-path checks. Each check opens or updates the <code>lock_contention</code> incident (with the root blocker's pid, <code>backend_start</code> and query identity) and sends <code>incident_detected</code> without waiting for the analyzer cycle. <code>0</code> disables the fast path; otherwise <code>10</code>-<code>3600</code>. Escalation and auto-resolution still count analyzer cycles. Restart to change</td>
@@ -1693,6 +1900,52 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 </tr>
 </tbody>
 </table>
+<h3 id="derived-settings-self-configuration">Derived settings (self-configuration)<a class="headerlink" href="#derived-settings-self-configuration" title="Permanent link">&para;</a></h3>
+<p>Every configuration key has a self-config class (shown in
+<a href="../generated/config-lifecycles/">the generated lifecycle reference</a>): <code>safety_critical</code>
+(trust, approvals, action authority, verification, credentials, endpoints, the LLM provider)
+and <code>operator_preference</code> (notification routes, windows, declared capacities, feature
+switches) are never derived. For <code>derivable</code> keys with a rule, pg_sage derives a value per
+database from evidence when you leave the key unset:</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>self_config.enabled</code></td>
+<td><code>true</code></td>
+<td>Derive unset derivable settings per database. <code>false</code> keeps every default. Restart to change</td>
+</tr>
+<tr>
+<td><code>self_config.soak_hours</code></td>
+<td><code>24</code></td>
+<td>Hours a new derived value stays in shadow, compared with the active value's measured outcomes, before it may be promoted. <code>1</code>-<code>720</code>. Restart to change</td>
+</tr>
+</tbody>
+</table>
+<p>The derived keys, their evidence, bounds and shadow comparisons are listed in
+<a href="../generated/derived-settings/">derived settings</a>: the collector interval and catalog read
+timeout (sized to the measured catalog and statements scans), sequence runway sampling
+(sized to the measured sequence scan), and the temp-file and LWLock incident thresholds
+(sized to this database's temp traffic and connection limit). A derivation never spends
+more or widens authority than the default (the catalog read timeout alone may grow, to at
+most 10x, because a deadline shorter than the scan fails every cycle). A new value is
+recorded in shadow first; it is promoted only after the soak and only when the comparison
+is not worse, otherwise it stays in shadow with the reason. Restart-bound keys take a
+promoted value at the next start and show it as pending restart.</p>
+<p>A key you set in the YAML file, in a fleet <code>defaults</code>/<code>databases[]</code> field or as an API
+override is never derived and shows as <code>operator</code>. The Configuration page's <strong>Derived
+settings</strong> section (and <code>GET /api/v1/derived-settings?database=</code>) shows each key's value,
+status (<code>default</code>, <code>derived</code>, <code>shadow</code>, <code>pinned</code>, <code>operator</code>), evidence, bounds, pending
+restart and history; an admin can <strong>pin current</strong> (freeze the value in force) or <strong>unpin</strong>
+(<code>POST /api/v1/derived-settings/{key}/pin|unpin?database=</code>). Every step is recorded in
+<code>sage.config_derivation</code> (value, previous value, cited evidence, bounds, rule and version,
+time); the startup log prints one <code>derived settings:</code> line per database.</p>
 <h3 id="trust-actions">Trust &amp; Actions<a class="headerlink" href="#trust-actions" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2276,6 +2529,22 @@ returned <code>sage_session</code> cookie:</p>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
 </code></pre></div>
+<h4 id="profiling-the-sidecar">Profiling the sidecar<a class="headerlink" href="#profiling-the-sidecar" title="Permanent link">&para;</a></h4>
+<p><code>debug.pprof_enabled: true</code> (default <code>false</code>, restart to change) serves Go's profiler
+on the API listener at <code>/api/v1/debug/pprof/</code>, to signed-in <strong>admins only</strong>, through
+the same session login as every other API route; operators and viewers get 403,
+requests without a session (and MCP tokens) get 401, and with the setting off the
+path does not exist (404). It never runs on the Prometheus listener. Responses are
+<code>Cache-Control: no-store</code>. A CPU profile or trace takes <code>?seconds=1</code>-<code>25</code> (default 10,
+inside the API's 30 s request deadline). Enabling it also turns on light block and
+mutex sampling. The process command line is not served (its arguments can carry
+credentials). Profiles reveal code paths and memory: turn it on while diagnosing, then
+off.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># goroutine dump of a running sidecar, no restart, no signal</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span><span class="s1">'http://localhost:8080/api/v1/debug/pprof/goroutine?debug=2'</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># 10 s CPU profile, then: go tool pprof -top profile.pb.gz</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-o<span class="w"> </span>profile.pb.gz<span class="w"> </span><span class="s1">'http://localhost:8080/api/v1/debug/pprof/profile?seconds=10'</span>
+</code></pre></div>
 <h3 id="agent-native-autonomy">Agent-native autonomy<a class="headerlink" href="#agent-native-autonomy" title="Permanent link">&para;</a></h3>
 <p>The <code>policy</code>, <code>verify</code>, <code>clone</code>, <code>custodian</code>, <code>value</code>, and <code>mcp</code> sections
 configure the closed-loop autonomy stack. MCP is an intent-level JSON-RPC
@@ -2317,12 +2586,12 @@ to disabled (<code>clone.provider: none</code>) and stale clones are recommendat
 <code>blast_radius</code>. Housekeeping and performance changes have separate budgets,
 so a burst of index cleanup can never hold back an evidence-backed index or
 setting change:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">"blast_radius"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">"max_rows_rewritten"</span><span class="p">:</span><span class="w"> </span><span class="mi">5000000</span><span class="p">,</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">"max_tables_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">"hygiene"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"max_tables_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="nt">"max_changes_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">}</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">},</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nt">"rate_limits"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"max_self_initiated_changes_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">"blast_radius"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">"max_rows_rewritten"</span><span class="p">:</span><span class="w"> </span><span class="mi">5000000</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">"max_tables_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">"hygiene"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"max_tables_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="nt">"max_changes_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">}</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">},</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">"rate_limits"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"max_self_initiated_changes_per_window"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">}</span>
 </code></pre></div>
 <p>The performance budget is <code>blast_radius.max_tables_per_window</code> plus
 <code>rate_limits.max_self_initiated_changes_per_window</code> (a document may also
@@ -2383,12 +2652,63 @@ max_changes_per_window}</code>); <code>hygiene</code> is optional and defaults p
   every other check: change classes, guardrails, the refusal set, windows,
   leases, lock ceilings and the shared <code>max_rows_rewritten</code> bound.</li>
 </ul>
+<h4 id="one-change-per-object">One change per object<a class="headerlink" href="#one-change-per-object" title="Permanent link">&para;</a></h4>
+<p>pg_sage changes one object at a time and waits for the verdict before the
+next change to it. An object is a setting (<code>work_mem</code> is one object whether it
+is changed with <code>ALTER SYSTEM</code>, <code>ALTER DATABASE</code> or <code>ALTER ROLE</code>) or a table
+with its indexes (an index, its reloptions, <code>VACUUM</code>, <code>ANALYZE</code> and extended
+statistics on a table are all changes to that table). For index, extended
+statistics and reloption changes, a partitioned table, its partitions and
+their indexes are one object (the partition tree, from <code>pg_inherits</code>), so a
+change to one waits for a change to another; <code>VACUUM</code> and <code>ANALYZE</code> of a
+partition stay that partition's own. The identity comes from the statement
+and the catalog, never from evidence or an LLM.</p>
+<ul>
+<li><strong>What waits.</strong> A self-initiated change whose object has another change in
+  flight is parked with reason <code>awaiting_verification</code>. In flight means an
+  executed action still being watched (<code>sage.action_log.outcome</code> monitoring,
+  pending, interrupted or rolling back), one whose verdict in
+  <code>sage.action_outcome</code> is still pending, or a self-initiated change the gate
+  has authorized that has not run yet (so two proposals for one table in the
+  same cycle never both run; an operator's change runs at once and holds its
+  object through its action). The decision's detail and <code>evidence.verification_wait</code> name the
+  action and until when, for example <code>awaiting verification of action 6407
+  (until 2026-10-04T18:10:00Z) on guc:work_mem</code>. A change that would otherwise
+  need approval is still queued; its approval card shows the wait.</li>
+<li><strong>When it resumes.</strong> The parked change is evaluated again every cycle and
+  runs once the verification concludes (improved, neutral, regressed,
+  insufficient evidence, unverifiable, or rolled back).</li>
+<li><strong>Never forever.</strong> A verification that passes its hard deadline without a
+  verdict releases the wait, and the release is recorded on the decision
+  (<code>evidence.verification_wait_released</code>, with its <code>release_reason</code>). The
+  hard deadline is the verification cap (<code>verify.window_max_minutes</code>) plus
+  one hour after the action ran. An index drop holds its table only until its
+  first window concludes (<code>trust.rollback_window_minutes</code> after it ran),
+  released as "drop's first window concluded" and shown on approval cards;
+  its soft-drop monitoring keeps watching the whole business cycle
+  (<code>verify.drop_window_hours</code>) and re-creates the index on a regression. An
+  authorized change that has not run holds its object for at most twice the
+  DDL timeout plus a minute.</li>
+<li><strong>Never waits.</strong> Rollbacks and reverts of pg_sage's own changes (including the
+  rollback of the change being verified), emergency mitigations (the same
+  cases that bypass the budgets above), owner-declared retention deletes and
+  read-only diagnostics.</li>
+<li><strong>Operator override.</strong> Approving a queued change runs it even while the
+  object waits; the approval card says so first ("approving overrides pending
+  verification of action N") and the decision records
+  <code>evidence.verification_override</code>.</li>
+<li><strong>Metrics.</strong> <code>pg_sage_policy_parks_total{database,reason}</code> counts every park
+  by reason (one per evaluation), and
+  <code>pg_sage_verification_wait_releases_total{database,cause}</code> the waits that
+  ended without a verdict (<code>operator_override</code>, <code>hard_deadline</code>,
+  <code>drop_first_window</code>).</li>
+</ul>
 <h4 id="retention-contracts">Retention contracts<a class="headerlink" href="#retention-contracts" title="Permanent link">&para;</a></h4>
 <p>The only way pg_sage deletes user rows is a retention contract declared with the
 MCP tool <code>declare_table_contract</code>. The owner names both the window and the column
 whose age defines it; pg_sage never infers the column:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span><span class="nt">"table"</span><span class="p">:</span><span class="w"> </span><span class="s2">"public.events"</span><span class="p">,</span><span class="w"> </span><span class="nt">"append_only"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w"> </span><span class="nt">"retention"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"interval"</span><span class="p">:</span><span class="w"> </span><span class="s2">"90 days"</span><span class="p">,</span><span class="w"> </span><span class="nt">"column"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ingested_at"</span><span class="p">}}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span><span class="nt">"table"</span><span class="p">:</span><span class="w"> </span><span class="s2">"public.events"</span><span class="p">,</span><span class="w"> </span><span class="nt">"append_only"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w"> </span><span class="nt">"retention"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"interval"</span><span class="p">:</span><span class="w"> </span><span class="s2">"90 days"</span><span class="p">,</span><span class="w"> </span><span class="nt">"column"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ingested_at"</span><span class="p">}}</span>
 </code></pre></div>
 <ul>
 <li><code>retention.column</code> is required whenever <code>retention.interval</code> is set. It must
@@ -3329,19 +3649,19 @@ configurable, the spec value is the default, and each has a minimum: no setting 
 to skip its check.</p>
 <p>Use this only where you accept the risk:</p>
 <!-- fast-elevation-profile:start -->
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">trust</span><span class="p">:</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">ramp_safe_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">              </span><span class="c1"># propose L2 after 1 hour observed (spec: 192)</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">ramp_moderate_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">          </span><span class="c1"># propose MODERATE L3 after 4 hours (spec: 744)</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nt">verify</span><span class="p">:</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">io_baseline_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># learned IO baseline after 2 hours (spec: 7 days)</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">drop_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># verify an index drop over 2 hours (spec: 168)</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="nt">sre</span><span class="p">:</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
-<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">trust</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">ramp_safe_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">              </span><span class="c1"># propose L2 after 1 hour observed (spec: 192)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">ramp_moderate_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">          </span><span class="c1"># propose MODERATE L3 after 4 hours (spec: 744)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="nt">verify</span><span class="p">:</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">io_baseline_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># learned IO baseline after 2 hours (spec: 7 days)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">drop_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># verify an index drop over 2 hours (spec: 168)</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="nt">sre</span><span class="p">:</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
 </code></pre></div>
 <!-- fast-elevation-profile:end -->
 
@@ -3367,6 +3687,47 @@ are YAML-only and need a restart; the config API refuses them.</p>
 on the Earned autonomy page (or <code>POST /api/v1/sre/autonomy/evaluate</code> as an operator), then
 approve the pending promotion as an admin (or <code>GET /api/v1/sre/autonomy/proposals</code> and <code>POST
 /api/v1/sre/autonomy/proposals/{id}/approve</code>).</p>
+<h3 id="ask-sage">Ask Sage<a class="headerlink" href="#ask-sage" title="Permanent link">&para;</a></h3>
+<p>Ask Sage answers questions about a database from cited evidence (UI, REST API, MCP
+<code>ask_sage</code>) with its own daily LLM budget, separate from <code>llm.token_budget_daily</code>. It reads;
+it can open an investigation or queue a finding for a person's approval, and never executes
+or approves. See <a href="../ask-sage/">Ask Sage</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ask.enabled</code></td>
+<td><code>true</code></td>
+<td>Answer questions. Restart to change</td>
+</tr>
+<tr>
+<td><code>ask.daily_tokens_per_database</code></td>
+<td><code>300000</code></td>
+<td>Daily tokens for one database, all users (0 refuses). Restart to change</td>
+</tr>
+<tr>
+<td><code>ask.daily_tokens_per_user</code></td>
+<td><code>100000</code></td>
+<td>Daily tokens for one user or MCP token; at most the database's. Restart to change</td>
+</tr>
+<tr>
+<td><code>ask.max_tokens_per_question</code></td>
+<td><code>40000</code></td>
+<td>Most tokens one question may use (4000-200000). Restart to change</td>
+</tr>
+<tr>
+<td><code>ask.retention_days</code></td>
+<td><code>30</code></td>
+<td>Days a conversation is kept after its last question (1-3650). Restart to change</td>
+</tr>
+</tbody>
+</table>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>

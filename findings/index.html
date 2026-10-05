@@ -754,6 +754,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage_self_budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sage_self_budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#checkpoint_pressure" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -869,6 +880,33 @@
     
   
     MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ask-sage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask Sage
   
 
     
@@ -1315,6 +1353,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage_self_budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sage_self_budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#checkpoint_pressure" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1592,12 +1641,43 @@ disables it. The same figures are exported as <code>pg_sage_self_*</code> Promet
 <code>collector.interval_seconds</code> or <code>analyzer.interval_seconds</code>, or raise
 <code>analyzer.self_cost_budget_ms</code> if the cost is expected.</p>
 <hr />
+<h3 id="sage_self_budget">sage_self_budget<a class="headerlink" href="#sage_self_budget" title="Permanent link">&para;</a></h3>
+<p>Detects pg_sage exceeding the budget it declares for itself.</p>
+<p><strong>Severity:</strong> warning</p>
+<p><strong>What it detects:</strong> pg_sage used more than its <code>self_budget</code> of one or more resources
+on this database: the sidecar process's CPU per collector cycle
+(<code>self_budget.cpu_ms_per_cycle</code>, default 600 ms, 1% of one core at the default 60 s
+interval), its own statements' database time per hour
+(<code>self_budget.db_time_ms_per_hour</code>, off by default because
+<code>analyzer.self_cost_budget_ms</code> already budgets it per cycle), the shared blocks they
+touch per hour (<code>self_budget.blocks_per_hour</code>, default 18,000,000) and the size of the
+<code>sage</code> schema (<code>self_budget.storage_mb</code>, default 10240). One finding lists every
+resource over budget with what it used, and names the top consumers: pg_sage's five
+costliest statements of the window (database time, calls, blocks; text shown without
+the tag) and its busiest loops (collector and analyzer busy time). CPU is a process
+figure: when one sidecar monitors several databases, each database's finding reports
+the same process CPU. A resource that could not be measured (first cycle after a
+start, no <code>pg_stat_statements</code>) keeps the open finding open; <code>0</code> disables a resource.
+The same figures are exported as <code>pg_sage_self_cpu_ms_per_cycle</code>,
+<code>pg_sage_self_db_time_ms_per_hour</code>, <code>pg_sage_self_blocks_per_hour</code>,
+<code>pg_sage_self_budget{resource}</code>, <code>pg_sage_self_budget_exceeded{database,resource}</code> and
+<code>pg_sage_self_loop_busy_seconds_total{loop}</code>.</p>
+<p><strong>Example output:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Sage monitoring exceeded its own cpu, storage budget on lifeos
+</code></pre></div>
+<p><strong>Recommended action:</strong> Start with the top statements and loops in the finding.
+Lengthen <code>collector.interval_seconds</code> or <code>analyzer.interval_seconds</code>, turn off
+components you do not use, shorten retention for storage, or raise the <code>self_budget</code>
+value if the cost is expected. To see where the sidecar's CPU goes, enable
+<code>debug.pprof_enabled</code> and take a CPU profile (see
+<a href="../configuration/#profiling-the-sidecar">configuration</a>).</p>
+<hr />
 <h3 id="checkpoint_pressure">checkpoint_pressure<a class="headerlink" href="#checkpoint_pressure" title="Permanent link">&para;</a></h3>
 <p>Detects high checkpoint frequency.</p>
 <p><strong>Severity:</strong> warning</p>
 <p><strong>What it detects:</strong> Checkpoints occurring more frequently than expected, indicating heavy write load or insufficient <code>max_wal_size</code>.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Checkpoint pressure: 45 checkpoints in last hour (expected &lt; 6)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Checkpoint pressure: 45 checkpoints in last hour (expected &lt; 6)
 </code></pre></div>
 <p><strong>Recommended action:</strong> Increase <code>max_wal_size</code> and <code>checkpoint_completion_target</code>.</p>
 <hr />
@@ -1607,7 +1687,7 @@ disables it. The same figures are exported as <code>pg_sage_self_*</code> Promet
 <p><strong>Severity:</strong> warning or critical</p>
 <p><strong>What it detects:</strong> Standby servers falling behind the primary, measured via <code>pg_stat_replication</code>.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Replication lag: 45 seconds behind primary
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>Replication lag: 45 seconds behind primary
 </code></pre></div>
 <p><strong>Recommended action:</strong> Investigate network issues, standby I/O capacity, or heavy write load on primary.</p>
 <hr />
@@ -1616,10 +1696,10 @@ disables it. The same figures are exported as <code>pg_sage_self_*</code> Promet
 <p><strong>Severity:</strong> warning</p>
 <p><strong>What it detects:</strong> Replication slots without active consumers, causing WAL to accumulate and disk usage to grow.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
 </code></pre></div>
 <p><strong>Recommended action:</strong> Drop the inactive slot if the consumer is permanently gone.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">pg_drop_replication_slot</span><span class="p">(</span><span class="s1">'old_subscriber'</span><span class="p">);</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">pg_drop_replication_slot</span><span class="p">(</span><span class="s1">'old_subscriber'</span><span class="p">);</span>
 </code></pre></div>
 <hr />
 <h2 id="tier-2-llm-index-optimizer">Tier 2 -- LLM Index Optimizer<a class="headerlink" href="#tier-2-llm-index-optimizer" title="Permanent link">&para;</a></h2>
