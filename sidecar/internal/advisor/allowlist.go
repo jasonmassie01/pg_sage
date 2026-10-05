@@ -119,16 +119,10 @@ func withApprovalRequired(f analyzer.Finding, why string) analyzer.Finding {
 // restart-required settings need an operator, shared_buffers must be
 // grounded in host memory, and managed services get their own form
 // (ALTER SYSTEM becomes ALTER DATABASE; settings they forbid are
-// filtered).
+// filtered; on RDS, Aurora and Cloud SQL those carry a managed-change
+// intent instead). Host memory beyond the total: GateConfigFindingsHost.
 func GateConfigFindings(findings []analyzer.Finding, hostMemBytes int64,
 	cloudEnv, dbName string, settings []collector.PGSetting) []analyzer.Finding {
-	kept := make([]analyzer.Finding, 0, len(findings))
-	for _, f := range findings {
-		if ok, _ := ValidateConfigSQL(f.RecommendedSQL); ok {
-			kept = append(kept, f)
-		}
-	}
-	kept = applyHostMemoryGuard(kept, hostMemBytes)
-	kept = applyConfigAllowlist(kept)
-	return TransformForCloud(kept, cloudEnv, dbName, settings)
+	return GateConfigFindingsHost(findings, HostMemory{TotalBytes: hostMemBytes}, cloudEnv,
+		dbName, settings)
 }

@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -35,6 +36,9 @@ type Settings struct {
 	CloudEnv        string
 	DatabaseName    string
 	HostMemoryBytes int64
+	// HostMemory is live host memory from managed-cloud telemetry (nil:
+	// none); an unknown reading falls back to HostMemoryBytes.
+	HostMemory      func() advisor.HostMemory
 	MaxOutputTokens int
 	Thresholds      Thresholds
 	// MaxNewPerTable bounds new index proposals per table per cycle

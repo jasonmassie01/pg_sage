@@ -79,6 +79,17 @@
 | `clone.dle_token` | `restart` | `-` |
 | `clone.max_clone_age_minutes` | `restart` | `-` |
 | `clone.provider` | `restart` | `-` |
+| `cloud_telemetry.aws.db_cluster_identifier` | `restart` | `-` |
+| `cloud_telemetry.aws.db_instance_identifier` | `restart` | `-` |
+| `cloud_telemetry.aws.region` | `restart` | `-` |
+| `cloud_telemetry.enabled` | `restart` | `-` |
+| `cloud_telemetry.gcp.instance` | `restart` | `-` |
+| `cloud_telemetry.gcp.project` | `restart` | `-` |
+| `cloud_telemetry.max_replica_lag_seconds` | `restart` | `-` |
+| `cloud_telemetry.min_available_memory_pct` | `restart` | `-` |
+| `cloud_telemetry.min_free_storage_pct` | `restart` | `-` |
+| `cloud_telemetry.min_storage_runway_hours` | `restart` | `-` |
+| `cloud_telemetry.poll_interval_seconds` | `restart` | `-` |
 | `collector.batch_size` | `restart` | `-` |
 | `collector.interval_seconds` | `reconfigure` | `collector` |
 | `collector.max_queries` | `restart` | `-` |

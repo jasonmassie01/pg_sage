@@ -30,6 +30,8 @@ var excludedPrefixes = []string{
 	// YAML only and restart-bound, not API overrides (phase 3 observer).
 	"self_budget.",
 	"debug.",
+	// managed-cloud telemetry identity and guard floors: YAML/env only, restart-bound
+	"cloud_telemetry.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config

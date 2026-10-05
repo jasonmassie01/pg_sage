@@ -29,6 +29,8 @@ type Advisor struct {
 	// hostMemoryBytes is operator-supplied host RAM. PostgreSQL exposes
 	// no RAM figure; without it shared_buffers changes stay advisory.
 	hostMemoryBytes int64
+	// hostMemorySource is live host memory (managed-cloud telemetry).
+	hostMemorySource HostMemorySource
 
 	// facts renders the confirmed facts for prompts (roadmap 2.3); nil: none.
 	facts FactSource
@@ -167,7 +169,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	if dbName == "" {
 		dbName = a.cfg.Postgres.Database
 	}
-	all = GateConfigFindings(all, a.hostMemoryBytes, cloudEnv, dbName,
+	all = GateConfigFindingsHost(all, a.hostMemory(), cloudEnv, dbName,
 		snap.ConfigData.PGSettings)
 
 	a.mu.Lock()

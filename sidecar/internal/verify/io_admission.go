@@ -31,6 +31,10 @@ type LoadEvidence struct {
 	Capacity   *IOCapacity
 	Baseline   IOBaseline
 	WindowOpen bool
+	// HostWithhold is why host telemetry says to wait (managed-cloud
+	// replica lag, storage runway, memory pressure; "; "-joined, "" =
+	// none). It can only withhold an admission, never grant one.
+	HostWithhold string
 }
 
 // DecideAdmission applies the earned-admission rules to the evidence:
@@ -58,6 +62,9 @@ func DecideAdmission(evidence LoadEvidence, options Options) Admission {
 	}
 	if admission.OK {
 		admission = applyCPURule(admission, evidence, options)
+	}
+	if admission.OK {
+		admission = applyHostWithhold(admission, evidence, record)
 	}
 	record["evidence_mode"] = admission.Mode
 	record["reason"] = admission.Reason

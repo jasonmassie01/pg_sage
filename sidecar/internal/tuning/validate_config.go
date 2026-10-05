@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/managedparam"
 	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -122,21 +123,27 @@ func (v *validator) gated(c Case, p Proposal, f analyzer.Finding, class,
 		settings = v.cur.ConfigData.PGSettings
 	}
 	s := v.a.settings
-	out := advisor.GateConfigFindings([]analyzer.Finding{f}, s.HostMemoryBytes, s.CloudEnv,
+	out := advisor.GateConfigFindingsHost([]analyzer.Finding{f}, s.hostMemory(), s.CloudEnv,
 		s.DatabaseName, settings)
 	if len(out) != 1 {
 		return reject(p, ReasonInvalid, "the configuration gates refused %s",
 			f.RecommendedSQL)
 	}
+	verdict := VerdictAdmitted
 	if strings.TrimSpace(out[0].RecommendedSQL) == "" {
-		return reject(p, ReasonUnavailable, "not executable here: %s",
-			strings.TrimSpace(out[0].Recommendation))
+		// A managed service's parameter group / flag change is redirected
+		// to the provider for an operator; anything else is refused.
+		if _, managed := managedparam.IntentFromDetail(out[0].Detail); !managed {
+			return reject(p, ReasonUnavailable, "not executable here: %s",
+				strings.TrimSpace(out[0].Recommendation))
+		}
+		verdict = VerdictRedirected
 	}
 	g := out[0]
 	pred := verify.Prediction{Class: class, Method: verify.MethodModel, Metric: metric,
 		ExpectedChangePct: p.ExpectedChangePct, TargetQueryIDs: v.targets(c, p),
 		Source: PredictionSource, Note: "the model's estimate"}
-	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &g, Class: class,
+	return Judged{Proposal: p, Verdict: verdict, Finding: &g, Class: class,
 		Prediction: pred, Tables: c.Tables}
 }
 

@@ -195,6 +195,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// external agents asked; a result post still owed is kept.
 		{table: "specialist_requests", timeCol: "created_at", days: r.ActionsDays,
 			extra: "AND outbound <> 'pending'"},
+		// Managed provider changes (roadmap phase 3): open proposals are
+		// kept; decided, applied and superseded ones age from their last change.
+		{table: "managed_change_proposals", timeCol: "updated_at", days: r.ActionsDays,
+			extra: "AND status NOT IN ('pending', 'approved')"},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is

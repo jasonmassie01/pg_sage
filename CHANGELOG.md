@@ -44,6 +44,19 @@
   its data in each mode is now documented; keeping history outside the monitored database
   is not supported yet.
 
+- **Managed clouds: host telemetry and parameter-group proposals for RDS, Aurora and Cloud
+  SQL.** pg_sage now reads CloudWatch and Performance Insights (RDS/Aurora) and Cloud
+  Monitoring (Cloud SQL) with the providers' standard credential chains: CPU, memory,
+  storage, IOPS, replica lag and DB load. Host memory grounds `shared_buffers` proposals
+  (and caps `work_mem`), provider CPU lets index builds be admitted outside a maintenance
+  window, and builds wait while a replica lags, storage runs out or memory is short. Settings
+  SQL cannot change become proposals on the Actions page with the exact parameter group or
+  database flag, the reboot they need, the rollback and the CLI command; pg_sage never applies
+  them, it marks them applied once PostgreSQL runs the new value and reports parameter drift.
+  Without credentials telemetry is unavailable and nothing else changes. See
+  `docs/managed-clouds.md` (`cloud_telemetry:` section, `GET /api/v1/cloud-telemetry`,
+  `/api/v1/managed-changes`).
+
 ### Fixed
 
 - **pg_sage now makes one change at a time to a setting or a table, and waits for the

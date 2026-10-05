@@ -417,7 +417,8 @@ func migrationStatements() []string {
 		ddlTuningBudgetDay,
 		ddlOnboarding,
 		ddlSpecialist,
-		ddlAsk)
+		ddlAsk,
+		ddlManagedChangeProposals)
 }
 
 // ---------------------------------------------------------------------------
