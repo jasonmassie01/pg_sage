@@ -267,3 +267,51 @@ below 70% are unchanged (`cmd/reset_admin_for_test` 50.0%, `cmd/create_admin` 51
    versa)? Today they are separate objects.
 3. The tuning agent (#115) dedupes subsumed proposals at the source; this gate rule is the
    backstop when two still arrive.
+
+## Follow-up: owner decisions on PR #122
+
+All four product calls listed for confirmation (1, 2, 7, 8) were confirmed as made. Open questions answered and
+implemented (tests first, `5ef639a5`; implementation `fix(executor)` after it):
+
+1. **A drop holds its table only until its first window concludes**, not its 7-day cycle:
+   the wait ends `trust.rollback_window_minutes` after the drop ran (the monitor's first
+   window; the drop monitor records no earlier verdict, so the first window's end is the
+   first point a verdict could be due). The release is recorded on the decision
+   (`verification_wait_released[].release_reason = "drop's first window concluded"`), in
+   the detail, as `pg_sage_verification_wait_releases_total{cause="drop_first_window"}`,
+   and on approval cards ("Wait released: verification of action N: drop's first window
+   concluded (the drop's soft-drop monitoring continues over its business cycle)"). The
+   drop's own monitoring and soft-drop re-create are unchanged. `VerificationWindows`
+   lost its now-unused drop window field.
+2. **A partition tree is one object for index, extended-statistics and reloption
+   changes**: `policy.ResolveChangeTables` returns each table's `pg_partition_root`
+   (pg_inherits; NULL outside a tree), and such changes also meet on
+   `partition_tree:<root>`, so a change to the parent, a partition or one of their indexes
+   waits for an in-flight change to another, both directions. VACUUM, ANALYZE and
+   settings keep their own object. The root comes from the catalog in the same single
+   resolution query (catalog indexes only; no sage table read added).
+
+Tests: `verification_wait_partition_db_test.go` (drop parks 30 s before its first-window
+end and is released 30 s after, the drop still `monitoring`; parent -> partition index and
+partition reloption; partition index (REINDEX of a partition's index) -> parent index and
+parent statistics; ANALYZE of a partition and an unrelated table unaffected; the root
+resolution itself), policy boundary at the first window's end (inclusive), release
+causes, ledger `release_reason`, counters and the card line. Requirement-driven test
+changes: the drop rows of `TestWaitTimesFollowTheVerificationWindows` (168 h -> first
+window) and the dropped-index identity test's age (1 h -> 5 min, inside the first window).
+
+Mutation check of the new rules: 9 mutants (drop held to the cap, drop release reason
+lost, drop release counted as hard deadline, card hides the drop release, no partition
+root, partition scope ignored, VACUUM/ANALYZE partition-scoped, index not its table under
+the new query, plus M01/M10 re-run): **all killed**.
+
+Merged `origin/release/v2.1.0` (`ff068cbf`): CHANGELOG conflict resolved by putting this
+bullet first under the release branch's `### Fixed` (released sections unchanged); dist
+conflicts taken from the release branch, then the dist rebuilt from the merged sources
+(vitest 83 files / 483 tests passed).
+
+Follow-up test results (after the merge, golang:1.25, `--cpus=2`, `-p 2`, PG17 :55476):
+policy 88.4%, executor 88.3%, approvalcard 90.4%, schema 84.5%, api 78.9%,
+cmd/pg_sage_sidecar 79.8%: all ok, no failures, no skips in touched packages. Small perf
+gate: **PASS**, 0 offenders; `sage.action_log` and `sage.decision` 0 seq scans
+(`sage.action_outcome` empty in the seed, 0 rows read). golangci-lint: 0 issues.
