@@ -69,6 +69,11 @@ func TestWorkerCycleProposesFromFindings(t *testing.T) {
 	maxConns := runningSetting(t, pool, "max_connections")
 	target := rdsTarget()
 	delete(target.Params, "max_wal_size") // only max_connections drifts
+	// The shared CI server's work_mem is whatever other tests left it at
+	// (PR #126, PG15: 28672), so configure what it runs.
+	wm := target.Params["work_mem"]
+	wm.Value = runningSetting(t, pool, "work_mem")
+	target.Params["work_mem"] = wm
 	target.Params["max_connections"] = GroupParam{Value: "9999", Source: "user",
 		ApplyType: "static", Modifiable: true}
 	r := &fakeResolver{target: target}
