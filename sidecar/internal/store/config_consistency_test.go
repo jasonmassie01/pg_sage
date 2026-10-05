@@ -25,6 +25,10 @@ var excludedPrefixes = []string{
 	"briefing.",
 	"databases.",
 	"defaults.",
+	// pg_sage's declared self-budget and the admin-only profiler are
+	// YAML only and restart-bound, not API overrides (phase 3 observer).
+	"self_budget.",
+	"debug.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config

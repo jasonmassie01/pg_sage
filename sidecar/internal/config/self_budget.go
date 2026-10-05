@@ -8,7 +8,7 @@ import "fmt"
 // and, when exceeded, raised as one sage_self_budget finding naming the
 // top consumers. 0 disables a resource.
 type SelfBudgetConfig struct {
-	CPUMsPerCycle   int   `yaml:"cpu_ms_per_cycle" doc:"CPU time the pg_sage sidecar process may use per collector cycle, in ms (all databases it monitors together). 0 disables. Range 0-3600000. Default: 600 (1% of one core at the default 60 s collector interval)."`
+	CPUMsPerCycle   int   `yaml:"cpu_ms_per_cycle" doc:"CPU time the sidecar process may use per collector cycle, in ms (all monitored databases together). 0 disables. Range 0-3600000. Default: 600 (1% of one core at the default 60 s interval)."`
 	DBTimeMsPerHour int   `yaml:"db_time_ms_per_hour" doc:"Database time pg_sage's own statements may use per hour on each database, in ms. 0 keeps analyzer.self_cost_budget_ms (per collector cycle) as the database-time budget. Range 0-3600000. Default: 0."`
 	BlocksPerHour   int64 `yaml:"blocks_per_hour" doc:"Shared buffer blocks (hit or read, 8 KB each) pg_sage's own statements may touch per hour on each database. 0 disables. Range 0-1000000000000. Default: 18000000."`
 	StorageMB       int   `yaml:"storage_mb" doc:"Size the sage schema (tables, TOAST and indexes) may reach on each database, in MB. 0 disables. Range 0-10485760. Default: 10240."`
