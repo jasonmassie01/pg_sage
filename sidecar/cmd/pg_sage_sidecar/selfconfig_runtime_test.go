@@ -75,12 +75,22 @@ func byKey(results []selfconfig.Result) map[string]selfconfig.Result {
 }
 
 // On a small database every rule's evidence supports the default: nothing
-// is shadowed, nothing changes and the ledger stays empty.
+// is shadowed, nothing changes and the ledger stays empty. The catalog
+// evidence is read from the test database; its temp-file rate is pinned
+// idle, because the shared CI database's cumulative temp_bytes come from
+// other tests' workload, not from this database's size.
 func TestSelfConfigOnASmallDatabaseKeepsTheDefaults(t *testing.T) {
 	pool := selfConfigPool(t)
 	cfg := config.DefaultConfig()
 	logs := &logCapture{}
-	results, err := newTestRunner(pool, cfg, logs).pass(t.Context(), selfconfig.PhaseStartup)
+	r := newTestRunner(pool, cfg, logs)
+	r.gather = func(ctx context.Context) (selfconfig.Evidence, error) {
+		ev, err := selfconfig.Gather(ctx, pool)
+		ev.TempBytes = selfconfig.Known(0)
+		ev.TempBytesPerSecond = selfconfig.Known(0)
+		return ev, err
+	}
+	results, err := r.pass(t.Context(), selfconfig.PhaseStartup)
 	if err != nil {
 		t.Fatal(err)
 	}
