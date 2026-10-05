@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -121,24 +122,30 @@ func TestOperatorSetKeysReadsAPIOverrides(t *testing.T) {
 	}
 }
 
-// lockCatalogs holds the named pg_catalog tables exclusively until release.
+// lockCatalogs holds the named pg_catalog tables exclusively until release,
+// on a connection of its own: a new backend cannot start while pg_index is
+// locked, so p must keep its warm connection free.
 func lockCatalogs(t *testing.T, ctx context.Context, p *pgxpool.Pool,
 	tables ...string) func() {
 	t.Helper()
-	tx, err := p.Begin(ctx)
+	conn, err := pgx.ConnectConfig(ctx, p.Config().ConnConfig.Copy())
 	if err != nil {
+		t.Fatalf("connect lock session: %v", err)
+	}
+	var once sync.Once
+	release := func() {
+		once.Do(func() { _ = conn.Close(context.Background()) }) // ends the lock
+	}
+	t.Cleanup(release)
+	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
 		t.Fatalf("begin lock transaction: %v", err)
 	}
 	for _, tbl := range tables {
-		if _, err := tx.Exec(ctx, "LOCK TABLE pg_catalog."+tbl+
+		if _, err := conn.Exec(ctx, "LOCK TABLE pg_catalog."+tbl+
 			" IN ACCESS EXCLUSIVE MODE"); err != nil {
-			_ = tx.Rollback(context.Background())
 			t.Fatalf("lock %s: %v", tbl, err)
 		}
 	}
-	var once sync.Once
-	release := func() { once.Do(func() { _ = tx.Rollback(context.Background()) }) }
-	t.Cleanup(release)
 	return release
 }
 
@@ -178,9 +185,13 @@ func TestFirstLookRetryRecordsTheResult(t *testing.T) {
 	logs := &levelLog{}
 	run := &firstLookRun{name: "app", pool: p, provider: "self-managed", started: started,
 		tracker: tr, opts: opts, logf: logs.logf}
+	// Held past the two 300 ms timeouts; saving the report may wait on it.
 	release := lockCatalogs(t, ctx, p, "pg_index", "pg_extension")
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		release()
+	}()
 	report, err := run.execute(ctx)
-	release()
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,24 +20,27 @@ import (
 
 // lockIndexCatalog holds pg_catalog.pg_index exclusively until release is
 // called (or the test ends); the fixture database is this package's own.
+// The lock is held on a connection of its own: a new backend cannot start
+// while pg_index is locked, so the pools under test must keep their warm
+// connections free.
 func lockIndexCatalog(t *testing.T, ctx context.Context, admin *pgxpool.Pool) func() {
 	t.Helper()
-	tx, err := admin.Begin(ctx)
+	conn, err := pgx.ConnectConfig(ctx, admin.Config().ConnConfig.Copy())
 	if err != nil {
-		t.Fatalf("begin lock transaction: %v", err)
+		t.Fatalf("connect lock session: %v", err)
 	}
-	if _, err := tx.Exec(ctx, "LOCK TABLE pg_catalog.pg_index IN ACCESS EXCLUSIVE MODE"); err != nil {
-		_ = tx.Rollback(context.Background())
-		t.Fatalf("lock pg_index: %v", err)
-	}
-	released := false
+	var once sync.Once
 	release := func() {
-		if !released {
-			released = true
-			_ = tx.Rollback(context.Background())
-		}
+		once.Do(func() { _ = conn.Close(context.Background()) }) // ends the lock
 	}
 	t.Cleanup(release)
+	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
+		t.Fatalf("begin lock transaction: %v", err)
+	}
+	if _, err := conn.Exec(ctx,
+		"LOCK TABLE pg_catalog.pg_index IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatalf("lock pg_index: %v", err)
+	}
 	return release
 }
 

@@ -133,7 +133,7 @@ func TestMergeRetry(t *testing.T) {
 
 func TestMergeRetryKeepsWhatWasNotRerun(t *testing.T) {
 	prev := Report{Relations: 9, Capabilities: []Capability{{Name: "kept"}},
-		Checks: []Check{{Rule: RuleTableBloat, Status: CheckDegraded, Note: "timeout"}},
+		Checks:    []Check{{Rule: RuleTableBloat, Status: CheckDegraded, Note: "timeout"}},
 		Retryable: []string{RuleTableBloat}}
 	got := mergeRetry(prev, Report{Relations: 0}, nil)
 	if got.Relations != 9 || len(got.Capabilities) != 1 || got.Checks[0] != prev.Checks[0] {
