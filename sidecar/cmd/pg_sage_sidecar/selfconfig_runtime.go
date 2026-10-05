@@ -152,21 +152,27 @@ func (s *selfConfigRunner) pass(ctx context.Context,
 	return results, nil
 }
 
-// operatorSet is every key the operator set for this database: the YAML
-// file (with the fleet aliases) and the API overrides, global and this
-// database's own.
+// operatorSet is every key the operator set for this database.
 func (s *selfConfigRunner) operatorSet(ctx context.Context) (map[string]bool, error) {
-	set, err := config.OperatorSetPathsFromFile(s.configPath, s.name)
+	return operatorSetKeys(ctx, s.configPath, s.name, s.controlPool, s.databaseID)
+}
+
+// operatorSetKeys is every key the operator set for database name: the
+// YAML file at configPath (with the fleet aliases) and the API overrides in
+// controlPool (nil: none), global and the database's own (databaseID > 0).
+func operatorSetKeys(ctx context.Context, configPath, name string,
+	controlPool *pgxpool.Pool, databaseID int) (map[string]bool, error) {
+	set, err := config.OperatorSetPathsFromFile(configPath, name)
 	if err != nil {
 		return nil, err
 	}
-	if s.controlPool == nil {
+	if controlPool == nil {
 		return set, nil
 	}
-	cs := store.NewConfigStore(s.controlPool)
+	cs := store.NewConfigStore(controlPool)
 	ids := []int{0}
-	if s.databaseID > 0 {
-		ids = append(ids, s.databaseID)
+	if databaseID > 0 {
+		ids = append(ids, databaseID)
 	}
 	for _, id := range ids {
 		overrides, err := cs.GetOverrides(ctx, id)
