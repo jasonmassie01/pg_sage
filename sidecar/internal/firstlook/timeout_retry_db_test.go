@@ -17,6 +17,10 @@ import (
 // the one retry of checks that degraded with a transient error. A real
 // catalog read is slowed by holding pg_index (which only the index step
 // reads) in ACCESS EXCLUSIVE mode from another session.
+//
+// No concurrency tests for Retry: each call runs its own pass over its own
+// transaction and returns a new report (TestRunIsDeterministicUnderConcurrency
+// covers concurrent passes); Store.Update writes one row by id.
 
 // lockIndexCatalog holds pg_catalog.pg_index exclusively until release is
 // called (or the test ends); the fixture database is this package's own.
@@ -258,5 +262,20 @@ func TestRetryErrorsAndNoOp(t *testing.T) {
 	got, err := Retry(ctx, pool, Options{}, done)
 	if err != nil || len(got.Checks) != 1 || got.Checks[0] != done.Checks[0] {
 		t.Fatalf("no-op retry = %+v err %v", got, err)
+	}
+}
+
+// An operator limit above the budget does not raise it: the first look
+// stays on its own 5 s.
+func TestRunKeepsItsBudgetUnderAHigherOperatorTimeout(t *testing.T) {
+	admin, ctx := livePool(t)
+	mon := operatorRolePool(t, ctx, admin, "30000")
+	r, err := Run(ctx, mon, testOptions("app"))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if r.StatementTimeoutMS != int(DefaultStatementTimeout/time.Millisecond) {
+		t.Fatalf("statement timeout = %d ms, want the first look's own %v under a 30 s "+
+			"role limit", r.StatementTimeoutMS, DefaultStatementTimeout)
 	}
 }
