@@ -3,6 +3,7 @@ package srebench
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -112,7 +113,17 @@ func (e *Env) closeSessions() {
 
 // waitFor polls cond until it holds or 15 s pass.
 func waitFor(ctx context.Context, what string, cond func() (bool, error)) error {
-	deadline := time.Now().Add(15 * time.Second)
+	return waitForWithin(ctx, what, waitDeadline, cond)
+}
+
+// waitDeadline bounds waitFor.
+const waitDeadline = 15 * time.Second
+
+// waitForWithin polls cond every 50 ms until it holds, errors, d passes or
+// ctx ends.
+func waitForWithin(ctx context.Context, what string, d time.Duration,
+	cond func() (bool, error)) error {
+	deadline := time.Now().Add(d)
 	for {
 		ok, err := cond()
 		switch {
@@ -121,7 +132,8 @@ func waitFor(ctx context.Context, what string, cond func() (bool, error)) error 
 		case ok:
 			return nil
 		case time.Now().After(deadline):
-			return fmt.Errorf("%s: not reached in 15 s", what)
+			return fmt.Errorf("%s: not reached in %s s", what,
+				strconv.FormatFloat(d.Seconds(), 'f', -1, 64))
 		}
 		select {
 		case <-ctx.Done():
