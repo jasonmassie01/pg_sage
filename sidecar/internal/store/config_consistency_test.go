@@ -25,6 +25,8 @@ var excludedPrefixes = []string{
 	"briefing.",
 	"databases.",
 	"defaults.",
+	// managed-cloud telemetry identity and guard floors: YAML/env only, restart-bound
+	"cloud_telemetry.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config

@@ -21,6 +21,7 @@ func (rt *databaseRuntime) startExecution() {
 	startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
 	)
+	rt.startCloudTelemetry()
 	// Autonomous index builds earn load admission from pg-side IO (D6).
 	if startIOAdmission(rt.ctx, rt.workers, rt.spec.Pool, rt.cfg,
 		rt.spec.Name, rt.executor) != nil {

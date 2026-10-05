@@ -33,17 +33,17 @@ func cloudCfg() *config.Config {
 	return c
 }
 
-func TestCloudTelemetryForProviders(t *testing.T) {
-	ctx := context.Background()
-	deps := testCloudDeps()
-	cases := []struct {
-		name, provider, host string
-		standalone           bool
-		mutate               func(*config.Config)
-		wantNil              bool
-		wantProvider         string
-		wantAvailableReason  string // "" = a polling runtime
-	}{
+type cloudCase struct {
+	name, provider, host string
+	standalone           bool
+	mutate               func(*config.Config)
+	wantNil              bool
+	wantProvider         string
+	wantAvailableReason  string // "" = a polling runtime
+}
+
+func cloudTelemetryCases() []cloudCase {
+	return []cloudCase{
 		{name: "self-managed has none", provider: "self-managed", host: "db", wantNil: true},
 		{name: "azure has none", provider: "azure", host: "x.postgres.database.azure.com",
 			wantNil: true},
@@ -77,7 +77,12 @@ func TestCloudTelemetryForProviders(t *testing.T) {
 			host: "db.internal.example", wantProvider: "cloud-sql",
 			wantAvailableReason: "cloud_telemetry.gcp.instance"},
 	}
-	for _, tc := range cases {
+}
+
+func TestCloudTelemetryForProviders(t *testing.T) {
+	ctx := context.Background()
+	deps := testCloudDeps()
+	for _, tc := range cloudTelemetryCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			c := cloudCfg()
 			if tc.mutate != nil {

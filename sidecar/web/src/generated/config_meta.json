@@ -358,6 +358,56 @@
     "default": "none",
     "doc": "Clone provider: none, dle, or snapshot."
   },
+  "cloud_telemetry.aws.db_cluster_identifier": {
+    "type": "string",
+    "default": "",
+    "doc": "Aurora DB cluster identifier (its writer is read) when the host is not an Aurora endpoint. Standalone mode only."
+  },
+  "cloud_telemetry.aws.db_instance_identifier": {
+    "type": "string",
+    "default": "",
+    "doc": "RDS DB instance identifier when the host is not an RDS endpoint. Standalone mode only."
+  },
+  "cloud_telemetry.aws.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the instance when the host does not name it (an RDS endpoint host always wins)."
+  },
+  "cloud_telemetry.gcp.instance": {
+    "type": "string",
+    "default": "",
+    "doc": "Cloud SQL instance name when the host is not its IP address. Standalone mode only."
+  },
+  "cloud_telemetry.gcp.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the Cloud SQL instance. Empty: the project of the Application Default Credentials. Instances are matched by the host's IP address."
+  },
+  "cloud_telemetry.max_replica_lag_seconds": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Autonomous index builds wait while a replica lags more than this. 0 = 30."
+  },
+  "cloud_telemetry.min_available_memory_pct": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Autonomous index builds wait, and memory settings may not grow, while available host memory is below this percentage. 0 = 5."
+  },
+  "cloud_telemetry.min_free_storage_pct": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Autonomous index builds wait while bounded free storage (including autoscaling headroom) is below this percentage. 0 = 10."
+  },
+  "cloud_telemetry.min_storage_runway_hours": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Autonomous index builds wait while storage at its recent rate runs out within this many hours. 0 = 24."
+  },
+  "cloud_telemetry.poll_interval_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Seconds between telemetry polls. 0 = 60. Range 30-3600. CloudWatch bills GetMetricData per metric (about 10 metrics per poll)."
+  },
   "collector.batch_size": {
     "type": "int",
     "default": 1000,

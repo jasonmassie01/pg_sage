@@ -18,6 +18,7 @@ func Clone(cfg *Config) *Config {
 			cfg.Databases[i].Verify.IOCapacity)
 	}
 	cp.Verify.IOCapacity = cloneIOCapacity(cfg.Verify.IOCapacity)
+	cp.CloudTelemetry.Enabled = cloneBool(cfg.CloudTelemetry.Enabled)
 	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
 	if cfg.AgentDB.Providers != nil {
 		cp.AgentDB.Providers = make(

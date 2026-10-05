@@ -97,6 +97,8 @@ type Config struct {
 	MCP         MCPConfig           `yaml:"mcp"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
+	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
+	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -717,6 +719,9 @@ func (c *Config) validate() error {
 	if err := c.validateIOAdmission(); err != nil {
 		return err
 	}
+	if err := c.validateCloudTelemetry(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateSageFootprint(); err != nil {
 		return err
 	}
@@ -1333,6 +1338,7 @@ func overlayAgentNativeEnv(cfg *Config) {
 		cfg.MCP.Transport = v
 	}
 	overlayAzureEnv(cfg)
+	overlayCloudTelemetryEnv(cfg)
 }
 
 // HotReloadable returns the fields that can be reloaded without restart.
