@@ -25,6 +25,7 @@ var excludedPrefixes = []string{
 	"briefing.",
 	"databases.",
 	"defaults.",
+	"ask.", // Ask Sage (roadmap phase 3): YAML only, read when a runtime starts
 }
 
 // excludedExactKeys are individual keys that exist in the Config

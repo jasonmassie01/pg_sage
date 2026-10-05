@@ -8,6 +8,7 @@ var retentionExemptions = mergeExemptions(coreExemptions, agentExemptions)
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
 	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
+	"ask_messages":          "deleted with its conversation (ON DELETE CASCADE)",
 	"auth_audit":            "security audit trail of SSO link, unlink and grant use",
 	"chatops_identities":    "admin-managed mapping of chat users to accounts, current state",
 	"chatops_replay":        "pruned by chatops on every callback (24 h replay window)",

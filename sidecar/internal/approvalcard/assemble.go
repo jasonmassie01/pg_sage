@@ -31,6 +31,7 @@ func Assemble(in Inputs) Card {
 	c.VerificationWait = waitOf(in, now)
 	c.Why = append(whyOf(in, c.ActionType), waitReason(c.VerificationWait)...)
 	c.Trust = trustOf(in)
+	c.Origin = originOf(a)
 	if s := in.Snooze; s != nil && s.Until.After(now) {
 		until := s.Until
 		c.SnoozedUntil, c.SnoozeReason = &until, s.Reason

@@ -282,6 +282,31 @@
     "doc": "IPs or CIDR blocks permitted to set X-Forwarded-For. Defaults to loopback only. Expand when running behind a trusted reverse proxy, load balancer, or CDN.",
     "warning": "Adding an untrusted or externally-reachable proxy lets attackers spoof their client IP and bypass login rate limits."
   },
+  "ask.daily_tokens_per_database": {
+    "type": "int",
+    "default": 300000,
+    "doc": "Ask Sage's own daily LLM tokens for one database, all users (UTC day, kept across restarts). 0 refuses questions. Range 0-100000000. Default: 300000."
+  },
+  "ask.daily_tokens_per_user": {
+    "type": "int",
+    "default": 100000,
+    "doc": "Ask Sage's daily LLM tokens for one user or MCP token on one database; at most daily_tokens_per_database. Range 0-100000000. Default: 100000."
+  },
+  "ask.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Answer questions about each database from cited evidence (UI, API, MCP ask_sage). It reads; it never executes or approves. Default: true."
+  },
+  "ask.max_tokens_per_question": {
+    "type": "int",
+    "default": 40000,
+    "doc": "Most LLM tokens one question may use across its model calls. Range 4000-200000. Default: 40000."
+  },
+  "ask.retention_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days a conversation is kept after its last question, with its answers. Range 1-3650. Default: 30."
+  },
   "auto_explain.collect_interval_seconds": {
     "type": "int",
     "default": 300,

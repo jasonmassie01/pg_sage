@@ -415,7 +415,8 @@ func migrationStatements() []string {
 		ddlMCPv2,
 		ddlTuningBudgetDay,
 		ddlOnboarding,
-		ddlSpecialist)
+		ddlSpecialist,
+		ddlAsk)
 }
 
 // ---------------------------------------------------------------------------

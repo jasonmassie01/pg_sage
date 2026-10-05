@@ -187,6 +187,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// verdict is decided; decided ones age out like actions.
 		{table: "source_fix", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND verdict IS NOT NULL"},
+		// Ask Sage conversations age from their last question; answers
+		// cascade. The budget's day rows age on the same window.
+		{table: "ask_conversations", timeCol: "updated_at", days: cfg.Ask.RetentionDays},
+		{table: "ask_budget_day", timeCol: "day", days: cfg.Ask.RetentionDays},
 		// Specialist-contract requests (roadmap phase 3): the audit of what
 		// external agents asked; a result post still owed is kept.
 		{table: "specialist_requests", timeCol: "created_at", days: r.ActionsDays,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentdb"
+	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -93,6 +94,8 @@ type RuntimeDeps struct {
 	NotificationTargetPolicy notify.TargetPolicy
 	// Autonomy serves the Sage SRE earned-autonomy routes (M7); nil omits.
 	Autonomy *AutonomyDeps
+	// Ask serves the Ask Sage routes (roadmap phase 3); nil omits them.
+	Ask *ask.Registry
 	// Specialist serves the Postgres-specialist contract under
 	// /api/v1/specialist/ (MCP tokens only); nil omits it. SpecialistAudit
 	// reads its request audit for the dashboard; nil omits the route.
@@ -172,6 +175,7 @@ func registerFleetScopedRoutes(
 	registerShadowRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
+	registerAskRoutes(apiMux, rt.Ask)
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {

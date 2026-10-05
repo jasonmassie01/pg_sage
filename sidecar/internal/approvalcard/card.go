@@ -50,6 +50,9 @@ type Card struct {
 	Trust *Trust `json:"trust,omitempty"`
 	// CardHash binds a decision to exactly this content (ContentHash).
 	CardHash string `json:"card_hash"`
+	// Origin is how the item was proposed and by whom (Ask Sage on a
+	// user's question); nil for pg_sage's own proposals.
+	Origin *Origin `json:"origin,omitempty"`
 	// ShadowHistory is the action class's shadow record (roadmap 1.4);
 	// not part of the hash: it changes as decisions score, the action not.
 	ShadowHistory *shadow.History `json:"shadow_history,omitempty"`
@@ -57,6 +60,27 @@ type Card struct {
 	// change's object (one change per object); approving overrides it. Not
 	// part of the hash: it ends when that verdict lands.
 	VerificationWait *VerificationWait `json:"verification_wait,omitempty"`
+}
+
+// Origin is how a queued item was proposed and by whom.
+type Origin struct {
+	Via   string `json:"via"`
+	By    string `json:"by"`
+	Label string `json:"label"`
+}
+
+// originLabels name the surfaces that may propose.
+var originLabels = map[string]string{"ask_sage": "Ask Sage"}
+
+func originOf(a store.QueuedAction) *Origin {
+	if a.ProposedVia == "" {
+		return nil
+	}
+	label, ok := originLabels[a.ProposedVia]
+	if !ok {
+		label = a.ProposedVia
+	}
+	return &Origin{Via: a.ProposedVia, By: a.ProposedBy, Label: label}
 }
 
 // FindingRef is the finding behind the action.

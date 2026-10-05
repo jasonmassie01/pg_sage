@@ -77,6 +77,9 @@ func Text(c Card, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\nDatabase: %s | Risk: %s | %s | queue item %d\n", c.Title,
 		c.Database, c.Risk.Tier, expiresIn(c.ExpiresAt, now), c.QueueID)
+	if o := c.Origin; o != nil {
+		fmt.Fprintf(&b, "Proposed via %s by %s\n", o.Label, o.By)
+	}
 	b.WriteString("\nWhy it needs you:\n")
 	for _, r := range c.Why {
 		b.WriteString("- " + r.Text + "\n")

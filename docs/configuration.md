@@ -1295,6 +1295,21 @@ on the Earned autonomy page (or `POST /api/v1/sre/autonomy/evaluate` as an opera
 approve the pending promotion as an admin (or `GET /api/v1/sre/autonomy/proposals` and `POST
 /api/v1/sre/autonomy/proposals/{id}/approve`).
 
+### Ask Sage
+
+Ask Sage answers questions about a database from cited evidence (UI, REST API, MCP
+`ask_sage`) with its own daily LLM budget, separate from `llm.token_budget_daily`. It reads;
+it can open an investigation or queue a finding for a person's approval, and never executes
+or approves. See [Ask Sage](ask-sage.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ask.enabled` | `true` | Answer questions. Restart to change |
+| `ask.daily_tokens_per_database` | `300000` | Daily tokens for one database, all users (0 refuses). Restart to change |
+| `ask.daily_tokens_per_user` | `100000` | Daily tokens for one user or MCP token; at most the database's. Restart to change |
+| `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
+| `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
+
 ### Retention
 
 | Parameter | Default | Description |

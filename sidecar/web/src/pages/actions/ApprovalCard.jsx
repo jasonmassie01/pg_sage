@@ -220,6 +220,12 @@ export function ApprovalCard({ card, onDecided, facts = null }) {
           <span data-testid="approval-expiry">{expiresIn(card.expires_at, now)}</span>
         </div>
       </div>
+      {card.origin && (
+        <div data-testid="approval-origin" className="text-xs"
+          style={{ color: 'var(--text-secondary)' }}>
+          {`Proposed via ${card.origin.label || card.origin.via} by ${card.origin.by}`}
+        </div>
+      )}
       {card.snoozed_until && (
         <div data-testid="approval-snoozed-badge" className="text-xs"
           style={{ color: 'var(--text-secondary)' }}>

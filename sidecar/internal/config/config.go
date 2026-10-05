@@ -95,6 +95,7 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+	Ask         AskConfig           `yaml:"ask"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
 
@@ -696,6 +697,9 @@ func (c *Config) validate() error {
 	if err := c.SRE.validate(); err != nil {
 		return err
 	}
+	if err := c.Ask.validate(); err != nil {
+		return err
+	}
 	if err := c.Specialist.validate(); err != nil {
 		return err
 	}
@@ -1046,6 +1050,7 @@ func newDefaults() *Config {
 			},
 		},
 		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		Ask: defaultAskConfig(),
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
