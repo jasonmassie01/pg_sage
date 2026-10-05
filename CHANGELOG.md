@@ -24,16 +24,26 @@
   `pg_sage_policy_parks_total{database,reason}` and
   `pg_sage_verification_wait_releases_total{database,cause}`.
 
-- **pg_sage recognizes all of its own statements on PostgreSQL 14 to 18.** Each statement
-  of a multi-statement query (pg_sage's schema setup) and a statement that starts with a
-  parenthesis now carry the `/* pg_sage */` tag where `pg_stat_statements` keeps it
-  (PostgreSQL 18 drops comments in front of a statement); before, the setup statements
-  (about a third of pg_sage's entries right after a start) were untagged and left out of
-  its self-cost. The API's connection test now runs as `pg_sage` and tagged, like every
-  other pg_sage session.
+## v2.1.0 (2026-10-04) -- The model drives: tool-calling investigator, tuning agent, specialist API
 
 ### What's new
 
+- **The model now investigates instead of only reviewing.** With an LLM configured,
+  pg_sage's investigations plan their own reads after the causal graph has scored the
+  hypotheses. The reads are catalog probes, pg_stat views, a plan-only `EXPLAIN` by
+  queryid, the graph's state and confirmed facts, and none of them can change anything.
+  Operator-started and SLO-burn investigations get a broad budget; detector triggers get a
+  narrow one. Steps, probes, wall clock and tokens are all capped, and every read is stored
+  as evidence with its digest. The model may agree with the graph, conclude an inconclusive
+  graph, contest a conclusive root, or name a cause the graph does not model. Every claim
+  must cite evidence, and uncited claims are dropped and counted. The model's root stays
+  advisory until its family earns root authority on the bench, and its own confidence is
+  never used. Contests are tagged in the replay-case export. The investigation view, the
+  API (`.../investigations/{id}/transcript`) and MCP (`sre_get_transcript`) show the
+  redacted transcript: the plan, each read with its result, and the citations. Set
+  `sre.llm.mode: review` to keep the single review turn. PGIncidentBench gains a
+  `causal-graph+investigator` arm, gated like the LLM-on arm and scored with scripted
+  adversarial transcripts.
 - **One tuning agent per database, with confidence it has earned.** The index optimizer,
   the advisor's vacuum and memory prompts and the tuner's LLM hints are replaced by one
   case-driven tuning agent. Each cycle it classifies the workload (application, tenant,
@@ -58,26 +68,19 @@
   operator), and an index is never proposed beside an existing or in-flight index that
   already serves it or that it would make redundant. See
   `docs/configuration.md#tuning-agent`.
-
-- **The model now investigates instead of only reviewing.** With an LLM configured,
-  pg_sage's investigations plan their own reads after the causal graph has scored the
-  hypotheses. The reads are catalog probes, pg_stat views, a plan-only `EXPLAIN` by
-  queryid, the graph's state and confirmed facts, and none of them can change anything.
-  Operator-started and SLO-burn investigations get a broad budget; detector triggers get a
-  narrow one. Steps, probes, wall clock and tokens are all capped, and every read is stored
-  as evidence with its digest. The model may agree with the graph, conclude an inconclusive
-  graph, contest a conclusive root, or name a cause the graph does not model. Every claim
-  must cite evidence, and uncited claims are dropped and counted. The model's root stays
-  advisory until its family earns root authority on the bench, and its own confidence is
-  never used. Contests are tagged in the replay-case export. The investigation view, the
-  API (`.../investigations/{id}/transcript`) and MCP (`sre_get_transcript`) show the
-  redacted transcript: the plan, each read with its result, and the citations. Set
-  `sre.llm.mode: review` to keep the single review turn. PGIncidentBench gains a
-  `causal-graph+investigator` arm, gated like the LLM-on arm and scored with scripted
-  adversarial transcripts.
-
-### What's new
-
+- **The Postgres specialist other agents call.** AWS DevOps Agent, PagerDuty,
+  Datadog or any HTTP/MCP client can now ask pg_sage what is wrong with a
+  database and why through a stable, versioned contract
+  (`pg_sage.specialist.v1`, OpenAPI at `/api/v1/specialist/openapi.json`):
+  open or attach an investigation, poll or stream it, and read a cited causal
+  chain with the root cause's source and authority, honest confidence
+  (uncalibrated unless the bench calibrated the family), missing evidence and
+  typed candidate remediations. Agents authenticate with MCP tokens (read to
+  investigate, propose to request a remediation); a requested remediation is
+  only a proposal that pg_sage's gate decides, and the caller gets the verdict.
+  PagerDuty incident webhooks and a generic signed webhook map onto it, with
+  results posted back only to endpoints you configure; the MCP tokens page
+  shows which agent asked what. See `docs/specialist.md`.
 - **A useful first look within a minute, read-only until you grant more.** pg_sage now
   reads the catalog the moment it connects and shows a first look on the landing page in
   about a second: invalid, duplicate, redundant and never-scanned indexes, unindexed
@@ -93,23 +96,6 @@
   without pg_stat_statements now starts degraded instead of refusing to start. Time to
   first finding is exported as `pg_sage_time_to_first_finding_seconds`. See
   docs/quickstart.md.
-
-- **The Postgres specialist other agents call.** AWS DevOps Agent, PagerDuty,
-  Datadog or any HTTP/MCP client can now ask pg_sage what is wrong with a
-  database and why through a stable, versioned contract
-  (`pg_sage.specialist.v1`, OpenAPI at `/api/v1/specialist/openapi.json`):
-  open or attach an investigation, poll or stream it, and read a cited causal
-  chain with the root cause's source and authority, honest confidence
-  (uncalibrated unless the bench calibrated the family), missing evidence and
-  typed candidate remediations. Agents authenticate with MCP tokens (read to
-  investigate, propose to request a remediation); a requested remediation is
-  only a proposal that pg_sage's gate decides, and the caller gets the verdict.
-  PagerDuty incident webhooks and a generic signed webhook map onto it, with
-  results posted back only to endpoints you configure; the MCP tokens page
-  shows which agent asked what. See `docs/specialist.md`.
-
-### What's new
-
 - **pg_sage now says when pg_stat_statements is full of utility statements.** The capacity
   finding used to count only the 500 statements pg_sage reads, so it never fired on a
   database at 98% of `pg_stat_statements.max`. It now counts every entry and, near the
@@ -121,6 +107,13 @@
 
 ### Fixed
 
+- **pg_sage recognizes all of its own statements on PostgreSQL 14 to 18.** Each statement
+  of a multi-statement query (pg_sage's schema setup) and a statement that starts with a
+  parenthesis now carry the `/* pg_sage */` tag where `pg_stat_statements` keeps it
+  (PostgreSQL 18 drops comments in front of a statement); before, the setup statements
+  (about a third of pg_sage's entries right after a start) were untagged and left out of
+  its self-cost. The API's connection test now runs as `pg_sage` and tagged, like every
+  other pg_sage session.
 - **Cheap diagnostic probes no longer time out because pg_sage itself was busy.** A probe's
   time limit used to start before it had a database connection, so on a busy connection
   pool a 0.1 ms catalog read (xid_runway, wraparound_tables, checkpoint_activity) could fail
