@@ -283,6 +283,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../walkthrough/" class="md-nav__link">
         
   
@@ -480,6 +507,33 @@
     
   
     MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
   
 
     
@@ -805,7 +859,7 @@
 manage daily token spend. This guide covers token estimates, pricing, and
 recommended budgets.</p>
 <h2 id="defaults">Defaults<a class="headerlink" href="#defaults" title="Permanent link">&para;</a></h2>
-<p>LLM features are on by default (<code>llm.enabled</code>, <code>llm.optimizer.enabled</code>,
+<p>LLM features are on by default (<code>llm.enabled</code>, <code>tuning.enabled</code>, <code>llm.optimizer.enabled</code>,
 <code>advisor.enabled</code>, <code>tuner.llm_enabled</code>, <code>rca.narration_enabled</code>, <code>explain.enabled</code>)
 but spend nothing until <code>llm.endpoint</code> and <code>llm.api_key</code> are set. Once they are,
 <code>llm.token_budget_daily</code> (default 500,000 tokens) caps the general client's daily
@@ -841,18 +895,11 @@ turns all of them off.</p>
 <td>~48,000</td>
 </tr>
 <tr>
-<td>Optimizer</td>
-<td>600s (per analyzer cycle)</td>
-<td>3,000-6,000</td>
-<td>10-20</td>
-<td>~60,000</td>
-</tr>
-<tr>
-<td>Tuner (LLM mode)</td>
-<td>per analyzer cycle</td>
-<td>2,000-4,000</td>
-<td>10-20</td>
-<td>~40,000</td>
+<td>Tuning agent</td>
+<td>per analyzer cycle, only when a case exists</td>
+<td>3,000-8,000 per request</td>
+<td>at most <code>tuning.max_requests_per_cycle</code> (12) per cycle</td>
+<td>bounded by <code>tuning.max_tokens_per_cycle</code> (60,000) per cycle</td>
 </tr>
 </tbody>
 </table>
@@ -895,7 +942,7 @@ turns all of them off.</p>
 These features need good summarization but not deep SQL reasoning.
 <strong>Recommended:</strong> Gemini 2.5 Flash, Claude Haiku, GPT-4o-mini</p>
 <h3 id="optimizer-llm-llmoptimizer_llm">Optimizer LLM (<code>llm.optimizer_llm.*</code>)<a class="headerlink" href="#optimizer-llm-llmoptimizer_llm" title="Permanent link">&para;</a></h3>
-<p>Used by: optimizer (index recommendations), tuner (hint generation).
+<p>Used by: the tuning agent (index, configuration, statistics and hint proposals).
 These features analyze query plans and generate SQL — accuracy matters.
 <strong>Recommended:</strong> Gemini 2.5 Pro, Claude Sonnet, GPT-4o</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">llm</span><span class="p">:</span>
@@ -997,11 +1044,11 @@ These features analyze query plans and generate SQL — accuracy matters.
 <ol>
 <li><strong>Increase advisor interval</strong> to 7,200s (2h) instead of 3,600s — saves ~50% advisor tokens</li>
 <li><strong>Keep briefing daily</strong> (default) vs hourly — saves ~23x briefing tokens</li>
-<li><strong>Raise <code>min_query_calls</code></strong> to 100+ for optimizer and tuner — avoids analyzing one-off queries</li>
+<li><strong>Lower <code>tuning.max_requests_per_cycle</code> / <code>tuning.max_tokens_per_cycle</code></strong> — the tuning agent's per-database, per-cycle budget</li>
 <li><strong>Use Flash/Haiku for general</strong>, Pro/Sonnet only for <code>optimizer_llm</code></li>
-<li><strong>Disable unused advisors</strong> — set <code>vacuum_enabled: false</code>, etc. for categories you don't need</li>
+<li><strong>Disable unused proposal types</strong> — e.g. <code>advisor.vacuum_enabled: false</code> stops storage-parameter proposals</li>
 <li><strong>Set <code>context_budget_tokens</code></strong> lower (2048) if your schema is simple</li>
-<li><strong>Increase analyzer interval</strong> to 1,200s+ for stable workloads — fewer optimizer/tuner cycles</li>
+<li><strong>Increase analyzer interval</strong> to 1,200s+ for stable workloads — fewer tuning cycles</li>
 </ol>
 <h2 id="circuit-breaker">Circuit Breaker<a class="headerlink" href="#circuit-breaker" title="Permanent link">&para;</a></h2>
 <p>pg_sage has a built-in circuit breaker (<code>cooldown_seconds</code>, default 300s) that

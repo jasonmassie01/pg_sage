@@ -287,6 +287,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../walkthrough/" class="md-nav__link">
         
   
@@ -484,10 +511,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#optimizer-tier-2-llm-index-optimizer" class="md-nav__link">
+  <a href="#tuning-agent-tier-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Optimizer (Tier 2 -- LLM Index Optimizer)
+        Tuning agent (Tier 2)
       
     </span>
   </a>
@@ -743,6 +770,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../hint-verification/" class="md-nav__link">
         
   
@@ -954,10 +1008,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#optimizer-tier-2-llm-index-optimizer" class="md-nav__link">
+  <a href="#tuning-agent-tier-2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Optimizer (Tier 2 -- LLM Index Optimizer)
+        Tuning agent (Tier 2)
       
     </span>
   </a>
@@ -1134,21 +1188,22 @@
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  │
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  ├── Analyzer         [every 600s]
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  │   ├── Tier 1: Rules engine (25+ deterministic checks)
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  │   └── Tier 2: Index Optimizer (LLM + HypoPG validation)
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  ├── Executor         [trust-gated]
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  │   ├── CONCURRENTLY DDL on raw pgx connection
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  │   ├── DDL lock/rewrite/live-risk preflight + PR/CI script output
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>  │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  │   │   replication, and sequence exhaustion
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  │   ├── Query tuning artifacts beyond hints: rewrites, statistics,
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  │   │   parameterization, hint retirement, and role work_mem promotion
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>  │   ├── Rollback monitor (read + write latency regression)
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>  │   └── Emergency stop via sage.config
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>  │
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>  ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>  └── Prometheus       [:9187]  Metrics endpoint
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  │   └── Tier 2: Tuning agent (one per database; case-driven, read-only tools,
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  │       typed proposals, optimizer admission + HypoPG, calibrated confidence)
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  ├── Executor         [trust-gated]
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  │   ├── CONCURRENTLY DDL on raw pgx connection
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>  │   ├── DDL lock/rewrite/live-risk preflight + PR/CI script output
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  │   │   replication, and sequence exhaustion
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  │   ├── Query tuning artifacts beyond hints: rewrites, statistics,
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>  │   │   parameterization, hint retirement, and role work_mem promotion
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>  │   ├── Rollback monitor (read + write latency regression)
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>  │   └── Emergency stop via sage.config
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>  │
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>  ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>  └── Prometheus       [:9187]  Metrics endpoint
 </code></pre></div>
 <hr />
 <h2 id="component-details">Component Details<a class="headerlink" href="#component-details" title="Permanent link">&para;</a></h2>
@@ -1191,17 +1246,33 @@
 </tbody>
 </table>
 <p>Each rule produces findings with severity (critical/warning/info), recommended SQL, and rollback SQL.</p>
-<h3 id="optimizer-tier-2-llm-index-optimizer">Optimizer (Tier 2 -- LLM Index Optimizer)<a class="headerlink" href="#optimizer-tier-2-llm-index-optimizer" title="Permanent link">&para;</a></h3>
-<p>Lives in <code>internal/optimizer/</code> (18 files, 4,640 lines, 144 tests). Key capabilities:</p>
+<h3 id="tuning-agent-tier-2">Tuning agent (Tier 2)<a class="headerlink" href="#tuning-agent-tier-2" title="Permanent link">&para;</a></h3>
+<p>Lives in <code>internal/tuning/</code> (roadmap 2.2). One agent per database replaces the former
+optimizer, advisor vacuum/memory and tuner hint prompts:</p>
 <ul>
-<li><strong>Plan-aware</strong>: Captures EXPLAIN plans via <code>GENERIC_PLAN</code> (PG 16+) or on-demand execution to inform recommendations.</li>
-<li><strong>HypoPG validation</strong>: Creates hypothetical indexes and measures actual planner cost reduction before recommending.</li>
-<li><strong>Rejection memory</strong>: A what-if rejection of a model candidate is stored in <code>sage.optimizer_rejection</code> with its normalized shape (method, keys with opclass/collation/order, predicate, INCLUDE set; the name is ignored) and the workload it was measured on. While that workload and the table are materially unchanged, a repeat of the idea (INCLUDE subset or superset included) skips the what-if, and the prompt lists the shapes already measured. After <code>skip_llm_after</code> (3) consecutive all-wasted proposals for a table on an unchanged workload, the model is not asked about it until a material change or the max age; operator-requested runs always ask. Counters: <code>pg_sage_optimizer_whatif_skipped_total</code>, <code>pg_sage_optimizer_llm_calls_skipped_total</code> (per database). Deterministic findings and re-checks of open recommendations are never suppressed.</li>
-<li><strong>Dual-model LLM</strong>: Separate LLM client for optimizer (reasoning-tier) with independent circuit breaker and token budget.</li>
-<li><strong>Confidence scoring</strong>: 0.0-1.0 score based on 6 weighted signals (query volume, plan clarity, write rate, HypoPG result, selectivity, table traffic). Maps to action levels: autonomous (&gt;=0.7) / advisory (&gt;=0.4) / informational (&lt;0.4).</li>
-<li><strong>8 validators</strong>: CONCURRENTLY check, column existence, duplicate detection, write impact analysis, max indexes per table, extension requirements, BRIN correlation, expression volatility.</li>
-<li><strong>Cold start protection</strong>: Waits for N snapshots before running.</li>
-<li><strong>Post-check</strong>: Verifies <code>indisvalid</code> after CREATE INDEX CONCURRENTLY.</li>
+<li><strong>Workload classification</strong> (deterministic): application, tenant-family, test-fixture,
+  diagnostic and pg_sage statements; confirmed facts give each table its routes.</li>
+<li><strong>Cases</strong>: a top statement by interval time (at least 5% of the workload), a regression
+  (mean time at least doubled), or write amplification (index maintenance on an unused or
+  covered index, or dead-tuple churn). No case, no model call.</li>
+<li><strong>Read-only tools</strong>: statement, table, explain (cache or <code>EXPLAIN</code> without <code>ANALYZE</code>,
+  generic plans on PG16+), whatif_index (HypoPG), write_cost, extended_stats, and rehearse
+  (clone provider only). Bounded results, wrapped as untrusted data, numbered as evidence.</li>
+<li><strong>Typed proposals only</strong>: index create/drop, server setting, storage parameter,
+  <code>CREATE STATISTICS</code> (<code>sage_stx_*</code>), query hint, each with cited evidence and a predicted
+  effect. pg_sage generates every statement.</li>
+<li><strong>Validation</strong>: index creates go through the optimizer's admission (<code>internal/optimizer</code>:
+  canonical form, 8 validators, rejection memory in <code>sage.optimizer_rejection</code>, HypoPG
+  what-if; a verified measurement replaces the model's estimate); configuration through the
+  advisor's allowlists and ranges; hints through the tuner; confirmed facts redirect bound
+  changes to source-fix packets; operator rejections are not re-proposed.</li>
+<li><strong>Calibrated confidence</strong>: per action class and prediction method from
+  <code>sage.action_outcome</code> (reliability bins by predicted improvement, Wilson intervals);
+  "uncalibrated" below <code>tuning.calibration_min_outcomes</code>; a lower bound under the
+  confidence threshold needs operator approval.</li>
+<li><strong>Budgets</strong>: per database per cycle (<code>tuning.max_requests_per_cycle</code>,
+  <code>tuning.max_tokens_per_cycle</code>), at most <code>tuning.max_cases_per_cycle</code> cases; a case whose
+  recent answers were all wasted is not asked again until it changes.</li>
 </ul>
 <h3 id="executor-tier-3-trust-gated">Executor (Tier 3 -- Trust-Gated)<a class="headerlink" href="#executor-tier-3-trust-gated" title="Permanent link">&para;</a></h3>
 <table>
@@ -1288,7 +1359,7 @@ decides whether a specific database can execute, queue, or only observe.</p>
 <h3 id="forecaster">Forecaster<a class="headerlink" href="#forecaster" title="Permanent link">&para;</a></h3>
 <p>Analyzes historical trends to predict disk growth, connection exhaustion, sequence depletion, and cache ratio degradation. Generates proactive findings before problems occur.</p>
 <h3 id="tuner">Tuner<a class="headerlink" href="#tuner" title="Permanent link">&para;</a></h3>
-<p>Per-query optimization via <code>pg_hint_plan</code> (if available). Detects plan-level symptoms (disk sorts, hash spills, bad joins) and applies per-query GUC overrides without modifying application queries.</p>
+<p>Per-query optimization via <code>pg_hint_plan</code> (if available). Detects plan-level symptoms (disk sorts, hash spills, bad joins) and applies per-query GUC overrides without modifying application queries. The tuning agent's hints go through it: it validates the pg_hint_plan syntax, clamps <code>Set(work_mem)</code>, records the hint and keeps one hint per statement.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <p>Automatic cleanup of aged snapshots, findings, actions, and explain plans based on configurable retention windows.</p>
 <h3 id="prometheus-exporter">Prometheus Exporter<a class="headerlink" href="#prometheus-exporter" title="Permanent link">&para;</a></h3>
@@ -1297,11 +1368,12 @@ decides whether a specific database can execute, queue, or only observe.</p>
 <h2 id="data-flow">Data Flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>Collector</strong> gathers <code>pg_stat_statements</code>, <code>pg_stat_user_tables</code>, <code>pg_stat_user_indexes</code> every 60s into <code>sage.snapshots</code>.</li>
-<li><strong>Analyzer</strong> runs rules every 600s, then calls <code>optimizer.Analyze()</code> if LLM is enabled.</li>
-<li><strong>Optimizer</strong> enriches table contexts with <code>information_schema.columns</code>, <code>pg_stats</code>, plan data, and workload classification.</li>
-<li>LLM generates index recommendations as JSON.</li>
-<li><strong>Validator</strong> runs 8 checks; <strong>HypoPG</strong> validates if available.</li>
-<li><strong>Confidence scorer</strong> assigns action level.</li>
+<li><strong>Analyzer</strong> runs rules every 600s, then the <strong>tuning agent</strong> if an LLM is usable.</li>
+<li>The agent classifies the workload, detects cases and asks the model about each case
+   with read-only tools.</li>
+<li>The model answers with typed proposals; pg_sage generates and validates the SQL
+   (optimizer admission and HypoPG, configuration gates, tuner hint checks, facts).</li>
+<li>Each admitted proposal gets a confidence calibrated on the outcome ledger.</li>
 <li>Findings are persisted to <code>sage.findings</code>.</li>
 <li><strong>Case projection</strong> combines findings, incidents, and action state into DBA
    cases and shadow-mode proof.</li>

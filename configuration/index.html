@@ -287,6 +287,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../walkthrough/" class="md-nav__link">
         
   
@@ -534,6 +561,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#tuning-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tuning agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#web-ui-and-api-authentication" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -683,6 +721,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#postgres-specialist-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Postgres-specialist contract
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -819,6 +868,33 @@
     
   
     MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
   
 
     
@@ -1126,6 +1202,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#tuning-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tuning agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#web-ui-and-api-authentication" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1269,6 +1356,17 @@
     <span class="md-ellipsis">
       
         Retention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postgres-specialist-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Postgres-specialist contract
       
     </span>
   </a>
@@ -1479,38 +1577,45 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a><span class="w">      </span><span class="nt">mean_time_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">         </span><span class="c1"># or a target query appears/disappears</span>
 <a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a><span class="w">      </span><span class="nt">row_estimate_ratio</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="w">      </span><span class="nt">prompt_max_shapes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="w">      </span><span class="nt">skip_llm_after</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">          </span><span class="c1"># stop asking the model after 3 wasted proposals</span>
+<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="w">      </span><span class="nt">skip_llm_after</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">          </span><span class="c1"># stop asking about a case after 3 wasted answers</span>
 <a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a><span class="w">  </span><span class="nt">optimizer_llm</span><span class="p">:</span><span class="w">                 </span><span class="c1"># optional second model for optimizer</span>
 <a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
 <a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
 <a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_OPTIMIZER_LLM_API_KEY}</span>
 <a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a>
-<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a><span class="nt">api</span><span class="p">:</span>
-<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:8080"</span>
-<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a><span class="w">  </span><span class="c1"># Web UI and /api/v1 endpoints are session-authenticated.</span>
-<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a><span class="w">  </span><span class="c1"># The first local admin is bootstrapped automatically.</span>
-<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a>
-<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a><span class="nt">alerting</span><span class="p">:</span>
-<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a><span class="w">  </span><span class="nt">check_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
-<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a><span class="w">  </span><span class="nt">slack_webhook_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_SLACK_WEBHOOK}</span>
-<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="w">  </span><span class="nt">pagerduty_routing_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_PAGERDUTY_KEY}</span>
-<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="w">  </span><span class="nt">routes</span><span class="p">:</span>
-<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span>
-<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a><span class="w">      </span><span class="nt">channels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">slack</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pagerduty</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a>
-<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="nt">prometheus</span><span class="p">:</span>
-<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:9187"</span>
-<a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a>
-<a id="__codelineno-2-68" name="__codelineno-2-68" href="#__codelineno-2-68"></a><span class="nt">retention</span><span class="p">:</span>
-<a id="__codelineno-2-69" name="__codelineno-2-69" href="#__codelineno-2-69"></a><span class="w">  </span><span class="nt">snapshots_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
-<a id="__codelineno-2-70" name="__codelineno-2-70" href="#__codelineno-2-70"></a><span class="w">  </span><span class="nt">findings_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
-<a id="__codelineno-2-71" name="__codelineno-2-71" href="#__codelineno-2-71"></a><span class="w">  </span><span class="nt">actions_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span>
-<a id="__codelineno-2-72" name="__codelineno-2-72" href="#__codelineno-2-72"></a><span class="w">  </span><span class="nt">explains_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
-<a id="__codelineno-2-73" name="__codelineno-2-73" href="#__codelineno-2-73"></a><span class="w">  </span><span class="nt">sage_size_warning_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a><span class="nt">tuning</span><span class="p">:</span><span class="w">                          </span><span class="c1"># one case-driven tuning agent per database</span>
+<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-53" name="__codelineno-2-53" href="#__codelineno-2-53"></a><span class="w">  </span><span class="nt">max_cases_per_cycle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<a id="__codelineno-2-54" name="__codelineno-2-54" href="#__codelineno-2-54"></a><span class="w">  </span><span class="nt">max_requests_per_cycle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12</span><span class="w">     </span><span class="c1"># per database per analyzer cycle</span>
+<a id="__codelineno-2-55" name="__codelineno-2-55" href="#__codelineno-2-55"></a><span class="w">  </span><span class="nt">max_tokens_per_cycle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60000</span>
+<a id="__codelineno-2-56" name="__codelineno-2-56" href="#__codelineno-2-56"></a><span class="w">  </span><span class="nt">calibration_min_outcomes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">    </span><span class="c1"># below this a proposal is "uncalibrated"</span>
+<a id="__codelineno-2-57" name="__codelineno-2-57" href="#__codelineno-2-57"></a>
+<a id="__codelineno-2-58" name="__codelineno-2-58" href="#__codelineno-2-58"></a><span class="nt">api</span><span class="p">:</span>
+<a id="__codelineno-2-59" name="__codelineno-2-59" href="#__codelineno-2-59"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:8080"</span>
+<a id="__codelineno-2-60" name="__codelineno-2-60" href="#__codelineno-2-60"></a><span class="w">  </span><span class="c1"># Web UI and /api/v1 endpoints are session-authenticated.</span>
+<a id="__codelineno-2-61" name="__codelineno-2-61" href="#__codelineno-2-61"></a><span class="w">  </span><span class="c1"># The first local admin is bootstrapped automatically.</span>
+<a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a>
+<a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a><span class="nt">alerting</span><span class="p">:</span>
+<a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="w">  </span><span class="nt">check_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a><span class="w">  </span><span class="nt">slack_webhook_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_SLACK_WEBHOOK}</span>
+<a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a><span class="w">  </span><span class="nt">pagerduty_routing_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_PAGERDUTY_KEY}</span>
+<a id="__codelineno-2-68" name="__codelineno-2-68" href="#__codelineno-2-68"></a><span class="w">  </span><span class="nt">routes</span><span class="p">:</span>
+<a id="__codelineno-2-69" name="__codelineno-2-69" href="#__codelineno-2-69"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span>
+<a id="__codelineno-2-70" name="__codelineno-2-70" href="#__codelineno-2-70"></a><span class="w">      </span><span class="nt">channels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">slack</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">pagerduty</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-2-71" name="__codelineno-2-71" href="#__codelineno-2-71"></a>
+<a id="__codelineno-2-72" name="__codelineno-2-72" href="#__codelineno-2-72"></a><span class="nt">prometheus</span><span class="p">:</span>
+<a id="__codelineno-2-73" name="__codelineno-2-73" href="#__codelineno-2-73"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">"0.0.0.0:9187"</span>
 <a id="__codelineno-2-74" name="__codelineno-2-74" href="#__codelineno-2-74"></a>
-<a id="__codelineno-2-75" name="__codelineno-2-75" href="#__codelineno-2-75"></a><span class="nt">briefing</span><span class="p">:</span>
-<a id="__codelineno-2-76" name="__codelineno-2-76" href="#__codelineno-2-76"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">         </span><span class="c1"># cron expression</span>
+<a id="__codelineno-2-75" name="__codelineno-2-75" href="#__codelineno-2-75"></a><span class="nt">retention</span><span class="p">:</span>
+<a id="__codelineno-2-76" name="__codelineno-2-76" href="#__codelineno-2-76"></a><span class="w">  </span><span class="nt">snapshots_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
+<a id="__codelineno-2-77" name="__codelineno-2-77" href="#__codelineno-2-77"></a><span class="w">  </span><span class="nt">findings_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
+<a id="__codelineno-2-78" name="__codelineno-2-78" href="#__codelineno-2-78"></a><span class="w">  </span><span class="nt">actions_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span>
+<a id="__codelineno-2-79" name="__codelineno-2-79" href="#__codelineno-2-79"></a><span class="w">  </span><span class="nt">explains_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
+<a id="__codelineno-2-80" name="__codelineno-2-80" href="#__codelineno-2-80"></a><span class="w">  </span><span class="nt">sage_size_warning_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-2-81" name="__codelineno-2-81" href="#__codelineno-2-81"></a>
+<a id="__codelineno-2-82" name="__codelineno-2-82" href="#__codelineno-2-82"></a><span class="nt">briefing</span><span class="p">:</span>
+<a id="__codelineno-2-83" name="__codelineno-2-83" href="#__codelineno-2-83"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">         </span><span class="c1"># cron expression</span>
 </code></pre></div>
 <hr />
 <h2 id="key-settings-reference">Key Settings Reference<a class="headerlink" href="#key-settings-reference" title="Permanent link">&para;</a></h2>
@@ -1987,7 +2092,7 @@ through the policy gate, trust level and execution mode, like any other recommen
 <tr>
 <td><code>llm.optimizer.enabled</code></td>
 <td><code>true</code></td>
-<td>LLM index optimizer (HypoPG-validated, confidence-scored)</td>
+<td>Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of redundant or long-unused indexes</td>
 </tr>
 <tr>
 <td><code>llm.optimizer.min_query_calls</code></td>
@@ -1997,12 +2102,12 @@ through the policy gate, trust level and execution mode, like any other recommen
 <tr>
 <td><code>llm.optimizer.max_new_per_table</code></td>
 <td><code>3</code></td>
-<td>Max new indexes per table per cycle</td>
+<td>Max new index proposals per table per cycle</td>
 </tr>
 <tr>
 <td><code>llm.optimizer.rejection_memory.enabled</code></td>
 <td><code>true</code></td>
-<td>Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the prompt lists the shapes already measured. Applies to model candidates only, never to deterministic findings or to re-checks of open recommendations. Rows live in <code>sage.optimizer_rejection</code> and age out with <code>retention.findings_days</code> (YAML only)</td>
+<td>Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the tuning agent's case packet lists the shapes already measured. Applies to the agent's candidates and what-if tool calls, never to deterministic findings. Rows live in <code>sage.optimizer_rejection</code> and age out with <code>retention.findings_days</code> (YAML only)</td>
 </tr>
 <tr>
 <td><code>llm.optimizer.rejection_memory.max_age_days</code></td>
@@ -2027,12 +2132,12 @@ through the policy gate, trust level and execution mode, like any other recommen
 <tr>
 <td><code>llm.optimizer.rejection_memory.prompt_max_shapes</code></td>
 <td><code>5</code></td>
-<td>Most recent rejected shapes per table listed in the prompt as already measured (1-20)</td>
+<td>Most recent rejected shapes per table listed in the tuning agent's case packet as already measured (1-20)</td>
 </tr>
 <tr>
 <td><code>llm.optimizer.rejection_memory.skip_llm_after</code></td>
 <td><code>3</code></td>
-<td>After this many consecutive proposals for a table were all memory hits or fresh what-if rejections, with no material change since the first of them, the optimizer stops asking the model about the table until a material change or <code>max_age_days</code> (1-100). Operator-requested runs always ask. Exported as <code>pg_sage_optimizer_llm_calls_skipped_total{database}</code>; skipped what-ifs as <code>pg_sage_optimizer_whatif_skipped_total{database}</code></td>
+<td>After this many consecutive answers about a tuning case were all wasted (every proposal rejected or already measured, or the answer empty or malformed), the agent stops asking the model about the case until it changes materially (its statements, or a call-volume or mean-time change of <code>call_volume_ratio</code>/<code>mean_time_ratio</code>) or <code>max_age_days</code> passes (1-100). A provider failure neither extends nor breaks the streak. Exported as <code>pg_sage_optimizer_llm_calls_skipped_total{database}</code>; skipped what-ifs as <code>pg_sage_optimizer_whatif_skipped_total{database}</code></td>
 </tr>
 <tr>
 <td><code>llm.optimizer_llm.enabled</code></td>
@@ -2042,12 +2147,12 @@ through the policy gate, trust level and execution mode, like any other recommen
 <tr>
 <td><code>advisor.enabled</code></td>
 <td><code>true</code></td>
-<td>LLM configuration advisor (vacuum, WAL, connections, memory, rewrites, bloat)</td>
+<td>LLM configuration advisor (WAL, connections, rewrites, bloat). With <code>advisor.memory_enabled</code> / <code>advisor.vacuum_enabled</code> it also lets the tuning agent propose server settings / table storage parameters</td>
 </tr>
 <tr>
 <td><code>tuner.llm_enabled</code></td>
 <td><code>true</code></td>
-<td>Let the query tuner ask the LLM for pg_hint_plan hints (YAML only)</td>
+<td>Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way</td>
 </tr>
 <tr>
 <td><code>explain.enabled</code></td>
@@ -2058,6 +2163,105 @@ through the policy gate, trust level and execution mode, like any other recommen
 <td><code>rca.narration_enabled</code></td>
 <td><code>true</code></td>
 <td>Let the LLM rewrite the summary on <code>incident_detected</code> and <code>incident_escalated</code> notifications. The model can only read the incident's own evidence: its causal chain (<code>E#</code>), the results of the fixed read-only catalog probes run for it (<code>P#</code>, also readable with <code>get_probe_result</code>) and the deterministic causal-graph hypotheses (<code>H#</code>). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. <code>llm.enabled=false</code> is the hot kill switch and cancels narrations in flight</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tuning-agent">Tuning agent<a class="headerlink" href="#tuning-agent" title="Permanent link">&para;</a></h3>
+<p>One tuning agent per database (roadmap 2.2) replaces the index optimizer, advisor vacuum
+and memory, and tuner hint prompts. Each analyzer cycle it classifies the workload
+deterministically (application, tenant-family, test-fixture, diagnostic and pg_sage
+statements; confirmed facts bind tables), finds the cases worth tuning (a statement taking
+at least 5% of the workload's interval time, a statement whose mean time at least doubled,
+a table whose index maintenance or dead-tuple churn is a problem) and asks the model about
+each case with read-only tools: <code>statement</code>, <code>table</code>, <code>explain</code> (cached plan, or <code>EXPLAIN</code>
+without <code>ANALYZE</code>; generic plans on PostgreSQL 16+), <code>whatif_index</code> (HypoPG),
+<code>write_cost</code>, <code>extended_stats</code>, and <code>rehearse</code> when a clone provider is configured. The
+model answers with typed proposals only (index create or drop, server setting, table
+storage parameter, <code>CREATE STATISTICS</code> in the accepted <code>sage_stx_*</code> form, query hint),
+each citing its evidence and predicting its effect; pg_sage generates every statement and
+validates it with the same gates as before (index admission and HypoPG, configuration
+allowlists and ranges, the tuner's hint checks, confirmed facts, earlier operator
+rejections). A change a confirmed fact binds becomes a source-fix packet. The model is
+never asked when there is no case. Which proposal types it may make follows
+<code>llm.optimizer.enabled</code>, <code>advisor.memory_enabled</code>, <code>advisor.vacuum_enabled</code> and
+<code>tuner.llm_enabled</code>; extended statistics are always allowed.</p>
+<p>Each admitted proposal carries a confidence calibrated on <code>sage.action_outcome</code>: per action
+class and prediction method, the share of comparable decided outcomes that improved (the
+predicted-improvement bin when it has enough outcomes, else the whole class and method).
+Below <code>tuning.calibration_min_outcomes</code> the proposal is labeled uncalibrated and carries no
+number. When the calibrated rate's 95% lower bound is under
+<code>llm.optimizer.confidence_threshold</code>, an operator must approve the proposal. Proposals are
+ranked calibrated-confident first, then uncalibrated, then calibrated-doubtful. The Trust
+page and <code>GET /api/v1/tuning/calibration?database=</code> show the reliability bins.</p>
+<p>Safeguards learned from dogfooding:</p>
+<ul>
+<li><strong>Open findings are never resolved by absence.</strong> A recommendation the agent did not
+  examine this cycle stays open unchanged; only catalog evidence retires one (its table is
+  gone, an existing index covers it, the index it would drop is gone).</li>
+<li><strong>Daily budget survives restarts.</strong> The agent charges its model tokens per database and
+  UTC day to <code>sage.tuning_budget_day</code>, capped at the daily token budget of the client it
+  uses (<code>llm.optimizer_llm.token_budget_daily</code> when the optimizer LLM is enabled and sets
+  one, else <code>llm.token_budget_daily</code>). Exported as
+  <code>pg_sage_tuning_budget_day_tokens_{used,limit}{database}</code>.</li>
+<li><strong>Settings change on fresh evidence only.</strong> A setting or storage parameter needs counters
+  measured over the last snapshot interval (a <code>work_mem</code> change needs temp spills in it;
+  cumulative totals since a statistics reset are never evidence), waits while its last
+  change is being verified, needs evidence measured after that change once it is decided,
+  and needs an operator when it would be the third change in the same direction within
+  7 days (the history is on the approval card).</li>
+<li><strong>No overlapping indexes.</strong> An index candidate is refused when an existing or in-flight
+  index (queued, or an open proposal) already serves it, or when it would make one
+  redundant; one proposal per table and leading key per cycle; HypoPG measures it with the
+  in-flight indexes present.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tuning.enabled</code></td>
+<td><code>true</code></td>
+<td>Run the tuning agent when an LLM is usable</td>
+</tr>
+<tr>
+<td><code>tuning.max_cases_per_cycle</code></td>
+<td><code>3</code></td>
+<td>Cases the model examines per cycle; the rest wait (1-20)</td>
+</tr>
+<tr>
+<td><code>tuning.max_requests_per_cycle</code></td>
+<td><code>12</code></td>
+<td>Model requests (tool turns included) per database per cycle (1-200)</td>
+</tr>
+<tr>
+<td><code>tuning.max_tokens_per_cycle</code></td>
+<td><code>60000</code></td>
+<td>Model tokens per database per cycle, charged before each request (1000-2000000)</td>
+</tr>
+<tr>
+<td><code>tuning.max_turns_per_case</code></td>
+<td><code>6</code></td>
+<td>Model turns per case; the last must answer without tools (1-20)</td>
+</tr>
+<tr>
+<td><code>tuning.max_proposals_per_cycle</code></td>
+<td><code>10</code></td>
+<td>New findings per cycle, best ranked first (1-100). The cap applies before anything is recorded: a cut proposal (a query hint included) leaves no trace and is counted in <code>pg_sage_tuning_proposals_capped_total{database}</code>. Cases a cycle cannot reach (case cap, budget, model error) are deferred and asked first in the next cycles, longest waiting first; open findings the agent did not examine are kept unchanged, never resolved by absence. The last cycle's use is exported as <code>pg_sage_tuning_budget_{tokens,requests}_{used,limit}{database}</code>, <code>pg_sage_tuning_cases_asked{database}</code> and <code>pg_sage_tuning_cases_deferred{database}</code>, and shown on the Trust page</td>
+</tr>
+<tr>
+<td><code>tuning.calibration_min_outcomes</code></td>
+<td><code>5</code></td>
+<td>Decided outcomes a class and method need before a confidence is shown (1-1000)</td>
+</tr>
+<tr>
+<td><code>tuning.calibration_window_days</code></td>
+<td><code>180</code></td>
+<td>Days of decided outcomes the calibration reads (1-3650)</td>
 </tr>
 </tbody>
 </table>
@@ -2349,7 +2553,75 @@ compares samples 6 sample intervals apart (30 s by default). The live-temp-file 
 the investigation reports the evidence as unavailable instead of guessing. Standby-side
 evidence (paused replay, standby queries holding replay back) is only visible when pg_sage
 monitors the standby itself.</p>
-<p><strong>Model turn (on by default whenever an LLM is configured).</strong> After the causal graph has
+<p><strong>Tool-calling investigator (the default model mode, <code>sre.llm.mode: investigator</code>).</strong>
+Instead of the single review turn below, the model plans its own reads after the causal graph
+has scored the hypotheses. Every tool only reads:</p>
+<ul>
+<li>catalog probes with typed arguments;</li>
+<li>three pg_stat views (<code>database</code>, <code>tables</code>, <code>statements</code>), registered as catalog probes;</li>
+<li>a plan-only <code>EXPLAIN</code> of a statement by its <code>pg_stat_statements</code> queryid (the broad plan, and the narrow plan of a plan-regression investigation).
+  It is never <code>ANALYZE</code> and never runs the statement. It plans the generic plan in a
+  read-only transaction and returns node shapes only, never query text;</li>
+<li>the graph's current state and operator-confirmed facts.</li>
+</ul>
+<p>No tool can change anything. Remediation stays a typed proposal through the policy gate.</p>
+<p>The loop is bounded by its plan:</p>
+<table>
+<thead>
+<tr>
+<th>Plan</th>
+<th>Used for</th>
+<th>Model steps</th>
+<th>Probes</th>
+<th>Wall clock</th>
+<th>Tokens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>broad</td>
+<td>operator-started investigations (<code>POST /api/v1/databases/{db}/investigations</code>) and SLO burn</td>
+<td>10</td>
+<td>6</td>
+<td>90 s</td>
+<td>64k</td>
+</tr>
+<tr>
+<td>narrow</td>
+<td>detector and incident triggers (plan regressions also get the plan-only <code>EXPLAIN</code>)</td>
+<td>5</td>
+<td>3</td>
+<td>45 s</td>
+<td>32k</td>
+</tr>
+</tbody>
+</table>
+<p>Probes count against the investigation's 12-probe ceiling. Each model call is reserved in the
+same durable budget ledger as the review turn, before it is sent. Every tool call is stored as
+evidence with its SHA-256 digest. Repeated calls, unknown tools, calls over the budget and
+malformed replies are refused, counted and shown.</p>
+<p>The model finishes with <code>submit_conclusion</code>, whose outcome is one of:</p>
+<ul>
+<li><code>agree</code>: it agrees with the graph's conclusive root;</li>
+<li><code>conclude</code>: it names a graph node on an inconclusive graph;</li>
+<li><code>contest</code>: it names another graph node against a conclusive root;</li>
+<li><code>unmodeled</code>: it names a cause the graph has no node for;</li>
+<li><code>inconclusive</code>.</li>
+</ul>
+<p>Each claim must cite evidence ids, and every number in a claim must appear in the cited
+evidence. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
+unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
+advisory unless its family has earned model-root authority from held-out bench results, and
+the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The
+model's reads can conclude an inconclusive graph, but never move or drop a conclusive root;
+only an adopted contest can. When the loop stops without a usable answer (step, token or
+wall-clock budget, rate limit, timeout, malformed replies), the graph's diagnosis stands and a
+<code>model_rejected</code> event gives the reason. Providers without native tool calls get a JSON action
+protocol automatically. The transcript (the plan, each tool call with its result and digest,
+the citations, and the stop reason) is shown in the investigation view. It is also served,
+redacted, at <code>GET /api/v1/databases/{db}/investigations/{id}/transcript</code> and by the MCP tool
+<code>sre_get_transcript</code>. Unredacted identifiers (<code>?keep_identifiers=true</code>) need the operator role.</p>
+<p><strong>Review turn (<code>sre.llm.mode: review</code>).</strong> After the causal graph has
 scored the hypotheses, the configured LLM (<code>llm.*</code>) reviews the result. It may only:</p>
 <ul>
 <li>reorder the graph's own open hypotheses (shown separately as "model ranking", never merged
@@ -2415,6 +2687,11 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 <td><code>sre.llm.enabled</code></td>
 <td><code>true</code></td>
 <td>Model turn in investigations, used whenever an LLM is configured. <code>false</code> keeps investigations deterministic. Restart to change</td>
+</tr>
+<tr>
+<td><code>sre.llm.mode</code></td>
+<td><code>investigator</code></td>
+<td><code>investigator</code>: the model plans read-only probes within the plan's budget and concludes with cited evidence. <code>review</code>: one cheaper review turn. Restart to change</td>
 </tr>
 <tr>
 <td><code>sre.detectors.window_seconds</code></td>
@@ -3139,6 +3416,91 @@ and age out with <code>snapshots_days</code>; nothing is rewritten.</p>
 configuration fields including <code>safety</code>, <code>alerting</code>, <code>auto_explain</code>,
 <code>forecaster</code>, <code>tuner</code>, <code>advisor</code>, and <code>api</code> sections.</p>
 </blockquote>
+<h3 id="postgres-specialist-contract">Postgres-specialist contract<a class="headerlink" href="#postgres-specialist-contract" title="Permanent link">&para;</a></h3>
+<p><code>specialist.*</code> configures the versioned investigation contract other agents
+call (see <a href="../specialist/">specialist.md</a>). It is on by default and token-only
+(MCP tokens; a session never authenticates it). All keys are read at startup.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>specialist.enabled</code></td>
+<td><code>true</code></td>
+<td>Serve <code>/api/v1/specialist/</code> and the <code>specialist_*</code> MCP tools.</td>
+</tr>
+<tr>
+<td><code>specialist.writes_per_minute</code></td>
+<td><code>30</code></td>
+<td>Opens and remediation requests per token per minute (1-10000).</td>
+</tr>
+<tr>
+<td><code>specialist.reads_per_minute</code></td>
+<td><code>240</code></td>
+<td>Status, result and stream calls per token per minute (1-10000).</td>
+</tr>
+<tr>
+<td><code>specialist.max_open_per_identity</code></td>
+<td><code>3</code></td>
+<td>Live investigations one token may have opened (1-100).</td>
+</tr>
+<tr>
+<td><code>specialist.max_open_total</code></td>
+<td><code>10</code></td>
+<td>Live investigations all tokens may have opened (1-100).</td>
+</tr>
+<tr>
+<td><code>specialist.keep_identifiers</code></td>
+<td><code>true</code></td>
+<td><code>false</code> hashes identifiers in results; secrets and PII are always removed.</td>
+</tr>
+<tr>
+<td><code>specialist.pagerduty.signing_secret</code></td>
+<td></td>
+<td>PagerDuty webhook subscription secret (required with <code>services</code>).</td>
+</tr>
+<tr>
+<td><code>specialist.pagerduty.services</code></td>
+<td><code>[]</code></td>
+<td><code>SERVICE_ID=database[:family]</code> mappings.</td>
+</tr>
+<tr>
+<td><code>specialist.pagerduty.api_url</code></td>
+<td></td>
+<td>PagerDuty REST API for result notes (https); empty sends none.</td>
+</tr>
+<tr>
+<td><code>specialist.pagerduty.api_token</code></td>
+<td></td>
+<td>PagerDuty REST API token for notes.</td>
+</tr>
+<tr>
+<td><code>specialist.pagerduty.from_email</code></td>
+<td></td>
+<td><code>From</code> header of notes.</td>
+</tr>
+<tr>
+<td><code>specialist.webhook.signing_secret</code></td>
+<td></td>
+<td>Generic webhook HMAC secret; empty disables the adapter.</td>
+</tr>
+<tr>
+<td><code>specialist.webhook.result_url</code></td>
+<td></td>
+<td>Where signed results are posted (https, or http to loopback).</td>
+</tr>
+<tr>
+<td><code>specialist.webhook.timestamp_tolerance_seconds</code></td>
+<td><code>300</code></td>
+<td>Accepted age of a signed webhook request (30-900).</td>
+</tr>
+</tbody>
+</table>
 
 
 

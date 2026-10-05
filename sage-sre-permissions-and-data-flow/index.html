@@ -287,6 +287,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../walkthrough/" class="md-nav__link">
         
   
@@ -484,6 +511,33 @@
     
   
     MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
   
 
     
@@ -1219,7 +1273,7 @@ family says so (<code>disk_capacity: provider_metric_unavailable</code>) and mak
 </tr>
 <tr>
 <td>LLM endpoint (<code>llm.endpoint</code>)</td>
-<td>the model turn's prompt (below)</td>
+<td>the model turn's prompt and, in investigator mode, the results of the reads the model asks for (below)</td>
 <td>only with an LLM configured and <code>sre.llm.enabled: true</code> (default)</td>
 </tr>
 </tbody>
@@ -1244,7 +1298,15 @@ network calls.</p>
 <li>when a probe may be requested, the catalog menu (probe ids and argument types).</li>
 </ul>
 <p>Not sent: database credentials or connection strings, query text (no probe collects it), raw
-rows, other investigations, other databases' evidence, pg_sage user data.</p>
+rows (except as below), other investigations, other databases' evidence, pg_sage user data.</p>
+<p>In investigator mode (<code>sre.llm.mode: investigator</code>, the default), the model makes up to 5
+calls (narrow plan) or 10 (broad plan) instead of 2. It also receives the result of each read
+it asks for, as the next message. A result is the probe's rows, <strong>redacted, fenced and capped
+at 20 rows and 4000 characters</strong>. The reads are catalog probes, the three pg_stat views and,
+in the broad plan, a plan-only <code>EXPLAIN</code>, whose result is plan node shapes (node type,
+relation, index, costs, row estimates), never query text. Confirmed facts and the graph's
+state are sent the same way. Every read is stored as evidence with its digest, and the
+transcript is redacted on every read like the rest of the investigation.</p>
 <p><strong>Redaction</strong> (<code>internal/sre/redact.go</code>) removes connection URIs (anything shaped like
 <code>scheme://user:pass@host</code>, and any <code>postgres://</code> URI), <code>password=</code>/<code>secret=</code>/<code>token=</code>/
 <code>api_key=</code>-style values, bearer tokens, SQL string literals and raw vectors. It runs before a
@@ -1347,6 +1409,11 @@ role can make an investigation execute anything: R1 has no actions.</p>
 <td>investigations stay fully deterministic; nothing is sent to the LLM</td>
 </tr>
 <tr>
+<td>The model's own reads</td>
+<td><code>sre.llm.mode: review</code></td>
+<td>the single review turn: at most 2 calls, no probe rows sent</td>
+</tr>
+<tr>
 <td>Every LLM feature</td>
 <td><code>llm.enabled: false</code> (or no <code>llm.endpoint</code>)</td>
 <td>no LLM traffic at all from pg_sage</td>
@@ -1358,7 +1425,7 @@ role can make an investigation execute anything: R1 has no actions.</p>
 </tr>
 </tbody>
 </table>
-<p>All four are restart settings (<a href="../configuration/#sage-sre-investigations">configuration</a>).</p>
+<p>All five are restart settings (<a href="../configuration/#sage-sre-investigations">configuration</a>).</p>
 
 
 

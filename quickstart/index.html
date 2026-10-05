@@ -10,9 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/walkthrough-linux/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/quickstart/">
       
       
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../walkthrough/">
       
       
         
@@ -23,7 +27,7 @@
     
     
       
-        <title>pg_sage Walkthrough -- Linux / macOS - pg_sage</title>
+        <title>Five-minute quickstart - pg_sage</title>
       
     
     
@@ -74,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pg_sage-walkthrough-linux-macos" class="md-skip">
+        <a href="#five-minute-quickstart" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              pg_sage Walkthrough -- Linux / macOS
+              Five-minute quickstart
             
           </span>
         </div>
@@ -280,10 +284,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../quickstart/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -299,6 +330,120 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-create-a-role-for-pg_sage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Create a role for pg_sage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-start-pg_sage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Start pg_sage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-what-you-will-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. What you will see
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. What you will see">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#minute-1-the-first-look" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minute 1: the first look
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minute-5-the-analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minute 5: the analyzer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hour-1-history-and-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hour 1: history and the model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-read-only-until-you-grant-more" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Read-only until you grant more
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-something-is-missing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When something is missing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -708,10 +853,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#1-create-a-role-for-pg_sage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        1. Create a role for pg_sage
       
     </span>
   </a>
@@ -719,10 +864,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-a-local-target" class="md-nav__link">
+  <a href="#2-start-pg_sage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Start a Local Target
+        2. Start pg_sage
       
     </span>
   </a>
@@ -730,10 +875,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-build-and-run-pg_sage" class="md-nav__link">
+  <a href="#3-what-you-will-see" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Build and Run pg_sage
+        3. What you will see
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. What you will see">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#minute-1-the-first-look" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minute 1: the first look
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minute-5-the-analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minute 5: the analyzer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hour-1-history-and-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hour 1: history and the model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-read-only-until-you-grant-more" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Read-only until you grant more
       
     </span>
   </a>
@@ -741,32 +936,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-open-the-ui" class="md-nav__link">
+  <a href="#when-something-is-missing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Open the UI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-api-and-metrics-checks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. API and Metrics Checks
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-clean-up" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. Clean Up
+        When something is missing
       
     </span>
   </a>
@@ -793,74 +966,165 @@
   
 
 
-<h1 id="pg_sage-walkthrough-linux-macos">pg_sage Walkthrough -- Linux / macOS<a class="headerlink" href="#pg_sage-walkthrough-linux-macos" title="Permanent link">&para;</a></h1>
-<p>This walkthrough mirrors the v1 product shape: pg_sage starts as a single
-sidecar binary, creates an authenticated admin account, and presents an
-autonomous DBA workflow in the web UI.</p>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h1 id="five-minute-quickstart">Five-minute quickstart<a class="headerlink" href="#five-minute-quickstart" title="Permanent link">&para;</a></h1>
+<p>From an empty install to the first useful finding in under five minutes, on any
+PostgreSQL 14+ database, managed or self-hosted, without a superuser. pg_sage reads the
+catalog the moment it connects and shows a <strong>first look</strong> within the first minute. It
+needs no query history and no LLM for that. It starts <strong>read-only</strong>: it only observes
+until you grant more.</p>
+<p>A test keeps this page honest. Every setting, flag, environment variable, metric, API
+path and UI label named here must exist in the product (<code>TestQuickstart*</code> in
+<code>sidecar/internal/config</code>). The e2e test runs the role SQL below exactly as written
+(<code>TestFirstLookWithinAMinute</code>).</p>
+<h2 id="1-create-a-role-for-pg_sage">1. Create a role for pg_sage<a class="headerlink" href="#1-create-a-role-for-pg_sage" title="Permanent link">&para;</a></h2>
+<p>Run this as a superuser, or as your provider's admin role (<code>rds_superuser</code>,
+<code>cloudsqlsuperuser</code>, <code>azure_pg_admin</code>), in the database you want pg_sage to watch:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">-- Log in with a password of your choice.</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">ROLE</span><span class="w"> </span><span class="n">sage_agent</span><span class="w"> </span><span class="n">LOGIN</span><span class="w"> </span><span class="n">PASSWORD</span><span class="w"> </span><span class="s1">'YOUR_PASSWORD'</span><span class="p">;</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">-- Read statistics, settings and query text (pg_monitor includes pg_read_all_stats).</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">GRANT</span><span class="w"> </span><span class="n">pg_monitor</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">-- pg_sage keeps its own state in the sage schema and writes nowhere else.</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">AUTHORIZATION</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">-- Sequence runway: lets pg_sage read each sequence's current value.</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">SELECT</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="n">SEQUENCES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="c1">-- Query statistics. Optional: without it the first look tells you how to enable it.</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">pg_stat_statements</span><span class="p">;</span>
+</code></pre></div>
+<p>That is all a read-only install needs. The privileges that changes need (table ownership,
+<code>pg_signal_backend</code>, parameter changes) come later, from the <strong>"Grant more"</strong> step.</p>
+<h2 id="2-start-pg_sage">2. Start pg_sage<a class="headerlink" href="#2-start-pg_sage" title="Permanent link">&para;</a></h2>
+<p>With Docker, in one line:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg_sage<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:8080<span class="w"> </span>-p<span class="w"> </span><span class="m">9187</span>:9187<span class="w"> </span>-e<span class="w"> </span><span class="nv">SAGE_PROMETHEUS_PORT</span><span class="o">=</span><span class="m">9187</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">SAGE_DATABASE_URL</span><span class="o">=</span><span class="s2">"postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb"</span><span class="w"> </span>ghcr.io/jasonmassie01/pg_sage:latest
+</code></pre></div>
+<p>Or with the binary:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./pg_sage<span class="w"> </span>--pg-url<span class="w"> </span><span class="s2">"postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb"</span>
+</code></pre></div>
+<p>Sign in at <code>http://localhost:8080</code> as <code>admin@pg-sage.local</code>. The one-time password is
+printed to stderr: <code>docker logs pg_sage 2&gt;&amp;1 | grep 'INITIAL ADMIN PASSWORD'</code>.</p>
+<p>Have no database at hand? <a href="../try-it-out/">Try pg_sage locally</a> starts one with Docker.</p>
+<h2 id="3-what-you-will-see">3. What you will see<a class="headerlink" href="#3-what-you-will-see" title="Permanent link">&para;</a></h2>
+<h3 id="minute-1-the-first-look">Minute 1: the first look<a class="headerlink" href="#minute-1-the-first-look" title="Permanent link">&para;</a></h3>
+<p>The landing page opens with <strong>"Getting started"</strong>, a checklist with live status:</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Done when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>"Connected"</strong></td>
+<td>pg_sage reaches the database</td>
+</tr>
+<tr>
+<td><strong>"Extensions"</strong></td>
+<td>pg_stat_statements is ready; HypoPG and auto_explain are listed as optional</td>
+</tr>
+<tr>
+<td><strong>"First look ready"</strong></td>
+<td>the catalog-only first look has finished</td>
+</tr>
+<tr>
+<td><strong>"MCP token"</strong></td>
+<td>an active token exists for coding agents (optional)</td>
+</tr>
+<tr>
+<td><strong>"Notifications"</strong></td>
+<td>a notification channel is configured (optional)</td>
+</tr>
+<tr>
+<td><strong>"Grant more"</strong></td>
+<td>you have granted a trust level above observation</td>
+</tr>
+</tbody>
+</table>
+<p>Below it, <strong>"First look"</strong> lists what a DBA would flag on day one. Each finding cites the
+catalog evidence it rests on, for example <code>pg_index.indisvalid = false</code>:</p>
 <ul>
-<li>PostgreSQL 14-17, or Docker</li>
-<li>Go 1.24+</li>
-<li>Node.js 20+ and npm</li>
-<li><code>curl</code></li>
+<li>invalid indexes left by a failed concurrent build;</li>
+<li>duplicate indexes, and redundant ones whose columns lead another index;</li>
+<li>indexes never scanned. The caveat states the statistics window: since the last reset or
+  the server start. Scans on replicas are not counted;</li>
+<li>foreign keys whose columns lead no index;</li>
+<li>transaction ID and multixact runway, and sequence runway, including a bigint sequence
+  that feeds an integer column;</li>
+<li>tables with a high share of dead tuples. This is an estimate from the counters;</li>
+<li>test-named schemas. Idle ones become fact proposals that you confirm or reject;
+  pg_sage never drops a schema;</li>
+<li>pg_stat_statements, HypoPG and auto_explain, if missing, with the exact steps for your
+  provider (RDS, Aurora, Cloud SQL, AlloyDB, Azure or self-managed).</li>
 </ul>
-<h2 id="1-start-a-local-target">1. Start a Local Target<a class="headerlink" href="#1-start-a-local-target" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg-test<span class="w"> </span>-e<span class="w"> </span><span class="nv">POSTGRES_PASSWORD</span><span class="o">=</span>testpass<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">5432</span>:5432<span class="w"> </span>postgres:17<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-c<span class="w"> </span><span class="nv">shared_preload_libraries</span><span class="o">=</span>pg_stat_statements<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>-c<span class="w"> </span>pg_stat_statements.track<span class="o">=</span>all
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">until</span><span class="w"> </span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg-test<span class="w"> </span>pg_isready<span class="w"> </span>-U<span class="w"> </span>postgres<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">1</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
-</code></pre></div>
-<p>Create the monitoring user:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>testpass<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span>postgres<span class="w"> </span><span class="s">&lt;&lt;'SQL'</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s">CREATE USER sage_agent WITH PASSWORD 'sagepw';</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">GRANT pg_monitor TO sage_agent;</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">GRANT pg_read_all_stats TO sage_agent;</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">GRANT CREATE ON SCHEMA public TO sage_agent;</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">GRANT pg_signal_backend TO sage_agent;</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">SQL</span>
-</code></pre></div>
-<h2 id="2-build-and-run-pg_sage">2. Build and Run pg_sage<a class="headerlink" href="#2-build-and-run-pg_sage" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/jasonmassie01/pg_sage.git
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>pg_sage/sidecar
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage<span class="w"> </span>./cmd/pg_sage_sidecar
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>./pg_sage<span class="w"> </span>--pg-url<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="s2">"postgres://sage_agent:sagepw@localhost:5432/postgres?sslmode=disable"</span>
-</code></pre></div>
-<p>Leave pg_sage running. Copy the one-time <code>INITIAL ADMIN PASSWORD</code> printed to
-stderr.</p>
-<h2 id="3-open-the-ui">3. Open the UI<a class="headerlink" href="#3-open-the-ui" title="Permanent link">&para;</a></h2>
-<p>Open <code>http://localhost:8080</code> and sign in:</p>
-<ul>
-<li>Email: <code>admin@pg-sage.local</code></li>
-<li>Password: the startup password</li>
-</ul>
-<p>Walk through:</p>
-<ol>
-<li><strong>Overview</strong> -- fleet health, Provider Readiness, recent recommendations.</li>
-<li><strong>Cases</strong> -- the primary DBA work queue. The old <code>#/findings</code> route aliases
-   here for compatibility.</li>
-<li><strong>Actions</strong> -- pending approval and executed action history.</li>
-<li><strong>Fleet</strong> -- managed database connections and runtime status.</li>
-<li><strong>Settings</strong> -- system info, emergency stop/resume, and Shadow Mode proof.</li>
-</ol>
-<h2 id="4-api-and-metrics-checks">4. API and Metrics Checks<a class="headerlink" href="#4-api-and-metrics-checks" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/shadow-report
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>head
-</code></pre></div>
-<h2 id="5-clean-up">5. Clean Up<a class="headerlink" href="#5-clean-up" title="Permanent link">&para;</a></h2>
-<p>Stop pg_sage with <code>Ctrl+C</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-test
-</code></pre></div>
+<p>The first look reads only the system catalog and the statistics views. It runs once, in
+one read-only transaction, never touches table data, and keeps every statement inside
+<code>safety.query_timeout_ms</code>. A check it cannot run (a missing privilege, a timeout) is shown
+as degraded, with the reason and the grant that fixes it. With a model configured
+(<code>llm.enabled</code>, <code>llm.endpoint</code>, <code>llm.api_key</code>), a short summary heads the list. The
+findings never depend on it.</p>
+<p>The same data is available from the API at <code>/api/v1/first-look</code> and <code>/api/v1/onboarding</code>,
+and from Prometheus as <code>pg_sage_time_to_first_finding_seconds</code>,
+<code>pg_sage_first_look_items</code> and <code>pg_sage_first_look_duration_seconds</code> (one series per
+database).</p>
+<h3 id="minute-5-the-analyzer">Minute 5: the analyzer<a class="headerlink" href="#minute-5-the-analyzer" title="Permanent link">&para;</a></h3>
+<p>The collector takes its first snapshot at startup, and then every
+<code>collector.interval_seconds</code> (60 by default). The analyzer runs as soon as that first
+snapshot exists, and then every <code>analyzer.interval_seconds</code> (600 by default). Its findings
+appear in Cases: table bloat, wraparound per table, configuration findings and, once
+pg_stat_statements has a few snapshots, slow and costly queries.</p>
+<h3 id="hour-1-history-and-the-model">Hour 1: history and the model<a class="headerlink" href="#hour-1-history-and-the-model" title="Permanent link">&para;</a></h3>
+<p>Query findings sharpen as statistics accumulate. With a model configured, index
+recommendations and the investigator start proposing typed, evidence-backed actions.
+Below your trust level they only record what they would do. Some rules wait longer on
+purpose. Unused-index drops wait for <code>analyzer.unused_index_window_days</code>, and test-schema
+facts are proposed after six quiet hours unless the first look already saw a long enough
+statistics window.</p>
+<h2 id="4-read-only-until-you-grant-more">4. Read-only until you grant more<a class="headerlink" href="#4-read-only-until-you-grant-more" title="Permanent link">&para;</a></h2>
+<p>A new install starts at <code>trust.level</code> observation. pg_sage reads the catalog and the
+statistics, and records findings, the first look and what it would do in its own <code>sage</code>
+schema. Nothing else in your database changes.</p>
+<p>When you are ready, click <strong>"Grant more"</strong> on the landing page. For each trust level it
+shows what pg_sage may do, what it never does without a person's approval, how much of the
+trust ramp is left, and which grants the level needs, checked live against your role. It
+also gives the SQL for any grant that is missing. Choosing a level sets <code>trust.level</code>
+through the same settings API the Settings page uses (<code>/api/v1/config/global</code>). In a YAML
+fleet it gives the line to put in your file instead. Even at a higher level, every action
+still passes the policy gate, waits for its ramp, <code>trust.tier3_safe</code> and
+<code>trust.tier3_moderate</code>, and is verified afterwards. High-risk actions always need
+approval.</p>
+<p>Already running pg_sage? An upgraded install keeps its configured trust level. A level
+set in your configuration file or with <code>SAGE_TRUST_LEVEL</code> is your grant: pg_sage honors
+it from the first start.</p>
+<h2 id="when-something-is-missing">When something is missing<a class="headerlink" href="#when-something-is-missing" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pg_stat_statements not installed or not loaded</td>
+<td>pg_sage still starts; the first look gives the steps; query analysis waits</td>
+</tr>
+<tr>
+<td>Sequences not readable</td>
+<td>the sequence check is degraded and names the <code>GRANT SELECT ON ALL SEQUENCES</code> to run</td>
+</tr>
+<tr>
+<td>Query text hidden</td>
+<td>a finding asks for <code>pg_read_all_stats</code></td>
+</tr>
+<tr>
+<td>Slow catalog</td>
+<td>each statement stops at <code>safety.query_timeout_ms</code>; the check is degraded, the others still run</td>
+</tr>
+<tr>
+<td>MCP for coding agents</td>
+<td>turn on <code>mcp.enabled</code> with <code>mcp.transport</code> http, then create a token (<a href="../mcp/">MCP guide</a>)</td>
+</tr>
+</tbody>
+</table>
 
 
 

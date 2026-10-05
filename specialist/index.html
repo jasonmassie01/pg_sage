@@ -10,9 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/walkthrough-linux/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/specialist/">
       
       
+        <link rel="prev" href="../mcp/">
+      
+      
+        <link rel="next" href="../hint-verification/">
       
       
         
@@ -23,7 +27,7 @@
     
     
       
-        <title>pg_sage Walkthrough -- Linux / macOS - pg_sage</title>
+        <title>Postgres Specialist for Other Agents - pg_sage</title>
       
     
     
@@ -74,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pg_sage-walkthrough-linux-macos" class="md-skip">
+        <a href="#the-postgres-specialist-other-agents-call" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              pg_sage Walkthrough -- Linux / macOS
+              Postgres Specialist for Other Agents
             
           </span>
         </div>
@@ -523,10 +527,37 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../specialist/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -542,6 +573,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#identity-and-scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity and scopes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pagerduty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PagerDuty
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generic-webhook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generic webhook
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aws-devops-agent-and-datadog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS DevOps Agent and Datadog
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -708,10 +825,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#identity-and-scopes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Identity and scopes
       
     </span>
   </a>
@@ -719,10 +836,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-start-a-local-target" class="md-nav__link">
+  <a href="#calls" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Start a Local Target
+        Calls
       
     </span>
   </a>
@@ -730,10 +847,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-build-and-run-pg_sage" class="md-nav__link">
+  <a href="#errors" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Build and Run pg_sage
+        Errors
       
     </span>
   </a>
@@ -741,10 +858,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-open-the-ui" class="md-nav__link">
+  <a href="#pagerduty" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Open the UI
+        PagerDuty
       
     </span>
   </a>
@@ -752,10 +869,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-api-and-metrics-checks" class="md-nav__link">
+  <a href="#generic-webhook" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. API and Metrics Checks
+        Generic webhook
       
     </span>
   </a>
@@ -763,10 +880,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-clean-up" class="md-nav__link">
+  <a href="#aws-devops-agent-and-datadog" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Clean Up
+        AWS DevOps Agent and Datadog
       
     </span>
   </a>
@@ -793,74 +910,160 @@
   
 
 
-<h1 id="pg_sage-walkthrough-linux-macos">pg_sage Walkthrough -- Linux / macOS<a class="headerlink" href="#pg_sage-walkthrough-linux-macos" title="Permanent link">&para;</a></h1>
-<p>This walkthrough mirrors the v1 product shape: pg_sage starts as a single
-sidecar binary, creates an authenticated admin account, and presents an
-autonomous DBA workflow in the web UI.</p>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h1 id="the-postgres-specialist-other-agents-call">The Postgres specialist other agents call<a class="headerlink" href="#the-postgres-specialist-other-agents-call" title="Permanent link">&para;</a></h1>
+<p>pg_sage serves a stable, versioned investigation contract,
+<code>pg_sage.specialist.v1</code>, so that other agents (AWS DevOps Agent, PagerDuty,
+Datadog, your own automation) can ask it <strong>what is wrong with this Postgres
+and why</strong>, and <strong>request</strong> (never force) a remediation.</p>
 <ul>
-<li>PostgreSQL 14-17, or Docker</li>
-<li>Go 1.24+</li>
-<li>Node.js 20+ and npm</li>
-<li><code>curl</code></li>
+<li>Contract document (OpenAPI 3.1, no token needed):
+  <code>GET /api/v1/specialist/openapi.json</code>; version: <code>GET /api/v1/specialist/contract</code>.</li>
+<li>Every response, errors included, carries <code>contract_version</code> and the header
+  <code>X-Sage-Contract-Version</code>. A breaking change is a new version (<code>v2</code>) served
+  beside <code>v1</code>, never an edit of <code>v1</code>. Clients must ignore unknown fields and
+  treat unknown enum values as unknown; pg_sage only adds fields and values
+  within <code>v1</code> (a golden test enforces this against the frozen v1 baseline).</li>
+<li>The same contract is available over MCP (<code>specialist_*</code> tools, see
+  <a href="../mcp/">MCP</a>).</li>
 </ul>
-<h2 id="1-start-a-local-target">1. Start a Local Target<a class="headerlink" href="#1-start-a-local-target" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg-test<span class="w"> </span>-e<span class="w"> </span><span class="nv">POSTGRES_PASSWORD</span><span class="o">=</span>testpass<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">5432</span>:5432<span class="w"> </span>postgres:17<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-c<span class="w"> </span><span class="nv">shared_preload_libraries</span><span class="o">=</span>pg_stat_statements<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>-c<span class="w"> </span>pg_stat_statements.track<span class="o">=</span>all
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">until</span><span class="w"> </span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg-test<span class="w"> </span>pg_isready<span class="w"> </span>-U<span class="w"> </span>postgres<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">1</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
+<h2 id="identity-and-scopes">Identity and scopes<a class="headerlink" href="#identity-and-scopes" title="Permanent link">&para;</a></h2>
+<p>Each external system is a <strong>named MCP token</strong> (Settings &gt; MCP tokens, admin
+only): name it after the system, e.g. <code>PagerDuty prod</code>. Tokens are hashed at
+rest, expire (1-90 days), and may be restricted to databases.</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Allows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>read</code></td>
+<td>open or attach an investigation, poll or stream its status, read the result</td>
+</tr>
+<tr>
+<td><code>propose</code></td>
+<td>request one of a concluded investigation's candidate remediations</td>
+</tr>
+</tbody>
+</table>
+<p>There is no approve: an external caller can never approve, bypass or force
+anything. Send the token as <code>Authorization: Bearer pgs_mcp_...</code>; a dashboard
+session cookie never authenticates the contract. The audit trail names the
+agent (<code>agent:&lt;token-name&gt;:&lt;token-id&gt;</code>) on the investigation's event chain and
+in <strong>External agent requests</strong> on the MCP tokens page.</p>
+<p>Limits (configurable under <code>specialist.*</code>): 30 opens/remediation requests and
+240 reads per token per minute (<code>429</code> with <code>Retry-After</code>), at most 3 live
+investigations opened per token and 10 in total (attaching never counts).</p>
+<h2 id="calls">Calls<a class="headerlink" href="#calls" title="Permanent link">&para;</a></h2>
+<p>All paths are under <code>/api/v1/specialist</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">TOKEN</span><span class="o">=</span>pgs_mcp_...
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">BASE</span><span class="o">=</span>https://sage.example.com/api/v1/specialist
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># open (201) or attach (200)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"symptom":{"summary":"checkout p99 4 s"},"family":"lock_blocking",</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="s1">       "window":{"start":"2026-10-04T11:40:00Z"},</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="s1">       "external_ref":{"system":"datadog","id":"monitor-123"}}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nv">$BASE</span>/databases/orders/investigations
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="c1"># poll (or GET .../stream for server-sent events)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># result: 202 while running, 200 when terminal</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>/result
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># request a candidate remediation (propose scope)</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"reason":"PD incident Q1ABC"}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>/remediations/<span class="nv">$REMEDIATION_ID</span>/request
 </code></pre></div>
-<p>Create the monitoring user:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>testpass<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span>postgres<span class="w"> </span><span class="s">&lt;&lt;'SQL'</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s">CREATE USER sage_agent WITH PASSWORD 'sagepw';</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">GRANT pg_monitor TO sage_agent;</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">GRANT pg_read_all_stats TO sage_agent;</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">GRANT CREATE ON SCHEMA public TO sage_agent;</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">GRANT pg_signal_backend TO sage_agent;</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">SQL</span>
-</code></pre></div>
-<h2 id="2-build-and-run-pg_sage">2. Build and Run pg_sage<a class="headerlink" href="#2-build-and-run-pg_sage" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/jasonmassie01/pg_sage.git
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>pg_sage/sidecar
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage<span class="w"> </span>./cmd/pg_sage_sidecar
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>./pg_sage<span class="w"> </span>--pg-url<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="s2">"postgres://sage_agent:sagepw@localhost:5432/postgres?sslmode=disable"</span>
-</code></pre></div>
-<p>Leave pg_sage running. Copy the one-time <code>INITIAL ADMIN PASSWORD</code> printed to
-stderr.</p>
-<h2 id="3-open-the-ui">3. Open the UI<a class="headerlink" href="#3-open-the-ui" title="Permanent link">&para;</a></h2>
-<p>Open <code>http://localhost:8080</code> and sign in:</p>
-<ul>
-<li>Email: <code>admin@pg-sage.local</code></li>
-<li>Password: the startup password</li>
-</ul>
-<p>Walk through:</p>
+<p><strong>Open or attach.</strong> <code>family</code> (one of <code>lock_blocking</code>, <code>connection_pressure</code>,
+<code>wal_retention</code>, <code>plan_regression</code>, <code>checkpoint_storm</code>, <code>temp_file_explosion</code>,
+<code>replication_lag</code>, <code>lwlock_contention</code>) chooses the probe plan; without it the
+operator triage runs. <code>attach</code> takes exactly one of <code>investigation_id</code> or
+<code>incident_id</code>; with a <code>window</code>, an investigation of the same family that
+started inside it is attached instead of opening another. Repeats with the
+same <code>idempotency_key</code> (or <code>external_ref</code>) return the same investigation.</p>
+<p><strong>Result.</strong> <code>causal_chain</code> (root cause first, then contributing factors; each
+link cites evidence ids, the fact text and the numbers read from that
+evidence), <code>root_cause</code> with <code>source</code> (<code>graph</code> or <code>model</code>) and <code>authority</code>
+(<code>deterministic</code>, or <code>model_earned</code> when the family's root authority was
+earned on the held-out bench), <code>confidence</code> (the graph's support score, which
+is not a probability, labelled <code>uncalibrated</code> unless a bench report gives the
+family's top-1 rate with its Wilson lower bound: <code>bench_top1</code>),
+<code>missing_evidence</code> (probes that failed or were unavailable, a missing probe
+plan, a caller window that ended before the probes ran), and <code>remediations</code>.</p>
+<p><strong>Remediations</strong> are pg_sage's own candidates, typed, with predicted effect,
+rollback, risk tier and the gate's <em>preview</em>: the evidence-matched cancel of a
+lock investigation's root blocker and the custodian actions (freeze, WAL
+bound) a runway investigation attached. A request becomes an ordinary
+proposal, decided by the policy gate, trust ledger, budgets and binding facts
+exactly as pg_sage's own initiative: a cancel is queued for a person's
+approval; a custodian action is re-scanned (stale if the custodian no longer
+proposes it) and submitted through the executor. The response is the gate's
+<code>verdict</code> (<code>queued_for_approval</code>, <code>executed</code> only where earned autonomy
+already allows it, <code>parked</code>, <code>blocked</code>, <code>already_requested</code>,
+<code>not_requestable</code>, <code>stale</code>) and <code>reason</code>. The request body has one field,
+<code>reason</code>, which is recorded and never acted on.</p>
+<p><strong>Caller text is data.</strong> The symptom never becomes an investigation subject,
+a prompt or an instruction; it is stored with secrets and PII removed and
+returned only to the caller who sent it, fenced (<code>caller_supplied.fenced</code>).</p>
+<p><strong>Redaction.</strong> Every string leaving pg_sage has credentials, connection URIs,
+tokens, SQL literals, raw vectors and PII-like literals removed (the replay
+export's rules). <code>specialist.keep_identifiers: false</code> also replaces schema and
+object names with keyed hashes.</p>
+<h2 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h2>
+<p><code>{"contract_version", "error", "code"}</code> with <code>code</code> one of
+<code>unauthenticated</code> (401), <code>scope_required</code> (403), <code>database_not_permitted</code>
+(403; the same for an existing and a missing database), <code>not_found</code> (404),
+<code>invalid_request</code> (400), <code>payload_too_large</code> (413), <code>rate_limited</code> and
+<code>too_many_investigations</code> (429), <code>not_requestable</code> (409), <code>signature_invalid</code>
+(401), <code>unavailable</code> (503), <code>disabled</code> (404, adapter not configured).</p>
+<h2 id="pagerduty">PagerDuty<a class="headerlink" href="#pagerduty" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>Overview</strong> -- fleet health, Provider Readiness, recent recommendations.</li>
-<li><strong>Cases</strong> -- the primary DBA work queue. The old <code>#/findings</code> route aliases
-   here for compatibility.</li>
-<li><strong>Actions</strong> -- pending approval and executed action history.</li>
-<li><strong>Fleet</strong> -- managed database connections and runtime status.</li>
-<li><strong>Settings</strong> -- system info, emergency stop/resume, and Shadow Mode proof.</li>
+<li>Create a token (read, or read + propose) for PagerDuty.</li>
+<li>In PagerDuty, add a v3 webhook subscription to
+   <code>https://&lt;sage&gt;/api/v1/specialist/adapters/pagerduty</code> with the custom header
+   <code>Authorization: Bearer pgs_mcp_...</code> and copy its signing secret.</li>
+<li>Configure:</li>
 </ol>
-<h2 id="4-api-and-metrics-checks">4. API and Metrics Checks<a class="headerlink" href="#4-api-and-metrics-checks" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/shadow-report
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>head
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">specialist</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">pagerduty</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">signing_secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${PAGERDUTY_WEBHOOK_SECRET}</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"PXXXXXX=orders:lock_blocking"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"PYYYYYY=billing"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="c1"># Optional: post the result back as an incident note.</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.pagerduty.com</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">api_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${PAGERDUTY_API_TOKEN}</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">from_email</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oncall-bot@example.com</span>
 </code></pre></div>
-<h2 id="5-clean-up">5. Clean Up<a class="headerlink" href="#5-clean-up" title="Permanent link">&para;</a></h2>
-<p>Stop pg_sage with <code>Ctrl+C</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-test
-</code></pre></div>
+<p><code>incident.triggered</code> and <code>incident.reopened</code> of a mapped service open (or
+attach to) an investigation; other events and unmapped services answer <code>202</code>
+ignored. Both the bearer token and <code>X-PagerDuty-Signature</code> must be valid.
+When the investigation finishes, pg_sage posts the diagnosis (never the
+incident's own text) as a note, with retries; only the configured <code>api_url</code>
+is ever called.</p>
+<h2 id="generic-webhook">Generic webhook<a class="headerlink" href="#generic-webhook" title="Permanent link">&para;</a></h2>
+<p><code>POST /api/v1/specialist/adapters/webhook</code> with a bearer token,
+<code>X-Sage-Timestamp</code> (unix seconds, within
+<code>specialist.webhook.timestamp_tolerance_seconds</code>) and
+<code>X-Sage-Signature: sha256=&lt;hex HMAC-SHA256 of "&lt;timestamp&gt;.&lt;body&gt;"&gt;</code> with
+<code>specialist.webhook.signing_secret</code>. The body is
+<code>{"database": "...", "request": &lt;open request&gt;}</code>. With
+<code>specialist.webhook.result_url</code> set, the result JSON is posted there when the
+investigation finishes, signed the same way.</p>
+<h2 id="aws-devops-agent-and-datadog">AWS DevOps Agent and Datadog<a class="headerlink" href="#aws-devops-agent-and-datadog" title="Permanent link">&para;</a></h2>
+<p>No vendor SDK is needed; both call the contract as an HTTP tool or MCP server.</p>
+<ul>
+<li><strong>AWS DevOps Agent</strong>: where it accepts a custom MCP server, register
+  <code>https://&lt;sage&gt;/api/v1/mcp</code> with the bearer token and let it use the
+  <code>specialist_*</code> tools. Where it accepts HTTP actions, import
+  <code>/api/v1/specialist/openapi.json</code>. Give it a read token first; add propose
+  once you want it to request remediations.</li>
+<li><strong>Datadog</strong>: a Workflow Automation HTTP action (or a monitor webhook through
+  the generic webhook adapter) calls <code>openInvestigation</code> with
+  <code>external_ref: {"system": "datadog", "id": "&lt;monitor id&gt;"}</code>, then polls
+  <code>getInvestigationResult</code> and attaches it to the incident.</li>
+</ul>
+<p>In every case the agent sees evidence-cited diagnoses and candidate
+remediations; what runs is still decided by pg_sage's gate.</p>
 
 
 

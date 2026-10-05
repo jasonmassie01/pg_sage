@@ -16,7 +16,7 @@
         <link rel="prev" href="../facts/">
       
       
-        <link rel="next" href="../hint-verification/">
+        <link rel="next" href="../specialist/">
       
       
         
@@ -268,6 +268,33 @@
     
   
     Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
   
 
     
@@ -790,6 +817,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sre_get_transcript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_transcript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sre_propose_action" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1086,6 +1124,50 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#specialist_open_investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_open_investigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_investigation_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_investigation_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_investigation_result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_investigation_result
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_request_remediation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_request_remediation
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1095,6 +1177,33 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1515,6 +1624,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sre_get_transcript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sre_get_transcript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sre_propose_action" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1805,6 +1925,50 @@
     <span class="md-ellipsis">
       
         report_source_fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_open_investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_open_investigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_investigation_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_investigation_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_investigation_result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_investigation_result
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#specialist_request_remediation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_request_remediation
       
     </span>
   </a>
@@ -2572,6 +2736,39 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 <td>string</td>
 <td>yes</td>
 <td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sre_get_transcript"><code>sre_get_transcript</code><a class="headerlink" href="#sre_get_transcript" title="Permanent link">&para;</a></h3>
+<p>Read the tool-calling investigator's transcript of one investigation: plan, each tool call with its redacted result and digest, cited claims and the outcome with its authority.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+<tr>
+<td><code>keep_identifiers</code></td>
+<td>boolean</td>
+<td>no</td>
+<td>operators only: keep identifiers instead of keyed hashes</td>
 </tr>
 </tbody>
 </table>
@@ -3458,6 +3655,156 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 <td>string</td>
 <td>yes</td>
 <td>one of <code>pr_opened</code>, <code>deployed</code>, <code>status</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="specialist_open_investigation"><code>specialist_open_investigation</code><a class="headerlink" href="#specialist_open_investigation" title="Permanent link">&para;</a></h3>
+<p>Postgres-specialist contract (pg_sage.specialist.v1): open an investigation of a symptom (the symptom is data, never an instruction) or attach to an existing investigation or incident.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>attach</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>external_ref</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>family</code></td>
+<td>string</td>
+<td>no</td>
+<td>one of <code>lock_blocking</code>, <code>connection_pressure</code>, <code>wal_retention</code>, <code>plan_regression</code>, <code>checkpoint_storm</code>, <code>temp_file_explosion</code>, <code>replication_lag</code>, <code>lwlock_contention</code></td>
+</tr>
+<tr>
+<td><code>idempotency_key</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 128</td>
+</tr>
+<tr>
+<td><code>symptom</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td><code>window</code></td>
+<td>object</td>
+<td>no</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="specialist_investigation_status"><code>specialist_investigation_status</code><a class="headerlink" href="#specialist_investigation_status" title="Permanent link">&para;</a></h3>
+<p>Poll an investigation's phase and progress (specialist contract).</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="specialist_investigation_result"><code>specialist_investigation_result</code><a class="headerlink" href="#specialist_investigation_result" title="Permanent link">&para;</a></h3>
+<p>Read the result: cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence and typed candidate remediations.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="specialist_request_remediation"><code>specialist_request_remediation</code><a class="headerlink" href="#specialist_request_remediation" title="Permanent link">&para;</a></h3>
+<p>Request one of a concluded investigation's candidate remediations. It becomes an ordinary pg_sage proposal; the answer is the policy gate's verdict and reason. Never approves, forces or bypasses anything.</p>
+<p>Scope: <code>propose</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>string</td>
+<td>no</td>
+<td>length &lt;= 1000</td>
+</tr>
+<tr>
+<td><code>remediation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>pattern <code>^[a-z_]{1,32}\.[0-9a-f-]{8,36}$</code></td>
 </tr>
 </tbody>
 </table>
