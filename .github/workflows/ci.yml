@@ -443,12 +443,30 @@ jobs:
         if: steps.secret.outputs.ready == 'true'
         run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} 17
 
+      # The caps cover one model arm's replay of the corpus, not both: a v*
+      # tag measures the review arm (the release's root authority reads its
+      # lift); scheduled and manual runs alternate it with the tool-calling
+      # investigator by UTC day of the year (even: review, odd: investigator).
+      - name: Pick the model arm (alternating nights)
+        id: arm
+        if: steps.secret.outputs.ready == 'true'
+        run: |
+          day=$((10#${BENCH_DAY_OF_YEAR:-$(date -u +%j)}))
+          if [[ "$GITHUB_REF" == refs/tags/v* ]] || (( day % 2 == 0 )); then
+            arm=causal-graph+llm
+          else
+            arm=causal-graph+investigator
+          fi
+          echo "arm=$arm" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Live-model arm::$arm (UTC day $day)"
+
       - name: Live-model arm (replay corpus, capped)
         if: steps.secret.outputs.ready == 'true'
         working-directory: sidecar
         env:
           PG_SAGE_LIVE_LLM: "1"
           SAGE_BENCH_LIVE_ARM: "1"
+          SAGE_BENCH_LIVE_MODEL_ARM: ${{ steps.arm.outputs.arm }}
           PG_SAGE_BENCH_LLM_URL: ${{ vars.PG_SAGE_BENCH_OPENAI_URL || 'https://api.openai.com/v1' }}
           PG_SAGE_BENCH_LLM_MODEL: ${{ vars.PG_SAGE_BENCH_OPENAI_MODEL }}
           PG_SAGE_BENCH_LLM_KEY: ${{ secrets.PG_SAGE_BENCH_OPENAI_API_KEY }}

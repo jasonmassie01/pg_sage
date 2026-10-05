@@ -48,7 +48,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	all := a.runSnapshotRules(current, previous, skipQueryRules)
 	all = append(all, a.runDatabaseRules(ctx, current, previous, skipQueryRules)...)
 	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
-	all = append(all, a.runProducers(ctx, current)...)
+	all = append(all, a.runProducers(ctx, current, previous)...)
 	all = append(all, a.runLateChecks(ctx)...)
 	all = append(all, a.checkSageFootprint(ctx, current)...)
 	all = append(all, a.checkSelfCost(ctx)...)
@@ -160,31 +160,18 @@ func missingFKTables(findings []Finding) map[string]bool {
 	return out
 }
 
-// runProducers runs the LLM optimizer, advisor, forecaster and tuner.
+// runProducers runs the tuning agent, advisor, forecaster and tuner.
 // Tables with fresh or still-open index recommendations are deferred so
 // the tuner does not install a hint that a pending index would obsolete.
 func (a *Analyzer) runProducers(
-	ctx context.Context, current *collector.Snapshot,
+	ctx context.Context, current, previous *collector.Snapshot,
 ) []Finding {
 	deferredTables := make(map[string]bool)
-	var out []Finding
-	// Without the index list the optimizer would see tables as unindexed
-	// and propose indexes that exist (dogfood lifeos-1).
-	if a.optimizer != nil && !current.Available("indexes") {
-		a.logFn("WARN", "analyzer: index optimizer skipped: indexes unavailable "+
-			"this cycle")
-	} else if a.optimizer != nil {
-		optResult, err := a.optimizer.Analyze(ctx, current)
-		if err != nil {
-			a.logFn("WARN", "analyzer: index optimizer: %v", err)
-		} else if optResult != nil {
-			for _, rec := range optResult.Recommendations {
-				if t := canonicalTable(rec.Table); t != "" {
-					deferredTables[t] = true
-				}
-				out = append(out,
-					optimizerRecommendationToFinding(rec, optResult))
-			}
+	tuned := a.runTuning(ctx, current, previous)
+	out := tuned.Findings
+	for _, t := range tuned.IndexTables {
+		if c := canonicalTable(t); c != "" {
+			deferredTables[c] = true
 		}
 	}
 	for _, t := range a.openIndexRecommendationTables(ctx) {

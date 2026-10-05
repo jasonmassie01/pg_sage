@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -14,12 +13,12 @@ import (
 
 // Rejection memory (lifeos 2026-10-03: one ai_claims index proposed 18
 // times in three hours, each measured at 0.0%). A HypoPG what-if rejection
-// of an LLM candidate is remembered with the workload it was measured on.
+// of a candidate is remembered with the workload it was measured on.
 // While that workload and the table are materially unchanged, a candidate
-// with the same shape skips the what-if, and the model is told the shape
-// was already measured. Memory applies only to new LLM candidates: the
-// re-evaluation of an open recommendation is never suppressed, and
-// deterministic detectors do not pass through the optimizer at all.
+// with the same shape skips the what-if, and the tuning agent's case
+// packet lists the shape as already measured. An operator's request is
+// never suppressed, and deterministic detectors do not pass through the
+// optimizer at all.
 
 const (
 	maxRejectionsPerTable  = 100
@@ -63,7 +62,6 @@ type memorySettings struct {
 	MaxAge                         time.Duration
 	CallRatio, MeanRatio, RowRatio float64
 	PromptMax                      int
-	SkipLLMAfter                   int
 }
 
 // memorySettingsFrom resolves the configuration; an unset or invalid value
@@ -77,17 +75,12 @@ func memorySettingsFrom(c config.OptimizerRejectionMemoryConfig) memorySettings 
 	if c.PromptMaxShapes > 0 {
 		prompt = min(c.PromptMaxShapes, config.MaxOptRejectionPromptMaxShapes)
 	}
-	skipAfter := config.DefaultOptRejectionSkipLLMAfter
-	if c.SkipLLMAfter > 0 {
-		skipAfter = min(c.SkipLLMAfter, config.MaxOptRejectionSkipLLMAfter)
-	}
 	return memorySettings{
-		MaxAge:       time.Duration(days) * 24 * time.Hour,
-		CallRatio:    ratioOr(c.CallVolumeRatio, config.DefaultOptRejectionCallVolumeRatio),
-		MeanRatio:    ratioOr(c.MeanTimeRatio, config.DefaultOptRejectionMeanTimeRatio),
-		RowRatio:     ratioOr(c.RowEstimateRatio, config.DefaultOptRejectionRowEstimateRatio),
-		PromptMax:    prompt,
-		SkipLLMAfter: skipAfter,
+		MaxAge:    time.Duration(days) * 24 * time.Hour,
+		CallRatio: ratioOr(c.CallVolumeRatio, config.DefaultOptRejectionCallVolumeRatio),
+		MeanRatio: ratioOr(c.MeanTimeRatio, config.DefaultOptRejectionMeanTimeRatio),
+		RowRatio:  ratioOr(c.RowEstimateRatio, config.DefaultOptRejectionRowEstimateRatio),
+		PromptMax: prompt,
 	}
 }
 
@@ -168,14 +161,11 @@ type rejectionMemory struct {
 	settings memorySettings
 	now      func() time.Time
 	logFn    func(string, string, ...any)
-	mu       sync.Mutex
-	streaks  map[string]*tableStreak // by "schema.table"
 }
 
 func newRejectionMemory(store rejectionStore, s memorySettings,
 	logFn func(string, string, ...any)) *rejectionMemory {
-	return &rejectionMemory{store: store, settings: s, now: time.Now, logFn: logFn,
-		streaks: make(map[string]*tableStreak)}
+	return &rejectionMemory{store: store, settings: s, now: time.Now, logFn: logFn}
 }
 
 // view loads the table's rejections that still describe it. A load
@@ -238,17 +228,14 @@ func (m *rejectionMemory) remember(ctx context.Context, tc TableContext,
 	return r, true
 }
 
-// tableMemory is one cycle's view of a table's remembered rejections.
+// tableMemory is a table's remembered rejections that still describe it.
 type tableMemory struct {
-	mem      *rejectionMemory
-	live     []rejection // newest first
-	skipped  int
-	rejected int // what-if rejections this cycle
+	mem  *rejectionMemory
+	live []rejection // newest first
 }
 
 // suppress reports the remembered rejection of the same idea as rec, if
-// any, and counts the skip. A nil view or an unparseable candidate never
-// matches.
+// any. A nil view or an unparseable candidate never matches.
 func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
 	if v == nil || len(v.live) == 0 {
 		return rejection{}, false
@@ -259,24 +246,14 @@ func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
 	}
 	for _, r := range v.live {
 		if r.Shape.sameIdea(shape) {
-			v.skipped++
 			return r, true
 		}
 	}
 	return rejection{}, false
 }
 
-// learn adds a rejection measured this cycle, so a second copy of the idea
-// in the same reply is skipped too.
-func (v *tableMemory) learn(r rejection) {
-	if v == nil || v.mem == nil {
-		return
-	}
-	v.live = append([]rejection{r}, v.live...)
-}
-
-// promptLines lists the newest rejected shapes for the optimizer prompt,
-// bounded in count and length.
+// promptLines lists the newest rejected shapes for the tuning agent's case
+// packet, bounded in count and length.
 func (v *tableMemory) promptLines() []string {
 	if v == nil || v.mem == nil || len(v.live) == 0 {
 		return nil
@@ -317,19 +294,4 @@ func truncateRunes(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n])
-}
-
-// countRejection counts a what-if rejection of this cycle's reply.
-func (v *tableMemory) countRejection() {
-	if v != nil {
-		v.rejected++
-	}
-}
-
-// finishProposal feeds the reply's outcome to the table's streak.
-func (v *tableMemory) finishProposal(tc TableContext, candidates int) {
-	if v == nil || v.mem == nil {
-		return
-	}
-	v.mem.noteProposal(tc, candidates, v.skipped+v.rejected)
 }

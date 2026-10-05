@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { useToast } from '../../components/Toast'
 import { ModelOutput } from './InvestigationModel'
+import { InvestigatorTranscript } from './InvestigatorTranscript'
 import { InvestigationTimeline } from './InvestigationTimeline'
 import { ActionProposals } from './ActionProposal'
 import { RunbookResult } from './RunbookResult'
@@ -107,6 +108,7 @@ function InvestigationDetail({ database, id, user }) {
         hypotheses={byStatus('ruled_out')} empty="None." onCite={cite} />
       <ModelOutput investigation={data.investigation} hypotheses={hs}
         evidence={data.evidence} onCite={cite} />
+      <InvestigatorTranscript summary={summary} evidence={data.evidence} onCite={cite} />
       <MissingEvidence missing={summary.missing || []} />
       <NextCheck root={likely[0]} />
       <ActionProposals database={database} investigationId={id} user={user} />

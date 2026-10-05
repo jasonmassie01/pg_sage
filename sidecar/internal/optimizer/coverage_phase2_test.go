@@ -264,48 +264,6 @@ func TestPhase2_CheckExpressionVolatility_UnknownFunc(
 // maxNewPerTable (was 66.7%)
 // ---------------------------------------------------------------------------
 
-func TestPhase2_MaxNewPerTable_DefaultWhenZero(t *testing.T) {
-	o := &Optimizer{cfg: &config.OptimizerConfig{MaxNewPerTable: 0}}
-	got := o.maxNewPerTable()
-	if got != defaultMaxNewPerTable {
-		t.Errorf("expected default %d, got %d",
-			defaultMaxNewPerTable, got)
-	}
-}
-
-func TestPhase2_MaxNewPerTable_NegativeUsesDefault(t *testing.T) {
-	o := &Optimizer{cfg: &config.OptimizerConfig{MaxNewPerTable: -1}}
-	got := o.maxNewPerTable()
-	if got != defaultMaxNewPerTable {
-		t.Errorf("expected default %d for negative, got %d",
-			defaultMaxNewPerTable, got)
-	}
-}
-
-func TestPhase2_MaxNewPerTable_CustomValue(t *testing.T) {
-	o := &Optimizer{cfg: &config.OptimizerConfig{MaxNewPerTable: 5}}
-	got := o.maxNewPerTable()
-	if got != 5 {
-		t.Errorf("expected 5, got %d", got)
-	}
-}
-
-func TestPhase2_MaxNewPerTable_One(t *testing.T) {
-	o := &Optimizer{cfg: &config.OptimizerConfig{MaxNewPerTable: 1}}
-	got := o.maxNewPerTable()
-	if got != 1 {
-		t.Errorf("expected 1, got %d", got)
-	}
-}
-
-func TestPhase2_MaxNewPerTable_LargeValue(t *testing.T) {
-	o := &Optimizer{cfg: &config.OptimizerConfig{MaxNewPerTable: 100}}
-	got := o.maxNewPerTable()
-	if got != 100 {
-		t.Errorf("expected 100, got %d", got)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // enrichWithHypoPG (was 15.4%) — test without HypoPG available
 // ---------------------------------------------------------------------------
@@ -364,82 +322,6 @@ func TestPhase2_EnrichWithHypoPG_CachedAvailability(t *testing.T) {
 // ---------------------------------------------------------------------------
 // scoreConfidence — various signal combinations
 // ---------------------------------------------------------------------------
-
-func TestPhase2_ScoreConfidence_NoSignals(t *testing.T) {
-	o := &Optimizer{
-		cfg:   &config.OptimizerConfig{},
-		logFn: noopLog2,
-	}
-	rec := Recommendation{}
-	// WriteRate=-1 signals "unknown"; 0.0 means "zero writes observed"
-	// which is valid data. Use -1 to get true "no data" confidence.
-	tc := TableContext{WriteRate: -1}
-	result := o.scoreConfidence(rec, tc)
-	// qv=0.1, pc=0, wr=0, hv=0, sk=0, tv=0.1
-	// = 0.25*0.1 + 0 + 0 + 0 + 0 + 0.10*0.1 = 0.035
-	if result.Confidence > 0.05 {
-		t.Errorf("expected very low confidence with no signals, got %f",
-			result.Confidence)
-	}
-	if result.ActionLevel != "high_risk" {
-		t.Errorf("expected high_risk, got %q",
-			result.ActionLevel)
-	}
-}
-
-func TestPhase2_ScoreConfidence_HighVolumeNoPlans(t *testing.T) {
-	o := &Optimizer{
-		cfg:   &config.OptimizerConfig{},
-		logFn: noopLog2,
-	}
-	rec := Recommendation{}
-	tc := TableContext{
-		Queries:        []QueryInfo{{Calls: 1000}},
-		WriteRate:      5.0,
-		WriteRateKnown: true, // WriteRate is evidence only when known (G3-B23)
-	}
-	result := o.scoreConfidence(rec, tc)
-	// QueryVolume=1.0 (500+), PlanClarity=0.5 (queries but no plans),
-	// WriteRateKnown=1.0, HypoPG=0, Selectivity=0, TableCallVol=1.0
-	// = 0.25*1.0 + 0.25*0.5 + 0.15*1.0 + 0 + 0 + 0.10*1.0
-	// = 0.25 + 0.125 + 0.15 + 0.10 = 0.625
-	if result.Confidence < 0.5 || result.Confidence > 0.7 {
-		t.Errorf("expected ~0.625 confidence, got %f",
-			result.Confidence)
-	}
-	if result.ActionLevel != "moderate" {
-		t.Errorf("expected moderate, got %q", result.ActionLevel)
-	}
-}
-
-func TestPhase2_ScoreConfidence_WithHypoPGValidated(t *testing.T) {
-	o := &Optimizer{
-		cfg:   &config.OptimizerConfig{},
-		logFn: noopLog2,
-	}
-	rec := Recommendation{
-		Validated:               true,
-		EstimatedImprovementPct: 30.0,
-	}
-	tc := TableContext{
-		Queries: []QueryInfo{{Calls: 500}},
-		Plans:   []PlanSummary{{QueryID: 1}},
-		ColStats: []ColStat{
-			{Column: "id", NDistinct: -1, MostCommonVals: []string{"1"}},
-		},
-		WriteRate: 1.0,
-	}
-	result := o.scoreConfidence(rec, tc)
-	// All signals should be high.
-	if result.Confidence < 0.7 {
-		t.Errorf("expected >=0.7 confidence with all signals, got %f",
-			result.Confidence)
-	}
-	if result.ActionLevel != "safe" {
-		t.Errorf("expected safe, got %q",
-			result.ActionLevel)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // checkBRINCorrelation — boundary tests

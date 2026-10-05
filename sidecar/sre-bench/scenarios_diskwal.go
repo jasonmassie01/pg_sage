@@ -92,17 +92,31 @@ func slotFill(active bool) program {
 		if err := slotActive(slot, active)(ctx, e); err != nil {
 			return err
 		}
-		n, err := e.count(ctx, `SELECT count(*) FROM pg_replication_slots WHERE slot_name = $1
-			AND pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) >= $2`, slot,
-			3*fillMiB<<20)
-		if err == nil && n != 1 {
-			err = fmt.Errorf("slot %s does not retain the written WAL", slot)
-		}
-		return err
+		return slotRetains(ctx, e, slot, 3*fillMiB<<20)
 	}
 	p.valid = func(context.Context, *Env) error { return consumerAlive(c) }
 	p.recover = recoverSlot(&c, slot, p.recover)
 	return stableDatabases(p)
+}
+
+// slotRetains checks that slot retains at least want bytes of written
+// WAL (pg_current_wal_lsn, the write position); a shortfall says how much
+// it retains.
+func slotRetains(ctx context.Context, e *Env, slot string, want int64) error {
+	var retained *int64
+	err := e.Pool.QueryRow(ctx, `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),
+		restart_lsn)::int8 FROM pg_replication_slots WHERE slot_name = $1`, slot).
+		Scan(&retained)
+	switch {
+	case err != nil:
+		return fmt.Errorf("slot %s: %w", slot, err)
+	case retained == nil:
+		return fmt.Errorf("slot %s reserves no WAL", slot)
+	case *retained < want:
+		return fmt.Errorf("slot %s does not retain the written WAL: %d bytes, want %d",
+			slot, *retained, want)
+	}
+	return nil
 }
 
 func createFillSlot(ctx context.Context, e *Env, slot string, active bool,

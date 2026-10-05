@@ -2,6 +2,7 @@
 // (Claude Code, Cursor) use to reach pg_sage. Admin only: App.jsx gates the
 // route and Layout hides the nav link from other roles.
 import { useCallback, useEffect, useState } from 'react'
+import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
 import { SecretNotice } from './mcptokens/SecretNotice'
 import { TokenForm } from './mcptokens/TokenForm'
 import { TokenTable } from './mcptokens/TokenTable'
@@ -140,6 +141,7 @@ export function MCPTokensPage() {
         </div>
       )}
       <TokenList list={list} revokingIds={revokingIds} onRevoke={revoke} />
+      <ExternalAgentRequests />
     </div>
   )
 }

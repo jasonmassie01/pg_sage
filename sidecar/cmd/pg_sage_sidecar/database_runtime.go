@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -121,6 +122,8 @@ func buildDatabaseRuntime(
 	}
 	migrateRecommendations(ctx, spec)
 	rt := newDatabaseRuntime(spec, checks)
+	rt.initOnboarding(ctx)
+	rt.startFirstLook()
 	rt.startMonitoring()
 	rt.startExecution()
 	rt.startFacts()
@@ -169,7 +172,10 @@ func prepareMonitoredDatabase(
 		return nil, fmt.Errorf("bootstrap schema for %q: %w", name, err)
 	}
 	checks, err := instanceChecksOrDegraded(ctx, pool)
-	if err != nil && requireChecks {
+	// A missing pg_stat_statements degrades even a required database: the
+	// first look and the catalog rules need no query statistics, and they
+	// tell the operator exactly how to enable it (five-minute time to value).
+	if err != nil && requireChecks && !errors.Is(err, startup.ErrStatementsUnavailable) {
 		return nil, fmt.Errorf("prerequisite checks for %q: %w", name, err)
 	}
 	if err != nil {

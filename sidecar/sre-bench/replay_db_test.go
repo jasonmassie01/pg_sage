@@ -171,18 +171,18 @@ func TestReplayCorpus(t *testing.T) {
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	cases := splitCorpus(t)
-	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}}
+	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}, InvestigatorArm{Config: llmCfg}}
+	names := []string{ArmCausalGraph, ArmLLM, ArmInvestigator}
 	rs := RunReplay(ctx, env, cases, arms)
-	if len(rs) != 2*len(cases) {
-		t.Fatalf("%d results for %d cases and 2 arms", len(rs), len(cases))
+	if len(rs) != len(arms)*len(cases) {
+		t.Fatalf("%d results for %d cases and %d arms", len(rs), len(cases), len(arms))
 	}
 	for _, r := range rs {
 		if r.Err != nil || r.Skipped != "" {
 			t.Errorf("%s %s: err %v skipped %q", r.Arm, r.Scenario.ID, r.Err, r.Skipped)
 		}
 	}
-	rep := BuildReplayReport(rs, cases, ReplayMeta{Arms: []string{ArmCausalGraph, ArmLLM},
-		Gated: []string{ArmCausalGraph, ArmLLM}, LLM: llmCfg,
+	rep := BuildReplayReport(rs, cases, ReplayMeta{Arms: names, Gated: names, LLM: llmCfg,
 		GeneratedAt: time.Now().UTC()})
 	t.Log("\n" + rep.Markdown())
 	jsonPath, mdPath, err := WriteReplayReport(ReportDir(os.Getenv(EnvReportDir),
@@ -222,10 +222,10 @@ func splitCorpus(t *testing.T) []replay.Case {
 // override counts add up to the held-out disagreements.
 func checkReplayLift(t *testing.T, rs []Result, rep ReplayReport) {
 	t.Helper()
-	held := 0
+	held := map[string]int{}
 	for _, r := range rs {
 		m := r.Outcome.Model
-		if r.Arm != ArmLLM || m == nil || m.Disagreed == 0 {
+		if !modelArms[r.Arm] || m == nil || m.Disagreed == 0 {
 			continue
 		}
 		if m.ModelRoot == "" || m.GraphRoot != r.Outcome.Root ||
@@ -233,12 +233,13 @@ func checkReplayLift(t *testing.T, rs []Result, rep ReplayReport) {
 			t.Errorf("%s: disagreement %+v, stored root %q", r.Scenario.ID, m, r.Outcome.Root)
 		}
 		if r.Scenario.Split == replay.SplitHeldOut {
-			held++
+			held[r.Arm]++
 		}
 	}
 	for _, l := range rep.ModelLift {
-		if l.Family == PooledFamily && l.Arm == ArmLLM && l.Overrides.N != held {
-			t.Errorf("pooled held-out overrides %d, want %d", l.Overrides.N, held)
+		if l.Family == PooledFamily && l.Overrides.N != held[l.Arm] {
+			t.Errorf("%s: pooled held-out overrides %d, want %d", l.Arm, l.Overrides.N,
+				held[l.Arm])
 		}
 		if l.OverrideRule.Eligible && l.Mode != LLMLive {
 			t.Errorf("%s: a %s model must never earn root authority", l.Family, l.Mode)

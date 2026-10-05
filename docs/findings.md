@@ -327,7 +327,9 @@ Detects pg_sage itself using too much of the database's time.
 **What it detects:** pg_sage's own statements used more database time per collector
 cycle than `analyzer.self_cost_budget_ms` (default 3000 ms, 5% of one core at the
 default 60 s collector interval). pg_sage does not hide from `pg_stat_statements`: every
-statement it sends carries the `/* pg_sage */` tag after its first keyword, and each
+statement it sends carries the `/* pg_sage */` tag after its first keyword (after the
+opening parenthesis of a parenthesized query; every statement of a multi-statement query
+gets its own), where `pg_stat_statements` keeps it on PostgreSQL 14 to 18, and each
 analyzer cycle sums those entries' execution and planning time for this database since the previous cycle.
 The finding also gives statements, shared blocks, sage-table rows read and written per
 cycle and the sage schema's size. Without `pg_stat_statements`, after a statistics reset,

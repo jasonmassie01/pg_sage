@@ -4,6 +4,9 @@ package main
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -65,7 +68,22 @@ func runPerfRuntime(
 	return []perfgate.Phase{warmup, steady}
 }
 
-// perfConfig is the shipped default configuration with the LLM off and
+// perfFakeModel is an OpenAI-compatible endpoint that answers every
+// tuning case with no proposal.
+func perfFakeModel(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant",` +
+			`"content":"{\"proposals\":[]}"},"finish_reason":"stop"}],` +
+			`"usage":{"total_tokens":100}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// perfConfig is the shipped default configuration with the general LLM off and
 // every periodic component compressed to one interval, so each runs about
 // once per collector cycle in the window.
 func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config {
@@ -75,7 +93,14 @@ func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config
 		t.Fatalf("parse dsn: %v", err)
 	}
 	c := config.DefaultConfig()
-	c.LLM.Enabled = false
+	// Every general LLM feature stays off (no general endpoint). The tuning
+	// agent (roadmap 2.2) runs on the dedicated optimizer client against a
+	// fake model, so the gate measures its reads: it must add no sequential
+	// scan and no per-table query loop.
+	c.LLM.Enabled, c.LLM.Endpoint, c.LLM.APIKey = true, "", ""
+	c.LLM.OptimizerLLM = config.OptimizerLLMConfig{Enabled: true,
+		Endpoint: perfFakeModel(t), APIKey: "perf-fixture", Model: "fake",
+		TimeoutSeconds: 5, TokenBudgetDaily: 10_000_000, MaxOutputTokens: 4096}
 	secs := int(timing.Interval / time.Second)
 	c.Collector.IntervalSeconds, c.Analyzer.IntervalSeconds = secs, secs
 	c.SRE.Runways.IntervalSeconds, c.SRE.Runways.SequenceIntervalSeconds = secs, secs

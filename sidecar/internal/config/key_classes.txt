@@ -407,3 +407,34 @@ safety_critical sre.slo.push.hmac_secret
 safety_critical sre.slo.push.timestamp_tolerance_seconds
 derivable sre.timeline_retention_days
 derivable sre.trigger_interval_seconds
+
+# Tuning agent (v2.1.0): enablement, proposal caps and the calibration that
+# gates proposals are authority; per-cycle model budgets are spend caps that
+# may only be derived downward, like the LLM budgets above.
+safety_critical tuning.calibration_min_outcomes
+safety_critical tuning.calibration_window_days
+safety_critical tuning.enabled
+derivable tuning.max_cases_per_cycle
+safety_critical tuning.max_proposals_per_cycle
+derivable tuning.max_requests_per_cycle
+derivable tuning.max_tokens_per_cycle
+derivable tuning.max_turns_per_case
+safety_critical sre.llm.mode
+
+# Specialist API (v2.1.0): who may call pg_sage, with what credentials and how
+# much, and what identifiers leave the database are authority; which PagerDuty
+# services map onto it is the operator's routing.
+safety_critical specialist.enabled
+safety_critical specialist.keep_identifiers
+safety_critical specialist.max_open_per_identity
+safety_critical specialist.max_open_total
+safety_critical specialist.pagerduty.api_token
+safety_critical specialist.pagerduty.api_url
+safety_critical specialist.pagerduty.from_email
+operator_preference specialist.pagerduty.services
+safety_critical specialist.pagerduty.signing_secret
+safety_critical specialist.reads_per_minute
+safety_critical specialist.webhook.result_url
+safety_critical specialist.webhook.signing_secret
+safety_critical specialist.webhook.timestamp_tolerance_seconds
+safety_critical specialist.writes_per_minute

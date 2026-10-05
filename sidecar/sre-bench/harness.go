@@ -137,9 +137,10 @@ func (e *Env) graded(ctx context.Context, sc Scenario, arm LiveArm) (Outcome,
 // fresh coordinator (its own database identity), with the fault
 // program's Between action at the start of the sample interval. model
 // is the arm's LLM (nil: the causal graph alone); with one, the model
-// turn runs as with sre.llm.enabled.
-func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (Trace,
-	error) {
+// turn runs as with sre.llm.enabled, or the tool-calling investigator
+// with inv (sre.llm.mode investigator).
+func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client,
+	inv *sre.InvestigatorConfig) (Trace, error) {
 	wait := func(ctx context.Context, d time.Duration) error {
 		start := time.Now()
 		if err := sc.Program.Between(ctx, e); err != nil {
@@ -147,7 +148,7 @@ func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (
 		}
 		return sleepRest(ctx, d-time.Since(start))
 	}
-	run, err := e.startInvestigation(ctx, sc, e.Runner, nil, wait, model)
+	run, err := e.startInvestigation(ctx, sc, e.Runner, nil, wait, model, inv)
 	if err != nil {
 		return Trace{}, err
 	}
@@ -164,16 +165,17 @@ type investigation struct {
 
 // startInvestigation runs one investigation of sc's family to its end
 // through a fresh coordinator (its own database identity) with runner's
-// probes, the signal probes wired (nil: none), wait between samples and
-// model (nil: deterministic).
+// probes, the signal probes wired (nil: none), wait between samples,
+// model (nil: deterministic) and the investigator (nil: the review turn).
 func (e *Env) startInvestigation(ctx context.Context, sc Scenario, runner sre.ProbeRunner,
 	signals []sre.SignalProbe, wait func(context.Context, time.Duration) error,
-	model *llm.Client) (investigation, error) {
+	model *llm.Client, investigator *sre.InvestigatorConfig) (investigation, error) {
 	cfg := sre.DefaultCoordinatorConfig(fmt.Sprintf("bench:%s:%d", sc.ID,
 		time.Now().UnixNano()))
 	cfg.SampleInterval = sampleInterval
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: e.Store, Runner: runner,
-		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}, Signals: signals})
+		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}, Signals: signals,
+		Investigator: investigator})
 	if err != nil {
 		return investigation{}, err
 	}
@@ -234,7 +236,11 @@ func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID,
 		Measured: true, Packet: inv.ConcludedAt.Sub(inv.CreatedAt)}
 	rankHypotheses(&o, hs)
 	if withModel {
-		if o.Model, err = e.modelStats(ctx, scope, id, inv.ModelTurns); err != nil {
+		turns := inv.ModelTurns
+		if run := inv.Summary.Investigator; run != nil {
+			turns = run.ModelCalls
+		}
+		if o.Model, err = e.modelStats(ctx, scope, id, turns); err != nil {
 			return Trace{}, err
 		}
 		o.Model.Claims, o.Model.ClaimsResolved = claimRefs(inv.Summary, stored)

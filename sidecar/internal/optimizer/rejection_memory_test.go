@@ -144,8 +144,8 @@ func storedRejection(t *testing.T, ddl string, age time.Duration) rejection {
 func TestMemorySettings_DefaultsWithoutConfig(t *testing.T) {
 	s := defaultMemorySettings()
 	if s.MaxAge != 7*24*time.Hour || s.CallRatio != 2 || s.MeanRatio != 2 ||
-		s.RowRatio != 2 || s.PromptMax != 5 || s.SkipLLMAfter != 3 {
-		t.Fatalf("zero config settings = %+v, want 7d, 2x, 2x, 2x, 5 shapes, 3", s)
+		s.RowRatio != 2 || s.PromptMax != 5 {
+		t.Fatalf("zero config settings = %+v, want 7d, 2x, 2x, 2x, 5 shapes", s)
 	}
 	d := memorySettingsFrom(config.DefaultConfig().LLM.Optimizer.RejectionMemory)
 	if d != s {
@@ -156,21 +156,20 @@ func TestMemorySettings_DefaultsWithoutConfig(t *testing.T) {
 func TestMemorySettings_ConfiguredAndInvalidValues(t *testing.T) {
 	s := memorySettingsFrom(config.OptimizerRejectionMemoryConfig{Enabled: true,
 		MaxAgeDays: 3, CallVolumeRatio: 4, MeanTimeRatio: 1.5, RowEstimateRatio: 10,
-		PromptMaxShapes: 2, SkipLLMAfter: 7})
+		PromptMaxShapes: 2})
 	if s.MaxAge != 72*time.Hour || s.CallRatio != 4 || s.MeanRatio != 1.5 ||
-		s.RowRatio != 10 || s.PromptMax != 2 || s.SkipLLMAfter != 7 {
+		s.RowRatio != 10 || s.PromptMax != 2 {
 		t.Fatalf("configured settings = %+v", s)
 	}
 	bad := memorySettingsFrom(config.OptimizerRejectionMemoryConfig{MaxAgeDays: -1,
 		CallVolumeRatio: 1, MeanTimeRatio: 0.5, RowEstimateRatio: math.NaN(),
-		PromptMaxShapes: -3, SkipLLMAfter: -1})
+		PromptMaxShapes: -3})
 	if bad != defaultMemorySettings() {
 		t.Fatalf("invalid values must fall back to defaults, got %+v", bad)
 	}
 	if c := memorySettingsFrom(config.OptimizerRejectionMemoryConfig{
-		PromptMaxShapes: 500, SkipLLMAfter: 5000}); c.PromptMax != 20 || c.SkipLLMAfter != 100 {
-		t.Fatalf("caps: prompt shapes %d (want 20), skip after %d (want 100)", c.PromptMax,
-			c.SkipLLMAfter)
+		PromptMaxShapes: 500}); c.PromptMax != 20 {
+		t.Fatalf("caps: prompt shapes %d (want 20)", c.PromptMax)
 	}
 }
 
@@ -305,13 +304,13 @@ func TestTableMemory_SuppressesSameIdeaOnly(t *testing.T) {
 	m := testMemory(newMemStore(stored), nil)
 	v := m.view(context.Background(), memTable())
 	hit, ok := v.suppress(Recommendation{DDL: lifeosDDL("ai_claims_evidence_prefix_idx", "id")})
-	if !ok || hit.Shape.hash() != stored.Shape.hash() || v.skipped != 1 {
-		t.Fatalf("same idea not suppressed: ok=%t skipped=%d", ok, v.skipped)
+	if !ok || hit.Shape.hash() != stored.Shape.hash() {
+		t.Fatalf("same idea not suppressed: ok=%t", ok)
 	}
 	other := "CREATE INDEX CONCURRENTLY x ON public.ai_claims " +
 		"(evidence_event_ids_json varchar_pattern_ops) INCLUDE (id)"
-	if _, ok := v.suppress(Recommendation{DDL: other}); ok || v.skipped != 1 {
-		t.Fatalf("a different opclass was suppressed: skipped=%d", v.skipped)
+	if _, ok := v.suppress(Recommendation{DDL: other}); ok {
+		t.Fatal("a different opclass was suppressed")
 	}
 	if _, ok := v.suppress(Recommendation{DDL: "not sql"}); ok {
 		t.Fatal("an unparseable candidate must be evaluated, not suppressed")
@@ -353,13 +352,12 @@ func TestTableMemory_NilMemoryIsInert(t *testing.T) {
 	if v == nil {
 		t.Fatal("a nil memory must still return a usable view")
 	}
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("a", "id")}); ok || v.skipped != 0 {
+	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("a", "id")}); ok {
 		t.Fatal("a nil memory suppressed a candidate")
 	}
 	if lines := v.promptLines(); lines != nil {
 		t.Fatalf("nil memory prompt lines = %q", lines)
 	}
-	v.learn(storedRejection(t, lifeosDDL("a", "id"), 0))
 	if _, ok := m.remember(context.Background(), memTable(),
 		Recommendation{DDL: lifeosDDL("a", "id")}, 10); ok {
 		t.Fatal("a nil memory reported a recorded rejection")
@@ -377,17 +375,6 @@ func TestTableMemory_LoadErrorFailsOpenAndIsLogged(t *testing.T) {
 	got := logs.matching("WARN", "public.ai_claims", "connection refused")
 	if len(got) != 1 {
 		t.Fatalf("load error must be logged once with table and cause, got %q", logs.lines)
-	}
-}
-
-func TestTableMemory_LearnSuppressesWithinCycle(t *testing.T) {
-	v := testMemory(newMemStore(), nil).view(context.Background(), memTable())
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}); ok {
-		t.Fatal("empty memory suppressed a candidate")
-	}
-	v.learn(storedRejection(t, lifeosDDL("a", "id, status"), 0))
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "status")}); !ok {
-		t.Fatal("a rejection learned this cycle must suppress the same idea")
 	}
 }
 

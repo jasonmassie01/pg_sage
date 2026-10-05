@@ -30,41 +30,46 @@ const fakeModelReason = "fake adversarial model: the §12 quality gates measure 
 	"model (set " + EnvLLMURL + " to evaluate them); this arm is held to " + GateLLMParity +
 	" and " + GateLLMRoot
 
-// llmArmGates are the LLM-on arm's gates: the §12 gates (not evaluated
+// modelArms are the arms with a model (the LLM-on arm and the
+// tool-calling investigator), held to the same gates.
+var modelArms = map[string]bool{ArmLLM: true, ArmInvestigator: true}
+
+// ModelArmGates are a model arm's gates: the §12 gates (not evaluated
 // for the fake model), then parity and root.
-func llmArmGates(s Summary, rs []Result, mode string) []GateResult {
-	gs := EvaluateGates(s, ArmLLM)
+func ModelArmGates(s Summary, rs []Result, arm, mode string) []GateResult {
+	gs := EvaluateGates(s, arm)
 	if mode != LLMLive {
 		for i := range gs {
 			gs[i].Status, gs[i].Observed, gs[i].Reason = GateNotEvaluated, "",
 				fakeModelReason
 		}
 	}
-	return append(gs, LLMGates(s, rs, mode)...)
+	return append(gs, llmGates(s, s, rs, arm, mode, false)...)
 }
 
 // LLMGates evaluates parity and root per family of the LLM-on arm.
 func LLMGates(s Summary, rs []Result, mode string) []GateResult {
-	return llmGates(s, s, rs, mode, false)
+	return llmGates(s, s, rs, ArmLLM, mode, false)
 }
 
-// llmGates evaluates parity on the parity summary and root on every run
-// of rs, per family of all. On the replay corpus (replay), parity is a
-// quality gate read on the held-out cases and root a safety gate read on
-// every case (roadmap 2.4).
-func llmGates(parity, all Summary, rs []Result, mode string, replay bool) []GateResult {
-	pairs := rootPairs(rs)
+// llmGates evaluates the model arm's parity on the parity summary and
+// root on every run of rs, per family of all. On the replay corpus
+// (replay), parity is a quality gate read on the held-out cases and root
+// a safety gate read on every case (roadmap 2.4).
+func llmGates(parity, all Summary, rs []Result, arm, mode string,
+	replay bool) []GateResult {
+	pairs := rootPairs(rs, arm)
 	var out []GateResult
 	for _, fam := range all.Families {
 		if fam == PooledFamily {
 			continue
 		}
-		p := parityGate(parity.Tally(ArmCausalGraph, fam), parity.Tally(ArmLLM, fam), mode)
+		p := parityGate(parity.Tally(ArmCausalGraph, fam), parity.Tally(arm, fam), mode)
 		r := rootGate(pairs[fam])
 		if replay {
 			p, r = heldOutGate(p), everyCaseGate(r)
 		}
-		p.Arm, p.Family, r.Arm, r.Family = ArmLLM, fam, ArmLLM, fam
+		p.Arm, p.Family, r.Arm, r.Family = arm, fam, arm, fam
 		out = append(out, p, r)
 	}
 	return out
@@ -92,13 +97,13 @@ func parityGate(cg, llm Tally, mode string) GateResult {
 	return g
 }
 
-// rootPair is a scenario run the causal graph concluded, with the
-// LLM-on arm's root on the same scenario and repeat.
+// rootPair is a scenario run the causal graph concluded, with the model
+// arm's root on the same scenario and repeat.
 type rootPair struct{ scenario, graphRoot, llmRoot string }
 
 // rootPairs pairs the causal graph's conclusive scored runs with the
-// LLM-on arm's scored runs, per family.
-func rootPairs(rs []Result) map[string][]rootPair {
+// model arm's scored runs, per family.
+func rootPairs(rs []Result, arm string) map[string][]rootPair {
 	type key struct {
 		scenario string
 		repeat   int
@@ -112,7 +117,7 @@ func rootPairs(rs []Result) map[string][]rootPair {
 	out := map[string][]rootPair{}
 	for _, r := range rs {
 		root, ok := graph[key{r.Scenario.ID, r.Repeat}]
-		if r.Arm != ArmLLM || !scored(r) || !ok {
+		if r.Arm != arm || !scored(r) || !ok {
 			continue
 		}
 		fam := string(r.Scenario.Family)

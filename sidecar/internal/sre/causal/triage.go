@@ -13,6 +13,30 @@ const maxTriageObserved = 8
 // PostgreSQL. Nothing is invented: every hypothesis comes from a family
 // matcher and its evidence.
 func DiagnoseSLOBurn(obs []Observation, subject string) Diagnosis {
+	return triage(obs, subject, FamilySLO, fmt.Sprintf("%s is burning, but the lock, "+
+		"connection and plan evidence shows no database mechanism: the cause may be "+
+		"outside PostgreSQL", subject))
+}
+
+// FamilyOperator is an operator-started triage ("Investigate now").
+const FamilyOperator Family = "operator"
+
+// DiagnoseOperator triages an operator-started investigation across the
+// same mechanisms as an SLO burn, without claiming an SLO is burning.
+func DiagnoseOperator(obs []Observation, subject string) Diagnosis {
+	what := "the reported problem"
+	if subject != "" {
+		what = subject
+	}
+	return triage(obs, subject, FamilyOperator, fmt.Sprintf("the lock, connection and "+
+		"plan evidence shows no database mechanism for %s: the cause may be outside "+
+		"PostgreSQL or in a mechanism the graph does not model", what))
+}
+
+// triage picks the most confident conclusive mechanism of the lock,
+// connection and plan families as the root; noneReason is the reason
+// when none concludes.
+func triage(obs []Observation, subject string, family Family, noneReason string) Diagnosis {
 	candidates := []Diagnosis{DiagnoseLock(obs, nil), DiagnoseConnections(obs)}
 	candidates = append(candidates, DiagnosePlan(obs)...)
 	best := -1
@@ -22,7 +46,7 @@ func DiagnoseSLOBurn(obs []Observation, subject string) Diagnosis {
 			best = i
 		}
 	}
-	d := Diagnosis{Family: FamilySLO, GraphVersion: GraphVersion, Subject: subject}
+	d := Diagnosis{Family: family, GraphVersion: GraphVersion, Subject: subject}
 	for i, c := range candidates {
 		d.mergeEvidence(c)
 		if i == best {
@@ -38,9 +62,7 @@ func DiagnoseSLOBurn(obs []Observation, subject string) Diagnosis {
 		d.RuledOut = append(d.RuledOut, c.RuledOut...)
 	}
 	if best < 0 {
-		d.Reason = fmt.Sprintf("%s is burning, but the lock, connection and plan "+
-			"evidence shows no database mechanism: the cause may be outside PostgreSQL",
-			subject)
+		d.Reason = noneReason
 		return d
 	}
 	b := candidates[best]

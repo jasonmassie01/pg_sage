@@ -135,6 +135,7 @@ func rationaleOf(in Inputs) *Rationale {
 			if conf, ok := number(detail["confidence_score"]); ok {
 				r.Confidence = &conf
 			}
+			r.Calibration = calibrationText(detail["confidence_calibration"])
 			return r
 		}
 	}

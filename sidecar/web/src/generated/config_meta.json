@@ -26,7 +26,7 @@
   "advisor.memory_enabled": {
     "type": "bool",
     "default": true,
-    "doc": "",
+    "doc": "Let the tuning agent propose server settings (work_mem and other memory, planner and autovacuum settings) for its cases. Needs advisor.enabled. Default: true.",
     "class": "operator_preference"
   },
   "advisor.rewrite_enabled": {
@@ -38,7 +38,7 @@
   "advisor.vacuum_enabled": {
     "type": "bool",
     "default": true,
-    "doc": "",
+    "doc": "Let the tuning agent propose table storage parameters (autovacuum, fillfactor) for its write-amplification cases. Needs advisor.enabled. Default: true.",
     "class": "operator_preference"
   },
   "advisor.wal_enabled": {
@@ -783,7 +783,7 @@
   "llm.optimizer.enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Run the LLM index optimizer. On by default; needs a usable LLM. Its index changes execute only through the policy gate and trust level. Default: true.",
+    "doc": "Let the tuning agent propose index creates (HypoPG-measured) and drops. Needs a usable LLM; index changes execute only through the policy gate and trust level. Default: true.",
     "class": "safety_critical"
   },
   "llm.optimizer.hypopg_min_improvement_pct": {
@@ -843,7 +843,7 @@
   "llm.optimizer.rejection_memory.enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Remember HypoPG what-if rejections of LLM index candidates: skip re-measuring the same idea and tell the model it was measured. LLM candidates only. Default: true.",
+    "doc": "Remember HypoPG what-if rejections of index candidates: skip re-measuring the same idea and tell the tuning agent it was measured. Default: true.",
     "class": "operator_preference"
   },
   "llm.optimizer.rejection_memory.max_age_days": {
@@ -861,7 +861,7 @@
   "llm.optimizer.rejection_memory.prompt_max_shapes": {
     "type": "int",
     "default": 5,
-    "doc": "Most recently rejected shapes per table listed in the optimizer prompt as already measured. Range 1-20. Default: 5.",
+    "doc": "Most recently rejected shapes per table listed in the tuning agent's case packet as already measured. Range 1-20. Default: 5.",
     "class": "derivable"
   },
   "llm.optimizer.rejection_memory.row_estimate_ratio": {
@@ -873,7 +873,7 @@
   "llm.optimizer.rejection_memory.skip_llm_after": {
     "type": "int",
     "default": 3,
-    "doc": "After this many consecutive proposals for a table that were all already measured or rejected, stop asking the model until a material change or the max age. Range 1-100. Default: 3.",
+    "doc": "After this many consecutive wasted answers for a tuning case (rejected, already measured, empty or malformed), stop asking the model until the case changes. Range 1-100. Default: 3.",
     "class": "derivable"
   },
   "llm.optimizer.write_heavy_ratio_pct": {
@@ -1474,6 +1474,93 @@
     "doc": "Hours a newly derived value stays in shadow, compared against the active value's measured outcomes, before it may be promoted. 1-720. Default: 24.",
     "class": "safety_critical"
   },
+  "specialist.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Serve the Postgres-specialist contract under /api/v1/specialist (MCP tokens only). Default: true.",
+    "class": "safety_critical"
+  },
+  "specialist.keep_identifiers": {
+    "type": "bool",
+    "default": true,
+    "doc": "Keep schema, table and other identifiers in results. Secrets and PII are always removed; false replaces identifiers by keyed hashes like a replay export. Default: true.",
+    "class": "safety_critical"
+  },
+  "specialist.max_open_per_identity": {
+    "type": "int",
+    "default": 3,
+    "doc": "Live investigations one token may have opened at once, 1-100. Attaching to an existing investigation never counts. Default: 3.",
+    "class": "safety_critical"
+  },
+  "specialist.max_open_total": {
+    "type": "int",
+    "default": 10,
+    "doc": "Live investigations all tokens together may have opened at once, 1-100. Default: 10.",
+    "class": "safety_critical"
+  },
+  "specialist.pagerduty.api_token": {
+    "type": "string",
+    "default": null,
+    "doc": "PagerDuty REST API token used to post result notes.",
+    "secret": true,
+    "class": "safety_critical"
+  },
+  "specialist.pagerduty.api_url": {
+    "type": "string",
+    "default": "",
+    "doc": "PagerDuty REST API base URL for result notes (https). Empty sends no notes.",
+    "class": "safety_critical"
+  },
+  "specialist.pagerduty.from_email": {
+    "type": "string",
+    "default": "",
+    "doc": "PagerDuty user e-mail sent as the From header of result notes.",
+    "class": "safety_critical"
+  },
+  "specialist.pagerduty.services": {
+    "type": "[]string",
+    "default": null,
+    "doc": "PagerDuty service id to database mappings, SERVICE_ID=database or SERVICE_ID=database:family. Unmapped services are ignored.",
+    "class": "operator_preference"
+  },
+  "specialist.pagerduty.signing_secret": {
+    "type": "string",
+    "default": null,
+    "doc": "Secret of the PagerDuty webhook subscription; X-PagerDuty-Signature must match. Required when services are mapped.",
+    "secret": true,
+    "class": "safety_critical"
+  },
+  "specialist.reads_per_minute": {
+    "type": "int",
+    "default": 240,
+    "doc": "Status, result and stream calls one token may make per minute, 1-10000. Default: 240.",
+    "class": "safety_critical"
+  },
+  "specialist.webhook.result_url": {
+    "type": "string",
+    "default": "",
+    "doc": "Where the signed result of a webhook-opened investigation is posted (https, or http to a loopback address). Empty posts nothing.",
+    "class": "safety_critical"
+  },
+  "specialist.webhook.signing_secret": {
+    "type": "string",
+    "default": null,
+    "doc": "HMAC secret of the generic webhook (X-Sage-Signature over timestamp.body) and of the result posts. Empty disables the adapter.",
+    "secret": true,
+    "class": "safety_critical"
+  },
+  "specialist.webhook.timestamp_tolerance_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Maximum age (and clock skew) of a signed webhook request, 30-900 seconds. Default: 300.",
+    "class": "safety_critical"
+  },
+  "specialist.writes_per_minute": {
+    "type": "int",
+    "default": 30,
+    "doc": "Opens and remediation requests one token may make per minute, 1-10000. Default: 30.",
+    "class": "safety_critical"
+  },
   "sre.actions.approval_ttl_minutes": {
     "type": "int",
     "default": 15,
@@ -1791,6 +1878,12 @@
     "type": "bool",
     "default": true,
     "doc": "Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true.",
+    "class": "safety_critical"
+  },
+  "sre.llm.mode": {
+    "type": "string",
+    "default": "investigator",
+    "doc": "investigator: the model plans read-only probes and concludes with cited evidence (advisory). review: one cheaper review turn. Default: investigator.",
     "class": "safety_critical"
   },
   "sre.poolers[].databases": {
@@ -2244,7 +2337,7 @@
   "tuner.llm_enabled": {
     "type": "bool",
     "default": true,
-    "doc": "Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily. Default: true.",
+    "doc": "Let the tuning agent propose per-query pg_hint_plan hints for its cases; the tuner validates, clamps and records them. The tuner's deterministic hint rules run either way. Default: true.",
     "class": "safety_critical"
   },
   "tuner.max_concurrent_analyze": {
@@ -2331,6 +2424,54 @@
     "default": 512,
     "doc": "Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions.",
     "class": "safety_critical"
+  },
+  "tuning.calibration_min_outcomes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Decided outcomes of an action class and prediction method needed before a confidence is shown; below it the agent reports uncalibrated. Range 1-1000. Default: 5.",
+    "class": "safety_critical"
+  },
+  "tuning.calibration_window_days": {
+    "type": "int",
+    "default": 180,
+    "doc": "Days of decided outcomes the calibration reads. Range 1-3650. Default: 180.",
+    "class": "safety_critical"
+  },
+  "tuning.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Run the case-driven tuning agent when an LLM is usable. Its changes execute only through the policy gate and trust level. Default: true.",
+    "class": "safety_critical"
+  },
+  "tuning.max_cases_per_cycle": {
+    "type": "int",
+    "default": 3,
+    "doc": "Workload cases the agent may examine with the model per analyzer cycle; the rest wait. Range 1-20. Default: 3.",
+    "class": "derivable"
+  },
+  "tuning.max_proposals_per_cycle": {
+    "type": "int",
+    "default": 10,
+    "doc": "New findings the agent emits per cycle, best ranked first. Range 1-100. Default: 10.",
+    "class": "safety_critical"
+  },
+  "tuning.max_requests_per_cycle": {
+    "type": "int",
+    "default": 12,
+    "doc": "Model requests (tool turns included) per database per analyzer cycle. Range 1-200. Default: 12.",
+    "class": "derivable"
+  },
+  "tuning.max_tokens_per_cycle": {
+    "type": "int",
+    "default": 60000,
+    "doc": "Model tokens per database per analyzer cycle, charged before each request. Range 1000-2000000. Default: 60000.",
+    "class": "derivable"
+  },
+  "tuning.max_turns_per_case": {
+    "type": "int",
+    "default": 6,
+    "doc": "Model turns per case; the last turn must answer without tools. Range 1-20. Default: 6.",
+    "class": "derivable"
   },
   "value.toil_model_version": {
     "type": "int",

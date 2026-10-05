@@ -154,8 +154,10 @@ func queryThroughTagger(t *testing.T, sql string) string {
 
 // PostgreSQL 18's pg_stat_statements drops comments before a statement
 // (it keeps the text from the first token), so the tag goes right after
-// the first keyword. A leading pg_sage comment (with its component label)
-// moves there instead of being repeated; one already there stays put.
+// the first keyword, or after the opening parenthesis of a parenthesized
+// query (a tag in front of it was dropped on 18). A leading pg_sage
+// comment (with its component label) moves there instead of being
+// repeated; one already there stays put.
 func TestTagConn_TagSitsAfterTheFirstKeyword(t *testing.T) {
 	cases := map[string]string{
 		"/* pg_sage */SELECT 1":  "SELECT /* pg_sage */ 1",
@@ -171,7 +173,11 @@ func TestTagConn_TagSitsAfterTheFirstKeyword(t *testing.T) {
 		"/* a /* nested */ b */ SELECT 1": "/* a /* nested */ b */ SELECT /* pg_sage */ 1",
 		"SELECT*FROM t":                   "SELECT /* pg_sage */ *FROM t",
 		"BEGIN":                           "BEGIN /* pg_sage */",
-		"(SELECT 1) UNION SELECT 2":       "/* pg_sage */ (SELECT 1) UNION SELECT 2",
+		"(SELECT 1) UNION SELECT 2":       "( /* pg_sage */ SELECT 1) UNION SELECT 2",
+		"/* pg_sage */ (SELECT 1)":        "( /* pg_sage */ SELECT 1)",
+		"((SELECT 1))":                    "( /* pg_sage */ (SELECT 1))",
+		"( /* pg_sage */ SELECT 1)":       "( /* pg_sage */ SELECT 1)",
+		"$1":                              "/* pg_sage */ $1",
 		"/* unterminated":                 "/* unterminated",
 	}
 	for in, want := range cases {

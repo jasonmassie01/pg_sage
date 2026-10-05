@@ -5,6 +5,7 @@ import (
 	"net"
 	"regexp"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,15 +17,25 @@ import (
 // exclude it with StatementExclusionSQL and ActivityExclusionSQL. An
 // AfterNetConnect hook already set (a proxy handshake) runs first.
 func ConfigurePool(cfg *pgxpool.Config) {
-	if cfg == nil || cfg.ConnConfig == nil {
+	if cfg == nil {
 		return
 	}
-	if cfg.ConnConfig.RuntimeParams == nil {
-		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	ConfigureConn(cfg.ConnConfig)
+}
+
+// ConfigureConn does for a single connection's configuration what
+// ConfigurePool does for a pool's, for the connections pg_sage opens
+// outside a pool.
+func ConfigureConn(cfg *pgx.ConnConfig) {
+	if cfg == nil {
+		return
 	}
-	cfg.ConnConfig.RuntimeParams["application_name"] = ApplicationName
-	inner := cfg.ConnConfig.AfterNetConnect
-	cfg.ConnConfig.AfterNetConnect = func(
+	if cfg.RuntimeParams == nil {
+		cfg.RuntimeParams = map[string]string{}
+	}
+	cfg.RuntimeParams["application_name"] = ApplicationName
+	inner := cfg.AfterNetConnect
+	cfg.AfterNetConnect = func(
 		ctx context.Context, pc *pgconn.Config, conn net.Conn,
 	) (net.Conn, error) {
 		if inner != nil {

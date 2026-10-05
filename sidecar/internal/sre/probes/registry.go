@@ -18,7 +18,7 @@ var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 var knownFamilies = map[string]bool{FamilyLocks: true, FamilyConnections: true,
 	FamilyReplication: true, FamilyWAL: true, FamilyVacuum: true, FamilyPlans: true,
 	FamilyChange: true, FamilyTempFiles: true, FamilyWaits: true,
-	FamilySequences: true, FamilyRunway: true}
+	FamilySequences: true, FamilyRunway: true, FamilyStats: true}
 
 var extensionPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
@@ -146,7 +146,7 @@ func catalogSpecs() []Spec {
 		tempFileActivitySpec(), tempFileHoldersSpec(), tempSpillStatementsSpec(),
 		standbyReplayStateSpec(), lwlockWaitsSpec(),
 	}
-	return append(specs, runwaySpecs()...)
+	return append(append(specs, runwaySpecs()...), statViewSpecs()...)
 }
 
 // signalProbes maps RCA incident signals to the catalog probes that

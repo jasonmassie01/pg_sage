@@ -3,9 +3,11 @@ package collector
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -724,45 +726,22 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	}
 	t.Cleanup(pool.Close)
 
-	const fakeStatements = `CREATE TEMP VIEW pg_stat_statements AS
-		SELECT 1::bigint AS queryid,
-		       current_setting('statement_timeout') || '/' ||
-		           current_setting('lock_timeout') AS query,
-		       1::bigint AS calls,
-		       0::double precision AS total_exec_time,
-		       0::double precision AS mean_exec_time,
-		       0::double precision AS min_exec_time,
-		       0::double precision AS max_exec_time,
-		       0::double precision AS stddev_exec_time,
-		       0::bigint AS rows,
-		       0::bigint AS shared_blks_hit,
-		       0::bigint AS shared_blks_read,
-		       0::bigint AS shared_blks_dirtied,
-		       0::bigint AS shared_blks_written,
-		       0::bigint AS temp_blks_read,
-		       0::bigint AS temp_blks_written,
-		       (SELECT oid FROM pg_database
-		          WHERE datname = current_database()) AS dbid`
-	if _, err := pool.Exec(context.Background(), fakeStatements); err != nil {
-		t.Fatalf("create timeout-observing pg_stat_statements view: %v", err)
-	}
-
+	// The read ranks on pg_stat_statements(false) (a function a temporary
+	// view cannot shadow), so the settings are observed inside its
+	// transaction through the catalog hook.
 	cfg := testConfig()
 	cfg.HasWALColumns = false
 	cfg.HasPlanTimeColumns = false
-	cfg.Safety.QueryTimeoutMs = 7500 // distinct values, with headroom on a loaded runner
-	cfg.Safety.LockTimeoutMs = 4100
+	cfg.Safety.QueryTimeoutMs = 4321
+	cfg.Safety.LockTimeoutMs = 1234
 	c := New(pool, cfg, 170000, noopLog)
-
-	queries, err := c.collectQueries(context.Background())
-	if err != nil {
+	var seen []string
+	c.onCatalogQuery = timeoutsIn("candidates", &seen)
+	if _, err := c.collectQueries(context.Background()); err != nil {
 		t.Fatalf("collect queries: %v", err)
 	}
-	if len(queries) != 1 {
-		t.Fatalf("collected %d queries, want 1", len(queries))
-	}
-	if got, want := queries[0].Query, "7500ms/4100ms"; got != want {
-		t.Fatalf("collector query timeouts = %q, want %q", got, want)
+	if len(seen) != 1 || seen[0] != "4321ms/1234ms" {
+		t.Fatalf("collector query timeouts = %v, want [4321ms/1234ms]", seen)
 	}
 	var statementTimeout string
 	var lockTimeout string
@@ -776,5 +755,21 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	if statementTimeout != "0" || lockTimeout != "0" {
 		t.Fatalf("collector leaked timeouts into pool: statement=%q lock=%q",
 			statementTimeout, lockTimeout)
+	}
+}
+
+// timeoutsIn is a catalog hook recording, for each statement containing
+// marker, the statement and lock timeouts of its transaction.
+func timeoutsIn(marker string, seen *[]string) catalogHook {
+	return func(ctx context.Context, tx pgx.Tx, sql string, _ []any) {
+		if !strings.Contains(sql, marker) {
+			return
+		}
+		var got string
+		if err := tx.QueryRow(ctx, `SELECT current_setting('statement_timeout') || '/' ||
+			current_setting('lock_timeout')`).Scan(&got); err != nil {
+			got = "error: " + err.Error()
+		}
+		*seen = append(*seen, got)
 	}
 }
