@@ -237,6 +237,29 @@ func TestRuntimeStorageRunwayWithholds(t *testing.T) {
 	}
 }
 
+// Status hands out a copy: a caller mutating it cannot change the
+// evidence the guards read.
+func TestRuntimeStatusIsACopy(t *testing.T) {
+	c := &clock{t: guardNow}
+	r := newTestRuntime(t, &stubSource{provider: "rds",
+		samples: []Sample{healthySample(guardNow)}}, c)
+	if err := r.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := r.Status()
+	st.Sample.CPUPct.Value = 99
+	st.Sample.Missing = append(st.Sample.Missing, "mutated")
+	st.Sample.DBLoadByWait = map[string]float64{"x": 1}
+	again := r.Status()
+	if again.Sample.CPUPct.Value != 20 || len(again.Sample.Missing) != 0 ||
+		again.Sample.DBLoadByWait != nil {
+		t.Fatalf("Status leaked the live sample: %+v", again.Sample)
+	}
+	if cpu, _ := r.CurrentCPU(context.Background()); cpu != 20 {
+		t.Fatalf("guard CPU changed through a status copy: %v", cpu)
+	}
+}
+
 // Concurrent readers (executor admission, tuning, API) and the poller.
 func TestRuntimeConcurrentAccess(t *testing.T) {
 	c := &clock{t: guardNow}

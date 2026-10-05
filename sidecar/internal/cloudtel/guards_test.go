@@ -160,8 +160,16 @@ func TestStorageRunway(t *testing.T) {
 	if r := StorageRunway(flat, guardNow); !r.Known || !math.IsInf(r.Hours, 1) {
 		t.Fatalf("flat runway = %+v, want +Inf", r)
 	}
-	if r := StorageRunway(falling[:5], guardNow); r.Known {
-		t.Fatalf("five points must not be enough: %+v", r)
+	var sparse []Point // 10-minute spacing: 5 points span 40 minutes, 6 span 50
+	for i := 0; i < 6; i++ {
+		sparse = append(sparse, Point{Value: float64(100 - i), At: guardNow.Add(
+			-time.Duration(5-i) * 10 * time.Minute)})
+	}
+	if r := StorageRunway(sparse[1:], guardNow); r.Known || r.Span < 30*time.Minute {
+		t.Fatalf("five points over 40 minutes must not be enough: %+v", r)
+	}
+	if r := StorageRunway(sparse, guardNow); !r.Known || r.Points != 6 {
+		t.Fatalf("six points over 50 minutes are enough: %+v", r)
 	}
 	short := []Point{}
 	for i := 0; i < 10; i++ { // 10 points within 9 minutes: span too short
@@ -198,7 +206,7 @@ func TestWithholdNeverWidensAdmission(t *testing.T) {
 			Rate:     &verify.IORate{DataBytesPerSec: rng.Float64() * 2e6, Interval: time.Minute},
 			Capacity: &verify.IOCapacity{ReadWriteMBps: 1, WALMBps: 1}}
 		with := base
-		with.HostWithhold = reasons
+		with.HostWithhold = strings.Join(reasons, "; ")
 		a, b := verify.DecideAdmission(base, opts), verify.DecideAdmission(with, opts)
 		if b.OK && !a.OK {
 			t.Fatalf("telemetry widened admission: sample %+v reasons %v", s, reasons)
