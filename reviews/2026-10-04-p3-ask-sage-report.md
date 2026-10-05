@@ -186,3 +186,43 @@ All touched packages meet the thresholds (lowest: store 76.1%, api 79.5%).
    and proposals.
 5. A live-model evaluation set for Ask Sage (answer precision, citation accuracy) like the
    investigator's bench arm.
+
+## Follow-up (coordinator answers, 2026-10-04)
+
+Merged `origin/release/v2.1.0` (it contains #116 and the rest of v2.1.0); the conflicts were
+additive (specialist contract, onboarding, tuning agent) and both sides were kept. The PR now
+targets master on top of the release branch.
+
+Answers: (1) provenance yes, (2) no fleet-wide per-user budget, (3) streaming later,
+(4) Ask Sage may propose facts, (5) live-model eval later with the other bench arms.
+
+**Built, tests first:**
+- **Provenance.** `sage.action_queue.proposed_via` (`'ask_sage'`, CHECKed) and `proposed_by`
+  (the asking user, e.g. `user:42` or `mcp:token:<id>`) in the Ask migration;
+  `store.ActionProposalMetadata`/`QueuedAction` carry them. `ProposeFindingForApproval` now
+  requires a `ProposalOrigin`. The approval card has a typed `origin {via, by, label}` and the
+  line "Proposed via Ask Sage by ..." (card text and UI). When a person's approval runs the
+  item, the recorded `sage.decision` carries `proposed_via`/`proposed_by` in its evidence.
+- **Fact proposals.** `propose_fact` for callers who may propose, once per question, citing
+  evidence ids read in the same turn (anything else is refused). The fact is stored as
+  proposed (source `model`, `proposed_by ask:<user>`, citations with the evidence digest);
+  invalid or protected subjects and already-decided facts are refused, and Ask Sage never
+  changes a decided fact.
+- **Bug found:** with every source wired, a proposer's tool set (14 read + 2 writes + the
+  final) exceeded the LLM client's 16-tool limit, so the loop would refuse to start for
+  operators in production. `explain_config` + `explain_concept` became `explain`, and
+  list/get investigations became `investigations`; a guard test now validates the fullest
+  tool set against the loop.
+
+**Mutation testing (new logic):** 8/8 killed (fact once-per-question, evidence-read check,
+decided-fact refusal, tool offered to read-only callers; origin required, origin stored,
+origin in the approval decision, card origin).
+
+**Runs:** touched packages on PG17 (ask 88.6%, store 76.2%, approvalcard 89.6%, plus
+executor, schema, retention, api, mcp, config, sre, cmd), small perf gate, golangci-lint 0
+issues, vitest 89 files / 599 passed / 0 failed / 0 skipped, eslint clean, dist rebuilt,
+gitleaks clean. Final touched-package run (PG17, `-p 2`, `--cpus=2`): all ok —
+ask 88.6%, store 76.2%, approvalcard 89.6%, executor 87.9%, schema 84.2%, retention 86.9%,
+api 78.9%, mcp 84.8%, config 91.7%, sre 87.7%, cmd 79.9%; small perf gate ok (179 s).
+Then merged the current `origin/release/v2.1.0` again (the PG14 freeze/statistics fixture
+fixes) before pushing.
