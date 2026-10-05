@@ -185,6 +185,40 @@ briefing:
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
 
+### Derived settings (self-configuration)
+
+Every configuration key has a self-config class (shown in
+[the generated lifecycle reference](generated/config-lifecycles.md)): `safety_critical`
+(trust, approvals, action authority, verification, credentials, endpoints, the LLM provider)
+and `operator_preference` (notification routes, windows, declared capacities, feature
+switches) are never derived. For `derivable` keys with a rule, pg_sage derives a value per
+database from evidence when you leave the key unset:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `self_config.enabled` | `true` | Derive unset derivable settings per database. `false` keeps every default. Restart to change |
+| `self_config.soak_hours` | `24` | Hours a new derived value stays in shadow, compared with the active value's measured outcomes, before it may be promoted. `1`-`720`. Restart to change |
+
+The derived keys, their evidence, bounds and shadow comparisons are listed in
+[derived settings](generated/derived-settings.md): the collector interval and catalog read
+timeout (sized to the measured catalog and statements scans), sequence runway sampling
+(sized to the measured sequence scan), and the temp-file and LWLock incident thresholds
+(sized to this database's temp traffic and connection limit). A derivation never spends
+more or widens authority than the default (the catalog read timeout alone may grow, to at
+most 10x, because a deadline shorter than the scan fails every cycle). A new value is
+recorded in shadow first; it is promoted only after the soak and only when the comparison
+is not worse, otherwise it stays in shadow with the reason. Restart-bound keys take a
+promoted value at the next start and show it as pending restart.
+
+A key you set in the YAML file, in a fleet `defaults`/`databases[]` field or as an API
+override is never derived and shows as `operator`. The Configuration page's **Derived
+settings** section (and `GET /api/v1/derived-settings?database=`) shows each key's value,
+status (`default`, `derived`, `shadow`, `pinned`, `operator`), evidence, bounds, pending
+restart and history; an admin can **pin current** (freeze the value in force) or **unpin**
+(`POST /api/v1/derived-settings/{key}/pin|unpin?database=`). Every step is recorded in
+`sage.config_derivation` (value, previous value, cited evidence, bounds, rule and version,
+time); the startup log prints one `derived settings:` line per database.
+
 ### Trust & Actions
 
 | Parameter | Default | Description |
