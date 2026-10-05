@@ -408,13 +408,18 @@ func migrationStatements() []string {
 		ddlOptimizerRejection,
 		ddlActionOutcome(),
 		ddlTrustLedger(),
+		ddlVerificationWait(),
 		ddlShadowMode(),
 		ddlFacts,
 		ddlSREAutonomyRootAuthority,
 		ddlMCPv2,
+		ddlObserverIndexes,
+		ddlSelfConfig,
 		ddlTuningBudgetDay,
 		ddlOnboarding,
-		ddlSpecialist)
+		ddlSpecialist,
+		ddlAsk,
+		ddlManagedChangeProposals)
 }
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,10 @@ func ConfigLifecycleMarkdown() string {
 	out.WriteString("`reconfigure` tears down and rebuilds the named owner. ")
 	out.WriteString("`restart` is rejected during reload. A `reconfigure` or ")
 	out.WriteString("`live_policy` field whose owner is not running in the ")
-	out.WriteString("current mode is treated as `restart`.\n\n")
+	out.WriteString("current mode is treated as `restart`. The self-config class ")
+	out.WriteString("says whether pg_sage may derive the key (`derivable`) or never ")
+	out.WriteString("does (`safety_critical`, `operator_preference`); see ")
+	out.WriteString("[derived settings](derived-settings.md).\n\n")
 	writeLifecycleTable(&out, FieldLifecycles())
 	out.WriteString("\n## Per-database fields (`databases[]`)\n\n")
 	out.WriteString("In YAML fleet mode the `fleet_databases` owner reconciles ")
@@ -27,14 +30,18 @@ func ConfigLifecycleMarkdown() string {
 }
 
 func writeLifecycleTable(out *strings.Builder, fields []FieldLifecycle) {
-	out.WriteString("| Field | Lifecycle | Runtime owner |\n")
-	out.WriteString("| --- | --- | --- |\n")
+	out.WriteString("| Field | Lifecycle | Runtime owner | Self-config class |\n")
+	out.WriteString("| --- | --- | --- | --- |\n")
 	for _, field := range fields {
 		owner := field.Owner
 		if owner == "" {
 			owner = "-"
 		}
-		out.WriteString("| `" + field.Path + "` | `" +
-			string(field.Lifecycle) + "` | `" + owner + "` |\n")
+		class, ok := KeyClassOf(field.Path)
+		if !ok {
+			class = "unclassified"
+		}
+		out.WriteString("| `" + field.Path + "` | `" + string(field.Lifecycle) +
+			"` | `" + owner + "` | `" + string(class) + "` |\n")
 	}
 }

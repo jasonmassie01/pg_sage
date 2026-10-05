@@ -730,4 +730,16 @@ Scope: `propose`
 | `reason` | string | no | length <= 1000 |
 | `remediation_id` | string | yes | pattern `^[a-z_]{1,32}\.[0-9a-f-]{8,36}$` |
 
+### `ask_sage`
+
+Ask pg_sage's DBA a question about a database. The answer is built only from evidence it reads (findings, actions and their verification outcomes, the trust ledger, facts, incidents, investigations, the catalog, configuration); every statement cites that evidence and what it could not verify is said. With the propose scope it may open an investigation, queue one of pg_sage's findings for a person's approval or propose a fact a person confirms; it never executes, approves or confirms.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `conversation_id` | string | no | continue a conversation (its id from an earlier answer) |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `question` | string | yes | length 1-2000 |
+
 <!-- END GENERATED MCP TOOL REFERENCE -->

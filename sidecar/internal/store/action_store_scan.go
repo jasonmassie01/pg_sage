@@ -36,6 +36,7 @@ func scanQueuedAction(row pgx.Row) (QueuedAction, error) {
 		&a.LastFailureFingerprint, &a.VerificationStatus,
 		&a.ShadowToilMinutes, &a.ActionLogID,
 		&a.RecommendationID, &a.RecommendationRevision, &a.ContentHash,
+		&a.ProposedVia, &a.ProposedBy,
 	)
 	if err != nil {
 		return a, err

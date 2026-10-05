@@ -1,5 +1,113 @@
 # Changelog
 
+## v2.2.0 (2026-10-05) -- Ask Sage, self-configuration, managed clouds
+
+### What's new
+
+- **Ask Sage: ask your database's DBA, and get only what it can prove.** A chat panel per
+  database in the UI, a REST endpoint and the MCP tool `ask_sage` answer questions from
+  evidence pg_sage reads with read-only tools: findings, fixes waiting for approval, executed
+  actions with their verification outcomes, facts, incidents, investigations, the trust
+  ledger, the table catalog, the heaviest queries, configuration and its concepts. Every
+  statement cites its evidence and its numbers; uncited or ungrounded statements are dropped
+  and the answer says what it could not verify ("not observed" is a valid answer). Ask Sage
+  runs on the investigator's tool loop and can never execute, approve or confirm anything.
+  Operators (and MCP tokens with the propose scope) can have it open an investigation,
+  queue one of pg_sage's own findings for approval (with its rollback, predicted effect and
+  the policy gate's verdict; a person approves on the Actions page), or propose a fact that
+  stays proposed until a person confirms it. Queued items record that Ask Sage proposed them
+  and for whom (`proposed_via`, `proposed_by`), shown on the approval card and kept in the
+  decision recorded when the approval runs. Database text, finding
+  titles and query text reach the model as fenced data. It has its own daily LLM budget per
+  database and per user (`ask.*`), kept across restarts, and conversations are kept for
+  `ask.retention_days`.
+
+- **pg_sage keeps to a budget it declares for itself, and the Trust page stays fast under
+  load.** A new `self_budget` section declares what pg_sage may cost: the sidecar's CPU per
+  collector cycle (default 600 ms, 1% of a core), its own statements' database time and
+  shared blocks per hour, and the size of the `sage` schema (default 10 GB). Each is
+  measured continuously and exported (`pg_sage_self_cpu_ms_per_cycle`,
+  `pg_sage_self_db_time_ms_per_hour`, `pg_sage_self_blocks_per_hour`,
+  `pg_sage_self_budget`, `pg_sage_self_budget_exceeded`, loop busy time); going over
+  raises one `sage_self_budget` finding that names the resources and the top consumers
+  (pg_sage's costliest statements and busiest loops). Admins can now profile a running
+  sidecar without restarting or signalling it: `debug.pprof_enabled` (off by default)
+  serves Go's profiler at `/api/v1/debug/pprof/` behind the normal login, admins only.
+  `GET /api/v1/trust` sent 17 statements one after another and took 1.2-2.1 s on a busy
+  host; it now sends its ledger reads in one pipelined round trip (7 round trips in all,
+  median 11-22 ms in the performance gate), reads the safety record once, and two new
+  indexes keep the safety read and the shadow summary from reading whole history tables.
+  The shadow scorer and the trust reconciler read each action's verification verdict by
+  key instead of scanning every verdict. The performance gate now charges each API
+  endpoint the median of five calls after a warm-up call, budgets the sidecar's CPU per
+  cycle, and seeds verification outcomes so their scans are caught. Where pg_sage keeps
+  its data in each mode is now documented; keeping history outside the monitored database
+  is not supported yet.
+
+- **Managed clouds: host telemetry and parameter-group proposals for RDS, Aurora and Cloud
+  SQL.** pg_sage now reads CloudWatch and Performance Insights (RDS/Aurora) and Cloud
+  Monitoring (Cloud SQL) with the providers' standard credential chains: CPU, memory,
+  storage, IOPS, replica lag and DB load. Host memory grounds `shared_buffers` proposals
+  (and caps `work_mem`), provider CPU lets index builds be admitted outside a maintenance
+  window, and builds wait while a replica lags, storage runs out or memory is short. Settings
+  SQL cannot change become proposals on the Actions page with the exact parameter group or
+  database flag, the reboot they need, the rollback and the CLI command; pg_sage never applies
+  them, it marks them applied once PostgreSQL runs the new value and reports parameter drift.
+  Without credentials telemetry is unavailable and nothing else changes. See
+  `docs/managed-clouds.md` (`cloud_telemetry:` section, `GET /api/v1/cloud-telemetry`,
+  `/api/v1/managed-changes`).
+
+- **pg_sage now sizes some of its own settings to your database.** Every configuration key
+  is classified: safety-critical (trust, approvals, credentials, endpoints, LLM provider,
+  anything that widens what pg_sage may do) and your preferences (notification routes,
+  windows, declared capacities) are never derived. For five keys that misbehave on large or
+  busy databases (the collector interval, the catalog read timeout, sequence sampling, the
+  temp-file and LWLock incident thresholds), pg_sage derives a value per database from
+  measured evidence when you leave the key unset, always inside bounds that never spend
+  more or widen authority. A new value first runs in shadow for 24 hours
+  (`self_config.soak_hours`), is compared with the current value's measured outcomes, and
+  is promoted only if it is not worse; restart-bound keys change at the next start. Every
+  step is recorded with its evidence, bounds and rule version. A value you set always wins;
+  the Configuration page's new "Derived settings" section shows each value with its evidence
+  and history and lets an admin pin the current value or unpin it
+  (`/api/v1/derived-settings`). Turn it off with `self_config.enabled: false`. See
+  `docs/generated/derived-settings.md`.
+
+### Fixed
+
+- **pg_sage now makes one change at a time to a setting or a table, and waits for the
+  verdict before the next.** On 2026-10-04 lifeos got `work_mem = '10MB'` 39 minutes
+  after `work_mem = '9MB'`, while the first change was still being measured, and a second
+  index on `public.memories` ten minutes after a first one it subsumed: overlapping
+  changes make every verdict meaningless. Now a change pg_sage starts on its own waits
+  while an earlier change to the same object (the same GUC, or the same table and its
+  indexes; for index, statistics and reloption changes, a whole partition tree) is
+  still being verified, or authorized and about to run. The decision log and
+  the approval card say which action it waits for and until when; it runs by itself once
+  the verdict lands (improved, neutral, regressed, insufficient evidence, unverifiable or
+  rolled back) and never waits past that verification's hard deadline (the verification
+  cap plus an hour), which is recorded. An index drop holds its table only until its
+  first window concludes; its soft-drop monitoring keeps watching the business cycle. Rollbacks and
+  reverts of pg_sage's own changes and emergencies (a critical wraparound freeze, a
+  critical disk runway) never wait. Approving a queued change overrides the wait, and the
+  approval card says so before you click ("approving overrides pending verification of
+  action N"); the override is recorded on the decision. `/metrics` gains
+  `pg_sage_policy_parks_total{database,reason}` and
+  `pg_sage_verification_wait_releases_total{database,cause}`.
+
+### Upgrading
+
+- **Self-configuration is on by default.** On a database where you left them unset,
+  pg_sage may derive the collector interval, the catalog read timeout, sequence sampling
+  and the temp-file and LWLock incident thresholds, each after a 24-hour shadow run. A key
+  you set is never derived. Set `self_config.enabled: false` to keep the static defaults.
+- **Cloud telemetry is on by default** and needs no configuration on RDS, Aurora or Cloud
+  SQL beyond read-only credentials in the provider's standard chain. Without them it
+  reports `unavailable` and nothing else changes.
+- **New tables:** Ask Sage conversations and budgets, managed-change proposals and the
+  derived-settings ledger, plus two indexes for the Trust page's reads, are created at startup by
+  idempotent migrations.
+
 ## v2.1.0 (2026-10-04) -- The model drives: tool-calling investigator, tuning agent, specialist API
 
 ### What's new

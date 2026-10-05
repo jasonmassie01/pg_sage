@@ -37,8 +37,9 @@ func (rt *databaseRuntime) newTuningAgent(autoExplain bool, hints *tuner.Tuner) 
 		deps.Hints = hints
 	}
 	rt.note("tuning")
-	return tuning.New(tuningSettings(cfg, rt.provider, rt.spec.Config.Database, 0), deps,
-		logStructuredWrapper)
+	settings := tuningSettings(cfg, rt.provider, rt.spec.Config.Database, 0)
+	settings.HostMemory = rt.hostMemory
+	return tuning.New(settings, deps, logStructuredWrapper)
 }
 
 // tuningActive reports whether this runtime builds the tuning agent:

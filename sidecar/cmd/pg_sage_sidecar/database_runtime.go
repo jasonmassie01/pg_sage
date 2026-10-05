@@ -12,6 +12,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/briefing"
+	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -19,6 +20,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/logwatch"
+	"github.com/pg-sage/sidecar/internal/managedparam"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -104,6 +106,10 @@ type databaseRuntime struct {
 	inst       *fleet.DatabaseInstance
 	// facts is the database's fact store (roadmap 2.3).
 	facts *facts.Store
+	// cloud is managed-cloud host telemetry and cloudResolver the managed
+	// change target (nil when the provider has none).
+	cloud         *cloudtel.Runtime
+	cloudResolver managedparam.Resolver
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It
@@ -130,6 +136,8 @@ func buildDatabaseRuntime(
 	rt.startSREActions()
 	rt.startActionOutcomeFeed() // M7: approved M5 runs feed the ledger
 	rt.startRunways()
+	rt.startAsk()
+	rt.startSelfConfig()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
@@ -206,6 +214,8 @@ func newDatabaseRuntime(
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()
+	rt.deriveSettingsAtStartup()
+	rt.initCloudTelemetry()
 	rt.resolveLLM()
 	rt.dispatcher = sharedNotifyDispatcher(spec.ControlPool)
 	return rt

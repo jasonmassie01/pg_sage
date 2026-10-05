@@ -132,26 +132,27 @@ func TestOutcome_VacuumFreezeVerifiedByXIDAge(t *testing.T) {
 	}
 }
 
-// waitXminHorizonPast waits until nothing that holds the xmin horizon (other
-// backends' snapshots, replication slots' xmin, prepared transactions) is
-// older than the table's relfrozenxid. VACUUM FREEZE can only advance relfrozenxid to
-// the oldest running xmin, and on the shared CI server another package's
-// open transaction held it behind the new table, so the age could not drop
-// (PG15 CI: neutral instead of improved).
+// waitXminHorizonPast waits until no snapshot that VACUUM (FREEZE) on table
+// must respect (this database's backends, replication slots, prepared
+// transactions) is older than a third of the table's relfrozenxid age, so
+// the freeze can move the age by more than the half the verdict needs. A
+// snapshot taken just after the table was created pins relfrozenxid (CI on
+// PR #126, PG14: 224 -> 225, neutral).
 func waitXminHorizonPast(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	table string) {
 	t.Helper()
-	for i := 0; i < 120; i++ {
+	for i := 0; i < 240; i++ {
 		var clear bool
-		if err := pool.QueryRow(ctx, `WITH c AS (SELECT relfrozenxid FROM pg_class
-			WHERE oid = to_regclass($1))
+		if err := pool.QueryRow(ctx, `WITH c AS (SELECT age(relfrozenxid) / 3 AS limit_age
+			FROM pg_class WHERE oid = to_regclass($1))
 		SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity a, c
 			WHERE a.pid <> pg_backend_pid() AND a.backend_xmin IS NOT NULL
-			  AND age(a.backend_xmin) >= age(c.relfrozenxid))
+			  AND (a.datname = current_database() OR a.datname IS NULL)
+			  AND age(a.backend_xmin) >= c.limit_age)
 		AND NOT EXISTS (SELECT 1 FROM pg_replication_slots s, c
-			WHERE s.xmin IS NOT NULL AND age(s.xmin) >= age(c.relfrozenxid))
+			WHERE s.xmin IS NOT NULL AND age(s.xmin) >= c.limit_age)
 		AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts p, c
-			WHERE age(p.transaction) >= age(c.relfrozenxid))`, table).Scan(&clear); err != nil {
+			WHERE age(p.transaction) >= c.limit_age)`, table).Scan(&clear); err != nil {
 			t.Fatalf("read the xmin horizon: %v", err)
 		}
 		if clear {
@@ -159,5 +160,5 @@ func waitXminHorizonPast(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatalf("another backend held the xmin horizon behind %s for 30 s", table)
+	t.Fatalf("another backend held the xmin horizon behind %s for 60 s", table)
 }

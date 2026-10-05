@@ -22,6 +22,9 @@ type Loader struct {
 	// Trust reads the database's Trust view for each card's class trust
 	// (once per request); nil shows none.
 	Trust TrustSource
+	// Waits reads the changes in flight on each card's objects; nil shows
+	// none.
+	Waits WaitSource
 	Now   func() time.Time
 }
 
@@ -96,6 +99,7 @@ func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trust
 	if in.Snooze, err = l.snooze(ctx, a.ID); err != nil {
 		return Card{}, err
 	}
+	l.readWaits(ctx, &in)
 	c := Assemble(in)
 	if c.ShadowHistory, err = l.shadowHistory(ctx, a); err != nil {
 		return Card{}, err

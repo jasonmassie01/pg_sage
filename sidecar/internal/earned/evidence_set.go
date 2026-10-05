@@ -17,6 +17,8 @@ type evidenceSet struct {
 	live     map[pairKey]Live
 	safety   map[Family]familySafetyRow
 	records  map[pairKey]ClassRecord
+	// safetyRead is true when safety holds every incident family's record.
+	safetyRead bool
 }
 
 // evidenceNeeds says which reads a scope needs: the incident evidence
@@ -28,42 +30,57 @@ type evidenceNeeds struct{ incident, records bool }
 // every pair, the incident evidence of the incident pairs.
 func (s *Service) loadEvidence(ctx context.Context, pairs []pairKey, need evidenceNeeds,
 	now time.Time) (evidenceSet, error) {
-	e := evidenceSet{at: now}
-	var err error
+	e := newEvidenceSet(now)
+	if err := s.queueEvidence(ctx, s.store, pairs, need, e); err != nil {
+		return evidenceSet{}, err
+	}
+	return *e, nil
+}
+
+func newEvidenceSet(now time.Time) *evidenceSet {
+	return &evidenceSet{at: now, bench: map[Family]*EvalRun{}, shadow: map[Family]Shadow{},
+		live: map[pairKey]Live{}, safety: map[Family]familySafetyRow{},
+		records: map[pairKey]ClassRecord{}}
+}
+
+// queueEvidence runs (or queues on r) every read of pairs' evidence into
+// e; e is complete once r has run.
+func (s *Service) queueEvidence(ctx context.Context, r reads, pairs []pairKey,
+	need evidenceNeeds, e *evidenceSet) error {
 	if need.records {
-		if e.records, err = s.store.classRecordSet(ctx, pairs); err != nil {
-			return evidenceSet{}, err
+		if err := s.store.readClassRecords(ctx, r, pairs, e.records); err != nil {
+			return err
 		}
 	}
 	incident := incidentPairs(pairs)
 	if !need.incident || len(incident) == 0 {
-		return e, nil
+		return nil
 	}
+	e.safetyRead = true
 	names := familiesOf(incident)
 	families := make([]Family, 0, len(names))
 	for _, f := range names {
 		families = append(families, Family(f))
 	}
-	if e.bench, err = s.store.benchSet(ctx, families); err != nil {
-		return evidenceSet{}, err
-	}
-	if e.gameDays, err = s.store.GameDayRuns(ctx,
-		now.Add(-s.cfg.Thresholds.BenchMaxAge)); err != nil {
-		return evidenceSet{}, err
-	}
 	th := s.cfg.Thresholds
-	if e.shadow, err = s.store.shadowSet(ctx, names,
-		now.Add(-th.ShadowDuration)); err != nil {
-		return evidenceSet{}, err
+	for _, read := range []func() error{
+		func() error { return s.store.readBench(ctx, r, families, e.bench) },
+		func() error {
+			return s.store.readGameDays(ctx, r, e.at.Add(-th.BenchMaxAge), &e.gameDays)
+		},
+		func() error {
+			return s.store.readShadow(ctx, r, names, e.at.Add(-th.ShadowDuration), e.shadow)
+		},
+		func() error { return s.store.readLive(ctx, r, incident, e.live) },
+		func() error {
+			return s.store.readSafety(ctx, r, names, e.at.Add(-s.cfg.SafetyWindow), e.safety)
+		},
+	} {
+		if err := read(); err != nil {
+			return err
+		}
 	}
-	if e.live, err = s.store.liveSet(ctx, incident); err != nil {
-		return evidenceSet{}, err
-	}
-	e.safety, err = s.store.safetySet(ctx, names, now.Add(-s.cfg.SafetyWindow))
-	if err != nil {
-		return evidenceSet{}, err
-	}
-	return e, nil
+	return nil
 }
 
 // evidence is one pair's evidence from the set.

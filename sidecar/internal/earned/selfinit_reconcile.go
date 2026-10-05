@@ -127,11 +127,13 @@ func (r *Reconciler) verdictFacts(ctx context.Context, cursor *time.Time) ([]sel
 		})
 }
 
-const rollbackFactsSQL = `/* pg_sage */ SELECT l.id, COALESCE(o.action_class, ''),
-	COALESCE(o.verdict, ''), l.action_type, l.measured_at, COALESCE(d.reason, ''),
+const rollbackFactsSQL = `/* pg_sage */ SELECT l.id,
+	COALESCE((SELECT o.action_class FROM sage.action_outcome o
+	          WHERE o.action_log_id = l.id), ''),
+	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), ''),
+	l.action_type, l.measured_at, COALESCE(d.reason, ''),
 	COALESCE(d.evidence ? 'approved_by', false)
 	FROM sage.action_log l
-	LEFT JOIN sage.action_outcome o ON o.action_log_id = l.id
 	LEFT JOIN sage.decision d ON d.id = l.decision_id
 	WHERE l.outcome = 'rolled_back'
 	  AND l.measured_at >= COALESCE($1::timestamptz,

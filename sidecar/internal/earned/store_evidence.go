@@ -246,20 +246,26 @@ func (s *PostgresStore) runningBuild() Build {
 // since, newest first.
 func (s *PostgresStore) GameDayRuns(ctx context.Context, since time.Time) ([]EvalRun,
 	error) {
-	rows, err := s.pool.Query(ctx, evalRunSelect+` WHERE deployment_id = $1
-		AND source = 'game_day' AND database_name = $3 AND generated_at >= $2
-		ORDER BY generated_at DESC LIMIT 200`, s.deployment, since, s.database)
-	if err != nil {
-		return nil, storeErr("list game-day reports", err)
-	}
-	defer rows.Close()
 	var out []EvalRun
-	for rows.Next() {
-		run, err := s.scanEvalRun(rows)
-		if err != nil {
-			return nil, storeErr("scan game-day report", err)
-		}
-		out = append(out, run)
+	if err := s.readGameDays(ctx, s, since, &out); err != nil {
+		return nil, err
 	}
-	return out, storeErr("list game-day reports", rows.Err())
+	return out, nil
+}
+
+// readGameDays appends the database's game-day reports generated since
+// since to out, newest first.
+func (s *PostgresStore) readGameDays(ctx context.Context, r reads, since time.Time,
+	out *[]EvalRun) error {
+	return r.each(ctx, "list game-day reports", evalRunSelect+` WHERE deployment_id = $1
+		AND source = 'game_day' AND database_name = $3 AND generated_at >= $2
+		ORDER BY generated_at DESC LIMIT 200`, []any{s.deployment, since, s.database},
+		func(rows pgx.Rows) error {
+			run, err := s.scanEvalRun(rows)
+			if err != nil {
+				return err
+			}
+			*out = append(*out, run)
+			return nil
+		})
 }

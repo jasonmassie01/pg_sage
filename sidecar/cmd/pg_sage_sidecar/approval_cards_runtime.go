@@ -40,6 +40,9 @@ func executorDispatcher(d *notify.Dispatcher, pool *pgxpool.Pool, name string,
 		return nil
 	}
 	l := approvalCardLoader(pool, name, "")
+	if ex != nil {
+		l.Waits = ex.VerificationWaits()
+	}
 	return approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper).
 		WithTrust(ex.TrustLevel)
 }

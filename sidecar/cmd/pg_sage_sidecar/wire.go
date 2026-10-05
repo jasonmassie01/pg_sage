@@ -156,6 +156,7 @@ func wireRouter(p WireParams) WireResult {
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
+			Ask:        askServices(),
 			Specialist: specialistHandler,
 			// The request audit of the Postgres-specialist contract.
 			SpecialistAudit: specialistAudit,

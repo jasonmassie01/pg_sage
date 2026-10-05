@@ -22,13 +22,16 @@ import (
 // tracking pg_sage's own sessions, and fails with a ranked offender list
 // when pg_sage's SQL needs a DBA: a sequential scan of a large sage table,
 // a slow statement, too much DB time or too many rows written per cycle, a
-// catalog query over the incident budget, or a slow API list endpoint.
+// catalog query over the incident budget, a slow API list endpoint, or
+// too much sidecar CPU per cycle.
 // Budgets live in internal/testsupport/perfgate/budgets.go.
 //
 // Run: go test -tags=perfgate -run '^TestPerfGate$' ./cmd/pg_sage_sidecar
 // Scale and timing: PG_SAGE_PERF_SCALE=small|large, PG_SAGE_PERF_TABLES,
 // PG_SAGE_PERF_HISTORY_ROWS, PG_SAGE_PERF_INTERVAL, PG_SAGE_PERF_WARMUP,
-// PG_SAGE_PERF_WINDOW; PG_SAGE_PERF_REPORT names the markdown report file.
+// PG_SAGE_PERF_WINDOW; PG_SAGE_PERF_ENDPOINT_SAMPLES (default 5) is the
+// number of measured calls per API endpoint (median charged, after one
+// warm-up call); PG_SAGE_PERF_REPORT names the markdown report file.
 func TestPerfGate(t *testing.T) {
 	scale, err := perfgate.ScaleFromEnv(os.Getenv)
 	if err != nil {

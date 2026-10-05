@@ -109,21 +109,54 @@ type RecordedQuery struct {
 	Args []any
 }
 
-// QueryRecorder is a pgx.QueryTracer that records every statement, so a
-// test can explain exactly what the code under test executed.
+// QueryRecorder is a pgx.QueryTracer and BatchTracer that records every
+// statement, so a test can explain exactly what the code under test
+// executed, and counts round trips (a batch is one).
 type QueryRecorder struct {
-	mu      sync.Mutex
-	queries []RecordedQuery
+	mu         sync.Mutex
+	queries    []RecordedQuery
+	roundTrips int
 }
 
-// TraceQueryStart records the statement.
+// TraceQueryStart records the statement, one round trip.
 func (r *QueryRecorder) TraceQueryStart(ctx context.Context, _ *pgx.Conn,
 	data pgx.TraceQueryStartData) context.Context {
+	r.record(data.SQL, data.Args)
+	r.mu.Lock()
+	r.roundTrips++
+	r.mu.Unlock()
+	return ctx
+}
+
+// TraceBatchStart counts the batch as one round trip.
+func (r *QueryRecorder) TraceBatchStart(ctx context.Context, _ *pgx.Conn,
+	_ pgx.TraceBatchStartData) context.Context {
+	r.mu.Lock()
+	r.roundTrips++
+	r.mu.Unlock()
+	return ctx
+}
+
+// TraceBatchQuery records a batched statement.
+func (r *QueryRecorder) TraceBatchQuery(_ context.Context, _ *pgx.Conn,
+	data pgx.TraceBatchQueryData) {
+	r.record(data.SQL, data.Args)
+}
+
+// TraceBatchEnd does nothing.
+func (r *QueryRecorder) TraceBatchEnd(context.Context, *pgx.Conn, pgx.TraceBatchEndData) {}
+
+func (r *QueryRecorder) record(sql string, args []any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.queries = append(r.queries, RecordedQuery{SQL: data.SQL,
-		Args: append([]any(nil), data.Args...)})
-	return ctx
+	r.queries = append(r.queries, RecordedQuery{SQL: sql, Args: append([]any(nil), args...)})
+}
+
+// RoundTrips is the number of statements and batches sent.
+func (r *QueryRecorder) RoundTrips() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.roundTrips
 }
 
 // TraceQueryEnd does nothing.
@@ -150,7 +183,7 @@ func (r *QueryRecorder) Matching(fragments ...string) []RecordedQuery {
 func (r *QueryRecorder) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.queries = nil
+	r.queries, r.roundTrips = nil, 0
 }
 
 // XactScans are a table's scan counters of the current transaction

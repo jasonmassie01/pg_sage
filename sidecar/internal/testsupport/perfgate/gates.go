@@ -22,11 +22,13 @@ const (
 	GateTimeout       Gate = "D statement cut off by a timeout"
 	GateEndpoint      Gate = "E API list endpoint"
 	GateHotUpdates    Gate = "F HOT share of updates"
+	GateSidecarCPU    Gate = "G sidecar CPU per cycle"
 )
 
 var gateOrder = map[Gate]int{
 	GateSeqScan: 0, GateStatementMean: 1, GateCycleDBTime: 2, GateRowsWritten: 3,
 	GateCatalogMax: 4, GateTimeout: 5, GateEndpoint: 6, GateHotUpdates: 7,
+	GateSidecarCPU: 8,
 }
 
 // TableDelta is one sage table's counters over a phase.
@@ -72,11 +74,13 @@ type PlanResult struct {
 	Err       string
 }
 
-// Endpoint is one API call.
+// Endpoint is an API endpoint's measurement: Duration is the charged
+// time (the median of Samples when there are several calls).
 type Endpoint struct {
 	Path     string
 	Status   int
 	Duration time.Duration
+	Samples  []time.Duration
 }
 
 // Phase is one measured stretch of the run. Steady phases are charged
@@ -92,6 +96,10 @@ type Phase struct {
 	Plans      []PlanResult
 	Timeouts   []string
 	Endpoints  []Endpoint
+	// ProcessCPU is the sidecar process's CPU time over the phase, API
+	// calls excluded; CPUKnown is false when it was not read.
+	ProcessCPU time.Duration
+	CPUKnown   bool
 }
 
 // Offender is one budget breach.
@@ -133,6 +141,7 @@ func Evaluate(phases []Phase, b Budgets) ([]Offender, error) {
 			out = append(out, timeOffenders(p, b)...)
 			out = append(out, writeOffenders(p, b)...)
 			out = append(out, hotOffenders(p, b)...)
+			out = append(out, cpuOffenders(p, b)...)
 		}
 		out = append(out, catalogOffenders(p, b)...)
 		out = append(out, endpointOffenders(p, b)...)
@@ -288,9 +297,33 @@ func endpointOffenders(p Phase, b Budgets) []Offender {
 		}
 		out = append(out, Offender{Gate: GateEndpoint, Phase: p.Name, Subject: e.Path,
 			Measured: ms, Budget: b.EndpointMaxMs, Unit: "ms",
-			Detail: fmt.Sprintf("HTTP %d", e.Status)})
+			Detail: fmt.Sprintf("HTTP %d, median of %d calls, max %.0f ms", e.Status,
+				e.Calls(), float64(e.Max())/float64(time.Millisecond))})
 	}
 	return out
+}
+
+// cpuOffenders charges the steady phase's sidecar CPU per cycle.
+func cpuOffenders(p Phase, b Budgets) []Offender {
+	if !p.CPUKnown || p.Cycles <= 0 {
+		return nil
+	}
+	perCycle := CPUPerCycleMs(p)
+	if perCycle <= b.SidecarCPUMsPerCycle {
+		return nil
+	}
+	return []Offender{{Gate: GateSidecarCPU, Phase: p.Name, Subject: "sidecar process",
+		Measured: perCycle, Budget: b.SidecarCPUMsPerCycle, Unit: "ms per cycle",
+		Detail: fmt.Sprintf("%.0f ms CPU over %d cycles", float64(p.ProcessCPU)/
+			float64(time.Millisecond), p.Cycles)}}
+}
+
+// CPUPerCycleMs is a phase's sidecar CPU per collector cycle.
+func CPUPerCycleMs(p Phase) float64 {
+	if p.Cycles <= 0 {
+		return 0
+	}
+	return float64(p.ProcessCPU) / float64(time.Millisecond) / float64(p.Cycles)
 }
 
 func statementSubject(s Statement) string {

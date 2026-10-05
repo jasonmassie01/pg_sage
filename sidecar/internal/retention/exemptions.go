@@ -8,6 +8,7 @@ var retentionExemptions = mergeExemptions(coreExemptions, agentExemptions)
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
 	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
+	"ask_messages":          "deleted with its conversation (ON DELETE CASCADE)",
 	"auth_audit":            "security audit trail of SSO link, unlink and grant use",
 	"chatops_identities":    "admin-managed mapping of chat users to accounts, current state",
 	"chatops_replay":        "pruned by chatops on every callback (24 h replay window)",
@@ -50,6 +51,10 @@ var coreExemptions = map[string]string{
 		"shadow decision (like sre_autonomy_outcomes)",
 	"mcp_tokens": "admin-managed MCP API credentials; revoked and expired tokens " +
 		"are kept as the audit trail of who could act through MCP",
+	"config_derived_setting": "derived-settings state, one row per derived " +
+		"key (self-configuration)",
+	"config_derivation": "derivation ledger; rows only on a change, kept as the " +
+		"evidence behind each derived value",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",

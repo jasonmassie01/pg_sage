@@ -62,6 +62,8 @@ type ProductionDependencies struct {
 	Facts FactBackend
 	// AgentTools serves the coding-agent tools (roadmap phase 3); optional.
 	AgentTools AgentToolBackend
+	// Ask serves ask_sage (roadmap phase 3); optional.
+	Ask AskBackend
 	// Specialist serves the Postgres-specialist contract tools; optional.
 	Specialist SpecialistBackend
 }

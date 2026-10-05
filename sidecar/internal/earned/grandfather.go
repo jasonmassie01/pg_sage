@@ -130,25 +130,35 @@ func (s *Service) seedOne(ctx context.Context, tx pgx.Tx, bound policy.RuntimeSt
 
 // Grandfathered reads the database's grandfathering, nil before it.
 func (s *Service) Grandfathered(ctx context.Context) (*GrandfatherReport, error) {
-	var at *time.Time
-	var seeded []byte
-	err := s.store.pool.QueryRow(ctx, `SELECT grandfathered_at, seeded
-		FROM sage.trust_ledger_state WHERE deployment_id = $1 AND database_name = $2`,
-		s.store.deployment, s.store.database).Scan(&at, &seeded)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && at == nil) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, storeErr("read grandfathering", err)
-	}
-	rep := &GrandfatherReport{Database: s.store.database, MigratedAt: at.UTC(),
-		Seeded: []State{}}
-	if len(seeded) > 0 {
-		if err := json.Unmarshal(seeded, &rep.Seeded); err != nil {
-			return nil, fmt.Errorf("decode grandfathered levels: %w", err)
-		}
+	var rep *GrandfatherReport
+	if err := s.store.readGrandfather(ctx, s.store, &rep); err != nil {
+		return nil, err
 	}
 	return rep, nil
+}
+
+// readGrandfather sets out to the database's grandfathering, leaving it
+// nil before it.
+func (s *PostgresStore) readGrandfather(ctx context.Context, r reads,
+	out **GrandfatherReport) error {
+	return r.each(ctx, "read grandfathering", `SELECT grandfathered_at, seeded
+		FROM sage.trust_ledger_state WHERE deployment_id = $1 AND database_name = $2`,
+		[]any{s.deployment, s.database}, func(rows pgx.Rows) error {
+			var at *time.Time
+			var seeded []byte
+			if err := rows.Scan(&at, &seeded); err != nil || at == nil {
+				return err
+			}
+			rep := &GrandfatherReport{Database: s.database, MigratedAt: at.UTC(),
+				Seeded: []State{}}
+			if len(seeded) > 0 {
+				if err := json.Unmarshal(seeded, &rep.Seeded); err != nil {
+					return fmt.Errorf("decode grandfathered levels: %w", err)
+				}
+			}
+			*out = rep
+			return nil
+		})
 }
 
 // lockGrandfatherMarker locks the database's state row (creating it) and

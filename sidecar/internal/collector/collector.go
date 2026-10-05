@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/partition"
 	"github.com/pg-sage/sidecar/internal/querystore"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -135,7 +136,9 @@ func (c *Collector) Run(ctx context.Context) {
 			c.logFn("INFO", "collector stopped")
 			return
 		case <-ticker.C:
+			done := selfbudget.Process().Track("collector")
 			c.cycle(ctx, ticker)
+			done()
 		}
 	}
 }

@@ -78,6 +78,7 @@ func TransformForCloud(
 		// platform-restricted GUCs — managed services
 		// control these via their console, not SQL.
 		if settingName != "" && RequiresRestart(settingName) {
+			f = withManagedIntent(f, platform, sql, "requires a restart")
 			f.RecommendedSQL = ""
 			f.RollbackSQL = ""
 			f.Recommendation += fmt.Sprintf(
@@ -92,6 +93,8 @@ func TransformForCloud(
 		if settingName != "" {
 			if restricted, ok := restrictedSettings[platform]; ok {
 				if restricted[settingName] {
+					f = withManagedIntent(f, platform, sql,
+						"not adjustable through SQL on "+platform)
 					f.RecommendedSQL = ""
 					f.RollbackSQL = ""
 					f.Recommendation += fmt.Sprintf(

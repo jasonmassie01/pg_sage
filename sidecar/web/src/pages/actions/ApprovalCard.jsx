@@ -98,6 +98,18 @@ function TrustLine({ trust }) {
   )
 }
 
+// WaitLine is another change still being verified on this change's object
+// (one change per object): approving overrides that verification.
+function WaitLine({ wait }) {
+  if (!wait || !wait.line) return null
+  return (
+    <div data-testid="approval-verification-wait" className="text-sm"
+      style={{ color: 'var(--yellow)' }}>
+      {wait.line}
+    </div>
+  )
+}
+
 function EvidenceSection({ evidence }) {
   if (!Array.isArray(evidence) || evidence.length === 0) return null
   return (
@@ -208,6 +220,12 @@ export function ApprovalCard({ card, onDecided, facts = null }) {
           <span data-testid="approval-expiry">{expiresIn(card.expires_at, now)}</span>
         </div>
       </div>
+      {card.origin && (
+        <div data-testid="approval-origin" className="text-xs"
+          style={{ color: 'var(--text-secondary)' }}>
+          {`Proposed via ${card.origin.label || card.origin.via} by ${card.origin.by}`}
+        </div>
+      )}
       {card.snoozed_until && (
         <div data-testid="approval-snoozed-badge" className="text-xs"
           style={{ color: 'var(--text-secondary)' }}>
@@ -217,6 +235,7 @@ export function ApprovalCard({ card, onDecided, facts = null }) {
       )}
       <WhySection why={card.why_approval} />
       <TrustLine trust={card.trust} />
+      <WaitLine wait={card.verification_wait} />
       {facts}
       <EvidenceSection evidence={card.evidence} />
       <RationaleSection rationale={card.rationale} />

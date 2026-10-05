@@ -66,11 +66,12 @@ func (e *Executor) newStandingPolicyGate(
 		Runtime: func(ctx context.Context, request policy.ActionRequest) (policy.RuntimeState, error) {
 			return e.standingRuntimeState(ctx, request), nil
 		},
-		ValidateSQL: ValidateExecutorSQL,
-		Usage:       e.standingUsage,
-		Serialize:   e.serializeBudget,
-		Autonomy:    e.autonomyLimiter(),
-		Facts:       executorFacts{e},
+		ValidateSQL:  ValidateExecutorSQL,
+		Usage:        e.standingUsage,
+		Serialize:    e.serializeBudget,
+		Autonomy:     e.autonomyLimiter(),
+		Facts:        executorFacts{e},
+		Verification: e.VerificationWaits(),
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
 			if err != nil {
@@ -102,6 +103,7 @@ func ledgerInput(
 	evidence := cloneCustodianEvidence(request.Evidence)
 	evidence["off_window_ok"] = decision.OffWindowOK
 	stampBudgetEvidence(evidence, request, decision)
+	stampVerificationEvidence(evidence, decision)
 	autonomyEvidence(evidence, request)
 	input := ledger.DecisionInput{
 		DatabaseID: databaseID, Feature: request.Feature, Intent: ledgerIntent(request),
@@ -174,6 +176,7 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 	if e.pool != nil {
 		config.Usage = e.standingUsage
 		config.Serialize = e.serializeBudget
+		config.Verification = e.VerificationWaits()
 		config.RecordDecisionDetailed = func(
 			ctx context.Context, req policy.ActionRequest, decision policy.Decision,
 		) (string, int64, error) {

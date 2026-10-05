@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,10 +124,19 @@ func TestInstallAdoptsLegacyLevelsForTheDatabase(t *testing.T) {
 	}
 }
 
+// freezeCustodianProposal names its own table: these proposals are
+// evaluated and never run, so each execute verdict holds its table (one
+// change per object) and must not hold the next test's.
 func freezeCustodianProposal() executor.CustodianProposal {
+	table := fixtureTable("orders")
 	return executor.CustodianProposal{Feature: "freeze",
-		SQL: `VACUUM (FREEZE) "public"."orders"`, TargetObjects: []string{"public.orders"},
+		SQL: `VACUUM (FREEZE) public.` + table, TargetObjects: []string{"public." + table},
 		ObservedAt: time.Now()}
+}
+
+// fixtureTable is a table name no other test uses.
+func fixtureTable(prefix string) string {
+	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 }
 
 func autonomousExecutor(pool *pgxpool.Pool) *executor.Executor {

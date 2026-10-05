@@ -181,6 +181,10 @@ type Decision struct {
 	// pair been trusted at L3; set only when the ledger withheld it
 	// (roadmap 1.4, shadow mode).
 	Trusted *TrustedVerdict
+	// VerificationWait is the in-flight verification on the request's
+	// object that parked it, that an operator approval overrode, or that
+	// was released at its hard deadline (one change per object).
+	VerificationWait *VerificationWait
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
@@ -275,7 +279,9 @@ type GateConfig struct {
 		error)
 	// Facts answers which confirmed facts bind a request (roadmap 2.3); nil
 	// consults none. A binding blocks the request: facts only narrow.
-	Facts FactBinder
+	Facts FactBinder	// Verification lists the changes still being verified on a request's
+	// objects (one change per object); nil consults none.
+	Verification VerificationTracker
 }
 
 var (

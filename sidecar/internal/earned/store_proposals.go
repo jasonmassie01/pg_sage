@@ -97,23 +97,29 @@ func (s *PostgresStore) readProposal(ctx context.Context, q querier, id string,
 // listProposals lists proposals of a status, newest first.
 func (s *PostgresStore) listProposals(ctx context.Context, status string, limit int) (
 	[]Proposal, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+proposalColumns+`
+	out := []Proposal{}
+	if err := s.readProposals(ctx, s, status, limit, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// readProposals appends the database's proposals of a status to out,
+// newest first.
+func (s *PostgresStore) readProposals(ctx context.Context, r reads, status string,
+	limit int, out *[]Proposal) error {
+	return r.each(ctx, "list autonomy proposals", `SELECT `+proposalColumns+`
 		FROM sage.sre_autonomy_proposals
 		WHERE deployment_id = $1 AND database_name = $2 AND status = $3
-		ORDER BY proposed_at DESC, id LIMIT $4`, s.deployment, s.database, status, limit)
-	if err != nil {
-		return nil, storeErr("list autonomy proposals", err)
-	}
-	defer rows.Close()
-	out := []Proposal{}
-	for rows.Next() {
-		p, err := scanProposal(rows)
-		if err != nil {
-			return nil, storeErr("scan autonomy proposal", err)
-		}
-		out = append(out, p)
-	}
-	return out, storeErr("list autonomy proposals", rows.Err())
+		ORDER BY proposed_at DESC, id LIMIT $4`,
+		[]any{s.deployment, s.database, status, limit}, func(rows pgx.Rows) error {
+			p, err := scanProposal(rows)
+			if err != nil {
+				return err
+			}
+			*out = append(*out, p)
+			return nil
+		})
 }
 
 // decideProposal moves a pending proposal to status.

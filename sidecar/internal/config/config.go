@@ -95,8 +95,14 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+	Ask         AskConfig           `yaml:"ask"`
+	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
+	Debug       DebugConfig         `yaml:"debug"`
+	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
+	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
+	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -696,6 +702,9 @@ func (c *Config) validate() error {
 	if err := c.SRE.validate(); err != nil {
 		return err
 	}
+	if err := c.Ask.validate(); err != nil {
+		return err
+	}
 	if err := c.Specialist.validate(); err != nil {
 		return err
 	}
@@ -717,10 +726,16 @@ func (c *Config) validate() error {
 	if err := c.validateIOAdmission(); err != nil {
 		return err
 	}
+	if err := c.validateCloudTelemetry(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateSageFootprint(); err != nil {
 		return err
 	}
 	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
+		return err
+	}
+	if err := c.SelfBudget.validate(); err != nil {
 		return err
 	}
 	if err := c.LLM.Optimizer.RejectionMemory.validate(); err != nil {
@@ -733,6 +748,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.Retention.validateStorage(); err != nil {
+		return err
+	}
+	if err := c.SelfConfig.validate(); err != nil {
 		return err
 	}
 
@@ -1045,10 +1063,13 @@ func newDefaults() *Config {
 				RetainedWALDiskPctCeiling: DefaultWALRetainedDiskPctCeiling,
 			},
 		},
-		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		MCP:        MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		Ask:        defaultAskConfig(),
+		SelfBudget: DefaultSelfBudget(),
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
+		SelfConfig: defaultSelfConfigConfig(),
 	}
 }
 
@@ -1333,6 +1354,7 @@ func overlayAgentNativeEnv(cfg *Config) {
 		cfg.MCP.Transport = v
 	}
 	overlayAzureEnv(cfg)
+	overlayCloudTelemetryEnv(cfg)
 }
 
 // HotReloadable returns the fields that can be reloaded without restart.

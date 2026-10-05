@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -12,6 +13,13 @@ import (
 // node metrics. An error means CPU evidence is unavailable, never 0%.
 type HostCPUReader interface {
 	CurrentCPU(context.Context) (float64, error)
+}
+
+// HostGuardReader is a host CPU reader that also reports reasons to wait
+// (managed-cloud replica lag, storage runway, memory pressure). Its
+// reasons only withhold admission; they never admit.
+type HostGuardReader interface {
+	HostWithhold(context.Context) []string
 }
 
 // IOEvidenceReader supplies pg-side IO rates and the learned baseline.
@@ -58,6 +66,9 @@ func (s executorObservationSource) LoadEvidence(
 	if cpuReader != nil {
 		if cpu, err := cpuReader.CurrentCPU(ctx); err == nil {
 			evidence.CPUPct = &cpu
+		}
+		if guard, ok := cpuReader.(HostGuardReader); ok {
+			evidence.HostWithhold = strings.Join(guard.HostWithhold(ctx), "; ")
 		}
 	}
 	if ioReader == nil {

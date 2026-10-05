@@ -25,6 +25,14 @@ var excludedPrefixes = []string{
 	"briefing.",
 	"databases.",
 	"defaults.",
+	"ask.", // Ask Sage (roadmap phase 3): YAML only, read when a runtime starts
+	// pg_sage's declared self-budget and the admin-only profiler are
+	// YAML only and restart-bound, not API overrides (phase 3 observer).
+	"self_budget.",
+	"debug.",
+	// managed-cloud telemetry identity and guard floors: YAML/env only, restart-bound
+	"cloud_telemetry.",
+	"self_config.", // derivation switch and soak: YAML only, safety-critical, restart-bound
 }
 
 // excludedExactKeys are individual keys that exist in the Config

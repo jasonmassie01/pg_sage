@@ -1,8 +1,10 @@
 // Package snapstore stores collector snapshots in sage.snapshots compactly.
 //
 // Catalog categories (tables, indexes, sequences, foreign keys,
-// partitions, queries) are lists whose elements are mostly static
-// definitions with a few moving counters. A full row (a keyframe) is
+// partitions, queries, io) are lists whose elements are mostly static
+// definitions with a few moving counters; config_data is an object
+// document handled as a list of one. Coverage says how each category is
+// kept. A full row (a keyframe) is
 // written when a category has no usable keyframe, when the keyframe is
 // keyframeMaxAge old, or when the change is too large. Every other cycle
 // writes a delta row: base_id names its base row and data holds only what

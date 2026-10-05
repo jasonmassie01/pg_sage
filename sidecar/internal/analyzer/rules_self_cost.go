@@ -19,20 +19,28 @@ const categorySelfCost = "sage_self_cost"
 // finding above the budget. The first cycle after a start has no window
 // and a failed reading proves nothing: both leave the category unknown,
 // so an open finding stays open. A disabled budget (0) still measures and
-// resolves the finding.
+// resolves the finding. The same reading feeds the declared self-budget
+// (checkSelfBudget).
 func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
-	budget := a.cfg.Analyzer.SelfCostBudgetMs
 	if a.pool == nil {
 		a.evalFail(categorySelfCost) // no database to measure: unknown
+		a.evalFail(categorySelfBudget)
 		return nil
 	}
 	reading, err := selfcost.Read(ctx, a.pool)
 	if err != nil {
 		a.evalFail(categorySelfCost)
+		a.evalFail(categorySelfBudget)
 		a.logFn("WARN", "analyzer: measure pg_sage's own cost: %v", err)
 		return nil
 	}
 	cost := a.selfCost.Observe(reading, a.collectorInterval())
+	return append(a.checkSelfCostBudget(cost), a.checkSelfBudget(cost)...)
+}
+
+// checkSelfCostBudget is analyzer.self_cost_budget_ms against the cost.
+func (a *Analyzer) checkSelfCostBudget(cost selfcost.Cost) []Finding {
+	budget := a.cfg.Analyzer.SelfCostBudgetMs
 	if budget <= 0 {
 		a.eval.evaluated(categorySelfCost)
 		return nil

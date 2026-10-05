@@ -2,406 +2,429 @@
 
 > Generated from `internal/config` by `cmd/gen_config_meta`; do not edit manually.
 
-`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`.
+`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`. The self-config class says whether pg_sage may derive the key (`derivable`) or never does (`safety_critical`, `operator_preference`); see [derived settings](derived-settings.md).
 
-| Field | Lifecycle | Runtime owner |
-| --- | --- | --- |
-| `advisor.bloat_enabled` | `restart` | `-` |
-| `advisor.connection_enabled` | `restart` | `-` |
-| `advisor.enabled` | `restart` | `-` |
-| `advisor.interval_seconds` | `restart` | `-` |
-| `advisor.memory_enabled` | `restart` | `-` |
-| `advisor.rewrite_enabled` | `restart` | `-` |
-| `advisor.vacuum_enabled` | `restart` | `-` |
-| `advisor.wal_enabled` | `restart` | `-` |
-| `agentdb.allow_public_ip` | `restart` | `-` |
-| `agentdb.live_provisioning_enabled` | `restart` | `-` |
-| `agentdb.providers` | `restart` | `-` |
-| `agentdb.reconcile_interval_seconds` | `reconfigure` | `agentdb` |
-| `agentdb.require_backup_before_destroy` | `restart` | `-` |
-| `alerting.check_interval_seconds` | `reconfigure` | `alerting` |
-| `alerting.cooldown_minutes` | `reconfigure` | `alerting` |
-| `alerting.enabled` | `reconfigure` | `alerting` |
-| `alerting.pagerduty_routing_key` | `reconfigure` | `alerting` |
-| `alerting.quiet_hours_end` | `reconfigure` | `alerting` |
-| `alerting.quiet_hours_start` | `reconfigure` | `alerting` |
-| `alerting.routes` | `reconfigure` | `alerting` |
-| `alerting.slack_webhook_url` | `reconfigure` | `alerting` |
-| `alerting.timezone` | `reconfigure` | `alerting` |
-| `alerting.webhooks` | `reconfigure` | `alerting` |
-| `analyzer.analyze_stale_days` | `restart` | `-` |
-| `analyzer.analyze_stale_min_rows` | `restart` | `-` |
-| `analyzer.autovacuum_tune_min_rows` | `restart` | `-` |
-| `analyzer.cache_hit_ratio_warning` | `restart` | `-` |
-| `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` |
-| `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` |
-| `analyzer.index_bloat_threshold_pct` | `restart` | `-` |
-| `analyzer.interval_seconds` | `reconfigure` | `analyzer` |
-| `analyzer.lock_chain.active_query_cancel_minutes` | `restart` | `-` |
-| `analyzer.lock_chain.critical_blocked_threshold` | `restart` | `-` |
-| `analyzer.lock_chain.enabled` | `restart` | `-` |
-| `analyzer.lock_chain.idle_in_tx_terminate_minutes` | `restart` | `-` |
-| `analyzer.lock_chain.min_blocked_threshold` | `restart` | `-` |
-| `analyzer.lock_chain.safe_patterns` | `restart` | `-` |
-| `analyzer.regression_lookback_days` | `restart` | `-` |
-| `analyzer.regression_threshold_pct` | `restart` | `-` |
-| `analyzer.schema_guard_ddl_debounce_seconds` | `restart` | `-` |
-| `analyzer.self_cost_budget_ms` | `restart` | `-` |
-| `analyzer.seq_scan_min_rows` | `restart` | `-` |
-| `analyzer.slow_query_threshold_ms` | `restart` | `-` |
-| `analyzer.slow_slot_retained_bytes` | `restart` | `-` |
-| `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` |
-| `analyzer.table_bloat_min_rows` | `restart` | `-` |
-| `analyzer.unused_index_window_days` | `restart` | `-` |
-| `analyzer.work_mem_promotion_threshold` | `restart` | `-` |
-| `analyzer.wraparound_freeze_xid_age` | `restart` | `-` |
-| `analyzer.xid_wraparound_critical` | `restart` | `-` |
-| `analyzer.xid_wraparound_warning` | `restart` | `-` |
-| `api.listen_addr` | `restart` | `-` |
-| `api.trusted_proxies` | `restart` | `-` |
-| `auto_explain.collect_interval_seconds` | `reconfigure` | `auto_explain` |
-| `auto_explain.enabled` | `restart` | `-` |
-| `auto_explain.log_min_duration_ms` | `restart` | `-` |
-| `auto_explain.max_plans_per_cycle` | `restart` | `-` |
-| `auto_explain.prefer_session_load` | `restart` | `-` |
-| `azure.resource_group` | `restart` | `-` |
-| `azure.server_name` | `restart` | `-` |
-| `azure.subscription_id` | `restart` | `-` |
-| `briefing.channels` | `reconfigure` | `briefing` |
-| `briefing.schedule` | `reconfigure` | `briefing` |
-| `briefing.slack_webhook_url` | `reconfigure` | `briefing` |
-| `clone.dle_endpoint` | `restart` | `-` |
-| `clone.dle_token` | `restart` | `-` |
-| `clone.max_clone_age_minutes` | `restart` | `-` |
-| `clone.provider` | `restart` | `-` |
-| `collector.batch_size` | `restart` | `-` |
-| `collector.interval_seconds` | `reconfigure` | `collector` |
-| `collector.max_queries` | `restart` | `-` |
-| `custodian.freeze.red_buffer_pct` | `restart` | `-` |
-| `custodian.wal.abandon_after_minutes` | `restart` | `-` |
-| `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` |
-| `databases` | `reconfigure` | `fleet_databases` |
-| `defaults.analyzer_interval_seconds` | `reconfigure` | `fleet_databases` |
-| `defaults.collector_interval_seconds` | `reconfigure` | `fleet_databases` |
-| `defaults.execution_mode` | `reconfigure` | `fleet_databases` |
-| `defaults.max_connections` | `reconfigure` | `fleet_databases` |
-| `defaults.trust_level` | `reconfigure` | `fleet_databases` |
-| `encryption_key` | `restart` | `-` |
-| `explain.cache_ttl_minutes` | `restart` | `-` |
-| `explain.enabled` | `restart` | `-` |
-| `explain.max_tokens` | `restart` | `-` |
-| `explain.timeout_ms` | `restart` | `-` |
-| `forecaster.alert_horizons` | `restart` | `-` |
-| `forecaster.cache_warn_threshold` | `restart` | `-` |
-| `forecaster.connection_warn_pct` | `restart` | `-` |
-| `forecaster.disk_capacity_bytes` | `restart` | `-` |
-| `forecaster.disk_warn_growth_gb_day` | `restart` | `-` |
-| `forecaster.enabled` | `restart` | `-` |
-| `forecaster.lookback_days` | `restart` | `-` |
-| `forecaster.min_data_points` | `restart` | `-` |
-| `forecaster.min_r_squared` | `restart` | `-` |
-| `forecaster.sequence_critical_days` | `restart` | `-` |
-| `forecaster.sequence_warn_days` | `restart` | `-` |
-| `llm.api_key` | `reconfigure` | `llm` |
-| `llm.context_budget_tokens` | `restart` | `-` |
-| `llm.cooldown_seconds` | `reconfigure` | `llm` |
-| `llm.enabled` | `reconfigure` | `llm` |
-| `llm.endpoint` | `reconfigure` | `llm` |
-| `llm.fleet_token_budget_daily` | `restart` | `-` |
-| `llm.index_optimizer.enabled` | `restart` | `-` |
-| `llm.index_optimizer.max_include_columns` | `restart` | `-` |
-| `llm.index_optimizer.max_indexes_per_table` | `restart` | `-` |
-| `llm.index_optimizer.min_query_calls` | `restart` | `-` |
-| `llm.index_optimizer.over_indexed_ratio_pct` | `restart` | `-` |
-| `llm.index_optimizer.write_heavy_ratio_pct` | `restart` | `-` |
-| `llm.json_mode` | `reconfigure` | `llm` |
-| `llm.model` | `reconfigure` | `llm` |
-| `llm.optimizer.confidence_threshold` | `restart` | `-` |
-| `llm.optimizer.enabled` | `restart` | `-` |
-| `llm.optimizer.hypopg_min_improvement_pct` | `restart` | `-` |
-| `llm.optimizer.max_include_columns` | `restart` | `-` |
-| `llm.optimizer.max_indexes_per_table` | `restart` | `-` |
-| `llm.optimizer.max_new_per_table` | `restart` | `-` |
-| `llm.optimizer.min_query_calls` | `restart` | `-` |
-| `llm.optimizer.min_snapshots` | `restart` | `-` |
-| `llm.optimizer.over_indexed_ratio_pct` | `restart` | `-` |
-| `llm.optimizer.plan_source` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.call_volume_ratio` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.enabled` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.max_age_days` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.mean_time_ratio` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.prompt_max_shapes` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.row_estimate_ratio` | `restart` | `-` |
-| `llm.optimizer.rejection_memory.skip_llm_after` | `restart` | `-` |
-| `llm.optimizer.write_heavy_ratio_pct` | `restart` | `-` |
-| `llm.optimizer.write_impact_threshold_pct` | `restart` | `-` |
-| `llm.optimizer_llm.api_key` | `restart` | `-` |
-| `llm.optimizer_llm.cooldown_seconds` | `restart` | `-` |
-| `llm.optimizer_llm.enabled` | `restart` | `-` |
-| `llm.optimizer_llm.endpoint` | `restart` | `-` |
-| `llm.optimizer_llm.fallback_to_general` | `restart` | `-` |
-| `llm.optimizer_llm.max_output_tokens` | `restart` | `-` |
-| `llm.optimizer_llm.model` | `restart` | `-` |
-| `llm.optimizer_llm.timeout_seconds` | `restart` | `-` |
-| `llm.optimizer_llm.token_budget_daily` | `restart` | `-` |
-| `llm.timeout_seconds` | `reconfigure` | `llm` |
-| `llm.token_budget_daily` | `restart` | `-` |
-| `llm.token_parameter` | `reconfigure` | `llm` |
-| `llm.tool_reasoning_effort` | `reconfigure` | `llm` |
-| `logwatch.dedup_window_seconds` | `restart` | `-` |
-| `logwatch.enabled` | `restart` | `-` |
-| `logwatch.exclude_applications` | `restart` | `-` |
-| `logwatch.format` | `restart` | `-` |
-| `logwatch.log_directory` | `restart` | `-` |
-| `logwatch.max_line_len_bytes` | `restart` | `-` |
-| `logwatch.max_lines_per_cycle` | `restart` | `-` |
-| `logwatch.poll_interval_ms` | `restart` | `-` |
-| `logwatch.slow_query_enabled` | `restart` | `-` |
-| `logwatch.temp_file_min_bytes` | `restart` | `-` |
-| `mcp.enabled` | `restart` | `-` |
-| `mcp.transport` | `restart` | `-` |
-| `meta_db` | `restart` | `-` |
-| `migration.activity_polling` | `restart` | `-` |
-| `migration.ddl_row_threshold` | `restart` | `-` |
-| `migration.enabled` | `restart` | `-` |
-| `migration.log_detection` | `restart` | `-` |
-| `migration.managed_service` | `restart` | `-` |
-| `migration.mode` | `restart` | `-` |
-| `migration.poll_interval_seconds` | `restart` | `-` |
-| `mode` | `restart` | `-` |
-| `notification_policy.allow_private_targets` | `restart` | `-` |
-| `oauth.client_id` | `restart` | `-` |
-| `oauth.client_secret` | `restart` | `-` |
-| `oauth.default_role` | `restart` | `-` |
-| `oauth.enabled` | `restart` | `-` |
-| `oauth.issuer_url` | `restart` | `-` |
-| `oauth.provider` | `restart` | `-` |
-| `oauth.redirect_url` | `restart` | `-` |
-| `policy.profile` | `restart` | `-` |
-| `postgres.database` | `restart` | `-` |
-| `postgres.database_url` | `restart` | `-` |
-| `postgres.host` | `restart` | `-` |
-| `postgres.max_connections` | `restart` | `-` |
-| `postgres.password` | `restart` | `-` |
-| `postgres.port` | `restart` | `-` |
-| `postgres.sslmode` | `restart` | `-` |
-| `postgres.user` | `restart` | `-` |
-| `prometheus.listen_addr` | `restart` | `-` |
-| `rca.connection_saturation_pct` | `restart` | `-` |
-| `rca.dedup_window_minutes` | `restart` | `-` |
-| `rca.enabled` | `restart` | `-` |
-| `rca.escalation_cycles` | `restart` | `-` |
-| `rca.llm_correlation_threshold` | `restart` | `-` |
-| `rca.lock_chain_interval_seconds` | `restart` | `-` |
-| `rca.narration_enabled` | `restart` | `-` |
-| `rca.replication_lag_threshold_seconds` | `restart` | `-` |
-| `rca.resolution_cycles` | `restart` | `-` |
-| `rca.stale_after_hours` | `restart` | `-` |
-| `rca.vacuum_min_dead_tuples` | `restart` | `-` |
-| `rca.vacuum_min_table_mb` | `restart` | `-` |
-| `rca.wal_spike_multiplier` | `restart` | `-` |
-| `retention.actions_days` | `restart` | `-` |
-| `retention.decisions_days` | `restart` | `-` |
-| `retention.explains_days` | `restart` | `-` |
-| `retention.findings_days` | `restart` | `-` |
-| `retention.query_store_days` | `restart` | `-` |
-| `retention.sage_size_warning_pct` | `restart` | `-` |
-| `retention.snapshots_days` | `restart` | `-` |
-| `retention.snapshots_max_pct` | `restart` | `-` |
-| `runaway.enabled` | `restart` | `-` |
-| `runaway.policies` | `restart` | `-` |
-| `runaway.safe_patterns` | `restart` | `-` |
-| `safety.backoff_consecutive_skips` | `restart` | `-` |
-| `safety.cpu_ceiling_pct` | `restart` | `-` |
-| `safety.data_io_ceiling_pct` | `restart` | `-` |
-| `safety.ddl_timeout_seconds` | `restart` | `-` |
-| `safety.disk_pressure_threshold_pct` | `restart` | `-` |
-| `safety.dormant_interval_seconds` | `restart` | `-` |
-| `safety.lock_timeout_ms` | `restart` | `-` |
-| `safety.query_timeout_ms` | `restart` | `-` |
-| `safety.wal_io_ceiling_pct` | `restart` | `-` |
-| `schema_lint.disabled_rules` | `restart` | `-` |
-| `schema_lint.enabled` | `restart` | `-` |
-| `schema_lint.exclude_schemas` | `restart` | `-` |
-| `schema_lint.include_schemas` | `restart` | `-` |
-| `schema_lint.min_table_rows` | `restart` | `-` |
-| `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` |
-| `specialist.enabled` | `restart` | `-` |
-| `specialist.keep_identifiers` | `restart` | `-` |
-| `specialist.max_open_per_identity` | `restart` | `-` |
-| `specialist.max_open_total` | `restart` | `-` |
-| `specialist.pagerduty.api_token` | `restart` | `-` |
-| `specialist.pagerduty.api_url` | `restart` | `-` |
-| `specialist.pagerduty.from_email` | `restart` | `-` |
-| `specialist.pagerduty.services` | `restart` | `-` |
-| `specialist.pagerduty.signing_secret` | `restart` | `-` |
-| `specialist.reads_per_minute` | `restart` | `-` |
-| `specialist.webhook.result_url` | `restart` | `-` |
-| `specialist.webhook.signing_secret` | `restart` | `-` |
-| `specialist.webhook.timestamp_tolerance_seconds` | `restart` | `-` |
-| `specialist.writes_per_minute` | `restart` | `-` |
-| `sre.actions.approval_ttl_minutes` | `restart` | `-` |
-| `sre.actions.chatops_tolerance_seconds` | `restart` | `-` |
-| `sre.actions.max_evidence_age_seconds` | `restart` | `-` |
-| `sre.actions.proposals` | `restart` | `-` |
-| `sre.actions.protected_applications` | `restart` | `-` |
-| `sre.actions.protected_roles` | `restart` | `-` |
-| `sre.actions.recovery_deadline_minutes` | `restart` | `-` |
-| `sre.actions.recovery_sample_seconds` | `restart` | `-` |
-| `sre.actions.recovery_samples` | `restart` | `-` |
-| `sre.actions.request_approval` | `restart` | `-` |
-| `sre.automatic_start` | `restart` | `-` |
-| `sre.autonomy.bench_results_path` | `restart` | `-` |
-| `sre.autonomy.canary.canary_instances` | `restart` | `-` |
-| `sre.autonomy.canary.regression_limit_pct` | `restart` | `-` |
-| `sre.autonomy.canary.settle_seconds` | `restart` | `-` |
-| `sre.autonomy.class_promotion.min_success_rate_pct` | `restart` | `-` |
-| `sre.autonomy.class_promotion.min_successes_l2` | `restart` | `-` |
-| `sre.autonomy.class_promotion.min_successes_l3` | `restart` | `-` |
-| `sre.autonomy.concurrency_window_minutes` | `restart` | `-` |
-| `sre.autonomy.enforce` | `restart` | `-` |
-| `sre.autonomy.evaluate_interval_minutes` | `restart` | `-` |
-| `sre.autonomy.failover_cooldown_minutes` | `restart` | `-` |
-| `sre.autonomy.game_days.enabled` | `restart` | `-` |
-| `sre.autonomy.game_days.families` | `restart` | `-` |
-| `sre.autonomy.game_days.interval_hours` | `restart` | `-` |
-| `sre.autonomy.game_days.local_dsn` | `restart` | `-` |
-| `sre.autonomy.max_evidence_age_seconds` | `restart` | `-` |
-| `sre.autonomy.promotion.bench_min_precision_pct` | `restart` | `-` |
-| `sre.autonomy.promotion.bench_min_top1_pct` | `restart` | `-` |
-| `sre.autonomy.promotion.min_live_recoveries` | `restart` | `-` |
-| `sre.autonomy.promotion.min_safe_pass_pct` | `restart` | `-` |
-| `sre.autonomy.promotion.shadow_min_accepted_pct` | `restart` | `-` |
-| `sre.autonomy.promotion.shadow_min_reviewed` | `restart` | `-` |
-| `sre.autonomy.promotion.shadow_window_hours` | `restart` | `-` |
-| `sre.autonomy.proposal_ttl_hours` | `restart` | `-` |
-| `sre.autonomy.reconcile_interval_seconds` | `restart` | `-` |
-| `sre.autonomy.report_retention_days` | `restart` | `-` |
-| `sre.autonomy.safety_window_days` | `restart` | `-` |
-| `sre.change_events.allowed_sources` | `restart` | `-` |
-| `sre.change_events.feed_enabled` | `restart` | `-` |
-| `sre.change_events.feed_interval_seconds` | `restart` | `-` |
-| `sre.change_events.hmac_secret` | `restart` | `-` |
-| `sre.change_events.retention_days` | `restart` | `-` |
-| `sre.change_events.timestamp_tolerance_seconds` | `restart` | `-` |
-| `sre.detectors.checkpoint_requested` | `restart` | `-` |
-| `sre.detectors.cooldown_minutes` | `restart` | `-` |
-| `sre.detectors.lwlock_polls` | `restart` | `-` |
-| `sre.detectors.lwlock_waiters` | `restart` | `-` |
-| `sre.detectors.temp_file_mb` | `restart` | `-` |
-| `sre.detectors.window_seconds` | `restart` | `-` |
-| `sre.evidence_retention_days` | `restart` | `-` |
-| `sre.llm.enabled` | `restart` | `-` |
-| `sre.llm.mode` | `restart` | `-` |
-| `sre.poolers` | `restart` | `-` |
-| `sre.runways.disk_critical_hours` | `restart` | `-` |
-| `sre.runways.disk_horizon_hours` | `restart` | `-` |
-| `sre.runways.enabled` | `restart` | `-` |
-| `sre.runways.interval_seconds` | `restart` | `-` |
-| `sre.runways.investigate` | `restart` | `-` |
-| `sre.runways.lookback_hours` | `restart` | `-` |
-| `sre.runways.min_samples` | `restart` | `-` |
-| `sre.runways.min_span_minutes` | `restart` | `-` |
-| `sre.runways.sample_retention_hours` | `restart` | `-` |
-| `sre.runways.sequence_critical_days` | `restart` | `-` |
-| `sre.runways.sequence_horizon_days` | `restart` | `-` |
-| `sre.runways.sequence_interval_seconds` | `restart` | `-` |
-| `sre.runways.wraparound_critical_hours` | `restart` | `-` |
-| `sre.runways.wraparound_horizon_hours` | `restart` | `-` |
-| `sre.sample_interval_seconds` | `restart` | `-` |
-| `sre.slo.burn_rules` | `restart` | `-` |
-| `sre.slo.enabled` | `restart` | `-` |
-| `sre.slo.evaluation_interval_seconds` | `restart` | `-` |
-| `sre.slo.objectives` | `restart` | `-` |
-| `sre.slo.open_investigations` | `restart` | `-` |
-| `sre.slo.prometheus.bearer_token` | `restart` | `-` |
-| `sre.slo.prometheus.bearer_token_file` | `restart` | `-` |
-| `sre.slo.prometheus.timeout_seconds` | `restart` | `-` |
-| `sre.slo.prometheus.url` | `restart` | `-` |
-| `sre.slo.proxies.enabled` | `restart` | `-` |
-| `sre.slo.proxies.latency_factor` | `restart` | `-` |
-| `sre.slo.proxies.latency_floor_ms` | `restart` | `-` |
-| `sre.slo.proxies.latency_threshold_ms` | `restart` | `-` |
-| `sre.slo.proxies.replication_lag_budget_seconds` | `restart` | `-` |
-| `sre.slo.proxies.target` | `restart` | `-` |
-| `sre.slo.proxies.top_queries` | `restart` | `-` |
-| `sre.slo.proxies.window_days` | `restart` | `-` |
-| `sre.slo.push.hmac_secret` | `restart` | `-` |
-| `sre.slo.push.timestamp_tolerance_seconds` | `restart` | `-` |
-| `sre.timeline_retention_days` | `restart` | `-` |
-| `sre.trigger_interval_seconds` | `restart` | `-` |
-| `trust.cascade_cooldown_cycles` | `restart` | `-` |
-| `trust.level` | `live_policy` | `trust_policy` |
-| `trust.maintenance_window` | `restart` | `-` |
-| `trust.ramp_moderate_hours` | `restart` | `-` |
-| `trust.ramp_safe_hours` | `restart` | `-` |
-| `trust.ramp_start` | `restart` | `-` |
-| `trust.rollback_cooldown_days` | `restart` | `-` |
-| `trust.rollback_threshold_pct` | `restart` | `-` |
-| `trust.rollback_window_minutes` | `restart` | `-` |
-| `trust.tier3_high_risk` | `restart` | `-` |
-| `trust.tier3_moderate` | `restart` | `-` |
-| `trust.tier3_safe` | `restart` | `-` |
-| `tuner.analyze_cooldown_minutes` | `restart` | `-` |
-| `tuner.analyze_max_table_mb` | `restart` | `-` |
-| `tuner.analyze_timeout_ms` | `restart` | `-` |
-| `tuner.enabled` | `restart` | `-` |
-| `tuner.hint_retirement_days` | `restart` | `-` |
-| `tuner.llm_enabled` | `restart` | `-` |
-| `tuner.max_concurrent_analyze` | `restart` | `-` |
-| `tuner.min_query_calls` | `restart` | `-` |
-| `tuner.nested_loop_row_threshold` | `restart` | `-` |
-| `tuner.parallel_min_table_rows` | `restart` | `-` |
-| `tuner.plan_time_ratio` | `restart` | `-` |
-| `tuner.revalidation_explain_timeout_ms` | `restart` | `-` |
-| `tuner.revalidation_interval_hours` | `reconfigure` | `tuner` |
-| `tuner.revalidation_keep_ratio` | `restart` | `-` |
-| `tuner.revalidation_rollback_ratio` | `restart` | `-` |
-| `tuner.stale_stats_age_minutes` | `restart` | `-` |
-| `tuner.stale_stats_estimate_skew` | `restart` | `-` |
-| `tuner.stale_stats_mod_ratio` | `restart` | `-` |
-| `tuner.verify_after_apply` | `restart` | `-` |
-| `tuner.work_mem_max_mb` | `restart` | `-` |
-| `tuning.calibration_min_outcomes` | `restart` | `-` |
-| `tuning.calibration_window_days` | `restart` | `-` |
-| `tuning.enabled` | `restart` | `-` |
-| `tuning.max_cases_per_cycle` | `restart` | `-` |
-| `tuning.max_proposals_per_cycle` | `restart` | `-` |
-| `tuning.max_requests_per_cycle` | `restart` | `-` |
-| `tuning.max_tokens_per_cycle` | `restart` | `-` |
-| `tuning.max_turns_per_case` | `restart` | `-` |
-| `value.toil_model_version` | `restart` | `-` |
-| `verify.drop_window_hours` | `restart` | `-` |
-| `verify.io_baseline_days` | `restart` | `-` |
-| `verify.io_baseline_hours` | `restart` | `-` |
-| `verify.io_capacity` | `restart` | `-` |
-| `verify.io_sample_retention_days` | `restart` | `-` |
-| `verify.min_gain_pct` | `restart` | `-` |
-| `verify.min_samples` | `restart` | `-` |
-| `verify.regress_pct` | `restart` | `-` |
-| `verify.window_max_minutes` | `restart` | `-` |
-| `verify.window_minutes` | `restart` | `-` |
-| `verify.write_impact_pct` | `restart` | `-` |
+| Field | Lifecycle | Runtime owner | Self-config class |
+| --- | --- | --- | --- |
+| `advisor.bloat_enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.connection_enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.interval_seconds` | `restart` | `-` | `derivable` |
+| `advisor.memory_enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.rewrite_enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.vacuum_enabled` | `restart` | `-` | `operator_preference` |
+| `advisor.wal_enabled` | `restart` | `-` | `operator_preference` |
+| `agentdb.allow_public_ip` | `restart` | `-` | `safety_critical` |
+| `agentdb.live_provisioning_enabled` | `restart` | `-` | `safety_critical` |
+| `agentdb.providers` | `restart` | `-` | `safety_critical` |
+| `agentdb.reconcile_interval_seconds` | `reconfigure` | `agentdb` | `safety_critical` |
+| `agentdb.require_backup_before_destroy` | `restart` | `-` | `safety_critical` |
+| `alerting.check_interval_seconds` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.cooldown_minutes` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.enabled` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.pagerduty_routing_key` | `reconfigure` | `alerting` | `safety_critical` |
+| `alerting.quiet_hours_end` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.quiet_hours_start` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.routes` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.slack_webhook_url` | `reconfigure` | `alerting` | `safety_critical` |
+| `alerting.timezone` | `reconfigure` | `alerting` | `operator_preference` |
+| `alerting.webhooks` | `reconfigure` | `alerting` | `safety_critical` |
+| `analyzer.analyze_stale_days` | `restart` | `-` | `derivable` |
+| `analyzer.analyze_stale_min_rows` | `restart` | `-` | `derivable` |
+| `analyzer.autovacuum_tune_min_rows` | `restart` | `-` | `derivable` |
+| `analyzer.cache_hit_ratio_warning` | `restart` | `-` | `derivable` |
+| `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` | `derivable` |
+| `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
+| `analyzer.index_bloat_threshold_pct` | `restart` | `-` | `derivable` |
+| `analyzer.interval_seconds` | `reconfigure` | `analyzer` | `derivable` |
+| `analyzer.lock_chain.active_query_cancel_minutes` | `restart` | `-` | `safety_critical` |
+| `analyzer.lock_chain.critical_blocked_threshold` | `restart` | `-` | `derivable` |
+| `analyzer.lock_chain.enabled` | `restart` | `-` | `safety_critical` |
+| `analyzer.lock_chain.idle_in_tx_terminate_minutes` | `restart` | `-` | `safety_critical` |
+| `analyzer.lock_chain.min_blocked_threshold` | `restart` | `-` | `derivable` |
+| `analyzer.lock_chain.safe_patterns` | `restart` | `-` | `safety_critical` |
+| `analyzer.regression_lookback_days` | `restart` | `-` | `derivable` |
+| `analyzer.regression_threshold_pct` | `restart` | `-` | `derivable` |
+| `analyzer.schema_guard_ddl_debounce_seconds` | `restart` | `-` | `derivable` |
+| `analyzer.self_cost_budget_ms` | `restart` | `-` | `derivable` |
+| `analyzer.seq_scan_min_rows` | `restart` | `-` | `derivable` |
+| `analyzer.slow_query_threshold_ms` | `restart` | `-` | `derivable` |
+| `analyzer.slow_slot_retained_bytes` | `restart` | `-` | `derivable` |
+| `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` | `derivable` |
+| `analyzer.table_bloat_min_rows` | `restart` | `-` | `derivable` |
+| `analyzer.unused_index_window_days` | `restart` | `-` | `derivable` |
+| `analyzer.work_mem_promotion_threshold` | `restart` | `-` | `derivable` |
+| `analyzer.wraparound_freeze_xid_age` | `restart` | `-` | `derivable` |
+| `analyzer.xid_wraparound_critical` | `restart` | `-` | `derivable` |
+| `analyzer.xid_wraparound_warning` | `restart` | `-` | `derivable` |
+| `api.listen_addr` | `restart` | `-` | `safety_critical` |
+| `api.trusted_proxies` | `restart` | `-` | `safety_critical` |
+| `ask.daily_tokens_per_database` | `restart` | `-` | `derivable` |
+| `ask.daily_tokens_per_user` | `restart` | `-` | `operator_preference` |
+| `ask.enabled` | `restart` | `-` | `safety_critical` |
+| `ask.max_tokens_per_question` | `restart` | `-` | `derivable` |
+| `ask.retention_days` | `restart` | `-` | `operator_preference` |
+| `auto_explain.collect_interval_seconds` | `reconfigure` | `auto_explain` | `derivable` |
+| `auto_explain.enabled` | `restart` | `-` | `operator_preference` |
+| `auto_explain.log_min_duration_ms` | `restart` | `-` | `derivable` |
+| `auto_explain.max_plans_per_cycle` | `restart` | `-` | `derivable` |
+| `auto_explain.prefer_session_load` | `restart` | `-` | `operator_preference` |
+| `azure.resource_group` | `restart` | `-` | `safety_critical` |
+| `azure.server_name` | `restart` | `-` | `safety_critical` |
+| `azure.subscription_id` | `restart` | `-` | `safety_critical` |
+| `briefing.channels` | `reconfigure` | `briefing` | `operator_preference` |
+| `briefing.schedule` | `reconfigure` | `briefing` | `operator_preference` |
+| `briefing.slack_webhook_url` | `reconfigure` | `briefing` | `safety_critical` |
+| `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
+| `clone.dle_token` | `restart` | `-` | `safety_critical` |
+| `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
+| `clone.provider` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.aws.db_cluster_identifier` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.aws.db_instance_identifier` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.aws.region` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.enabled` | `restart` | `-` | `operator_preference` |
+| `cloud_telemetry.gcp.instance` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.gcp.project` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.max_replica_lag_seconds` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.min_available_memory_pct` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.min_free_storage_pct` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.min_storage_runway_hours` | `restart` | `-` | `safety_critical` |
+| `cloud_telemetry.poll_interval_seconds` | `restart` | `-` | `derivable` |
+| `collector.batch_size` | `restart` | `-` | `derivable` |
+| `collector.interval_seconds` | `reconfigure` | `collector` | `derivable` |
+| `collector.max_queries` | `restart` | `-` | `derivable` |
+| `custodian.freeze.red_buffer_pct` | `restart` | `-` | `safety_critical` |
+| `custodian.wal.abandon_after_minutes` | `restart` | `-` | `safety_critical` |
+| `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` | `safety_critical` |
+| `databases` | `reconfigure` | `fleet_databases` | `operator_preference` |
+| `debug.pprof_enabled` | `restart` | `-` | `safety_critical` |
+| `defaults.analyzer_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
+| `defaults.collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
+| `defaults.execution_mode` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `defaults.max_connections` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `defaults.trust_level` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `encryption_key` | `restart` | `-` | `safety_critical` |
+| `explain.cache_ttl_minutes` | `restart` | `-` | `derivable` |
+| `explain.enabled` | `restart` | `-` | `operator_preference` |
+| `explain.max_tokens` | `restart` | `-` | `derivable` |
+| `explain.timeout_ms` | `restart` | `-` | `derivable` |
+| `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
+| `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
+| `forecaster.connection_warn_pct` | `restart` | `-` | `derivable` |
+| `forecaster.disk_capacity_bytes` | `restart` | `-` | `operator_preference` |
+| `forecaster.disk_warn_growth_gb_day` | `restart` | `-` | `derivable` |
+| `forecaster.enabled` | `restart` | `-` | `operator_preference` |
+| `forecaster.lookback_days` | `restart` | `-` | `derivable` |
+| `forecaster.min_data_points` | `restart` | `-` | `derivable` |
+| `forecaster.min_r_squared` | `restart` | `-` | `derivable` |
+| `forecaster.sequence_critical_days` | `restart` | `-` | `derivable` |
+| `forecaster.sequence_warn_days` | `restart` | `-` | `derivable` |
+| `llm.api_key` | `reconfigure` | `llm` | `safety_critical` |
+| `llm.context_budget_tokens` | `restart` | `-` | `derivable` |
+| `llm.cooldown_seconds` | `reconfigure` | `llm` | `derivable` |
+| `llm.enabled` | `reconfigure` | `llm` | `safety_critical` |
+| `llm.endpoint` | `reconfigure` | `llm` | `safety_critical` |
+| `llm.fleet_token_budget_daily` | `restart` | `-` | `operator_preference` |
+| `llm.index_optimizer.enabled` | `restart` | `-` | `safety_critical` |
+| `llm.index_optimizer.max_include_columns` | `restart` | `-` | `safety_critical` |
+| `llm.index_optimizer.max_indexes_per_table` | `restart` | `-` | `safety_critical` |
+| `llm.index_optimizer.min_query_calls` | `restart` | `-` | `derivable` |
+| `llm.index_optimizer.over_indexed_ratio_pct` | `restart` | `-` | `derivable` |
+| `llm.index_optimizer.write_heavy_ratio_pct` | `restart` | `-` | `derivable` |
+| `llm.json_mode` | `reconfigure` | `llm` | `safety_critical` |
+| `llm.model` | `reconfigure` | `llm` | `safety_critical` |
+| `llm.optimizer.confidence_threshold` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer.enabled` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer.hypopg_min_improvement_pct` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer.max_include_columns` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer.max_indexes_per_table` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer.max_new_per_table` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer.min_query_calls` | `restart` | `-` | `derivable` |
+| `llm.optimizer.min_snapshots` | `restart` | `-` | `derivable` |
+| `llm.optimizer.over_indexed_ratio_pct` | `restart` | `-` | `derivable` |
+| `llm.optimizer.plan_source` | `restart` | `-` | `operator_preference` |
+| `llm.optimizer.rejection_memory.call_volume_ratio` | `restart` | `-` | `derivable` |
+| `llm.optimizer.rejection_memory.enabled` | `restart` | `-` | `operator_preference` |
+| `llm.optimizer.rejection_memory.max_age_days` | `restart` | `-` | `derivable` |
+| `llm.optimizer.rejection_memory.mean_time_ratio` | `restart` | `-` | `derivable` |
+| `llm.optimizer.rejection_memory.prompt_max_shapes` | `restart` | `-` | `derivable` |
+| `llm.optimizer.rejection_memory.row_estimate_ratio` | `restart` | `-` | `derivable` |
+| `llm.optimizer.rejection_memory.skip_llm_after` | `restart` | `-` | `derivable` |
+| `llm.optimizer.write_heavy_ratio_pct` | `restart` | `-` | `derivable` |
+| `llm.optimizer.write_impact_threshold_pct` | `restart` | `-` | `derivable` |
+| `llm.optimizer_llm.api_key` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer_llm.cooldown_seconds` | `restart` | `-` | `derivable` |
+| `llm.optimizer_llm.enabled` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer_llm.endpoint` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer_llm.fallback_to_general` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer_llm.max_output_tokens` | `restart` | `-` | `derivable` |
+| `llm.optimizer_llm.model` | `restart` | `-` | `safety_critical` |
+| `llm.optimizer_llm.timeout_seconds` | `restart` | `-` | `derivable` |
+| `llm.optimizer_llm.token_budget_daily` | `restart` | `-` | `derivable` |
+| `llm.timeout_seconds` | `reconfigure` | `llm` | `derivable` |
+| `llm.token_budget_daily` | `restart` | `-` | `derivable` |
+| `llm.token_parameter` | `reconfigure` | `llm` | `safety_critical` |
+| `llm.tool_reasoning_effort` | `reconfigure` | `llm` | `safety_critical` |
+| `logwatch.dedup_window_seconds` | `restart` | `-` | `derivable` |
+| `logwatch.enabled` | `restart` | `-` | `operator_preference` |
+| `logwatch.exclude_applications` | `restart` | `-` | `operator_preference` |
+| `logwatch.format` | `restart` | `-` | `operator_preference` |
+| `logwatch.log_directory` | `restart` | `-` | `operator_preference` |
+| `logwatch.max_line_len_bytes` | `restart` | `-` | `derivable` |
+| `logwatch.max_lines_per_cycle` | `restart` | `-` | `derivable` |
+| `logwatch.poll_interval_ms` | `restart` | `-` | `derivable` |
+| `logwatch.slow_query_enabled` | `restart` | `-` | `operator_preference` |
+| `logwatch.temp_file_min_bytes` | `restart` | `-` | `derivable` |
+| `mcp.enabled` | `restart` | `-` | `safety_critical` |
+| `mcp.transport` | `restart` | `-` | `safety_critical` |
+| `meta_db` | `restart` | `-` | `safety_critical` |
+| `migration.activity_polling` | `restart` | `-` | `operator_preference` |
+| `migration.ddl_row_threshold` | `restart` | `-` | `derivable` |
+| `migration.enabled` | `restart` | `-` | `safety_critical` |
+| `migration.log_detection` | `restart` | `-` | `operator_preference` |
+| `migration.managed_service` | `restart` | `-` | `operator_preference` |
+| `migration.mode` | `restart` | `-` | `safety_critical` |
+| `migration.poll_interval_seconds` | `restart` | `-` | `derivable` |
+| `mode` | `restart` | `-` | `safety_critical` |
+| `notification_policy.allow_private_targets` | `restart` | `-` | `safety_critical` |
+| `oauth.client_id` | `restart` | `-` | `safety_critical` |
+| `oauth.client_secret` | `restart` | `-` | `safety_critical` |
+| `oauth.default_role` | `restart` | `-` | `safety_critical` |
+| `oauth.enabled` | `restart` | `-` | `safety_critical` |
+| `oauth.issuer_url` | `restart` | `-` | `safety_critical` |
+| `oauth.provider` | `restart` | `-` | `safety_critical` |
+| `oauth.redirect_url` | `restart` | `-` | `safety_critical` |
+| `policy.profile` | `restart` | `-` | `safety_critical` |
+| `postgres.database` | `restart` | `-` | `safety_critical` |
+| `postgres.database_url` | `restart` | `-` | `safety_critical` |
+| `postgres.host` | `restart` | `-` | `safety_critical` |
+| `postgres.max_connections` | `restart` | `-` | `safety_critical` |
+| `postgres.password` | `restart` | `-` | `safety_critical` |
+| `postgres.port` | `restart` | `-` | `safety_critical` |
+| `postgres.sslmode` | `restart` | `-` | `safety_critical` |
+| `postgres.user` | `restart` | `-` | `safety_critical` |
+| `prometheus.listen_addr` | `restart` | `-` | `safety_critical` |
+| `rca.connection_saturation_pct` | `restart` | `-` | `derivable` |
+| `rca.dedup_window_minutes` | `restart` | `-` | `derivable` |
+| `rca.enabled` | `restart` | `-` | `operator_preference` |
+| `rca.escalation_cycles` | `restart` | `-` | `derivable` |
+| `rca.llm_correlation_threshold` | `restart` | `-` | `derivable` |
+| `rca.lock_chain_interval_seconds` | `restart` | `-` | `derivable` |
+| `rca.narration_enabled` | `restart` | `-` | `operator_preference` |
+| `rca.replication_lag_threshold_seconds` | `restart` | `-` | `derivable` |
+| `rca.resolution_cycles` | `restart` | `-` | `derivable` |
+| `rca.stale_after_hours` | `restart` | `-` | `derivable` |
+| `rca.vacuum_min_dead_tuples` | `restart` | `-` | `derivable` |
+| `rca.vacuum_min_table_mb` | `restart` | `-` | `derivable` |
+| `rca.wal_spike_multiplier` | `restart` | `-` | `derivable` |
+| `retention.actions_days` | `restart` | `-` | `operator_preference` |
+| `retention.decisions_days` | `restart` | `-` | `operator_preference` |
+| `retention.explains_days` | `restart` | `-` | `derivable` |
+| `retention.findings_days` | `restart` | `-` | `derivable` |
+| `retention.query_store_days` | `restart` | `-` | `derivable` |
+| `retention.sage_size_warning_pct` | `restart` | `-` | `derivable` |
+| `retention.snapshots_days` | `restart` | `-` | `derivable` |
+| `retention.snapshots_max_pct` | `restart` | `-` | `derivable` |
+| `runaway.enabled` | `restart` | `-` | `safety_critical` |
+| `runaway.policies` | `restart` | `-` | `safety_critical` |
+| `runaway.safe_patterns` | `restart` | `-` | `safety_critical` |
+| `safety.backoff_consecutive_skips` | `restart` | `-` | `safety_critical` |
+| `safety.cpu_ceiling_pct` | `restart` | `-` | `safety_critical` |
+| `safety.data_io_ceiling_pct` | `restart` | `-` | `safety_critical` |
+| `safety.ddl_timeout_seconds` | `restart` | `-` | `safety_critical` |
+| `safety.disk_pressure_threshold_pct` | `restart` | `-` | `safety_critical` |
+| `safety.dormant_interval_seconds` | `restart` | `-` | `safety_critical` |
+| `safety.lock_timeout_ms` | `restart` | `-` | `safety_critical` |
+| `safety.query_timeout_ms` | `restart` | `-` | `derivable` |
+| `safety.wal_io_ceiling_pct` | `restart` | `-` | `safety_critical` |
+| `schema_lint.disabled_rules` | `restart` | `-` | `operator_preference` |
+| `schema_lint.enabled` | `restart` | `-` | `operator_preference` |
+| `schema_lint.exclude_schemas` | `restart` | `-` | `operator_preference` |
+| `schema_lint.include_schemas` | `restart` | `-` | `operator_preference` |
+| `schema_lint.min_table_rows` | `restart` | `-` | `derivable` |
+| `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` | `derivable` |
+| `self_budget.blocks_per_hour` | `restart` | `-` | `operator_preference` |
+| `self_budget.cpu_ms_per_cycle` | `restart` | `-` | `operator_preference` |
+| `self_budget.db_time_ms_per_hour` | `restart` | `-` | `operator_preference` |
+| `self_budget.storage_mb` | `restart` | `-` | `operator_preference` |
+| `self_config.enabled` | `restart` | `-` | `safety_critical` |
+| `self_config.soak_hours` | `restart` | `-` | `safety_critical` |
+| `specialist.enabled` | `restart` | `-` | `safety_critical` |
+| `specialist.keep_identifiers` | `restart` | `-` | `safety_critical` |
+| `specialist.max_open_per_identity` | `restart` | `-` | `safety_critical` |
+| `specialist.max_open_total` | `restart` | `-` | `safety_critical` |
+| `specialist.pagerduty.api_token` | `restart` | `-` | `safety_critical` |
+| `specialist.pagerduty.api_url` | `restart` | `-` | `safety_critical` |
+| `specialist.pagerduty.from_email` | `restart` | `-` | `safety_critical` |
+| `specialist.pagerduty.services` | `restart` | `-` | `operator_preference` |
+| `specialist.pagerduty.signing_secret` | `restart` | `-` | `safety_critical` |
+| `specialist.reads_per_minute` | `restart` | `-` | `safety_critical` |
+| `specialist.webhook.result_url` | `restart` | `-` | `safety_critical` |
+| `specialist.webhook.signing_secret` | `restart` | `-` | `safety_critical` |
+| `specialist.webhook.timestamp_tolerance_seconds` | `restart` | `-` | `safety_critical` |
+| `specialist.writes_per_minute` | `restart` | `-` | `safety_critical` |
+| `sre.actions.approval_ttl_minutes` | `restart` | `-` | `safety_critical` |
+| `sre.actions.chatops_tolerance_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.actions.max_evidence_age_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.actions.proposals` | `restart` | `-` | `safety_critical` |
+| `sre.actions.protected_applications` | `restart` | `-` | `safety_critical` |
+| `sre.actions.protected_roles` | `restart` | `-` | `safety_critical` |
+| `sre.actions.recovery_deadline_minutes` | `restart` | `-` | `safety_critical` |
+| `sre.actions.recovery_sample_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.actions.recovery_samples` | `restart` | `-` | `safety_critical` |
+| `sre.actions.request_approval` | `restart` | `-` | `safety_critical` |
+| `sre.automatic_start` | `restart` | `-` | `operator_preference` |
+| `sre.autonomy.bench_results_path` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.canary.canary_instances` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.canary.regression_limit_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.canary.settle_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.class_promotion.min_success_rate_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.class_promotion.min_successes_l2` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.class_promotion.min_successes_l3` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.concurrency_window_minutes` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.enforce` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.evaluate_interval_minutes` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.failover_cooldown_minutes` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.game_days.enabled` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.game_days.families` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.game_days.interval_hours` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.game_days.local_dsn` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.max_evidence_age_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.bench_min_precision_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.bench_min_top1_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.min_live_recoveries` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.min_safe_pass_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.shadow_min_accepted_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.shadow_min_reviewed` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.promotion.shadow_window_hours` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.proposal_ttl_hours` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.reconcile_interval_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.report_retention_days` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.safety_window_days` | `restart` | `-` | `safety_critical` |
+| `sre.change_events.allowed_sources` | `restart` | `-` | `safety_critical` |
+| `sre.change_events.feed_enabled` | `restart` | `-` | `operator_preference` |
+| `sre.change_events.feed_interval_seconds` | `restart` | `-` | `derivable` |
+| `sre.change_events.hmac_secret` | `restart` | `-` | `safety_critical` |
+| `sre.change_events.retention_days` | `restart` | `-` | `derivable` |
+| `sre.change_events.timestamp_tolerance_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.detectors.checkpoint_requested` | `restart` | `-` | `derivable` |
+| `sre.detectors.cooldown_minutes` | `restart` | `-` | `derivable` |
+| `sre.detectors.lwlock_polls` | `restart` | `-` | `derivable` |
+| `sre.detectors.lwlock_waiters` | `restart` | `-` | `derivable` |
+| `sre.detectors.temp_file_mb` | `restart` | `-` | `derivable` |
+| `sre.detectors.window_seconds` | `restart` | `-` | `derivable` |
+| `sre.evidence_retention_days` | `restart` | `-` | `derivable` |
+| `sre.llm.enabled` | `restart` | `-` | `safety_critical` |
+| `sre.llm.mode` | `restart` | `-` | `safety_critical` |
+| `sre.poolers` | `restart` | `-` | `safety_critical` |
+| `sre.runways.disk_critical_hours` | `restart` | `-` | `derivable` |
+| `sre.runways.disk_horizon_hours` | `restart` | `-` | `derivable` |
+| `sre.runways.enabled` | `restart` | `-` | `operator_preference` |
+| `sre.runways.interval_seconds` | `restart` | `-` | `derivable` |
+| `sre.runways.investigate` | `restart` | `-` | `operator_preference` |
+| `sre.runways.lookback_hours` | `restart` | `-` | `derivable` |
+| `sre.runways.min_samples` | `restart` | `-` | `derivable` |
+| `sre.runways.min_span_minutes` | `restart` | `-` | `derivable` |
+| `sre.runways.sample_retention_hours` | `restart` | `-` | `derivable` |
+| `sre.runways.sequence_critical_days` | `restart` | `-` | `derivable` |
+| `sre.runways.sequence_horizon_days` | `restart` | `-` | `derivable` |
+| `sre.runways.sequence_interval_seconds` | `restart` | `-` | `derivable` |
+| `sre.runways.wraparound_critical_hours` | `restart` | `-` | `derivable` |
+| `sre.runways.wraparound_horizon_hours` | `restart` | `-` | `derivable` |
+| `sre.sample_interval_seconds` | `restart` | `-` | `derivable` |
+| `sre.slo.burn_rules` | `restart` | `-` | `operator_preference` |
+| `sre.slo.enabled` | `restart` | `-` | `operator_preference` |
+| `sre.slo.evaluation_interval_seconds` | `restart` | `-` | `derivable` |
+| `sre.slo.objectives` | `restart` | `-` | `operator_preference` |
+| `sre.slo.open_investigations` | `restart` | `-` | `operator_preference` |
+| `sre.slo.prometheus.bearer_token` | `restart` | `-` | `safety_critical` |
+| `sre.slo.prometheus.bearer_token_file` | `restart` | `-` | `safety_critical` |
+| `sre.slo.prometheus.timeout_seconds` | `restart` | `-` | `derivable` |
+| `sre.slo.prometheus.url` | `restart` | `-` | `safety_critical` |
+| `sre.slo.proxies.enabled` | `restart` | `-` | `operator_preference` |
+| `sre.slo.proxies.latency_factor` | `restart` | `-` | `derivable` |
+| `sre.slo.proxies.latency_floor_ms` | `restart` | `-` | `derivable` |
+| `sre.slo.proxies.latency_threshold_ms` | `restart` | `-` | `derivable` |
+| `sre.slo.proxies.replication_lag_budget_seconds` | `restart` | `-` | `derivable` |
+| `sre.slo.proxies.target` | `restart` | `-` | `operator_preference` |
+| `sre.slo.proxies.top_queries` | `restart` | `-` | `derivable` |
+| `sre.slo.proxies.window_days` | `restart` | `-` | `derivable` |
+| `sre.slo.push.hmac_secret` | `restart` | `-` | `safety_critical` |
+| `sre.slo.push.timestamp_tolerance_seconds` | `restart` | `-` | `safety_critical` |
+| `sre.timeline_retention_days` | `restart` | `-` | `derivable` |
+| `sre.trigger_interval_seconds` | `restart` | `-` | `derivable` |
+| `trust.cascade_cooldown_cycles` | `restart` | `-` | `safety_critical` |
+| `trust.level` | `live_policy` | `trust_policy` | `safety_critical` |
+| `trust.maintenance_window` | `restart` | `-` | `operator_preference` |
+| `trust.ramp_moderate_hours` | `restart` | `-` | `safety_critical` |
+| `trust.ramp_safe_hours` | `restart` | `-` | `safety_critical` |
+| `trust.ramp_start` | `restart` | `-` | `safety_critical` |
+| `trust.rollback_cooldown_days` | `restart` | `-` | `safety_critical` |
+| `trust.rollback_threshold_pct` | `restart` | `-` | `safety_critical` |
+| `trust.rollback_window_minutes` | `restart` | `-` | `safety_critical` |
+| `trust.tier3_high_risk` | `restart` | `-` | `safety_critical` |
+| `trust.tier3_moderate` | `restart` | `-` | `safety_critical` |
+| `trust.tier3_safe` | `restart` | `-` | `safety_critical` |
+| `tuner.analyze_cooldown_minutes` | `restart` | `-` | `derivable` |
+| `tuner.analyze_max_table_mb` | `restart` | `-` | `safety_critical` |
+| `tuner.analyze_timeout_ms` | `restart` | `-` | `derivable` |
+| `tuner.enabled` | `restart` | `-` | `safety_critical` |
+| `tuner.hint_retirement_days` | `restart` | `-` | `derivable` |
+| `tuner.llm_enabled` | `restart` | `-` | `safety_critical` |
+| `tuner.max_concurrent_analyze` | `restart` | `-` | `safety_critical` |
+| `tuner.min_query_calls` | `restart` | `-` | `derivable` |
+| `tuner.nested_loop_row_threshold` | `restart` | `-` | `derivable` |
+| `tuner.parallel_min_table_rows` | `restart` | `-` | `derivable` |
+| `tuner.plan_time_ratio` | `restart` | `-` | `derivable` |
+| `tuner.revalidation_explain_timeout_ms` | `restart` | `-` | `derivable` |
+| `tuner.revalidation_interval_hours` | `reconfigure` | `tuner` | `derivable` |
+| `tuner.revalidation_keep_ratio` | `restart` | `-` | `derivable` |
+| `tuner.revalidation_rollback_ratio` | `restart` | `-` | `safety_critical` |
+| `tuner.stale_stats_age_minutes` | `restart` | `-` | `derivable` |
+| `tuner.stale_stats_estimate_skew` | `restart` | `-` | `derivable` |
+| `tuner.stale_stats_mod_ratio` | `restart` | `-` | `derivable` |
+| `tuner.verify_after_apply` | `restart` | `-` | `safety_critical` |
+| `tuner.work_mem_max_mb` | `restart` | `-` | `safety_critical` |
+| `tuning.calibration_min_outcomes` | `restart` | `-` | `safety_critical` |
+| `tuning.calibration_window_days` | `restart` | `-` | `safety_critical` |
+| `tuning.enabled` | `restart` | `-` | `safety_critical` |
+| `tuning.max_cases_per_cycle` | `restart` | `-` | `derivable` |
+| `tuning.max_proposals_per_cycle` | `restart` | `-` | `safety_critical` |
+| `tuning.max_requests_per_cycle` | `restart` | `-` | `derivable` |
+| `tuning.max_tokens_per_cycle` | `restart` | `-` | `derivable` |
+| `tuning.max_turns_per_case` | `restart` | `-` | `derivable` |
+| `value.toil_model_version` | `restart` | `-` | `operator_preference` |
+| `verify.drop_window_hours` | `restart` | `-` | `safety_critical` |
+| `verify.io_baseline_days` | `restart` | `-` | `safety_critical` |
+| `verify.io_baseline_hours` | `restart` | `-` | `safety_critical` |
+| `verify.io_capacity` | `restart` | `-` | `operator_preference` |
+| `verify.io_sample_retention_days` | `restart` | `-` | `derivable` |
+| `verify.min_gain_pct` | `restart` | `-` | `safety_critical` |
+| `verify.min_samples` | `restart` | `-` | `safety_critical` |
+| `verify.regress_pct` | `restart` | `-` | `safety_critical` |
+| `verify.window_max_minutes` | `restart` | `-` | `safety_critical` |
+| `verify.window_minutes` | `restart` | `-` | `safety_critical` |
+| `verify.write_impact_pct` | `restart` | `-` | `safety_critical` |
 
 ## Per-database fields (`databases[]`)
 
 In YAML fleet mode the `fleet_databases` owner reconciles the list: an added entry starts a runtime, a removed entry drains and stops one, and a renamed entry is a removal plus an addition. `live_policy` fields apply in place to the running database; `reconfigure` fields rebuild only that database's runtime. Meta-db mode applies the same classes to `sage.databases` rows.
 
-| Field | Lifecycle | Runtime owner |
-| --- | --- | --- |
-| `databases[].analyzer_interval_seconds` | `reconfigure` | `fleet_databases` |
-| `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` |
-| `databases[].database` | `reconfigure` | `fleet_databases` |
-| `databases[].execution_mode` | `live_policy` | `fleet_databases` |
-| `databases[].executor_enabled` | `live_policy` | `fleet_databases` |
-| `databases[].host` | `reconfigure` | `fleet_databases` |
-| `databases[].llm_enabled` | `reconfigure` | `fleet_databases` |
-| `databases[].max_connections` | `reconfigure` | `fleet_databases` |
-| `databases[].name` | `reconfigure` | `fleet_databases` |
-| `databases[].password` | `reconfigure` | `fleet_databases` |
-| `databases[].port` | `reconfigure` | `fleet_databases` |
-| `databases[].sslmode` | `reconfigure` | `fleet_databases` |
-| `databases[].tags` | `live_policy` | `fleet_databases` |
-| `databases[].trust_level` | `live_policy` | `fleet_databases` |
-| `databases[].user` | `reconfigure` | `fleet_databases` |
-| `databases[].verify.io_capacity` | `reconfigure` | `fleet_databases` |
+| Field | Lifecycle | Runtime owner | Self-config class |
+| --- | --- | --- | --- |
+| `databases[].analyzer_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
+| `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` | `operator_preference` |
+| `databases[].database` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].execution_mode` | `live_policy` | `fleet_databases` | `safety_critical` |
+| `databases[].executor_enabled` | `live_policy` | `fleet_databases` | `safety_critical` |
+| `databases[].host` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].llm_enabled` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].max_connections` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].name` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].password` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].port` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].sslmode` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].tags` | `live_policy` | `fleet_databases` | `operator_preference` |
+| `databases[].trust_level` | `live_policy` | `fleet_databases` | `safety_critical` |
+| `databases[].user` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].verify.io_capacity` | `reconfigure` | `fleet_databases` | `operator_preference` |

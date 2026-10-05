@@ -35,6 +35,27 @@ truth: the managed-database API applies changes immediately, and rows added,
 removed, disabled or changed by another replica or by SQL are picked up within
 30 seconds with the same rules.
 
+### Where pg_sage keeps its data
+
+pg_sage bootstraps the `sage` schema in every monitored database and, with
+`--meta-db`, in the metadata database too. What is written where:
+
+| Data | Standalone / YAML fleet | Meta-db mode |
+|---|---|---|
+| Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: the first database that started) | metadata database |
+| Sage SRE investigations, SLOs, change events; the earned-trust ledger (levels, outcomes, proposals, shadow evidence) | control database | metadata database |
+| History: snapshots, query store, explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples | each monitored database | each monitored database |
+
+History stays with the database it describes: it is keyed by that database's
+object ids and `queryid`s, several reads join it with the database's own catalog
+and `pg_stat_statements`, and the action log, its outcomes and the decision ledger
+reference each other. Its cost there is bounded: catalog snapshots are stored as
+changes against a keyframe, history tables are partitioned by day where they grow
+fastest, `retention.*` and `retention.snapshots_max_pct` cap them, and
+`self_budget.storage_mb` (default 10 GB) raises `sage_self_budget` when the `sage`
+schema outgrows it. Keeping history outside the monitored database is not
+supported yet.
+
 The generated [per-field lifecycle reference](generated/config-lifecycles.md)
 is the authoritative list. Regenerate it from the typed registry with:
 
@@ -187,10 +208,48 @@ briefing:
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
+| `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
+| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. `0`-`3600000` |
+| `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
+| `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
+
+### Derived settings (self-configuration)
+
+Every configuration key has a self-config class (shown in
+[the generated lifecycle reference](generated/config-lifecycles.md)): `safety_critical`
+(trust, approvals, action authority, verification, credentials, endpoints, the LLM provider)
+and `operator_preference` (notification routes, windows, declared capacities, feature
+switches) are never derived. For `derivable` keys with a rule, pg_sage derives a value per
+database from evidence when you leave the key unset:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `self_config.enabled` | `true` | Derive unset derivable settings per database. `false` keeps every default. Restart to change |
+| `self_config.soak_hours` | `24` | Hours a new derived value stays in shadow, compared with the active value's measured outcomes, before it may be promoted. `1`-`720`. Restart to change |
+
+The derived keys, their evidence, bounds and shadow comparisons are listed in
+[derived settings](generated/derived-settings.md): the collector interval and catalog read
+timeout (sized to the measured catalog and statements scans), sequence runway sampling
+(sized to the measured sequence scan), and the temp-file and LWLock incident thresholds
+(sized to this database's temp traffic and connection limit). A derivation never spends
+more or widens authority than the default (the catalog read timeout alone may grow, to at
+most 10x, because a deadline shorter than the scan fails every cycle). A new value is
+recorded in shadow first; it is promoted only after the soak and only when the comparison
+is not worse, otherwise it stays in shadow with the reason. Restart-bound keys take a
+promoted value at the next start and show it as pending restart.
+
+A key you set in the YAML file, in a fleet `defaults`/`databases[]` field or as an API
+override is never derived and shows as `operator`. The Configuration page's **Derived
+settings** section (and `GET /api/v1/derived-settings?database=`) shows each key's value,
+status (`default`, `derived`, `shadow`, `pinned`, `operator`), evidence, bounds, pending
+restart and history; an admin can **pin current** (freeze the value in force) or **unpin**
+(`POST /api/v1/derived-settings/{key}/pin|unpin?database=`). Every step is recorded in
+`sage.config_derivation` (value, previous value, cited evidence, bounds, rule and version,
+time); the startup log prints one `derived settings:` line per database.
 
 ### Trust & Actions
 
@@ -499,6 +558,26 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
+#### Profiling the sidecar
+
+`debug.pprof_enabled: true` (default `false`, restart to change) serves Go's profiler
+on the API listener at `/api/v1/debug/pprof/`, to signed-in **admins only**, through
+the same session login as every other API route; operators and viewers get 403,
+requests without a session (and MCP tokens) get 401, and with the setting off the
+path does not exist (404). It never runs on the Prometheus listener. Responses are
+`Cache-Control: no-store`. A CPU profile or trace takes `?seconds=1`-`25` (default 10,
+inside the API's 30 s request deadline). Enabling it also turns on light block and
+mutex sampling. The process command line is not served (its arguments can carry
+credentials). Profiles reveal code paths and memory: turn it on while diagnosing, then
+off.
+
+```bash
+# goroutine dump of a running sidecar, no restart, no signal
+curl -b cookies.txt 'http://localhost:8080/api/v1/debug/pprof/goroutine?debug=2'
+# 10 s CPU profile, then: go tool pprof -top profile.pb.gz
+curl -b cookies.txt -o profile.pb.gz 'http://localhost:8080/api/v1/debug/pprof/profile?seconds=10'
+```
+
 ### Agent-native autonomy
 
 The `policy`, `verify`, `clone`, `custodian`, `value`, and `mcp` sections
@@ -612,6 +691,58 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
   They are recorded with the reason `budget bypass: <why>` and still pass
   every other check: change classes, guardrails, the refusal set, windows,
   leases, lock ceilings and the shared `max_rows_rewritten` bound.
+
+#### One change per object
+
+pg_sage changes one object at a time and waits for the verdict before the
+next change to it. An object is a setting (`work_mem` is one object whether it
+is changed with `ALTER SYSTEM`, `ALTER DATABASE` or `ALTER ROLE`) or a table
+with its indexes (an index, its reloptions, `VACUUM`, `ANALYZE` and extended
+statistics on a table are all changes to that table). For index, extended
+statistics and reloption changes, a partitioned table, its partitions and
+their indexes are one object (the partition tree, from `pg_inherits`), so a
+change to one waits for a change to another; `VACUUM` and `ANALYZE` of a
+partition stay that partition's own. The identity comes from the statement
+and the catalog, never from evidence or an LLM.
+
+- **What waits.** A self-initiated change whose object has another change in
+  flight is parked with reason `awaiting_verification`. In flight means an
+  executed action still being watched (`sage.action_log.outcome` monitoring,
+  pending, interrupted or rolling back), one whose verdict in
+  `sage.action_outcome` is still pending, or a self-initiated change the gate
+  has authorized that has not run yet (so two proposals for one table in the
+  same cycle never both run; an operator's change runs at once and holds its
+  object through its action). The decision's detail and `evidence.verification_wait` name the
+  action and until when, for example `awaiting verification of action 6407
+  (until 2026-10-04T18:10:00Z) on guc:work_mem`. A change that would otherwise
+  need approval is still queued; its approval card shows the wait.
+- **When it resumes.** The parked change is evaluated again every cycle and
+  runs once the verification concludes (improved, neutral, regressed,
+  insufficient evidence, unverifiable, or rolled back).
+- **Never forever.** A verification that passes its hard deadline without a
+  verdict releases the wait, and the release is recorded on the decision
+  (`evidence.verification_wait_released`, with its `release_reason`). The
+  hard deadline is the verification cap (`verify.window_max_minutes`) plus
+  one hour after the action ran. An index drop holds its table only until its
+  first window concludes (`trust.rollback_window_minutes` after it ran),
+  released as "drop's first window concluded" and shown on approval cards;
+  its soft-drop monitoring keeps watching the whole business cycle
+  (`verify.drop_window_hours`) and re-creates the index on a regression. An
+  authorized change that has not run holds its object for at most twice the
+  DDL timeout plus a minute.
+- **Never waits.** Rollbacks and reverts of pg_sage's own changes (including the
+  rollback of the change being verified), emergency mitigations (the same
+  cases that bypass the budgets above), owner-declared retention deletes and
+  read-only diagnostics.
+- **Operator override.** Approving a queued change runs it even while the
+  object waits; the approval card says so first ("approving overrides pending
+  verification of action N") and the decision records
+  `evidence.verification_override`.
+- **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts every park
+  by reason (one per evaluation), and
+  `pg_sage_verification_wait_releases_total{database,cause}` the waits that
+  ended without a verdict (`operator_override`, `hard_deadline`,
+  `drop_first_window`).
 
 #### Retention contracts
 
@@ -1242,6 +1373,21 @@ To approve a promotion quickly, review investigations in **Cases**, press **Eval
 on the Earned autonomy page (or `POST /api/v1/sre/autonomy/evaluate` as an operator), then
 approve the pending promotion as an admin (or `GET /api/v1/sre/autonomy/proposals` and `POST
 /api/v1/sre/autonomy/proposals/{id}/approve`).
+
+### Ask Sage
+
+Ask Sage answers questions about a database from cited evidence (UI, REST API, MCP
+`ask_sage`) with its own daily LLM budget, separate from `llm.token_budget_daily`. It reads;
+it can open an investigation or queue a finding for a person's approval, and never executes
+or approves. See [Ask Sage](ask-sage.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ask.enabled` | `true` | Answer questions. Restart to change |
+| `ask.daily_tokens_per_database` | `300000` | Daily tokens for one database, all users (0 refuses). Restart to change |
+| `ask.daily_tokens_per_user` | `100000` | Daily tokens for one user or MCP token; at most the database's. Restart to change |
+| `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
+| `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 
 ### Retention
 

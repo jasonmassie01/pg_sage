@@ -232,6 +232,24 @@ mcp:
   enabled: true
   transport: "http"           # intent-level, never raw SQL; MCP token required
 
+# pg_sage's declared budget for itself: over budget raises sage_self_budget,
+# naming its costliest statements and loops. 0 disables a resource.
+self_budget:
+  cpu_ms_per_cycle: 600        # sidecar process CPU per collector cycle (1% of a core at 60 s)
+  db_time_ms_per_hour: 0       # 0 = analyzer.self_cost_budget_ms budgets DB time per cycle
+  blocks_per_hour: 18000000    # shared blocks touched by pg_sage's statements per hour
+  storage_mb: 10240            # size of the sage schema
+
+# debug:
+#   pprof_enabled: false       # Go profiler at /api/v1/debug/pprof/, admins only
+
+# Derived settings: unset derivable keys are sized per database from
+# evidence, shadow-tested first. Keys you set here always win (and are
+# never derived). See ../docs/generated/derived-settings.md.
+self_config:
+  enabled: true
+  soak_hours: 24
+
 prometheus:
   listen_addr: "0.0.0.0:9187"
 
