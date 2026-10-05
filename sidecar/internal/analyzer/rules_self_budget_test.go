@@ -256,3 +256,40 @@ func findCategory(ff []Finding, category string) (Finding, bool) {
 	}
 	return Finding{}, false
 }
+
+// Post-test audit: the finding's top loops come from the process-wide
+// loop tracker, measured between two analyzer cycles.
+func TestCheckSelfBudget_NamesTheBusiestLoop(t *testing.T) {
+	pool := phase2Pool(t)
+	ctx := context.Background()
+	cfg := phase2Config()
+	cfg.Collector.IntervalSeconds = 60
+	cfg.Analyzer.SelfCostBudgetMs = 0
+	cfg.SelfBudget = config.SelfBudgetConfig{CPUMsPerCycle: 100}
+	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
+	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
+	a.eval = newCycleEval()
+	a.checkSelfCost(ctx)
+	selfbudget.Process().Add("collector_audit_probe", 7*time.Second)
+	fake.burn(time.Minute, time.Second)
+	a.eval = newCycleEval()
+	f, ok := findCategory(a.checkSelfCost(ctx), categorySelfBudget)
+	if !ok {
+		t.Fatal("no sage_self_budget finding with CPU over budget")
+	}
+	loops := f.Detail["top_loops"].([]map[string]any)
+	found := false
+	for _, l := range loops {
+		if l["loop"] == "collector_audit_probe" && l["busy_ms"].(float64) >= 7000 &&
+			l["runs"] == int64(1) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("top loops %v lack the probe loop's 7000 ms", loops)
+	}
+	if !strings.Contains(f.Recommendation, "collector_audit_probe") {
+		t.Fatalf("recommendation %q does not name the busiest loop", f.Recommendation)
+	}
+}
