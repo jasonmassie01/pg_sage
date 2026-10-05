@@ -59,7 +59,7 @@ func TestPprof_AdminReadsProfiles(t *testing.T) {
 		t.Fatalf("goroutine dump: %d %.200q", w.Code, w.Body.String())
 	}
 	for _, p := range []string{"heap", "allocs", "block", "mutex", "threadcreate",
-		"cmdline", "symbol"} {
+		"symbol"} {
 		w := pprofGet(h, "/api/v1/debug/pprof/"+p)
 		if w.Code != http.StatusOK || w.Body.Len() == 0 {
 			t.Errorf("%s: %d with %d bytes", p, w.Code, w.Body.Len())
@@ -93,7 +93,8 @@ func TestPprof_CPUProfileAndTraceAreBounded(t *testing.T) {
 
 func TestPprof_UnknownProfileIsNotFound(t *testing.T) {
 	h := pprofRouter(t, true, testAdminUser())
-	for _, p := range []string{"nope", "heap/extra"} {
+	// cmdline is never served: arguments can carry --pg-url credentials.
+	for _, p := range []string{"nope", "heap/extra", "cmdline"} {
 		if w := pprofGet(h, "/api/v1/debug/pprof/"+p); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", p, w.Code)
 		}

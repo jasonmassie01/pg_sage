@@ -464,8 +464,9 @@ requests without a session (and MCP tokens) get 401, and with the setting off th
 path does not exist (404). It never runs on the Prometheus listener. Responses are
 `Cache-Control: no-store`. A CPU profile or trace takes `?seconds=1`-`25` (default 10,
 inside the API's 30 s request deadline). Enabling it also turns on light block and
-mutex sampling. Profiles reveal code paths, memory and the command line: turn it on
-while diagnosing, then off.
+mutex sampling. The process command line is not served (its arguments can carry
+credentials). Profiles reveal code paths and memory: turn it on while diagnosing, then
+off.
 
 ```bash
 # goroutine dump of a running sidecar, no restart, no signal

@@ -12,7 +12,7 @@ import (
 // profiler on the API listener, so a CPU profile or goroutine dump of a
 // running sidecar needs no signal and no restart. It is registered on the
 // API mux, behind the session middleware every API route uses, and only
-// admins may read it: profiles reveal code paths, memory and command line.
+// admins may read it: profiles reveal code paths and memory.
 
 const pprofPrefix = "/api/v1/debug/pprof/"
 
@@ -40,11 +40,10 @@ func registerPprofRoutes(mux *http.ServeMux, enabled bool) {
 	mux.Handle("GET "+pprofPrefix+"{name}", admin(noStore(http.HandlerFunc(pprofNamed))))
 }
 
-// pprofNamed serves one profile by name.
+// pprofNamed serves one profile by name. cmdline is not served: the
+// process's arguments can carry credentials (--pg-url, --encryption-key).
 func pprofNamed(w http.ResponseWriter, r *http.Request) {
 	switch name := r.PathValue("name"); name {
-	case "cmdline":
-		pprof.Cmdline(w, r)
 	case "symbol":
 		pprof.Symbol(w, r)
 	case "profile":
