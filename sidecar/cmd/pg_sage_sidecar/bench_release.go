@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/pg-sage/sidecar/internal/benchingest"
 	"github.com/pg-sage/sidecar/internal/benchsig"
@@ -68,6 +69,9 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 		if err != nil {
 			logWarn("autonomy", "ingest bench reports: %v", err)
 		}
+		benchReplayNotices.note(res.Skipped, func(format string, args ...any) {
+			logInfo("autonomy", format, args...)
+		})
 		if res.Added > 0 {
 			logInfo("autonomy", "ingested %d new PGIncidentBench reports (%d signed) for %s",
 				res.Added, res.Signed, svc.Build())
@@ -75,6 +79,33 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 		if _, err := svc.ReconcileRootAuthority(ctx); err != nil {
 			logWarn("autonomy", "model-root authority: %v", err)
 		}
+	}
+}
+
+// replayNotices remembers the replay-corpus reports already logged as
+// skipped, so the hourly ingest tells each one once per process.
+type replayNotices struct {
+	mu   sync.Mutex
+	told map[string]bool
+}
+
+// benchReplayNotices is shared by every database's ledger.
+var benchReplayNotices replayNotices
+
+// note logs each skipped replay report not logged before.
+func (n *replayNotices) note(skipped []string, logf func(string, ...any)) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for _, path := range skipped {
+		if n.told[path] {
+			continue
+		}
+		if n.told == nil {
+			n.told = map[string]bool{}
+		}
+		n.told[path] = true
+		logf("skipping %s: a PGIncidentBench replay-corpus report, not a bench report",
+			path)
 	}
 }
 
@@ -94,6 +125,7 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 		res, err := benchingest.Ingest(ctx, svc, verifier, src)
 		total.Files, total.Added = total.Files+res.Files, total.Added+res.Added
 		total.Signed += res.Signed
+		total.Skipped = append(total.Skipped, res.Skipped...)
 		if err != nil {
 			errs = append(errs, err)
 		}

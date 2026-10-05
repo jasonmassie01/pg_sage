@@ -5,11 +5,14 @@
 // bundle next to it ("<report>.sigstore.json") is verified: a valid
 // signature makes it a signed release report, an invalid one refuses it;
 // without a bundle (or without verification material) it is an unsigned
-// operator-provided report.
+// operator-provided report. A replay-corpus report (the CI artifact's
+// pgincidentbench-replay.json) is not a bench report: a directory walk
+// passes over it, and naming it as the path is an error that says so.
 package benchingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +40,9 @@ const (
 	maxBundleBytes = 1 << 20
 )
 
+// ErrReplayReport refuses a replay-corpus report given as a bench report.
+var ErrReplayReport = errors.New("a PGIncidentBench replay-corpus report, not a bench report")
+
 // Ledger stores reports (earned.Service).
 type Ledger interface {
 	IngestBench(ctx context.Context, raw []byte, in earned.BenchIngest) (earned.EvalRun,
@@ -59,10 +65,12 @@ type Source struct {
 	Actor string
 }
 
-// Result counts one ingest: report files read, new reports stored and
-// verified signatures.
+// Result counts one ingest: bench report files read, new reports stored
+// and verified signatures. Skipped are the replay-corpus reports a
+// directory walk passed over.
 type Result struct {
 	Files, Added, Signed int
+	Skipped              []string
 }
 
 // ShippedDirs are the directories shipped reports may be in: the image's,
@@ -82,15 +90,19 @@ func Ingest(ctx context.Context, ledger Ledger, verifier Verifier, src Source) (
 	if ledger == nil || strings.TrimSpace(src.Path) == "" {
 		return Result{}, errors.New("bench ingest needs a ledger and a path")
 	}
-	files, err := sourceFiles(src)
+	files, walked, err := sourceFiles(src)
 	if err != nil || len(files) == 0 {
 		return Result{}, err
 	}
 	var res Result
 	var errs []error
 	for _, f := range files {
-		res.Files++
 		run, signed, err := ingestFile(ctx, ledger, verifier, src, f)
+		if walked && errors.Is(err, ErrReplayReport) {
+			res.Skipped = append(res.Skipped, f)
+			continue
+		}
+		res.Files++
 		if err != nil {
 			errs = append(errs, fmt.Errorf("bench report %s: %w", f, err))
 			continue
@@ -105,22 +117,23 @@ func Ingest(ctx context.Context, ledger Ledger, verifier Verifier, src Source) (
 	return res, errors.Join(errs...)
 }
 
-// sourceFiles lists src's reports; a shipped directory may be absent.
-func sourceFiles(src Source) ([]string, error) {
+// sourceFiles lists src's reports, walked when src is a directory; a
+// shipped directory may be absent.
+func sourceFiles(src Source) ([]string, bool, error) {
 	info, err := os.Stat(src.Path)
 	switch {
 	case src.Shipped && errors.Is(err, fs.ErrNotExist):
-		return nil, nil
+		return nil, false, nil
 	case err != nil:
-		return nil, fmt.Errorf("bench results path: %w", err)
+		return nil, false, fmt.Errorf("bench results path: %w", err)
 	case !info.IsDir():
-		return []string{src.Path}, nil
+		return []string{src.Path}, false, nil
 	}
 	files, err := ReportFiles(src.Path)
 	if err != nil {
-		return nil, fmt.Errorf("bench results path: %w", err)
+		return nil, true, fmt.Errorf("bench results path: %w", err)
 	}
-	return files, nil
+	return files, true, nil
 }
 
 func ingestFile(ctx context.Context, ledger Ledger, verifier Verifier, src Source,
@@ -128,6 +141,11 @@ func ingestFile(ctx context.Context, ledger Ledger, verifier Verifier, src Sourc
 	raw, err := readBounded(path, earned.MaxReportBytes)
 	if err != nil {
 		return earned.EvalRun{}, false, err
+	}
+	if schema, ok := replayCorpusSchema(raw); ok {
+		return earned.EvalRun{}, false, fmt.Errorf("%w (corpus_schema %.80s); point "+
+			"bench_results_path at the %s bench reports or their directory",
+			ErrReplayReport, schema, ReportName)
 	}
 	in := earned.BenchIngest{Origin: earned.OriginOperator, Actor: src.Actor,
 		RequireBuild: src.Shipped}
@@ -140,6 +158,22 @@ func ingestFile(ctx context.Context, ledger Ledger, verifier Verifier, src Sourc
 	}
 	run, err := ledger.IngestBench(ctx, raw, in)
 	return run, sig != nil, err
+}
+
+// replayCorpusSchema is the corpus_schema of a replay-corpus report: a
+// JSON object with a top-level corpus_schema and no schema. A bench
+// report nests its replay section, so its corpus_schema is never top
+// level; anything else is left for the ledger to judge.
+func replayCorpusSchema(raw []byte) (string, bool) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return "", false
+	}
+	schema, ok := top["corpus_schema"]
+	if _, bench := top["schema"]; !ok || bench {
+		return "", false
+	}
+	return string(schema), true
 }
 
 // signatureOf verifies the report's bundle: nil without a bundle or
