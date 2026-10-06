@@ -179,7 +179,8 @@ func TestDatabaseMustBeAString(t *testing.T) {
 func TestEveryToolSchemaTakesADatabase(t *testing.T) {
 	for _, tool := range NewServer(&recordingBackend{}).Tools() {
 		properties := objectMap(t, decodeSchema(t, tool.InputSchema)["properties"])
-		if tool.Name == "list_databases" {
+		// Fleet-wide tools (list_databases, fleet_findings) name no database.
+		if fleetWideTool(tool.Name) {
 			require.NotContains(t, properties, "database")
 			continue
 		}

@@ -3,6 +3,7 @@ import { DatabaseForm } from './databases/DatabaseForm'
 import { DatabaseTable } from './databases/DatabaseTable'
 import { CSVImport } from './databases/CSVImport'
 import { DeleteConfirm } from './databases/DeleteConfirm'
+import { FleetFindings } from './databases/FleetFindings'
 
 export function DatabasesPage() {
   const [databases, setDatabases] = useState([])
@@ -176,6 +177,8 @@ export function DatabasesPage() {
           onDelete={setDeleteTarget}
           onError={setError} />
       ))}
+
+      {!loading && <FleetFindings />}
     </div>
   )
 }

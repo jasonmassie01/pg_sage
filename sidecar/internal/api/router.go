@@ -101,6 +101,9 @@ type RuntimeDeps struct {
 	// reads its request audit for the dashboard; nil omits the route.
 	Specialist      http.Handler
 	SpecialistAudit SpecialistAuditReader
+	// FleetLearning serves look-alikes and the leader status (fleet
+	// learning); nil answers 503 / "election disabled".
+	FleetLearning FleetLearningReader
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -175,6 +178,7 @@ func registerFleetScopedRoutes(
 	registerShadowRoutes(apiMux, mgr)
 	registerDerivedSettingsRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
+	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)

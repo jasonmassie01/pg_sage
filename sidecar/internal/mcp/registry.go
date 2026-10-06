@@ -26,6 +26,7 @@ func toolDefinitions() []Tool {
 	tools = append(append(tools, autonomyTools()...), factTools()...)
 	tools = append(append(append(tools, agentTools()...), specialistTools()...),
 		askTools()...)
+	tools = append(tools, fleetTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}
@@ -33,7 +34,7 @@ func toolDefinitions() []Tool {
 }
 
 func finishTool(tool Tool) Tool {
-	if tool.Name != "list_databases" {
+	if !fleetWideTool(tool.Name) {
 		tool.InputSchema = setDatabaseProperty(tool.InputSchema, nil)
 	}
 	readOnly := !approveScopeTools[tool.Name] && !proposeScopeTools[tool.Name] &&
@@ -69,7 +70,7 @@ func setDatabaseProperty(schema json.RawMessage, names []string) json.RawMessage
 // withDatabaseEnum is tool as listed to one caller: its database property
 // enumerates the databases that caller may name.
 func withDatabaseEnum(tool Tool, names []string) Tool {
-	if names == nil || tool.Name == "list_databases" {
+	if names == nil || fleetWideTool(tool.Name) {
 		return tool
 	}
 	tool.InputSchema = setDatabaseProperty(tool.InputSchema, names)

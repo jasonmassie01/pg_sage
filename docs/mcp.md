@@ -742,4 +742,14 @@ Scope: `read`
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `question` | string | yes | length 1-2000 |
 
+### `fleet_findings`
+
+List problems open on several fleet databases at once (e.g. the same missing index on many tenant databases), each once with the databases it affects. Read-only; acting still goes through each database's own proposals and approvals.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `min_databases` | integer | no | databases a problem must be open on (default from fleet_learning.fleet_finding_min_databases); value 2-10000 |
+
 <!-- END GENERATED MCP TOOL REFERENCE -->

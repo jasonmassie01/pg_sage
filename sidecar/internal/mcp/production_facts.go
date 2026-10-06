@@ -28,3 +28,12 @@ func (backend *ProductionBackend) DecideFact(ctx context.Context, request FactRe
 	}
 	return backend.dependencies.Facts.DecideFact(ctx, request, actor)
 }
+
+// FleetFindings serves fleet_findings.
+func (backend *ProductionBackend) FleetFindings(ctx context.Context,
+	request FleetFindingsRequest) (any, error) {
+	if backend.dependencies.FleetLearning == nil {
+		return nil, ErrProductionDependencyUnavailable
+	}
+	return backend.dependencies.FleetLearning.FleetFindings(ctx, request)
+}
