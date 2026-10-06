@@ -128,6 +128,8 @@ type Args struct {
 	Window       time.Duration
 	Slice        int
 	Slices       int
+	// QueryID scopes a QueryScoped probe to one statement (0: all).
+	QueryID int64
 }
 
 func (a Args) validate(kind ArgKind) error {
@@ -213,6 +215,8 @@ type Spec struct {
 	LockTimeout       time.Duration
 	MaxRows           int
 	MaxBytes          int
+	// QueryScoped: the SQL takes Args.QueryID after its typed arguments.
+	QueryScoped bool
 	// Requires names the predefined roles the probe's views need to show
 	// other roles' rows; without them the probe is no_privilege
 	// (missing_role), never a partial, healthy-looking answer.
