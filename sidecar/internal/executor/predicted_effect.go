@@ -23,7 +23,7 @@ func predictionFromDetail(class string, detail map[string]any) verify.Prediction
 		return p
 	}
 	switch class {
-	case verify.ClassIndexCreate, verify.ClassQueryHint:
+	case verify.ClassIndexCreate, verify.ClassQueryHint, verify.ClassIndexReplace:
 		return estimatedLatencyPrediction(class, detail)
 	case verify.ClassIndexDrop:
 		p := ruleBasedPrediction(class, verify.MetricMeanExecTime, 0,

@@ -86,6 +86,7 @@ func (e *Executor) resumeOrphanedMonitors(ctx context.Context) error {
 		COALESCE(al.decision_id, 0), al.executed_at
 		FROM sage.action_log al
 		WHERE al.outcome IN ('monitoring', 'interrupted')
+		  AND al.action_type <> 'replace_index'
 		  AND (COALESCE(al.rollback_sql, '') <> ''
 		       OR al.sql_executed ~* '^\s*(REINDEX|CREATE\s+STATISTICS)\s')
 		  AND NOT EXISTS (SELECT 1 FROM sage.verification v

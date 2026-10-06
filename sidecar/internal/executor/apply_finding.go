@@ -25,6 +25,11 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			e.logFn("executor", "resume index verification: %v", err)
 		}
 	}
+	if !isReplica {
+		if err := e.ResumeIndexReplaces(ctx); err != nil {
+			e.logFn("executor", "resume index replacements: %v", err)
+		}
+	}
 	e.reconcileRecommendations(ctx)
 	// Queue housekeeping runs in every mode: a proposal whose reason is
 	// gone must not wait for an operator (dogfood round 2 item 5).
@@ -279,6 +284,9 @@ func (e *Executor) prepareAndRunFinding(
 // signals need an operator approval and the evidence-matched signal path,
 // and managed providers change configuration through their own API.
 func (e *Executor) findingRefusal(f analyzer.Finding) error {
+	if IsIndexReplaceSQL(f.RecommendedSQL) {
+		return ErrReplaceApprovalRequired
+	}
 	if _, _, isSignal := parseBackendSignal(f.RecommendedSQL); isSignal {
 		e.logFn("executor", "refused autonomous backend signal %q", f.Title)
 		return ErrBackendApprovalRequired

@@ -176,7 +176,7 @@ func waitRelease(sql string) string {
 func partitionScoped(sql string) bool {
 	switch verificationClass(sql) {
 	case verify.ClassIndexCreate, verify.ClassIndexDrop, verify.ClassReindex,
-		verify.ClassStatistics, verify.ClassReloption:
+		verify.ClassStatistics, verify.ClassReloption, verify.ClassIndexReplace:
 		return true
 	}
 	return false

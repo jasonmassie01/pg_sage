@@ -7,6 +7,8 @@ import (
 func actionTypeForProposalSQL(sql string) string {
 	upper := strings.ToUpper(normalizeSQLText(sql))
 	switch {
+	case IsIndexReplaceSQL(sql):
+		return ActionTypeReplaceIndex
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
 	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY ") ||
