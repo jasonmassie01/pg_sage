@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // categorySageFootprint is the finding raised when pg_sage's own tables
@@ -61,7 +62,8 @@ func (a *Analyzer) checkSageFootprint(
 		return nil
 	}
 	a.eval.evaluated(categorySageFootprint)
-	return ruleSageFootprint(fp, current.System.DBSizeBytes, limit)
+	return annotateHistoryPlacement(ruleSageFootprint(fp, current.System.DBSizeBytes, limit),
+		histstore.Resolve(a.pool).Mode())
 }
 
 func (a *Analyzer) measureSageFootprint(ctx context.Context) (sageFootprint, error) {
