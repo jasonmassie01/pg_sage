@@ -164,6 +164,12 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// A request still waiting for its turn is kept, however old.
 		{table: "lease_queue", timeCol: "enqueued_at", days: r.ActionsDays,
 			extra: "AND state <> 'waiting'"},
+		// Index replacements (roadmap 2.3): a step to resume or a watch in
+		// progress is kept, however old.
+		{table: "index_replace", timeCol: "updated_at", days: r.ActionsDays,
+			extra: "AND state IN ('completed', 'create_failed', 'drop_failed', " +
+				"'rolled_back', 'rollback_failed', 'old_restored') " +
+				"AND verify_phase IN ('none', 'done')"},
 		{table: "decision", timeCol: "created_at", days: r.ActionsDays, extra: keepDecision},
 		// Withheld verdicts age from when they were last seen (perf audit F1).
 		{table: "decision", timeCol: "COALESCE(last_seen_at, created_at)",
