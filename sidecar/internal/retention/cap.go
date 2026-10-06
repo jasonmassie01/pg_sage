@@ -4,12 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/partition"
 )
-
-// minSnapshotCapBytes is the smallest snapshot size cap: on a small
-// database a percentage would leave too little history to forecast from.
-const minSnapshotCapBytes int64 = 256 << 20
 
 // snapshotCap is the size sage.snapshots may take in a database of
 // dbBytes: retention.snapshots_max_pct of it, never below the floor; 0
@@ -19,7 +16,7 @@ func (c *Cleaner) snapshotCap(dbBytes int64) int64 {
 	if pct <= 0 {
 		return 0
 	}
-	return max(dbBytes*pct/100, minSnapshotCapBytes)
+	return max(dbBytes*pct/100, config.MinSnapshotCapBytes)
 }
 
 // capFor is the cap for a table of size bytes, reading the database size
@@ -29,7 +26,7 @@ func (c *Cleaner) capFor(ctx context.Context, size int64) (int64, bool) {
 	if c.capBytes > 0 {
 		return c.capBytes, true
 	}
-	if c.cfg.Retention.SnapshotsMaxPct <= 0 || size <= minSnapshotCapBytes {
+	if c.cfg.Retention.SnapshotsMaxPct <= 0 || size <= config.MinSnapshotCapBytes {
 		return 0, false
 	}
 	var dbBytes int64
