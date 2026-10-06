@@ -119,6 +119,7 @@
 | `forecaster.min_r_squared` | `restart` | `-` | `derivable` |
 | `forecaster.sequence_critical_days` | `restart` | `-` | `derivable` |
 | `forecaster.sequence_warn_days` | `restart` | `-` | `derivable` |
+| `history.store` | `restart` | `-` | `operator_preference` |
 | `llm.api_key` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.context_budget_tokens` | `restart` | `-` | `derivable` |
 | `llm.cooldown_seconds` | `reconfigure` | `llm` | `derivable` |

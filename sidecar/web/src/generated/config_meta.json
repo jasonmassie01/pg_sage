@@ -785,6 +785,12 @@
     "doc": "",
     "class": "derivable"
   },
+  "history.store": {
+    "type": "string",
+    "default": "monitored",
+    "doc": "Where pg_sage keeps snapshots and the query store: monitored (each monitored database) or meta (the meta database; needs meta_db). Restart and history migrate to change. Default monitored.",
+    "class": "operator_preference"
+  },
   "llm.api_key": {
     "type": "string",
     "default": null,
