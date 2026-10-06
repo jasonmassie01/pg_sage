@@ -23,7 +23,7 @@ import (
 
 const queryHashOK = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 
-func decodeOpen(t *testing.T, body string) (OpenRequest, error) {
+func decodeValidOpen(t *testing.T, body string) (OpenRequest, error) {
 	t.Helper()
 	req, err := DecodeOpenRequest(strings.NewReader(body))
 	if err != nil {
@@ -40,7 +40,7 @@ func TestQueryID_Validation(t *testing.T) {
 		`9007199254740993`: "9007199254740993", `null`: "",
 	}
 	for raw, want := range ok {
-		req, err := decodeOpen(t, `{"symptom":{"summary":"slow"},"query_id":`+raw+`}`)
+		req, err := decodeValidOpen(t, `{"symptom":{"summary":"slow"},"query_id":`+raw+`}`)
 		if err != nil || string(req.QueryID) != want {
 			t.Errorf("%s: %q (%v), want %q", raw, req.QueryID, err, want)
 		}
@@ -50,7 +50,7 @@ func TestQueryID_Validation(t *testing.T) {
 		`1e3`, `true`, `{}`, `[1]`, `"42; DROP TABLE sage.findings"`, `"0x2a"`,
 		`"123456789012345678901"`}
 	for _, raw := range bad {
-		_, err := decodeOpen(t, `{"symptom":{"summary":"slow"},"query_id":`+raw+`}`)
+		_, err := decodeValidOpen(t, `{"symptom":{"summary":"slow"},"query_id":`+raw+`}`)
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("query_id %s: %v, want invalid_request", raw, err)
 		}
@@ -58,7 +58,7 @@ func TestQueryID_Validation(t *testing.T) {
 }
 
 func TestQueryHash_Validation(t *testing.T) {
-	req, err := decodeOpen(t, `{"symptom":{"summary":"slow"},"query_hash":"`+queryHashOK+`"}`)
+	req, err := decodeValidOpen(t, `{"symptom":{"summary":"slow"},"query_hash":"`+queryHashOK+`"}`)
 	if err != nil || req.QueryHash != queryHashOK {
 		t.Fatalf("valid hash: %q %v", req.QueryHash, err)
 	}
@@ -66,12 +66,12 @@ func TestQueryHash_Validation(t *testing.T) {
 		queryHashOK + "0", strings.Repeat("g", 64), "' OR 1=1 --",
 		strings.Repeat("a", 63) + "\n"} {
 		raw, _ := json.Marshal(h)
-		_, err := decodeOpen(t, `{"symptom":{"summary":"slow"},"query_hash":`+string(raw)+`}`)
+		_, err := decodeValidOpen(t, `{"symptom":{"summary":"slow"},"query_hash":`+string(raw)+`}`)
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("query_hash %q: %v, want invalid_request", h, err)
 		}
 	}
-	_, err = decodeOpen(t, `{"symptom":{"summary":"slow"},"query_hash":42}`)
+	_, err = decodeValidOpen(t, `{"symptom":{"summary":"slow"},"query_hash":42}`)
 	if !errors.Is(err, ErrInvalid) {
 		t.Errorf("a numeric query_hash: %v", err)
 	}

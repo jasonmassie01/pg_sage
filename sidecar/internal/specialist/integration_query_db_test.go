@@ -52,9 +52,14 @@ func TestLive_QueryScopedPlanInvestigation(t *testing.T) {
 		t.Fatalf("open %d %s", w.Code, w.Body.String())
 	}
 	if open.QueryScope == nil || open.QueryScope.QueryID != "-9007199254740993" ||
-		open.QueryScope.Applied != QueryAppliedProbes ||
-		open.Investigation.Subject != "queryid -9007199254740993" {
+		open.QueryScope.Applied != QueryAppliedProbes {
 		t.Fatalf("open %s", w.Body.String())
+	}
+	// The contract redacts subjects like all text (a 16-digit number may be
+	// an account number), so the stored subject is checked at the source.
+	d, err := f.svc.Detail(ctx, sre.UUID(open.Investigation.ID))
+	if err != nil || d.Investigation.Subject != "queryid -9007199254740993" {
+		t.Fatalf("stored subject %q (%v)", d.Investigation.Subject, err)
 	}
 	if err := f.coord.Investigate(ctx, sre.UUID(open.Investigation.ID)); err != nil {
 		t.Fatal(err)

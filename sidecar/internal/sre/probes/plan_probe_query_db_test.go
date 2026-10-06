@@ -18,9 +18,11 @@ func TestPlanRegressions_ScopedToOneStatement(t *testing.T) {
 	seedSamples(t, ctx, pool, louder, []sample{
 		{30 * time.Minute, 0, 0, "v1:c"}, {20 * time.Minute, 10, 1, "v1:c"},
 		{10 * time.Minute, 20, 501, "v1:d"}})
+	// No flip: the split is the window's middle, so "before" needs two
+	// samples before it (the first one has no delta).
 	seedSamples(t, ctx, pool, quiet, []sample{
-		{30 * time.Minute, 0, 0, "v1:e"}, {20 * time.Minute, 10, 10, "v1:e"},
-		{10 * time.Minute, 20, 22, "v1:e"}})
+		{40 * time.Minute, 0, 0, "v1:e"}, {30 * time.Minute, 10, 10, "v1:e"},
+		{20 * time.Minute, 20, 20, "v1:e"}, {10 * time.Minute, 30, 32, "v1:e"}})
 	r := NewRunner(pool, Catalog(), NewLimiter(1))
 	for _, qid := range []int64{target, quiet} {
 		res := r.Run(ctx, PlanRegressions, Args{QueryID: qid})
