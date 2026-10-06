@@ -32,6 +32,9 @@ func (c *Cleaner) capFor(ctx context.Context, size int64) (int64, bool) {
 	if c.cfg.Retention.SnapshotsMaxPct <= 0 || size <= minSnapshotCapBytes {
 		return 0, false
 	}
+	if c.storeMode {
+		return c.storeCapFor(ctx)
+	}
 	var dbBytes int64
 	if err := c.pool.QueryRow(ctx,
 		`SELECT pg_catalog.pg_database_size(pg_catalog.current_database())`).
