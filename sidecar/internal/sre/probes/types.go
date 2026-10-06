@@ -217,6 +217,11 @@ type Spec struct {
 	// other roles' rows; without them the probe is no_privilege
 	// (missing_role), never a partial, healthy-looking answer.
 	Requires []string
+	// History marks a probe that reads pg_sage's history (sage.query_store,
+	// sage.snapshots) instead of the catalog: it runs on the database's
+	// history store (the meta database in history.store: meta), its SQL
+	// scoped with histstore markers.
+	History bool
 }
 
 // VariantFor returns the SQL variant for a server version.

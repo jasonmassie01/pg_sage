@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 type rowQuerier interface {
@@ -16,16 +18,30 @@ type rowQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-// PostgresObservationSource reads verification evidence from collector history.
+// PostgresObservationSource reads verification evidence: collector
+// history (query_store intervals, system snapshots) from the database's
+// history store, and the catalog (pg_index) from the monitored database.
+// With history.store: meta those are two databases; the history store is
+// resolved from the monitored pool (histstore.Resolve).
 type PostgresObservationSource struct {
 	queryer rowQuerier
+	history histstore.Store
 }
 
 func NewPostgresObservationSource(pool *pgxpool.Pool) *PostgresObservationSource {
 	if pool == nil {
 		return &PostgresObservationSource{}
 	}
-	return &PostgresObservationSource{queryer: pool}
+	return &PostgresObservationSource{queryer: pool, history: histstore.Resolve(pool)}
+}
+
+// historyStore is where the history reads run: the resolved store, or the
+// catalog handle itself (monitored) for a source built without one.
+func (s *PostgresObservationSource) historyStore() histstore.Store {
+	if s.history.DB() == nil {
+		return histstore.NewMonitored(s.queryer)
+	}
+	return s.history
 }
 
 func (s *PostgresObservationSource) QueryMeasurements(
@@ -53,12 +69,12 @@ func (s *PostgresObservationSource) WriteMeasurements(
 	}
 	var samples int
 	var elapsedMS float64
-	err := s.queryer.QueryRow(ctx, `WITH samples AS (
-		SELECT (data->>'blk_write_time')::float8 AS write_ms,
-			row_number() OVER (ORDER BY collected_at) AS first_row,
-			row_number() OVER (ORDER BY collected_at DESC) AS last_row
-		FROM sage.snapshots
-		WHERE category='system' AND collected_at BETWEEN $1 AND $2
+	err := s.historyStore().QueryRow(ctx, `WITH samples AS (
+		SELECT (sn.data->>'blk_write_time')::float8 AS write_ms,
+			row_number() OVER (ORDER BY sn.collected_at) AS first_row,
+			row_number() OVER (ORDER BY sn.collected_at DESC) AS last_row
+		FROM sage.snapshots sn
+		WHERE {db:sn} AND sn.category='system' AND sn.collected_at BETWEEN $1 AND $2
 	), bounds AS (
 		SELECT count(*)::int AS samples,
 			max(write_ms) FILTER (WHERE last_row=1) -

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // EvidenceStatus classifies what the query store can say about a
@@ -42,24 +44,27 @@ type Evidence struct {
 // evidenceSQL reads the window endpoints and counts epoch breaks between
 // consecutive samples: counter decreases and statistics-epoch changes, so
 // a reset followed by enough new calls to exceed the old endpoint is
-// still detected (R10). A NULL upper bound ($3) means "latest sample".
+// still detected (R10). A NULL upper bound ($3) means "latest sample". It
+// runs on the pool's history store (histstore.Resolve).
 // Samples are written only when counters move (Recorder), so the window
 // starts at the last sample before $2 when there is one within $4
 // (AnchorLookback): an idle query has no sample at the window start.
 const evidenceSQL = `/* pg_sage */
 WITH anchor AS (
-    SELECT max(captured_at) AS at FROM sage.query_store
-     WHERE queryid = $1 AND captured_at < $2 AND captured_at >= $2 - $4::interval
+    SELECT max(a.captured_at) AS at FROM sage.query_store a
+     WHERE {db:a} AND a.queryid = $1 AND a.captured_at < $2
+       AND a.captured_at >= $2 - $4::interval
 ), s AS (
-    SELECT id, captured_at, calls, total_exec_time, stats_epoch,
-           lag(calls) OVER w AS prev_calls,
-           lag(total_exec_time) OVER w AS prev_total,
-           lag(stats_epoch) OVER w AS prev_epoch,
+    SELECT q.id, q.captured_at, q.calls, q.total_exec_time, q.stats_epoch,
+           lag(q.calls) OVER w AS prev_calls,
+           lag(q.total_exec_time) OVER w AS prev_total,
+           lag(q.stats_epoch) OVER w AS prev_epoch,
            row_number() OVER w AS rn
-      FROM sage.query_store
-     WHERE queryid = $1 AND captured_at >= COALESCE((SELECT at FROM anchor), $2)
-       AND ($3::timestamptz IS NULL OR captured_at <= $3::timestamptz)
-    WINDOW w AS (ORDER BY captured_at, id)
+      FROM sage.query_store q
+     WHERE {db:q} AND q.queryid = $1
+       AND q.captured_at >= COALESCE((SELECT at FROM anchor), $2)
+       AND ($3::timestamptz IS NULL OR q.captured_at <= $3::timestamptz)
+    WINDOW w AS (ORDER BY q.captured_at, q.id)
 )
 SELECT count(*)::int,
        count(*) FILTER (WHERE calls < prev_calls OR total_exec_time < prev_total
@@ -88,7 +93,8 @@ func windowEvidence(
 	var samples, epochBreaks int
 	var firstCalls, lastCalls *int64
 	var firstTotal, lastTotal *float64
-	err := pool.QueryRow(ctx, evidenceSQL, queryid, from, to, AnchorLookback).Scan(
+	err := histstore.Resolve(pool).QueryRow(ctx, evidenceSQL, queryid, from, to,
+		AnchorLookback).Scan(
 		&samples, &epochBreaks, &firstCalls, &firstTotal, &lastCalls, &lastTotal)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("query_store evidence for %d: %w", queryid, err)

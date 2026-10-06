@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // Limiter is a counting semaphore bounding concurrent probes.
@@ -143,7 +145,8 @@ func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) 
 	}
 	actx, cancel := context.WithTimeout(ctx, wait)
 	began := time.Now()
-	conn, err := r.pool.Acquire(actx)
+	pool, store := r.poolFor(spec)
+	conn, err := pool.Acquire(actx)
 	res.Timing.Acquire += time.Since(began)
 	cancel()
 	if err != nil {
@@ -153,7 +156,7 @@ func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) 
 	defer conn.Release()
 	start := time.Now()
 	res.ObservedAt = start
-	res = r.runSpec(ctx, conn, spec, args, res)
+	res = r.runSpec(ctx, conn, spec, args, res, store)
 	res.Timing.Execution += time.Since(start)
 	return res
 }
@@ -173,9 +176,23 @@ func (r *Runner) acquire(ctx context.Context) (func(), error) {
 	return func() { r.global.release(); r.local.release() }, nil
 }
 
+// poolFor is the pool a probe runs on and the store binding its SQL: a
+// history probe runs on the database's history store (histstore.Resolve
+// of the monitored pool), every other probe on the monitored database.
+func (r *Runner) poolFor(spec Spec) (*pgxpool.Pool, histstore.Store) {
+	if !spec.History {
+		return r.pool, histstore.NewMonitored(r.pool)
+	}
+	st := histstore.Resolve(r.pool)
+	if p, ok := st.DB().(*pgxpool.Pool); ok && st.Scoped() && p != nil {
+		return p, st
+	}
+	return r.pool, st
+}
+
 func (r *Runner) runSpec(ctx context.Context, conn *pgxpool.Conn, spec Spec, args Args,
-	res Result) Result {
-	version, err := r.serverVersion(ctx, conn)
+	res Result, store histstore.Store) Result {
+	version, err := r.serverVersion(ctx, conn, store.Scoped())
 	if err != nil {
 		st, reason := classify(err)
 		return failedAt(res, PhaseExecution, st, reason, err)
@@ -185,7 +202,7 @@ func (r *Runner) runSpec(ctx context.Context, conn *pgxpool.Conn, spec Spec, arg
 		return failedAt(res, PhaseExecution, StatusUnsupported, "pg_version",
 			fmt.Errorf("server_version_num %d", version))
 	}
-	res, err = r.execute(ctx, conn, spec, variant, args, res)
+	res, err = r.execute(ctx, conn, spec, variant, args, res, store)
 	if err != nil {
 		st, reason := classify(err)
 		return failedAt(res, PhaseExecution, st, reason, err)
@@ -199,11 +216,13 @@ func (r *Runner) runSpec(ctx context.Context, conn *pgxpool.Conn, spec Spec, arg
 }
 
 // serverVersion reads the server version once, on the probe's own
-// connection: a busy pool at startup does not spend its budget.
-func (r *Runner) serverVersion(ctx context.Context, conn *pgxpool.Conn) (int, error) {
+// connection: a busy pool at startup does not spend its budget. The
+// history store's server (store) is another server: read each time.
+func (r *Runner) serverVersion(ctx context.Context, conn *pgxpool.Conn, store bool) (int,
+	error) {
 	r.versionMu.Lock()
 	defer r.versionMu.Unlock()
-	if r.version > 0 {
+	if r.version > 0 && !store {
 		return r.version, nil
 	}
 	vctx, cancel := context.WithTimeout(ctx, MaxStatementTimeout+clientMargin)
@@ -216,7 +235,9 @@ func (r *Runner) serverVersion(ctx context.Context, conn *pgxpool.Conn) (int, er
 	if err != nil {
 		return 0, fmt.Errorf("server_version_num %q: %w", raw, err)
 	}
-	r.version = v
+	if !store {
+		r.version = v
+	}
 	return v, nil
 }
 
@@ -233,6 +254,7 @@ const sessionSettingsSQL = `SELECT
 // local to it, reading at most MaxRows rows and MaxBytes of payload.
 func (r *Runner) execute(
 	ctx context.Context, conn *pgxpool.Conn, spec Spec, v Variant, args Args, res Result,
+	store histstore.Store,
 ) (Result, error) {
 	qctx, cancel := context.WithTimeout(ctx, spec.StatementTimeout+clientMargin)
 	defer cancel()
@@ -252,7 +274,8 @@ func (r *Runner) execute(
 	if err != nil {
 		return res, err
 	}
-	rows, err := tx.Query(qctx, sql, args.params(spec.Args, spec.MaxRows+1)...)
+	sql, params := store.Bind(sql, args.params(spec.Args, spec.MaxRows+1)...)
+	rows, err := tx.Query(qctx, sql, params...)
 	if err != nil {
 		return res, err
 	}

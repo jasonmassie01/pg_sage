@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -91,18 +92,20 @@ func snapshotHistoryRows(
 		if to.IsZero() {
 			to = time.Now().UTC()
 		}
-		return pool.Query(ctx, `/* pg_sage */ SELECT collected_at, `+snapstore.DataSQL("")+`
-			 FROM (SELECT collected_at, data, base_id FROM sage.snapshots
-			       WHERE category = $1 AND collected_at BETWEEN $2 AND $3
-			       ORDER BY collected_at DESC LIMIT $4) capped
+		return histstore.Resolve(pool).Query(ctx, `/* pg_sage */ SELECT collected_at, `+
+			snapstore.DataSQL("")+`
+			 FROM (SELECT s.collected_at, s.data, s.base_id FROM sage.snapshots s
+			       WHERE {db:s} AND s.category = $1 AND s.collected_at BETWEEN $2 AND $3
+			       ORDER BY s.collected_at DESC LIMIT $4) capped
 			 ORDER BY collected_at`,
 			metric, from, to, snapshotHistoryMaxPoints)
 	}
-	return pool.Query(ctx, `/* pg_sage */ SELECT collected_at, `+snapstore.DataSQL("")+`
-		 FROM (SELECT collected_at, data, base_id FROM sage.snapshots
-		       WHERE category = $1
-		         AND collected_at > now() - ($2 || ' hours')::interval
-		       ORDER BY collected_at DESC LIMIT $3) capped
+	return histstore.Resolve(pool).Query(ctx, `/* pg_sage */ SELECT collected_at, `+
+		snapstore.DataSQL("")+`
+		 FROM (SELECT s.collected_at, s.data, s.base_id FROM sage.snapshots s
+		       WHERE {db:s} AND s.category = $1
+		         AND s.collected_at > now() - ($2 || ' hours')::interval
+		       ORDER BY s.collected_at DESC LIMIT $3) capped
 		 ORDER BY collected_at`,
 		metric, strconv.Itoa(hours), snapshotHistoryMaxPoints)
 }
