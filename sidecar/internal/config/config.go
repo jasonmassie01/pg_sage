@@ -101,6 +101,8 @@ type Config struct {
 	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
+	// FleetLearning is fleet learning and leader election (fleet_learning.go).
+	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
 
@@ -753,6 +755,9 @@ func (c *Config) validate() error {
 	if err := c.SelfConfig.validate(); err != nil {
 		return err
 	}
+	if err := c.FleetLearning.validate(); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
@@ -1069,7 +1074,8 @@ func newDefaults() *Config {
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
-		SelfConfig: defaultSelfConfigConfig(),
+		SelfConfig:    defaultSelfConfigConfig(),
+		FleetLearning: defaultFleetLearningConfig(),
 	}
 }
 

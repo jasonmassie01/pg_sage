@@ -470,3 +470,16 @@ operator_preference self_budget.blocks_per_hour
 operator_preference self_budget.cpu_ms_per_cycle
 operator_preference self_budget.db_time_ms_per_hour
 operator_preference self_budget.storage_mb
+
+# Fleet learning (v2.3.0): evidence and coordination the operator declares;
+# none widens authority or spend (the split never exceeds the fleet cap).
+operator_preference fleet_learning.budget_ceiling_pct
+operator_preference fleet_learning.budget_floor_pct
+operator_preference fleet_learning.budget_split
+operator_preference fleet_learning.enabled
+operator_preference fleet_learning.fleet_finding_min_databases
+operator_preference fleet_learning.include_names
+operator_preference fleet_learning.interval_minutes
+operator_preference fleet_learning.leader_lease_seconds
+operator_preference fleet_learning.lookalike_min_similarity
+operator_preference fleet_learning.min_prior_outcomes
