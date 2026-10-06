@@ -82,7 +82,7 @@ type CycleResult struct {
 }
 
 // RunCycle fingerprints every fleet database, records its outcome digest
-// and drops departed databases. A database that cannot be read is logged
+// and drops departed databases (not when no database could be read). A database that cannot be read is logged
 // and skipped; a lost lease (ErrFenced) stops the cycle at once.
 func (s *Service) RunCycle(ctx context.Context, f Fence) (CycleResult, error) {
 	res := CycleResult{Failed: []string{}}
@@ -102,10 +102,15 @@ func (s *Service) RunCycle(ctx context.Context, f Fence) (CycleResult, error) {
 		}
 		res.Databases++
 	}
+	s.invalidate()
+	if res.Databases == 0 {
+		// Nothing read (fleet still connecting, or an outage): keep every
+		// stored fingerprint rather than prune the whole fleet.
+		return res, nil
+	}
 	if err := s.store.Prune(ctx, f, names); err != nil {
 		return res, err
 	}
-	s.invalidate()
 	return res, nil
 }
 

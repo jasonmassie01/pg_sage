@@ -29,6 +29,21 @@ var (
 // needInterval is how often the fleet LLM budget is re-split by need.
 const needInterval = 5 * time.Minute
 
+// firstCycleDelay lets the fleet's databases connect and register before
+// the first fingerprint cycle.
+const firstCycleDelay = 2 * time.Minute
+
+// afterDelay runs fn after d unless ctx ends first.
+func afterDelay(ctx context.Context, d time.Duration, fn func()) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+		fn()
+	}
+}
+
 // fleetLearningScope names the fleet a control database serves: every
 // sidecar of the same fleet computes the same scope, different fleets
 // different ones. YAML fleets hash their database names (never stored).
@@ -112,7 +127,9 @@ func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 			fleetLearningSources(mgr), fleetlearn.Settings{IncludeNames: fl.IncludeNames,
 				MinSimilarity: fl.LookalikeMinSimilarity, MinPriorOutcomes: fl.MinPriorOutcomes},
 			logStructuredWrapper)
-		go every(ctx, fl.Interval(), runFleetLearningCycle)
+		go afterDelay(ctx, firstCycleDelay, func() {
+			every(ctx, fl.Interval(), runFleetLearningCycle)
+		})
 	}
 	if fleetLLMBudget != nil {
 		go every(ctx, needInterval, func(c context.Context) {
