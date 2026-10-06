@@ -131,19 +131,19 @@ CHANGELOG `## Unreleased` bullet; key class; regenerate config metadata.
 
 ## Steps (checkable)
 
-- [ ] 1. Plan (this file)
-- [ ] 2. Phase 1 tests written and committed (histstore bind/registry/static scan,
+- [x] 1. Plan (this file)
+- [x] 2. Phase 1 tests written and committed (histstore bind/registry/static scan,
       schema migration, config, copier, startup check, readers identical in both
       modes, retention store cleaner + cap, footprint/self budget, CLI)
-- [ ] 3. Config + key class + config meta
-- [ ] 4. Schema migration
-- [ ] 5. histstore package
-- [ ] 6. Rewire writers/readers (+ split reads)
-- [ ] 7. Retention store cleaner and cap; footprint; self budget
-- [ ] 8. Migration command and startup refusal; runtime wiring
-- [ ] 9. Perf gate meta variant
-- [ ] 10. Docs, CHANGELOG
-- [ ] 11. Build, vet, lint, -race touched packages (PG17, DB tests PG14), e2e,
+- [x] 3. Config + key class + config meta
+- [x] 4. Schema migration
+- [x] 5. histstore package
+- [x] 6. Rewire writers/readers (+ split reads)
+- [x] 7. Retention store cleaner and cap; footprint; self budget
+- [x] 8. Migration command and startup refusal; runtime wiring
+- [x] 9. Perf gate meta variant
+- [x] 10. Docs, CHANGELOG
+- [x] 11. Build, vet, lint, -race touched packages (PG17, DB tests PG14), e2e,
       perf gate both modes, secret scan, push, PR
 
 ## Deferred (documented)
