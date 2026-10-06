@@ -28,3 +28,35 @@ func calibrationText(raw any) string {
 	}
 	return ""
 }
+
+// lookalikeText renders the fleet's look-alike prior (detail
+// "lookalike_prior"): how comparable actions went on similar databases.
+func lookalikeText(raw any) string {
+	p, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	n, okN := number(p["outcomes"])
+	dbs, okD := number(p["databases"])
+	if !okN || !okD || n <= 0 || dbs <= 0 {
+		return ""
+	}
+	improved, _ := number(p["improved"])
+	regressed, _ := number(p["regressed"])
+	text := fmt.Sprintf("%.0f of %.0f comparable actions improved", improved, n)
+	if regressed > 0 {
+		text += fmt.Sprintf(", %.0f regressed,", regressed)
+	}
+	noun := "databases"
+	if dbs == 1 {
+		noun = "database"
+	}
+	text += fmt.Sprintf(" on %.0f look-alike %s", dbs, noun)
+	switch p["match"] {
+	case "table_shape":
+		text += " (same table shape)"
+	case "action_class":
+		text += " (same kind of action)"
+	}
+	return text
+}

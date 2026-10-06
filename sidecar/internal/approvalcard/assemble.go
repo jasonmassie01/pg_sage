@@ -138,6 +138,7 @@ func rationaleOf(in Inputs) *Rationale {
 				r.Confidence = &conf
 			}
 			r.Calibration = calibrationText(detail["confidence_calibration"])
+			r.LookAlike = lookalikeText(detail["lookalike_prior"])
 			return r
 		}
 	}
@@ -147,7 +148,8 @@ func rationaleOf(in Inputs) *Rationale {
 	if strings.TrimSpace(recommendation) == "" {
 		return nil
 	}
-	return &Rationale{Source: "rule", Text: truncate(recommendation, 1200)}
+	return &Rationale{Source: "rule", Text: truncate(recommendation, 1200),
+		LookAlike: lookalikeText(detail["lookalike_prior"])}
 }
 
 // predictedOf reads the predicted effect the producer recorded.
