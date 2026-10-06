@@ -30,14 +30,15 @@ func runPerfRuntimeWithStore(
 	cloudEnvironment = detectCloudEnvironment()
 	cfg.CloudEnvironment = cloudEnvironment
 
-	base := readPerfCounters(t, ctx, harness, logs, true)
+	// pg_stat_statements_reset is server-wide: read both databases, then reset.
+	base := readPerfCounters(t, ctx, harness, logs, false)
 	metaBase := readPerfCounters(t, ctx, metaHarness, logs, true)
 	initStandalone()
 	stopStore := startHistoryStoreCleanerFor(storePool)
 	router := perfRouter(t)
 	stopWorkload := startPerfWorkload(t, dsn, scale.HotTables())
 	time.Sleep(timing.Warmup)
-	warm := readPerfCounters(t, ctx, harness, logs, true)
+	warm := readPerfCounters(t, ctx, harness, logs, false)
 	metaWarm := readPerfCounters(t, ctx, metaHarness, logs, true)
 
 	steadyStart := time.Now()
