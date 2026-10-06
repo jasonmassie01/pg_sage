@@ -205,7 +205,7 @@ func TestIndexReplaceSucceeds(t *testing.T) {
 	}
 }
 
-func TestIndexReplaceRunsFromTheApprovalQueueAndTakeAction(t *testing.T) {
+func TestIndexReplaceRunsFromTheApprovalQueue(t *testing.T) {
 	f := newReplaceFixture(t, "b")
 	run, err := f.exec.RunApprovedAction(f.ctx, store.QueuedAction{ID: 1,
 		FindingID: f.findingID, ProposedSQL: f.sql, RollbackSQL: f.rollback,
@@ -214,7 +214,10 @@ func TestIndexReplaceRunsFromTheApprovalQueueAndTakeAction(t *testing.T) {
 		t.Fatalf("approved replace = %+v, %v", run, err)
 	}
 	f.assertSucceeded(run.ActionLogID)
+}
 
+// One fixture per test: requireDB takes the cross-package session lock.
+func TestIndexReplaceRunsFromTakeAction(t *testing.T) {
 	g := newReplaceFixture(t, "b")
 	id, err := g.exec.ExecuteManual(g.ctx, g.findingID, g.sql, g.rollback, &g.userID)
 	if err != nil || id <= 0 {
@@ -337,8 +340,10 @@ func TestIndexReplaceKeepsForeignKeySupport(t *testing.T) {
 	f.must(t, "CREATE TABLE "+parent+" (id int PRIMARY KEY)")
 	f.must(t, "INSERT INTO "+parent+" SELECT g FROM generate_series(0, 60) g")
 	f.must(t, "ALTER TABLE "+f.table+" ADD FOREIGN KEY (a) REFERENCES "+parent+" (id)")
-	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+
-		parent+" CASCADE") })
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+
+			parent+" CASCADE")
+	})
 	id, err := f.run()
 	if err != nil {
 		t.Fatalf("(a, b) still supports the foreign key on (a): %d, %v", id, err)

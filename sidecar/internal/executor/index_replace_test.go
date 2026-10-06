@@ -239,7 +239,10 @@ func TestIndexReplaceApprovalReadiness(t *testing.T) {
 	got := exec.ApprovalReadiness(store.QueuedAction{ActionType: ActionTypeReplaceIndex,
 		ActionRisk: "moderate", Status: "pending", ProposedSQL: sql, RollbackSQL: rollback,
 		ExpiresAt: now.Add(time.Hour)}, now)
-	if !got.Eligible || got.Policy.Decision != PolicyDecisionExecute {
+	// Readiness presents an authorizable operator approval as a ready
+	// approval (queue_for_approval), as for every other action.
+	if !got.Eligible || got.Policy.Decision != PolicyDecisionQueueApproval ||
+		got.DeferReason != "" {
 		t.Fatalf("an operator may approve the pair: %+v", got)
 	}
 }
@@ -292,11 +295,20 @@ func TestResumeStepFor(t *testing.T) {
 // No concurrent access tests here: the parser, classification, resume and
 // verdict decisions are pure functions (the DB tests cover the lease).
 
+func judging(in replaceJudgeInput) replaceJudgeInput {
+	in.Phase = replacePhaseJudging
+	return in
+}
+
+func watching(in replaceJudgeInput) replaceJudgeInput {
+	in.Phase = replacePhaseWatch
+	return in
+}
+
 func TestDecideReplace(t *testing.T) {
 	improved, neutral := cmp(verify.OutcomeImproved), cmp(verify.OutcomeNeutral)
 	regressed, thin := cmp(verify.OutcomeRegressed), cmp(verify.OutcomeInsufficient)
-	j := func(in replaceJudgeInput) replaceJudgeInput { in.Phase = replacePhaseJudging; return in }
-	w := func(in replaceJudgeInput) replaceJudgeInput { in.Phase = replacePhaseWatch; return in }
+	j, w := judging, watching
 	cases := []struct {
 		name    string
 		in      replaceJudgeInput

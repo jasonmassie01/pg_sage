@@ -276,3 +276,31 @@ func TestIndexReplaceMonitorEndsAfterTheDropWindow(t *testing.T) {
 		t.Fatalf("a finished watch stays finished: %+v, %v", d, err)
 	}
 }
+
+// The undo drops only the index this replacement built: a new index of the
+// same name created by someone else is kept and the undo fails loudly.
+func TestIndexReplaceRollbackKeepsAForeignNewIndex(t *testing.T) {
+	f := newReplaceFixture(t, "b")
+	id, err := f.run()
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	f.must(t, "DROP INDEX "+f.newIndex)
+	f.must(t, "CREATE INDEX "+f.bare+"_a_b ON "+f.table+" (b, a)")
+	if err := f.exec.RollbackAction(f.ctx, id, "operator undo"); !errors.Is(err,
+		ErrReplaceIdentityChanged) {
+		t.Fatalf("rollback over a foreign index = %v", err)
+	}
+	if exists, _ := f.index(f.newIndex); !exists {
+		t.Fatal("the foreign index with the new name is kept")
+	}
+	if exists, valid := f.index(f.oldIndex); !exists || !valid {
+		t.Fatal("the old index is re-created before the drop is refused")
+	}
+	if r := f.row(); r.state != replaceRollbackFailed {
+		t.Fatalf("state = %q, want rollback_failed", r.state)
+	}
+	if a := f.action(id); a.outcome != "rollback_failed" {
+		t.Fatalf("action outcome = %q", a.outcome)
+	}
+}
