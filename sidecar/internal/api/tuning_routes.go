@@ -36,7 +36,8 @@ func tuningCalibrationHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		}
 		t := calibrationSettings(mgr)
 		classes := []string{verify.ClassIndexCreate, verify.ClassIndexDrop, verify.ClassGUC,
-			verify.ClassReloption, verify.ClassStatistics, verify.ClassQueryHint}
+			verify.ClassReloption, verify.ClassStatistics, verify.ClassQueryHint,
+			verify.ClassIndexReplace}
 		since := time.Now().Add(-time.Duration(t.CalibrationWindowDays) * 24 * time.Hour)
 		store := tuning.NewPostgresStore(selected.pool, 0, catalogread.Default())
 		samples, err := store.Outcomes(r.Context(), classes, since,

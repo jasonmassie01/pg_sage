@@ -69,6 +69,9 @@ func (a *Agent) staleFindings(ctx context.Context, open []analyzer.Finding) map[
 		if ix := dropIndex(f); ix != "" {
 			indexes = append(indexes, ix)
 		}
+		if ix := replacedIndex(f); ix != "" {
+			indexes = append(indexes, ix)
+		}
 	}
 	if len(tables)+len(indexes) == 0 {
 		return nil
@@ -101,8 +104,15 @@ func staleReason(f analyzer.Finding, st CatalogState) string {
 	if table == "" || !isIndexCreate(f) {
 		return ""
 	}
+	if why := replacedIndexGone(f, st); why != "" {
+		return why
+	}
+	sql := f.RecommendedSQL
+	if create, _, ok := optimizer.SplitIndexReplaceSQL(sql); ok {
+		sql = create
+	}
 	for _, def := range st.IndexDefs[table] {
-		if optimizer.CoveredBy(f.RecommendedSQL, def) {
+		if optimizer.CoveredBy(sql, def) {
 			return "an existing index covers it: " + def
 		}
 	}
@@ -130,5 +140,6 @@ func dropIndex(f analyzer.Finding) string {
 }
 
 func isIndexCreate(f analyzer.Finding) bool {
-	return f.Category != CategoryIndexDrop && isLegacyIndexFinding(f)
+	return f.Category == CategoryIndexReplace ||
+		f.Category != CategoryIndexDrop && isLegacyIndexFinding(f)
 }
