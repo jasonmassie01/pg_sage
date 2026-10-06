@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **pg_sage's telemetry history can live outside the database it watches.** In meta-db
+  mode, `history.store: meta` keeps the collector's snapshots and the query store (most of
+  pg_sage's storage) in the metadata database instead of each monitored database. Each row
+  carries its database's id, and every reader and writer runs through one history store, so
+  a database never reads another's history; reads that used to join history with the
+  monitored database's catalog are split in two. `pg_sage history migrate` copies a
+  database's history over (resumable, read-only on the source; `--cleanup` removes the copy's
+  source once complete; `--to monitored` moves it back), and a database whose history would
+  be split between the two places is refused at startup with the command to run. Retention
+  and the snapshot cap of the shared tables run once per process, `sage_footprint` says where
+  history lives, and `self_budget.storage_mb` counts each database's share of the store. The
+  default (`monitored`) changes nothing for existing installs. Findings, the action log and
+  verification stay in each monitored database.
+
 ## v2.2.0 (2026-10-05) -- Ask Sage, self-configuration, managed clouds
 
 ### What's new

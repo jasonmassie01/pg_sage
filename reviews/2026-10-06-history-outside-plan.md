@@ -104,7 +104,7 @@ any; snapshot delta bases (`base_id`) stay within the store (ids are the store's
   share of the store (store history size x this database's row share, cached 15
   minutes).
 
-### Migration path (`pg_sage_sidecar history migrate`)
+### Migration path (`pg_sage history migrate`)
 
 - `--to meta` (default) copies the monitored sage history into the store,
   `--to monitored` copies it back. Source is read-only; snapshots copied in id
