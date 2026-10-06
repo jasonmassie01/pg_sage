@@ -14,7 +14,9 @@
   connection options. A degraded check now says which setting cut it off. Checks that
   degrade because of a timeout, a lock conflict or a dropped connection are retried once
   30 s later, and the retry is recorded on the same first-look report (marked `retried`,
-  with the first failure kept in the note).
+  with the first failure kept in the note). A first look can no longer hang on a catalog
+  lock (for example during long DDL): each step, including opening its transaction, is also
+  cancelled from pg_sage's side after twice its timeout plus a second.
 
 ## v2.2.0 (2026-10-05) -- Ask Sage, self-configuration, managed clouds
 

@@ -116,6 +116,10 @@ func (p *pass) steps() []step {
 // open begins the read-only transaction and applies the statement timeout:
 // the budget in opts, unless the operator set a lower one on the session.
 func (p *pass) open(ctx context.Context) error {
+	// Nothing bounds this transaction's first statements on the server yet, and a
+	// catalog-cache rebuild can wait on a lock held by DDL: bound them here.
+	ctx, cancel := context.WithTimeout(ctx, p.stepBudget())
+	defer cancel()
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -156,7 +160,9 @@ func (p *pass) run(ctx context.Context, st step) error {
 			return p.fail(ctx, st.rules, err)
 		}
 	}
-	outcomes, err := st.fn(ctx, p.tx)
+	sctx, cancel := context.WithTimeout(ctx, p.stepBudget())
+	outcomes, err := st.fn(sctx, p.tx)
+	cancel()
 	if err != nil {
 		p.close()
 		return p.fail(ctx, st.rules, err)
@@ -194,9 +200,29 @@ func (p *pass) fail(ctx context.Context, rules []string, err error) error {
 	return nil
 }
 
+// stepGrace is how long past twice the statement timeout pg_sage waits for
+// a first-look step before cancelling it from the client side.
+const stepGrace = time.Second
+
+// stepBudget bounds one step from the client side: the server's
+// statement_timeout normally ends a slow step first, but a wait outside a
+// statement's timeout (a lock taken while opening the transaction) must
+// not hang the first look.
+func (p *pass) stepBudget() time.Duration {
+	limit := p.opts.StatementTimeout
+	if p.timeout > 0 {
+		limit = time.Duration(p.timeout) * time.Millisecond
+	}
+	return 2*limit + stepGrace
+}
+
 // degradeReason states why a check could not run, with the fix when known;
 // a timeout names the operator setting it came from (setBy), if any.
 func degradeReason(err error, timeoutMS int, setBy string) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("did not finish within %d ms plus a grace period (waiting on "+
+			"a catalog lock or a busy server); pg_sage cancelled it", 2*timeoutMS)
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
@@ -217,6 +243,8 @@ func degradeReason(err error, timeoutMS int, setBy string) string {
 // header reads the relation count and the statistics window; a failure
 // leaves them unknown and is not a check of its own.
 func (p *pass) header(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, p.stepBudget())
+	defer cancel()
 	if err := p.tx.QueryRow(ctx, relationsSQL).Scan(&p.report.Relations); err != nil {
 		p.close()
 		return

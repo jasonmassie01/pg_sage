@@ -303,3 +303,38 @@ func TestRunKeepsItsBudgetUnderAHigherOperatorTimeout(t *testing.T) {
 			"role limit", r.StatementTimeoutMS, DefaultStatementTimeout)
 	}
 }
+
+// Opening the first look's transaction reads the session's statement_timeout
+// before any limit of pg_sage's own is set; a lock held on the catalog there
+// (DDL, or a cache rebuild waiting on pg_index under load) must not hang the
+// first look: the client-side step deadline ends it (CI on PR #130 hung for
+// 180 s on the reopen after a degraded step).
+func TestOpenIsBoundedWhenTheSettingsReadBlocks(t *testing.T) {
+	admin, ctx := livePool(t)
+	single := warmSingleConn(t, ctx, admin)
+	opts := testOptions("app")
+	opts.StatementTimeout = 300 * time.Millisecond
+	conn, err := pgx.ConnectConfig(ctx, admin.Config().ConnConfig.Copy())
+	if err != nil {
+		t.Fatalf("connect lock session: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := conn.Exec(ctx,
+		"LOCK TABLE pg_catalog.pg_settings IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatalf("lock pg_settings: %v", err)
+	}
+	start := time.Now()
+	_, err = Run(ctx, single, opts)
+	took := time.Since(start)
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("run = %v (test ctx %v), want the open to fail on its own deadline", err,
+			ctx.Err())
+	}
+	if took > 10*time.Second || !strings.Contains(err.Error(), "statement_timeout") {
+		t.Fatalf("run took %v with %v, want a bounded failure reading statement_timeout",
+			took, err)
+	}
+}
