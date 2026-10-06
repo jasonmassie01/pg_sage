@@ -101,7 +101,7 @@ func checkSide(ctx context.Context, p Placement, src, dst Store, want Mode) erro
 			detail = "has rows written after the last migration"
 		}
 		return &LocationError{Database: p.Name, Table: table, Want: want, Detail: detail,
-			Command: fmt.Sprintf("pg_sage_sidecar history migrate --to %s --database-id %d",
+			Command: fmt.Sprintf("pg_sage history migrate --to %s --database-id %d",
 				want, id)}
 	}
 	return nil

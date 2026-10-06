@@ -14,16 +14,16 @@ import (
 	"github.com/pg-sage/sidecar/internal/schema"
 )
 
-// pg_sage_sidecar history migrate|status: moves one database's telemetry
+// pg_sage history migrate|status: moves one database's telemetry
 // history (snapshots and the query store) between its monitored database
 // and the meta database (history.store), and shows where a move stands.
 // The copy only reads the source; --cleanup removes the source rows, and
 // only once every row is copied. It is idempotent and resumable: run it
 // again after an interruption, or to copy rows written since.
 
-const historyUsage = `usage: pg_sage_sidecar history migrate [--to meta|monitored]
+const historyUsage = `usage: pg_sage history migrate [--to meta|monitored]
            (--database-id N | --database NAME) [--batch N] [--cleanup]
-       pg_sage_sidecar history status [--to meta|monitored]
+       pg_sage history status [--to meta|monitored]
            (--database-id N | --database NAME)
 The monitored database's DSN comes from SAGE_HISTORY_MONITORED_DSN (or
 --monitored-dsn) and the meta database's from SAGE_META_DB (or --meta-dsn).
