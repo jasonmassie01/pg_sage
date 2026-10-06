@@ -3464,7 +3464,7 @@ literals always removed.</p>
 <tr>
 <td><code>sre.autonomy.bench_results_path</code></td>
 <td><code>""</code></td>
-<td>PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI <code>pgincidentbench/</code> artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. A <code>&lt;report&gt;.sigstore.json</code> bundle is verified; a report for another pg_sage build is refused. Not needed for the reports a release ships. Empty: upload through the API</td>
+<td>PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI <code>pgincidentbench/</code> artifact to read the core, M6 reactive and M6 runway shard reports (its replay corpus report, <code>pgincidentbench-replay.json</code>, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A <code>&lt;report&gt;.sigstore.json</code> bundle is verified; a report for another pg_sage build is refused. Not needed for the reports a release ships. Empty: upload through the API</td>
 </tr>
 <tr>
 <td><code>sre.autonomy.evaluate_interval_minutes</code></td>
