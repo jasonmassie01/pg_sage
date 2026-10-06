@@ -57,17 +57,17 @@ refusing it (v2.1.0 behaviour, `tuning/inflight.go overlapReason`).
 
 ## Steps
 
-- [ ] Plan (this file).
-- [ ] Phase 1 tests (commit before implementation): executor unit (parse, state machine,
+- [x] Plan (this file).
+- [x] Phase 1 tests (commit before implementation): executor unit (parse, state machine,
       contract, classification), executor DB (success, create failure, drop failure, crash
       between steps resume, rollback, constraint-backed refusal, FK refusal, identity
       change, facts refusal through the gate, monitor phase A/B), earned (class, caps,
       composite level), tuning (replace emitted instead of refusal; in-flight still
       refused), approvalcard (both statements, undo, lock), facts (migration with both
       statements), schema migration idempotent.
-- [ ] Implement: schema migration; executor (replace files, routing in ExecuteManual,
+- [x] Implement: schema migration; executor (replace files, routing in ExecuteManual,
       RollbackAction, RunCycle resume, classification switches); earned; policy budget/
       drop kind; facts; tuning; approvalcard; docs + CHANGELOG Unreleased.
-- [ ] Run: build, vet, golangci-lint, `-count=1 -cover` on PG17, touched packages on PG14
+- [x] Run: build, vet, golangci-lint, `-count=1 -cover` on PG17, touched packages on PG14
       and `-race`, e2e suite; post-test audit and mutation checks.
-- [ ] Commit, push, PR (not merged). Report in CLAUDE.md format.
+- [x] Commit, push, PR (not merged). Report in CLAUDE.md format.
