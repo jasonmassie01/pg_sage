@@ -50,6 +50,7 @@ var selfClasses = []selfClass{
 	{FamilyTuning, ClassAutovacuumTuning, policy.RiskModerate, verify.ClassReloption},
 	{FamilyTuning, ClassQueryHint, policy.RiskModerate, verify.ClassQueryHint},
 	{FamilyTuning, ClassStatistics, policy.RiskModerate, verify.ClassStatistics},
+	{FamilyTuning, ClassIndexReplace, policy.RiskModerate, verify.ClassIndexReplace},
 	{FamilyHygiene, ClassIndexDrop, policy.RiskModerate, verify.ClassIndexDrop},
 	{FamilyHygiene, ClassVacuum, policy.RiskSafe, verify.ClassVacuum},
 	{FamilyHygiene, ClassAnalyze, policy.RiskSafe, verify.ClassAnalyze},
@@ -128,6 +129,9 @@ func CapForPair(f Family, c ActionClass) Level {
 	if !ok || SelfFamilyFor(c) != f {
 		return L1
 	}
+	if len(ComponentClasses(c)) > 0 {
+		return spec.Cap // a composite's cap binds its self-initiated pair too
+	}
 	switch spec.Reversibility {
 	case Reversible:
 		return L3
@@ -176,6 +180,28 @@ func classForActionLabel(label string) ActionClass {
 		return ClassAnalyze
 	case "retention_delete":
 		return ClassRetention
+	case "replace_index":
+		return ClassIndexReplace
 	}
 	return ""
+}
+
+// Pair is one family x class pair of the ledger.
+type Pair struct {
+	Family Family
+	Class  ActionClass
+}
+
+// composites are classes that run other classes' steps as one action. Their
+// cap binds the self-initiated pair (CapForPair), and their level never
+// exceeds the lowest level of their components (Service.Granted): an
+// index replacement is an index create plus an index drop.
+var composites = map[ActionClass][]Pair{
+	ClassIndexReplace: {{FamilyTuning, ClassIndexCreate}, {FamilyHygiene, ClassIndexDrop}},
+}
+
+// ComponentClasses are the pairs a composite class is made of (nil for a
+// plain class).
+func ComponentClasses(c ActionClass) []Pair {
+	return append([]Pair(nil), composites[c]...)
 }

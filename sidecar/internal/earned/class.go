@@ -48,6 +48,7 @@ const (
 	ClassSchemaChange      ActionClass = "schema_change"
 	ClassSequenceMigration ActionClass = "sequence_migration"
 	ClassRetention         ActionClass = "retention"
+	ClassIndexReplace      ActionClass = "index_replace"
 	ClassUnclassified      ActionClass = "unclassified"
 	AllClasses             ActionClass = "*"
 )
@@ -105,6 +106,12 @@ var classSpecs = []ClassSpec{
 		"sequence capacity migration"},
 	{ClassRetention, Irreversible, L1, []string{"retention_delete"},
 		"bounded retention delete of user rows"},
+	// Product call (roadmap 2.3): reversible (the old index is re-created
+	// from its kept definition), but two non-atomic steps with partial
+	// states stay a one-click handoff.
+	{ClassIndexReplace, Reversible, L2, []string{"replace_index"},
+		"CREATE INDEX CONCURRENTLY a wider index, then DROP INDEX CONCURRENTLY the " +
+			"index it subsumes (soft drop)"},
 	{ClassUnclassified, Irreversible, L1, nil, "any action without a known class"},
 }
 
@@ -193,7 +200,7 @@ var applicable = map[Family][]ActionClass{
 	FamilySequence: {ClassSequenceMigration},
 	// Self-initiated trust families (roadmap 1.2, selfinit.go).
 	FamilyTuning: {ClassIndexCreate, ClassConfigGUC, ClassAutovacuumTuning,
-		ClassQueryHint, ClassStatistics},
+		ClassQueryHint, ClassStatistics, ClassIndexReplace},
 	FamilyHygiene: {ClassIndexDrop, ClassVacuum, ClassAnalyze, ClassRetention,
 		ClassReindex},
 }

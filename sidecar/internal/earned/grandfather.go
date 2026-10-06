@@ -121,6 +121,11 @@ func (s *Service) SeedGrandfathered(ctx context.Context, database string,
 
 func (s *Service) seedOne(ctx context.Context, tx pgx.Tx, bound policy.RuntimeState,
 	now time.Time, sc selfClass) (State, bool, error) {
+	if len(ComponentClasses(sc.class)) > 0 {
+		// A composite never ran under the ramp; its level follows its
+		// components' (Service.Granted).
+		return State{}, false, nil
+	}
 	level, why := GrandfatheredLevel(bound, now, sc.class)
 	if level <= defaultLevel(sc.family) {
 		return State{}, false, nil
