@@ -17,12 +17,10 @@ func TestCollectorCycleWritesHistoryToTheStore(t *testing.T) {
 	p := histfixture.NewPair(t)
 	p.Switch(t, histstore.ModeMeta)
 	ctx := context.Background()
-	if _, err := p.Meta.Exec(ctx, `DROP TABLE IF EXISTS sage.snapshots_p`+
-		time.Now().UTC().AddDate(0, 0, 1).Format("20060102")); err != nil {
-		t.Fatal(err)
-	}
+	// A day past what bootstrap prepared: its partition must be made in the store.
+	at := time.Now().UTC().AddDate(0, 0, 8)
 	c := New(p.Monitored, config.DefaultConfig(), 170000, func(string, string, ...any) {})
-	snap := &Snapshot{CollectedAt: time.Now(),
+	snap := &Snapshot{CollectedAt: at,
 		Queries: []QueryStats{{QueryID: 61, Calls: 5, TotalExecTime: 50, MeanExecTime: 10}},
 		System:  SystemStats{ActiveBackends: 2}}
 	if err := c.persist(ctx, snap); err != nil {
@@ -39,10 +37,16 @@ func TestCollectorCycleWritesHistoryToTheStore(t *testing.T) {
 		t.Fatalf("store holds %d snapshots and %d samples, want a cycle's rows and 1 sample",
 			metaSnaps, metaQS)
 	}
-	var ok bool
+	day := at.Format("20060102")
+	var inStore, inMonitored bool
 	if err := p.Meta.QueryRow(ctx, `SELECT to_regclass('sage.snapshots_p' || $1) IS NOT NULL`,
-		time.Now().UTC().AddDate(0, 0, 1).Format("20060102")).Scan(&ok); err != nil || !ok {
-		t.Fatalf("tomorrow's snapshot partition must be ensured in the store (%v)", err)
+		day).Scan(&inStore); err != nil || !inStore {
+		t.Fatalf("the cycle's day partition must be ensured in the store (%v)", err)
+	}
+	if err := p.Monitored.QueryRow(ctx, `SELECT to_regclass('sage.snapshots_p' || $1)
+		IS NOT NULL`, day).Scan(&inMonitored); err != nil || inMonitored {
+		t.Fatalf("meta mode must not make history partitions in the monitored database (%v)",
+			err)
 	}
 }
 

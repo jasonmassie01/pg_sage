@@ -1,4 +1,4 @@
-package snapstore
+package snapstore_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/histstore"
+	"github.com/pg-sage/sidecar/internal/snapstore"
 	"github.com/pg-sage/sidecar/internal/testsupport/histfixture"
 	"github.com/pg-sage/sidecar/internal/testsupport/snapfixture"
 )
@@ -15,20 +16,20 @@ import (
 // store and the same database; every document reads back exactly as in
 // monitored mode.
 
-func persistScenario(t *testing.T, p *histfixture.Pair) {
+func persistScenario(t *testing.T, p *histfixture.Pair, start time.Time) {
 	t.Helper()
-	sc := snapfixture.Scenario{Start: time.Now().UTC().Add(-20 * time.Hour),
+	sc := snapfixture.Scenario{Start: start,
 		Step: time.Hour, Cycles: 18, Tables: 5, Indexes: 6, Seed: 7,
 		Events: snapfixture.Events{DropIndex: 4, CounterReset: 9, QueryChurn: 3}}
 	cycles, err := sc.Generate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := NewWriter()
+	w := snapstore.NewWriter()
 	for _, c := range cycles {
-		rows := make([]Row, 0, len(c.Docs))
+		rows := make([]snapstore.Row, 0, len(c.Docs))
 		for _, d := range c.Docs {
-			rows = append(rows, Row{Category: d.Category, Data: d.Data})
+			rows = append(rows, snapstore.Row{Category: d.Category, Data: d.Data})
 		}
 		if err := w.Persist(context.Background(), p.Monitored, c.At, rows); err != nil {
 			t.Fatalf("persist: %v", err)
@@ -36,10 +37,11 @@ func persistScenario(t *testing.T, p *histfixture.Pair) {
 	}
 }
 
-func readBack(t *testing.T, p *histfixture.Pair) []string {
+func readBackStore(t *testing.T, p *histfixture.Pair) []string {
 	t.Helper()
 	rows, err := histstore.Resolve(p.Monitored).Query(context.Background(),
-		`SELECT s.collected_at::text || ' ' || s.category || ' ' || `+DataSQL("s")+`::text
+		`SELECT s.collected_at::text || ' ' || s.category || ' ' || `+
+			snapstore.DataSQL("s")+`::text
 		 FROM sage.snapshots s WHERE {db:s} ORDER BY s.collected_at, s.category`)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
@@ -62,11 +64,12 @@ func readBack(t *testing.T, p *histfixture.Pair) []string {
 func TestWriterIdenticalInBothPlacements(t *testing.T) {
 	p := histfixture.NewPair(t)
 	got := map[histstore.Mode][]string{}
+	start := time.Now().UTC().Add(-20 * time.Hour) // the same fixture in both placements
 	for _, mode := range histfixture.Modes() {
 		p.Switch(t, mode)
 		p.Noise(t, time.Now().Add(-10*time.Hour), 1)
-		persistScenario(t, p)
-		got[mode] = readBack(t, p)
+		persistScenario(t, p, start)
+		got[mode] = readBackStore(t, p)
 	}
 	mon, meta := got[histstore.ModeMonitored], got[histstore.ModeMeta]
 	if len(mon) == 0 || len(mon) != len(meta) {
@@ -104,8 +107,8 @@ func TestWriterNeverFallsBackToTheMonitoredDatabase(t *testing.T) {
 	down.Meta.Close()
 	unreg := histstore.Register(p.Monitored, "app", store)
 	defer unreg()
-	err = NewWriter().Persist(context.Background(), p.Monitored, time.Now(),
-		[]Row{{Category: "system", Data: []byte(`{"a":1}`)}})
+	err = snapstore.NewWriter().Persist(context.Background(), p.Monitored, time.Now(),
+		[]snapstore.Row{{Category: "system", Data: []byte(`{"a":1}`)}})
 	if err == nil {
 		t.Fatal("a write to an unreachable store must fail")
 	}

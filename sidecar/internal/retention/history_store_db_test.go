@@ -21,7 +21,7 @@ func storeCfg() *config.Config {
 		QueryStoreDays: 14, FindingsDays: 30, SnapshotsMaxPct: 5}}
 }
 
-func countWhere(t *testing.T, p *histfixture.Pair, meta bool, sql string, args ...any) int {
+func countHist(t *testing.T, p *histfixture.Pair, meta bool, sql string, args ...any) int {
 	t.Helper()
 	pool := p.Monitored
 	if meta {
@@ -80,10 +80,10 @@ func TestPerDatabaseCleanerLeavesHistoryToTheStore(t *testing.T) {
 		t.Fatalf("a per-database cleaner in meta mode deleted history rows: %v",
 			stats.Deleted)
 	}
-	if n := countWhere(t, p, false, "SELECT count(*) FROM sage.snapshots"); n != 1 {
+	if n := countHist(t, p, false, "SELECT count(*) FROM sage.snapshots"); n != 1 {
 		t.Fatalf("leftover monitored snapshots: %d, want 1 (cleanup's job)", n)
 	}
-	if n := countWhere(t, p, true, "SELECT count(*) FROM sage.snapshots"); n != 1 {
+	if n := countHist(t, p, true, "SELECT count(*) FROM sage.snapshots"); n != 1 {
 		t.Fatalf("store snapshots: %d, want 1 (the store cleaner's job)", n)
 	}
 }
@@ -110,17 +110,17 @@ func TestStoreCleanerAgesOutEveryDatabasesHistory(t *testing.T) {
 		"SELECT count(*) FROM sage.snapshots WHERE collected_at < now() - interval '8 days'",
 		"SELECT count(*) FROM sage.query_store WHERE captured_at < now() - interval '15 days'",
 	} {
-		if n := countWhere(t, p, true, q); n != 0 {
+		if n := countHist(t, p, true, q); n != 0 {
 			t.Fatalf("%d expired rows left: %s", n, q)
 		}
 	}
 	for _, db := range []int{histfixture.DatabaseID, histfixture.OtherDatabaseID} {
-		if n := countWhere(t, p, true, `SELECT count(*) FROM sage.snapshots
+		if n := countHist(t, p, true, `SELECT count(*) FROM sage.snapshots
 			WHERE database_id = $1`, db); n != 1 {
 			t.Fatalf("database %d keeps %d recent snapshots, want 1", db, n)
 		}
 	}
-	if n := countWhere(t, p, true, "SELECT count(*) FROM sage.findings"); n != 1 {
+	if n := countHist(t, p, true, "SELECT count(*) FROM sage.findings"); n != 1 {
 		t.Fatal("the store cleaner must touch only the history tables of the meta database")
 	}
 }

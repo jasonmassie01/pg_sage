@@ -17,7 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
-func runHistory(t *testing.T, env map[string]string, args ...string) (int, string, string) {
+func runHistoryCLI(t *testing.T, env map[string]string, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
 	code := runHistoryCommand(context.Background(), args,
@@ -52,7 +52,7 @@ func TestHistoryCommandUsageErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			code, out, errOut := runHistory(t, c.env, c.args...)
+			code, out, errOut := runHistoryCLI(t, c.env, c.args...)
 			if code != 2 {
 				t.Fatalf("exit %d, want 2 (usage); stdout %q stderr %q", code, out, errOut)
 			}
@@ -95,9 +95,12 @@ func seedHistoryRows(t *testing.T, pool *pgxpool.Pool, n int) {
 	for i := 0; i < n; i++ {
 		if _, err := pool.Exec(context.Background(), `INSERT INTO sage.snapshots
 			(collected_at, category, data) VALUES (now() - $1 * interval '1 minute', 'system',
-			'{"i":1}'); INSERT INTO sage.query_store (captured_at, queryid, calls,
-			total_exec_time, mean_exec_time) VALUES (now() - $1 * interval '1 minute', 5, $1,
-			$1, 1)`, i); err != nil {
+			'{"i":1}')`, i); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(context.Background(), `INSERT INTO sage.query_store
+			(captured_at, queryid, calls, total_exec_time, mean_exec_time)
+			VALUES (now() - $1 * interval '1 minute', 5, $1, $1, 1)`, i); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -120,7 +123,7 @@ func TestHistoryCommandMigratesStatusAndCleansUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := map[string]string{"SAGE_HISTORY_MONITORED_DSN": monDSN, "SAGE_META_DB": metaDSN}
-	code, out, errOut := runHistory(t, env, "migrate", "--database", "app", "--batch", "3")
+	code, out, errOut := runHistoryCLI(t, env, "migrate", "--database", "app", "--batch", "3")
 	if code != 0 {
 		t.Fatalf("migrate exit %d: %s", code, errOut)
 	}
@@ -135,11 +138,11 @@ func TestHistoryCommandMigratesStatusAndCleansUp(t *testing.T) {
 	if n := count(t, mon, "SELECT count(*) FROM sage.snapshots"); n != 4 {
 		t.Fatalf("migrate without --cleanup must leave the source (%d rows)", n)
 	}
-	code, out, errOut = runHistory(t, env, "status", "--database", "app")
+	code, out, errOut = runHistoryCLI(t, env, "status", "--database", "app")
 	if code != 0 || !strings.Contains(out, "complete") {
 		t.Fatalf("status exit %d: %s %s", code, out, errOut)
 	}
-	code, out, errOut = runHistory(t, env, "migrate", "--database", "app", "--cleanup")
+	code, out, errOut = runHistoryCLI(t, env, "migrate", "--database", "app", "--cleanup")
 	if code != 0 {
 		t.Fatalf("cleanup exit %d: %s", code, errOut)
 	}
@@ -154,7 +157,7 @@ func TestHistoryCommandMigratesStatusAndCleansUp(t *testing.T) {
 func TestHistoryCommandUnknownDatabaseName(t *testing.T) {
 	monDSN, metaDSN, _, _ := historyDBs(t)
 	env := map[string]string{"SAGE_HISTORY_MONITORED_DSN": monDSN, "SAGE_META_DB": metaDSN}
-	code, _, errOut := runHistory(t, env, "migrate", "--database", "nope")
+	code, _, errOut := runHistoryCLI(t, env, "migrate", "--database", "nope")
 	if code != 1 || !strings.Contains(errOut, `"nope"`) {
 		t.Fatalf("unknown database: exit %d, stderr %q", code, errOut)
 	}
@@ -175,7 +178,7 @@ func TestHistoryCommandRefusesAMetaDatabaseWithoutTheStore(t *testing.T) {
 		pool.Close()
 	}
 	env := map[string]string{"SAGE_HISTORY_MONITORED_DSN": monDSN, "SAGE_META_DB": metaDSN}
-	code, _, errOut := runHistory(t, env, "migrate", "--database-id", "4")
+	code, _, errOut := runHistoryCLI(t, env, "migrate", "--database-id", "4")
 	// The command bootstraps the store itself (idempotent), so it works on a
 	// meta database that never ran in meta mode.
 	if code != 0 {
@@ -243,7 +246,11 @@ func errorsIsMigration(err error) bool {
 func preserveHistoryGlobals(t *testing.T) {
 	t.Helper()
 	oldCfg, oldMetaPool := cfg, historyMetaPool
-	cfg = config.Clone(oldCfg)
+	if oldCfg == nil {
+		cfg = config.DefaultConfig()
+	} else {
+		cfg = config.Clone(oldCfg)
+	}
 	t.Cleanup(func() { cfg, historyMetaPool = oldCfg, oldMetaPool })
 }
 

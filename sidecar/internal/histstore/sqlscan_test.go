@@ -23,12 +23,12 @@ var historySQL = regexp.MustCompile(
 // fails to parse if it is ever sent without a store binding it: a reader
 // can never silently read an empty (or another database's) history.
 var unscopedAllowed = map[string]string{
-	"internal/schema/":                "DDL and migrations of the tables themselves",
-	"internal/partition/":             "partition layout; acts on the pool it is given",
-	"internal/retention/":             "acts on the pool it is given: the store cleaner's is the store, a per-database cleaner skips history in meta mode",
-	"internal/testsupport/":           "test harnesses (perf gate, fixtures)",
-	"sre-bench/":                      "benchmark harness, always monitored mode",
-	"release-bench/":                  "benchmark harness, always monitored mode",
+	"internal/schema/":      "DDL and migrations of the tables themselves",
+	"internal/partition/":   "partition layout; acts on the pool it is given",
+	"internal/retention/":   "acts on the pool it is given: the store cleaner's is the store, a per-database cleaner skips history in meta mode",
+	"internal/testsupport/": "test harnesses (perf gate, fixtures)",
+	"sre-bench/":            "benchmark harness, always monitored mode",
+	"release-bench/":        "benchmark harness, always monitored mode",
 }
 
 func allowed(rel string) bool {

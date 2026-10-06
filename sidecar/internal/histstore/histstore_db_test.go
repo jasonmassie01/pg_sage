@@ -12,7 +12,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 	"github.com/pg-sage/sidecar/internal/testdb"
-	"github.com/pg-sage/sidecar/internal/testsupport/histfixture"
 	"github.com/pg-sage/sidecar/internal/testsupport/snapfixture"
 )
 
@@ -122,8 +121,8 @@ func day(t *testing.T) time.Time {
 	return time.Now().UTC().Truncate(24 * time.Hour).Add(-28 * time.Hour)
 }
 
-func migrate(t *testing.T, src, dst histstore.Store, opt histstore.MigrateOptions) (
-	histstore.MigrateReport) {
+func migrate(t *testing.T, src, dst histstore.Store,
+	opt histstore.MigrateOptions) histstore.MigrateReport {
 	t.Helper()
 	rep, err := histstore.Migrate(context.Background(), src, dst, opt)
 	if err != nil {

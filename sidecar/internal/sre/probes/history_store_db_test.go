@@ -18,6 +18,7 @@ func TestPlanRegressionsIdenticalInBothPlacements(t *testing.T) {
 	p := histfixture.NewPair(t)
 	ctx := context.Background()
 	got := map[histstore.Mode]string{}
+	now := time.Now() // the same fixture (absolute times) in both placements
 	for _, mode := range histfixture.Modes() {
 		p.Switch(t, mode)
 		st := histstore.Resolve(p.Monitored)
@@ -25,8 +26,8 @@ func TestPlanRegressionsIdenticalInBothPlacements(t *testing.T) {
 			{20 * time.Minute, 10, 5, "v1:a"}, {10 * time.Minute, 20, 55, "v1:b"}} {
 			if _, err := st.Exec(ctx, `INSERT INTO sage.query_store (captured_at, queryid,
 				calls, total_exec_time, mean_exec_time, plan_hash{dbcol})
-				VALUES (now() - make_interval(secs => $1), 881001, $2, $3, 0, $4{dbval})`,
-				s.ago.Seconds(), s.calls, s.total, s.hash); err != nil {
+				VALUES ($1, 881001, $2, $3, 0, $4{dbval})`,
+				now.Add(-s.ago), s.calls, s.total, s.hash); err != nil {
 				t.Fatal(err)
 			}
 		}
