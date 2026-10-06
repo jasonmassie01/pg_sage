@@ -12,6 +12,11 @@ and why**, and **request** (never force) a remediation.
   beside `v1`, never an edit of `v1`. Clients must ignore unknown fields and
   treat unknown enum values as unknown; pg_sage only adds fields and values
   within `v1` (a golden test enforces this against the frozen v1 baseline).
+- The document's `info.version` counts revisions within `v1`: the minor
+  number goes up with every additive change (new optional fields, values,
+  paths). Revisions: `1.0.0` (v2.1.0), `1.1.0` (investigator results,
+  `query_id` / `query_hash`, the transcript path). A result without the new
+  data is byte for byte what `1.0.0` served.
 - The same contract is available over MCP (`specialist_*` tools, see
   [MCP](mcp.md)).
 
@@ -53,6 +58,12 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 curl -s -H "Authorization: Bearer $TOKEN" $BASE/databases/orders/investigations/$ID
 # result: 202 while running, 200 when terminal
 curl -s -H "Authorization: Bearer $TOKEN" $BASE/databases/orders/investigations/$ID/result
+# 1.1.0: a plan regression of one statement, and its redacted investigator transcript
+curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"symptom":{"summary":"report query 10x slower"},"family":"plan_regression",
+       "query_id":"-6386917413405316221"}' \
+  $BASE/databases/orders/investigations
+curl -s -H "Authorization: Bearer $TOKEN" $BASE/databases/orders/investigations/$ID/transcript
 # request a candidate remediation (propose scope)
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"reason":"PD incident Q1ABC"}' \
@@ -76,6 +87,62 @@ is not a probability, labelled `uncalibrated` unless a bench report gives the
 family's top-1 rate with its Wilson lower bound: `bench_top1`),
 `missing_evidence` (probes that failed or were unavailable, a missing probe
 plan, a caller window that ended before the probes ran), and `remediations`.
+
+**Investigator (1.1.0).** When the model investigator ran (an LLM is
+configured), the result has an `investigator` section, labelled model
+output:
+
+- `verdict`: its answer normalized against the causal graph: `agree` (the
+  graph's root), `conclude` (a root for an inconclusive graph), `contest`
+  (another root than the graph's), `unmodeled` (a cause the graph has no
+  node for, in `cause`), `inconclusive`, or `no_answer` (it stopped without
+  one; `run.stop` says why). `root` and `graph_root` name the nodes.
+- `adoption`: whether a concluded or contested root was `adopted` or stayed
+  `advisory`, the `family` whose root authority decided and the `reason`
+  (the trust ledger's model-lift verdict for that family on the held-out
+  bench, or why no authority applied). Only an adopted root becomes
+  `root_cause`, which then says `source: model`, `authority: model_earned`.
+  An unmodeled cause is always advisory. Agreement and no answer adopt
+  nothing (`not_applicable`).
+- `claims`: the claims that survived citation checks, each citing its
+  evidence with the numbers that evidence holds (`dropped_claims` counts
+  the rest).
+- `missing_evidence`: the reads the investigator asked for that returned
+  nothing usable (refused, failed, not permitted), `source: investigator`.
+- `run` (plan, protocol, stop, model and tool calls, probes) and
+  `transcript`: the link to the redacted transcript,
+  `GET .../investigations/{id}/transcript` (read scope; MCP
+  `specialist_investigation_transcript`). The transcript holds the plan,
+  every read with its stored result and digest, the claims and the
+  outcome, redacted like everything else (identifiers hashed with a fresh
+  key per view unless `specialist.keep_identifiers`); `404 not_found`
+  when the investigator did not run.
+
+**Scope to one statement (1.1.0).** `query_id` (a `pg_stat_statements`
+queryid: a non-zero signed 64-bit integer, preferably sent as a string so
+no client rounds it) and/or `query_hash` (lowercase hex SHA-256 of the
+statement text exactly as `pg_stat_statements` shows it, UTF-8) scope an
+open or attach to one statement:
+
+- `plan_regression`: the investigation is about the statement (subject
+  `queryid N`): its `plan_regressions` probe reads only that statement, its
+  diagnosis is of it, and opens for different statements never share an
+  investigation. Attaching (by id, incident or window) to a plan
+  investigation of another statement is refused (`invalid_request`).
+- Any other family: the probes still read the whole database; the result
+  names the evidence that mentions the statement.
+
+The result (and the open response) echo it as `query_scope` to the caller
+that sent it (`applied`: `probes_and_diagnosis` or `evidence`;
+`root_matches`; `evidence_ids`). A `query_hash` is resolved in the
+database's `pg_stat_statements` with a parameter: no statement or two
+statements for one hash is `invalid_request` (send `query_id` to choose),
+a hash and an id naming different statements is `invalid_request`, and a
+database without `pg_stat_statements` is `unavailable`. pg_sage's role
+needs `pg_read_all_stats` to see other roles' statement text. Neither
+field ever reaches SQL as text, a prompt or an instruction. Subjects in
+the result are redacted like all text (a long number may be hidden), so
+use `root_matches` rather than parsing `root_cause.subject`.
 
 **Remediations** are pg_sage's own candidates, typed, with predicted effect,
 rollback, risk tier and the gate's *preview*: the evidence-matched cancel of a
@@ -132,7 +199,8 @@ attach to) an investigation; other events and unmapped services answer `202`
 ignored. Both the bearer token and `X-PagerDuty-Signature` must be valid.
 When the investigation finishes, pg_sage posts the diagnosis (never the
 incident's own text) as a note, with retries; only the configured `api_url`
-is ever called.
+is ever called. The note is the same in 1.1.0: the investigator's claims
+and a query scope are not posted (the adapter never scopes by statement).
 
 ## Generic webhook
 
