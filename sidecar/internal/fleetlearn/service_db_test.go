@@ -258,3 +258,26 @@ func TestService_LookAlikesCacheRefreshesAfterTTL(t *testing.T) {
 		t.Fatalf("after the TTL: %+v, want only b", looks)
 	}
 }
+
+func TestService_CycleWithNothingReadKeepsStoredFingerprints(t *testing.T) {
+	ctx := context.Background()
+	f := newFleet(t)
+	if _, err := f.svc.RunCycle(ctx, Fence{}); err != nil {
+		t.Fatalf("cycle: %v", err)
+	}
+	none := NewService(NewStore(f.control, "test-scope"),
+		func() []DatabaseSource { return nil }, Settings{}, nil)
+	res, err := none.RunCycle(ctx, Fence{})
+	if err != nil || res.Databases != 0 {
+		t.Fatalf("empty cycle = %+v, %v", res, err)
+	}
+	dead := NewService(NewStore(f.control, "test-scope"),
+		func() []DatabaseSource { return []DatabaseSource{{Name: "x"}} }, Settings{}, nil)
+	if res, err := dead.RunCycle(ctx, Fence{}); err != nil || len(res.Failed) != 1 {
+		t.Fatalf("all-failed cycle = %+v, %v", res, err)
+	}
+	got, _ := NewStore(f.control, "test-scope").Fingerprints(ctx)
+	if len(got) != 5 {
+		t.Fatalf("a cycle that read nothing pruned the fleet: %d left", len(got))
+	}
+}

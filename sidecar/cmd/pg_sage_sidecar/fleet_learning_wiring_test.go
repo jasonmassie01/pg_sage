@@ -162,3 +162,16 @@ func TestApplyFleetBudgetSplit(t *testing.T) {
 	fleetLLMBudget = nil
 	applyFleetBudgetSplit(map[string]float64{"a": 1}) // no budget: no panic
 }
+
+func TestAfterDelay(t *testing.T) {
+	ran := make(chan struct{}, 1)
+	afterDelay(context.Background(), time.Millisecond, func() { ran <- struct{}{} })
+	select {
+	case <-ran:
+	default:
+		t.Fatal("fn did not run after the delay")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	afterDelay(ctx, time.Hour, func() { t.Fatal("fn ran after cancellation") })
+}
