@@ -419,7 +419,8 @@ func migrationStatements() []string {
 		ddlOnboarding,
 		ddlSpecialist,
 		ddlAsk,
-		ddlManagedChangeProposals)
+		ddlManagedChangeProposals,
+		ddlFleetLearning)
 }
 
 // ---------------------------------------------------------------------------
