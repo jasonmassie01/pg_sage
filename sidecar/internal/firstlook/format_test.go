@@ -66,7 +66,8 @@ func TestQuickstartDeadTupleMinSizeMatchesThreshold(t *testing.T) {
 		t.Fatalf("BloatMinBytes = %d, want a positive whole number of MB", minBytes)
 	}
 	want := fmt.Sprintf("at least %d MB", minBytes>>20)
-	for _, line := range strings.Split(string(raw), "\n\n") {
+	doc := strings.ReplaceAll(string(raw), "\r\n", "\n") // CRLF checkouts
+	for _, line := range strings.Split(doc, "\n\n") {
 		if strings.Contains(line, "dead tuples") {
 			if !strings.Contains(strings.Join(strings.Fields(line), " "), want) {
 				t.Fatalf("the dead-tuple bullet does not say %q:\n%s", want, line)
