@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### What's new
+
+- **Fleet learning: databases that look alike learn from each other.** In fleet mode pg_sage
+  fingerprints every database's shape (column types, index shapes and query shapes with every
+  literal and name removed; no data, no names unless you set
+  `fleet_learning.include_names: true`) and finds its look-alikes within the same fleet and
+  tenant. When look-alikes have verified outcomes for the same kind of change on the same table
+  shape, the proposal and its approval card show them, labelled "from look-alike databases".
+  This is evidence only: it never raises confidence, trust or autonomy, and when look-alikes
+  mostly regressed the proposal waits for your approval. `GET /api/v1/fleet/lookalikes`.
+- **Fleet findings: the same problem on 30 databases is one finding.** A problem open on at
+  least `fleet_learning.fleet_finding_min_databases` databases (default 3) is listed once with
+  the databases it affects: on the Fleet page ("Recurring across the fleet"), at
+  `GET /api/v1/fleet/findings` and through the read-only MCP tool `fleet_findings` (a token
+  scoped to some databases sees only those).
+- **The fleet LLM budget follows need.** `llm.fleet_token_budget_daily` is now split by
+  measured need (open and critical findings, unresolved incidents), each database between
+  `fleet_learning.budget_floor_pct` (50) and `fleet_learning.budget_ceiling_pct` (300) of
+  the even share, instead of evenly. The daily cap is never exceeded;
+  `fleet_learning.budget_split: even` restores the even split.
+- **Several sidecars, one leader.** Sidecars sharing a control database elect one leader
+  through a lease in that database (`fleet_learning.leader_lease_seconds`, default 30; 0
+  turns election off). Only the leader runs fleet-wide jobs (fleet learning, approval-card
+  follow-ups, the agent-database reconciler); a stalled leader steps down before its lease
+  ends and another sidecar takes over. `GET /api/v1/fleet/leader` shows who leads.
+
+### Upgrading
+
+- **New tables:** `sage.fleet_fingerprint`, `sage.fleet_outcome_digest` and
+  `sage.fleet_leader_lease`, created at startup by an idempotent migration.
+
 ## v2.2.0 (2026-10-05) -- Ask Sage, self-configuration, managed clouds
 
 ### What's new
