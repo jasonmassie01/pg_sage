@@ -48,6 +48,25 @@ func lockIndexCatalog(t *testing.T, ctx context.Context, admin *pgxpool.Pool) fu
 	return release
 }
 
+// warmSingleConn is a one-connection pool on cfg's role and database, with
+// its session already started: while a test holds ACCESS EXCLUSIVE on
+// pg_index, a new backend can block reading the catalog during startup,
+// where statement_timeout does not apply (CI on PR #130 hung for 180 s).
+func warmSingleConn(t *testing.T, ctx context.Context, from *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := from.Config().Copy()
+	cfg.MaxConns, cfg.MinConns = 1, 1
+	p, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("single-connection pool: %v", err)
+	}
+	t.Cleanup(p.Close)
+	if err := p.Ping(ctx); err != nil {
+		t.Fatalf("warm the single connection: %v", err)
+	}
+	return p
+}
+
 // releaseAfter releases the lock after d, while the caller's first look
 // waits on it.
 func releaseAfter(release func(), d time.Duration) {
@@ -153,7 +172,7 @@ func operatorRolePool(t *testing.T, ctx context.Context, admin *pgxpool.Pool,
 func TestRunKeepsAnOperatorRoleTimeoutAndRetriesOnce(t *testing.T) {
 	admin, ctx := livePool(t)
 	s := seedProblems(t, ctx, admin)
-	mon := operatorRolePool(t, ctx, admin, "300")
+	mon := warmSingleConn(t, ctx, operatorRolePool(t, ctx, admin, "300"))
 	if _, err := Run(ctx, mon, testOptions("app")); err != nil {
 		t.Fatalf("warm-up run: %v", err)
 	}
@@ -176,9 +195,9 @@ func TestRunKeepsAnOperatorRoleTimeoutAndRetriesOnce(t *testing.T) {
 			t.Fatalf("retryable = %v, want %s", r.Retryable, rule)
 		}
 	}
-	if c := checkStatus(r, RuleXIDRunway); c.Status == CheckDegraded || c.Retried {
-		t.Fatalf("xid check = %+v: only the index step waited on pg_index", c)
-	}
+	// Other sessions' DDL can force catalog-cache rebuilds that read pg_index,
+	// so the XID step may wait on the same lock: then it is retried too.
+	xidBlocked := checkStatus(r, RuleXIDRunway).Status == CheckDegraded
 
 	retried, err := Retry(ctx, mon, testOptions("app"), r)
 	if err != nil {
@@ -199,9 +218,13 @@ func TestRunKeepsAnOperatorRoleTimeoutAndRetriesOnce(t *testing.T) {
 		t.Fatalf("retried report timeout %d retryable %v", retried.StatementTimeoutMS,
 			retried.Retryable)
 	}
-	if c := checkStatus(retried, RuleXIDRunway); c.Retried ||
-		c != checkStatus(r, RuleXIDRunway) {
-		t.Fatalf("xid check changed by the retry: %+v -> %+v", checkStatus(r, RuleXIDRunway), c)
+	c := checkStatus(retried, RuleXIDRunway)
+	switch {
+	case xidBlocked && (c.Status == CheckDegraded || !c.Retried):
+		t.Fatalf("blocked xid check = %+v after the retry, want it done and marked", c)
+	case !xidBlocked && (c.Retried || c != checkStatus(r, RuleXIDRunway)):
+		t.Fatalf("xid check changed by the retry: %+v -> %+v",
+			checkStatus(r, RuleXIDRunway), c)
 	}
 	if len(retried.Checks) != len(r.Checks) || retried.ID != r.ID ||
 		!retried.StartedAt.Equal(r.StartedAt) {
@@ -217,19 +240,20 @@ func TestRetryThatTimesOutAgainStaysDegraded(t *testing.T) {
 	seedProblems(t, ctx, admin)
 	opts := testOptions("app")
 	opts.StatementTimeout = 300 * time.Millisecond
-	if _, err := Run(ctx, admin, opts); err != nil {
+	single := warmSingleConn(t, ctx, admin)
+	if _, err := Run(ctx, single, opts); err != nil {
 		t.Fatalf("warm-up run: %v", err)
 	}
 	release := lockIndexCatalog(t, ctx, admin)
 	defer release()
-	r, err := Run(ctx, admin, opts)
+	r, err := Run(ctx, single, opts)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if c := checkStatus(r, RuleDuplicateIndex); c.Status != CheckDegraded {
 		t.Fatalf("first attempt = %+v, want degraded", c)
 	}
-	retried, err := Retry(ctx, admin, opts, r)
+	retried, err := Retry(ctx, single, opts, r)
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}
