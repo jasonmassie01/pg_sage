@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -44,6 +45,9 @@ func Assemble(in Inputs) Card {
 func actionTypeOf(a store.QueuedAction) string {
 	if t := strings.TrimSpace(a.ActionType); t != "" {
 		return t
+	}
+	if executor.IsIndexReplaceSQL(a.ProposedSQL) {
+		return executor.ActionTypeReplaceIndex
 	}
 	sql := strings.ToUpper(strings.TrimSpace(a.ProposedSQL))
 	for _, p := range []struct{ prefix, typ string }{
@@ -119,6 +123,11 @@ func targetsOf(f *FindingRow) []string {
 	}
 	object, _, _ := strings.Cut(f.Object, "|")
 	add(object)
+	// A replacement also drops the index it subsumes.
+	if rep, ok := f.Detail["index_replace"].(map[string]any); ok {
+		old, _ := rep["old_index"].(string)
+		add(old)
+	}
 	return out
 }
 
