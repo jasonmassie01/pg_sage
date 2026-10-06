@@ -29,6 +29,13 @@ type fakeBackend struct {
 	propErr   error
 	listErr   error
 	listCalls int
+	// Query-hash resolution and transcripts (contract revision 1.1.0).
+	hashes         map[string][]int64
+	hashErr        error
+	hashCalls      []string
+	transcripts    map[sre.UUID]sre.TranscriptView
+	transcriptErr  error
+	transcriptKeep []bool
 }
 
 func newFakeBackend() *fakeBackend {
@@ -284,4 +291,29 @@ func (m *memStore) all() []Record {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return append([]Record(nil), m.records...)
+}
+
+func (b *fakeBackend) ResolveQueryHash(_ context.Context, hash string) ([]int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.hashCalls = append(b.hashCalls, hash)
+	if b.hashErr != nil {
+		return nil, b.hashErr
+	}
+	return append([]int64(nil), b.hashes[hash]...), nil
+}
+
+func (b *fakeBackend) Transcript(_ context.Context, id sre.UUID,
+	keep bool) (sre.TranscriptView, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.transcriptKeep = append(b.transcriptKeep, keep)
+	if b.transcriptErr != nil {
+		return sre.TranscriptView{}, b.transcriptErr
+	}
+	v, ok := b.transcripts[id]
+	if !ok {
+		return sre.TranscriptView{}, fmt.Errorf("%w: %s", sre.ErrNoTranscript, id)
+	}
+	return v, nil
 }

@@ -49,13 +49,18 @@ type liveFixture struct {
 
 func newLiveFixture(t *testing.T) *liveFixture {
 	t.Helper()
+	return newLiveFixtureWith(t, lockRunner{})
+}
+
+func newLiveFixtureWith(t *testing.T, runner sre.ProbeRunner) *liveFixture {
+	t.Helper()
 	pool := livePool(t)
 	ctx := context.Background()
 	st, err := sre.NewPostgresStore(pool, sre.DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
-	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: st, Runner: lockRunner{},
+	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: st, Runner: runner,
 		Config: sre.DefaultCoordinatorConfig(fmt.Sprintf("specialist:%d",
 			time.Now().UnixNano()))})
 	if err != nil {
