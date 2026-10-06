@@ -182,7 +182,8 @@ func TestIngestMissingPaths(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent")
 	res, err := Ingest(context.Background(), &fakeLedger{}, nil,
 		Source{Path: missing, Shipped: true, Actor: "release_bench"})
-	if err != nil || res != (Result{}) {
+	if err != nil || res.Files != 0 || res.Added != 0 || res.Signed != 0 ||
+		res.Skipped != nil {
 		t.Fatalf("a missing shipped directory = %+v (%v), want nothing and no error", res,
 			err)
 	}
