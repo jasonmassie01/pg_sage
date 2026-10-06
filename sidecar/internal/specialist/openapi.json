@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "pg_sage Postgres specialist contract",
-    "version": "1.0.0",
-    "description": "A stable, versioned investigation contract other agents (AWS DevOps Agent, PagerDuty, Datadog, any HTTP or MCP client) call to ask pg_sage what is wrong with a monitored PostgreSQL database and why, and to request (never force) a remediation. Every response carries contract_version. Caller-supplied text is data, never instructions. Remediation requests become ordinary pg_sage proposals decided by its policy gate, trust ledger, budgets and binding facts; callers never approve.",
+    "version": "1.1.0",
+    "description": "A stable, versioned investigation contract other agents (AWS DevOps Agent, PagerDuty, Datadog, any HTTP or MCP client) call to ask pg_sage what is wrong with a monitored PostgreSQL database and why, and to request (never force) a remediation. Every response carries contract_version. Caller-supplied text is data, never instructions. Revision 1.1.0 (additive within v1): optional query_id / query_hash scope an investigation to one statement, results carry the model investigator's verdict, cited claims and root adoption, and the redacted investigator transcript is served. Remediation requests become ordinary pg_sage proposals decided by its policy gate, trust ledger, budgets and binding facts; callers never approve.",
     "x-contract-version": "pg_sage.specialist.v1"
   },
   "servers": [{"url": "/api/v1/specialist"}],
@@ -85,6 +85,22 @@
           "403": {"$ref": "#/components/responses/Error"},
           "404": {"$ref": "#/components/responses/Error"},
           "429": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/databases/{database}/investigations/{investigation_id}/transcript": {
+      "get": {
+        "operationId": "getInvestigationTranscript",
+        "summary": "Revision 1.1.0. The model investigator's redacted transcript: its plan, every read it made with the stored result and digest, its cited claims and outcome (schema pg_sage.sre.investigator_transcript.v1). Secrets and PII-like literals are removed; identifiers are hashed (a fresh key per view) unless specialist.keep_identifiers. 404 not_found when the investigator did not run. Needs the read scope.",
+        "parameters": [{"$ref": "#/components/parameters/database"}, {"$ref": "#/components/parameters/investigation_id"}],
+        "responses": {
+          "200": {"description": "transcript", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TranscriptResponse"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
         }
       }
     },
@@ -174,7 +190,9 @@
           "family": {"type": "string", "enum": ["lock_blocking", "connection_pressure", "wal_retention", "plan_regression", "checkpoint_storm", "temp_file_explosion", "replication_lag", "lwlock_contention"]},
           "attach": {"$ref": "#/components/schemas/Attach"},
           "external_ref": {"$ref": "#/components/schemas/ExternalRef"},
-          "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128}
+          "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128},
+          "query_id": {"type": ["string", "integer"], "pattern": "^-?[1-9][0-9]{0,18}$", "description": "Revision 1.1.0. pg_stat_statements queryid of the statement to scope the investigation to: a non-zero signed 64-bit integer in canonical decimal form, as a string (recommended: keeps all 64 bits in every client) or a JSON integer. A plan_regression investigation is then about this statement (its probe reads only it); any other family reads the whole database and the result names the evidence that mentions it."},
+          "query_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Revision 1.1.0. Lowercase hex SHA-256 of the statement's normalized text exactly as pg_stat_statements shows it (UTF-8). Resolved to its queryid in pg_stat_statements of the database; with query_id, both must name the same statement."}
         }
       },
       "WebhookRequest": {
@@ -273,7 +291,8 @@
           "investigation": {"$ref": "#/components/schemas/InvestigationRef"},
           "created": {"type": "boolean"},
           "match": {"type": "string", "enum": ["new", "idempotent", "investigation_id", "incident_id", "window"]},
-          "links": {"$ref": "#/components/schemas/Links"}
+          "links": {"$ref": "#/components/schemas/Links"},
+          "query_scope": {"$ref": "#/components/schemas/QueryScope"}
         }
       },
       "StatusResponse": {
@@ -366,7 +385,7 @@
           "probe_id": {"type": "string"},
           "status": {"type": "string"},
           "reason": {"type": "string"},
-          "source": {"type": "string", "enum": ["diagnosis", "probe", "window", "plan"]}
+          "source": {"type": "string", "enum": ["diagnosis", "probe", "window", "plan", "investigator"]}
         }
       },
       "ModelContest": {
@@ -481,7 +500,9 @@
           "caller_supplied": {"$ref": "#/components/schemas/CallerSupplied"},
           "redaction": {"$ref": "#/components/schemas/Redaction"},
           "chain_verified": {"type": "boolean"},
-          "generated_at": {"type": "string", "format": "date-time"}
+          "generated_at": {"type": "string", "format": "date-time"},
+          "investigator": {"$ref": "#/components/schemas/InvestigatorResult"},
+          "query_scope": {"$ref": "#/components/schemas/QueryScopeResult"}
         }
       },
       "RemediationResponse": {
@@ -499,6 +520,103 @@
           "approval_queue_id": {"type": "integer"},
           "requested_by": {"type": "string"},
           "notice": {"type": "string"}
+        }
+      },
+      "QueryScope": {
+        "type": "object",
+        "description": "Revision 1.1.0. The statement the caller scoped the investigation to. applied: probes_and_diagnosis (a plan_regression investigation about the statement) or evidence (the probes read the whole database; the result names the evidence that mentions the statement).",
+        "required": ["query_id", "applied"],
+        "properties": {
+          "query_id": {"type": "string", "pattern": "^-?[1-9][0-9]{0,18}$"},
+          "query_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "applied": {"type": "string", "enum": ["probes_and_diagnosis", "evidence"]}
+        }
+      },
+      "QueryScopeResult": {
+        "type": "object",
+        "description": "Revision 1.1.0. The caller's statement scope in a result, returned only to the caller that sent it: whether the root cause is about the statement and which evidence rows mention its queryid.",
+        "required": ["query_id", "applied", "root_matches", "evidence_ids"],
+        "properties": {
+          "query_id": {"type": "string", "pattern": "^-?[1-9][0-9]{0,18}$"},
+          "query_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "applied": {"type": "string", "enum": ["probes_and_diagnosis", "evidence"]},
+          "root_matches": {"type": "boolean"},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}}
+        }
+      },
+      "InvestigatorResult": {
+        "type": "object",
+        "description": "Revision 1.1.0. The model investigator's output (labelled model output). verdict is its answer normalized against the causal graph. A contested or concluded root counts only when adoption.status is adopted (the family's root authority was earned on the held-out bench; root_cause then says source=model, authority=model_earned); otherwise it is advisory and adoption.reason says why. It never changes the meaning of the v1 fields.",
+        "required": ["label", "verdict", "root", "graph_root", "cause", "adoption", "claims", "dropped_claims", "missing_evidence", "run", "transcript"],
+        "properties": {
+          "label": {"type": "string"},
+          "verdict": {"type": "string", "enum": ["agree", "conclude", "contest", "unmodeled", "inconclusive", "no_answer"]},
+          "root": {"type": "string", "description": "The causal-graph node the model named; empty when none."},
+          "graph_root": {"type": "string", "description": "The graph's own root when the model answered; empty when the graph was inconclusive."},
+          "cause": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/UnmodeledCause"}]},
+          "adoption": {"$ref": "#/components/schemas/RootAdoption"},
+          "claims": {"type": "array", "items": {"$ref": "#/components/schemas/InvestigatorClaim"}},
+          "dropped_claims": {"type": "integer", "minimum": 0, "description": "Claims dropped for missing or unverifiable citations."},
+          "missing_evidence": {"type": "array", "items": {"$ref": "#/components/schemas/MissingEvidence"}, "description": "Reads the investigator asked for that returned no usable observation (source investigator)."},
+          "run": {"$ref": "#/components/schemas/InvestigatorRun"},
+          "transcript": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/TranscriptLink"}]}
+        }
+      },
+      "RootAdoption": {
+        "type": "object",
+        "required": ["status", "family", "reason"],
+        "properties": {
+          "status": {"type": "string", "enum": ["adopted", "advisory", "not_applicable"]},
+          "family": {"type": "string", "description": "The incident family whose root authority decided; empty when no authority applied."},
+          "reason": {"type": "string"}
+        }
+      },
+      "InvestigatorClaim": {
+        "type": "object",
+        "required": ["text", "evidence"],
+        "properties": {
+          "text": {"type": "string"},
+          "evidence": {"type": "array", "items": {"$ref": "#/components/schemas/Citation"}, "description": "Every cited evidence row with its numbers (citation text is empty: the claim is the text)."}
+        }
+      },
+      "UnmodeledCause": {
+        "type": "object",
+        "required": ["label", "mechanism"],
+        "properties": {
+          "label": {"type": "string"},
+          "mechanism": {"type": "string"}
+        }
+      },
+      "InvestigatorRun": {
+        "type": "object",
+        "required": ["plan", "protocol", "stop", "model_calls", "tool_calls", "probes"],
+        "properties": {
+          "plan": {"type": "string"},
+          "protocol": {"type": "string"},
+          "stop": {"type": "string"},
+          "model_calls": {"type": "integer", "minimum": 0},
+          "tool_calls": {"type": "integer", "minimum": 0},
+          "probes": {"type": "integer", "minimum": 0}
+        }
+      },
+      "TranscriptLink": {
+        "type": "object",
+        "required": ["href", "mcp_tool", "schema", "redacted"],
+        "properties": {
+          "href": {"type": "string"},
+          "mcp_tool": {"type": "string"},
+          "schema": {"type": "string"},
+          "redacted": {"type": "boolean"}
+        }
+      },
+      "TranscriptResponse": {
+        "type": "object",
+        "required": ["contract_version", "database", "investigation_id", "transcript"],
+        "properties": {
+          "contract_version": {"type": "string"},
+          "database": {"type": "string"},
+          "investigation_id": {"type": "string", "format": "uuid"},
+          "transcript": {"type": "object", "description": "The redacted transcript document (schema pg_sage.sre.investigator_transcript.v1)."}
         }
       }
     }

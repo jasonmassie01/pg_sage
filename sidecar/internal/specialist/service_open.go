@@ -35,14 +35,18 @@ func (s *Service) Open(ctx context.Context, id Identity, database string,
 	if err != nil {
 		return OpenResponse{}, err
 	}
-	inv, match, err := s.find(ctx, b, req)
+	q, err := resolveQuery(ctx, b, req)
+	if err != nil {
+		return OpenResponse{}, err
+	}
+	inv, match, err := s.find(ctx, b, req, q)
 	if err != nil {
 		return OpenResponse{}, err
 	}
 	created := false
 	if inv == nil {
 		var started sre.Investigation
-		started, created, err = s.openNew(ctx, id, b, database, req)
+		started, created, err = s.openNew(ctx, id, b, database, req, q)
 		if err != nil {
 			return OpenResponse{}, err
 		}
@@ -50,35 +54,49 @@ func (s *Service) Open(ctx context.Context, id Identity, database string,
 		if !created {
 			match = "idempotent"
 		}
-	} else if _, err := s.record(ctx, id, database, req, *inv, false, match); err != nil {
+	} else if _, err := s.record(ctx, id, database, req, *inv, false, match,
+		q); err != nil {
 		return OpenResponse{}, err
 	}
 	m := mapper{red: sre.NewIdentifierRedactor(s.keepIdentifiers, s.redactKey)}
 	return OpenResponse{ContractVersion: ContractVersion, Database: database,
 		Investigation: m.ref(*inv), Created: created, Match: match,
-		Links: links(database, string(inv.ID))}, nil
+		Links: links(database, string(inv.ID)), QueryScope: q.scope(*inv)}, nil
 }
 
 // find resolves an attach request or a same-family investigation in the
-// caller's window; nil when a new one is to be opened.
-func (s *Service) find(ctx context.Context, b Backend, req OpenRequest) (*sre.Investigation,
-	string, error) {
+// caller's window; nil when a new one is to be opened. A statement scope
+// only attaches to a plan investigation of the same statement.
+func (s *Service) find(ctx context.Context, b Backend, req OpenRequest,
+	q *resolvedQuery) (*sre.Investigation, string, error) {
 	if a := req.Attach; a != nil {
-		if a.InvestigationID != "" {
-			d, err := b.Detail(ctx, sre.UUID(a.InvestigationID))
-			if err != nil {
-				return nil, "", backendErr(err)
-			}
-			return &d.Investigation, "investigation_id", nil
+		inv, match, err := s.attached(ctx, b, a)
+		if err == nil {
+			err = q.checkAttach(*inv)
 		}
-		inv, err := s.byIncident(ctx, b, a.IncidentID)
-		return inv, "incident_id", err
+		if err != nil {
+			return nil, "", err
+		}
+		return inv, match, nil
 	}
 	if req.Window == nil {
 		return nil, "", nil
 	}
-	inv, err := s.inWindow(ctx, b, req)
+	inv, err := s.inWindow(ctx, b, req, q.planSubject(req.Family))
 	return inv, "window", err
+}
+
+func (s *Service) attached(ctx context.Context, b Backend, a *Attach) (*sre.Investigation,
+	string, error) {
+	if a.InvestigationID != "" {
+		d, err := b.Detail(ctx, sre.UUID(a.InvestigationID))
+		if err != nil {
+			return nil, "", backendErr(err)
+		}
+		return &d.Investigation, "investigation_id", nil
+	}
+	inv, err := s.byIncident(ctx, b, a.IncidentID)
+	return inv, "incident_id", err
 }
 
 func (s *Service) byIncident(ctx context.Context, b Backend,
@@ -104,9 +122,9 @@ func (s *Service) byIncident(ctx context.Context, b Backend,
 
 // inWindow returns the newest investigation of the requested family that
 // started inside the caller's window (widened by windowSlack), live ones
-// first; nil when there is none.
-func (s *Service) inWindow(ctx context.Context, b Backend,
-	req OpenRequest) (*sre.Investigation, error) {
+// first, with subject when one is given; nil when there is none.
+func (s *Service) inWindow(ctx context.Context, b Backend, req OpenRequest,
+	subject string) (*sre.Investigation, error) {
 	p, err := b.List(ctx, sre.ListFilter{Limit: 50})
 	if err != nil {
 		return nil, backendErr(err)
@@ -119,7 +137,8 @@ func (s *Service) inWindow(ctx context.Context, b Backend,
 	var best *sre.Investigation
 	for i := range p.Items {
 		inv := &p.Items[i]
-		if inv.TriggerKind != kind || inv.CreatedAt.Before(start) || inv.CreatedAt.After(end) {
+		if inv.TriggerKind != kind || inv.CreatedAt.Before(start) || inv.CreatedAt.After(end) ||
+			(subject != "" && inv.Subject != subject) {
 			continue
 		}
 		if best == nil || (inv.State.Live() && !best.State.Live()) {
@@ -133,19 +152,20 @@ func (s *Service) inWindow(ctx context.Context, b Backend,
 // The bound check, the start and the record are serialized so parallel
 // opens cannot overshoot.
 func (s *Service) openNew(ctx context.Context, id Identity, b Backend, database string,
-	req OpenRequest) (sre.Investigation, bool, error) {
+	req OpenRequest, q *resolvedQuery) (sre.Investigation, bool, error) {
 	s.openMu.Lock()
 	defer s.openMu.Unlock()
 	if err := s.checkBounds(ctx, id); err != nil {
 		return sre.Investigation{}, false, err
 	}
 	inv, created, err := b.Start(ctx, sre.Trigger{CaseID: "specialist:" +
-		string(sre.NewUUID()), Kind: triggerFor(req.Family), Subject: externalSubject,
+		string(sre.NewUUID()), Kind: triggerFor(req.Family),
+		Subject:        q.subjectFor(req.Family),
 		IdempotencyKey: idempotencyKey(id, req), Actor: id.Actor()})
 	if err != nil {
 		return sre.Investigation{}, false, backendErr(err)
 	}
-	if _, err := s.record(ctx, id, database, req, inv, created, ""); err != nil {
+	if _, err := s.record(ctx, id, database, req, inv, created, "", q); err != nil {
 		return sre.Investigation{}, false, err
 	}
 	return inv, created, nil
@@ -153,6 +173,8 @@ func (s *Service) openNew(ctx context.Context, id Identity, b Backend, database 
 
 // idempotencyKey scopes the caller's key (or its external reference) to
 // its identity and bounds it; "" lets the investigator coalesce by trigger.
+// A statement scope is part of the key, so one key never returns another
+// statement's investigation (a v1 request's key is unchanged).
 func idempotencyKey(id Identity, req OpenRequest) string {
 	key := req.IdempotencyKey
 	if key == "" && req.ExternalRef != nil {
@@ -160,6 +182,9 @@ func idempotencyKey(id Identity, req OpenRequest) string {
 	}
 	if key == "" {
 		return ""
+	}
+	if req.QueryID != "" || req.QueryHash != "" {
+		key += "\x00query:" + string(req.QueryID) + ":" + req.QueryHash
 	}
 	sum := sha256.Sum256([]byte(id.TokenID + "\x00" + key))
 	return "spec:" + hex.EncodeToString(sum[:16])
@@ -219,14 +244,16 @@ func (s *Service) stillLive(ctx context.Context, ref LiveRef) bool {
 }
 
 // record audits an open or attach; adapter opens owe their system a result
-// post unless one is already queued for the same external reference.
+// post unless one is already queued for the same external reference. The
+// caller's statement scope is kept with its record.
 func (s *Service) record(ctx context.Context, id Identity, database string,
-	req OpenRequest, inv sre.Investigation, created bool, match string) (Record, error) {
+	req OpenRequest, inv sre.Investigation, created bool, match string,
+	q *resolvedQuery) (Record, error) {
 	r := Record{Kind: KindAttach, TokenID: id.TokenID, IdentityName: id.Name,
 		Actor: id.Actor(), Transport: transportOf(id), Database: database,
 		InvestigationID: string(inv.ID), Created: created, Match: match,
 		Symptom: scrubSymptom(req.Symptom), Window: req.Window,
-		ExternalRef: req.ExternalRef, Outbound: OutboundNone}
+		ExternalRef: req.ExternalRef, Outbound: OutboundNone, Query: q.scope(inv)}
 	if match == "" {
 		r.Kind, r.Match = KindOpen, "new"
 		if !created {

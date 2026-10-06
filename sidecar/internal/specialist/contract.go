@@ -55,6 +55,11 @@ type OpenRequest struct {
 	Attach         *Attach      `json:"attach,omitempty"`
 	ExternalRef    *ExternalRef `json:"external_ref,omitempty"`
 	IdempotencyKey string       `json:"idempotency_key,omitempty"`
+	// QueryID and QueryHash (revision 1.1.0) scope the investigation to one
+	// statement: a pg_stat_statements queryid and/or the SHA-256 of its
+	// normalized text as pg_stat_statements shows it.
+	QueryID   QueryID `json:"query_id,omitempty"`
+	QueryHash string  `json:"query_hash,omitempty"`
 }
 
 // WebhookRequest is the generic webhook's body.
@@ -129,6 +134,7 @@ type OpenResponse struct {
 	Created         bool             `json:"created"`
 	Match           string           `json:"match"`
 	Links           Links            `json:"links"`
+	QueryScope      *QueryScope      `json:"query_scope,omitempty"`
 }
 
 // StatusResponse is an investigation's progress.
@@ -306,6 +312,10 @@ type Result struct {
 	Redaction       Redaction         `json:"redaction"`
 	ChainVerified   bool              `json:"chain_verified"`
 	GeneratedAt     time.Time         `json:"generated_at"`
+	// Revision 1.1.0: the model investigator's output (labelled model
+	// output) and the caller's statement scope; absent when there is none.
+	Investigator *InvestigatorResult `json:"investigator,omitempty"`
+	QueryScope   *QueryScopeResult   `json:"query_scope,omitempty"`
 }
 
 // RemediationResponse is the gate's verdict on a requested remediation.

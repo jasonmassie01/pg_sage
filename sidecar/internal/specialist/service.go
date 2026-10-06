@@ -116,7 +116,8 @@ func backendErr(err error) error {
 		return nil
 	case errors.As(err, &coded):
 		return err
-	case errors.Is(err, sre.ErrNotFound), errors.Is(err, sreaction.ErrProposalNotFound):
+	case errors.Is(err, sre.ErrNotFound), errors.Is(err, sreaction.ErrProposalNotFound),
+		errors.Is(err, sre.ErrNoTranscript):
 		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	case errors.Is(err, sre.ErrInvalidRequest):
 		return fmt.Errorf("%w: %v", ErrInvalid, err)

@@ -46,6 +46,8 @@ type Record struct {
 	OutboundNextAt   time.Time    `json:"outbound_next_at"`
 	OutboundError    string       `json:"outbound_error,omitempty"`
 	CreatedAt        time.Time    `json:"created_at"`
+	// Query is the statement the caller scoped its investigation to (1.1.0).
+	Query *QueryScope `json:"query,omitempty"`
 }
 
 // LiveRef is an investigation an identity opened that was not yet seen
@@ -79,7 +81,7 @@ func NewPGStore(pool *pgxpool.Pool) *PGStore { return &PGStore{pool: pool} }
 const recordColumns = `id::text, kind, token_id, identity_name, actor, transport,
 	database_name, COALESCE(investigation_id, ''), created, match, symptom, time_window,
 	external_ref, remediation_id, verdict, reason, outbound, outbound_attempts,
-	outbound_next_at, outbound_error, created_at`
+	outbound_next_at, outbound_error, created_at, query_scope`
 
 func jsonOrNil(v any, isNil bool) ([]byte, error) {
 	if isNil {
@@ -102,18 +104,22 @@ func (s *PGStore) Record(ctx context.Context, r Record) (Record, error) {
 	if err != nil {
 		return Record{}, fmt.Errorf("encode external reference: %w", err)
 	}
+	query, err := jsonOrNil(r.Query, r.Query == nil)
+	if err != nil {
+		return Record{}, fmt.Errorf("encode query scope: %w", err)
+	}
 	if r.Outbound == "" {
 		r.Outbound = OutboundNone
 	}
 	row := s.pool.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.specialist_requests
 		(kind, token_id, identity_name, actor, transport, database_name, investigation_id,
 		 created, match, symptom, time_window, external_ref, remediation_id, verdict,
-		 reason, outbound)
+		 reason, outbound, query_scope)
 		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, $12, $13, $14,
-		 $15, $16)
+		 $15, $16, $17)
 		RETURNING `+recordColumns, r.Kind, r.TokenID, r.IdentityName, r.Actor, r.Transport,
 		r.Database, r.InvestigationID, r.Created, r.Match, sym, win, ext, r.RemediationID,
-		r.Verdict, r.Reason, r.Outbound)
+		r.Verdict, r.Reason, r.Outbound, query)
 	out, err := scanRecord(row)
 	if err != nil {
 		return Record{}, fmt.Errorf("record specialist request: %w", err)
@@ -123,18 +129,18 @@ func (s *PGStore) Record(ctx context.Context, r Record) (Record, error) {
 
 func scanRecord(row pgx.Row) (Record, error) {
 	var r Record
-	var sym, win, ext []byte
+	var sym, win, ext, query []byte
 	err := row.Scan(&r.ID, &r.Kind, &r.TokenID, &r.IdentityName, &r.Actor, &r.Transport,
 		&r.Database, &r.InvestigationID, &r.Created, &r.Match, &sym, &win, &ext,
 		&r.RemediationID, &r.Verdict, &r.Reason, &r.Outbound, &r.OutboundAttempts,
-		&r.OutboundNextAt, &r.OutboundError, &r.CreatedAt)
+		&r.OutboundNextAt, &r.OutboundError, &r.CreatedAt, &query)
 	if err != nil {
 		return Record{}, err
 	}
 	for _, f := range []struct {
 		raw    []byte
 		target any
-	}{{sym, &r.Symptom}, {win, &r.Window}, {ext, &r.ExternalRef}} {
+	}{{sym, &r.Symptom}, {win, &r.Window}, {ext, &r.ExternalRef}, {query, &r.Query}} {
 		if len(f.raw) > 0 {
 			if err := json.Unmarshal(f.raw, f.target); err != nil {
 				return Record{}, fmt.Errorf("decode stored request: %w", err)
