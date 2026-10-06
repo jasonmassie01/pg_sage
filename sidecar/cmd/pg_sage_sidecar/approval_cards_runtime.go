@@ -76,7 +76,9 @@ func startApprovalCardLoop(ctx context.Context, controlPool *pgxpool.Pool,
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				runApprovalCardCycle(ctx, followups, d, mgr)
+				if fleetLeaderAllows("approval card follow-ups") {
+					runApprovalCardCycle(ctx, followups, d, mgr)
+				}
 			}
 		}
 	}()

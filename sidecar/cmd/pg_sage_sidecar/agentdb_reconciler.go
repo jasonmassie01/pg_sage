@@ -44,6 +44,9 @@ func reconcileAgentDBsOnce(
 	store *agentdb.Store,
 	registry *agentdb.RunnerRegistry,
 ) {
+	if !fleetLeaderAllows("agent database reconcile") {
+		return
+	}
 	rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	res, err := store.ReconcileAbandonedDeployments(

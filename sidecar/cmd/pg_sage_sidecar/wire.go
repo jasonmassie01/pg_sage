@@ -158,6 +158,8 @@ func wireRouter(p WireParams) WireResult {
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 			Ask:        askServices(),
 			Specialist: specialistHandler,
+			// Look-alikes and leader status (fleet learning).
+			FleetLearning: fleetLearningAPI{},
 			// The request audit of the Postgres-specialist contract.
 			SpecialistAudit: specialistAudit,
 		},
