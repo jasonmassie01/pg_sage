@@ -27,7 +27,8 @@ func TestInstallKindIdenticalInBothPlacements(t *testing.T) {
 			t.Fatalf("%s: no snapshot of its own: want new, got %s", mode, st.InstallKind)
 		}
 		if _, err := histstore.Resolve(p.Monitored).Exec(ctx, `INSERT INTO sage.snapshots
-			(collected_at, category, data{dbcol}) VALUES (now(), 'system', '{}'{dbval})`); err != nil {
+			(collected_at, category, data{dbcol})
+			VALUES (now(), 'system', '{}'{dbval})`); err != nil {
 			t.Fatal(err)
 		}
 		st, err = Init(ctx, p.Monitored, "upgraded")

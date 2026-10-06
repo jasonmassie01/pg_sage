@@ -19,14 +19,7 @@ func runPerfRuntimeWithStore(
 	dsn, metaDSN string, scale perfgate.Scale, timing perfgate.Timing,
 ) []perfgate.Phase {
 	t.Helper()
-	preserveParityGlobals(t, perfConfig(t, dsn, timing))
-	preserveHistoryGlobals(t)
-	cfg.Mode, cfg.MetaDB, cfg.History.Store = "standalone", metaDSN, "meta"
-	storePool := perfStorePool(t, metaDSN)
-	historyMetaPool = func() *pgxpool.Pool { return storePool }
-	oldID := runtimeHistoryID
-	runtimeHistoryID = func(databaseRuntimeSpec) int { return perfHistoryDatabaseID }
-	t.Cleanup(func() { runtimeHistoryID = oldID })
+	storePool := perfHistoryGlobals(t, dsn, metaDSN, timing)
 	logs := capturePerfLogs(t)
 	session := perfAPISession(t, ctx, harness)
 	monitored, err := connectMonitoredDB(dsn, cfg.Postgres.MaxConnections)
@@ -67,13 +60,37 @@ func runPerfRuntimeWithStore(
 	steady := perfPhase("steady", true, timing.Window, timing.Cycles(), warm, end)
 	steady.Endpoints = endpoints
 	steady.ProcessCPU, steady.CPUKnown = cpu, true
-	storeWarmup := perfPhase("warmup (history store)", false, timing.Warmup, 0, metaBase,
-		metaWarm)
-	storeSteady := perfPhase("steady (history store)", true, timing.Window,
-		timing.Cycles(), metaWarm, metaEnd)
 	explainPerfPhases(t, ctx, harness, &warmup, &steady)
-	explainPerfPhases(t, ctx, metaHarness, &storeWarmup, &storeSteady)
-	return []perfgate.Phase{warmup, steady, storeWarmup, storeSteady}
+	return append([]perfgate.Phase{warmup, steady},
+		storePerfPhases(t, ctx, metaHarness, timing, metaBase, metaWarm, metaEnd)...)
+}
+
+// storePerfPhases are the history store's warmup and steady phases.
+func storePerfPhases(t *testing.T, ctx context.Context, metaHarness *pgxpool.Pool,
+	timing perfgate.Timing, base, warm, end perfCounters) []perfgate.Phase {
+	t.Helper()
+	warmup := perfPhase("warmup (history store)", false, timing.Warmup, 0, base, warm)
+	steady := perfPhase("steady (history store)", true, timing.Window, timing.Cycles(),
+		warm, end)
+	explainPerfPhases(t, ctx, metaHarness, &warmup, &steady)
+	return []perfgate.Phase{warmup, steady}
+}
+
+// perfHistoryGlobals sets the process up as runPerfRuntime does, with the
+// history in the store: history.store meta, the store pool, and the
+// runtime's history id (a standalone runtime has no meta-db record).
+func perfHistoryGlobals(t *testing.T, dsn, metaDSN string, timing perfgate.Timing) (
+	*pgxpool.Pool) {
+	t.Helper()
+	preserveParityGlobals(t, perfConfig(t, dsn, timing))
+	preserveHistoryGlobals(t)
+	cfg.Mode, cfg.MetaDB, cfg.History.Store = "standalone", metaDSN, "meta"
+	storePool := perfStorePool(t, metaDSN)
+	historyMetaPool = func() *pgxpool.Pool { return storePool }
+	oldID := runtimeHistoryID
+	runtimeHistoryID = func(databaseRuntimeSpec) int { return perfHistoryDatabaseID }
+	t.Cleanup(func() { runtimeHistoryID = oldID })
+	return storePool
 }
 
 // perfStorePool is the runtime's pool on the meta database, configured as

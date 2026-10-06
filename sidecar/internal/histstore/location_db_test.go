@@ -162,7 +162,7 @@ func TestOpenMonitoredScopesTheMetaDatabasesOwnRows(t *testing.T) {
 	}
 }
 
-func TestStoreDatabasesRegistryAndHistoryBytes(t *testing.T) {
+func TestStoreDatabasesRegistry(t *testing.T) {
 	p := histfixture.NewPair(t)
 	p.Switch(t, histstore.ModeMeta)
 	ctx := context.Background()
@@ -188,6 +188,13 @@ func TestStoreDatabasesRegistryAndHistoryBytes(t *testing.T) {
 		"x"); err == nil {
 		t.Fatal("a monitored store has no registry row to write")
 	}
+}
+
+func TestHistoryBytesIsThisDatabasesShare(t *testing.T) {
+	p := histfixture.NewPair(t)
+	p.Switch(t, histstore.ModeMeta)
+	ctx := context.Background()
+	meta := p.MetaStore(t)
 	if b, err := histstore.NewMonitored(p.Monitored).HistoryBytes(ctx); err != nil || b != 0 {
 		t.Fatalf("monitored HistoryBytes: %d %v (its history is in the schema size)", b, err)
 	}
@@ -208,12 +215,14 @@ func TestStoreDatabasesRegistryAndHistoryBytes(t *testing.T) {
 		t.Fatalf("history bytes must grow with the database's rows: %d -> %d", empty, full)
 	}
 	var total int64
-	if err := p.Meta.QueryRow(ctx, `SELECT sum(pg_total_relation_size(relid))::int8
-		FROM pg_partition_tree('sage.snapshots')`).Scan(&total); err != nil {
+	if err := p.Meta.QueryRow(ctx, `SELECT
+		(SELECT sum(pg_total_relation_size(relid)) FROM pg_partition_tree('sage.snapshots'))
+		+ (SELECT sum(pg_total_relation_size(relid))
+		   FROM pg_partition_tree('sage.query_store'))`).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
-	if full >= total*2 {
-		t.Fatalf("this database's share (%d) cannot exceed the store's history (%d x2)",
-			full, total)
+	if full >= total {
+		t.Fatalf("this database's share (%d) must be less than the store's history (%d): "+
+			"another database's rows are in it", full, total)
 	}
 }

@@ -82,36 +82,44 @@ func storeSamples(t *testing.T, p *histfixture.Pair) []string {
 	return out
 }
 
+// placementAnswer is everything the query store answers on the fixture.
+type placementAnswer struct {
+	rows      []string
+	evidence  map[int64]Evidence
+	latencies string
+}
+
+func readPlacementAnswer(t *testing.T, p *histfixture.Pair, from, to time.Time) (
+	placementAnswer) {
+	t.Helper()
+	ctx := context.Background()
+	a := placementAnswer{rows: storeSamples(t, p), evidence: map[int64]Evidence{}}
+	for _, qid := range []int64{11, 22, 33, 44} {
+		ev, err := WindowedLatencyEvidence(ctx, p.Monitored, qid, from, to)
+		if err != nil {
+			t.Fatalf("evidence %d: %v", qid, err)
+		}
+		a.evidence[qid] = ev
+		ms, ok, err := WindowedLatencyMs(ctx, p.Monitored, qid, from)
+		if err != nil {
+			t.Fatalf("latency %d: %v", qid, err)
+		}
+		a.latencies += fmt.Sprintf("%d:%.4f:%v ", qid, ms, ok)
+	}
+	return a
+}
+
 func TestQueryStoreIdenticalInBothPlacements(t *testing.T) {
 	p := histfixture.NewPair(t)
-	ctx := context.Background()
 	start := time.Now().Add(-30 * time.Minute).Truncate(time.Minute)
 	from, to := start.Add(30*time.Second), start.Add(6*time.Minute)
-	type answer struct {
-		rows      []string
-		evidence  map[int64]Evidence
-		latencies string
-	}
-	got := map[histstore.Mode]answer{}
+	got := map[histstore.Mode]placementAnswer{}
 	for _, mode := range histfixture.Modes() {
 		p.Switch(t, mode)
 		seedPlans(t, p)
 		p.Noise(t, start.Add(2*time.Minute), 11, 22, 33)
 		recordCycles(t, p, start)
-		a := answer{rows: storeSamples(t, p), evidence: map[int64]Evidence{}}
-		for _, qid := range []int64{11, 22, 33, 44} {
-			ev, err := WindowedLatencyEvidence(ctx, p.Monitored, qid, from, to)
-			if err != nil {
-				t.Fatalf("%s evidence %d: %v", mode, qid, err)
-			}
-			a.evidence[qid] = ev
-			ms, ok, err := WindowedLatencyMs(ctx, p.Monitored, qid, from)
-			if err != nil {
-				t.Fatalf("%s latency %d: %v", mode, qid, err)
-			}
-			a.latencies += fmt.Sprintf("%d:%.4f:%v ", qid, ms, ok)
-		}
-		got[mode] = a
+		got[mode] = readPlacementAnswer(t, p, from, to)
 	}
 	mon, meta := got[histstore.ModeMonitored], got[histstore.ModeMeta]
 	if len(mon.rows) == 0 || len(mon.rows) != len(meta.rows) {

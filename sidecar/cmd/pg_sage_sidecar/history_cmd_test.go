@@ -132,7 +132,8 @@ func TestHistoryCommandMigratesStatusAndCleansUp(t *testing.T) {
 			t.Fatalf("migrate output must mention %q:\n%s", want, out)
 		}
 	}
-	if n := count(t, meta, "SELECT count(*) FROM sage.snapshots WHERE database_id IS NOT NULL"); n != 4 {
+	const inStore = "SELECT count(*) FROM sage.snapshots WHERE database_id IS NOT NULL"
+	if n := count(t, meta, inStore); n != 4 {
 		t.Fatalf("store holds %d snapshots, want 4", n)
 	}
 	if n := count(t, mon, "SELECT count(*) FROM sage.snapshots"); n != 4 {
@@ -221,17 +222,24 @@ func TestResolveRuntimeHistoryRefusals(t *testing.T) {
 		WHERE database_id = 3 AND database_name = 'app'`); n != 1 {
 		t.Fatal("the runtime must register its database in the store")
 	}
-	cfg.History.Store = "monitored"
+}
+
+func TestResolveRuntimeHistoryMonitoredRefusesHistoryInTheStore(t *testing.T) {
+	_, _, mon, meta := historyDBs(t)
+	ctx := context.Background()
+	preserveHistoryGlobals(t)
+	cfg.MetaDB, cfg.History.Store = "postgres://meta", "monitored"
+	historyMetaPool = func() *pgxpool.Pool { return meta }
 	if _, err := meta.Exec(ctx, `INSERT INTO sage.snapshots (collected_at, category, data,
 		database_id) VALUES (now(), 'system', '{}', 3)`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = resolveRuntimeHistory(ctx, databaseRuntimeSpec{Name: "app", DatabaseID: 3,
+	_, err := resolveRuntimeHistory(ctx, databaseRuntimeSpec{Name: "app", DatabaseID: 3,
 		Pool: mon})
 	if !errorsIsMigration(err) || !strings.Contains(err.Error(), "--to monitored") {
 		t.Fatalf("history left in the store must refuse monitored mode: %v", err)
 	}
-	st, err = resolveRuntimeHistory(ctx, databaseRuntimeSpec{Name: "other", DatabaseID: 9,
+	st, err := resolveRuntimeHistory(ctx, databaseRuntimeSpec{Name: "other", DatabaseID: 9,
 		Pool: mon})
 	if err != nil || st.Scoped() {
 		t.Fatalf("monitored mode, nothing in the store for it: %+v %v", st, err)
