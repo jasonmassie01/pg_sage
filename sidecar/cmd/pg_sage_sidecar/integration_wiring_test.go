@@ -62,7 +62,7 @@ func TestTuningModelsNilManager(t *testing.T) {
 // RCA engine, so incident notifications never left meta mode. Every mode now
 // builds its RCA engine in the shared runtime.
 func TestMetaRuntimeWiresRCANotifications(t *testing.T) {
-	fn := productionFunction(t, "database_runtime_exec.go", "startExecution")
+	fn := productionFunction(t, "databaseRuntime.startExecution")
 	if !callsSelector(fn, "WithDispatcher") {
 		t.Fatal("the database runtime's RCA engine never receives the dispatcher")
 	}
@@ -75,7 +75,7 @@ func TestMetaRuntimeWiresRCANotifications(t *testing.T) {
 // Standalone used a private dispatcher without the channel key or target
 // policy; every mode must share the configured one.
 func TestStandaloneUsesSharedNotifyDispatcher(t *testing.T) {
-	fn := productionFunction(t, "main.go", "initStandalone")
+	fn := productionFunction(t, "initStandalone")
 	reached := loadPackageCallGraph(t).reachableCalls("initStandalone")
 	if reached["notify.NewDispatcher"] {
 		t.Fatal("standalone builds an unkeyed notify dispatcher")
@@ -90,7 +90,7 @@ func TestStandaloneUsesSharedNotifyDispatcher(t *testing.T) {
 
 // The API process must receive every runtime registry the fixes rely on.
 func TestAPIServerWiresRuntimeRegistries(t *testing.T) {
-	wire := productionFunction(t, "wire.go", "wireRouter")
+	wire := productionFunction(t, "wireRouter")
 	fields := compositeFields(wire, "RuntimeDeps")
 	for _, field := range []string{
 		"ConfigBaseLoader", "LLMBudgets",
@@ -100,7 +100,7 @@ func TestAPIServerWiresRuntimeRegistries(t *testing.T) {
 			t.Errorf("wireRouter RuntimeDeps omits %s", field)
 		}
 	}
-	start := productionFunction(t, "main.go", "startAPIServer")
+	start := productionFunction(t, "startAPIServer")
 	params := compositeFields(start, "WireParams")
 	for _, field := range []string{"ConfigBaseLoader", "LLMBudgets"} {
 		if !params[field] {

@@ -8,7 +8,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 func initFleetAndAPI() {
@@ -29,6 +31,41 @@ func initFleetAndAPI() {
 			shutdownCtx, sessionPool, time.Hour,
 		)
 	}
+}
+
+func startAPIServer(rl *RateLimiter) {
+	if rl == nil {
+		logError("api", "rate limiter unavailable; refusing to start API server")
+		return
+	}
+	addr := cfg.API.ListenAddr
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	configureAPIProcessHooks()
+	result := wireRouter(WireParams{
+		Cfg:       cfg,
+		Pool:      pool,
+		FleetMgr:  fleetMgr,
+		LLMMgr:    llmMgr,
+		MetaState: globalMetaState,
+		Actions: struct {
+			Store    *store.ActionStore
+			Executor *executor.Executor
+		}{
+			Store:    actionStore,
+			Executor: exec,
+		},
+		RateLimiter:      rl,
+		Config:           configController,
+		ConfigBase:       configBase,
+		ConfigBaseLoader: loadFileConfigBase,
+		LLMBudgets:       llmBudgetRegistry(),
+		MCPHandler:       mcpHTTPHandler(),
+	})
+	startAuthPoolServices(result.AuthPool)
+	serveAPI(addr, result.Handler)
 }
 
 func sessionControlPool(

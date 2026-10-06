@@ -2,13 +2,60 @@ package main
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
+
+// initStandalone prepares the monitored database, which in standalone mode
+// is also the control database, then builds its runtime.
+func initStandalone() {
+	ctx := context.Background()
+	name := resolveDBName()
+	logInfo("startup", "running prerequisite checks and schema bootstrap…")
+	checks, err := prepareMonitoredDatabase(ctx, pool, name, true)
+	if err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
+	if err := initializeConfigController(pool); err != nil {
+		logError("startup", "config controller: %v", err)
+		os.Exit(1)
+	}
+	if err := bootstrapAdminIfEmpty(ctx, pool); err != nil {
+		logWarn("startup", "admin bootstrap: %v", err)
+	}
+	initializeAnalyzeSemaphore()
+	executor.VerifyGrants(ctx, pool, cfg.Postgres.User, cfg.Trust.Level,
+		logStructuredWrapper)
+	if cfg.Trust.Level == "autonomous" && cfg.Trust.Tier3Moderate &&
+		cfg.Trust.MaintenanceWindow == "" {
+		logWarn("startup", "tier3_moderate enabled without maintenance_window — "+
+			"moderate actions will NOT execute")
+	}
+	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	registerLLMConfigOwner()
+	llmMgr = newStandaloneLLMManager(llmClient)
+	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
+		Scope: "startup", Name: name, Config: buildDBConfig(name),
+		Pool: pool, ControlPool: pool, ExecMode: resolveExecutionMode(),
+		Parent: shutdownCtx, RequireChecks: true, Checks: checks, Shared: true,
+	})
+	if err != nil {
+		logError("startup", "database runtime: %v", err)
+		os.Exit(1)
+	}
+	coll, anal, exec, actionStore = rt.collector, rt.analyzer, rt.executor, rt.actions
+	fleetMgr = fleet.NewManager(cfg)
+	rt.publish(fleetMgr)
+	logInfo("startup", "standalone mode initialized — collector=%ds, analyzer=%ds, trust=%s",
+		cfg.Collector.IntervalSeconds, cfg.Analyzer.IntervalSeconds, cfg.Trust.Level)
+}
 
 // initFleetMultiDB builds one runtime per YAML-configured database. The
 // first database that connects is the control database: it holds the

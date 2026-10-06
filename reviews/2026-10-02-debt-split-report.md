@@ -251,3 +251,12 @@ None. This is an engineering-debt refactor with no AI-SRE behavior change.
   `prometheus.go`.
 - On this host, running the full suite through `host.docker.internal` under load is
   flaky: dial timeouts happen. `--network container:<db>` avoided the dial failures.
+
+## Follow-up (2026-10-05)
+
+- `productionFunction` now searches every non-test `.go` file in the package. Methods
+  are named `Receiver.method`, and the lookup fails unless exactly one declaration
+  matches. `initStandalone` moved to `mode_init.go` and `startAPIServer` to
+  `api_server.go`, verbatim.
+- The `main.go` errcheck/gosimple exclusion is gone. golangci-lint v2.11.4 reports
+  0 issues without it, so it was hiding nothing after the split.

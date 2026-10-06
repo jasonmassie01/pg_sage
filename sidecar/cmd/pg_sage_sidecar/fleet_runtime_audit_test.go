@@ -3,11 +3,7 @@ package main
 import (
 	"context"
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -50,7 +46,7 @@ func TestFleetRuntimeInitializesAnalyzeSemaphore(t *testing.T) {
 }
 
 func TestFleetOrchestratorRecordsHealthHistory(t *testing.T) {
-	fn := productionFunction(t, "fleet_orchestrator.go", "runFleetDBCycle")
+	fn := productionFunction(t, "runFleetDBCycle")
 	if !callsSelectorWithPrefix(fn, "RecordHealth") {
 		t.Fatal("fleet orchestrator cycle never persists a health-history sample")
 	}
@@ -60,7 +56,7 @@ func TestFleetOrchestratorRecordsHealthHistory(t *testing.T) {
 }
 
 func TestAgentDBCollectorHasProcessLifetimeAndLifecycleOwnership(t *testing.T) {
-	fn := productionFunction(t, "agentdb_fleet.go", "connectAgentDBToFleet")
+	fn := productionFunction(t, "connectAgentDBToFleet")
 	parent := compositeFieldIdentifier(fn, "databaseRuntimeSpec", "Parent")
 	if parent == "" {
 		t.Fatal("AgentDB runtime has no process-lifetime parent context")
@@ -68,15 +64,15 @@ func TestAgentDBCollectorHasProcessLifetimeAndLifecycleOwnership(t *testing.T) {
 	if parent == "ctx" {
 		t.Fatal("AgentDB runtime inherits the 60-second reconcile context")
 	}
-	lifecycle := productionFunction(t, "database_runtime.go", "newDatabaseRuntime")
+	lifecycle := productionFunction(t, "newDatabaseRuntime")
 	if firstArgumentToSelectorCall(lifecycle, "context", "WithCancel") != "parent" {
 		t.Fatal("database runtime does not derive a cancellable context from its parent")
 	}
-	start := productionFunction(t, "database_runtime.go", "start")
+	start := productionFunction(t, "databaseRuntime.start")
 	if !callsIdentifier(start, "startInstanceWorker") {
 		t.Fatal("runtime workers are not tracked as instance-owned workers")
 	}
-	fields := databaseInstanceFields(productionFunction(t, "database_runtime.go", "instance"))
+	fields := databaseInstanceFields(productionFunction(t, "databaseRuntime.instance"))
 	for _, required := range []string{"Collector", "Cancel", "Workers"} {
 		if !fields[required] {
 			t.Errorf("database runtime does not publish lifecycle field %s", required)
@@ -129,7 +125,7 @@ func TestAgentDBCollectorRejectsCanceledRegistration(t *testing.T) {
 }
 
 func TestMetaDBBootstrapBuildsGeneralLLMRuntime(t *testing.T) {
-	fn := productionFunction(t, "metadb.go", "initMetaDBFleet")
+	fn := productionFunction(t, "initMetaDBFleet")
 	assignments := assignedPackageCalls(fn)
 	if assignments["llmClient"] != "llm.New" {
 		t.Error("meta-db bootstrap does not construct the general LLM client")
@@ -143,38 +139,38 @@ func TestMetaDBBootstrapBuildsGeneralLLMRuntime(t *testing.T) {
 }
 
 func TestFleetLLMBudgetScopesEveryConsumer(t *testing.T) {
-	resolve := productionFunction(t, "database_runtime.go", "resolveLLM")
+	resolve := productionFunction(t, "databaseRuntime.resolveLLM")
 	if !callsIdentifier(resolve, "newFleetDBLLMClients") {
 		t.Fatal("database runtime bypasses the per-database client factory")
 	}
-	clients := productionFunction(t, "fleet_runtime_helpers.go", "newFleetDBLLMClients")
+	clients := productionFunction(t, "newFleetDBLLMClients")
 	if !callsIdentifier(clients, "attachFleetBudget") {
 		t.Fatal("per-database LLM clients never attach the fleet budget")
 	}
 	if !callsPackageSelector(clients, "llm", "NewManager") {
 		t.Error("advisor and tuner do not receive a database-scoped LLM manager")
 	}
-	attach := productionFunction(t, "fleet_runtime_helpers.go", "attachFleetBudget")
+	attach := productionFunction(t, "attachFleetBudget")
 	if !callsSelector(attach, "SetBudget") {
 		t.Fatal("attachFleetBudget does not scope the client to its budget")
 	}
 	// Only resolveLLM may read the process clients (standalone shares them);
 	// every consumer takes the runtime's resolved client and manager.
-	advisorFn := productionFunction(t, "database_runtime_monitor.go", "newAdvisor")
+	advisorFn := productionFunction(t, "databaseRuntime.newAdvisor")
 	assertCallOmitsGlobal(t, advisorFn, "advisor", "New", "llmMgr")
-	execution := productionFunction(t, "database_runtime_exec.go", "startExecution")
+	execution := productionFunction(t, "databaseRuntime.startExecution")
 	assertCallOmitsGlobal(t, execution, "briefing", "New", "llmClient")
-	tuningFn := productionFunction(t, "database_runtime_tuning.go", "newTuningAgent")
+	tuningFn := productionFunction(t, "databaseRuntime.newTuningAgent")
 	if expressionContainsIdentifier(tuningFn.Body, "llmMgr") {
 		t.Error("the tuning agent reads the shared global llmMgr")
 	}
-	modelsFn := productionFunction(t, "database_runtime_tuning.go", "tuningModels")
+	modelsFn := productionFunction(t, "tuningModels")
 	assertMethodReceiverOmitsGlobal(t, modelsFn, "ForPurpose", "llmMgr")
-	tunerFn := productionFunction(t, "database_runtime_monitor.go", "newTuner")
+	tunerFn := productionFunction(t, "databaseRuntime.newTuner")
 	if callsSelector(tunerFn, "WithLLM") {
 		t.Error("the tuner has no LLM path: hints come from the tuning agent")
 	}
-	rcaFn := productionFunction(t, "database_runtime_logs.go", "wireRCA")
+	rcaFn := productionFunction(t, "databaseRuntime.wireRCA")
 	if !callsSelector(rcaFn, "WithLLM") {
 		t.Error("RCA engine is not wired to a database-scoped LLM client")
 	} else {
@@ -203,31 +199,6 @@ func preserveFleetRuntimeGlobals(t *testing.T) {
 		fleetLLMBudget = oldBudget
 		configController = oldController
 	})
-}
-
-func productionFunction(t *testing.T, file, name string) *ast.FuncDecl {
-	t.Helper()
-	_, current, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve test source directory")
-	}
-	path := filepath.Join(filepath.Dir(current), file)
-	source, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
-	for _, declaration := range parsed.Decls {
-		fn, ok := declaration.(*ast.FuncDecl)
-		if ok && fn.Name.Name == name {
-			return fn
-		}
-	}
-	t.Fatalf("function %s not found in %s", name, path)
-	return nil
 }
 
 func callsSelector(fn *ast.FuncDecl, selector string) bool {
