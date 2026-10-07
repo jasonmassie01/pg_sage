@@ -27,7 +27,7 @@ type Evidence struct {
 	Relations          Measure // pg_class rows
 	CatalogScanMs      Measure // one pass over pg_class with its statistics
 	Sequences          Measure // pg_sequences rows
-	SequenceScanMs     Measure // reading every sequence's last value
+	SequenceScanMs     Measure // reading every last value (a timed sample, scaled)
 	MaxConnections     Measure // the server's max_connections
 	TempBytes          Measure // pg_stat_database.temp_bytes (cumulative)
 	StatsAgeSeconds    Measure // since the statistics reset (or server start)
@@ -42,6 +42,10 @@ type Evidence struct {
 	CollectorCycleMs Measure
 }
 
+// sequenceSampleSize is how many last values the sequence evidence reads;
+// the scan time is scaled to the sequence count.
+const sequenceSampleSize = 250
+
 // evidenceDeadline bounds each evidence read; a scan that hits it counts
 // as at least this long.
 const evidenceDeadline = 5 * time.Second
@@ -51,8 +55,14 @@ const (
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid`
-	sequenceScanSQL = `/* pg_sage */ SELECT count(*)::float8, count(last_value)::float8
-FROM pg_catalog.pg_sequences`
+	// sequenceCountSQL counts what pg_sequences lists without reading a
+	// last value; sequenceSampleSQL reads $1 of them.
+	sequenceCountSQL = `/* pg_sage */ SELECT count(*)::float8
+FROM pg_catalog.pg_sequence s
+JOIN pg_catalog.pg_class c ON c.oid = s.seqrelid
+WHERE NOT pg_catalog.pg_is_other_temp_schema(c.relnamespace)`
+	sequenceSampleSQL = `/* pg_sage */ SELECT count(*)::float8, count(last_value)::float8
+FROM (SELECT last_value FROM pg_catalog.pg_sequences LIMIT $1) s`
 	statementsScanSQL = `/* pg_sage */ SELECT count(*)::float8,
        coalesce(sum(length(query)), 0)::float8
 FROM pg_stat_statements
@@ -105,19 +115,37 @@ func (ev *Evidence) readCatalog(ctx context.Context, r catalogread.Reader) error
 }
 
 func (ev *Evidence) readSequences(ctx context.Context, r catalogread.Reader) error {
-	var n, read float64
+	var n, sampled float64
+	if err := r.QueryRow(ctx, sequenceCountSQL).Scan(&n); err != nil {
+		return err
+	}
 	ms, err := timed(func() error {
-		return r.QueryRow(ctx, sequenceScanSQL).Scan(&n, &read)
+		return r.QueryRow(ctx, sequenceSampleSQL, sequenceSampleSize).
+			Scan(&sampled, new(float64))
 	})
 	if timedOut(err) {
+		ev.Sequences = Known(n)
 		ev.SequenceScanMs = Known(float64(evidenceDeadline.Milliseconds()))
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	ev.Sequences, ev.SequenceScanMs = Known(n), Known(ms)
+	ev.Sequences = Known(n)
+	ev.SequenceScanMs = Known(extrapolateSequenceScan(ms, sampled, n))
 	return nil
+}
+
+// extrapolateSequenceScan scales the time to read sampled last values to
+// all total sequences: each read opens one sequence, so the cost is linear.
+func extrapolateSequenceScan(ms, sampled, total float64) float64 {
+	switch {
+	case ms <= 0 || total <= 0:
+		return 0
+	case sampled <= 0 || total <= sampled:
+		return ms
+	}
+	return ms * total / sampled
 }
 
 // readStatements times the statements read; a missing or unloaded
