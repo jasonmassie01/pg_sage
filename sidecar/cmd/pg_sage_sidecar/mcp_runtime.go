@@ -71,6 +71,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry, manager: fleetMgr},
 		// Binding facts: read, propose (stays proposed), decide (a person).
 		Facts: factsMCPBackend{manager: fleetMgr},
+		// Fleet findings across the databases the caller may see.
+		FleetLearning: fleetFindingsMCP{},
 		// Coding-agent tools (roadmap phase 3) on the resolved database.
 		AgentTools: fleetAgentTools{manager: fleetMgr, options: agentToolOptions(cfg)},
 		// Ask Sage (roadmap phase 3): read, and propose with the propose scope.

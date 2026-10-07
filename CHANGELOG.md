@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### What's new
+
+- **Fleet learning: databases that look alike learn from each other.** In fleet mode pg_sage
+  fingerprints every database's shape (column types, index shapes and query shapes with every
+  literal and name removed; no data, no names unless you set
+  `fleet_learning.include_names: true`) and finds its look-alikes within the same fleet and
+  tenant. When look-alikes have verified outcomes for the same kind of change on the same table
+  shape, the proposal and its approval card show them, labelled "from look-alike databases".
+  This is evidence only: it never raises confidence, trust or autonomy, and when look-alikes
+  mostly regressed the proposal waits for your approval. `GET /api/v1/fleet/lookalikes`.
+- **Fleet findings: the same problem on 30 databases is one finding.** A problem open on at
+  least `fleet_learning.fleet_finding_min_databases` databases (default 3) is listed once with
+  the databases it affects: on the Fleet page ("Recurring across the fleet"), at
+  `GET /api/v1/fleet/findings` and through the read-only MCP tool `fleet_findings` (a token
+  scoped to some databases sees only those).
+- **The fleet LLM budget follows need.** `llm.fleet_token_budget_daily` is now split by
+  measured need (open and critical findings, unresolved incidents), each database between
+  `fleet_learning.budget_floor_pct` (50) and `fleet_learning.budget_ceiling_pct` (300) of
+  the even share, instead of evenly. The daily cap is never exceeded;
+  `fleet_learning.budget_split: even` restores the even split.
+- **Several sidecars, one leader.** Sidecars sharing a control database elect one leader
+  through a lease in that database (`fleet_learning.leader_lease_seconds`, default 30; 0
+  turns election off). Only the leader runs fleet-wide jobs (fleet learning, approval-card
+  follow-ups, the agent-database reconciler); a stalled leader steps down before its lease
+  ends and another sidecar takes over. `GET /api/v1/fleet/leader` shows who leads.
 - **Other agents now see what the model investigator concluded, and on what authority.**
   Specialist contract revision 1.1.0 (still `pg_sage.specialist.v1`; every addition is
   optional and a v1 result is byte for byte unchanged): results carry an `investigator`
@@ -18,9 +43,17 @@
   only it, so a larger regression can no longer push it out of the probe's row cap), other
   families name the evidence that mentions it, and the result echoes the scope to its
   caller. pg_sage's own plan-regression investigations also probe only their statement now.
-- **Fix:** a root the model investigator concluded for an inconclusive graph and that was
-  adopted under earned authority was reported as `source: graph`, `authority:
+
+### Fixed
+
+- **Model-concluded roots report their source.** A root the model investigator concluded
+  for an inconclusive graph and that was adopted under earned authority was reported as `source: graph`, `authority:
   deterministic`; it is now `source: model`, `authority: model_earned`, as documented.
+
+### Upgrading
+
+- **New tables:** `sage.fleet_fingerprint`, `sage.fleet_outcome_digest` and
+  `sage.fleet_leader_lease`, created at startup by an idempotent migration.
 
 ## v2.2.1 (2026-10-07) -- First look and quickstart fixes
 

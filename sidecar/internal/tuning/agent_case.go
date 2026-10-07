@@ -57,6 +57,7 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	a.queue.advance(deferred)
 	a.logDeferred(deferred, stopped)
 	a.noteCycle(cy, asked, len(deferred))
+	a.applyPriors(ctx, judged)
 	return a.recordHints(ctx, a.rank(judged, cy.cal))
 }
 

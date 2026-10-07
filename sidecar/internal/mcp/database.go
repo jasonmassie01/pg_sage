@@ -28,7 +28,7 @@ type Directory interface {
 // (whether or not it exists), unknown, or required.
 func (s *Server) bindDatabase(ctx context.Context, tool string,
 	arguments json.RawMessage) (context.Context, json.RawMessage, *rpcError) {
-	if tool == "list_databases" {
+	if fleetWideTool(tool) {
 		return ctx, arguments, nil
 	}
 	var object map[string]json.RawMessage

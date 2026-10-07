@@ -118,6 +118,9 @@ type Rationale struct {
 	// Calibration says what Confidence rests on for the tuning agent's
 	// proposals: the comparable outcomes, or "uncalibrated" (no number).
 	Calibration string `json:"calibration,omitempty"`
+	// LookAlike is the fleet's look-alike evidence (fleet learning): what
+	// similar databases observed, never this database's confidence.
+	LookAlike string `json:"lookalike,omitempty"`
 }
 
 // Predicted is the effect pg_sage expects.

@@ -3,7 +3,8 @@ package retention
 // retentionExemptions documents sage tables with time columns that are
 // intentionally NOT purged by age. A new time-series table must be added
 // to purgeRules or here (enforced by a test).
-var retentionExemptions = mergeExemptions(coreExemptions, agentExemptions)
+var retentionExemptions = mergeExemptions(coreExemptions, agentExemptions,
+	fleetLearningExemptions)
 
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{

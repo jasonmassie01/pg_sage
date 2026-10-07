@@ -420,7 +420,8 @@ func migrationStatements() []string {
 		ddlSpecialist,
 		ddlSpecialistQueryScope,
 		ddlAsk,
-		ddlManagedChangeProposals)
+		ddlManagedChangeProposals,
+		ddlFleetLearning)
 }
 
 // ---------------------------------------------------------------------------

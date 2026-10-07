@@ -68,6 +68,8 @@ func initializeFleetBudget(databaseNames []string) {
 	fleetLLMBudget = fleet.NewBudget(
 		cfg.LLM.FleetTokenBudgetDaily, databaseNames,
 	)
+	// Need-based by default (fleet learning): measured needs refine it.
+	applyFleetBudgetSplit(nil)
 	go resetFleetBudgetDaily(shutdownCtx, fleetLLMBudget)
 	logInfo("fleet", "per-database LLM budget enabled: "+
 		"%d tokens/day across %d databases",

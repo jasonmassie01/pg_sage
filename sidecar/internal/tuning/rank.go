@@ -42,7 +42,8 @@ func (a *Agent) rank(judged []Judged, cal Calibration) []Judged {
 		j.Confidence = cal.ConfidenceFor(j.Class, j.Prediction.Method, pct)
 		applyConfidence(j.Finding, j.Confidence, cal.MinOutcomes, threshold,
 			j.Verdict == VerdictRedirected)
-		r := ranked{j: j, tier: tierUncalibrated}
+		applyPriorCaution(j.Finding, j.Prior, j.Verdict == VerdictRedirected)
+		r := ranked{j: j, tier: tierUncalibrated, conf: priorOrder(j.Prior)}
 		if j.Confidence.Status == StatusCalibrated {
 			r.conf, r.tier = *j.Confidence.Value, tierDoubtful
 			if j.Confidence.WilsonLow >= threshold {

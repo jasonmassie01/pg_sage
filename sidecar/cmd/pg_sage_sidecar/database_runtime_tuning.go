@@ -36,6 +36,9 @@ func (rt *databaseRuntime) newTuningAgent(autoExplain bool, hints *tuner.Tuner) 
 	if hints != nil {
 		deps.Hints = hints
 	}
+	if cfg.FleetLearning.Enabled {
+		deps.Priors = fleetPriorSource{}
+	}
 	rt.note("tuning")
 	settings := tuningSettings(cfg, rt.provider, rt.spec.Config.Database, 0)
 	settings.HostMemory = rt.hostMemory

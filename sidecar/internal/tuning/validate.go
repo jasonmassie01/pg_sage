@@ -83,6 +83,8 @@ type Judged struct {
 	// Hint is the checked hint the tuner records if the proposal survives
 	// the cycle's cap (query hints only).
 	Hint *tuner.HintProposal
+	// Prior is the look-alike evidence of the fleet (nil: none).
+	Prior *LookalikePrior
 }
 
 // validator judges the proposals of one cycle.

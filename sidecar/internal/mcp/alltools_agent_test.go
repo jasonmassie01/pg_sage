@@ -84,3 +84,9 @@ func (b *allToolsBackend) ReportSourceFix(ctx context.Context, r agenttools.Repo
 	return agenttools.Report{FindingID: r.FindingID, Stage: r.Stage, Verdict: "pending"},
 		b.recordAgent(ctx, "report_source_fix", r, actor)
 }
+
+func (b *allToolsBackend) FleetFindings(ctx context.Context,
+	_ FleetFindingsRequest) (any, error) {
+	b.hit(ctx, "fleet_findings")
+	return map[string]any{}, nil
+}

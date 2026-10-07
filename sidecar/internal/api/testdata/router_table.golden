@@ -33,7 +33,10 @@ bare GET /api/v1/findings => open:200
 bare GET /api/v1/findings/stats => open:200
 bare GET /api/v1/findings/7 => open:400
 bare GET /api/v1/findings/7/pending-actions => open:404
+bare GET /api/v1/fleet/findings => gate:viewer
 bare GET /api/v1/fleet/health => open:200
+bare GET /api/v1/fleet/leader => gate:viewer
+bare GET /api/v1/fleet/lookalikes?database=primary => gate:viewer
 bare GET /api/v1/fleet/readiness => open:200
 bare GET /api/v1/forecasts => open:200
 bare GET /api/v1/forecasts/growth => open:200
@@ -145,7 +148,10 @@ standalone GET /api/v1/findings => open:200
 standalone GET /api/v1/findings/stats => open:200
 standalone GET /api/v1/findings/7 => open:400
 standalone GET /api/v1/findings/7/pending-actions => gate:operator
+standalone GET /api/v1/fleet/findings => gate:viewer
 standalone GET /api/v1/fleet/health => open:200
+standalone GET /api/v1/fleet/leader => gate:viewer
+standalone GET /api/v1/fleet/lookalikes?database=primary => gate:viewer
 standalone GET /api/v1/fleet/readiness => open:200
 standalone GET /api/v1/forecasts => open:200
 standalone GET /api/v1/forecasts/growth => open:200
@@ -257,7 +263,10 @@ fleet-readonly GET /api/v1/findings => open:200
 fleet-readonly GET /api/v1/findings/stats => open:200
 fleet-readonly GET /api/v1/findings/7 => open:400
 fleet-readonly GET /api/v1/findings/7/pending-actions => gate:operator
+fleet-readonly GET /api/v1/fleet/findings => gate:viewer
 fleet-readonly GET /api/v1/fleet/health => open:200
+fleet-readonly GET /api/v1/fleet/leader => gate:viewer
+fleet-readonly GET /api/v1/fleet/lookalikes?database=primary => gate:viewer
 fleet-readonly GET /api/v1/fleet/readiness => open:200
 fleet-readonly GET /api/v1/forecasts => open:200
 fleet-readonly GET /api/v1/forecasts/growth => open:200
@@ -369,7 +378,10 @@ store-only-actions GET /api/v1/findings => open:200
 store-only-actions GET /api/v1/findings/stats => open:200
 store-only-actions GET /api/v1/findings/7 => open:400
 store-only-actions GET /api/v1/findings/7/pending-actions => gate:operator
+store-only-actions GET /api/v1/fleet/findings => gate:viewer
 store-only-actions GET /api/v1/fleet/health => open:200
+store-only-actions GET /api/v1/fleet/leader => gate:viewer
+store-only-actions GET /api/v1/fleet/lookalikes?database=primary => gate:viewer
 store-only-actions GET /api/v1/fleet/readiness => open:200
 store-only-actions GET /api/v1/forecasts => open:200
 store-only-actions GET /api/v1/forecasts/growth => open:200

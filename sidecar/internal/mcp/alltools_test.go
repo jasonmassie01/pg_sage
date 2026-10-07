@@ -82,6 +82,7 @@ var allToolsArgs = map[string]string{
 		`"level":"L1","reason":"lag"}`,
 	"sre_review_investigation": `{"investigation_id":"x","verdict":"accepted"}`,
 	"list_facts":               `{}`,
+	"fleet_findings":           `{}`,
 	"propose_fact": `{"type":"test_fixture","subject_kind":"schema","subject":"test_*",` +
 		`"evidence":"CI leaks these"}`,
 	"decide_fact":    `{"fact_id":12,"decision":"confirm"}`,
