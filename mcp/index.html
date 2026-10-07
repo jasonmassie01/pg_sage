@@ -1158,6 +1158,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#specialist_investigation_transcript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_investigation_transcript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#specialist_request_remediation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1173,6 +1184,17 @@
     <span class="md-ellipsis">
       
         ask_sage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fleet_findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fleet_findings
       
     </span>
   </a>
@@ -2003,6 +2025,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#specialist_investigation_transcript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        specialist_investigation_transcript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#specialist_request_remediation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2018,6 +2051,17 @@
     <span class="md-ellipsis">
       
         ask_sage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fleet_findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fleet_findings
       
     </span>
   </a>
@@ -3751,6 +3795,18 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 <td>length &lt;= 128</td>
 </tr>
 <tr>
+<td><code>query_hash</code></td>
+<td>string</td>
+<td>no</td>
+<td>hex SHA-256 of the statement text exactly as pg_stat_statements shows it; resolved to its queryid; pattern <code>^[0-9a-f]{64}$</code></td>
+</tr>
+<tr>
+<td><code>query_id</code></td>
+<td>string or integer</td>
+<td>no</td>
+<td>pg_stat_statements queryid of the statement (a non-zero signed 64-bit integer; send it as a string to keep all 64 bits); a plan_regression investigation is then about this statement</td>
+</tr>
+<tr>
 <td><code>symptom</code></td>
 <td>object</td>
 <td>no</td>
@@ -3792,7 +3848,34 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 </tbody>
 </table>
 <h3 id="specialist_investigation_result"><code>specialist_investigation_result</code><a class="headerlink" href="#specialist_investigation_result" title="Permanent link">&para;</a></h3>
-<p>Read the result: cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence and typed candidate remediations.</p>
+<p>Read the result: cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence and typed candidate remediations; since 1.1.0 also the model investigator's verdict (advisory unless its root was adopted under earned authority) and the caller's query scope.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>no</td>
+<td>Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise.</td>
+</tr>
+<tr>
+<td><code>investigation_id</code></td>
+<td>string</td>
+<td>yes</td>
+<td>format uuid</td>
+</tr>
+</tbody>
+</table>
+<h3 id="specialist_investigation_transcript"><code>specialist_investigation_transcript</code><a class="headerlink" href="#specialist_investigation_transcript" title="Permanent link">&para;</a></h3>
+<p>Read the model investigator's redacted transcript: its plan, each read with the stored result and digest, its cited claims and outcome (specialist contract 1.1.0).</p>
 <p>Scope: <code>read</code></p>
 <table>
 <thead>
@@ -3887,6 +3970,27 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 <td>string</td>
 <td>yes</td>
 <td>length 1-2000</td>
+</tr>
+</tbody>
+</table>
+<h3 id="fleet_findings"><code>fleet_findings</code><a class="headerlink" href="#fleet_findings" title="Permanent link">&para;</a></h3>
+<p>List problems open on several fleet databases at once (e.g. the same missing index on many tenant databases), each once with the databases it affects. Read-only; acting still goes through each database's own proposals and approvals.</p>
+<p>Scope: <code>read</code></p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>min_databases</code></td>
+<td>integer</td>
+<td>no</td>
+<td>databases a problem must be open on (default from fleet_learning.fleet_finding_min_databases); value 2-10000</td>
 </tr>
 </tbody>
 </table>

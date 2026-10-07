@@ -877,6 +877,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Backup Considerations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#moving-history-to-the-metadata-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moving history to the metadata database
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1120,6 +1137,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Backup Considerations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#moving-history-to-the-metadata-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moving history to the metadata database
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1410,6 +1444,17 @@ identity-aware proxy. Prometheus metrics remain on the separate
 <p>pg_sage stores data in the <code>sage</code> schema within the target database. Standard PostgreSQL backup tools capture it automatically.</p>
 <p><strong>Critical to back up:</strong> <code>sage.action_log</code> (audit trail for autonomous actions).</p>
 <p><strong>Can be regenerated:</strong> <code>sage.snapshots</code>, <code>sage.explain_cache</code>.</p>
+<p>With <code>history.store: meta</code> (meta-db mode), <code>sage.snapshots</code> and <code>sage.query_store</code> of
+every monitored database live in the metadata database: back it up to keep them.</p>
+<h3 id="moving-history-to-the-metadata-database">Moving history to the metadata database<a class="headerlink" href="#moving-history-to-the-metadata-database" title="Permanent link">&para;</a></h3>
+<p>To take pg_sage's telemetry history (snapshots and the query store, most of its storage)
+out of a monitored database in meta-db mode: stop pg_sage, run
+<code>pg_sage history migrate --to meta --database NAME</code> with
+<code>SAGE_HISTORY_MONITORED_DSN</code> and <code>SAGE_META_DB</code> set, set <code>history.store: meta</code>, start
+pg_sage, then run the same command with <code>--cleanup</code> to remove the copied rows. Repeat
+the migrate step for each database. A database whose history was not migrated is
+refused at startup (the error names the command); the others start. See
+<a href="../configuration/#keeping-telemetry-history-in-the-meta-database-historystore">Configuration</a>.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Full database backup (includes sage schema)</span>
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>pg_dump<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-Fc<span class="w"> </span>postgres<span class="w"> </span>&gt;<span class="w"> </span>backup.dump
 <a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>

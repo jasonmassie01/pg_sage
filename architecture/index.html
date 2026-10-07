@@ -599,6 +599,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#history-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        History store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#prometheus-exporter" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1123,6 +1134,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#history-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        History store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#prometheus-exporter" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1389,12 +1411,35 @@ decides whether a specific database can execute, queue, or only observe.</p>
 <p>Per-query optimization via <code>pg_hint_plan</code> (if available). Detects plan-level symptoms (disk sorts, hash spills, bad joins) and applies per-query GUC overrides without modifying application queries. The tuning agent's hints go through it: it validates the pg_hint_plan syntax, clamps <code>Set(work_mem)</code>, records the hint and keeps one hint per statement.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <p>Automatic cleanup of aged snapshots, findings, actions, and explain plans based on configurable retention windows.</p>
+<h3 id="history-store">History store<a class="headerlink" href="#history-store" title="Permanent link">&para;</a></h3>
+<p>Telemetry history (<code>sage.snapshots</code>, <code>sage.query_store</code>) lives in each monitored
+database by default. With <code>history.store: meta</code> (meta-db mode) it lives in the
+metadata database, each row tagged with the database's meta-db record id.</p>
+<ul>
+<li>Every history statement is written once with scope markers (<code>{db:alias}</code>,
+  <code>{dbcol}</code>, <code>{dbval}</code>) and runs through <code>internal/histstore</code>, which binds them for
+  the database's store. A marker is not SQL, so a statement sent without a store
+  fails instead of reading an empty or mixed history; a static test checks that every
+  statement naming the two tables carries a marker.</li>
+<li>Each runtime resolves its store before it starts and registers it for its monitored
+  pool; readers find the store from the pool they already hold
+  (<code>histstore.Resolve</code>), so no reader can be wired to the wrong database.</li>
+<li>Reads that joined history with the monitored database's catalog are split: the
+  query store's plan fingerprints are read from the monitored <code>sage.explain_cache</code>
+  and stored with the samples; verification reads history in the store and
+  <code>pg_index</code> on the monitored database; the first-run check reads <code>sage.config</code> on the
+  monitored database and the newest snapshot in the store.</li>
+<li>A runtime refuses to start when its history would be split (rows in the old place
+  that the migration did not copy); <code>pg_sage history migrate</code> copies them.</li>
+<li>Retention of the store runs once per process; the snapshot cap is the sum of every
+  registered database's cap.</li>
+</ul>
 <h3 id="prometheus-exporter">Prometheus Exporter<a class="headerlink" href="#prometheus-exporter" title="Permanent link">&para;</a></h3>
 <p>Metrics endpoint on <code>:9187</code>. Exports findings count by severity, circuit breaker state, connection stats, cache hit ratio, database size, and LLM usage.</p>
 <hr />
 <h2 id="data-flow">Data Flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>Collector</strong> gathers <code>pg_stat_statements</code>, <code>pg_stat_user_tables</code>, <code>pg_stat_user_indexes</code> every 60s into <code>sage.snapshots</code>.</li>
+<li><strong>Collector</strong> gathers <code>pg_stat_statements</code>, <code>pg_stat_user_tables</code>, <code>pg_stat_user_indexes</code> every 60s into <code>sage.snapshots</code> (in the metadata database with <code>history.store: meta</code>).</li>
 <li><strong>Analyzer</strong> runs rules every 600s, then the <strong>tuning agent</strong> if an LLM is usable.</li>
 <li>The agent classifies the workload, detects cases and asks the model about each case
    with read-only tools.</li>

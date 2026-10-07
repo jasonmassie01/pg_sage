@@ -950,6 +950,11 @@ and why</strong>, and <strong>request</strong> (never force) a remediation.</p>
   beside <code>v1</code>, never an edit of <code>v1</code>. Clients must ignore unknown fields and
   treat unknown enum values as unknown; pg_sage only adds fields and values
   within <code>v1</code> (a golden test enforces this against the frozen v1 baseline).</li>
+<li>The document's <code>info.version</code> counts revisions within <code>v1</code>: the minor
+  number goes up with every additive change (new optional fields, values,
+  paths). Revisions: <code>1.0.0</code> (v2.1.0), <code>1.1.0</code> (investigator results,
+  <code>query_id</code> / <code>query_hash</code>, the transcript path). A result without the new
+  data is byte for byte what <code>1.0.0</code> served.</li>
 <li>The same contract is available over MCP (<code>specialist_*</code> tools, see
   <a href="../mcp/">MCP</a>).</li>
 </ul>
@@ -997,10 +1002,16 @@ investigations opened per token and 10 in total (attaching never counts).</p>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># result: 202 while running, 200 when terminal</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>/result
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># request a candidate remediation (propose scope)</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"reason":"PD incident Q1ABC"}'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>/remediations/<span class="nv">$REMEDIATION_ID</span>/request
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># 1.1.0: a plan regression of one statement, and its redacted investigator transcript</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"symptom":{"summary":"report query 10x slower"},"family":"plan_regression",</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="s1">       "query_id":"-6386917413405316221"}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="nv">$BASE</span>/databases/orders/investigations
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>/transcript
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="c1"># request a candidate remediation (propose scope)</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"reason":"PD incident Q1ABC"}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="nv">$BASE</span>/databases/orders/investigations/<span class="nv">$ID</span>/remediations/<span class="nv">$REMEDIATION_ID</span>/request
 </code></pre></div>
 <p><strong>Open or attach.</strong> <code>family</code> (one of <code>lock_blocking</code>, <code>connection_pressure</code>,
 <code>wal_retention</code>, <code>plan_regression</code>, <code>checkpoint_storm</code>, <code>temp_file_explosion</code>,
@@ -1018,6 +1029,61 @@ is not a probability, labelled <code>uncalibrated</code> unless a bench report g
 family's top-1 rate with its Wilson lower bound: <code>bench_top1</code>),
 <code>missing_evidence</code> (probes that failed or were unavailable, a missing probe
 plan, a caller window that ended before the probes ran), and <code>remediations</code>.</p>
+<p><strong>Investigator (1.1.0).</strong> When the model investigator ran (an LLM is
+configured), the result has an <code>investigator</code> section, labelled model
+output:</p>
+<ul>
+<li><code>verdict</code>: its answer normalized against the causal graph: <code>agree</code> (the
+  graph's root), <code>conclude</code> (a root for an inconclusive graph), <code>contest</code>
+  (another root than the graph's), <code>unmodeled</code> (a cause the graph has no
+  node for, in <code>cause</code>), <code>inconclusive</code>, or <code>no_answer</code> (it stopped without
+  one; <code>run.stop</code> says why). <code>root</code> and <code>graph_root</code> name the nodes.</li>
+<li><code>adoption</code>: whether a concluded or contested root was <code>adopted</code> or stayed
+  <code>advisory</code>, the <code>family</code> whose root authority decided and the <code>reason</code>
+  (the trust ledger's model-lift verdict for that family on the held-out
+  bench, or why no authority applied). Only an adopted root becomes
+  <code>root_cause</code>, which then says <code>source: model</code>, <code>authority: model_earned</code>.
+  An unmodeled cause is always advisory. Agreement and no answer adopt
+  nothing (<code>not_applicable</code>).</li>
+<li><code>claims</code>: the claims that survived citation checks, each citing its
+  evidence with the numbers that evidence holds (<code>dropped_claims</code> counts
+  the rest).</li>
+<li><code>missing_evidence</code>: the reads the investigator asked for that returned
+  nothing usable (refused, failed, not permitted), <code>source: investigator</code>.</li>
+<li><code>run</code> (plan, protocol, stop, model and tool calls, probes) and
+  <code>transcript</code>: the link to the redacted transcript,
+  <code>GET .../investigations/{id}/transcript</code> (read scope; MCP
+  <code>specialist_investigation_transcript</code>). The transcript holds the plan,
+  every read with its stored result and digest, the claims and the
+  outcome, redacted like everything else (identifiers hashed with a fresh
+  key per view unless <code>specialist.keep_identifiers</code>); <code>404 not_found</code>
+  when the investigator did not run.</li>
+</ul>
+<p><strong>Scope to one statement (1.1.0).</strong> <code>query_id</code> (a <code>pg_stat_statements</code>
+queryid: a non-zero signed 64-bit integer, preferably sent as a string so
+no client rounds it) and/or <code>query_hash</code> (lowercase hex SHA-256 of the
+statement text exactly as <code>pg_stat_statements</code> shows it, UTF-8) scope an
+open or attach to one statement:</p>
+<ul>
+<li><code>plan_regression</code>: the investigation is about the statement (subject
+  <code>queryid N</code>): its <code>plan_regressions</code> probe reads only that statement, its
+  diagnosis is of it, and opens for different statements never share an
+  investigation. Attaching (by id, incident or window) to a plan
+  investigation of another statement is refused (<code>invalid_request</code>).</li>
+<li>Any other family: the probes still read the whole database; the result
+  names the evidence that mentions the statement.</li>
+</ul>
+<p>The result (and the open response) echo it as <code>query_scope</code> to the caller
+that sent it (<code>applied</code>: <code>probes_and_diagnosis</code> or <code>evidence</code>;
+<code>root_matches</code>; <code>evidence_ids</code>). A <code>query_hash</code> is resolved in the
+database's <code>pg_stat_statements</code> with a parameter: no statement or two
+statements for one hash is <code>invalid_request</code> (send <code>query_id</code> to choose),
+a hash and an id naming different statements is <code>invalid_request</code>, and a
+database without <code>pg_stat_statements</code> is <code>unavailable</code>. pg_sage's role
+needs <code>pg_read_all_stats</code> to see other roles' statement text. Neither
+field ever reaches SQL as text, a prompt or an instruction. Subjects in
+the result are redacted like all text (a long number may be hidden), so
+use <code>root_matches</code> rather than parsing <code>root_cause.subject</code>.</p>
 <p><strong>Remediations</strong> are pg_sage's own candidates, typed, with predicted effect,
 rollback, risk tier and the gate's <em>preview</em>: the evidence-matched cancel of a
 lock investigation's root blocker and the custodian actions (freeze, WAL
@@ -1066,7 +1132,8 @@ attach to) an investigation; other events and unmapped services answer <code>202
 ignored. Both the bearer token and <code>X-PagerDuty-Signature</code> must be valid.
 When the investigation finishes, pg_sage posts the diagnosis (never the
 incident's own text) as a note, with retries; only the configured <code>api_url</code>
-is ever called.</p>
+is ever called. The note is the same in 1.1.0: the investigator's claims
+and a query scope are not posted (the adapter never scopes by statement).</p>
 <h2 id="generic-webhook">Generic webhook<a class="headerlink" href="#generic-webhook" title="Permanent link">&para;</a></h2>
 <p><code>POST /api/v1/specialist/adapters/webhook</code> with a bearer token,
 <code>X-Sage-Timestamp</code> (unix seconds, within
