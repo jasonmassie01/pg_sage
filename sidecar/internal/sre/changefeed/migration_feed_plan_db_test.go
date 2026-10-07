@@ -26,11 +26,6 @@ func TestMigrationFeedReadsThroughItsIndex(t *testing.T) {
 	if _, err := pool.Exec(ctx, "ANALYZE sage.findings"); err != nil {
 		t.Fatal(err)
 	}
-	var plan string
-	if err := pool.QueryRow(ctx, "EXPLAIN (FORMAT TEXT) "+migrationFeedSQL, int64(0), 100).
-		Scan(&plan); err != nil {
-		t.Fatalf("explain: %v", err)
-	}
 	rows, err := pool.Query(ctx, "EXPLAIN "+migrationFeedSQL, int64(0), 100)
 	if err != nil {
 		t.Fatalf("explain: %v", err)

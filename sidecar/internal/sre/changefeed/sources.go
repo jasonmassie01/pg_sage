@@ -103,14 +103,17 @@ func (p *Poller) pollConfigAudit(ctx context.Context, q querier, prev []byte,
 // pollMigrationFindings reads DDL the migration detector saw.
 func pollMigrationFindings(ctx context.Context, q querier, prev []byte,
 	now time.Time) ([]Event, any, error) {
-	return pollCursor(ctx, q, prev, now, KindDDL, "finding",
-		`/* pg_sage sre:change_feed */ SELECT id::int8,
+	return pollCursor(ctx, q, prev, now, KindDDL, "finding", migrationFeedSQL)
+}
+
+// migrationFeedSQL reads the migration detector's findings past the
+// cursor through idx_findings_migration_feed.
+const migrationFeedSQL = `/* pg_sage sre:change_feed */ SELECT id::int8,
 		    'migration detector: ' || left(title, 200), created_at
 		FROM sage.findings
 		WHERE category = 'migration_safety' AND id > $1
 		  AND created_at > now() - interval '7 days'
-		ORDER BY id LIMIT $2`)
-}
+		ORDER BY id LIMIT $2`
 
 // snapshot polls one value; changed builds the event when it differs
 // from the previous one. The first sight only records the baseline.
