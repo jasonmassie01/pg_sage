@@ -30,14 +30,14 @@ func TestExtrapolateSequenceScan(t *testing.T) {
 	cases := []struct {
 		ms, sampled, total, want float64
 	}{
-		{10, 250, 5000, 200},  // linear in the sequence count
-		{10, 250, 250, 10},    // everything sampled: the measurement itself
-		{10, 100, 100, 10},    // fewer sequences than the sample size
-		{0, 250, 5000, 0},     // instant reads
-		{7, 0, 0, 0},          // no sequence: nothing to read
-		{7, 0, 5000, 7},       // none readable in the sample: keep what was measured
-		{-1, 250, 5000, 0},    // a negative clock reading is not evidence of speed
-		{10, 250, 249, 10},    // a count below the sample (concurrent DROP) never shrinks it
+		{10, 250, 5000, 200},   // linear in the sequence count
+		{10, 250, 250, 10},     // everything sampled: the measurement itself
+		{10, 100, 100, 10},     // fewer sequences than the sample size
+		{0, 250, 5000, 0},      // instant reads
+		{7, 0, 0, 0},           // no sequence: nothing to read
+		{7, 0, 5000, 7},        // none readable in the sample: keep what was measured
+		{-1, 250, 5000, 0},     // a negative clock reading is not evidence of speed
+		{10, 250, 249, 10},     // a count below the sample (concurrent DROP) never shrinks it
 		{1.5, 3, 30000, 15000}, // the property the rule sizes against
 	}
 	for _, c := range cases {
