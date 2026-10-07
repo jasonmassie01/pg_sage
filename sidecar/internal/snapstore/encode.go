@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,10 +42,40 @@ var keyFields = map[string][]string{
 // and the forecaster and verify read it raw over long windows.
 var objectCategories = map[string]bool{"config_data": true}
 
-// plainInteger matches a JSON number written as an integer: the numbers
-// whose jsonb text (->>) is the same digits. The decoder applies
-// increments only to such numbers.
-var plainInteger = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+// isPlainInteger reports whether raw is a JSON number written as an
+// integer (-?(0|[1-9][0-9]*)): the numbers whose jsonb text (->>) is the
+// same digits. The decoder applies increments only to such numbers.
+func isPlainInteger(raw []byte) bool {
+	if len(raw) > 0 && raw[0] == '-' {
+		raw = raw[1:]
+	}
+	if len(raw) == 0 || (raw[0] == '0' && len(raw) > 1) {
+		return false
+	}
+	for _, c := range raw {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// int64Digits is the longest plain integer that always fits an int64
+// (18 digits, plus a sign): the difference or sum of two such numbers fits
+// too, so they need no arbitrary precision.
+const int64Digits = 18
+
+func smallInteger(raw []byte) (int64, bool) {
+	digits := len(raw)
+	if digits > 0 && raw[0] == '-' {
+		digits--
+	}
+	if digits > int64Digits {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(string(raw), 10, 64)
+	return n, err == nil
+}
 
 // catalog is a parsed catalog list: elements in collector order with
 // their identities. object marks an object document held as its only
@@ -226,28 +255,45 @@ func patchFor(base, cur, g map[string]json.RawMessage) (
 		return nil, nil, fmt.Errorf("%w: fields removed: %s", errNotEncodable,
 			strings.Join(lost, ", "))
 	}
-	values, incs = map[string]json.RawMessage{}, map[string]json.RawMessage{}
 	for f, v := range cur {
 		b, had := base[f]
-		if had && plainInteger.Match(b) && g[f] != nil {
+		if had && g[f] != nil && isPlainInteger(b) {
 			b = add(b, g[f])
 		}
 		if had && bytes.Equal(b, v) {
 			continue
 		}
 		if inc, ok := increment(b, v); had && ok {
-			incs[f] = inc
+			incs = setField(incs, f, inc)
 			continue
 		}
-		values[f] = v
+		values = setField(values, f, v)
 	}
 	return values, incs, nil
 }
 
+// setField sets m[f], making m on first use: most elements change nothing.
+func setField(m map[string]json.RawMessage, f string,
+	v json.RawMessage) map[string]json.RawMessage {
+	if m == nil {
+		m = map[string]json.RawMessage{}
+	}
+	m[f] = v
+	return m
+}
+
 // increment returns cur - base when both are plain JSON integers.
 func increment(base, cur json.RawMessage) (json.RawMessage, bool) {
-	if !plainInteger.Match(base) || !plainInteger.Match(cur) {
+	if !isPlainInteger(base) || !isPlainInteger(cur) {
 		return nil, false
+	}
+	if bytes.Equal(base, cur) {
+		return json.RawMessage("0"), true
+	}
+	if b, ok := smallInteger(base); ok {
+		if c, ok := smallInteger(cur); ok {
+			return json.RawMessage(strconv.AppendInt(nil, c-b, 10)), true
+		}
 	}
 	b, _ := new(big.Int).SetString(string(base), 10)
 	c, _ := new(big.Int).SetString(string(cur), 10)
@@ -256,6 +302,11 @@ func increment(base, cur json.RawMessage) (json.RawMessage, bool) {
 
 // add returns a + b for plain JSON integers.
 func add(a, b json.RawMessage) json.RawMessage {
+	if x, ok := smallInteger(a); ok {
+		if y, ok := smallInteger(b); ok {
+			return json.RawMessage(strconv.AppendInt(nil, x+y, 10))
+		}
+	}
 	x, _ := new(big.Int).SetString(string(a), 10)
 	y, _ := new(big.Int).SetString(string(b), 10)
 	return json.RawMessage(x.Add(x, y).String())
