@@ -114,8 +114,11 @@ func TestFootprintFindingSaysWhereHistoryLives(t *testing.T) {
 	if len(none) != 0 {
 		t.Fatalf("no finding stays no finding: %v", none)
 	}
-	noHistory := ruleSageFootprint(sageFootprint{database: "app", total: 2000,
-		tables: []sageTableSize{{name: "sage.findings", bytes: 2000}}}, 10000, 10)
+	noHistory := ruleSageFootprint(sageFootprint{database: "app", total: 2 * unit,
+		tables: []sageTableSize{{name: "sage.findings", bytes: 2 * unit}}}, 10*unit, 10)
+	if len(noHistory) != 1 {
+		t.Fatalf("no-history fixture must raise the finding, got %d", len(noHistory))
+	}
 	got := annotateHistoryPlacement(noHistory, histstore.ModeMeta)
 	if strings.Contains(got[0].Recommendation, "--cleanup") {
 		t.Fatalf("no history left in the monitored database: no cleanup advice: %q",
