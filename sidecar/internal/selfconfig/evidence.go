@@ -27,7 +27,7 @@ type Evidence struct {
 	Relations          Measure // pg_class rows
 	CatalogScanMs      Measure // one pass over pg_class with its statistics
 	Sequences          Measure // pg_sequences rows
-	SequenceScanMs     Measure // reading every sequence's last value
+	SequenceScanMs     Measure // reading every last value (a timed sample, scaled)
 	MaxConnections     Measure // the server's max_connections
 	TempBytes          Measure // pg_stat_database.temp_bytes (cumulative)
 	StatsAgeSeconds    Measure // since the statistics reset (or server start)
