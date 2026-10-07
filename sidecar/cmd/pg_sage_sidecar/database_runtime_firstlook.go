@@ -68,10 +68,19 @@ func (rt *databaseRuntime) initOnboarding(ctx context.Context) {
 		return
 	}
 	if st.InstallKind == onboarding.InstallNew {
-		logInfo(rt.spec.Scope, "db %q: new install, trust %s (observation only "+
-			"observes: nothing changes outside the sage schema until an operator "+
-			"grants more)", rt.spec.Name, rt.cfg.Trust.Level)
+		logInfo(rt.spec.Scope, "%s", newInstallLog(rt.spec.Name, rt.cfg.Trust.Level))
 	}
+}
+
+// newInstallLog is the new-install line; only observation gets the
+// read-only explanation, a granted level is stated as it is.
+func newInstallLog(name, level string) string {
+	msg := fmt.Sprintf("db %q: new install, trust %s", name, level)
+	if level == onboarding.LevelObservation {
+		msg += " (observation only observes: nothing changes outside the sage schema " +
+			"until an operator grants more)"
+	}
+	return msg
 }
 
 // firstLookRun is one database's first look and time-to-first-finding

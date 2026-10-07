@@ -31,7 +31,8 @@ func initStandalone() {
 		logWarn("startup", "admin bootstrap: %v", err)
 	}
 	initializeAnalyzeSemaphore()
-	executor.VerifyGrants(ctx, pool, cfg.Postgres.User, logStructuredWrapper)
+	executor.VerifyGrants(ctx, pool, cfg.Postgres.User, cfg.Trust.Level,
+		logStructuredWrapper)
 	if cfg.Trust.Level == "autonomous" && cfg.Trust.Tier3Moderate &&
 		cfg.Trust.MaintenanceWindow == "" {
 		logWarn("startup", "tier3_moderate enabled without maintenance_window — "+

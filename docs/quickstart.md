@@ -76,7 +76,8 @@ catalog evidence it rests on, for example `pg_index.indisvalid = false`:
 - foreign keys whose columns lead no index;
 - transaction ID and multixact runway, and sequence runway, including a bigint sequence
   that feeds an integer column;
-- tables with a high share of dead tuples. This is an estimate from the counters;
+- tables of at least 100 MB with a high share of dead tuples. This is an estimate from
+  the counters;
 - test-named schemas. Idle ones become fact proposals that you confirm or reject;
   pg_sage never drops a schema;
 - pg_stat_statements, HypoPG and auto_explain, if missing, with the exact steps for your
@@ -140,4 +141,4 @@ it from the first start.
 | Sequences not readable | the sequence check is degraded and names the `GRANT SELECT ON ALL SEQUENCES` to run |
 | Query text hidden | a finding asks for `pg_read_all_stats` |
 | Slow catalog | each statement stops after 5 s (or your lower limit); the check is degraded, retried once 30 s later, and the others still run |
-| MCP for coding agents | turn on `mcp.enabled` with `mcp.transport` http, then create a token ([MCP guide](mcp.md)) |
+| MCP for coding agents | MCP is on by default over HTTP; create a token under **"MCP tokens"** ([MCP guide](mcp.md)) |

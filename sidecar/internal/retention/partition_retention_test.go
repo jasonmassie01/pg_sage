@@ -248,8 +248,8 @@ func TestSnapshotCap_FromConfig(t *testing.T) {
 	if got := c.snapshotCap(100 << 30); got != 5<<30 {
 		t.Fatalf("cap of a 100 GiB database = %d, want 5 GiB", got)
 	}
-	if got := c.snapshotCap(1 << 30); got != minSnapshotCapBytes {
-		t.Fatalf("cap of a 1 GiB database = %d, want the floor %d", got, minSnapshotCapBytes)
+	if got := c.snapshotCap(1 << 30); got != config.MinSnapshotCapBytes {
+		t.Fatalf("cap of a 1 GiB database = %d, want the floor %d", got, config.MinSnapshotCapBytes)
 	}
 	off := New(nil, &config.Config{}, noopLog)
 	if got := off.snapshotCap(100 << 30); got != 0 {

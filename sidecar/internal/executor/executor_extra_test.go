@@ -484,7 +484,7 @@ func TestGrantVerification(t *testing.T) {
 	}
 
 	// Should not panic; postgres superuser should have all grants.
-	VerifyGrants(ctx, pool, "postgres", logFn)
+	VerifyGrants(ctx, pool, "postgres", "advisory", logFn)
 
 	// The function ran without panic. Log output is informational;
 	// postgres user typically has full privileges so warnings are

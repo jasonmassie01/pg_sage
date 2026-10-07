@@ -86,7 +86,7 @@ func TestPhase2_CheckSchemaCreate_ResolvesCurrentUser(t *testing.T) {
 	}
 
 	// Call VerifyGrants which resolves the current user.
-	VerifyGrants(context.Background(), pool, "", logFn)
+	VerifyGrants(context.Background(), pool, "", "advisory", logFn)
 	// Should not panic and should resolve user correctly.
 }
 
@@ -342,7 +342,7 @@ func TestPhase2_VerifyGrants_FullIntegration(t *testing.T) {
 	}
 
 	// Should not panic. postgres user should have grants.
-	VerifyGrants(context.Background(), pool, "postgres", logFn)
+	VerifyGrants(context.Background(), pool, "postgres", "advisory", logFn)
 }
 
 // ---------------------------------------------------------------------------
