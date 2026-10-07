@@ -87,13 +87,26 @@ func (t *Tuner) reconcileHintStatuses(ctx context.Context) {
 	}
 }
 
-// loadFacts refreshes the cycle's catalog facts. On error the
-// catalog-dependent heuristics are skipped this cycle.
-func (t *Tuner) loadFacts(ctx context.Context) {
-	facts, err := LoadCatalogFacts(ctx, t.pool)
+// loadFacts starts the cycle's catalog facts empty: cycleFacts reads them
+// for the relations each plan names.
+func (t *Tuner) loadFacts(context.Context) {
+	t.facts = newCatalogFacts()
+}
+
+// cycleFacts reads the facts of the relations planJSON names that this
+// cycle has not read yet. On error the catalog-dependent heuristics are
+// skipped for this plan (nil facts).
+func (t *Tuner) cycleFacts(ctx context.Context, planJSON []byte) *CatalogFacts {
+	if t.facts == nil {
+		t.facts = newCatalogFacts()
+	}
+	names, err := planRelationNames(planJSON)
+	if err == nil {
+		err = t.facts.ensure(ctx, t.pool, names)
+	}
 	if err != nil {
 		t.logFn("WARN", "tuner: %v; seq-scan and parallel checks skipped", err)
-		facts = nil
+		return nil
 	}
-	t.facts = facts
+	return t.facts
 }

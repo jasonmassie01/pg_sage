@@ -12,11 +12,15 @@ import (
 // CatalogFacts are the catalog facts the plan heuristics need (Phase 0
 // item 11): estimated rows per table and, per table, the valid,
 // non-partial btree indexes with a plain leading column. Keys are
-// canonical "schema.table". Facts are loaded once per tuner cycle and
-// read-only afterwards.
+// canonical "schema.table". A cycle reads them only for the relations its
+// plans name, each name once (perf gate: the whole catalog every cycle cost
+// 136 ms at 5,000 tables).
 type CatalogFacts struct {
 	Tables  map[string]int64       `json:"tables"`
 	Indexes map[string][]IndexFact `json:"indexes"`
+	// read is the relation names already read this cycle (every schema's
+	// relation of that name, so an unqualified name still resolves).
+	read map[string]bool
 }
 
 // IndexFact is one usable btree index of a table.
@@ -25,8 +29,9 @@ type IndexFact struct {
 	LeadingColumn string `json:"leading_column"`
 }
 
-// catalogFactsSQL reads every user table's estimated rows and its usable
-// btree indexes (valid, ready, non-partial, leading key a plain column).
+// catalogFactsSQL reads the estimated rows and usable btree indexes (valid,
+// ready, non-partial, leading key a plain column) of the user tables of
+// the given names, in every schema.
 const catalogFactsSQL = `/* pg_sage */
 SELECT n.nspname || '.' || c.relname, GREATEST(c.reltuples, 0)::bigint,
        COALESCE((SELECT json_agg(json_build_object('name', i.relname,
@@ -43,39 +48,62 @@ SELECT n.nspname || '.' || c.relname, GREATEST(c.reltuples, 0)::bigint,
  WHERE c.relkind IN ('r', 'm', 'p')
    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'sage', 'hint_plan')
    AND n.nspname NOT LIKE 'pg_toast%'
-   AND n.nspname NOT LIKE 'pg_temp%'`
+   AND n.nspname NOT LIKE 'pg_temp%'
+   AND c.relname = ANY($1::text[])`
 
-// LoadCatalogFacts reads the catalog facts. A nil pool yields empty facts
-// (no catalog-dependent symptom can then be detected).
-func LoadCatalogFacts(ctx context.Context, pool *pgxpool.Pool) (*CatalogFacts, error) {
-	facts := &CatalogFacts{Tables: map[string]int64{}, Indexes: map[string][]IndexFact{}}
-	if pool == nil {
-		return facts, nil
+// LoadCatalogFacts reads the facts of the relations named relnames. A nil
+// pool or no name yields empty facts without a query.
+func LoadCatalogFacts(ctx context.Context, pool *pgxpool.Pool,
+	relnames []string) (*CatalogFacts, error) {
+	facts := newCatalogFacts()
+	return facts, facts.ensure(ctx, pool, relnames)
+}
+
+func newCatalogFacts() *CatalogFacts {
+	return &CatalogFacts{Tables: map[string]int64{}, Indexes: map[string][]IndexFact{},
+		read: map[string]bool{}}
+}
+
+// ensure reads the facts of the names not read yet; on error nothing is
+// marked read.
+func (f *CatalogFacts) ensure(ctx context.Context, pool *pgxpool.Pool,
+	relnames []string) error {
+	var missing []string
+	for _, name := range relnames {
+		if name != "" && !f.read[name] {
+			missing = append(missing, name)
+		}
 	}
-	rows, err := pool.Query(ctx, catalogFactsSQL)
+	if pool == nil || len(missing) == 0 {
+		return nil
+	}
+	rows, err := pool.Query(ctx, catalogFactsSQL, missing)
 	if err != nil {
-		return nil, fmt.Errorf("load catalog facts: %w", err)
+		return fmt.Errorf("load catalog facts: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var table, raw string
 		var reltuples int64
 		if err := rows.Scan(&table, &reltuples, &raw); err != nil {
-			return nil, fmt.Errorf("scan catalog facts: %w", err)
+			return fmt.Errorf("scan catalog facts: %w", err)
 		}
 		var idx []IndexFact
 		if err := json.Unmarshal([]byte(raw), &idx); err != nil {
-			return nil, fmt.Errorf("decode indexes of %s: %w", table, err)
+			return fmt.Errorf("decode indexes of %s: %w", table, err)
 		}
-		facts.Tables[table] = reltuples
+		f.Tables[table] = reltuples
 		if len(idx) > 0 {
-			facts.Indexes[table] = idx
+			f.Indexes[table] = idx
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate catalog facts: %w", err)
+		return fmt.Errorf("iterate catalog facts: %w", err)
 	}
-	return facts, nil
+	for _, name := range missing {
+		f.read[name] = true
+	}
+	return nil
 }
 
 // resolve returns the facts key of a plan relation. Plain EXPLAIN omits
