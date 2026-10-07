@@ -3761,7 +3761,7 @@ or approves. See <a href="../ask-sage/">Ask Sage</a>.</p>
 <tr>
 <td><code>retention.sage_size_warning_pct</code></td>
 <td><code>10</code></td>
-<td>Raise a <code>sage_footprint</code> finding when pg_sage's own tables (the <code>sage</code> schema, with TOAST and indexes) exceed this percent of the database size. <code>0</code> disables the check.</td>
+<td>Raise a <code>sage_footprint</code> finding when pg_sage's own tables (the <code>sage</code> schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. <code>0</code> disables the check.</td>
 </tr>
 </tbody>
 </table>

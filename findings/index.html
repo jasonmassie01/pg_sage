@@ -1608,8 +1608,10 @@ If either check fails, it does not drop the index.</p>
 <p><strong>Severity:</strong> warning</p>
 <p><strong>What it detects:</strong> The <code>sage</code> schema (every table with its TOAST data and indexes)
 is larger than <code>retention.sage_size_warning_pct</code> percent (default 10) of the database
-size collected this cycle. The finding names the share, the limit and the five largest
-sage tables. <code>0</code> disables the check; while the database size is unknown the open
+size collected this cycle, and at least 256 MB (the snapshot cap's minimum): on a small
+database a fresh install's own tables are a large share without being a problem. The
+finding names the share, the limit and the five largest sage tables. <code>0</code> disables the
+check; while the database size is unknown the open
 finding is kept, not resolved.</p>
 <p><strong>Example output:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>Sage data uses 23.4% of database lifeos (limit 10%)

@@ -1076,18 +1076,20 @@ catalog evidence it rests on, for example <code>pg_index.indisvalid = false</cod
 <li>foreign keys whose columns lead no index;</li>
 <li>transaction ID and multixact runway, and sequence runway, including a bigint sequence
   that feeds an integer column;</li>
-<li>tables with a high share of dead tuples. This is an estimate from the counters;</li>
+<li>tables of at least 100 MB with a high share of dead tuples. This is an estimate from
+  the counters;</li>
 <li>test-named schemas. Idle ones become fact proposals that you confirm or reject;
   pg_sage never drops a schema;</li>
 <li>pg_stat_statements, HypoPG and auto_explain, if missing, with the exact steps for your
   provider (RDS, Aurora, Cloud SQL, AlloyDB, Azure or self-managed).</li>
 </ul>
 <p>The first look reads only the system catalog and the statistics views. It runs once, in
-one read-only transaction, never touches table data, and keeps every statement inside
-<code>safety.query_timeout_ms</code>. A check it cannot run (a missing privilege, a timeout) is shown
-as degraded, with the reason and the grant that fixes it. With a model configured
-(<code>llm.enabled</code>, <code>llm.endpoint</code>, <code>llm.api_key</code>), a short summary heads the list. The
-findings never depend on it.</p>
+one read-only transaction, never touches table data, and gives every statement 5 s, or
+less if you set a lower <code>safety.query_timeout_ms</code> or a <code>statement_timeout</code> on pg_sage's
+role. A check it cannot run (a missing privilege, a timeout) is shown as degraded, with
+the reason and the grant that fixes it; one that timed out is retried once 30 s later.
+With a model configured (<code>llm.enabled</code>, <code>llm.endpoint</code>, <code>llm.api_key</code>), a short summary
+heads the list. The findings never depend on it.</p>
 <p>The same data is available from the API at <code>/api/v1/first-look</code> and <code>/api/v1/onboarding</code>,
 and from Prometheus as <code>pg_sage_time_to_first_finding_seconds</code>,
 <code>pg_sage_first_look_items</code> and <code>pg_sage_first_look_duration_seconds</code> (one series per
@@ -1144,11 +1146,11 @@ it from the first start.</p>
 </tr>
 <tr>
 <td>Slow catalog</td>
-<td>each statement stops at <code>safety.query_timeout_ms</code>; the check is degraded, the others still run</td>
+<td>each statement stops after 5 s (or your lower limit); the check is degraded, retried once 30 s later, and the others still run</td>
 </tr>
 <tr>
 <td>MCP for coding agents</td>
-<td>turn on <code>mcp.enabled</code> with <code>mcp.transport</code> http, then create a token (<a href="../mcp/">MCP guide</a>)</td>
+<td>MCP is on by default over HTTP; create a token under <strong>"MCP tokens"</strong> (<a href="../mcp/">MCP guide</a>)</td>
 </tr>
 </tbody>
 </table>
