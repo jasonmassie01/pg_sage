@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -149,6 +150,28 @@ func lockCatalogs(t *testing.T, ctx context.Context, p *pgxpool.Pool,
 	return release
 }
 
+// releaseAtFinish is a first-look clock that releases the catalog locks
+// when firstlook.Run stamps FinishedAt (its second call from Run): every
+// check has run by then, whatever the load, and the save can proceed. A
+// fixed timer raced the client-side step deadline on a busy CI runner and
+// let the extension read through (PR #130).
+func releaseAtFinish(release func()) func() time.Time {
+	var mu sync.Mutex
+	runCalls := 0
+	return func() time.Time {
+		pc, _, _, _ := runtime.Caller(1)
+		if fn := runtime.FuncForPC(pc); fn != nil && strings.HasSuffix(fn.Name(), "firstlook.Run") {
+			mu.Lock()
+			runCalls++
+			if runCalls == 2 {
+				release()
+			}
+			mu.Unlock()
+		}
+		return time.Now()
+	}
+}
+
 type levelLog struct {
 	mu    sync.Mutex
 	lines []string
@@ -185,13 +208,10 @@ func TestFirstLookRetryRecordsTheResult(t *testing.T) {
 	logs := &levelLog{}
 	run := &firstLookRun{name: "app", pool: p, provider: "self-managed", started: started,
 		tracker: tr, opts: opts, logf: logs.logf}
-	// Held past the two 300 ms timeouts; saving the report may wait on it.
 	release := lockCatalogs(t, ctx, p, "pg_index", "pg_extension")
-	go func() {
-		time.Sleep(1500 * time.Millisecond)
-		release()
-	}()
+	run.opts.Now = releaseAtFinish(release)
 	report, err := run.execute(ctx)
+	release()
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
