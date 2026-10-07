@@ -126,7 +126,7 @@ func TestStoreCleanerAgesOutEveryDatabasesHistory(t *testing.T) {
 }
 
 func TestStoreCapIsTheSumOfEachDatabasesCap(t *testing.T) {
-	floor := minSnapshotCapBytes
+	floor := config.MinSnapshotCapBytes
 	dbs := []histstore.StoreDatabase{{ID: 1, DBBytes: 100 << 30}, {ID: 2, DBBytes: 1 << 30},
 		{ID: 3, DBBytes: 0}}
 	want := (100<<30)*5/100 + floor + floor
@@ -168,7 +168,7 @@ func TestStoreCleanerCapReadsAndRefreshesTheRegistry(t *testing.T) {
 	}
 	// Database 7's size is refreshed from its live monitored pool (a small
 	// test database: the floor); database 8 keeps its last known 20 GB.
-	if want := minSnapshotCapBytes + (20<<30)*5/100; limit != want {
+	if want := config.MinSnapshotCapBytes + (20<<30)*5/100; limit != want {
 		t.Fatalf("store cap = %d, want %d", limit, want)
 	}
 	dbs, err := histstore.StoreDatabases(ctx, p.Meta, time.Now().Add(-time.Hour))
@@ -180,7 +180,7 @@ func TestStoreCleanerCapReadsAndRefreshesTheRegistry(t *testing.T) {
 			t.Fatalf("database 7's size was not refreshed from its pool: %d", d.DBBytes)
 		}
 	}
-	if _, on := c.capFor(ctx, minSnapshotCapBytes/2); on {
+	if _, on := c.capFor(ctx, config.MinSnapshotCapBytes/2); on {
 		t.Fatal("a store under one floor is never capped")
 	}
 }

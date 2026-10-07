@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
@@ -86,9 +87,11 @@ func (a *Analyzer) measureSageFootprint(ctx context.Context) (sageFootprint, err
 
 // ruleSageFootprint raises a warning when the sage schema is more than
 // limitPct percent of the database. A non-positive limit disables it; an
-// unknown database size or an empty sage schema never raises it.
+// unknown database size never raises it, and neither does a sage schema
+// below the snapshot cap's floor: on a small database a fresh install's own
+// tables are a large share of it, which is no problem worth a finding.
 func ruleSageFootprint(fp sageFootprint, dbBytes int64, limitPct int) []Finding {
-	if limitPct <= 0 || dbBytes <= 0 || fp.total <= 0 {
+	if limitPct <= 0 || dbBytes <= 0 || fp.total < config.MinSnapshotCapBytes {
 		return nil
 	}
 	// Integer comparison: exactly at the limit is fine.

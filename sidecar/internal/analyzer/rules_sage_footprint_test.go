@@ -7,7 +7,13 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/config"
 )
+
+// floor is the sage schema size below which the footprint is never a
+// finding: the snapshot cap's minimum. The rule tests work in units of it
+// so that a share over the limit is not hidden by the floor.
+const floor = config.MinSnapshotCapBytes
 
 func footprint(total int64, tables ...int64) sageFootprint {
 	fp := sageFootprint{database: "app", total: total}
@@ -20,8 +26,9 @@ func footprint(total int64, tables ...int64) sageFootprint {
 // Happy path: sage data above the configured share of the database is a
 // warning naming the share, the limit and the largest sage tables.
 func TestRuleSageFootprint_AboveLimitIsWarning(t *testing.T) {
-	fp := footprint(2000, 900, 500, 300, 100, 80, 70, 50)
-	got := ruleSageFootprint(fp, 10000, 10)
+	u := floor / 1000
+	fp := footprint(2000*u, 900*u, 500*u, 300*u, 100*u, 80*u, 70*u, 50*u)
+	got := ruleSageFootprint(fp, 10000*u, 10)
 	if len(got) != 1 {
 		t.Fatalf("findings = %d, want 1", len(got))
 	}
@@ -30,13 +37,13 @@ func TestRuleSageFootprint_AboveLimitIsWarning(t *testing.T) {
 		f.ObjectType != "database" || f.ObjectIdentifier != "app" {
 		t.Fatalf("finding = %+v", f)
 	}
-	if f.Detail["sage_bytes"] != int64(2000) || f.Detail["database_bytes"] != int64(10000) ||
+	if f.Detail["sage_bytes"] != 2000*u || f.Detail["database_bytes"] != 10000*u ||
 		f.Detail["share_pct"] != 20.0 || f.Detail["limit_pct"] != 10 {
 		t.Fatalf("detail = %v", f.Detail)
 	}
 	largest, ok := f.Detail["largest_tables"].([]map[string]any)
 	if !ok || len(largest) != 5 || largest[0]["table"] != "sage.t0" ||
-		largest[0]["bytes"] != int64(900) || largest[4]["table"] != "sage.t4" {
+		largest[0]["bytes"] != 900*u || largest[4]["table"] != "sage.t4" {
 		t.Fatalf("largest_tables = %v, want the top five in order", f.Detail["largest_tables"])
 	}
 	if !strings.Contains(f.Title, "20.0%") || !strings.Contains(f.Recommendation,
@@ -49,7 +56,7 @@ func TestRuleSageFootprint_AboveLimitIsWarning(t *testing.T) {
 // The finding is about pg_sage's own footprint but must not be dropped by
 // the self-monitoring filter, which hides findings about sage objects.
 func TestRuleSageFootprint_NotFilteredAsSelfMonitoring(t *testing.T) {
-	got := ruleSageFootprint(footprint(5000, 5000), 10000, 10)
+	got := ruleSageFootprint(footprint(5*floor, 5*floor), 10*floor, 10)
 	if len(got) != 1 || isSelfMonitoringFinding(got[0]) {
 		t.Fatalf("findings = %+v, want one that survives the self-monitoring filter", got)
 	}
@@ -57,11 +64,44 @@ func TestRuleSageFootprint_NotFilteredAsSelfMonitoring(t *testing.T) {
 
 // Boundary: exactly at the limit is fine; one byte over is a finding.
 func TestRuleSageFootprint_Boundary(t *testing.T) {
-	if got := ruleSageFootprint(footprint(1000), 10000, 10); len(got) != 0 {
+	if got := ruleSageFootprint(footprint(2*floor), 20*floor, 10); len(got) != 0 {
 		t.Fatalf("at the limit: %d findings, want 0", len(got))
 	}
-	if got := ruleSageFootprint(footprint(1001), 10000, 10); len(got) != 1 {
+	if got := ruleSageFootprint(footprint(2*floor+1), 20*floor, 10); len(got) != 1 {
 		t.Fatalf("one byte over: %d findings, want 1", len(got))
+	}
+}
+
+// Boundary: on a small database the sage schema is a large share of it
+// (a fresh install measured 20.1%), but below the snapshot cap's floor it
+// is never a finding. At the floor and above it the share decides.
+func TestRuleSageFootprint_AbsoluteFloor(t *testing.T) {
+	small := int64(100 << 20) // a database far smaller than the floor
+	if got := ruleSageFootprint(footprint(floor-1), small, 10); len(got) != 0 {
+		t.Fatalf("just under the floor: %d findings, want 0", len(got))
+	}
+	if got := ruleSageFootprint(footprint(20<<20), small, 10); len(got) != 0 {
+		t.Fatalf("a 20%% share of a tiny database: %d findings, want 0", len(got))
+	}
+	for name, total := range map[string]int64{"at": floor, "above": floor + 1} {
+		got := ruleSageFootprint(footprint(total), small, 10)
+		if len(got) != 1 || got[0].Detail["sage_bytes"] != total {
+			t.Fatalf("%s the floor: findings = %+v, want one", name, got)
+		}
+	}
+}
+
+// Happy path on a large database: 12 GB of sage data in 100 GB is still a
+// finding; 5 GB is not.
+func TestRuleSageFootprint_LargeDatabaseStillWarns(t *testing.T) {
+	db := int64(100 << 30)
+	got := ruleSageFootprint(footprint(12<<30), db, 10)
+	if len(got) != 1 || got[0].Detail["share_pct"] != 12.0 ||
+		!strings.Contains(got[0].Title, "12.0%") {
+		t.Fatalf("12 GB of 100 GB: findings = %+v, want one at 12.0%%", got)
+	}
+	if got := ruleSageFootprint(footprint(5<<30), db, 10); len(got) != 0 {
+		t.Fatalf("5 GB of 100 GB: %d findings, want 0", len(got))
 	}
 }
 
@@ -73,11 +113,11 @@ func TestRuleSageFootprint_DisabledOrUnknown(t *testing.T) {
 		db    int64
 		limit int
 	}{
-		"disabled":         {footprint(9000), 10000, 0},
-		"negative limit":   {footprint(9000), 10000, -1},
-		"unknown db size":  {footprint(9000), 0, 10},
-		"negative db size": {footprint(9000), -5, 10},
-		"empty sage":       {footprint(0), 10000, 10},
+		"disabled":         {footprint(9 * floor), 10 * floor, 0},
+		"negative limit":   {footprint(9 * floor), 10 * floor, -1},
+		"unknown db size":  {footprint(9 * floor), 0, 10},
+		"negative db size": {footprint(9 * floor), -5, 10},
+		"empty sage":       {footprint(0), 10 * floor, 10},
 	} {
 		if got := ruleSageFootprint(tc.fp, tc.db, tc.limit); len(got) != 0 {
 			t.Errorf("%s: %d findings, want 0", name, len(got))
@@ -98,14 +138,20 @@ func snapshotWithDBSize(n int64) *collector.Snapshot {
 	return &collector.Snapshot{System: collector.SystemStats{DBSizeBytes: n}}
 }
 
-// Integration: the real sage schema is measured; against a tiny database
-// size it is over any limit, against a huge one under it. Both evaluate.
+// Integration: the real sage schema of a test database is measured and is
+// below the floor, so even against a tiny database size it is no finding
+// (the fresh-install noise); against a huge one it is under the limit.
+// Both evaluate, so an open finding resolves.
 func TestCheckSageFootprint_RealSchema(t *testing.T) {
 	a := footprintAnalyzer(t, 10)
 	ctx := context.Background()
-	got := a.checkSageFootprint(ctx, snapshotWithDBSize(1))
-	if len(got) != 1 || got[0].Detail["sage_bytes"].(int64) <= 0 {
-		t.Fatalf("tiny database: findings = %+v, want one with measured sage bytes", got)
+	fp, err := a.measureSageFootprint(ctx)
+	if err != nil || fp.total <= 0 || fp.total >= floor {
+		t.Fatalf("measured sage schema = %d bytes (err %v), want 0 < size < floor", fp.total,
+			err)
+	}
+	if got := a.checkSageFootprint(ctx, snapshotWithDBSize(1)); len(got) != 0 {
+		t.Fatalf("tiny database: findings = %+v, want none below the floor", got)
 	}
 	if !a.eval.ok["sage_footprint"] || a.eval.failed["sage_footprint"] {
 		t.Fatalf("eval = %+v, want sage_footprint evaluated", a.eval)

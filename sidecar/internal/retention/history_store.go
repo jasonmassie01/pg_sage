@@ -2,6 +2,7 @@ package retention
 
 import (
 	"context"
+	"github.com/pg-sage/sidecar/internal/config"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,7 +56,7 @@ func storeCap(dbs []histstore.StoreDatabase, pct int) int64 {
 	}
 	var total int64
 	for _, d := range dbs {
-		total += max(max(d.DBBytes, 0)*int64(pct)/100, minSnapshotCapBytes)
+		total += max(max(d.DBBytes, 0)*int64(pct)/100, config.MinSnapshotCapBytes)
 	}
 	return total
 }

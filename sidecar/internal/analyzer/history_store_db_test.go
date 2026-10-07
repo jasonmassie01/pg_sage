@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/pg-sage/sidecar/internal/config"
 	"strings"
 	"testing"
 	"time"
@@ -85,8 +86,11 @@ func TestFootprintExcludesHistoryKeptInTheStore(t *testing.T) {
 }
 
 func TestFootprintFindingSaysWhereHistoryLives(t *testing.T) {
-	base := ruleSageFootprint(sageFootprint{database: "app", total: 2000, tables: []sageTableSize{
-		{name: "sage.snapshots", bytes: 1500}, {name: "sage.findings", bytes: 500}}}, 10000, 10)
+	// Above the 256 MB floor (v2.2.1), at 20% of the database.
+	unit := config.MinSnapshotCapBytes
+	base := ruleSageFootprint(sageFootprint{database: "app", total: 2 * unit,
+		tables: []sageTableSize{{name: "sage.snapshots", bytes: unit + unit/2},
+			{name: "sage.findings", bytes: unit / 2}}}, 10*unit, 10)
 	if len(base) != 1 {
 		t.Fatalf("fixture must raise the finding, got %d", len(base))
 	}

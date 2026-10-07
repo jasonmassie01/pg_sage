@@ -16,6 +16,44 @@
   default (`monitored`) changes nothing for existing installs. Findings, the action log and
   verification stay in each monitored database.
 
+## v2.2.1 (2026-10-07) -- First look and quickstart fixes
+
+### Fixed
+
+- **The first look no longer gives up on large catalogs because of pg_sage's own default
+  timeout.** It was held to `safety.query_timeout_ms` (500 ms by default), so on a database
+  with about 1,800 relations the index checks (invalid, duplicate, never-scanned indexes,
+  unindexed foreign keys) sat right at the limit and came back "degraded" on some starts and
+  complete on others. The first look now has its own 5 s budget per statement. A lower limit
+  still applies when you set one: `safety.query_timeout_ms` in the YAML file or through the
+  API, or a `statement_timeout` on pg_sage's role, its database, the server or its
+  connection options. A degraded check now says which setting cut it off. Checks that
+  degrade because of a timeout, a lock conflict or a dropped connection are retried once
+  30 s later, and the retry is recorded on the same first-look report (marked `retried`,
+  with the first failure kept in the note). A first look can no longer hang on a catalog
+  lock (for example during long DDL): each step, including opening its transaction, is also
+  cancelled from pg_sage's side after twice its timeout plus a second.
+
+- **Sequence runway now sees sequences used through a column default.** A sequence that a
+  column uses with `DEFAULT nextval('...')`, without `OWNED BY`, is now capped by that
+  column's type: a bigint sequence close to the integer limit that feeds an `int` column is
+  reported as critical instead of "ok". When several columns use one sequence, the
+  narrowest column type decides, and the sequence is still reported once. A sequence that is
+  nearly exhausted now shows one decimal ("99.7% used") instead of a rounded "100% used".
+- **A read-only install starts without grant warnings.** At trust level `observation`
+  pg_sage no longer warns that the role lacks `CREATE` on schema public or membership in
+  `pg_signal_backend`: it logs one line pointing at "Grant more", where the grants for
+  higher levels are listed. At `advisory` and `autonomous` a missing grant is still a
+  warning with the SQL that fixes it.
+- **The new-install startup line matches the trust level.** It no longer describes
+  observation ("nothing changes outside the sage schema") when the configured level is
+  advisory or autonomous.
+- **No more `sage_footprint` finding on small databases.** pg_sage's own data is no longer
+  reported while the sage schema is under 256 MB (the same minimum as the snapshot size
+  cap), so a fresh install on a small database no longer opens with "Sage data uses 20% of
+  database ...". Larger sage schemas are checked against `retention.sage_size_warning_pct`
+  as before.
+
 ## v2.2.0 (2026-10-05) -- Ask Sage, self-configuration, managed clouds
 
 ### What's new
