@@ -71,10 +71,10 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (Report, error) 
 	r := &Report{Database: opts.Database, Provider: opts.Provider, StartedAt: opts.Now()}
 	p := &pass{pool: pool, opts: opts, report: r}
 	defer p.close()
-	if err := p.open(ctx); err != nil {
+	if err := p.openOrDegrade(ctx); err != nil {
 		return Report{}, err
 	}
-	r.StatementTimeoutMS = p.timeout
+	r.StatementTimeoutMS = p.limitMS()
 	p.header(ctx)
 	for _, st := range p.steps() {
 		if err := p.run(ctx, st); err != nil {
@@ -189,7 +189,7 @@ func (p *pass) fail(ctx context.Context, rules []string, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("first look: %w", ctx.Err())
 	}
-	note := degradeReason(err, p.timeout, p.setBy)
+	note := degradeReason(err, p.limitMS(), p.setBy)
 	for _, rule := range rules {
 		p.report.Checks = append(p.report.Checks, Check{Rule: rule, Status: CheckDegraded,
 			Note: note})
@@ -198,6 +198,28 @@ func (p *pass) fail(ctx context.Context, rules []string, err error) error {
 		p.report.Retryable = append(p.report.Retryable, rules...)
 	}
 	return nil
+}
+
+// openOrDegrade opens the pass's transaction. A failure other than the end
+// of ctx is not fatal: each step tries to open again and is degraded with
+// the reason if it still cannot.
+func (p *pass) openOrDegrade(ctx context.Context) error {
+	if err := p.open(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		p.close()
+	}
+	return nil
+}
+
+// limitMS is the statement timeout the pass runs under, or the one it
+// would have set when the transaction could not be opened.
+func (p *pass) limitMS() int {
+	if p.timeout > 0 {
+		return p.timeout
+	}
+	return int(p.opts.StatementTimeout / time.Millisecond)
 }
 
 // stepGrace is how long past twice the statement timeout pg_sage waits for
@@ -209,19 +231,16 @@ const stepGrace = time.Second
 // statement's timeout (a lock taken while opening the transaction) must
 // not hang the first look.
 func (p *pass) stepBudget() time.Duration {
-	limit := p.opts.StatementTimeout
-	if p.timeout > 0 {
-		limit = time.Duration(p.timeout) * time.Millisecond
-	}
-	return 2*limit + stepGrace
+	return 2*time.Duration(p.limitMS())*time.Millisecond + stepGrace
 }
 
 // degradeReason states why a check could not run, with the fix when known;
 // a timeout names the operator setting it came from (setBy), if any.
 func degradeReason(err error, timeoutMS int, setBy string) string {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Sprintf("did not finish within %d ms plus a grace period (waiting on "+
-			"a catalog lock or a busy server); pg_sage cancelled it", 2*timeoutMS)
+		return fmt.Sprintf("did not finish within twice its %d ms statement timeout plus "+
+			"a grace period (waiting on a catalog lock or a busy server); pg_sage "+
+			"cancelled it", timeoutMS)
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -243,6 +262,9 @@ func degradeReason(err error, timeoutMS int, setBy string) string {
 // header reads the relation count and the statistics window; a failure
 // leaves them unknown and is not a check of its own.
 func (p *pass) header(ctx context.Context) {
+	if p.tx == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(ctx, p.stepBudget())
 	defer cancel()
 	if err := p.tx.QueryRow(ctx, relationsSQL).Scan(&p.report.Relations); err != nil {

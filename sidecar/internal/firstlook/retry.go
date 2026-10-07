@@ -29,7 +29,7 @@ func Retry(ctx context.Context, pool *pgxpool.Pool, opts Options,
 	fresh := &Report{}
 	p := &pass{pool: pool, opts: opts, report: fresh}
 	defer p.close()
-	if err := p.open(ctx); err != nil {
+	if err := p.openOrDegrade(ctx); err != nil {
 		return Report{}, err
 	}
 	p.header(ctx)

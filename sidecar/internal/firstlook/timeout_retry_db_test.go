@@ -307,8 +307,8 @@ func TestRunKeepsItsBudgetUnderAHigherOperatorTimeout(t *testing.T) {
 // Opening the first look's transaction reads the session's statement_timeout
 // before any limit of pg_sage's own is set; a lock held on the catalog there
 // (DDL, or a cache rebuild waiting on pg_index under load) must not hang the
-// first look: the client-side step deadline ends it (CI on PR #130 hung for
-// 180 s on the reopen after a degraded step).
+// first look: every step is degraded on its client-side deadline instead
+// (CI on PR #130 hung for 180 s on the reopen after a degraded step).
 func TestOpenIsBoundedWhenTheSettingsReadBlocks(t *testing.T) {
 	admin, ctx := livePool(t)
 	single := warmSingleConn(t, ctx, admin)
@@ -327,14 +327,33 @@ func TestOpenIsBoundedWhenTheSettingsReadBlocks(t *testing.T) {
 		t.Fatalf("lock pg_settings: %v", err)
 	}
 	start := time.Now()
-	_, err = Run(ctx, single, opts)
+	r, err := Run(ctx, single, opts)
 	took := time.Since(start)
-	if err == nil || ctx.Err() != nil {
-		t.Fatalf("run = %v (test ctx %v), want the open to fail on its own deadline", err,
-			ctx.Err())
+	if err != nil || ctx.Err() != nil {
+		t.Fatalf("run = %v (test ctx %v), want a report with degraded checks", err, ctx.Err())
 	}
-	if took > 10*time.Second || !strings.Contains(err.Error(), "statement_timeout") {
-		t.Fatalf("run took %v with %v, want a bounded failure reading statement_timeout",
-			took, err)
+	if took > 60*time.Second || len(r.Checks) == 0 || r.StatementTimeoutMS != 300 {
+		t.Fatalf("run took %v, %d checks, timeout %d ms: want every step bounded",
+			took, len(r.Checks), r.StatementTimeoutMS)
+	}
+	assertAllDegradedByDeadline(t, r)
+}
+
+// assertAllDegradedByDeadline: every check is degraded, and at least one
+// names the client deadline (a step that reuses the connection the
+// deadline closed reports that instead).
+func assertAllDegradedByDeadline(t *testing.T, r Report) {
+	t.Helper()
+	cut := 0
+	for _, c := range r.Checks {
+		if c.Status != CheckDegraded {
+			t.Fatalf("check %+v ran against a locked catalog, want degraded", c)
+		}
+		if strings.Contains(c.Note, "300 ms statement timeout") {
+			cut++
+		}
+	}
+	if cut == 0 {
+		t.Fatalf("no check names the client deadline: %+v", r.Checks)
 	}
 }
