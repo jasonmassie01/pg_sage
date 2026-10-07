@@ -117,6 +117,32 @@ func (s *Store) Latest(ctx context.Context, database string) (Report, bool, erro
 	return r, true, nil
 }
 
+// Update records a retried report on the row of its first attempt (r.ID,
+// in r.Database): relations, items, checks and capabilities. When it ran,
+// its timeout and its summary stay.
+func (s *Store) Update(ctx context.Context, r Report) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if r.Database == "" {
+		return ErrNoDatabase
+	}
+	items, checks, caps, err := encodeReport(r)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE sage.first_look SET relations = $3, items = $4,
+		checks = $5, capabilities = $6 WHERE id = $1 AND database_name = $2`, r.ID,
+		r.Database, r.Relations, items, checks, caps)
+	if err != nil {
+		return fmt.Errorf("update first look %d of %q: %w", r.ID, r.Database, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("first look %d of %q: %w", r.ID, r.Database, ErrNotFound)
+	}
+	return nil
+}
+
 // SetSummary attaches the model's summary to report id.
 func (s *Store) SetSummary(ctx context.Context, id int64, summary, model string) error {
 	if err := s.ready(); err != nil {
