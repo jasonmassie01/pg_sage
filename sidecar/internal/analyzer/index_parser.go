@@ -2,7 +2,9 @@ package analyzer
 
 import (
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 )
 
 // ParsedIndex holds the decomposed parts of a pg_get_indexdef() string.
@@ -28,8 +30,45 @@ var indexDefHead = regexp.MustCompile(
 		`(\S+)\s+USING\s+(\w+)\s*\(`,
 )
 
+// indexDefCacheMax bounds the memoized parses: a catalog's definitions
+// repeat every cycle, so the cache holds them all on any real database and
+// is emptied, not grown, past the cap.
+const indexDefCacheMax = 100_000
+
+var indexDefCache = struct {
+	sync.Mutex
+	m map[string]ParsedIndex
+}{m: map[string]ParsedIndex{}}
+
 // ParseIndexDef parses a pg_get_indexdef() string into structured parts.
+// Parses are memoized (the same definitions come back every cycle); each
+// call returns its own copy of the column slices.
 func ParseIndexDef(indexdef string) ParsedIndex {
+	indexDefCache.Lock()
+	p, ok := indexDefCache.m[indexdef]
+	indexDefCache.Unlock()
+	if !ok {
+		p = parseIndexDef(indexdef)
+		indexDefCache.Lock()
+		if len(indexDefCache.m) >= indexDefCacheMax {
+			indexDefCache.m = map[string]ParsedIndex{}
+		}
+		indexDefCache.m[indexdef] = p
+		indexDefCache.Unlock()
+	}
+	p.Columns = slices.Clone(p.Columns)
+	p.IncludeCols = slices.Clone(p.IncludeCols)
+	return p
+}
+
+// indexDefCacheLen is the number of memoized parses (tests).
+func indexDefCacheLen() int {
+	indexDefCache.Lock()
+	defer indexDefCache.Unlock()
+	return len(indexDefCache.m)
+}
+
+func parseIndexDef(indexdef string) ParsedIndex {
 	def := strings.TrimSpace(indexdef)
 	loc := indexDefHead.FindStringSubmatchIndex(def)
 	if loc == nil {
