@@ -2,6 +2,7 @@ package perfgate
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -50,6 +51,23 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	fmt.Fprintf(sb, "| %s | at least %.0f%% of updates for a table updated %d+ times "+
 		"(steady phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
 	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase) |\n", GateSidecarCPU, b.SidecarCPUMsPerCycle)
+	writeHotExempt(sb, b)
+}
+
+// writeHotExempt lists the tables gate F does not charge, and why.
+func writeHotExempt(sb *strings.Builder, b Budgets) {
+	if len(b.HotExempt) == 0 {
+		return
+	}
+	tables := make([]string, 0, len(b.HotExempt))
+	for t := range b.HotExempt {
+		tables = append(tables, t)
+	}
+	sort.Strings(tables)
+	fmt.Fprintf(sb, "\nNot charged by %s:\n\n", GateHotUpdates)
+	for _, t := range tables {
+		fmt.Fprintf(sb, "- %s: %s\n", t, b.HotExempt[t])
+	}
 }
 
 func writeOffenderTable(sb *strings.Builder, offenders []Offender) {
