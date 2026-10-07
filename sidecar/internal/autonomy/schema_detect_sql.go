@@ -39,13 +39,18 @@ WHERE tc.append_only AND tc.retention_interval IS NOT NULL
   AND tbl.relkind IN ('r','p')
 ORDER BY tc.schema_name, tc.table_name`
 
+// structuralPathologySQL aggregates each table's columns once: every
+// column text (three or more), and text columns named like a number. A
+// window over every column of every table spilled to disk at 5,000
+// relations (perf gate, 111 ms on CI).
 const structuralPathologySQL = `/* pg_sage */
-WITH columns AS (
+WITH tables AS (
     SELECT ns.nspname AS schema_name, tbl.relname AS table_name,
-           att.attname AS column_name, typ.typname AS type_name,
-           count(*) OVER (PARTITION BY tbl.oid) AS column_count,
-           count(*) FILTER (WHERE typ.typname IN ('text','varchar'))
-             OVER (PARTITION BY tbl.oid) AS text_count
+           count(*) AS column_count,
+           count(*) FILTER (WHERE typ.typname IN ('text','varchar')) AS text_count,
+           array_agg(att.attname) FILTER (WHERE typ.typname IN ('text','varchar')
+             AND (att.attname='count_text' OR att.attname ~ '(_id|_count|_number)$'))
+             AS tightening
     FROM pg_class tbl
     JOIN pg_namespace ns ON ns.oid=tbl.relnamespace
     JOIN pg_attribute att ON att.attrelid=tbl.oid
@@ -53,13 +58,13 @@ WITH columns AS (
     JOIN pg_type typ ON typ.oid=att.atttypid
     WHERE tbl.relkind IN ('r','p')
       AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')
+    GROUP BY tbl.oid, ns.nspname, tbl.relname
 )
-SELECT DISTINCT schema_name, table_name, '' AS column_name, 'everything_text' AS kind
-FROM columns WHERE column_count>=3 AND text_count=column_count
+SELECT schema_name, table_name, ''::name AS column_name, 'everything_text' AS kind
+FROM tables WHERE column_count>=3 AND text_count=column_count
 UNION ALL
-SELECT schema_name, table_name, column_name, 'type_tightening' AS kind
-FROM columns WHERE type_name IN ('text','varchar')
-  AND (column_name='count_text' OR column_name ~ '(_id|_count|_number)$')
+SELECT schema_name, table_name, unnest(tightening), 'type_tightening' AS kind
+FROM tables WHERE tightening IS NOT NULL
 ORDER BY 1,2,4,3`
 
 const missingFKIndexSQL = `/* pg_sage */
