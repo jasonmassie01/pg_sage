@@ -156,24 +156,40 @@ func readXID(ctx context.Context, tx pgx.Tx) (XIDState, error) {
 	return x, rows.Err()
 }
 
-// sequencesSQL reads every user sequence with the column that owns it
-// (serial or identity). last_value is NULL when the role may not read the
-// sequence, and also when it was never used; the privilege column tells
-// the two apart.
+// sequencesSQL reads every user sequence with the column it feeds: the
+// column that owns it (serial, identity, OWNED BY) or any column whose
+// DEFAULT calls nextval() on it. When several columns use one sequence the
+// narrowest integer type caps it, so each sequence stays one row.
+// last_value is NULL when the role may not read the sequence, and also
+// when it was never used; the privilege column tells the two apart.
 const sequencesSQL = tag + `SELECT s.schemaname::text, s.sequencename::text, s.last_value,
   s.min_value, s.max_value, s.increment_by, s.cycle,
   pg_catalog.has_sequence_privilege(sc.oid, 'SELECT,USAGE'),
-  COALESCE(dn.nspname::text || '.' || dt.relname::text || '.' || a.attname::text, ''),
-  COALESCE(pg_catalog.format_type(a.atttypid, a.atttypmod), '')
+  COALESCE(col.name, ''), COALESCE(col.type, '')
 FROM pg_catalog.pg_sequences s
 JOIN pg_catalog.pg_namespace n ON n.nspname = s.schemaname
 JOIN pg_catalog.pg_class sc ON sc.relnamespace = n.oid AND sc.relname = s.sequencename
-LEFT JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_class'::regclass
-  AND d.objid = sc.oid AND d.refclassid = 'pg_catalog.pg_class'::regclass
-  AND d.deptype IN ('a', 'i') AND d.refobjsubid > 0
-LEFT JOIN pg_catalog.pg_class dt ON dt.oid = d.refobjid
-LEFT JOIN pg_catalog.pg_namespace dn ON dn.oid = dt.relnamespace
-LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+LEFT JOIN LATERAL (
+  SELECT dn.nspname::text || '.' || dt.relname::text || '.' || a.attname::text AS name,
+    pg_catalog.format_type(a.atttypid, a.atttypmod) AS type
+  FROM (SELECT d.refobjid AS relid, d.refobjsubid AS attnum FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = sc.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::regclass
+          AND d.deptype IN ('a', 'i') AND d.refobjsubid > 0
+        UNION
+        SELECT ad.adrelid, ad.adnum FROM pg_catalog.pg_depend d
+        JOIN pg_catalog.pg_attrdef ad ON ad.oid = d.objid
+        WHERE d.classid = 'pg_catalog.pg_attrdef'::regclass
+          AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.refobjid = sc.oid
+          AND d.deptype = 'n') u
+  JOIN pg_catalog.pg_attribute a ON a.attrelid = u.relid AND a.attnum = u.attnum
+    AND NOT a.attisdropped
+  JOIN pg_catalog.pg_class dt ON dt.oid = u.relid
+  JOIN pg_catalog.pg_namespace dn ON dn.oid = dt.relnamespace
+  ORDER BY CASE a.atttypid WHEN 'pg_catalog.int2'::regtype THEN 1
+    WHEN 'pg_catalog.int4'::regtype THEN 2 WHEN 'pg_catalog.int8'::regtype THEN 3
+    ELSE 4 END, 1
+  LIMIT 1) col ON true
 WHERE ` + userSchemas + `
 ORDER BY 1, 2
 LIMIT $1`

@@ -27,6 +27,12 @@ const (
 	firstFindingPoll        = 15 * time.Second
 	firstFindingWait        = time.Hour
 	firstLookSummaryTimeout = time.Minute
+	// firstLookRetryDelay lets pg_sage's own startup reads (collector,
+	// analyzer, self-configuration evidence) settle before the checks that
+	// degraded with a transient error run once more.
+	firstLookRetryDelay = 30 * time.Second
+	// queryTimeoutKey limits the first look only when the operator set it.
+	queryTimeoutKey = "safety.query_timeout_ms"
 )
 
 // firstLookTracker measures every database's time to first finding for
@@ -62,10 +68,19 @@ func (rt *databaseRuntime) initOnboarding(ctx context.Context) {
 		return
 	}
 	if st.InstallKind == onboarding.InstallNew {
-		logInfo(rt.spec.Scope, "db %q: new install, trust %s (observation only "+
-			"observes: nothing changes outside the sage schema until an operator "+
-			"grants more)", rt.spec.Name, rt.cfg.Trust.Level)
+		logInfo(rt.spec.Scope, "%s", newInstallLog(rt.spec.Name, rt.cfg.Trust.Level))
 	}
+}
+
+// newInstallLog is the new-install line; only observation gets the
+// read-only explanation, a granted level is stated as it is.
+func newInstallLog(name, level string) string {
+	msg := fmt.Sprintf("db %q: new install, trust %s", name, level)
+	if level == onboarding.LevelObservation {
+		msg += " (observation only observes: nothing changes outside the sage schema " +
+			"until an operator grants more)"
+	}
+	return msg
 }
 
 // firstLookRun is one database's first look and time-to-first-finding
@@ -88,7 +103,7 @@ func (rt *databaseRuntime) startFirstLook() {
 	run := &firstLookRun{name: rt.spec.Name, provider: rt.provider, pool: rt.spec.Pool,
 		started: measureFrom(rt.spec.Name, time.Now()), tracker: firstLookTracker,
 		facts: rt.facts, notify: rt.notifyFact, logf: logStructuredWrapper,
-		opts: firstLookOptions(rt.cfg)}
+		opts: rt.resolveFirstLookOptions(rt.ctx)}
 	if rt.llmOn {
 		run.summarizer = firstlook.NewSummarizer(rt.generalLLM)
 		run.model = rt.generalLLM.Model()
@@ -102,31 +117,48 @@ func (rt *databaseRuntime) startFirstLook() {
 	rt.note("first-look")
 }
 
-// firstLookOptions applies pg_sage's query timeout and the analyzer's
-// wraparound thresholds, so the first look and the analyzer agree.
-func firstLookOptions(c *config.Config) firstlook.Options {
+// resolveFirstLookOptions reads which settings the operator set; when that
+// cannot be read, the configured query timeout is kept (fail closed).
+func (rt *databaseRuntime) resolveFirstLookOptions(ctx context.Context) firstlook.Options {
+	set, err := operatorSetKeys(ctx, rt.cfg.ConfigPath, rt.spec.Name, configControlPool(),
+		rt.spec.DatabaseID)
+	if err != nil {
+		logWarn(rt.spec.Scope, "db %q: first look keeps %s (%d ms): cannot read which "+
+			"settings the operator set: %v", rt.spec.Name, queryTimeoutKey,
+			rt.cfg.Safety.QueryTimeoutMs, err)
+		set = nil
+	}
+	return firstLookOptions(rt.cfg, set)
+}
+
+// firstLookOptions applies the analyzer's wraparound thresholds, so the
+// first look and the analyzer agree, and the first look's own statement
+// budget: safety.query_timeout_ms lowers it only when the operator set it
+// (operatorSet; nil when unknown, which keeps it), never pg_sage's default.
+func firstLookOptions(c *config.Config, operatorSet map[string]bool) firstlook.Options {
 	th := firstlook.DefaultThresholds()
 	if c.Analyzer.XIDWraparoundWarning > 0 && c.Analyzer.XIDWraparoundCritical > 0 {
 		th.XIDWarnFraction = firstlook.XIDFraction(c.Analyzer.XIDWraparoundWarning)
 		th.XIDCriticalFraction = firstlook.XIDFraction(c.Analyzer.XIDWraparoundCritical)
 	}
-	return firstlook.Options{StatementTimeout: firstLookTimeout(c.Safety.QueryTimeoutMs),
+	opts := firstlook.Options{StatementTimeout: firstlook.DefaultStatementTimeout,
 		Thresholds: th}
-}
-
-// firstLookTimeout keeps the first look inside pg_sage's own query timeout.
-func firstLookTimeout(queryTimeoutMS int) time.Duration {
-	if queryTimeoutMS <= 0 {
-		return firstlook.DefaultStatementTimeout
+	limit := time.Duration(c.Safety.QueryTimeoutMs) * time.Millisecond
+	operator := operatorSet == nil || operatorSet[queryTimeoutKey]
+	if operator && limit > 0 && limit < opts.StatementTimeout {
+		opts.StatementTimeout, opts.TimeoutSetBy = limit, queryTimeoutKey
 	}
-	return min(time.Duration(queryTimeoutMS)*time.Millisecond,
-		firstlook.DefaultStatementTimeout)
+	return opts
 }
 
 func (f *firstLookRun) runOnce(ctx context.Context) {
 	report, err := f.execute(ctx)
 	if err != nil {
 		f.logf("WARN", "first look of %q: %v", f.name, err)
+		return
+	}
+	report = f.retryDegraded(ctx, report, firstLookRetryDelay)
+	if ctx.Err() != nil {
 		return
 	}
 	f.summarize(ctx, report)
@@ -161,6 +193,45 @@ func (f *firstLookRun) execute(ctx context.Context) (firstlook.Report, error) {
 	f.logf("INFO", "first look of %q: %d findings over %d relations in %s%s", f.name,
 		len(report.Items), report.Relations, took, degradedNote(report.Checks))
 	return report, nil
+}
+
+// retryDegraded runs once more, after delay, the checks that degraded with
+// a transient error, and records the outcome on the stored report, the
+// metrics and the first finding. The first attempt stands when ctx ends or
+// the retry fails.
+func (f *firstLookRun) retryDegraded(ctx context.Context, report firstlook.Report,
+	delay time.Duration) firstlook.Report {
+	if len(report.Retryable) == 0 {
+		return report
+	}
+	f.logf("INFO", "first look of %q: retrying %s in %s", f.name,
+		strings.Join(report.Retryable, ", "), delay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return report
+	case <-timer.C:
+	}
+	opts := f.opts
+	opts.Database, opts.Provider = f.name, f.provider
+	retried, err := firstlook.Retry(ctx, f.pool, opts, report)
+	if err != nil {
+		f.logf("WARN", "first look of %q: retry of degraded checks: %v", f.name, err)
+		return report
+	}
+	if err := firstlook.NewStore(f.pool).Update(ctx, retried); err != nil {
+		f.logf("WARN", "first look of %q: record the retry: %v", f.name, err)
+	}
+	at := time.Now()
+	took := time.Duration(retried.DurationMS) * time.Millisecond
+	if ttff, first := f.tracker.FirstLook(f.name, at, len(retried.Items), took); first {
+		f.recordFirstFinding(ctx, at, ttff, "first_look")
+	}
+	f.proposeFacts(ctx, retried.FactProposals)
+	f.logf("INFO", "first look of %q: after one retry, %d findings%s", f.name,
+		len(retried.Items), degradedNote(retried.Checks))
+	return retried
 }
 
 func degradedNote(checks []firstlook.Check) string {

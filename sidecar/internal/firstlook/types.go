@@ -88,6 +88,9 @@ type Check struct {
 	Rule   string      `json:"rule"`
 	Status CheckStatus `json:"status"`
 	Note   string      `json:"note,omitempty"`
+	// Retried: the check degraded with a transient error and was run once
+	// more; Note keeps the first attempt's failure.
+	Retried bool `json:"retried,omitempty"`
 }
 
 // Report is one first look of one database.
@@ -108,6 +111,9 @@ type Report struct {
 	// FactProposals are the test-schema facts the first look proposes; the
 	// caller records them in the fact store (an operator confirms them).
 	FactProposals []facts.Proposal `json:"-"`
+	// Retryable are the rules whose checks degraded with a transient error
+	// (a timeout, a lost connection), for Retry.
+	Retryable []string `json:"-"`
 }
 
 // StatsWindow is how far back the cumulative statistics reach: since the

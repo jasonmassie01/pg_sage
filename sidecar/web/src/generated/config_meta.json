@@ -1470,7 +1470,7 @@
   "retention.sage_size_warning_pct": {
     "type": "int",
     "default": 10,
-    "doc": "Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size. 0 disables the check. Default 10.",
+    "doc": "Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size; below 256 MB it is never a finding. 0 disables the check. Default 10.",
     "class": "derivable"
   },
   "retention.snapshots_days": {
