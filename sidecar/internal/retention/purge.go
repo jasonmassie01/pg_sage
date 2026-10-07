@@ -74,8 +74,9 @@ func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string
 	query := purgeSQL(rule, relation, batch)
 	args := []any{rule.days}
 	start := c.clock()
-	floor, full := time.Time{}, false
+	full := false
 	if rule.sweepCol != "" {
+		var floor time.Time
 		floor, full = c.planSweep(rule)
 		args = append(args, floor)
 	}
