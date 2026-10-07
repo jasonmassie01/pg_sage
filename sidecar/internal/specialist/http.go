@@ -57,6 +57,7 @@ func NewHandler(svc *Service, auth Authenticator, opts HandlerOptions) http.Hand
 	mux.Handle("GET "+inv+"/{id}", h.authed("http", h.status))
 	mux.Handle("GET "+inv+"/{id}/stream", h.authed("http", h.stream))
 	mux.Handle("GET "+inv+"/{id}/result", h.authed("http", h.result))
+	mux.Handle("GET "+inv+"/{id}/transcript", h.authed("http", h.transcript))
 	mux.Handle("POST "+inv+"/{id}/remediations/{rid}/request", h.authed("http", h.remediate))
 	mux.Handle("POST "+BasePath+"/adapters/pagerduty", h.authed("pagerduty", h.pagerDuty))
 	mux.Handle("POST "+BasePath+"/adapters/webhook", h.authed("webhook", h.webhook))
@@ -150,6 +151,15 @@ func (h *handler) result(w http.ResponseWriter, r *http.Request, id Identity) {
 		status = http.StatusAccepted
 	}
 	writeJSON(w, status, resp)
+}
+
+func (h *handler) transcript(w http.ResponseWriter, r *http.Request, id Identity) {
+	resp, err := h.svc.Transcript(r.Context(), id, r.PathValue("db"), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *handler) remediate(w http.ResponseWriter, r *http.Request, id Identity) {

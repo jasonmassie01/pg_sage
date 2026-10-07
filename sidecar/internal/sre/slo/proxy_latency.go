@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
@@ -24,7 +25,8 @@ type latencyProxy struct {
 	last time.Time // newest capture already sliced
 }
 
-// NewLatencyProxy builds the latency proxy over sage.query_store.
+// NewLatencyProxy builds the latency proxy over sage.query_store, read in
+// the pool's history store (histstore.Resolve).
 func NewLatencyProxy(pool *pgxpool.Pool, cfg ProxyConfig) Proxy {
 	return &latencyProxy{pool: pool, cfg: cfg}
 }
@@ -38,9 +40,9 @@ func (p *latencyProxy) Objective() Objective {
 const latencyBaselineSpan = 7 * 24 * time.Hour
 
 const capturesSQL = `/* pg_sage sre:slo_proxy */
-SELECT DISTINCT captured_at FROM sage.query_store
-WHERE captured_at > pg_catalog.now() - interval '30 minutes'
-ORDER BY captured_at DESC LIMIT 2`
+SELECT DISTINCT q.captured_at FROM sage.query_store q
+WHERE {db:q} AND q.captured_at > pg_catalog.now() - interval '30 minutes'
+ORDER BY q.captured_at DESC LIMIT 2`
 
 // deltasSQL lists the top queries of the interval ending at capture $1,
 // and whether any query's counters reset (another statistics epoch, or
@@ -54,10 +56,10 @@ SELECT (c.calls - p.calls)::float8, (c.total_exec_time - p.total_exec_time)::flo
 FROM sage.query_store c
 CROSS JOIN LATERAL (
     SELECT q.calls, q.total_exec_time, q.stats_epoch FROM sage.query_store q
-    WHERE q.queryid = c.queryid AND q.captured_at <= $2
+    WHERE {db:q} AND q.queryid = c.queryid AND q.captured_at <= $2
       AND q.captured_at >= $2 - $4::interval
     ORDER BY q.captured_at DESC, q.id DESC LIMIT 1) p
-WHERE c.captured_at = $1
+WHERE {db:c} AND c.captured_at = $1
 ORDER BY c.total_exec_time - p.total_exec_time DESC
 LIMIT $3`
 
@@ -88,7 +90,7 @@ func (p *latencyProxy) Slice(ctx context.Context, now time.Time, h History) Prox
 
 // measure reads the newest interval's p95, or why there is none.
 func (p *latencyProxy) measure(ctx context.Context) (float64, time.Time, string) {
-	rows, err := p.pool.Query(ctx, capturesSQL)
+	rows, err := histstore.Resolve(p.pool).Query(ctx, capturesSQL)
 	if err != nil {
 		return 0, time.Time{}, ReasonSourceError
 	}
@@ -125,8 +127,8 @@ func (p *latencyProxy) measure(ctx context.Context) (float64, time.Time, string)
 
 func (p *latencyProxy) deltas(ctx context.Context, cur, prev time.Time) ([]queryDelta, bool,
 	error) {
-	rows, err := p.pool.Query(ctx, deltasSQL, cur, prev, max(p.cfg.TopQueries, 1),
-		querystore.AnchorLookback)
+	rows, err := histstore.Resolve(p.pool).Query(ctx, deltasSQL, cur, prev,
+		max(p.cfg.TopQueries, 1), querystore.AnchorLookback)
 	if err != nil {
 		return nil, false, err
 	}

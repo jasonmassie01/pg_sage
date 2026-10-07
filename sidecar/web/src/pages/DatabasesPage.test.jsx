@@ -26,6 +26,12 @@ describe('DatabasesPage', () => {
           }),
         }
       }
+      if (url === '/api/v1/fleet/findings') {
+        return {
+          ok: true,
+          json: async () => ({ findings: [], min_databases: 3, errors: [] }),
+        }
+      }
       if (url === '/api/v1/databases/managed') {
         throw new Error('read-only mode must not request managed routes')
       }
@@ -41,6 +47,9 @@ describe('DatabasesPage', () => {
         screen.getByTestId('fleet-read-only'),
       ).toHaveTextContent(/edit the YAML file/i))
       expect(screen.getByText('orders')).toBeInTheDocument()
+      await waitFor(() => expect(
+        screen.getByTestId('fleet-findings-empty'),
+      ).toBeInTheDocument())
       expect(screen.queryByTestId('add-database-button'))
         .not.toBeInTheDocument()
       expect(screen.queryByTestId('import-csv-button'))

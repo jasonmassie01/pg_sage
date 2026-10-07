@@ -1,5 +1,98 @@
 # Changelog
 
+## v2.3.0 (2026-10-07) -- Fleet learning, index replacement, history outside the database
+
+### What's new
+
+- **Fleet learning: databases that look alike learn from each other.** In fleet mode pg_sage
+  fingerprints every database's shape (column types, index shapes and query shapes with every
+  literal and name removed; no data, no names unless you set
+  `fleet_learning.include_names: true`) and finds its look-alikes within the same fleet and
+  tenant. When look-alikes have verified outcomes for the same kind of change on the same table
+  shape, the proposal and its approval card show them, labelled "from look-alike databases".
+  This is evidence only: it never raises confidence, trust or autonomy, and when look-alikes
+  mostly regressed the proposal waits for your approval. `GET /api/v1/fleet/lookalikes`.
+- **Fleet findings: the same problem on 30 databases is one finding.** A problem open on at
+  least `fleet_learning.fleet_finding_min_databases` databases (default 3) is listed once with
+  the databases it affects: on the Fleet page ("Recurring across the fleet"), at
+  `GET /api/v1/fleet/findings` and through the read-only MCP tool `fleet_findings` (a token
+  scoped to some databases sees only those).
+- **The fleet LLM budget follows need.** `llm.fleet_token_budget_daily` is now split by
+  measured need (open and critical findings, unresolved incidents), each database between
+  `fleet_learning.budget_floor_pct` (50) and `fleet_learning.budget_ceiling_pct` (300) of
+  the even share, instead of evenly. The daily cap is never exceeded;
+  `fleet_learning.budget_split: even` restores the even split.
+- **Several sidecars, one leader.** Sidecars sharing a control database elect one leader
+  through a lease in that database (`fleet_learning.leader_lease_seconds`, default 30; 0
+  turns election off). Only the leader runs fleet-wide jobs (fleet learning, approval-card
+  follow-ups, the agent-database reconciler); a stalled leader steps down before its lease
+  ends and another sidecar takes over. `GET /api/v1/fleet/leader` shows who leads.
+- **Other agents now see what the model investigator concluded, and on what authority.**
+  Specialist contract revision 1.1.0 (still `pg_sage.specialist.v1`; every addition is
+  optional and a v1 result is byte for byte unchanged): results carry an `investigator`
+  section with the investigator's verdict (agree, conclude, contest, unmodeled,
+  inconclusive, no answer), whether its root was adopted under the family's earned
+  model-lift authority or stayed advisory and why, its cited claims with the numbers their
+  evidence holds, the reads it asked for that returned nothing usable, and a link to the
+  redacted transcript, now served by the contract (`GET .../investigations/{id}/transcript`,
+  MCP `specialist_investigation_transcript`). The PagerDuty note is unchanged.
+- **Callers can scope an investigation to one statement.** `query_id` (a
+  pg_stat_statements queryid, read exactly to 64 bits) and/or `query_hash` (SHA-256 of
+  the normalized text, resolved through pg_stat_statements with a parameter) are validated
+  strictly; a plan-regression investigation is then about that statement (its probe reads
+  only it, so a larger regression can no longer push it out of the probe's row cap), other
+  families name the evidence that mentions it, and the result echoes the scope to its
+  caller. pg_sage's own plan-regression investigations also probe only their statement now.
+
+- **pg_sage replaces a subsumed index in one approved action.** Since 2.1 the tuning agent
+  refused an index that would make an existing one redundant, because a create and a drop
+  decided separately could each pass verification while together they left the table
+  with redundant indexes. Now such a candidate becomes one replacement: `CREATE INDEX
+  CONCURRENTLY` the wider index, check that it is valid, then `DROP INDEX CONCURRENTLY` the
+  old one, holding the table's change lease across both steps. Replacements always go to
+  an operator (the new `index_replace` trust class is capped at L2 and never above the
+  levels of `index_create` and `index_drop`); the approval card shows both statements, the
+  undo (re-create the old index, drop the new one) and the locks each step takes. pg_sage
+  never replaces an index that backs a constraint or enforces uniqueness, one that changed
+  since it was proposed (OID or definition), or one whose foreign key the new index would
+  not support, and a table owned by the application's migrations gets the two-statement
+  migration instead of DDL. The steps are recorded in `sage.index_replace`, so a failed
+  build drops nothing, a failed drop keeps both indexes and is reported as a partial
+  result, and a crash between the steps resumes the drop or restores the old state on the
+  next cycle. Verification judges the targeted queries (no gain, a regression or no
+  verdict rolls the replacement back) and the queries that used the old index; after a
+  kept verdict the old index is a soft drop, re-created if those queries regress within
+  `verify.drop_window_hours`. Operators can roll a replacement back from the Actions page.
+  An index that would make an in-flight index (queued or proposed) redundant is still
+  refused. See `docs/configuration.md#tuning-agent`.
+
+- **pg_sage's telemetry history can live outside the database it watches.** In meta-db
+  mode, `history.store: meta` keeps the collector's snapshots and the query store (most of
+  pg_sage's storage) in the metadata database instead of each monitored database. Each row
+  carries its database's id, and every reader and writer runs through one history store, so
+  a database never reads another's history; reads that used to join history with the
+  monitored database's catalog are split in two. `pg_sage history migrate` copies a
+  database's history over (resumable, read-only on the source; `--cleanup` removes the copy's
+  source once complete; `--to monitored` moves it back), and a database whose history would
+  be split between the two places is refused at startup with the command to run. Retention
+  and the snapshot cap of the shared tables run once per process, `sage_footprint` says where
+  history lives, and `self_budget.storage_mb` counts each database's share of the store. The
+  default (`monitored`) changes nothing for existing installs. Findings, the action log and
+  verification stay in each monitored database.
+
+### Fixed
+
+- **Model-concluded roots report their source.** A root the model investigator concluded
+  for an inconclusive graph and that was adopted under earned authority was reported as
+  `source: graph`, `authority: deterministic`; it is now `source: model`,
+  `authority: model_earned`, as documented.
+
+### Upgrading
+
+- **New tables:** `sage.fleet_fingerprint`, `sage.fleet_outcome_digest`,
+  `sage.fleet_leader_lease` and `sage.index_replace`, created at startup by an idempotent
+  migration.
+
 ## v2.2.1 (2026-10-07) -- First look and quickstart fixes
 
 ### Fixed

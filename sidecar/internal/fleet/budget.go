@@ -7,11 +7,17 @@ type FleetBudget struct {
 	TotalDaily int
 	perDB      map[string]*dbBudget
 	mu         sync.Mutex
+	// split is SplitEven (the default) or SplitNeed; floorPct and
+	// ceilingPct bound a need-based share as percentages of the even one.
+	split      string
+	floorPct   int
+	ceilingPct int
 }
 
 type dbBudget struct {
 	allocation int
 	used       int
+	weight     float64 // measured need; 1 until measured
 }
 
 // NewBudget creates a fleet budget with equal allocation.
@@ -25,7 +31,7 @@ func NewBudget(totalDaily int, databases []string) *FleetBudget {
 		alloc = totalDaily / len(databases)
 	}
 	for _, name := range databases {
-		b.perDB[name] = &dbBudget{allocation: alloc}
+		b.perDB[name] = &dbBudget{allocation: alloc, weight: 1}
 	}
 	return b
 }
@@ -37,7 +43,7 @@ func (b *FleetBudget) Register(database string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.perDB[database] == nil {
-		b.perDB[database] = &dbBudget{}
+		b.perDB[database] = &dbBudget{weight: 1}
 	}
 	b.rebalanceLocked()
 }
@@ -51,9 +57,21 @@ func (b *FleetBudget) Unregister(database string) {
 	b.rebalanceLocked()
 }
 
-// rebalanceLocked splits TotalDaily equally; usage is preserved.
+// rebalanceLocked splits TotalDaily equally, or by measured need under
+// SplitNeed; usage is preserved.
 func (b *FleetBudget) rebalanceLocked() {
 	if len(b.perDB) == 0 {
+		return
+	}
+	if b.split == SplitNeed {
+		weights := make(map[string]float64, len(b.perDB))
+		for name, db := range b.perDB {
+			weights[name] = db.weight
+		}
+		for name, alloc := range AllocateByNeed(b.TotalDaily, weights, b.floorPct,
+			b.ceilingPct) {
+			b.perDB[name].allocation = alloc
+		}
 		return
 	}
 	alloc := b.TotalDaily / len(b.perDB)
@@ -64,8 +82,9 @@ func (b *FleetBudget) rebalanceLocked() {
 
 // BudgetUsage is a point-in-time view of one database's allocation.
 type BudgetUsage struct {
-	Allocation int `json:"allocation"`
-	Used       int `json:"used"`
+	Allocation int     `json:"allocation"`
+	Used       int     `json:"used"`
+	Weight     float64 `json:"weight"`
 }
 
 // Snapshot returns every registered database's allocation and usage.
@@ -74,7 +93,8 @@ func (b *FleetBudget) Snapshot() map[string]BudgetUsage {
 	defer b.mu.Unlock()
 	out := make(map[string]BudgetUsage, len(b.perDB))
 	for name, db := range b.perDB {
-		out[name] = BudgetUsage{Allocation: db.allocation, Used: db.used}
+		out[name] = BudgetUsage{Allocation: db.allocation, Used: db.used,
+			Weight: db.weight}
 	}
 	return out
 }

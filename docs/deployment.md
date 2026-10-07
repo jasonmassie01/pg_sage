@@ -278,6 +278,20 @@ pg_sage stores data in the `sage` schema within the target database. Standard Po
 
 **Can be regenerated:** `sage.snapshots`, `sage.explain_cache`.
 
+With `history.store: meta` (meta-db mode), `sage.snapshots` and `sage.query_store` of
+every monitored database live in the metadata database: back it up to keep them.
+
+### Moving history to the metadata database
+
+To take pg_sage's telemetry history (snapshots and the query store, most of its storage)
+out of a monitored database in meta-db mode: stop pg_sage, run
+`pg_sage history migrate --to meta --database NAME` with
+`SAGE_HISTORY_MONITORED_DSN` and `SAGE_META_DB` set, set `history.store: meta`, start
+pg_sage, then run the same command with `--cleanup` to remove the copied rows. Repeat
+the migrate step for each database. A database whose history was not migrated is
+refused at startup (the error names the command); the others start. See
+[Configuration](configuration.md#keeping-telemetry-history-in-the-meta-database-historystore).
+
 ```bash
 # Full database backup (includes sage schema)
 pg_dump -U postgres -Fc postgres > backup.dump

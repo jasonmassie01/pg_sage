@@ -14,6 +14,8 @@ func verificationClass(sql string) string {
 	upper := strings.ToUpper(normalizeSQLText(sql))
 	has := func(prefix string) bool { return strings.HasPrefix(upper, prefix) }
 	switch {
+	case IsIndexReplaceSQL(sql):
+		return verify.ClassIndexReplace
 	case has("CREATE INDEX") || has("CREATE UNIQUE INDEX"):
 		return verify.ClassIndexCreate
 	case has("DROP INDEX"):

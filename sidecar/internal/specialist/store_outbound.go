@@ -56,4 +56,5 @@ func (s *PGStore) RescheduleOutbound(ctx context.Context, id string, next time.T
 const qualifiedRecordColumns = `r.id::text, r.kind, r.token_id, r.identity_name, r.actor,
 	r.transport, r.database_name, COALESCE(r.investigation_id, ''), r.created, r.match,
 	r.symptom, r.time_window, r.external_ref, r.remediation_id, r.verdict, r.reason,
-	r.outbound, r.outbound_attempts, r.outbound_next_at, r.outbound_error, r.created_at`
+	r.outbound, r.outbound_attempts, r.outbound_next_at, r.outbound_error, r.created_at,
+	r.query_scope`

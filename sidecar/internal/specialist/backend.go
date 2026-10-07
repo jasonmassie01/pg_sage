@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
@@ -24,6 +25,13 @@ type Backend interface {
 		error)
 	SubmitCustodian(ctx context.Context, inv sre.Investigation, p sre.ActionProposal,
 		actor string) (GateOutcome, error)
+	// ResolveQueryHash returns the queryids whose normalized text hashes to
+	// hash (pg_stat_statements of this database).
+	ResolveQueryHash(ctx context.Context, hash string) ([]int64, error)
+	// Transcript is the redacted investigator transcript; sre.ErrNoTranscript
+	// when the investigator never ran.
+	Transcript(ctx context.Context, id sre.UUID, keepIdentifiers bool) (sre.TranscriptView,
+		error)
 }
 
 // GateOutcome is what the gate decided for a submitted custodian proposal.
@@ -73,7 +81,7 @@ func (d FleetDirectory) Backend(database string) (Backend, bool) {
 		return nil, false
 	}
 	return fleetBackend{name: database, svc: inst.Investigations, actions: inst.Actions,
-		custodians: d.custodians}, true
+		custodians: d.custodians, pool: inst.Pool}, true
 }
 
 type fleetBackend struct {
@@ -81,6 +89,7 @@ type fleetBackend struct {
 	svc        *sre.Service
 	actions    *sreaction.ActionService
 	custodians CustodianSubmitter
+	pool       *pgxpool.Pool // the monitored database (query_hash resolution)
 }
 
 var errNoInvestigator = fmt.Errorf("%w: investigations are unavailable for this database",
@@ -135,4 +144,16 @@ func (b fleetBackend) SubmitCustodian(ctx context.Context, inv sre.Investigation
 			ErrUnavailable)
 	}
 	return b.custodians.SubmitCustodian(ctx, b.name, inv, p, actor)
+}
+
+func (b fleetBackend) ResolveQueryHash(ctx context.Context, hash string) ([]int64, error) {
+	return ResolveQueryHash(ctx, b.pool, hash)
+}
+
+func (b fleetBackend) Transcript(ctx context.Context, id sre.UUID,
+	keepIdentifiers bool) (sre.TranscriptView, error) {
+	if b.svc == nil {
+		return sre.TranscriptView{}, errNoInvestigator
+	}
+	return b.svc.Transcript(ctx, id, sre.TranscriptOptions{KeepIdentifiers: keepIdentifiers})
 }

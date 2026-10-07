@@ -60,7 +60,9 @@ type Deps struct {
 	Hints    HintSink
 	Store    Store
 	Rehearse Rehearser
-	Now      func() time.Time
+	// Priors gives look-alike evidence from the fleet (nil: none).
+	Priors PriorSource
+	Now    func() time.Time
 }
 
 // Agent is one database's tuning agent.

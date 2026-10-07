@@ -60,6 +60,8 @@ type ProductionDependencies struct {
 	Autonomy AutonomyBackend
 	// Facts serves the binding-fact tools (roadmap 2.3); optional.
 	Facts FactBackend
+	// FleetLearning serves fleet_findings (fleet learning); optional.
+	FleetLearning FleetLearningBackend
 	// AgentTools serves the coding-agent tools (roadmap phase 3); optional.
 	AgentTools AgentToolBackend
 	// Ask serves ask_sage (roadmap phase 3); optional.

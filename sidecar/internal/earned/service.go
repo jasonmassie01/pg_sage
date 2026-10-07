@@ -125,9 +125,43 @@ func (s *Service) Granted(ctx context.Context, f Family, c ActionClass) (State, 
 		return State{}, err
 	}
 	if !found {
-		return defaultState(f, c), nil
+		st = defaultState(f, c)
 	}
-	return st, nil
+	return s.boundByComponents(ctx, st, found)
+}
+
+// boundByComponents bounds a composite class's level by its components'
+// granted levels (composedLevel).
+func (s *Service) boundByComponents(ctx context.Context, st State, found bool) (State,
+	error) {
+	levels := map[Pair]Level{}
+	for _, p := range ComponentClasses(st.Class) {
+		cs, err := s.Granted(ctx, p.Family, p.Class)
+		if err != nil {
+			return State{}, err
+		}
+		levels[p] = cs.Level
+	}
+	return composedLevel(st, found, func(p Pair) Level { return levels[p] }), nil
+}
+
+// composedLevel bounds a composite class's state by its components'
+// levels: without a row of its own (found) it takes their lowest level,
+// with one the lower of its own and theirs. A plain class is unchanged.
+func composedLevel(st State, found bool, componentLevel func(Pair) Level) State {
+	comps := ComponentClasses(st.Class)
+	if len(comps) == 0 {
+		return st
+	}
+	lowest := MaxGrantable
+	for _, p := range comps {
+		lowest = MinLevel(lowest, componentLevel(p))
+	}
+	if found {
+		lowest = MinLevel(st.Level, lowest)
+	}
+	st.Level = lowest
+	return st
 }
 
 // defaultState is a pair without a stored row.

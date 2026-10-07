@@ -47,6 +47,7 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 		return err
 	}
 	plan, ok := c.plan(inv.TriggerKind)
+	plan = scopePlanQuery(plan, inv)
 	if !ok {
 		return c.fail(ctx, lease, "no_probe_plan",
 			fmt.Sprintf("no probe plan for trigger %q", inv.TriggerKind))

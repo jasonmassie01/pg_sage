@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -28,12 +29,14 @@ const defaultRegressionLookbackDays = 7
 // so each is decoded (a delta row rebuilt against its keyframe in
 // PL/pgSQL, ~1.35 ms for 60 statements) once and remembered: a steady
 // cycle decodes only the snapshots it has not seen. The sample is found
-// by index (idx_snapshots_category), never by ranking the window.
+// by index (idx_snapshots_category; idx_snapshots_db_category in the meta
+// database's store), never by ranking the window. The reads run on the
+// pool's history store (histstore.Resolve).
 
 // historyListSQL lists the window's first $2 non-empty snapshots.
 var historyListSQL = `/* pg_sage */
 SELECT s.id FROM sage.snapshots s
- WHERE s.category = 'queries' AND s.collected_at > $1
+ WHERE {db:s} AND s.category = 'queries' AND s.collected_at > $1
    AND ` + snapstore.NonEmptySQL("s") + `
  ORDER BY s.collected_at, s.id LIMIT $2`
 
@@ -43,7 +46,7 @@ SELECT p.id
   FROM unnest($2::timestamptz[], $3::timestamptz[]) AS b(lo, hi)
  CROSS JOIN LATERAL (
        SELECT s.id FROM sage.snapshots s
-        WHERE s.category = 'queries' AND s.collected_at >= b.lo
+        WHERE {db:s} AND s.category = 'queries' AND s.collected_at >= b.lo
           AND s.collected_at < b.hi AND s.collected_at > $1
           AND ` + snapstore.NonEmptySQL("s") + `
         ORDER BY s.collected_at, s.id LIMIT 1) p
@@ -57,7 +60,7 @@ SELECT p.id
 var historyDecodeSQL = `/* pg_sage */
 WITH d AS MATERIALIZED (
     SELECT s.id, ` + snapstore.DataSQL("s") + ` AS doc
-      FROM sage.snapshots s WHERE s.id = ANY($1::int8[])
+      FROM sage.snapshots s WHERE {db:s} AND s.id = ANY($1::int8[])
 )
 SELECT d.id, (e->>'queryid')::bigint, (e->>'mean_exec_time')::float8
   FROM d
@@ -167,7 +170,7 @@ func historyBuckets(since, now time.Time, width time.Duration) ([]time.Time,
 
 func queryIDs(ctx context.Context, a *Analyzer, sql string, args ...any) ([]int64,
 	error) {
-	rows, err := a.pool.Query(ctx, sql, args...)
+	rows, err := histstore.Resolve(a.pool).Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +193,7 @@ func decodeHistory(ctx context.Context, a *Analyzer, batch []int64,
 	for _, id := range batch {
 		kept[id] = nil
 	}
-	rows, err := a.pool.Query(ctx, historyDecodeSQL, batch)
+	rows, err := histstore.Resolve(a.pool).Query(ctx, historyDecodeSQL, batch)
 	if err != nil {
 		return err
 	}

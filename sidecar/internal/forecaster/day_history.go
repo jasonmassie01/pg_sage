@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
+
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
@@ -32,14 +34,14 @@ SELECT d.day, f.id, f.collected_at, l.id, l.collected_at
                        interval '1 day') AS d(day)
  CROSS JOIN LATERAL (
        SELECT s.id, s.collected_at FROM sage.snapshots s
-        WHERE s.category = $1 AND s.collected_at >= d.day
+        WHERE {db:s} AND s.category = $1 AND s.collected_at >= d.day
           AND s.collected_at < d.day + interval '1 day'
           AND s.collected_at > now() - make_interval(days => $2)
           AND ` + snapstore.NonEmptySQL("s") + `
         ORDER BY s.collected_at, s.id LIMIT 1) f
  CROSS JOIN LATERAL (
        SELECT s.id, s.collected_at FROM sage.snapshots s
-        WHERE s.category = $1 AND s.collected_at >= d.day
+        WHERE {db:s} AND s.category = $1 AND s.collected_at >= d.day
           AND s.collected_at < d.day + interval '1 day'
           AND s.collected_at > now() - make_interval(days => $2)
           AND ` + snapstore.NonEmptySQL("s") + `
@@ -50,7 +52,8 @@ SELECT d.day, f.id, f.collected_at, l.id, l.collected_at
 // once each; %s selects from d (id, doc).
 const decodedDocsSQL = `/* pg_sage */
 WITH d AS MATERIALIZED (
-    SELECT s.id, %s AS doc FROM sage.snapshots s WHERE s.id = ANY($1::int8[])
+    SELECT s.id, %s AS doc FROM sage.snapshots s
+     WHERE {db:s} AND s.id = ANY($1::int8[])
 )
 %s`
 
@@ -96,7 +99,7 @@ type dayHistory struct {
 // dayPicks returns the lookback's first and last samples per day.
 func dayPicks(ctx context.Context, pool *pgxpool.Pool, category string,
 	days int) (first, last []daySample, err error) {
-	rows, err := pool.Query(ctx, dayPicksSQL, category, days)
+	rows, err := histstore.Resolve(pool).Query(ctx, dayPicksSQL, category, days)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -135,7 +135,7 @@ func main() {
 	shutdownProcess(sig, promServer)
 }
 
-// runSubcommandAndExit handles the vector-lab and bench subcommands and --version,
+// runSubcommandAndExit handles the vector-lab, bench and history subcommands and --version,
 // which exit without starting the sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "vector-lab" {
@@ -143,6 +143,10 @@ func runSubcommandAndExit() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "bench" {
 		os.Exit(runBenchCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "history" {
+		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], os.Getenv, os.Stdout,
+			os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Printf("pg_sage %s (commit: %s, built: %s, sql-ast: %s)\n",
@@ -197,6 +201,10 @@ func connectMetaDatabaseOrExit() (*metaDBState, func()) {
 	}
 	globalMetaState = state
 	pool = metaPool
+	if err := initHistoryStoreSchema(metaPool); err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
 	logInfo("startup", "meta database initialized")
 	return state, closeMetaPool
 }

@@ -18,11 +18,12 @@ func (m mapper) diagnosis(r *Result, d sre.Detail) {
 	hs := sre.LatestRevision(d.Hypotheses)
 	sort.SliceStable(hs, func(i, j int) bool { return hs[i].Ordinal < hs[j].Ordinal })
 	contest := d.Investigation.Summary.ModelContest
+	mc := d.Investigation.Summary.ModelConclusion
 	for _, h := range hs {
 		switch h.Status {
 		case sre.HypothesisRoot:
 			r.CausalChain = append([]ChainLink{m.link(h, "root_cause")}, r.CausalChain...)
-			r.RootCause = m.root(h, contest)
+			r.RootCause = m.root(h, contest, mc)
 		case sre.HypothesisContributing:
 			r.CausalChain = append(r.CausalChain, m.link(h, "contributing"))
 		case sre.HypothesisUnproven:
@@ -42,13 +43,18 @@ func (m mapper) diagnosis(r *Result, d sre.Detail) {
 }
 
 // root names the root and its authority: a model root adopted under the
-// family's earned root authority (roadmap 2.4) is "model_earned";
-// otherwise the deterministic causal graph named it.
-func (m mapper) root(h sre.HypothesisRecord, contest *sre.ModelContest) *RootCause {
+// family's earned root authority (roadmap 2.4) is "model_earned", whether
+// it contested a conclusive graph root or concluded an inconclusive graph
+// (the investigator, roadmap 2.1); otherwise the causal graph named it.
+func (m mapper) root(h sre.HypothesisRecord, contest *sre.ModelContest,
+	mc *sre.ModelConclusion) *RootCause {
 	rc := &RootCause{Node: h.Node, Label: h.Label, Family: h.Family,
 		Subject: m.red.Text(h.Subject), Mechanism: m.red.Text(h.Mechanism), Source: "graph",
 		Authority: "deterministic", EvidenceIDs: []string{}}
-	if contest != nil && contest.Authority == sre.ContestAdopted && contest.ModelRoot == h.Node {
+	adopted := contest != nil && contest.Authority == sre.ContestAdopted &&
+		contest.ModelRoot == h.Node
+	adopted = adopted || (mc != nil && mc.Authority == sre.ContestAdopted && mc.Root == h.Node)
+	if adopted {
 		rc.Source, rc.Authority = "model", "model_earned"
 	}
 	for _, f := range h.Support {

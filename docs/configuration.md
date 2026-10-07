@@ -44,17 +44,68 @@ pg_sage bootstraps the `sage` schema in every monitored database and, with
 |---|---|---|
 | Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: the first database that started) | metadata database |
 | Sage SRE investigations, SLOs, change events; the earned-trust ledger (levels, outcomes, proposals, shadow evidence) | control database | metadata database |
-| History: snapshots, query store, explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples | each monitored database | each monitored database |
+| Telemetry history: snapshots, query store | each monitored database | each monitored database; with `history.store: meta`, the metadata database |
+| Other history: explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples | each monitored database | each monitored database |
 
-History stays with the database it describes: it is keyed by that database's
-object ids and `queryid`s, several reads join it with the database's own catalog
-and `pg_stat_statements`, and the action log, its outcomes and the decision ledger
-reference each other. Its cost there is bounded: catalog snapshots are stored as
-changes against a keyframe, history tables are partitioned by day where they grow
-fastest, `retention.*` and `retention.snapshots_max_pct` cap them, and
-`self_budget.storage_mb` (default 10 GB) raises `sage_self_budget` when the `sage`
-schema outgrows it. Keeping history outside the monitored database is not
-supported yet.
+Telemetry history is what makes pg_sage heavy: the collector's snapshots and the
+per-query samples (on a busy database, gigabytes before delta storage). In meta-db
+mode, `history.store: meta` keeps it in the metadata database instead, so the
+monitored database only holds pg_sage's small working set. Each row carries its
+database's meta-db record id (`database_id`), every history read is scoped to it, and
+reads that combined history with the monitored database's catalog (plan fingerprints
+from the explain cache, `pg_index` for verification, the first-run check) are split
+into a catalog read on the monitored database and a history read in the store.
+
+The rest of the history stays with the database it describes: findings, the action
+log, its outcomes, verification, the decision ledger and recommendations reference each
+other through foreign keys, and part of that graph cannot move to another database. Its
+cost there is bounded: catalog snapshots are stored as changes against a keyframe,
+history tables are partitioned by day where they grow fastest, `retention.*` and
+`retention.snapshots_max_pct` cap them, and `self_budget.storage_mb` (default 10 GB)
+raises `sage_self_budget` when the `sage` schema outgrows it.
+
+#### Keeping telemetry history in the meta database (`history.store`)
+
+| Parameter | Default | Description |
+|---|---|---|
+| `history.store` | `monitored` | `monitored` keeps snapshots and the query store in each monitored database. `meta` keeps them in the metadata database (`meta_db` is required; YAML fleet and agent databases, which have no meta-db record, are refused). Restart-bound, YAML only. |
+
+What changes with `meta`:
+
+- The metadata database gets `database_id` on `sage.snapshots` and `sage.query_store`,
+  indexes leading with it, and `sage.history_store_databases` (which databases keep
+  history there). Monitored databases' schemas do not change.
+- Retention of the two tables runs once per process on the metadata database, with
+  the same `retention.snapshots_days` and `retention.query_store_days` for every
+  database. `retention.snapshots_max_pct` caps the shared table at the sum of every
+  database's cap (that percent of each database's size, at least 256 MB each).
+- `sage_footprint` keeps measuring the monitored database's `sage` schema, where
+  history no longer grows; its finding says where history lives.
+  `self_budget.storage_mb` counts the monitored `sage` schema plus this database's
+  share of the history store.
+
+Switching placement needs the history moved first. A database whose history would be
+split is refused at startup, and the error names the command to run:
+
+```bash
+# 1. stop pg_sage
+# 2. copy the database's history into the metadata database (the source is only read)
+export SAGE_HISTORY_MONITORED_DSN='postgres://sage@db1/app'
+export SAGE_META_DB='postgres://sage@meta/sage_meta'
+pg_sage history migrate --to meta --database app     # or --database-id 7
+pg_sage history status --database app
+# 3. set history.store: meta and start pg_sage
+# 4. once it runs, remove the copied rows from the monitored database
+pg_sage history migrate --to meta --database app --cleanup
+```
+
+The copy is idempotent and resumable: each batch commits with its progress, so an
+interrupted run continues where it stopped, and a second run copies only rows written
+since. `--cleanup` removes the source rows only when every row is copied: it truncates
+the monitored database's two tables (or, from the metadata database, deletes that
+database's rows a day at a time). `--to monitored` moves history back the same way. A
+snapshot delta whose keyframe is already gone (it read as nothing before) is skipped and
+counted.
 
 The generated [per-field lifecycle reference](generated/config-lifecycles.md)
 is the authoritative list. Regenerate it from the typed registry with:
@@ -528,9 +579,25 @@ Safeguards learned from dogfooding:
   and needs an operator when it would be the third change in the same direction within
   7 days (the history is on the approval card).
 - **No overlapping indexes.** An index candidate is refused when an existing or in-flight
-  index (queued, or an open proposal) already serves it, or when it would make one
-  redundant; one proposal per table and leading key per cycle; HypoPG measures it with the
-  in-flight indexes present.
+  index (queued, or an open proposal) already serves it, or when it would make an
+  in-flight one redundant; one proposal per table and leading key per cycle; HypoPG
+  measures it with the in-flight indexes present.
+- **Replacements.** A candidate that would make exactly one existing index redundant
+  becomes one replacement (`replace_index`, class `index_replace`): build the wider index
+  with `CREATE INDEX CONCURRENTLY`, check it is valid, then `DROP INDEX CONCURRENTLY` the
+  old one. It always needs an operator's approval (class capped at L2, and never above the
+  levels of `index_create` and `index_drop`); the card shows both statements, the undo
+  (re-create the old index, drop the new one) and both locks. pg_sage refuses to replace an
+  index that backs a constraint or enforces uniqueness, one whose OID or definition changed
+  since the proposal, or one whose foreign key the new index would not support; a table
+  owned by the application's migrations gets the two-statement migration instead. The two
+  steps are recorded in `sage.index_replace`: a failed build drops nothing, a failed drop
+  keeps both indexes and reports a partial result, and a restart resumes the drop or
+  restores the old state. The table's change lease is held across both steps.
+  Verification judges the targeted queries (no gain or a regression rolls the replacement
+  back) and the queries on the table that used the old index; after a kept verdict it
+  watches those queries for `verify.drop_window_hours` and re-creates the old index if
+  they regress (the soft drop).
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -1397,7 +1464,7 @@ or approves. See [Ask Sage](ask-sage.md).
 | `retention.findings_days` | `180` | Days to retain resolved findings |
 | `retention.actions_days` | `365` | Days to retain action log entries |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
-| `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. `0` disables the check. |
+| `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. `0` disables the check. With `history.store: meta` the snapshots and the query store are not in this schema. |
 
 Catalog snapshots (tables, indexes, sequences, foreign keys, partitions,
 queries, `pg_stat_io`, configuration) are stored compactly: a full row (keyframe) at

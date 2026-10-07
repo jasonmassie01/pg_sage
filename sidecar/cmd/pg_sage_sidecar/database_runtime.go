@@ -128,6 +128,10 @@ func buildDatabaseRuntime(
 	}
 	migrateRecommendations(ctx, spec)
 	rt := newDatabaseRuntime(spec, checks)
+	if err := rt.installHistory(ctx); err != nil { // history_store_wiring.go
+		rt.cancel()
+		return nil, err
+	}
 	rt.initOnboarding(ctx)
 	rt.startFirstLook()
 	rt.startMonitoring()

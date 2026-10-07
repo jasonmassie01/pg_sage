@@ -17,6 +17,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // InstallKind tells a new install from an upgrade of an existing one.
@@ -57,15 +59,18 @@ func check(pool *pgxpool.Pool, database string) error {
 }
 
 // initSQL records the database once. pg_sage has run here before when it
-// started its trust ramp or collected a snapshot: that install keeps its
-// configured trust. Later starts keep the first record. The newest snapshot
-// is read through its collected_at index, never by scanning the history.
+// started its trust ramp or collected a snapshot ($2, read from the
+// history store first: the meta database in history.store: meta): that
+// install keeps its configured trust. Later starts keep the first record.
 const initSQL = `INSERT INTO sage.onboarding (database_name, install_kind)
-SELECT $1, CASE WHEN EXISTS (SELECT 1 FROM sage.config WHERE key = 'trust_ramp_start')
-                  OR EXISTS (SELECT 1 FROM (SELECT collected_at FROM sage.snapshots
-                                            ORDER BY collected_at DESC LIMIT 1) newest)
+SELECT $1, CASE WHEN $2 OR EXISTS (SELECT 1 FROM sage.config WHERE key = 'trust_ramp_start')
                 THEN 'existing' ELSE 'new' END
 ON CONFLICT (database_name) DO NOTHING`
+
+// snapshotSeenSQL reads the newest snapshot through its collected_at index,
+// never by scanning the history.
+const snapshotSeenSQL = `SELECT EXISTS (SELECT 1 FROM (SELECT s.collected_at
+    FROM sage.snapshots s WHERE {db:s} ORDER BY s.collected_at DESC LIMIT 1) newest)`
 
 // Init records database on its first start under this version and returns
 // its state. It must run before the runtime collects or starts its trust
@@ -74,7 +79,11 @@ func Init(ctx context.Context, pool *pgxpool.Pool, database string) (State, erro
 	if err := check(pool, database); err != nil {
 		return State{}, err
 	}
-	if _, err := pool.Exec(ctx, initSQL, database); err != nil {
+	var seen bool
+	if err := histstore.Resolve(pool).QueryRow(ctx, snapshotSeenSQL).Scan(&seen); err != nil {
+		return State{}, fmt.Errorf("read the history of %q: %w", database, err)
+	}
+	if _, err := pool.Exec(ctx, initSQL, database, seen); err != nil {
 		return State{}, fmt.Errorf("record onboarding of %q: %w", database, err)
 	}
 	st, found, err := Get(ctx, pool, database)

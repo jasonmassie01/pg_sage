@@ -95,6 +95,8 @@ func (e *Executor) logRefusedAction(
 func categorizeAction(sql string) string {
 	upper := strings.ToUpper(sql)
 	switch {
+	case IsIndexReplaceSQL(sql):
+		return ActionTypeReplaceIndex
 	case extstats.IsCreate(sql):
 		return "create_statistics"
 	case extstats.IsDrop(sql):

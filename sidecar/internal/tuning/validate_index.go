@@ -66,12 +66,20 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	if !ok {
 		return reject(p, ReasonUnavailable, "no table context for %s", table)
 	}
-	alongside, family, bad := v.overlap(p, table, ddl, tc)
+	ov, bad := v.overlap(p, table, ddl, tc)
 	if bad != nil {
 		return *bad
 	}
+	var replaced collector.IndexStats
+	if ov.replaces != nil {
+		ix, j := v.replacement(p, spec, *ov.replaces)
+		if j != nil {
+			return *j
+		}
+		replaced = ix
+	}
 	adm := v.a.deps.Indexes.Admit(ctx, optimizer.Recommendation{DDL: ddl, Severity: "info",
-		Rationale: p.Rationale, IndexType: spec.Method, Alongside: alongside,
+		Rationale: p.Rationale, IndexType: spec.Method, Alongside: ov.alongside,
 		Category: optimizer.OptimizerCategory}, tc)
 	switch adm.Outcome {
 	case optimizer.AdmitAccepted:
@@ -82,12 +90,16 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	default:
 		return reject(p, ReasonInvalid, "%s", adm.Reason)
 	}
-	if family != "" {
-		v.flight.families[family] = ddl
+	if ov.family != "" {
+		v.flight.families[ov.family] = ddl
 	}
 	f := analyzer.OptimizerRecommendationFinding(adm.Rec, tc.PlanSource)
+	pred := v.createPrediction(c, p, adm.Rec)
+	if ov.replaces != nil {
+		return v.admitReplacement(p, f, table, adm.Rec.DDL, replaced, pred)
+	}
 	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: []string{table},
-		Class: verify.ClassIndexCreate, Prediction: v.createPrediction(c, p, adm.Rec)}
+		Class: verify.ClassIndexCreate, Prediction: pred}
 }
 
 func (v *validator) createPrediction(c Case, p Proposal,

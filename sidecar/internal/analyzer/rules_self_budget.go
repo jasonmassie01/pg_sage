@@ -36,11 +36,12 @@ func newSelfBudgetMeter() *selfBudgetMeter {
 	return &selfBudgetMeter{cpu: selfbudget.NewCPUMeter(selfbudget.ProcessCPU, time.Now)}
 }
 
-// observe records the cycle's usage and returns it with the loops that
-// were busiest since the previous cycle.
-func (m *selfBudgetMeter) observe(cost selfcost.Cost, cycle time.Duration) (
+// observe records the cycle's usage (the database side measured from the
+// self-cost reading, plus the history store's share in history.store:
+// meta) and returns it with the loops that were busiest since the previous
+// cycle.
+func (m *selfBudgetMeter) observe(u selfbudget.Usage, cycle time.Duration) (
 	selfbudget.Usage, []selfbudget.LoopCost) {
-	u := selfbudget.FromCost(cost)
 	if m == nil {
 		return u, nil
 	}
@@ -90,9 +91,15 @@ func selfBudgetFor(cfg *config.Config) selfbudget.Budget {
 // checkSelfBudget measures the cycle's usage and raises the finding when
 // pg_sage is over budget. The first cycle after a start knows no CPU or
 // DB window: the category stays unknown so an open finding stays open.
-func (a *Analyzer) checkSelfBudget(cost selfcost.Cost) []Finding {
+func (a *Analyzer) checkSelfBudget(ctx context.Context, cost selfcost.Cost) []Finding {
 	b := selfBudgetFor(a.cfg)
-	u, loops := a.selfBudget.observe(cost, a.collectorInterval())
+	hist, err := a.historyStorage(ctx)
+	if err != nil {
+		a.logFn("WARN", "analyzer: measure this database's share of the history store: %v",
+			err)
+	}
+	u, loops := a.selfBudget.observe(withHistoryStorage(selfbudget.FromCost(cost), hist, err),
+		a.collectorInterval())
 	if !budgetDecidable(b, u) {
 		a.evalFail(categorySelfBudget)
 		return nil

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // DaySystemAgg holds daily aggregated system-level metrics.
@@ -49,9 +51,9 @@ SELECT date_trunc('day', collected_at) AS day,
                 FILTER (WHERE (data->>'cache_hit_ratio')::float > 0),
                 -1)                              AS avg_cache_hit,
        max((data->>'total_checkpoints')::bigint) AS total_chkpts
-FROM sage.snapshots
-WHERE category = 'system'
-  AND collected_at > now() - make_interval(days => $1)
+FROM sage.snapshots s
+WHERE {db:s} AND s.category = 'system'
+  AND s.collected_at > now() - make_interval(days => $1)
 GROUP BY 1 ORDER BY 1`
 
 // QueryDailySystemAggs returns daily system metric aggregates for
@@ -61,7 +63,7 @@ func QueryDailySystemAggs(
 	pool *pgxpool.Pool,
 	lookbackDays int,
 ) ([]DaySystemAgg, error) {
-	rows, err := pool.Query(ctx, systemAggsSQL, lookbackDays)
+	rows, err := histstore.Resolve(pool).Query(ctx, systemAggsSQL, lookbackDays)
 	if err != nil {
 		return nil, fmt.Errorf("query system aggs: %w", err)
 	}

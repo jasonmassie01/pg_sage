@@ -92,8 +92,9 @@ func TestSelfFamiliesPartitionTheirClasses(t *testing.T) {
 			}
 		}
 	}
-	if len(owner) != 10 {
-		t.Fatalf("self-initiated classes = %d (%v), want 10", len(owner), owner)
+	if len(owner) != 11 {
+		t.Fatalf("self-initiated classes = %d (%v), want 11 (index_replace joined in 2.3)",
+			len(owner), owner)
 	}
 }
 

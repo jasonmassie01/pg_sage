@@ -108,6 +108,16 @@
 | `explain.enabled` | `restart` | `-` | `operator_preference` |
 | `explain.max_tokens` | `restart` | `-` | `derivable` |
 | `explain.timeout_ms` | `restart` | `-` | `derivable` |
+| `fleet_learning.budget_ceiling_pct` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.budget_floor_pct` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.budget_split` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.enabled` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.fleet_finding_min_databases` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.include_names` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.interval_minutes` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.leader_lease_seconds` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.lookalike_min_similarity` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.min_prior_outcomes` | `restart` | `-` | `operator_preference` |
 | `forecaster.alert_horizons` | `restart` | `-` | `derivable` |
 | `forecaster.cache_warn_threshold` | `restart` | `-` | `derivable` |
 | `forecaster.connection_warn_pct` | `restart` | `-` | `derivable` |
@@ -119,6 +129,7 @@
 | `forecaster.min_r_squared` | `restart` | `-` | `derivable` |
 | `forecaster.sequence_critical_days` | `restart` | `-` | `derivable` |
 | `forecaster.sequence_warn_days` | `restart` | `-` | `derivable` |
+| `history.store` | `restart` | `-` | `operator_preference` |
 | `llm.api_key` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.context_budget_tokens` | `restart` | `-` | `derivable` |
 | `llm.cooldown_seconds` | `reconfigure` | `llm` | `derivable` |

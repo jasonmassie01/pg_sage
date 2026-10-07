@@ -43,6 +43,7 @@ LIMIT $1`
 // differenced). The split is the latest plan flip, or the middle of the
 // window when the plan did not change; "before" only counts samples of
 // the previous plan. Queries without fingerprints are not reported.
+// $3 scopes the read to one queryid (0 reads every statement).
 const planRegressionsSQL = `/* pg_sage sre:plan_regressions v1 */
 WITH s AS (
     SELECT q.id, q.queryid, q.captured_at, q.plan_hash,
@@ -51,9 +52,10 @@ WITH s AS (
            lag(q.plan_hash) OVER w AS prev_hash,
            q.stats_epoch IS NOT DISTINCT FROM lag(q.stats_epoch) OVER w AS same_epoch
     FROM sage.query_store q
-    WHERE q.captured_at >= pg_catalog.now()
+    WHERE {db:q} AND q.captured_at >= pg_catalog.now()
               - pg_catalog.make_interval(secs => $2)
       AND q.plan_hash IS NOT NULL
+      AND ($3::int8 = 0 OR q.queryid = $3::int8)
     WINDOW w AS (PARTITION BY q.queryid ORDER BY q.captured_at, q.id)
 ), flip AS (
     SELECT DISTINCT ON (queryid) queryid, captured_at AS flipped_at, prev_hash
@@ -107,6 +109,9 @@ func vacuumProgressSpec() Spec {
 }
 
 func planRegressionsSpec() Spec {
-	return spec(PlanRegressions, FamilyPlans, ArgsWindow,
+	s := spec(PlanRegressions, FamilyPlans, ArgsWindow,
 		Variant{MinVersion: 140000, SQL: planRegressionsSQL})
+	s.QueryScoped = true
+	s.History = true
+	return s
 }

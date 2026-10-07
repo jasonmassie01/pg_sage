@@ -124,6 +124,12 @@ func (s *Service) buildTrustView(grid []pairKey, now time.Time, in trustReads) T
 		if !ok {
 			st = defaultState(key.family, key.class)
 		}
+		st = composedLevel(st, ok, func(p Pair) Level {
+			if cs, ok := levels[pairKey{p.Family, p.Class}]; ok {
+				return cs.Level
+			}
+			return defaultLevel(p.Family)
+		})
 		v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, key.family, key.class),
 			e.records[key], byPair[key], changes[key]))
 	}

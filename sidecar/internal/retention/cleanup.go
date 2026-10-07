@@ -56,6 +56,8 @@ type Cleaner struct {
 	conv *conversions
 	// notes rate-limits the size cap's warnings (cap_notes.go).
 	notes *capNotes
+	// storeMode: the history store's cleaner (history_store.go).
+	storeMode bool
 }
 
 // New creates a new retention Cleaner.
@@ -118,7 +120,9 @@ func (s *RunStats) count(table string, n int64) {
 // Run starts the due background conversions of plain history tables
 // (ConvertHistory) and performs one retention run (see RunOnce).
 func (c *Cleaner) Run(ctx context.Context) {
-	c.convertInBackground(ctx, time.Now())
+	if !c.historyElsewhere() {
+		c.convertInBackground(ctx, time.Now())
+	}
 	c.RunOnce(ctx)
 }
 
@@ -129,7 +133,7 @@ func (c *Cleaner) RunOnce(ctx context.Context) RunStats {
 	start := time.Now()
 	stats := newRunStats()
 	deadline := start.Add(c.budget)
-	rules := purgeRules(c.cfg)
+	rules := c.rules()
 	if c.next >= len(rules) {
 		c.next = 0
 	}
@@ -149,7 +153,7 @@ func (c *Cleaner) RunOnce(ctx context.Context) RunStats {
 	}
 	if !stats.BudgetSpent {
 		c.next = 0
-		if ctx.Err() == nil {
+		if ctx.Err() == nil && !c.storeMode {
 			c.pruneIncidents(ctx)
 		}
 	}

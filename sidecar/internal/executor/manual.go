@@ -34,6 +34,9 @@ func (e *Executor) ExecuteManual(
 	findingID int, sql, rollbackSQL string,
 	approvedBy *int,
 ) (int64, error) {
+	if IsIndexReplaceSQL(sql) {
+		return e.ExecuteIndexReplace(ctx, findingID, sql, rollbackSQL, approvedBy)
+	}
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return 0, fmt.Errorf("SQL validation: %w", err)
 	}
@@ -241,6 +244,9 @@ func (e *Executor) RollbackAction(
 ) error {
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return err
+	}
+	if e.isReplaceAction(ctx, actionID) {
+		return e.RollbackIndexReplace(ctx, actionID, reason)
 	}
 	rollbackSQL, err := e.loadRollbackSQL(ctx, actionID)
 	if err != nil {

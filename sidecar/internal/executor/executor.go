@@ -100,6 +100,10 @@ type Executor struct {
 	postDDLHook        func(context.Context) error
 	// approvedRunner runs approved queue items it owns (Sage SRE M5).
 	approvedRunner approvedRunnerSlot
+	// replaceWatch and replaceHooks: the replace action's verification
+	// watches and its test seams (roadmap 2.3).
+	replaceWatch replaceWatchSet
+	replaceHooks replaceHooks
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal

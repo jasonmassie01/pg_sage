@@ -182,6 +182,30 @@ Per-query optimization via `pg_hint_plan` (if available). Detects plan-level sym
 
 Automatic cleanup of aged snapshots, findings, actions, and explain plans based on configurable retention windows.
 
+### History store
+
+Telemetry history (`sage.snapshots`, `sage.query_store`) lives in each monitored
+database by default. With `history.store: meta` (meta-db mode) it lives in the
+metadata database, each row tagged with the database's meta-db record id.
+
+- Every history statement is written once with scope markers (`{db:alias}`,
+  `{dbcol}`, `{dbval}`) and runs through `internal/histstore`, which binds them for
+  the database's store. A marker is not SQL, so a statement sent without a store
+  fails instead of reading an empty or mixed history; a static test checks that every
+  statement naming the two tables carries a marker.
+- Each runtime resolves its store before it starts and registers it for its monitored
+  pool; readers find the store from the pool they already hold
+  (`histstore.Resolve`), so no reader can be wired to the wrong database.
+- Reads that joined history with the monitored database's catalog are split: the
+  query store's plan fingerprints are read from the monitored `sage.explain_cache`
+  and stored with the samples; verification reads history in the store and
+  `pg_index` on the monitored database; the first-run check reads `sage.config` on the
+  monitored database and the newest snapshot in the store.
+- A runtime refuses to start when its history would be split (rows in the old place
+  that the migration did not copy); `pg_sage history migrate` copies them.
+- Retention of the store runs once per process; the snapshot cap is the sum of every
+  registered database's cap.
+
 ### Prometheus Exporter
 
 Metrics endpoint on `:9187`. Exports findings count by severity, circuit breaker state, connection stats, cache hit ratio, database size, and LLM usage.
@@ -190,7 +214,7 @@ Metrics endpoint on `:9187`. Exports findings count by severity, circuit breaker
 
 ## Data Flow
 
-1. **Collector** gathers `pg_stat_statements`, `pg_stat_user_tables`, `pg_stat_user_indexes` every 60s into `sage.snapshots`.
+1. **Collector** gathers `pg_stat_statements`, `pg_stat_user_tables`, `pg_stat_user_indexes` every 60s into `sage.snapshots` (in the metadata database with `history.store: meta`).
 2. **Analyzer** runs rules every 600s, then the **tuning agent** if an LLM is usable.
 3. The agent classifies the workload, detects cases and asks the model about each case
    with read-only tools.

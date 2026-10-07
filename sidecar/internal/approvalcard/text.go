@@ -98,6 +98,9 @@ func Text(c Card, now time.Time) string {
 	}
 	if r := c.Rationale; r != nil {
 		fmt.Fprintf(&b, "\n%s: %s\n", rationaleLabel(r), truncate(r.Text, 600))
+		if r.LookAlike != "" {
+			fmt.Fprintf(&b, "From look-alike databases: %s\n", r.LookAlike)
+		}
 	}
 	if s := Summary(c); s != "" {
 		fmt.Fprintf(&b, "\nPredicted effect: %s\n", s)

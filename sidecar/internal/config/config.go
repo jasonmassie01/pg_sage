@@ -97,10 +97,13 @@ type Config struct {
 	MCP         MCPConfig           `yaml:"mcp"`
 	Ask         AskConfig           `yaml:"ask"`
 	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
+	History     HistoryConfig       `yaml:"history"`
 	Debug       DebugConfig         `yaml:"debug"`
 	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
+	// FleetLearning is fleet learning and leader election (fleet_learning.go).
+	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
 
@@ -738,6 +741,9 @@ func (c *Config) validate() error {
 	if err := c.SelfBudget.validate(); err != nil {
 		return err
 	}
+	if err := c.validateHistory(); err != nil {
+		return err
+	}
 	if err := c.LLM.Optimizer.RejectionMemory.validate(); err != nil {
 		return err
 	}
@@ -751,6 +757,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.SelfConfig.validate(); err != nil {
+		return err
+	}
+	if err := c.FleetLearning.validate(); err != nil {
 		return err
 	}
 
@@ -1066,10 +1075,12 @@ func newDefaults() *Config {
 		MCP:        MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
 		Ask:        defaultAskConfig(),
 		SelfBudget: DefaultSelfBudget(),
+		History:    DefaultHistory(),
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
-		SelfConfig: defaultSelfConfigConfig(),
+		SelfConfig:    defaultSelfConfigConfig(),
+		FleetLearning: defaultFleetLearningConfig(),
 	}
 }
 

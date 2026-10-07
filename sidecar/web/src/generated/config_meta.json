@@ -719,6 +719,66 @@
     "doc": "statement_timeout for EXPLAIN ANALYZE execution. Default: 10000.",
     "class": "derivable"
   },
+  "fleet_learning.budget_ceiling_pct": {
+    "type": "int",
+    "default": 300,
+    "doc": "Largest share of a database under the need split, as a percentage of the even share. 100-1000. Default: 300.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.budget_floor_pct": {
+    "type": "int",
+    "default": 50,
+    "doc": "Smallest share of a database under the need split, as a percentage of the even share. 0-100. Default: 50.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.budget_split": {
+    "type": "string",
+    "default": "need",
+    "doc": "How llm.fleet_token_budget_daily is split: need (by open findings and incidents, within the floor and ceiling) or even. The cap itself is never exceeded. Default: need.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Fingerprint every fleet database's schema and workload shape, show look-alike evidence on proposals and recurring fleet findings. Evidence only: never raises trust or confidence. Default: true.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.fleet_finding_min_databases": {
+    "type": "int",
+    "default": 3,
+    "doc": "Databases on which the same problem must be open to show it as one fleet finding. 2-10000. Default: 3.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.include_names": {
+    "type": "bool",
+    "default": false,
+    "doc": "Also store table names with fingerprints (for drill-down). Off by default: fingerprints hold only hashes of shapes, never names, data or literals.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.interval_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Minutes between fingerprint and outcome-digest cycles. 5-1440. Default: 60.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.leader_lease_seconds": {
+    "type": "int",
+    "default": 30,
+    "doc": "Lease of the leader sidecar that runs fleet-wide jobs when several sidecars share a control database. 10-600; 0 disables election (every sidecar runs them). Default: 30.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.lookalike_min_similarity": {
+    "type": "float64",
+    "default": 0.6,
+    "doc": "Similarity (0-1, weighted overlap of table, index and query shapes) at which another database of the same fleet and tenant counts as a look-alike. Default: 0.6.",
+    "class": "operator_preference"
+  },
+  "fleet_learning.min_prior_outcomes": {
+    "type": "int",
+    "default": 3,
+    "doc": "Verified outcomes on look-alike databases needed before their evidence is shown on a proposal. 1-1000. Default: 3.",
+    "class": "operator_preference"
+  },
   "forecaster.alert_horizons": {
     "type": "[]int",
     "default": null,
@@ -784,6 +844,12 @@
     "default": 90,
     "doc": "",
     "class": "derivable"
+  },
+  "history.store": {
+    "type": "string",
+    "default": "monitored",
+    "doc": "Where pg_sage keeps snapshots and the query store: monitored (each monitored database) or meta (the meta database; needs meta_db). Restart and history migrate to change. Default monitored.",
+    "class": "operator_preference"
   },
   "llm.api_key": {
     "type": "string",

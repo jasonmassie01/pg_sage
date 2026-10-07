@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/schema"
 )
 
@@ -83,7 +84,9 @@ func TestCheckColdStart_BoundedRead(t *testing.T) {
 		}
 	}
 	var raw string
-	if err := pool.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+coldStartSQL, 3).
+	// The statement as sent: its history-store markers bound (histstore).
+	sql, args := histstore.Resolve(pool).Bind(coldStartSQL, 3)
+	if err := pool.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+sql, args...).
 		Scan(&raw); err != nil {
 		t.Fatalf("explain: %v", err)
 	}

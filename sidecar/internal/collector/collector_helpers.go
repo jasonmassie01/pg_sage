@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/partition"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
@@ -69,8 +70,9 @@ func (c *Collector) collectStatStatementsMax(
 	return val
 }
 
-// persist writes the snapshot into sage.snapshots, one row per available
-// category; catalog categories are delta encoded by the snapshot store.
+// persist writes the snapshot into the history store's sage.snapshots, one
+// row per available category; catalog categories are delta encoded by the
+// snapshot store.
 func (c *Collector) persist(ctx context.Context, snap *Snapshot) error {
 	rows, err := snapshotRows(snap)
 	if err != nil {
@@ -81,10 +83,12 @@ func (c *Collector) persist(ctx context.Context, snap *Snapshot) error {
 }
 
 // ensurePartitions makes sure the day partitions of at (and the next day)
-// exist before rows are written there. A failure is logged, not fatal: a
-// row with no day partition lands in the default partition.
+// exist before rows are written there, in the history store (the meta
+// database in history.store: meta). A failure is logged, not fatal: a row
+// with no day partition lands in the default partition.
 func (c *Collector) ensurePartitions(ctx context.Context, at time.Time) {
-	err := c.partitions.Ensure(ctx, c.pool, at, partition.Snapshots, partition.QueryStore)
+	err := c.partitions.Ensure(ctx, histstore.Resolve(c.pool), at, partition.Snapshots,
+		partition.QueryStore)
 	if err != nil {
 		c.logFn("WARN", "ensure sage history partitions: %v", err)
 	}

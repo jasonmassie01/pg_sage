@@ -17,6 +17,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -1445,10 +1446,10 @@ func querySnapshotLatest(
 	ctx context.Context, pool *pgxpool.Pool, metric string,
 ) (any, error) {
 	var data []byte
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT `+snapstore.DataSQL("")+` FROM sage.snapshots
-		 WHERE category = $1
-		 ORDER BY collected_at DESC LIMIT 1`,
+	err := histstore.Resolve(pool).QueryRow(ctx,
+		`/* pg_sage */ SELECT `+snapstore.DataSQL("s")+` FROM sage.snapshots s
+		 WHERE {db:s} AND s.category = $1
+		 ORDER BY s.collected_at DESC LIMIT 1`,
 		metric,
 	).Scan(&data)
 	if err != nil {

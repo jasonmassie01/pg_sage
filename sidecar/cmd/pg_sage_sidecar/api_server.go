@@ -121,6 +121,8 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 	// and destroys abandoned deployments. The logic was built and tested
 	// but never scheduled (F4). Dormant when no agent DBs exist.
 	if authPool != nil {
+		// Election first: the leader-only loops below read its result.
+		startFleetLearning(shutdownCtx, authPool, fleetMgr)
 		startAgentDBReconciler(shutdownCtx, authPool)
 		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
 		startSpecialistOutbound(shutdownCtx)

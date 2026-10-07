@@ -36,6 +36,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/partition"
 )
 
@@ -110,13 +111,16 @@ func NewWriter() *Writer {
 
 const (
 	insertFullSQL = `/* pg_sage */ INSERT INTO sage.snapshots
-		(collected_at, category, data) VALUES ($1, $2, $3) RETURNING id`
+		(collected_at, category, data{dbcol}) VALUES ($1, $2, $3{dbval}) RETURNING id`
 	insertDeltaSQL = `/* pg_sage */ INSERT INTO sage.snapshots
-		(collected_at, category, data, base_id) VALUES ($1, $2, $3, $4) RETURNING id`
+		(collected_at, category, data, base_id{dbcol})
+		VALUES ($1, $2, $3, $4{dbval}) RETURNING id`
 )
 
 // Persist writes the rows of one cycle collected at at, in one
-// transaction. Keyframes become bases only once the transaction commits.
+// transaction, to db's history store (histstore.Resolve: the meta database
+// in history.store: meta). Keyframes become bases only once the
+// transaction commits; a writer's bases are all in one store.
 func (w *Writer) Persist(ctx context.Context, db Beginner, at time.Time, rows []Row) error {
 	if len(rows) == 0 {
 		return nil
@@ -124,16 +128,18 @@ func (w *Writer) Persist(ctx context.Context, db Beginner, at time.Time, rows []
 	if db == nil {
 		return errors.New("persist snapshot: no database to write to")
 	}
+	st := histstore.Resolve(db)
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	tx, err := db.Begin(ctx)
+	tx, err := st.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("persist snapshot: begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	txs := st.WithDB(tx)
 	written := map[string]rowPlan{}
 	for _, r := range rows {
-		p, err := w.insert(ctx, tx, at, r)
+		p, err := w.insert(ctx, txs, at, r)
 		if err != nil {
 			return err
 		}
@@ -162,7 +168,7 @@ func (w *Writer) advance(category string, p rowPlan) {
 
 // insert writes one row and returns its plan, with the new row's id set on
 // the keyframe or checkpoint it starts.
-func (w *Writer) insert(ctx context.Context, tx pgx.Tx, at time.Time, r Row) (
+func (w *Writer) insert(ctx context.Context, tx histstore.Store, at time.Time, r Row) (
 	rowPlan, error) {
 	p, err := w.plan(r.Category, r.Data, at)
 	if err != nil {

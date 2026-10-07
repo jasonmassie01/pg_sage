@@ -27,7 +27,7 @@ func isApprovalRequiredGuardrail(value string) bool {
 func changeClassForActionType(actionType string) string {
 	switch actionType {
 	case "create_index_concurrently", "drop_unused_index", "reindex_concurrently",
-		"revert_created_index":
+		"revert_created_index", ActionTypeReplaceIndex:
 		return string(policy.ChangeIndex)
 	case "analyze_table", "create_statistics", "revert_created_statistics":
 		// Planner statistics: ANALYZE and pg_sage's extended statistics.

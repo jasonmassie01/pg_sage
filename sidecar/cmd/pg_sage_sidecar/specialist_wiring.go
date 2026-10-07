@@ -205,6 +205,8 @@ func (b specialistMCPBackend) SpecialistCall(ctx context.Context, tool string,
 		return b.svc.Status(ctx, id, database, ref.InvestigationID)
 	case "specialist_investigation_result":
 		return b.svc.Result(ctx, id, database, ref.InvestigationID)
+	case "specialist_investigation_transcript":
+		return b.svc.Transcript(ctx, id, database, ref.InvestigationID)
 	case "specialist_request_remediation":
 		return b.svc.RequestRemediation(ctx, id, database, ref.InvestigationID,
 			ref.RemediationID, specialist.RemediationRequest{Reason: ref.Reason})

@@ -14,7 +14,7 @@ import (
 
 var specialistToolNames = map[string]bool{"specialist_open_investigation": true,
 	"specialist_investigation_status": true, "specialist_investigation_result": true,
-	"specialist_request_remediation": true}
+	"specialist_request_remediation": true, "specialist_investigation_transcript": true}
 
 // SpecialistCaller is the bound principal as the contract sees it.
 type SpecialistCaller struct {
@@ -51,7 +51,13 @@ func specialistTools() []Tool {
 		`{"type":"string","maxLength":256}},"additionalProperties":false},` +
 		`"external_ref":{"type":"object","properties":{"system":{"type":"string"},` +
 		`"id":{"type":"string"},"url":{"type":"string"}},"required":["system","id"],` +
-		`"additionalProperties":false},"idempotency_key":{"type":"string","maxLength":128}`
+		`"additionalProperties":false},"idempotency_key":{"type":"string","maxLength":128},` +
+		`"query_id":{"type":["string","integer"],"description":"pg_stat_statements ` +
+		`queryid of the statement (a non-zero signed 64-bit integer; send it as a ` +
+		`string to keep all 64 bits); a plan_regression investigation is then about ` +
+		`this statement"},"query_hash":{"type":"string","pattern":"^[0-9a-f]{64}$",` +
+		`"description":"hex SHA-256 of the statement text exactly as ` +
+		`pg_stat_statements shows it; resolved to its queryid"}`
 	return []Tool{
 		{Name: "specialist_open_investigation", Description: "Postgres-specialist " +
 			"contract (pg_sage.specialist.v1): open an investigation of a symptom (the " +
@@ -63,7 +69,13 @@ func specialistTools() []Tool {
 			InputSchema: schema(inv, `["investigation_id"]`)},
 		{Name: "specialist_investigation_result", Description: "Read the result: cited " +
 			"causal chain, root cause with source and authority, confidence (calibrated " +
-			"or labelled uncalibrated), missing evidence and typed candidate remediations",
+			"or labelled uncalibrated), missing evidence and typed candidate remediations; " +
+			"since 1.1.0 also the model investigator's verdict (advisory unless its root " +
+			"was adopted under earned authority) and the caller's query scope",
+			InputSchema: schema(inv, `["investigation_id"]`)},
+		{Name: "specialist_investigation_transcript", Description: "Read the model " +
+			"investigator's redacted transcript: its plan, each read with the stored " +
+			"result and digest, its cited claims and outcome (specialist contract 1.1.0)",
 			InputSchema: schema(inv, `["investigation_id"]`)},
 		{Name: "specialist_request_remediation", Description: "Request one of a concluded " +
 			"investigation's candidate remediations. It becomes an ordinary pg_sage " +

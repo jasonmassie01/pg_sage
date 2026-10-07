@@ -50,7 +50,7 @@ type Binding struct {
 var (
 	ddlActions = map[string]bool{"create_index_concurrently": true,
 		"drop_unused_index": true, "alter_table": true, "set_table_autovacuum": true,
-		"create_statistics": true}
+		"create_statistics": true, "replace_index": true}
 	exemptActions = map[string]bool{"revert_created_index": true}
 	ddlVerbs      = map[string]bool{"CREATE INDEX": true, "CREATE STATISTICS": true,
 		"CREATE TABLE": true, "CREATE TRIGGER": true, "DROP INDEX": true,
@@ -58,7 +58,7 @@ var (
 		"ALTER INDEX": true, "ALTER TABLE": true, "ALTER SCHEMA": true,
 		"COMMENT ON": true}
 	keepActions = map[string]bool{"retention_delete": true, "drop_unused_index": true,
-		"plan_bloat_remediation": true}
+		"plan_bloat_remediation": true, "replace_index": true}
 	keepVerbs = map[string]bool{"DELETE": true, "TRUNCATE": true, "DROP INDEX": true,
 		"DROP TABLE": true, "CLUSTER": true}
 )

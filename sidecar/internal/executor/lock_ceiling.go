@@ -19,7 +19,8 @@ func ddlLockTimeoutMS(sql string, safetyMS int, ceilingMS int64) int {
 // so they are not non_dup_object_drop and keep their earned autonomy.
 func dropKindForActionType(actionType string) policy.DropKind {
 	switch actionType {
-	case "drop_unused_index", "revert_created_index", "revert_created_statistics":
+	case "drop_unused_index", "revert_created_index", "revert_created_statistics",
+		ActionTypeReplaceIndex:
 		return policy.DropDerivable
 	}
 	return ""

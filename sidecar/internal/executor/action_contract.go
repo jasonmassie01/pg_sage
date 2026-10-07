@@ -130,6 +130,8 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return retentionDeleteContract(), true
 	case "revert_created_index":
 		return revertCreatedIndexContract(), true
+	case ActionTypeReplaceIndex:
+		return replaceIndexContract(), true
 	case "revert_created_statistics":
 		return revertCreatedStatisticsContract(), true
 	case "create_index_concurrently":
