@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.3.0 (2026-10-07) -- Fleet learning, index replacement, history outside the database
 
 ### What's new
 
