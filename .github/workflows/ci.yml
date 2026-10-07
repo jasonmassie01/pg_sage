@@ -100,11 +100,27 @@ jobs:
       # the 500 ms incident budget (internal/testsupport/perfgate/budgets.go).
       # Pull requests run the small scale; the nightly run the large one.
       # Blocking: any offender fails the build.
+      # The gate gets a fresh server of its own: the shared one holds what the
+      # suites above left behind, and cluster-wide reads (the databases'
+      # total size stats every file of every database) would charge pg_sage
+      # for it (153 ms there, 40 ms on a clean server, nightly 2026-10-07).
+      - name: Start a clean PostgreSQL for the performance gate
+        if: ${{ !cancelled() }}
+        run: |
+          docker run -d --name perfgate-pg -e POSTGRES_PASSWORD=postgres \
+            -p 5433:5432 pgvector/pgvector:0.8.2-pg17 >/dev/null
+          for _ in $(seq 1 60); do
+            docker exec perfgate-pg pg_isready -U postgres >/dev/null 2>&1 && break
+            sleep 1
+          done
+          scripts/ci/setup-test-postgres.sh perfgate-pg 17
+
       - name: Performance gate
         if: ${{ !cancelled() }}
         working-directory: sidecar
         timeout-minutes: 25
         env:
+          SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
           PG_SAGE_PERF_SCALE: ${{ github.event_name == 'schedule' && 'large' || 'small' }}
           PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
         run: |
