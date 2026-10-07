@@ -54,16 +54,22 @@ func TestPlanRelationNames(t *testing.T) {
 }
 
 // A relation is read once per cycle: a second plan naming it reuses the
-// facts (the table dropped in between is still known), a new name is read.
+// facts (the row estimate changed in between is not seen), a new name is
+// read, and a new cycle reads again.
 func TestTunerCycleFacts_ReadsEachRelationOncePerCycle(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
-	for _, s := range []string{"DROP SCHEMA IF EXISTS factscope CASCADE",
-		"CREATE SCHEMA factscope",
-		"CREATE TABLE factscope.first (id int PRIMARY KEY)",
-		"CREATE TABLE factscope.second (id int PRIMARY KEY)"} {
+	exec := func(s string) {
+		t.Helper()
 		if _, err := pool.Exec(ctx, s); err != nil {
 			t.Fatalf("%s: %v", s, err)
 		}
+	}
+	for _, s := range []string{"DROP SCHEMA IF EXISTS factscope CASCADE",
+		"CREATE SCHEMA factscope",
+		"CREATE TABLE factscope.first (id int PRIMARY KEY)",
+		"CREATE TABLE factscope.second (id int PRIMARY KEY)",
+		"ANALYZE factscope.first"} {
+		exec(s)
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS factscope CASCADE")
@@ -74,29 +80,31 @@ func TestTunerCycleFacts_ReadsEachRelationOncePerCycle(t *testing.T) {
 		return []byte(`[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "` + rel +
 			`", "Schema": "factscope"}}]`)
 	}
-	if f := tu.cycleFacts(ctx, plan("first")); f == nil {
-		t.Fatal("no facts for the first plan")
-	} else if _, ok := f.TableRows("factscope", "first"); !ok {
-		t.Fatalf("first not loaded: %+v", f.Tables)
+	rows := func(f *CatalogFacts, rel string) (int64, bool) {
+		t.Helper()
+		if f == nil {
+			t.Fatalf("no facts for a plan naming %s", rel)
+		}
+		return f.TableRows("factscope", rel)
 	}
-	if _, err := pool.Exec(ctx, "DROP TABLE factscope.first"); err != nil {
-		t.Fatal(err)
+	if n, ok := rows(tu.cycleFacts(ctx, plan("first")), "first"); !ok || n != 0 {
+		t.Fatalf("first = %d %t, want 0 rows", n, ok)
 	}
+	exec("INSERT INTO factscope.first SELECT generate_series(1, 500)")
+	exec("ANALYZE factscope.first")
 	f := tu.cycleFacts(ctx, plan("first"))
-	if _, ok := f.TableRows("factscope", "first"); !ok {
-		t.Fatal("first was read again within the cycle")
+	if n, _ := rows(f, "first"); n != 0 {
+		t.Fatalf("first re-read within the cycle (%d rows)", n)
 	}
-	if _, ok := f.TableRows("factscope", "second"); ok {
+	if _, ok := rows(f, "second"); ok {
 		t.Fatal("second loaded before any plan named it")
 	}
-	f = tu.cycleFacts(ctx, plan("second"))
-	if _, ok := f.TableRows("factscope", "second"); !ok {
+	if _, ok := rows(tu.cycleFacts(ctx, plan("second")), "second"); !ok {
 		t.Fatal("second not loaded when a plan named it")
 	}
-	tu.loadFacts(ctx) // a new cycle forgets what the last one read
-	f = tu.cycleFacts(ctx, plan("first"))
-	if _, ok := f.TableRows("factscope", "first"); ok {
-		t.Fatal("a new cycle reused facts of a dropped table")
+	tu.loadFacts(ctx) // a new cycle reads afresh
+	if n, ok := rows(tu.cycleFacts(ctx, plan("first")), "first"); !ok || n != 500 {
+		t.Fatalf("new cycle first = %d %t, want 500 rows", n, ok)
 	}
 }
 
