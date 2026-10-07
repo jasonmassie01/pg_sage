@@ -135,7 +135,7 @@ func (r *OpenRequest) Validate(now time.Time) error {
 		}
 	}
 	for _, check := range []func() error{r.validateSymptom, r.validateAttach,
-		r.validateExternal, func() error { return r.validateWindow(now) },
+		r.validateExternal, r.validateQuery, func() error { return r.validateWindow(now) },
 		func() error {
 			return checkText("idempotency_key", r.IdempotencyKey, false,
 				maxIdempotencyRunes, false)

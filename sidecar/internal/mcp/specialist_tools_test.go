@@ -48,6 +48,8 @@ var specialistToolArgs = map[string]string{
 	"specialist_request_remediation": `{"database":"orders",` +
 		`"investigation_id":"44444444-4444-4444-8444-444444444444",` +
 		`"remediation_id":"custodian.0123456789abcdef","reason":"PD Q1"}`,
+	"specialist_investigation_transcript": `{"database":"orders",` +
+		`"investigation_id":"44444444-4444-4444-8444-444444444444"}`,
 }
 
 func agentCtx(scopes ...Scope) context.Context {

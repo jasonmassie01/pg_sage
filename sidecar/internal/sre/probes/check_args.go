@@ -19,7 +19,7 @@ func (r *Registry) CheckArgs(id ID, args Args) error {
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownProbe, id)
 	}
-	if err := args.validate(spec.Args); err != nil {
+	if err := args.check(spec); err != nil {
 		return fmt.Errorf("%w for %s: %v", ErrInvalidArgs, id, err)
 	}
 	return nil

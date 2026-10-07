@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **Other agents now see what the model investigator concluded, and on what authority.**
+  Specialist contract revision 1.1.0 (still `pg_sage.specialist.v1`; every addition is
+  optional and a v1 result is byte for byte unchanged): results carry an `investigator`
+  section with the investigator's verdict (agree, conclude, contest, unmodeled,
+  inconclusive, no answer), whether its root was adopted under the family's earned
+  model-lift authority or stayed advisory and why, its cited claims with the numbers their
+  evidence holds, the reads it asked for that returned nothing usable, and a link to the
+  redacted transcript, now served by the contract (`GET .../investigations/{id}/transcript`,
+  MCP `specialist_investigation_transcript`). The PagerDuty note is unchanged.
+- **Callers can scope an investigation to one statement.** `query_id` (a
+  pg_stat_statements queryid, read exactly to 64 bits) and/or `query_hash` (SHA-256 of
+  the normalized text, resolved through pg_stat_statements with a parameter) are validated
+  strictly; a plan-regression investigation is then about that statement (its probe reads
+  only it, so a larger regression can no longer push it out of the probe's row cap), other
+  families name the evidence that mentions it, and the result echoes the scope to its
+  caller. pg_sage's own plan-regression investigations also probe only their statement now.
+- **Fix:** a root the model investigator concluded for an inconclusive graph and that was
+  adopted under earned authority was reported as `source: graph`, `authority:
+  deterministic`; it is now `source: model`, `authority: model_earned`, as documented.
+
 ## v2.2.1 (2026-10-07) -- First look and quickstart fixes
 
 ### Fixed

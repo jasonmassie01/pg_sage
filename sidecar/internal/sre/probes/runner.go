@@ -98,7 +98,7 @@ func (r *Runner) run(ctx context.Context, id ID, args Args, background bool) Res
 		spec.StatementTimeout = spec.BackgroundTimeout
 	}
 	res.Version = spec.Version
-	if err := args.validate(spec.Args); err != nil {
+	if err := args.check(spec); err != nil {
 		return failed(res, StatusError, "invalid_args", err)
 	}
 	queued := time.Now()
@@ -252,7 +252,7 @@ func (r *Runner) execute(
 	if err != nil {
 		return res, err
 	}
-	rows, err := tx.Query(qctx, sql, args.params(spec.Args, spec.MaxRows+1)...)
+	rows, err := tx.Query(qctx, sql, args.bind(spec, spec.MaxRows+1)...)
 	if err != nil {
 		return res, err
 	}

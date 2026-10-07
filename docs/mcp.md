@@ -692,6 +692,8 @@ Scope: `read`
 | `external_ref` | object | no |  |
 | `family` | string | no | one of `lock_blocking`, `connection_pressure`, `wal_retention`, `plan_regression`, `checkpoint_storm`, `temp_file_explosion`, `replication_lag`, `lwlock_contention` |
 | `idempotency_key` | string | no | length <= 128 |
+| `query_hash` | string | no | hex SHA-256 of the statement text exactly as pg_stat_statements shows it; resolved to its queryid; pattern `^[0-9a-f]{64}$` |
+| `query_id` | string or integer | no | pg_stat_statements queryid of the statement (a non-zero signed 64-bit integer; send it as a string to keep all 64 bits); a plan_regression investigation is then about this statement |
 | `symptom` | object | no |  |
 | `window` | object | no |  |
 
@@ -708,7 +710,18 @@ Scope: `read`
 
 ### `specialist_investigation_result`
 
-Read the result: cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence and typed candidate remediations.
+Read the result: cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence and typed candidate remediations; since 1.1.0 also the model investigator's verdict (advisory unless its root was adopted under earned authority) and the caller's query scope.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `investigation_id` | string | yes | format uuid |
+
+### `specialist_investigation_transcript`
+
+Read the model investigator's redacted transcript: its plan, each read with the stored result and digest, its cited claims and outcome (specialist contract 1.1.0).
 
 Scope: `read`
 

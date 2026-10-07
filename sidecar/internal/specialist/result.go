@@ -68,6 +68,8 @@ func MapResult(snap Snapshot, opts MapOptions) Result {
 	r.MissingEvidence = m.missing(d, snap.Record)
 	r.Remediations = m.remediations(inv, snap.Proposals)
 	r.CallerSupplied = m.caller(snap.Record)
+	r.Investigator = m.investigator(d)
+	r.QueryScope = m.queryScope(snap.Record, d)
 	return r
 }
 
