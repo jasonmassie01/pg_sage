@@ -129,6 +129,7 @@ func TestLoadCatalogFacts_DB(t *testing.T) {
 		"DROP SCHEMA IF EXISTS factsfx CASCADE",
 		"CREATE SCHEMA factsfx",
 		"CREATE TABLE factsfx.t (id int PRIMARY KEY, a int, b text, c int)",
+		"CREATE TABLE factsfx.other (id int PRIMARY KEY)",
 		"INSERT INTO factsfx.t SELECT i, i % 7, i::text, i FROM generate_series(1, 3000) i",
 		"CREATE INDEX t_a_idx ON factsfx.t (a)",
 		"CREATE INDEX t_b_partial ON factsfx.t (b) WHERE a = 1",
@@ -144,9 +145,12 @@ func TestLoadCatalogFacts_DB(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS factsfx CASCADE")
 	})
-	facts, err := LoadCatalogFacts(ctx, pool)
+	facts, err := LoadCatalogFacts(ctx, pool, []string{"t"})
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
+	}
+	if _, ok := facts.TableRows("factsfx", "other"); ok {
+		t.Fatal("a relation no plan names was loaded")
 	}
 	if rows, ok := facts.TableRows("factsfx", "t"); !ok || rows != 3000 {
 		t.Fatalf("rows = %d %t, want 3000", rows, ok)
@@ -169,7 +173,7 @@ func TestLoadCatalogFacts_DB(t *testing.T) {
 }
 
 func TestLoadCatalogFacts_NilPool(t *testing.T) {
-	facts, err := LoadCatalogFacts(context.Background(), nil)
+	facts, err := LoadCatalogFacts(context.Background(), nil, []string{"t"})
 	if err != nil || facts == nil || len(facts.Tables) != 0 {
 		t.Fatalf("nil pool = %+v %v, want empty facts", facts, err)
 	}
@@ -179,7 +183,7 @@ func TestLoadCatalogFacts_CanceledContextIsAnError(t *testing.T) {
 	pool, _ := requireTunerDB(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := LoadCatalogFacts(ctx, pool); err == nil {
+	if _, err := LoadCatalogFacts(ctx, pool, []string{"t"}); err == nil {
 		t.Fatal("canceled load returned no error")
 	}
 }

@@ -449,7 +449,7 @@ func (t *Tuner) scanPlanForQuery(
 		return nil
 	}
 	symptoms, err := ScanPlan([]byte(planJSON),
-		WithCatalogFacts(t.facts, t.cfg.ParallelMinTableRows))
+		WithCatalogFacts(t.cycleFacts(ctx, []byte(planJSON)), t.cfg.ParallelMinTableRows))
 	if err != nil {
 		t.logFn("tuner", "scan plan for queryid %d: %v",
 			queryID, err)

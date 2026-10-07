@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -216,6 +217,32 @@ func ExtractRelations(planJSON []byte) (map[string]bool, error) {
 	out := make(map[string]bool)
 	collectRelations(root, out)
 	return out, nil
+}
+
+// planRelationNames returns the relation names (unqualified, as the
+// catalog spells them) a plan scans, sorted and without duplicates.
+func planRelationNames(planJSON []byte) ([]string, error) {
+	root, err := parsePlanRoot(planJSON)
+	if err != nil {
+		return nil, fmt.Errorf("tuner: parse plan: %w", err)
+	}
+	seen := map[string]bool{}
+	var walk func(planNode)
+	walk = func(n planNode) {
+		if n.RelationName != "" {
+			seen[n.RelationName] = true
+		}
+		for i := range n.Plans {
+			walk(n.Plans[i])
+		}
+	}
+	walk(root)
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func collectRelations(node planNode, out map[string]bool) {
