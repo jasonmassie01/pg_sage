@@ -72,10 +72,17 @@ func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string
 		batch = batchSize
 	}
 	query := purgeSQL(rule, relation, batch)
+	args := []any{rule.days}
+	start := c.clock()
+	floor, full := time.Time{}, false
+	if rule.sweepCol != "" {
+		floor, full = c.planSweep(rule)
+		args = append(args, floor)
+	}
 	total := int64(0)
 	defer func() { c.logPurged(rule, relation, total) }()
 	done, err := c.paced(ctx, batch, deadline, func() (int64, error) {
-		tag, err := c.pool.Exec(ctx, query, rule.days)
+		tag, err := c.pool.Exec(ctx, query, args...)
 		if err != nil {
 			return 0, err
 		}
@@ -86,6 +93,9 @@ func (c *Cleaner) purgeRows(ctx context.Context, rule purgeRule, relation string
 	if err != nil {
 		c.logFn("ERROR", "retention: purging %s failed after %d rows: %v", relation,
 			total, err)
+	}
+	if rule.sweepCol != "" {
+		c.finishSweep(rule, start, full, done && err == nil)
 	}
 	return done
 }
@@ -160,10 +170,14 @@ func purgeSQL(rule purgeRule, relation string, batch int) string {
 	if relation != "sage."+rule.table {
 		order = "ORDER BY " + rule.timeCol
 	}
+	floor := ""
+	if rule.sweepCol != "" {
+		floor = "AND " + rule.sweepCol + " >= $2"
+	}
 	return fmt.Sprintf(`DELETE FROM %s WHERE ctid = ANY (ARRAY(
 		SELECT ctid FROM %s AS %s
 		WHERE %s < now() - make_interval(days => $1)
-		%s
+		%s %s
 		%s LIMIT %d))`, relation, relation, pgx.Identifier{rule.table}.Sanitize(),
-		rule.timeCol, rule.extra, order, batch)
+		rule.timeCol, floor, rule.extra, order, batch)
 }

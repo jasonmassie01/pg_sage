@@ -21,6 +21,9 @@ type purgeRule struct {
 	batch       int
 	optional    bool
 	partitioned *partition.Table
+	// sweepCol, when set, makes the rule swept (sweep.go): an incremental
+	// pass reads only rows with sweepCol at or after its floor.
+	sweepCol string
 }
 
 // Keep predicates for parents referenced by NOT NULL foreign keys. The
@@ -173,7 +176,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "decision", timeCol: "created_at", days: r.ActionsDays, extra: keepDecision},
 		// Withheld verdicts age from when they were last seen (perf audit F1).
 		{table: "decision", timeCol: "COALESCE(last_seen_at, created_at)",
-			days: r.DecisionsDays, extra: keepWithheldDecision},
+			days: r.DecisionsDays, extra: keepWithheldDecision, sweepCol: "created_at"},
 		{table: "action_queue", timeCol: "proposed_at", days: r.ActionsDays,
 			extra: keepActionQueue},
 		{table: "recommendation", timeCol: "updated_at", days: r.ActionsDays,
