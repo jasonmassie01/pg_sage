@@ -107,6 +107,9 @@ type Analyzer struct {
 	// selfBudget meters the declared self-budget (CPU, loops); read
 	// concurrently by /metrics.
 	selfBudget *selfBudgetMeter
+	// historyBytes caches this database's share of the meta database's
+	// history store (history.store: meta), for the storage self-budget.
+	historyBytes historyStorageCache
 	// factFilter applies the confirmed facts (roadmap 2.3); nil: none.
 	factFilter FactFilter
 }

@@ -483,3 +483,10 @@ operator_preference fleet_learning.interval_minutes
 operator_preference fleet_learning.leader_lease_seconds
 operator_preference fleet_learning.lookalike_min_similarity
 operator_preference fleet_learning.min_prior_outcomes
+
+# History placement (v2.3.0): where pg_sage keeps its own telemetry history is
+# deployment topology the operator declares. It never widens what pg_sage may
+# do and is never derived; a change is restart-bound and refused at startup
+# until the history is migrated, so it cannot hide verification evidence. The
+# database it points at is meta_db, already safety_critical.
+operator_preference history.store

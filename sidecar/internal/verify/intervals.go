@@ -19,21 +19,22 @@ import (
 // (querystore.AnchorLookback). It reads one index range of
 // idx_query_store_qid_time.
 const queryIntervalsSQL = `/* pg_sage */ WITH anchor AS (
-		SELECT max(captured_at) AS at FROM sage.query_store
-		WHERE queryid=$1 AND captured_at < $2 AND captured_at >= $2 - $4::interval
+		SELECT max(a.captured_at) AS at FROM sage.query_store a
+		WHERE {db:a} AND a.queryid=$1 AND a.captured_at < $2
+			AND a.captured_at >= $2 - $4::interval
 	), samples AS (
-		SELECT captured_at,
-			calls - lag(calls) OVER w AS d_calls,
-			total_exec_time - lag(total_exec_time) OVER w AS d_time,
-			calls < lag(calls) OVER w
-				OR total_exec_time < lag(total_exec_time) OVER w
+		SELECT q.captured_at,
+			q.calls - lag(q.calls) OVER w AS d_calls,
+			q.total_exec_time - lag(q.total_exec_time) OVER w AS d_time,
+			q.calls < lag(q.calls) OVER w
+				OR q.total_exec_time < lag(q.total_exec_time) OVER w
 				OR (row_number() OVER w > 1
-					AND stats_epoch IS DISTINCT FROM lag(stats_epoch) OVER w)
+					AND q.stats_epoch IS DISTINCT FROM lag(q.stats_epoch) OVER w)
 				AS epoch_break
-		FROM sage.query_store
-		WHERE queryid=$1
-			AND captured_at BETWEEN COALESCE((SELECT at FROM anchor), $2) AND $3
-		WINDOW w AS (ORDER BY captured_at, id)
+		FROM sage.query_store q
+		WHERE {db:q} AND q.queryid=$1
+			AND q.captured_at BETWEEN COALESCE((SELECT at FROM anchor), $2) AND $3
+		WINDOW w AS (ORDER BY q.captured_at, q.id)
 	)
 	SELECT COALESCE(sum(d_calls), 0)::bigint, COALESCE(sum(d_time), 0)::float8,
 		COALESCE(bool_or(epoch_break), false)
@@ -63,7 +64,7 @@ func bucketWidth(window time.Duration) time.Duration {
 func (s *PostgresObservationSource) queryMeasurement(
 	ctx context.Context, id int64, from, to time.Time,
 ) (Measurement, error) {
-	rows, err := s.queryer.Query(ctx, queryIntervalsSQL, id, from, to,
+	rows, err := s.historyStore().Query(ctx, queryIntervalsSQL, id, from, to,
 		querystore.AnchorLookback, bucketWidth(to.Sub(from)).Seconds())
 	if err != nil {
 		return Measurement{}, err

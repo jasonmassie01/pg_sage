@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // queryAggs sums per-day call deltas over the lookback's daily samples.
@@ -94,7 +96,7 @@ func decodeQueryCalls(ctx context.Context, pool *pgxpool.Pool, ids []int64,
 	for _, id := range ids {
 		into[id] = nil
 	}
-	rows, err := pool.Query(ctx, queryCallsSQL, ids)
+	rows, err := histstore.Resolve(pool).Query(ctx, queryCallsSQL, ids)
 	if err != nil {
 		return err
 	}
@@ -163,7 +165,7 @@ func decodeSequenceUse(ctx context.Context, pool *pgxpool.Pool, ids []int64,
 	for _, id := range ids {
 		into[id] = nil
 	}
-	rows, err := pool.Query(ctx, sequenceUseSQL, ids)
+	rows, err := histstore.Resolve(pool).Query(ctx, sequenceUseSQL, ids)
 	if err != nil {
 		return err
 	}

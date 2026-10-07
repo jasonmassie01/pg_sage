@@ -52,7 +52,7 @@ WITH s AS (
            lag(q.plan_hash) OVER w AS prev_hash,
            q.stats_epoch IS NOT DISTINCT FROM lag(q.stats_epoch) OVER w AS same_epoch
     FROM sage.query_store q
-    WHERE q.captured_at >= pg_catalog.now()
+    WHERE {db:q} AND q.captured_at >= pg_catalog.now()
               - pg_catalog.make_interval(secs => $2)
       AND q.plan_hash IS NOT NULL
       AND ($3::int8 = 0 OR q.queryid = $3::int8)
@@ -112,5 +112,6 @@ func planRegressionsSpec() Spec {
 	s := spec(PlanRegressions, FamilyPlans, ArgsWindow,
 		Variant{MinVersion: 140000, SQL: planRegressionsSQL})
 	s.QueryScoped = true
+	s.History = true
 	return s
 }

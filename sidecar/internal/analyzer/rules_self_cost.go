@@ -35,7 +35,7 @@ func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 		return nil
 	}
 	cost := a.selfCost.Observe(reading, a.collectorInterval())
-	return append(a.checkSelfCostBudget(cost), a.checkSelfBudget(cost)...)
+	return append(a.checkSelfCostBudget(cost), a.checkSelfBudget(ctx, cost)...)
 }
 
 // checkSelfCostBudget is analyzer.self_cost_budget_ms against the cost.
