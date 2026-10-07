@@ -15,16 +15,21 @@ import (
 	"github.com/pg-sage/sidecar/internal/facts"
 )
 
-// DefaultStatementTimeout bounds each first-look statement unless the
-// session already has a lower statement_timeout, which is kept.
+// DefaultStatementTimeout is the first look's own budget for each
+// statement. A lower statement_timeout the operator set (on the role, the
+// database, the server or in the connection options) is kept; one pg_sage
+// set on its own session is not.
 const DefaultStatementTimeout = 5 * time.Second
 
 // Options configure one first look.
 type Options struct {
 	Database, Provider string
 	StatementTimeout   time.Duration
-	Thresholds         Thresholds
-	Now                func() time.Time
+	// TimeoutSetBy names the operator setting StatementTimeout comes from,
+	// for degraded notes; empty means the first look's own budget.
+	TimeoutSetBy string
+	Thresholds   Thresholds
+	Now          func() time.Time
 }
 
 func (o Options) withDefaults() Options {
@@ -47,6 +52,7 @@ type pass struct {
 	opts    Options
 	tx      pgx.Tx
 	timeout int
+	setBy   string // who set timeout; empty is the first look's own budget
 	report  *Report
 	window  StatsWindow
 }
@@ -65,10 +71,10 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (Report, error) 
 	r := &Report{Database: opts.Database, Provider: opts.Provider, StartedAt: opts.Now()}
 	p := &pass{pool: pool, opts: opts, report: r}
 	defer p.close()
-	if err := p.open(ctx); err != nil {
+	if err := p.openOrDegrade(ctx); err != nil {
 		return Report{}, err
 	}
-	r.StatementTimeoutMS = p.timeout
+	r.StatementTimeoutMS = p.limitMS()
 	p.header(ctx)
 	for _, st := range p.steps() {
 		if err := p.run(ctx, st); err != nil {
@@ -107,24 +113,31 @@ func (p *pass) steps() []step {
 	}
 }
 
-// open begins the read-only transaction and applies the statement timeout.
+// open begins the read-only transaction and applies the statement timeout:
+// the budget in opts, unless the operator set a lower one on the session.
 func (p *pass) open(ctx context.Context) error {
+	// Nothing bounds this transaction's first statements on the server yet, and a
+	// catalog-cache rebuild can wait on a lock held by DDL: bound them here.
+	ctx, cancel := context.WithTimeout(ctx, p.stepBudget())
+	defer cancel()
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return fmt.Errorf("first look: begin read-only transaction: %w", err)
 	}
 	p.tx = tx
-	var raw string
-	if err := tx.QueryRow(ctx, "SHOW statement_timeout").Scan(&raw); err != nil {
+	var setting int
+	var source string
+	if err := tx.QueryRow(ctx, `SELECT setting::int, source FROM pg_catalog.pg_settings
+		WHERE name = 'statement_timeout'`).Scan(&setting, &source); err != nil {
 		return fmt.Errorf("first look: read statement_timeout: %w", err)
 	}
 	want := int(p.opts.StatementTimeout / time.Millisecond)
-	if session := parseTimeoutMS(raw); session > 0 && session < want {
-		p.timeout = session
+	if limit, by := operatorLimit(setting, source); limit > 0 && limit < want {
+		p.timeout, p.setBy = limit, by
 		return nil
 	}
-	p.timeout = want
+	p.timeout, p.setBy = want, p.opts.TimeoutSetBy
 	if _, err := tx.Exec(ctx, "SELECT pg_catalog.set_config('statement_timeout', $1, true)",
 		strconv.Itoa(want)); err != nil {
 		return fmt.Errorf("first look: set statement_timeout: %w", err)
@@ -147,7 +160,9 @@ func (p *pass) run(ctx context.Context, st step) error {
 			return p.fail(ctx, st.rules, err)
 		}
 	}
-	outcomes, err := st.fn(ctx, p.tx)
+	sctx, cancel := context.WithTimeout(ctx, p.stepBudget())
+	outcomes, err := st.fn(sctx, p.tx)
+	cancel()
 	if err != nil {
 		p.close()
 		return p.fail(ctx, st.rules, err)
@@ -174,25 +189,68 @@ func (p *pass) fail(ctx context.Context, rules []string, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("first look: %w", ctx.Err())
 	}
+	note := degradeReason(err, p.limitMS(), p.setBy)
 	for _, rule := range rules {
-		p.degrade(rule, err)
+		p.report.Checks = append(p.report.Checks, Check{Rule: rule, Status: CheckDegraded,
+			Note: note})
+	}
+	if retryableError(err) {
+		p.report.Retryable = append(p.report.Retryable, rules...)
 	}
 	return nil
 }
 
-func (p *pass) degrade(rule string, err error) {
-	p.report.Checks = append(p.report.Checks, Check{Rule: rule, Status: CheckDegraded,
-		Note: degradeReason(err, p.timeout)})
+// openOrDegrade opens the pass's transaction. A failure other than the end
+// of ctx is not fatal: each step tries to open again and is degraded with
+// the reason if it still cannot.
+func (p *pass) openOrDegrade(ctx context.Context) error {
+	if err := p.open(ctx); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		p.close()
+	}
+	return nil
 }
 
-// degradeReason states why a check could not run, with the fix when known.
-func degradeReason(err error, timeoutMS int) string {
+// limitMS is the statement timeout the pass runs under, or the one it
+// would have set when the transaction could not be opened.
+func (p *pass) limitMS() int {
+	if p.timeout > 0 {
+		return p.timeout
+	}
+	return int(p.opts.StatementTimeout / time.Millisecond)
+}
+
+// stepGrace is how long past twice the statement timeout pg_sage waits for
+// a first-look step before cancelling it from the client side.
+const stepGrace = time.Second
+
+// stepBudget bounds one step from the client side: the server's
+// statement_timeout normally ends a slow step first, but a wait outside a
+// statement's timeout (a lock taken while opening the transaction) must
+// not hang the first look.
+func (p *pass) stepBudget() time.Duration {
+	return 2*time.Duration(p.limitMS())*time.Millisecond + stepGrace
+}
+
+// degradeReason states why a check could not run, with the fix when known;
+// a timeout names the operator setting it came from (setBy), if any.
+func degradeReason(err error, timeoutMS int, setBy string) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("did not finish within twice its %d ms statement timeout plus "+
+			"a grace period (waiting on a catalog lock or a busy server); pg_sage "+
+			"cancelled it", timeoutMS)
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "57014":
-			return fmt.Sprintf("statement timeout (%d ms) reached: %s", timeoutMS,
-				pgErr.Message)
+			limit := fmt.Sprintf("%d ms", timeoutMS)
+			if setBy != "" {
+				limit += ", " + setBy
+			}
+			return fmt.Sprintf("statement timeout (%s) reached: %s", limit, pgErr.Message)
 		case "42501":
 			return "permission denied: " + pgErr.Message + "; GRANT pg_monitor to the " +
 				"pg_sage role"
@@ -204,6 +262,11 @@ func degradeReason(err error, timeoutMS int) string {
 // header reads the relation count and the statistics window; a failure
 // leaves them unknown and is not a check of its own.
 func (p *pass) header(ctx context.Context) {
+	if p.tx == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, p.stepBudget())
+	defer cancel()
 	if err := p.tx.QueryRow(ctx, relationsSQL).Scan(&p.report.Relations); err != nil {
 		p.close()
 		return
@@ -226,28 +289,28 @@ func (p *pass) add(rule string, items []Item) outcome {
 	return o
 }
 
-// parseTimeoutMS reads a SHOW statement_timeout value ("0", "250ms", "5s",
-// "1min") in milliseconds; 0 means none or unparsable.
-func parseTimeoutMS(raw string) int {
-	raw = strings.TrimSpace(raw)
-	units := []struct {
-		suffix string
-		ms     int
-	}{{"ms", 1}, {"min", 60000}, {"s", 1000}, {"h", 3600000}, {"d", 86400000}}
-	for _, u := range units {
-		if strings.HasSuffix(raw, u.suffix) {
-			n, err := strconv.Atoi(strings.TrimSuffix(raw, u.suffix))
-			if err != nil {
-				return 0
-			}
-			return n * u.ms
-		}
+// operatorLimit is the session's statement_timeout (pg_settings setting and
+// source) when an operator set it, and where; 0 when none is set or when
+// pg_sage set it on its own session (source "session"): the first look's
+// budget replaces those. An unknown source counts as the operator's.
+func operatorLimit(settingMS int, source string) (int, string) {
+	if settingMS <= 0 || source == "session" || source == "default" {
+		return 0, ""
 	}
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0
+	where := map[string]string{
+		"user":                 "set on the role",
+		"database":             "set on the database",
+		"database user":        "set on the role in this database",
+		"configuration file":   "set in the server configuration",
+		"command line":         "set in the server configuration",
+		"environment variable": "set in the server configuration",
+		"global":               "set in the server configuration",
+		"client":               "set in the connection options",
+	}[source]
+	if where == "" {
+		where = "source: " + source
 	}
-	return n
+	return settingMS, "statement_timeout " + where
 }
 
 // fixtureProposals are the idle test schemas the fact store should hear
