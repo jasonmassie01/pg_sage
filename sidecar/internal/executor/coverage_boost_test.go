@@ -1617,7 +1617,7 @@ func TestCoverage_VerifyGrants_SuperuserHasAll(t *testing.T) {
 		logs = append(logs, formatted)
 	}
 
-	VerifyGrants(ctx, pool, "postgres", logFn)
+	VerifyGrants(ctx, pool, "postgres", "advisory", logFn)
 
 	// Postgres superuser typically has all grants.
 	// Check no WARNING was logged about missing grants.

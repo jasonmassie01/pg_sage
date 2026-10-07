@@ -1413,7 +1413,7 @@ or approves. See [Ask Sage](ask-sage.md).
 | `retention.findings_days` | `180` | Days to retain resolved findings |
 | `retention.actions_days` | `365` | Days to retain action log entries |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
-| `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size. `0` disables the check. |
+| `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. `0` disables the check. |
 
 Catalog snapshots (tables, indexes, sequences, foreign keys, partitions,
 queries, `pg_stat_io`, configuration) are stored compactly: a full row (keyframe) at
