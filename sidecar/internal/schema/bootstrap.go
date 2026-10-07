@@ -421,7 +421,8 @@ func migrationStatements() []string {
 		ddlSpecialistQueryScope,
 		ddlAsk,
 		ddlManagedChangeProposals,
-		ddlFleetLearning)
+		ddlFleetLearning,
+		ddlIndexReplace)
 }
 
 // ---------------------------------------------------------------------------

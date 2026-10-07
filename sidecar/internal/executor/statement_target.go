@@ -39,6 +39,9 @@ func statementTarget(sql, prefix string) string {
 // operatorLeaseTargets are the objects an operator's SQL changes: the
 // typed-target lease an operator action takes covers exactly these.
 func operatorLeaseTargets(sql string) []string {
+	if _, targets, ok := replaceGateView(sql); ok {
+		return targets
+	}
 	normalized := normalizeSQLText(strings.TrimSpace(sql))
 	upper := strings.ToUpper(normalized)
 	for _, prefix := range allowedPrefixes {

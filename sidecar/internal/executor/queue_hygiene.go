@@ -30,6 +30,10 @@ const tableIndexDefsSQL = `/* pg_sage */ SELECT c.relname, pg_get_indexdef(i.ind
 // coveringIndex names a valid index that already covers the CREATE INDEX
 // sql ("" when none does, or sql is not an index create).
 func (e *Executor) coveringIndex(ctx context.Context, sql string) (string, error) {
+	// A replacement is covered when its build is.
+	if create, _, ok := optimizer.SplitIndexReplaceSQL(sql); ok {
+		sql = create
+	}
 	if categorizeAction(sql) != "create_index" {
 		return "", nil
 	}

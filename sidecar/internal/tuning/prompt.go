@@ -29,8 +29,10 @@ var systemPrompt = strings.Join([]string{
 		"application, so say so in the rationale.",
 	"5. Do not repeat an index shape listed as already measured and rejected.",
 	"6. Do not propose an index an existing or in-flight index already serves, or one " +
-		"that would make such an index redundant (same leading keys with a weaker " +
-		"predicate or more keys): a replacement is not an independent create.",
+		"that would make an in-flight index redundant. An index that would make one " +
+		"existing index redundant (same leading keys with a weaker predicate or more " +
+		"keys) becomes a replacement: pg_sage builds it and drops the old one in one " +
+		"approved action, so say which index it replaces in the rationale.",
 	"7. An index costs every insert and non-HOT update; check write_cost on " +
 		"write-heavy tables. Drop only indexes that are never used or covered by " +
 		"another index, never unique or primary keys.",

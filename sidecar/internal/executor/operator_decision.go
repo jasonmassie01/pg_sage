@@ -56,10 +56,17 @@ func operatorRequest(sql string, findingID int, approvedBy *int) (
 	if approvedBy != nil {
 		evidence["approved_by"] = *approvedBy
 	}
+	targets := operatorLeaseTargets(sql)
+	if gateSQL, drop, ok := replaceGateParts(sql); ok {
+		// The gate validates the build; the drop is in the evidence and
+		// the targets (the old index and its table).
+		evidence["index_replace_drop"] = drop
+		sql = gateSQL
+	}
 	return policy.ActionRequest{
 		SQL: sql, Feature: changeClassForActionType(actionType),
 		Contract: policyContract(contract), Evidence: evidence,
-		TargetObjs: operatorLeaseTargets(sql), OperatorApproved: true,
+		TargetObjs: targets, OperatorApproved: true,
 	}, contract
 }
 

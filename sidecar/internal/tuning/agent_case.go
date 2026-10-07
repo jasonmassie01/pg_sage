@@ -105,7 +105,8 @@ func (a *Agent) operatorRejected(ctx context.Context) map[string]bool {
 func (a *Agent) calibration(ctx context.Context) Calibration {
 	t := a.settings.Tuning
 	classes := []string{verify.ClassIndexCreate, verify.ClassIndexDrop, verify.ClassGUC,
-		verify.ClassReloption, verify.ClassStatistics, verify.ClassQueryHint}
+		verify.ClassReloption, verify.ClassStatistics, verify.ClassQueryHint,
+		verify.ClassIndexReplace}
 	since := a.now().Add(-time.Duration(t.CalibrationWindowDays) * 24 * time.Hour)
 	samples, err := a.deps.Store.Outcomes(ctx, classes, since, maxOutcomesPerClass)
 	if err != nil {

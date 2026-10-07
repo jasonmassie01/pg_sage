@@ -62,6 +62,9 @@ func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionReque
 		request.Contract = policyContract(contract)
 		requireApprovalWithoutWhatIf(finding, request.Contract)
 	}
+	if gateSQL, targets, ok := replaceGateView(finding.RecommendedSQL); ok {
+		request.SQL, request.TargetObjs = gateSQL, targets
+	}
 	requireApproval(&request, finding)
 	return request
 }
@@ -141,10 +144,15 @@ func (e *Executor) checkEmergencyStop(ctx context.Context) bool {
 }
 
 func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
+	if IsIndexReplaceSQL(f.RecommendedSQL) {
+		if _, err := ParseIndexReplace(f.RecommendedSQL, f.RollbackSQL); err != nil {
+			return ActionContract{}, false
+		}
+		return replaceIndexContract(), true
+	}
 	if err := ValidateExecutorSQL(f.RecommendedSQL); err != nil {
 		return ActionContract{}, false
 	}
 	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)
 }
-

@@ -79,6 +79,8 @@ func actionTypeForReadiness(action store.QueuedAction) string {
 	}
 	sql := strings.ToUpper(strings.TrimSpace(action.ProposedSQL))
 	switch {
+	case IsIndexReplaceSQL(action.ProposedSQL):
+		return ActionTypeReplaceIndex
 	case strings.HasPrefix(sql, "ANALYZE "):
 		return "analyze_table"
 	case strings.HasPrefix(sql, "CREATE INDEX CONCURRENTLY "):

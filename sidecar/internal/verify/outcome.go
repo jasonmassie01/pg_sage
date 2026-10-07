@@ -50,6 +50,9 @@ const (
 	// REINDEX (judged by index size and validity).
 	ClassStatistics = "statistics"
 	ClassReindex    = "reindex"
+	// Roadmap 2.3: a replacement (create the wider index, soft-drop the
+	// subsumed one), judged on its targets and on the old index's users.
+	ClassIndexReplace = "index_replace"
 )
 
 // Metrics a prediction can name (config metrics are named by the

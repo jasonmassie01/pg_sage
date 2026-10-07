@@ -528,9 +528,25 @@ Safeguards learned from dogfooding:
   and needs an operator when it would be the third change in the same direction within
   7 days (the history is on the approval card).
 - **No overlapping indexes.** An index candidate is refused when an existing or in-flight
-  index (queued, or an open proposal) already serves it, or when it would make one
-  redundant; one proposal per table and leading key per cycle; HypoPG measures it with the
-  in-flight indexes present.
+  index (queued, or an open proposal) already serves it, or when it would make an
+  in-flight one redundant; one proposal per table and leading key per cycle; HypoPG
+  measures it with the in-flight indexes present.
+- **Replacements.** A candidate that would make exactly one existing index redundant
+  becomes one replacement (`replace_index`, class `index_replace`): build the wider index
+  with `CREATE INDEX CONCURRENTLY`, check it is valid, then `DROP INDEX CONCURRENTLY` the
+  old one. It always needs an operator's approval (class capped at L2, and never above the
+  levels of `index_create` and `index_drop`); the card shows both statements, the undo
+  (re-create the old index, drop the new one) and both locks. pg_sage refuses to replace an
+  index that backs a constraint or enforces uniqueness, one whose OID or definition changed
+  since the proposal, or one whose foreign key the new index would not support; a table
+  owned by the application's migrations gets the two-statement migration instead. The two
+  steps are recorded in `sage.index_replace`: a failed build drops nothing, a failed drop
+  keeps both indexes and reports a partial result, and a restart resumes the drop or
+  restores the old state. The table's change lease is held across both steps.
+  Verification judges the targeted queries (no gain or a regression rolls the replacement
+  back) and the queries on the table that used the old index; after a kept verdict it
+  watches those queries for `verify.drop_window_hours` and re-creates the old index if
+  they regress (the soft drop).
 
 | Parameter | Default | Description |
 |---|---|---|

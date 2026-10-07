@@ -26,6 +26,10 @@ const (
 	PredictionSource   = "tuning_agent"
 	CategoryIndexDrop  = "tuning_index_drop"
 	CategoryStatistics = "query_create_statistics"
+
+	// CategoryIndexReplace: create a wider index and drop the one it
+	// subsumes in one approved action (roadmap 2.3).
+	CategoryIndexReplace = "tuning_index_replace"
 )
 
 // Verdict is what validation decided.
@@ -63,8 +67,9 @@ const (
 	// ReasonVerificationPending: the setting's last change is still being
 	// verified.
 	ReasonVerificationPending Reason = "verification_pending"
-	// ReasonSubsumes: the index would make an existing or in-flight index
-	// redundant; a replacement is not an independent create.
+	// ReasonSubsumes: the index would make an in-flight index, or more than
+	// one existing index, redundant, or the existing one cannot be replaced
+	// (unknown identity, uniqueness, proposed for a drop).
 	ReasonSubsumes Reason = "subsumes_index"
 )
 

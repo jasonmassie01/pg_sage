@@ -44,6 +44,28 @@
   families name the evidence that mentions it, and the result echoes the scope to its
   caller. pg_sage's own plan-regression investigations also probe only their statement now.
 
+- **pg_sage replaces a subsumed index in one approved action.** Since 2.1 the tuning agent
+  refused an index that would make an existing one redundant, because a create and a drop
+  decided separately could each pass verification while together they left the table
+  with redundant indexes. Now such a candidate becomes one replacement: `CREATE INDEX
+  CONCURRENTLY` the wider index, check that it is valid, then `DROP INDEX CONCURRENTLY` the
+  old one, holding the table's change lease across both steps. Replacements always go to
+  an operator (the new `index_replace` trust class is capped at L2 and never above the
+  levels of `index_create` and `index_drop`); the approval card shows both statements, the
+  undo (re-create the old index, drop the new one) and the locks each step takes. pg_sage
+  never replaces an index that backs a constraint or enforces uniqueness, one that changed
+  since it was proposed (OID or definition), or one whose foreign key the new index would
+  not support, and a table owned by the application's migrations gets the two-statement
+  migration instead of DDL. The steps are recorded in `sage.index_replace`, so a failed
+  build drops nothing, a failed drop keeps both indexes and is reported as a partial
+  result, and a crash between the steps resumes the drop or restores the old state on the
+  next cycle. Verification judges the targeted queries (no gain, a regression or no
+  verdict rolls the replacement back) and the queries that used the old index; after a
+  kept verdict the old index is a soft drop, re-created if those queries regress within
+  `verify.drop_window_hours`. Operators can roll a replacement back from the Actions page.
+  An index that would make an in-flight index (queued or proposed) redundant is still
+  refused. See `docs/configuration.md#tuning-agent`.
+
 ### Fixed
 
 - **Model-concluded roots report their source.** A root the model investigator concluded
@@ -52,8 +74,8 @@
 
 ### Upgrading
 
-- **New tables:** `sage.fleet_fingerprint`, `sage.fleet_outcome_digest` and
-  `sage.fleet_leader_lease`, created at startup by an idempotent migration.
+- **New tables:** `sage.fleet_fingerprint`, `sage.fleet_outcome_digest`,
+  `sage.fleet_leader_lease` and `sage.index_replace`, created at startup by an idempotent migration.
 
 ## v2.2.1 (2026-10-07) -- First look and quickstart fixes
 

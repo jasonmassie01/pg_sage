@@ -16,7 +16,7 @@ import (
 // made the first redundant; HypoPG verified each on its own. An index
 // candidate is now judged against the existing and in-flight indexes of
 // its table: refused when one already serves it, refused when it would
-// make one redundant (a replacement is not an independent create), one
+// make an in-flight one redundant (an existing one is replaced: 2.3), one
 // proposal per shape family per cycle, and measured with the in-flight
 // ones present as hypothetical indexes.
 
@@ -52,17 +52,8 @@ func TestJudge_CandidateThatWouldMakeAnIndexRedundantIsRefused(t *testing.T) {
 		!strings.Contains(j.Detail, "orders_live_status_created") {
 		t.Fatalf("it would make the in-flight index redundant: %+v", j)
 	}
-	h = newHarness(t)
-	tc := h.indexes.contexts["public.orders"]
-	tc.Indexes = append(tc.Indexes, optimizer.IndexInfo{Name: "orders_status_idx",
-		IsValid: true, Definition: "CREATE INDEX orders_status_idx ON public.orders " +
-			"USING btree (status)"})
-	h.indexes.contexts["public.orders"] = tc
-	j = judgeOne(t, h, nil, indexProposal("CREATE INDEX CONCURRENTLY orders_s_c ON "+
-		"public.orders (status, created_at)"))
-	if j.Verdict != VerdictRejected || j.Reason != ReasonSubsumes {
-		t.Fatalf("it would make an existing index redundant: %+v", j)
-	}
+	// Making an existing index redundant is a replacement since 2.3
+	// (replace_test.go).
 }
 
 func TestJudge_OneProposalPerShapeFamilyPerCycle(t *testing.T) {
