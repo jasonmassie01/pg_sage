@@ -13,6 +13,12 @@ const DefaultRetentionQueryStoreDays = 14
 // never raise the sage_footprint finding.
 const DefaultRetentionSnapshotsMaxPct = 5
 
+// MinSnapshotCapBytes is the smallest snapshot size cap: on a small
+// database a percentage would leave too little history to forecast from.
+// The sage_footprint finding uses the same floor: below it, pg_sage's own
+// data is no finding however small the database.
+const MinSnapshotCapBytes int64 = 256 << 20
+
 const maxRetentionQueryStoreDays = 3650
 
 // validateStorage refuses query_store_days outside 0-3650 and

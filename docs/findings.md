@@ -301,8 +301,10 @@ Detects pg_sage itself taking too much of the database it guards.
 
 **What it detects:** The `sage` schema (every table with its TOAST data and indexes)
 is larger than `retention.sage_size_warning_pct` percent (default 10) of the database
-size collected this cycle. The finding names the share, the limit and the five largest
-sage tables. `0` disables the check; while the database size is unknown the open
+size collected this cycle, and at least 256 MB (the snapshot cap's minimum): on a small
+database a fresh install's own tables are a large share without being a problem. The
+finding names the share, the limit and the five largest sage tables. `0` disables the
+check; while the database size is unknown the open
 finding is kept, not resolved.
 
 **Example output:**

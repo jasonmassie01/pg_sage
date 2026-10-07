@@ -32,8 +32,10 @@ type Sequence struct {
 	Min, Max    int64
 	Increment   int64
 	Cycle       bool
+	// OwnerColumn is the column the sequence feeds (owner, identity or
+	// DEFAULT nextval; the narrowest when several), "" when none.
 	OwnerColumn string
-	OwnerType   string // format_type of the owning column, "" when none
+	OwnerType   string // format_type of OwnerColumn, "" when none
 }
 
 // TableStat is one table's size and tuple counters.
@@ -119,7 +121,7 @@ var typeLimits = map[string][2]int64{
 }
 
 // SequenceRunway reports sequences that have used a large share of their
-// range. The owning column's type caps the range: a bigint sequence that
+// range. The type of the column it feeds caps the range: a bigint sequence that
 // feeds an integer column runs out at 2^31 - 1. unreadable counts the
 // sequences the role may not read (pg_sequences.last_value is NULL).
 func SequenceRunway(seqs []Sequence, th Thresholds) ([]Item, int) {
@@ -149,7 +151,7 @@ func SequenceRunway(seqs []Sequence, th Thresholds) ([]Item, int) {
 }
 
 // sequenceUse is the share of the range used, the effective limit and
-// whether the owning column's type is what caps it.
+// whether the fed column's type is what caps it.
 func sequenceUse(s Sequence) (float64, int64, bool) {
 	lim, hasType := typeLimits[s.OwnerType]
 	last := float64(*s.LastValue)
@@ -180,7 +182,7 @@ func sequenceItem(s Sequence, sev string, used float64, limit int64, capped bool
 	detail := fmt.Sprintf("last_value %d, limit %d: %s of the range used.", *s.LastValue,
 		limit, pct(used))
 	if capped {
-		detail += fmt.Sprintf(" The owning column %s is %s, so the sequence runs out at "+
+		detail += fmt.Sprintf(" The column it feeds, %s, is %s, so the sequence runs out at "+
 			"%d even though it allows more.", s.OwnerColumn, s.OwnerType, limit)
 	} else if s.OwnerColumn != "" {
 		detail += fmt.Sprintf(" It feeds %s (%s).", s.OwnerColumn, s.OwnerType)

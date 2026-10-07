@@ -2,6 +2,7 @@ package firstlook
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -61,5 +62,11 @@ func rowsText(rows float64) string {
 	return fmt.Sprintf("~%.0f", rows)
 }
 
-// pct is a fraction as a whole percentage.
-func pct(f float64) string { return fmt.Sprintf("%.0f%%", f*100) }
+// pct formats a share as a whole percent, with one decimal between 99%
+// and 100% so that a share short of full never reads "100%".
+func pct(f float64) string {
+	if f >= 0.99 && f < 1 {
+		return fmt.Sprintf("%.1f%%", min(math.Round(f*1000)/10, 99.9))
+	}
+	return fmt.Sprintf("%.0f%%", f*100)
+}
