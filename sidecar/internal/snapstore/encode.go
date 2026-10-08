@@ -104,15 +104,12 @@ func parseDocument(category string, data []byte) (c *catalog, ok bool, err error
 
 // parseObject parses an object document as a list of one element.
 func parseObject(data []byte) (*catalog, error) {
-	if !json.Valid(data) {
-		return nil, errors.New("parse snapshot document: malformed JSON")
-	}
-	if trimmed := bytes.TrimSpace(data); len(trimmed) == 0 || trimmed[0] != '{' {
-		return nil, fmt.Errorf("%w: not an object", errNotEncodable)
-	}
 	var item map[string]json.RawMessage
-	if err := json.Unmarshal(data, &item); err != nil {
-		return nil, fmt.Errorf("%w: %w", errNotEncodable, err)
+	if err := unmarshalDocument(data, &item); err != nil {
+		return nil, err
+	}
+	if bytes.TrimSpace(data)[0] != '{' {
+		return nil, fmt.Errorf("%w: not an object", errNotEncodable)
 	}
 	return &catalog{keys: []string{""}, pos: map[string]int{"": 0},
 		items: []map[string]json.RawMessage{item}, object: true}, nil
@@ -123,15 +120,12 @@ func parseObject(data []byte) (*catalog, error) {
 // express (not an array, not objects, a missing or duplicate identity) is
 // errNotEncodable.
 func parseCatalog(data []byte, fields []string) (*catalog, error) {
-	if !json.Valid(data) {
-		return nil, errors.New("parse snapshot document: malformed JSON")
-	}
-	if trimmed := bytes.TrimSpace(data); len(trimmed) == 0 || trimmed[0] != '[' {
-		return nil, fmt.Errorf("%w: not an array", errNotEncodable)
-	}
 	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(data, &items); err != nil {
-		return nil, fmt.Errorf("%w: %w", errNotEncodable, err)
+	if err := unmarshalDocument(data, &items); err != nil {
+		return nil, err
+	}
+	if bytes.TrimSpace(data)[0] != '[' {
+		return nil, fmt.Errorf("%w: not an array", errNotEncodable)
 	}
 	c := &catalog{keys: make([]string, len(items)), pos: make(map[string]int, len(items)),
 		items: items}
@@ -149,6 +143,21 @@ func parseCatalog(data []byte, fields []string) (*catalog, error) {
 		c.keys[i], c.pos[k] = k, i
 	}
 	return c, nil
+}
+
+// unmarshalDocument decodes data into v in one pass (Unmarshal validates
+// the whole input first): malformed JSON is an error, valid JSON of
+// another shape is errNotEncodable.
+func unmarshalDocument(data []byte, v any) error {
+	err := json.Unmarshal(data, v)
+	var syntax *json.SyntaxError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &syntax):
+		return fmt.Errorf("parse snapshot document: malformed JSON: %w", err)
+	}
+	return fmt.Errorf("%w: %w", errNotEncodable, err)
 }
 
 // elementKey joins the raw JSON of item's identity fields.
