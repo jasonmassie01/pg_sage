@@ -422,7 +422,8 @@ func migrationStatements() []string {
 		ddlAsk,
 		ddlManagedChangeProposals,
 		ddlFleetLearning,
-		ddlIndexReplace)
+		ddlIndexReplace,
+		ddlChangeFeedIndexes())
 }
 
 // ---------------------------------------------------------------------------
