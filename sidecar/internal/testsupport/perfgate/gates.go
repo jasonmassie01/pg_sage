@@ -204,12 +204,22 @@ func suspects(p Phase, table string) string {
 	return "suspects: " + strings.Join(parts, " | ")
 }
 
+// meanExempt reports whether query carries a tag the mean budget exempts.
+func meanExempt(query string, b Budgets) bool {
+	for tag := range b.MeanExempt {
+		if strings.Contains(query, "/* pg_sage "+tag+" ") {
+			return true
+		}
+	}
+	return false
+}
+
 func timeOffenders(p Phase, b Budgets) []Offender {
 	var out []Offender
 	var total float64
 	for _, s := range p.Statements {
 		total += s.TotalMs
-		if s.MeanMs > b.StatementMeanMs {
+		if s.MeanMs > b.StatementMeanMs && !meanExempt(s.Query, b) {
 			out = append(out, Offender{Gate: GateStatementMean, Phase: p.Name,
 				Subject: statementSubject(s), Measured: s.MeanMs, Budget: b.StatementMeanMs,
 				Unit:   "ms mean",
