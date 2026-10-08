@@ -35,6 +35,11 @@ type Budgets struct {
 	// updated columns are not indexed and its pages keep room for them.
 	HotUpdateMinPct float64
 	HotMinUpdates   int64
+	// HotExempt names the sage tables gate F does not charge, each with
+	// why its updates cannot be HOT by design (an update that moves a row
+	// between the partial indexes it is read through changes an indexed
+	// column on purpose). It is reported with the budgets.
+	HotExempt map[string]string
 	// SidecarCPUMsPerCycle (gate G): the sidecar process's CPU time per
 	// collector cycle in the steady phase, every component running once
 	// per (15 s) cycle. 310 ms measured at small scale (2026-10-04); 600
@@ -53,7 +58,12 @@ func DefaultBudgets() Budgets {
 		EndpointMaxMs:         1000,
 		HotUpdateMinPct:       50,
 		HotMinUpdates:         5,
-		SidecarCPUMsPerCycle:  600,
+		HotExempt: map[string]string{
+			"sage.shadow_decision": "each decision is updated once, pending -> scored; " +
+				"the update sets status, score and counted, which the partial pending, " +
+				"scored and class-summary indexes the scorer and ledger read are built on",
+		},
+		SidecarCPUMsPerCycle: 600,
 	}
 }
 

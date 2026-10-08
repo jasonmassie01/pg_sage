@@ -248,7 +248,7 @@ func writeOffenders(p Phase, b Budgets) []Offender {
 func hotOffenders(p Phase, b Budgets) []Offender {
 	var out []Offender
 	for _, t := range p.Tables {
-		if t.Updates < b.HotMinUpdates {
+		if _, exempt := b.HotExempt[t.Name]; exempt || t.Updates < b.HotMinUpdates {
 			continue
 		}
 		pct := float64(t.HotUpdates) * 100 / float64(t.Updates)
