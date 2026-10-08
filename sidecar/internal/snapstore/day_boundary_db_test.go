@@ -65,11 +65,11 @@ func TestSnapshotData_FindsABaseInAnEarlierDay(t *testing.T) {
 		Scan(&baseID); err != nil {
 		t.Fatal(err)
 	}
-	base, err := parseCatalog(full, keyFields["indexes"])
+	base, err := parseCatalog(full, keyFields["indexes"], nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := parseCatalog(list(idx("a", 1), idx("b", 5)), keyFields["indexes"])
+	next, err := parseCatalog(list(idx("a", 1), idx("b", 5)), keyFields["indexes"], nil)
 	if err != nil {
 		t.Fatal(err)
 	}

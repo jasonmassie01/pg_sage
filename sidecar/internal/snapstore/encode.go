@@ -85,14 +85,21 @@ type catalog struct {
 	pos    map[string]int
 	items  []map[string]json.RawMessage
 	object bool
+	// raw is each element's text and byText its elements by text hash, so
+	// the next document's parse can reuse identical elements
+	// (parse_reuse.go).
+	raw    []json.RawMessage
+	byText map[uint64][]int
 }
 
 // parseDocument parses a category document for delta encoding: a keyed
-// list, or an object document as a list of one. ok is false for a category
-// that is always stored in full.
-func parseDocument(category string, data []byte) (c *catalog, ok bool, err error) {
+// list (reusing prev's parse of identical elements), or an object document
+// as a list of one. ok is false for a category that is always stored in
+// full.
+func parseDocument(category string, data []byte, prev *catalog) (c *catalog, ok bool,
+	err error) {
 	if fields, isList := keyFields[category]; isList {
-		c, err = parseCatalog(data, fields)
+		c, err = parseCatalog(data, fields, prev)
 		return c, true, err
 	}
 	if !objectCategories[category] {
@@ -113,36 +120,6 @@ func parseObject(data []byte) (*catalog, error) {
 	}
 	return &catalog{keys: []string{""}, pos: map[string]int{"": 0},
 		items: []map[string]json.RawMessage{item}, object: true}, nil
-}
-
-// parseCatalog parses a category document as a list of uniquely keyed
-// objects. Malformed JSON is an error; a valid document a delta cannot
-// express (not an array, not objects, a missing or duplicate identity) is
-// errNotEncodable.
-func parseCatalog(data []byte, fields []string) (*catalog, error) {
-	var items []map[string]json.RawMessage
-	if err := unmarshalDocument(data, &items); err != nil {
-		return nil, err
-	}
-	if bytes.TrimSpace(data)[0] != '[' {
-		return nil, fmt.Errorf("%w: not an array", errNotEncodable)
-	}
-	c := &catalog{keys: make([]string, len(items)), pos: make(map[string]int, len(items)),
-		items: items}
-	for i, item := range items {
-		if item == nil {
-			return nil, fmt.Errorf("%w: element %d is null", errNotEncodable, i)
-		}
-		k, err := elementKey(item, fields)
-		if err != nil {
-			return nil, err
-		}
-		if _, dup := c.pos[k]; dup {
-			return nil, fmt.Errorf("%w: duplicate identity %q", errNotEncodable, k)
-		}
-		c.keys[i], c.pos[k] = k, i
-	}
-	return c, nil
 }
 
 // unmarshalDocument decodes data into v in one pass (Unmarshal validates

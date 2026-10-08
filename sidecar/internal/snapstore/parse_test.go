@@ -15,7 +15,7 @@ func TestParseCatalogErrorKinds(t *testing.T) {
 	malformed := []string{`[{"schemaname": "a", "relname": "b"}`, `[{]`, `[1,]`,
 		`[{"schemaname": "a", "relname": "b"}] trailing`, ``, `   `}
 	for _, doc := range malformed {
-		_, err := parseCatalog([]byte(doc), fields)
+		_, err := parseCatalog([]byte(doc), fields, nil)
 		if err == nil || errors.Is(err, errNotEncodable) {
 			t.Fatalf("malformed %q = %v, want a malformed-JSON error", doc, err)
 		}
@@ -24,12 +24,12 @@ func TestParseCatalogErrorKinds(t *testing.T) {
 		`[{"schemaname": "a"}]`,
 		`[{"schemaname": "a", "relname": "b"}, {"schemaname": "a", "relname": "b"}]`}
 	for _, doc := range notEncodable {
-		_, err := parseCatalog([]byte(doc), fields)
+		_, err := parseCatalog([]byte(doc), fields, nil)
 		if !errors.Is(err, errNotEncodable) {
 			t.Fatalf("valid but not encodable %q = %v, want errNotEncodable", doc, err)
 		}
 	}
-	c, err := parseCatalog([]byte(` [{"schemaname": "a", "relname": "b", "n": 1}] `), fields)
+	c, err := parseCatalog([]byte(` [{"schemaname": "a", "relname": "b", "n": 1}] `), fields, nil)
 	if err != nil || len(c.items) != 1 || string(c.items[0]["n"]) != "1" {
 		t.Fatalf("valid document = %+v %v", c, err)
 	}
@@ -50,7 +50,7 @@ func BenchmarkParseCatalogTables(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := parseCatalog(doc, keyFields["tables"]); err != nil {
+		if _, err := parseCatalog(doc, keyFields["tables"], nil); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -205,7 +205,7 @@ func (w *Writer) plan(category string, data []byte, at time.Time) (rowPlan, erro
 	case at.IsZero():
 		return rowPlan{}, fmt.Errorf("%w: %s: zero collection time", ErrInvalidRow, category)
 	}
-	list, ok, err := parseDocument(category, data)
+	list, ok, err := parseDocument(category, data, w.latestList(category, at))
 	if !ok {
 		return rowPlan{payload: data}, nil
 	}
@@ -222,6 +222,22 @@ func (w *Writer) plan(category string, data []byte, at time.Time) (rowPlan, erro
 		return p, nil
 	}
 	return full, nil
+}
+
+// latestList is the category's most recent parsed document (the latest
+// checkpoint, else the keyframe), whose identical elements the next parse
+// reuses; nil when there is none.
+func (w *Writer) latestList(category string, at time.Time) *catalog {
+	b := w.bases[category]
+	switch {
+	case b == nil:
+		return nil
+	case b.checkpoint != nil && b.checkpoint.list != nil:
+		return b.checkpoint.list
+	case b.full != nil:
+		return b.full.list
+	}
+	return nil
 }
 
 // usable reports whether kf can serve as a base for a document at at: a
