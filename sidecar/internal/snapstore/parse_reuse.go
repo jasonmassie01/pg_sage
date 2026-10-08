@@ -31,8 +31,9 @@ func parseCatalog(data []byte, fields []string, prev *catalog) (*catalog, error)
 	for i, text := range raw {
 		h := maphash.Bytes(textSeed, text)
 		c.byText[h] = append(c.byText[h], i)
-		item, k, err := prev.reuse(h, text)
+		item, k := prev.reuse(h, text)
 		if item == nil {
+			var err error
 			if item, k, err = parseElement(i, text, fields); err != nil {
 				return nil, err
 			}
@@ -47,16 +48,16 @@ func parseCatalog(data []byte, fields []string, prev *catalog) (*catalog, error)
 
 // reuse returns c's parse and identity of an element with exactly text (h
 // its hash), nil when c has none.
-func (c *catalog) reuse(h uint64, text []byte) (map[string]json.RawMessage, string, error) {
+func (c *catalog) reuse(h uint64, text []byte) (map[string]json.RawMessage, string) {
 	if c == nil || c.byText == nil {
-		return nil, "", nil
+		return nil, ""
 	}
 	for _, j := range c.byText[h] {
 		if bytes.Equal(c.raw[j], text) {
-			return c.items[j], c.keys[j], nil
+			return c.items[j], c.keys[j]
 		}
 	}
-	return nil, "", nil
+	return nil, ""
 }
 
 // parseElement decodes element i of a catalog document and its identity.
