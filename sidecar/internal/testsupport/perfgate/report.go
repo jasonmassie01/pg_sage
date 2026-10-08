@@ -52,6 +52,24 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 		"(steady phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
 	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase) |\n", GateSidecarCPU, b.SidecarCPUMsPerCycle)
 	writeHotExempt(sb, b)
+	writeMeanExempt(sb, b)
+}
+
+// writeMeanExempt lists the statements gate B's mean does not charge.
+func writeMeanExempt(sb *strings.Builder, b Budgets) {
+	if len(b.MeanExempt) == 0 {
+		return
+	}
+	tags := make([]string, 0, len(b.MeanExempt))
+	for t := range b.MeanExempt {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	fmt.Fprintf(sb, "\nNot charged by %s (still by cycle DB time and %s):\n\n",
+		GateStatementMean, GateCatalogMax)
+	for _, t := range tags {
+		fmt.Fprintf(sb, "- %s: %s\n", t, b.MeanExempt[t])
+	}
 }
 
 // writeHotExempt lists the tables gate F does not charge, and why.

@@ -14,6 +14,11 @@ type Budgets struct {
 	// StatementMeanMs (gate B): the mean execution time of every pg_sage
 	// statement in the steady phase.
 	StatementMeanMs float64
+	// MeanExempt names, by the tag in their comment, the statements the
+	// mean budget does not charge, each with why no index, hint or setting
+	// can make it faster. They still count toward CycleDBTimeMs and gate D.
+	// It is reported with the budgets.
+	MeanExempt map[string]string
 	// CycleDBTimeMs (gate B): pg_sage's total execution time per collector
 	// cycle with every component running once per cycle. 3 s is 5% of one
 	// core at the default 60 s collector interval.
@@ -50,8 +55,13 @@ type Budgets struct {
 // DefaultBudgets are the shipped limits.
 func DefaultBudgets() Budgets {
 	return Budgets{
-		SeqScanMinRows:        5000,
-		StatementMeanMs:       100,
+		SeqScanMinRows:  5000,
+		StatementMeanMs: 100,
+		MeanExempt: map[string]string{
+			"sre:cluster_database_size": "pg_database_size stats every file of every " +
+				"database: its time follows the cluster's file count and the disk " +
+				"(124 ms on CI, 37 ms locally on the same fixture), not the SQL",
+		},
 		CycleDBTimeMs:         3000,
 		RowsWrittenPerCycle:   250,
 		CatalogStatementMaxMs: 500,
