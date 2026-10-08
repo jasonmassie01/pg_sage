@@ -126,6 +126,11 @@ func (p *pass) open(ctx context.Context) error {
 		return fmt.Errorf("first look: begin read-only transaction: %w", err)
 	}
 	p.tx = tx
+	// The catalog reads are planned at costs JIT compiles for: hundreds of
+	// ms of compilation for queries that run in tens.
+	if _, err := tx.Exec(ctx, "SELECT pg_catalog.set_config('jit', 'off', true)"); err != nil {
+		return fmt.Errorf("first look: turn JIT off: %w", err)
+	}
 	var setting int
 	var source string
 	if err := tx.QueryRow(ctx, `SELECT setting::int, source FROM pg_catalog.pg_settings
