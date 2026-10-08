@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.3.1 (2026-10-07) -- pg_sage stays light on large databases
+
+The nightly performance gate (5,000 tables, 15,000 indexes, 5,000 sequences, 150,000 rows of
+history per table) had failed every night since it started. Every offender it reported is
+addressed: locally the large gate now passes with none, and the sidecar's CPU per collector
+cycle fell from about 480 ms to 290-440 ms.
+
+### Fixed
+
+- **Less sidecar CPU per cycle.** Encoding a snapshot delta no longer runs a regular expression
+  and arbitrary-precision arithmetic on every field of every element (about 4x faster, 7x fewer
+  allocations; the stored bytes are identical), the analyzer remembers parsed index definitions
+  instead of re-parsing every index each cycle, and snapshot documents are parsed once instead
+  of twice.
+- **The tuner reads only the catalog it needs.** It used to read every table and index on
+  every cycle; it now reads the tables named in the plans it checks.
+- **No more full scans of `sage.findings`.** The SRE change feed's read of migration-detector
+  findings scanned the whole table on every poll; a small partial index
+  (`idx_findings_migration_feed`, created at startup) now serves it.
+- **The first look runs with JIT off.** Its catalog reads are planned at costs that made
+  PostgreSQL JIT-compile them: up to a second of compilation on a cold start for a query that
+  runs in tens of milliseconds.
+- **Withheld decisions are purged incrementally.** Decisions kept past the decisions window
+  (they back an action, a dry run or an open deadline) were re-read by every purge pass; a pass
+  now reads only rows created since the last one, with a full sweep at startup and once a day,
+  so such a row is removed at most a day later than before.
+- **Cheaper self-configuration and schema checks.** Self-configuration times a sample of 250
+  sequence reads instead of reading every sequence, and the schema guard's structural scan
+  aggregates per table instead of windowing every column.
+
+### Performance gate
+
+- `sage.shadow_decision` is exempt from the HOT-update gate, with the reason in the report: its
+  only update moves a decision from pending to scored, which changes the columns its partial
+  indexes are built on, once per row.
+- CI runs the gate on a clean PostgreSQL server of its own, so the size of every database the
+  earlier test suites left behind is no longer charged to pg_sage.
+
 ## v2.3.0 (2026-10-07) -- Fleet learning, index replacement, history outside the database
 
 ### What's new
