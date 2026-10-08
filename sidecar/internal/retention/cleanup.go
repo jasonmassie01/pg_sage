@@ -58,6 +58,10 @@ type Cleaner struct {
 	notes *capNotes
 	// storeMode: the history store's cleaner (history_store.go).
 	storeMode bool
+	// sweeps is each swept rule's progress (sweep.go), shared with the
+	// control-database copy; now overrides the clock (tests).
+	sweeps *sweepBook
+	now    func() time.Time
 }
 
 // New creates a new retention Cleaner.
@@ -68,7 +72,7 @@ func New(
 ) *Cleaner {
 	return &Cleaner{pool: pool, cfg: cfg, logFn: logFn, pause: defaultPause,
 		budget: defaultRunBudget, trimBudget: defaultTrimBudget, conv: &conversions{},
-		notes: &capNotes{}}
+		notes: &capNotes{}, sweeps: &sweepBook{}}
 }
 
 // WithControlPool prunes the control-database tables (controlTables) in
