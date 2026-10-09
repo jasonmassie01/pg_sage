@@ -2,7 +2,6 @@ package srebench
 
 import (
 	"context"
-	"slices"
 	"testing"
 )
 
@@ -23,13 +22,16 @@ func TestWALTableIsLeftToTheScenarios(t *testing.T) {
 	if err := writeWAL(1)(ctx, e); err != nil {
 		t.Fatalf("write WAL: %v", err)
 	}
-	var options []string
-	if err := e.Pool.QueryRow(ctx, `SELECT COALESCE(reloptions, '{}') FROM pg_catalog.pg_class
-		WHERE oid = 'bench_wal'::regclass`).Scan(&options); err != nil {
+	var enabled bool
+	err := e.Pool.QueryRow(ctx, `SELECT COALESCE((SELECT option_value::bool
+		FROM pg_catalog.pg_options_to_table(c.reloptions)
+		WHERE option_name = 'autovacuum_enabled'), true)
+		FROM pg_catalog.pg_class c WHERE c.oid = 'bench_wal'::regclass`).Scan(&enabled)
+	if err != nil {
 		t.Fatalf("read bench_wal options: %v", err)
 	}
-	if !slices.Contains(options, "autovacuum_enabled=false") {
-		t.Fatalf("bench_wal options %v, want autovacuum_enabled=false: autovacuum would "+
-			"write WAL behind the scenario's surge", options)
+	if enabled {
+		t.Fatal("autovacuum is enabled on bench_wal: it would write WAL behind the " +
+			"scenario's surge")
 	}
 }
