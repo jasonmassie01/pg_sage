@@ -19,12 +19,12 @@ func TestCalibrationFactorsAreClamped(t *testing.T) {
 		cpu, db         float64
 		wantCPU, wantDB float64
 	}{
-		{ReferenceCPUMs, ReferenceDBMs, 1, 1},             // the reference runner
-		{ReferenceCPUMs / 2, ReferenceDBMs / 3, 1, 1},     // faster: never tighter
+		{ReferenceCPUMs, ReferenceDBMs, 1, 1},                 // the reference runner
+		{ReferenceCPUMs / 2, ReferenceDBMs / 3, 1, 1},         // faster: never tighter
 		{ReferenceCPUMs * 1.2, ReferenceDBMs * 1.1, 1.2, 1.1}, // a slow night
 		{ReferenceCPUMs * 3, ReferenceDBMs * 9, MaxCalibrationFactor, MaxCalibrationFactor},
-		{0, -1, 1, 1},                                     // unknown: no scaling
-		{math.NaN(), math.Inf(1), 1, 1},                   // nonsense: no scaling
+		{0, -1, 1, 1},                   // unknown: no scaling
+		{math.NaN(), math.Inf(1), 1, 1}, // nonsense: no scaling
 	}
 	for _, c := range cases {
 		got := NewCalibration(c.cpu, c.db)
