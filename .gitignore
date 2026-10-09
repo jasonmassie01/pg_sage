@@ -99,3 +99,6 @@ test_briefing.txt
 # Signed bench reports CI places for the image (roadmap 1.1)
 sidecar/release-bench/*
 !sidecar/release-bench/README.md
+
+# Performance gate reports, profiles and test binaries (PG_SAGE_PERF_REPORT)
+/perfgate/
