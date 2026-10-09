@@ -55,37 +55,42 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	writeMeanExempt(sb, b)
 }
 
-// writeMeanExempt lists the statements gate B's mean does not charge.
+// writeMeanExempt lists the statements gate B's mean judges against their
+// own ceiling, and why.
 func writeMeanExempt(sb *strings.Builder, b Budgets) {
 	if len(b.MeanExempt) == 0 {
 		return
 	}
-	tags := make([]string, 0, len(b.MeanExempt))
-	for t := range b.MeanExempt {
-		tags = append(tags, t)
-	}
-	sort.Strings(tags)
-	fmt.Fprintf(sb, "\nNot charged by %s (still by cycle DB time and %s):\n\n",
-		GateStatementMean, GateCatalogMax)
-	for _, t := range tags {
-		fmt.Fprintf(sb, "- %s: %s\n", t, b.MeanExempt[t])
+	fmt.Fprintf(sb, "\nJudged by %s against their own ceiling, by tag (still charged by "+
+		"cycle DB time and %s):\n\n", GateStatementMean, GateCatalogMax)
+	for _, tag := range sortedKeys(b.MeanExempt) {
+		ex := b.MeanExempt[tag]
+		fmt.Fprintf(sb, "- %s (ceiling %.0f ms mean): %s\n", tag, ex.CeilingMs, ex.Reason)
 	}
 }
 
-// writeHotExempt lists the tables gate F does not charge, and why.
+// writeHotExempt lists the update statements gate F does not charge, and
+// why.
 func writeHotExempt(sb *strings.Builder, b Budgets) {
 	if len(b.HotExempt) == 0 {
 		return
 	}
-	tables := make([]string, 0, len(b.HotExempt))
-	for t := range b.HotExempt {
-		tables = append(tables, t)
+	fmt.Fprintf(sb, "\nNot charged by %s (every other update of the table is):\n\n",
+		GateHotUpdates)
+	for _, table := range sortedKeys(b.HotExempt) {
+		ex := b.HotExempt[table]
+		fmt.Fprintf(sb, "- %s, updates by statements tagged %s: %s\n", table, ex.Tag,
+			ex.Reason)
 	}
-	sort.Strings(tables)
-	fmt.Fprintf(sb, "\nNot charged by %s:\n\n", GateHotUpdates)
-	for _, t := range tables {
-		fmt.Fprintf(sb, "- %s: %s\n", t, b.HotExempt[t])
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
+	return keys
 }
 
 func writeOffenderTable(sb *strings.Builder, offenders []Offender) {

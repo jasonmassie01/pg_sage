@@ -204,27 +204,23 @@ func suspects(p Phase, table string) string {
 	return "suspects: " + strings.Join(parts, " | ")
 }
 
-// meanExempt reports whether query carries a tag the mean budget exempts.
-func meanExempt(query string, b Budgets) bool {
-	for tag := range b.MeanExempt {
-		if strings.Contains(query, "/* pg_sage "+tag+" ") {
-			return true
-		}
-	}
-	return false
-}
-
 func timeOffenders(p Phase, b Budgets) []Offender {
 	var out []Offender
 	var total float64
 	for _, s := range p.Statements {
 		total += s.TotalMs
-		if s.MeanMs > b.StatementMeanMs && !meanExempt(s.Query, b) {
-			out = append(out, Offender{Gate: GateStatementMean, Phase: p.Name,
-				Subject: statementSubject(s), Measured: s.MeanMs, Budget: b.StatementMeanMs,
-				Unit:   "ms mean",
-				Detail: fmt.Sprintf("%d calls, %.0f ms total, max %.0f ms", s.Calls, s.TotalMs, s.MaxMs)})
+		budget, tag := meanBudget(s.Query, b)
+		if s.MeanMs <= budget {
+			continue
 		}
+		detail := fmt.Sprintf("%d calls, %.0f ms total, max %.0f ms", s.Calls, s.TotalMs,
+			s.MaxMs)
+		if tag != "" {
+			detail += fmt.Sprintf("; over the %.0f ms ceiling of exempt tag %s", budget, tag)
+		}
+		out = append(out, Offender{Gate: GateStatementMean, Phase: p.Name,
+			Subject: statementSubject(s), Measured: s.MeanMs, Budget: budget,
+			Unit: "ms mean", Detail: detail})
 	}
 	perCycle := total / float64(p.Cycles)
 	if perCycle > b.CycleDBTimeMs {
@@ -254,20 +250,22 @@ func writeOffenders(p Phase, b Budgets) []Offender {
 // phase must write at least HotUpdateMinPct percent of its updates as
 // heap-only tuples. A non-HOT update writes a new entry in every index and
 // leaves dead index entries for vacuum; an updated column that is indexed
-// (or a full page) causes it.
+// (or a full page) causes it. An exempt table's updates by its exempt
+// statement are not charged (chargedUpdates).
 func hotOffenders(p Phase, b Budgets) []Offender {
 	var out []Offender
 	for _, t := range p.Tables {
-		if _, exempt := b.HotExempt[t.Name]; exempt || t.Updates < b.HotMinUpdates {
+		updates, hot, note := chargedUpdates(p, t, b)
+		if updates < b.HotMinUpdates {
 			continue
 		}
-		pct := float64(t.HotUpdates) * 100 / float64(t.Updates)
+		pct := float64(hot) * 100 / float64(updates)
 		if pct >= b.HotUpdateMinPct {
 			continue
 		}
 		out = append(out, Offender{Gate: GateHotUpdates, Phase: p.Name, Subject: t.Name,
 			Measured: pct, Budget: b.HotUpdateMinPct, Unit: "% HOT",
-			Detail: fmt.Sprintf("%d of %d updates HOT", t.HotUpdates, t.Updates)})
+			Detail: fmt.Sprintf("%d of %d updates HOT%s", hot, updates, note)})
 	}
 	return out
 }
