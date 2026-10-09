@@ -151,7 +151,7 @@ func TestRecurringUpdatesAreHeapOnly(t *testing.T) {
 	if upd, hot := counters(); upd != 4 || hot != 4 {
 		t.Fatalf("recurring paths: %d updates, %d HOT; want 4 and 4", upd, hot)
 	}
-	if _, err := tx.Exec(ctx, writeScoreSQL, d.ID, "correct", "operator", true, "r",
+	if _, err := tx.Exec(ctx, writeScoreSQL, d.ID, "correct", "external", true, "r",
 		map[string]any{}, int64(0), int64(0)); err != nil {
 		t.Fatalf("score write: %v", err)
 	}
