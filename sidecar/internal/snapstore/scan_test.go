@@ -76,7 +76,7 @@ func TestSplitArrayMatchesEncodingJSON(t *testing.T) {
 func TestScanObjectMatchesEncodingJSON(t *testing.T) {
 	for _, doc := range scanCases {
 		for _, el := range stdElements(t, []byte(doc)) {
-			got, ok := scanObject(el)
+			got, ok := scanObject(el, 0)
 			if !ok {
 				t.Fatalf("scan %s: not scanned", el)
 			}
@@ -90,9 +90,9 @@ func TestScanObjectMatchesEncodingJSON(t *testing.T) {
 // Keys with escapes are left to encoding/json (it unescapes them), and so
 // is anything that is not an object.
 func TestScanObjectDefersWhatItDoesNotHandle(t *testing.T) {
-	for _, text := range []string{`{"a\"b":1}`, `{"a":1}`, `1`, `null`, `[1]`,
+	for _, text := range []string{`{"a\"b":1}`, `{"\` + `u0061":1}`, `1`, `null`, `[1]`,
 		`"x"`, `true`} {
-		if _, ok := scanObject([]byte(text)); ok {
+		if _, ok := scanObject([]byte(text), 0); ok {
 			t.Fatalf("scanObject(%s) claimed it", text)
 		}
 	}
@@ -133,7 +133,7 @@ func TestScannerAgreesWithEncodingJSONOnRandomDocuments(t *testing.T) {
 			if !bytes.Equal(got[i], want[i]) {
 				t.Fatalf("split %s element %d: %s vs %s", doc, i, got[i], want[i])
 			}
-			if obj, ok := scanObject(got[i]); ok && !sameObject(obj, stdObject(t, got[i])) {
+			if obj, ok := scanObject(got[i], 4); ok && !sameObject(obj, stdObject(t, got[i])) {
 				t.Fatalf("scan %s = %v", got[i], obj)
 			}
 		}
@@ -206,15 +206,25 @@ func FuzzScanner(f *testing.F) {
 		got, err := splitArray(doc)
 		var want []json.RawMessage
 		stdErr := json.Unmarshal(doc, &want)
-		if (err == nil) != (stdErr == nil) {
-			t.Fatalf("split %q: err %v, std %v", doc, err, stdErr)
+		switch {
+		case !json.Valid(doc) && err == nil:
+			t.Fatalf("malformed %q accepted", doc)
+		case stdErr != nil && err == nil:
+			t.Fatalf("non-array %q split", doc)
+		case stdErr == nil && err != nil && bytes.TrimSpace(doc)[0] == '[':
+			// encoding/json also accepts null as an empty array; the
+			// catalog parser never did (not an array).
+			t.Fatalf("array %q rejected: %v", doc, err)
+		}
+		if err != nil {
+			return
 		}
 		for i := range got {
 			if !bytes.Equal(got[i], want[i]) {
 				t.Fatalf("split %q element %d", doc, i)
 			}
 			var m map[string]json.RawMessage
-			if obj, ok := scanObject(got[i]); ok {
+			if obj, ok := scanObject(got[i], 4); ok {
 				if json.Unmarshal(got[i], &m) != nil || !sameObject(obj, m) {
 					t.Fatalf("scan %q disagrees", got[i])
 				}
