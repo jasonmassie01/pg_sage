@@ -33,7 +33,7 @@ func list(items ...string) []byte { return []byte("[" + strings.Join(items, ",")
 
 func mustCatalog(t *testing.T, data []byte) *catalog {
 	t.Helper()
-	c, err := parseCatalog(data, indexFields)
+	c, err := parseCatalog(data, indexFields, nil)
 	if err != nil {
 		t.Fatalf("parseCatalog(%s): %v", data, err)
 	}
@@ -109,8 +109,8 @@ func tablesDoc(xidAges, ins []int) []byte {
 func mustTablesDelta(t *testing.T, base, cur []byte) deltaDoc {
 	t.Helper()
 	fields := []string{"schemaname", "relname"}
-	b, err1 := parseCatalog(base, fields)
-	c, err2 := parseCatalog(cur, fields)
+	b, err1 := parseCatalog(base, fields, nil)
+	c, err2 := parseCatalog(cur, fields, nil)
 	if err1 != nil || err2 != nil {
 		t.Fatalf("parse: %v / %v", err1, err2)
 	}
@@ -261,11 +261,11 @@ func TestParseCatalog_RejectsWhatADeltaCannotExpress(t *testing.T) {
 		"missing field": `[{"schemaname":"app"}]`,
 	}
 	for name, doc := range cases {
-		if _, err := parseCatalog([]byte(doc), indexFields); !errors.Is(err, errNotEncodable) {
+		if _, err := parseCatalog([]byte(doc), indexFields, nil); !errors.Is(err, errNotEncodable) {
 			t.Errorf("%s: err = %v, want errNotEncodable", name, err)
 		}
 	}
-	if _, err := parseCatalog([]byte(`[{"schemaname":`), indexFields); err == nil ||
+	if _, err := parseCatalog([]byte(`[{"schemaname":`), indexFields, nil); err == nil ||
 		errors.Is(err, errNotEncodable) {
 		t.Errorf("malformed JSON: err = %v, want a parse error", err)
 	}
@@ -277,7 +277,7 @@ func TestParseCatalog_RejectsWhatADeltaCannotExpress(t *testing.T) {
 func TestParseCatalog_IdentityIsRawJSON(t *testing.T) {
 	c, err := parseCatalog([]byte(`[{"queryid":9007199254740993},`+
 		`{"queryid":9007199254740992},{"queryid":-5},{"queryid":null},{"queryid":"7"}]`),
-		[]string{"queryid"})
+		[]string{"queryid"}, nil)
 	if err != nil {
 		t.Fatalf("parseCatalog: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestParseCatalog_IdentityIsRawJSON(t *testing.T) {
 		t.Fatalf("keys = %q, want %q", c.keys, want)
 	}
 	c, err = parseCatalog([]byte(`[{"schemaname":"a","indexrelname":"bc"},`+
-		`{"schemaname":"ab","indexrelname":"c"}]`), indexFields)
+		`{"schemaname":"ab","indexrelname":"c"}]`), indexFields, nil)
 	if err != nil || len(c.keys) != 2 || c.keys[0] == c.keys[1] {
 		t.Fatalf("keys = %q (%v), want two distinct identities", c.keys, err)
 	}
@@ -336,11 +336,11 @@ func TestEncodeDelta_ObjectDocument(t *testing.T) {
 		return []byte(fmt.Sprintf(`{"pg_settings":%s,"wal_position":%q,"connection_churn":%d}`,
 			settings, wal, churn))
 	}
-	base, ok, err := parseDocument("config_data", doc("0/1", 3))
+	base, ok, err := parseDocument("config_data", doc("0/1", 3), nil)
 	if err != nil || !ok || !base.object {
 		t.Fatalf("parse = %+v, %v, %v", base, ok, err)
 	}
-	cur, _, _ := parseDocument("config_data", doc("0/2", 5))
+	cur, _, _ := parseDocument("config_data", doc("0/2", 5), nil)
 	raw, err := encodeDelta(base, cur)
 	if err != nil {
 		t.Fatalf("encodeDelta: %v", err)
@@ -354,21 +354,21 @@ func TestEncodeDelta_ObjectDocument(t *testing.T) {
 // Only catalog lists and object categories are delta encoded; a document
 // of the wrong shape for its category is stored in full.
 func TestParseDocument_Categories(t *testing.T) {
-	if _, ok, err := parseDocument("system", []byte(`{"a":1}`)); ok || err != nil {
+	if _, ok, err := parseDocument("system", []byte(`{"a":1}`), nil); ok || err != nil {
 		t.Fatalf("system: ok=%v err=%v, want stored in full", ok, err)
 	}
 	for _, doc := range []string{`null`, `[{"a":1}]`, `7`} {
-		if _, ok, err := parseDocument("config_data", []byte(doc)); !ok ||
+		if _, ok, err := parseDocument("config_data", []byte(doc), nil); !ok ||
 			!errors.Is(err, errNotEncodable) {
 			t.Errorf("config_data %s: ok=%v err=%v, want errNotEncodable", doc, ok, err)
 		}
 	}
-	if _, _, err := parseDocument("config_data", []byte(`{"a":`)); err == nil ||
+	if _, _, err := parseDocument("config_data", []byte(`{"a":`), nil); err == nil ||
 		errors.Is(err, errNotEncodable) {
 		t.Fatalf("malformed object: err = %v, want a parse error", err)
 	}
-	list, _, _ := parseDocument("indexes", []byte(`[]`))
-	obj, _, _ := parseDocument("config_data", []byte(`{}`))
+	list, _, _ := parseDocument("indexes", []byte(`[]`), nil)
+	obj, _, _ := parseDocument("config_data", []byte(`{}`), nil)
 	if _, err := encodeDelta(obj, list); !errors.Is(err, errNotEncodable) {
 		t.Fatalf("mixed shapes: err = %v, want errNotEncodable", err)
 	}

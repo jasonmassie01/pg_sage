@@ -144,11 +144,11 @@ func benchTables(n int) (base, cur []byte) {
 
 func BenchmarkEncodeDeltaTables(b *testing.B) {
 	baseDoc, curDoc := benchTables(20000)
-	base, err := parseCatalog(baseDoc, keyFields["tables"])
+	base, err := parseCatalog(baseDoc, keyFields["tables"], nil)
 	if err != nil {
 		b.Fatal(err)
 	}
-	cur, err := parseCatalog(curDoc, keyFields["tables"])
+	cur, err := parseCatalog(curDoc, keyFields["tables"], nil)
 	if err != nil {
 		b.Fatal(err)
 	}

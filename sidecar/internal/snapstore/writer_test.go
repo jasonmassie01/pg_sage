@@ -14,7 +14,7 @@ var t0 = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 // withBase installs a committed keyframe for category, as Persist would.
 func withBase(t *testing.T, w *Writer, category string, id int64, at time.Time, doc []byte) {
 	t.Helper()
-	c, err := parseCatalog(doc, keyFields[category])
+	c, err := parseCatalog(doc, keyFields[category], nil)
 	if err != nil {
 		t.Fatalf("parseCatalog: %v", err)
 	}

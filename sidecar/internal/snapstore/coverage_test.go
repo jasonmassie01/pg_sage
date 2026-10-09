@@ -54,7 +54,7 @@ func TestCoverage_AgreesWithTheEncoder(t *testing.T) {
 		"replication": `{"replicas":[],"slots":[]}`,
 	}
 	for cat, doc := range docs {
-		_, encodable, err := parseDocument(cat, []byte(doc))
+		_, encodable, err := parseDocument(cat, []byte(doc), nil)
 		if err != nil {
 			t.Fatalf("%s: %v", cat, err)
 		}
