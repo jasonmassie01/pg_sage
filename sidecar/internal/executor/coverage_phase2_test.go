@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
