@@ -1,55 +1,159 @@
 package perfgate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
 
-// The cluster's database size is a stat of every file of every database:
-// its time grows with the cluster's file count and disk, and no index,
-// hint or setting changes it (124 ms on CI against 37 ms locally on the
-// same fixture). Gate B's mean budget does not charge it, by its tag and
-// with the reason; gate D (catalog max) and the cycle's DB time still do.
+// Gate B's mean exempts a statement only by the tag in its comment, and
+// only up to that tag's own ceiling: the exemption says why the statement
+// cannot meet the 100 ms budget and how slow it may be, not that it may be
+// as slow as it likes. Above its ceiling it is a gate B offender. Gate D
+// (catalog max) and the cycle's DB time still charge it in full.
 
-func TestMeanGateExemptsOnlyTaggedSizingStatements(t *testing.T) {
-	b := DefaultBudgets()
-	reason, ok := b.MeanExempt["sre:cluster_database_size"]
-	if !ok || !strings.Contains(reason, "file") {
-		t.Fatalf("cluster size exemption = %q %t, want the per-file reason", reason, ok)
-	}
-	for tag, why := range b.MeanExempt {
-		if !strings.Contains(tag, ":") || len(why) < 40 {
-			t.Fatalf("exemption %q = %q: a statement tag with a reason, please", tag, why)
-		}
-	}
+const (
+	clusterSizeTag = "sre:cluster_database_size"
+	structuralTag  = "schema_guard:structural"
+)
+
+func clusterSize(mean float64) Statement {
+	return Statement{QueryID: 1, Calls: 6, MeanMs: mean, MaxMs: mean, TotalMs: 6 * mean,
+		Query: "/* pg_sage sre:cluster_database_size v1 */ SELECT " +
+			"sum(pg_catalog.pg_database_size(d.oid)) FROM pg_catalog.pg_database d"}
+}
+
+func structural(mean float64) Statement {
+	return Statement{QueryID: 2, Calls: 1, MeanMs: mean, MaxMs: mean, TotalMs: mean,
+		Query: "/* pg_sage schema_guard:structural v1 */\nWITH tables AS (SELECT 1 " +
+			"FROM pg_class tbl JOIN pg_attribute att ON att.attrelid = tbl.oid)"}
+}
+
+func meanGates(t *testing.T, b Budgets, stmts ...Statement) []Offender {
+	t.Helper()
 	p := steadyPhase()
-	p.Statements = []Statement{
-		{QueryID: 1, Query: "SELECT /* pg_sage sre:cluster_database_size v1 */ " +
-			"sum(pg_catalog.pg_database_size(d.oid)) FROM pg_catalog.pg_database d",
-			Calls: 3, TotalMs: 371, MeanMs: 124, MaxMs: 145},
-		{QueryID: 2, Query: "SELECT /* pg_sage */ 1 FROM sage.findings",
-			Calls: 3, TotalMs: 371, MeanMs: 124, MaxMs: 145},
-	}
+	p.Statements = stmts
 	got, err := Evaluate([]Phase{p}, b)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("evaluate: %v", err)
 	}
-	if len(got) != 1 || got[0].Gate != GateStatementMean ||
-		!strings.Contains(got[0].Subject, "sage.findings") {
-		t.Fatalf("offenders = %+v, want only the findings statement", got)
+	var out []Offender
+	for _, o := range got {
+		if o.Gate == GateStatementMean {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+func TestDefaultMeanExemptionsAreNamedAndCapped(t *testing.T) {
+	b := DefaultBudgets()
+	if len(b.MeanExempt) != 2 {
+		t.Fatalf("mean exemptions = %v, want cluster size and the structural scan",
+			b.MeanExempt)
+	}
+	size, ok := b.MeanExempt[clusterSizeTag]
+	if !ok || size.CeilingMs != 300 || !strings.Contains(size.Reason, "file") ||
+		!strings.Contains(size.Reason, "105-250 ms") {
+		t.Fatalf("cluster size exemption = %+v %t, want a 300 ms ceiling and the "+
+			"per-file reason with the CI range", size, ok)
+	}
+	scan, ok := b.MeanExempt[structuralTag]
+	if !ok || scan.CeilingMs != 200 || !strings.Contains(scan.Reason, "5 min") {
+		t.Fatalf("structural scan exemption = %+v %t, want a 200 ms ceiling and how "+
+			"often it reruns", scan, ok)
+	}
+	for tag, ex := range b.MeanExempt {
+		if !strings.Contains(tag, ":") || len(ex.Reason) < 40 ||
+			ex.CeilingMs <= b.StatementMeanMs {
+			t.Fatalf("exemption %q = %+v: a statement tag, a reason and a ceiling "+
+				"above the %v ms budget, please", tag, ex, b.StatementMeanMs)
+		}
+	}
+}
+
+// Boundaries: at the ceiling is within it; just over is an offender judged
+// against the ceiling, and its detail names the exemption.
+func TestMeanExemptionCeilingBoundaries(t *testing.T) {
+	b := DefaultBudgets()
+	cases := []struct {
+		name    string
+		stmt    Statement
+		charged bool
+	}{
+		{"cluster size at 124 ms", clusterSize(124), false},
+		{"cluster size exactly at its ceiling", clusterSize(300), false},
+		{"cluster size just over its ceiling", clusterSize(300.01), true},
+		{"structural scan at 135 ms", structural(135), false},
+		{"structural scan exactly at its ceiling", structural(200), false},
+		{"structural scan just over its ceiling", structural(200.01), true},
+	}
+	for _, c := range cases {
+		got := meanGates(t, b, c.stmt)
+		if !c.charged {
+			if len(got) != 0 {
+				t.Fatalf("%s: %+v, want no gate B offender", c.name, got)
+			}
+			continue
+		}
+		ceiling := b.MeanExempt[clusterSizeTag].CeilingMs
+		tag := clusterSizeTag
+		if c.stmt.QueryID == 2 {
+			ceiling, tag = b.MeanExempt[structuralTag].CeilingMs, structuralTag
+		}
+		if len(got) != 1 || got[0].Budget != ceiling || got[0].Measured != c.stmt.MeanMs ||
+			!strings.Contains(got[0].Detail, tag) {
+			t.Fatalf("%s: %+v, want one gate B offender against the %v ms ceiling of %s",
+				c.name, got, ceiling, tag)
+		}
+	}
+}
+
+// Negative cases: an untagged statement is judged by the 100 ms budget
+// (at it passes, over it fails); a near-miss tag or the tag outside a
+// pg_sage comment exempts nothing.
+func TestMeanExemptionNeedsTheExactTag(t *testing.T) {
+	b := DefaultBudgets()
+	untagged := func(q string, mean float64) Statement {
+		return Statement{QueryID: 7, Calls: 6, MeanMs: mean, MaxMs: mean, TotalMs: 6 * mean,
+			Query: q}
+	}
+	cases := []struct {
+		name    string
+		stmt    Statement
+		charged bool
+	}{
+		{"untagged at the budget", untagged("/* pg_sage */ SELECT 1 FROM sage.findings",
+			100), false},
+		{"untagged just over the budget", untagged("/* pg_sage */ SELECT 1 FROM "+
+			"sage.findings", 100.01), true},
+		{"untagged sizing at 124 ms", untagged("/* pg_sage */ SELECT "+
+			"sum(pg_catalog.pg_database_size(d.oid)) FROM pg_catalog.pg_database d", 124), true},
+		{"near-miss tag", untagged("/* pg_sage sre:cluster_database_sizes v1 */ SELECT 1 "+
+			"FROM pg_catalog.pg_database d", 124), true},
+		{"tag outside a pg_sage comment", untagged("SELECT 'sre:cluster_database_size' "+
+			"FROM pg_catalog.pg_database d", 124), true},
+	}
+	for _, c := range cases {
+		got := meanGates(t, b, c.stmt)
+		if c.charged != (len(got) == 1) || len(got) > 1 {
+			t.Fatalf("%s: %+v, charged want %t", c.name, got, c.charged)
+		}
+		if c.charged && got[0].Budget != b.StatementMeanMs {
+			t.Fatalf("%s: judged against %v, want the %v ms budget", c.name, got[0].Budget,
+				b.StatementMeanMs)
+		}
 	}
 }
 
 // The exempt statement still counts toward the cycle's DB time and the
 // catalog max.
 func TestMeanExemptStatementStillChargedElsewhere(t *testing.T) {
-	b := DefaultBudgets()
 	p := steadyPhase()
-	p.Statements = []Statement{{QueryID: 1,
-		Query: "SELECT /* pg_sage sre:cluster_database_size v1 */ " +
-			"sum(pg_catalog.pg_database_size(d.oid)) FROM pg_catalog.pg_database d",
-		Calls: 6, TotalMs: 20000, MeanMs: 3333, MaxMs: 4000}}
-	got, err := Evaluate([]Phase{p}, b)
+	s := clusterSize(250)
+	s.TotalMs, s.MaxMs = 20000, 600
+	p.Statements = []Statement{s}
+	got, err := Evaluate([]Phase{p}, DefaultBudgets())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,11 +166,42 @@ func TestMeanExemptStatementStillChargedElsewhere(t *testing.T) {
 	}
 }
 
-func TestReportListsMeanExemptions(t *testing.T) {
+// Invalid input: an exemption without a reason, or with a ceiling that is
+// missing or not above the budget, is a broken budget.
+func TestMeanExemptionValidation(t *testing.T) {
+	for name, ex := range map[string]MeanExemption{
+		"no ceiling":        {Reason: strings.Repeat("why ", 12)},
+		"negative ceiling":  {Reason: strings.Repeat("why ", 12), CeilingMs: -1},
+		"ceiling at budget": {Reason: strings.Repeat("why ", 12), CeilingMs: 100},
+		"no reason":         {CeilingMs: 300},
+		"whitespace reason": {Reason: "   ", CeilingMs: 300},
+	} {
+		b := DefaultBudgets()
+		b.MeanExempt = map[string]MeanExemption{"x:y": ex}
+		_, err := Evaluate([]Phase{steadyPhase()}, b)
+		if err == nil || !strings.Contains(err.Error(), "x:y") {
+			t.Fatalf("%s: err = %v, want the exemption named", name, err)
+		}
+	}
+	b := DefaultBudgets()
+	b.MeanExempt = map[string]MeanExemption{"": {Reason: strings.Repeat("why ", 12),
+		CeilingMs: 300}}
+	if _, err := Evaluate([]Phase{steadyPhase()}, b); err == nil {
+		t.Fatal("an empty tag was accepted")
+	}
+	b.MeanExempt = nil
+	if got := meanGates(t, b, clusterSize(124)); len(got) != 1 {
+		t.Fatalf("without exemptions the cluster size is charged: %+v", got)
+	}
+}
+
+func TestReportListsMeanExemptionsWithCeilings(t *testing.T) {
 	b := DefaultBudgets()
 	md := RenderMarkdown(Scale{}, b, []Phase{steadyPhase()}, nil)
-	if !strings.Contains(md, "sre:cluster_database_size") ||
-		!strings.Contains(md, b.MeanExempt["sre:cluster_database_size"]) {
-		t.Fatalf("report omits the mean exemption:\n%s", md)
+	for tag, ex := range b.MeanExempt {
+		line := fmt.Sprintf("- %s (ceiling %.0f ms mean): %s", tag, ex.CeilingMs, ex.Reason)
+		if !strings.Contains(md, line) {
+			t.Fatalf("report omits %q:\n%s", line, md)
+		}
 	}
 }
