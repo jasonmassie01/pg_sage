@@ -3,6 +3,7 @@ package perfgate
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,7 +20,14 @@ func TestSettleCheckpoints(t *testing.T) {
 	if err := Settle(ctx, pool); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
-	if after := checkpointsRequested(t, ctx, pool); after <= before {
+	// PostgreSQL 14 reports the counter through the statistics collector,
+	// asynchronously: wait for it rather than read it once.
+	after := before
+	for deadline := time.Now().Add(10 * time.Second); after <= before &&
+		time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		after = checkpointsRequested(t, ctx, pool)
+	}
+	if after <= before {
 		t.Fatalf("requested checkpoints %d -> %d: Settle did not checkpoint", before, after)
 	}
 	canceled, cancel := context.WithCancel(ctx)
