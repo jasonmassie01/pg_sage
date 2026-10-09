@@ -44,6 +44,10 @@ func readStatsWindow(ctx context.Context, tx pgx.Tx) (StatsWindow, error) {
 	return StatsWindow{Since: started, Source: "server_start", Known: true}, nil
 }
 
+// indexesSQL reads every user index. The scan count comes from the
+// statistics function, not the pg_stat_user_indexes view: the view's
+// join planned the read at millions of cost units and took 436-540 ms at
+// 15,000 indexes (nightly perf gate).
 const indexesSQL = tag + `SELECT i.indexrelid, i.indrelid, n.nspname::text, t.relname::text,
   c.relname::text, i.indkey::int2[], i.indnkeyatts::int, i.indclass::oid[],
   i.indcollation::oid[],
@@ -54,13 +58,12 @@ const indexesSQL = tag + `SELECT i.indexrelid, i.indrelid, n.nspname::text, t.re
   COALESCE(pg_catalog.pg_get_expr(i.indpred, i.indrelid), ''),
   COALESCE(pg_catalog.pg_get_expr(i.indexprs, i.indrelid), ''),
   c.relpages::bigint * current_setting('block_size')::bigint,
-  COALESCE(s.idx_scan, 0)
+  pg_catalog.pg_stat_get_numscans(i.indexrelid)
 FROM pg_catalog.pg_index i
 JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
 JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_catalog.pg_am am ON am.oid = c.relam
-LEFT JOIN pg_catalog.pg_stat_user_indexes s ON s.indexrelid = i.indexrelid
 WHERE ` + userSchemas + `
 ORDER BY i.indexrelid
 LIMIT $1`

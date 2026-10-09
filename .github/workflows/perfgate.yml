@@ -1,0 +1,56 @@
+name: Performance gate
+
+# The performance gate alone, on demand: the same clean server and test as
+# the nightly CI run, without the hour of other suites before it, so a fix
+# can be checked at the large scale on any branch:
+#   gh workflow run perfgate.yml --ref <branch> -f scale=large
+on:
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: "Fixture scale: small or large"
+        required: false
+        default: large
+
+permissions:
+  contents: read
+
+jobs:
+  perfgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+
+      - name: Start a clean PostgreSQL for the performance gate
+        run: |
+          docker run -d --name perfgate-pg -e POSTGRES_PASSWORD=postgres \
+            -p 5433:5432 pgvector/pgvector:0.8.2-pg17 >/dev/null
+          for _ in $(seq 1 60); do
+            docker exec perfgate-pg pg_isready -U postgres >/dev/null 2>&1 && break
+            sleep 1
+          done
+          scripts/ci/setup-test-postgres.sh perfgate-pg 17
+
+      - name: Performance gate
+        working-directory: sidecar
+        timeout-minutes: 30
+        env:
+          SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+          PG_SAGE_PERF_SCALE: ${{ inputs.scale }}
+          PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
+        run: |
+          go test ./cmd/pg_sage_sidecar -tags=perfgate -run '^TestPerfGate$' -count=1 \
+            -timeout 1700s -v
+
+      - name: Upload performance gate report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perfgate-${{ inputs.scale }}
+          path: perfgate/
+          if-no-files-found: warn
