@@ -12,7 +12,7 @@ pg_sage connects as a regular database user -- no superuser required.
 CREATE USER sage_agent WITH PASSWORD 'YOUR_PASSWORD';
 GRANT pg_monitor TO sage_agent;
 GRANT pg_read_all_stats TO sage_agent;
-GRANT CREATE ON SCHEMA public TO sage_agent;    -- for index creation
+GRANT CREATE ON SCHEMA public TO sage_agent;    -- CREATE INDEX/STATISTICS; each schema with tables
 GRANT pg_signal_backend TO sage_agent;           -- for query termination
 ```
 

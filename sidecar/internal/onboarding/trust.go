@@ -3,6 +3,8 @@ package onboarding
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // Grant names in the trust guide.
@@ -10,6 +12,7 @@ const (
 	GrantMonitor        = "pg_monitor"
 	GrantSageSchema     = "sage_schema"
 	GrantTableOwnership = "table_ownership"
+	GrantSchemaCreate   = "schema_create"
 	GrantMaintain       = "pg_maintain"
 	GrantSignalBackend  = "pg_signal_backend"
 	GrantAlterSystem    = "alter_system"
@@ -151,7 +154,7 @@ func ownershipGrants(g GrantStatus, role string) []Grant {
 		owned.Present = &all
 		owned.Detail = fmt.Sprintf("owns %d of %d tables", g.TablesOwned, g.TablesTotal)
 	}
-	out := []Grant{owned}
+	out := []Grant{owned, schemaCreateGrant(g.SchemaCreate, role)}
 	if g.Maintain != nil {
 		out = append(out, Grant{Name: GrantMaintain,
 			Why: "VACUUM, ANALYZE and REINDEX tables it does not own (PostgreSQL 17+).",
@@ -160,6 +163,31 @@ func ownershipGrants(g GrantStatus, role string) []Grant {
 	return append(out, Grant{Name: GrantSignalBackend,
 		Why: "Cancel a runaway query when an approved action needs it.",
 		SQL: "GRANT pg_signal_backend TO " + role + ";", Present: g.SignalBackend})
+}
+
+// schemaCreateGrant is CREATE on the schemas holding user tables, with the
+// same SQL the startup check prints (rolegrants). It is unknown when it was
+// not checked or no user table exists yet.
+func schemaCreateGrant(sc *rolegrants.SchemaCreate, role string) Grant {
+	var s rolegrants.SchemaCreate
+	if sc != nil {
+		s = *sc
+	}
+	out := Grant{Name: GrantSchemaCreate,
+		Why: "CREATE INDEX and CREATE STATISTICS also need CREATE on the table's schema, " +
+			"even for the table's owner.",
+		SQL: s.GrantSQL(role) + ";"}
+	if len(s.Schemas) == 0 {
+		return out
+	}
+	ok := !s.Lacking()
+	out.Present = &ok
+	out.Detail = fmt.Sprintf("CREATE on %d of %d schemas with tables",
+		len(s.Schemas)-len(s.Missing), len(s.Schemas))
+	if !ok {
+		out.Detail += "; missing: " + strings.Join(s.Missing, ", ")
+	}
+	return out
 }
 
 // quoteRole quotes a role name unless it is a plain lower-case name.

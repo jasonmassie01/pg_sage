@@ -5,21 +5,22 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // missingGrant is one privilege the connected role lacks.
 type missingGrant struct {
-	what string // the privilege, e.g. "CREATE on schema public"
+	what string // the privilege, e.g. "CREATE on schema app"
 	need string // what pg_sage needs it for
 	fix  string // the SQL that grants it
 }
 
 // schemaCreateGrant: CREATE INDEX and CREATE STATISTICS need CREATE on the
-// table's schema, even for the table's owner.
-func schemaCreateGrant(user string) missingGrant {
-	return missingGrant{what: "CREATE on schema public",
-		need: "CREATE INDEX and CREATE STATISTICS on its tables",
-		fix:  "GRANT CREATE ON SCHEMA public TO " + user}
+// table's schema, even for the table's owner. The wording and SQL come from
+// rolegrants, which the Grant more guide uses too.
+func schemaCreateGrant(user string, sc rolegrants.SchemaCreate) missingGrant {
+	return missingGrant{what: sc.What(), need: rolegrants.Need, fix: sc.GrantSQL(user)}
 }
 
 func signalBackendGrant(user string) missingGrant {
@@ -51,8 +52,8 @@ func VerifyGrants(
 		user = actual
 	}
 	var missing []missingGrant
-	if checkSchemaCreate(ctx, pool, user, logFn) {
-		missing = append(missing, schemaCreateGrant(user))
+	if sc, lacking := checkSchemaCreate(ctx, pool, logFn); lacking {
+		missing = append(missing, schemaCreateGrant(user, sc))
 	}
 	if checkSignalBackend(ctx, pool, user, logFn) {
 		missing = append(missing, signalBackendGrant(user))
@@ -84,26 +85,22 @@ func reportGrants(
 	}
 }
 
-// checkSchemaCreate reports whether user lacks CREATE on schema public; a
-// failed check is logged and reported as not missing.
+// checkSchemaCreate reports whether the connected role lacks CREATE on a
+// schema holding user tables; a failed check is logged and reported as not
+// missing.
 func checkSchemaCreate(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	user string,
 	logFn func(string, string, ...any),
-) bool {
-	var hasCreate bool
-	err := pool.QueryRow(ctx,
-		"SELECT has_schema_privilege($1, 'public', 'CREATE')",
-		user,
-	).Scan(&hasCreate)
+) (rolegrants.SchemaCreate, bool) {
+	sc, err := rolegrants.CheckSchemaCreate(ctx, pool)
 	if err != nil {
 		logFn("grants",
-			"could not check CREATE privilege on public schema: %v", err,
+			"could not check CREATE privilege on the schemas holding tables: %v", err,
 		)
-		return false
+		return rolegrants.SchemaCreate{}, false
 	}
-	return !hasCreate
+	return sc, sc.Lacking()
 }
 
 // checkSignalBackend reports whether user is not a member of

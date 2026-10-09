@@ -30,7 +30,8 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 ```
 
 That is all a read-only install needs. The privileges that changes need (table ownership,
-`pg_signal_backend`, parameter changes) come later, from the **"Grant more"** step.
+CREATE on the schemas that hold your tables, `pg_signal_backend`, parameter changes) come
+later, from the **"Grant more"** step.
 
 ## 2. Start pg_sage
 
