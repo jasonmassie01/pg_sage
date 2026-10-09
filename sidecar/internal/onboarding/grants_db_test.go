@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,40 @@ func TestCheckGrantsAsMonitorRole(t *testing.T) {
 		*g.SignalBackend || g.AlterSystem == nil || *g.AlterSystem || g.TablesOwned != 0 ||
 		g.TablesTotal < 1 {
 		t.Fatalf("monitor grants = %+v, want monitor only, owning no tables", g)
+	}
+}
+
+// The live schema CREATE check: the admin has it on every schema holding
+// tables; a monitor-only role has it on none, and the guide gives the SQL.
+func TestCheckGrantsSchemaCreate(t *testing.T) {
+	admin, ctx := freshInstall(t)
+	for _, s := range []string{"CREATE SCHEMA app", "CREATE TABLE app.g_t (id int)",
+		"REVOKE CREATE ON SCHEMA public FROM PUBLIC", "CREATE TABLE public.g_p (id int)"} {
+		if _, err := admin.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	g, err := CheckGrants(ctx, admin)
+	if err != nil {
+		t.Fatalf("admin check: %v", err)
+	}
+	if g.SchemaCreate == nil || g.SchemaCreate.Lacking() ||
+		strings.Join(g.SchemaCreate.Schemas, ",") != "app,public" {
+		t.Fatalf("admin schema CREATE = %+v, want app and public granted", g.SchemaCreate)
+	}
+	mon := monitorPool(t, ctx, admin)
+	m, err := CheckGrants(ctx, mon)
+	if err != nil {
+		t.Fatalf("monitor check: %v", err)
+	}
+	if m.SchemaCreate == nil || strings.Join(m.SchemaCreate.Missing, ",") != "app,public" {
+		t.Fatalf("monitor schema CREATE = %+v, want app and public missing", m.SchemaCreate)
+	}
+	adv := level(TrustGuide(GuideInput{Current: LevelObservation, Grants: m}), LevelAdvisory)
+	sc := grant(adv, GrantSchemaCreate)
+	want := "GRANT CREATE ON SCHEMA app, public TO " + quoteRole(m.Role) + ";"
+	if sc.Present == nil || *sc.Present || sc.SQL != want {
+		t.Fatalf("guide schema grant = %+v, want missing with %q", sc, want)
 	}
 }
 

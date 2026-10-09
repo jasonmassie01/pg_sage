@@ -1628,25 +1628,6 @@ func TestCoverage_VerifyGrants_SuperuserHasAll(t *testing.T) {
 	}
 }
 
-// TestCoverage_CheckSchemaCreate_HasCreate verifies the happy path
-// where user has CREATE privilege (postgres superuser).
-func TestCoverage_CheckSchemaCreate_HasCreate(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	var warned bool
-	logFn := func(_, msg string, args ...any) {
-		formatted := fmt.Sprintf(msg, args...)
-		if len(formatted) > 7 && formatted[:7] == "WARNING" {
-			warned = true
-		}
-	}
-
-	checkSchemaCreate(ctx, pool, "postgres", logFn)
-	if warned {
-		t.Log("postgres user unexpectedly lacks CREATE on public")
-	}
-}
-
 // TestCoverage_CheckSignalBackend_HasRole verifies the happy path
 // where user has pg_signal_backend membership.
 func TestCoverage_CheckSignalBackend_HasRole(t *testing.T) {
