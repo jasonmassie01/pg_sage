@@ -41,9 +41,7 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	sb.WriteString("\n## Budgets\n\n| Gate | Budget |\n|---|---|\n")
 	fmt.Fprintf(sb, "| %s | no seq scan of a sage table above %d rows |\n",
 		GateSeqScan, b.SeqScanMinRows)
-	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase; a catalog statement run less than "+
-		"once per cycle is judged by the catalog max instead) |\n",
-		GateStatementMean, b.StatementMeanMs)
+	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase) |\n", GateStatementMean, b.StatementMeanMs)
 	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase) |\n", GateCycleDBTime, b.CycleDBTimeMs)
 	fmt.Fprintf(sb, "| %s | %d per sage table (steady phase) |\n", GateRowsWritten,
 		b.RowsWrittenPerCycle)
