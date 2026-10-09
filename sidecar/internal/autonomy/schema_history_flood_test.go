@@ -18,6 +18,13 @@ import (
 // matched the scan's targets, and the history read re-aggregated all of
 // them on every structural scan: 12.7 s a call. The read must cost the
 // same however large the legacy ledger is.
+//
+// The same cost is pinned as work, not as wall-clock time: the history
+// read, and a whole guard scan, each send one statement to sage.decision,
+// which reads it through an index and reads at most floodRowsReadLimit of
+// its rows. A time budget measured the shared CI runner as much as the
+// read (the scan took 202 ms against a 200 ms budget on PG17 while the
+// history read took 37 ms) and cannot tell a flat read from a slow machine.
 
 const (
 	floodSchemas       = 160
@@ -25,19 +32,8 @@ const (
 	floodKeys          = 170 // floodTables tables x 10 subjects
 	floodTargetsPerRow = 70
 	floodRows          = 250000
-	floodScanBudget    = 200 * time.Millisecond
 	floodRowsReadLimit = 1000
 )
-
-// floodBudget is floodScanBudget, scaled under the race detector: the scan
-// hashes and groups 27,206 invariants in Go, which instrumentation slows
-// far more than the database read the budget is about.
-func floodBudget() time.Duration {
-	if raceDetector {
-		return 5 * floodScanBudget
-	}
-	return floodScanBudget
-}
 
 // floodLedger is the seeded legacy ledger and what History must return.
 type floodLedger struct {
@@ -60,21 +56,14 @@ func TestHistoryReadIsFlatOnALegacyFloodLedger(t *testing.T) {
 		t.Fatalf("History on the flood ledger: %v", err)
 	}
 	requireFloodHistory(t, index, ledgerRows)
-	best := bestOf(t, 3, func() error {
-		_, err := source.History(ctx, ledgerRows.invariants)
-		return err
-	})
-	if best > floodBudget() {
-		t.Fatalf("history read on %d legacy rows took %v, want < %v", floodRows, best,
-			floodBudget())
-	}
-	t.Logf("history read on %d legacy rows: best of 3 %v", floodRows, best)
 	recorder.Reset()
+	start := time.Now()
 	if _, err := source.History(ctx, ledgerRows.invariants); err != nil {
 		t.Fatalf("History (recorded): %v", err)
 	}
+	t.Logf("history read on %d legacy rows: %v", floodRows, time.Since(start))
 	requireBoundedHistoryPlan(t, ctx, pool, recorder)
-	requireFastFloodScan(t, ctx, pool, ledgerRows)
+	requireFlatFloodScan(t, ctx, pool, recorder, ledgerRows)
 }
 
 // floodPool is a freshly bootstrapped database of its own (the flood must
@@ -330,34 +319,35 @@ func requireBoundedHistoryPlan(
 	t.Logf("history read: %g plan rows, %d index fetches", rows, fetched)
 }
 
-// requireFastFloodScan runs whole guard scans (the real contract and
-// history sources) over the flood ledger's invariants.
-func requireFastFloodScan(
-	t *testing.T, ctx context.Context, pool *pgxpool.Pool, ledgerRows floodLedger,
+// requireFlatFloodScan runs a whole guard scan (the real contract and
+// history sources) over the flood ledger's invariants: it sends the
+// ledger one statement, bounded as the history read is
+// (requireBoundedHistoryPlan), whatever the scan does in Go.
+func requireFlatFloodScan(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, queries *testdb.QueryRecorder,
+	ledgerRows floodLedger,
 ) {
 	t.Helper()
 	recorder := &floodRecorder{}
 	guard := schemaguard.NewCustodian(floodDetector(ledgerRows.invariants),
 		postgresSchemaContractSource{pool}, postgresSchemaHistorySource{pool},
 		floodRouter{}, recorder, schemaguard.DefaultPolicy())
-	best := bestOf(t, 3, func() error {
-		result, err := guard.Scan(ctx)
-		if err == nil && result.Detected != len(ledgerRows.invariants) {
-			err = fmt.Errorf("scan detected %d, want %d", result.Detected,
-				len(ledgerRows.invariants))
-		}
-		return err
-	})
-	if best > floodBudget() {
-		t.Fatalf("schema guard scan over %d legacy rows took %v, want < %v", floodRows,
-			best, floodBudget())
+	queries.Reset()
+	start := time.Now()
+	result, err := guard.Scan(ctx)
+	if err != nil {
+		t.Fatalf("schema guard scan: %v", err)
 	}
-	t.Logf("schema guard scan (%d invariants) over %d legacy rows: best of 3 %v",
-		len(ledgerRows.invariants), floodRows, best)
+	if result.Detected != len(ledgerRows.invariants) {
+		t.Fatalf("scan detected %d, want %d", result.Detected, len(ledgerRows.invariants))
+	}
+	t.Logf("schema guard scan (%d invariants) over %d legacy rows: %v",
+		len(ledgerRows.invariants), floodRows, time.Since(start))
+	requireBoundedHistoryPlan(t, ctx, pool, queries)
 	// The newest hashes are synthetic and the recorder writes nothing, so
-	// every scan records every identity (idle members included) again.
+	// the scan records every identity (idle members included).
 	if recorder.identities() != len(ledgerRows.lastHash) {
-		t.Fatalf("scans recorded %d identities, want each of %d once", recorder.identities(),
+		t.Fatalf("scan recorded %d identities, want each of %d once", recorder.identities(),
 			len(ledgerRows.lastHash))
 	}
 }
@@ -385,17 +375,3 @@ func (r *floodRecorder) Record(_ context.Context, record schemaguard.DecisionRec
 }
 
 func (r *floodRecorder) identities() int { return len(r.seen) }
-
-// bestOf runs fn n times and returns its fastest run.
-func bestOf(t *testing.T, n int, fn func() error) time.Duration {
-	t.Helper()
-	best := time.Duration(1<<63 - 1)
-	for range n {
-		start := time.Now()
-		if err := fn(); err != nil {
-			t.Fatalf("timed run: %v", err)
-		}
-		best = min(best, time.Since(start))
-	}
-	return best
-}
