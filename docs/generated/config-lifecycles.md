@@ -340,6 +340,7 @@
 | `sre.runways.sequence_critical_days` | `restart` | `-` | `derivable` |
 | `sre.runways.sequence_horizon_days` | `restart` | `-` | `derivable` |
 | `sre.runways.sequence_interval_seconds` | `restart` | `-` | `derivable` |
+| `sre.runways.size_interval_seconds` | `restart` | `-` | `derivable` |
 | `sre.runways.wraparound_critical_hours` | `restart` | `-` | `derivable` |
 | `sre.runways.wraparound_horizon_hours` | `restart` | `-` | `derivable` |
 | `sre.sample_interval_seconds` | `restart` | `-` | `derivable` |

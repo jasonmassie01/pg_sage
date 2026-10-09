@@ -33,11 +33,15 @@ type Snapshot struct {
 	// SequencesFresh marks sequences read this tick; a cached reading is
 	// evaluated but not sampled again.
 	SequencesFresh bool
+	// SizeFresh marks WAL.DatabaseBytes measured this tick (for this
+	// monitor); a reused measurement is not sampled again.
+	SizeFresh bool
 }
 
 // BuildSamples turns a snapshot into samples. Only known numbers are
 // sampled: an unknown counter, an unreadable database or WAL directory
-// produce no sample, never a zero.
+// produce no sample, never a zero. Sizes and sequences are sampled only
+// when read this tick, so a trend never counts one reading twice.
 func BuildSamples(s Snapshot, opts Options) []Sample {
 	nan := math.NaN()
 	var out []Sample
@@ -60,7 +64,7 @@ func BuildSamples(s Snapshot, opts Options) []Sample {
 			add(probes.RunwayWALPosition, probes.SubjectCluster, w.PositionBytes,
 				w.PositionBytes, nan)
 		}
-		if probes.Known(w.DatabaseBytes) && w.UnreadableDatabases == 0 {
+		if s.SizeFresh && probes.Known(w.DatabaseBytes) && w.UnreadableDatabases == 0 {
 			add(probes.RunwayDatabaseBytes, probes.SubjectCluster, w.DatabaseBytes, nan, nan)
 			if s.Dir != nil && probes.Known(s.Dir.Bytes) {
 				add(probes.RunwayDiskUsed, probes.SubjectCluster, w.DatabaseBytes+s.Dir.Bytes,

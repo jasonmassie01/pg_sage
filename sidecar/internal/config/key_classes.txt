@@ -383,6 +383,7 @@ derivable sre.runways.sample_retention_hours
 derivable sre.runways.sequence_critical_days
 derivable sre.runways.sequence_horizon_days
 derivable sre.runways.sequence_interval_seconds
+derivable sre.runways.size_interval_seconds
 derivable sre.runways.wraparound_critical_hours
 derivable sre.runways.wraparound_horizon_hours
 derivable sre.sample_interval_seconds

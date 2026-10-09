@@ -16,6 +16,7 @@ type RunwayConfig struct {
 	Investigate             bool `yaml:"investigate" doc:"Open a read-only pre-incident investigation for each runway finding (one per finding and severity). Independent of sre.automatic_start. Default: true."`
 	IntervalSeconds         int  `yaml:"interval_seconds" doc:"Seconds between runway samples, 15-3600. Default: 60 (the collector tick)."`
 	SequenceIntervalSeconds int  `yaml:"sequence_interval_seconds" doc:"Seconds between sequence samples (sequences are slow to consume and costly to read), 15-86400; kept within interval_seconds and lookback_hours/min_samples. Default: 600."`
+	SizeIntervalSeconds     int  `yaml:"size_interval_seconds" doc:"Seconds between measurements of the databases' total size (costly: stats every file; disk runways forecast over hours), 15-86400; kept within interval_seconds and lookback/min_samples. Default: 600."`
 	LookbackHours           int  `yaml:"lookback_hours" doc:"Hours of samples a trend is measured over, 1 to sample_retention_hours (and at most 168). Default: 6."`
 	MinSamples              int  `yaml:"min_samples" doc:"Fewest samples a trend needs before it projects a runway, 3-1000. Default: 10."`
 	MinSpanMinutes          int  `yaml:"min_span_minutes" doc:"Shortest span (minutes) of samples a trend needs, 1 to the lookback. Default: 30."`
@@ -31,6 +32,7 @@ type RunwayConfig struct {
 func defaultRunwayConfig() RunwayConfig {
 	return RunwayConfig{Enabled: true, Investigate: true, IntervalSeconds: 60,
 		SequenceIntervalSeconds: 600,
+		SizeIntervalSeconds:     600,
 		LookbackHours:           6, MinSamples: 10, MinSpanMinutes: 30,
 		WraparoundHorizonHours: 336, WraparoundCriticalHours: 72,
 		DiskHorizonHours: 72, DiskCriticalHours: 24,
@@ -48,7 +50,20 @@ func (r RunwayConfig) Interval() time.Duration {
 // setting, never shorter than the interval and never so long that
 // min_samples no longer fit in the lookback.
 func (r RunwayConfig) SequenceInterval() time.Duration {
-	d := time.Duration(r.SequenceIntervalSeconds) * time.Second
+	return r.slowInterval(r.SequenceIntervalSeconds)
+}
+
+// SizeInterval is the databases' total size's effective measuring
+// period, clamped like SequenceInterval (0 seconds: every tick).
+func (r RunwayConfig) SizeInterval() time.Duration {
+	return r.slowInterval(r.SizeIntervalSeconds)
+}
+
+// slowInterval is a slower series' period: seconds, never shorter than
+// the interval and never so long that min_samples no longer fit in the
+// lookback.
+func (r RunwayConfig) slowInterval(seconds int) time.Duration {
+	d := time.Duration(seconds) * time.Second
 	if r.MinSamples > 1 {
 		d = min(d, r.Lookback()/time.Duration(r.MinSamples-1))
 	}
@@ -98,6 +113,8 @@ func (r RunwayConfig) validate() error {
 		{between(r.IntervalSeconds, 15, 3600), "interval_seconds", "15-3600", r.IntervalSeconds},
 		{between(r.SequenceIntervalSeconds, 15, 86400), "sequence_interval_seconds", "15-86400",
 			r.SequenceIntervalSeconds},
+		{between(r.SizeIntervalSeconds, 15, 86400), "size_interval_seconds", "15-86400",
+			r.SizeIntervalSeconds},
 		{between(r.LookbackHours, 1, min(168, r.SampleRetentionHours)), "lookback_hours",
 			"1 to sample_retention_hours (at most 168)", r.LookbackHours},
 		{between(r.MinSamples, 3, 1000), "min_samples", "3-1000", r.MinSamples},

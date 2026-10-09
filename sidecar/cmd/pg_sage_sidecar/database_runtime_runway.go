@@ -46,7 +46,7 @@ func runwayOptions(cfg *config.Config, database string) runway.Options {
 	r := cfg.SRE.Runways
 	return runway.Options{Database: database, Investigate: r.Investigate,
 		Interval: r.Interval(), SequenceInterval: r.SequenceInterval(),
-		Lookback: r.Lookback(), MinSamples: r.MinSamples,
+		Lookback: r.Lookback(), MinSamples: r.MinSamples, SizeInterval: r.SizeInterval(),
 		MinSpan: r.MinSpan(), Retention: r.SampleRetention(),
 		WraparoundHorizon: r.WraparoundHorizon(), WraparoundCritical: r.WraparoundCritical(),
 		DiskHorizon: r.DiskHorizon(), DiskCritical: r.DiskCritical(),
@@ -58,7 +58,7 @@ func runwayOptions(cfg *config.Config, database string) runway.Options {
 
 // runwaySizeShare is shared by every database runtime of the process, so
 // fleet runtimes on one cluster measure its databases' total size once
-// per pass between them.
+// per size interval between them.
 var runwaySizeShare = runway.NewSizeShare()
 
 // startRunways attaches the executor to the runway advisor and starts the

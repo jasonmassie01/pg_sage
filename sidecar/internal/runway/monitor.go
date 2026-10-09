@@ -34,6 +34,10 @@ type Monitor struct {
 	// seqMu serializes sequence reads; seq is the last reading.
 	seqMu sync.Mutex
 	seq   sequenceReading
+	// sizeMu guards sizeAt, when the last size this monitor sampled was
+	// measured.
+	sizeMu sync.Mutex
+	sizeAt time.Time
 }
 
 // TickResult is what one tick did.
@@ -57,6 +61,9 @@ func NewMonitor(pool *pgxpool.Pool, runner ProbeRunner, starter Starter, opts Op
 	}
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
+	}
+	if opts.Sizes == nil && opts.SizeInterval > 0 {
+		opts.Sizes = NewSizeShare() // its own reading, kept for SizeInterval
 	}
 	return &Monitor{pool: pool, runner: runner, starter: starter, opts: opts,
 		logFn: logFn, last: map[seriesKey]lastPoint{}, now: time.Now}, nil
@@ -125,7 +132,7 @@ func (m *Monitor) read(ctx context.Context) (Snapshot, []error) {
 	}
 	if w, err := probes.WALRunwayOf(run(probes.WALRunwayProbe)); note(probes.WALRunwayProbe,
 		err) {
-		m.fillSize(ctx, &w, note)
+		s.SizeFresh = m.fillSize(ctx, &w, note)
 		s.WAL = &w
 	}
 	if d, err := probes.WALDirectoryOf(run(probes.WALDirectoryProbe)); err == nil {
@@ -160,17 +167,30 @@ func (m *Monitor) Sample(ctx context.Context) (int, error) {
 }
 
 // fillSize adds the databases' total size to a primary's WAL reading: one
-// measurement per cluster per pass, shared with the process's other
-// runtimes on the cluster. A standby samples nothing, so it measures
-// nothing.
+// measurement per cluster per size interval (every tick without one),
+// shared with the process's other runtimes on the cluster. It reports
+// whether this monitor has not sampled that measurement yet. A standby
+// samples nothing, so it measures nothing.
 func (m *Monitor) fillSize(ctx context.Context, w *probes.WALRunway,
-	note func(probes.ID, error) bool) {
+	note func(probes.ID, error) bool) bool {
 	if w.InRecovery {
-		return
+		return false
 	}
-	size, _, err := m.opts.Sizes.Measure(ctx, ClusterKey(*w), m.opts.Interval,
+	pass := m.opts.SizeInterval
+	if pass <= 0 {
+		pass = m.opts.Interval
+	}
+	size, _, err := m.opts.Sizes.Measure(ctx, ClusterKey(*w), pass,
 		func(ctx context.Context) (ClusterSize, error) { return measureSize(ctx, m.runner) })
-	if note(probes.ClusterDatabaseSizeProbe, err) {
-		w.DatabaseBytes, w.UnreadableDatabases = size.DatabaseBytes, size.UnreadableDatabases
+	if !note(probes.ClusterDatabaseSizeProbe, err) {
+		return false
 	}
+	w.DatabaseBytes, w.UnreadableDatabases = size.DatabaseBytes, size.UnreadableDatabases
+	m.sizeMu.Lock()
+	defer m.sizeMu.Unlock()
+	if size.MeasuredAt.Equal(m.sizeAt) {
+		return false
+	}
+	m.sizeAt = size.MeasuredAt
+	return true
 }
