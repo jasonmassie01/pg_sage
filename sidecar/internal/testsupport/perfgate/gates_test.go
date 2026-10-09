@@ -225,8 +225,10 @@ func TestEvaluateRanksGatesInDocumentedOrder(t *testing.T) {
 	p := steadyPhase()
 	p.Tables = []TableDelta{{Name: "sage.a", LiveRows: 1e6, SeqScans: 1, SeqTupRead: 1e6,
 		RowsWritten: 1e6}}
+	// Every cycle (6 calls): an infrequent catalog scan is not charged by
+	// the mean (infrequent_catalog_test.go).
 	p.Statements = []Statement{{QueryID: 1, Query: "SELECT x FROM pg_class",
-		Calls: 1, TotalMs: 1e5, MeanMs: 1e5, MaxMs: 1e5}}
+		Calls: 6, TotalMs: 6e5, MeanMs: 1e5, MaxMs: 1e5}}
 	got, err := Evaluate([]Phase{p}, b)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)

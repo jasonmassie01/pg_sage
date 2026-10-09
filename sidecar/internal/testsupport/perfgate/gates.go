@@ -214,12 +214,21 @@ func meanExempt(query string, b Budgets) bool {
 	return false
 }
 
+// infrequentCatalog reports a catalog statement that ran less than once
+// per cycle (a cached scan): the mean budget is for statements every cycle
+// pays for; such a scan is judged by the catalog max and the cycle's DB
+// time instead.
+func infrequentCatalog(s Statement, cycles int) bool {
+	return s.Calls < int64(cycles) && IsCatalogQuery(s.Query)
+}
+
 func timeOffenders(p Phase, b Budgets) []Offender {
 	var out []Offender
 	var total float64
 	for _, s := range p.Statements {
 		total += s.TotalMs
-		if s.MeanMs > b.StatementMeanMs && !meanExempt(s.Query, b) {
+		if s.MeanMs > b.StatementMeanMs && !meanExempt(s.Query, b) &&
+			!infrequentCatalog(s, p.Cycles) {
 			out = append(out, Offender{Gate: GateStatementMean, Phase: p.Name,
 				Subject: statementSubject(s), Measured: s.MeanMs, Budget: b.StatementMeanMs,
 				Unit:   "ms mean",
