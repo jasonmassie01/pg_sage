@@ -3,9 +3,11 @@ package firstlook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,8 +17,9 @@ import (
 
 // The first look's own budget against the session's statement_timeout, and
 // the one retry of checks that degraded with a transient error. A real
-// catalog read is slowed by holding pg_index (which only the index step
-// reads) in ACCESS EXCLUSIVE mode from another session.
+// catalog read is slowed by holding pg_index (which the index step reads;
+// so does any session rebuilding its catalog caches) in ACCESS EXCLUSIVE
+// mode from another session.
 //
 // No concurrency tests for Retry: each call runs its own pass over its own
 // transaction and returns a new report (TestRunIsDeterministicUnderConcurrency
@@ -29,24 +32,94 @@ import (
 // connections free.
 func lockIndexCatalog(t *testing.T, ctx context.Context, admin *pgxpool.Pool) func() {
 	t.Helper()
+	l := newIndexCatalogLock(t, ctx, admin)
+	if err := l.lock(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return l.release
+}
+
+// indexCatalogLock is a session, connected in advance, that takes the
+// exclusive lock on pg_index when asked.
+type indexCatalogLock struct {
+	conn *pgx.Conn
+	once sync.Once
+}
+
+func newIndexCatalogLock(t *testing.T, ctx context.Context,
+	admin *pgxpool.Pool) *indexCatalogLock {
+	t.Helper()
 	conn, err := pgx.ConnectConfig(ctx, admin.Config().ConnConfig.Copy())
 	if err != nil {
 		t.Fatalf("connect lock session: %v", err)
 	}
-	var once sync.Once
-	release := func() {
-		once.Do(func() { _ = conn.Close(context.Background()) }) // ends the lock
-	}
-	t.Cleanup(release)
-	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
-		t.Fatalf("begin lock transaction: %v", err)
-	}
-	if _, err := conn.Exec(ctx,
-		"LOCK TABLE pg_catalog.pg_index IN ACCESS EXCLUSIVE MODE"); err != nil {
-		t.Fatalf("lock pg_index: %v", err)
-	}
-	return release
+	l := &indexCatalogLock{conn: conn}
+	t.Cleanup(l.release)
+	return l
 }
+
+func (l *indexCatalogLock) lock(ctx context.Context) error {
+	if _, err := l.conn.Exec(ctx, "BEGIN"); err != nil {
+		return fmt.Errorf("begin lock transaction: %w", err)
+	}
+	if _, err := l.conn.Exec(ctx,
+		"LOCK TABLE pg_catalog.pg_index IN ACCESS EXCLUSIVE MODE"); err != nil {
+		return fmt.Errorf("lock pg_index: %w", err)
+	}
+	return nil
+}
+
+// release ends the lock before it returns: the rollback releases it
+// synchronously, while a closed connection's backend releases it only as
+// it exits, after the caller may already have read the catalog again.
+func (l *indexCatalogLock) release() {
+	l.once.Do(func() {
+		_, _ = l.conn.Exec(context.Background(), "ROLLBACK") // closing ends it anyway
+		_ = l.conn.Close(context.Background())
+	})
+}
+
+// lockAtIndexRead is a warm one-connection pool on from's role whose
+// first look takes the pg_index lock just as its index read starts (once
+// armed), and the lock's release.
+//
+// Locking before the pass begins assumed only the index step reads
+// pg_index. Any statement does once its session's catalog caches are
+// reset: DDL in other databases of the server (other test packages) can
+// overflow the shared invalidation queue, and the session then rebuilds
+// its caches from pg_index on its next statement. Under a 300 ms role
+// limit the pass's opening read of statement_timeout timed out on the
+// lock, and the report carried the default budget instead of the role's
+// limit (CI, PG18). Here the pass has read the limit before the lock.
+func lockAtIndexRead(t *testing.T, ctx context.Context, admin, from *pgxpool.Pool) (
+	*pgxpool.Pool, *atomic.Bool, func()) {
+	t.Helper()
+	l := newIndexCatalogLock(t, ctx, admin)
+	tr := &lockOnIndexRead{lock: l, t: t}
+	cfg := from.Config().Copy()
+	cfg.ConnConfig.Tracer = tr
+	return warmSingleConnConfig(t, ctx, cfg), &tr.armed, l.release
+}
+
+// lockOnIndexRead takes the lock (once, when armed) before the index read
+// is sent: the pass has opened its transaction and read the limit by then.
+type lockOnIndexRead struct {
+	lock  *indexCatalogLock
+	t     *testing.T
+	armed atomic.Bool
+}
+
+func (r *lockOnIndexRead) TraceQueryStart(ctx context.Context, _ *pgx.Conn,
+	data pgx.TraceQueryStartData) context.Context {
+	if data.SQL == indexesSQL && r.armed.CompareAndSwap(true, false) {
+		if err := r.lock.lock(context.Background()); err != nil {
+			r.t.Errorf("lock at the index read: %v", err)
+		}
+	}
+	return ctx
+}
+
+func (r *lockOnIndexRead) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
 // warmSingleConn is a one-connection pool on cfg's role and database, with
 // its session already started: while a test holds ACCESS EXCLUSIVE on
@@ -54,7 +127,12 @@ func lockIndexCatalog(t *testing.T, ctx context.Context, admin *pgxpool.Pool) fu
 // where statement_timeout does not apply (CI on PR #130 hung for 180 s).
 func warmSingleConn(t *testing.T, ctx context.Context, from *pgxpool.Pool) *pgxpool.Pool {
 	t.Helper()
-	cfg := from.Config().Copy()
+	return warmSingleConnConfig(t, ctx, from.Config().Copy())
+}
+
+func warmSingleConnConfig(t *testing.T, ctx context.Context,
+	cfg *pgxpool.Config) *pgxpool.Pool {
+	t.Helper()
 	cfg.MaxConns, cfg.MinConns = 1, 1
 	p, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -172,15 +250,19 @@ func operatorRolePool(t *testing.T, ctx context.Context, admin *pgxpool.Pool,
 func TestRunKeepsAnOperatorRoleTimeoutAndRetriesOnce(t *testing.T) {
 	admin, ctx := livePool(t)
 	s := seedProblems(t, ctx, admin)
-	mon := warmSingleConn(t, ctx, operatorRolePool(t, ctx, admin, "300"))
+	mon, armed, release := lockAtIndexRead(t, ctx, admin,
+		operatorRolePool(t, ctx, admin, "300"))
 	if _, err := Run(ctx, mon, testOptions("app")); err != nil {
 		t.Fatalf("warm-up run: %v", err)
 	}
-	release := lockIndexCatalog(t, ctx, admin)
+	armed.Store(true)
 	r, err := Run(ctx, mon, testOptions("app"))
 	release()
 	if err != nil {
 		t.Fatalf("run: %v", err)
+	}
+	if armed.Load() {
+		t.Fatal("the run never read the indexes: pg_index was not locked")
 	}
 	if r.StatementTimeoutMS != 300 {
 		t.Fatalf("statement timeout = %d ms, want the role's 300", r.StatementTimeoutMS)
