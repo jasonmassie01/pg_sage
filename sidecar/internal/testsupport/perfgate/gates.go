@@ -340,27 +340,6 @@ func statementSubject(s Statement) string {
 	return fmt.Sprintf("queryid %d: %s", s.QueryID, shortQuery(s.Query))
 }
 
-// catalogRelation matches a reference to a system catalog or statistics
-// view (pg_class, pg_stat_*, pg_catalog.*, information_schema.*).
-var catalogRelation = regexp.MustCompile(`(?i)\bpg_catalog\.|\binformation_schema\.|` +
-	`\bpg_(class|index|indexes|namespace|attribute|attrdef|constraint|sequences?|locks|` +
-	`settings|database|roles|authid|tables|tablespace|inherits|partitioned_table|proc|` +
-	`type|extension|replication_slots|prepared_xacts|depend|trigger|description|am|` +
-	`opclass|views|matviews|shdepend|publication|subscription|stat[a-z_]*)\b`)
-
-// IsCatalogQuery reports whether a statement reads the system catalog or
-// the statistics views. A matched name followed by "(" is a function call
-// (pg_stat_statements_reset(), pg_class_aux()), not a relation.
-func IsCatalogQuery(q string) bool {
-	for _, m := range catalogRelation.FindAllStringIndex(q, -1) {
-		rest := strings.TrimLeft(q[m[1]:], " \t\n")
-		if strings.HasSuffix(q[m[0]:m[1]], ".") || !strings.HasPrefix(rest, "(") {
-			return true
-		}
-	}
-	return false
-}
-
 var spaces = regexp.MustCompile(`\s+`)
 
 // shortQuery is a statement on one line, at most 160 characters.
