@@ -195,6 +195,9 @@ var excludedExactKeys = map[string]bool{
 	// lookback_hours and min_samples), so they are YAML-only.
 	"rca.stale_after_hours":                 true,
 	"sre.runways.sequence_interval_seconds": true,
+	// v2.3.x: the size sampling cadence, validated at load like the
+	// sequence interval, so it is YAML-only.
+	"sre.runways.size_interval_seconds": true,
 
 	// Dogfood round 2: the vacuum_blocked size floor is validated at load
 	// (1-max), like rca.stale_after_hours, so it is YAML-only.
