@@ -18,26 +18,25 @@ var textSeed = maphash.MakeSeed()
 // cannot express (not an array, not objects, a missing or duplicate
 // identity) is errNotEncodable.
 func parseCatalog(data []byte, fields []string, prev *catalog) (*catalog, error) {
-	var raw []json.RawMessage
-	if err := unmarshalDocument(data, &raw); err != nil {
+	raw, err := splitArray(data)
+	if err != nil {
 		return nil, err
-	}
-	if bytes.TrimSpace(data)[0] != '[' {
-		return nil, fmt.Errorf("%w: not an array", errNotEncodable)
 	}
 	c := &catalog{keys: make([]string, len(raw)), pos: make(map[string]int, len(raw)),
 		items: make([]map[string]json.RawMessage, len(raw)), raw: raw,
 		byText: make(map[uint64][]int, len(raw))}
+	hint := 0
 	for i, text := range raw {
 		h := maphash.Bytes(textSeed, text)
 		c.byText[h] = append(c.byText[h], i)
 		item, k := prev.reuse(h, text)
 		if item == nil {
 			var err error
-			if item, k, err = parseElement(i, text, fields); err != nil {
+			if item, k, err = parseElement(i, text, fields, hint); err != nil {
 				return nil, err
 			}
 		}
+		hint = len(item)
 		if _, dup := c.pos[k]; dup {
 			return nil, fmt.Errorf("%w: duplicate identity %q", errNotEncodable, k)
 		}
@@ -61,8 +60,12 @@ func (c *catalog) reuse(h uint64, text []byte) (map[string]json.RawMessage, stri
 }
 
 // parseElement decodes element i of a catalog document and its identity.
-func parseElement(i int, text []byte, fields []string) (map[string]json.RawMessage, string,
-	error) {
+func parseElement(i int, text []byte, fields []string, sizeHint int) (
+	map[string]json.RawMessage, string, error) {
+	if item, ok := scanObject(text, sizeHint); ok {
+		k, err := elementKey(item, fields)
+		return item, k, err
+	}
 	var item map[string]json.RawMessage
 	if err := json.Unmarshal(text, &item); err != nil {
 		return nil, "", fmt.Errorf("%w: element %d: %w", errNotEncodable, i, err)
