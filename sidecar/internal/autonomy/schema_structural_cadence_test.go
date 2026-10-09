@@ -63,8 +63,9 @@ func settledWatermark(t *testing.T, dsn string) int64 {
 			t.Fatalf("connect: %v", err)
 		}
 		defer conn.Close()
-		var n int64
-		if err := conn.QueryRow(context.Background(), catalogChangeSQL).Scan(&n); err != nil {
+		var n, attributeUpdates int64
+		if err := conn.QueryRow(context.Background(), catalogChangeSQL).Scan(&n,
+			&attributeUpdates); err != nil {
 			t.Fatalf("catalog watermark: %v", err)
 		}
 		return n
@@ -99,8 +100,9 @@ func recordingDetector(t *testing.T, dsn string, now func() time.Time) (
 	return newPostgresSchemaDetector(pool, now), rec
 }
 
+// structuralRuns counts the structural passes (each lists the tables).
 func structuralRuns(rec *testdb.QueryRecorder) int {
-	n := len(rec.Matching("everything_text", "type_tightening"))
+	n := len(rec.Matching("structural:tables"))
 	rec.Reset()
 	return n
 }

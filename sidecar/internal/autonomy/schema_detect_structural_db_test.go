@@ -8,8 +8,8 @@ import (
 )
 
 // windowStructuralPathologySQL is the pre-v2.3.1 structural scan (a window
-// over every column of every table). The per-table aggregate that replaced
-// it must return exactly its rows, in its order.
+// over every column of every table). The structural pass (per-table column
+// summaries assembled in Go) must return exactly its rows, in its order.
 const windowStructuralPathologySQL = `
 WITH columns AS (
     SELECT ns.nspname AS schema_name, tbl.relname AS table_name,
@@ -81,9 +81,17 @@ func TestStructuralPathologySQLMatchesTheWindowScan(t *testing.T) {
 			"DROP TABLE IF EXISTS sage.structfx_probe")
 	})
 	want := structuralRows(t, windowStructuralPathologySQL)
-	got := structuralRows(t, structuralPathologySQL)
+	items, err := postgresSchemaDetector{pool: pool}.detectStructuralPathologies(
+		context.Background())
+	if err != nil {
+		t.Fatalf("structural pass: %v", err)
+	}
+	got := []string{}
+	for _, item := range items {
+		got = append(got, invariantRow(item))
+	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("aggregate scan differs from the window scan:\n got %q\nwant %q", got, want)
+		t.Fatalf("structural pass differs from the window scan:\n got %q\nwant %q", got, want)
 	}
 	mine := 0
 	for _, r := range got {
@@ -99,8 +107,8 @@ func TestStructuralPathologySQLMatchesTheWindowScan(t *testing.T) {
 	}
 }
 
-func TestStructuralPathologySQLHasNoWindowOverEveryColumn(t *testing.T) {
-	if strings.Contains(structuralPathologySQL, "OVER (") {
-		t.Fatalf("structural scan still windows every column:\n%s", structuralPathologySQL)
+func TestStructuralColumnsSQLHasNoWindowOverEveryColumn(t *testing.T) {
+	if strings.Contains(structuralColumnsSQL, "OVER (") {
+		t.Fatalf("structural scan still windows every column:\n%s", structuralColumnsSQL)
 	}
 }
