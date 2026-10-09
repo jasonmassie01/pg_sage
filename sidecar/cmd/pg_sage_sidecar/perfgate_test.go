@@ -102,6 +102,9 @@ func buildPerfFixture(
 	if err := perfgate.AnalyzeSage(ctx, harness); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
+	if err := perfgate.Settle(ctx, harness); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
 	t.Logf("history: %d rows per growing table in %s", scale.HistoryRows,
 		time.Since(seeded).Round(time.Second))
 	logPerfFixtureSize(t, ctx, harness)
