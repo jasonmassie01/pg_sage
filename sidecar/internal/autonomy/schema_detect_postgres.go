@@ -13,11 +13,12 @@ import (
 )
 
 // postgresSchemaDetector reads the catalog for schema invariants: three
-// catalog queries per cycle, plus one pg_stat_statements read when foreign
+// catalog reads per cycle (the structural one a few statements in one
+// snapshot, often none), plus one pg_stat_statements read when foreign
 // keys need workload evidence, however many tables the database has. The
-// structural scan is the costliest and changes only with DDL: it reruns
-// when the catalog changed or hourly (structural); a detector without a
-// structural cache scans every cycle.
+// structural scan is the costliest and changes only with DDL: it passes
+// over the tables the catalog changed, or hourly (structural); a detector
+// without a structural cache passes in full every cycle.
 type postgresSchemaDetector struct {
 	pool       *pgxpool.Pool
 	now        func() time.Time
@@ -107,36 +108,6 @@ func (d postgresSchemaDetector) detectUnboundedAppend(
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate unbounded append tables: %w", err)
-	}
-	return result, nil
-}
-
-// scanStructuralPathologies runs the structural catalog scan.
-func (d postgresSchemaDetector) scanStructuralPathologies(
-	ctx context.Context,
-) ([]schemaguard.Invariant, error) {
-	rows, err := d.pool.Query(ctx, structuralPathologySQL)
-	if err != nil {
-		return nil, fmt.Errorf("detect structural schema pathologies: %w", err)
-	}
-	defer rows.Close()
-	result := make([]schemaguard.Invariant, 0)
-	for rows.Next() {
-		var schemaName, tableName, columnName, kind string
-		if err := rows.Scan(&schemaName, &tableName, &columnName, &kind); err != nil {
-			return nil, fmt.Errorf("scan structural schema pathology: %w", err)
-		}
-		invariant := schemaguard.Invariant{
-			Kind: schemaguard.InvariantKind(kind), Schema: schemaName, Table: tableName,
-			Subject: columnName,
-		}
-		if kind == string(schemaguard.InvariantTypeTightening) {
-			invariant.ProposedSQL = typeTighteningProposal(schemaName, tableName, columnName)
-		}
-		result = append(result, invariant)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate structural schema pathologies: %w", err)
 	}
 	return result, nil
 }
