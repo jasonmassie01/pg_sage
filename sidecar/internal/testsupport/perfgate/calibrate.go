@@ -16,10 +16,11 @@ import (
 
 // The reference runner is the one the timing budgets were set on: a
 // GitHub ubuntu-latest runner with the gate's clean PG17 container. Its
-// workload times are the median of perfgate.yml runs (2026-10-09).
+// workload times are the medians of three perfgate.yml runs on separate
+// runners (2026-10-09: CPU 55.2-57.3 ms, SQL 171.7-175.7 ms).
 const (
-	ReferenceCPUMs = 100.0
-	ReferenceDBMs  = 100.0
+	ReferenceCPUMs = 57.0
+	ReferenceDBMs  = 172.2
 	// MaxCalibrationFactor bounds how much a slow runner loosens the
 	// timing budgets, so a regression cannot hide behind one.
 	MaxCalibrationFactor = 1.5
