@@ -22,6 +22,7 @@ import (
 type roleFixture struct {
 	super    *pgxpool.Pool // superuser, for setup and inspection
 	admin    *pgxpool.Pool // pg_sage's role
+	adminName string
 	dsn      string
 	db       string
 	store    *Store
@@ -86,26 +87,54 @@ func (f *roleFixture) createAdmin(t *testing.T) *pgxpool.Pool {
 	}
 	pool, err := pgxpool.New(ctx, withUser(t, f.dsn, name, "admin-pw"))
 	require.NoError(t, err)
+	f.adminName = name
 	t.Cleanup(func() {
 		pool.Close()
-		f.dropRole(name)
+		f.dropRole(t, name)
 	})
 	return pool
 }
 
-// dropRole removes a role and everything it holds, as superuser.
-func (f *roleFixture) dropRole(name string) {
+// dropRole removes a role and everything it holds. pg_sage's admin role
+// granted some of its privileges (CONNECT, table grants), and a superuser's
+// DROP OWNED does not revoke another grantor's grants, so the admin first
+// revokes its own (under a temporary INHERIT), then the superuser drops the
+// rest and the role. A failure is a test error, never swallowed.
+func (f *roleFixture) dropRole(t *testing.T, name string) {
 	ctx := context.Background()
 	var exists bool
-	_ = f.super.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
-		name).Scan(&exists)
+	if err := f.super.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles "+
+		"WHERE rolname = $1)", name).Scan(&exists); err != nil {
+		t.Errorf("cleanup: reading role %s: %v", name, err)
+		return
+	}
 	if !exists {
 		return
 	}
-	_, _ = f.super.Exec(ctx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "+
-		"WHERE usename = $1", name)
-	_, _ = f.super.Exec(ctx, "DROP OWNED BY "+ident(name))
-	_, _ = f.super.Exec(ctx, "DROP ROLE "+ident(name))
+	steps := []string{
+		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '" +
+			name + "'",
+	}
+	if f.adminName != "" && name != f.adminName {
+		steps = append(steps, "GRANT "+ident(name)+" TO "+ident(f.adminName)+
+			" WITH INHERIT TRUE",
+			"SET ROLE "+ident(f.adminName), "DROP OWNED BY "+ident(name), "RESET ROLE")
+	}
+	steps = append(steps, "DROP OWNED BY "+ident(name), "DROP ROLE "+ident(name))
+	conn, err := f.super.Acquire(ctx)
+	if err != nil {
+		t.Errorf("cleanup: %v", err)
+		return
+	}
+	defer conn.Release()
+	for _, st := range steps {
+		if _, err := conn.Exec(ctx, st); err != nil {
+			_, _ = conn.Exec(ctx, "RESET ROLE")
+			t.Errorf("cleanup of role %s: %s: %v", name, st, err)
+			return
+		}
+	}
+	untrackRole(name)
 }
 
 // principal creates a sponsored principal whose roles are dropped at the
@@ -114,9 +143,10 @@ func (f *roleFixture) principal(t *testing.T) Principal {
 	t.Helper()
 	sponsor := createUser(t, f.super, "admin")
 	p := newPrincipal(t, f.store, &sponsor)
+	trackRole(p.BrokerRole(), p.LoginRole())
 	t.Cleanup(func() {
-		f.dropRole(p.BrokerRole())
-		f.dropRole(p.LoginRole())
+		f.dropRole(t, p.BrokerRole())
+		f.dropRole(t, p.LoginRole())
 	})
 	return p
 }

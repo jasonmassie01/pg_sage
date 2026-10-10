@@ -36,6 +36,8 @@ var agentAccessCensus = map[string]string{
 	"internal/agentguard/envbind/evaluate.go":  "text",
 	// The P1 fix (REVOKE CREATE ... FROM PUBLIC) is shown to an owner, never run.
 	"internal/agentguard/preflight.go": "text",
+	// Retire's REVOKE fixes are shown to the other grantor, never run.
+	"internal/agentguard/residue.go": "text",
 }
 
 // closedListAnchors are where each closed-list path lives; the anchor must

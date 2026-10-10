@@ -86,7 +86,7 @@ func (r *retireRun) execute(ctx context.Context,
 // grantor's privileges remain: pg_sage could not revoke them, and DROP
 // ROLE would fail half-way.
 func (r *retireRun) refuseResidue(ctx context.Context, roles []string) error {
-	var found []string
+	var found, fixes []string
 	for _, d := range r.req.Cluster.Databases {
 		res, err := ForeignGrants(ctx, d.Pool, roles)
 		if err != nil {
@@ -94,13 +94,17 @@ func (r *retireRun) refuseResidue(ctx context.Context, roles []string) error {
 		}
 		for _, x := range res {
 			found = append(found, d.Name+": "+x.String())
+			fixes = append(fixes, "-- in "+d.Name+"\n"+x.Fix)
 		}
 	}
-	if len(found) > 0 {
-		return fmt.Errorf("%w: privileges from another grantor remain (%s); their "+
-			"grantor must revoke them", ErrPostCheck, strings.Join(found, "; "))
+	if len(found) == 0 {
+		return nil
 	}
-	return nil
+	denied := &DeniedError{Reason: ReasonRevokeIncomplete,
+		Detail: "privileges from another grantor remain (" + strings.Join(found, "; ") +
+			"); their grantor must revoke them",
+		Fix: strings.Join(fixes, "\n")}
+	return fmt.Errorf("%w: %w", ErrPostCheck, denied)
 }
 
 // adminTx runs step on the admin connection in one locked transaction,
