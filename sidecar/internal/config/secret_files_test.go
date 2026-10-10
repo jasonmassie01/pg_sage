@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,15 +18,6 @@ func writeSecretFile(t *testing.T, body string, perm os.FileMode) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func captureConfigWarnings(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var out bytes.Buffer
-	previous := configWarningOutput
-	configWarningOutput = &out
-	t.Cleanup(func() { configWarningOutput = previous })
-	return &out
 }
 
 func clearSecretEnv(t *testing.T) {
