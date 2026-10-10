@@ -154,7 +154,7 @@ func parseSealed(v string) (string, []byte, error) {
 	if !ok || kid == "" || encoded == "" {
 		return "", nil, fmt.Errorf("%w: missing key id or body", ErrMalformedSealed)
 	}
-	body, err := base64.RawURLEncoding.DecodeString(encoded)
+	body, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: body is not base64url", ErrMalformedSealed)
 	}
