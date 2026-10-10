@@ -29,13 +29,11 @@ import (
 //   - "text": the SQL is a fix or message shown to a person, never run;
 //   - "out_of_gate:<path>": one of OutOfGatePaths.
 var agentAccessCensus = map[string]string{
-	"internal/agentguard/roles.go":                "gate:guard_role_ensure,guard_role_retire",
-	"internal/agentguard/roles_ensure.go":         "gate:guard_role_ensure",
-	"internal/agentguard/roles_retire.go":         "gate:guard_role_retire",
-	"internal/executor/guard_role_contract.go":    "gate:guard_role_ensure,guard_role_retire",
-	"internal/agentguard/envbind/evaluate.go":     "text",
-	"internal/agentguard/classify/grant.go":       "text",
-	"internal/agentguard/classify/store_decide.go": "text",
+	"internal/agentguard/roles.go":             "gate:guard_role_ensure,guard_role_retire",
+	"internal/agentguard/roles_ensure.go":      "gate:guard_role_ensure",
+	"internal/agentguard/roles_retire.go":      "gate:guard_role_retire",
+	"internal/executor/guard_role_contract.go": "gate:guard_role_ensure,guard_role_retire",
+	"internal/agentguard/envbind/evaluate.go":  "text",
 }
 
 // closedListAnchors are where each closed-list path lives; the anchor must

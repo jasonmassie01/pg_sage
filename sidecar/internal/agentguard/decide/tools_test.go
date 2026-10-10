@@ -107,3 +107,22 @@ func TestSchemaIntentsClassifyTheirSQL(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultProfilesAreTheSpecs(t *testing.T) {
+	p := DefaultProfiles()
+	if len(p) != 4 {
+		t.Fatalf("profiles = %d, want the 4 of spec section 9", len(p))
+	}
+	coding, ok := p.Profile("coding-agent")
+	if !ok || coding.EnvCeiling != "stage" || coding.Allows(CapDDLDestructive) ||
+		!coding.Allows(CapDDLLocking) || coding.DirectLane {
+		t.Fatalf("coding-agent = %+v", coding)
+	}
+	legacy, _ := p.Profile("legacy")
+	if !legacy.Allows(CapRead) || legacy.Allows(CapWriteInsert) {
+		t.Fatalf("legacy = %+v, want read only", legacy)
+	}
+	if _, ok := p.Profile("nope"); ok {
+		t.Fatal("unknown profile must not resolve")
+	}
+}
