@@ -67,6 +67,33 @@ function FindingCard({ item }) {
   )
 }
 
+const POSTURE = 'agent_posture'
+
+// PostureSection is the "Agent posture" section: how exposed the database
+// is to agents and untrusted clients. Every fix is a script to review.
+function PostureSection({ report }) {
+  const checks = (report.checks || []).filter(c => c.section === POSTURE)
+  if (checks.length === 0) return null
+  const items = (report.items || []).filter(i => i.section === POSTURE)
+  const withFindings = checks.filter(c => c.status === 'finding').length
+  const degraded = checks.filter(c => c.status === 'degraded').length
+  let summary = `${checks.length} checks, ${withFindings} with findings`
+  if (degraded > 0) summary += `, ${degraded} could not run`
+  return (
+    <section className="space-y-2" aria-labelledby={`posture-${report.database}`}>
+      <h3 id={`posture-${report.database}`} className="text-sm font-semibold">
+        Agent posture
+      </h3>
+      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{summary}.</p>
+      {items.length === 0 ? (
+        <p className="text-sm">No agent posture problems found.</p>
+      ) : items.map((item, i) => (
+        <FindingCard key={`${item.rule}-${item.object}-${i}`} item={item} />
+      ))}
+    </section>
+  )
+}
+
 function Report({ entry }) {
   const report = entry.report
   if (!report) {
@@ -76,7 +103,7 @@ function Report({ entry }) {
       </p>
     )
   }
-  const items = report.items || []
+  const items = (report.items || []).filter(i => i.section !== POSTURE)
   return (
     <div className="space-y-2">
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -89,6 +116,7 @@ function Report({ entry }) {
       ) : items.map((item, i) => (
         <FindingCard key={`${item.rule}-${item.object}-${i}`} item={item} />
       ))}
+      <PostureSection report={report} />
     </div>
   )
 }
