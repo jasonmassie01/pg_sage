@@ -24,14 +24,19 @@ import (
 
 const day = 24 * time.Hour
 
+// testPrincipalID is the agent principal the tests' agent tokens act for
+// (from G1 every agent token is bound to one; the DB tests create it).
+const testPrincipalID = "agp_mcptokentestprincipa"
+
 func validAgent() mcptoken.CreateRequest {
 	return mcptoken.CreateRequest{
-		Name:      "ci-agent",
-		Kind:      mcptoken.KindAgent,
-		Scopes:    []string{mcptoken.ScopeRead, mcptoken.ScopePropose},
-		Databases: []string{"orders"},
-		ExpiresIn: day,
-		CreatedBy: "admin@example.com",
+		Name:        "ci-agent",
+		Kind:        mcptoken.KindAgent,
+		Scopes:      []string{mcptoken.ScopeRead, mcptoken.ScopePropose},
+		Databases:   []string{"orders"},
+		ExpiresIn:   day,
+		CreatedBy:   "admin@example.com",
+		PrincipalID: testPrincipalID,
 	}
 }
 
@@ -40,6 +45,7 @@ func validOperator() mcptoken.CreateRequest {
 	req.Kind = mcptoken.KindOperator
 	req.Scopes = []string{mcptoken.ScopeRead, mcptoken.ScopePropose, mcptoken.ScopeApprove}
 	req.OwnerUserID = 7
+	req.PrincipalID = ""
 	return req
 }
 
@@ -103,6 +109,15 @@ var kindCases = []invalidCase{
 		func(r *mcptoken.CreateRequest) { r.Kind = "robot" }, mcptoken.ErrInvalid, "kind"},
 	{"empty kind", validAgent,
 		func(r *mcptoken.CreateRequest) { r.Kind = "" }, mcptoken.ErrInvalid, "kind"},
+	{"agent without principal", validAgent,
+		func(r *mcptoken.CreateRequest) { r.PrincipalID = "" },
+		mcptoken.ErrPrincipalRequired, ""},
+	{"agent with malformed principal", validAgent,
+		func(r *mcptoken.CreateRequest) { r.PrincipalID = "agp_NOPE" },
+		mcptoken.ErrPrincipalRequired, ""},
+	{"operator with principal", validOperator,
+		func(r *mcptoken.CreateRequest) { r.PrincipalID = testPrincipalID },
+		mcptoken.ErrInvalid, "principal"},
 }
 
 var databaseCases = []invalidCase{
@@ -172,7 +187,7 @@ func runInvalid(t *testing.T, cases []invalidCase) {
 func requireOnlySentinel(t *testing.T, err, want error) {
 	t.Helper()
 	for _, other := range []error{mcptoken.ErrApproveForAgent, mcptoken.ErrOwnerRequired,
-		mcptoken.ErrNotFound, mcptoken.ErrUnauthorized} {
+		mcptoken.ErrNotFound, mcptoken.ErrUnauthorized, mcptoken.ErrPrincipalRequired} {
 		if other == want {
 			continue
 		}
