@@ -39,6 +39,10 @@ var excludedPrefixes = []string{
 	"fleet_learning.",
 	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
 	"agents.",
+	// E2 audit export and the MCP OAuth resource server: YAML only,
+	// restart-bound, safety-critical (endpoints, credentials, who may call MCP)
+	"audit.",
+	"mcp.oauth.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
