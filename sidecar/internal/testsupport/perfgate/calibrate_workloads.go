@@ -78,7 +78,8 @@ func cpuWorkload(doc []byte) {
 }
 
 // calibrationTag marks the SQL workload as a harness statement, which the
-// gate never charges to pg_sage.
+// gate never charges to pg_sage. It follows SELECT: PostgreSQL 18's
+// pg_stat_statements drops a statement's leading comment from its text.
 const calibrationTag = HarnessTag + " calibration"
 
 // calibrationSQL is a fixed server-side workload: aggregation over
@@ -87,7 +88,7 @@ const calibrationTag = HarnessTag + " calibration"
 // At the default 4MB they spilled 2564 temp blocks (20 MB), so the
 // workload timed the disk too; they need about 88MB on PostgreSQL 14,
 // 72MB on 17 and 64MB on 18.
-const calibrationSQL = `/* ` + calibrationTag + ` */ SELECT count(*)
+const calibrationSQL = `SELECT /* ` + calibrationTag + ` */ count(*)
 FROM generate_series(1, 1500000) g WHERE g % 7 = 3`
 
 var calibrationSettings = []string{"SET LOCAL jit = off", "SET LOCAL work_mem = '256MB'"}
