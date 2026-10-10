@@ -15,12 +15,12 @@ import (
 // agentGovernanceStartupTimeout bounds the startup migration and checks.
 const agentGovernanceStartupTimeout = 30 * time.Second
 
-// startAgentGovernance runs agent governance's startup work on the control
+// startAgentIdentityStartup runs agent governance's startup work on the control
 // database in the background: it binds legacy agent tokens to principals
 // (G1-11) and self-checks pg_sage's own role (G1-01). Neither refuses the
 // start: an unbound agent token fails closed until the migration succeeds,
 // and a failed self-check leaves agent governance posture-only.
-func startAgentGovernance(ctx context.Context, pool *pgxpool.Pool, c *config.Config) {
+func startAgentIdentityStartup(ctx context.Context, pool *pgxpool.Pool, c *config.Config) {
 	go runAgentGovernanceStartup(ctx, pool, c)
 }
 
