@@ -20,8 +20,9 @@ v0 answers three questions with evidence, not assertions:
    after.
 2. **Does posture detection catch the known-bad setups?** A Supabase-style
    exposed table, a permissive policy, a `SECURITY DEFINER` function, `PUBLIC
-   CREATE`, and vulnerable pgvector versions each get a fixture; the posture
-   detectors are scored against them.
+   CREATE`, an HNSW index on a vulnerable pgvector, an agent role that
+   bypasses RLS and an agent role that owns a table each get a fixture; the
+   real posture detectors are scored against them.
 3. **What would each real-world incident do here?** Every incident in the
    research catalog is mapped to a control and scored against a declared
    expectation: prevented, detected, or out of scope.
@@ -70,10 +71,13 @@ summarizes each bypass *class* in a line and does not publish recipes.
 
 Each scenario applies a known-bad fixture to a fresh schema and declares the
 detector ids that should fire (for example, an exposed table expects AP-03).
-The detectors live behind a small `PostureProvider` interface, so the bench
-and the detector framework are built independently; the bench scores the
-expected ids against what the provider returns. A version-dependent arm
-(pgvector / server age) is reported from catalog facts rather than created,
+The bench runs the shipped detectors (`agentposture.RunAll`, default
+configuration) behind a small `PostureProvider` interface. The detectors read
+the whole database, so a scenario counts only findings on its own objects
+(its schema or role). Agent scenarios use registered agent role names
+(`sage_agentb_` and 10 base32 characters) and drop them afterwards. The
+pgvector scenario creates an HNSW index; AP-10 fires while the installed
+pgvector lacks the 0.8.4 fix, and correctly stays quiet on a fixed release,
 because the bench does not downgrade extensions.
 
 ### Incident-to-control mapping
@@ -111,16 +115,19 @@ refuse everything.
 shared-login ORM reset, both posture detections), 2 out of scope (INC-19,
 INC-20 for prevention), 3 future release (INC-04, INC-06, INC-15).
 
-**Posture scenarios** — five fixtures (AP-03, AP-04, AP-05, AP-07, AP-10) set
-up and recorded. Scoring is pending the detector framework; until a provider
-is connected the report claims no detections.
+**Posture scenarios** — seven fixtures, each matched by its expected detector
+on PG14, PG17 and PG18 (pgvector 0.8.2): AP-03 (exposed table), AP-04
+(permissive policy), AP-05 (`SECURITY DEFINER` function), AP-07 (`PUBLIC
+CREATE`), AP-01 (agent role with `BYPASSRLS`), AP-02 (agent role owns a
+table) and AP-10 (HNSW index below pgvector 0.8.4).
 
 ## Limits
 
 - **v0 does not yet run RO-01..RO-16.** The harness is proven with
   self-checks; the corpus numbers appear once the fixtures are authored.
-- **Posture scoring needs the detector framework.** The scenarios and the
-  adapter are in place; the detectors are a separate workstream.
+- **Posture covers seven of sixteen detectors.** AP-06, AP-08, AP-09 and
+  AP-11..AP-16 have their own tests in `internal/agentposture` but no bench
+  scenario yet; session-based ones (AP-13, AP-16) need live client sessions.
 - **The mapping scores expectations, not live attacks.** The prevention
   claims for identity/broker/taint rows are explicitly future work, so no row
   reads as passing before the feature exists.

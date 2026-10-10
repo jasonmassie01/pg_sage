@@ -1,7 +1,11 @@
 -- AP-04: an RLS policy for an exposed role whose USING clause is true.
+-- Both Supabase roles exist so anon counts as exposed.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
     CREATE ROLE anon NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
   END IF;
 END $$;
 DROP SCHEMA IF EXISTS sb_ps_policy CASCADE;

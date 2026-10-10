@@ -52,8 +52,11 @@ failed with an uncredited `other_error`, is reported distinctly.
 ### 2. Posture scenarios
 
 Each scenario applies a known-bad fixture to a fresh schema and declares the
-detector ids expected (AP-03, AP-04, AP-05, AP-07, AP-10). Detectors sit
-behind the `PostureProvider` interface:
+detector ids expected: AP-03, AP-04, AP-05 and AP-07 on Supabase-style
+exposed roles, AP-01 and AP-02 on registered agent roles
+(`sage_agentb_` and 10 base32 characters, dropped by the scenario's
+`*_down.sql` teardown), and AP-10 on an HNSW index. Detectors sit behind the
+`PostureProvider` interface:
 
 ```go
 type PostureProvider interface {
@@ -62,14 +65,18 @@ type PostureProvider interface {
 }
 ```
 
-v0 ships `NotConnectedProvider`, which claims no findings. **To connect the
-real detectors**, pass the framework's provider to `Run(ctx, pool,
-Options{Posture: realProvider})` (see `bench.go`). No detector is implemented
-here; that is the posture workstreams' job.
+`DetectorProvider` (the default) runs the real detectors through
+`agentposture.RunAll` with the shipped configuration; a detector that does
+not complete fails the run. `NotConnectedProvider` claims no findings and
+only checks that the fixtures apply. No detector is implemented here.
 
-**Scoring.** Per scenario, the expected detector ids are split into matched
-(the provider fired them) and missing. With `NotConnectedProvider` every
-scenario is recorded unconnected and claims no matches.
+**Scoring.** The detectors read the whole database, so each scenario counts
+only findings whose object contains its scope (its schema or role). The
+expected detector ids are then split into matched (fired on the scenario's
+objects) and missing. AP-10 fires only while the installed pgvector is below
+0.8.4; on a fixed release it is correctly missing. With
+`NotConnectedProvider` every scenario is recorded unconnected and claims no
+matches.
 
 ### 3. Incident-to-control mapping
 

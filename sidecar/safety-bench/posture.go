@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -19,13 +20,10 @@ type PostureFinding struct {
 	Detail     string `json:"detail,omitempty"`
 }
 
-// PostureProvider returns posture findings for a database. The real
-// detector framework implements this; the bench depends only on this
-// interface so the framework and the scenarios can be built in parallel.
-//
-// The coordinator wires the real provider by replacing the provider passed
-// to RunPosture (see NotConnectedProvider for the v0 placeholder). No bench
-// code implements a detector; that is the posture workstreams' job.
+// PostureProvider returns posture findings for a database. DetectorProvider
+// runs the real detector framework (internal/agentposture); the bench
+// depends only on this interface so scoring can be tested with fakes. No
+// bench code implements a detector.
 type PostureProvider interface {
 	// Name identifies the provider in the report.
 	Name() string
@@ -34,11 +32,10 @@ type PostureProvider interface {
 	Findings(ctx context.Context, pool *pgxpool.Pool) ([]PostureFinding, error)
 }
 
-// NotConnectedProvider is the v0 placeholder used until the detector
-// framework branch is connected. It returns no findings and reports itself
-// as not connected, so every posture scenario records "detector framework
-// not connected" rather than a false pass. Replace it in RunPosture with the
-// real provider once the coordinator supplies the framework branch.
+// NotConnectedProvider claims no findings and reports itself as not
+// connected, so every posture scenario records "detector framework not
+// connected" rather than a false pass. It checks that the fixtures apply
+// without scoring them.
 type NotConnectedProvider struct{}
 
 func (NotConnectedProvider) Name() string { return "not_connected" }
@@ -57,11 +54,17 @@ type PostureScenario struct {
 	// Expect lists the detector ids that should fire for this scenario
 	// (AGENTDB-SPEC §6.15). A scenario can expect more than one.
 	Expect []string `json:"expect"`
+	// Scope is the text every counted finding's object contains (the
+	// scenario's schema or role): the detectors read the whole database,
+	// so findings on other objects must not score for this scenario.
+	Scope string `json:"scope"`
 	// SetupSQL is the fixture that creates the posture, loaded from disk.
 	SetupSQL string `json:"-"`
-	// VersionNote records a version dependency (e.g. pgvector or server
-	// version) the scenario cannot create on the bench's server; the real
-	// provider reports such arms from catalog facts.
+	// TeardownSQL removes what must not outlive the scenario, such as
+	// cluster-wide agent roles; empty when nothing needs removing.
+	TeardownSQL string `json:"-"`
+	// VersionNote records a version dependency (e.g. the installed pgvector
+	// release) that decides whether the expected detector can fire.
 	VersionNote string `json:"version_note,omitempty"`
 }
 
@@ -80,9 +83,10 @@ type PostureResult struct {
 }
 
 // RunPosture applies each scenario's fixture to a fresh schema on owner's
-// database, asks the provider for findings, and scores expected detector
-// ids against what fired. With the NotConnectedProvider, every scenario is
-// recorded unconnected (no matches claimed).
+// database, asks the provider for findings, scores expected detector ids
+// against what fired on the scenario's objects, and runs the teardown.
+// With the NotConnectedProvider every scenario is recorded unconnected (no
+// matches claimed).
 func RunPosture(
 	ctx context.Context, owner *pgxpool.Pool, scenarios []PostureScenario, p PostureProvider,
 ) ([]PostureResult, error) {
@@ -98,10 +102,25 @@ func RunPosture(
 	return results, nil
 }
 
+// teardownTimeout bounds a scenario's teardown, which runs after ctx ends.
+const teardownTimeout = 30 * time.Second
+
 func runPostureScenario(
 	ctx context.Context, owner *pgxpool.Pool, sc PostureScenario,
 	p PostureProvider, connected bool,
-) (PostureResult, error) {
+) (r PostureResult, err error) {
+	defer func() {
+		if sc.TeardownSQL == "" {
+			return
+		}
+		// Tear down even when ctx ended, so no agent role outlives the run.
+		tctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), teardownTimeout)
+		defer cancel()
+		_, tdErr := owner.Exec(tctx, sc.TeardownSQL)
+		if tdErr != nil && err == nil {
+			err = fmt.Errorf("teardown: %w", tdErr)
+		}
+	}()
 	if sc.SetupSQL != "" {
 		if _, err := owner.Exec(ctx, sc.SetupSQL); err != nil {
 			return PostureResult{}, fmt.Errorf("setup: %w", err)
@@ -111,7 +130,8 @@ func runPostureScenario(
 	if err != nil {
 		return PostureResult{}, fmt.Errorf("provider findings: %w", err)
 	}
-	r := PostureResult{ID: sc.ID, Name: sc.Name, Expect: sc.Expect,
+	found = scopedFindings(sc.Scope, found)
+	r = PostureResult{ID: sc.ID, Name: sc.Name, Expect: sc.Expect,
 		Provider: p.Name(), Connected: connected, Found: found, VersionNote: sc.VersionNote}
 	r.MatchedDetectors, r.MissingDetectors = scoreDetectors(sc.Expect, found)
 	return r, nil

@@ -1,4 +1,5 @@
--- AP-03: a table granted to an exposed role with RLS left disabled.
+-- AP-03: a table granted to an exposed role with RLS left disabled. anon is
+-- exposed when both Supabase roles exist.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
     CREATE ROLE anon NOLOGIN;

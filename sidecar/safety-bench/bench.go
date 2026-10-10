@@ -11,8 +11,8 @@ type Options struct {
 	// SelfCheckOnly restricts the read-only corpus to the harness
 	// self-checks (used until RO-01..RO-16 fixtures are authored).
 	SelfCheckOnly bool
-	// Posture is the posture provider. Use NotConnectedProvider until the
-	// detector framework branch is wired.
+	// Posture is the posture provider; nil runs the real detectors
+	// (NewDetectorProvider).
 	Posture PostureProvider
 	Meta    ReportMeta
 }
@@ -35,7 +35,7 @@ func Run(ctx context.Context, owner *pgxpool.Pool, opts Options) (Report, error)
 	}
 	provider := opts.Posture
 	if provider == nil {
-		provider = NotConnectedProvider{}
+		provider = NewDetectorProvider()
 	}
 	postureResults, err := RunPosture(ctx, owner, scenarios, provider)
 	if err != nil {
