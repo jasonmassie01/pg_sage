@@ -43,8 +43,10 @@ func TestReportDropsTheInfrequentCatalogRule(t *testing.T) {
 // Real pg_sage statements. A statement that reads a sage table is pg_sage
 // history, judged by the mean like any other: pg_catalog function calls
 // in it (now(), make_interval(), regr_slope()) do not make it a catalog
-// read. Catalog reads stay catalog reads, whatever a comment or a string
-// literal in them says.
+// read. A system function read as a row source (FROM pg_ls_waldir()) is
+// a catalog read: like a catalog relation, its cost follows the size of
+// the system it lists, and gate D's max holds it. Catalog reads stay
+// catalog reads, whatever a comment or a string literal in them says.
 var catalogClassification = []struct {
 	name    string
 	query   string
@@ -123,9 +125,9 @@ JOIN pg_catalog.pg_class c ON c.relname = f.object_identifier`, false},
 	{"upper-case sage schema", `SELECT 1 FROM SAGE.findings, pg_stat_user_tables`, false},
 	{"pg_catalog.now() alone", `/* pg_sage */ SELECT pg_catalog.now()`, false},
 	{"pg_catalog function with space", `SELECT pg_catalog.current_setting ('work_mem')`, false},
-	{"function-only system read", `/* pg_sage sre:wal_directory v1 */
-SELECT (SELECT COALESCE(sum(w.size), 0)::int8 FROM pg_catalog.pg_ls_waldir() w)`, false},
 	{"statistics reset call", `SELECT pg_stat_statements_reset()`, false},
+	{"pg_catalog row source that reads no system state",
+		`SELECT x FROM pg_catalog.unnest($1::int8[]) x`, false},
 
 	{"sre:cluster_database_size v1", `/* pg_sage sre:cluster_database_size v1 */
 SELECT (SELECT sum(pg_catalog.pg_database_size(d.oid))::int8
@@ -152,6 +154,25 @@ JOIN pg_namespace ns ON ns.oid=tbl.relnamespace
 WHERE con.contype='f'
   AND NOT EXISTS (SELECT 1 FROM pg_index idx WHERE idx.indrelid=con.conrelid)`, true},
 	{"qualified catalog relation", `SELECT 1 FROM pg_catalog.pg_namespace n`, true},
+	{"sre:wal_directory v1", `/* pg_sage sre:wal_directory v1 */
+SELECT (SELECT COALESCE(sum(w.size), 0)::int8 FROM pg_catalog.pg_ls_waldir() w)
+           AS wal_dir_bytes,
+       (SELECT count(*)::int8 FROM pg_catalog.pg_ls_waldir() w) AS wal_files,
+       (SELECT count(*)::int8 FROM pg_catalog.pg_ls_archive_statusdir() a
+        WHERE a.name LIKE '%.ready') AS archive_ready_files
+LIMIT $1`, true},
+	{"sre:wal_runway v2", `/* pg_sage sre:wal_runway v2 */
+SELECT pg_catalog.pg_is_in_recovery() AS in_recovery,
+       (SELECT c.system_identifier::text FROM pg_catalog.pg_control_system() c)
+           AS system_identifier,
+       current_user::text AS role_name
+LIMIT $1`, true},
+	{"unqualified statistics function in FROM",
+		`SELECT a.pid FROM pg_stat_get_activity(NULL) a`, true},
+	{"system function joined LATERAL", `SELECT f FROM (VALUES (1)) v
+CROSS JOIN LATERAL pg_catalog.pg_ls_dir('pg_wal') f`, true},
+	{"system function in FROM in upper case",
+		`SELECT count(*) FROM PG_CATALOG.PG_LS_WALDIR()`, true},
 	{"statistics view", `/* pg_sage */ SELECT * FROM pg_stat_user_tables`, true},
 	{"information schema", `select * from information_schema.columns`, true},
 	{"catalog read mentioning sage in a comment",
