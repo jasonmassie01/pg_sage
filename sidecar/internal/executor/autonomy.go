@@ -131,7 +131,7 @@ func (e *Executor) queueHandoff(
 		meta.ActionType = request.Contract.ActionType
 	}
 	queueID, err := proposer.ProposeWithMetadata(ctx, e.databaseID, findingID,
-		proposal.SQL, "", decision.RiskTier, meta)
+		proposal.SQL, "", decision.RiskTier, withAgentProvenance(ctx, meta))
 	if err != nil {
 		return fmt.Errorf("queue handoff: %w", err)
 	}

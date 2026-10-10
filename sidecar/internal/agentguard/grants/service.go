@@ -130,6 +130,10 @@ func (s *Service) RequestCapability(ctx context.Context, principalID string,
 		Capability: decide.Capability(in.Capability), Database: in.Database,
 		TaskID: in.TaskID})
 	verdict, code := verdictOf(v)
+	if !agentguard.ValidID(principalID) && verdict != VerdictBlocked {
+		// No principal is unsponsored (G1-11), whatever a decider said.
+		verdict, code = VerdictBlocked, string(agentguard.ReasonUnsponsored)
+	}
 	out := CapabilityResult{Verdict: verdict, ReasonCode: code, Detail: v.Detail, Fix: v.Fix}
 	switch verdict {
 	case VerdictPark:

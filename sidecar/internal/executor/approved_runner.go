@@ -46,6 +46,7 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 	if approvedBy <= 0 {
 		return ApprovedRun{}, ErrBackendApprovalRequired
 	}
+	ctx = withQueuedPrincipal(ctx, action)
 	slot := &e.approvedRunner
 	slot.mu.RLock()
 	runner := slot.runner

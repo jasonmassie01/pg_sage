@@ -219,3 +219,17 @@ func ListRequests(ctx context.Context, q Querier, f RequestFilter) (RequestPage,
 	}
 	return page, nil
 }
+
+// CountPendingRequests counts an agent's unexpired pending capability
+// requests in one database (D9; guard_grant_requests_pending_idx).
+func CountPendingRequests(ctx context.Context, q Querier, principalID string) (int, error) {
+	var n int
+	err := q.QueryRow(ctx, `/* pg_sage guard_grant_request v1 */
+		SELECT count(*) FROM sage.guard_grant_requests
+		WHERE principal_id = $1 AND status = 'pending' AND expires_at > now()`,
+		principalID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("grants: counting pending requests of %s: %w", principalID, err)
+	}
+	return n, nil
+}

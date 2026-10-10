@@ -12,6 +12,8 @@ package schema
 //     names the residue of a revoke_incomplete row.
 //   - sage.guard_grant_requests holds an agent's capability requests until
 //     an operator approves or denies them (every G1 grant is L2).
+//   - action_queue_principal_status keeps D9's per-agent pending count
+//     (agents.approvals.max_pending_per_principal) off a sequential scan.
 const ddlGuardGrants = `
 CREATE TABLE IF NOT EXISTS sage.guard_grants (
     id               bigserial PRIMARY KEY,
@@ -69,4 +71,6 @@ CREATE INDEX IF NOT EXISTS guard_grant_requests_principal_idx
     ON sage.guard_grant_requests (principal_id, id DESC);
 CREATE INDEX IF NOT EXISTS guard_grant_requests_pending_idx
     ON sage.guard_grant_requests (principal_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS action_queue_principal_status
+    ON sage.action_queue (principal_id, status) WHERE principal_id IS NOT NULL;
 `

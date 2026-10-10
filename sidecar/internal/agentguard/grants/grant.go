@@ -61,7 +61,9 @@ func targetsOf(rels []*relation) []string {
 }
 
 // gateRequest is a typed internal request of a grant contract, change
-// class agent_access, attributed to the principal.
+// class agent_access, made for the principal: the gate decides it as that
+// agent's request for the read capability (D-steps, principal hold), and
+// a revoke, narrowing, skips them.
 func gateRequest(actionType, principalID string, t Target, objects []string,
 	evidence map[string]any, operator bool) (policy.ActionRequest, error) {
 	contract, ok := executor.PolicyContractFor(actionType)
@@ -80,7 +82,8 @@ func gateRequest(actionType, principalID string, t Target, objects []string,
 	}
 	return policy.ActionRequest{Contract: contract, Arguments: args, InternalControl: true,
 		Feature: string(policy.ChangeAgentAccess), OperatorApproved: operator,
-		TargetObjs: objects, Evidence: ev}, nil
+		TargetObjs: objects, Evidence: ev, CapabilityClass: CapabilityRead,
+		Principal: &policy.PrincipalRef{ID: principalID, Tool: ToolRequestCapability}}, nil
 }
 
 // authorizer asks the executor's standing gate at both of Apply's
