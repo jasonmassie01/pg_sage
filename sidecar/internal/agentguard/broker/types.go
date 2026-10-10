@@ -12,7 +12,6 @@ package broker
 
 import (
 	"context"
-	"errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,28 +19,36 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentguard/classify"
 	"github.com/pg-sage/sidecar/internal/agentguard/decide"
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
+	"github.com/pg-sage/sidecar/internal/agentguard/readapi"
 )
 
-// Errors a caller maps to its transport (§8.1). Everything else the agent
-// can act on is a Result with a verdict.
+// The read path's vocabulary lives in readapi so transports need not
+// import the broker; these aliases keep the broker's own names.
+type (
+	Request       = readapi.Request
+	Column        = readapi.Column
+	Result        = readapi.Result
+	WhoAmI        = readapi.WhoAmI
+	PrincipalView = readapi.PrincipalView
+	SponsorView   = readapi.SponsorView
+	DatabaseView  = readapi.DatabaseView
+	GrantView     = readapi.GrantView
+)
+
+// Errors (see readapi).
 var (
-	// ErrInvalid is malformed arguments (-32602, 422).
-	ErrInvalid = errors.New("broker: invalid request")
-	// ErrNotPermitted is a database outside the token's bound (-32003, 403).
-	ErrNotPermitted = errors.New("broker: database not permitted for this principal")
-	// ErrUnknownDatabase is a database pg_sage does not monitor (-32007, 404).
-	ErrUnknownDatabase = errors.New("broker: unknown database")
-	// ErrUnavailable is a control database, credential store or audit table
-	// that cannot be reached (-32010, 503). No rows leave without an audit.
-	ErrUnavailable = errors.New("broker: unavailable")
+	ErrInvalid         = readapi.ErrInvalid
+	ErrNotPermitted    = readapi.ErrNotPermitted
+	ErrUnknownDatabase = readapi.ErrUnknownDatabase
+	ErrUnavailable     = readapi.ErrUnavailable
 )
 
-// Verdicts and statuses (§8.1).
+// Verdicts and statuses (see readapi).
 const (
-	VerdictExecute = "execute"
-	VerdictBlocked = "blocked"
-	StatusOK       = "ok"
-	StatusFailed   = "failed"
+	VerdictExecute = readapi.VerdictExecute
+	VerdictBlocked = readapi.VerdictBlocked
+	StatusOK       = readapi.StatusOK
+	StatusFailed   = readapi.StatusFailed
 )
 
 // Reasons the broker adds to the gate's (agent_*) reasons.
@@ -57,42 +64,6 @@ const (
 
 // MaskedValue replaces a masked value in a result.
 const MaskedValue = "[masked]"
-
-// Request is one agent_query call.
-type Request struct {
-	Database string
-	SQL      string
-	// Params are JSON scalars (string, json.Number, float64, int, bool, nil),
-	// bound as text; the server infers their types.
-	Params []any
-	// MaxRows is 0 for agents.query.max_rows; at most max_rows_ceiling.
-	MaxRows int
-}
-
-// Column is one output column.
-type Column struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Class string `json:"class,omitempty"`
-}
-
-// Result is agent_query's answer (§8.2). Values are text, nil for NULL.
-type Result struct {
-	Verdict      string      `json:"verdict"`
-	Status       string      `json:"status,omitempty"`
-	ReasonCode   string      `json:"reason_code,omitempty"`
-	Detail       string      `json:"detail,omitempty"`
-	Fix          string      `json:"fix,omitempty"`
-	Columns      []Column    `json:"columns"`
-	Rows         [][]*string `json:"rows"`
-	Truncated    bool        `json:"truncated"`
-	RowCount     int         `json:"row_count"`
-	EnvelopeHash string      `json:"envelope_hash,omitempty"`
-	Masked       []string    `json:"masked"`
-	SQLState     string      `json:"sqlstate,omitempty"`
-	Message      string      `json:"message,omitempty"`
-	Retryable    bool        `json:"retryable,omitempty"`
-}
 
 // Target is one monitored database as the broker uses it.
 type Target struct {

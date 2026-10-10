@@ -5,60 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/agentguard/decide"
 )
-
-// WhoAmI is agent_whoami (§8.2): the calling principal, and per database
-// its environment, lanes, grants and levels.
-type WhoAmI struct {
-	Principal PrincipalView  `json:"principal"`
-	Sponsor   *SponsorView   `json:"sponsor"`
-	Databases []DatabaseView `json:"databases"`
-	Tainted   bool           `json:"tainted"`
-	Frozen    bool           `json:"frozen"`
-	// Notice is one line when trust.level keeps agent requests at proposals.
-	Notice string `json:"notice,omitempty"`
-}
-
-// PrincipalView is the principal as the agent may see it.
-type PrincipalView struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Profile    string `json:"profile"`
-	EnvCeiling string `json:"env_ceiling"`
-	Status     string `json:"status"`
-}
-
-// SponsorView is the accountable human.
-type SponsorView struct {
-	UserID int  `json:"user_id"`
-	Active bool `json:"active"`
-}
-
-// DatabaseView is one database the principal may name.
-type DatabaseView struct {
-	Name            string         `json:"name"`
-	Env             string         `json:"env"`
-	BindingVerified bool           `json:"binding_verified"`
-	Lanes           []string       `json:"lanes"`
-	Grants          []GrantView    `json:"grants"`
-	Levels          map[string]int `json:"levels"`
-	// Reason is why reads are refused here ("" when allowed).
-	Reason string `json:"reason,omitempty"`
-}
-
-// GrantView is one privilege of the broker role, read from the catalog.
-type GrantView struct {
-	Capability string     `json:"capability"`
-	Object     string     `json:"object"`
-	Columns    []string   `json:"columns,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-}
 
 const observationNotice = "trust.level is observation: agent requests other than reads " +
 	"are recorded as L1 proposals until an operator raises it to advisory"

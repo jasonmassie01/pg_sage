@@ -37,7 +37,7 @@ func (c CatalogObjects) CheckObjects(ctx context.Context, _ agentguard.Principal
 		if errors.Is(err, errUnresolved) {
 			return &agentguard.DeniedError{Reason: decide.ReasonClassification,
 				Detail: fmt.Sprintf("%s does not resolve to a relation", objectName(o)),
-				Fix: "name an existing table or view, schema-qualified"}
+				Fix:    "name an existing table or view, schema-qualified"}
 		}
 		if err != nil {
 			return err
@@ -73,7 +73,7 @@ func (c CatalogObjects) checkColumn(ctx context.Context, t Target, env envbind.E
 	if act := decideColumn(env, rc.Of(attnum).Class, false); act == actDeny {
 		return &agentguard.DeniedError{Reason: decide.ReasonClassification,
 			Detail: fmt.Sprintf("%s is classified %s", objectName(o), rc.Of(attnum).Class),
-			Fix: "an operator adds an agents.unmask entry, or select other columns"}
+			Fix:    "an operator adds an agents.unmask entry, or select other columns"}
 	}
 	return nil
 }

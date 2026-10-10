@@ -17,11 +17,12 @@ import (
 // deniedNames and deniedPrefixes are the §6.8 S3 additions to the analyze
 // guard's deny-list. Most are volatile anyway; the list holds even if a
 // catalog marks one stable.
-var deniedNames = map[string]bool{"set_config": true, "pg_terminate_backend": true,
-	"pg_cancel_backend": true, "pg_read_file": true, "pg_read_binary_file": true}
+// (Backend signalling is matched by prefix: pg_terminate_*, pg_cancel_*.)
+var deniedNames = map[string]bool{"set_config": true, "pg_read_file": true,
+	"pg_read_binary_file": true}
 
 var deniedPrefixes = []string{"dblink", "lo_", "pg_ls_", "pg_advisory", "pg_try_advisory",
-	"pg_sleep"}
+	"pg_sleep", "pg_terminate_", "pg_cancel_"}
 
 // deniedFunction reports a function agent reads may never call, including
 // anything in pg_sage's own schemas.

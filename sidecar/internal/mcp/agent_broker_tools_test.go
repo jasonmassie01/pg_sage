@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
-	"github.com/pg-sage/sidecar/internal/agentguard/broker"
+	"github.com/pg-sage/sidecar/internal/agentguard/readapi"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -20,36 +20,36 @@ func init() {
 	allToolsArgs["agent_query"] = `{"sql":"SELECT 1"}`
 }
 
-func (b *allToolsBackend) AgentQuery(ctx context.Context, _ broker.Request) (broker.Result,
+func (b *allToolsBackend) AgentQuery(ctx context.Context, _ readapi.Request) (readapi.Result,
 	error) {
 	b.hit(ctx, "agent_query")
-	return broker.Result{Verdict: broker.VerdictExecute}, nil
+	return readapi.Result{Verdict: readapi.VerdictExecute}, nil
 }
 
-func (b *allToolsBackend) AgentWhoAmI(ctx context.Context) (broker.WhoAmI, error) {
+func (b *allToolsBackend) AgentWhoAmI(ctx context.Context) (readapi.WhoAmI, error) {
 	b.hit(ctx, "agent_whoami")
-	return broker.WhoAmI{}, nil
+	return readapi.WhoAmI{}, nil
 }
 
 type brokerBackend struct {
 	recordingBackend
-	req      broker.Request
-	result   broker.Result
+	req      readapi.Request
+	result   readapi.Result
 	err      error
-	whoami   broker.WhoAmI
+	whoami   readapi.WhoAmI
 	whoErr   error
 	queries  int
 	whoCalls int
 }
 
-func (b *brokerBackend) AgentQuery(_ context.Context, req broker.Request) (broker.Result,
+func (b *brokerBackend) AgentQuery(_ context.Context, req readapi.Request) (readapi.Result,
 	error) {
 	b.queries++
 	b.req = req
 	return b.result, b.err
 }
 
-func (b *brokerBackend) AgentWhoAmI(context.Context) (broker.WhoAmI, error) {
+func (b *brokerBackend) AgentWhoAmI(context.Context) (readapi.WhoAmI, error) {
 	b.whoCalls++
 	return b.whoami, b.whoErr
 }
@@ -90,8 +90,8 @@ func TestAgentBrokerToolsAreListedReadOnly(t *testing.T) {
 
 func TestAgentQueryPassesArgumentsAndFencesRows(t *testing.T) {
 	v := "ann"
-	backend := &brokerBackend{result: broker.Result{Verdict: broker.VerdictExecute,
-		Status: broker.StatusOK, Columns: []broker.Column{{Name: "name", Type: "text"}},
+	backend := &brokerBackend{result: readapi.Result{Verdict: readapi.VerdictExecute,
+		Status: readapi.StatusOK, Columns: []readapi.Column{{Name: "name", Type: "text"}},
 		Rows: [][]*string{{&v}}, RowCount: 1, Masked: []string{}}}
 	response := invoke(t, NewServer(backend), brokerAgentCtx(), toolCall("agent_query",
 		`{"database":"app","sql":"SELECT name FROM t WHERE id = $1","params":["1", 2, true,`+
@@ -114,7 +114,7 @@ func TestAgentQueryPassesArgumentsAndFencesRows(t *testing.T) {
 }
 
 func TestAgentQueryBlockedIsANormalResult(t *testing.T) {
-	backend := &brokerBackend{result: broker.Result{Verdict: broker.VerdictBlocked,
+	backend := &brokerBackend{result: readapi.Result{Verdict: readapi.VerdictBlocked,
 		ReasonCode: "agent_frozen", Fix: "unfreeze"}}
 	response := invoke(t, NewServer(backend), brokerAgentCtx(),
 		toolCall("agent_query", `{"database":"app","sql":"SELECT 1"}`))
@@ -129,10 +129,10 @@ func TestAgentQueryErrorsMapToCodes(t *testing.T) {
 		err  error
 		code int
 	}{
-		{broker.ErrInvalid, codeInvalidParams},
-		{broker.ErrNotPermitted, codeNotPermitted},
-		{broker.ErrUnknownDatabase, codeUnknownDatabase},
-		{broker.ErrUnavailable, codeUnavailable},
+		{readapi.ErrInvalid, codeInvalidParams},
+		{readapi.ErrNotPermitted, codeNotPermitted},
+		{readapi.ErrUnknownDatabase, codeUnknownDatabase},
+		{readapi.ErrUnavailable, codeUnavailable},
 		{errors.New("boom with secret detail"), codeInternal},
 	}
 	for _, c := range cases {
@@ -158,7 +158,7 @@ func TestAgentQueryRejectsBadArguments(t *testing.T) {
 }
 
 func TestAgentWhoAmI(t *testing.T) {
-	backend := &brokerBackend{whoami: broker.WhoAmI{Principal: broker.PrincipalView{
+	backend := &brokerBackend{whoami: readapi.WhoAmI{Principal: readapi.PrincipalView{
 		ID: "agp_x", Name: "bot"}}}
 	response := invoke(t, NewServer(backend), brokerAgentCtx(), toolCall("agent_whoami", `{}`))
 	require.Equal(t, 0, response.Error.Code, "whoami")

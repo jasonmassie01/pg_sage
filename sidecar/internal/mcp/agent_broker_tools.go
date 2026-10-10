@@ -7,7 +7,7 @@ import (
 	"errors"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
-	"github.com/pg-sage/sidecar/internal/agentguard/broker"
+	"github.com/pg-sage/sidecar/internal/agentguard/readapi"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -18,8 +18,8 @@ import (
 
 // AgentBrokerBackend serves the agent governance read tools.
 type AgentBrokerBackend interface {
-	AgentQuery(ctx context.Context, req broker.Request) (broker.Result, error)
-	AgentWhoAmI(ctx context.Context) (broker.WhoAmI, error)
+	AgentQuery(ctx context.Context, req readapi.Request) (readapi.Result, error)
+	AgentWhoAmI(ctx context.Context) (readapi.WhoAmI, error)
 }
 
 var agentBrokerToolNames = map[string]bool{"agent_query": true, "agent_whoami": true}
@@ -64,7 +64,7 @@ func (s *Server) callAgentBrokerTool(ctx context.Context, name string,
 	if !decodeStrict(arguments, &args) || args.SQL == nil {
 		return nil, invalid("agent_query takes sql, params and max_rows")
 	}
-	req := broker.Request{Database: args.Database, SQL: *args.SQL}
+	req := readapi.Request{Database: args.Database, SQL: *args.SQL}
 	if args.MaxRows != nil {
 		if *args.MaxRows < 1 {
 			return nil, invalid("max_rows must be at least 1")
@@ -105,7 +105,7 @@ func scalarParam(raw json.RawMessage) (any, bool) {
 
 // fencedResult returns rows as untrusted data in the text content, and
 // typed in structuredContent.
-func fencedResult(result broker.Result) map[string]any {
+func fencedResult(result readapi.Result) map[string]any {
 	text, err := json.Marshal(result)
 	if err != nil {
 		text = []byte(`{"error":"result is not JSON-encodable"}`)
@@ -125,7 +125,7 @@ func agentWhoAmI(ctx context.Context, backend AgentBrokerBackend,
 	}
 	who, err := backend.AgentWhoAmI(ctx)
 	if errors.Is(err, agentguard.ErrNoPrincipal) {
-		return toolSuccess(map[string]any{"verdict": broker.VerdictBlocked,
+		return toolSuccess(map[string]any{"verdict": readapi.VerdictBlocked,
 			"reason_code": string(agentguard.ReasonUnsponsored),
 			"fix": "use an agent token minted for a principal, or set " +
 				"mcp.stdio_principal"}), nil
@@ -142,13 +142,13 @@ func brokerFailure(err error) *rpcError {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return failure(codeCancelled, "request cancelled")
-	case errors.Is(err, broker.ErrInvalid):
+	case errors.Is(err, readapi.ErrInvalid):
 		return failure(codeInvalidParams, "invalid arguments: "+err.Error())
-	case errors.Is(err, broker.ErrNotPermitted):
+	case errors.Is(err, readapi.ErrNotPermitted):
 		return failure(codeNotPermitted, "database not permitted for this principal")
-	case errors.Is(err, broker.ErrUnknownDatabase):
+	case errors.Is(err, readapi.ErrUnknownDatabase):
 		return failure(codeUnknownDatabase, "unknown database")
-	case errors.Is(err, broker.ErrUnavailable):
+	case errors.Is(err, readapi.ErrUnavailable):
 		return failure(codeUnavailable, "agent governance is unavailable; retry later")
 	}
 	return failure(codeInternal, "internal error")
