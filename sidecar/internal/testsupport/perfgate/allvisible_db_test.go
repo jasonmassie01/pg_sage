@@ -119,8 +119,11 @@ func TestAwaitAllVisibleReturnsAtOnceWhenNothingIsLeft(t *testing.T) {
 		t.Fatalf("no sage schema: %v", err)
 	}
 	seedVisibilityProbe(t, ctx, pool)
-	if _, err := pool.Exec(ctx, "VACUUM sage.visibility_probe"); err != nil {
-		t.Fatal(err)
+	// One VACUUM is not enough on a shared server: the previous test's
+	// snapshot holder, closed by the client, can still be ending on the
+	// server (PG14 on CI), and an autovacuum worker can hold one too.
+	if err := awaitAllVisible(ctx, pool, time.Minute); err != nil {
+		t.Fatalf("probe never became all-visible: %v", err)
 	}
 	if err := awaitAllVisible(ctx, pool, 0); err != nil {
 		t.Fatalf("all-visible table, no time to wait: %v", err)
