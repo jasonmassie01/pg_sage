@@ -1,0 +1,47 @@
+== rds
+# RDS instance 'pgsage-dep-1': choose its final snapshot. Keep the flag below with a name you pick, or replace it with --skip-final-snapshot
+aws rds delete-db-instance --region 'us-east-2' --db-instance-identifier 'pgsage-dep-1' --final-db-snapshot-identifier <choose-a-final-snapshot-name>
+== rds-unknown-region
+# RDS instance 'pgsage-dep-2': choose its final snapshot. Keep the flag below with a name you pick, or replace it with --skip-final-snapshot
+aws rds delete-db-instance --region <region> --db-instance-identifier 'pgsage-dep-2' --final-db-snapshot-identifier <choose-a-final-snapshot-name>
+== rds-snapshot
+# final snapshots are named 'pgsage-dep-1-final-' plus the UTC destroy time (yyyymmddhhmmss); list them, then delete each one you do not keep
+aws rds describe-db-snapshots --region 'us-east-2' --snapshot-type manual --query "DBSnapshots[?starts_with(DBSnapshotIdentifier, 'pgsage-dep-1-final-')].DBSnapshotIdentifier"
+aws rds delete-db-snapshot --region 'us-east-2' --db-snapshot-identifier <snapshot-id>
+== rds-snapshot-odd
+# final snapshots are named 'odd'\''name-final-' plus the UTC destroy time (yyyymmddhhmmss); list them, then delete each one you do not keep
+aws rds describe-db-snapshots --region 'us-east-2' --snapshot-type manual
+aws rds delete-db-snapshot --region 'us-east-2' --db-snapshot-identifier <snapshot-id>
+== cloudsql
+gcloud sql instances patch 'pgsage-dep-3' --project='proj-a' --no-deletion-protection
+gcloud sql instances delete 'pgsage-dep-3' --project='proj-a'
+== neon-branch
+neonctl branches delete 'br-cool-42' --project-id 'proj-9'
+== neon-project
+neonctl projects delete 'proj-77'
+== supabase-branch
+supabase branches delete 'br-uuid-1' --project-ref 'abcdefghijklmnop'
+== supabase-project
+supabase projects delete 'qrstuvwxyzabcdef'
+== lakebase
+databricks api delete '/api/2.0/postgres/projects/lake%2Fproj/branches/pgsage-dep-4'
+== uncertain
+# no resource id was recorded (uncertain create): find the resource named 'pgsage-dep-5-0a1b2c3d' and confirm its pg_sage tags before deleting
+neonctl branches delete 'pgsage-dep-5-0a1b2c3d' --project-id 'proj-9'
+== unknown-provider
+# no delete template for provider 'heroku': delete resource 'h-1' with that provider's own tools
+== local-schema
+-- on the control database "sage_meta": the schema pg_sage created for deployment dep-6
+DROP SCHEMA "agent""db_s" CASCADE;
+== local-database
+-- on the server of the control database "sage_meta": the database pg_sage created for deployment dep-7
+DROP DATABASE "agentdb_db";
+== sage-schema-env
+-- connect to ep-1.neon.tech/app (DSN in env:PG_SAGE_AGENTDB_X): pg_sage's own schema, left by the fleet sync of agent databases
+DROP SCHEMA sage CASCADE;
+== sage-schema-inline
+-- connect to db.internal:6543/agent: pg_sage's own schema, left by the fleet sync of agent databases
+DROP SCHEMA sage CASCADE;
+== hostile
+gcloud sql instances patch 'x'\''; rm -rf / #?DROP' --project='p`id`' --no-deletion-protection
+gcloud sql instances delete 'x'\''; rm -rf / #?DROP' --project='p`id`'
