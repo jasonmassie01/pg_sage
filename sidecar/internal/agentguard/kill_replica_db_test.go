@@ -131,8 +131,13 @@ func TestKill_G1_05_PrimaryAndReplicas(t *testing.T) {
 	// Approvals are cancelled_kill.
 	require.Equal(t, "cancelled_kill", f.queueStatus(t, pending))
 
-	// The report: the configured replica is verified; the unconfigured
-	// standby is named with its timeout bound.
+	checkG105Report(t, top, rep, serverVersionNum(t, f.super))
+}
+
+// checkG105Report: the configured replica is verified; the unconfigured
+// standby is named with its timeout bound, and only once.
+func checkG105Report(t *testing.T, top topology, rep KillReport, version int) {
+	t.Helper()
 	require.True(t, rep.Verified)
 	db := rep.Databases[0]
 	require.True(t, db.Verified)
@@ -145,6 +150,8 @@ func TestKill_G1_05_PrimaryAndReplicas(t *testing.T) {
 		case !r.Configured && r.ApplicationName == top.standbyName:
 			unconfigured = r
 		}
+		require.False(t, !r.Configured && r.ApplicationName == top.replicaName,
+			"the configured replica is not also reported as unconfigured")
 	}
 	require.NotNil(t, configured, "report: %+v", db.Replicas)
 	require.True(t, configured.Verified)
@@ -155,16 +162,12 @@ func TestKill_G1_05_PrimaryAndReplicas(t *testing.T) {
 	require.NotNil(t, unconfigured.Bound)
 	require.Equal(t, int64(30000), unconfigured.Bound.StatementTimeoutMS)
 	require.Equal(t, int64(600000), unconfigured.Bound.IdleSessionTimeoutMS)
-	if serverVersionNum(t, f.super) >= 170000 {
-		require.Equal(t, int64(600000), unconfigured.Bound.TransactionTimeoutMS)
-	} else {
-		require.Zero(t, unconfigured.Bound.TransactionTimeoutMS)
+	wantTx := int64(0)
+	if version >= 170000 {
+		wantTx = 600000
 	}
+	require.Equal(t, wantTx, unconfigured.Bound.TransactionTimeoutMS)
 	require.False(t, unconfigured.Verified)
-	for _, r := range db.Replicas {
-		require.False(t, !r.Configured && r.ApplicationName == top.replicaName,
-			"the configured replica is not also reported as unconfigured")
-	}
 }
 
 // A configured replica that cannot be reached is reported with an error;

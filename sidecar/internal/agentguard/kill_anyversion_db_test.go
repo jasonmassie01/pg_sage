@@ -13,6 +13,41 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
+// manualRole creates an agent-named role by hand with CONNECT on db; it
+// is dropped (its grant revoked first) at the end of the test.
+func manualRole(t *testing.T, super *pgxpool.Pool, db string) string {
+	t.Helper()
+	ctx := context.Background()
+	role := fmt.Sprintf("sage_agentb_%s", strings.Repeat("m", 10))
+	_, err := super.Exec(ctx, "CREATE ROLE "+role+" LOGIN PASSWORD 'manual-pw'")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = super.Exec(bg, "SELECT pg_terminate_backend(pid) "+
+			"FROM pg_stat_activity WHERE usename = $1", role)
+		_, _ = super.Exec(bg, "REVOKE CONNECT ON DATABASE "+ident(db)+" FROM "+role)
+		_, _ = super.Exec(bg, "DROP ROLE "+role)
+	})
+	_, err = super.Exec(ctx, "GRANT CONNECT ON DATABASE "+ident(db)+" TO "+role)
+	require.NoError(t, err)
+	return role
+}
+
+// optionalReplica is the configured replica of the topology env, if set.
+func optionalReplica(t *testing.T, db, role string) (*pgxpool.Pool, string, []Replica) {
+	t.Helper()
+	rURL := envOr(envKillReplica, "")
+	if rURL == "" {
+		return nil, "", nil
+	}
+	dsn := withDatabase(t, rURL, db)
+	pool, err := pgxpool.New(context.Background(), dsn)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	replayed(t, dsn, role, "manual-pw")
+	return pool, dsn, []Replica{{Name: envOr(envKillReplicaName, "replica1"), DSN: dsn}}
+}
+
 // The kill switch on every supported version, PG14 and PG15 included,
 // where Guard does not manage roles (§6.6) but agent-named roles may still
 // exist (created by hand or before G1): a fleet kill disables them and ends
@@ -24,31 +59,11 @@ func TestKill_AnyVersionManualAgentRoles(t *testing.T) {
 	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
 	db := currentDatabase(t, super)
-	role := fmt.Sprintf("sage_agentb_%s", strings.Repeat("m", 10))
-	_, err := super.Exec(ctx, "CREATE ROLE "+role+" LOGIN PASSWORD 'manual-pw'")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = super.Exec(context.Background(), "SELECT pg_terminate_backend(pid) "+
-			"FROM pg_stat_activity WHERE usename = $1", role)
-		_, _ = super.Exec(context.Background(), "REVOKE CONNECT ON DATABASE "+ident(db)+
-			" FROM "+role)
-		_, _ = super.Exec(context.Background(), "DROP ROLE "+role)
-	})
-	_, err = super.Exec(ctx, "GRANT CONNECT ON DATABASE "+ident(db)+" TO "+role)
-	require.NoError(t, err)
+	role := manualRole(t, super, db)
 	f := &killFixture{roleFixture: &roleFixture{super: super, dsn: dsn, db: db}}
-	target := KillTarget{Name: db, Pool: super, ClusterKey: "any-version-" + db}
-	var replica *pgxpool.Pool
-	var replicaDSN string
-	if rURL := envOr(envKillReplica, ""); rURL != "" {
-		replicaDSN = withDatabase(t, rURL, db)
-		target.Replicas = []Replica{{Name: envOr(envKillReplicaName, "replica1"),
-			DSN: replicaDSN}}
-		replica, err = pgxpool.New(ctx, replicaDSN)
-		require.NoError(t, err)
-		t.Cleanup(replica.Close)
-		replayed(t, replicaDSN, role, "manual-pw")
-	}
+	replica, replicaDSN, replicas := optionalReplica(t, db, role)
+	target := KillTarget{Name: db, Pool: super, ClusterKey: "any-version-" + db,
+		Replicas: replicas}
 	log := NewFallbackLog(filepath.Join(t.TempDir(), "kill.log"))
 	sw, err := NewSwitch(KillDeps{Store: NewStore(super), Fallback: log,
 		Config: DefaultKillConfig(),

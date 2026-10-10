@@ -86,6 +86,13 @@ func (f *killFixture) ensured(t *testing.T) (Principal, string) {
 	p := f.principal(t)
 	_, err := f.manager.Ensure(context.Background(), f.request(p))
 	require.NoError(t, err)
+	// Runs before the role fixture's drop (cleanups are LIFO): the broker's
+	// CONNECT was granted by pg_sage's role, so a superuser DROP OWNED does
+	// not remove it and the drop would fail, leaking the role.
+	t.Cleanup(func() {
+		_, _ = f.admin.Exec(context.Background(), "REVOKE CONNECT ON DATABASE "+
+			ident(f.db)+" FROM "+ident(p.BrokerRole()))
+	})
 	_, password, err := f.store.BrokerCredential(context.Background(), f.manager.keyring,
 		p.ID, f.cluster.Key)
 	require.NoError(t, err)

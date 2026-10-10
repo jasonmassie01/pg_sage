@@ -70,20 +70,26 @@ func TestUnfreeze_AfterKillTwoPeopleRestoresAndRotates(t *testing.T) {
 	require.True(t, done.Clusters[0].Rotated)
 	require.Positive(t, done.Clusters[0].ActionID)
 
-	// prior_attrs restored exactly.
+	checkUnfrozen(t, f, p, oldPassword, done, b, since)
+}
+
+// checkUnfrozen: prior_attrs restored exactly, every credential rotated,
+// the control state active and lifted, and the action audited by b.
+func checkUnfrozen(t *testing.T, f *killFixture, p Principal, oldPassword string,
+	done UnfreezeResult, b admin, since time.Time) {
+	t.Helper()
+	ctx := context.Background()
 	login, limit := f.attrs(t, p.BrokerRole())
 	require.True(t, login)
 	require.Equal(t, 2, limit)
 	login, limit = f.attrs(t, p.LoginRole())
 	require.False(t, login)
 	require.Equal(t, 5, limit)
-	// Every credential rotated: the old password fails, the new one works.
 	require.True(t, f.loginFails(t, f.dsn, p.BrokerRole(), oldPassword))
 	who, newPassword, err := f.brokerLogin(t, p)
 	require.NoError(t, err)
 	require.Equal(t, p.BrokerRole(), who)
 	require.NotEqual(t, oldPassword, newPassword)
-	// Control state.
 	got := mustGet(t, f.store, p.ID)
 	require.Equal(t, StatusActive, got.Status)
 	require.Empty(t, got.FrozenReason)

@@ -20,75 +20,116 @@ func killPrincipal(p Principal) KillRequest {
 		Actor: "admin@example.com"}
 }
 
-func TestKill_PrincipalContainsEverything(t *testing.T) {
-	f := newKillFixture(t)
-	p, password := f.ensured(t)
-	other, otherPassword := f.ensured(t)
-	ctx := context.Background()
-	pending := f.pendingApproval(t, p, "pending")
-	approved := f.pendingApproval(t, p, "approved")
-	executed := f.pendingApproval(t, p, "executed")
-	otherPending := f.pendingApproval(t, other, "pending")
-	tok := f.agentToken(t, p)
-	otherTok := f.agentToken(t, other)
-	stmt := f.sleepAs(t, f.super, f.dsn, p.BrokerRole(), password, 30)
-	otherStmt := f.sleepAs(t, f.super, f.dsn, other.BrokerRole(), otherPassword, 3)
-	since := time.Now().Add(-time.Second)
+// principalKill is the setup of TestKill_PrincipalContainsEverything: p
+// is killed while other, with the same kinds of state, must be untouched.
+type principalKill struct {
+	f                                         *killFixture
+	p, other                                  Principal
+	password                                  string
+	pending, approved, executed, otherPending int64
+	tok, otherTok                             string
+	stmt, otherStmt                           *brokerStatement
+	since                                     time.Time
+	rep                                       KillReport
+}
 
+func newPrincipalKill(t *testing.T) *principalKill {
+	t.Helper()
+	k := &principalKill{f: newKillFixture(t)}
+	f := k.f
+	k.p, k.password = f.ensured(t)
+	var otherPassword string
+	k.other, otherPassword = f.ensured(t)
+	k.pending = f.pendingApproval(t, k.p, "pending")
+	k.approved = f.pendingApproval(t, k.p, "approved")
+	k.executed = f.pendingApproval(t, k.p, "executed")
+	k.otherPending = f.pendingApproval(t, k.other, "pending")
+	k.tok, k.otherTok = f.agentToken(t, k.p).ID, f.agentToken(t, k.other).ID
+	k.stmt = f.sleepAs(t, f.super, f.dsn, k.p.BrokerRole(), k.password, 30)
+	k.otherStmt = f.sleepAs(t, f.super, f.dsn, k.other.BrokerRole(), otherPassword, 3)
+	k.since = time.Now().Add(-time.Second)
+	return k
+}
+
+func TestKill_PrincipalContainsEverything(t *testing.T) {
+	k := newPrincipalKill(t)
 	begin := time.Now()
-	rep, err := f.sw.Kill(ctx, killPrincipal(p))
+	rep, err := k.f.sw.Kill(context.Background(), killPrincipal(k.p))
 	require.NoError(t, err)
 	require.Less(t, time.Since(begin), 10*time.Second)
+	k.rep = rep
+	k.checkSessions(t)
+	k.checkControl(t)
+	k.checkApprovals(t)
+	k.checkRoles(t)
+	k.checkReport(t)
+	k.checkAudit(t)
+}
 
-	// Step 6/8: the brokered statement is cancelled, no backend remains.
-	require.True(t, terminatedOrCancelled(waitDone(t, stmt, 10*time.Second)))
-	require.Less(t, stmt.elapsed, 10*time.Second)
-	require.Equal(t, 0, countBackends(t, f.super, p.BrokerRole(), p.LoginRole()))
-	// The other principal is untouched.
-	require.NoError(t, waitDone(t, otherStmt, 10*time.Second))
-	// Step 1: frozen, with the reason; a kill flag on the principal.
-	got, err := f.store.Get(ctx, p.ID)
-	require.NoError(t, err)
+// Step 6/8: the brokered statement is cancelled, no backend remains; the
+// other principal's statement runs to its end.
+func (k *principalKill) checkSessions(t *testing.T) {
+	require.True(t, terminatedOrCancelled(waitDone(t, k.stmt, 10*time.Second)))
+	require.Less(t, k.stmt.elapsed, 10*time.Second)
+	require.Equal(t, 0, countBackends(t, k.f.super, k.p.BrokerRole(), k.p.LoginRole()))
+	require.NoError(t, waitDone(t, k.otherStmt, 10*time.Second))
+}
+
+// Steps 1-2: frozen with the reason; tokens and in-memory pools revoked.
+func (k *principalKill) checkControl(t *testing.T) {
+	got := mustGet(t, k.f.store, k.p.ID)
 	require.Equal(t, StatusFrozen, got.Status)
 	require.Contains(t, got.FrozenReason, "incident 42")
-	require.Equal(t, StatusActive, mustGet(t, f.store, other.ID).Status)
-	// Step 2: tokens and in-memory pools.
-	require.True(t, f.tokenRevoked(t, tok.ID))
-	require.False(t, f.tokenRevoked(t, otherTok.ID))
-	require.Equal(t, int64(1), rep.TokensRevoked)
-	require.Len(t, f.memory.calls, 1)
-	require.Equal(t, []string{p.ID}, f.memory.calls[0])
-	require.False(t, f.memory.all[0])
-	// Step 3: approvals.
-	require.Equal(t, "cancelled_kill", f.queueStatus(t, pending))
-	require.Equal(t, "cancelled_kill", f.queueStatus(t, approved))
-	require.Equal(t, "executed", f.queueStatus(t, executed))
-	require.Equal(t, "pending", f.queueStatus(t, otherPending))
-	require.Equal(t, 2, rep.ApprovalsCancelled)
-	// Step 5: NOLOGIN CONNECTION LIMIT 0, prior attributes recorded.
+	require.Equal(t, StatusActive, mustGet(t, k.f.store, k.other.ID).Status)
+	require.True(t, k.f.tokenRevoked(t, k.tok))
+	require.False(t, k.f.tokenRevoked(t, k.otherTok))
+	require.Equal(t, int64(1), k.rep.TokensRevoked)
+	require.Len(t, k.f.memory.calls, 1)
+	require.Equal(t, []string{k.p.ID}, k.f.memory.calls[0])
+	require.False(t, k.f.memory.all[0])
+}
+
+// Step 3: open approvals of p are cancelled_kill; executed ones and other
+// principals' stay.
+func (k *principalKill) checkApprovals(t *testing.T) {
+	f := k.f
+	require.Equal(t, "cancelled_kill", f.queueStatus(t, k.pending))
+	require.Equal(t, "cancelled_kill", f.queueStatus(t, k.approved))
+	require.Equal(t, "executed", f.queueStatus(t, k.executed))
+	require.Equal(t, "pending", f.queueStatus(t, k.otherPending))
+	require.Equal(t, 2, k.rep.ApprovalsCancelled)
+}
+
+// Step 5: NOLOGIN CONNECTION LIMIT 0 with prior attributes recorded.
+func (k *principalKill) checkRoles(t *testing.T) {
+	f, p := k.f, k.p
 	for _, role := range []string{p.BrokerRole(), p.LoginRole()} {
 		login, limit := f.attrs(t, role)
 		require.False(t, login, role)
 		require.Equal(t, 0, limit, role)
 	}
-	login, _ := f.attrs(t, other.BrokerRole())
+	login, _ := f.attrs(t, k.other.BrokerRole())
 	require.True(t, login)
-	cr, err := f.store.ClusterRolesOf(ctx, p.ID, f.cluster.Key)
+	cr, err := f.store.ClusterRolesOf(context.Background(), p.ID, f.cluster.Key)
 	require.NoError(t, err)
 	require.Equal(t, RoleStatusKilled, cr.Status)
 	prior, err := ParsePriorAttrs(cr.PriorAttrs)
 	require.NoError(t, err)
 	require.Equal(t, RoleAttrs{Login: true, ConnectionLimit: 2}, prior[p.BrokerRole()])
 	require.Equal(t, RoleAttrs{Login: false, ConnectionLimit: 5}, prior[p.LoginRole()])
-	require.True(t, f.loginFails(t, f.dsn, p.BrokerRole(), password))
-	// The report (§8.3) and its durable copy.
+	require.True(t, f.loginFails(t, f.dsn, p.BrokerRole(), k.password))
+}
+
+// The report (§8.3) and its durable copy.
+func (k *principalKill) checkReport(t *testing.T) {
+	rep := k.rep
 	require.Positive(t, rep.KillID)
-	require.Equal(t, []string{p.ID}, rep.Principals)
+	require.Equal(t, []string{k.p.ID}, rep.Principals)
 	require.True(t, rep.Verified)
 	require.Empty(t, rep.ControlError)
 	require.Len(t, rep.Databases, 1)
 	db := rep.Databases[0]
-	require.Equal(t, f.db, db.Name)
+	require.Equal(t, k.f.db, db.Name)
 	require.Equal(t, 2, db.RolesDisabled)
 	require.GreaterOrEqual(t, db.BackendsTerminated, 1)
 	require.True(t, db.Verified)
@@ -97,26 +138,32 @@ func TestKill_PrincipalContainsEverything(t *testing.T) {
 	require.Empty(t, db.Error)
 	var stored []byte
 	var finished bool
-	require.NoError(t, f.super.QueryRow(ctx, `SELECT report::text::bytea,
-		finished_at IS NOT NULL FROM sage.guard_kills WHERE id = $1`, rep.KillID).
-		Scan(&stored, &finished))
+	require.NoError(t, k.f.super.QueryRow(context.Background(), `SELECT
+		report::text::bytea, finished_at IS NOT NULL FROM sage.guard_kills WHERE id = $1`,
+		rep.KillID).Scan(&stored, &finished))
 	require.True(t, finished)
 	var back KillReport
 	require.NoError(t, json.Unmarshal(stored, &back))
-	require.Equal(t, rep.Databases[0].RolesDisabled, back.Databases[0].RolesDisabled)
+	require.Equal(t, db.RolesDisabled, back.Databases[0].RolesDisabled)
+}
+
+// The kill flag on the principal and one audited guard_kill action with
+// its statements; the gated path writes no fallback entry.
+func (k *principalKill) checkAudit(t *testing.T) {
+	ctx := context.Background()
 	var killID *int64
-	require.NoError(t, f.super.QueryRow(ctx, `SELECT kill_id FROM sage.guard_freezes
-		WHERE scope = 'principal' AND target = $1 AND cleared_at IS NULL`, p.ID).Scan(&killID))
+	require.NoError(t, k.f.super.QueryRow(ctx, `SELECT kill_id FROM sage.guard_freezes
+		WHERE scope = 'principal' AND target = $1 AND cleared_at IS NULL`, k.p.ID).
+		Scan(&killID))
 	require.NotNil(t, killID)
-	require.Equal(t, rep.KillID, *killID)
-	// Audited: one guard_kill action on the target, with its statements.
-	require.Equal(t, 1, f.actionCount(t, "guard_kill", p, since))
+	require.Equal(t, k.rep.KillID, *killID)
+	require.Equal(t, 1, k.f.actionCount(t, "guard_kill", k.p, k.since))
 	var sqlText string
-	require.NoError(t, f.super.QueryRow(ctx, `SELECT sql_executed FROM sage.action_log
-		WHERE id = $1`, db.ActionID).Scan(&sqlText))
+	require.NoError(t, k.f.super.QueryRow(ctx, `SELECT sql_executed FROM sage.action_log
+		WHERE id = $1`, k.rep.Databases[0].ActionID).Scan(&sqlText))
 	require.Contains(t, sqlText, "NOLOGIN CONNECTION LIMIT 0")
-	require.Contains(t, sqlText, p.BrokerRole())
-	entries, err := f.fallback.Entries()
+	require.Contains(t, sqlText, k.p.BrokerRole())
+	entries, err := k.f.fallback.Entries()
 	require.NoError(t, err)
 	require.Empty(t, entries, "the gated path writes no fallback entry")
 }

@@ -51,10 +51,10 @@ func (r *clusterRun) observeStandbys(ctx context.Context) {
 
 // check is one verification round. clean: nothing of the scope is left;
 // settled: nothing more can change (clean, or what is left is a replica
-// pg_sage cannot reach), so verification stops waiting for it.
+// pg_sage cannot reach, a session it may not signal or a role it may not
+// alter), so verification stops waiting for it.
 func (r *clusterRun) check(ctx context.Context) (clean, settled bool) {
-	clean = r.checkPrimary(ctx)
-	settled = clean
+	clean, settled = r.checkPrimary(ctx)
 	for _, rr := range r.replicas {
 		if rr.check(ctx, r.k, r.scopeDatname()) {
 			continue
@@ -69,44 +69,54 @@ func (r *clusterRun) check(ctx context.Context) (clean, settled bool) {
 
 // checkPrimary ends any agent backend still there (one that raced the
 // kill) and re-disables any role a concurrent change re-enabled.
-func (r *clusterRun) checkPrimary(ctx context.Context) bool {
+func (r *clusterRun) checkPrimary(ctx context.Context) (clean, settled bool) {
 	primary := r.targets[0].Pool
 	n, err := countAgents(ctx, primary, r.k, r.scopeDatname())
 	if err != nil {
-		return false
+		return false, false
 	}
-	clean := true
+	clean, settled = true, true
 	if n > 0 {
-		clean = false
-		more, _ := terminate(ctx, primary, r.k, r.scopeDatname())
+		more, err := terminate(ctx, primary, r.k, r.scopeDatname())
 		r.noteEnded(more)
+		clean = false
+		settled = err != nil // a refused signal is refused again next round
 	}
 	if !r.k.disablesRoles() {
-		return clean
+		return clean, settled
 	}
 	blocked, err := loginsBlocked(ctx, primary, r.k)
 	if err != nil {
-		return false
+		return false, false
 	}
 	if !blocked {
-		r.redisable(ctx)
-		return false
-	}
-	return clean
-}
-
-// redisable disables the roles in scope that can log in again.
-func (r *clusterRun) redisable(ctx context.Context) {
-	rows, err := readRoleAttrs(ctx, r.targets[0].Pool, r.k.roles(), r.k.all)
-	if err != nil {
-		return
-	}
-	for _, row := range rows {
-		if !row.attrs.killed() {
-			stmt, _ := r.s.disableRole(ctx, r.targets[0].Pool, row.name)
-			r.statements = append(r.statements, stmt)
+		clean = false
+		if r.redisable(ctx) {
+			settled = false
 		}
 	}
+	return clean, settled
+}
+
+// redisable disables the roles in scope that can log in again; it reports
+// whether it changed any.
+func (r *clusterRun) redisable(ctx context.Context) bool {
+	rows, err := readRoleAttrs(ctx, r.targets[0].Pool, r.k.roles(), r.k.all)
+	if err != nil {
+		return false
+	}
+	changed := false
+	for _, row := range rows {
+		if row.attrs.killed() {
+			continue
+		}
+		stmt, err := r.s.disableRole(ctx, r.targets[0].Pool, row.name)
+		if err == nil {
+			r.statements = append(r.statements, stmt)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // verify polls every cluster until it is clean or the verification
