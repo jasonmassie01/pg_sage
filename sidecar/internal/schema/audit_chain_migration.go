@@ -53,8 +53,9 @@ CREATE TABLE IF NOT EXISTS sage.siem_cursor (
 `
 
 // ddlGuardIdentityBindings maps an external identity (issuer, subject) to a
-// principal (E2, §7). It references sage.guard_principals, which the G1
-// core migration creates, so it is created once that table exists.
+// principal (E2, §7), and records which principals file manages a
+// principal. Both reference sage.guard_principals, created by the G1 core
+// migration that runs before this one.
 const ddlGuardIdentityBindings = `
 DO $do$
 BEGIN
@@ -71,6 +72,14 @@ BEGIN
     );
     CREATE INDEX IF NOT EXISTS guard_identity_bindings_principal
         ON sage.guard_identity_bindings (principal_id);
+    -- The declarative principals file that manages each principal (E2, PC-1).
+    CREATE TABLE IF NOT EXISTS sage.guard_principal_files (
+        principal_id text PRIMARY KEY
+                     REFERENCES sage.guard_principals(id) ON DELETE CASCADE,
+        file_name    text NOT NULL CHECK (file_name ~ '^[a-z][a-z0-9-]{1,62}$'),
+        applied_by   text NOT NULL,
+        applied_at   timestamptz NOT NULL DEFAULT now()
+    );
 END $do$;
 `
 

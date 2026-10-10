@@ -111,7 +111,7 @@ func MakePlan(ctx context.Context, f *File, b Backend, cat Catalog) (*Plan, erro
 		byName[s.Name] = s
 	}
 	for _, want := range f.Spec.Principals {
-		changes, err := planPrincipal(f, want, byName, cat)
+		changes, err := planPrincipal(f, want, byName)
 		if err != nil {
 			return nil, err
 		}
@@ -144,8 +144,8 @@ func checkCatalog(f *File, cat Catalog, p *Plan) error {
 }
 
 // planPrincipal plans one declared principal.
-func planPrincipal(f *File, want PrincipalSpec, byName map[string]Principal,
-	cat Catalog) ([]Change, error) {
+func planPrincipal(f *File, want PrincipalSpec, byName map[string]Principal) (
+	[]Change, error) {
 	have, exists := byName[want.Name]
 	if !exists {
 		out := []Change{{Op: OpCreate, Principal: want.Name, Widening: true}}
@@ -158,7 +158,8 @@ func planPrincipal(f *File, want PrincipalSpec, byName map[string]Principal,
 	var out []Change
 	switch {
 	case have.Status == "retired":
-		return nil, fmt.Errorf("%w: %s is retired; declare a new name", ErrConflict, want.Name)
+		return nil, fmt.Errorf("%w: %s is retired; declare a new name", ErrConflict,
+			want.Name)
 	case have.ManagedBy == "":
 		out = append(out, Change{Op: OpAdopt, Principal: want.Name, Field: "managed_by",
 			To: f.managedBy()})
@@ -166,11 +167,15 @@ func planPrincipal(f *File, want PrincipalSpec, byName map[string]Principal,
 		return nil, fmt.Errorf("%w: %s is managed by %s", ErrConflict, want.Name,
 			have.ManagedBy)
 	}
-	out = append(out, fieldChanges(want, have, cat)...)
+	if have.Tenant != want.Tenant {
+		return nil, fmt.Errorf("%w: %s belongs to tenant %q; a tenant cannot change, "+
+			"declare a new principal", ErrConflict, want.Name, have.Tenant)
+	}
+	out = append(out, fieldChanges(want, have)...)
 	return append(out, identityChanges(want, have)...), nil
 }
 
-func fieldChanges(want PrincipalSpec, have Principal, cat Catalog) []Change {
+func fieldChanges(want PrincipalSpec, have Principal) []Change {
 	var out []Change
 	upd := func(field, from, to string, widening bool) {
 		if from != to {
@@ -178,12 +183,12 @@ func fieldChanges(want PrincipalSpec, have Principal, cat Catalog) []Change {
 				From: from, To: to, Widening: widening})
 		}
 	}
-	upd("profile", have.Profile, want.Profile, widensProfile(cat, have.Profile,
-		want.Profile))
+	// Widening follows core's Patch.Widens: any other profile, or a higher
+	// ceiling; a sponsor change does not widen.
+	upd("profile", have.Profile, want.Profile, true)
 	upd("env_ceiling", have.EnvCeiling, want.EnvCeiling,
 		envRank[want.EnvCeiling] > envRank[have.EnvCeiling])
 	upd("sponsor", have.Sponsor, want.Sponsor, false)
-	upd("tenant", have.Tenant, want.Tenant, true)
 	if have.Status != want.Status {
 		op, widening := OpFreeze, false
 		if want.Status == "active" {
@@ -193,22 +198,6 @@ func fieldChanges(want PrincipalSpec, have Principal, cat Catalog) []Change {
 			From: have.Status, To: want.Status, Widening: widening})
 	}
 	return out
-}
-
-// widensProfile: the new profile grants a class the old one lacks.
-func widensProfile(cat Catalog, from, to string) bool {
-	old, _ := cat.ProfileClasses(from)
-	next, _ := cat.ProfileClasses(to)
-	have := map[string]bool{}
-	for _, c := range old {
-		have[c] = true
-	}
-	for _, c := range next {
-		if !have[c] {
-			return true
-		}
-	}
-	return false
 }
 
 func identityChanges(want PrincipalSpec, have Principal) []Change {

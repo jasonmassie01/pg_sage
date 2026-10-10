@@ -7,5 +7,8 @@ var auditChainExemptions = map[string]string{
 	"audit_chain_link": "tamper-evidence chain of the audit tables; kept whole " +
 		"so every link stays verifiable",
 	"audit_chain_meta": "one row per chained table: its install boundary",
-	"siem_cursor":      "one row per SIEM sink, source and chain: its export position",
+	"guard_identity_bindings": "external identity to principal bindings, current " +
+		"state (deleted with the principal)",
+	"guard_principal_files": "one row per file-managed principal, current state",
+	"siem_cursor":           "one row per SIEM sink, source and chain: its export position",
 }
