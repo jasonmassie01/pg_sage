@@ -156,23 +156,7 @@ func TestActionPackContents(t *testing.T) {
 		!strings.Contains(string(files["pgaudit.json"]), "CREATE INDEX") {
 		t.Fatalf("verification/pgaudit content missing")
 	}
-	var chain struct {
-		Links  []map[string]any `json:"links"`
-		Report struct {
-			Problems []any `json:"problems"`
-			Links    int   `json:"links"`
-		} `json:"verification"`
-		Head struct {
-			Seq  int64  `json:"seq"`
-			Hash string `json:"hash"`
-		} `json:"head"`
-	}
-	if err := json.Unmarshal(files["chain.json"], &chain); err != nil {
-		t.Fatalf("chain.json: %v", err)
-	}
-	if len(chain.Links) != 2 || len(chain.Report.Problems) != 0 || chain.Head.Hash == "" {
-		t.Fatalf("chain proof = %+v", chain)
-	}
+	assertChainProof(t, files["chain.json"])
 	var m Manifest
 	if err := json.Unmarshal(files["manifest.json"], &m); err != nil {
 		t.Fatalf("manifest: %v", err)
@@ -362,4 +346,27 @@ func keys(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// assertChainProof checks an action pack's chain.json: two links, verified
+// clean, with the chain head.
+func assertChainProof(t *testing.T, raw []byte) {
+	t.Helper()
+	var chain struct {
+		Links  []map[string]any `json:"links"`
+		Report struct {
+			Problems []any `json:"problems"`
+			Links    int   `json:"links"`
+		} `json:"verification"`
+		Head struct {
+			Seq  int64  `json:"seq"`
+			Hash string `json:"hash"`
+		} `json:"head"`
+	}
+	if err := json.Unmarshal(raw, &chain); err != nil {
+		t.Fatalf("chain.json: %v", err)
+	}
+	if len(chain.Links) != 2 || len(chain.Report.Problems) != 0 || chain.Head.Hash == "" {
+		t.Fatalf("chain proof = %+v", chain)
+	}
 }

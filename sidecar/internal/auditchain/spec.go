@@ -151,6 +151,3 @@ func (s Spec) stateSQL(alias string) string {
 	return "jsonb_build_array(" + fmt.Sprintf(strings.Join(s.State, ", "), alias) +
 		")::text"
 }
-
-// name is the table name without the schema.
-func (s Spec) name() string { return strings.TrimPrefix(s.Table, "sage.") }
