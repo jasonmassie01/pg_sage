@@ -102,7 +102,9 @@ jobs:
       # table, slow statements, O(objects) writes or a catalog query over
       # the 500 ms incident budget (internal/testsupport/perfgate/budgets.go).
       # Pull requests run the small scale; the nightly run the large one.
-      # Blocking: any offender fails the build.
+      # Blocking: any offender fails the build. TestPerfGateFirstLook times the
+      # catalog-only first look, Agent posture included (G0-04): 5 s small and
+      # 20 s large over 10k+ relations, no degraded check, no user-table scan.
       # The gate gets a fresh server of its own: the shared one holds what the
       # suites above left behind, and cluster-wide reads (the databases'
       # total size stats every file of every database) would charge pg_sage
@@ -126,14 +128,14 @@ jobs:
       - name: Performance gate
         if: ${{ !cancelled() }}
         working-directory: sidecar
-        timeout-minutes: 25
+        timeout-minutes: 30
         env:
           SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
           PG_SAGE_PERF_SCALE: ${{ github.event_name == 'schedule' && 'large' || 'small' }}
           PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
         run: |
-          go test ./cmd/pg_sage_sidecar -tags=perfgate -run '^TestPerfGate$' -count=1 \
-            -timeout 1500s -v
+          go test ./cmd/pg_sage_sidecar -tags=perfgate \
+            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 1800s -v
 
       - name: Upload performance gate report
         if: ${{ !cancelled() }}
