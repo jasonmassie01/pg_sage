@@ -141,6 +141,10 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return guardRoleEnsureContract(), true
 	case ActionTypeGuardRoleRetire:
 		return guardRoleRetireContract(), true
+	case ActionTypeGuardGrant:
+		return guardGrantContract(), true
+	case ActionTypeGuardRevoke:
+		return guardRevokeContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
