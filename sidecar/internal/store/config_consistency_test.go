@@ -37,6 +37,8 @@ var excludedPrefixes = []string{
 	"self_config.", // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
 	"fleet_learning.",
+	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
+	"agents.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
