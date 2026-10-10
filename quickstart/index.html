@@ -1018,7 +1018,8 @@ path and UI label named here must exist in the product (<code>TestQuickstart*</c
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">pg_stat_statements</span><span class="p">;</span>
 </code></pre></div>
 <p>That is all a read-only install needs. The privileges that changes need (table ownership,
-<code>pg_signal_backend</code>, parameter changes) come later, from the <strong>"Grant more"</strong> step.</p>
+CREATE on the schemas that hold your tables, <code>pg_signal_backend</code>, parameter changes) come
+later, from the <strong>"Grant more"</strong> step.</p>
 <h2 id="2-start-pg_sage">2. Start pg_sage<a class="headerlink" href="#2-start-pg_sage" title="Permanent link">&para;</a></h2>
 <p>With Docker, in one line:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg_sage<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:8080<span class="w"> </span>-p<span class="w"> </span><span class="m">9187</span>:9187<span class="w"> </span>-e<span class="w"> </span><span class="nv">SAGE_PROMETHEUS_PORT</span><span class="o">=</span><span class="m">9187</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">SAGE_DATABASE_URL</span><span class="o">=</span><span class="s2">"postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb"</span><span class="w"> </span>ghcr.io/jasonmassie01/pg_sage:latest
