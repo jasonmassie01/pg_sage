@@ -24,7 +24,11 @@ import (
 // its own database: setup and DDL sessions are closed (a closing backend
 // flushes) and the counters are read until they settle.
 
-// cadenceDatabase is a fresh bootstrapped database and its DSN.
+// cadenceDatabase is a fresh bootstrapped database and its DSN. Its
+// catalog holds no user table: testdb installs pg_hint_plan where the
+// server offers it (CI's does), and the extension owns one
+// (hint_plan.hints) that a full structural pass would count, while the
+// tests count the tables they create.
 func cadenceDatabase(t *testing.T) string {
 	t.Helper()
 	dsn := testdb.CreateDatabase(t, "sg_cadence")
@@ -35,6 +39,13 @@ func cadenceDatabase(t *testing.T) string {
 	defer pool.Close()
 	if err := schema.Bootstrap(context.Background(), pool); err != nil {
 		t.Fatalf("bootstrap: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		"DROP EXTENSION IF EXISTS pg_hint_plan"); err != nil {
+		t.Fatalf("drop pg_hint_plan and its hints table: %v", err)
+	}
+	if n := userTables(t, dsn); n != 0 {
+		t.Fatalf("fresh database holds %d user tables, want none", n)
 	}
 	return dsn
 }
