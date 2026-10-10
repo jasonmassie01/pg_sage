@@ -61,18 +61,17 @@ func TestPerfGate(t *testing.T) {
 }
 
 // calibrateRunner times the fixed workloads on this runner and its
-// server, before the fixture loads them.
+// server, before the fixture loads them, and logs the runner's type with
+// them so reference runs can be read from the log.
 func calibrateRunner(t *testing.T, ctx context.Context,
 	harness *pgxpool.Pool) perfgate.Calibration {
 	t.Helper()
-	cpu := perfgate.CalibrateCPU()
-	db, err := perfgate.CalibrateDB(ctx, harness)
+	c, err := perfgate.Calibrate(ctx, harness)
 	if err != nil {
 		t.Fatalf("calibrate: %v", err)
 	}
-	c := perfgate.NewCalibration(cpu, db)
-	t.Logf("calibration: cpu %.1f ms (x%.2f), sql %.1f ms (x%.2f)", c.CPUMs, c.CPUFactor,
-		c.DBMs, c.DBFactor)
+	t.Logf("calibration: runner %q, %d CPUs; cpu %.1f ms (x%.2f), sql %.1f ms (x%.2f)",
+		c.CPUModel, c.CPUs, c.CPUMs, c.CPUFactor, c.DBMs, c.DBFactor)
 	return c
 }
 

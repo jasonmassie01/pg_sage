@@ -17,6 +17,8 @@ func RenderCalibratedMarkdown(s Scale, b Budgets, c Calibration, phases []Phase,
 	return md + section
 }
 
+// calibrationSection says what the runner is, what it measured and which
+// budgets each factor scaled.
 func calibrationSection(c Calibration) string {
 	var sb strings.Builder
 	sb.WriteString("\n## Runner calibration\n\n")
@@ -24,13 +26,23 @@ func calibrationSection(c Calibration) string {
 		sb.WriteString("Not measured: the budgets above are the shipped ones.\n")
 		return sb.String()
 	}
-	fmt.Fprintf(&sb, "The timing budgets above are the shipped ones scaled by this runner's "+
-		"speed against the reference runner (never below x1, at most x%.2f).\n\n",
-		MaxCalibrationFactor)
-	sb.WriteString("| Workload | This runner | Reference | Factor |\n|---|---|---|---|\n")
-	fmt.Fprintf(&sb, "| CPU workload (sidecar CPU) | %.1f ms | %.1f ms | x%.2f |\n",
-		c.CPUMs, ReferenceCPUMs, c.CPUFactor)
-	fmt.Fprintf(&sb, "| SQL workload (statement, cycle, catalog and endpoint times) | "+
-		"%.1f ms | %.1f ms | x%.2f |\n", c.DBMs, ReferenceDBMs, c.DBFactor)
+	model := c.CPUModel
+	if model == "" {
+		model = "unknown CPU model"
+	}
+	fmt.Fprintf(&sb, "Runner: %s, %d CPUs. Each workload's time is the best of %d runs. "+
+		"The timing budgets above are the shipped ones scaled by this runner's time over "+
+		"the reference runner's, clamped to x%.2f-x%.2f: tighter on a faster runner, "+
+		"looser on a slower one.\n\n", model, c.CPUs, calibrationRuns,
+		MinCalibrationFactor, MaxCalibrationFactor)
+	sb.WriteString("| Workload | This runner | Reference | Factor | Scales |\n" +
+		"|---|---|---|---|---|\n")
+	fmt.Fprintf(&sb, "| CPU workload | %.1f ms | %.1f ms | x%.2f | %s |\n", c.CPUMs,
+		ReferenceCPUMs, c.CPUFactor, GateSidecarCPU)
+	fmt.Fprintf(&sb, "| SQL workload | %.1f ms | %.1f ms | x%.2f | %s and its exemption "+
+		"ceilings, %s, %s |\n", c.DBMs, ReferenceDBMs, c.DBFactor, GateStatementMean,
+		GateCycleDBTime, GateCatalogMax)
+	fmt.Fprintf(&sb, "| larger of the two | | | x%.2f | %s |\n", c.EndpointFactor(),
+		GateEndpoint)
 	return sb.String()
 }

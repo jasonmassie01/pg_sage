@@ -1,149 +1,110 @@
 package perfgate
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
-	"regexp"
-	"strings"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // The reference runner is the one the timing budgets were set on: a
 // GitHub ubuntu-latest runner with the gate's clean PG17 container. Its
-// workload times are the medians of three perfgate.yml runs on separate
-// runners (2026-10-09: CPU 55.2-57.3 ms, SQL 171.7-175.7 ms).
+// CPU workload time is the median of three perfgate.yml runs on separate
+// runners (2026-10-09: 55.2-57.3 ms; nine more that day: 42.5-65.0 ms).
+// Its SQL workload time (171.7-175.7 ms on the three) was measured while
+// the workload spilled to temp files: it stands until the in-memory SQL
+// workload is re-measured on reference runs.
 const (
 	ReferenceCPUMs = 57.0
 	ReferenceDBMs  = 172.2
-	// MaxCalibrationFactor bounds how much a slow runner loosens the
-	// timing budgets, so a regression cannot hide behind one.
-	MaxCalibrationFactor = 1.5
+	// MinCalibrationFactor and MaxCalibrationFactor clamp each factor. A
+	// runner faster than the reference is held to budgets up to 25%
+	// tighter, so its speed cannot hide a regression; a slower one gets
+	// budgets up to 25% looser and no more, so a regression cannot hide
+	// behind its slowness. The nine runners of 2026-10-09 timed the CPU
+	// workload at x0.75-x1.14 of the reference.
+	MinCalibrationFactor = 0.75
+	MaxCalibrationFactor = 1.25
 	calibrationRuns      = 5
 )
 
+// ErrInvalidCalibration reports a workload time that is not a positive,
+// finite number of milliseconds: a broken measurement, not a speed.
+var ErrInvalidCalibration = errors.New("perfgate calibration: invalid workload time")
+
 // Calibration is the runner's speed against the reference runner: the
-// best of calibrationRuns timings of each fixed workload, and the factors
-// the timing budgets are scaled by.
+// best of calibrationRuns timings of each fixed workload, the factors the
+// timing budgets are scaled by, and the runner's type, by which reference
+// runs are grouped: its CPU model as /proc/cpuinfo names it (empty off
+// Linux) and its logical CPU count.
 type Calibration struct {
 	CPUMs, DBMs         float64
 	CPUFactor, DBFactor float64
+	CPUModel            string
+	CPUs                int
 	Known               bool
 }
 
-// NewCalibration turns measured workload times into budget factors:
-// measured/reference, never below 1 (a fast runner is held to the shipped
-// budgets), at most MaxCalibrationFactor. An unknown time scales nothing.
-func NewCalibration(cpuMs, dbMs float64) Calibration {
-	return Calibration{CPUMs: cpuMs, DBMs: dbMs, Known: true,
-		CPUFactor: calibrationFactor(cpuMs, ReferenceCPUMs),
-		DBFactor:  calibrationFactor(dbMs, ReferenceDBMs)}
-}
-
-func calibrationFactor(measured, reference float64) float64 {
-	if !(measured > 0) || math.IsInf(measured, 0) {
-		return 1
+// NewCalibration turns measured workload times into budget factors, each
+// measured/reference clamped to MinCalibrationFactor-MaxCalibrationFactor.
+// A time that is not positive and finite is an ErrInvalidCalibration.
+func NewCalibration(cpuMs, dbMs float64) (Calibration, error) {
+	cpu, err := calibrationFactor("CPU", cpuMs, ReferenceCPUMs)
+	if err != nil {
+		return Calibration{}, err
 	}
-	return math.Min(math.Max(measured/reference, 1), MaxCalibrationFactor)
+	db, err := calibrationFactor("SQL", dbMs, ReferenceDBMs)
+	if err != nil {
+		return Calibration{}, err
+	}
+	return Calibration{CPUMs: cpuMs, DBMs: dbMs, CPUFactor: cpu, DBFactor: db,
+		Known: true}, nil
 }
 
-// Calibrated returns b with its timing budgets scaled: database times by
-// the SQL workload's factor, the sidecar's CPU by the CPU workload's.
-// Count budgets and exemptions are unchanged.
+func calibrationFactor(workload string, measured, reference float64) (float64, error) {
+	if !(measured > 0) || math.IsInf(measured, 1) {
+		return 0, fmt.Errorf("%w: %s workload took %v ms, want a positive, finite time",
+			ErrInvalidCalibration, workload, measured)
+	}
+	return min(max(measured/reference, MinCalibrationFactor), MaxCalibrationFactor), nil
+}
+
+// EndpointFactor scales gate E: the larger of the two factors. An endpoint
+// call is timed end to end in the sidecar's process, the handler's SQL on
+// the server and its Go code decoding the rows and encoding the JSON, in a
+// mix that differs per endpoint. The larger factor allows for whichever
+// part of the runner is slower; the budget tightens only on a runner
+// faster at both.
+func (c Calibration) EndpointFactor() float64 {
+	return max(c.CPUFactor, c.DBFactor)
+}
+
+// Calibrated returns b with its timing budgets scaled: the database times
+// (statement mean and the mean exemptions' ceilings, cycle DB time,
+// catalog max) by the SQL workload's factor, the sidecar's CPU by the CPU
+// workload's, the endpoint by EndpointFactor. Counts are unchanged, and so
+// is b: the ceilings are scaled in a copy. An unmeasured calibration
+// scales nothing.
 func (b Budgets) Calibrated(c Calibration) Budgets {
 	if !c.Known {
 		return b
 	}
 	b.StatementMeanMs *= c.DBFactor
+	b.MeanExempt = scaledCeilings(b.MeanExempt, c.DBFactor)
 	b.CycleDBTimeMs *= c.DBFactor
 	b.CatalogStatementMaxMs *= c.DBFactor
-	b.EndpointMaxMs *= c.DBFactor
+	b.EndpointMaxMs *= c.EndpointFactor()
 	b.SidecarCPUMsPerCycle *= c.CPUFactor
 	return b
 }
 
-// CalibrateCPU times a fixed CPU workload shaped like the sidecar's own
-// (JSON documents and regular expressions); the best of calibrationRuns.
-func CalibrateCPU() float64 {
-	doc := calibrationDocument()
-	best := math.Inf(1)
-	for i := 0; i < calibrationRuns; i++ {
-		start := time.Now()
-		cpuWorkload(doc)
-		best = math.Min(best, float64(time.Since(start).Microseconds())/1000)
+// scaledCeilings is a copy of exemptions with every ceiling times factor.
+func scaledCeilings(exemptions map[string]MeanExemption,
+	factor float64) map[string]MeanExemption {
+	out := maps.Clone(exemptions)
+	for tag, ex := range out {
+		ex.CeilingMs *= factor
+		out[tag] = ex
 	}
-	return best
-}
-
-var calibrationPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
-
-func calibrationDocument() []byte {
-	items := make([]map[string]any, 4000)
-	for i := range items {
-		items[i] = map[string]any{"schemaname": "app", "relname": fmt.Sprintf("t_%d", i),
-			"n_live_tup": i * 31, "seq_scan": i % 7, "note": strings.Repeat("x", 16)}
-	}
-	doc, _ := json.Marshal(items)
-	return doc
-}
-
-func cpuWorkload(doc []byte) {
-	for round := 0; round < 4; round++ {
-		var items []map[string]json.RawMessage
-		if err := json.Unmarshal(doc, &items); err != nil {
-			panic(err) // a fixed document: cannot fail
-		}
-		for _, item := range items {
-			for _, v := range item {
-				calibrationPattern.Match(v)
-			}
-		}
-		if _, err := json.Marshal(items); err != nil {
-			panic(err)
-		}
-	}
-}
-
-// calibrationSQL is a fixed server-side workload: aggregation over
-// generated rows, no tables, no JIT.
-const calibrationSQL = `SELECT count(*) FROM generate_series(1, 1500000) g
-WHERE g % 7 = 3`
-
-// CalibrateDB times calibrationSQL on the gate's server; the best of
-// calibrationRuns.
-func CalibrateDB(ctx context.Context, pool *pgxpool.Pool) (float64, error) {
-	if pool == nil {
-		return 0, errors.New("perfgate calibration: no connection pool")
-	}
-	best := math.Inf(1)
-	for i := 0; i < calibrationRuns; i++ {
-		ms, err := timeCalibrationQuery(ctx, pool)
-		if err != nil {
-			return 0, fmt.Errorf("perfgate calibration: SQL workload: %w", err)
-		}
-		best = math.Min(best, ms)
-	}
-	return best, nil
-}
-
-func timeCalibrationQuery(ctx context.Context, pool *pgxpool.Pool) (float64, error) {
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
-	if _, err := tx.Exec(ctx, "SELECT pg_catalog.set_config('jit', 'off', true)"); err != nil {
-		return 0, err
-	}
-	var n int64
-	start := time.Now()
-	if err := tx.QueryRow(ctx, calibrationSQL).Scan(&n); err != nil {
-		return 0, err
-	}
-	return float64(time.Since(start).Microseconds()) / 1000, nil
+	return out
 }
