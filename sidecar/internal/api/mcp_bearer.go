@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // MCP API tokens authenticate the MCP endpoint, and only it; the endpoint
@@ -106,6 +107,18 @@ func serveMCPToken(
 	ctx := mcp.WithPrincipal(r.Context(), p)
 	if identity != nil {
 		ctx = agentguard.WithIdentity(ctx, *identity)
+		ctx = policy.WithPrincipalRef(ctx, principalRef(*identity))
 	}
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// principalRef is the policy gate's view of an agent identity (AGENTDB-SPEC
+// §6.2.1): the MCP server adds the tool to it on every call.
+func principalRef(id agentguard.Identity) policy.PrincipalRef {
+	ref := policy.PrincipalRef{ID: id.Principal.ID, TaskID: id.TaskID,
+		OnBehalfOf: id.OnBehalfOf}
+	if id.Principal.SponsorUserID != nil {
+		ref.SponsorID = *id.Principal.SponsorUserID
+	}
+	return ref
 }

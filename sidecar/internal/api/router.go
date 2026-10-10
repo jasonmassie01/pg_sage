@@ -229,7 +229,9 @@ func registerControlPoolRoutes(
 	}
 	registerNotificationRoutes(apiMux, pool, notifyDeps)
 	registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
-	registerPolicyRoutes(apiMux, policy.NewStore(pool))
+	registerPolicyRoutesWith(apiMux, policy.NewStore(pool), func() bool {
+		return cfg != nil && cfg.Agents.SingleOperatorMode
+	})
 	registerDecommissionRoutes(apiMux, pool)
 }
 
