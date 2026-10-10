@@ -523,3 +523,5 @@ operator_preference agents.query.audit_retention_days
 safety_critical agents.single_operator_mode
 safety_critical agents.kill_verify_timeout_seconds
 operator_preference agents.kill_fallback_log
+safety_critical agents.capabilities.max_duration_minutes
+operator_preference agents.reconcile_interval_seconds

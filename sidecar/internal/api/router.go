@@ -112,6 +112,9 @@ type RuntimeDeps struct {
 	AgentKill AgentKillSwitch
 	// AgentActivity serves an agent's activity (G1-10); nil answers 503.
 	AgentActivity AgentActivityReader
+	// AgentGrants serves agent grants and capability requests; nil answers
+	// 503 (no control database or executor).
+	AgentGrants AgentGrantService
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -192,6 +195,7 @@ func registerFleetScopedRoutes(
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
 	registerAgentKillRoutes(apiMux, rt.AgentKill)
 	registerAgentActivityRoutes(apiMux, rt.AgentActivity)
+	registerAgentGrantRoutes(apiMux, rt.AgentGrants)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)

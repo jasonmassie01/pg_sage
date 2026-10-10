@@ -135,6 +135,7 @@ func startAgentGovernance(ctx context.Context, fleetControl *pgxpool.Pool,
 	go every(ctx, agentEnvReconcileInterval, func(c context.Context) {
 		runAgentEnvReconcile(c, svc, mgr, lead)
 	})
+	startAgentGrantReconciler(ctx, mgr, control, lead) // agent_grants_wiring.go
 	go afterDelay(ctx, agentClassFirstScanDelay, func() {
 		every(ctx, agentClassScanInterval, func(c context.Context) {
 			runAgentClassScan(c, mgr, lead)

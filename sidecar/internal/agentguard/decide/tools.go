@@ -64,6 +64,9 @@ var toolClasses = map[string]toolClass{
 	"whatif_index": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
+	// The capability class of a grant request is the class it asks for;
+	// G1 grants read only.
+	"agent_request_capability": agentTool(CapRead),
 }
 
 // agentOnlyTools are classified before their MCP tool ships.

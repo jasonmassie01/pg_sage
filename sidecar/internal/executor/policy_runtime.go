@@ -47,7 +47,8 @@ func changeClassForActionType(actionType string) string {
 	case "retention_delete":
 		return string(policy.ChangeRetention)
 	case ActionTypeGuardRoleEnsure, ActionTypeGuardRoleRetire, ActionTypeGuardFreeze,
-		ActionTypeGuardKill, ActionTypeGuardUnfreeze:
+		ActionTypeGuardKill, ActionTypeGuardUnfreeze, ActionTypeGuardGrant,
+		ActionTypeGuardRevoke:
 		return string(policy.ChangeAgentAccess)
 	default:
 		return ""

@@ -7,7 +7,7 @@ import "github.com/pg-sage/sidecar/internal/decommission"
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
 	decommissionExemptions, agentEnvClassExemptions, agentGuardExemptions,
-	agentKillExemptions, agentGateExemptions)
+	agentKillExemptions, agentGrantExemptions, agentGateExemptions)
 
 // agentGuardExemptions: agent identities and their roles are the record of
 // truth for who could act (AGENTDB-SPEC §6.4, §6.6); §6.17 sets no age
@@ -31,17 +31,17 @@ var decommissionExemptions = map[string]string{
 
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
-	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
-	"ask_messages":          "deleted with its conversation (ON DELETE CASCADE)",
-	"chatops_identities":    "admin-managed mapping of chat users to accounts, current state",
-	"chatops_replay":        "pruned by chatops on every callback (24 h replay window)",
-	"config":                "current configuration, not a time-series",
-	"config_audit":          "security audit trail of configuration changes",
-	"crypto_meta":           "key metadata, not a time-series",
-	"databases":             "fleet registry, not a time-series",
+	"action_outcome":     "deleted with its action (ON DELETE CASCADE, actions_days)",
+	"ask_messages":       "deleted with its conversation (ON DELETE CASCADE)",
+	"chatops_identities": "admin-managed mapping of chat users to accounts, current state",
+	"chatops_replay":     "pruned by chatops on every callback (24 h replay window)",
+	"config":             "current configuration, not a time-series",
+	"config_audit":       "security audit trail of configuration changes",
+	"crypto_meta":        "key metadata, not a time-series",
+	"databases":          "fleet registry, not a time-series",
 	"first_look": "bounded by its writer: firstlook.Store.Save keeps the newest 10 " +
 		"reports per database",
-	"onboarding": "one row per database, current state",
+	"onboarding":            "one row per database, current state",
 	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",
 	"io_rate_sample":        "pruned by the IO sampler (verify.io_sample_retention_days)",
