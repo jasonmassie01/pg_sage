@@ -63,6 +63,11 @@ func (s *Store) WithLog(logFn func(string, string, ...any)) *Store {
 	return &c
 }
 
+// ownTypes keeps this store to its own fact types: column classes
+// (fact_type column_class) share sage.facts but belong to agent
+// governance's classify package, have their own API and never bind here.
+const ownTypes = `fact_type <> 'column_class'`
+
 const factColumns = `id, fact_type, subject_kind, subject, value, source, proposed_by,
 	evidence, rationale, status, COALESCE(decided_by, ''), decided_at, decision_note,
 	expires_at, expired_reason, proposals, created_at, updated_at, last_verified_at`
@@ -221,7 +226,7 @@ func rollbackQuietly(ctx context.Context, tx pgx.Tx) {
 // Get returns one fact.
 func (s *Store) Get(ctx context.Context, id int64) (Fact, error) {
 	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
-		FROM sage.facts WHERE id = $1`, id))
+		FROM sage.facts WHERE id = $1 AND `+ownTypes, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, ErrNotFound
 	}
@@ -250,7 +255,8 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Fact, error) {
 		limit = 1000
 	}
 	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
-		FROM sage.facts WHERE (cardinality($1::text[]) = 0 OR status = ANY($1))
+		FROM sage.facts WHERE `+ownTypes+`
+		  AND (cardinality($1::text[]) = 0 OR status = ANY($1))
 		  AND ($2 = '' OR fact_type = $2) ORDER BY id DESC LIMIT $3`,
 		statuses, string(filter.Type), limit)
 	if err != nil {
@@ -287,7 +293,7 @@ func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 	}
 	st.mu.Unlock()
 	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
-		FROM sage.facts WHERE status = 'confirmed'
+		FROM sage.facts WHERE `+ownTypes+` AND status = 'confirmed'
 		  AND (expires_at IS NULL OR expires_at > now()) ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("read confirmed facts: %w", err)

@@ -28,7 +28,8 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 const tokenColumns = `id::text, name, kind, scopes, databases, owner_user_id, created_by,
-	created_at, expires_at, revoked_at, revoked_by, last_used_at, prefix`
+	created_at, expires_at, revoked_at, revoked_by, last_used_at, prefix,
+	COALESCE(principal_id, '')`
 
 func scanToken(row pgx.Row) (Token, error) {
 	var tok Token
@@ -36,7 +37,7 @@ func scanToken(row pgx.Row) (Token, error) {
 	var revokedBy *string
 	err := row.Scan(&tok.ID, &tok.Name, &kind, &tok.Scopes, &tok.Databases,
 		&tok.OwnerUserID, &tok.CreatedBy, &tok.CreatedAt, &tok.ExpiresAt,
-		&tok.RevokedAt, &revokedBy, &tok.LastUsedAt, &tok.Prefix)
+		&tok.RevokedAt, &revokedBy, &tok.LastUsedAt, &tok.Prefix, &tok.PrincipalID)
 	if err != nil {
 		return Token{}, err
 	}
@@ -45,6 +46,14 @@ func scanToken(row pgx.Row) (Token, error) {
 		tok.RevokedBy = *revokedBy
 	}
 	return tok, nil
+}
+
+// Pool is the control database pool (nil without one).
+func (s *Store) Pool() *pgxpool.Pool {
+	if s == nil {
+		return nil
+	}
+	return s.pool
 }
 
 func (s *Store) ready() error {
@@ -69,22 +78,31 @@ func (s *Store) Create(ctx context.Context, req CreateRequest) (Token, error) {
 		return Token{}, err
 	}
 	var owner *int
+	var principal *string
 	if req.Kind == KindOperator {
 		owner = &req.OwnerUserID
+	} else {
+		principal = &req.PrincipalID
 	}
-	// The owner's role is checked in the same statement that inserts, so a
-	// concurrent demotion cannot slip between check and insert.
-	row := s.pool.QueryRow(ctx, `/* pg_sage */
+	// The owner's role and the principal's status are checked in the same
+	// statement that inserts, so a concurrent demotion or retirement cannot
+	// slip between check and insert.
+	row := s.pool.QueryRow(ctx, `/* pg_sage mcp_token_create v1 */
 		INSERT INTO sage.mcp_tokens (name, kind, scopes, databases, token_hash, prefix,
-			owner_user_id, created_by, expires_at)
+			owner_user_id, created_by, expires_at, principal_id)
 		SELECT $1::text, $2::text, $3::text[], $4::text[], $5::text, $6::text, $7::integer,
-			$8::text, now() + make_interval(secs => $9::float8)
-		WHERE $7::integer IS NULL OR EXISTS (SELECT 1 FROM sage.users u
-			WHERE u.id = $7::integer AND u.role IN ('operator', 'admin'))
+			$8::text, now() + make_interval(secs => $9::float8), $10::text
+		WHERE ($7::integer IS NULL OR EXISTS (SELECT 1 FROM sage.users u
+			WHERE u.id = $7::integer AND u.role IN ('operator', 'admin')))
+		  AND ($10::text IS NULL OR EXISTS (SELECT 1 FROM sage.guard_principals p
+			WHERE p.id = $10::text AND p.status <> 'retired'))
 		RETURNING `+tokenColumns,
 		req.Name, string(req.Kind), req.Scopes, req.Databases, HashSecret(secret),
-		secret[:prefixLen], owner, req.CreatedBy, req.ExpiresIn.Seconds())
+		secret[:prefixLen], owner, req.CreatedBy, req.ExpiresIn.Seconds(), principal)
 	tok, err := scanToken(row)
+	if errors.Is(err, pgx.ErrNoRows) && req.Kind == KindAgent {
+		return Token{}, ErrPrincipalRequired
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Token{}, ErrOwnerRequired
 	}

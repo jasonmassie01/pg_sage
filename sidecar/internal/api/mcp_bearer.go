@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // MCP API tokens authenticate the MCP endpoint, and only it; the endpoint
@@ -48,16 +50,23 @@ func bearerCredential(r *http.Request) (string, bool) {
 	return strings.TrimSpace(credential), true
 }
 
-// tokenPrincipal validates secret and builds the principal it grants.
+// tokenPrincipal validates secret and builds the principal it grants. An
+// agent token also yields the agent identity it acts for (agent
+// governance): the principal is loaded once, at authentication.
 func tokenPrincipal(
 	ctx context.Context, tokens *mcptoken.Store, secret string,
-) (mcp.Principal, error) {
+) (mcp.Principal, *agentguard.Identity, error) {
 	if tokens == nil {
-		return mcp.Principal{}, errTokenAuthUnavailable
+		return mcp.Principal{}, nil, errTokenAuthUnavailable
 	}
 	grant, err := tokens.Validate(ctx, secret)
 	if err != nil {
-		return mcp.Principal{}, err
+		return mcp.Principal{}, nil, err
+	}
+	id, isAgent, err := agentguard.IdentityForGrant(ctx,
+		agentguard.NewStore(tokens.Pool()), grant)
+	if err != nil {
+		return mcp.Principal{}, nil, err
 	}
 	scopes := make([]mcp.Scope, 0, len(grant.Scopes))
 	for _, s := range grant.Scopes {
@@ -67,10 +76,15 @@ func tokenPrincipal(
 	if grant.Kind == mcptoken.KindAgent {
 		kind = mcp.KindAgent
 	}
-	return mcp.Principal{
+	p := mcp.Principal{
 		Actor: "token:" + grant.TokenID, Role: grant.OwnerRole, Kind: kind, Name: grant.Name,
 		Scopes: scopes, Databases: grant.Databases, TokenID: grant.TokenID,
-	}, nil
+		PrincipalID: grant.PrincipalID,
+	}
+	if !isAgent {
+		return p, nil, nil
+	}
+	return p, &id, nil
 }
 
 // serveMCPToken authenticates a Bearer request to the MCP endpoint.
@@ -78,7 +92,7 @@ func serveMCPToken(
 	w http.ResponseWriter, r *http.Request, next http.Handler,
 	tokens *mcptoken.Store, secret string,
 ) {
-	p, err := tokenPrincipal(r.Context(), tokens, secret)
+	p, identity, err := tokenPrincipal(r.Context(), tokens, secret)
 	switch {
 	case errors.Is(err, mcptoken.ErrUnauthorized), errors.Is(err, errTokenAuthUnavailable):
 		jsonError(w, "invalid, expired or revoked MCP token", http.StatusUnauthorized)
@@ -90,5 +104,21 @@ func serveMCPToken(
 		jsonError(w, "token validation unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	next.ServeHTTP(w, r.WithContext(mcp.WithPrincipal(r.Context(), p)))
+	ctx := mcp.WithPrincipal(r.Context(), p)
+	if identity != nil {
+		ctx = agentguard.WithIdentity(ctx, *identity)
+		ctx = policy.WithPrincipalRef(ctx, principalRef(*identity))
+	}
+	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// principalRef is the policy gate's view of an agent identity (AGENTDB-SPEC
+// §6.2.1): the MCP server adds the tool to it on every call.
+func principalRef(id agentguard.Identity) policy.PrincipalRef {
+	ref := policy.PrincipalRef{ID: id.Principal.ID, TaskID: id.TaskID,
+		OnBehalfOf: id.OnBehalfOf}
+	if id.Principal.SponsorUserID != nil {
+		ref.SponsorID = *id.Principal.SponsorUserID
+	}
+	return ref
 }

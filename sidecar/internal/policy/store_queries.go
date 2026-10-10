@@ -43,21 +43,26 @@ func scanPolicy(row rowScanner) (Policy, error) {
 func (s *Store) insertProposal(
 	ctx context.Context, request ProposalRequest, current Policy, preview []byte,
 ) (Proposal, error) {
+	agent, widening := proposalProvenance(request, current)
 	var result Proposal
 	var databaseID *int64
 	err := s.pool.QueryRow(ctx, `
 WITH next_id AS (SELECT nextval('sage.policy_id_seq') AS id)
 INSERT INTO sage.policy (
     id, database_id, version, scope, profile, doc, preview, status,
-    proposed_by, supersedes_id
+    proposed_by, supersedes_id, proposed_principal_id, proposed_sponsor_id, widening
 )
-SELECT id, $1, -id, $2, $3, $4, $5, 'proposed', $6, $7 FROM next_id
-RETURNING id, database_id, profile, doc, proposed_by, preview, proposed_at`,
+SELECT id, $1, -id, $2, $3, $4, $5, 'proposed', $6, $7, NULLIF($8, ''),
+       NULLIF($9, 0), $10 FROM next_id
+RETURNING id, database_id, profile, doc, proposed_by, preview, proposed_at,
+          COALESCE(proposed_principal_id, ''), COALESCE(proposed_sponsor_id, 0), widening`,
 		request.Scope.DatabaseID, scopeName(request.Scope), request.Profile,
 		request.Document, preview, request.Actor, current.ID,
+		agent.ID, agent.SponsorID, widening,
 	).Scan(
 		&result.ID, &databaseID, &result.Profile, &result.Document,
 		&result.Actor, &result.Preview, &result.CreatedAt,
+		&result.PrincipalID, &result.SponsorID, &result.Widening,
 	)
 	if err != nil {
 		return Proposal{}, fmt.Errorf("insert policy proposal: %w", err)
@@ -91,6 +96,9 @@ func ratifyInTransaction(
 	if current.ID != baseID || current.Version != request.ExpectedVersion {
 		return Policy{}, ErrVersionConflict
 	}
+	if err := approveProposal(ctx, tx, proposal, request); err != nil {
+		return Policy{}, err
+	}
 	if _, err := tx.Exec(ctx, `
 UPDATE sage.policy SET status = 'superseded' WHERE id = $1`, current.ID); err != nil {
 		return Policy{}, fmt.Errorf("supersede policy: %w", err)
@@ -106,10 +114,12 @@ func loadProposalForUpdate(
 	var baseID int64
 	err := tx.QueryRow(ctx, `
 SELECT id, database_id, profile, doc, proposed_by, preview, proposed_at,
-       supersedes_id
+       supersedes_id, COALESCE(proposed_principal_id, ''),
+       COALESCE(proposed_sponsor_id, 0), widening
 FROM sage.policy WHERE id = $1 AND status = 'proposed' FOR UPDATE`, proposalID).Scan(
 		&result.ID, &databaseID, &result.Profile, &result.Document,
 		&result.Actor, &result.Preview, &result.CreatedAt, &baseID,
+		&result.PrincipalID, &result.SponsorID, &result.Widening,
 	)
 	result.Scope.DatabaseID = databaseID
 	return result, baseID, err

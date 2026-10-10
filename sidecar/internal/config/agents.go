@@ -16,6 +16,13 @@ type AgentsConfig struct {
 	ExposedRoles   []string            `yaml:"exposed_roles" doc:"Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none."`
 	ClientPatterns []string            `yaml:"client_patterns" doc:"Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai."`
 	Posture        AgentsPostureConfig `yaml:"posture"`
+	// Roles, Broker and SingleOperatorMode are the G1 core (agents_core.go).
+	Roles              AgentsRolesConfig  `yaml:"roles"`
+	Broker             AgentsBrokerConfig `yaml:"broker"`
+	SingleOperatorMode bool               `yaml:"single_operator_mode" doc:"Lets one person approve a widening agent change (profile, ceiling, unfreeze after a kill) with a recorded reason; each such approval enters a review queue. Default: false."`
+	// ControlDatabase and DefaultEnvironment: agents_env.go (spec §6.5).
+	ControlDatabase    string `yaml:"control_database" doc:"Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty."`
+	DefaultEnvironment string `yaml:"default_environment" doc:"Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod."`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -37,8 +44,10 @@ func DefaultClientPatterns() []string {
 
 func defaultAgentsConfig() AgentsConfig {
 	return AgentsConfig{ClientPatterns: DefaultClientPatterns(),
+		DefaultEnvironment: DefaultAgentsEnvironment,
 		Posture: AgentsPostureConfig{MemoryGrowthGBDay: DefaultPostureMemoryGrowthGBDay,
-			DailyAt: DefaultPostureDailyAt}}
+			DailyAt: DefaultPostureDailyAt},
+		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker()}
 }
 
 func (a AgentsConfig) validate() error {
@@ -59,7 +68,10 @@ func (a AgentsConfig) validate() error {
 	if _, _, err := ParseDailyAt(a.Posture.DailyAt); err != nil {
 		return fmt.Errorf("agents.posture.daily_at: %w", err)
 	}
-	return nil
+	if err := a.validateCore(); err != nil {
+		return err
+	}
+	return a.validateEnvironment()
 }
 
 // ValidExposedRole checks one agents.exposed_roles entry: a role name,

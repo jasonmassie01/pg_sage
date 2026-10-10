@@ -47,11 +47,47 @@
     "doc": "",
     "class": "operator_preference"
   },
+  "agents.broker.max_total_connections": {
+    "type": "int",
+    "default": 20,
+    "doc": "Broker connections across every agent, per sidecar. At least pool_max_conns. Default: 20.",
+    "class": "safety_critical"
+  },
+  "agents.broker.pool_idle_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds an idle broker connection is kept. At least 1. Default: 60.",
+    "class": "safety_critical"
+  },
+  "agents.broker.pool_max_conns": {
+    "type": "int",
+    "default": 2,
+    "doc": "Connections per agent broker pool, and the broker role's CONNECTION LIMIT. At least 1. Default: 2.",
+    "class": "safety_critical"
+  },
+  "agents.broker.rotation_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Days between rotations of each agent's broker password; it also rotates at every unfreeze after a kill. At least 1. Default: 7.",
+    "class": "safety_critical"
+  },
   "agents.client_patterns": {
     "type": "[]string",
     "default": null,
     "doc": "Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai.",
     "class": "operator_preference"
+  },
+  "agents.control_database": {
+    "type": "string",
+    "default": "",
+    "doc": "Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty.",
+    "class": "safety_critical"
+  },
+  "agents.default_environment": {
+    "type": "string",
+    "default": "prod",
+    "doc": "Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod.",
+    "class": "safety_critical"
   },
   "agents.exposed_roles": {
     "type": "[]string",
@@ -70,6 +106,60 @@
     "default": 5,
     "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
     "class": "operator_preference"
+  },
+  "agents.roles.connection_limit": {
+    "type": "int",
+    "default": 5,
+    "doc": "CONNECTION LIMIT of each agent's direct-lane role. At least 1. Default: 5.",
+    "class": "safety_critical"
+  },
+  "agents.roles.idle_in_transaction_timeout_ms": {
+    "type": "int",
+    "default": 60000,
+    "doc": "idle_in_transaction_session_timeout set on agent roles, in milliseconds. Greater than 0. Default: 60000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.idle_session_timeout_ms": {
+    "type": "int",
+    "default": 600000,
+    "doc": "idle_session_timeout set on agent roles, in milliseconds; it bounds sessions a kill cannot reach. Greater than 0. Default: 600000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.lock_timeout_ms": {
+    "type": "int",
+    "default": 2000,
+    "doc": "lock_timeout set on agent roles in each database, in milliseconds. Greater than 0. Default: 2000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.retire_grace_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Days a retired agent's roles are kept before they are dropped. 0 or more. Default: 7.",
+    "class": "safety_critical"
+  },
+  "agents.roles.statement_timeout_ms": {
+    "type": "int",
+    "default": 30000,
+    "doc": "statement_timeout set on agent roles in each database, in milliseconds. Greater than 0. Default: 30000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.temp_file_limit_mb": {
+    "type": "int",
+    "default": 1024,
+    "doc": "temp_file_limit set on agent roles where pg_sage may set it (it is superuser-only unless granted); 0 sets none. Default: 1024.",
+    "class": "safety_critical"
+  },
+  "agents.roles.transaction_timeout_ms": {
+    "type": "int",
+    "default": 600000,
+    "doc": "transaction_timeout set on agent roles on PostgreSQL 17 and later, in milliseconds. Greater than 0. Default: 600000.",
+    "class": "safety_critical"
+  },
+  "agents.single_operator_mode": {
+    "type": "bool",
+    "default": false,
+    "doc": "Lets one person approve a widening agent change (profile, ceiling, unfreeze after a kill) with a recorded reason; each such approval enters a review queue. Default: false.",
+    "class": "safety_critical"
   },
   "alerting.check_interval_seconds": {
     "type": "int",
@@ -1194,6 +1284,12 @@
     "type": "bool",
     "default": true,
     "doc": "Enable the intent-level MCP server.",
+    "class": "safety_critical"
+  },
+  "mcp.stdio_principal": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the agent principal the stdio client acts as. Empty: stdio keeps read and propose tools capped at approval, and agent_* tools answer agent_unsponsored. Default: empty.",
     "class": "safety_critical"
   },
   "mcp.transport": {
