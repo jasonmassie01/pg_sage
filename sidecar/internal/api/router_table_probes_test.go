@@ -117,6 +117,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/databases/orders/investigations"},
 	// Root-level and SPA paths.
 	{"GET", "/health"},
+	{"GET", "/ready"},
 	{"GET", "/"},
 	{"GET", "/findings"},
 	{"GET", "/assets/missing.js"},
