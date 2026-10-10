@@ -134,6 +134,10 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return replaceIndexContract(), true
 	case "revert_created_statistics":
 		return revertCreatedStatisticsContract(), true
+	case ActionTypeGuardRoleEnsure:
+		return guardRoleEnsureContract(), true
+	case ActionTypeGuardRoleRetire:
+		return guardRoleRetireContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,

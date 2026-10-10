@@ -222,12 +222,7 @@ func trustedInternalControl(req ActionRequest) bool {
 	if !req.InternalControl || req.SQL != "" || req.Contract == nil {
 		return false
 	}
-	switch req.Contract.ActionType {
-	case "declare_table_contract", "register_consumer", "retention_delete":
-		return true
-	default:
-		return false
-	}
+	return typedInternalActions[req.Contract.ActionType]
 }
 
 func unknownGuardrail(contract ActionContract) (Guardrail, bool) {
