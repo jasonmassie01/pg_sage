@@ -53,6 +53,9 @@ const (
 	ReasonRetired     Reason = "agent_retired"
 	// ReasonGrantorLacksPrivilege is §6.6's grantor rule (G1-09).
 	ReasonGrantorLacksPrivilege Reason = "grantor_lacks_privilege"
+	// ReasonRevokeIncomplete is a privilege another grantor gave an agent
+	// role, which pg_sage cannot revoke (§6.6, G1-09).
+	ReasonRevokeIncomplete Reason = "revoke_incomplete"
 	// ReasonPublicCreate is preflight P1 (G1-16).
 	ReasonPublicCreate Reason = "public_create_on_schema"
 )

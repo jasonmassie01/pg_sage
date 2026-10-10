@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,7 +20,64 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testdb.Run(m.Run, "internal/agentguard"))
+	os.Exit(testdb.Run(func() int {
+		code := m.Run()
+		if leaked := leakedRoles(); len(leaked) > 0 && code == 0 {
+			fmt.Fprintf(os.Stderr, "agent roles left behind by the tests: %v\n", leaked)
+			return 1
+		}
+		return code
+	}, "internal/agentguard"))
+}
+
+// The role fixture tracks every agent role a test may create and untracks
+// it once dropped; TestMain fails the run when any is left on the server.
+var (
+	trackedMu    sync.Mutex
+	trackedRoles = map[string]bool{}
+)
+
+func trackRole(names ...string) {
+	trackedMu.Lock()
+	defer trackedMu.Unlock()
+	for _, n := range names {
+		trackedRoles[n] = true
+	}
+}
+
+func untrackRole(name string) {
+	trackedMu.Lock()
+	defer trackedMu.Unlock()
+	delete(trackedRoles, name)
+}
+
+// leakedRoles lists tracked roles that still exist on the server.
+func leakedRoles() []string {
+	trackedMu.Lock()
+	names := make([]string, 0, len(trackedRoles))
+	for n := range trackedRoles {
+		names = append(names, n)
+	}
+	trackedMu.Unlock()
+	if len(names) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv(testdb.EnvName))
+	if err != nil {
+		return []string{"(cannot check: " + err.Error() + ")"}
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	rows, err := conn.Query(ctx, "SELECT rolname::text FROM pg_roles WHERE rolname = ANY($1)",
+		names)
+	if err != nil {
+		return []string{"(cannot check: " + err.Error() + ")"}
+	}
+	left, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return []string{"(cannot check: " + err.Error() + ")"}
+	}
+	return left
 }
 
 // livePool is a superuser pool on the package's fixture database, with

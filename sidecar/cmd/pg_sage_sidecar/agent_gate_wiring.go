@@ -106,7 +106,7 @@ func bindStdioPrincipal(rt *mcp.Runtime, c *config.Config, mgr *fleet.DatabaseMa
 			"propose tools, capped at approval)", c.MCP.StdioPrincipal, err)
 		return
 	}
-	rt.BindStdioPrincipal(p.ID)
+	rt.SetStdioPrincipal(p.ID)
 }
 
 // fleetRecovery is D7's recovery posture: the provider's PITR flag from

@@ -310,7 +310,10 @@ func TestRetire_DropsRolesEverywhere(t *testing.T) {
 	require.Equal(t, ReasonFrozen, d.Reason)
 }
 
-func TestRetire_ForeignGrantorResidueRefuses(t *testing.T) {
+// Two grantors: pg_sage's own grant and another role's. Retire refuses
+// before changing anything, names the exact REVOKE the other grantor runs,
+// and once that runs it retires the role and removes pg_sage's grant too.
+func TestRetire_TwoGrantorsRefuseThenComplete(t *testing.T) {
 	f := newRoleFixture(t)
 	ctx := context.Background()
 	p := f.principal(t)
@@ -318,12 +321,39 @@ func TestRetire_ForeignGrantorResidueRefuses(t *testing.T) {
 	require.NoError(t, err)
 	table := "public.g1core_residue_" + p.ID[4:12]
 	_, err = f.super.Exec(ctx, "CREATE TABLE "+table+" (id int); GRANT SELECT ON "+table+
-		" TO "+ident(p.BrokerRole()))
+		" TO "+ident(f.adminName)+" WITH GRANT OPTION; GRANT INSERT ON "+table+" TO "+
+		ident(p.BrokerRole()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = f.super.Exec(context.Background(), "DROP TABLE "+table) })
+	_, err = f.admin.Exec(ctx, "GRANT SELECT ON "+table+" TO "+ident(p.BrokerRole()))
 	require.NoError(t, err)
 	_, err = f.manager.Retire(ctx, f.request(p))
 	require.ErrorIs(t, err, ErrPostCheck)
-	require.ErrorContains(t, err, "another grantor")
+	d, ok := IsDenied(err)
+	require.True(t, ok, "%v", err)
+	require.Equal(t, ReasonRevokeIncomplete, d.Reason)
+	require.Contains(t, d.Fix, "REVOKE ALL ON TABLE "+table+" FROM "+p.BrokerRole()+
+		" GRANTED BY postgres;")
 	require.True(t, f.roleExists(t, p.BrokerRole()), "nothing dropped half-way")
+	var selectOK, insertOK bool
+	require.NoError(t, f.super.QueryRow(ctx, "SELECT has_table_privilege($1, $2, "+
+		"'SELECT'), has_table_privilege($1, $2, 'INSERT')", p.BrokerRole(), table).
+		Scan(&selectOK, &insertOK))
+	require.True(t, selectOK && insertOK, "a refused retire changes nothing")
+	self, err := SelfCheck(ctx, f.admin)
+	require.NoError(t, err)
+	require.Empty(t, self.Inherits)
+	for _, line := range strings.Split(d.Fix, "\n") {
+		if strings.HasPrefix(line, "REVOKE") {
+			_, err = f.super.Exec(ctx, line)
+			require.NoError(t, err, line)
+		}
+	}
+	res, err := f.manager.Retire(ctx, f.request(p))
+	require.NoError(t, err)
+	require.Positive(t, res.ActionID)
+	require.False(t, f.roleExists(t, p.BrokerRole()))
+	require.False(t, f.roleExists(t, p.LoginRole()))
 }
 
 func TestRetire_GateBinds(t *testing.T) {

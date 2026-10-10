@@ -83,33 +83,3 @@ func TestAgentGovernanceStartup_NoPoolIsAnError(t *testing.T) {
 		t.Fatalf("no error line: %q", out)
 	}
 }
-
-func TestStdioAgentIdentity(t *testing.T) {
-	pool := agentWiringPool(t)
-	ctx := context.Background()
-	if _, ok, err := stdioAgentIdentity(ctx, pool, ""); ok || err != nil {
-		t.Fatalf("empty name: %v %v", ok, err)
-	}
-	if _, _, err := stdioAgentIdentity(ctx, pool, "no-such-agent-here"); err == nil ||
-		!strings.Contains(err.Error(), "names no agent") {
-		t.Fatalf("missing: %v", err)
-	}
-	store := agentguard.NewStore(pool)
-	p, err := store.Create(ctx, agentguard.CreateRequest{
-		Name: fmt.Sprintf("stdio-%d", time.Now().UnixNano()), Profile: "readonly-analyst",
-		CreatedBy: "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, ok, err := stdioAgentIdentity(ctx, pool, p.Name)
-	if err != nil || !ok || id.Principal.ID != p.ID {
-		t.Fatalf("resolve: %+v %v %v", id, ok, err)
-	}
-	if _, err := store.SetStatus(ctx, p.ID, agentguard.StatusRetired, ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := stdioAgentIdentity(ctx, pool, p.Name); err == nil ||
-		!strings.Contains(err.Error(), "retired") {
-		t.Fatalf("retired: %v", err)
-	}
-}
