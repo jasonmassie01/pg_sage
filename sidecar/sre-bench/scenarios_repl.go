@@ -77,7 +77,7 @@ func replicaProgram(mode ackMode) (program, *string, **consumer) {
 // confirmedStart writes a little WAL in this database (the consumer's
 // first message) and waits until the replica reports a write position.
 func confirmedStart(ctx context.Context, e *Env, slot string) error {
-	if _, err := e.Pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS bench_wal (id int, pad text);
+	if _, err := e.Pool.Exec(ctx, createWALTableSQL+`;
 		INSERT INTO bench_wal SELECT g, 'x' FROM generate_series(1, 10) g`); err != nil {
 		return err
 	}

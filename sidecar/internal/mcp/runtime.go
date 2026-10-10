@@ -69,10 +69,14 @@ func (r *Runtime) Serve(ctx context.Context) error {
 	}
 	ctx = WithPrincipal(ctx, stdioPrincipal)
 	session := newStdioSession(r.server, r.output)
+	// The baseline is taken before any input is read: a change made once a
+	// request is answered must not fall into a baseline the watcher
+	// goroutine takes whenever it first runs (and be lost).
+	baseline := r.server.Fingerprint()
 	lines, readErr := readLines(ctx, r.input)
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
-	go r.watch(watchCtx, session.toolsChanged)
+	go r.watch(watchCtx, baseline, session.toolsChanged)
 	for {
 		select {
 		case <-ctx.Done():
@@ -110,9 +114,9 @@ func readLines(ctx context.Context, input io.Reader) (<-chan []byte, <-chan erro
 	return lines, readErr
 }
 
-// watch calls changed whenever the server's tool list fingerprint moves.
-func (r *Runtime) watch(ctx context.Context, changed func()) {
-	last := r.server.Fingerprint()
+// watch calls changed whenever the server's tool list fingerprint moves
+// from last.
+func (r *Runtime) watch(ctx context.Context, last string, changed func()) {
 	ticker := time.NewTicker(r.watchInterval)
 	defer ticker.Stop()
 	for {

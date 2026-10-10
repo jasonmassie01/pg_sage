@@ -263,10 +263,17 @@ func quietWindow(bytes float64, elapsed time.Duration) error {
 }
 
 // writeWAL writes about mb MiB of WAL.
+// createWALTableSQL creates the table the WAL programs write their WAL into.
+// Autovacuum is kept off it: vacuuming the fresh surge after a checkpoint
+// writes it all again as full-page images when data checksums are on (the
+// default from PostgreSQL 18), WAL a consumer has not confirmed yet at the
+// next sample (walfixture_db_test.go).
+const createWALTableSQL = `CREATE TABLE IF NOT EXISTS bench_wal (id int, pad text)
+	WITH (autovacuum_enabled = off)`
+
 func writeWAL(mb int) func(context.Context, *Env) error {
 	return func(ctx context.Context, e *Env) error {
-		if _, err := e.Pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS bench_wal
-			(id int, pad text)`); err != nil {
+		if _, err := e.Pool.Exec(ctx, createWALTableSQL); err != nil {
 			return err
 		}
 		_, err := e.Pool.Exec(ctx, `INSERT INTO bench_wal
@@ -364,7 +371,7 @@ func keepsUp(ctx context.Context, e *Env, slot string) error {
 		Scan(&before); err != nil {
 		return err
 	}
-	if _, err := e.Pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS bench_wal (id int, pad text);
+	if _, err := e.Pool.Exec(ctx, createWALTableSQL+`;
 		INSERT INTO bench_wal SELECT g, 'x' FROM generate_series(1, 100) g`); err != nil {
 		return err
 	}

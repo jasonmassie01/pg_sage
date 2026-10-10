@@ -98,7 +98,7 @@ func AnalyzeSage(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE)"); err != nil {
 		return fmt.Errorf("perfgate: vacuum analyze: %w", err)
 	}
-	return nil
+	return awaitAllVisible(ctx, pool, allVisibleWait)
 }
 
 // closeIdleSessions closes the pool's idle sessions and waits until their

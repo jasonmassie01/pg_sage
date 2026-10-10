@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A first-look check that timed out is retried instead of failing the next one.** When a
+  step could not reopen its read-only transaction (for example while DDL held the catalog), the
+  following step ran in the aborted transaction and was reported as "current transaction is
+  aborted", which is never retried. A step whose transaction cannot be opened now leaves nothing
+  behind: it is retried once, and the next step opens its own transaction.
+- **MCP stdio clients hear about every fleet change.** A database added or removed right after a
+  client subscribed to tool-list changes could be missed when the watcher started late; the
+  watcher now compares against the tool list as it was when the session started.
+
 ## v2.3.1 (2026-10-07) -- pg_sage stays light on large databases
 
 The nightly performance gate (5,000 tables, 15,000 indexes, 5,000 sequences, 150,000 rows of

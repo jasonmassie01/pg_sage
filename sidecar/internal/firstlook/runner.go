@@ -115,7 +115,7 @@ func (p *pass) steps() []step {
 
 // open begins the read-only transaction and applies the statement timeout:
 // the budget in opts, unless the operator set a lower one on the session.
-func (p *pass) open(ctx context.Context) error {
+func (p *pass) open(ctx context.Context) (err error) {
 	// Nothing bounds this transaction's first statements on the server yet, and a
 	// catalog-cache rebuild can wait on a lock held by DDL: bound them here.
 	ctx, cancel := context.WithTimeout(ctx, p.stepBudget())
@@ -126,6 +126,14 @@ func (p *pass) open(ctx context.Context) error {
 		return fmt.Errorf("first look: begin read-only transaction: %w", err)
 	}
 	p.tx = tx
+	// A failed statement below aborts the transaction: end it, or the next
+	// step would run in it and fail as "current transaction is aborted",
+	// which is not retryable.
+	defer func() {
+		if err != nil {
+			p.close()
+		}
+	}()
 	// The catalog reads are planned at costs JIT compiles for: hundreds of
 	// ms of compilation for queries that run in tens.
 	if _, err := tx.Exec(ctx, "SELECT pg_catalog.set_config('jit', 'off', true)"); err != nil {
@@ -209,11 +217,8 @@ func (p *pass) fail(ctx context.Context, rules []string, err error) error {
 // of ctx is not fatal: each step tries to open again and is degraded with
 // the reason if it still cannot.
 func (p *pass) openOrDegrade(ctx context.Context) error {
-	if err := p.open(ctx); err != nil {
-		if ctx.Err() != nil {
-			return err
-		}
-		p.close()
+	if err := p.open(ctx); err != nil && ctx.Err() != nil {
+		return err
 	}
 	return nil
 }
