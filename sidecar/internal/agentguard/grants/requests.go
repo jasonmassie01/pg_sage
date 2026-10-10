@@ -112,16 +112,21 @@ UPDATE sage.guard_grant_requests SET
   status = CASE WHEN expires_at > now() THEN $2::text ELSE 'expired' END,
   decided_by = CASE WHEN expires_at > now() THEN $3::int END,
   decided_at = CASE WHEN expires_at > now() THEN now() END
-WHERE id = $1 AND status = 'pending'
+WHERE id = $1 AND principal_id = $4 AND status = 'pending'
 RETURNING ` + requestColumns
 
-// claimRequest moves a pending request to status for userID.
-func claimRequest(ctx context.Context, q Querier, id int64, status string,
-	userID int) (Request, error) {
-	r, err := scanRequest(q.QueryRow(ctx, claimSQL, id, status, userID))
+// claimRequest moves principalID's pending request to status for userID.
+func claimRequest(ctx context.Context, q Querier, principalID string, id int64,
+	status string, userID int) (Request, error) {
+	r, err := scanRequest(q.QueryRow(ctx, claimSQL, id, status, userID, principalID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		if _, gerr := GetRequest(ctx, q, id); gerr != nil {
+		got, gerr := GetRequest(ctx, q, id)
+		if gerr != nil {
 			return Request{}, gerr
+		}
+		if got.PrincipalID != principalID {
+			return Request{}, fmt.Errorf("%w: request %d of principal %s",
+				agentguard.ErrNotFound, id, principalID)
 		}
 		return Request{}, fmt.Errorf("%w: request %d", ErrRequestNotPending, id)
 	}

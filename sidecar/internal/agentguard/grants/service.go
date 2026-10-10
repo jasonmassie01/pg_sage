@@ -172,8 +172,8 @@ func (s *Service) target(ctx context.Context, database string) (Target, error) {
 // Approve runs a pending request as guard_grant under userID's approval,
 // once: a second approval, an expired request or a recorded proposal is
 // ErrRequestNotPending.
-func (s *Service) Approve(ctx context.Context, database string, requestID int64,
-	userID int) (GrantResult, error) {
+func (s *Service) Approve(ctx context.Context, database, principalID string,
+	requestID int64, userID int) (GrantResult, error) {
 	if userID <= 0 {
 		return GrantResult{}, agentguard.ErrApprovalRequired
 	}
@@ -181,7 +181,7 @@ func (s *Service) Approve(ctx context.Context, database string, requestID int64,
 	if err != nil {
 		return GrantResult{}, err
 	}
-	r, err := claimRequest(ctx, t.Pool, requestID, RequestApproved, userID)
+	r, err := claimRequest(ctx, t.Pool, principalID, requestID, RequestApproved, userID)
 	if err != nil {
 		return GrantResult{}, err
 	}
@@ -197,8 +197,8 @@ func (s *Service) Approve(ctx context.Context, database string, requestID int64,
 }
 
 // Deny closes a pending request.
-func (s *Service) Deny(ctx context.Context, database string, requestID int64,
-	userID int) (Request, error) {
+func (s *Service) Deny(ctx context.Context, database, principalID string,
+	requestID int64, userID int) (Request, error) {
 	if userID <= 0 {
 		return Request{}, agentguard.ErrApprovalRequired
 	}
@@ -206,7 +206,7 @@ func (s *Service) Deny(ctx context.Context, database string, requestID int64,
 	if err != nil {
 		return Request{}, err
 	}
-	return claimRequest(ctx, t.Pool, requestID, RequestDenied, userID)
+	return claimRequest(ctx, t.Pool, principalID, requestID, RequestDenied, userID)
 }
 
 // GrantNow runs guard_grant for an operator: the operator's request is the
