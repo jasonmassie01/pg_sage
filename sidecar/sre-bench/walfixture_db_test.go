@@ -12,8 +12,9 @@ import (
 // of a page after a checkpoint is a full-page image: reading the table once
 // wrote 46 MiB of WAL on PG18 (0 on PG17). A logical consumer confirms the
 // walsender's position only at its next status update, so a burst just
-// before a sample shows as tens of MiB sent but not flushed (24 and 32 MiB
-// measured, against at most 3.4 MiB without it), and the keeping-up decoy
+// before a sample shows as tens of MiB sent but not flushed (20 to 53 MiB
+// in 5 of 5 runs of CHECKPOINT and VACUUM ANALYZE right after the replica
+// caught up, against at most 7 MiB without them), and the keeping-up decoy
 // can be diagnosed standby_flush_backlog, as it once was on CI (PG18,
 // causal-graph+llm arm).
 func TestWALTableIsLeftToTheScenarios(t *testing.T) {
