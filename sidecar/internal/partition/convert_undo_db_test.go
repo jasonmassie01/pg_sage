@@ -20,7 +20,7 @@ import (
 func TestConvert_UndoResetsTheTimeoutBeforeAnyStatement(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tbl := scratch(t, ctx, pool, []string{"id"})
-	fill(t, ctx, pool, tbl, 2000)
+	fill(t, ctx, pool, tbl, 200000) // VALIDATE must outlast 1 ms
 	rec := &testdb.QueryRecorder{}
 	cfg := pool.Config()
 	cfg.ConnConfig.Tracer = rec

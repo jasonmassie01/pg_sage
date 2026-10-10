@@ -199,6 +199,13 @@ func Cleanup(ctx context.Context, db DB, t Table) error {
 // cleanupLocked drops the cutover CHECK and the pre-built key, if any, on
 // session s holding the conversion lock.
 func cleanupLocked(ctx context.Context, s DB, t Table) (err error) {
+	// A failed step may have left the session's statement timeout anywhere:
+	// set the cleanup's before the lookup runs under it.
+	restore, err := setSession(ctx, s, LockTimeout, cleanupTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, restore(ctx)) }()
 	var hasCheck, hasKey bool
 	if err := s.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
 		WHERE conrelid = pg_catalog.to_regclass($1) AND conname = $2),
@@ -209,12 +216,6 @@ func cleanupLocked(ctx context.Context, s DB, t Table) (err error) {
 	if !hasCheck && !hasKey {
 		return nil
 	}
-	// A failed step may have left the session's statement timeout anywhere.
-	restore, err := setSession(ctx, s, LockTimeout, cleanupTimeout)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, restore(ctx)) }()
 	if hasCheck {
 		if _, err := s.Exec(ctx, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s",
 			t.ident(), ident(t.checkName()))); err != nil {
