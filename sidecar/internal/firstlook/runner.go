@@ -180,6 +180,11 @@ func (p *pass) run(ctx context.Context, st step) error {
 	}
 	sctx, cancel := context.WithTimeout(ctx, p.stepBudget())
 	outcomes, err := st.fn(sctx, p.tx)
+	if err != nil && errors.Is(sctx.Err(), context.DeadlineExceeded) {
+		// The deadline cancelled a query and pgx closed the connection: the
+		// step may report that secondary error; the cause is the budget.
+		err = fmt.Errorf("%w (%v)", context.DeadlineExceeded, err)
+	}
 	cancel()
 	if err != nil {
 		p.close()
