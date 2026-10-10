@@ -348,8 +348,8 @@ func TestReconcile_FencedAndFillsSREBinding(t *testing.T) {
 	}
 	if _, err := control.Exec(ctx, `INSERT INTO sage.sre_database_bindings
 		(deployment_id, database_id, runtime_key, identity_strength, cluster_epoch)
-		SELECT deployment_id, $1, 'envtest:' || $1, 'configured', 'unknown'
-		FROM sage.sre_deployments`, id); err != nil {
+		SELECT deployment_id, $1, $2, 'configured', 'unknown'
+		FROM sage.sre_deployments`, id, "envtest:"+id); err != nil {
 		t.Fatal(err)
 	}
 	scope := "envtest:" + id
