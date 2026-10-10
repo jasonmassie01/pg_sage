@@ -85,7 +85,24 @@ func (s *Server) callAgentBrokerTool(ctx context.Context, name string,
 	if err != nil {
 		return nil, brokerFailure(err)
 	}
+	if result.ReasonCode == reasonAgentRate {
+		return rateLimited(result), nil
+	}
 	return fencedResult(result), nil
+}
+
+// reasonAgentRate is D9's rate refusal (decide.ReasonRate).
+const reasonAgentRate = "agent_rate"
+
+// rateLimited reports agent_rate with the existing rate_limited code and
+// retry_after, so clients see one rate-limit signal (spec §6.2.2 D9).
+func rateLimited(result readapi.Result) map[string]any {
+	out := toolError(failure(codeRateLimited, "rate limited: "+result.Detail))
+	structured, _ := out["structuredContent"].(map[string]any)
+	if failure, ok := structured["error"].(map[string]any); ok {
+		failure["retry_after"] = result.RetryAfterSeconds
+	}
+	return out
 }
 
 // scalarParam decodes one parameter, keeping numbers exact.

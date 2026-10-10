@@ -65,6 +65,8 @@ type Result struct {
 	SQLState     string      `json:"sqlstate,omitempty"`
 	Message      string      `json:"message,omitempty"`
 	Retryable    bool        `json:"retryable,omitempty"`
+	// RetryAfterSeconds is set on agent_rate (D9): when to retry.
+	RetryAfterSeconds int `json:"retry_after,omitempty"`
 }
 
 // WhoAmI is agent_whoami (§8.2): the calling principal, and per database
