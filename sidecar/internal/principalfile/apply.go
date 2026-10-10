@@ -12,8 +12,10 @@ import (
 
 // Apply errors.
 var (
-	ErrStalePlan           = errors.New("principals file: the file or the principals changed since the plan; plan again")
-	ErrWideningNotApproved = errors.New("principals file: the plan widens access; approve it explicitly")
+	ErrStalePlan = errors.New("principals file: the file or the principals " +
+		"changed since the plan; plan again")
+	ErrWideningNotApproved = errors.New("principals file: the plan widens " +
+		"access; approve it explicitly")
 )
 
 // ApplyOptions are the human decisions apply needs.
