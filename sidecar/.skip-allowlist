@@ -42,6 +42,23 @@ internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintR
 internal/tuner TestGeneratePlanFixtures # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
 test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 
+# Agent role management (AGENTDB-SPEC section 6.6) needs PostgreSQL 16+ (CREATEROLE
+# no longer implies membership; GRANT ... WITH INHERIT/SET). On PG14/15 Guard is
+# posture-only and TestEnsure_RefusedBeforePG16 pins the refusal; it skips on 16+.
+internal/agentguard TestEnsure_RefusedBeforePG16 # covers PG14/15 only; the PG16+ legs run the role tests it stands in for
+internal/agentguard Test(Ensure|Retire|Unfreeze)_.* # agent role management is PG16+; PG14/15 legs run TestEnsure_RefusedBeforePG16
+internal/agentguard TestKill_.* # agent roles (kill, freeze) are PG16+ on PG14/15; the fleet and replica kills run in ci.yml agent-servers
+internal/agentguard TestFreeze_Operator|TestFrozen_NoFlags|TestInflight_RegisterAndKillCancels|TestFallback_Reconcile # agent roles are PG16+ (posture-only on PG14/15)
+internal/agentguard TestCheckBackends_RegisteredRolePassesThenDrifts # registering an agent role is PG16+ (posture-only on PG14/15)
+internal/agentguard/grants Test(Approve|CheckObjects|EffectivePrivileges|ExpireDue|Grant|LeaseActive|List|RegistryPrivileges|RequestCapability|Revoke)_.*|TestGrantNowAndRevokeNow # agent grants need agent roles, PG16+ (posture-only on PG14/15)
+internal/retention TestGuardQueryAuditPurge_GenericPlanUsesAnIndex # EXPLAIN (GENERIC_PLAN) is PG16+
+
+# Agent governance tests that need servers of their own; ci.yml agent-servers runs
+# them, and there none may skip.
+internal/agentguard TestRelease_FleetFlagTwoPeople # a fleet kill disables every agent role on its server: ci.yml agent-servers (kill topology)
+internal/agentguard/broker TestActivityReportsDeallocAndFallsBack # needs pg_stat_statements.max=100 (SAGE_TEST_PSS_SMALL_URL): ci.yml agent-servers
+internal/pgaudit TestRealPGAuditCorrelation # needs pgaudit preloaded and jsonlog: ci.yml agent-servers
+
 # PGIncidentBench runs in its own CI steps (SAGE_BENCH_RUN=1, sharded by SAGE_BENCH_FAMILIES),
 # not inside ./... suites.
 sre-bench TestPGIncidentBench # dedicated "PGIncidentBench (...)" CI steps set SAGE_BENCH_RUN=1

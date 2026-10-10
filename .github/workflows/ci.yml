@@ -370,12 +370,15 @@ jobs:
         working-directory: sidecar
         run: go run ./cmd/skipbudget < ../integration.json
 
-  # Agent kill switch on a real streaming topology (G1-05): a PG17 primary,
-  # a configured replica and a standby pg_sage was not told about
-  # (scripts/ci/kill-replica-topology.sh). A fleet kill disables every agent
-  # role on its server, so these tests get servers of their own and skip in
-  # the shared suites (listed in sidecar/.skip-allowlist); here none may skip.
-  kill-topology:
+  # Agent governance tests that need servers of their own, so they skip in
+  # the shared suites (listed in sidecar/.skip-allowlist) and none may skip
+  # here. The kill switch on a real streaming topology (G1-05): a PG17
+  # primary, a configured replica and a standby pg_sage was not told about
+  # (scripts/ci/kill-replica-topology.sh); a fleet kill disables every agent
+  # role on its server. And a server with pgaudit and the jsonlog collector
+  # and a pg_stat_statements.max of 100 (scripts/ci/setup-agent-audit-postgres.sh)
+  # for E2's real pgaudit correlation and G1-10's dealloc fallback.
+  agent-servers:
     runs-on: ubuntu-latest
     env:
       KILL_TOPOLOGY_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
@@ -405,19 +408,44 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../kill.json
           exit $status
 
-      - name: Skip budget (no kill test may skip on its own topology)
+      - name: Start the agent audit server (PG17, pgaudit, small pg_stat_statements)
+        if: ${{ !cancelled() }}
+        run: |
+          docker run -d --name agentaudit-pg -e POSTGRES_PASSWORD=postgres             -p 5435:5432 "${KILL_TOPOLOGY_IMAGE}" >/dev/null
+          for _ in $(seq 1 60); do
+            docker exec agentaudit-pg pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 &&
+              break
+            sleep 1
+          done
+          scripts/ci/setup-agent-audit-postgres.sh agentaudit-pg 17
+
+      - name: pgaudit correlation and attribution dealloc tests (race detector)
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        timeout-minutes: 10
+        run: |
+          status=0
+          url=postgres://postgres:postgres@localhost:5435/postgres?sslmode=disable
+          SAGE_TEST_DATABASE_URL=$url SAGE_TEST_PSS_SMALL_URL=$url             go test ./internal/pgaudit ./internal/agentguard/broker -race -count=1             -timeout 600s -json             -run '^(TestRealPGAuditCorrelation|TestActivityReportsDeallocAndFallsBack)$'             > ../agent-audit.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../agent-audit.json
+          exit $status
+
+      - name: Skip budget (no test may skip on its own servers)
         if: ${{ !cancelled() }}
         working-directory: sidecar
         run: |
-          go run ./cmd/skipbudget < ../kill.json
-          if jq -e 'select(.Action=="skip" and .Test != null)' ../kill.json >/dev/null; then
-            echo "a kill test skipped on the dedicated topology" >&2
+          cat ../kill.json ../agent-audit.json | go run ./cmd/skipbudget
+          if cat ../kill.json ../agent-audit.json |
+            jq -e 'select(.Action=="skip" and .Test != null)' >/dev/null; then
+            echo "a test skipped on its dedicated server" >&2
             exit 1
           fi
 
-      - name: Remove the replica topology
+      - name: Remove the dedicated servers
         if: ${{ always() }}
-        run: scripts/ci/kill-replica-topology.sh down 17 killtopo
+        run: |
+          scripts/ci/kill-replica-topology.sh down 17 killtopo
+          docker rm -f agentaudit-pg >/dev/null 2>&1 || true
 
   lint:
     runs-on: ubuntu-latest
@@ -733,7 +761,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [test, kill-topology, lint, bench-sign]
+    needs: [test, agent-servers, lint, bench-sign]
     # master pushes publish :edge and :sha-*; release tags publish the
     # semver tags and move :latest, so :latest is always a release.
     # A tag image needs verified signed bench reports; :edge is published
@@ -796,7 +824,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [test, kill-topology, bench-sign, safety-bench-sign]
+    needs: [test, agent-servers, bench-sign, safety-bench-sign]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
