@@ -4,16 +4,13 @@ import (
 	"context"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-)
 
-// supabaseMu serializes the tests that create the cluster-wide anon and
-// authenticated roles.
-var supabaseMu sync.Mutex
+	"github.com/pg-sage/sidecar/internal/testdb"
+)
 
 func TestResolveEnv_PublicFirstSelfAndVersion(t *testing.T) {
 	pool, ctx := livePool(t)
@@ -78,8 +75,9 @@ func TestResolveEnv_ConfiguredExposedRolesAndMissing(t *testing.T) {
 }
 
 func TestResolveEnv_SupabaseRolesOnlyWhenBothExist(t *testing.T) {
-	supabaseMu.Lock()
-	defer supabaseMu.Unlock()
+	// Every creator of the cluster-wide Supabase roles holds this lock and
+	// drops them before releasing it, so they never exist here.
+	testdb.HoldSupabaseRoles(t, testdb.SkipUnlessLive(t))
 	pool, ctx := livePool(t)
 	var exists bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles
@@ -87,8 +85,8 @@ func TestResolveEnv_SupabaseRolesOnlyWhenBothExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	if exists {
-		t.Skip("anon or authenticated already exists on this server; " +
-			"the test owns their lifecycle")
+		t.Fatal("anon or authenticated exists under the Supabase roles lock: a test " +
+			"or fixture created it without testdb.HoldSupabaseRoles, or did not drop it")
 	}
 	createRole(t, ctx, pool, "anon", "NOLOGIN")
 	resolve := func() Env {

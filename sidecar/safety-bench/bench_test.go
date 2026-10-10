@@ -15,10 +15,13 @@ func TestMain(m *testing.M) {
 }
 
 // newPool opens a pool on the designated disposable test database, skipping
-// when no live server is configured.
+// when no live server is configured. It holds the Supabase roles lock for
+// the test.
 func newPool(ctx context.Context, t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
+	// The posture fixtures create the cluster-wide Supabase roles.
+	testdb.HoldSupabaseRoles(t, dsn)
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("open pool: %v", err)

@@ -138,3 +138,30 @@ func TestPostureScenarios_ScopesAndAgentRoles(t *testing.T) {
 		t.Fatalf("%d scenarios use agent roles, want at least 2", agentScenarios)
 	}
 }
+
+// A scenario that creates the cluster-wide Supabase roles drops them in its
+// teardown: left behind, they would make every later posture run (and other
+// packages' tests on the same server) see anon and authenticated as exposed.
+func TestPostureScenarios_SupabaseRolesAreDropped(t *testing.T) {
+	scenarios, err := PostureScenarios()
+	if err != nil {
+		t.Fatalf("scenarios: %v", err)
+	}
+	creators := 0
+	for _, sc := range scenarios {
+		if !strings.Contains(sc.SetupSQL, "CREATE ROLE anon") &&
+			!strings.Contains(sc.SetupSQL, "CREATE ROLE authenticated") {
+			continue
+		}
+		creators++
+		for _, role := range []string{"anon", "authenticated"} {
+			if !strings.Contains(sc.TeardownSQL, "DROP ROLE IF EXISTS "+role) {
+				t.Errorf("%s creates Supabase roles but its teardown does not drop %s",
+					sc.ID, role)
+			}
+		}
+	}
+	if creators < 3 {
+		t.Fatalf("%d scenarios create the Supabase roles, want the 3 exposure ones", creators)
+	}
+}

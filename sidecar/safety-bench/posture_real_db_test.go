@@ -56,8 +56,8 @@ func TestPostureScenarios_RealDetectorsMatch(t *testing.T) {
 	}
 }
 
-// After a run no bench agent role is left behind: a leftover registered
-// agent role would change other suites' posture (PrincipalsExist).
+// After a run no bench agent or Supabase role is left behind: leftovers
+// would change other suites' posture (PrincipalsExist, exposed roles).
 func TestPostureScenarios_TeardownDropsAgentRoles(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -71,11 +71,12 @@ func TestPostureScenarios_TeardownDropsAgentRoles(t *testing.T) {
 	}
 	var left int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_roles
-		WHERE rolname LIKE 'sage\_agentb\_sb%'`).Scan(&left); err != nil {
+		WHERE rolname LIKE 'sage\_agentb\_sb%'
+		   OR rolname IN ('anon', 'authenticated')`).Scan(&left); err != nil {
 		t.Fatalf("count bench agent roles: %v", err)
 	}
 	if left != 0 {
-		t.Fatalf("%d bench agent roles left after the run", left)
+		t.Fatalf("%d bench agent or Supabase roles left after the run", left)
 	}
 }
 
