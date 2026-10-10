@@ -155,6 +155,15 @@ type ActionRequest struct {
 	// and the kind budgets do not park it (BudgetBypassFor); the rest of the
 	// gate still binds.
 	Rollback bool
+	// Principal is the agent a request comes from (AGENTDB-SPEC §6.2); nil
+	// for pg_sage's own actions and people's. Authorize and Explain fill it
+	// from the context (WithPrincipalRef) when the caller left it nil.
+	Principal *PrincipalRef
+	// CapabilityClass is the agent capability class (§5.2) of an
+	// agent-originated request; "" derives it from the MCP tool.
+	CapabilityClass string
+	// ArtifactHash is the request-envelope hash (§6.9, §6.13), or "".
+	ArtifactHash string
 }
 
 type Decision struct {
@@ -282,6 +291,10 @@ type GateConfig struct {
 	Facts FactBinder	// Verification lists the changes still being verified on a request's
 	// objects (one change per object); nil consults none.
 	Verification VerificationTracker
+	// Agents decides agent-originated requests (Principal != nil, §6.2.2
+	// A4); nil means agent governance is off and such requests are capped
+	// at L2 (approval).
+	Agents AgentDecider
 }
 
 var (
