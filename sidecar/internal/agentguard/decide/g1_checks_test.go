@@ -3,6 +3,7 @@ package decide
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -21,8 +22,9 @@ func composedGate(t *testing.T, cfg Config, trust string) policy.Gate {
 	return policy.NewGate(policy.GateConfig{
 		Runtime: func(context.Context, policy.ActionRequest) (policy.RuntimeState, error) {
 			return policy.RuntimeState{ExecutorEnabled: true, TrustLevel: trust,
-				ExecutionMode: policy.ExecutionAuto, Tier3Safe: true, Tier3Moderate: true,
-				InConfiguredWindow: true}, nil
+					ExecutionMode: policy.ExecutionAuto, Tier3Safe: true, Tier3Moderate: true,
+					InConfiguredWindow: true, RampStart: time.Now().Add(-90 * 24 * time.Hour)},
+				nil
 		},
 		ValidateSQL: func(string) error { return nil },
 		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
@@ -93,8 +95,8 @@ func TestG112ActivePrincipalNeverAutoExecutes(t *testing.T) {
 		t.Fatalf("agent index request = %+v, want queue_approval", got)
 	}
 	own := gate.Authorize(context.Background(), indexCandidate())
-	if own.Verdict != policy.VerdictQueueApproval && own.Verdict != policy.VerdictExecute {
-		t.Fatalf("pg_sage's own = %+v", own)
+	if own.Verdict != policy.VerdictExecute {
+		t.Fatalf("pg_sage's own = %+v, want execute (the contrast)", own)
 	}
 }
 
