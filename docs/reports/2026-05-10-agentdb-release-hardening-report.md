@@ -3,7 +3,7 @@
 Local sidecar:
 - URL: http://127.0.0.1:8085/
 - Admin email: admin@pg-sage.local
-- Admin password: pgSageQA!2026
+- Admin password: (redacted; rotate any reuse, see CHANGELOG)
 - Config: `C:\Users\jmass\pg_sage\local_config.yaml`
 
 ## Worktree Classification
@@ -151,7 +151,7 @@ Cloud SQL, and GCP product-chain provisioning. Remaining release caveats:
 
 Final local checks completed after commit slicing:
 - `git status --short`: clean.
-- 8085 sidecar running and accepting `admin@pg-sage.local` / `pgSageQA!2026`.
+- 8085 sidecar running and accepting `admin@pg-sage.local` / (password redacted).
 - `/api/v1/databases`, `/api/v1/agent-dbs`, `/api/v1/agent-dbs/blueprints`,
   and `/api/v1/agent-dbs/provider-configs` returned HTTP 200.
 - GCP Cloud SQL sweep showed only the pre-existing `sage-test` instance.

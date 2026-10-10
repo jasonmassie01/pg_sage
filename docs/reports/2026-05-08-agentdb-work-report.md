@@ -15,7 +15,7 @@ Manual verification:
 ```text
 URL:      http://127.0.0.1:8080
 Email:    admin@pg-sage.local
-Password: CodexVerify123!
+Password: (redacted; rotate any reuse, see CHANGELOG)
 Process:  pg_sage_verify_sidecar.exe
 PID:      25868
 ```
