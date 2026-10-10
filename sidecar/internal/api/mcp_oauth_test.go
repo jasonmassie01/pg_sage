@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/mcpauth"
@@ -58,7 +59,10 @@ func (p *oauthIDP) token(t *testing.T, sub string, aud ...string) string {
 	return raw
 }
 
-type fakeResolver struct{ err error }
+type fakeResolver struct {
+	err error
+	id  string // the principal agent-1 is bound to (default agp_a...)
+}
 
 func (f fakeResolver) PrincipalForSubject(_ context.Context, _, sub string) (string, error) {
 	if f.err != nil {
@@ -66,6 +70,9 @@ func (f fakeResolver) PrincipalForSubject(_ context.Context, _, sub string) (str
 	}
 	if sub != "agent-1" {
 		return "", mcpauth.ErrNoBinding
+	}
+	if f.id != "" {
+		return f.id, nil
 	}
 	return "agp_aaaaaaaaaaaaaaaaaaaa", nil
 }
@@ -79,25 +86,47 @@ func oauthValidator(t *testing.T, p *oauthIDP, r mcpauth.Resolver) *mcpauth.Vali
 	return v
 }
 
-// capture records the principal and identity a request reached the MCP
-// handler with.
+// capture records the principal and agent identity a request reached the
+// MCP handler with.
 type capture struct {
 	calls     int
 	principal mcp.Principal
-	identity  mcpauth.Identity
+	identity  agentguard.Identity
 }
 
 func (c *capture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.calls++
 	c.principal, _ = mcp.PrincipalFromContext(r.Context())
-	c.identity, _ = mcpauth.IdentityFromContext(r.Context())
+	c.identity, _ = agentguard.IdentityFromContext(r.Context())
 	w.WriteHeader(http.StatusOK)
 }
 
+// fakePrincipals is the core principal store as the OAuth path reads it.
+type fakePrincipals map[string]agentguard.Principal
+
+func (f fakePrincipals) Get(_ context.Context, id string) (agentguard.Principal, error) {
+	if id == "agp_bbbbbbbbbbbbbbbbbbbb" {
+		return agentguard.Principal{}, errors.New("control database down")
+	}
+	p, ok := f[id]
+	if !ok {
+		return agentguard.Principal{}, agentguard.ErrNotFound
+	}
+	return p, nil
+}
+
+var corePrincipals = fakePrincipals{"agp_aaaaaaaaaaaaaaaaaaaa": {
+	ID: "agp_aaaaaaaaaaaaaaaaaaaa", Name: "ci-bot", Profile: "readonly-analyst",
+	EnvCeiling: "stage", Status: "active"}}
+
 // oauthMux mounts the MCP routes as the router does.
 func oauthMux(c *capture, v *mcpauth.Validator) *http.ServeMux {
+	return oauthMuxWith(c, v, corePrincipals)
+}
+
+func oauthMuxWith(c *capture, v *mcpauth.Validator, ps principalGetter) *http.ServeMux {
 	mux := http.NewServeMux()
-	registerMCPRoutes(mux, c, nil, v)
+	registerMCPRoutes(mux, c, nil, v, ps)
 	return mux
 }
 
@@ -122,12 +151,43 @@ func TestMCPOAuthTokenBindsAgentPrincipal(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Equal(t, 1, c.calls)
 	require.Equal(t, "principal:agp_aaaaaaaaaaaaaaaaaaaa", c.principal.Actor)
+	require.Equal(t, "agp_aaaaaaaaaaaaaaaaaaaa", c.principal.PrincipalID)
 	require.Equal(t, mcp.KindAgent, c.principal.Kind)
 	require.Equal(t, []string{"orders"}, c.principal.Databases)
 	require.True(t, c.principal.Has(mcp.ScopeRead))
 	require.False(t, c.principal.Has(mcp.ScopePropose))
 	require.False(t, c.principal.Has(mcp.ScopeApprove))
-	require.Equal(t, "agent-1", c.identity.Subject)
+	require.Equal(t, "ci-bot", c.identity.Principal.Name)
+	require.Equal(t, []string{"orders"}, c.identity.Databases)
+}
+
+// The bound principal is loaded from core's store: a retired one is
+// refused, one that no longer exists is unbound, and a store failure is 503.
+func TestMCPOAuthLoadsTheCorePrincipal(t *testing.T) {
+	p := newOAuthIDP(t)
+	tok := p.token(t, "agent-1", oauthResource)
+	cases := []struct {
+		principals fakePrincipals
+		resolver   fakeResolver
+		status     int
+		code       string
+	}{
+		{fakePrincipals{"agp_aaaaaaaaaaaaaaaaaaaa": {ID: "agp_aaaaaaaaaaaaaaaaaaaa",
+			Name: "ci-bot", Status: "retired"}}, fakeResolver{}, http.StatusForbidden,
+			"agent_retired"},
+		{fakePrincipals{}, fakeResolver{}, http.StatusForbidden, "identity_unbound"},
+		{fakePrincipals{}, fakeResolver{id: "agp_bbbbbbbbbbbbbbbbbbbb"},
+			http.StatusServiceUnavailable, ""},
+	}
+	for i, tc := range cases {
+		c := &capture{}
+		mux := oauthMuxWith(c, oauthValidator(t, p, tc.resolver), tc.principals)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, oauthRequest("/api/v1/mcp", tok))
+		require.Equal(t, tc.status, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), tc.code)
+		require.Zero(t, c.calls, i)
+	}
 }
 
 // G1-03 over HTTP: the token for orders is refused at billing's endpoint
@@ -200,10 +260,12 @@ func TestStaticTokenPrincipalNarrowedAtDatabaseEndpoint(t *testing.T) {
 	c := &capture{}
 	h := narrowToDatabase(c, "orders")
 	req := oauthRequest("/api/v1/mcp/databases/orders", "")
-	req = req.WithContext(mcp.WithPrincipal(req.Context(),
-		mcp.Principal{Actor: "token:1", Kind: mcp.KindAgent}))
+	req = req.WithContext(agentguard.WithIdentity(mcp.WithPrincipal(req.Context(),
+		mcp.Principal{Actor: "token:1", Kind: mcp.KindAgent}),
+		agentguard.Identity{Principal: corePrincipals["agp_aaaaaaaaaaaaaaaaaaaa"]}))
 	h.ServeHTTP(httptest.NewRecorder(), req)
 	require.Equal(t, []string{"orders"}, c.principal.Databases)
+	require.Equal(t, []string{"orders"}, c.identity.Databases)
 
 	req = req.WithContext(mcp.WithPrincipal(req.Context(), mcp.Principal{Actor: "token:2",
 		Kind: mcp.KindAgent, Databases: []string{"billing"}}))
