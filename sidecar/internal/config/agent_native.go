@@ -58,6 +58,8 @@ type WALCustodianConfig struct {
 type MCPConfig struct {
 	Enabled   bool   `yaml:"enabled" doc:"Enable the intent-level MCP server."`
 	Transport string `yaml:"transport" doc:"MCP transport: http (default, credential required) or stdio."`
+	// OAuth makes MCP over HTTP an OAuth 2.1 resource server (mcp_oauth.go).
+	OAuth MCPOAuthConfig `yaml:"oauth"`
 }
 
 func (c *Config) validateAgentNative() error {

@@ -63,6 +63,13 @@
 | `ask.enabled` | `restart` | `-` | `safety_critical` |
 | `ask.max_tokens_per_question` | `restart` | `-` | `derivable` |
 | `ask.retention_days` | `restart` | `-` | `operator_preference` |
+| `audit.evidence.signing_key_env` | `restart` | `-` | `safety_critical` |
+| `audit.pgaudit.correlate` | `restart` | `-` | `operator_preference` |
+| `audit.siem.batch_size` | `restart` | `-` | `operator_preference` |
+| `audit.siem.interval_seconds` | `restart` | `-` | `operator_preference` |
+| `audit.siem.max_backoff_seconds` | `restart` | `-` | `operator_preference` |
+| `audit.siem.sinks` | `restart` | `-` | `safety_critical` |
+| `audit.verify_interval_hours` | `restart` | `-` | `operator_preference` |
 | `auto_explain.collect_interval_seconds` | `reconfigure` | `auto_explain` | `derivable` |
 | `auto_explain.enabled` | `restart` | `-` | `operator_preference` |
 | `auto_explain.log_min_duration_ms` | `restart` | `-` | `derivable` |
@@ -187,6 +194,10 @@
 | `logwatch.slow_query_enabled` | `restart` | `-` | `operator_preference` |
 | `logwatch.temp_file_min_bytes` | `restart` | `-` | `derivable` |
 | `mcp.enabled` | `restart` | `-` | `safety_critical` |
+| `mcp.oauth.enabled` | `restart` | `-` | `safety_critical` |
+| `mcp.oauth.issuers` | `restart` | `-` | `safety_critical` |
+| `mcp.oauth.resource` | `restart` | `-` | `safety_critical` |
+| `mcp.oauth.task_claim` | `restart` | `-` | `safety_critical` |
 | `mcp.transport` | `restart` | `-` | `safety_critical` |
 | `meta_db` | `restart` | `-` | `safety_critical` |
 | `migration.activity_polling` | `restart` | `-` | `operator_preference` |

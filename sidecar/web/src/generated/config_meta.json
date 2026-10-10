@@ -362,6 +362,90 @@
     "doc": "Days a conversation is kept after its last question, with its answers. Range 1-3650. Default: 30.",
     "class": "operator_preference"
   },
+  "audit.evidence.signing_key_env": {
+    "type": "string",
+    "default": "",
+    "doc": "Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed.",
+    "class": "safety_critical"
+  },
+  "audit.pgaudit.correlate": {
+    "type": "bool",
+    "default": true,
+    "doc": "Where pgaudit is installed and the server log is readable, keep the pgaudit records of pg_sage actions and agent principals. Default: true.",
+    "class": "operator_preference"
+  },
+  "audit.siem.batch_size": {
+    "type": "int",
+    "default": 200,
+    "doc": "Events per delivery. 1-1000. Default: 200.",
+    "class": "operator_preference"
+  },
+  "audit.siem.interval_seconds": {
+    "type": "int",
+    "default": 10,
+    "doc": "Seconds between export passes when caught up. 1-3600. Default: 10.",
+    "class": "operator_preference"
+  },
+  "audit.siem.max_backoff_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Longest wait between retries of a failing sink; the cursor holds, so nothing is lost. 1-3600. Default: 300.",
+    "class": "operator_preference"
+  },
+  "audit.siem.sinks[].address": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].chains": {
+    "type": "[]string",
+    "default": null,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].network": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].timeout_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].token_env": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].type": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].url": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.verify_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between verifications of the audit hash chains; a broken chain raises a critical finding. 0 disables. 0-168. Default: 24.",
+    "class": "operator_preference"
+  },
   "auto_explain.collect_interval_seconds": {
     "type": "int",
     "default": 300,
@@ -1194,6 +1278,42 @@
     "type": "bool",
     "default": true,
     "doc": "Enable the intent-level MCP server.",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Accept OAuth 2.1 access tokens (JWTs) from the listed issuers on the MCP endpoint, beside pg_sage's own MCP tokens. Default: false.",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.issuers[].issuer": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.issuers[].jwks_uri": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.issuers[].signing_algs": {
+    "type": "[]string",
+    "default": null,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.resource": {
+    "type": "string",
+    "default": "",
+    "doc": "Canonical URL of the MCP endpoint, e.g. https://sage.example.com/api/v1/mcp. Tokens must name it or \u003cresource\u003e/databases/\u003cname\u003e as audience. Required when enabled.",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.task_claim": {
+    "type": "string",
+    "default": "task_id",
+    "doc": "Access-token claim that carries the runtime-asserted task id (per-task taint). Empty ignores tasks. Default: task_id.",
     "class": "safety_critical"
   },
   "mcp.transport": {
