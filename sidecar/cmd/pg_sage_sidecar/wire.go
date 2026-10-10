@@ -164,6 +164,8 @@ func wireRouter(p WireParams) WireResult {
 			FleetLearning: fleetLearningAPI{},
 			// The request audit of the Postgres-specialist contract.
 			SpecialistAudit: specialistAudit,
+			// Agent environment labels (agent_envclass_wiring.go).
+			AgentEnvironments: agentEnvironmentService(p.Cfg, p.FleetMgr, p.MetaState),
 		},
 		middlewares...,
 	)
