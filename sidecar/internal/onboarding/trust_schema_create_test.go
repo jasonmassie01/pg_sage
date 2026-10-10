@@ -1,6 +1,7 @@
 package onboarding
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -77,6 +78,33 @@ func TestSchemaCreateGrantUnknown(t *testing.T) {
 		if g.Name != GrantSchemaCreate || g.Present != nil ||
 			g.SQL != "GRANT CREATE ON SCHEMA public TO sage_agent;" {
 			t.Fatalf("%s: schema grant = %+v, want unknown, for public", name, g)
+		}
+	}
+}
+
+// A schema-per-tenant database can lack CREATE on hundreds of schemas: the
+// SQL names every one, the one-line detail the first ten and a count.
+func TestSchemaCreateGrantDetailNamesTenSchemas(t *testing.T) {
+	for _, missing := range []int{9, 10, 11, 250} {
+		var names []string
+		for i := range missing {
+			names = append(names, fmt.Sprintf("tenant_%03d", i))
+		}
+		sc := &rolegrants.SchemaCreate{Schemas: append([]string{"public"}, names...),
+			Missing: names}
+		g := grant(level(TrustGuide(withSchemaCreate(sc)), LevelAdvisory), GrantSchemaCreate)
+		wantSQL := "GRANT CREATE ON SCHEMA " + strings.Join(names, ", ") + " TO sage_agent;"
+		if g.SQL != wantSQL {
+			t.Fatalf("%d missing: SQL = %q, want every missing schema", missing, g.SQL)
+		}
+		shown := min(missing, 10)
+		want := fmt.Sprintf("CREATE on 1 of %d schemas with tables; missing: %s",
+			missing+1, strings.Join(names[:shown], ", "))
+		if missing > shown {
+			want += fmt.Sprintf(" and %d more", missing-shown)
+		}
+		if g.Detail != want {
+			t.Fatalf("%d missing: detail = %q, want %q", missing, g.Detail, want)
 		}
 	}
 }

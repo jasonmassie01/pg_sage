@@ -185,9 +185,22 @@ func schemaCreateGrant(sc *rolegrants.SchemaCreate, role string) Grant {
 	out.Detail = fmt.Sprintf("CREATE on %d of %d schemas with tables",
 		len(s.Schemas)-len(s.Missing), len(s.Schemas))
 	if !ok {
-		out.Detail += "; missing: " + strings.Join(s.Missing, ", ")
+		out.Detail += "; missing: " + nameSome(s.Missing)
 	}
 	return out
+}
+
+// detailSchemaNames is how many missing schemas a grant's one-line detail
+// names; the SQL names every one.
+const detailSchemaNames = 10
+
+// nameSome lists the first detailSchemaNames names and counts the rest.
+func nameSome(names []string) string {
+	if len(names) <= detailSchemaNames {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:detailSchemaNames], ", "),
+		len(names)-detailSchemaNames)
 }
 
 // quoteRole quotes a role name the way the startup check does; an unknown
