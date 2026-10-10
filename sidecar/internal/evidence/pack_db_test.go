@@ -74,7 +74,7 @@ func seedAction(t *testing.T, pool *pgxpool.Pool) int64 {
 	mustExec(t, pool, "UPDATE sage.action_log SET outcome = 'success' WHERE id = $1", action)
 	mustExec(t, pool, `INSERT INTO sage.verification (decision_id, action_log_id,
 		criterion, baseline, minimum_samples, next_evaluation_at, hard_deadline_at,
-		verdict) VALUES ($1, $2, '{}', '{}', 3, now(), now(), 'verified')`, decision, action)
+		verdict) VALUES ($1, $2, '{}', '{}', 3, now(), now(), 'success')`, decision, action)
 	mustExec(t, pool, `INSERT INTO sage.guard_pgaudit_events (database_name, logged_at,
 		audit_type, class, command, statement, correlated_by, action_id) VALUES
 		('orders', now(), 'SESSION', 'DDL', 'CREATE INDEX', 'CREATE INDEX ...',
@@ -152,7 +152,7 @@ func TestActionPackContents(t *testing.T) {
 		t.Fatalf("action/decision content: %s / %s", files["action.json"],
 			files["decision.json"])
 	}
-	if !strings.Contains(string(files["verification.json"]), "verified") ||
+	if !strings.Contains(string(files["verification.json"]), `"verdict": "success"`) ||
 		!strings.Contains(string(files["pgaudit.json"]), "CREATE INDEX") {
 		t.Fatalf("verification/pgaudit content missing")
 	}
