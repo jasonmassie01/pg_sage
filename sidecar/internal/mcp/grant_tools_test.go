@@ -9,7 +9,6 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
-	"github.com/pg-sage/sidecar/internal/agentguard/grants"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -22,13 +21,13 @@ type grantToolBackend struct {
 	recordingBackend
 	calls  int
 	pid    string
-	in     grants.CapabilityRequest
-	result grants.CapabilityResult
+	in     CapabilityRequest
+	result CapabilityResult
 	err    error
 }
 
 func (b *grantToolBackend) RequestCapability(_ context.Context, pid string,
-	in grants.CapabilityRequest) (grants.CapabilityResult, error) {
+	in CapabilityRequest) (CapabilityResult, error) {
 	b.calls++
 	b.pid, b.in = pid, in
 	return b.result, b.err
@@ -38,7 +37,7 @@ const capabilityArgs = `{"database":"orders","capability":"read",` +
 	`"objects":["app.orders"],"columns":{"app.orders":["id","total"]},` +
 	`"duration_minutes":60,"reason":"weekly revenue report"}`
 
-func agentCtx() context.Context {
+func grantAgentCtx() context.Context {
 	return WithPrincipal(context.Background(), Principal{Actor: "token:t1", Kind: KindAgent,
 		Scopes: []Scope{ScopeRead, ScopePropose}, PrincipalID: "agp_aaaaaaaaaaaaaaaaaaaa"})
 }
@@ -60,16 +59,16 @@ func TestRequestCapability_IsListedAsAProposeTool(t *testing.T) {
 
 func TestRequestCapability_QueuesAndPassesTheRequest(t *testing.T) {
 	exp := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	b := &grantToolBackend{result: grants.CapabilityResult{
-		Verdict: grants.VerdictQueueApproval, ReasonCode: "approval_required", RequestID: 4,
+	b := &grantToolBackend{result: CapabilityResult{
+		Verdict: VerdictQueueApproval, ReasonCode: "approval_required", RequestID: 4,
 		ExpiresAt: &exp, ApprovalURL: "/agents/x"}}
-	response := invoke(t, NewServer(b), agentCtx(), toolCall("agent_request_capability",
+	response := invoke(t, NewServer(b), grantAgentCtx(), toolCall("agent_request_capability",
 		capabilityArgs))
 	require.Empty(t, response.Error.Code)
 	require.Equal(t, 1, b.calls)
 	require.Equal(t, "agp_aaaaaaaaaaaaaaaaaaaa", b.pid)
-	require.Equal(t, grants.CapabilityRequest{Database: "orders", Capability: "read",
-		Objects: []grants.ObjectRequest{{Object: "app.orders", Columns: []string{"id",
+	require.Equal(t, CapabilityRequest{Database: "orders", Capability: "read",
+		Objects: []CapabilityObject{{Object: "app.orders", Columns: []string{"id",
 			"total"}}}, DurationMinutes: 60, Reason: "weekly revenue report"}, b.in)
 	out := structuredContent(t, response)
 	require.Equal(t, "queue_approval", out["verdict"])
@@ -77,9 +76,9 @@ func TestRequestCapability_QueuesAndPassesTheRequest(t *testing.T) {
 }
 
 func TestRequestCapability_BlockedIsAResultWithTheFix(t *testing.T) {
-	b := &grantToolBackend{result: grants.CapabilityResult{Verdict: grants.VerdictBlocked,
+	b := &grantToolBackend{result: CapabilityResult{Verdict: VerdictBlocked,
 		ReasonCode: "agent_capability", Fix: "add read to the profile"}}
-	response := invoke(t, NewServer(b), agentCtx(), toolCall("agent_request_capability",
+	response := invoke(t, NewServer(b), grantAgentCtx(), toolCall("agent_request_capability",
 		capabilityArgs))
 	require.Empty(t, response.Error.Code)
 	out := structuredContent(t, response)
@@ -88,9 +87,9 @@ func TestRequestCapability_BlockedIsAResultWithTheFix(t *testing.T) {
 }
 
 func TestRequestCapability_ParkIsRateLimited(t *testing.T) {
-	b := &grantToolBackend{result: grants.CapabilityResult{Verdict: grants.VerdictPark,
+	b := &grantToolBackend{result: CapabilityResult{Verdict: VerdictPark,
 		ReasonCode: "agent_rate", RetryAfterSeconds: 30}}
-	response := invoke(t, NewServer(b), agentCtx(), toolCall("agent_request_capability",
+	response := invoke(t, NewServer(b), grantAgentCtx(), toolCall("agent_request_capability",
 		capabilityArgs))
 	require.Equal(t, -32011, response.Error.Code)
 	require.Contains(t, response.Error.Message, "30")
@@ -101,10 +100,8 @@ func TestRequestCapability_RefusesWithoutAnAgentPrincipal(t *testing.T) {
 		"viewer": WithPrincipal(context.Background(), Principal{Actor: "u:3", Role: "viewer"}),
 		"person": WithPrincipal(context.Background(), Principal{Actor: "u:2",
 			Role: "operator"}),
-		"legacy agent token": WithPrincipal(context.Background(), Principal{Actor: "token:x",
-			Kind: KindAgent, Scopes: []Scope{ScopeRead, ScopePropose}}),
 	}
-	want := map[string]int{"viewer": -32001, "person": -32003, "legacy agent token": -32003}
+	want := map[string]int{"viewer": -32001, "person": -32003}
 	for name, ctx := range cases {
 		b := &grantToolBackend{}
 		response := invoke(t, NewServer(b), ctx, toolCall("agent_request_capability",
@@ -112,6 +109,21 @@ func TestRequestCapability_RefusesWithoutAnAgentPrincipal(t *testing.T) {
 		require.Equal(t, want[name], response.Error.Code, name)
 		require.Equal(t, 0, b.calls, name)
 	}
+}
+
+// A legacy agent token (no principal) reaches governance with no principal
+// id, which decides it as unsponsored (G1-11); it is never refused here.
+func TestRequestCapability_LegacyTokenGoesToGovernance(t *testing.T) {
+	ctx := WithPrincipal(context.Background(), Principal{Actor: "token:x", Kind: KindAgent,
+		Scopes: []Scope{ScopeRead, ScopePropose}})
+	b := &grantToolBackend{result: CapabilityResult{Verdict: VerdictBlocked,
+		ReasonCode: "agent_unsponsored"}}
+	response := invoke(t, NewServer(b), ctx, toolCall("agent_request_capability",
+		capabilityArgs))
+	require.Empty(t, response.Error.Code)
+	require.Equal(t, 1, b.calls)
+	require.Equal(t, "", b.pid)
+	require.Equal(t, "agent_unsponsored", structuredContent(t, response)["reason_code"])
 }
 
 func TestRequestCapability_ValidatesArguments(t *testing.T) {
@@ -125,7 +137,7 @@ func TestRequestCapability_ValidatesArguments(t *testing.T) {
 		"capability": `{"objects":["a.b"],"duration_minutes":5,"reason":"x"}`,
 	} {
 		b := &grantToolBackend{}
-		response := invoke(t, NewServer(b), agentCtx(), toolCall("agent_request_capability",
+		response := invoke(t, NewServer(b), grantAgentCtx(), toolCall("agent_request_capability",
 			args))
 		require.Equal(t, -32602, response.Error.Code, name)
 		require.Equal(t, 0, b.calls, name)
@@ -142,11 +154,11 @@ func TestRequestCapability_MapsErrors(t *testing.T) {
 	}
 	for err, code := range cases {
 		b := &grantToolBackend{err: err}
-		response := invoke(t, NewServer(b), agentCtx(), toolCall("agent_request_capability",
+		response := invoke(t, NewServer(b), grantAgentCtx(), toolCall("agent_request_capability",
 			capabilityArgs))
 		require.Equal(t, code, response.Error.Code, err.Error())
 	}
-	plain := invoke(t, NewServer(&recordingBackend{}), agentCtx(),
+	plain := invoke(t, NewServer(&recordingBackend{}), grantAgentCtx(),
 		toolCall("agent_request_capability", capabilityArgs))
 	require.Equal(t, -32010, plain.Error.Code, "no grant backend: unavailable")
 }

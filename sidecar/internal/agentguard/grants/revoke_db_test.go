@@ -244,8 +244,10 @@ func TestExpireDue_ConcurrentPassesRevokeOnce(t *testing.T) {
 	}
 }
 
-// G1-08 failover: leader A stops renewing; within one reconcile interval
-// plus one lease TTL, B leads and revokes. A's stale fence writes nothing.
+// G1-08 failover: leader A stops renewing. B, ticking every reconcile
+// interval, leads within one lease TTL plus one interval of A's last
+// renewal, and its first pass as leader revokes the expired grant. A's
+// stale fence writes nothing.
 func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -254,7 +256,16 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	store := leader.NewPostgresStore(f.super)
 	a := leader.NewElector(store, scope, "sidecar-a", ttl)
 	b := leader.NewElector(store, scope, "sidecar-b", ttl)
-	require.NoError(t, a.Tick(ctx))
+	require.NoError(t, a.Tick(ctx)) // A dies after this tick
+	// Times are the lease table's (the database clock), so client latency
+	// under load does not blur the bound.
+	leaseTime := func(col string) time.Time {
+		var at time.Time
+		require.NoError(t, f.super.QueryRow(ctx, "SELECT "+col+
+			" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at))
+		return at
+	}
+	lastRenewal := leaseTime("renewed_at")
 	require.NoError(t, b.Tick(ctx))
 	require.True(t, a.IsLeader() && !b.IsLeader(), "A leads first")
 	fenceOf := func(e *leader.Elector) (Fence, bool) {
@@ -265,22 +276,26 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	require.True(t, ok)
 	g := f.grantID(t)
 	f.expireNow(t, g.ID)
-	// A dies here (no more ticks). B's loop: tick, then reconcile if leader.
-	start := time.Now()
-	deadline := start.Add(interval + ttl + 2*time.Second)
-	for time.Now().Before(deadline) && f.row(t, g.ID).State == StateActive {
+	var led time.Time
+	for deadline := time.Now().Add(ttl + interval + 5*time.Second); time.Now().Before(
+		deadline); time.Sleep(interval) {
 		require.NoError(t, b.Tick(ctx))
-		if fb, ok := fenceOf(b); ok {
-			_, err := f.manager.ExpireDue(ctx, f.target, fb, 100)
-			require.NoError(t, err)
+		fb, ok := fenceOf(b)
+		if !ok {
+			continue
 		}
-		time.Sleep(interval)
+		led = leaseTime("acquired_at")
+		rep, err := f.manager.ExpireDue(ctx, f.target, fb, 100)
+		require.NoError(t, err)
+		require.Contains(t, rep.Revoked, g.ID, "B's first pass as leader revokes it")
+		break
 	}
-	elapsed := time.Since(start)
-	t.Logf("revoked %v after the expiry; bound interval+ttl = %v", elapsed, interval+ttl)
+	require.False(t, led.IsZero(), "B never led")
+	took := led.Sub(lastRenewal)
+	t.Logf("B led %v after A's last renewal (bound ttl+interval = %v)", took, ttl+interval)
+	require.True(t, took <= ttl+interval+500*time.Millisecond, "B led after %v", took)
 	require.Equal(t, StateRevoked, f.row(t, g.ID).State)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
-	require.True(t, elapsed <= interval+ttl+time.Second, "revoked after %v", elapsed)
 	g2 := f.grantID(t)
 	f.expireNow(t, g2.ID)
 	_, err := f.manager.ExpireDue(ctx, f.target, staleA, 100)

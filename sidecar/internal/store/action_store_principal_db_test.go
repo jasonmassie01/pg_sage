@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -16,10 +17,11 @@ import (
 
 const queuePrincipal = "agp_qqqqqqqqqqqqqqqqqqqq"
 
-func cleanPrincipalQueue(t *testing.T, ctx context.Context, principals ...string) {
+func cleanPrincipalQueue(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	principals ...string) {
 	t.Helper()
 	clean := func() {
-		_, _ = testPool.Exec(ctx, "DELETE FROM sage.action_queue WHERE principal_id = ANY($1)",
+		_, _ = pool.Exec(ctx, "DELETE FROM sage.action_queue WHERE principal_id = ANY($1)",
 			principals)
 	}
 	clean()
@@ -27,8 +29,8 @@ func cleanPrincipalQueue(t *testing.T, ctx context.Context, principals ...string
 }
 
 func TestProposeWithMetadata_RecordsThePrincipal(t *testing.T) {
-	pool, ctx := requireDB(t)
-	cleanPrincipalQueue(t, ctx, queuePrincipal)
+	pool, ctx := coverageDB(t)
+	cleanPrincipalQueue(t, ctx, pool, queuePrincipal)
 	s := NewActionStore(pool)
 	id, err := s.ProposeWithMetadata(ctx, nil, 0, "SELECT 1", "", "safe",
 		ActionProposalMetadata{PrincipalID: queuePrincipal, ProposedVia: "agent",
@@ -56,9 +58,9 @@ func TestProposeWithMetadata_RecordsThePrincipal(t *testing.T) {
 }
 
 func TestCountPendingForPrincipal(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := coverageDB(t)
 	other := "agp_rrrrrrrrrrrrrrrrrrrr"
-	cleanPrincipalQueue(t, ctx, queuePrincipal, other)
+	cleanPrincipalQueue(t, ctx, pool, queuePrincipal, other)
 	s := NewActionStore(pool)
 	n, err := s.CountPendingForPrincipal(ctx, queuePrincipal)
 	if err != nil || n != 0 {
@@ -92,8 +94,8 @@ func TestCountPendingForPrincipal(t *testing.T) {
 // The count stays inside the perf gate: with many other items queued it
 // reads the (principal_id, status) index, never a sequential scan.
 func TestCountPendingForPrincipal_UsesTheIndex(t *testing.T) {
-	pool, ctx := requireDB(t)
-	cleanPrincipalQueue(t, ctx, queuePrincipal)
+	pool, ctx := coverageDB(t)
+	cleanPrincipalQueue(t, ctx, pool, queuePrincipal)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)

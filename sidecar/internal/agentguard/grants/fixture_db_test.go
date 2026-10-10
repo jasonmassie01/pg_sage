@@ -14,6 +14,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/agentguard/classify"
+	"github.com/pg-sage/sidecar/internal/agentguard/decide"
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -85,6 +86,10 @@ func newFixture(t *testing.T) *fixture {
 			return policy.UnattendedProfile(), nil
 		},
 	}))
+	// §6.2.7: an agent's change holds its principal active until it commits.
+	f.exec.WithPrincipalHold(func(ctx context.Context, pid string) (func(), error) {
+		return decide.HoldActive(ctx, super, pid)
+	})
 	f.manager, err = NewManager(f.store, Config{MaxDuration: 4 * time.Hour})
 	require.NoError(t, err)
 	f.p = f.principal(t, agentguard.EnvProd, true)

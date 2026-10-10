@@ -108,6 +108,18 @@ func TestRequestCapability_DeniedAndRecorded(t *testing.T) {
 	require.ErrorIs(t, err, ErrRequestNotPending)
 }
 
+// No principal (a legacy token) is unsponsored even if a decider allowed
+// it, and nothing is stored (G1-11).
+func TestRequestCapability_NoPrincipalIsUnsponsored(t *testing.T) {
+	f := newFixture(t)
+	res, err := f.service(allow()).RequestCapability(context.Background(), "",
+		f.capability("id"))
+	require.NoError(t, err)
+	require.Equal(t, VerdictBlocked, res.Verdict)
+	require.Equal(t, string(agentguard.ReasonUnsponsored), res.ReasonCode)
+	require.Equal(t, int64(0), res.RequestID)
+}
+
 func TestRequestCapability_Invalid(t *testing.T) {
 	f := newFixture(t)
 	s := f.service(allow())
