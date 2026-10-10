@@ -45,7 +45,7 @@ func TestSuggestRules(t *testing.T) {
 		{"id", "bigint", Unclassified},
 		{"created_at", "timestamptz", Unclassified},
 		{"status", "text", Unclassified},
-		{"name", "text", Unclassified},        // too broad: product names
+		{"name", "text", Unclassified},           // too broad: product names
 		{"tokens_used", "integer", Unclassified}, // a count, not a token
 		{"comment_count", "integer", Unclassified},
 		{"password_changed_at", "timestamptz", Unclassified},

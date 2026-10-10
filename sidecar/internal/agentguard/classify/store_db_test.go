@@ -161,7 +161,7 @@ func TestStore_DroppedColumnExpires(t *testing.T) {
 
 func detectorProposal(c Column, class Class) Proposal {
 	return Proposal{Column: c, Class: class, Source: SourceDetector, ProposedBy: RulesProposer,
-		Evidence: []Citation{{Kind: "column", Ref: c.QualifiedName(), Detail: "name"}},
+		Evidence:  []Citation{{Kind: "column", Ref: c.QualifiedName(), Detail: "name"}},
 		Rationale: "name heuristic"}
 }
 

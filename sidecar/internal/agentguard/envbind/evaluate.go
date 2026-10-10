@@ -10,18 +10,18 @@ import (
 
 // Reason codes: why a database evaluates as it does.
 const (
-	ReasonDefaultProd        = "default_prod"         // no label: prod
-	ReasonLabelProd          = "label_prod"           // labelled prod
-	ReasonVerified           = "verified"             // non-prod label, binding verified
-	ReasonLabelUnverified    = "label_unverified"     // the label was stored unverified
-	ReasonBindingChanged     = "binding_changed"      // the live tuple differs (re-pointed DSN)
+	ReasonDefaultProd        = "default_prod"          // no label: prod
+	ReasonLabelProd          = "label_prod"            // labelled prod
+	ReasonVerified           = "verified"              // non-prod label, binding verified
+	ReasonLabelUnverified    = "label_unverified"      // the label was stored unverified
+	ReasonBindingChanged     = "binding_changed"       // the live tuple differs (re-pointed DSN)
 	ReasonUnverifiable       = "identity_unverifiable" // only host:port is known
-	ReasonReceiptMissing     = "receipt_missing"      // branch without an active receipt
-	ReasonReceiptMismatch    = "receipt_mismatch"     // receipt names another resource
-	ReasonTwoLabels          = "two_labels"           // one physical database, two labels
-	ReasonNoControl          = "no_control_database"  // governance runs posture-only
-	ReasonUnbound            = "unbound"              // no database_id yet
-	ReasonIdentityUnreadable = "identity_unreadable"  // the live tuple could not be read
+	ReasonReceiptMissing     = "receipt_missing"       // branch without an active receipt
+	ReasonReceiptMismatch    = "receipt_mismatch"      // receipt names another resource
+	ReasonTwoLabels          = "two_labels"            // one physical database, two labels
+	ReasonNoControl          = "no_control_database"   // governance runs posture-only
+	ReasonUnbound            = "unbound"               // no database_id yet
+	ReasonIdentityUnreadable = "identity_unreadable"   // the live tuple could not be read
 )
 
 // Errors. Each is distinguishable with errors.Is.

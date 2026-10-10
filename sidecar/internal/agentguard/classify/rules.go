@@ -157,5 +157,7 @@ func isTemporalType(t string) bool {
 		strings.HasPrefix(t, "time") || strings.HasPrefix(t, "interval")
 }
 
-func isAddressType(t string) bool { return t == "inet" || t == "cidr" || t == "macaddr" ||
-	t == "macaddr8" }
+func isAddressType(t string) bool {
+	return t == "inet" || t == "cidr" || t == "macaddr" ||
+		t == "macaddr8"
+}

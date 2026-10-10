@@ -127,7 +127,7 @@ func TestModelSuggesterFailureModes(t *testing.T) {
 		want    error
 	}{
 		"malformed": {reply(`[{"column": "app.t.c", "class": `), ErrModelOutput},
-		"prose": {reply("No sensitive columns."), ErrModelOutput},
+		"prose":     {reply("No sensitive columns."), ErrModelOutput},
 		"empty":     {reply(""), llm.ErrEmptyResponse},
 	}
 	for name, c := range cases {
