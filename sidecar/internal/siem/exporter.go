@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
-
 	"github.com/pg-sage/sidecar/internal/auditchain"
 )
 
@@ -153,7 +151,7 @@ func (e *Exporter) pass(ctx context.Context, s *sinkState) error {
 		return e.fail(s, err)
 	}
 	for _, src := range e.sources() {
-		chains, err := installedChains(ctx, src.DB)
+		chains, err := auditchain.Installed(ctx, src.DB)
 		if err != nil {
 			return e.fail(s, fmt.Errorf("source %s: %w", src.Name, err))
 		}
@@ -229,27 +227,4 @@ func wants(filter []string, chain string) bool {
 		}
 	}
 	return false
-}
-
-// installedChains lists the chains installed on a source.
-func installedChains(ctx context.Context, q auditchain.Querier) ([]string, error) {
-	rows, err := q.Query(ctx, `/* pg_sage siem v1 */ SELECT chain
-		FROM sage.audit_chain_meta ORDER BY chain`)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("list audit chains: %w", err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var c string
-		if err := rows.Scan(&c); err != nil {
-			return nil, fmt.Errorf("scan audit chain: %w", err)
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
 }

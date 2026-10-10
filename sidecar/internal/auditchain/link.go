@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Genesis is the predecessor hash of a chain's first link.
@@ -116,6 +117,30 @@ func scanLinks(rows pgx.Rows) ([]Link, error) {
 			return nil, err
 		}
 		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// Installed lists the chains installed in q's database (none when the
+// chain tables do not exist yet).
+func Installed(ctx context.Context, q Querier) ([]string, error) {
+	rows, err := q.Query(ctx, `/* pg_sage audit_chain v1 */ SELECT chain
+		FROM sage.audit_chain_meta ORDER BY chain`)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("auditchain: list chains: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, fmt.Errorf("auditchain: scan chain: %w", err)
+		}
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }
