@@ -31,8 +31,7 @@ var ap13SQL = Statement("AP-13", `SELECT a.usesysid, a.usename::text,
   COALESCE(a.application_name, ''), COALESCE(pg_catalog.host(a.client_addr), ''),
   pg_catalog.pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')
 FROM pg_catalog.pg_stat_activity a
-WHERE (a.backend_type = 'client backend' OR a.backend_type IS NULL)
-  AND a.usesysid IS NOT NULL AND a.usesysid <> $1
+WHERE `+clientSession+` AND a.usesysid <> $1
 ORDER BY a.usesysid, 3, 4
 LIMIT $2`)
 

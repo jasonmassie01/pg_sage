@@ -116,15 +116,19 @@ FROM pg_catalog.pg_roles r
 WHERE r.rolname = ANY($1::text[]) OR r.rolname ~ '`+registeredRolePattern+`'
 ORDER BY r.rolname`)
 
-// sessionsSQL reads who connects with which application_name. Without
+// clientSession keeps the client sessions of pg_stat_activity a. Without
 // pg_read_all_stats, other roles' sessions show a NULL backend_type, but
 // their usesysid, usename and application_name stay visible, so a NULL
 // backend_type counts as a client (background workers have no usesysid).
+// Every session read shares it: the client hints here and AP-13.
+const clientSession = `(a.backend_type = 'client backend' OR a.backend_type IS NULL)
+  AND a.usesysid IS NOT NULL`
+
+// sessionsSQL reads who connects with which application_name.
 var sessionsSQL = Statement("env", `SELECT DISTINCT a.usesysid, a.usename::text,
   a.application_name
 FROM pg_catalog.pg_stat_activity a
-WHERE (a.backend_type = 'client backend' OR a.backend_type IS NULL)
-  AND a.usesysid IS NOT NULL
+WHERE `+clientSession+`
   AND a.application_name <> ''
 ORDER BY a.usesysid, a.application_name
 LIMIT $1`)
