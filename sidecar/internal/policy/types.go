@@ -60,6 +60,11 @@ const (
 	// ReasonDDLConflict parks an action whose DDL lease overlaps another
 	// writer; it is retried next cycle and is not a failure.
 	ReasonDDLConflict Reason = "ddl_conflict"
+	// ReasonNarrowing executes a narrowing contract (§6.2.4).
+	ReasonNarrowing Reason = "narrowing"
+	// ReasonNarrowingDuringStop executes a narrowing contract while a hard
+	// stop (emergency stop, disabled executor, replica) blocks the rest.
+	ReasonNarrowingDuringStop Reason = "narrowing_during_stop"
 )
 
 // RollbackClass states how an action is undone. It mirrors the executor
@@ -118,6 +123,12 @@ type ActionContract struct {
 	// DropKind classifies a dropped object. Empty means the gate derives
 	// it from the request SQL.
 	DropKind DropKind
+	// Narrowing marks a contract that only takes access away (AGENTDB-SPEC
+	// §6.2.4: guard_revoke, guard_freeze, the kill steps,
+	// guard_watchdog_cancel, estate_quarantine). It passes the hard stops,
+	// trust level, standing document, budgets and windows; it is still
+	// validated, provider- and fact-checked and recorded.
+	Narrowing bool
 }
 
 type ActionRequest struct {

@@ -15,6 +15,9 @@ type ActionContract struct {
 	RollbackClass       string
 	Cooldown            string
 	AuditFields         []string
+	// Narrowing marks a contract that only takes access away (§6.2.4); the
+	// gate lets it pass the hard stops, trust, budgets and windows.
+	Narrowing bool
 }
 
 func (c ActionContract) Validate() error {
