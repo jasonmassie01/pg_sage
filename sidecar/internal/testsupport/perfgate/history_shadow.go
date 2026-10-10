@@ -1,5 +1,11 @@
 package perfgate
 
+import (
+	"crypto/md5"
+	"encoding/hex"
+	"strconv"
+)
+
 // Shadow mode history (roadmap 1.4): a tenth of HistoryRows shadow
 // decisions over 30 days (one per fingerprint per day is the recording
 // bound, far below the growing tables), every fiftieth still pending,
@@ -38,4 +44,34 @@ var shadowSteps = []sreStep{
 		SELECT $2::uuid, current_database(), id, fingerprint, family, action_class, score,
 		score_source, scored_at FROM sage.shadow_decision
 		WHERE counted AND title = 'perfgate shadow' LIMIT $1`, argsND},
+	{"shadow_decision", false, `INSERT INTO sage.shadow_decision (database_name,
+		fingerprint, family, action_class, title, object_identifier, sql, shape, prediction,
+		gate_verdict, gate_reason, trusted_verdict, trusted_reason, granted_level, status,
+		recorded_at, last_seen_at)
+		SELECT current_database(), md5($1 || g), 'hygiene', 'vacuum', 'perfgate shadow',
+		'perf_app_000.t_' || g, 'VACUUM perf_app_000.t_' || g, 'vacuum perf_app_000.t_' || g,
+		'{"metric":"dead_tuples"}', 'observe_only', 'autonomy_level', 'execute',
+		'autonomy_l3', 1, 'pending', now() - interval '1 hour', now() - interval '1 hour'
+		FROM generate_series(1, $2::int) g`,
+		func(int, Binding) []any { return []any{shadowSeenPrefix, shadowSeenCount} }},
+}
+
+// The young pending decisions the harness re-sees during the run (as a
+// cycle does while pg_sage still wants the same change), so gate F
+// measures the recurring seen bump on sage.shadow_decision. The scorer
+// leaves them pending: no operator decision or applied change matches a
+// vacuum, and they are far from the horizon.
+const (
+	shadowSeenPrefix = "perfgate-shadow-seen-"
+	shadowSeenCount  = 4
+)
+
+// ShadowSeenFingerprints are the fingerprints of those decisions.
+func ShadowSeenFingerprints() []string {
+	out := make([]string, 0, shadowSeenCount)
+	for g := 1; g <= shadowSeenCount; g++ {
+		sum := md5.Sum([]byte(shadowSeenPrefix + strconv.Itoa(g)))
+		out = append(out, hex.EncodeToString(sum[:]))
+	}
+	return out
 }
