@@ -14,6 +14,10 @@
 | `advisor.rewrite_enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.vacuum_enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.wal_enabled` | `restart` | `-` | `operator_preference` |
+| `agents.client_patterns` | `restart` | `-` | `operator_preference` |
+| `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
+| `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
+| `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
 | `alerting.check_interval_seconds` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.cooldown_minutes` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.enabled` | `reconfigure` | `alerting` | `operator_preference` |

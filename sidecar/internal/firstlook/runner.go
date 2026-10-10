@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/agentposture"
 	"github.com/pg-sage/sidecar/internal/facts"
 )
 
@@ -30,6 +31,12 @@ type Options struct {
 	TimeoutSetBy string
 	Thresholds   Thresholds
 	Now          func() time.Time
+	// Posture is the agent posture configuration (agents.*); nil is
+	// agentposture.DefaultConfig.
+	Posture *agentposture.Config
+	// PostureRegistry holds the posture detectors; nil is
+	// agentposture.Default().
+	PostureRegistry *agentposture.Registry
 }
 
 func (o Options) withDefaults() Options {
@@ -48,13 +55,14 @@ func (o Options) withDefaults() Options {
 // pass is one first look in progress: a read-only transaction that is
 // reopened after a failed step, so one failing check degrades alone.
 type pass struct {
-	pool    *pgxpool.Pool
-	opts    Options
-	tx      pgx.Tx
-	timeout int
-	setBy   string // who set timeout; empty is the first look's own budget
-	report  *Report
-	window  StatsWindow
+	pool       *pgxpool.Pool
+	opts       Options
+	tx         pgx.Tx
+	timeout    int
+	setBy      string // who set timeout; empty is the first look's own budget
+	report     *Report
+	window     StatsWindow
+	postureEnv postureEnv
 }
 
 // Run takes the first look of the database behind pool. Every check that
@@ -97,19 +105,24 @@ type outcome struct {
 // step reads one part of the catalog and evaluates its rules; when the
 // read fails every rule it covers is degraded.
 type step struct {
-	rules []string
-	fn    func(context.Context, pgx.Tx) ([]outcome, error)
+	rules   []string
+	section string
+	fn      func(context.Context, pgx.Tx) ([]outcome, error)
 }
 
 func (p *pass) steps() []step {
+	return append(p.catalogSteps(), p.postureSteps()...)
+}
+
+func (p *pass) catalogSteps() []step {
 	return []step{
 		{[]string{RuleInvalidIndex, RuleDuplicateIndex, RuleNeverScannedIndex,
-			RuleUnindexedFK}, p.indexChecks},
-		{[]string{RuleXIDRunway}, p.xid},
-		{[]string{RuleSequenceRunway}, p.sequences},
-		{[]string{RuleTableBloat}, p.bloat},
-		{[]string{RuleTestSchema}, p.testSchemas},
-		{[]string{RuleMissingExtension}, p.extensions},
+			RuleUnindexedFK}, "", p.indexChecks},
+		{[]string{RuleXIDRunway}, "", p.xid},
+		{[]string{RuleSequenceRunway}, "", p.sequences},
+		{[]string{RuleTableBloat}, "", p.bloat},
+		{[]string{RuleTestSchema}, "", p.testSchemas},
+		{[]string{RuleMissingExtension}, "", p.extensions},
 	}
 }
 
@@ -170,15 +183,20 @@ func (p *pass) close() {
 func (p *pass) run(ctx context.Context, st step) error {
 	if p.tx == nil {
 		if err := p.open(ctx); err != nil {
-			return p.fail(ctx, st.rules, err)
+			return p.fail(ctx, st, err)
 		}
 	}
 	sctx, cancel := context.WithTimeout(ctx, p.stepBudget())
 	outcomes, err := st.fn(sctx, p.tx)
+	if err != nil && errors.Is(sctx.Err(), context.DeadlineExceeded) {
+		// The deadline cancelled a query and pgx closed the connection: the
+		// step may report that secondary error; the cause is the budget.
+		err = fmt.Errorf("%w (%v)", context.DeadlineExceeded, err)
+	}
 	cancel()
 	if err != nil {
 		p.close()
-		return p.fail(ctx, st.rules, err)
+		return p.fail(ctx, st, err)
 	}
 	for _, o := range outcomes {
 		status := CheckOK
@@ -189,8 +207,8 @@ func (p *pass) run(ctx context.Context, st step) error {
 		if strings.HasPrefix(note, degradedPrefix) {
 			status, note = CheckDegraded, strings.TrimPrefix(note, degradedPrefix)
 		}
-		p.report.Checks = append(p.report.Checks, Check{Rule: o.rule, Status: status,
-			Note: note})
+		p.report.Checks = append(p.report.Checks, Check{Rule: o.rule, Section: st.section,
+			Status: status, Note: note})
 	}
 	return nil
 }
@@ -198,17 +216,17 @@ func (p *pass) run(ctx context.Context, st step) error {
 // degradedPrefix marks an outcome note as a degraded check.
 const degradedPrefix = "degraded: "
 
-func (p *pass) fail(ctx context.Context, rules []string, err error) error {
+func (p *pass) fail(ctx context.Context, st step, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("first look: %w", ctx.Err())
 	}
 	note := degradeReason(err, p.limitMS(), p.setBy)
-	for _, rule := range rules {
-		p.report.Checks = append(p.report.Checks, Check{Rule: rule, Status: CheckDegraded,
-			Note: note})
+	for _, rule := range st.rules {
+		p.report.Checks = append(p.report.Checks, Check{Rule: rule, Section: st.section,
+			Status: CheckDegraded, Note: note})
 	}
 	if retryableError(err) {
-		p.report.Retryable = append(p.report.Retryable, rules...)
+		p.report.Retryable = append(p.report.Retryable, st.rules...)
 	}
 	return nil
 }
