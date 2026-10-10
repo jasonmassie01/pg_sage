@@ -46,7 +46,7 @@ func TestAgentSafetyBench(t *testing.T) {
 	}
 	v, commit := BuildFromEnv(os.Getenv)
 	report, err := Run(ctx, pool, Options{
-		Posture: NotConnectedProvider{},
+		Posture: NewDetectorProvider(),
 		Meta:    ReportMeta{ServerVersion: version, PgSageVersion: v, PgSageCommit: commit},
 	})
 	if err != nil {

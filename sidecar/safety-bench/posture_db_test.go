@@ -9,18 +9,14 @@ import (
 )
 
 // fakeProvider returns a fixed finding set, standing in for the detector
-// framework so the scoring and fixtures can be tested before the real
-// provider is wired.
-type fakeProvider struct{ fire []string }
+// framework so the scoring and fixtures can be tested without it. Each
+// finding names its object, since scoring counts only in-scope objects.
+type fakeProvider struct{ fire []PostureFinding }
 
 func (fakeProvider) Name() string { return "fake" }
 
 func (f fakeProvider) Findings(context.Context, *pgxpool.Pool) ([]PostureFinding, error) {
-	out := make([]PostureFinding, 0, len(f.fire))
-	for _, id := range f.fire {
-		out = append(out, PostureFinding{DetectorID: id, Severity: "warning"})
-	}
-	return out, nil
+	return append([]PostureFinding(nil), f.fire...), nil
 }
 
 func TestPostureFixturesApply(t *testing.T) {
@@ -57,7 +53,12 @@ func TestPostureScoring_WithProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scenarios: %v", err)
 	}
-	prov := fakeProvider{fire: []string{"AP-03", "AP-04", "AP-05", "AP-07"}}
+	prov := fakeProvider{fire: []PostureFinding{
+		{DetectorID: "AP-03", Severity: "critical", Object: "sb_ps_exposed.profiles"},
+		{DetectorID: "AP-04", Severity: "warning", Object: "sb_ps_policy.notes:notes_all"},
+		{DetectorID: "AP-05", Severity: "warning", Object: "sb_ps_definer.whoami()"},
+		{DetectorID: "AP-07", Severity: "warning", Object: "sb_ps_public"},
+	}}
 	results, err := RunPosture(ctx, pool, scenarios, prov)
 	if err != nil {
 		t.Fatalf("run posture: %v", err)
