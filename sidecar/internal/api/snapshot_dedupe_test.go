@@ -38,9 +38,18 @@ const (
 )
 
 // dedupeStart is when the scenario's first cycle is collected, with the
-// clock at now.
+// clock at now: about three hours back, moved earlier when the scenario
+// would cross a UTC midnight, so that it ends a minute before it. The
+// writer starts a new keyframe with the first document of each day; a
+// scenario ending just after midnight would end on a keyframe.
 func dedupeStart(now time.Time) time.Time {
-	return now.UTC().Add(-3 * time.Hour).Truncate(time.Minute)
+	start := now.UTC().Add(-3 * time.Hour).Truncate(time.Minute)
+	span := time.Duration(dedupeCycles-1) * dedupeStep
+	dayEnd := start.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	if start.Add(span).Before(dayEnd) {
+		return start
+	}
+	return dayEnd.Add(-span - time.Minute)
 }
 
 func dedupeScenario(t *testing.T, now time.Time) []snapfixture.Cycle {
