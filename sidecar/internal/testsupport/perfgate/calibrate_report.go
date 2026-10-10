@@ -32,9 +32,10 @@ func calibrationSection(c Calibration) string {
 	}
 	fmt.Fprintf(&sb, "Runner: %s, %d CPUs. Each workload's time is the best of %d runs. "+
 		"The timing budgets above are the shipped ones scaled by this runner's time over "+
-		"the reference runner's, clamped to x%.2f-x%.2f: tighter on a faster runner, "+
-		"looser on a slower one.\n\n", model, c.CPUs, calibrationRuns,
-		MinCalibrationFactor, MaxCalibrationFactor)
+		"the reference runner's (the median of %d reference runs), clamped to "+
+		"x%.2f-x%.2f: tighter on a faster runner, looser on a slower one.\n\n", model,
+		c.CPUs, calibrationRuns, len(referenceRuns), MinCalibrationFactor,
+		MaxCalibrationFactor)
 	sb.WriteString("| Workload | This runner | Reference | Factor | Scales |\n" +
 		"|---|---|---|---|---|\n")
 	fmt.Fprintf(&sb, "| CPU workload | %.1f ms | %.1f ms | x%.2f | %s |\n", c.CPUMs,

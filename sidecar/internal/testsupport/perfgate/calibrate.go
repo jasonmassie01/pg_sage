@@ -7,22 +7,22 @@ import (
 	"math"
 )
 
-// The reference runner is the one the timing budgets were set on: a
-// GitHub ubuntu-latest runner with the gate's clean PG17 container. Its
-// CPU workload time is the median of three perfgate.yml runs on separate
-// runners (2026-10-09: 55.2-57.3 ms; nine more that day: 42.5-65.0 ms).
-// Its SQL workload time (171.7-175.7 ms on the three) was measured while
-// the workload spilled to temp files: it stands until the in-memory SQL
-// workload is re-measured on reference runs.
+// The reference runner is the median GitHub ubuntu-latest runner with the
+// gate's clean PG17 container, on which the shipped budgets apply
+// unscaled: ReferenceCPUMs and ReferenceDBMs are the medians of
+// referenceRuns (calibrate_reference.go). With the nine runs of 2026-10-09,
+// which timed the same CPU workload (their SQL workload still spilled to
+// temp files), the CPU median is 62.6 ms. Nightly runs confirm both.
 const (
-	ReferenceCPUMs = 57.0
-	ReferenceDBMs  = 172.2
+	ReferenceCPUMs = 63.0
+	ReferenceDBMs  = 129.75
 	// MinCalibrationFactor and MaxCalibrationFactor clamp each factor. A
 	// runner faster than the reference is held to budgets up to 25%
 	// tighter, so its speed cannot hide a regression; a slower one gets
 	// budgets up to 25% looser and no more, so a regression cannot hide
-	// behind its slowness. The nine runners of 2026-10-09 timed the CPU
-	// workload at x0.75-x1.14 of the reference.
+	// behind its slowness. The reference runs span x0.73-x1.02 (CPU) and
+	// x0.71-x1.04 (SQL) of the medians: the Intel Xeon Platinum 8573C
+	// runners, faster at both, are held at the floor.
 	MinCalibrationFactor = 0.75
 	MaxCalibrationFactor = 1.25
 	calibrationRuns      = 5
