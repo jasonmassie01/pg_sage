@@ -166,6 +166,8 @@ func wireRouter(p WireParams) WireResult {
 			SpecialistAudit: specialistAudit,
 			// Agent environment labels (agent_envclass_wiring.go).
 			AgentEnvironments: agentEnvironmentService(p.Cfg, p.FleetMgr, p.MetaState),
+			// An agent's activity (agent_broker_wiring.go).
+			AgentActivity: agentActivityAPI{},
 		},
 		middlewares...,
 	)

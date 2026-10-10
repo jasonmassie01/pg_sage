@@ -45,6 +45,8 @@ func startAgentGate(c *config.Config, mgr *fleet.DatabaseManager, meta *metaDBSt
 		Profiles: decide.DefaultProfiles(), Recovery: fleetRecovery{mgr: mgr}}
 	if envs != nil {
 		cfg.Environments = envSource{svc: envs}
+		// D5 for brokered requests (agent_broker_wiring.go).
+		cfg.Objects = agentObjectChecker(envs)
 	}
 	agentGate.Store(&agentGateState{decider: decide.New(cfg), control: control})
 }
