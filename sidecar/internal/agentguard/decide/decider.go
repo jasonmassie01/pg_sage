@@ -120,11 +120,12 @@ func (d *Decider) profileOf(p agentguard.Principal) (Profile, bool) {
 	return d.cfg.Profiles.Profile(p.Profile)
 }
 
-// finalLevel applies G1's ledger (every class but read at L2: every grant
-// is operator-approved) and D8 (taint caps at L2).
+// finalLevel applies G1's ledger: every class but read at L2, since every
+// grant is operator-approved. D8 (taint caps at L2) is the core's
+// ToolAccess cap, already in s.level.
 func (s *state) finalLevel() int {
 	level := s.level
-	if s.req.Capability != CapRead || s.p.Tainted {
+	if s.req.Capability != CapRead {
 		level = min(level, 2)
 	}
 	return level
