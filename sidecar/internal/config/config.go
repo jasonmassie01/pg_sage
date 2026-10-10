@@ -465,6 +465,7 @@ type RetentionConfig struct {
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
 	DecisionsDays int `yaml:"decisions_days" doc:"Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."`
+	AuthAuditDays int `yaml:"auth_audit_days" doc:"Days to keep the sign-in audit trail (sage.auth_audit: SSO logins, links, grants and break-glass use). 0 keeps it forever. Range 0-3650. Default 365."`
 	// SageSizeWarningPct: see sage_footprint.go.
 	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size; below 256 MB it is never a finding. 0 disables the check. Default 10."`
 	// QueryStoreDays and SnapshotsMaxPct: see storage_retention.go.
@@ -756,6 +757,9 @@ func (c *Config) validate() error {
 	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
+	if err := c.Retention.validateAuthAuditDays(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateStorage(); err != nil {
 		return err
 	}
@@ -1035,6 +1039,7 @@ func newDefaults() *Config {
 
 			SageSizeWarningPct: DefaultRetentionSageSizeWarningPct,
 			DecisionsDays:      DefaultRetentionDecisionsDays,
+			AuthAuditDays:      DefaultRetentionAuthAuditDays,
 			QueryStoreDays:     DefaultRetentionQueryStoreDays,
 			SnapshotsMaxPct:    DefaultRetentionSnapshotsMaxPct,
 		},

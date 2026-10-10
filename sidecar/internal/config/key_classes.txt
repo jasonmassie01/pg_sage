@@ -309,6 +309,7 @@ safety_critical briefing.slack_webhook_url
 
 # Retention: audit records are the operator's; history windows are derivable
 operator_preference retention.actions_days
+operator_preference retention.auth_audit_days
 operator_preference retention.decisions_days
 derivable retention.explains_days
 derivable retention.findings_days

@@ -122,4 +122,25 @@ func TestAuthAuditPurge_GenericPlanUsesAnIndex(t *testing.T) {
 			t.Fatalf("auth_audit purge scans sage.auth_audit sequentially")
 		}
 	}
+	// Not just any index: a full scan of idx_auth_audit_target would also
+	// read every row. The created_at index bounds it to the expired range.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	// The raw protocol keeps $1/$2 unbound, as EXPLAIN (GENERIC_PLAN) wants.
+	res, err := conn.Conn().PgConn().Exec(ctx, "EXPLAIN (GENERIC_PLAN) "+
+		purgeSQL(r, "sage.auth_audit", batchSize)).ReadAll()
+	if err != nil || len(res) != 1 {
+		t.Fatalf("explain: %v (%d results)", err, len(res))
+	}
+	var plan strings.Builder
+	for _, row := range res[0].Rows {
+		plan.Write(row[0])
+		plan.WriteString("\n")
+	}
+	if !strings.Contains(plan.String(), "idx_auth_audit_created") {
+		t.Fatalf("purge plan does not use idx_auth_audit_created:\n%s", plan.String())
+	}
 }

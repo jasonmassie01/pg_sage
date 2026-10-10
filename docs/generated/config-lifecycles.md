@@ -234,6 +234,7 @@
 | `rca.vacuum_min_table_mb` | `restart` | `-` | `derivable` |
 | `rca.wal_spike_multiplier` | `restart` | `-` | `derivable` |
 | `retention.actions_days` | `restart` | `-` | `operator_preference` |
+| `retention.auth_audit_days` | `restart` | `-` | `operator_preference` |
 | `retention.decisions_days` | `restart` | `-` | `operator_preference` |
 | `retention.explains_days` | `restart` | `-` | `derivable` |
 | `retention.findings_days` | `restart` | `-` | `derivable` |

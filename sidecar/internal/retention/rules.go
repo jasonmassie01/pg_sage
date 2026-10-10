@@ -210,6 +210,10 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// covers a reader racing the expiry. (created_at, the old key, is
 		// reset by every refresh of the cache entry.)
 		{table: "explain_results", timeCol: "expires_at", days: explainResultsGrace(r)},
+		// The sign-in audit trail (E1) is kept a year by default. Swept on
+		// created_at so even the generic plan reads it by index (gate A).
+		{table: "auth_audit", timeCol: "created_at", days: r.AuthAuditDays,
+			sweepCol: "created_at"},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{table: "user_oidc_link_grants", timeCol: "expires_at", days: r.ActionsDays},
 		{table: "sre_eval_runs", timeCol: "ingested_at",

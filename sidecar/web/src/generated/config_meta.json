@@ -1487,6 +1487,12 @@
     "doc": "",
     "class": "operator_preference"
   },
+  "retention.auth_audit_days": {
+    "type": "int",
+    "default": 365,
+    "doc": "Days to keep the sign-in audit trail (sage.auth_audit: SSO logins, links, grants and break-glass use). 0 keeps it forever. Range 0-3650. Default 365.",
+    "class": "operator_preference"
+  },
   "retention.decisions_days": {
     "type": "int",
     "default": 30,
