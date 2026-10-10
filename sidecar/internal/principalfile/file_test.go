@@ -101,8 +101,8 @@ spec: {principals: [], envelopes: [{name: e}]}`,
 kind: AgentPrincipals
 metadata: {name: x}
 spec: {principals: [], profiles: {p: {classes: [read]}}}`,
-		"empty":     ``,
-		"two docs":  "apiVersion: pg_sage/v1\n---\napiVersion: pg_sage/v1\n",
+		"empty":    ``,
+		"two docs": "apiVersion: pg_sage/v1\n---\napiVersion: pg_sage/v1\n",
 		"duplicate identity": `apiVersion: pg_sage/v1
 kind: AgentPrincipals
 metadata: {name: x}
