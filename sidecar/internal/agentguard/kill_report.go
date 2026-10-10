@@ -21,19 +21,23 @@ type ReplicaReport struct {
 	LoginsBlocked      bool          `json:"logins_blocked"`
 	Verified           bool          `json:"verified"`
 	Bound              *SessionBound `json:"bound,omitempty"`
+	Lookalikes         []string      `json:"lookalikes,omitempty"`
 	Note               string        `json:"note,omitempty"`
 	Error              string        `json:"error,omitempty"`
 }
 
 // DatabaseReport is the kill's result on one monitored database (§8.3).
 type DatabaseReport struct {
-	Name                string          `json:"name"`
-	RolesDisabled       int             `json:"roles_disabled"`
-	BackendsTerminated  int             `json:"backends_terminated"`
-	StatementsCancelled int             `json:"statements_cancelled"`
-	ApprovalsCancelled  int             `json:"approvals_cancelled"`
-	Replicas            []ReplicaReport `json:"replicas"`
-	Verified            bool            `json:"verified"`
+	Name                string `json:"name"`
+	RolesDisabled       int    `json:"roles_disabled"`
+	BackendsTerminated  int    `json:"backends_terminated"`
+	StatementsCancelled int    `json:"statements_cancelled"`
+	// Lookalikes are roles named like agents (^sage_agentb?_) that are not
+	// agent role names; their sessions ended, their roles were not changed.
+	Lookalikes         []string        `json:"lookalikes,omitempty"`
+	ApprovalsCancelled int             `json:"approvals_cancelled"`
+	Replicas           []ReplicaReport `json:"replicas"`
+	Verified           bool            `json:"verified"`
 	// ActionID is the audited action on this database; Direct marks the
 	// out-of-gate fallback (§6.2.5), audited in the local log.
 	ActionID int64  `json:"action_id,omitempty"`

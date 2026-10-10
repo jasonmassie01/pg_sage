@@ -3,7 +3,11 @@ package agentguard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -115,10 +119,18 @@ func (r *clusterRun) contain(ctx context.Context) {
 		r.dbs[i].StatementsCancelled = c
 		r.dbs[i].Error = joinErr(r.dbs[i].Error, err)
 	}
-	n, err := terminate(ctx, primary, r.k, r.scopeDatname())
-	r.dbs[0].BackendsTerminated = n
+	e, err := terminate(ctx, primary, r.k, r.scopeDatname())
+	r.noteEnded(e)
 	r.dbs[0].Error = joinErr(r.dbs[0].Error, err)
 	r.containReplicas(ctx)
+}
+
+// noteEnded counts a termination pass on the primary.
+func (r *clusterRun) noteEnded(e ended) {
+	r.dbs[0].BackendsTerminated += e.n
+	for _, l := range e.lookalikes {
+		r.dbs[0].Lookalikes = appendOnce(r.dbs[0].Lookalikes, l)
+	}
 }
 
 // scopeDatname limits a database kill to its database; "" is the cluster.
@@ -140,6 +152,8 @@ func (r *clusterRun) disableRoles(ctx context.Context) {
 		return
 	}
 	owner := r.roleOwners()
+	var failed []string
+	var firstErr error
 	for _, row := range rows {
 		if pid, ok := owner[row.name]; ok && !row.attrs.killed() {
 			if r.prior[pid] == nil {
@@ -147,15 +161,47 @@ func (r *clusterRun) disableRoles(ctx context.Context) {
 			}
 			r.prior[pid][row.name] = row.attrs
 		}
+		if row.attrs.killed() {
+			r.dbs[0].RolesDisabled++ // already NOLOGIN CONNECTION LIMIT 0
+			continue
+		}
 		stmt, err := r.s.disableRole(ctx, primary, row.name)
 		r.statements = append(r.statements, stmt)
 		if err != nil {
-			r.dbs[0].Error = joinErr(r.dbs[0].Error, fmt.Errorf("agentguard: %w", err))
+			failed = append(failed, row.name)
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		r.dbs[0].RolesDisabled++
 	}
+	if len(failed) > 0 {
+		r.dbs[0].Error = joinErr(r.dbs[0].Error, disableFailure(failed, firstErr))
+	}
 	r.storeKilled(ctx)
+}
+
+// disableFailure summarizes the roles a kill could not disable: one line,
+// a few names, the first error and the fix for a missing ADMIN option.
+func disableFailure(failed []string, first error) error {
+	names := failed
+	more := ""
+	if len(names) > 5 {
+		names, more = names[:5], fmt.Sprintf(" (+%d more)", len(failed)-5)
+	}
+	msg := fmt.Sprintf("agentguard: could not disable %d agent role(s): %s%s; first error: %v",
+		len(failed), strings.Join(names, ", "), more, first)
+	if isPermissionDenied(first) {
+		msg += "; pg_sage needs the ADMIN option on them (it has it on roles it created): " +
+			"disable them as their owner, see the manual runbook in docs/agent-guard.md"
+	}
+	return errors.New(msg)
+}
+
+func isPermissionDenied(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "42501"
 }
 
 // roleOwners maps role names to principals: the scope's own ids, and the

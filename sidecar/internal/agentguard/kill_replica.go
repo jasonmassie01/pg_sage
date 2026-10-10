@@ -72,8 +72,11 @@ func (r *replicaRun) contain(ctx context.Context, k killScope, datname string) {
 	if r.conn == nil {
 		return
 	}
-	n, err := terminate(ctx, r.conn, k, datname)
-	r.report.BackendsTerminated += n
+	e, err := terminate(ctx, r.conn, k, datname)
+	r.report.BackendsTerminated += e.n
+	for _, l := range e.lookalikes {
+		r.report.Lookalikes = appendOnce(r.report.Lookalikes, l)
+	}
 	if err != nil {
 		r.report.Error = joinErr(r.report.Error, err)
 	}

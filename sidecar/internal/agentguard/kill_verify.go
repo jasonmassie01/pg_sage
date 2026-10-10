@@ -79,7 +79,7 @@ func (r *clusterRun) checkPrimary(ctx context.Context) bool {
 	if n > 0 {
 		clean = false
 		more, _ := terminate(ctx, primary, r.k, r.scopeDatname())
-		r.dbs[0].BackendsTerminated += more
+		r.noteEnded(more)
 	}
 	if !r.k.disablesRoles() {
 		return clean

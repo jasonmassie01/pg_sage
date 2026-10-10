@@ -110,34 +110,58 @@ func retryableRoleError(err error) bool {
 	return pg.Code == sqlLockNotAvailable || pg.Code == "40001" || pg.Code == "XX000"
 }
 
+// agentPrefix is the broad agent name prefix CheckBackends uses: a fleet
+// or database kill also ends lookalike sessions (an agent-like name that is
+// not an agent role name) and reports them; it never alters their roles.
+const agentPrefix = `^sage_agentb?_`
+
 // terminateSQL ends every agent backend in scope but pg_sage's own; an
-// empty datname covers the cluster.
+// empty datname covers the cluster. It returns the ended sessions' roles;
+// the scope is materialized first so the signal never reaches a row the
+// filters would drop.
 const terminateSQL = `/* pg_sage guard_kill v1 */
-SELECT count(*) FILTER (WHERE pg_catalog.pg_terminate_backend(a.pid))::int
-FROM pg_catalog.pg_stat_activity a
-WHERE a.pid <> pg_catalog.pg_backend_pid()
-  AND (a.usename = ANY($1) OR ($2 AND a.usename ~ '` + RoleRegex + `'))
-  AND ($3 = '' OR a.datname = $3)`
+WITH scope AS MATERIALIZED (
+  SELECT a.pid, a.usename::text AS usename FROM pg_catalog.pg_stat_activity a
+  WHERE a.pid <> pg_catalog.pg_backend_pid()
+    AND (a.usename = ANY($1) OR ($2 AND a.usename ~ '` + agentPrefix + `'))
+    AND ($3 = '' OR a.datname = $3))
+SELECT usename FROM scope WHERE pg_catalog.pg_terminate_backend(pid)`
 
 // countAgentSQL counts the backends terminateSQL would end.
 const countAgentSQL = `/* pg_sage guard_kill v1 */
 SELECT count(*)::int FROM pg_catalog.pg_stat_activity a
 WHERE a.pid <> pg_catalog.pg_backend_pid()
-  AND (a.usename = ANY($1) OR ($2 AND a.usename ~ '` + RoleRegex + `'))
+  AND (a.usename = ANY($1) OR ($2 AND a.usename ~ '` + agentPrefix + `'))
   AND ($3 = '' OR a.datname = $3)`
 
 type rowQuery interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+// ended is what one termination pass did.
+type ended struct {
+	n          int
+	lookalikes []string // roles not IsAgentRoleName whose sessions ended
 }
 
 // terminate ends the agent backends visible on q's server.
-func terminate(ctx context.Context, q rowQuery, k killScope, datname string) (int, error) {
-	var n int
-	if err := q.QueryRow(ctx, terminateSQL, k.roles(), k.anyRole(), datname).
-		Scan(&n); err != nil {
-		return 0, signalError("terminating agent backends", err)
+func terminate(ctx context.Context, q rowQuery, k killScope, datname string) (ended, error) {
+	rows, err := q.Query(ctx, terminateSQL, k.roles(), k.anyRole(), datname)
+	if err != nil {
+		return ended{}, signalError("terminating agent backends", err)
 	}
-	return n, nil
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return ended{}, signalError("terminating agent backends", err)
+	}
+	out := ended{n: len(names)}
+	for _, n := range names {
+		if !IsAgentRoleName(n) {
+			out.lookalikes = appendOnce(out.lookalikes, n)
+		}
+	}
+	return out, nil
 }
 
 func countAgents(ctx context.Context, q rowQuery, k killScope, datname string) (int, error) {
