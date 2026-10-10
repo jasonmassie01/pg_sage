@@ -424,6 +424,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      # The PostgreSQL service image comes from this repository's registry.
+      packages: read
     outputs:
       signed: ${{ steps.sign.outputs.signed }}
     services:
