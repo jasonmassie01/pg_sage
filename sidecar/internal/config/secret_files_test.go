@@ -130,11 +130,11 @@ func TestReadSecretFile_Errors(t *testing.T) {
 		path string
 		want string
 	}{
-		"missing":     {filepath.Join(dir, "nope"), "SAGE_X_FILE"},
-		"directory":   {dir, "SAGE_X_FILE"},
-		"empty":       {writeSecretFile(t, "", 0o600), "empty"},
+		"missing":      {filepath.Join(dir, "nope"), "SAGE_X_FILE"},
+		"directory":    {dir, "SAGE_X_FILE"},
+		"empty":        {writeSecretFile(t, "", 0o600), "empty"},
 		"only newline": {writeSecretFile(t, "\n", 0o600), "empty"},
-		"too large":   {writeSecretFile(t, big, 0o600), "larger than"},
+		"too large":    {writeSecretFile(t, big, 0o600), "larger than"},
 	}
 	for name, tc := range cases {
 		_, err := readSecretFile("SAGE_X_FILE", tc.path)

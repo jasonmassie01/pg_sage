@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,18 +285,25 @@ func TestReload_ConcurrentHandshakesDuringRotation(t *testing.T) {
 func TestServe_RealHandshakeHonoursMinimumVersion(t *testing.T) {
 	pair := servertlstest.WritePair(t, t.TempDir(), servertlstest.Valid(60))
 	r, _, _ := newTestReloader(t, pair)
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(
-		func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") }))
-	srv.TLS = r.Config()
-	srv.StartTLS()
-	defer srv.Close()
+	// A plain http.Server as the sidecar runs it: httptest's StartTLS would
+	// add its own certificate, which wins over GetCertificate without SNI.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, TLSConfig: r.Config(),
+		Handler: http.HandlerFunc(
+			func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") })}
+	go func() { _ = srv.ServeTLS(ln, "", "") }()
+	defer func() { _ = srv.Close() }()
+	url := "https://" + ln.Addr().String()
 
 	client := func(maxVersion uint16) *http.Client {
 		return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, //nolint:gosec // test
 				MaxVersion: maxVersion}}}
 	}
-	resp, err := client(tls.VersionTLS13).Get(srv.URL)
+	resp, err := client(tls.VersionTLS13).Get(url)
 	if err != nil {
 		t.Fatalf("TLS 1.3 request: %v", err)
 	}
@@ -306,7 +313,7 @@ func TestServe_RealHandshakeHonoursMinimumVersion(t *testing.T) {
 		resp.TLS.PeerCertificates[0].SerialNumber.Int64() != 60 {
 		t.Fatalf("body %q, tls %+v", body, resp.TLS)
 	}
-	if _, err := client(tls.VersionTLS11).Get(srv.URL); err == nil {
+	if _, err := client(tls.VersionTLS11).Get(url); err == nil {
 		t.Fatal("a TLS 1.1 client completed a handshake")
 	}
 }

@@ -59,10 +59,10 @@ func TestScan_FindsTargetInEveryCommonContext(t *testing.T) {
 func TestScan_NearMissesAreNotHits(t *testing.T) {
 	m := mustMatcher(t, targetFor(dummy))
 	for _, body := range []string{
-		dummy[:len(dummy)-1],             // one byte short
-		strings.ToUpper(dummy),           // case differs
-		dummy[:5] + " " + dummy[5:],      // split by whitespace
-		dummy[:5] + "\"" + dummy[5:],     // split by a delimiter
+		dummy[:len(dummy)-1],                // one byte short
+		strings.ToUpper(dummy),              // case differs
+		dummy[:5] + " " + dummy[5:],         // split by whitespace
+		dummy[:5] + "\"" + dummy[5:],        // split by a delimiter
 		strings.Replace(dummy, "!", "?", 1), // one byte differs
 	} {
 		if hits := scanString(t, m, body); len(hits) != 0 {
@@ -135,12 +135,12 @@ func TestScan_ReaderErrorNamesThePath(t *testing.T) {
 func TestNewMatcher_RejectsInvalidTargets(t *testing.T) {
 	good := targetFor(dummy)
 	cases := map[string][]Target{
-		"nil":          nil,
-		"empty":        {},
-		"zero length":  {{Length: 0, SHA256: good.SHA256}},
-		"negative":     {{Length: -1, SHA256: good.SHA256}},
-		"short hash":   {{Length: 5, SHA256: good.SHA256[:10]}},
-		"not hex":      {{Length: 5, SHA256: strings.Repeat("zz", 32)}},
+		"nil":         nil,
+		"empty":       {},
+		"zero length": {{Length: 0, SHA256: good.SHA256}},
+		"negative":    {{Length: -1, SHA256: good.SHA256}},
+		"short hash":  {{Length: 5, SHA256: good.SHA256[:10]}},
+		"not hex":     {{Length: 5, SHA256: strings.Repeat("zz", 32)}},
 	}
 	for name, targets := range cases {
 		if _, err := NewMatcher(targets); err == nil {
