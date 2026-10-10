@@ -31,12 +31,24 @@ func dedupeLegacyPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return pool
 }
 
-func dedupeScenario(t *testing.T) []snapfixture.Cycle {
+// The dedupe scenario: dedupeCycles collection cycles dedupeStep apart.
+const (
+	dedupeCycles = 30
+	dedupeStep   = 5 * time.Minute
+)
+
+// dedupeStart is when the scenario's first cycle is collected, with the
+// clock at now.
+func dedupeStart(now time.Time) time.Time {
+	return now.UTC().Add(-3 * time.Hour).Truncate(time.Minute)
+}
+
+func dedupeScenario(t *testing.T, now time.Time) []snapfixture.Cycle {
 	t.Helper()
 	sc := snapfixture.Scenario{
-		Start:   time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Minute),
-		Step:    5 * time.Minute,
-		Cycles:  30,
+		Start:   dedupeStart(now),
+		Step:    dedupeStep,
+		Cycles:  dedupeCycles,
 		Tables:  12,
 		Indexes: 60,
 		Seed:    7,
@@ -50,8 +62,8 @@ func dedupeScenario(t *testing.T) []snapfixture.Cycle {
 	return cycles
 }
 
-func seedDedupeStores(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool, context.Context,
-	[]snapfixture.Cycle) {
+func seedDedupeStores(t *testing.T, now time.Time) (*pgxpool.Pool, *pgxpool.Pool,
+	context.Context, []snapfixture.Cycle) {
 	t.Helper()
 	deltaPool, ctx := phase2RequireDB(t)
 	if _, err := deltaPool.Exec(ctx, "DELETE FROM sage.snapshots"); err != nil {
@@ -59,7 +71,7 @@ func seedDedupeStores(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool, context.Conte
 	}
 	t.Cleanup(func() { _, _ = deltaPool.Exec(ctx, "DELETE FROM sage.snapshots") })
 	legacyPool := dedupeLegacyPool(t, ctx)
-	cycles := dedupeScenario(t)
+	cycles := dedupeScenario(t, now)
 	w := snapstore.NewWriter()
 	for _, c := range cycles {
 		rows := make([]snapstore.Row, 0, len(c.Docs))
@@ -82,7 +94,7 @@ var dedupeMetrics = []string{"indexes", "tables", "sequences", "queries",
 // Latest and history (sliding window and explicit range) are identical
 // for every category, and the delta store really holds deltas.
 func TestSnapshotAPI_DedupeGolden(t *testing.T) {
-	deltaPool, legacyPool, ctx, cycles := seedDedupeStores(t)
+	deltaPool, legacyPool, ctx, cycles := seedDedupeStores(t, time.Now())
 	var deltas int
 	if err := deltaPool.QueryRow(ctx, `SELECT count(*) FROM sage.snapshots
 		WHERE base_id IS NOT NULL`).Scan(&deltas); err != nil || deltas == 0 {
@@ -110,25 +122,82 @@ func TestSnapshotAPI_DedupeGolden(t *testing.T) {
 	}
 }
 
+// lastUTC0037 is the most recent 00:37 UTC. With the clock there, a
+// scenario starting three hours back collects its last cycle at 00:02, the
+// first document of a new UTC day, which the writer stores as a keyframe
+// (a base never spans a day). Every CI failure of the orphan test (10-05,
+// 10-08 in seven jobs, 10-10) was in a run that reached it at about 00:40 UTC.
+func lastUTC0037(now time.Time) time.Time {
+	at := now.UTC().Truncate(24 * time.Hour).Add(37 * time.Minute)
+	if at.After(now) {
+		at = at.Add(-24 * time.Hour)
+	}
+	return at
+}
+
+// The scenario fits in one UTC day, in the past and inside the snapshot
+// API's 24-hour window, whatever the time of day: the writer starts a new
+// keyframe with the first document of each day, so a scenario that ends
+// just after midnight ends on a keyframe, not on a delta.
+func TestDedupeScenarioStaysInOneUTCDay(t *testing.T) {
+	day := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	span := time.Duration(dedupeCycles-1) * dedupeStep
+	for m := 0; m < 24*60; m++ {
+		now := day.Add(time.Duration(m)*time.Minute + 17*time.Second)
+		first := dedupeStart(now)
+		last := first.Add(span)
+		if !first.Truncate(24 * time.Hour).Equal(last.Truncate(24 * time.Hour)) {
+			t.Fatalf("clock %s: scenario %s to %s crosses a UTC midnight", now.Format("15:04:05"),
+				first.Format("15:04"), last.Format("15:04"))
+		}
+		if !last.Before(now) || first.Before(now.Add(-24*time.Hour)) {
+			t.Fatalf("clock %s: scenario %s to %s is not inside the last 24 hours",
+				now.Format("15:04:05"), first, last)
+		}
+	}
+}
+
 // A delta row whose keyframe was deleted by hand reads as a null document,
-// never as an error or a wrong document.
+// never as an error or a wrong document. Run at the current time and at
+// 00:37 UTC (see lastUTC0037).
 func TestSnapshotAPI_OrphanDeltaReadsNull(t *testing.T) {
-	deltaPool, _, ctx, _ := seedDedupeStores(t)
-	var baseID int64
-	if err := deltaPool.QueryRow(ctx, `SELECT base_id FROM sage.snapshots
-		WHERE category = 'indexes' AND base_id IS NOT NULL
-		ORDER BY collected_at DESC LIMIT 1`).Scan(&baseID); err != nil {
-		t.Fatalf("find newest delta: %v", err)
+	now := time.Now()
+	for name, clock := range map[string]time.Time{"now": now,
+		"00:37 UTC": lastUTC0037(now)} {
+		t.Run(name, func(t *testing.T) { requireOrphanDeltaReadsNull(t, clock, name == "now") })
+	}
+}
+
+// requireOrphanDeltaReadsNull: with sliding, history is read over the API's
+// last-24-hours window, else from the scenario's first cycle on (a clock
+// at the last 00:37 UTC can be more than 24 hours back).
+func requireOrphanDeltaReadsNull(t *testing.T, clock time.Time, sliding bool) {
+	t.Helper()
+	deltaPool, _, ctx, cycles := seedDedupeStores(t, clock)
+	from := cycles[0].At
+	if sliding {
+		from = time.Time{}
+	}
+	var newest int64
+	var baseID *int64
+	if err := deltaPool.QueryRow(ctx, `SELECT id, base_id FROM sage.snapshots
+		WHERE category = 'indexes' ORDER BY collected_at DESC LIMIT 1`).
+		Scan(&newest, &baseID); err != nil {
+		t.Fatalf("find the newest indexes row: %v", err)
+	}
+	if baseID == nil {
+		t.Fatalf("the newest indexes row %d is a keyframe: the scenario must end on a delta",
+			newest)
 	}
 	if _, err := deltaPool.Exec(ctx, `DELETE FROM sage.snapshots WHERE id = $1`,
-		baseID); err != nil {
+		*baseID); err != nil {
 		t.Fatalf("delete keyframe: %v", err)
 	}
 	latest, err := querySnapshotLatest(ctx, deltaPool, "indexes")
 	if err != nil || latest != nil {
 		t.Fatalf("latest = %v (%v), want null without error", latest, err)
 	}
-	points, _, err := querySnapshotHistory(ctx, deltaPool, "indexes", 24, time.Time{}, time.Time{})
+	points, _, err := querySnapshotHistory(ctx, deltaPool, "indexes", 24, from, time.Time{})
 	if err != nil || len(points) == 0 {
 		t.Fatalf("history = %d points (%v)", len(points), err)
 	}
