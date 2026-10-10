@@ -101,3 +101,26 @@ const (
 	DefaultMaxPendingPerPrincipal = 10
 	DefaultRestoreDrillDays       = 14
 )
+
+// DefaultProfiles are the spec's default agent profiles (§9
+// agents.profiles). G1 ships them fixed; profile configuration is later.
+func DefaultProfiles() StaticProfiles {
+	return StaticProfiles{
+		"readonly-analyst": {Classes: []Capability{CapRead}, EnvCeiling: envbind.EnvProd},
+		"app-writer": {Classes: []Capability{CapRead, CapWriteInsert, CapWriteUpdate},
+			EnvCeiling: envbind.EnvProd, DirectLane: true},
+		"coding-agent": {Classes: []Capability{CapRead, CapWriteInsert, CapWriteUpdate,
+			CapWriteDelete, CapDDLAdditive, CapDDLLocking, CapSandbox},
+			EnvCeiling: envbind.EnvStage},
+		"legacy": {Classes: []Capability{CapRead}, EnvCeiling: envbind.EnvProd},
+	}
+}
+
+// StaticProfiles is a fixed profile table.
+type StaticProfiles map[string]Profile
+
+// Profile returns the named profile.
+func (s StaticProfiles) Profile(name string) (Profile, bool) {
+	p, ok := s[name]
+	return p, ok
+}

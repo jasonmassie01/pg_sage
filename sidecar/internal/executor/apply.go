@@ -119,7 +119,7 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	if err != nil {
 		return 0, err
 	}
-	actionID, err := intent.Execute(runCtx, final)
+	actionID, err := e.executeHeld(runCtx, intent, final)
 	if err != nil || intent.Verify == nil {
 		return actionID, err
 	}

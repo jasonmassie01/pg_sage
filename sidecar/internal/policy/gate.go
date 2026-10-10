@@ -26,7 +26,8 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
-	if !spendsBudget(req) {
+	req = withContextPrincipal(ctx, req)
+	if !spendsBudget(req) || req.Principal != nil { // agent requests read no usage
 		return gate.finish(ctx, req, gate.evaluate(ctx, req))
 	}
 	gate.budgetMu.Lock()
@@ -39,6 +40,7 @@ func (gate *authorizationGate) Authorize(
 
 // Explain runs the same evaluation as Authorize and records nothing.
 func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) Decision {
+	req = withContextPrincipal(ctx, req)
 	return decisionForRequest(req, gate.evaluate(ctx, req))
 }
 
@@ -62,6 +64,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	}
 	if IsNarrowing(req) {
 		return narrowingDecision(req, isStop)
+	}
+	if req.Principal != nil {
+		return gate.agentDecision(ctx, runtime, req)
 	}
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
