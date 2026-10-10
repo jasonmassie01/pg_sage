@@ -240,3 +240,44 @@ func TestResolveEnv_EndedContext(t *testing.T) {
 		t.Fatal("ResolveEnv succeeded on an ended context")
 	}
 }
+
+// Least privilege: without pg_read_all_stats, other roles' sessions show
+// a NULL backend_type in pg_stat_activity; their usesysid and
+// application_name stay visible, so the hint must still be found.
+func TestResolveEnv_ClientHintWithoutReadAllStats(t *testing.T) {
+	pool, ctx := livePool(t)
+	agent := "app_" + suffix(t)
+	agentSecret := "pw-" + suffix(t)
+	createRole(t, ctx, pool, agent, "LOGIN PASSWORD '"+agentSecret+"'")
+	watcher := "watch_" + suffix(t)
+	watchSecret := "pw-" + suffix(t)
+	createRole(t, ctx, pool, watcher, "LOGIN PASSWORD '"+watchSecret+"'")
+	app := "ptest-lp-mcp-" + suffix(t)
+	busy := loginAs(t, ctx, agent, agentSecret, app)
+	if _, err := busy.Exec(ctx, "SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	low := loginAs(t, ctx, watcher, watchSecret, "pg_sage")
+	var stats bool
+	if err := low.QueryRow(ctx, "SELECT pg_has_role('pg_read_all_stats', 'USAGE')").
+		Scan(&stats); err != nil || stats {
+		t.Fatalf("watcher has pg_read_all_stats=%v (%v): the test needs a role without it",
+			stats, err)
+	}
+	cfg := DefaultConfig()
+	cfg.ClientPatterns = []string{"^ptest-lp-mcp-"}
+	tx, err := low.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	env, err := ResolveEnv(ctx, tx, cfg)
+	if err != nil {
+		t.Fatalf("ResolveEnv as a least-privilege role: %v", err)
+	}
+	r, ok := findRole(env.Agents, agent)
+	if !ok || r.Source != SourceClientHint || r.Hint != app {
+		t.Fatalf("agents = %+v, want %s hinted by %s without pg_read_all_stats",
+			env.Agents, agent, app)
+	}
+}
