@@ -83,6 +83,11 @@ func TestWidensFieldByField(t *testing.T) {
 			next.MaintenanceWindows = []string{"weekdays 01:00-05:00"}
 			next.Budgets.LLMTokensDaily = NewBudgetLimit(500000)
 			next.Budgets.StorageBytes = NoCapBudget()
+			// schema_change starts disallowed so adding it can widen.
+			base.AllowedChangeClasses = withoutClass(base.AllowedChangeClasses,
+				ChangeSchemaChange)
+			next.AllowedChangeClasses = withoutClass(next.AllowedChangeClasses,
+				ChangeSchemaChange)
 			tc.mutate(&next)
 			if got := Widens(base, next); got != tc.widens {
 				t.Fatalf("Widens = %v, want %v", got, tc.widens)
@@ -142,4 +147,14 @@ func TestWidensDocumentJSON(t *testing.T) {
 		t.Fatalf("an unreadable base = %v, %v; want an error that fails widening-closed",
 			got, err)
 	}
+}
+
+func withoutClass(classes []ChangeClass, drop ChangeClass) []ChangeClass {
+	out := make([]ChangeClass, 0, len(classes))
+	for _, c := range classes {
+		if c != drop {
+			out = append(out, c)
+		}
+	}
+	return out
 }

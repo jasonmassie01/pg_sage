@@ -73,3 +73,97 @@ func withContextPrincipal(ctx context.Context, req ActionRequest) ActionRequest 
 	}
 	return req
 }
+
+// agentDecision is A4-A6 for an agent-originated request (§6.2.2): the
+// decider's D-steps, then the level (decider cap, operator ceiling,
+// rollback-class cap) mapped to a verdict (§6.2.3). A1-A3 already ran.
+func (gate *authorizationGate) agentDecision(
+	ctx context.Context, runtime RuntimeState, req ActionRequest,
+) Decision {
+	level := AgentUngovernedCap
+	if gate.config.Agents != nil {
+		decision, maxLevel, stop := gate.config.Agents.Decide(ctx, req)
+		if stop {
+			return agentStop(req, decision)
+		}
+		level = maxLevel
+	}
+	if agentOperatorCeiling(runtime.TrustLevel) == 0 {
+		return blocked(ReasonUnknownTrustLevel, runtime.TrustLevel)
+	}
+	if req.OperatorApproved && level >= 2 {
+		// The approval satisfies L2; the operator ceiling, the change-class
+		// allowlist and the windows still bind (operatorDecision).
+		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
+	}
+	level = min(level, agentOperatorCeiling(runtime.TrustLevel),
+		agentRollbackCap(req.Contract.RollbackClass))
+	if runtime.ExecutionMode == ExecutionManual {
+		level = min(level, 1)
+	}
+	return gate.agentLevelDecision(ctx, req, level)
+}
+
+// agentLevelDecision maps a level to a verdict. G1 has no L3 envelope
+// (§6.11, from G2), so L3 falls back to L2.
+func (gate *authorizationGate) agentLevelDecision(
+	ctx context.Context, req ActionRequest, level int,
+) Decision {
+	switch {
+	case level <= 0:
+		return gate.decision(req, VerdictBlocked, ReasonAgentLevel0)
+	case level == 1:
+		return gate.decision(req, VerdictObserveOnly, ReasonAgentProposalRecorded)
+	}
+	if req.Contract.RiskTier != RiskReadOnly {
+		doc, err := gate.policy(ctx, req)
+		if err != nil || ValidateDocument(doc) != nil {
+			return blocked(ReasonPolicyUnavailable, errorDetail(err))
+		}
+		if !containsChangeClass(doc.AllowedChangeClasses, ChangeClass(req.Feature)) {
+			return gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed)
+		}
+	}
+	return gate.decision(req, VerdictQueueApproval, ReasonApprovalRequired)
+}
+
+// agentStop returns the decider's final decision. Only a block or a park
+// ends evaluation; anything else from the decider fails closed.
+func agentStop(req ActionRequest, decision Decision) Decision {
+	if decision.Verdict != VerdictBlocked && decision.Verdict != VerdictPark {
+		return blocked(ReasonPolicyUnavailable,
+			"agent governance returned a final verdict other than blocked or park")
+	}
+	return decisionForRequest(req, decision)
+}
+
+// agentOperatorCeiling is A5's operator ceiling: observation → L1,
+// advisory → L2, autonomous → L3; 0 for an unknown trust level.
+func agentOperatorCeiling(trust string) int {
+	switch trust {
+	case TrustObservation:
+		return 1
+	case TrustAdvisory:
+		return 2
+	case TrustAutonomous:
+		return 3
+	}
+	return 0
+}
+
+// agentRollbackCap is A5's rollback-class cap: reversible,
+// no_rollback_needed and not_applicable allow L3; every other class,
+// undeclared included, L2.
+func agentRollbackCap(class RollbackClass) int {
+	switch class {
+	case RollbackReversible, RollbackNoRollbackNeeded, RollbackNotApplicable:
+		return 3
+	}
+	return 2
+}
+
+// RequestPrincipal is the agent req comes from: req.Principal, else the
+// agent bound to ctx; nil for pg_sage's own requests and people's.
+func RequestPrincipal(ctx context.Context, req ActionRequest) *PrincipalRef {
+	return withContextPrincipal(ctx, req).Principal
+}
