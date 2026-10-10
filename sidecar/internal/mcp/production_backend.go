@@ -62,6 +62,9 @@ type ProductionDependencies struct {
 	Facts FactBackend
 	// FleetLearning serves fleet_findings (fleet learning); optional.
 	FleetLearning FleetLearningBackend
+	// AgentBroker serves agent_query and agent_whoami (agent governance);
+	// optional.
+	AgentBroker AgentBrokerBackend
 	// AgentTools serves the coding-agent tools (roadmap phase 3); optional.
 	AgentTools AgentToolBackend
 	// Ask serves ask_sage (roadmap phase 3); optional.

@@ -54,7 +54,7 @@ func (b *brokerBackend) AgentWhoAmI(context.Context) (broker.WhoAmI, error) {
 	return b.whoami, b.whoErr
 }
 
-func agentCtx() context.Context {
+func brokerAgentCtx() context.Context {
 	return WithPrincipal(context.Background(), Principal{Actor: "token:9", Role: "viewer",
 		Kind: KindAgent, Scopes: []Scope{ScopeRead}, PrincipalID: "agp_x"})
 }
@@ -93,7 +93,7 @@ func TestAgentQueryPassesArgumentsAndFencesRows(t *testing.T) {
 	backend := &brokerBackend{result: broker.Result{Verdict: broker.VerdictExecute,
 		Status: broker.StatusOK, Columns: []broker.Column{{Name: "name", Type: "text"}},
 		Rows: [][]*string{{&v}}, RowCount: 1, Masked: []string{}}}
-	response := invoke(t, NewServer(backend), agentCtx(), toolCall("agent_query",
+	response := invoke(t, NewServer(backend), brokerAgentCtx(), toolCall("agent_query",
 		`{"database":"app","sql":"SELECT name FROM t WHERE id = $1","params":["1", 2, true,`+
 			` null],"max_rows":5}`))
 	require.Equal(t, 0, response.Error.Code, "agent_query call")
@@ -116,7 +116,7 @@ func TestAgentQueryPassesArgumentsAndFencesRows(t *testing.T) {
 func TestAgentQueryBlockedIsANormalResult(t *testing.T) {
 	backend := &brokerBackend{result: broker.Result{Verdict: broker.VerdictBlocked,
 		ReasonCode: "agent_frozen", Fix: "unfreeze"}}
-	response := invoke(t, NewServer(backend), agentCtx(),
+	response := invoke(t, NewServer(backend), brokerAgentCtx(),
 		toolCall("agent_query", `{"database":"app","sql":"SELECT 1"}`))
 	require.Equal(t, 0, response.Error.Code, "blocked is a gate outcome, not an error")
 	structured := structuredContent(t, response)
@@ -137,7 +137,7 @@ func TestAgentQueryErrorsMapToCodes(t *testing.T) {
 	}
 	for _, c := range cases {
 		backend := &brokerBackend{err: c.err}
-		response := invoke(t, NewServer(backend), agentCtx(),
+		response := invoke(t, NewServer(backend), brokerAgentCtx(),
 			toolCall("agent_query", `{"database":"app","sql":"SELECT 1"}`))
 		require.Equal(t, c.code, response.Error.Code, "%v", c.err)
 		require.True(t, !strings.Contains(response.Error.Message, "secret"),
@@ -151,7 +151,7 @@ func TestAgentQueryRejectsBadArguments(t *testing.T) {
 		`{"database":"app","sql":"SELECT 1","params":{}}`,
 		`{"database":"app","sql":"SELECT 1","other":1}`} {
 		backend := &brokerBackend{}
-		response := invoke(t, NewServer(backend), agentCtx(), toolCall("agent_query", args))
+		response := invoke(t, NewServer(backend), brokerAgentCtx(), toolCall("agent_query", args))
 		require.Equal(t, codeInvalidParams, response.Error.Code, args)
 		require.Equal(t, 0, backend.queries, "%s reached the broker", args)
 	}
@@ -160,7 +160,7 @@ func TestAgentQueryRejectsBadArguments(t *testing.T) {
 func TestAgentWhoAmI(t *testing.T) {
 	backend := &brokerBackend{whoami: broker.WhoAmI{Principal: broker.PrincipalView{
 		ID: "agp_x", Name: "bot"}}}
-	response := invoke(t, NewServer(backend), agentCtx(), toolCall("agent_whoami", `{}`))
+	response := invoke(t, NewServer(backend), brokerAgentCtx(), toolCall("agent_whoami", `{}`))
 	require.Equal(t, 0, response.Error.Code, "whoami")
 	principal := objectMap(t, structuredContent(t, response)["principal"])
 	require.Equal(t, "bot", principal["name"])
@@ -173,13 +173,13 @@ func TestAgentWhoAmI(t *testing.T) {
 	require.Equal(t, "blocked", structured["verdict"])
 	require.Equal(t, "agent_unsponsored", structured["reason_code"])
 
-	response = invoke(t, NewServer(&brokerBackend{}), agentCtx(),
+	response = invoke(t, NewServer(&brokerBackend{}), brokerAgentCtx(),
 		toolCall("agent_whoami", `{"x":1}`))
 	require.Equal(t, codeInvalidParams, response.Error.Code, "whoami takes no arguments")
 }
 
 func TestAgentBrokerToolsUnavailableWithoutBackend(t *testing.T) {
-	response := invoke(t, NewServer(&recordingBackend{}), agentCtx(),
+	response := invoke(t, NewServer(&recordingBackend{}), brokerAgentCtx(),
 		toolCall("agent_query", `{"database":"app","sql":"SELECT 1"}`))
 	require.Equal(t, codeUnavailable, response.Error.Code, "no broker configured")
 }

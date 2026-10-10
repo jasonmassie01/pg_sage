@@ -26,7 +26,7 @@ var fleetToolNames = map[string]bool{"fleet_findings": true}
 
 // fleetWideTool reports a tool that is not bound to one database.
 func fleetWideTool(name string) bool {
-	return name == "list_databases" || fleetToolNames[name]
+	return name == "list_databases" || fleetToolNames[name] || name == "agent_whoami"
 }
 
 func fleetTools() []Tool {
