@@ -117,8 +117,14 @@ var (
 	RolePattern = regexp.MustCompile(`^sage_agentb?_[a-z2-7]{10}$`)
 )
 
-// RoleRegex is RolePattern's source, for SQL (usename ~ RoleRegex).
+// RoleRegex is RolePattern's source, for SQL (usename ~ RoleRegex). It is
+// the single definition of an agent role name (§6.6: 10 lower base32
+// characters of sha256(principal id)); the spec's kill runbook uses it.
 const RoleRegex = `^sage_agentb?_[a-z2-7]{10}$`
+
+// IsAgentRoleName reports whether name is an agent role name, of either
+// lane. Attribution, posture and the broker should all use it.
+func IsAgentRoleName(name string) bool { return RolePattern.MatchString(name) }
 
 // lowerBase32 is RFC 4648 base32 in lower case, without padding.
 var lowerBase32 = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").

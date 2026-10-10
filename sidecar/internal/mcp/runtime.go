@@ -26,7 +26,7 @@ type Runtime struct {
 	httpHandler   http.Handler
 	watchInterval time.Duration
 	// stdioPrincipalID is the agent principal mcp.stdio_principal names
-	// ("" keeps the unbound stdio agent).
+	// ("" when none is configured).
 	stdioPrincipalID string
 }
 
@@ -54,9 +54,10 @@ func NewRuntime(
 func (r *Runtime) Transport() string         { return r.transport }
 func (r *Runtime) HTTPHandler() http.Handler { return r.httpHandler }
 
-// SetStdioPrincipal binds the stdio client to an agent principal id
-// (mcp.stdio_principal, resolved at startup); "" keeps it unbound.
-func (r *Runtime) SetStdioPrincipal(principalID string) {
+// BindStdioPrincipal names the agent principal ("agp_…") the stdio client
+// acts as; its tools then carry that principal. The caller also binds the
+// principal's agentguard identity on the context it passes to Serve.
+func (r *Runtime) BindStdioPrincipal(principalID string) {
 	r.stdioPrincipalID = principalID
 }
 

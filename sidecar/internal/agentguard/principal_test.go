@@ -28,6 +28,9 @@ func TestValidID_Rejects(t *testing.T) {
 		require.False(t, ValidID(id), "accepted %q", id)
 	}
 	require.True(t, ValidID("agp_abcdefghijklmnopqrst"))
+	require.True(t, IsAgentRoleName(BrokerRoleName("agp_abcdefghijklmnopqrst")))
+	require.True(t, IsAgentRoleName(LoginRoleName("agp_abcdefghijklmnopqrst")))
+	require.False(t, IsAgentRoleName("sage_agent_k2m4q7x9a1"), "1 is not base32")
 	require.True(t, ValidID("agp_234567abcdefghijklmn"))
 }
 
@@ -67,6 +70,7 @@ func TestRolePattern_RejectsLookalikes(t *testing.T) {
 		"sage_agent_abcdefghij1", "sage_agent_ABCDEFGHIJ", "xsage_agent_abcdefghij",
 		"sage_agent_abcdefghi1"} {
 		require.False(t, RolePattern.MatchString(r), "matched %q", r)
+		require.False(t, IsAgentRoleName(r), "matched %q", r)
 	}
 }
 
