@@ -259,6 +259,30 @@ func TestKill_AllFreezesFleet(t *testing.T) {
 	require.True(t, f.memory.all[len(f.memory.all)-1])
 }
 
+// A fleet kill also ends sessions of lookalike roles (^sage_agentb?_ but
+// not an agent role name, as CheckBackends flags them) and names them in
+// the report; it leaves their attributes alone (pg_sage does not own them).
+func TestKill_AllEndsAndReportsLookalikes(t *testing.T) {
+	f := newKillFixture(t)
+	ctx := context.Background()
+	look := "sage_agent_lookalike"
+	_, err := f.super.Exec(ctx, "CREATE ROLE "+look+" LOGIN PASSWORD 'look-pw'")
+	require.NoError(t, err)
+	_, err = f.super.Exec(ctx, "GRANT CONNECT ON DATABASE "+ident(f.db)+" TO "+look)
+	require.NoError(t, err)
+	t.Cleanup(func() { f.dropRole(look) })
+	require.False(t, IsAgentRoleName(look))
+	stmt := f.sleepAs(t, f.super, f.dsn, look, "look-pw", 30)
+	rep, err := f.sw.Kill(ctx, KillRequest{Scope: KillScopeAll, Reason: "lookalike",
+		Actor: "admin@example.com"})
+	require.NoError(t, err)
+	require.True(t, terminatedOrCancelled(waitDone(t, stmt, 10*time.Second)))
+	require.Contains(t, rep.Databases[0].Lookalikes, look)
+	login, _ := f.attrs(t, look)
+	require.True(t, login, "a lookalike role is reported, not altered")
+	require.True(t, rep.Verified)
+}
+
 // Kill one database: its flag, its sessions and its approvals; roles are
 // cluster-wide, so they keep their login for the cluster's other
 // databases.
