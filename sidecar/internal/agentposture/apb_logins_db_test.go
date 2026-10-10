@@ -157,10 +157,14 @@ func selfRole(f *fixture, name string) Role {
 func TestAP16_UnmanagedAgentLogins(t *testing.T) {
 	f := newFixture(t)
 	hint := sharedLogin(f, "claude-desktop")
-	agent := registeredRoleName(t)
-	createRole(t, f.ctx, f.pool, agent, "NOLOGIN")
 	before := f.env(func(e *Env) { f.agent(e, hint, SourceClientHint) })
+	if before.PrincipalsExist {
+		t.Fatalf("fixture: a registered agent role already exists: %+v", before.Agents)
+	}
 	requireNoFinding(t, f.run("AP-16", before), hint)
+
+	agent := registeredRoleName(t) // the first principal
+	createRole(t, f.ctx, f.pool, agent, "NOLOGIN")
 
 	after := f.env(func(e *Env) {
 		f.agent(e, hint, SourceClientHint)

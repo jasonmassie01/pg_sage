@@ -12,9 +12,8 @@ func TestG005_PostureBDetectorsProposeOnlyL1(t *testing.T) {
 	hint := sharedLogin(f, "claude-code", "billing", "reports")
 	seedCheckpoints(f)
 	f.exec("CREATE EXTENSION dblink SCHEMA "+f.schema,
-		"CREATE EXTENSION vector SCHEMA "+f.schema,
-		"CREATE TABLE "+f.q("emb")+" (v "+f.q("vector")+"(2))",
-		"CREATE INDEX ON "+f.q("emb")+" USING hnsw (v "+f.q("vector_l2_ops")+")",
+		"CREATE TABLE "+f.q("emb")+" (v public.vector(2))",
+		"CREATE INDEX ON "+f.q("emb")+" USING hnsw (v public.vector_l2_ops)",
 		"CREATE TABLE "+f.q("pub_t")+" (id int)",
 		"GRANT SELECT ON "+f.q("pub_t")+" TO PUBLIC")
 	store := NewObservationStore()

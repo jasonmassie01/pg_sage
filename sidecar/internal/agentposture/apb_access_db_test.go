@@ -134,12 +134,20 @@ func TestAP15_PublicTableGrants(t *testing.T) {
 	}
 }
 
-// AP-15 skips relations that belong to an extension (pg_stat_statements'
-// view is granted to PUBLIC by the extension itself).
+// AP-15 skips relations that belong to an extension: pg_stat_statements'
+// view, which testdb installs in public, is granted to PUBLIC by the
+// extension itself.
 func TestAP15_ExtensionMembersAreNotReported(t *testing.T) {
 	f := newFixture(t)
-	f.exec("CREATE EXTENSION pg_stat_statements SCHEMA " + f.schema)
-	requireNoFinding(t, f.run("AP-15", f.env(nil)), f.schema)
+	var granted bool
+	if err := f.pool.QueryRow(f.ctx, "SELECT has_table_privilege('public', "+
+		"'public.pg_stat_statements', 'SELECT')").Scan(&granted); err != nil || !granted {
+		t.Fatalf("fixture: pg_stat_statements must be installed and granted to PUBLIC (%v)", err)
+	}
+	if got := findObject(f.run("AP-15", f.env(nil)).Findings, "public"); got != nil &&
+		strings.Contains(got.FixScript, "pg_stat_statements") {
+		t.Fatalf("AP-15 reported an extension member: %s", got.FixScript)
+	}
 }
 
 // AP-15: default privileges that grant PUBLIC on future tables, globally

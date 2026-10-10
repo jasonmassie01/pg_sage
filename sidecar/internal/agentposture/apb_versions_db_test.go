@@ -10,12 +10,11 @@ import (
 // both below their fixes, so both arms are critical and name the indexes.
 func TestAP10_PgvectorBelowFixWithIndexes(t *testing.T) {
 	f := newFixture(t)
-	f.exec("CREATE EXTENSION vector SCHEMA "+f.schema,
-		"CREATE TABLE "+f.q("emb")+" (id int, v "+f.q("vector")+"(3))",
-		"CREATE INDEX emb_hnsw ON "+f.q("emb")+" USING hnsw (v "+
-			f.q("vector_l2_ops")+")",
-		"CREATE INDEX emb_ivf ON "+f.q("emb")+" USING ivfflat (v "+
-			f.q("vector_l2_ops")+") WITH (lists = 1)")
+	// testdb installs pgvector in public in every fixture database.
+	f.exec("CREATE TABLE "+f.q("emb")+" (id int, v public.vector(3))",
+		"CREATE INDEX emb_hnsw ON "+f.q("emb")+" USING hnsw (v public.vector_l2_ops)",
+		"CREATE INDEX emb_ivf ON "+f.q("emb")+" USING ivfflat (v public.vector_l2_ops) "+
+			"WITH (lists = 1)")
 	var version string
 	if err := f.pool.QueryRow(f.ctx, "SELECT extversion FROM pg_extension "+
 		"WHERE extname = 'vector'").Scan(&version); err != nil {
@@ -32,10 +31,11 @@ func TestAP10_PgvectorBelowFixWithIndexes(t *testing.T) {
 	requireContains(t, "AP-10 ivfflat detail", got.Detail, "0.8.7", f.q("emb_ivf"))
 }
 
-// AP-10: pgvector without vector indexes is not reported.
+// AP-10: pgvector (installed by testdb) without vector indexes is not
+// reported.
 func TestAP10_PgvectorWithoutIndexes(t *testing.T) {
 	f := newFixture(t)
-	f.exec("CREATE EXTENSION vector SCHEMA " + f.schema)
+	f.exec("CREATE TABLE " + f.q("emb") + " (id int, v public.vector(3))")
 	o := f.run("AP-10", f.env(nil))
 	requireNoFinding(t, o, "vector/hnsw")
 	requireNoFinding(t, o, "vector/ivfflat")
