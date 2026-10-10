@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/mcpauth"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -82,6 +83,9 @@ type RuntimeDeps struct {
 	ConfigBaseLoader    func() (*config.Config, error)
 	DisableConfigWrites bool
 	MCPHandler          http.Handler
+	// MCPOAuth validates OAuth 2.1 access tokens on the MCP endpoints (E2);
+	// nil accepts pg_sage's own MCP tokens only.
+	MCPOAuth *mcpauth.Validator
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
 	LLMBudgets LLMBudgetRegistry
@@ -147,6 +151,9 @@ func NewRouterFullRuntime(
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
 	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
+	if rt.MCPHandler != nil {
+		registerMCPMetadata(root, rt.MCPOAuth)
+	}
 	registerRootRoutes(root)
 	return root
 }
@@ -187,8 +194,7 @@ func registerFleetScopedRoutes(
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
-		apiMux.Handle("POST /api/v1/mcp",
-			bindMCPPrincipal(rt.MCPHandler, mcpTokenStore(pool)))
+		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth)
 	}
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
