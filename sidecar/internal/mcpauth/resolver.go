@@ -11,9 +11,9 @@ import (
 )
 
 // DBResolver resolves identities through sage.guard_identity_bindings
-// (spec §7) on the control database. Until the core workstream creates
-// sage.guard_principals the bindings table does not exist and nothing is
-// bound: every token is refused with ErrNoBinding (fail closed).
+// (spec §7) on the control database, skipping retired principals. Where
+// the table does not exist (a schema older than G1) nothing is bound:
+// every token is refused with ErrNoBinding (fail closed).
 type DBResolver struct {
 	pool *pgxpool.Pool
 }
@@ -39,8 +39,8 @@ func (r *DBResolver) PrincipalForSubject(ctx context.Context, issuer, subject st
 	case errors.Is(err, pgx.ErrNoRows):
 		return "", ErrNoBinding
 	case errors.As(err, &pgErr) && pgErr.Code == "42P01":
-		return "", fmt.Errorf("%w: identity bindings are not installed (agent "+
-			"principals arrive with G1)", ErrNoBinding)
+		return "", fmt.Errorf("%w: identity bindings are not installed",
+			ErrNoBinding)
 	case err != nil:
 		return "", fmt.Errorf("resolve identity binding: %w", err)
 	}

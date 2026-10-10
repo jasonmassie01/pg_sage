@@ -45,23 +45,10 @@ type Identity struct {
 	Expiry    time.Time
 }
 
-type identityKey struct{}
-
-// WithIdentity returns ctx carrying id.
-func WithIdentity(ctx context.Context, id Identity) context.Context {
-	return context.WithValue(ctx, identityKey{}, id)
-}
-
-// IdentityFromContext returns the validated token identity, if any.
-func IdentityFromContext(ctx context.Context) (Identity, bool) {
-	id, ok := ctx.Value(identityKey{}).(Identity)
-	return id, ok
-}
-
 // Resolver maps an external identity to a principal id. It returns
 // ErrNoBinding when none is bound; any other error is a lookup failure.
-// The core workstream owns principals; DBResolver reads the E2 bindings
-// table until core's API replaces it.
+// DBResolver reads the E2 bindings table (sage.guard_identity_bindings);
+// the HTTP layer then loads the principal from core's agentguard store.
 type Resolver interface {
 	PrincipalForSubject(ctx context.Context, issuer, subject string) (string, error)
 }

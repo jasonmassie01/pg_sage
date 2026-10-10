@@ -17,5 +17,5 @@ const mcpTokenRequired = "MCP over HTTP needs an MCP token: an admin creates one
 // authenticates it (a browser sends the cookie cross-site; MCP clients
 // send bearer tokens), and an invalid token never falls back to anything.
 func bindMCPPrincipal(next http.Handler, tokens *mcptoken.Store) http.Handler {
-	return bindMCPPrincipalOAuth(next, tokens, nil)
+	return bindMCPPrincipalOAuth(next, tokens, nil, nil)
 }

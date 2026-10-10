@@ -13,9 +13,8 @@ import (
 // mcpOAuthValidator builds the OAuth resource server of the MCP endpoint
 // (E2, CG-06), or nil when it is off or misconfigured: then only pg_sage's
 // own MCP tokens are accepted, and the error is logged once. Identities
-// resolve through sage.guard_identity_bindings on the control pool; until
-// the G1 core workstream's principals exist, nothing is bound and every
-// OAuth token is refused with identity_unbound.
+// resolve through sage.guard_identity_bindings on the control pool to an
+// agent principal, which the API loads from core's agentguard store.
 func mcpOAuthValidator(c *config.Config, mgr *fleet.DatabaseManager,
 	control *pgxpool.Pool) *mcpauth.Validator {
 	if c == nil || !c.MCP.Enabled || c.MCP.Transport != "http" || !c.MCP.OAuth.Enabled {

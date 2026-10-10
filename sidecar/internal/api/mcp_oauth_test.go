@@ -288,8 +288,11 @@ func TestRouterServesProtectedResourceMetadata(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"resource":"`+oauthResource+`/databases/orders"`)
 
+	// The endpoint is mounted and the token validates; without a control
+	// database the bound principal cannot be loaded from core's store, so
+	// the request is unavailable (503), never let through.
 	tok := p.token(t, "agent-1", mcpauth.ResourceFor(oauthResource, "orders"))
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, oauthRequest("/api/v1/mcp/databases/orders", tok))
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
 }

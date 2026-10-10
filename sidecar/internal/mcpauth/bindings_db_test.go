@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
@@ -33,45 +34,43 @@ func bootstrapped(t *testing.T, label string) *pgxpool.Pool {
 	return pool
 }
 
-// corePrincipals stands in for the core workstream's sage.guard_principals
-// (spec §7), with the columns the resolver reads.
-const corePrincipals = `CREATE TABLE sage.guard_principals (
-	id text PRIMARY KEY, name text NOT NULL UNIQUE,
-	status text NOT NULL DEFAULT 'active')`
-
-// Before the core principal table exists, nothing is bound (fail closed);
-// once it does, bindings resolve and retired principals do not.
+// Bindings resolve to principals in core's store (agentguard); a retired
+// principal, an unbound subject or another issuer resolve to nothing, and a
+// storage failure is not "unbound".
 func TestDBResolver(t *testing.T) {
 	pool := bootstrapped(t, "mcpauth_bindings")
 	ctx := context.Background()
 	r := NewDBResolver(pool)
-	if _, err := r.PrincipalForSubject(ctx, "https://idp", "agent-1"); !errors.Is(err,
-		ErrNoBinding) {
-		t.Fatalf("without the bindings table: err = %v, want ErrNoBinding", err)
+	store := agentguard.NewStore(pool)
+	live, err := store.Create(ctx, agentguard.CreateRequest{Name: "ci-bot",
+		Profile: "readonly-analyst", CreatedBy: "test"})
+	if err != nil {
+		t.Fatalf("create principal: %v", err)
 	}
-	mustExec(t, pool, corePrincipals)
-	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Fatalf("re-bootstrap: %v", err)
+	old, err := store.Create(ctx, agentguard.CreateRequest{Name: "old-bot",
+		Profile: "readonly-analyst", CreatedBy: "test"})
+	if err != nil {
+		t.Fatalf("create principal: %v", err)
 	}
-	mustExec(t, pool, `INSERT INTO sage.guard_principals (id, name, status) VALUES
-		($1, 'ci-bot', 'active'), ('agp_bbbbbbbbbbbbbbbbbbbb', 'old-bot', 'retired')`,
-		principalA)
+	if _, err := store.SetStatus(ctx, old.ID, agentguard.StatusRetired, "gone"); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
 	mustExec(t, pool, `INSERT INTO sage.guard_identity_bindings (issuer, subject,
 		principal_id, created_by) VALUES ('https://idp', 'agent-1', $1, 'test'),
-		('https://idp', 'agent-old', 'agp_bbbbbbbbbbbbbbbbbbbb', 'test')`, principalA)
+		('https://idp', 'agent-old', $2, 'test')`, live.ID, old.ID)
 	got, err := r.PrincipalForSubject(ctx, "https://idp", "agent-1")
-	if err != nil || got != principalA {
+	if err != nil || got != live.ID {
 		t.Fatalf("bound subject = %q, %v", got, err)
 	}
-	for _, sub := range []string{"agent-old", "nobody"} {
-		if _, err := r.PrincipalForSubject(ctx, "https://idp", sub); !errors.Is(err,
-			ErrNoBinding) {
-			t.Fatalf("%s: err = %v, want ErrNoBinding", sub, err)
+	for _, c := range [][2]string{{"https://idp", "agent-old"}, {"https://idp", "nobody"},
+		{"https://other-idp", "agent-1"}} {
+		if _, err := r.PrincipalForSubject(ctx, c[0], c[1]); !errors.Is(err, ErrNoBinding) {
+			t.Fatalf("%v: err = %v, want ErrNoBinding", c, err)
 		}
 	}
-	if _, err := r.PrincipalForSubject(ctx, "https://other-idp", "agent-1"); !errors.Is(err,
-		ErrNoBinding) {
-		t.Fatalf("same subject, other issuer: err = %v, want ErrNoBinding", err)
+	if _, err := NewDBResolver(nil).PrincipalForSubject(ctx, "https://idp",
+		"agent-1"); !errors.Is(err, ErrNoBinding) {
+		t.Fatalf("no control database: err = %v", err)
 	}
 	pool.Close()
 	_, err = r.PrincipalForSubject(ctx, "https://idp", "agent-1")

@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/mcpauth"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
@@ -16,11 +19,18 @@ import (
 // database is its own OAuth protected resource (E2, CG-06).
 const mcpDatabasePrefix = mcpEndpointPath + "/databases/"
 
+// principalGetter loads an agent principal (agentguard.Store in
+// production).
+type principalGetter interface {
+	Get(ctx context.Context, id string) (agentguard.Principal, error)
+}
+
 // registerMCPRoutes mounts the MCP endpoint and its per-database twin.
-// oauth nil accepts pg_sage's own MCP tokens only.
+// oauth nil accepts pg_sage's own MCP tokens only; principals loads the
+// principal an OAuth identity is bound to.
 func registerMCPRoutes(mux *http.ServeMux, handler http.Handler,
-	tokens *mcptoken.Store, oauth *mcpauth.Validator) {
-	h := bindMCPPrincipalOAuth(handler, tokens, oauth)
+	tokens *mcptoken.Store, oauth *mcpauth.Validator, principals principalGetter) {
+	h := bindMCPPrincipalOAuth(handler, tokens, oauth, principals)
 	mux.Handle("POST "+mcpEndpointPath, h)
 	mux.Handle("POST "+mcpDatabasePrefix+"{database}", h)
 }
@@ -37,7 +47,7 @@ func registerMCPMetadata(root *http.ServeMux, oauth *mcpauth.Validator) {
 // bindMCPPrincipalOAuth authenticates an MCP request with an OAuth access
 // token (a JWT, when oauth is configured) or with a pg_sage MCP token.
 func bindMCPPrincipalOAuth(next http.Handler, tokens *mcptoken.Store,
-	oauth *mcpauth.Validator) http.Handler {
+	oauth *mcpauth.Validator, principals principalGetter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		secret, ok := bearerCredential(r)
 		if !ok {
@@ -45,7 +55,7 @@ func bindMCPPrincipalOAuth(next http.Handler, tokens *mcptoken.Store,
 			return
 		}
 		if oauth != nil && looksLikeJWT(secret) {
-			serveMCPOAuth(w, r, next, oauth, secret)
+			serveMCPOAuth(w, r, next, oauthDeps{oauth, principals}, secret)
 			return
 		}
 		serveMCPToken(w, r, narrowToDatabase(next, r.PathValue("database")), tokens,
@@ -72,24 +82,61 @@ func looksLikeJWT(secret string) bool {
 		strings.Count(secret, ".") == 2
 }
 
+type oauthDeps struct {
+	validator  *mcpauth.Validator
+	principals principalGetter
+}
+
 // serveMCPOAuth validates an access token for the resource the request
-// addresses and binds the agent principal it maps to.
+// addresses, loads the principal its identity is bound to from core's
+// store, and binds the agent identity (agentguard) for the gate.
 func serveMCPOAuth(w http.ResponseWriter, r *http.Request, next http.Handler,
-	oauth *mcpauth.Validator, raw string) {
-	resource, _, ok := oauth.ResourceForPath(r.URL.EscapedPath())
+	d oauthDeps, raw string) {
+	resource, _, ok := d.validator.ResourceForPath(r.URL.EscapedPath())
 	if !ok {
 		jsonError(w, "unknown MCP resource", http.StatusNotFound)
 		return
 	}
-	id, err := oauth.Validate(r.Context(), raw, resource)
+	tok, err := d.validator.Validate(r.Context(), raw, resource)
 	if err != nil {
-		refuseOAuth(w, oauth, resource, err)
+		refuseOAuth(w, d.validator, resource, err)
 		return
 	}
-	p := mcp.Principal{Actor: "principal:" + id.PrincipalID, Kind: mcp.KindAgent,
-		Name: id.Subject, Databases: id.Databases, Scopes: mcpScopes(id.Scopes)}
-	ctx := mcpauth.WithIdentity(mcp.WithPrincipal(r.Context(), p), id)
+	pr, err := loadOAuthPrincipal(r.Context(), d.principals, tok.PrincipalID)
+	if err != nil {
+		refuseOAuth(w, d.validator, resource, err)
+		return
+	}
+	p := mcp.Principal{Actor: "principal:" + pr.ID, Kind: mcp.KindAgent,
+		Name: tok.Subject, Databases: tok.Databases, Scopes: mcpScopes(tok.Scopes),
+		PrincipalID: pr.ID}
+	id := agentguard.Identity{Principal: pr, Databases: tok.Databases,
+		TaskID: tok.TaskID, OnBehalfOf: tok.OnBehalfOf}
+	ctx := agentguard.WithIdentity(mcp.WithPrincipal(r.Context(), p), id)
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// errPrincipalRetired refuses an identity bound to a retired principal.
+var errPrincipalRetired = errors.New("the bound agent principal is retired")
+
+// loadOAuthPrincipal loads the bound principal, mapping core's outcomes to
+// the OAuth refusals: gone is unbound, retired is refused, a storage
+// failure is unavailable.
+func loadOAuthPrincipal(ctx context.Context, ps principalGetter, id string) (
+	agentguard.Principal, error) {
+	if ps == nil {
+		return agentguard.Principal{}, fmt.Errorf("%w: no principal store", mcpauth.ErrResolver)
+	}
+	p, err := ps.Get(ctx, id)
+	switch {
+	case errors.Is(err, agentguard.ErrNotFound):
+		return p, mcpauth.ErrNoBinding
+	case err != nil:
+		return p, fmt.Errorf("%w: %w", mcpauth.ErrResolver, err)
+	case p.Retired():
+		return p, errPrincipalRetired
+	}
+	return p, nil
 }
 
 func mcpScopes(scopes []string) []mcp.Scope {
@@ -108,6 +155,8 @@ func refuseOAuth(w http.ResponseWriter, oauth *mcpauth.Validator, resource strin
 	case errors.Is(err, mcpauth.ErrIssuerUnavailable), errors.Is(err, mcpauth.ErrResolver):
 		slog.Error("mcp oauth validation unavailable", "resource", resource, "err", err)
 		jsonError(w, "token validation unavailable", http.StatusServiceUnavailable)
+	case errors.Is(err, errPrincipalRetired):
+		writeJSONCode(w, http.StatusForbidden, "agent_retired", err.Error())
 	case errors.Is(err, mcpauth.ErrNoBinding):
 		writeJSONCode(w, http.StatusForbidden, "identity_unbound",
 			"no agent principal is bound to this token's identity; an admin binds it")
@@ -136,15 +185,23 @@ func narrowToDatabase(next http.Handler, db string) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := mcp.PrincipalFromContext(r.Context())
-		if ok {
-			allowed := []string{}
-			if p.MayUseDatabase(db) {
-				allowed = []string{db}
-			}
-			p.Databases = allowed
-			r = r.WithContext(mcp.WithPrincipal(r.Context(), p))
+		ctx := r.Context()
+		if p, ok := mcp.PrincipalFromContext(ctx); ok {
+			p.Databases = narrowed(p.MayUseDatabase(db), db)
+			ctx = mcp.WithPrincipal(ctx, p)
 		}
+		if id, ok := agentguard.IdentityFromContext(ctx); ok {
+			id.Databases = narrowed(id.MayUseDatabase(db), db)
+			ctx = agentguard.WithIdentity(ctx, id)
+		}
+		r = r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func narrowed(allowed bool, db string) []string {
+	if allowed {
+		return []string{db}
+	}
+	return []string{}
 }

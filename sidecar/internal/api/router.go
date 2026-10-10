@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -200,7 +201,8 @@ func registerFleetScopedRoutes(
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
-		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth)
+		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,
+			agentguard.NewStore(pool))
 	}
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
