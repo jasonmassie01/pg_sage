@@ -34,6 +34,7 @@ var agentAccessCensus = map[string]string{
 	"internal/agentguard/roles_retire.go":      "gate:guard_role_retire",
 	"internal/executor/guard_role_contract.go": "gate:guard_role_ensure,guard_role_retire",
 	"internal/agentguard/envbind/evaluate.go":  "text",
+	"internal/agentguard/preflight.go":         "text",
 }
 
 // closedListAnchors are where each closed-list path lives; the anchor must
