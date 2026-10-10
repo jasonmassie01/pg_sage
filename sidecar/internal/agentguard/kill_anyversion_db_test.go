@@ -17,6 +17,7 @@ import (
 // is dropped (its grant revoked first) at the end of the test.
 func manualRole(t *testing.T, super *pgxpool.Pool, db string) string {
 	t.Helper()
+	lockAgentRoles(t)
 	ctx := context.Background()
 	role := fmt.Sprintf("sage_agentb_%s", strings.Repeat("m", 10))
 	_, err := super.Exec(ctx, "CREATE ROLE "+role+" LOGIN PASSWORD 'manual-pw'")

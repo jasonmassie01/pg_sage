@@ -98,6 +98,12 @@ func newFixture(t *testing.T, env envbind.Env, mutate ...func(*Config)) *fixture
 func newFixtureOn(t *testing.T, super *pgxpool.Pool, env envbind.Env,
 	mutate ...func(*Config)) *fixture {
 	t.Helper()
+	// The broker role is a cluster-wide agent role: serialize with every
+	// test that creates agent roles or assumes none exists.
+	release, err := testdb.LockCluster(context.Background(), os.Getenv(testdb.EnvName),
+		testdb.AgentRolesLock)
+	require.NoError(t, err)
+	t.Cleanup(release)
 	f := &fixture{super: super, cfg: DefaultConfig()}
 	f.p = testPrincipal()
 	f.p.ID = randomPrincipalID(t)

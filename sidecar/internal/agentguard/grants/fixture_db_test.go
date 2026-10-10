@@ -61,6 +61,11 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
+	// Ensure creates cluster-wide agent roles: serialize with every test
+	// that creates agent roles or assumes none exists.
+	release, err := testdb.LockCluster(ctx, dsn, testdb.AgentRolesLock)
+	require.NoError(t, err)
+	t.Cleanup(release)
 	super, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
 	t.Cleanup(super.Close)
