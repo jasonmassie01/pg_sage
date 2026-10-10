@@ -37,7 +37,7 @@ func mcpTokenStore(pool *pgxpool.Pool) *mcptoken.Store {
 // the MCP token check: every request to the MCP endpoint, which is
 // token-only (a session cookie there is ignored, never used).
 func isMCPTokenRequest(r *http.Request) bool {
-	return r.URL.Path == mcpEndpointPath
+	return r.URL.Path == mcpEndpointPath || strings.HasPrefix(r.URL.Path, mcpDatabasePrefix)
 }
 
 // bearerCredential returns the credential of an `Authorization: Bearer`

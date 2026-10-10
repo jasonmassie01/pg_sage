@@ -157,6 +157,9 @@ func wireRouter(p WireParams) WireResult {
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
+			MCPOAuth:   mcpOAuthValidator(p.Cfg, p.FleetMgr, authPool),
+			Audit: api.AuditDeps{SIEMStatus: siemStatusFunc(p.Cfg),
+				EvidenceKey: evidenceSigningKey(p.Cfg)},
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 			Ask:        askServices(),
 			Specialist: specialistHandler,

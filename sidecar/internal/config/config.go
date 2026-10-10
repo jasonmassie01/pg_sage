@@ -108,6 +108,8 @@ type Config struct {
 	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
+	// Audit is the audit export and evidence of E2 (audit.go).
+	Audit AuditConfig `yaml:"audit"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -772,6 +774,12 @@ func (c *Config) validate() error {
 	if err := c.Agents.validate(); err != nil {
 		return err
 	}
+	if err := c.Audit.validate(); err != nil {
+		return err
+	}
+	if err := c.MCP.OAuth.validate(c.MCP.Transport); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
@@ -1076,7 +1084,8 @@ func newDefaults() *Config {
 				RetainedWALDiskPctCeiling: DefaultWALRetainedDiskPctCeiling,
 			},
 		},
-		MCP:        MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
+		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport,
+			OAuth: defaultMCPOAuthConfig()},
 		Ask:        defaultAskConfig(),
 		SelfBudget: DefaultSelfBudget(),
 		History:    DefaultHistory(),
@@ -1088,6 +1097,7 @@ func newDefaults() *Config {
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
 		Agents:        defaultAgentsConfig(),
+		Audit:         defaultAuditConfig(),
 	}
 }
 

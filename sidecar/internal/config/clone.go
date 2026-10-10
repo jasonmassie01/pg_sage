@@ -58,6 +58,7 @@ func Clone(cfg *Config) *Config {
 	cp.SchemaLint.DisabledRules = append(
 		[]string(nil), cfg.SchemaLint.DisabledRules...)
 	cloneSRESignals(&cp.SRE, cfg.SRE)
+	cloneAuditAndOAuth(&cp, cfg) // audit.go
 	return &cp
 }
 

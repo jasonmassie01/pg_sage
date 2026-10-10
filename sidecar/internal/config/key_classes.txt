@@ -47,6 +47,10 @@ safety_critical oauth.break_glass.enabled
 safety_critical oauth.break_glass.password_hash
 safety_critical mcp.enabled
 safety_critical mcp.transport
+safety_critical mcp.oauth.enabled
+safety_critical mcp.oauth.issuers
+safety_critical mcp.oauth.resource
+safety_critical mcp.oauth.task_claim
 safety_critical mcp.stdio_principal
 safety_critical notification_policy.allow_private_targets
 safety_critical policy.profile
@@ -503,6 +507,16 @@ safety_critical agents.default_environment
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
 operator_preference agents.posture.memory_growth_gb_day
+
+# Audit export and evidence (E2). Sinks are endpoints and the signing key is
+# a credential; the cadence and correlation switches are the operator's.
+safety_critical audit.siem.sinks
+safety_critical audit.evidence.signing_key_env
+operator_preference audit.siem.batch_size
+operator_preference audit.siem.interval_seconds
+operator_preference audit.siem.max_backoff_seconds
+operator_preference audit.pgaudit.correlate
+operator_preference audit.verify_interval_hours
 safety_critical agents.roles.connection_limit
 safety_critical agents.roles.statement_timeout_ms
 safety_critical agents.roles.lock_timeout_ms
