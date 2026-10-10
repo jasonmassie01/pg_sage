@@ -93,23 +93,24 @@ PostgreSQL action) are marked as such.
 
 ## Results (measured)
 
-From the PG17 reference run. The read-only section currently carries the
-harness self-checks (plain `INSERT`, `UPDATE`, `CREATE TABLE`); RO-01..RO-16
-land as their fixtures are authored, with no code change.
+From the PG17 reference run: the sixteen corpus cases RO-01..RO-16 plus three
+harness self-checks (plain `INSERT`, `UPDATE`, `CREATE TABLE`).
 
-**Read-only designs — self-checks**
+**Read-only designs**
 
-| Design | Held | Total |
-|---|---|---|
-| `read_only_txn` | 3 | 3 |
-| `privilege_role` | 3 | 3 |
-| `explain_guard` | 3 | 3 |
+| Design | Held | Total | Got through |
+|---|---|---|---|
+| `read_only_txn` | 14 | 19 | RO-01 `COMMIT` then write, RO-05 server file read, RO-06 `COPY ... TO PROGRAM`, RO-07 switch to read-write, RO-15 lifting the timeout |
+| `privilege_role` | 18 | 19 | RO-15 lifting the timeout |
+| `explain_guard` | 19 | 19 | none |
 
-Each design refuses every benign write with checksums intact, by its own
-mechanism: `read_only_txn` with a read-only error, `privilege_role` with a
-privilege error, `explain_guard` by rejecting the statement before it runs. A
-plain `SELECT` executes under all three, confirming the designs do not simply
-refuse everything.
+A `READ ONLY` transaction is a setting the session can end or change, so it
+loses to anything that ends the transaction or reads the server outside the
+tables. A role without write privileges holds every write class; nothing in
+v0 bounds what a read may cost (RO-15). pg_sage's EXPLAIN guard accepts one
+read statement and runs `ANALYZE` only when the plan is proven free of side
+effects, so it held every case. A plain `SELECT` executes under all three
+designs, confirming none of them simply refuses everything.
 
 **Incident-to-control mapping** — 7 rows: 2 exercised in v0 (INC-01 and the
 shared-login ORM reset, both posture detections), 2 out of scope (INC-19,
@@ -123,8 +124,8 @@ table) and AP-10 (HNSW index below pgvector 0.8.4).
 
 ## Limits
 
-- **v0 does not yet run RO-01..RO-16.** The harness is proven with
-  self-checks; the corpus numbers appear once the fixtures are authored.
+- **One statement per bypass class.** Each RO case is a representative of its
+  class, not an exhaustive search; new cases are a fixture file each.
 - **Posture covers seven of sixteen detectors.** AP-06, AP-08, AP-09 and
   AP-11..AP-16 have their own tests in `internal/agentposture` but no bench
   scenario yet; session-based ones (AP-13, AP-16) need live client sessions.
