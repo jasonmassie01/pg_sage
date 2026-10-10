@@ -141,15 +141,26 @@ func TestEnsure_RepairsAttributeDrift(t *testing.T) {
 	ctx := context.Background()
 	_, err := f.manager.Ensure(ctx, f.request(p))
 	require.NoError(t, err)
-	_, err = f.super.Exec(ctx, "ALTER ROLE "+ident(p.BrokerRole())+
-		" CREATEDB CONNECTION LIMIT 50")
+	_, err = f.super.Exec(ctx, "ALTER ROLE "+ident(p.BrokerRole())+" CONNECTION LIMIT 50")
+	require.NoError(t, err)
+	_, err = f.super.Exec(ctx, "ALTER ROLE "+ident(p.LoginRole())+" LOGIN")
 	require.NoError(t, err)
 	_, err = f.manager.Ensure(ctx, f.request(p))
 	require.NoError(t, err)
 	st, err := ReadRoleState(ctx, f.super, p.BrokerRole())
 	require.NoError(t, err)
-	require.False(t, st.CreateDB)
 	require.Equal(t, 2, st.ConnLimit)
+	login, err := ReadRoleState(ctx, f.super, p.LoginRole())
+	require.NoError(t, err)
+	require.False(t, login.CanLogin)
+	// CREATEDB (like SUPERUSER, REPLICATION, BYPASSRLS) can be removed only
+	// by a role holding it; pg_sage's CREATEROLE role cannot, so the
+	// post-check refuses and names it for a superuser to fix.
+	_, err = f.super.Exec(ctx, "ALTER ROLE "+ident(p.BrokerRole())+" CREATEDB")
+	require.NoError(t, err)
+	_, err = f.manager.Ensure(ctx, f.request(p))
+	require.ErrorIs(t, err, ErrPostCheck)
+	require.ErrorContains(t, err, "has CREATEDB")
 }
 
 func TestEnsure_PostCheckRefusesDangerousMembershipAndOwnership(t *testing.T) {
@@ -265,15 +276,23 @@ func TestRetire_DropsRolesEverywhere(t *testing.T) {
 	p := f.principal(t)
 	_, err := f.manager.Ensure(ctx, f.request(p))
 	require.NoError(t, err)
+	// A grant pg_sage made (it holds the grant option), as Guard grants are.
 	table := "public.g1core_retire_" + p.ID[4:12]
+	var admin string
+	require.NoError(t, f.admin.QueryRow(ctx, "SELECT current_user::text").Scan(&admin))
 	_, err = f.super.Exec(ctx, "CREATE TABLE "+table+" (id int); GRANT SELECT ON "+table+
-		" TO "+ident(p.BrokerRole()))
+		" TO "+ident(admin)+" WITH GRANT OPTION")
+	require.NoError(t, err)
+	_, err = f.admin.Exec(ctx, "GRANT SELECT ON "+table+" TO "+ident(p.BrokerRole()))
 	require.NoError(t, err)
 	res, err := f.manager.Retire(ctx, f.request(p))
 	require.NoError(t, err)
 	require.Positive(t, res.ActionID)
 	require.False(t, f.roleExists(t, p.BrokerRole()))
 	require.False(t, f.roleExists(t, p.LoginRole()))
+	self, err := SelfCheck(ctx, f.admin)
+	require.NoError(t, err)
+	require.Empty(t, self.Inherits, "pg_sage keeps no inherited agent role")
 	roles, err := f.store.ClusterRoles(ctx, p.ID)
 	require.NoError(t, err)
 	require.Len(t, roles, 1)
@@ -289,6 +308,22 @@ func TestRetire_DropsRolesEverywhere(t *testing.T) {
 	d, ok := IsDenied(err)
 	require.True(t, ok, "a retired login has no usable credential: %v", err)
 	require.Equal(t, ReasonFrozen, d.Reason)
+}
+
+func TestRetire_ForeignGrantorResidueRefuses(t *testing.T) {
+	f := newRoleFixture(t)
+	ctx := context.Background()
+	p := f.principal(t)
+	_, err := f.manager.Ensure(ctx, f.request(p))
+	require.NoError(t, err)
+	table := "public.g1core_residue_" + p.ID[4:12]
+	_, err = f.super.Exec(ctx, "CREATE TABLE "+table+" (id int); GRANT SELECT ON "+table+
+		" TO "+ident(p.BrokerRole()))
+	require.NoError(t, err)
+	_, err = f.manager.Retire(ctx, f.request(p))
+	require.ErrorIs(t, err, ErrPostCheck)
+	require.ErrorContains(t, err, "another grantor")
+	require.True(t, f.roleExists(t, p.BrokerRole()), "nothing dropped half-way")
 }
 
 func TestRetire_GateBinds(t *testing.T) {

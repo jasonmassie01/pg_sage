@@ -134,8 +134,11 @@ func TestRoleAttributesAndQuoting(t *testing.T) {
 	require.True(t, strings.HasPrefix(roleAttributes(false, 5), "NOLOGIN "))
 	require.Equal(t, `'it''s'`, literal("it's"))
 	require.Equal(t, `"we""ird"`, ident(`we"ird`))
-	require.Equal(t, "CREATE ROLE \"r\" X", roleStatement(false, "r", "X"))
-	require.Equal(t, "ALTER ROLE \"r\" WITH X", roleStatement(true, "r", "X"))
+	require.Equal(t, `CREATE ROLE "r" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE `+
+		`NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 2`, roleStatement(false, "r", true, 2))
+	// ALTER never names attributes a CREATEROLE role may not change.
+	require.Equal(t, `ALTER ROLE "r" WITH NOLOGIN NOCREATEROLE CONNECTION LIMIT 5`,
+		roleStatement(true, "r", false, 5))
 }
 
 func TestCluster_Validate(t *testing.T) {
