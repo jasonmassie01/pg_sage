@@ -905,12 +905,12 @@ func TestExchangeCode_Success(t *testing.T) {
 		TokenEndpoint: tokenSrv.URL,
 	}
 
-	token, err := p.exchangeCode(context.Background(), "test-code")
+	token, err := p.exchangeCode(context.Background(), "test-code", "")
 	if err != nil {
 		t.Fatalf("exchangeCode error: %v", err)
 	}
-	if token != "test-access-token" {
-		t.Errorf("token = %q, want 'test-access-token'", token)
+	if token.AccessToken != "test-access-token" {
+		t.Errorf("token = %q, want 'test-access-token'", token.AccessToken)
 	}
 }
 
@@ -926,7 +926,7 @@ func TestExchangeCode_Non200Status(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{TokenEndpoint: tokenSrv.URL}
 
-	_, err := p.exchangeCode(context.Background(), "bad-code")
+	_, err := p.exchangeCode(context.Background(), "bad-code", "")
 	if err == nil {
 		t.Fatal("expected error for 400 response")
 	}
@@ -949,7 +949,7 @@ func TestExchangeCode_EmptyAccessToken(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{TokenEndpoint: tokenSrv.URL}
 
-	_, err := p.exchangeCode(context.Background(), "code")
+	_, err := p.exchangeCode(context.Background(), "code", "")
 	if err == nil {
 		t.Fatal("expected error for empty access_token")
 	}
@@ -970,7 +970,7 @@ func TestExchangeCode_InvalidJSON(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{TokenEndpoint: tokenSrv.URL}
 
-	_, err := p.exchangeCode(context.Background(), "code")
+	_, err := p.exchangeCode(context.Background(), "code", "")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -993,7 +993,7 @@ func TestExchangeCode_MissingAccessTokenField(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{TokenEndpoint: tokenSrv.URL}
 
-	_, err := p.exchangeCode(context.Background(), "code")
+	_, err := p.exchangeCode(context.Background(), "code", "")
 	if err == nil {
 		t.Fatal("expected error for missing access_token field")
 	}
@@ -1761,7 +1761,7 @@ func TestExchangeCode_SendsCorrectFormValues(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{TokenEndpoint: tokenSrv.URL}
 
-	_, err := p.exchangeCode(context.Background(), "the-code")
+	_, err := p.exchangeCode(context.Background(), "the-code", "")
 	if err != nil {
 		t.Fatalf("exchangeCode error: %v", err)
 	}
@@ -1799,7 +1799,7 @@ func TestExchangeCode_SetsAcceptHeader(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{TokenEndpoint: tokenSrv.URL}
 
-	_, err := p.exchangeCode(context.Background(), "code")
+	_, err := p.exchangeCode(context.Background(), "code", "")
 	if err != nil {
 		t.Fatalf("exchangeCode error: %v", err)
 	}
