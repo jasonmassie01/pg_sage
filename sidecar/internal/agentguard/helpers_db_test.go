@@ -80,14 +80,27 @@ func leakedRoles() []string {
 	return left
 }
 
+// agentRoleLocks are the tests holding the agent roles lock: a test that
+// builds two fixtures takes it once (a second session would wait forever).
+var agentRoleLocks sync.Map // *testing.T -> struct{}
+
 // lockAgentRoles holds the cluster-wide agent roles lock for the test:
 // agent roles are cluster-wide and other packages' tests assume none exist.
 func lockAgentRoles(t *testing.T) {
 	t.Helper()
+	if _, held := agentRoleLocks.LoadOrStore(t, struct{}{}); held {
+		return
+	}
 	release, err := testdb.LockCluster(context.Background(), os.Getenv(testdb.EnvName),
 		testdb.AgentRolesLock)
+	if err != nil {
+		agentRoleLocks.Delete(t)
+	}
 	require.NoError(t, err)
-	t.Cleanup(release)
+	t.Cleanup(func() {
+		release()
+		agentRoleLocks.Delete(t)
+	})
 }
 
 // livePool is a superuser pool on the package's fixture database, with

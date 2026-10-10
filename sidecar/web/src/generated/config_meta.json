@@ -95,6 +95,18 @@
     "doc": "Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none.",
     "class": "safety_critical"
   },
+  "agents.kill_fallback_log": {
+    "type": "string",
+    "default": "agent-kill-fallback.log",
+    "doc": "Local file logging kill steps run without the gate or control database; copied to the action log once it is back. Default: agent-kill-fallback.log.",
+    "class": "operator_preference"
+  },
+  "agents.kill_verify_timeout_seconds": {
+    "type": "int",
+    "default": 10,
+    "doc": "Seconds the agent kill switch waits to verify that no agent session remains on the primary and each configured replica. 1 to 3600. Default: 10.",
+    "class": "safety_critical"
+  },
   "agents.posture.daily_at": {
     "type": "string",
     "default": "03:00",
@@ -702,6 +714,18 @@
     "doc": "TCP port of this fleet database.",
     "mode": "fleet-only",
     "class": "safety_critical"
+  },
+  "databases[].replicas[].dsn_env": {
+    "type": "string",
+    "default": "",
+    "doc": "Environment variable holding the replica's connection string. The agent kill switch connects with it to end agent sessions on the replica.",
+    "class": "operator_preference"
+  },
+  "databases[].replicas[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the replica in kill reports; unique within its database. Match it to the standby's cluster_name so the kill does not also report it as unconfigured.",
+    "class": "operator_preference"
   },
   "databases[].sslmode": {
     "type": "string",

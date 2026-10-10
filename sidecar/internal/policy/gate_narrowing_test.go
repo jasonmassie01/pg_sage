@@ -219,3 +219,41 @@ func TestNarrowingConcurrentRequests(t *testing.T) {
 		}
 	}
 }
+
+// guard_unfreeze is a typed internal action but widening (§6.11): it is
+// not narrowing, so the emergency stop, the trust level and the approval
+// requirement of agent_access all still bind it.
+func unfreezeRequest() ActionRequest {
+	return ActionRequest{
+		Contract: &ActionContract{ActionType: "guard_unfreeze", RiskTier: RiskModerate,
+			RollbackClass: RollbackReversible},
+		InternalControl: true,
+		TargetObjs:      []string{"principal:agp_aaaaaaaaaaaaaaaaaaaa"},
+		Feature:         string(ChangeAgentAccess),
+	}
+}
+
+func TestUnfreezeIsNotNarrowing(t *testing.T) {
+	if IsNarrowing(unfreezeRequest()) {
+		t.Fatal("guard_unfreeze must not be narrowing")
+	}
+	runtime := newTestGateRuntime()
+	runtime.EmergencyStop = true
+	gate := newTestGate(t, gateFixture{runtime: runtime, runtimeSet: true})
+	assertDecision(t, gate.Authorize(context.Background(), unfreezeRequest()),
+		VerdictBlocked, ReasonEmergencyStop)
+
+	runtime = newTestGateRuntime()
+	runtime.TrustLevel = TrustObservation
+	gate = newTestGate(t, gateFixture{runtime: runtime, runtimeSet: true})
+	approved := unfreezeRequest()
+	approved.OperatorApproved = true
+	assertDecision(t, gate.Authorize(context.Background(), approved),
+		VerdictObserveOnly, ReasonObserveOnly)
+
+	// Unapproved, at autonomous trust, the default document still sends it
+	// to a human: agent_access is approval-required.
+	gate = newTestGate(t, gateFixture{policy: StaffedProfile()})
+	assertDecision(t, gate.Authorize(context.Background(), unfreezeRequest()),
+		VerdictQueueApproval, ReasonApprovalRequired)
+}

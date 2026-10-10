@@ -428,7 +428,8 @@ func migrationStatements() []string {
 		ddlAuthAuditSourceIP,
 		ddlAuthAuditCreatedIndex,
 		ddlGuardCore, ddlGuardCoreValidate,
-		ddlAgentEnvClass, ddlAgentGate)
+		ddlAgentEnvClass, ddlAgentGate,
+		ddlGuardKill)
 }
 
 // ---------------------------------------------------------------------------
