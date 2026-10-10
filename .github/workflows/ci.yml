@@ -17,7 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:0.8.2-pg17
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -104,11 +107,16 @@ jobs:
       # suites above left behind, and cluster-wide reads (the databases'
       # total size stats every file of every database) would charge pg_sage
       # for it (153 ms there, 40 ms on a clean server, nightly 2026-10-07).
+      - name: Log in to the GitHub container registry
+        if: ${{ !cancelled() }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Start a clean PostgreSQL for the performance gate
         if: ${{ !cancelled() }}
         run: |
           docker run -d --name perfgate-pg -e POSTGRES_PASSWORD=postgres \
-            -p 5433:5432 pgvector/pgvector:0.8.2-pg17 >/dev/null
+            -p 5433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17 >/dev/null
           for _ in $(seq 1 60); do
             docker exec perfgate-pg pg_isready -U postgres >/dev/null 2>&1 && break
             sleep 1
@@ -219,7 +227,10 @@ jobs:
         pg: ["14", "15", "16", "18"]
     services:
       postgres:
-        image: pgvector/pgvector:0.8.2-pg${{ matrix.pg }}
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -413,11 +424,16 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      # The PostgreSQL service image comes from this repository's registry.
+      packages: read
     outputs:
       signed: ${{ steps.sign.outputs.signed }}
     services:
       postgres:
-        image: pgvector/pgvector:0.8.2-pg17
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
