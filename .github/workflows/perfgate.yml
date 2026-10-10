@@ -1,6 +1,6 @@
 name: Performance gate
 
-# The performance gate alone, on demand: the same clean server and test as
+# The performance gate alone, on demand: the same clean server and tests as
 # the nightly CI run, without the hour of other suites before it, so a fix
 # can be checked at the large scale on any branch:
 #   gh workflow run perfgate.yml --ref <branch> -f scale=large
@@ -19,7 +19,7 @@ permissions:
 jobs:
   perfgate:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -44,14 +44,14 @@ jobs:
 
       - name: Performance gate
         working-directory: sidecar
-        timeout-minutes: 30
+        timeout-minutes: 35
         env:
           SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
           PG_SAGE_PERF_SCALE: ${{ inputs.scale }}
           PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
         run: |
-          go test ./cmd/pg_sage_sidecar -tags=perfgate -run '^TestPerfGate$' -count=1 \
-            -timeout 1700s -v
+          go test ./cmd/pg_sage_sidecar -tags=perfgate \
+            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 2000s -v
 
       - name: Upload performance gate report
         if: ${{ !cancelled() }}
