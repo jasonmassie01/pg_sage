@@ -102,3 +102,25 @@ func TestErrorsAreDistinct(t *testing.T) {
 		}
 	}
 }
+
+// guard_grant and guard_revoke requests carry the agent they act for, so
+// the gate runs the D-steps on them (§6.2.2) and decides the grant as the
+// requested capability class; the change class stays agent_access.
+func TestGateRequest_CarriesPrincipalAndCapability(t *testing.T) {
+	tgt := Target{ID: "00000000-0000-4000-8000-000000000001"}
+	req, err := gateRequest(executor.ActionTypeGuardGrant, "agp_aaaaaaaaaaaaaaaaaaaa", tgt,
+		[]string{"table:app.t"}, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, req.Principal)
+	require.Equal(t, "agp_aaaaaaaaaaaaaaaaaaaa", req.Principal.ID)
+	require.Equal(t, ToolRequestCapability, req.Principal.Tool)
+	require.Equal(t, CapabilityRead, req.CapabilityClass)
+	require.Equal(t, "agent_access", req.Feature)
+	require.True(t, req.OperatorApproved && req.InternalControl)
+	require.False(t, req.Contract.Narrowing)
+	rv, err := gateRequest(executor.ActionTypeGuardRevoke, "agp_aaaaaaaaaaaaaaaaaaaa", tgt,
+		nil, nil, false)
+	require.NoError(t, err)
+	require.True(t, rv.Contract.Narrowing)
+	require.Equal(t, "agp_aaaaaaaaaaaaaaaaaaaa", rv.Principal.ID)
+}

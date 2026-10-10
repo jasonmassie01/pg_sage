@@ -65,6 +65,9 @@ func TestRequestCapability_QueuesForAnOperator(t *testing.T) {
 	require.Equal(t, decide.Request{PrincipalID: f.p.ID, Tool: "agent_request_capability",
 		Kind: agentguard.ToolAgent, Capability: decide.CapRead, Database: f.db}, d.got[0])
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"), "nothing granted before approval")
+	n, err := CountPendingRequests(context.Background(), f.super, f.p.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "pending requests count toward D9")
 	reqs, err := s.Requests(context.Background(), f.db, RequestFilter{PrincipalID: f.p.ID,
 		Status: RequestPending, Limit: 10})
 	require.NoError(t, err)
@@ -173,6 +176,9 @@ func TestApprove_ExpiredDeniedAndFailed(t *testing.T) {
 	got, err := GetRequest(ctx, f.super, a.RequestID)
 	require.NoError(t, err)
 	require.Equal(t, RequestExpired, got.Status)
+	n, err := CountPendingRequests(ctx, f.super, f.p.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, n, "an expired request no longer counts")
 
 	b, err := s.RequestCapability(ctx, f.p.ID, f.capability("id"))
 	require.NoError(t, err)
