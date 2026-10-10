@@ -142,8 +142,8 @@ func serveAPI(addr string, handler http.Handler) {
 	}
 
 	go func() {
-		logInfo("api", "listening on %s", addr)
-		if err := apiServer.ListenAndServe(); err != nil &&
+		logInfo("api", "%s", apiListenLog(addr, apiTLS))
+		if err := listenAPI(apiServer, apiTLS); err != nil &&
 			err != http.ErrServerClosed {
 			logError("api", "server error: %v", err)
 		}
