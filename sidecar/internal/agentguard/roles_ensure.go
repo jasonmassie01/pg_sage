@@ -36,6 +36,9 @@ func (m *RoleManager) Ensure(ctx context.Context, req RoleRequest) (RoleResult, 
 	actionID, err := req.Executor.Apply(ctx, executor.ActionIntent{Request: gateReq,
 		Authorize: authorizer(req.Executor, gateReq), SlotHeld: true, Execute: run.execute})
 	run.result.ActionID = actionID
+	if err == nil {
+		run.result.Ownership = ownershipAfter(ctx, req.Cluster)
+	}
 	return run.result, err
 }
 

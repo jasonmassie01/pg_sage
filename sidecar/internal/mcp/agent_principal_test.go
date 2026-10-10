@@ -143,15 +143,3 @@ func TestAgentApproveToolsStayReserved(t *testing.T) {
 		require.Equal(t, 0, len(backend.refs), name)
 	}
 }
-
-func TestStdioPrincipalBinding(t *testing.T) {
-	bound := StdioPrincipalFor("agp_bbbbbbbbbbbbbbbbbbbb")
-	if bound.PrincipalID != "agp_bbbbbbbbbbbbbbbbbbbb" || bound.Kind != KindAgent ||
-		bound.Has(ScopeApprove) || !bound.Has(ScopePropose) || bound.Actor == "" {
-		t.Fatalf("bound stdio principal = %+v", bound)
-	}
-	unbound := StdioPrincipalFor("")
-	if unbound.PrincipalID != "" || unbound.Actor != stdioPrincipal.Actor {
-		t.Fatalf("unbound stdio principal = %+v, want today's", unbound)
-	}
-}

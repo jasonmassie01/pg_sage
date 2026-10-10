@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -61,6 +62,33 @@ type RoleResult struct {
 	Rotated    bool // a new broker credential was set
 	// SkippedSettings are optional settings the server refused (G1-13).
 	SkippedSettings []string
+	// Ownership lists AP-02 findings (objects owned by agent roles) read
+	// after the change; G1-07 requires it empty.
+	Ownership []string
+}
+
+// ownershipAfter runs the AP-02 check on every database of the cluster
+// after a role change (G1-07). A check that cannot run is reported in the
+// list, not as an error: the change itself is done and recorded.
+func ownershipAfter(ctx context.Context, c Cluster) []string {
+	pools := []ClusterDatabase{{Name: "admin", Pool: c.Admin}}
+	pools = append(pools, c.Databases...)
+	seen := map[*pgxpool.Pool]bool{}
+	out := []string{}
+	for _, d := range pools {
+		if seen[d.Pool] {
+			continue
+		}
+		seen[d.Pool] = true
+		found, err := AgentOwnership(ctx, d.Pool)
+		if err != nil {
+			out = append(out, d.Name+": ownership check failed: "+err.Error())
+		}
+		for _, f := range found {
+			out = append(out, d.Name+": "+f.Title)
+		}
+	}
+	return out
 }
 
 func (r RoleRequest) validate() error {
