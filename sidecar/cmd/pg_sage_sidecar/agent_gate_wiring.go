@@ -49,6 +49,7 @@ func startAgentGate(c *config.Config, mgr *fleet.DatabaseManager, meta *metaDBSt
 		// D5 for brokered requests (agent_broker_wiring.go).
 		cfg.Objects = agentObjectChecker(envs)
 	}
+	agentGrantSources(&cfg, mgr) // D5, D9 and D10 (agent_grants_wiring.go)
 	agentGate.Store(&agentGateState{decider: decide.New(cfg), control: control})
 }
 

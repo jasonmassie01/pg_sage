@@ -29,11 +29,16 @@ import (
 //   - "text": the SQL is a fix or message shown to a person, never run;
 //   - "out_of_gate:<path>": one of OutOfGatePaths.
 var agentAccessCensus = map[string]string{
-	"internal/agentguard/roles.go":             "gate:guard_role_ensure,guard_role_retire",
-	"internal/agentguard/roles_ensure.go":      "gate:guard_role_ensure",
-	"internal/agentguard/roles_retire.go":      "gate:guard_role_retire",
-	"internal/executor/guard_role_contract.go": "gate:guard_role_ensure,guard_role_retire",
-	"internal/agentguard/envbind/evaluate.go":  "text",
+	"internal/agentguard/roles.go":              "gate:guard_role_ensure,guard_role_retire",
+	"internal/agentguard/roles_ensure.go":       "gate:guard_role_ensure",
+	"internal/agentguard/roles_retire.go":       "gate:guard_role_retire",
+	"internal/executor/guard_role_contract.go":  "gate:guard_role_ensure,guard_role_retire",
+	"internal/agentguard/envbind/evaluate.go":   "text",
+	"internal/agentguard/grants/grant.go":       "gate:guard_grant",
+	"internal/agentguard/grants/revoke.go":      "gate:guard_revoke",
+	"internal/agentguard/grants/revoke_rows.go": "gate:guard_revoke",
+	"internal/agentguard/grants/objects.go":     "text",
+	"internal/executor/guard_grant_contract.go": "gate:guard_grant,guard_revoke",
 	// The P1 fix (REVOKE CREATE ... FROM PUBLIC) is shown to an owner, never run.
 	"internal/agentguard/preflight.go": "text",
 	// Retire's REVOKE fixes are shown to the other grantor, never run.

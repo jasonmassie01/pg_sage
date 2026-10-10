@@ -71,6 +71,8 @@ type ProductionDependencies struct {
 	Ask AskBackend
 	// Specialist serves the Postgres-specialist contract tools; optional.
 	Specialist SpecialistBackend
+	// Grants serves agent_request_capability (agent governance); optional.
+	Grants GrantToolBackend
 }
 
 type ProductionBackend struct {

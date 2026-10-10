@@ -173,6 +173,8 @@ func wireRouter(p WireParams) WireResult {
 			AgentKill: lateKillSwitch{},
 			// An agent's activity (agent_broker_wiring.go).
 			AgentActivity: agentActivityAPI{},
+			// Agent grants and capability requests (agent_grants_wiring.go).
+			AgentGrants: agentGrantAPI(p.Cfg, p.FleetMgr, p.MetaState),
 		},
 		middlewares...,
 	)

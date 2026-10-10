@@ -82,6 +82,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Ask: askServices(),
 		// The Postgres-specialist contract over MCP (roadmap phase 3).
 		Specialist: processSpecialistMCP{},
+		// agent_request_capability (agent_grants_wiring.go).
+		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
 	}
 }
 

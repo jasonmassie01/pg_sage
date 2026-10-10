@@ -29,6 +29,9 @@ type AgentsConfig struct {
 	DefaultEnvironment string `yaml:"default_environment" doc:"Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod."`
 	// Query bounds agent_query (agents_query.go, spec §6.8).
 	Query AgentsQueryConfig `yaml:"query"`
+	// Capabilities and ReconcileIntervalSeconds: agents_grants.go (spec §6.6).
+	Capabilities             AgentsCapabilitiesConfig `yaml:"capabilities"`
+	ReconcileIntervalSeconds int                      `yaml:"reconcile_interval_seconds" doc:"Seconds between agent reconcile passes on the leader sidecar (grant expiry). 10-3600. Default: 60."`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -56,7 +59,9 @@ func defaultAgentsConfig() AgentsConfig {
 		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker(),
 		KillVerifyTimeoutSeconds: DefaultKillVerifyTimeoutSeconds,
 		KillFallbackLog:          DefaultKillFallbackLog,
-		Query:                    defaultAgentsQuery()}
+		Query:                    defaultAgentsQuery(),
+		Capabilities:             AgentsCapabilitiesConfig{MaxDurationMinutes: DefaultAgentGrantMaxMinutes},
+		ReconcileIntervalSeconds: DefaultAgentReconcileIntervalSecs}
 }
 
 func (a AgentsConfig) validate() error {
@@ -84,6 +89,9 @@ func (a AgentsConfig) validate() error {
 		return err
 	}
 	if err := a.validateQuery(); err != nil {
+		return err
+	}
+	if err := a.validateGrants(); err != nil {
 		return err
 	}
 	return a.validateEnvironment()

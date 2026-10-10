@@ -26,7 +26,7 @@ func (e *Executor) proposeForApproval(
 		}
 		return proposer.ProposeWithMetadata(
 			ctx, nil, findingID,
-			f.RecommendedSQL, f.RollbackSQL, f.ActionRisk, meta,
+			f.RecommendedSQL, f.RollbackSQL, f.ActionRisk, withAgentProvenance(ctx, meta),
 		)
 	}
 	return e.actionStore.Propose(

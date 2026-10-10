@@ -18,6 +18,7 @@
 | `agents.broker.pool_idle_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.broker.pool_max_conns` | `restart` | `-` | `safety_critical` |
 | `agents.broker.rotation_days` | `restart` | `-` | `safety_critical` |
+| `agents.capabilities.max_duration_minutes` | `restart` | `-` | `safety_critical` |
 | `agents.client_patterns` | `restart` | `-` | `operator_preference` |
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
@@ -30,6 +31,7 @@
 | `agents.query.max_bytes` | `restart` | `-` | `safety_critical` |
 | `agents.query.max_rows` | `restart` | `-` | `safety_critical` |
 | `agents.query.max_rows_ceiling` | `restart` | `-` | `safety_critical` |
+| `agents.reconcile_interval_seconds` | `restart` | `-` | `operator_preference` |
 | `agents.roles.connection_limit` | `restart` | `-` | `safety_critical` |
 | `agents.roles.idle_in_transaction_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `agents.roles.idle_session_timeout_ms` | `restart` | `-` | `safety_critical` |
