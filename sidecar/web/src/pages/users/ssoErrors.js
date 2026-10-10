@@ -11,6 +11,8 @@ const messages = {
     'the verified email does not match the account email.',
   unverified: 'Your identity provider did not confirm your email address, ' +
     'so pg_sage cannot sign you in with it.',
+  not_authorized: 'Your identity provider account is not in a group that is ' +
+    'allowed to use pg_sage. Ask an administrator to add you to a mapped group.',
 }
 
 const genericMessage = 'Single sign-on failed. Try again, or sign in with ' +
