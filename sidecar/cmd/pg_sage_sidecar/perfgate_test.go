@@ -44,18 +44,35 @@ func TestPerfGate(t *testing.T) {
 	dsn := testdb.CreateDatabase(t, "perfgate")
 	ctx := context.Background()
 	harness := perfHarnessPool(t, dsn)
+	calibration := calibrateRunner(t, ctx, harness)
 	buildPerfFixture(t, ctx, harness, scale)
 	phases := runPerfRuntime(t, ctx, harness, dsn, scale, timing)
-	budgets := perfgate.DefaultBudgets()
+	budgets := perfgate.DefaultBudgets().Calibrated(calibration)
 	offenders, err := perfgate.Evaluate(phases, budgets)
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
-	report := perfgate.RenderMarkdown(scale, budgets, phases, offenders)
+	report := perfgate.RenderCalibratedMarkdown(scale, budgets, calibration, phases,
+		offenders)
 	writePerfReport(t, report)
 	if len(offenders) > 0 {
 		t.Errorf("performance gate: %d offenders (ranked report above)", len(offenders))
 	}
+}
+
+// calibrateRunner times the fixed workloads on this runner and its
+// server, before the fixture loads them, and logs the runner's type with
+// them so reference runs can be read from the log.
+func calibrateRunner(t *testing.T, ctx context.Context,
+	harness *pgxpool.Pool) perfgate.Calibration {
+	t.Helper()
+	c, err := perfgate.Calibrate(ctx, harness)
+	if err != nil {
+		t.Fatalf("calibrate: %v", err)
+	}
+	t.Logf("calibration: runner %q, %d CPUs; cpu %.1f ms (x%.2f), sql %.1f ms (x%.2f)",
+		c.CPUModel, c.CPUs, c.CPUMs, c.CPUFactor, c.DBMs, c.DBFactor)
+	return c
 }
 
 // buildPerfFixture creates the catalog and the sage history, then gathers
