@@ -107,6 +107,8 @@ type RuntimeDeps struct {
 	// AgentEnvironments serves agent environment labels; nil answers 503
 	// (no control database: agent governance is posture-only).
 	AgentEnvironments *envbind.Service
+	// AgentActivity serves an agent's activity (G1-10); nil answers 503.
+	AgentActivity AgentActivityReader
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -185,6 +187,7 @@ func registerFleetScopedRoutes(
 	registerFactRoutes(apiMux, mgr)
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
+	registerAgentActivityRoutes(apiMux, rt.AgentActivity)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
