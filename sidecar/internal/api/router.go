@@ -110,6 +110,8 @@ type RuntimeDeps struct {
 	// AgentKill serves the agent kill switch, freeze and unfreeze; nil
 	// answers 503 (agent_kill_routes.go).
 	AgentKill AgentKillSwitch
+	// AgentActivity serves an agent's activity (G1-10); nil answers 503.
+	AgentActivity AgentActivityReader
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -189,6 +191,7 @@ func registerFleetScopedRoutes(
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
 	registerAgentKillRoutes(apiMux, rt.AgentKill)
+	registerAgentActivityRoutes(apiMux, rt.AgentActivity)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)

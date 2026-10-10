@@ -1,0 +1,1 @@
+{"id": "AQ-03", "technique": "INSERT ... SELECT that reads to write", "expect": "privilege_error"}
