@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentguard"
+	"github.com/pg-sage/sidecar/internal/agentguard/upkeep"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 )
@@ -23,13 +24,15 @@ import (
 // recorded reason.
 
 type agentRoutes struct {
+	pool           *pgxpool.Pool
 	store          *agentguard.Store
 	tokens         *mcptoken.Store
 	singleOperator bool
 }
 
 func registerAgentRoutes(mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Config) {
-	r := &agentRoutes{store: agentguard.NewStore(pool), tokens: mcptoken.NewStore(pool),
+	r := &agentRoutes{pool: pool, store: agentguard.NewStore(pool),
+		tokens:         mcptoken.NewStore(pool),
 		singleOperator: cfg != nil && cfg.Agents.SingleOperatorMode}
 	operator := RequireRole("admin", "operator")
 	admin := RequireRole("admin")
@@ -148,6 +151,10 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.store.Update(r.Context(), cur.ID, patch)
+	if err == nil && body.Status != nil {
+		// The leader drops the roles after the grace under this admin's approval.
+		err = upkeep.RecordRetiringAdmin(r.Context(), a.pool, cur.ID, sessionUserID(r))
+	}
 	if err == nil && body.Status != nil {
 		p, err = a.store.SetStatus(r.Context(), cur.ID, agentguard.StatusRetired, body.Reason)
 	}

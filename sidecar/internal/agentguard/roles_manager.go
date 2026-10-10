@@ -51,6 +51,31 @@ type RoleRequest struct {
 	// RotateCredential issues a new broker password even when one is
 	// stored (rotation, unfreeze after a kill).
 	RotateCredential bool
+	// Scheduled marks a run by a leader job under an earlier approval; the
+	// gate evidence and the action_log row say so (nil: a person's request).
+	Scheduled *ScheduledRun
+}
+
+// ScheduledRun is a role contract a leader job runs under an earlier human
+// approval, so the audit never reads as a fresh approval.
+type ScheduledRun struct {
+	// Job is "retire_grace" or "broker_rotation".
+	Job string `json:"job"`
+	// OriginalApprovedBy is the sage.users id whose approval it carries.
+	OriginalApprovedBy int `json:"original_approved_by"`
+	// OriginalActionID is the action_log row of that approval, if any.
+	OriginalActionID int64 `json:"original_action_id,omitempty"`
+	// OriginalApprovalID is that approval's queue or request id, if any.
+	OriginalApprovalID int64 `json:"original_approval_id,omitempty"`
+}
+
+// audit adds the scheduled-run fields to an evidence or state map.
+func (s *ScheduledRun) audit(m map[string]any) map[string]any {
+	if s != nil {
+		m["scheduled"] = s.Job
+		m["original_approval"] = *s
+	}
+	return m
 }
 
 // RoleResult is what a role contract did.
@@ -119,9 +144,10 @@ func policyRequest(actionType string, req RoleRequest) (policy.ActionRequest, er
 		Feature: string(policy.ChangeAgentAccess), OperatorApproved: true,
 		TargetObjs: []string{"role:" + LoginRoleName(req.PrincipalID),
 			"role:" + BrokerRoleName(req.PrincipalID)},
-		Evidence: map[string]any{"source": "agent_governance", "principal_id": req.PrincipalID,
-			"cluster_key": req.Cluster.Key, "approved_by": req.Approval.ApprovedBy,
-			"approval_id": req.Approval.ApprovalID}}, nil
+		Evidence: req.Scheduled.audit(map[string]any{"source": "agent_governance",
+			"principal_id": req.PrincipalID, "cluster_key": req.Cluster.Key,
+			"approved_by": req.Approval.ApprovedBy,
+			"approval_id": req.Approval.ApprovalID})}, nil
 }
 
 // authorizer asks the executor's standing gate at each of Apply's two

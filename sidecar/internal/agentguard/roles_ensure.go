@@ -296,7 +296,7 @@ func recordRoleAction(ctx context.Context, req RoleRequest,
 	if err != nil {
 		return 0, fmt.Errorf("agentguard: encoding action state: %w", err)
 	}
-	afterJSON, err := json.Marshal(after)
+	afterJSON, err := json.Marshal(req.Scheduled.audit(after))
 	if err != nil {
 		return 0, fmt.Errorf("agentguard: encoding action state: %w", err)
 	}

@@ -130,6 +130,8 @@ func startAgentGovernance(ctx context.Context, fleetControl *pgxpool.Pool,
 		return
 	}
 	lead := agentGovernanceLeader(ctx, control, fleetControl)
+	// Retire, broker rotation and the backend check (agent_upkeep_wiring.go).
+	startAgentUpkeep(ctx, mgr, control, lead)
 	go every(ctx, agentEnvReconcileInterval, func(c context.Context) {
 		runAgentEnvReconcile(c, svc, mgr, lead)
 	})

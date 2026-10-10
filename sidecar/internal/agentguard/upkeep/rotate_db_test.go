@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentguard"
+	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -191,4 +194,39 @@ func TestRotateBroker_ConcurrentPasses(t *testing.T) {
 		require.True(t, ok, "pass %d: %+v", i, reps[i])
 	}
 	require.Equal(t, 4, len(ensuresOf(roles, p.ID)))
+}
+
+// Core records an ensure in the database that administered the cluster,
+// which may differ between ensures: the newest across the cluster's
+// databases is the approval a rotation carries, whatever the order.
+func TestRotateBroker_NewestEnsureAcrossTheClustersDatabases(t *testing.T) {
+	pool := livePool(t)
+	ctx := context.Background()
+	other, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "upkeep-second"))
+	require.NoError(t, err)
+	t.Cleanup(other.Close)
+	require.NoError(t, schema.Bootstrap(ctx, other))
+	sponsor := createUser(t, pool, "admin")
+	older, newer := createUser(t, pool, "operator"), createUser(t, pool, "operator")
+	key := uniqKey()
+	p := newPrincipal(t, pool, sponsor)
+	registerRoles(t, pool, p, key, agentguard.RoleStatusActive, 2*week)
+	for _, order := range [][2]string{{"a", "b"}, {"b", "a"}} {
+		roles := &fakeRoles{}
+		_, err := pool.Exec(ctx, "DELETE FROM sage.action_log WHERE principal_id = $1", p.ID)
+		require.NoError(t, err)
+		_, err = other.Exec(ctx, "DELETE FROM sage.action_log WHERE principal_id = $1", p.ID)
+		require.NoError(t, err)
+		ensureLogged(t, pool, p, key, older, 0, 10*24*time.Hour)
+		newest := ensureLogged(t, other, p, key, newer, 0, 9*24*time.Hour)
+		first := agentguard.KillTarget{Name: order[0], Pool: pool, ClusterKey: key,
+			Executor: fakeApplier{"x"}}
+		second := agentguard.KillTarget{Name: order[1], Pool: other, ClusterKey: key}
+		_, err = runner(t, pool, roles, weekly(), first, second).RotateBroker(ctx, Fence{})
+		require.NoError(t, err)
+		got := ensuresOf(roles, p.ID)
+		require.Equal(t, 1, len(got), "order %v", order)
+		require.Equal(t, newer, got[0].Approval.ApprovedBy, "order %v", order)
+		require.Equal(t, newest, got[0].Scheduled.OriginalActionID, "order %v", order)
+	}
 }
