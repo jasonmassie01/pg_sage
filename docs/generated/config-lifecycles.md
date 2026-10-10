@@ -15,6 +15,8 @@
 | `advisor.vacuum_enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.wal_enabled` | `restart` | `-` | `operator_preference` |
 | `agents.client_patterns` | `restart` | `-` | `operator_preference` |
+| `agents.control_database` | `restart` | `-` | `safety_critical` |
+| `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
