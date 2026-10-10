@@ -107,7 +107,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateRetentionForeignKeys(ctx, conn); err != nil {
 				return err
 			}
-			return migrateStorage(ctx, conn) // storage_migration.go
+			if err := migrateStorage(ctx, conn); err != nil { // storage_migration.go
+				return err
+			}
+			return migrateAuditChain(ctx, conn) // audit_chain_migration.go
 		},
 	)
 }
@@ -426,7 +429,8 @@ func migrationStatements() []string {
 		ddlChangeFeedIndexes(),
 		ddlDecommission,
 		ddlAuthAuditSourceIP,
-		ddlAuthAuditCreatedIndex)
+		ddlAuthAuditCreatedIndex,
+		ddlGuardPGAuditEvents, ddlGuardIdentityBindings)
 }
 
 // ---------------------------------------------------------------------------

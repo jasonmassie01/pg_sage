@@ -6,7 +6,7 @@ import "github.com/pg-sage/sidecar/internal/decommission"
 // intentionally NOT purged by age. A new time-series table must be added
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
-	decommissionExemptions)
+	decommissionExemptions, auditChainExemptions)
 
 // decommissionExemptions: the operator's acknowledgements of the
 // decommission inventory are audit evidence (Agent Guard spec §12).

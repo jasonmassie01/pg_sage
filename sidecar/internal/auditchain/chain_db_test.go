@@ -193,8 +193,10 @@ func TestLinkTamperingIsDetected(t *testing.T) {
 			"AND seq = 2", "gap"},
 		{"edited link", "UPDATE sage.audit_chain_link SET state = replace(state, " +
 			"'pending', 'success') WHERE chain = 'action_log' AND seq = 2", "hash_mismatch"},
-		{"reordered links", "UPDATE sage.audit_chain_link SET seq = CASE seq WHEN 2 " +
-			"THEN 3 ELSE 2 END WHERE chain = 'action_log' AND seq IN (2, 3)", "prev_mismatch"},
+		{"reordered links", "UPDATE sage.audit_chain_link SET seq = -seq " +
+			"WHERE chain = 'action_log' AND seq IN (2, 3); " +
+			"UPDATE sage.audit_chain_link SET seq = CASE seq WHEN -2 THEN 3 ELSE 2 END " +
+			"WHERE chain = 'action_log' AND seq IN (-2, -3)", "prev_mismatch"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
