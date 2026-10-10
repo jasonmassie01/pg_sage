@@ -78,7 +78,8 @@ const (
 
 // Errors. Each is distinguishable with errors.Is.
 var (
-	ErrInvalidClass      = errors.New("classify: class must be clean, pii, secret or untrusted_input")
+	ErrInvalidClass = errors.New(
+		"classify: class must be clean, pii, secret or untrusted_input")
 	ErrInvalidStatus     = errors.New("classify: unknown status")
 	ErrInvalidSource     = errors.New("classify: proposals come from rules or the model")
 	ErrInvalidActor      = errors.New("classify: a decision names who made it")

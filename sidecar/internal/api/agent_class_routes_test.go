@@ -142,7 +142,8 @@ func TestAgentClassRoutes_InvalidInput(t *testing.T) {
 	mux, sch := newClassAPI(t)
 	base := "/api/v1/agent-classifications/testdb"
 	for name, body := range map[string]any{
-		"bad class":     map[string]string{"schema": sch, "table": "users", "column": "id", "class": "public"},
+		"bad class": map[string]string{"schema": sch, "table": "users", "column": "id",
+			"class": "public"},
 		"unknown field": map[string]any{"schema": sch, "table": "users", "class": "pii", "x": 1},
 		"not json":      "nope",
 	} {

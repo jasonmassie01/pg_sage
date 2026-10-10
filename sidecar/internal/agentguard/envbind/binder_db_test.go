@@ -266,8 +266,9 @@ func TestBranchLabelNeedsActiveReceipt(t *testing.T) {
 	if !errors.As(err, &refused) || refused.Reason != ReasonReceiptMissing {
 		t.Fatalf("branch without receipt: %v", err)
 	}
-	r, err := receipts.Record(ctx, clone.Receipt{DeploymentID: "00000000-0000-4000-8000-00000000d001",
-		Adapter: "dle", Scope: "test", Name: db.Name, Purpose: clone.PurposeSandbox,
+	r, err := receipts.Record(ctx, clone.Receipt{
+		DeploymentID: "00000000-0000-4000-8000-00000000d001",
+		Adapter:      "dle", Scope: "test", Name: db.Name, Purpose: clone.PurposeSandbox,
 		ExpiresAt: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)

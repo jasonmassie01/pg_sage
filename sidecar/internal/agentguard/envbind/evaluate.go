@@ -26,8 +26,9 @@ const (
 
 // Errors. Each is distinguishable with errors.Is.
 var (
-	ErrLabelRefused    = errors.New("envbind: environment label refused")
-	ErrNoControl       = errors.New("envbind: agent governance needs mode: meta or agents.control_database")
+	ErrLabelRefused = errors.New("envbind: environment label refused")
+	ErrNoControl    = errors.New(
+		"envbind: agent governance needs mode: meta or agents.control_database")
 	ErrUnbound         = errors.New("envbind: the database has no database_id yet")
 	ErrInvalidActor    = errors.New("envbind: a label change names who made it")
 	ErrUnknownDatabase = errors.New("envbind: unknown database")
