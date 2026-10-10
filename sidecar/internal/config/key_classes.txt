@@ -76,6 +76,7 @@ operator_preference databases[].tags
 safety_critical databases[].trust_level
 safety_critical databases[].user
 operator_preference databases[].verify.io_capacity
+safety_critical databases[].replicas
 
 # Trust, safety guards and verification (they gate or verify actions)
 safety_critical trust.cascade_cooldown_cycles
@@ -516,3 +517,4 @@ safety_critical agents.broker.pool_max_conns
 safety_critical agents.broker.pool_idle_seconds
 safety_critical agents.broker.max_total_connections
 safety_critical agents.single_operator_mode
+safety_critical agents.kill_verify_timeout_seconds

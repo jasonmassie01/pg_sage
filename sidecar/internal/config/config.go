@@ -772,6 +772,9 @@ func (c *Config) validate() error {
 	if err := c.Agents.validate(); err != nil {
 		return err
 	}
+	if err := validateReplicas(c.Databases); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
