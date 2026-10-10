@@ -19,8 +19,15 @@ import (
 // kind of DDL the answer equals a full scan of the catalog, and only the
 // tables the DDL touched have their columns aggregated again.
 
+// extensionMemberFilter keeps out the tables an extension owns
+// (hint_plan.hints): they are the extension's to define.
+const extensionMemberFilter = `
+      AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid='pg_class'::regclass
+        AND dep.objid=tbl.oid AND dep.deptype='e')`
+
 // structuralReferenceSQL is the full structural scan (v2.3.1's aggregate,
-// temporary tables excluded): every pass must answer exactly its rows.
+// temporary and extension tables excluded): every pass must answer
+// exactly its rows.
 const structuralReferenceSQL = `
 WITH tables AS (
     SELECT ns.nspname AS schema_name, tbl.relname AS table_name,
@@ -35,7 +42,8 @@ WITH tables AS (
       AND att.attnum>0 AND NOT att.attisdropped
     JOIN pg_type typ ON typ.oid=att.atttypid
     WHERE tbl.relkind IN ('r','p') AND tbl.relpersistence <> 't'
-      AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')
+      AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')` +
+	extensionMemberFilter + `
     GROUP BY tbl.oid, ns.nspname, tbl.relname
 )
 SELECT schema_name, table_name, ''::name AS column_name, 'everything_text' AS kind
@@ -49,7 +57,8 @@ ORDER BY 1,2,4,3`
 const userTablesSQL = `SELECT count(*) FROM pg_class tbl
 JOIN pg_namespace ns ON ns.oid=tbl.relnamespace
 WHERE tbl.relkind IN ('r','p') AND tbl.relpersistence <> 't'
-  AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')`
+  AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')` +
+	extensionMemberFilter
 
 func rowsOf(t *testing.T, dsn, sql string) []string {
 	t.Helper()
@@ -310,6 +319,27 @@ func TestStructuralIncremental_TemporaryTablesAreExcluded(t *testing.T) {
 	detector, _ := recordingDetector(t, dsn, nil)
 	if got := structuralAnswer(t, detector); len(got) != 0 {
 		t.Fatalf("temporary table reported: %q", got)
+	}
+}
+
+// A table an extension owns (hint_plan.hints, PostGIS's spatial_ref_sys)
+// is the extension's to define: never reported, and its columns never
+// aggregated. plpgsql is installed in every database.
+func TestStructuralIncremental_ExtensionTablesAreExcluded(t *testing.T) {
+	dsn := cadenceDatabase(t)
+	execAndClose(t, dsn, `CREATE TABLE ext_owned (a text, b text, c_id text);
+		ALTER EXTENSION plpgsql ADD TABLE ext_owned`)
+	unfiltered := strings.Replace(structuralReferenceSQL, extensionMemberFilter, "", 1)
+	if rows := rowsOf(t, dsn, unfiltered); len(rows) != 2 {
+		t.Fatalf("without the filter the scan reports %q, want the extension table's 2 rows",
+			rows)
+	}
+	detector, rec := recordingDetector(t, dsn, nil)
+	if got := structuralAnswer(t, detector); len(got) != 0 {
+		t.Fatalf("extension table reported: %q", got)
+	}
+	if tr := tracePasses(t, rec); tr.passes != 1 || len(tr.aggregated) != 0 {
+		t.Fatalf("extension table: %+v, want one pass and no column aggregation", tr)
 	}
 }
 
