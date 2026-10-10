@@ -426,7 +426,8 @@ func migrationStatements() []string {
 		ddlChangeFeedIndexes(),
 		ddlDecommission,
 		ddlAuthAuditSourceIP,
-		ddlAuthAuditCreatedIndex)
+		ddlAuthAuditCreatedIndex,
+		ddlGuardCore, ddlGuardCoreValidate)
 }
 
 // ---------------------------------------------------------------------------
