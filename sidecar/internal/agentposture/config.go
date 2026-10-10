@@ -18,6 +18,8 @@ type Config struct {
 	MemoryGrowthGBDay float64
 	// DailyAt is the local HH:MM of the daily posture run.
 	DailyAt string
+	// Platform is where the database runs (AP-11); the zero value is unknown.
+	Platform Platform
 }
 
 // DefaultConfig is the shipped configuration.

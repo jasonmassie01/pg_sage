@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/agentposture"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/firstlook"
 	"github.com/pg-sage/sidecar/internal/onboarding"
@@ -198,7 +199,10 @@ func TestFirstLookRetryRecordsTheResult(t *testing.T) {
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}
-	opts := firstlook.Options{StatementTimeout: 300 * time.Millisecond}
+	// No posture detectors: the locks below must degrade every check, and
+	// AP-14 (pg_sage's own role) reads only pg_roles, which they leave alone.
+	opts := firstlook.Options{StatementTimeout: 300 * time.Millisecond,
+		PostureRegistry: agentposture.NewRegistry()}
 	if _, err := firstlook.Run(ctx, p, opts); err != nil { // warm the catalog caches
 		t.Fatalf("warm-up: %v", err)
 	}

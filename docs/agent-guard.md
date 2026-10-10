@@ -72,22 +72,42 @@ pg_sage's own role is never counted as an agent.
 | AP-06 | A view in an exposed schema (one where an exposed role has `USAGE`) over a table with row-level security, without `security_invoker`. On PostgreSQL 14 it's reported as "no security_invoker available" | warning | PostgreSQL 15+: `ALTER VIEW … SET (security_invoker = true)`. PostgreSQL 14: revoke the view from exposed roles |
 | AP-07 | A schema where `PUBLIC` holds `CREATE` (PostgreSQL 14's `public` schema by default) | warning | `REVOKE CREATE ON SCHEMA … FROM PUBLIC` |
 | AP-08 | A non-superuser login role without a non-zero `statement_timeout` or `idle_in_transaction_session_timeout`. Settings count when made for the role (in this database or all), for the database, or in the server configuration where pg_sage's session can see it | info | `ALTER ROLE … SET statement_timeout = '30s'` and `idle_in_transaction_session_timeout = '60s'` |
+| AP-09 | Remote access or host code an exposed role (or `PUBLIC`) can reach: `dblink` functions it can execute, the `postgres_fdw`/`dblink_fdw` wrappers and their servers it can use, a user mapping (stored credentials) for it on such a server, and an untrusted language (`plperlu`, `plpython3u`, `pltclu`, …) marked trusted | critical | `REVOKE EXECUTE ON FUNCTION … FROM …`, `REVOKE USAGE ON FOREIGN DATA WRAPPER/SERVER/LANGUAGE …`, `DROP USER MAPPING FOR … SERVER …` |
+| AP-10 | pgvector below 0.8.4 while HNSW indexes exist (vacuum fixes), or below 0.8.7 while IVFFlat indexes exist (index build overflow); the server's major at, past or within 90 days of its end of life | critical (pgvector), warning (end of life) | `ALTER EXTENSION vector UPDATE` after installing the fixed release; the upgrade plan |
+| AP-11 | No point-in-time recovery: on a self-managed server `archive_mode = off`, or on with nothing archiving; on RDS, Aurora and Cloud SQL, automated backups or PITR off or retention 0, as cloud telemetry last read the instance. Deletion protection off (RDS, Cloud SQL). No pgaudit (neither preloaded nor installed) while agent roles use the database | warning | `ALTER SYSTEM SET archive_mode …`; the provider's CLI command; `CREATE EXTENSION pgaudit` after preloading it |
+| AP-12 | A schema whose LangGraph checkpoint tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`) grew more than `agents.posture.memory_growth_gb_day` GB (GiB) a day with no rows deleted | info | A query for the largest threads, to delete past your retention |
+| AP-13 | A login role used at once by 3 or more distinct clients (`application_name` and client address), at least one of them agent-like | info; warning once any registered agent role exists | `CREATE ROLE <login>_agent LOGIN NOINHERIT`, then move the agent to it |
+| AP-14 | pg_sage's own role is a superuser, holds `BYPASSRLS`, or has the privileges of an agent role | warning | `ALTER ROLE … NOBYPASSRLS`; `REVOKE <agent> FROM …` (PostgreSQL 14/15) or `REVOKE INHERIT OPTION FOR <agent> FROM …` (16+); a dedicated non-superuser role |
+| AP-15 | The `PUBLIC` baseline: tables, views and foreign tables granted to `PUBLIC` (one finding per schema), and default privileges that grant `PUBLIC` on new tables or sequences. Extension-owned objects are skipped | warning | `REVOKE ALL ON TABLE … FROM PUBLIC`; `ALTER DEFAULT PRIVILEGES FOR ROLE … REVOKE ALL ON TABLES FROM PUBLIC` |
+| AP-16 | Once any registered agent role exists, a login role seen with an agent-like `application_name` that isn't one (an agent outside Agent Guard) | warning | `ALTER ROLE … NOLOGIN` after the agent moves to its own credentials |
 
 AP-03 and AP-06 skip tables and views an extension owns (pg_hint_plan's `hint_plan.hints`,
-for example): those grants come from the extension, not from you. AP-08 skips pg_sage's own role, reserved `pg_` roles and managed-service admin logins
+for example): those grants come from the extension, not from you.
+AP-08 skips pg_sage's own role, reserved `pg_` roles and managed-service admin logins
 (`rdsadmin`, `cloudsqladmin`, `azure_superuser`, `alloydbadmin` and similar).
 
-AP-09 to AP-16 cover:
-- dangerous extensions and languages;
-- pgvector and server end-of-life versions;
-- backup and PITR posture;
-- agent memory-store growth;
-- shared logins;
-- pg_sage's own role;
-- `PUBLIC` default privileges;
-- unmanaged agent logins.
-
-They plug into the same framework and appear in the same section.
+Notes on AP-09 to AP-16:
+- **AP-10.** The pgvector fix releases come from pg_sage's research of pgvector's changelog;
+  no CVE id is cited because none is verified. End-of-life dates are from the PostgreSQL
+  versioning policy (PostgreSQL 14: 2026-11-12). A major older than 13 counts as past end of
+  life; a major newer than 18 isn't reported until its date is known.
+- **AP-11.** The provider check uses what cloud telemetry already reads with the instance
+  (no extra API call); without telemetry nothing is reported, never "off". pg_sage can't see
+  whether backups are immutable or kept after the instance is deleted, so check your
+  provider's backup vault or retained-backup settings yourself. A tool that streams WAL
+  (`pg_receivewal`, Barman streaming) can give PITR with `archive_mode` off; the caveat says so.
+  On PostgreSQL 14 the `archive_library` arm is skipped (the setting is 15+).
+- **AP-12** needs two observations at least an hour apart, kept in memory by the analyzer's
+  posture run: the first run records, a later run (usually the next daily one) compares.
+  The first look has none and reports nothing. After a restart, the next finding waits for
+  two new observations, so it can come a day later.
+- **AP-13** needs `pg_read_all_stats` (part of `pg_monitor`) to see other roles' client
+  addresses. Without it, clients are counted by `application_name` only, and the finding's
+  caveat says so.
+- **AP-14.** pg_sage also warns once at startup when it connects as a superuser: Agent Guard
+  features need a non-superuser role. Posture still runs. Inheritance is read with
+  `pg_has_role` on every version; the arms decide the fix (PostgreSQL 14/15 inherit per role,
+  16+ per grant).
 
 **Version arms.** A detector part that applies only to some PostgreSQL versions is an *arm*.
 On other versions the arm is skipped, and the check's note records why. For example, on
@@ -181,6 +201,32 @@ WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 SELECT n.nspname FROM pg_namespace n
 CROSS JOIN LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
 WHERE a.grantee = 0 AND a.privilege_type = 'CREATE';
+```
+
+**dblink callable by anyone** (AP-09):
+
+```sql
+SELECT p.oid::regprocedure FROM pg_proc p
+JOIN pg_depend d ON d.objid = p.oid AND d.classid = 'pg_proc'::regclass AND d.deptype = 'e'
+JOIN pg_extension e ON e.oid = d.refobjid AND e.extname = 'dblink'
+WHERE has_function_privilege('public', p.oid, 'EXECUTE');
+```
+
+**WAL archiving and pgaudit** (AP-11):
+
+```sql
+SELECT name, setting FROM pg_settings
+WHERE name IN ('archive_mode', 'archive_command', 'archive_library', 'shared_preload_libraries');
+```
+
+**Relations granted to PUBLIC** (AP-15):
+
+```sql
+SELECT n.nspname, c.relname, a.privilege_type
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL aclexplode(c.relacl) a
+WHERE a.grantee = 0 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema');
 ```
 
 Review each fix script before you run it. Enabling row-level security without a policy hides

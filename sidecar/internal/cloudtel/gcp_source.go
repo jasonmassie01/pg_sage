@@ -151,6 +151,7 @@ func (s *GCPSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 		return Sample{}, err
 	}
 	applyCloudSQLStorage(&sample, inst, now)
+	sample.Backup = inst.Settings.BackupConfiguration.posture(inst.Settings.DeletionProtection)
 	if sample.MemoryTotalBytes == nil {
 		if mem := tierMemoryBytes(inst.Settings.Tier); mem > 0 {
 			sample.MemoryTotalBytes = &Point{Value: mem, At: now}

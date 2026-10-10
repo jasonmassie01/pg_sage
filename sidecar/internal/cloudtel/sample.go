@@ -84,6 +84,8 @@ type Sample struct {
 	// knows (Aurora's cluster volume, unlimited Cloud SQL auto-resize).
 	StorageAutoGrows bool     `json:"storage_auto_grows"`
 	Missing          []string `json:"missing,omitempty"`
+	// Backup is the instance's backup posture (AP-11); nil when not read.
+	Backup *BackupPosture `json:"backup,omitempty"`
 }
 
 // Source collects one sample from a provider.

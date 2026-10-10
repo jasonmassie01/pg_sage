@@ -50,6 +50,9 @@ type Env struct {
 	// detectors raise their severity then (AP-13, AP-16).
 	PrincipalsExist bool
 	Config          Config
+	// Observations keeps observations between runs (AP-12); nil in the
+	// first look.
+	Observations *ObservationStore
 }
 
 // ExposedOIDs lists the exposed role OIDs, PUBLIC (0) included.
