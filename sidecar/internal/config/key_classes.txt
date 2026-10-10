@@ -498,6 +498,8 @@ operator_preference history.store
 # Agent posture (G0, spec §9): exposed roles widen what posture treats as
 # reachable by untrusted clients, so they are safety-critical.
 safety_critical agents.exposed_roles
+safety_critical agents.control_database
+safety_critical agents.default_environment
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
 operator_preference agents.posture.memory_growth_gb_day
