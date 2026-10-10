@@ -25,21 +25,10 @@ func loginHandler(
 	pool *pgxpool.Pool,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid request body",
-				http.StatusBadRequest)
+		req, ok := decodeLogin(w, r)
+		if !ok {
 			return
 		}
-		if req.Email == "" || req.Password == "" {
-			jsonError(w, "email and password required",
-				http.StatusBadRequest)
-			return
-		}
-
 		if !loginRateLimitDisabled &&
 			!loginLimiter.reserve(req.Email) {
 			auditPasswordFailure(r, pool, req.Email, "rate_limited")
@@ -65,31 +54,56 @@ func loginHandler(
 			TargetUserID: user.ID, Detail: map[string]any{"method": "password"},
 		})
 
-		sessionID, err := auth.CreateSession(
-			r.Context(), pool, user.ID,
-		)
-		if err != nil {
-			jsonError(w, "failed to create session",
-				http.StatusInternalServerError)
+		if !setLoginSession(w, r, pool, user.ID) {
 			return
 		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sage_session",
-			Value:    sessionID,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   isSecureRequest(r),
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(auth.SessionDuration.Seconds()),
-		})
-
 		jsonResponse(w, map[string]any{
 			"id":    user.ID,
 			"email": user.Email,
 			"role":  user.Role,
 		})
 	}
+}
+
+// setLoginSession creates a session and sets its cookie (Secure only when
+// the request arrived over TLS); it reports false after a 500.
+func setLoginSession(
+	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
+) bool {
+	sessionID, err := auth.CreateSession(r.Context(), pool, userID)
+	if err != nil {
+		jsonError(w, "failed to create session", http.StatusInternalServerError)
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sage_session",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(auth.SessionDuration.Seconds()),
+	})
+	return true
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// decodeLogin reads the login body; it reports false after a 400.
+func decodeLogin(w http.ResponseWriter, r *http.Request) (loginRequest, bool) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return req, false
+	}
+	if req.Email == "" || req.Password == "" {
+		jsonError(w, "email and password required", http.StatusBadRequest)
+		return req, false
+	}
+	return req, true
 }
 
 // auditPasswordFailure records a refused password login against the
@@ -338,19 +352,7 @@ func updateUserRoleHandler(
 		if err := auth.UpdateUserRolePreservingAdmin(
 			r.Context(), pool, id, req.Role,
 		); err != nil {
-			switch {
-			case errors.Is(err, auth.ErrInvalidRole):
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-			case errors.Is(err, auth.ErrUserNotFound):
-				jsonError(w, "user not found",
-					http.StatusNotFound)
-			case errors.Is(err, auth.ErrLastAdmin):
-				jsonError(w, "cannot demote the last admin",
-					http.StatusForbidden)
-			default:
-				internalError(w, r, "update user role", err)
-			}
+			writeRoleUpdateError(w, r, err)
 			return
 		}
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
@@ -361,5 +363,18 @@ func updateUserRoleHandler(
 		jsonResponse(w, map[string]string{
 			"status": "updated",
 		})
+	}
+}
+
+func writeRoleUpdateError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrInvalidRole):
+		jsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, auth.ErrUserNotFound):
+		jsonError(w, "user not found", http.StatusNotFound)
+	case errors.Is(err, auth.ErrLastAdmin):
+		jsonError(w, "cannot demote the last admin", http.StatusForbidden)
+	default:
+		internalError(w, r, "update user role", err)
 	}
 }
