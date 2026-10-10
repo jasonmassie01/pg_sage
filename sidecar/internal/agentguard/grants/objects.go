@@ -93,10 +93,6 @@ func schemaOptionFix(schema, me string) string {
 		ident(me))
 }
 
-func publicCreateFix(schema string) string {
-	return fmt.Sprintf("REVOKE CREATE ON SCHEMA %s FROM PUBLIC;", ident(schema))
-}
-
 // column is one live column with whether pg_sage itself holds SELECT on
 // it WITH GRANT OPTION (owner-role membership does not count).
 type column struct {
@@ -110,7 +106,6 @@ type relation struct {
 	oid, schemaOID   uint32
 	me               string
 	schemaGrantOpt   bool
-	publicCreate     bool
 	columns          []column
 	grant            []string // the columns this grant lists
 	excluded         []Exclusion
@@ -118,8 +113,7 @@ type relation struct {
 	requestedColumns []string
 }
 
-// resolveSQL reads a relation's columns and pg_sage's own grant options,
-// and whether PUBLIC may CREATE in its schema (P1).
+// resolveSQL reads a relation's columns and pg_sage's own grant options.
 const resolveSQL = `/* pg_sage guard_grant v1 */
 WITH me AS (SELECT oid, rolname::text AS name FROM pg_catalog.pg_roles
             WHERE rolname = current_user)
@@ -132,8 +126,7 @@ SELECT c.oid::int8, n.oid::int8, a.attnum, a.attname::text,
           WHERE x.grantee = me.oid AND x.privilege_type = 'SELECT' AND x.is_grantable),
   EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(n.nspacl,
             pg_catalog.acldefault('n', n.nspowner))) x
-          WHERE x.grantee = me.oid AND x.privilege_type = 'USAGE' AND x.is_grantable),
-  pg_catalog.has_schema_privilege('public', n.oid, 'CREATE')
+          WHERE x.grantee = me.oid AND x.privilege_type = 'USAGE' AND x.is_grantable)
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0
@@ -154,7 +147,7 @@ func resolveRelation(ctx context.Context, q Querier, schema, name string) (*rela
 		var c column
 		var oid, nsp int64
 		if err := rows.Scan(&oid, &nsp, &c.col.AttNum, &c.col.Name, &c.col.Type, &r.me,
-			&c.grantOpt, &r.schemaGrantOpt, &r.publicCreate); err != nil {
+			&c.grantOpt, &r.schemaGrantOpt); err != nil {
 			return nil, fmt.Errorf("grants: resolving %s.%s: %w", schema, name, err)
 		}
 		r.oid, r.schemaOID = uint32(oid), uint32(nsp)
@@ -173,8 +166,13 @@ func resolveRelation(ctx context.Context, q Querier, schema, name string) (*rela
 
 func (r *relation) qualified() string { return r.schema + "." + r.name }
 
-// planRelations resolves every object and decides its column list.
+// planRelations runs the PUBLIC preflight on the objects' schemas (P1
+// refuses with the exact REVOKE, G1-16; P4 records the baseline G1-02
+// compares against), then resolves every object and its column list.
 func (m *Manager) planRelations(ctx context.Context, req GrantRequest) ([]*relation, error) {
+	if err := preflight(ctx, req); err != nil {
+		return nil, err
+	}
 	classes := classify.NewStore(req.Target.Pool)
 	var out []*relation
 	for _, o := range req.Objects {
@@ -182,11 +180,6 @@ func (m *Manager) planRelations(ctx context.Context, req GrantRequest) ([]*relat
 		r, err := resolveRelation(ctx, req.Target.Pool, schema, name)
 		if err != nil {
 			return nil, err
-		}
-		if r.publicCreate {
-			return nil, deny(agentguard.ReasonPublicCreate, publicCreateFix(schema),
-				"PUBLIC can CREATE in schema %s, so every agent role could; preflight P1 "+
-					"refuses grants there", schema)
 		}
 		if r.classes, err = classes.Lookup(ctx, r.oid); err != nil {
 			return nil, fmt.Errorf("grants: classification of %s: %w", r.qualified(), err)
@@ -267,4 +260,20 @@ func (r *relation) applyGrantOptions(allowed []classify.Column, explicit bool,
 			"in this environment", r.qualified())
 	}
 	return nil
+}
+
+func preflight(ctx context.Context, req GrantRequest) error {
+	seen := map[string]bool{}
+	var schemas []string
+	for _, o := range req.Objects {
+		if schema, _, err := parseObject(o.Object); err == nil && !seen[schema] {
+			seen[schema] = true
+			schemas = append(schemas, schema)
+		}
+	}
+	res, err := agentguard.Preflight(ctx, req.Target.Pool, schemas)
+	if err != nil {
+		return err
+	}
+	return res.GrantsAllowed()
 }
