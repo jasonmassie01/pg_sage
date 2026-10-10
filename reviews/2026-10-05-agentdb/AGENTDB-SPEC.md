@@ -1,21 +1,26 @@
 # Agent Guard: pg_sage for the Postgres that agents create and touch (the AgentDB re-spec)
 
-**Status:** proposed, **draft 2, reviewed**.
+**Status:** decided, **draft 3**.
 - The self-review (`spec-review.md`, 68 findings) is folded in: all 10 P0s, all 45 P1s and all
   13 P2s are addressed. One P2 item (sqlcommenter tags, SR-66) is deferred with a reason.
   Appendix B maps every finding.
-- Code citations were re-checked at `72646ab1` after drafting; nine were corrected.
+- Code citations were re-checked at `72646ab1` after drafting; nine were corrected. On
+  2026-10-09 they were re-checked at `62d27f6e`, and what shipped in between was folded in
+  (`baseline-refresh.md`).
 - The external review (`gemini-review.md`, `gemini-3.1-pro-preview`) is folded in: of 12 findings,
   10 are accepted (3 of them modified), 1 partly accepted and 1 partly rejected. Appendix D maps
   them.
-- **All reviews are complete.** The spec is ready for your decisions in §14, starting with D-1.
-- **Date:** 2026-10-05.
+- **All reviews are complete, and §14 is decided.** You decided D-1, D-2, D-4 and D-7 on
+  2026-10-09. D-3, D-5, D-6 and D-8 are defaults taken under your delegation of product calls,
+  each reversible.
+- **Date:** 2026-10-05; decided and refreshed 2026-10-09.
 
 **Baseline:**
-- `master` at `72646ab1`: v2.2.0 plus #128 and #129.
-- v2.3 tracks are open: fleet learning, index replace, specialist mapping, history outside the
-  monitored database.
-- PR #130 (first-look timeout) is open.
+- `master` at `62d27f6e`: v2.3.1 plus #149–#153, #155 and #157 (performance and CI follow-ups).
+  Drafted at `72646ab1` (v2.2.0 plus #128 and #129); `baseline-refresh.md` records the move.
+- Shipped since drafting: v2.2.1 (the first look's own timeout, PR #130's change, merged through
+  #136) and v2.3.0/v2.3.1 (fleet learning with a leader lease, index replace, specialist query
+  scope, history outside the monitored database, performance fixes).
 
 **Inputs:** `PROMPT.md` plus nine research files in `research/`:
 - `prior-specs`, `session-history`;
@@ -24,7 +29,8 @@
 - `technical-substrate`, `enterprise-needs` (ID-, AZ-, PC-, AP-, AU-, DP-, SF-, FO-, DR-, CM-).
 
 **Evidence rules:**
-- "Verified" code claims were re-checked at `72646ab1`. Other code claims cite the audit id.
+- "Verified" code claims were re-checked at `72646ab1` and again at `62d27f6e`. Other code
+  claims cite the audit id.
 - Market claims are worded as the research words them.
 - Numbers are proposals unless they cite a measurement.
 - Release names are G0–G4. Version numbers are assigned when each release is cut.
@@ -46,8 +52,8 @@ Supabase, Prisma, Xata and the hyperscalers.
 
 pg_sage keeps the research's *narrowed* form of provisioning (competitive W3): **governed,
 short-TTL branches and clones** used as sandboxes, rehearsal targets and restore-drill targets
-(§6.12). This is decision **D-1** for you (§14), because it deletes about 20k lines of a feature you
-framed in May.
+(§6.12). You decided this as **D-1** on 2026-10-09 (§14). It deletes about 20k lines of a feature
+you framed in May.
 
 ### Job 2: governing and operating agent-touched Postgres that pg_sage doesn't host. Yes.
 
@@ -102,7 +108,7 @@ Its live-authorization ideas are worth keeping (§2.2). Around them:
   policy, approvals, tokens, audit, emergency-stop reader and leases bypass `policy.Gate`,
   `Executor.Apply`, the trust ledger, shadow mode and approval cards.
 - **A default that bills silently.** `require_backup_before_destroy` is true by default
-  (`internal/config/config.go:1038`, verified). Teardown needs `restore_verified`
+  (`internal/config/config.go:1047`, verified). Teardown needs `restore_verified`
   (`internal/agentdb/lifecycle_claim.go:41-45`, verified), which only an admin attestation sets.
   So every expired live database keeps billing, with no alert (DP-01).
 - **Paths that orphan billed resources:** DP-02, DP-07 and DP-09.
@@ -119,13 +125,15 @@ Its live-authorization ideas are worth keeping (§2.2). Around them:
     (`docs/neon-supabase.md:119-121`). The receipts are written under a git-ignored path
     (`.gitignore:54-55`), so none are in the repo.
   - Rewrites: the runners changed on 2026-09-26 and have not run live since (DP-28).
-- **Stranded.** One mechanical commit out of about 1,264 since 2026-09-28. No user, design partner
-  or production deployment is recorded (prior-specs §0, §7).
+- **Stranded.** Of about 1,397 commits between 2026-09-28 and `62d27f6e`, two touched an AgentDB
+  path (as prior-specs §7.1 counts them): a mechanical file split and v2.3's three-line leader
+  check on the reconciler. Neither is product work. No user, design partner or production
+  deployment is recorded (prior-specs §0, §7).
 
 ### Where it goes
 
 - **Rename** the area to **Agent Guard**. "AgentDB" promises job 1 and collides with agentdb.dev
-  (competitive §0.10).
+  (competitive §0.10). The name is D-6, pending a trademark check before the launch copy.
 - **Five releases:**
   - **G0:** decommission, posture checks, and the public AgentSafetyBench v0. This is the launch.
   - **G1:** agent identity, the gate composition, classification, the kill switch.
@@ -134,8 +142,9 @@ Its live-authorization ideas are worth keeping (§2.2). Around them:
   - **G4:** operation of the agent estate.
 - **Alongside:** an enterprise track (E1–E4), reordered to the research's priorities.
 - **Gates.** Go/no-go gates sit between releases, including a measured pull gate (§10.6). pg_sage
-  has 13 GitHub stars and no recorded agent-database user, so **distribution, not features, is
-  the binding constraint** (competitive §0.10; prior-specs §0).
+  had 13 GitHub stars when this was drafted (17 on 2026-10-09) and no recorded agent-database
+  user, so **distribution, not features, is the binding constraint** (competitive §0.10;
+  prior-specs §0).
 
 **Positioning.** *The open-source guardian DBA between AI agents and Postgres:*
 - *agents get least-privilege, expiring, attributable access;*
@@ -262,23 +271,26 @@ pre-approved standard change. Two caveats:
 
 ### 1.5 Opportunity cost and distribution
 
-- **Core first.** The core roadmap (v2.3) stays first. Agent Guard reuses it rather than competing
-  with it:
-  - G4 needs v2.3's history-outside-the-database work and its fingerprints;
+- **Core first.** The core roadmap stays first; v2.3 shipped on 2026-10-07. Agent Guard reuses it
+  rather than competing with it:
+  - G1's reconcilers run on v2.3's leader lease (`internal/leader`);
   - G2's ledger generalizes `internal/earned`;
-  - G3 hardens `internal/migration` and `internal/clone`, which ship already.
+  - G3 hardens `internal/migration` and `internal/clone`, which ship already, and reuses the
+    v2.3 index-replace action's step state (§6.13);
+  - G4 builds on v2.3's history store and fleet fingerprints, which cover less than G4 needs
+    (O-5).
 - **G0 is the launch.** It publishes AgentSafetyBench v0, the posture checks and the incident
   mapping, with a write-up (§11). It also *removes* about 20k lines.
-- **Pull gate.** G1 starts only when the pull gate is met or you override it (§10.6).
+- **Pull gate.** G1 starts only when the pull gate (D-2) is met or you override it (§10.6).
 
 ### 1.6 Departures from the research, with reasons
 
 | Research said | This spec does | Why |
 |---|---|---|
-| Keep a governed provisioning broker (competitive W3); keep the Neon and Lakebase branch runners and harden the reconciler (DP §12) | Keeps the broker in its narrowed form, as governed short-TTL branches and clones under the clone substrate (§6.12), with receipt and reconciler semantics. Deletes instance runners, project creation and Terraform | Same narrowing the research recommends. Instances are the wrong unit (§0). Decision D-1 is yours |
+| Keep a governed provisioning broker (competitive W3); keep the Neon and Lakebase branch runners and harden the reconciler (DP §12) | Keeps the broker in its narrowed form, as governed short-TTL branches and clones under the clone substrate (§6.12), with receipt and reconciler semantics. Deletes instance runners, project creation and Terraform | Same narrowing the research recommends. Instances are the wrong unit (§0). You decided it as D-1 (2026-10-09) |
 | Schema change management is a LOSE; integrate with Atlas, Bytebase and Liquibase (competitive §4.2–4.3) | G3 hardens pg_sage's *existing* agent migration path. `apply_migration` already ships and bypasses `Executor.Apply` (B7). G3 adds rehearsal evidence and a hand-off to those tools; no review workflow is built | The existing path must be made safe regardless; review stays with the specialists |
 | Add runners for Aurora clones and Cloud SQL fast clone (competitive W3) | Deferred to a design partner, as a stated exception to principle 8 (short-TTL clones allowed) | Without them, production write autonomy on RDS, Aurora and Cloud SQL estates stays at L2. Accepted and stated |
-| You framed AgentDB as a provisioner (2026-05-07, session-history §3.1) | Deletes provisioning | Evidence in §0 and §2. Put to you as D-1 rather than assumed |
+| You framed AgentDB as a provisioner (2026-05-07, session-history §3.1) | Deletes provisioning | Evidence in §0 and §2. Put to you as D-1 rather than assumed; you decided it on 2026-10-09 |
 | Pilots start on branches; operating agent databases ranks first (enterprise §3; competitive W1) | Order: sandboxes and branch writes (G2) before production writes (G3) | Follows the research order. The lifeos rule ("read-only for agents") holds through G2 |
 
 ---
@@ -293,7 +305,8 @@ AgentDB is a human-operated control plane for per-agent-run Postgres:
 2. An operator approves it, then provisions it from a size profile, optionally after a dry run.
 3. An admin authorizes the live create, and the same admin executes it.
 4. A reconciler runs every 300 s (`internal/config/defaults.go:196`, verified). It archives
-   expired leases and attempts TTL destroy.
+   expired leases and attempts TTL destroy. Since v2.3 it runs only on the elected leader sidecar
+   (`cmd/pg_sage_sidecar/agentdb_reconciler.go:47`).
 5. Fleet sync attaches a database to pg_sage's runtime only when an operator has set an
    `env:PG_SAGE_AGENTDB_*` DSN.
 
@@ -331,25 +344,25 @@ The flows are in A §1.3 and DP §1.3. The capability matrix is in A §1.4.
 | # | Gap | Evidence | Severity |
 |---|---|---|---|
 | CG-01 | Secrets set through the API (`llm.api_key`, `clone.dle_token`, webhooks) are stored verbatim in `sage.config` (`internal/store/config_helpers.go:315,325`). `internal/api/config_apply.go:79-94` only refuses masked placeholders on write | verified | P0 |
-| CG-02 | The API serves plain HTTP: `SAGE_TLS_CERT` and `SAGE_TLS_KEY` are read (`internal/config/config.go:652-653`) and never used | verified | P1 |
+| CG-02 | The API serves plain HTTP: `SAGE_TLS_CERT` and `SAGE_TLS_KEY` are read (`internal/config/config.go:655-656`) and never used | verified | P1 |
 | CG-03 | OIDC has no PKCE and no nonce, and ignores `id_token` (`internal/auth/oauth.go`) | verified | P1; P0 with Google or GitHub |
 | CG-04 | Three global human roles (`internal/auth/types.go:21-35`) | verified | P1 |
 | CG-05 | Logins and user or role changes aren't audited; no SIEM export; no tamper evidence | DP §10 | P0 for regulated buyers |
 | CG-06 | HTTP MCP accepts only pg_sage's static tokens (`internal/api/mcp_principal.go:20-33`) | verified | P1 by 2027 |
-| CG-07 | One replica only; no Helm chart; static `/health`; unsigned images | DP §10 | P1 at fleet scale |
+| CG-07 | One replica only; no Helm chart; static `/health`; unsigned images. v2.3's leader lease (`internal/leader`) moves only fleet-wide jobs to one of several sidecars; per-database work isn't gated on it | DP §10; leader: verified | P1 at fleet scale |
 | CG-08 | Existing propose-scope MCP tools reach the gate with no caller, under pg_sage's own trust (`internal/mcp/scope.go:18-25`; `internal/mcp/intent_adapters.go:21-29`) | verified | P0 once agents use pg_sage |
 
 ### 2.5 Decisions
 
 | Part | Decision |
 |---|---|
-| RDS and Cloud SQL instance runners; Neon and Supabase project creation; Terraform plans and templates; dry-run executor; LLM blueprints; size profiles; deploy requests (as text); monitoring queue; pings; `agt_` tokens; restore attestation; `local_postgres` on the control DB | **Kill in G0**, after the inventory (§12). Subject to D-1 |
+| RDS and Cloud SQL instance runners; Neon and Supabase project creation; Terraform plans and templates; dry-run executor; LLM blueprints; size profiles; deploy requests (as text); monitoring queue; pings; `agt_` tokens; restore attestation; `local_postgres` on the control DB | **Kill in G0**, after the inventory (§12). Decided as D-1 (2026-10-09) |
 | Neon and Lakebase branch logic | **Pivot in G2:** reimplement as `clone` adapters (§6.12) |
 | Live-authorization ideas, receipts, ownership checks, claims | **Keep** as core requirements (§2.2) |
 | Agent principals; tenant from the token | **Keep:** `guard_principals` on MCP tokens (§6.4) |
 | Deploy requests | **Pivot in G3:** the agent change path (§6.13) |
 | Fleet sync of agent databases | **Pivot in G4:** estate discovery with an observe tier (§6.14) |
-| D4a (humans global; one operator team per install) | **Keep** until E3 adds per-database human RBAC |
+| D4a (humans global; one operator team per install) | **Keep** until E3 adds per-database human RBAC. D-4: no multi-team installs now, and E3 doesn't move before G1 |
 | CG-08 | **Fix in G1** (§6.2.6) |
 
 ---
@@ -418,6 +431,8 @@ The flows are in A §1.3 and DP §1.3. The capability matrix is in A §1.4.
     `sage_agentb_<id10>`**, with a credential only pg_sage holds (§6.6).
   - Controls: S0–S5, envelope-bound approvals, row bounds, pre-images and undo, taint, canaries,
     in-flight tracking for the kill switch.
+  - pg_sage runs in the customer's own network (customer VPC only): there is no hosted pg_sage
+    before G2 (D-7, revisited at G2).
 - **Direct lane** (G3, requires E3).
   - For app-runtime principals only. Profiles with coding-agent classes never get it.
   - **Lower assurance than the brokered lane**, and documented as such: a compromised runtime
@@ -505,7 +520,8 @@ internal/clone/           + neon, lakebase, template, schemaonly adapters; List,
 internal/migration/       parser classifier; verbatim rehearsal; Apply-routed runtime (§6.13)
 internal/mcp/             agent_* tools; Principal on every agent-originated request (§6.2.6)
 internal/mcptoken/        agent tokens bind a principal (§6.4)
-cmd/pg_sage_sidecar/      wires GateConfig.Agents; Guard reconcilers under the v2.3 lease
+cmd/pg_sage_sidecar/      wires GateConfig.Agents; Guard reconcilers run as fleet-wide jobs on the
+                          v2.3 leader (internal/leader, fleetLeaderAllows), fenced by its epoch
 removed in G0:            the manifest in §12
 ```
 
@@ -766,7 +782,7 @@ type Principal struct {
   There is no UI reveal, no MCP return, and no Vault, AWS SM or GCP SM integration for agent
   credentials.
 - **Encryption key required.** Guard features that store secrets require `encryption_key`
-  (`internal/config/config.go:118`). Without it, Guard runs posture-only and logs one line naming
+  (`internal/config/config.go:121`). Without it, Guard runs posture-only and logs one line naming
   the key.
 
 ### 6.5 Environment binding and the control database
@@ -807,6 +823,12 @@ keeps its `database_id`; that is why every Guard connection re-checks the live t
 **Control DB.** Guard requires `mode: meta` or a pinned `agents.control_database`. Otherwise it runs
 posture-only and logs one line. Without a pin, the control database can change between restarts
 (`cmd/pg_sage_sidecar/fleet_bootstrap.go:15-24`).
+
+The v2.3 leader lease (`sage.fleet_leader_lease`) lives in the sidecar's control pool
+(`cmd/pg_sage_sidecar/wire.go:57-65`): the meta DB in meta mode, the fleet's primary in a YAML
+fleet, the monitored database standalone. With a pinned `agents.control_database`, Guard's
+reconcilers take their lease in that database, so leadership and Guard state never sit in
+different databases.
 
 **Where data lives:**
 - Per-database registries live in the target database's `sage` schema, which survives control-DB
@@ -1242,9 +1264,12 @@ A request outside the envelope falls back to L2. The envelope's signer:
 - for `prod` writes, a drill within `require_restore_drill_days`;
 - no security signal in 7 days.
 
-Evidence may be pooled across databases with the same template fingerprint (v2.3), within one
-tenant only. A human still signs every promotion (the v2.3 rule: priors are evidence, never
-authority).
+Evidence may be pooled across databases with the same template fingerprint, within one tenant
+only. v2.3 fleet learning supplies both: "same template" means identical table and index shape
+sets in `sage.fleet_fingerprint` (not merely look-alikes above
+`fleet_learning.lookalike_min_similarity`), and the tenant is the sharing boundary from
+`fleetlearn.Boundary` (`internal/fleetlearn/shape.go:63`). A human still signs every promotion
+(the v2.3 rule: priors are evidence, never authority).
 
 **Shadow scoring.** At L1 and L2, each request records whether it *would* have run under the L3
 envelope, and its outcome. This counts toward evidence.
@@ -1273,7 +1298,8 @@ envelope, and its outcome. This counts toward evidence.
   - unfreeze after a kill;
   - policy proposals that widen.
 - `agents.single_operator_mode` (off by default) lets one human approve with a recorded reason.
-  Each such approval enters a post-hoc review queue. This is decision D-5 for lifeos.
+  Each such approval enters a post-hoc review queue. On lifeos it is on, with that queue (D-5:
+  default, reversible).
 
 **Two-person data model.** `sage.action_approvals (queue_id, approver_user_id, decision,
 decided_at, card_hash)`, primary key `(queue_id, approver_user_id)`. The executor enforces the
@@ -1309,7 +1335,7 @@ the queue's 7-day default.
 
 | Adapter | How | Point in time | Status |
 |---|---|---|---|
-| `neon` | Branch API; `expires_at` backstop (substrate §6); per-branch role | yes (branch at timestamp) | Reimplement from `hosted_*.go` at `72646ab1` |
+| `neon` | Branch API; `expires_at` backstop (substrate §6); per-branch role | yes (branch at timestamp) | Reimplement from `hosted_*.go` at `62d27f6e` (unchanged since `72646ab1`) |
 | `lakebase` | Branch API, `spec.ttl` (from pg_sage's own runner, last live 2026-05-10; re-verify) | UNVERIFIED | Reimplement from `lakebase_runner.go`; send ownership metadata |
 | `dle` (DBLab) | Existing adapter | nearest snapshot | Exists |
 | `template` | `CREATE DATABASE … TEMPLATE <masked golden> STRATEGY FILE_COPY` on a designated sandbox cluster (PG15+). `file_copy_method = clone` on PG18; timing UNVERIFIED, benchmark before advertising | no | New |
@@ -1318,7 +1344,8 @@ the queue's 7-day default.
 
 **Sandboxes are ephemeral fleet databases.**
 - `sandbox_create` registers the clone as a monitored database: `database_id`, label `branch` from
-  the receipt, observation-tier runtime.
+  the receipt, observation-tier runtime, and a `tenant=<tenant>` tag when the principal has one,
+  which keeps v2.3 fleet learning's priors inside the tenant (`fleetlearn.Boundary`).
 - Agents use it through `agent_query`, `agent_propose_write` and `propose_migration` with
   `database: <sandbox name>`. No credential leaves pg_sage.
 
@@ -1355,7 +1382,10 @@ cheap.
 - MCP `apply_migration` with a migration runtime that bypasses `Executor.Apply` (B7);
 - a regex `lint_migration`;
 - a rehearsal that never returns `promote_expand` (B1);
-- a CHECK constraint that lacks `blocked` (B2).
+- a CHECK constraint that lacks `blocked` (B2);
+- since v2.3, pg_sage's own two-step DDL: the `replace_index` action creates a wider index and
+  drops the one it subsumes, both `CONCURRENTLY`, behind a durable state machine
+  (`sage.index_replace`; `internal/executor/index_replace*.go`).
 
 **G3 makes this path safe.**
 
@@ -1372,6 +1402,14 @@ cheap.
 3. **Group.** Non-`CONCURRENTLY` statements are grouped into transactions, each with a `down`
    step. `CONCURRENTLY` statements stand alone. For a dropped constraint or index, pg_sage records
    `pg_get_constraintdef` or `pg_get_indexdef` before applying, and that is the `down` step.
+
+   A migration that is exactly one index replacement (`CREATE INDEX CONCURRENTLY` of a wider
+   index, then `DROP INDEX CONCURRENTLY` of the index it subsumes) goes to `replace_index`
+   instead of two groups. That action already refuses an old index that backs a constraint or
+   enforces uniqueness, keeps every foreign key supported, re-checks the old index's OID and
+   definition before the drop and keeps that definition as a soft drop
+   (`internal/executor/index_replace.go`). It always needs an approval, so it runs at L2 even
+   where `ddl_locking` would allow L3.
 4. **Rehearse** on a sandbox of the target, in verbatim mode.
    - Per group: duration; the strongest lock, from `pg_locks` sampled every 100 ms; rewritten
      relations; errors; `verify_sql`; and a `down` round trip (up, down, up).
@@ -1390,9 +1428,16 @@ cheap.
    - `lock_timeout` 2 s, 3 attempts with backoff;
    - DDL runs as the owner role through `SET ROLE` (§6.6);
    - a failure halts the migration (SAFE-TOOL-05);
-   - `down` runs automatically only for `additive` groups; for any other class it is proposed at L2.
+   - `down` runs automatically only for `additive` groups; for any other class it is proposed at L2;
+   - each group's state is recorded before it runs, the touched objects' change leases are held
+     across groups, and a restart resumes or rolls back from the recorded step and the catalog.
+     These are the replace action's crash rules (`internal/executor/index_replace_resume.go`),
+     reused rather than reinvented.
 7. **Verify.** Catalog checks and `verify_sql`. The outcome goes to the ledger and to a source-fix
-   report.
+   report. A plan regression after apply surfaces as one of pg_sage's own plan findings, whose
+   Sage SRE investigation has probed only the regressed statement since v2.3
+   (`internal/sre/plan_query.go`; `QueryScoped` in `internal/sre/probes/query_scope.go`). Guard
+   adds no reader of its own.
 
 **Hand-off.** With `handoff: atlas|bytebase|pr`, the rehearsal evidence comes out as JSON plus
 markdown attached to the source-fix packet, for the team's change-review tool. pg_sage builds no
@@ -1425,6 +1470,9 @@ review workflow.
 
 **Observe tier.**
 - No `sage` schema in the target; history lives in the meta DB (v2.3 `history.store: meta`).
+  That setting moves only snapshots and the query store (`internal/histstore`); findings,
+  first-look reports and posture results for observe-tier items must also live in the meta DB,
+  which v2.3 doesn't provide (O-5).
 - One short connection per observation, with `sslmode=verify-full` by default.
 - Observe only when the provider reports the compute active, and `observe_interval_minutes` (60)
   have passed, or within `wake_budget_per_day` (0).
@@ -1457,8 +1505,11 @@ become findings, with no action.
 - Budgets are set in the provider's units, or in reported cost where available. They alert at 80%,
   and at 100% they propose `estate_quarantine`.
 
-**Fleet findings.** These use v2.3 fingerprints, so one finding and one source-fix packet cover a
-template's whole fleet.
+**Fleet findings.** These reuse v2.3 fleet findings (`internal/fleetlearn/findings.go`), which
+group open findings by category and object across at least
+`fleet_learning.fleet_finding_min_databases` (3) databases. So one finding and one source-fix
+packet cover a template's whole fleet. v2.3 reads `sage.findings` in each database, so observe-tier
+items need their findings readable from the meta DB (O-5).
 
 **Memory-store playbooks.**
 - LangGraph checkpoint retention, only under an owner-declared retention contract (`OwnerDeclared`).
@@ -1468,9 +1519,11 @@ template's whole fleet.
 ### 6.15 Posture detectors (G0)
 
 **Cadence.** Detectors run:
-- in the first look's "Agent posture" section, inside its statement budget (5 s once PR #130
-  merges; if it doesn't, posture uses its own `SET LOCAL statement_timeout = '5s'`);
-- when the catalog fingerprint changes;
+- in the first look's "Agent posture" section, inside the first look's own 5 s statement budget,
+  with its single retry of a check that a transient error degraded (v2.2.1:
+  `internal/firstlook/runner.go:22`, `internal/firstlook/retry.go`);
+- when the catalog fingerprint changes. This is Guard's own hash of the catalog rows the detectors
+  read; v2.3's fleet fingerprint holds only table, index and query shapes, not grants or policies;
 - daily.
 
 **Proposed fixes.** Detectors emit SQL evidence and proposed fixes. Any fix that changes access
@@ -1737,6 +1790,8 @@ CREATE TABLE IF NOT EXISTS sage.guard_trash_map (
   original_name text NOT NULL, object_oid oid NOT NULL, trashed_at timestamptz NOT NULL
   DEFAULT now(), purge_after timestamptz NOT NULL, purged_at timestamptz
 );
+-- schema_migration group state (§6.13 step 6): one row per group, written before each step,
+-- with the state-machine shape of sage.index_replace (internal/schema/index_replace_migration.go).
 
 -- G4, control DB ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sage.guard_estate (
@@ -1888,7 +1943,7 @@ agents:
   default_environment: prod
   exposed_roles: []               # adds anon + authenticated automatically when both exist
   client_patterns: ["^mcp", "^claude", "^cursor", "^codex", "^langgraph", "^crewai"] # hints
-  single_operator_mode: false
+  single_operator_mode: false     # lifeos sets true (D-5)
   change_manager_group: ""        # E3; co-signs L3 envelopes when set
   broker:
     rotation_days: 7
@@ -1931,7 +1986,7 @@ agents:
   anomaly_min_rows: 10000
   kill_verify_timeout_seconds: 10
   require_restore_drill_days: 14
-  reconcile_interval_seconds: 60     # lease expiry and grant drift; under the v2.3 lease
+  reconcile_interval_seconds: 60     # lease expiry and grant drift; on the v2.3 leader only
   trust:
     min_executions: {write: 10, maint: 10, ddl: 5}
     acceptance_min: 0.9
@@ -1981,6 +2036,11 @@ estate:                              # G4
 All releases are tests-first, per CLAUDE.md, with the full test report on PG14–18. Effort is in
 agent-days and indicative.
 
+Every release also keeps the CI performance gate green (`sidecar/internal/testsupport/perfgate`,
+gates A–G; small scale on pull requests, large nightly). New `guard_*` tables are held to gates A
+(no sequential scan of a large sage table), C (rows written per sage table per cycle) and F (HOT
+share of updates), and new list endpoints to gate E (1 s). G0-04 names the gates for posture.
+
 ### 10.1 G0: decommission, posture, launch (≈8 agent-days, plus E1 ≈5)
 
 **Scope:**
@@ -1988,14 +2048,15 @@ agent-days and indicative.
 - detectors AP-01..AP-16 (AP-17 lands in G2) and the first-look section;
 - AU-10 scrubbing;
 - docs (`docs/agent-guard.md` with the manual runbook);
-- **AgentSafetyBench v0** with the launch write-up (§11).
+- **AgentSafetyBench v0** with the launch write-up (§11);
+- a trademark check of "Agent Guard" before the launch copy is written (D-6).
 
 | Check | Statement |
 |---|---|
 | G0-01 | The inventory selects every row with evidence of a live call: `live_mode`, a non-empty `create_operation_id` or `provider_resource_id`, a live receipt, an `execute_live` attempt or a consumed authorization, across **all** statuses, including `failed`, `provisioning`, `status_unknown`, `status_checked` and `destroyed`-after-wrong-scope. It also includes RDS final snapshots, `local_postgres` artifacts and `sage` schemas in fleet-attached agent databases. Each item carries a per-provider delete template; golden tests pin the templates. |
 | G0-02 | `git grep -ilE 'agent[-_]?db\|agt_'` over the repo matches only the allowlist: the decommission package, migrations, CHANGELOG and `reviews/`. Removed routes return 404. The auth-middleware exemptions are gone. |
 | G0-03 | Per-detector fixture coverage on PG14–18. Version-specific arms skip with a recorded reason (AP-06 reports on PG14; AP-14's inheritance arm is PG14/15). Provider arms use recorded `cloudtel` fixtures. AP-12 uses two timed observations. |
-| G0-04 | The first look reports "Agent posture" within budget, with the perf gate green. On lifeos it adds less than 1 s. |
+| G0-04 | The first look reports "Agent posture" within budget, with the perf gate green. In `TestPerfGate` the posture statements run in the warm-up phase under gates A (no sequential scan of a large sage table) and D (no catalog statement over 500 ms, none cut off by a timeout), and a posture run triggered in the steady phase stays inside gates B (statement mean, DB time per cycle), C (rows written per cycle) and G (sidecar CPU per cycle). Posture statements carry the `/* pg_sage first_look */` tag, so `TestPerfGateFirstLook` (5 s small and 20 s large over 10k+ relations, no degraded check, no user-table scan) covers them; CI runs only `^TestPerfGate$` today, so G0 adds it. On lifeos it adds less than 1 s. |
 | G0-05 | No posture finding proposes above L1. |
 | G0-06 | A hash check finds none of the AU-10 secrets in tracked files (the strings aren't embedded in the test). The CHANGELOG gives rotation guidance, because the history keeps them. |
 | G0-07 | With `agentdb:` keys present (and `live_provisioning_enabled` false), startup warns and ignores them. With it true, startup refuses, naming §12. Persisted `agentdb.*` overrides are deleted, with an audit row. |
@@ -2008,7 +2069,8 @@ agent-days and indicative.
   `guard_freeze`/`guard_unfreeze`, §6.4, §6.5, §6.6, §6.7, the kill switch;
 - attribution views, `agent_whoami`, `agent_query` (reads, brokered), the Agents page;
 - provenance columns;
-- Guard reconcilers under v2.3's lease.
+- Guard reconcilers as fleet-wide jobs on v2.3's leader (`fleetLeaderAllows`), their writes
+  fenced by the lease epoch (`leader.Elector.Fence`), as fleet learning's are.
 
 **Rules in G1:**
 - Every grant is L2, operator-approved.
@@ -2025,7 +2087,7 @@ agent-days and indicative.
 | G1-05 | The kill, triggered during a 30 s brokered statement on the primary **and** one on a configured replica: within 10 s no agent backend remains on either, new logins fail on both and on an unconfigured standby, approvals are `cancelled_kill`, and both statements are cancelled. The report names the unconfigured standby and its timeout bound (SAFE-HUM-04). |
 | G1-06 | Unfreeze after a kill restores `prior_attrs` and rotates every credential: old passwords fail. |
 | G1-07 | After any Guard action, AP-02 is zero. |
-| G1-08 | A grant expires on schedule: privilege false within one reconcile interval, revoke audited, `GRANTED BY` the recorded grantor, no residue. |
+| G1-08 | A grant expires on schedule: privilege false within one reconcile interval (plus one leader-lease TTL, `fleet_learning.leader_lease_seconds`, 30 s, when the leader sidecar fails over), revoke audited, `GRANTED BY` the recorded grantor, no residue. |
 | G1-08b | The same with `emergency_stop` on and `trust.level: observation` (narrowing). |
 | G1-09 | Grantor without `GRANT OPTION` → `denied: grantor_lacks_privilege`, with the exact statement. Residue from another grantor → `revoke_incomplete`, and D10 denies the object. |
 | G1-10 | Attribution: each statement of a broker role appears in the principal's activity. When `pg_stat_statements_info.dealloc` advances, the view reports dropped attribution and falls back to `guard_query_audit`. |
@@ -2082,7 +2144,7 @@ agent-days and indicative.
 |---|---|
 | G3-01 | `DROP COLUMN` is `destructive`, rehearsed, L2, two people in `prod` (SAFE-BR-01). |
 | G3-02 | `ADD COLUMN … DEFAULT now()` reports the correct rewrite flag on PG14 and PG18, and the measured lock. |
-| G3-03 | `schema_migration` goes through `Executor.Apply`. A lock timeout retries 3 times, then halts, with no group left half-applied (SAFE-TOOL-05). |
+| G3-03 | `schema_migration` goes through `Executor.Apply`. A lock timeout retries 3 times, then halts, with no group left half-applied (SAFE-TOOL-05). A sidecar killed between groups resumes or rolls back from the recorded step on restart, as `replace_index` does. |
 | G3-04 | `rehearsal` returns `promote_expand` when the evidence, including the replayed-query evidence, is complete (B1). A blocked migration persists `blocked` (B2). |
 | G3-05 | Delayed drop: trashed with privileges revoked and publications detached. Restorable within 48 h. An agent's purge is denied (SAFE-BAK-05). |
 | G3-06 | A drill restores to T on a copy-on-write substrate. Checksums match. A table written during the drill is dropped from it, not failed. A stale drill caps `prod` writes at L2. With no such substrate, `prod` writes stay at L2 or below, and no full-instance restore is ever started (SAFE-BAK-04, D7). |
@@ -2093,7 +2155,7 @@ agent-days and indicative.
 | G3-11 | Direct lane: with a direct session open on an unconfigured standby, a kill blocks new logins there at once, and the open session ends within its `idle_session_timeout` or `statement_timeout` bound, as the kill report states. IAM-auth and operator-managed logins both work, and pg_sage stores no direct-lane password (GR-01, GR-07). |
 | G3-12 | The classifier marks `ALTER TABLE … DROP CONSTRAINT` and dropping a unique index `destructive`, and dropping a non-unique index `locking`. Their `down` step is the recorded `pg_get_constraintdef` or `pg_get_indexdef` (GR-04). |
 
-### 10.5 G4: agent estate operations (≈10 agent-days; needs v2.3)
+### 10.5 G4: agent estate operations (≈10 agent-days, to be re-estimated per O-5; builds on v2.3)
 
 | Check | Statement |
 |---|---|
@@ -2110,11 +2172,11 @@ agent-days and indicative.
 
 | Before | Gate |
 |---|---|
-| G0 | D-1 decided by you |
-| G1 | G0 shipped and the launch write-up published. **Pull metric**, measured for 6 weeks after launch: (a) a named design partner, or (b) ≥ 3 external GitHub issues, discussions or PRs about Agent Guard or the bench, or (c) ≥ 50 new stars. These thresholds are proposals; you set them (D-2). If the metric isn't met, G1 waits unless you decide otherwise |
+| G0 | D-1 decided by you. **Met:** decided on 2026-10-09 |
+| G1 | G0 shipped and the launch write-up published. **Pull metric**, measured for 6 weeks after launch: (a) a named design partner, or (b) ≥ 3 external GitHub issues, discussions or PRs about Agent Guard or the bench, or (c) ≥ 50 new stars. These thresholds are decided (D-2, 2026-10-09). If the metric isn't met, G1 waits unless you decide otherwise |
 | G2 | G1 dogfooded on lifeos with your Claude Code as the stdio principal, **read-only**, which keeps the lifeos rule. A kill drill passed. G1-13 receipts for at least 3 platforms. |
-| G3 | G2 used on sandboxes for 2 weeks with zero unexplained undo conflicts. Signing and SBOM shipped. A design partner for production writes, or your explicit go |
-| G4 | v2.3 `history.store: meta` and fingerprints merged. Neon adapter live-verified (G3-09). A design partner with ≥ 100 agent-created databases, or a scripted 500-branch Neon organization |
+| G3 | G2 used on sandboxes for 2 weeks with zero unexplained undo conflicts. Signing and SBOM shipped. A design partner for production writes (sought during G0 and G1, D-3), or your explicit go |
+| G4 | v2.3 `history.store: meta` and fingerprints merged. **Met** at `62d27f6e` (v2.3.0, 2026-10-07); they cover less of the observe tier than assumed (O-5). Neon adapter live-verified (G3-09). A design partner with ≥ 100 agent-created databases (D-3), or a scripted 500-branch Neon organization |
 
 ### 10.7 Enterprise track (reordered to the research)
 
@@ -2123,7 +2185,7 @@ agent-days and indicative.
 | **E1 (with G0)** | Encrypt API-set secrets at rest with key ids (CG-01). Serve TLS (CG-02). OIDC with PKCE, nonce and `id_token` validation (CG-03). Group → role mapping. pg_sage reads its *own* credentials from `*_FILE` paths, which every secrets manager can fill (Vault Agent, CSI drivers, External Secrets); no vendor SDKs (GR-11). Audit logins and user and role changes. A break-glass admin with an alert. A readiness endpoint |
 | **E2 (with G1)** | MCP as an OAuth 2.1 resource server with identity bindings (CG-06). SIEM export as OCSF over HTTP, syslog and OTLP. A hash-chained audit. pgaudit correlation. Evidence packs. A declarative, versioned file for principals, profiles and envelopes, with plan and apply semantics (PC-1, AP-5) |
 | **E3 (with G2)** | Per-database human RBAC (D4a option B). Data-owner and change-manager groups. SCIM deprovisioning → L0. ITSM change-record webhooks. Direct-lane login through cloud IAM database auth, or operator-managed passwords with a `VALID UNTIL` bound (needed by G3's direct lane; pg_sage delivers no agent credential, GR-11) |
-| **E4 (before G3)** | Signed images and SBOM (moved before production writes). A Helm chart with probes, `securityContext` and a PDB. Leader election reused from v2.3 (Guard reconcilers use it from G1) |
+| **E4 (before G3)** | Signed images and SBOM (moved before production writes). A Helm chart with probes, `securityContext` and a PDB. Leader election reused from v2.3 (`internal/leader`; Guard reconcilers use it from G1) |
 
 E checks are written per item before each release starts. Two examples:
 - E1-01: `SELECT value FROM sage.config WHERE key = 'llm.api_key'` returns ciphertext.
@@ -2215,10 +2277,15 @@ pg_sage must never forget a billed resource it created.
     `internal/api/auth_middleware.go:113-117`;
   - `cmd/pg_sage_sidecar/agentdb_*.go`;
   - `internal/retention/agent_rules.go` and the AgentDB entries in
-    `internal/retention/exemptions.go`.
+    `internal/retention/exemptions.go`;
+  - the `agentdb:` arm of `fleetlearn.Boundary` and its isolated boundary
+    (`internal/fleetlearn/shape.go:64-69`, `:79-84` and the `Isolated` call at
+    `similarity.go:87`, added in v2.3), with their cases in `shape_test.go`, `similarity_test.go`
+    and `cmd/pg_sage_sidecar/fleet_learning_wiring_test.go`. Guard databases carry a
+    `tenant=<tenant>` tag instead, which `Boundary` already honours.
 - **Config:**
-  - `internal/config/config.go:144-160`;
-  - the AgentDB parts of `internal/config/clone.go:23-35`;
+  - `internal/config/config.go:147-163`;
+  - the AgentDB parts of `internal/config/clone.go:23-37`;
   - `internal/config/key_classes.txt:112-116`;
   - AgentDB keys in `internal/store/config_helpers.go` and `internal/api/config_apply.go`.
 - **UI:** `web/src/pages/agentdb/` (20 files), `web/src/pages/AgentDBsPage.jsx` and its two
@@ -2251,18 +2318,22 @@ pg_sage must never forget a billed resource it created.
 
 ---
 
-## 14. Decisions for you
+## 14. Decisions
 
-| # | Decision | Recommendation |
-|---|---|---|
-| D-1 | **Delete AgentDB provisioning** (instances, Terraform, blueprints, project modes), keeping the narrowed broker as governed sandboxes and clones. The alternative, the research's: keep and harden the Neon and Lakebase branch runners and the reconciler as a provisioning product; freeze RDS | Delete. No user in five months; the hosts own the job; the narrowed broker survives as sandboxes |
-| D-2 | Pull-gate thresholds before G1 (§10.6) | A named design partner, or ≥ 3 external threads, or ≥ 50 stars in 6 weeks |
-| D-3 | A design partner for production writes (G3) and the estate (G4) | Seek one during G0 and G1 |
-| D-4 | Multi-team installs (D4a, never asked). If yes, move E3's per-database human RBAC before G1 | — |
-| D-5 | `single_operator_mode` for lifeos | On, with its review queue |
-| D-6 | The name "Agent Guard" (check trademarks before launch copy) | Yes |
-| D-7 | Hosted pg_sage in scope? It decides whether the brokered lane is customer-VPC only | Not before G2 |
-| D-8 | AGPL versus embedding by agent platforms (competitive §4.5) | Keep AGPL for now |
+All eight are settled as of 2026-10-09. You decided D-1, D-2, D-4 and D-7. D-3, D-5, D-6 and D-8
+are defaults taken under your delegation of product calls; each is marked "default, reversible"
+with its reason, and any of them can be changed by a later decision.
+
+| # | Question | Decision | Basis |
+|---|---|---|---|
+| D-1 | Delete AgentDB provisioning (instances, Terraform, blueprints, project modes)? The alternative, the research's: keep and harden the Neon and Lakebase branch runners and the reconciler as a provisioning product; freeze RDS | **Delete AgentDB provisioning.** The narrowed broker is kept as governed sandboxes and clones (§6.12) | Decided by you, 2026-10-09, as recommended: no user in five months; the hosts own the job; the narrowed broker survives as sandboxes |
+| D-2 | Pull-gate thresholds before G1 (§10.6) | **Adopted:** a named design partner, or ≥ 3 external threads, or ≥ 50 stars, within 6 weeks of the G0 launch | Decided by you, 2026-10-09 |
+| D-3 | A design partner for production writes (G3) and the estate (G4) | **Seek one during G0 and G1** | Default, reversible: the G3 and G4 gates name a design partner (§10.6), and one also meets the pull gate (D-2) |
+| D-4 | Multi-team installs (D4a, never asked)? If yes, move E3's per-database human RBAC before G1 | **Not now.** No multi-team installs; E3's per-database human RBAC is not moved before G1 | Decided by you, 2026-10-09 |
+| D-5 | `single_operator_mode` for lifeos | **On**, with its post-hoc review queue (§6.11) | Default, reversible: lifeos has one operator, so two-person rules would otherwise leave every widening action pending; the queue keeps each approval reviewable, and one key turns it off |
+| D-6 | The name "Agent Guard" | **Agent Guard**, pending a trademark check before the launch copy (§10.1) | Default, reversible: it names job 2 and ends the collision with agentdb.dev (competitive §0.10); renaming before the launch copy is cheap |
+| D-7 | Hosted pg_sage in scope? It decides whether the brokered lane is customer-VPC only | **Not before G2.** Hosted pg_sage is out of scope until G2, so the brokered lane stays customer-VPC only until then (§5.1); revisit at G2 | Decided by you, 2026-10-09 |
+| D-8 | AGPL versus embedding by agent platforms (competitive §4.5) | **Keep AGPL for now** | Default, reversible: AGPL suits the self-hosted buyer, and no embedding request is recorded; revisit if an agent platform asks |
 
 **Open technical items:**
 - **O-1:** managed-service privileges for role settings, event triggers and `pg_control_system()`
@@ -2270,6 +2341,15 @@ pg_sage must never forget a billed resource it created.
 - **O-2:** pgx support for OAUTHBEARER on PG18 `oauth`.
 - **O-3:** the PG18 grammar in pg_query_go.
 - **O-4:** Neon, Supabase and Lakebase usage and state field names (a G4 live run).
+- **O-5:** where the observe tier keeps its results (found in the 2026-10-09 refresh). The G4 gate
+  assumed v2.3's `history.store: meta` would take the `sage` schema out of estate databases. It
+  moves only `sage.snapshots` and `sage.query_store` (`internal/histstore`). Findings, first-look
+  reports (`sage.first_look`) and the action log stay in each monitored database, and pg_sage
+  bootstraps a `sage` schema in every one (`docs/configuration.md`, "Where pg_sage keeps its
+  data"). v2.3 fleet findings also read `sage.findings` in each database
+  (`internal/fleetlearn/findings.go`). The observe-tier design still holds (G4-02), but G4 must
+  also keep observe-tier findings, first-look reports and posture results in the meta DB, where
+  fleet findings can read them. The G4 effort (≈10 agent-days) is re-estimated before G4 starts.
 
 ---
 
@@ -2453,7 +2533,7 @@ pg_sage must never forget a billed resource it created.
 | 62 | P2 | AP-10 thresholds, AP-06 on PG14, anchored hints, AP-13 privilege, cadence, G0-03 coverage |
 | 63 | P2 | §0 and §1 claims restated per the research; named rivals; standard change hedged |
 | 64 | P2 | Corrected: AU-07 ids, sources, Neon and Lakebase TTL origins, "45 products" removed, D4b noted, `template` timing, memory in §1.2, DP-24 receipt |
-| 65 | P2 | G1-13; PR #130 fallback; v2.3 lease reused; versions at cut |
+| 65 | P2 | G1-13; first-look budget (PR #130's change, shipped in v2.2.1, so the fallback is gone); v2.3 leader lease reused; versions at cut |
 | 66 | P2 | SQL-side expiries; `QueryExecModeExec`; replica option; read-only hint; dealloc reporting. **Deferred:** sqlcommenter tags (attribution is by role, which is stronger) |
 | 67 | P2 | E track reordered; pgaudit correlation; signing before G3; declarative file |
 | 68 | P1 | Appendix A complete with out-of-scope reasons; new checks G1-14, G2-16, G2-17; extended G1-01 |
@@ -2471,6 +2551,8 @@ pg_sage must never forget a billed resource it created.
 - **Self-review:** `spec-review.md`.
 - **External review:** `gemini-review.md` (the raw review, how it was run, and a disposition per
   finding).
+- **Baseline refresh:** `baseline-refresh.md` (2026-10-09): every code citation re-checked at
+  `62d27f6e` (from `72646ab1`), with its status, and the v2.2.1–v2.3.1 deltas folded in.
 
 ## Appendix D: disposition of the external review (`gemini-review.md`)
 
