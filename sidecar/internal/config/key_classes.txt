@@ -51,6 +51,7 @@ safety_critical mcp.oauth.enabled
 safety_critical mcp.oauth.issuers
 safety_critical mcp.oauth.resource
 safety_critical mcp.oauth.task_claim
+safety_critical mcp.stdio_principal
 safety_critical notification_policy.allow_private_targets
 safety_critical policy.profile
 safety_critical self_config.enabled
@@ -514,3 +515,16 @@ operator_preference audit.siem.interval_seconds
 operator_preference audit.siem.max_backoff_seconds
 operator_preference audit.pgaudit.correlate
 operator_preference audit.verify_interval_hours
+safety_critical agents.roles.connection_limit
+safety_critical agents.roles.statement_timeout_ms
+safety_critical agents.roles.lock_timeout_ms
+safety_critical agents.roles.idle_in_transaction_timeout_ms
+safety_critical agents.roles.idle_session_timeout_ms
+safety_critical agents.roles.transaction_timeout_ms
+safety_critical agents.roles.temp_file_limit_mb
+safety_critical agents.roles.retire_grace_days
+safety_critical agents.broker.rotation_days
+safety_critical agents.broker.pool_max_conns
+safety_critical agents.broker.pool_idle_seconds
+safety_critical agents.broker.max_total_connections
+safety_critical agents.single_operator_mode

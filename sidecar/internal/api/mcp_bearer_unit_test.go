@@ -119,8 +119,8 @@ func TestMCPTokenRoutesStorageFailureIsInternal(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 	require.NotContains(t, w.Body.String(), "closed pool", "storage details stay server-side")
 
-	body := `{"name":"x","kind":"agent","scopes":["read"],"databases":["orders"],` +
-		`"expires_in_days":7}`
+	body := `{"name":"x","kind":"operator","scopes":["read"],"databases":["orders"],` +
+		`"expires_in_days":7,"owner_user_id":7}`
 	w = httptest.NewRecorder()
 	createMCPTokenHandler(store)(w, inject(httptest.NewRequest(http.MethodPost,
 		"/api/v1/mcp/tokens", strings.NewReader(body))))

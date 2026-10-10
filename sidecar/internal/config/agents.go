@@ -16,6 +16,10 @@ type AgentsConfig struct {
 	ExposedRoles   []string            `yaml:"exposed_roles" doc:"Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none."`
 	ClientPatterns []string            `yaml:"client_patterns" doc:"Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai."`
 	Posture        AgentsPostureConfig `yaml:"posture"`
+	// Roles, Broker and SingleOperatorMode are the G1 core (agents_core.go).
+	Roles              AgentsRolesConfig  `yaml:"roles"`
+	Broker             AgentsBrokerConfig `yaml:"broker"`
+	SingleOperatorMode bool               `yaml:"single_operator_mode" doc:"Lets one person approve a widening agent change (profile, ceiling, unfreeze after a kill) with a recorded reason; each such approval enters a review queue. Default: false."`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -38,7 +42,8 @@ func DefaultClientPatterns() []string {
 func defaultAgentsConfig() AgentsConfig {
 	return AgentsConfig{ClientPatterns: DefaultClientPatterns(),
 		Posture: AgentsPostureConfig{MemoryGrowthGBDay: DefaultPostureMemoryGrowthGBDay,
-			DailyAt: DefaultPostureDailyAt}}
+			DailyAt: DefaultPostureDailyAt},
+		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker()}
 }
 
 func (a AgentsConfig) validate() error {
@@ -59,7 +64,7 @@ func (a AgentsConfig) validate() error {
 	if _, _, err := ParseDailyAt(a.Posture.DailyAt); err != nil {
 		return fmt.Errorf("agents.posture.daily_at: %w", err)
 	}
-	return nil
+	return a.validateCore()
 }
 
 // ValidExposedRole checks one agents.exposed_roles entry: a role name,

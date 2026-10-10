@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
@@ -89,6 +90,8 @@ func newLiveFixtureWith(t *testing.T, runner sre.ProbeRunner) *liveFixture {
 			Databases: []string{"billing"}},
 	} {
 		req.Kind, req.ExpiresIn, req.CreatedBy = mcptoken.KindAgent, 24*time.Hour, "admin"
+		// From G1 an agent token acts for an agent principal (§6.4).
+		req.PrincipalID = livePrincipal(t, pool, label)
 		tok, err := tokens.Create(ctx, req)
 		if err != nil {
 			t.Fatal(err)
@@ -198,4 +201,17 @@ func TestLive_ScopesDatabasesAndRevocation(t *testing.T) {
 	if w.Code != 401 || errorBody(t, w).Code != "unauthenticated" {
 		t.Fatalf("revoked token: %d %s", w.Code, w.Body.String())
 	}
+}
+
+// livePrincipal creates an agent principal for one of the fixture's
+// external systems.
+func livePrincipal(t *testing.T, pool *pgxpool.Pool, label string) string {
+	t.Helper()
+	p, err := agentguard.NewStore(pool).Create(context.Background(), agentguard.CreateRequest{
+		Name:    fmt.Sprintf("specialist-%s-%d", label, time.Now().UnixNano()),
+		Profile: "readonly-analyst", EnvCeiling: agentguard.EnvProd, CreatedBy: "admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.ID
 }
