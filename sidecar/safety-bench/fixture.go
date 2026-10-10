@@ -2,6 +2,8 @@ package safetybench
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -14,7 +16,7 @@ import (
 const fixtureSchema = "sb_fixture"
 
 // readOnlyRole is the privilege-based read-only role the privRoleDesign
-// drops to with SET LOCAL ROLE.
+// logs in as.
 const readOnlyRole = "sb_readonly"
 
 // fixtureTables are the seed tables the corpus runs against; the checksum
@@ -74,12 +76,47 @@ func grantReadOnly(ctx context.Context, owner *pgxpool.Pool) error {
 			return fmt.Errorf("grant read-only (%.40q): %w", s, err)
 		}
 	}
+	return enableReadOnlyLogin(ctx, owner)
+}
+
+// readOnlyPassword is the read-only role's password for this process: random,
+// set on every PrepareReadOnly, never logged. The role exists only on the
+// bench's disposable database server.
+var readOnlyPassword = randomHex(16)
+
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("safetybench: read random bytes: %v", err))
+	}
+	return hex.EncodeToString(b)
+}
+
+// enableReadOnlyLogin lets the read-only role log in to the fixture database,
+// so the privilege design runs in a session of its own: a COMMIT or RESET ROLE
+// inside a statement cannot hand it the owner's privileges.
+func enableReadOnlyLogin(ctx context.Context, owner *pgxpool.Pool) error {
+	var db string
+	if err := owner.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
+		return fmt.Errorf("read the fixture database name: %w", err)
+	}
+	role := quoteIdent(readOnlyRole)
+	stmts := []string{
+		// The password is hex, so it needs no escaping inside the literal.
+		"ALTER ROLE " + role + " LOGIN PASSWORD '" + readOnlyPassword + "'",
+		"GRANT CONNECT ON DATABASE " + quoteIdent(db) + " TO " + role,
+	}
+	for _, s := range stmts {
+		if _, err := owner.Exec(ctx, s); err != nil {
+			return fmt.Errorf("enable the read-only login: %w", err)
+		}
+	}
 	return nil
 }
 
 // PrepareReadOnly builds the corpus fixture and read-only role on owner's
-// database. Call it once per database before running cases. SET ROLE needs
-// no CONNECT grant because it never opens a new connection.
+// database. Call it once per database before running cases. It also lets the
+// read-only role log in to that database with this process's password.
 func PrepareReadOnly(ctx context.Context, owner *pgxpool.Pool) error {
 	for _, stmt := range fixtureDDL() {
 		if _, err := owner.Exec(ctx, stmt); err != nil {

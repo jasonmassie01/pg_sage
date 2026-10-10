@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/explain"
@@ -42,30 +43,30 @@ func (readOnlyTxnDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql s
 	return execErr
 }
 
-// privRoleDesign runs the statement as a privilege-based read-only role via
-// SET ROLE. The role (roleName) holds CONNECT, USAGE and SELECT only, so a
-// write fails with 42501 regardless of transaction mode. It models the
-// design the bypass taxonomy concludes is the one that holds: privileges on
-// the database role.
+// privRoleDesign runs the statement in a session logged in as a
+// privilege-based read-only role. The role (roleName) holds CONNECT, USAGE
+// and SELECT only, so a write fails with 42501 regardless of transaction
+// mode. It models the design the bypass taxonomy concludes is the one that
+// holds: privileges on the database role. A session of its own matters: in
+// the owner's session after SET LOCAL ROLE, a COMMIT or RESET ROLE inside
+// the statement would hand the write the owner's privileges.
 type privRoleDesign struct{ roleName string }
 
 func (d privRoleDesign) Name() string { return "privilege_role" }
 
 func (d privRoleDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql string) error {
-	conn, err := owner.Acquire(ctx)
+	cfg := owner.Config().ConnConfig.Copy()
+	cfg.User, cfg.Password = d.roleName, readOnlyPassword
+	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("acquire: %w", err)
+		return fmt.Errorf("log in as %s: %w", d.roleName, err)
 	}
-	defer conn.Release()
-	// A transaction lets us SET LOCAL ROLE and roll everything back,
-	// including the role change, whatever the statement does.
+	defer func() { _ = conn.Close(context.Background()) }()
+	// Roll back whatever a refused statement left open.
 	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
 	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
-	if _, err := conn.Exec(ctx, "SET LOCAL ROLE "+quoteIdent(d.roleName)); err != nil {
-		return fmt.Errorf("set role: %w", err)
-	}
 	_, execErr := conn.Exec(ctx, sql)
 	return execErr
 }

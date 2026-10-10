@@ -112,6 +112,37 @@ func TestDesigns_ClassifyRefusal(t *testing.T) {
 	}
 }
 
+// TestPrivilegeRoleHoldsAcrossTransactionAndRoleResets: the privilege design
+// is a session logged in as the read-only role, not the owner's session
+// after SET LOCAL ROLE, which a COMMIT or RESET ROLE inside the statement
+// would end. Either reset still leaves the write refused for privilege.
+func TestPrivilegeRoleHoldsAcrossTransactionAndRoleResets(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	pool := newPool(ctx, t)
+	if err := PrepareReadOnly(ctx, pool); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	before, err := snapshot(ctx, pool, fixtureTables())
+	if err != nil {
+		t.Fatalf("before: %v", err)
+	}
+	priv := privRoleDesign{roleName: readOnlyRole}
+	for _, escape := range []string{"COMMIT", "RESET ROLE", "SET SESSION AUTHORIZATION DEFAULT"} {
+		sql := escape + "; INSERT INTO sb_fixture.widgets (id, qty) VALUES (77, 77)"
+		if got := classify(priv.Attempt(ctx, pool, sql)); got != ClassPrivilege {
+			t.Errorf("%q: observed %s, want privilege_error", escape, got)
+		}
+	}
+	after, err := snapshot(ctx, pool, fixtureTables())
+	if err != nil {
+		t.Fatalf("after: %v", err)
+	}
+	if !before.Equal(after) {
+		t.Fatal("a reset inside the statement let the read-only role write")
+	}
+}
+
 // TestDesigns_AllowBenignRead confirms the harness distinguishes a refusal
 // from an execution: a plain SELECT executes under every design (so it would
 // show as NOT HELD if it were a corpus case), proving the designs do not
