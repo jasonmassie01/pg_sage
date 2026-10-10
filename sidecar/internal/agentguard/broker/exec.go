@@ -62,7 +62,7 @@ func (c *call) connectFailure(p agentguard.Principal, err error) (Result, error)
 // path, set in this transaction so no statement can lift them (RO-15).
 func (c *call) begin(ctx context.Context, pg *pgconn.PgConn) error {
 	path := []string{"pg_catalog"}
-	for _, s := range c.b.cfg.SearchPath {
+	for _, s := range c.path {
 		path = append(path, pgx.Identifier{s}.Sanitize())
 	}
 	path = append(path, "pg_temp")

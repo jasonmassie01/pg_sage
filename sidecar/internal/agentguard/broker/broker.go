@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/agentguard/decide"
@@ -44,6 +45,18 @@ func (b *Broker) Close() { b.pools.evict("") }
 // Evict closes a principal's broker connections (a freeze or kill).
 func (b *Broker) Evict(principalID string) { b.pools.evict(principalID) }
 
+// roleNamer lets a Logins source name a broker role other than the core's
+// sage_agentb_<id10> (AgentSafetyBench's fixture role).
+type roleNamer interface{ BrokerRoleName(principalID string) string }
+
+// roleOf is the broker role the principal logs in as.
+func (b *Broker) roleOf(principalID string) string {
+	if n, ok := b.deps.Logins.(roleNamer); ok {
+		return n.BrokerRoleName(principalID)
+	}
+	return agentguard.BrokerRoleName(principalID)
+}
+
 // call is one agent_query in flight.
 type call struct {
 	b       *Broker
@@ -53,6 +66,8 @@ type call struct {
 	params  [][]byte
 	maxRows int
 	rec     AuditRecord
+	// path is the profile schemas of the search path (grantedSchemas).
+	path []string
 }
 
 // Query runs one agent read. Refusals and database errors are results;
@@ -152,7 +167,12 @@ func (c *call) run(ctx context.Context) (Result, error) {
 // decideAndRun asks the gate (kind read, with the touched objects), then
 // opens the broker login and executes.
 func (c *call) decideAndRun(ctx context.Context, read sqlast.BrokeredRead) (Result, error) {
-	rels, err := resolveRelations(ctx, c.t.Pool, read.Query, c.b.cfg.SearchPath)
+	path, err := grantedSchemas(ctx, c.t.Pool, c.b.roleOf(c.id.Principal.ID))
+	if err != nil {
+		return Result{}, err
+	}
+	c.path = path
+	rels, err := resolveRelations(ctx, c.t.Pool, read.Query, c.path)
 	if err != nil {
 		return Result{}, err
 	}
@@ -161,7 +181,11 @@ func (c *call) decideAndRun(ctx context.Context, read sqlast.BrokeredRead) (Resu
 		Database: c.t.Name, Objects: objectsOf(rels), TaskID: c.id.TaskID})
 	c.rec.Step = v.Step
 	if !v.Allowed {
-		return blocked(string(v.Reason), v.Detail, v.Fix), nil
+		res := blocked(string(v.Reason), v.Detail, v.Fix)
+		if v.Park {
+			res.RetryAfterSeconds = int(math.Ceil(v.RetryAfter.Seconds()))
+		}
+		return res, nil
 	}
 	p := v.Principal
 	if p.ID == "" {
@@ -170,6 +194,10 @@ func (c *call) decideAndRun(ctx context.Context, read sqlast.BrokeredRead) (Resu
 	role, password, err := c.b.deps.Logins.BrokerLogin(ctx, p.ID, c.t.ClusterKey)
 	if res, failed, err := loginRefusal(err); failed {
 		return res, err
+	}
+	if role != c.b.roleOf(p.ID) {
+		return Result{}, fmt.Errorf("%w: the broker credential names role %q, not the "+
+			"agent's broker role", ErrUnavailable, role)
 	}
 	c.rec.BrokerRole = role
 	return c.execute(ctx, p, role, password, read, rels, v)

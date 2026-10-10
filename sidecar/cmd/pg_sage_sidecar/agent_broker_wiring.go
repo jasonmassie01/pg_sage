@@ -70,6 +70,9 @@ func buildAgentBroker(ctx context.Context, c *config.Config,
 	b, err := broker.New(agentBrokerConfig(c), broker.Deps{Targets: targets,
 		Logins:  agentLogins{store: store, kr: kr},
 		Decider: sharedDecider{}, Classes: broker.StoreClasses{}, Audit: broker.SQLAudit{},
+		// Unmasked stays nil (no column is unmasked) until agents.unmask
+		// lands with the two-person widening path of §6.11 (G2); the gate's
+		// decide.DefaultProfiles is likewise the stand-in for agents.profiles.
 		Roles: store, Databases: func(context.Context) []string { return fleetNames(mgr) },
 		TrustLevel: func() string { return c.Trust.Level },
 		Log: func(level, msg string, args ...any) {

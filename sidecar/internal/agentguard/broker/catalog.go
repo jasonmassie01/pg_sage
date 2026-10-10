@@ -76,6 +76,37 @@ func resolveRelations(ctx context.Context, pool *pgxpool.Pool, q sqlast.ReadQuer
 	return out, nil
 }
 
+// grantedSchemas are the schemas of the search path (spec §6.8, "profile
+// schemas"): those whose USAGE the broker role holds by a grant naming it,
+// sorted. A schema it reaches only through PUBLIC (public, by default) is
+// left out, so a name the agent uses unqualified never resolves to an
+// object planted where anyone may create. System and pg_sage schemas are
+// never on it.
+func grantedSchemas(ctx context.Context, pool *pgxpool.Pool, role string) ([]string,
+	error) {
+	rows, err := pool.Query(ctx, `/* pg_sage agent_query v1 */
+		SELECT DISTINCT n.nspname::text
+		FROM pg_catalog.pg_namespace n, pg_catalog.aclexplode(n.nspacl) a
+		WHERE n.nspacl IS NOT NULL AND a.privilege_type = 'USAGE'
+		  AND a.grantee = (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1)
+		  AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'sage', 'sage_guard')
+		  AND n.nspname !~ '^pg_'
+		ORDER BY 1`, role)
+	if err != nil {
+		return nil, fmt.Errorf("%w: reading the agent's schemas: %v", ErrUnavailable, err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, fmt.Errorf("%w: reading the agent's schemas: %v", ErrUnavailable, err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // objectsOf is the gate's view of what the statement touches (D5).
 func objectsOf(rels []relation) []decide.Object {
 	out := make([]decide.Object, 0, len(rels))

@@ -120,6 +120,9 @@ func (benchLogins) BrokerLogin(context.Context, string, string) (string, string,
 	return agentQueryRole, agentQueryPassword, nil
 }
 
+// BrokerRoleName names the bench's fixture role as the broker login.
+func (benchLogins) BrokerRoleName(string) string { return agentQueryRole }
+
 type benchDecider struct{}
 
 func (benchDecider) Decide(_ context.Context, req decide.Request) decide.Verdict {

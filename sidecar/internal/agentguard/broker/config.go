@@ -2,7 +2,6 @@ package broker
 
 import (
 	"fmt"
-	"regexp"
 	"time"
 )
 
@@ -15,8 +14,6 @@ type Config struct {
 	// transaction, so a statement cannot lift them (RO-15).
 	StatementTimeout time.Duration
 	LockTimeout      time.Duration
-	// SearchPath is the profile schemas, between pg_catalog and pg_temp.
-	SearchPath []string
 	// PoolMaxConns is per (principal, database); MaxTotalConns bounds the
 	// broker's connections across every agent.
 	PoolMaxConns  int
@@ -28,11 +25,9 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{MaxRows: 200, MaxRowsCeiling: 1000, MaxBytes: 1 << 20,
 		StatementTimeout: 30 * time.Second, LockTimeout: time.Second,
-		SearchPath: []string{"public"}, PoolMaxConns: 2, MaxTotalConns: 20,
+		PoolMaxConns: 2, MaxTotalConns: 20,
 		PoolIdle: time.Minute}
 }
-
-var schemaName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_$]{0,62}$`)
 
 // Validate checks every bound.
 func (c Config) Validate() error {
@@ -48,11 +43,6 @@ func (c Config) Validate() error {
 			"max_total_connections")
 	case c.PoolIdle <= 0:
 		return invalidf("pool_idle must be positive")
-	}
-	for _, s := range c.SearchPath {
-		if !schemaName.MatchString(s) {
-			return invalidf("search path entry %q is not a plain schema name", s)
-		}
 	}
 	return nil
 }

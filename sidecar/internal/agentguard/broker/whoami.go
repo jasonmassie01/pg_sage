@@ -87,7 +87,7 @@ func (b *Broker) databaseView(ctx context.Context, id agentguard.Identity, name 
 	if err := b.addLanes(ctx, &view, id.Principal.ID, t, v.Allowed); err != nil {
 		return DatabaseView{}, false, err
 	}
-	grants, err := brokerGrants(ctx, t.Pool, agentguard.BrokerRoleName(id.Principal.ID))
+	grants, err := brokerGrants(ctx, t.Pool, b.roleOf(id.Principal.ID))
 	if err != nil {
 		return DatabaseView{}, false, err
 	}
