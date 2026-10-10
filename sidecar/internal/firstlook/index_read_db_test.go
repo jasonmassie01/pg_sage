@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // The index read took 436-540 ms at 15,000 indexes on CI, over the 500 ms
@@ -131,18 +133,15 @@ func TestIndexReadMatchesTheStatisticsViewJoin(t *testing.T) {
 		"CREATE INDEX t_part ON idxread.t (b) WHERE a = 1",
 		"CREATE INDEX t_expr ON idxread.t (lower(b))",
 		"ANALYZE idxread.t",
-		"SET enable_seqscan = off",
-		"SELECT count(*) FROM idxread.t WHERE a = 3",
-		"SELECT pg_stat_force_next_flush()",
-		"RESET enable_seqscan",
 	} {
-		if _, err := admin.Exec(ctx, s); err != nil && !strings.Contains(s, "flush") {
+		if _, err := admin.Exec(ctx, s); err != nil {
 			t.Fatalf("%s: %v", s, err)
 		}
 	}
 	t.Cleanup(func() {
 		_, _ = admin.Exec(context.Background(), "DROP SCHEMA IF EXISTS idxread CASCADE")
 	})
+	scanOnce(t, ctx, admin, "SELECT count(*) FROM idxread.t WHERE a = 3")
 	tx := snapshotTx(t, ctx, admin)
 	want := legacyIndexes(t, ctx, tx, viewJoinIndexesSQL, maxIndexRows)
 	got, truncated, err := readIndexes(ctx, tx)
@@ -155,6 +154,26 @@ func TestIndexReadMatchesTheStatisticsViewJoin(t *testing.T) {
 	requireSameIndexes(t, got, want)
 	if scans := byName(t, got, "idxread", "t_a").Scans; scans < 1 {
 		t.Fatalf("t_a was scanned, the read says %d scans", scans)
+	}
+}
+
+// scanOnce runs query by index on one session and flushes that session's
+// statistics, so the scan is counted before the read (PostgreSQL 14's
+// collector applies reports asynchronously).
+func scanOnce(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query string) {
+	t.Helper()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	for _, s := range []string{"SET enable_seqscan = off", query, "RESET enable_seqscan"} {
+		if _, err := conn.Exec(ctx, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	if err := testdb.FlushStats(ctx, conn); err != nil {
+		t.Fatalf("flush statistics: %v", err)
 	}
 }
 
