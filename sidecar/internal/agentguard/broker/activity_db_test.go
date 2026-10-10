@@ -36,12 +36,16 @@ func (f *fixture) activity(t *testing.T) Activity {
 }
 
 // runTagged runs n distinct agent queries, each with an alias naming it.
+// pg_stat_statements ignores aliases when it groups statements, so each
+// query also selects a different number of columns: n separate entries.
 func (f *fixture) runTagged(t *testing.T, n int) []string {
 	t.Helper()
 	var tags []string
 	for i := 0; i < n; i++ {
 		tag := fmt.Sprintf("g110_%s_%d", f.schema[3:], i)
-		res := f.query(t, fmt.Sprintf("SELECT id AS %s FROM items WHERE id = $1", tag), "1")
+		extra := strings.Repeat(", id", i)
+		res := f.query(t, fmt.Sprintf("SELECT id AS %s%s FROM items WHERE id = $1", tag,
+			extra), "1")
 		require.True(t, res.Status == StatusOK, "query %d: %+v", i, res)
 		tags = append(tags, tag)
 	}
@@ -149,6 +153,9 @@ func TestActivityReportsDeallocAndFallsBack(t *testing.T) {
 	require.NoError(t, schema.Bootstrap(ctx, pool))
 	ensurePSS(t, pool)
 	f := newFixtureOn(t, pool, envbind.EnvProd)
+	// Bootstrap and the fixture alone overflow 100 entries; start the
+	// attribution window from a clean slate (this server is the test's own).
+	exec(t, pool, "SELECT pg_stat_statements_reset()")
 	f.runTagged(t, 2)
 	if a := f.activity(t); a.Attribution.Dropped {
 		t.Fatalf("before eviction: %+v, want complete", a.Attribution)

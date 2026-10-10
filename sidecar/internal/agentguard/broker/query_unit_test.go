@@ -89,7 +89,7 @@ func TestQueryForbiddenCharactersBlockedBeforeParsing(t *testing.T) {
 	audit := deps.Audit.(*memAudit)
 	b := newFakeBroker(t, deps)
 	ctx := withAgent(context.Background(), testPrincipal(), nil)
-	res, err := b.Query(ctx, Request{Database: "db", SQL: "SELECT 1 ‮-- x"})
+	res, err := b.Query(ctx, Request{Database: "db", SQL: "SELECT 1 \u202E-- x"})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}

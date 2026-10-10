@@ -25,17 +25,17 @@ func TestForbiddenRune(t *testing.T) {
 		name string
 		r    rune
 	}{
-		{"soft hyphen (Cf)", '­'},
-		{"private use (Co)", ''},
+		{"soft hyphen (Cf)", '\u00AD'},
+		{"private use (Co)", '\uE000'},
 		{"tag block", '\U000E0041'},
 		{"tag block end", '\U000E007F'},
-		{"bidi override", '‮'},
-		{"bidi embedding start", '‪'},
-		{"bidi isolate", '⁦'},
-		{"bidi isolate end", '⁩'},
-		{"zero-width space", '​'},
-		{"zero-width joiner", '‍'},
-		{"byte order mark", '﻿'},
+		{"bidi override", '\u202E'},
+		{"bidi embedding start", '\u202A'},
+		{"bidi isolate", '\u2066'},
+		{"bidi isolate end", '\u2069'},
+		{"zero-width space", '\u200B'},
+		{"zero-width joiner", '\u200D'},
+		{"byte order mark", '\uFEFF'},
 	}
 	for _, c := range bad {
 		sql := "SELECT 'a" + string(c.r) + "b'"
@@ -45,8 +45,9 @@ func TestForbiddenRune(t *testing.T) {
 				found, c.r, len("SELECT 'a"))
 		}
 	}
-	for _, ok := range []string{"SELECT 'café', 'Ünïcödé', '日本'", "SELECT 1\n\tFROM t",
-		"", "SELECT 'emoji 😀'"} {
+	for _, ok := range []string{"SELECT 'caf\u00E9', '\u00DCn\u00EFc\u00F6d\u00E9', '\u65E5\u672C'",
+		"SELECT 1\n\tFROM t",
+		"", "SELECT 'emoji \U0001F600'"} {
 		if r, _, found := forbiddenRune(ok); found {
 			t.Errorf("%q: flagged %U, want accepted", ok, r)
 		}
