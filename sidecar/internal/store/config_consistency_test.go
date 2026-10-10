@@ -78,6 +78,8 @@ var excludedExactKeys = map[string]bool{
 	// are YAML only and restart-bound, like decisions_days.
 	"retention.query_store_days":  true,
 	"retention.snapshots_max_pct": true,
+	// The sign-in audit window (E1) is YAML only, like decisions_days.
+	"retention.auth_audit_days": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
