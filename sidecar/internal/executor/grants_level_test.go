@@ -112,6 +112,12 @@ func TestExecutesActions(t *testing.T) {
 // beyond CONNECT; it is never a member of pg_signal_backend.
 func grantsRole(t *testing.T, dsn string) (*pgxpool.Pool, string) {
 	t.Helper()
+	return grantsRoleNamed(t, dsn, fmt.Sprintf("grants_%06x", time.Now().UnixNano()&0xffffff))
+}
+
+// grantsRoleNamed is grantsRole with the role name chosen by the caller.
+func grantsRoleNamed(t *testing.T, dsn, role string) (*pgxpool.Pool, string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	t.Cleanup(cancel)
 	admin, err := pgxpool.New(ctx, dsn)
@@ -119,7 +125,6 @@ func grantsRole(t *testing.T, dsn string) (*pgxpool.Pool, string) {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(admin.Close)
-	role := fmt.Sprintf("grants_%06x", time.Now().UnixNano()&0xffffff)
 	rq := pgx.Identifier{role}.Sanitize()
 	if _, err := admin.Exec(ctx, "CREATE ROLE "+rq+" LOGIN PASSWORD 'pw_"+role+"'"); err != nil {
 		t.Fatalf("create role: %v", err)
