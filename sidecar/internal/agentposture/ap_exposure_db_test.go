@@ -207,3 +207,24 @@ func TestAP07_PublicCreateOnSchemas(t *testing.T) {
 func dropSchema(f *fixture, name string) {
 	_, _ = f.pool.Exec(f.ctx, "DROP SCHEMA IF EXISTS "+name+" CASCADE")
 }
+
+// Objects an extension owns are not the operator's grants: pg_hint_plan's
+// hint_plan.hints is readable by PUBLIC by design, and enabling RLS on an
+// extension's table is not a fix anyone can apply. AP-03 and AP-06 skip
+// extension members.
+func TestAP03_SkipsExtensionMembers(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.pool.Exec(f.ctx, "CREATE EXTENSION IF NOT EXISTS pg_hint_plan"); err != nil {
+		t.Skipf("recorded skip: pg_hint_plan is not installed on this server: %v", err)
+	}
+	var public bool
+	if err := f.pool.QueryRow(f.ctx, `SELECT EXISTS (SELECT 1 FROM pg_class c
+		CROSS JOIN LATERAL aclexplode(c.relacl) a
+		WHERE c.oid = 'hint_plan.hints'::regclass AND a.grantee = 0)`).Scan(&public); err != nil {
+		t.Fatal(err)
+	}
+	if !public {
+		t.Fatal("hint_plan.hints is not granted to PUBLIC: the control case is gone")
+	}
+	requireNoFinding(t, f.run("AP-03", f.env(nil)), "hint_plan.hints")
+}
