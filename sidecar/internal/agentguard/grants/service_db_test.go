@@ -100,7 +100,8 @@ func TestRequestCapability_DeniedAndRecorded(t *testing.T) {
 	got, err := GetRequest(context.Background(), f.super, res.RequestID)
 	require.NoError(t, err)
 	require.Equal(t, RequestRecorded, got.Status)
-	_, err = f.service(allow()).Approve(context.Background(), f.db, res.RequestID, 1)
+	_, err = f.service(allow()).Approve(context.Background(), f.db, f.p.ID,
+		res.RequestID, 1)
 	require.ErrorIs(t, err, ErrRequestNotPending)
 }
 
@@ -139,7 +140,7 @@ func TestApprove_GrantsOnceAndRecordsTheApprover(t *testing.T) {
 	res, err := s.RequestCapability(ctx, f.p.ID, f.capability("id"))
 	require.NoError(t, err)
 	approver := *f.p.SponsorUserID
-	out, err := s.Approve(ctx, f.db, res.RequestID, approver)
+	out, err := s.Approve(ctx, f.db, f.p.ID, res.RequestID, approver)
 	require.NoError(t, err)
 	require.True(t, f.can(t, f.p.BrokerRole(), "id"))
 	got, err := GetRequest(ctx, f.super, res.RequestID)
@@ -152,9 +153,9 @@ func TestApprove_GrantsOnceAndRecordsTheApprover(t *testing.T) {
 		FROM sage.action_log WHERE id = $1`, out.ActionID).Scan(&approvedBy, &approvalID))
 	require.Equal(t, int64(approver), approvedBy)
 	require.Equal(t, res.RequestID, approvalID)
-	_, err = s.Approve(ctx, f.db, res.RequestID, approver)
+	_, err = s.Approve(ctx, f.db, f.p.ID, res.RequestID, approver)
 	require.ErrorIs(t, err, ErrRequestNotPending, "single use")
-	_, err = s.Deny(ctx, f.db, res.RequestID, approver)
+	_, err = s.Deny(ctx, f.db, f.p.ID, res.RequestID, approver)
 	require.ErrorIs(t, err, ErrRequestNotPending)
 }
 
@@ -167,7 +168,7 @@ func TestApprove_ExpiredDeniedAndFailed(t *testing.T) {
 	_, err = f.super.Exec(ctx, `UPDATE sage.guard_grant_requests
 		SET expires_at = now() - interval '1 second' WHERE id = $1`, a.RequestID)
 	require.NoError(t, err)
-	_, err = s.Approve(ctx, f.db, a.RequestID, 1)
+	_, err = s.Approve(ctx, f.db, f.p.ID, a.RequestID, 1)
 	require.ErrorIs(t, err, ErrRequestNotPending)
 	got, err := GetRequest(ctx, f.super, a.RequestID)
 	require.NoError(t, err)
@@ -175,13 +176,13 @@ func TestApprove_ExpiredDeniedAndFailed(t *testing.T) {
 
 	b, err := s.RequestCapability(ctx, f.p.ID, f.capability("id"))
 	require.NoError(t, err)
-	dn, err := s.Deny(ctx, f.db, b.RequestID, 1)
+	dn, err := s.Deny(ctx, f.db, f.p.ID, b.RequestID, 1)
 	require.NoError(t, err)
 	require.Equal(t, RequestDenied, dn.Status)
 
 	c, err := s.RequestCapability(ctx, f.p.ID, f.capability("secret_token"))
 	require.NoError(t, err)
-	_, err = s.Approve(ctx, f.db, c.RequestID, 1)
+	_, err = s.Approve(ctx, f.db, f.p.ID, c.RequestID, 1)
 	denied(t, err, decide.ReasonClassification)
 	got, err = GetRequest(ctx, f.super, c.RequestID)
 	require.NoError(t, err)
@@ -189,9 +190,12 @@ func TestApprove_ExpiredDeniedAndFailed(t *testing.T) {
 	require.Equal(t, string(decide.ReasonClassification), got.ReasonCode)
 	require.False(t, f.can(t, f.p.BrokerRole(), "secret_token"))
 
-	_, err = s.Approve(ctx, f.db, 1<<40, 1)
+	_, err = s.Approve(ctx, f.db, f.p.ID, 1<<40, 1)
 	require.ErrorIs(t, err, agentguard.ErrNotFound)
-	_, err = s.Approve(ctx, f.db, b.RequestID, 0)
+	other := f.principal(t, agentguard.EnvProd, true)
+	_, err = s.Approve(ctx, f.db, other.ID, b.RequestID, 1)
+	require.ErrorIs(t, err, agentguard.ErrNotFound, "another principal's request")
+	_, err = s.Approve(ctx, f.db, f.p.ID, b.RequestID, 0)
 	require.ErrorIs(t, err, agentguard.ErrApprovalRequired)
 }
 
@@ -205,7 +209,7 @@ func TestApprove_ConcurrentApprovalsGrantOnce(t *testing.T) {
 	errs := make(chan error, 3)
 	for i := 0; i < 3; i++ {
 		go func() {
-			_, err := s.Approve(ctx, f.db, r.RequestID, 1)
+			_, err := s.Approve(ctx, f.db, f.p.ID, r.RequestID, 1)
 			errs <- err
 		}()
 	}
