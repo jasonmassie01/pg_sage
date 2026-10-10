@@ -107,6 +107,12 @@
     "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
     "class": "operator_preference"
   },
+  "agents.query.audit_retention_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days to keep the agent_query audit (sage.guard_query_audit, in each monitored database). 0 keeps it forever. Range 0-3650. Default: 30.",
+    "class": "operator_preference"
+  },
   "agents.query.max_bytes": {
     "type": "int",
     "default": 1048576,

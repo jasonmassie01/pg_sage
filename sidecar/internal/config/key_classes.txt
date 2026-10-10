@@ -518,4 +518,5 @@ safety_critical agents.broker.max_total_connections
 safety_critical agents.query.max_rows
 safety_critical agents.query.max_rows_ceiling
 safety_critical agents.query.max_bytes
+operator_preference agents.query.audit_retention_days
 safety_critical agents.single_operator_mode
