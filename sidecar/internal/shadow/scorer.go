@@ -135,7 +135,10 @@ func (s *Scorer) pending(ctx context.Context) ([]pendingDecision, error) {
 	return out, nil
 }
 
-const writeScoreSQL = `/* pg_sage */ UPDATE sage.shadow_decision
+// writeScoreSQL moves a decision from the partial pending index to the
+// scored one, so it cannot be a HOT update; its tag names it to the
+// performance gate, which charges every other shadow_decision update.
+const writeScoreSQL = `/* pg_sage shadow:score v1 */ UPDATE sage.shadow_decision
 	SET status = 'scored', score = $2, score_source = $3, counted = $4,
 	    score_reason = $5, score_detail = $6, ref_action_log_id = NULLIF($7::bigint, 0),
 	    ref_queue_id = NULLIF($8::bigint, 0), scored_at = now()
