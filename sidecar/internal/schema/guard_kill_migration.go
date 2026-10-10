@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS sage.guard_freezes (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS guard_freezes_open
     ON sage.guard_freezes (scope, target) WHERE cleared_at IS NULL;
+CREATE INDEX IF NOT EXISTS guard_freezes_kill ON sage.guard_freezes (kill_id);
 CREATE TABLE IF NOT EXISTS sage.guard_unfreeze_requests (
     id                bigserial PRIMARY KEY,
     scope             text NOT NULL CHECK (scope IN ('principal', 'database', 'fleet')),
