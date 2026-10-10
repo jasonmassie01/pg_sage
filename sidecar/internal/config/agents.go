@@ -20,6 +20,9 @@ type AgentsConfig struct {
 	Roles              AgentsRolesConfig  `yaml:"roles"`
 	Broker             AgentsBrokerConfig `yaml:"broker"`
 	SingleOperatorMode bool               `yaml:"single_operator_mode" doc:"Lets one person approve a widening agent change (profile, ceiling, unfreeze after a kill) with a recorded reason; each such approval enters a review queue. Default: false."`
+	// ControlDatabase and DefaultEnvironment: agents_env.go (spec §6.5).
+	ControlDatabase    string `yaml:"control_database" doc:"Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty."`
+	DefaultEnvironment string `yaml:"default_environment" doc:"Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod."`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -41,6 +44,7 @@ func DefaultClientPatterns() []string {
 
 func defaultAgentsConfig() AgentsConfig {
 	return AgentsConfig{ClientPatterns: DefaultClientPatterns(),
+		DefaultEnvironment: DefaultAgentsEnvironment,
 		Posture: AgentsPostureConfig{MemoryGrowthGBDay: DefaultPostureMemoryGrowthGBDay,
 			DailyAt: DefaultPostureDailyAt},
 		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker()}
@@ -64,7 +68,10 @@ func (a AgentsConfig) validate() error {
 	if _, _, err := ParseDailyAt(a.Posture.DailyAt); err != nil {
 		return fmt.Errorf("agents.posture.daily_at: %w", err)
 	}
-	return a.validateCore()
+	if err := a.validateCore(); err != nil {
+		return err
+	}
+	return a.validateEnvironment()
 }
 
 // ValidExposedRole checks one agents.exposed_roles entry: a role name,
