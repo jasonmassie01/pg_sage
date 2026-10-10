@@ -41,7 +41,7 @@ FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 CROSS JOIN LATERAL pg_catalog.aclexplode(
   COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
-WHERE c.relkind IN ('r', 'p', 'v') AND `+userSchemaFilter+`
+WHERE c.relkind IN ('r', 'p', 'v') AND `+userSchemaFilter+` AND `+notExtensionMember+`
   AND (c.relacl IS NOT NULL OR c.relowner = ANY($1::oid[]))
   AND a.grantee = ANY($1::oid[])
   AND a.privilege_type IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')

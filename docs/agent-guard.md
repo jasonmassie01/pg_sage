@@ -73,7 +73,8 @@ pg_sage's own role is never counted as an agent.
 | AP-07 | A schema where `PUBLIC` holds `CREATE` (PostgreSQL 14's `public` schema by default) | warning | `REVOKE CREATE ON SCHEMA … FROM PUBLIC` |
 | AP-08 | A non-superuser login role without a non-zero `statement_timeout` or `idle_in_transaction_session_timeout`. Settings count when made for the role (in this database or all), for the database, or in the server configuration where pg_sage's session can see it | info | `ALTER ROLE … SET statement_timeout = '30s'` and `idle_in_transaction_session_timeout = '60s'` |
 
-AP-08 skips pg_sage's own role, reserved `pg_` roles and managed-service admin logins
+AP-03 and AP-06 skip tables and views an extension owns (pg_hint_plan's `hint_plan.hints`,
+for example): those grants come from the extension, not from you. AP-08 skips pg_sage's own role, reserved `pg_` roles and managed-service admin logins
 (`rdsadmin`, `cloudsqladmin`, `azure_superuser`, `alloydbadmin` and similar).
 
 AP-09 to AP-16 cover:

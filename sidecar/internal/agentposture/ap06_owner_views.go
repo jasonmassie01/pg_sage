@@ -43,6 +43,9 @@ JOIN pg_catalog.pg_class b ON b.oid = d.refobjid AND b.relkind IN ('r', 'p')
   AND b.relrowsecurity AND b.oid <> v.oid
 JOIN pg_catalog.pg_namespace bn ON bn.oid = b.relnamespace
 WHERE v.relkind = 'v' AND `+userSchemaFilter+`
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e
+    WHERE e.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND e.objid = v.oid
+      AND e.objsubid = 0 AND e.deptype = 'e')
   AND EXISTS (SELECT 1 FROM pg_catalog.aclexplode(
         COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) u
       WHERE u.privilege_type = 'USAGE' AND u.grantee = ANY($1::oid[]))

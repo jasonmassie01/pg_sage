@@ -15,6 +15,12 @@ const schemaUsageGrantees = `ARRAY(SELECT u.grantee FROM pg_catalog.aclexplode(
     COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) u
   WHERE u.privilege_type = 'USAGE')::oid[]`
 
+// notExtensionMember excludes relation c when an extension owns it: its
+// grants are the extension's, not the operator's.
+const notExtensionMember = `NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e
+  WHERE e.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND e.objid = c.oid
+    AND e.objsubid = 0 AND e.deptype = 'e')`
+
 // maxRows bounds each detector's catalog read.
 const maxRows = 50000
 
