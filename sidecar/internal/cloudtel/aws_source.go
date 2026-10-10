@@ -123,6 +123,7 @@ func (s *AWSSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 		return Sample{}, err
 	}
 	s.applyStorage(&sample, inst, aurora, now)
+	sample.Backup = rdsBackup(inst.BackupRetention, inst.DeletionProtection, aurora)
 	if err := s.applyPI(ctx, &sample, inst, now); err != nil {
 		return Sample{}, err
 	}

@@ -22,9 +22,11 @@ type sqlInstance struct {
 		IPAddress string `json:"ipAddress"`
 	} `json:"ipAddresses"`
 	Settings struct {
-		Tier                   string `json:"tier"`
-		StorageAutoResize      bool   `json:"storageAutoResize"`
-		StorageAutoResizeLimit string `json:"storageAutoResizeLimit"`
+		Tier                   string          `json:"tier"`
+		StorageAutoResize      bool            `json:"storageAutoResize"`
+		StorageAutoResizeLimit string          `json:"storageAutoResizeLimit"`
+		BackupConfiguration    *cloudSQLBackup `json:"backupConfiguration"`
+		DeletionProtection     *bool           `json:"deletionProtectionEnabled"`
 		DatabaseFlags          []struct {
 			Name  string `json:"name"`
 			Value string `json:"value"`

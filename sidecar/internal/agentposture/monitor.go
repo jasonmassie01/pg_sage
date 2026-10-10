@@ -33,6 +33,7 @@ type Monitor struct {
 	mu        sync.Mutex
 	st        cadence
 	evaluated []string
+	obs       *ObservationStore
 }
 
 // NewMonitor returns a monitor of pool's database.
@@ -46,7 +47,7 @@ func NewMonitor(pool *pgxpool.Pool, opts MonitorOptions) *Monitor {
 	if opts.Logf == nil {
 		opts.Logf = func(string, string, ...any) {}
 	}
-	return &Monitor{pool: pool, opts: opts}
+	return &Monitor{pool: pool, opts: opts, obs: NewObservationStore()}
 }
 
 // Detect runs posture when it is due and returns its findings.
@@ -68,7 +69,7 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 		return nil, nil
 	}
 	res, err := RunAll(ctx, m.pool, RunOptions{Registry: m.opts.Registry, Config: cfg,
-		StatementTimeout: m.opts.StatementTimeout})
+		StatementTimeout: m.opts.StatementTimeout, Observations: m.obs})
 	if err != nil {
 		return nil, fmt.Errorf("agent posture (%s): %w", reason, err)
 	}

@@ -45,9 +45,11 @@ func VerifyGrants(
 	trustLevel string,
 	logFn func(string, string, ...any),
 ) {
-	// Resolve actual connected user (handles DATABASE_URL override).
+	// Resolve actual connected user (handles DATABASE_URL override) and
+	// whether it is a superuser (the Agent Guard self-check, AP-14).
 	var actual string
-	if err := pool.QueryRow(ctx, "SELECT current_user").Scan(&actual); err == nil {
+	var super bool
+	if err := pool.QueryRow(ctx, selfRoleSQL).Scan(&actual, &super); err == nil {
 		user = actual
 	}
 	var missing []missingGrant
@@ -58,6 +60,7 @@ func VerifyGrants(
 		missing = append(missing, signalBackendGrant(user))
 	}
 	reportGrants(trustLevel, user, missing, logFn)
+	reportGuardRole(user, super, logFn)
 }
 
 // reportGrants logs the missing grants for trustLevel: one warning each at

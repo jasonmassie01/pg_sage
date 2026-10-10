@@ -22,7 +22,8 @@ func postureConfig(c *config.Config) agentposture.Config {
 	return agentposture.Config{ExposedRoles: slices.Clone(a.ExposedRoles),
 		ClientPatterns:    slices.Clone(a.ClientPatterns),
 		MemoryGrowthGBDay: a.Posture.MemoryGrowthGBDay,
-		DailyAt:           a.Posture.DailyAt}
+		DailyAt:           a.Posture.DailyAt,
+		Platform:          agentposture.Platform{Provider: c.CloudEnvironment}}
 }
 
 // newPostureMonitor is the analyzer's posture detector; it reads the live
@@ -32,7 +33,9 @@ func (rt *databaseRuntime) newPostureMonitor() *agentposture.Monitor {
 		Config: func() agentposture.Config {
 			config.RLockForHotReload()
 			defer config.RUnlockForHotReload()
-			return postureConfig(rt.cfg)
+			cfg := postureConfig(rt.cfg)
+			cfg.Platform.Backup = rt.postureBackup()
+			return cfg
 		},
 		Logf: logStructuredWrapper,
 	})

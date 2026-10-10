@@ -101,7 +101,8 @@ const DefaultStatementTimeout = 5 * time.Second
 type RunOptions struct {
 	Registry         *Registry // nil: Default()
 	Config           Config
-	StatementTimeout time.Duration // 0: DefaultStatementTimeout
+	StatementTimeout time.Duration     // 0: DefaultStatementTimeout
+	Observations     *ObservationStore // kept between runs; nil: none
 }
 
 // Result is one run of every detector.
@@ -154,6 +155,7 @@ func RunAll(ctx context.Context, pool *pgxpool.Pool, opts RunOptions) (Result, e
 	if err != nil {
 		return Result{}, err
 	}
+	env.Observations = opts.Observations
 	reg := opts.Registry
 	if reg == nil {
 		reg = Default()
