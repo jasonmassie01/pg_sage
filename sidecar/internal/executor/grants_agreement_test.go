@@ -78,7 +78,8 @@ func TestVerifyGrantsAgreesWithGrantMore(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 	defer admin.Close()
-	if _, err := admin.Exec(context.Background(), "GRANT CREATE ON SCHEMA app TO "+role); err != nil {
+	grant := "GRANT CREATE ON SCHEMA app TO " + role
+	if _, err := admin.Exec(context.Background(), grant); err != nil {
 		t.Fatalf("grant: %v", err)
 	}
 	g := guideSchemaGrant(t, pool, "advisory")
