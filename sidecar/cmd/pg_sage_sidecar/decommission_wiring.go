@@ -13,7 +13,7 @@ import (
 const decommissionStartupTimeout = 30 * time.Second
 
 // startDecommissionReport logs the removed provisioner's inventory on the
-// control database in the background (AGENTDB-SPEC §12 steps 2-4). A failed
+// control database in the background (Agent Guard spec §12, steps 2-4). A failed
 // inventory is an error in the log, never a refused start: the inventory is
 // a report, and the API serves it again on demand.
 func startDecommissionReport(ctx context.Context, pool *pgxpool.Pool, configPath string) {

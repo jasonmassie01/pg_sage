@@ -9,7 +9,7 @@ var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemption
 	decommissionExemptions)
 
 // decommissionExemptions: the operator's acknowledgements of the
-// decommission inventory are audit evidence (AGENTDB-SPEC §12).
+// decommission inventory are audit evidence (Agent Guard spec §12).
 var decommissionExemptions = map[string]string{
 	decommission.AckTable: "decommission acknowledgements (audit), one row per resource",
 }

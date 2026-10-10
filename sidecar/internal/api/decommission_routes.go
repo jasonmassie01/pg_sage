@@ -10,7 +10,7 @@ import (
 )
 
 // registerDecommissionRoutes mounts the removed provisioner's inventory and
-// its acknowledgement, admin-only, on the control pool (AGENTDB-SPEC §8.3,
+// its acknowledgement, admin-only, on the control pool (Agent Guard spec §8.3,
 // §12). Neither route deletes anything live.
 func registerDecommissionRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	h := decommission.NewHandlers(pool, authenticatedActor, func(format string, args ...any) {
