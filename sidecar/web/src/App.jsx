@@ -11,7 +11,6 @@ import { UsersPage } from './pages/UsersPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { LinkSSOPage } from './pages/LinkSSOPage'
 import { NotificationsPage } from './pages/NotificationsPage'
-import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
 import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
@@ -200,8 +199,6 @@ export default function App() {
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied
-      case '/agent-dbs':
-        return { title: 'Agent DBs', node: <AgentDBsPage /> }
       case '/findings':
       case '/cases':
         return { title: 'Cases',

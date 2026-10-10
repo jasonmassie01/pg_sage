@@ -5,10 +5,6 @@
 // to intercept /api/* routes and return deterministic fixture data.
 
 import { type Page } from '@playwright/test'
-import {
-  registerAgentDBAPIs,
-  type AgentDBFixtureOptions,
-} from './agentdb-fixtures'
 
 /* ---------- Mock response payloads ---------- */
 
@@ -342,11 +338,7 @@ export const mockLLMStatusExhausted = {
  * Intercept all /api/* routes with fixture data so tests
  * can run without a live backend.
  */
-type MockAPIOptions = {
-  agentDB?: AgentDBFixtureOptions
-}
-
-export async function mockAllAPIs(page: Page, options: MockAPIOptions = {}) {
+export async function mockAllAPIs(page: Page) {
   // Catch-all for any unhandled API route — return 200 empty JSON
   // so the app doesn't show error banners for minor endpoints.
   // Registered FIRST so it has LOWEST priority (Playwright uses
@@ -450,6 +442,4 @@ export async function mockAllAPIs(page: Page, options: MockAPIOptions = {}) {
       json: { models: [{ id: 'gpt-4o', name: 'GPT-4o' }] },
     }),
   )
-
-  await registerAgentDBAPIs(page, options.agentDB)
 }

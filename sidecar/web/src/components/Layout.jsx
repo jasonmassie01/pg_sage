@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings, Gauge,
-  Bot, Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
+  Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
   MessageSquare,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
@@ -37,8 +37,6 @@ const NAV_GROUPS = [
         tid: 'nav-facts' },
       { path: '#/ask', icon: MessageSquare, label: 'Ask Sage',
         tid: 'nav-ask' },
-      { path: '#/agent-dbs', icon: Bot, label: 'Agent DBs',
-        tid: 'nav-agent-dbs' },
       { path: '#/manage-databases', icon: Server,
         label: 'Fleet', admin: true,
         tid: 'nav-databases' },

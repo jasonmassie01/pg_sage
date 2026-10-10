@@ -427,9 +427,7 @@ These are real LLM call-sites that are wired and worth noting:
   `LLMJsonbAnalyzer.Enhance` confirms which JSONB columns appear in JOIN/WHERE
   via slow-query analysis, enriching `lint_jsonb_in_joins` findings. Wired via
   `lintRunner.SetLLMClient(llmClient)` (`main.go:653-654`).
-- **Agent-DB blueprint generation** (`internal/api/agent_db_blueprint_handlers.go:118`):
-  translates a natural-language deployment intent into a strict blueprint JSON
-  object. HTTP-triggered, uses `mgr.General`.
+- Deployment blueprint generation (removed in G0 with the provisioning subsystem).
 
 ---
 
@@ -451,7 +449,7 @@ Every place that invokes `Client.Chat` (directly or via Manager):
 12. `internal/migration/llm_fallback.go:37` — DDL risk classification.
 13. `internal/migration/llm_scripts.go:59` — migration script generation.
 14. `internal/schema/lint/llm_jsonb.go:116` — JSONB-in-joins enrichment.
-15. `internal/api/agent_db_blueprint_handlers.go:118` — deployment blueprint JSON.
+15. Deployment blueprint JSON (removed in G0 with the provisioning subsystem).
 
 (#3–8 route through `Manager.ChatForPurpose("advisor", …)` which, given the
 `nil`/`false` Manager wiring, always uses the General client.)

@@ -2,13 +2,18 @@
 
 This document describes **what pg_sage actually is and does today**, derived by reading the
 source — not the README or marketing. It is the ground-truth baseline for the roadmap.
+
+> **G0 note:** the agent-database provisioning subsystem this snapshot describes was removed
+> (decision D-1). Its routes, tables and UI are gone; operators decommission what an earlier
+> version created with `sidecar/internal/decommission/README.md`.
+
 Detailed sections live in [`docs/reverse_spec/`](./reverse_spec/):
 
 1. [Architecture & Process Model](./reverse_spec/01-architecture.md)
 2. [Tier 1 — Collector & Deterministic Rules](./reverse_spec/02-tier1-rules.md)
 3. [Tier 2 — LLM-Enhanced Features](./reverse_spec/03-tier2-llm.md)
 4. [Tier 3 — Action Executor & Safety](./reverse_spec/04-tier3-executor.md)
-5. [AgentDB — Provisioning Subsystem](./reverse_spec/05-agentdb.md)
+5. Agent-database provisioning: removed in G0 (archived under `reviews/archive/`)
 6. [API, Auth & Web Dashboard](./reverse_spec/06-api-auth-web.md)
 7. [Data Model & Supporting Subsystems](./reverse_spec/07-data-model-support.md)
 
@@ -23,16 +28,14 @@ pg_sage is an **external Go sidecar** that connects to PostgreSQL over the wire 
 - **Tier 1 (deterministic):** a collector snapshots ~13 stat categories into `sage.*` tables;
   a rules engine (~20 rules) turns them into `findings`.
 - **Tier 2 (LLM, optional):** 15 distinct LLM call-sites enrich analysis (briefings, index
-  recs, config tuning, query rewrites, RCA, migration risk, JSONB lint, AgentDB blueprints).
+  recs, config tuning, query rewrites, RCA, migration risk, JSONB lint).
   **Every LLM output degrades to a `finding`/`incident`; none feeds the executor directly.**
 - **Tier 3 (executor):** a trust-gated, SQL-whitelisted action runner applies SAFE/MODERATE
   changes (CREATE INDEX CONCURRENTLY, VACUUM, REINDEX, config) with rollback metadata.
 
 It runs in three deployment shapes selected by `cfg.Mode` + the `--meta-db` flag:
 **standalone** (one DB), **fleet** (N YAML-defined DBs, one pipeline each), and **meta-db
-fleet** (store-backed, the only mode with dynamic add/remove/reconnect). A separate
-**AgentDB** subsystem provisions agent-requested databases on AWS RDS / GCP Cloud SQL /
-Databricks Lakebase.
+fleet** (store-backed, the only mode with dynamic add/remove/reconnect).
 
 **Scale of the codebase:** ~65k LOC Go across 32 internal packages, 38 `sage.*` tables,
 ~139 REST endpoints, 10 dashboard pages, React 19 + Vite frontend embedded via `go:embed`.
@@ -60,7 +63,7 @@ absent**. These materially shape the roadmap (don't re-build what exists; do fin
 
 | Claim / expectation | Reality |
 |---|---|
-| "17 REST endpoints" (CLAUDE.md) | **~139** method+path pairs; AgentDB alone is 62. |
+| "17 REST endpoints" (CLAUDE.md) | **~139** method+path pairs at the time (about 77 after the G0 removal). |
 | Trust auto-ramps observation→advisory→autonomous | **No auto-promotion.** Day-8/day-31 thresholds gate a *manually-set* `trust.level` string. |
 | HA safe-mode halts actions during failover | `ha.InSafeMode()` is built + tested but **wired to nothing**; replica state itself is gated in standalone and fleet modes. |
 | Per-database LLM token budgets (fleet isolation) | `fleet.FleetBudget` exists + tested but **never constructed**; budgeting is per-`llm.Client` daily only. |
@@ -69,8 +72,6 @@ absent**. These materially shape the roadmap (don't re-build what exists; do fin
 | Optimizer advisory threshold (0.5) gates index recs | `ConfidenceThreshold` has **zero consumers**; every accepted rec becomes a finding. |
 | Cases model drives execution | `ProjectFinding` remains a projection and does not trigger execution, but typed `ActionContract` policy now gates both live findings and API readiness. |
 | Event-path notifications (executor/analyzer → Slack/email) | Senders **never registered**; all event notifications silently no-op ("no sender for type"). Only the API test path delivers. |
-| AgentDB databases are monitored | **Partial.** Eligible inline-credential deployments join the fleet collector after scheduled reconciliation; analyzer/executor and secret-ref resolution are absent. Durable monitoring work exists but has no runtime worker. |
-| Terraform provisioning | Rendered + policy-scanned but **never executed**; only the SDK/REST runners run. |
 | Maintenance windows as `HH:MM-HH:MM` | Parser understands only cron + `"always"`; range strings are silently never-in-window. |
 
 ## 4. Safety model (what genuinely protects the database)
@@ -92,9 +93,8 @@ absent**. These materially shape the roadmap (don't re-build what exists; do fin
 Core (22): `findings`, `action_log`, `action_queue`, `snapshots`, `config`, `config_audit`,
 `databases`, `users`, `sessions`, `incidents`, `cases`(projection), `explain_cache`,
 `explain_results`, `query_hints`, `briefings`, `alert_log`, `notification_channels/rules/log`,
-`size_history`, `health_history`, `schema_findings`(legacy), `crypto_meta`. AgentDB (25):
-`agent_db_*` (instances, leases, costs, budgets, tokens, blueprints, templates, deploy_requests,
-audit, …). See section 7 for the full reference and the ~25 config blocks.
+`size_history`, `health_history`, `schema_findings`(legacy), `crypto_meta`. The 25
+provisioning tables of the removed subsystem stay until G1 drops them. See section 7 for the full reference and the ~25 config blocks.
 
 ## 6. Tech stack & conventions
 

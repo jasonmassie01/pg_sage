@@ -14,11 +14,6 @@
 | `advisor.rewrite_enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.vacuum_enabled` | `restart` | `-` | `operator_preference` |
 | `advisor.wal_enabled` | `restart` | `-` | `operator_preference` |
-| `agentdb.allow_public_ip` | `restart` | `-` | `safety_critical` |
-| `agentdb.live_provisioning_enabled` | `restart` | `-` | `safety_critical` |
-| `agentdb.providers` | `restart` | `-` | `safety_critical` |
-| `agentdb.reconcile_interval_seconds` | `reconfigure` | `agentdb` | `safety_critical` |
-| `agentdb.require_backup_before_destroy` | `restart` | `-` | `safety_critical` |
 | `alerting.check_interval_seconds` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.cooldown_minutes` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.enabled` | `reconfigure` | `alerting` | `operator_preference` |

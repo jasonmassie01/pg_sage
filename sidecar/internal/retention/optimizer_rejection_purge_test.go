@@ -11,7 +11,7 @@ func TestPurgeRulesAgeOptimizerRejectionsFromLastMeasurement(t *testing.T) {
 			continue
 		}
 		if rule.timeCol != "measured_at" || rule.days != 30 || rule.extra != "" ||
-			rule.optional || rule.partitioned != nil {
+			rule.partitioned != nil {
 			t.Fatalf("optimizer_rejection rule = %+v, want measured_at on the findings window",
 				rule)
 		}

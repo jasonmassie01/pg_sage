@@ -20,21 +20,6 @@ func Clone(cfg *Config) *Config {
 	cp.Verify.IOCapacity = cloneIOCapacity(cfg.Verify.IOCapacity)
 	cp.CloudTelemetry.Enabled = cloneBool(cfg.CloudTelemetry.Enabled)
 	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
-	if cfg.AgentDB.Providers != nil {
-		cp.AgentDB.Providers = make(
-			map[string]AgentDBProviderConfig, len(cfg.AgentDB.Providers))
-		for name, provider := range cfg.AgentDB.Providers {
-			provider.AllowedRegions = append(
-				[]string(nil), provider.AllowedRegions...)
-			provider.AllowedAccounts = append(
-				[]string(nil), provider.AllowedAccounts...)
-			provider.AllowedProjects = append(
-				[]string(nil), provider.AllowedProjects...)
-			provider.AllowedWorkspaces = append(
-				[]string(nil), provider.AllowedWorkspaces...)
-			cp.AgentDB.Providers[name] = provider
-		}
-	}
 	cp.Briefing.Channels = append(
 		[]string(nil), cfg.Briefing.Channels...)
 	cp.Alerting.Routes = append(

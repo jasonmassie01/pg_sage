@@ -860,7 +860,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 116 // Update when adding/removing keys.
+	const expectedCount = 112 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -889,7 +889,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 116 // Should match allowedConfigKeys.
+	const expectedCount = 112 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

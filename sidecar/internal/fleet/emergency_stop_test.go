@@ -107,8 +107,8 @@ func TestEmergencyStopAll_FailingDatabaseDoesNotAbortLoop(t *testing.T) {
 func TestEmergencyStopAll_AgentDatabaseWithoutExecutorIsSkipped(t *testing.T) {
 	h := newStopHarness(t, []string{"prod"})
 	h.mgr.RegisterInstance(&DatabaseInstance{
-		Name:   "agentdb:dep-1",
-		Config: config.DatabaseConfig{Name: "agentdb:dep-1"},
+		Name:   "executorless:dep-1",
+		Config: config.DatabaseConfig{Name: "executorless:dep-1"},
 		Status: &InstanceStatus{Connected: true},
 	})
 
@@ -120,10 +120,10 @@ func TestEmergencyStopAll_AgentDatabaseWithoutExecutorIsSkipped(t *testing.T) {
 	if changed != 2 {
 		t.Fatalf("changed = %d, want 2", changed)
 	}
-	if !h.mgr.InstanceStopped(h.mgr.GetInstance("agentdb:dep-1")) {
+	if !h.mgr.InstanceStopped(h.mgr.GetInstance("executorless:dep-1")) {
 		t.Fatal("agent DB must still be stopped in memory")
 	}
-	if _, ok := h.persistedState("agentdb:dep-1"); ok {
+	if _, ok := h.persistedState("executorless:dep-1"); ok {
 		t.Fatal("agent DB has no executor and must not be persisted")
 	}
 	if value, ok := h.persistedState("prod"); !ok || !value {
