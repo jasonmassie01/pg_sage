@@ -171,6 +171,8 @@ func wireRouter(p WireParams) WireResult {
 			AgentEnvironments: agentEnvironmentService(p.Cfg, p.FleetMgr, p.MetaState),
 			// Kill switch, freeze and unfreeze (agent_kill_wiring.go).
 			AgentKill: lateKillSwitch{},
+			// An agent's activity (agent_broker_wiring.go).
+			AgentActivity: agentActivityAPI{},
 		},
 		middlewares...,
 	)

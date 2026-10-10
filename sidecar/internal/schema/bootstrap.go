@@ -432,7 +432,7 @@ func migrationStatements() []string {
 		ddlAuthAuditCreatedIndex,
 		ddlGuardCore, ddlGuardCoreValidate,
 		ddlAgentEnvClass, ddlAgentGate,
-		ddlGuardKill,
+		ddlGuardKill, ddlGuardQueryAudit,
 		// E2: after the core principal tables, which the bindings reference.
 		ddlGuardPGAuditEvents, ddlGuardIdentityBindings, ddlSIEMCursor)
 }

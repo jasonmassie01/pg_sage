@@ -27,6 +27,8 @@ type AgentsConfig struct {
 	// ControlDatabase and DefaultEnvironment: agents_env.go (spec §6.5).
 	ControlDatabase    string `yaml:"control_database" doc:"Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty."`
 	DefaultEnvironment string `yaml:"default_environment" doc:"Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod."`
+	// Query bounds agent_query (agents_query.go, spec §6.8).
+	Query AgentsQueryConfig `yaml:"query"`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -53,7 +55,8 @@ func defaultAgentsConfig() AgentsConfig {
 			DailyAt: DefaultPostureDailyAt},
 		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker(),
 		KillVerifyTimeoutSeconds: DefaultKillVerifyTimeoutSeconds,
-		KillFallbackLog:          DefaultKillFallbackLog}
+		KillFallbackLog:          DefaultKillFallbackLog,
+		Query:                    defaultAgentsQuery()}
 }
 
 func (a AgentsConfig) validate() error {
@@ -78,6 +81,9 @@ func (a AgentsConfig) validate() error {
 		return err
 	}
 	if err := a.validateKill(); err != nil {
+		return err
+	}
+	if err := a.validateQuery(); err != nil {
 		return err
 	}
 	return a.validateEnvironment()

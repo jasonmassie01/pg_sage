@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/agentguard"
+	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -118,6 +118,8 @@ type RuntimeDeps struct {
 	// AgentKill serves the agent kill switch, freeze and unfreeze; nil
 	// answers 503 (agent_kill_routes.go).
 	AgentKill AgentKillSwitch
+	// AgentActivity serves an agent's activity (G1-10); nil answers 503.
+	AgentActivity AgentActivityReader
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -203,6 +205,7 @@ func registerFleetScopedRoutes(
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
 	registerAgentKillRoutes(apiMux, rt.AgentKill)
+	registerAgentActivityRoutes(apiMux, rt.AgentActivity)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
