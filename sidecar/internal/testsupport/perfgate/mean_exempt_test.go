@@ -13,8 +13,8 @@ import (
 // (catalog max) and the cycle's DB time still charge it in full.
 
 const (
-	clusterSizeTag = "sre:cluster_database_size"
-	structuralTag  = "schema_guard:structural"
+	clusterSizeTag       = "sre:cluster_database_size"
+	structuralColumnsTag = "structural:columns"
 )
 
 func clusterSize(mean float64) Statement {
@@ -23,10 +23,14 @@ func clusterSize(mean float64) Statement {
 			"sum(pg_catalog.pg_database_size(d.oid)) FROM pg_catalog.pg_database d"}
 }
 
-func structural(mean float64) Statement {
+// structuralColumns is the schema guard's column summary as
+// pg_stat_statements keeps it (the tag after the first keyword): one call
+// per structural pass, every user table on a full pass.
+func structuralColumns(mean float64) Statement {
 	return Statement{QueryID: 2, Calls: 1, MeanMs: mean, MaxMs: mean, TotalMs: mean,
-		Query: "/* pg_sage schema_guard:structural v1 */\nWITH tables AS (SELECT 1 " +
-			"FROM pg_class tbl JOIN pg_attribute att ON att.attrelid = tbl.oid)"}
+		Query: "SELECT /* pg_sage structural:columns */ att.attrelid, count(*) FILTER " +
+			"(WHERE NOT att.attisdropped) FROM pg_catalog.pg_attribute att " +
+			"WHERE att.attrelid = ANY($1::oid[]) AND att.attnum>$3 GROUP BY att.attrelid"}
 }
 
 func meanGates(t *testing.T, b Budgets, stmts ...Statement) []Offender {
@@ -49,7 +53,7 @@ func meanGates(t *testing.T, b Budgets, stmts ...Statement) []Offender {
 func TestDefaultMeanExemptionsAreNamedAndCapped(t *testing.T) {
 	b := DefaultBudgets()
 	if len(b.MeanExempt) != 2 {
-		t.Fatalf("mean exemptions = %v, want cluster size and the structural scan",
+		t.Fatalf("mean exemptions = %v, want cluster size and the structural column summary",
 			b.MeanExempt)
 	}
 	size, ok := b.MeanExempt[clusterSizeTag]
@@ -58,10 +62,17 @@ func TestDefaultMeanExemptionsAreNamedAndCapped(t *testing.T) {
 		t.Fatalf("cluster size exemption = %+v %t, want a 300 ms ceiling and the "+
 			"per-file reason with the CI range", size, ok)
 	}
-	scan, ok := b.MeanExempt[structuralTag]
-	if !ok || scan.CeilingMs != 200 || !strings.Contains(scan.Reason, "5 min") {
-		t.Fatalf("structural scan exemption = %+v %t, want a 200 ms ceiling and how "+
-			"often it reruns", scan, ok)
+	// The whole-catalog scan is gone: its column summary is the statement
+	// that reads every column of every user table, on a full pass only.
+	cols, ok := b.MeanExempt[structuralColumnsTag]
+	if !ok || cols.CeilingMs != 150 || !strings.Contains(cols.Reason, "full pass") ||
+		!strings.Contains(cols.Reason, "steady phase") ||
+		!strings.Contains(cols.Reason, "92-135 ms") {
+		t.Fatalf("structural column summary exemption = %+v %t, want a 150 ms ceiling, "+
+			"when its full pass runs and the CI range of the scan it replaced", cols, ok)
+	}
+	if retired, ok := b.MeanExempt["schema_guard:structural"]; ok {
+		t.Fatalf("the retired whole-catalog scan's tag is still exempt: %+v", retired)
 	}
 	for tag, ex := range b.MeanExempt {
 		if !strings.Contains(tag, ":") || len(ex.Reason) < 40 ||
@@ -84,9 +95,9 @@ func TestMeanExemptionCeilingBoundaries(t *testing.T) {
 		{"cluster size at 124 ms", clusterSize(124), false},
 		{"cluster size exactly at its ceiling", clusterSize(300), false},
 		{"cluster size just over its ceiling", clusterSize(300.01), true},
-		{"structural scan at 135 ms", structural(135), false},
-		{"structural scan exactly at its ceiling", structural(200), false},
-		{"structural scan just over its ceiling", structural(200.01), true},
+		{"column summary as slow as the scan it replaced", structuralColumns(135), false},
+		{"column summary exactly at its ceiling", structuralColumns(150), false},
+		{"column summary just over its ceiling", structuralColumns(150.01), true},
 	}
 	for _, c := range cases {
 		got := meanGates(t, b, c.stmt)
@@ -99,7 +110,7 @@ func TestMeanExemptionCeilingBoundaries(t *testing.T) {
 		ceiling := b.MeanExempt[clusterSizeTag].CeilingMs
 		tag := clusterSizeTag
 		if c.stmt.QueryID == 2 {
-			ceiling, tag = b.MeanExempt[structuralTag].CeilingMs, structuralTag
+			ceiling, tag = b.MeanExempt[structuralColumnsTag].CeilingMs, structuralColumnsTag
 		}
 		if len(got) != 1 || got[0].Budget != ceiling || got[0].Measured != c.stmt.MeanMs ||
 			!strings.Contains(got[0].Detail, tag) {
@@ -142,6 +153,29 @@ func TestMeanExemptionNeedsTheExactTag(t *testing.T) {
 		if c.charged && got[0].Budget != b.StatementMeanMs {
 			t.Fatalf("%s: judged against %v, want the %v ms budget", c.name, got[0].Budget,
 				b.StatementMeanMs)
+		}
+	}
+}
+
+// Only the structural pass's column summary is exempt: its table listing,
+// text types and column versions are judged by the 100 ms budget, and so
+// is a statement still carrying the retired whole-catalog scan's tag.
+func TestOnlyTheStructuralColumnSummaryIsExempt(t *testing.T) {
+	b := DefaultBudgets()
+	for _, q := range []string{
+		"SELECT /* pg_sage structural:tables */ tbl.oid FROM pg_catalog.pg_class tbl",
+		"SELECT /* pg_sage structural:text_types */ oid FROM pg_catalog.pg_type",
+		"SELECT /* pg_sage structural:versions */ att.attrelid " +
+			"FROM pg_catalog.pg_attribute att GROUP BY att.attrelid",
+		"/* pg_sage schema_guard:structural v1 */\nWITH tables AS (SELECT 1 " +
+			"FROM pg_class tbl JOIN pg_attribute att ON att.attrelid = tbl.oid)",
+	} {
+		s := Statement{QueryID: 3, Calls: 1, MeanMs: 120, MaxMs: 120, TotalMs: 120, Query: q}
+		got := meanGates(t, b, s)
+		if len(got) != 1 || got[0].Budget != b.StatementMeanMs ||
+			strings.Contains(got[0].Detail, "exempt tag") {
+			t.Fatalf("120 ms %q: %+v, want one gate B offender against the %v ms budget",
+				q, got, b.StatementMeanMs)
 		}
 	}
 }
