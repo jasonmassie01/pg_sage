@@ -16,6 +16,7 @@ func TestAgentUpkeepConfigMapsTheAgentsSettings(t *testing.T) {
 	c.Agents.Broker.RotationDays = 2
 	got := agentUpkeepConfig(c)
 	want := upkeep.ConfigFrom(3, 2)
+	want.Roles = agentRoleConfig(c) // the drift reconciler's expected limits
 	if got != want {
 		t.Fatalf("agentUpkeepConfig = %+v, want %+v", got, want)
 	}
@@ -87,5 +88,23 @@ func TestUpkeepReportLines(t *testing.T) {
 	if info, warn := upkeepLines(upkeep.JobBrokerRotation, upkeep.Report{}); len(info)+
 		len(warn) != 0 {
 		t.Fatalf("an empty pass logs nothing: %v %v", info, warn)
+	}
+}
+
+func TestDriftLines(t *testing.T) {
+	rep := upkeep.DriftReport{Drift: []upkeep.RoleDrift{{Role: "sage_agentb_a",
+		Database: "app", Widening: []string{"has SELECT on relation public.t"},
+		Corrected: []string{"REVOKE SELECT ON TABLE public.t FROM sage_agentb_a"}}},
+		Failed: map[string]string{"billing/sage_agentb_a": "no PUBLIC baseline"}}
+	lines := driftLines(rep)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"sage_agentb_a", "public.t", "corrected", "billing",
+		"baseline"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("lines %q miss %q", joined, want)
+		}
+	}
+	if len(driftLines(upkeep.DriftReport{})) != 0 {
+		t.Fatal("a clean pass logs nothing")
 	}
 }
