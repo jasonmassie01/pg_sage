@@ -20,13 +20,14 @@ type missingGrant struct {
 // table's schema, even for the table's owner. The wording and SQL come from
 // rolegrants, which the Grant more guide uses too.
 func schemaCreateGrant(user string, sc rolegrants.SchemaCreate) missingGrant {
-	return missingGrant{what: sc.What(), need: rolegrants.Need, fix: sc.GrantSQL(user)}
+	return missingGrant{what: sc.What(), need: rolegrants.Need,
+		fix: sc.GrantSQL(rolegrants.QuoteRole(user))}
 }
 
 func signalBackendGrant(user string) missingGrant {
 	return missingGrant{what: "pg_signal_backend",
 		need: "cancelling a runaway query when an action needs it",
-		fix:  "GRANT pg_signal_backend TO " + user}
+		fix:  "GRANT pg_signal_backend TO " + rolegrants.QuoteRole(user)}
 }
 
 // executesActions reports whether a trust level runs actions; only those

@@ -190,16 +190,11 @@ func schemaCreateGrant(sc *rolegrants.SchemaCreate, role string) Grant {
 	return out
 }
 
-// quoteRole quotes a role name unless it is a plain lower-case name.
+// quoteRole quotes a role name the way the startup check does; an unknown
+// role reads as the documented sage_agent.
 func quoteRole(role string) string {
 	if role == "" {
 		return "sage_agent"
 	}
-	for i, r := range role {
-		plain := r >= 'a' && r <= 'z' || r == '_' || (i > 0 && r >= '0' && r <= '9')
-		if !plain {
-			return `"` + strings.ReplaceAll(role, `"`, `""`) + `"`
-		}
-	}
-	return role
+	return rolegrants.QuoteRole(role)
 }
