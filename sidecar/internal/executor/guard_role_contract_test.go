@@ -40,7 +40,7 @@ func TestGuardRoleContracts_TypedPerSpec(t *testing.T) {
 		}
 		for _, provider := range []string{"postgres", "rds", "aurora", "cloud-sql",
 			"alloydb", "azure", "supabase", "neon"} {
-			if !contains(pc.ProviderSupport, provider) {
+			if !hasProvider(pc.ProviderSupport, provider) {
 				t.Fatalf("%s does not support %s", c.actionType, provider)
 			}
 		}
@@ -50,7 +50,7 @@ func TestGuardRoleContracts_TypedPerSpec(t *testing.T) {
 	}
 }
 
-func contains(list []string, v string) bool {
+func hasProvider(list []string, v string) bool {
 	for _, x := range list {
 		if x == v {
 			return true
@@ -59,9 +59,9 @@ func contains(list []string, v string) bool {
 	return false
 }
 
-type fixedGate struct{ decision policy.Decision }
+type typedTestGate struct{ decision policy.Decision }
 
-func (g fixedGate) Authorize(context.Context, policy.ActionRequest) policy.Decision {
+func (g typedTestGate) Authorize(context.Context, policy.ActionRequest) policy.Decision {
 	return g.decision
 }
 
@@ -74,13 +74,13 @@ func TestAuthorizeTyped(t *testing.T) {
 		d.BlockedReason != reasonNoStandingPolicy {
 		t.Fatalf("no gate: %+v %v", d, err)
 	}
-	gate := fixedGate{policy.Decision{Verdict: policy.VerdictExecute,
+	gate := typedTestGate{policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonOperatorApproved, DecisionID: 42}}
 	d, err = AuthorizeTyped(ctx, gate, req, true)
 	if err != nil || d.Decision != PolicyDecisionExecute || d.DecisionID != 42 {
 		t.Fatalf("execute: %+v %v", d, err)
 	}
-	gate = fixedGate{policy.Decision{Verdict: policy.VerdictObserveOnly,
+	gate = typedTestGate{policy.Decision{Verdict: policy.VerdictObserveOnly,
 		Reason: policy.ReasonObserveOnly}}
 	d, err = AuthorizeTyped(ctx, gate, req, true)
 	if !errors.As(err, &withheld) || !withheld.Reauthorized ||
