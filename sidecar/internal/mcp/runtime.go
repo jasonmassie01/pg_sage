@@ -25,6 +25,9 @@ type Runtime struct {
 	output        io.Writer
 	httpHandler   http.Handler
 	watchInterval time.Duration
+	// stdioPrincipalID is the agent principal mcp.stdio_principal names
+	// ("" when none is configured).
+	stdioPrincipalID string
 }
 
 func NewRuntime(
@@ -51,6 +54,13 @@ func NewRuntime(
 func (r *Runtime) Transport() string         { return r.transport }
 func (r *Runtime) HTTPHandler() http.Handler { return r.httpHandler }
 
+// BindStdioPrincipal names the agent principal ("agp_…") the stdio client
+// acts as; its tools then carry that principal. The caller also binds the
+// principal's agentguard identity on the context it passes to Serve.
+func (r *Runtime) BindStdioPrincipal(principalID string) {
+	r.stdioPrincipalID = principalID
+}
+
 // SetWatchInterval sets how often the tool list is checked for changes.
 func (r *Runtime) SetWatchInterval(d time.Duration) {
 	if d > 0 {
@@ -67,7 +77,9 @@ func (r *Runtime) Serve(ctx context.Context) error {
 	if r.transport != "stdio" {
 		return fmt.Errorf("Serve is only valid for stdio transport")
 	}
-	ctx = WithPrincipal(ctx, stdioPrincipal)
+	p := stdioPrincipal
+	p.PrincipalID = r.stdioPrincipalID
+	ctx = WithPrincipal(ctx, p)
 	session := newStdioSession(r.server, r.output)
 	// The baseline is taken before any input is read: a change made once a
 	// request is answered must not fall into a baseline the watcher

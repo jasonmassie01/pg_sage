@@ -121,6 +121,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 		// Election first: the leader-only loops below read its result.
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
 		startDecommissionReport(shutdownCtx, authPool, cfg.ConfigPath)
+		startAgentGovernance(shutdownCtx, authPool, cfg)
 		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
 		startSpecialistOutbound(shutdownCtx)
 	}
