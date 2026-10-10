@@ -84,7 +84,7 @@ func (doc Document) Budget(kind BudgetKind) KindBudget {
 // so two candidates cannot both take the last slot of a budget.
 func spendsBudget(req ActionRequest) bool {
 	return !req.OperatorApproved && req.Contract != nil &&
-		req.Contract.RiskTier != RiskReadOnly
+		req.Contract.RiskTier != RiskReadOnly && !req.Contract.Narrowing
 }
 
 // budgetNote is what the gate learned from usage, stamped on the decision
