@@ -211,6 +211,33 @@ jobs:
           path: pgincidentbench/
           if-no-files-found: warn
 
+      # AgentSafetyBench v0 (G0-08): runs on PG17 here. Only bench machinery
+      # errors fail the step; the measured numbers are reported, not gated.
+      - name: AgentSafetyBench
+        id: safety-bench
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        timeout-minutes: 15
+        env:
+          SAGE_SAFETY_BENCH_RUN: "1"
+          SAGE_SAFETY_BENCH_REPORT_DIR: ${{ github.workspace }}/agentsafetybench
+        run: |
+          status=0
+          go test ./safety-bench -run '^TestAgentSafetyBench$' -count=1 -timeout 600s \
+            -json > ../safety-bench.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../safety-bench.json
+          exit $status
+
+      # The PG17 report is signed by safety-bench-sign and shipped; the other
+      # majors (integration-matrix) upload unsigned artifacts.
+      - name: Upload AgentSafetyBench report (PG17)
+        if: ${{ !cancelled() && steps.safety-bench.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentsafetybench-pg17
+          path: agentsafetybench/
+          if-no-files-found: warn
+
       # Fails on any skipped test not justified in sidecar/.skip-allowlist.
       - name: Skip budget
         if: ${{ !cancelled() }}
@@ -310,6 +337,32 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
           exit $status
 
+      # AgentSafetyBench v0 on the rest of the supported range. These reports
+      # are uploaded unsigned (PG17's is the signed, shipped one). Only bench
+      # machinery errors fail the step.
+      - name: AgentSafetyBench
+        id: safety-bench
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        timeout-minutes: 15
+        env:
+          SAGE_SAFETY_BENCH_RUN: "1"
+          SAGE_SAFETY_BENCH_REPORT_DIR: ${{ github.workspace }}/agentsafetybench
+        run: |
+          status=0
+          go test ./safety-bench -run '^TestAgentSafetyBench$' -count=1 -timeout 600s \
+            -json > ../safety-bench.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../safety-bench.json
+          exit $status
+
+      - name: Upload AgentSafetyBench report (PG${{ matrix.pg }})
+        if: ${{ !cancelled() && steps.safety-bench.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentsafetybench-pg${{ matrix.pg }}
+          path: agentsafetybench/
+          if-no-files-found: warn
+
       - name: Skip budget
         if: ${{ !cancelled() }}
         working-directory: sidecar
@@ -400,6 +453,54 @@ jobs:
         with:
           name: sigstore-trusted-root
           path: sidecar/internal/benchsig/trusted_root.json
+          if-no-files-found: error
+
+  # G0-08: sign the PG17 AgentSafetyBench report keyless (Sigstore, GitHub
+  # OIDC), the same pattern as bench-sign but a separate job so it never
+  # touches the PGIncidentBench 3-shard check. The report is not sidecar
+  # ledger evidence, so it is verified by cosign only (no pg_sage verifier).
+  safety-bench-sign:
+    runs-on: ubuntu-latest
+    needs: test
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: agentsafetybench-pg17
+          path: safety-bench-report
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the AgentSafetyBench report (keyless)
+        working-directory: safety-bench-report
+        run: |
+          set -euo pipefail
+          test -f agentsafetybench.json
+          cosign sign-blob --yes --bundle agentsafetybench.json.sigstore.json \
+            agentsafetybench.json
+
+      - name: Verify the signature (cosign)
+        working-directory: safety-bench-report
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
+          ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          set -euo pipefail
+          cosign verify-blob --bundle agentsafetybench.json.sigstore.json \
+            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
+            agentsafetybench.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentsafetybench-signed
+          path: safety-bench-report/
           if-no-files-found: error
 
   # Roadmap 2.4: the nightly live-model arm. The replay corpus runs through
@@ -644,7 +745,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [test, bench-sign]
+    needs: [test, bench-sign, safety-bench-sign]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -677,6 +778,13 @@ jobs:
           name: sigstore-trusted-root
           path: sidecar/internal/benchsig
 
+      # G0-08: the signed AgentSafetyBench report rides along as a release
+      # asset.
+      - uses: actions/download-artifact@v4
+        with:
+          name: agentsafetybench-signed
+          path: safety-bench
+
       - name: Stage the signed bench reports as release assets
         run: |
           set -euo pipefail
@@ -685,6 +793,10 @@ jobs:
             for ext in json json.sigstore.json md; do
               cp "bench/$shard/pgincidentbench.$ext" "release-assets/pgincidentbench-$shard.$ext"
             done
+          done
+          # Fail loudly on a tag if the signed safety report is missing.
+          for ext in json json.sigstore.json md; do
+            cp "safety-bench/agentsafetybench.$ext" "release-assets/agentsafetybench.$ext"
           done
 
       # cgo release: goreleaser-cross carries a C cross-compiler per target
