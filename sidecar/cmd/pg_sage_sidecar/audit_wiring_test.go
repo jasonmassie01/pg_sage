@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/evidence"
 )
 
 // Sinks are built from configuration; a token comes from its environment
@@ -53,4 +56,46 @@ func TestAuditSourcesDeduplicateTheControlPool(t *testing.T) {
 // Verification with nothing to verify, or as a follower, does nothing.
 func TestRunChainVerificationWithoutSources(t *testing.T) {
 	runChainVerification(context.Background(), nil)
+}
+
+// The evidence signing key loads from its variable; unset or invalid keys
+// leave packs hashed only.
+func TestEvidenceSigningKey(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	pemText, err := evidence.MarshalSigningKey(priv)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	c := config.DefaultConfig()
+	if evidenceSigningKey(c) != nil {
+		t.Fatalf("a key without configuration")
+	}
+	c.Audit.Evidence.SigningKeyEnv = "SAGE_TEST_EVIDENCE_KEY"
+	t.Setenv("SAGE_TEST_EVIDENCE_KEY", pemText)
+	if got := evidenceSigningKey(c); got == nil || !got.Equal(priv) {
+		t.Fatalf("configured key not loaded")
+	}
+	t.Setenv("SAGE_TEST_EVIDENCE_KEY", "not a key")
+	if evidenceSigningKey(c) != nil {
+		t.Fatalf("an invalid key was used")
+	}
+}
+
+// SIEM status is reported only when sinks are configured, and reads the
+// exporter started after the router.
+func TestSIEMStatusFunc(t *testing.T) {
+	c := config.DefaultConfig()
+	if siemStatusFunc(c) != nil {
+		t.Fatalf("status without sinks")
+	}
+	c.Audit.SIEM.Sinks = []config.AuditSIEMSink{{Name: "soc", Type: "http",
+		URL: "https://x"}}
+	f := siemStatusFunc(c)
+	if f == nil {
+		t.Fatalf("no status with sinks")
+	}
+	auditExport.Store(nil)
+	if got := f(); len(got) != 0 {
+		t.Fatalf("status before the exporter starts = %v", got)
+	}
 }

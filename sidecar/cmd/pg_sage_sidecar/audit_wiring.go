@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/auditjob"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/evidence"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/siem"
 )
@@ -164,4 +166,41 @@ func runChainVerification(ctx context.Context, sources []auditjob.Source) {
 			}
 		}
 	}
+}
+
+// siemStatusFunc reports the running exporter's sinks; nil when no sink
+// is configured.
+func siemStatusFunc(c *config.Config) func() []siem.SinkStatus {
+	if c == nil || len(c.Audit.SIEM.Sinks) == 0 {
+		return nil
+	}
+	return func() []siem.SinkStatus {
+		if e := auditExport.Load(); e != nil {
+			return e.Status()
+		}
+		return nil
+	}
+}
+
+// evidenceSigningKey loads the Ed25519 key that signs evidence manifests;
+// nil (hashed-only packs, logged once) when unset or unusable.
+func evidenceSigningKey(c *config.Config) ed25519.PrivateKey {
+	if c == nil || c.Audit.Evidence.SigningKeyEnv == "" {
+		return nil
+	}
+	name := c.Audit.Evidence.SigningKeyEnv
+	pemText, err := config.LookupSecretEnv(name)
+	if err == nil && pemText == "" {
+		err = fmt.Errorf("%s is empty", name)
+	}
+	if err != nil {
+		logError("audit", "evidence packs will not be signed: %v", err)
+		return nil
+	}
+	key, err := evidence.LoadSigningKey(pemText)
+	if err != nil {
+		logError("audit", "evidence packs will not be signed: %s: %v", name, err)
+		return nil
+	}
+	return key
 }

@@ -161,10 +161,3 @@ func TestAuditSIEMStatusRoute(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"enabled":true`)
 	require.Contains(t, w.Body.String(), `"consecutive_failures":2`)
 }
-
-func itoa64(n int64) string { return jsonNumber(n) }
-
-func jsonNumber(n int64) string {
-	b, _ := json.Marshal(n)
-	return string(b)
-}
