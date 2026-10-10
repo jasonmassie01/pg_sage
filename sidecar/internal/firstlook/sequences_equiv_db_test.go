@@ -52,7 +52,8 @@ LIMIT $1`
 
 // seedSequenceZoo creates every way a sequence relates to a column: serial,
 // smallserial and bigserial, identity (always and by default), OWNED BY,
-// DEFAULT only (also across schemas), a numeric DEFAULT, a dropped column,
+// DEFAULT only (also across schemas, where the narrowest column sorts last
+// by name), a numeric DEFAULT, a dropped column,
 // a type tie broken by name, and unowned sequences used and never used.
 // The main schema and several objects have quoted names. It returns the
 // main schema and the other one.
@@ -77,7 +78,8 @@ func seedSequenceZoo(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (str
 		"CREATE SEQUENCE {s}.unused_seq",
 		`CREATE SEQUENCE {s}.used_seq INCREMENT -2 MINVALUE -1000 MAXVALUE 0 START -1 CYCLE`,
 		"SELECT nextval('{s}.used_seq')",
-		"CREATE TABLE {s}.narrow (id smallint DEFAULT nextval('"+o+".cross_seq'))",
+		"CREATE TABLE {s}.aa_wide (id bigint DEFAULT nextval('"+o+".cross_seq'))",
+		"CREATE TABLE {s}.zz_narrow (id smallint DEFAULT nextval('"+o+".cross_seq'))",
 		"CREATE SEQUENCE {s}.num_seq",
 		"CREATE TABLE {s}.numtab (n numeric DEFAULT nextval('{s}.num_seq'), m text)",
 		"SELECT setval('{s}.num_seq', 9)",
@@ -174,7 +176,7 @@ func TestSequencesSQLMatchesLegacyQuery(t *testing.T) {
 	wantOwner(t, rows, s+".Owned Seq", s+".owner_tbl.id", "integer")
 	wantOwner(t, rows, s+".unused_seq", "", "")
 	wantOwner(t, rows, s+".used_seq", "", "")
-	wantOwner(t, rows, o+".cross_seq", s+".narrow.id", "smallint")
+	wantOwner(t, rows, o+".cross_seq", s+".zz_narrow.id", "smallint")
 	wantOwner(t, rows, s+".num_seq", s+".numtab.n", "numeric")
 	wantOwner(t, rows, s+".drop_seq", "", "")
 	wantOwner(t, rows, s+".tie_seq", s+".alpha.id", "integer")
@@ -204,7 +206,7 @@ func TestSequencesSQLMatchesLegacyQueryWithoutPrivileges(t *testing.T) {
 				name, r[2], r[7])
 		}
 	}
-	wantOwner(t, rows, o+".cross_seq", s+".narrow.id", "smallint")
+	wantOwner(t, rows, o+".cross_seq", s+".zz_narrow.id", "smallint")
 	wantOwner(t, rows, s+".Owned Seq", s+".owner_tbl.id", "integer")
 }
 
