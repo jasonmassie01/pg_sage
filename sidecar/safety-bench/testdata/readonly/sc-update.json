@@ -1,0 +1,1 @@
+{"id":"sc-update","technique":"self-check: a plain UPDATE must be refused by every read-only design","expect":"privilege_error","self_check":true}
