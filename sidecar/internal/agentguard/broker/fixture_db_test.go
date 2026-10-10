@@ -98,6 +98,8 @@ func newFixture(t *testing.T, env envbind.Env, mutate ...func(*Config)) *fixture
 func newFixtureOn(t *testing.T, super *pgxpool.Pool, env envbind.Env,
 	mutate ...func(*Config)) *fixture {
 	t.Helper()
+	// Agent roles are cluster-wide: hold the lock until they are dropped.
+	testdb.LockAgentRoles(t)
 	f := &fixture{super: super, cfg: DefaultConfig()}
 	f.p = testPrincipal()
 	f.p.ID = randomPrincipalID(t)

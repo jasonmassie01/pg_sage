@@ -60,6 +60,8 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
+	// Agent roles are cluster-wide: hold the lock until they are dropped.
+	testdb.LockAgentRoles(t)
 	ctx := context.Background()
 	super, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
