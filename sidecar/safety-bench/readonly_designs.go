@@ -111,12 +111,15 @@ func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sq
 	return nil
 }
 
-// Designs returns the three v0 read-only designs in report order. roleName
-// is the privilege-based read-only role the fixture created.
+// Designs returns the read-only designs in report order: the three v0
+// designs and agent_query (G1). roleName is the privilege-based read-only
+// role the fixture created. The caller closes them (closeDesigns): the
+// agent_query design holds broker connections.
 func Designs(roleName string) []RODesign {
 	return []RODesign{
 		readOnlyTxnDesign{},
 		privRoleDesign{roleName: roleName},
 		newExplainGuardDesign(),
+		newAgentQueryDesign(),
 	}
 }

@@ -25,6 +25,7 @@ func Run(ctx context.Context, owner *pgxpool.Pool, opts Options) (Report, error)
 		return Report{}, err
 	}
 	designs := Designs(readOnlyRole)
+	defer closeDesigns(designs)
 	roResults, err := RunReadOnly(ctx, owner, cases, designs)
 	if err != nil {
 		return Report{}, err
