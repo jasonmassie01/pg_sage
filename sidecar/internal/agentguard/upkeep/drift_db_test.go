@@ -126,9 +126,27 @@ func TestDrift_ForeignGrantIsReportedNeverForced(t *testing.T) {
 	c, p := driftCluster(t)
 	table := c.ownTable(t)
 	ctx := context.Background()
-	// The superuser grants it: another grantor, which pg_sage cannot revoke.
-	_, err := c.super.Exec(ctx, "GRANT UPDATE ON "+table+" TO "+p.BrokerRole())
+	// Another grantor, which pg_sage cannot revoke. (A superuser's GRANT is
+	// recorded as the owner's, pg_sage's here, so a separate role holding
+	// GRANT OPTION grants it.)
+	other := fmt.Sprintf("drift_grantor_%d", seq.Add(1))
+	conn, err := c.super.Acquire(ctx) // SET ROLE needs one session
 	require.NoError(t, err)
+	for _, s := range []string{"CREATE ROLE " + other + " NOLOGIN",
+		"GRANT UPDATE ON " + table + " TO " + other + " WITH GRANT OPTION",
+		"SET ROLE " + other, "GRANT UPDATE ON " + table + " TO " + p.BrokerRole(),
+		"RESET ROLE"} {
+		_, err := conn.Exec(ctx, s)
+		require.NoError(t, err, s)
+	}
+	conn.Release()
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = c.super.Exec(bg, "DROP TABLE IF EXISTS "+table)
+		if _, err := c.super.Exec(bg, "DROP ROLE "+other); err != nil {
+			t.Errorf("cleanup: drop %s: %v", other, err)
+		}
+	})
 	rep, err := c.driftRunner(t).ReconcileDrift(ctx, Fence{})
 	require.NoError(t, err)
 	d, ok := driftOf(rep, p.BrokerRole())
@@ -141,8 +159,7 @@ func TestDrift_ForeignGrantIsReportedNeverForced(t *testing.T) {
 	require.True(t, open)
 	require.Equal(t, "critical", sev)
 	require.Contains(t, sql, "REVOKE")
-	_, err = c.super.Exec(ctx, "REVOKE UPDATE ON "+table+" FROM "+p.BrokerRole())
-	require.NoError(t, err)
+	require.Contains(t, sql, other)
 }
 
 func TestDrift_MembershipIsWideningAndReported(t *testing.T) {

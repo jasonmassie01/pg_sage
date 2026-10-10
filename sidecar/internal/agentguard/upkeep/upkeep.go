@@ -75,13 +75,17 @@ type Config struct {
 	RetireGrace time.Duration // agents.roles.retire_grace_days; 0 drops at the next pass
 	Rotation    time.Duration // agents.broker.rotation_days
 	Batch       int           // rows per page; 0 is DefaultBatch
+	// Roles is the login and connection limits the drift reconciler expects
+	// (zero: agentguard.DefaultRoleConfig).
+	Roles agentguard.RoleConfig
 }
 
 // ConfigFrom builds a Config from the day settings.
 func ConfigFrom(retireGraceDays, rotationDays int) Config {
 	day := 24 * time.Hour
 	return Config{RetireGrace: time.Duration(retireGraceDays) * day,
-		Rotation: time.Duration(rotationDays) * day, Batch: DefaultBatch}
+		Rotation: time.Duration(rotationDays) * day, Batch: DefaultBatch,
+		Roles: agentguard.DefaultRoleConfig()}
 }
 
 // Runner runs the jobs against the governance control database.
@@ -105,6 +109,9 @@ func New(control *pgxpool.Pool, roles Roles, targets Targets, cfg Config) (*Runn
 	}
 	if cfg.Batch == 0 {
 		cfg.Batch = DefaultBatch
+	}
+	if cfg.Roles == (agentguard.RoleConfig{}) {
+		cfg.Roles = agentguard.DefaultRoleConfig()
 	}
 	return &Runner{control: control, store: agentguard.NewStore(control), roles: roles,
 		targets: targets, cfg: cfg}, nil

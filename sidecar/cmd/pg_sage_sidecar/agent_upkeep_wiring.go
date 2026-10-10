@@ -27,11 +27,14 @@ const (
 	agentUpkeepFirstDelay     = 2 * time.Minute
 	agentUpkeepInterval       = time.Hour
 	agentBackendCheckInterval = time.Minute
+	agentDriftInterval        = 24 * time.Hour
 )
 
 // agentUpkeepConfig maps the agents settings onto the jobs' schedule.
 func agentUpkeepConfig(c *config.Config) upkeep.Config {
-	return upkeep.ConfigFrom(c.Agents.Roles.RetireGraceDays, c.Agents.Broker.RotationDays)
+	uc := upkeep.ConfigFrom(c.Agents.Roles.RetireGraceDays, c.Agents.Broker.RotationDays)
+	uc.Roles = agentRoleConfig(c)
+	return uc
 }
 
 // agentRoleConfig is the role contracts' configuration: the kill switch's
@@ -78,6 +81,11 @@ func startAgentUpkeep(ctx context.Context, mgr *fleet.DatabaseManager,
 	go afterDelay(ctx, agentUpkeepFirstDelay, func() {
 		every(ctx, agentBackendCheckInterval, func(c context.Context) {
 			runAgentBackendCheck(c, r, lead)
+		})
+	})
+	go afterDelay(ctx, agentUpkeepFirstDelay, func() {
+		every(ctx, agentDriftInterval, func(c context.Context) {
+			runAgentDrift(c, r, lead)
 		})
 	})
 	return r
@@ -195,5 +203,47 @@ func (n *backendNotes) changes(rep upkeep.BackendReport) []string {
 	}
 	sort.Strings(out)
 	n.last = now
+	return out
+}
+
+func runAgentDrift(ctx context.Context, r *upkeep.Runner, lead governanceLeader) {
+	fence, ok := upkeepFence(lead, "agent role drift")
+	if !ok {
+		return
+	}
+	rep, err := r.ReconcileDrift(ctx, fence)
+	if errors.Is(err, upkeep.ErrFenced) {
+		logWarn("agents", "agent role drift stopped: the leader lease moved mid-pass")
+		return
+	}
+	if err != nil {
+		logWarn("agents", "agent role drift failed: %v", err)
+		return
+	}
+	for _, l := range driftLines(rep) {
+		logWarn("agents", "%s", l)
+	}
+}
+
+// driftLines are the log lines of one drift pass.
+func driftLines(rep upkeep.DriftReport) []string {
+	var out []string
+	for _, d := range rep.Drift {
+		line := fmt.Sprintf("agent role %s in %s drifted: %s", d.Role, d.Database,
+			strings.Join(append(append([]string{}, d.Widening...), d.Narrowing...), "; "))
+		if len(d.Corrected) > 0 {
+			line += fmt.Sprintf(" (corrected: %s)", strings.Join(d.Corrected, "; "))
+		}
+		out = append(out, line)
+	}
+	keys := make([]string, 0, len(rep.Failed))
+	for k := range rep.Failed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out = append(out, fmt.Sprintf("agent role drift of %s not checked: %s", k,
+			rep.Failed[k]))
+	}
 	return out
 }

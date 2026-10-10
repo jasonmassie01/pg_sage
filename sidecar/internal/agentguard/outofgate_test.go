@@ -49,6 +49,12 @@ var agentAccessCensus = map[string]string{
 	"internal/agentguard/kill_cluster.go":   "out_of_gate:kill_direct_fallback",
 	"internal/agentguard/kill_report.go":    "text",
 	"internal/agentguard/unfreeze_roles.go": "gate:guard_unfreeze",
+	// The drift reconciler's own corrections (REVOKE ... GRANTED BY pg_sage,
+	// ALTER ROLE ... NOLOGIN / CONNECTION LIMIT) run only as guard_revoke
+	// through Executor.Apply (drift_correct.go); everything else is a fix
+	// shown to a person.
+	"internal/agentguard/upkeep/drift_attrs.go": "gate:guard_revoke",
+	"internal/agentguard/upkeep/drift_privs.go": "gate:guard_revoke",
 }
 
 // closedListAnchors are where each closed-list path lives; the anchor must
