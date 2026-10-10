@@ -164,7 +164,12 @@ func readXID(ctx context.Context, tx pgx.Tx) (XIDState, error) {
 // DEFAULT calls nextval() on it. When several columns use one sequence the
 // narrowest integer type caps it, so each sequence stays one row.
 // last_value is NULL when the role may not read the sequence, and also
-// when it was never used; the privilege column tells the two apart.
+// when it was never used; the privilege column tells the two apart. The
+// DEFAULT branch must read pg_depend by its reference index (refclassid,
+// refobjid, refobjsubid 0: the sequence itself). Without catalog
+// statistics the planner chose the depender index on classid alone and
+// filtered every column default once per sequence (G0 perf gate: about
+// 1 s at 1,500 sequences); "IS TRUE" keeps classid out of the index.
 const sequencesSQL = tag + `SELECT s.schemaname::text, s.sequencename::text, s.last_value,
   s.min_value, s.max_value, s.increment_by, s.cycle,
   pg_catalog.has_sequence_privilege(sc.oid, 'SELECT,USAGE'),
@@ -182,9 +187,9 @@ LEFT JOIN LATERAL (
         UNION
         SELECT ad.adrelid, ad.adnum FROM pg_catalog.pg_depend d
         JOIN pg_catalog.pg_attrdef ad ON ad.oid = d.objid
-        WHERE d.classid = 'pg_catalog.pg_attrdef'::regclass
+        WHERE (d.classid = 'pg_catalog.pg_attrdef'::regclass) IS TRUE
           AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.refobjid = sc.oid
-          AND d.deptype = 'n') u
+          AND d.refobjsubid = 0 AND d.deptype = 'n') u
   JOIN pg_catalog.pg_attribute a ON a.attrelid = u.relid AND a.attnum = u.attnum
     AND NOT a.attisdropped
   JOIN pg_catalog.pg_class dt ON dt.oid = u.relid
