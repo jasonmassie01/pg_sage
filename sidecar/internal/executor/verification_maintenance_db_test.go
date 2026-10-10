@@ -45,12 +45,14 @@ func TestOutcome_VacuumVerifiedByDeadTuples(t *testing.T) {
 	raw, _ := json.Marshal(before)
 	id := insertVerifiedAction(t, pool, verifiedActionRow{sql: sql, before: string(raw),
 		executedAt: time.Now().UTC()})
-	if _, err := pool.Exec(ctx, sql); err != nil {
-		t.Fatalf("vacuum: %v", err)
+	_, vacuums, err := vacuumStats(ctx, pool, table)
+	if err != nil {
+		t.Fatalf("read vacuum count: %v", err)
 	}
-	// PostgreSQL 14's collector applies VACUUM's report asynchronously; on
-	// a loaded runner that can take longer than the verifier's settle time.
-	waitForDeadTuplesBelow(t, ctx, pool, table, 1000)
+	report := vacuumVerbose(t, ctx, pool, table)
+	// PostgreSQL 14's collector applies VACUUM's report asynchronously (and
+	// may drop it); on a loaded runner that outlasts the verifier's settle.
+	waitVacuumReported(t, ctx, pool, table, 1000, vacuums, report)
 
 	exec.verifyImmediate(ctx, id)
 
@@ -95,29 +97,10 @@ func waitForDeadTuples(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ta
 	t.Fatalf("dead tuples on %s never reached the statistics", table)
 }
 
-// waitForDeadTuplesBelow waits until the statistics show table's dead
-// tuples under limit, i.e. the VACUUM's report has been applied.
-func waitForDeadTuplesBelow(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
-	table string, limit int64) {
-	t.Helper()
-	var dead int64
-	for i := 0; i < 120; i++ {
-		if err := pool.QueryRow(ctx, `SELECT COALESCE(n_dead_tup, 0) FROM
-			pg_stat_user_tables WHERE relid = to_regclass($1)`, "public."+table).
-			Scan(&dead); err != nil {
-			t.Fatalf("read dead tuples: %v", err)
-		}
-		if dead < limit {
-			return
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	t.Fatalf("dead tuples on %s still %d 30 s after VACUUM: it removed nothing", table, dead)
-}
-
-// waitHorizonPastNow waits until no snapshot VACUUM must respect (this
-// database's backends, replication slots, prepared transactions) is older
-// than a transaction started now, so rows deleted before it are removable.
+// waitHorizonPastNow waits until no snapshot or running transaction VACUUM
+// must respect (this database's backends, replication slots, prepared
+// transactions) is older than a transaction started now, so rows deleted
+// before it are removable.
 func waitHorizonPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	var now string
@@ -129,9 +112,9 @@ func waitHorizonPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		if err := pool.QueryRow(ctx, `WITH n AS (SELECT age(($1::bigint % 4294967296)
 			::text::xid) AS a)
 		SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity x, n
-			WHERE x.pid <> pg_backend_pid() AND x.backend_xmin IS NOT NULL
+			WHERE x.pid <> pg_backend_pid()
 			  AND (x.datname = current_database() OR x.datname IS NULL)
-			  AND age(x.backend_xmin) >= n.a)
+			  AND (age(x.backend_xmin) >= n.a OR age(x.backend_xid) >= n.a))
 		AND NOT EXISTS (SELECT 1 FROM pg_replication_slots s, n
 			WHERE s.xmin IS NOT NULL AND age(s.xmin) >= n.a)
 		AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts p, n
@@ -143,7 +126,8 @@ func waitHorizonPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatal("another backend held the xmin horizon back for 60 s")
+	t.Fatalf("the xmin horizon stayed behind xid %s for 60 s; holders:\n%s", now,
+		horizonHolders(ctx, pool))
 }
 
 // VACUUM (FREEZE) is judged by the relfrozenxid age it was run to
