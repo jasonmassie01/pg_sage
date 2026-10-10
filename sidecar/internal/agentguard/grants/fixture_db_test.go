@@ -54,6 +54,7 @@ type fixture struct {
 	runtime  atomic.Value // policy.RuntimeState
 	p        agentguard.Principal
 	target   Target
+	roles    []string // agent roles to drop when the test ends
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -73,6 +74,9 @@ func newFixture(t *testing.T) *fixture {
 	f := &fixture{super: super, dsn: dsn, store: agentguard.NewStore(super)}
 	require.NoError(t, super.QueryRow(ctx, "SELECT current_database()").Scan(&f.db))
 	f.createAdmin(t)
+	// Runs after the app schema is dropped and before pg_sage's role is:
+	// agent roles are cluster-wide, so a leak would reach other packages.
+	t.Cleanup(func() { f.dropAgentRoles(t) })
 	f.createApp(t)
 	f.runtime.Store(policy.RuntimeState{ExecutorEnabled: true,
 		TrustLevel: policy.TrustAdvisory, ExecutionMode: "auto"})
@@ -183,6 +187,30 @@ func (f *fixture) createApp(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// dropAgentRoles removes the test's agent roles: the CONNECT pg_sage's role
+// granted them first, then the roles.
+func (f *fixture) dropAgentRoles(t *testing.T) {
+	ctx := context.Background()
+	for _, r := range f.roles {
+		var exists bool
+		_ = f.super.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
+			r).Scan(&exists)
+		if !exists {
+			continue
+		}
+		// REVOKE … GRANTED BY must run as the grantor; pg_sage's role holds
+		// ADMIN on the agent roles, so it drops them too.
+		role := pgx.Identifier{r}.Sanitize()
+		for _, stmt := range []string{"REVOKE CONNECT ON DATABASE " +
+			pgx.Identifier{f.db}.Sanitize() + " FROM " + role, "DROP ROLE " + role} {
+			if _, err := f.admin.Exec(ctx, stmt); err != nil {
+				t.Errorf("cleanup %s: %v", stmt, err)
+				break
+			}
+		}
+	}
+}
+
 func (f *fixture) dropRole(name string) {
 	ctx := context.Background()
 	_, _ = f.super.Exec(ctx, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "+
@@ -218,9 +246,8 @@ func (f *fixture) principal(t *testing.T, ceiling agentguard.Env,
 	require.NoError(t, err)
 	rm, err := agentguard.NewRoleManager(f.store, kr, agentguard.DefaultRoleConfig())
 	require.NoError(t, err)
+	f.roles = append(f.roles, p.BrokerRole(), p.LoginRole())
 	t.Cleanup(func() {
-		f.dropRole(p.BrokerRole())
-		f.dropRole(p.LoginRole())
 		// The registry is database-wide: a later test's reconcile pass must
 		// not meet this test's rows.
 		_, _ = f.super.Exec(ctx, "DELETE FROM sage.guard_grants WHERE principal_id = $1",
