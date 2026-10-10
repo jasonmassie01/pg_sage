@@ -3388,6 +3388,11 @@ investigation says so and gives the manual step.</p>
 <td>Seconds between sequence samples, <code>15</code>-<code>86400</code>. Sequences are consumed slowly and are the costliest series to read (one lock per sequence read), so they are read less often, through a separate 2 s background budget. The effective period is never shorter than <code>interval_seconds</code> and never so long that <code>min_samples</code> no longer fit in <code>lookback_hours</code></td>
 </tr>
 <tr>
+<td><code>sre.runways.size_interval_seconds</code></td>
+<td><code>600</code></td>
+<td>Seconds between measurements of the databases' total size, <code>15</code>-<code>86400</code>. Summing every database's size stats every file of every database (hundreds of milliseconds on a large catalog), and the disk runway forecasts over hours, so the size is measured less often and the last measurement is reused in between; only a new measurement is sampled into the disk and database trends. Fleet runtimes on one cluster share one measurement. The effective period is never shorter than <code>interval_seconds</code> and never so long that <code>min_samples</code> no longer fit in <code>lookback_hours</code></td>
+</tr>
+<tr>
 <td><code>sre.runways.lookback_hours</code></td>
 <td><code>6</code></td>
 <td>Hours a trend is fitted over, <code>1</code> to <code>sample_retention_hours</code> (at most <code>168</code>). Pre-incident investigations read the same window</td>
