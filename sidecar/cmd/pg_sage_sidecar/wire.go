@@ -169,6 +169,8 @@ func wireRouter(p WireParams) WireResult {
 			SpecialistAudit: specialistAudit,
 			// Agent environment labels (agent_envclass_wiring.go).
 			AgentEnvironments: agentEnvironmentService(p.Cfg, p.FleetMgr, p.MetaState),
+			// Kill switch, freeze and unfreeze (agent_kill_wiring.go).
+			AgentKill: lateKillSwitch{},
 		},
 		middlewares...,
 	)

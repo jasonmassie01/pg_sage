@@ -22,6 +22,8 @@
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
+| `agents.kill_fallback_log` | `restart` | `-` | `operator_preference` |
+| `agents.kill_verify_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
 | `agents.roles.connection_limit` | `restart` | `-` | `safety_critical` |
@@ -468,6 +470,7 @@ In YAML fleet mode the `fleet_databases` owner reconciles the list: an added ent
 | `databases[].name` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].password` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].port` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `databases[].replicas` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].sslmode` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `databases[].tags` | `live_policy` | `fleet_databases` | `operator_preference` |
 | `databases[].trust_level` | `live_policy` | `fleet_databases` | `safety_critical` |

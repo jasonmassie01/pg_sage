@@ -38,11 +38,18 @@ var agentAccessCensus = map[string]string{
 	"internal/agentguard/preflight.go": "text",
 	// Retire's REVOKE fixes are shown to the other grantor, never run.
 	"internal/agentguard/residue.go": "text",
+	// The kill steps run under guard_kill / guard_freeze through Executor.Apply,
+	// and the same functions are the direct fallback when the gate or the
+	// control database is unreachable; the stricter class is recorded.
+	"internal/agentguard/kill_cluster.go":   "out_of_gate:kill_direct_fallback",
+	"internal/agentguard/kill_report.go":    "text",
+	"internal/agentguard/unfreeze_roles.go": "gate:guard_unfreeze",
 }
 
 // closedListAnchors are where each closed-list path lives; the anchor must
 // exist (a path may not silently disappear) and must mention its marker.
 var closedListAnchors = map[OutOfGatePath]struct{ file, marker string }{
+	OutOfGateKillFallback:    {"internal/agentguard/kill_run.go", "appendFallback"},
 	OutOfGateManualRunbook:   {"../docs/agent-guard.md", "NOLOGIN CONNECTION LIMIT 0"},
 	OutOfGateBreakGlass:      {"internal/auth/break_glass.go", "break"},
 	OutOfGateDecommissionAck: {"internal/decommission/ack.go", "agentdb_decommission"},

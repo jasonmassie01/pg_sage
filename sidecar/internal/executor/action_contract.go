@@ -141,6 +141,12 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return guardRoleEnsureContract(), true
 	case ActionTypeGuardRoleRetire:
 		return guardRoleRetireContract(), true
+	case ActionTypeGuardFreeze:
+		return guardContainContract(actionType, "one principal, cluster-wide"), true
+	case ActionTypeGuardKill:
+		return guardContainContract(actionType, "every agent role of the scope"), true
+	case ActionTypeGuardUnfreeze:
+		return guardUnfreezeContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,

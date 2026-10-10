@@ -115,6 +115,9 @@ type RuntimeDeps struct {
 	// AgentEnvironments serves agent environment labels; nil answers 503
 	// (no control database: agent governance is posture-only).
 	AgentEnvironments *envbind.Service
+	// AgentKill serves the agent kill switch, freeze and unfreeze; nil
+	// answers 503 (agent_kill_routes.go).
+	AgentKill AgentKillSwitch
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -199,6 +202,7 @@ func registerFleetScopedRoutes(
 	registerFactRoutes(apiMux, mgr)
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
+	registerAgentKillRoutes(apiMux, rt.AgentKill)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
