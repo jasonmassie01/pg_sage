@@ -1,0 +1,38 @@
+name: Mirror CI images
+
+# CI pulled its PostgreSQL images from Docker Hub anonymously, and GitHub's
+# shared runners hit Docker Hub's unauthenticated pull limit
+# ("toomanyrequests"), failing every job before a test ran (2026-10-09).
+# This copies the images to this repository's GitHub container registry,
+# where CI pulls them with its own token; weekly, to pick up rebuilt tags.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 5 * * 1"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to the GitHub container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Copy pgvector/pgvector 0.8.2 for PostgreSQL 14-18
+        run: |
+          set -euo pipefail
+          for pg in 14 15 16 17 18; do
+            src="pgvector/pgvector:0.8.2-pg${pg}"
+            dst="ghcr.io/${{ github.repository_owner }}/pg_sage-ci-pgvector:0.8.2-pg${pg}"
+            for attempt in 1 2 3 4 5; do
+              docker pull "$src" && break
+              echo "pull of $src failed (attempt $attempt); waiting"
+              sleep $((attempt * 60))
+            done
+            docker tag "$src" "$dst"
+            docker push "$dst"
+          done
