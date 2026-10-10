@@ -165,25 +165,38 @@ func readXID(ctx context.Context, tx pgx.Tx) (XIDState, error) {
 // narrowest integer type caps it, so each sequence stays one row.
 // last_value is NULL when the role may not read the sequence, and also
 // when it was never used; the privilege column tells the two apart.
-const sequencesSQL = tag + `SELECT s.schemaname::text, s.sequencename::text, s.last_value,
-  s.min_value, s.max_value, s.increment_by, s.cycle,
+//
+// The plan must not depend on catalog statistics: a freshly restored or
+// migrated database has not analyzed pg_depend yet, and the earlier read
+// (through pg_sequences, matching names) then read pg_depend by classid
+// alone for every sequence: 11-14 s at 5,000 sequences. So the read starts
+// at pg_sequence and joins by OID, without a relkind filter whose stale
+// estimate is zero rows, and each pg_depend lookup is keyed by the
+// sequence: (classid, objid) for the owning column and (refclassid,
+// refobjid) for DEFAULTs. The attrdef side compares classid to the
+// tableoid of pg_attrdef instead of a constant, so no constant-classid
+// prefix of pg_depend_depender_index can compete with the keyed index.
+// The last_value CASE matches pg_sequences on every major version.
+const sequencesSQL = tag + `SELECT n.nspname::text, sc.relname::text,
+  CASE WHEN pg_catalog.has_sequence_privilege(sc.oid, 'SELECT,USAGE')
+    THEN pg_catalog.pg_sequence_last_value(sc.oid::regclass) END,
+  sq.seqmin, sq.seqmax, sq.seqincrement, sq.seqcycle,
   pg_catalog.has_sequence_privilege(sc.oid, 'SELECT,USAGE'),
   COALESCE(col.name, ''), COALESCE(col.type, '')
-FROM pg_catalog.pg_sequences s
-JOIN pg_catalog.pg_namespace n ON n.nspname = s.schemaname
-JOIN pg_catalog.pg_class sc ON sc.relnamespace = n.oid AND sc.relname = s.sequencename
+FROM pg_catalog.pg_sequence sq
+JOIN pg_catalog.pg_class sc ON sc.oid = sq.seqrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = sc.relnamespace
 LEFT JOIN LATERAL (
   SELECT dn.nspname::text || '.' || dt.relname::text || '.' || a.attname::text AS name,
     pg_catalog.format_type(a.atttypid, a.atttypmod) AS type
   FROM (SELECT d.refobjid AS relid, d.refobjsubid AS attnum FROM pg_catalog.pg_depend d
-        WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = sc.oid
+        WHERE d.classid = 'pg_catalog.pg_class'::regclass AND d.objid = sq.seqrelid
           AND d.refclassid = 'pg_catalog.pg_class'::regclass
           AND d.deptype IN ('a', 'i') AND d.refobjsubid > 0
         UNION
         SELECT ad.adrelid, ad.adnum FROM pg_catalog.pg_depend d
-        JOIN pg_catalog.pg_attrdef ad ON ad.oid = d.objid
-        WHERE d.classid = 'pg_catalog.pg_attrdef'::regclass
-          AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.refobjid = sc.oid
+        JOIN pg_catalog.pg_attrdef ad ON ad.tableoid = d.classid AND ad.oid = d.objid
+        WHERE d.refclassid = 'pg_catalog.pg_class'::regclass AND d.refobjid = sq.seqrelid
           AND d.deptype = 'n') u
   JOIN pg_catalog.pg_attribute a ON a.attrelid = u.relid AND a.attnum = u.attnum
     AND NOT a.attisdropped
