@@ -95,6 +95,12 @@
     "doc": "Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none.",
     "class": "safety_critical"
   },
+  "agents.kill_fallback_log": {
+    "type": "string",
+    "default": "agent-kill-fallback.log",
+    "doc": "Local file logging kill steps run without the gate or control database; copied to the action log once it is back. Default: agent-kill-fallback.log.",
+    "class": "operator_preference"
+  },
   "agents.kill_verify_timeout_seconds": {
     "type": "int",
     "default": 10,

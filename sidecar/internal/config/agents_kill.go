@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // The kill switch's settings (AGENTDB-SPEC §6.10, §9):
@@ -20,6 +21,10 @@ type DatabaseReplica struct {
 // DefaultKillVerifyTimeoutSeconds is the spec's 10 s kill bound.
 const DefaultKillVerifyTimeoutSeconds = 10
 
+// DefaultKillFallbackLog is the local audit of kills that ran without the
+// gate or the control database, relative to the working directory.
+const DefaultKillFallbackLog = "agent-kill-fallback.log"
+
 // maxKillVerifyTimeoutSeconds caps the verification at an hour.
 const maxKillVerifyTimeoutSeconds = 3600
 
@@ -31,6 +36,10 @@ func (a AgentsConfig) validateKill() error {
 	if s < 1 || s > maxKillVerifyTimeoutSeconds {
 		return fmt.Errorf("agents.kill_verify_timeout_seconds must be 1 to %d, got %d",
 			maxKillVerifyTimeoutSeconds, s)
+	}
+	p := a.KillFallbackLog
+	if p == "" || len(p) > 4096 || strings.ContainsAny(p, "\x00\n\r") {
+		return fmt.Errorf("agents.kill_fallback_log must be a file path")
 	}
 	return nil
 }

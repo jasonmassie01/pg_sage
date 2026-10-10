@@ -16,6 +16,9 @@ func TestAgentsKillDefaults(t *testing.T) {
 		t.Fatalf("kill_verify_timeout_seconds = %d, want 10",
 			c.Agents.KillVerifyTimeoutSeconds)
 	}
+	if c.Agents.KillFallbackLog != "agent-kill-fallback.log" {
+		t.Fatalf("kill_fallback_log = %q", c.Agents.KillFallbackLog)
+	}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("defaults rejected: %v", err)
 	}
@@ -71,6 +74,10 @@ func TestAgentsKillValidation(t *testing.T) {
 			"agents.kill_verify_timeout_seconds"},
 		"huge timeout": {func(c *Config) { c.Agents.KillVerifyTimeoutSeconds = 3601 },
 			"agents.kill_verify_timeout_seconds"},
+		"empty fallback log": {func(c *Config) { c.Agents.KillFallbackLog = "" },
+			"agents.kill_fallback_log"},
+		"control char log": {func(c *Config) { c.Agents.KillFallbackLog = "a\nb" },
+			"agents.kill_fallback_log"},
 		"replica no name": {func(c *Config) {
 			c.Databases = []DatabaseConfig{{Name: "a", Host: "h",
 				Replicas: []DatabaseReplica{{DSNEnv: "A_DSN"}}}}

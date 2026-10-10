@@ -22,6 +22,7 @@
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
+| `agents.kill_fallback_log` | `restart` | `-` | `operator_preference` |
 | `agents.kill_verify_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |

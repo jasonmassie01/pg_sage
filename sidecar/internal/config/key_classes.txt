@@ -518,3 +518,4 @@ safety_critical agents.broker.pool_idle_seconds
 safety_critical agents.broker.max_total_connections
 safety_critical agents.single_operator_mode
 safety_critical agents.kill_verify_timeout_seconds
+operator_preference agents.kill_fallback_log
