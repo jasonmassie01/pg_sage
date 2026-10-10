@@ -80,6 +80,16 @@ func leakedRoles() []string {
 	return left
 }
 
+// lockAgentRoles holds the cluster-wide agent roles lock for the test:
+// agent roles are cluster-wide and other packages' tests assume none exist.
+func lockAgentRoles(t *testing.T) {
+	t.Helper()
+	release, err := testdb.LockCluster(context.Background(), os.Getenv(testdb.EnvName),
+		testdb.AgentRolesLock)
+	require.NoError(t, err)
+	t.Cleanup(release)
+}
+
 // livePool is a superuser pool on the package's fixture database, with
 // the sage schema bootstrapped.
 func livePool(t *testing.T) *pgxpool.Pool {

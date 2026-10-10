@@ -29,6 +29,7 @@ func findingFor(fs []BackendFinding, role string) (BackendFinding, bool) {
 
 func TestCheckBackends_UnregisteredAgentRole(t *testing.T) {
 	pool := livePool(t)
+	lockAgentRoles(t)
 	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
 	role := BrokerRoleName(uniqName("rogue"))
@@ -94,6 +95,7 @@ func TestSelfCheck_OnPgSagesOwnRole(t *testing.T) {
 
 func TestAgentOwnership_G107(t *testing.T) {
 	pool := livePool(t)
+	lockAgentRoles(t)
 	ctx := context.Background()
 	role := LoginRoleName(uniqName("owner"))
 	table := "public.g1core_owned_" + strings.TrimPrefix(role, "sage_agent_")

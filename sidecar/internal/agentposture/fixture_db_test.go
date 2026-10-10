@@ -2,11 +2,13 @@ package agentposture
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // fixture is one detector test's private corner of the cluster: a schema
@@ -23,6 +25,13 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	pool, ctx := livePool(t)
+	// Agent roles are cluster-wide: AP-13 and AP-16 assume none exists, so
+	// posture fixtures serialize with every test that creates agent roles.
+	release, err := testdb.LockCluster(ctx, os.Getenv(testdb.EnvName), testdb.AgentRolesLock)
+	if err != nil {
+		t.Fatalf("agent roles lock: %v", err)
+	}
+	t.Cleanup(release)
 	s := suffix(t)
 	f := &fixture{t: t, ctx: ctx, pool: pool, schema: "pst_" + s, exposed: "pexp_" + s}
 	createRole(t, ctx, pool, f.exposed, "NOLOGIN")

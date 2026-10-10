@@ -44,6 +44,7 @@ func newRoleFixture(t *testing.T) *roleFixture {
 		t.Skip("role management needs PostgreSQL 16+; " +
 			"TestEnsure_RefusedBeforePG16 covers older servers")
 	}
+	lockAgentRoles(t)
 	f := &roleFixture{super: super, dsn: testdb.SkipUnlessLive(t), store: NewStore(super)}
 	f.db = currentDatabase(t, super)
 	f.admin = f.createAdmin(t)

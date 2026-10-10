@@ -19,6 +19,7 @@ type privFixture struct {
 func newPrivFixture(t *testing.T) privFixture {
 	t.Helper()
 	pool := livePool(t)
+	lockAgentRoles(t)
 	ctx := context.Background()
 	suffix := strings.ToLower(uniqName("p"))[2:]
 	suffix = strings.NewReplacer("-", "").Replace(suffix)
