@@ -16,8 +16,10 @@ import (
 // column summaries are one snapshot of the catalog.
 //
 // structuralTablesSQL lists the user tables (temporary tables are another
-// session's scratch space and are left out) with their pg_class row
-// version: (xmin, ctid) names one tuple version, so any update of the row
+// session's scratch space, and a table an extension owns, such as
+// hint_plan.hints, is the extension's to define: both are left out) with
+// their pg_class row version: (xmin, ctid) names one tuple version, so
+// any update of the row
 // (CREATE, ADD COLUMN, a rewriting ALTER COLUMN TYPE, RENAME, SET SCHEMA)
 // changes it, freezing does not (xmin reads the raw transaction id).
 // Schema and table names are read fresh on every pass, so a schema
@@ -40,7 +42,10 @@ SELECT tbl.oid, ns.nspname::text, tbl.relname::text,
 FROM pg_catalog.pg_class tbl
 JOIN pg_catalog.pg_namespace ns ON ns.oid=tbl.relnamespace
 WHERE tbl.relkind IN ('r','p') AND tbl.relpersistence <> 't'
-  AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')`
+  AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep
+    WHERE dep.classid='pg_catalog.pg_class'::pg_catalog.regclass
+      AND dep.objid=tbl.oid AND dep.deptype='e')`
 
 	structuralTextTypesSQL = `/* pg_sage structural:text_types */
 SELECT COALESCE(array_agg(oid ORDER BY oid), '{}')
