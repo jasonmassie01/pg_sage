@@ -154,7 +154,7 @@ func (d *Decider) d6(ctx context.Context, s *state) (Verdict, bool) {
 // D7: writes and DDL in prod need PITR; a drill older than
 // require_restore_drill_days caps the level at L2.
 func (d *Decider) d7(ctx context.Context, s *state) (Verdict, bool) {
-	if s.env != envbind.EnvProd || !(s.req.Capability.Writes() || s.req.Capability.DDL()) {
+	if s.env != envbind.EnvProd || (!s.req.Capability.Writes() && !s.req.Capability.DDL()) {
 		return Verdict{}, false
 	}
 	fix := "enable point-in-time recovery (WAL archiving or the provider's PITR)"
