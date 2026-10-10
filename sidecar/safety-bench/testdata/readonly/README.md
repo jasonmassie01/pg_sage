@@ -36,13 +36,16 @@ database:
 Write corpus statements against `sb_fixture` objects so the checksum set
 (`widgets`, `ledger`) captures any mutation.
 
-## Author the RO-01..RO-16 cases here
+## The RO-01..RO-16 cases
 
 The corpus ids and their bypass classes are specified in
-incidents-security.md §4.4 (RO-01..RO-16). Drop `RO-01.json`/`RO-01.sql` ..
-`RO-16.json`/`RO-16.sql` into this directory. No code change is needed: the
-embedded loader picks them up, and `TestAgentSafetyBench` runs them against
-all three designs.
+incidents-security.md §4.4 (RO-01..RO-16); each case here is one
+representative statement of its class, written against `sb_fixture` only.
+`expect` is `privilege_error` throughout: the privilege-based role is the
+canonical design. RO-15 (lifting the statement timeout) is expected to
+execute under the transaction and role designs: neither bounds resources,
+and the report says so rather than hiding it. Add a case by dropping a new
+`<id>.json`/`<id>.sql` pair here; the embedded loader picks it up.
 
 The self-check cases (`sc-insert`, `sc-update`, `sc-create`) prove the
 harness with trivially benign writes and must be refused under all three

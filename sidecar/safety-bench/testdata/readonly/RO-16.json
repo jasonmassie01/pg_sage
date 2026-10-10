@@ -1,0 +1,1 @@
+{"id": "RO-16", "technique": "changing the session default to read-write at runtime before writing", "expect": "privilege_error"}

@@ -1,0 +1,1 @@
+{"id": "RO-02", "technique": "a write stacked after a read in one request", "expect": "privilege_error"}
