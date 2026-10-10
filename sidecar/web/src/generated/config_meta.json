@@ -77,6 +77,18 @@
     "doc": "Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai.",
     "class": "operator_preference"
   },
+  "agents.control_database": {
+    "type": "string",
+    "default": "",
+    "doc": "Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty.",
+    "class": "safety_critical"
+  },
+  "agents.default_environment": {
+    "type": "string",
+    "default": "prod",
+    "doc": "Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod.",
+    "class": "safety_critical"
+  },
   "agents.exposed_roles": {
     "type": "[]string",
     "default": null,
