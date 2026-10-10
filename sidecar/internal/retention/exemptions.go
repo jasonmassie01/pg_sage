@@ -6,7 +6,21 @@ import "github.com/pg-sage/sidecar/internal/decommission"
 // intentionally NOT purged by age. A new time-series table must be added
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
-	decommissionExemptions)
+	decommissionExemptions, agentGuardExemptions)
+
+// agentGuardExemptions: agent identities and their roles are the record of
+// truth for who could act (AGENTDB-SPEC §6.4, §6.6); §6.17 sets no age
+// retention for them, and retired principals stay for audit.
+var agentGuardExemptions = map[string]string{
+	"guard_principals": "agent identities, one row per principal; retired " +
+		"principals stay as the audit record of who could act",
+	"guard_cluster_roles": "current state, one row per principal and cluster; " +
+		"retired rows stay with their principal",
+	"guard_taint": "taint has no time expiry (GR-05); rows are cleared, never " +
+		"aged out, and stay as evidence",
+	"guard_public_baseline": "current state: the PUBLIC baseline is replaced " +
+		"whole at each preflight",
+}
 
 // decommissionExemptions: the operator's acknowledgements of the
 // decommission inventory are audit evidence (Agent Guard spec §12).
