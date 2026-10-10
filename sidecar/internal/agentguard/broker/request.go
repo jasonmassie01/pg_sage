@@ -44,7 +44,7 @@ func validateRequest(cfg Config, req Request) (int, [][]byte, error) {
 			return 0, nil, invalidf("param %d must be a string, number, boolean or null",
 				i+1)
 		}
-		if text != nil && len(text) > maxParamLen {
+		if len(text) > maxParamLen {
 			return 0, nil, invalidf("param %d is longer than %d bytes", i+1, maxParamLen)
 		}
 		params[i] = text
