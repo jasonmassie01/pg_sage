@@ -51,6 +51,11 @@ func TestSuggestRules(t *testing.T) {
 		{"password_changed_at", "timestamptz", Unclassified},
 		{"description", "integer", Unclassified}, // free-text names need a text type
 		{"", "text", Unclassified},
+		// Names that describe a value rather than hold it, whatever the type.
+		{"password_changed_at", "text", Unclassified},
+		{"api_key_id", "uuid", Unclassified},
+		{"email_status", "text", Unclassified},
+		{"comment_count", "text", Unclassified},
 	}
 	for _, c := range cases {
 		got := Suggest([]Column{ruleCol(c.name, c.typ)})
