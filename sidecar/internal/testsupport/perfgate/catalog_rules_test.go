@@ -135,17 +135,24 @@ SELECT (SELECT sum(pg_catalog.pg_database_size(d.oid))::int8
         WHERE d.datallowconn AND pg_catalog.has_database_privilege(d.oid, 'CONNECT'))
            AS database_bytes
 LIMIT $1`, true},
-	{"schema guard structural scan", `/* pg_sage schema_guard:structural v1 */
-WITH tables AS (
-    SELECT ns.nspname AS schema_name, tbl.relname AS table_name, count(*) AS column_count
-    FROM pg_class tbl
-    JOIN pg_namespace ns ON ns.oid=tbl.relnamespace
-    JOIN pg_attribute att ON att.attrelid=tbl.oid AND att.attnum>0 AND NOT att.attisdropped
-    WHERE tbl.relkind IN ('r','p')
-      AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')
-    GROUP BY tbl.oid, ns.nspname, tbl.relname
-)
-SELECT schema_name, table_name FROM tables WHERE column_count>=3`, true},
+	{"structural:tables", `/* pg_sage structural:tables */
+SELECT tbl.oid, ns.nspname::text, tbl.relname::text,
+       tbl.xmin::text || '/' || tbl.ctid::text
+FROM pg_catalog.pg_class tbl
+JOIN pg_catalog.pg_namespace ns ON ns.oid=tbl.relnamespace
+WHERE tbl.relkind IN ('r','p') AND tbl.relpersistence <> 't'
+  AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')`, true},
+	{"structural:columns", `/* pg_sage structural:columns */
+SELECT att.attrelid,
+       count(*) FILTER (WHERE NOT att.attisdropped),
+       count(*) FILTER (WHERE NOT att.attisdropped AND att.atttypid = ANY($2::oid[])),
+       COALESCE(array_agg(att.attname::text) FILTER (WHERE NOT att.attisdropped
+         AND att.atttypid = ANY($2::oid[])
+         AND (att.attname='count_text' OR att.attname ~ '(_id|_count|_number)$')), '{}'),
+       bit_xor(hashtextextended(att.xmin::text || '/' || att.ctid::text, 0))
+FROM pg_catalog.pg_attribute att
+WHERE att.attrelid = ANY($1::oid[]) AND att.attnum>0
+GROUP BY att.attrelid`, true},
 	{"missing FK index scan", `/* pg_sage */
 SELECT ns.nspname, tbl.relname, con.conname
 FROM pg_constraint con

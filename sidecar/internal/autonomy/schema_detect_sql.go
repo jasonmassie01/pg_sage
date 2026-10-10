@@ -39,35 +39,6 @@ WHERE tc.append_only AND tc.retention_interval IS NOT NULL
   AND tbl.relkind IN ('r','p')
 ORDER BY tc.schema_name, tc.table_name`
 
-// structuralPathologySQL aggregates each table's columns once: every
-// column text (three or more), and text columns named like a number. A
-// window over every column of every table spilled to disk at 5,000
-// relations (perf gate, 111 ms on CI). Its tag names it to the
-// performance gate, which judges its mean against its own ceiling.
-const structuralPathologySQL = `/* pg_sage schema_guard:structural v1 */
-WITH tables AS (
-    SELECT ns.nspname AS schema_name, tbl.relname AS table_name,
-           count(*) AS column_count,
-           count(*) FILTER (WHERE typ.typname IN ('text','varchar')) AS text_count,
-           array_agg(att.attname) FILTER (WHERE typ.typname IN ('text','varchar')
-             AND (att.attname='count_text' OR att.attname ~ '(_id|_count|_number)$'))
-             AS tightening
-    FROM pg_class tbl
-    JOIN pg_namespace ns ON ns.oid=tbl.relnamespace
-    JOIN pg_attribute att ON att.attrelid=tbl.oid
-      AND att.attnum>0 AND NOT att.attisdropped
-    JOIN pg_type typ ON typ.oid=att.atttypid
-    WHERE tbl.relkind IN ('r','p')
-      AND ns.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')
-    GROUP BY tbl.oid, ns.nspname, tbl.relname
-)
-SELECT schema_name, table_name, ''::name AS column_name, 'everything_text' AS kind
-FROM tables WHERE column_count>=3 AND text_count=column_count
-UNION ALL
-SELECT schema_name, table_name, unnest(tightening), 'type_tightening' AS kind
-FROM tables WHERE tightening IS NOT NULL
-ORDER BY 1,2,4,3`
-
 const missingFKIndexSQL = `/* pg_sage */
 SELECT ns.nspname, tbl.relname, con.conname,
        array_agg(att.attname::text ORDER BY keys.ordinality)

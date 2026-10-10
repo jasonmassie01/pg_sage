@@ -5,17 +5,29 @@ import (
 	"testing"
 )
 
-// The schema guard's structural scan reads every column of every table:
-// the performance gate exempts it from the 100 ms statement mean by its
-// tag, up to its own ceiling. The tag must lead the statement so
-// pg_stat_statements keeps it; the other schema guard scans stay
-// untagged and are judged by the plain budget.
-func TestStructuralScanCarriesTheGateTag(t *testing.T) {
-	const tag = "/* pg_sage schema_guard:structural v1 */"
-	if !strings.HasPrefix(structuralPathologySQL, tag) {
-		t.Fatalf("structural scan does not lead with %s:\n%s", tag, structuralPathologySQL)
+// The performance gate judges one schema guard statement against its own
+// mean ceiling instead of the 100 ms budget, by its tag: the structural
+// pass's column summary, which on the first pass after startup and on
+// the daily full pass reads every column of every user table. The tag
+// must lead the statement (the wire tagger moves it after the first
+// keyword, where pg_stat_statements keeps it), and no other schema guard
+// statement may carry it: the table listing, the text types, the column
+// versions and the other scans stay judged by the plain budget.
+func TestStructuralColumnSummaryCarriesTheGateTag(t *testing.T) {
+	const tag = "/* pg_sage structural:columns */"
+	if !strings.HasPrefix(structuralColumnsSQL, tag+"\n") {
+		t.Fatalf("column summary does not lead with %s:\n%s", tag, structuralColumnsSQL)
 	}
-	if strings.Contains(missingFKIndexSQL, "schema_guard:structural") {
-		t.Fatalf("missing-FK scan carries the structural scan's tag:\n%s", missingFKIndexSQL)
+	for name, sql := range map[string]string{
+		"table listing": structuralTablesSQL, "text types": structuralTextTypesSQL,
+		"column versions": structuralVersionsSQL, "change counters": catalogChangeSQL,
+		"missing FK indexes": missingFKIndexSQL, "unbounded append": unboundedAppendSQL,
+		"schema shapes": schemaShapesSQL, "sessions": sessionsSQL,
+		"table contracts": tableContractsSQL, "schema history": schemaHistorySQL,
+		"statements": statementsSQL,
+	} {
+		if strings.Contains(sql, "structural:columns") {
+			t.Fatalf("%s statement carries the column summary's gate tag:\n%s", name, sql)
+		}
 	}
 }

@@ -2181,6 +2181,12 @@
     "doc": "Seconds between sequence samples (sequences are slow to consume and costly to read), 15-86400; kept within interval_seconds and lookback_hours/min_samples. Default: 600.",
     "class": "derivable"
   },
+  "sre.runways.size_interval_seconds": {
+    "type": "int",
+    "default": 600,
+    "doc": "Seconds between measurements of the databases' total size (costly: stats every file; disk runways forecast over hours), 15-86400; kept within interval_seconds and lookback/min_samples. Default: 600.",
+    "class": "derivable"
+  },
   "sre.runways.wraparound_critical_hours": {
     "type": "int",
     "default": 72,

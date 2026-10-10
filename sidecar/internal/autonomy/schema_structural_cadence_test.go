@@ -24,7 +24,11 @@ import (
 // its own database: setup and DDL sessions are closed (a closing backend
 // flushes) and the counters are read until they settle.
 
-// cadenceDatabase is a fresh bootstrapped database and its DSN.
+// cadenceDatabase is a fresh bootstrapped database and its DSN. Its
+// catalog holds no table a pass aggregates, so the tests count the tables
+// they create: testdb installs pg_hint_plan where the server offers it
+// (CI's does), and the pass leaves out the table the extension owns
+// (hint_plan.hints).
 func cadenceDatabase(t *testing.T) string {
 	t.Helper()
 	dsn := testdb.CreateDatabase(t, "sg_cadence")
@@ -35,6 +39,9 @@ func cadenceDatabase(t *testing.T) string {
 	defer pool.Close()
 	if err := schema.Bootstrap(context.Background(), pool); err != nil {
 		t.Fatalf("bootstrap: %v", err)
+	}
+	if n := userTables(t, dsn); n != 0 {
+		t.Fatalf("fresh database holds %d user tables, want none", n)
 	}
 	return dsn
 }
@@ -63,8 +70,9 @@ func settledWatermark(t *testing.T, dsn string) int64 {
 			t.Fatalf("connect: %v", err)
 		}
 		defer conn.Close()
-		var n int64
-		if err := conn.QueryRow(context.Background(), catalogChangeSQL).Scan(&n); err != nil {
+		var n, attributeUpdates int64
+		if err := conn.QueryRow(context.Background(), catalogChangeSQL).Scan(&n,
+			&attributeUpdates); err != nil {
 			t.Fatalf("catalog watermark: %v", err)
 		}
 		return n
@@ -99,8 +107,9 @@ func recordingDetector(t *testing.T, dsn string, now func() time.Time) (
 	return newPostgresSchemaDetector(pool, now), rec
 }
 
+// structuralRuns counts the structural passes (each lists the tables).
 func structuralRuns(rec *testdb.QueryRecorder) int {
-	n := len(rec.Matching("everything_text", "type_tightening"))
+	n := len(rec.Matching("structural:tables"))
 	rec.Reset()
 	return n
 }

@@ -61,6 +61,11 @@ type Options struct {
 	MinSamples       int
 	MinSpan          time.Duration
 	Retention        time.Duration
+	// SizeInterval is the databases' total size's own, slower measuring
+	// period (summing every database's size stats every file; the disk
+	// runway forecasts over hours); between measurements the last one is
+	// reused and not sampled again. 0 measures it every tick.
+	SizeInterval time.Duration
 	// Horizons: a runway inside the horizon opens a finding, inside the
 	// critical horizon a critical one.
 	WraparoundHorizon  time.Duration
@@ -75,8 +80,9 @@ type Options struct {
 	// is unbounded: the WAL custodian's retained-WAL ceiling.
 	WALRetainedLimitBytes float64
 	// Sizes shares the databases' total size between the runtimes of one
-	// process, one measurement per cluster per pass (nil: this runtime
-	// measures it every pass).
+	// process, one measurement per cluster per SizeInterval (nil: a
+	// monitor keeps its own when SizeInterval is set, else it measures
+	// every tick).
 	Sizes *SizeShare
 }
 
@@ -96,6 +102,10 @@ func (o Options) validate() error {
 	if o.SequenceInterval < 0 || (o.SequenceInterval > 0 && o.SequenceInterval < o.Interval) {
 		return fmt.Errorf("runway monitor sequence interval %s must be 0 (every tick) or "+
 			"at least the interval %s", o.SequenceInterval, o.Interval)
+	}
+	if o.SizeInterval < 0 || (o.SizeInterval > 0 && o.SizeInterval < o.Interval) {
+		return fmt.Errorf("runway monitor size interval %s must be 0 (every tick) or "+
+			"at least the interval %s", o.SizeInterval, o.Interval)
 	}
 	return nil
 }
