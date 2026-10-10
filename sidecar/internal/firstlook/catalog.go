@@ -44,53 +44,6 @@ func readStatsWindow(ctx context.Context, tx pgx.Tx) (StatsWindow, error) {
 	return StatsWindow{Since: started, Source: "server_start", Known: true}, nil
 }
 
-// indexesSQL reads every user index. The scan count comes from the
-// statistics function, not the pg_stat_user_indexes view: the view's
-// join planned the read at millions of cost units and took 436-540 ms at
-// 15,000 indexes (nightly perf gate).
-const indexesSQL = tag + `SELECT i.indexrelid, i.indrelid, n.nspname::text, t.relname::text,
-  c.relname::text, i.indkey::int2[], i.indnkeyatts::int, i.indclass::oid[],
-  i.indcollation::oid[],
-  am.amname::text, i.indisunique, i.indisprimary,
-  EXISTS (SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conindid = i.indexrelid
-          AND con.contype IN ('p', 'u', 'x')),
-  i.indisvalid, i.indisready,
-  COALESCE(pg_catalog.pg_get_expr(i.indpred, i.indrelid), ''),
-  COALESCE(pg_catalog.pg_get_expr(i.indexprs, i.indrelid), ''),
-  c.relpages::bigint * current_setting('block_size')::bigint,
-  pg_catalog.pg_stat_get_numscans(i.indexrelid)
-FROM pg_catalog.pg_index i
-JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
-JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
-JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
-JOIN pg_catalog.pg_am am ON am.oid = c.relam
-WHERE ` + userSchemas + `
-ORDER BY i.indexrelid
-LIMIT $1`
-
-func readIndexes(ctx context.Context, tx pgx.Tx) ([]Index, bool, error) {
-	rows, err := tx.Query(ctx, indexesSQL, maxIndexRows)
-	if err != nil {
-		return nil, false, fmt.Errorf("read indexes: %w", err)
-	}
-	defer rows.Close()
-	var out []Index
-	for rows.Next() {
-		var x Index
-		if err := rows.Scan(&x.OID, &x.TableOID, &x.Schema, &x.Table, &x.Name, &x.Columns,
-			&x.KeyColumns, &x.OpClasses, &x.Collations, &x.AccessMethod, &x.Unique, &x.Primary,
-			&x.ConstraintBacked, &x.Valid, &x.Ready, &x.Predicate, &x.Expressions,
-			&x.SizeBytes, &x.Scans); err != nil {
-			return nil, false, fmt.Errorf("scan index: %w", err)
-		}
-		out = append(out, x)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, fmt.Errorf("read indexes: %w", err)
-	}
-	return out, len(out) == maxIndexRows, nil
-}
-
 const foreignKeysSQL = tag + `SELECT con.conname::text, n.nspname::text, t.relname::text,
   con.conrelid, con.conkey,
   ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY k(attnum, ord)
