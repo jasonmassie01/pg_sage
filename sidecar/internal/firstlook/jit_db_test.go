@@ -25,7 +25,7 @@ func TestOpenTurnsJITOffForTheTransaction(t *testing.T) {
 			if err := pool.QueryRow(ctx, "SELECT current_setting('jit')").Scan(&before); err != nil {
 				t.Fatal(err)
 			}
-			p := &pass{pool: pool, opts: testOptions("app"), report: &Report{}}
+			p := &pass{pool: pool, opts: testOptions("app").withDefaults(), report: &Report{}}
 			if err := p.open(ctx); err != nil {
 				t.Fatalf("open: %v", err)
 			}
