@@ -43,8 +43,9 @@ func (r *PostgresRepository) InsertDecision(
 	err = r.pool.QueryRow(ctx, `INSERT INTO sage.decision
 		(database_id, feature, intent, target_objects, policy_version, verdict,
 		 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
-		 fingerprint)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13) RETURNING id`,
+		 fingerprint, principal_id, task_id, artifact_hash)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
+		        NULLIF($14,''),NULLIF($15,''),NULLIF($16,'')) RETURNING id`,
 		values...).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -56,7 +57,7 @@ func (r *PostgresRepository) InsertDecision(
 	return id, nil
 }
 
-// decisionValues encodes a decision as the 13 INSERT parameters. An insert
+// decisionValues encodes a decision as the 16 INSERT parameters. An insert
 // that is not an upsert stores no fingerprint, so it can never collide
 // with an open fingerprinted row.
 func decisionValues(input DecisionInput) ([]any, error) {
@@ -74,7 +75,8 @@ func decisionValues(input DecisionInput) ([]any, error) {
 	}
 	return []any{input.DatabaseID, input.Feature, input.Intent, targets,
 		input.PolicyVersion, input.Verdict, input.RiskTier, input.Reason, evidenceJSON,
-		input.EvidenceID, input.DeadlineKind, input.DeadlineHardAt, nil}, nil
+		input.EvidenceID, input.DeadlineKind, input.DeadlineHardAt, nil,
+		input.PrincipalID, input.TaskID, input.ArtifactHash}, nil
 }
 
 // FindAuditViolations reports recent actions that lack a decision or a
