@@ -19,14 +19,15 @@ import (
 var braceEnvRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // expandBracedEnv expands only ${NAME} references (set → value, unset →
-// empty string, matching the documented "empty when unset" behavior).
+// empty string, matching the documented "empty when unset" behavior). A
+// NAME_FILE variable supplies the value from a file (GR-11).
 // Unlike os.ExpandEnv it leaves bare '$' untouched, so a literal '$' in
 // a password or API key written directly into YAML is no longer
 // silently truncated (H5). Used by both initial load and hot-reload.
 func expandBracedEnv(raw string) string {
 	return braceEnvRe.ReplaceAllStringFunc(raw, func(match string) string {
 		name := braceEnvRe.FindStringSubmatch(match)[1]
-		return os.Getenv(name)
+		return bracedEnvValue(name)
 	})
 }
 
@@ -612,8 +613,11 @@ func Load(args []string) (*Config, error) {
 		cfg.ConfigPath = yamlPath
 	}
 
-	// Step 2: Overlay environment variables.
+	// Step 2: Overlay environment variables, then NAME_FILE secrets.
 	overlayEnv(cfg)
+	if err := applySecretFiles(cfg); err != nil {
+		return nil, err
+	}
 
 	// Step 3: Overlay CLI flags (highest precedence).
 	if *mode != "" {
@@ -651,7 +655,9 @@ func Load(args []string) (*Config, error) {
 	}
 
 	// Legacy env-var compat.
-	cfg.APIKey = os.Getenv("SAGE_API_KEY")
+	if v := os.Getenv("SAGE_API_KEY"); v != "" {
+		cfg.APIKey = v
+	}
 	cfg.TLSCert = os.Getenv("SAGE_TLS_CERT")
 	cfg.TLSKey = os.Getenv("SAGE_TLS_KEY")
 
@@ -678,6 +684,9 @@ func Load(args []string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if err := c.validateTLS(); err != nil {
+		return err
+	}
 	if err := c.validateAgentNative(); err != nil {
 		return err
 	}
@@ -1092,6 +1101,9 @@ func loadYAML(path string, cfg *Config) error {
 	// Expand ${ENV_VAR} references with validation. Only the braced
 	// form is expanded; a bare '$' (e.g. in a password) is left intact.
 	raw := string(data)
+	if err := checkBracedSecretFiles(raw); err != nil {
+		return err
+	}
 	expanded := expandBracedEnv(raw)
 
 	// Warn about env vars that expanded to empty strings. This catches the
@@ -1172,7 +1184,8 @@ func unexpandedEnvWarnings(path, raw string) []string {
 	seen := map[string]bool{}
 	walkScalars(&document, func(value string) {
 		for _, name := range bracedEnvNames(value) {
-			if seen[name] || os.Getenv(name) != "" {
+			if seen[name] || os.Getenv(name) != "" ||
+				os.Getenv(name+secretFileSuffix) != "" {
 				continue
 			}
 			seen[name] = true
