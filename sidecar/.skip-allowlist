@@ -29,12 +29,15 @@ internal/optimizer TestGenericPlanCapturesUnboundParameters # EXPLAIN (GENERIC_P
 internal/api TestActionLogCappedCountWalksTheTimeIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/recommendation TestVerifyingEffectsReachActionsByIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/retention TestPurgeGenericPlansProbeLargeTablesByIndex # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/retention TestAuthAuditPurge_GenericPlanUsesAnIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/sre TestInvestigationRetentionReadIsAnIndexRange # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/value TestRealizedValueGenericPlanIsAnIndexRange # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/earned TestReconcilerFactReadsNeverScanOutcomes # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/analyzer TestFindingRefreshIsAHeapOnlyUpdate # pg_stat_force_next_flush() is PG15+
 internal/partition TestConvert_ExclusiveWindowReadsNoHeap # pg_stat_force_next_flush() is PG15+
 internal/rca TestPersist_UnchangedCausalChainWritesNoToast # pg_stat_force_next_flush() is PG15+
+internal/agentposture TestAP03_SecurityInvokerViewIsNotExposure # security_invoker views are PG15+ (PG14 views run as their owner)
+internal/agentposture TestAP14_NoInheritGrantIsFine # per-grant INHERIT (GRANT ... WITH INHERIT FALSE) is PG16+; PG14/15 run the role-level arm tests
 internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly|TestBuildFinding_EmptyHintIsNeverInserted|TestBuildFinding_ProposalIsNotActive|TestLoadActiveHints_IncludesProposed|TestReconcileHintStatuses_.* # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 internal/tuner TestGeneratePlanFixtures # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
 test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
