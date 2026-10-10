@@ -120,7 +120,10 @@ type Config struct {
 
 	// Meta database and encryption (--meta-db, --encryption-key).
 	MetaDB        string `yaml:"meta_db" doc:"DSN of the metadata database used in fleet mode to persist cross-target state. Blank in standalone mode."`
-	EncryptionKey string `yaml:"encryption_key" doc:"Passphrase used to encrypt sensitive fleet-mode fields (per-database passwords). Rotate via the key-rotation runbook." secret:"true"`
+	EncryptionKey string `yaml:"encryption_key" doc:"Passphrase that encrypts stored secrets: per-database passwords, channel secrets and API-set config secrets. Also SAGE_ENCRYPTION_KEY(_FILE)." secret:"true"`
+	// EncryptionKeyPrevious opens config secrets sealed under the key
+	// before a rotation; startup re-seals them under encryption_key.
+	EncryptionKeyPrevious string `yaml:"encryption_key_previous" doc:"Previous encryption_key during a rotation: config secrets sealed under it are re-encrypted at startup. Remove once rotated." secret:"true"`
 
 	// Legacy env-var fields
 	APIKey  string `yaml:"-"`
@@ -489,6 +492,11 @@ type OAuthConfig struct {
 	RedirectURL  string `yaml:"redirect_url" doc:"Absolute URL the provider redirects to after authentication. Must match the URI registered at the provider."`
 	IssuerURL    string `yaml:"issuer_url" doc:"OIDC issuer URL used to discover the provider's authorization and token endpoints."`
 	DefaultRole  string `yaml:"default_role" doc:"Role assigned to newly authenticated users when no role mapping rule matches."`
+	// Group to role mapping and break-glass (E1); see authz.go.
+	GroupsClaim   string             `yaml:"groups_claim" doc:"ID-token (or userinfo) claim that lists the user's IdP groups for role_mapping. Default groups."`
+	RoleMapping   []OAuthRoleMapping `yaml:"role_mapping" doc:"Maps IdP groups to pg_sage roles; the highest matching role wins and is re-applied at every SSO login."`
+	UnmappedUsers string             `yaml:"unmapped_users" doc:"When role_mapping is set, what a user in no mapped group gets: deny (default, refused) or default_role."`
+	BreakGlass    BreakGlassConfig   `yaml:"break_glass"`
 }
 
 // Interval helpers.
@@ -671,6 +679,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.validateAgentNative(); err != nil {
+		return err
+	}
+	if err := c.validateAuthz(); err != nil {
 		return err
 	}
 	if c.Collector.IntervalSeconds <= 0 {
@@ -1065,7 +1076,9 @@ func newDefaults() *Config {
 		SelfBudget: DefaultSelfBudget(),
 		History:    DefaultHistory(),
 		OAuth: OAuthConfig{
-			DefaultRole: "viewer",
+			DefaultRole:   "viewer",
+			GroupsClaim:   "groups",
+			UnmappedUsers: UnmappedUsersDeny,
 		},
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
@@ -1274,6 +1287,12 @@ func overlayEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SAGE_ENCRYPTION_KEY"); v != "" {
 		cfg.EncryptionKey = v
+	}
+	if v := os.Getenv("SAGE_ENCRYPTION_KEY_PREVIOUS"); v != "" {
+		cfg.EncryptionKeyPrevious = v
+	}
+	if v := os.Getenv("SAGE_BREAK_GLASS_PASSWORD_HASH"); v != "" {
+		cfg.OAuth.BreakGlass.PasswordHash = v
 	}
 	if v := os.Getenv("SAGE_OPTIMIZER_LLM_API_KEY"); v != "" {
 		cfg.LLM.OptimizerLLM.APIKey = v

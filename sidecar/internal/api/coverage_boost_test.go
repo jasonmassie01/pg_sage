@@ -398,7 +398,8 @@ func TestCoverage_OAuthAuthorizeHandler_NilProvider(t *testing.T) {
 // ================================================================
 
 func TestCoverage_OAuthCallbackHandler_NilProvider(t *testing.T) {
-	handler := oauthCallbackHandler(nil, nil, "viewer", "google")
+	handler := oauthCallbackHandler(nil, nil,
+		&config.OAuthConfig{DefaultRole: "viewer", Provider: "google"})
 	w := doRequest(
 		handler, "GET",
 		"/api/v1/auth/oauth/callback?code=abc&state=xyz", "")

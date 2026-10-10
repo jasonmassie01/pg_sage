@@ -352,17 +352,27 @@ func insertAudit(
 
 const redactedSecret = "[REDACTED]"
 
+// secretKeys are the config keys whose values are credentials: redacted in
+// audit and API reads, and sealed at rest when encryption_key is set.
+var secretKeys = []string{
+	"llm.api_key",
+	"alerting.slack_webhook_url",
+	"alerting.pagerduty_routing_key",
+	"briefing.slack_webhook_url",
+	"clone.dle_token",
+}
+
 func isSecretConfigKey(key string) bool {
-	switch key {
-	case "llm.api_key",
-		"alerting.slack_webhook_url",
-		"alerting.pagerduty_routing_key",
-		"briefing.slack_webhook_url",
-		"clone.dle_token":
-		return true
-	default:
-		return false
+	for _, k := range secretKeys {
+		if k == key {
+			return true
+		}
 	}
+	return false
+}
+
+func secretConfigKeys() []string {
+	return append([]string(nil), secretKeys...)
 }
 
 func auditValues(key, oldValue, newValue string) (string, string) {

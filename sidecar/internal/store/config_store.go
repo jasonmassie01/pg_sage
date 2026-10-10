@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/crypto"
 )
 
 const configGenerationKey = "__pg_sage_config_generation"
@@ -47,6 +48,8 @@ type ConfigAuditEntry struct {
 // sage.config_audit.
 type ConfigStore struct {
 	pool *pgxpool.Pool
+	// keyring seals secret keys at rest (CG-01); nil keeps plaintext.
+	keyring *crypto.Keyring
 }
 
 // GetGeneration returns the durable CAS generation for one config scope.
@@ -86,7 +89,7 @@ func (s *ConfigStore) GetGeneration(
 
 // NewConfigStore creates a ConfigStore with the given pool.
 func NewConfigStore(pool *pgxpool.Pool) *ConfigStore {
-	return &ConfigStore{pool: pool}
+	return &ConfigStore{pool: pool, keyring: defaultConfigKeyring.Load()}
 }
 
 // SetOverride upserts a config override. databaseID=0 means global.
@@ -128,7 +131,7 @@ func (s *ConfigStore) SetOverrides(
 	defer func() { _ = tx.Rollback(qctx) }()
 
 	for _, write := range writes {
-		if err := persistConfigOverride(
+		if err := s.persistConfigOverride(
 			qctx, tx, write, databaseID, userID,
 		); err != nil {
 			return err
@@ -171,7 +174,7 @@ func (s *ConfigStore) SetOverridesCAS(
 			ErrConfigGenerationConflict, expected, current)
 	}
 	for _, write := range writes {
-		if err := persistConfigOverride(
+		if err := s.persistConfigOverride(
 			qctx, tx, write, databaseID, userID,
 		); err != nil {
 			return 0, err
@@ -278,7 +281,7 @@ func (s *ConfigStore) SetDatabaseOverridesCAS(
 		if write.Key == "trust.level" {
 			continue
 		}
-		if err := persistConfigOverride(
+		if err := s.persistConfigOverride(
 			qctx, tx, write, databaseID, userID,
 		); err != nil {
 			return 0, err
@@ -429,16 +432,20 @@ func deleteConfigOverride(
 	return nil
 }
 
-func persistConfigOverride(
+func (s *ConfigStore) persistConfigOverride(
 	ctx context.Context, tx pgx.Tx, write ConfigOverrideWrite,
 	databaseID int, userID int,
 ) error {
+	stored, err := s.sealForStorage(write.Key, write.Value, databaseID)
+	if err != nil {
+		return fmt.Errorf("sealing %s: %w", write.Key, err)
+	}
 	oldValue, err := getOldValue(ctx, tx, write.Key, databaseID)
 	if err != nil {
 		return fmt.Errorf("reading old value: %w", err)
 	}
 	if err := upsertOverride(
-		ctx, tx, write.Key, write.Value, databaseID, userID,
+		ctx, tx, write.Key, stored, databaseID, userID,
 	); err != nil {
 		return fmt.Errorf("upserting override: %w", err)
 	}
@@ -496,7 +503,11 @@ func (s *ConfigStore) GetOverrides(
 	}
 	defer rows.Close()
 
-	return scanOverrideRows(rows)
+	overrides, err := scanOverrideRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	return s.openSecrets(overrides), nil
 }
 
 // DeleteOverride removes a specific override. databaseID=0 means

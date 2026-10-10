@@ -5,9 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 func oauthConfigHandler(
@@ -76,8 +78,7 @@ func clearOAuthStateCookie(w http.ResponseWriter) {
 func oauthCallbackHandler(
 	provider *auth.OAuthProvider,
 	pool *pgxpool.Pool,
-	defaultRole string,
-	providerName string,
+	oauthCfg *config.OAuthConfig,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if provider == nil {
@@ -95,24 +96,67 @@ func oauthCallbackHandler(
 			r.Context(), code, state, cookieState,
 		)
 		if err != nil {
+			auditSSOFailure(r, pool, oauthCfg.Provider, err)
 			writeExchangeError(w, r, err, link)
 			return
 		}
 		if link.UserID > 0 {
-			completeOAuthLink(w, r, pool, providerName, identity, link)
+			completeOAuthLink(w, r, pool, oauthCfg.Provider, identity, link)
 			return
 		}
-		user, err := auth.FindOrCreateOAuthUser(
-			r.Context(), pool, identity, providerName, defaultRole,
-		)
+		user, err := signInOAuthUser(r, pool, oauthCfg, identity)
 		if err != nil {
+			auditSSOFailure(r, pool, oauthCfg.Provider, err)
 			writeOAuthUserError(w, r, err, auth.LinkIntent{})
 			return
 		}
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
+			Event: auth.AuditLoginSucceeded, ActorUserID: user.ID, TargetUserID: user.ID,
+			Detail: map[string]any{"method": oauthCfg.Provider, "role": user.Role},
+		})
 		if startSession(w, r, pool, user.ID) {
 			http.Redirect(w, r, "/", http.StatusFound)
 		}
 	}
+}
+
+// signInOAuthUser resolves the role the IdP groups grant, then finds or
+// creates the user. With a role mapping the IdP is the source of truth, so
+// an existing user's role is re-synced (and audited) at every login.
+func signInOAuthUser(
+	r *http.Request, pool *pgxpool.Pool, cfg *config.OAuthConfig, id auth.Identity,
+) (*auth.User, error) {
+	role, err := auth.ResolveOAuthRole(cfg, id.Groups)
+	if err != nil {
+		return nil, err
+	}
+	user, err := auth.FindOrCreateOAuthUser(r.Context(), pool, id, cfg.Provider, role)
+	if err != nil || !auth.RoleMappingConfigured(cfg) {
+		return user, err
+	}
+	old, changed, err := auth.SyncOAuthUserRole(r.Context(), pool, user.ID, role)
+	switch {
+	case errors.Is(err, auth.ErrLastAdmin):
+		slog.Warn("sso role sync kept the last admin; promote another admin first",
+			"user_id", user.ID, "mapped_role", role)
+	case err != nil:
+		return nil, err
+	case changed:
+		user.Role = role
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
+			Event: auth.AuditUserRoleChanged, ActorUserID: user.ID, TargetUserID: user.ID,
+			Detail: map[string]any{"old_role": old, "new_role": role, "source": "idp"},
+		})
+	}
+	return user, nil
+}
+
+// auditSSOFailure records a refused SSO sign-in with its reason code.
+func auditSSOFailure(r *http.Request, pool *pgxpool.Pool, method string, err error) {
+	recordAuthEvent(r, pool, auth.AuthAuditEvent{
+		Event:  auth.AuditLoginFailed,
+		Detail: map[string]any{"method": method, "reason": loginFailureReason(err)},
+	})
 }
 
 // oauthCallbackParams reads code, state and the browser-bound state cookie,
@@ -140,7 +184,15 @@ func oauthCallbackParams(
 func startSession(
 	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
 ) bool {
-	sessionID, err := auth.CreateSession(r.Context(), pool, userID)
+	return startSessionFor(w, r, pool, userID, auth.SessionDuration)
+}
+
+// startSessionFor is startSession with an explicit lifetime.
+func startSessionFor(
+	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
+	lifetime time.Duration,
+) bool {
+	sessionID, err := auth.CreateSessionWithDuration(r.Context(), pool, userID, lifetime)
 	if err != nil {
 		jsonError(w, "failed to create session",
 			http.StatusInternalServerError)
@@ -153,7 +205,7 @@ func startSession(
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(auth.SessionDuration.Seconds()),
+		MaxAge:   int(lifetime.Seconds()),
 	})
 	return true
 }
@@ -179,6 +231,10 @@ func writeOAuthUserError(
 	case errors.Is(err, auth.ErrOAuthEmailUnverified):
 		callbackFailure(w, r, link, ssoErrUnverified, http.StatusUnauthorized,
 			"email not verified by identity provider")
+	case errors.Is(err, auth.ErrOAuthUnmapped):
+		slog.Warn("oauth login refused: no IdP group maps to a pg_sage role")
+		callbackFailure(w, r, link, ssoErrNotAuthorized, http.StatusForbidden,
+			"your identity provider groups do not grant access to pg_sage")
 	default:
 		internalError(w, r, "resolve oauth user", err)
 	}
@@ -199,10 +255,11 @@ func writeExchangeError(
 
 // SSO callback error codes the dashboard turns into readable messages.
 const (
-	ssoErrLinkRequired = "link_required"
-	ssoErrLinkConflict = "link_conflict"
-	ssoErrUnverified   = "unverified"
-	ssoErrFailed       = "failed"
+	ssoErrLinkRequired  = "link_required"
+	ssoErrLinkConflict  = "link_conflict"
+	ssoErrUnverified    = "unverified"
+	ssoErrNotAuthorized = "not_authorized"
+	ssoErrFailed        = "failed"
 )
 
 // callbackFailure ends a failed OAuth callback. The callback is a top-level

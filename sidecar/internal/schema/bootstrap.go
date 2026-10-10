@@ -424,7 +424,8 @@ func migrationStatements() []string {
 		ddlFleetLearning,
 		ddlIndexReplace,
 		ddlChangeFeedIndexes(),
-		ddlDecommission)
+		ddlDecommission,
+		ddlAuthAuditSourceIP)
 }
 
 // ---------------------------------------------------------------------------

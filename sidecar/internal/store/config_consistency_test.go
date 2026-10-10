@@ -49,6 +49,9 @@ var excludedExactKeys = map[string]bool{
 	"mode":           true,
 	"meta_db":        true,
 	"encryption_key": true,
+	// The rotation key must never be API-settable: it would be stored
+	// next to what it protects.
+	"encryption_key_previous": true,
 
 	// Safety fields present in struct but not exposed as overrides.
 	"safety.disk_pressure_threshold_pct": true,

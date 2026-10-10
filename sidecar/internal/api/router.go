@@ -214,10 +214,12 @@ func registerControlPoolRoutes(
 		runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
 		rt.DisableConfigWrites,
 	)
-	registerNotificationRoutes(apiMux, pool, notificationRouteDeps{
+	notifyDeps := notificationRouteDeps{
 		secretKey: rt.NotificationSecretKey,
 		policy:    rt.NotificationTargetPolicy,
-	})
+	}
+	registerNotificationRoutes(apiMux, pool, notifyDeps)
+	registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
 	registerPolicyRoutes(apiMux, policy.NewStore(pool))
 	registerDecommissionRoutes(apiMux, pool)
 }

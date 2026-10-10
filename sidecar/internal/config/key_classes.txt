@@ -21,6 +21,7 @@
 safety_critical mode
 safety_critical meta_db
 safety_critical encryption_key
+safety_critical encryption_key_previous
 safety_critical postgres.database
 safety_critical postgres.database_url
 safety_critical postgres.host
@@ -39,6 +40,11 @@ safety_critical oauth.enabled
 safety_critical oauth.issuer_url
 safety_critical oauth.provider
 safety_critical oauth.redirect_url
+safety_critical oauth.groups_claim
+safety_critical oauth.role_mapping
+safety_critical oauth.unmapped_users
+safety_critical oauth.break_glass.enabled
+safety_critical oauth.break_glass.password_hash
 safety_critical mcp.enabled
 safety_critical mcp.transport
 safety_critical notification_policy.allow_private_targets

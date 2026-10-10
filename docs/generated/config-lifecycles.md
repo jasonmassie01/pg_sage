@@ -103,6 +103,7 @@
 | `defaults.max_connections` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `defaults.trust_level` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `encryption_key` | `restart` | `-` | `safety_critical` |
+| `encryption_key_previous` | `restart` | `-` | `safety_critical` |
 | `explain.cache_ttl_minutes` | `restart` | `-` | `derivable` |
 | `explain.enabled` | `restart` | `-` | `operator_preference` |
 | `explain.max_tokens` | `restart` | `-` | `derivable` |
@@ -197,13 +198,18 @@
 | `migration.poll_interval_seconds` | `restart` | `-` | `derivable` |
 | `mode` | `restart` | `-` | `safety_critical` |
 | `notification_policy.allow_private_targets` | `restart` | `-` | `safety_critical` |
+| `oauth.break_glass.enabled` | `restart` | `-` | `safety_critical` |
+| `oauth.break_glass.password_hash` | `restart` | `-` | `safety_critical` |
 | `oauth.client_id` | `restart` | `-` | `safety_critical` |
 | `oauth.client_secret` | `restart` | `-` | `safety_critical` |
 | `oauth.default_role` | `restart` | `-` | `safety_critical` |
 | `oauth.enabled` | `restart` | `-` | `safety_critical` |
+| `oauth.groups_claim` | `restart` | `-` | `safety_critical` |
 | `oauth.issuer_url` | `restart` | `-` | `safety_critical` |
 | `oauth.provider` | `restart` | `-` | `safety_critical` |
 | `oauth.redirect_url` | `restart` | `-` | `safety_critical` |
+| `oauth.role_mapping` | `restart` | `-` | `safety_critical` |
+| `oauth.unmapped_users` | `restart` | `-` | `safety_critical` |
 | `policy.profile` | `restart` | `-` | `safety_critical` |
 | `postgres.database` | `restart` | `-` | `safety_critical` |
 | `postgres.database_url` | `restart` | `-` | `safety_critical` |

@@ -41,6 +41,13 @@ describe('LoginPage SSO callback errors', () => {
       .toHaveTextContent(/did not confirm your email/)
   })
 
+  it('explains a 403 refusal for a user no group maps to a role', async () => {
+    landOn('#/login?sso_error=not_authorized')
+    const alert = await screen.findByTestId('sso-error')
+    expect(alert).toHaveTextContent(/not in a group that is allowed/)
+    expect(alert).toHaveTextContent(/administrator/)
+  })
+
   it('shows a generic message for a failed or unknown code', async () => {
     landOn('#/login?sso_error=<b>injected</b>')
     const alert = await screen.findByTestId('sso-error')

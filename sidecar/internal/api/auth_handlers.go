@@ -25,23 +25,13 @@ func loginHandler(
 	pool *pgxpool.Pool,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			jsonError(w, "invalid request body",
-				http.StatusBadRequest)
+		req, ok := decodeLogin(w, r)
+		if !ok {
 			return
 		}
-		if req.Email == "" || req.Password == "" {
-			jsonError(w, "email and password required",
-				http.StatusBadRequest)
-			return
-		}
-
 		if !loginRateLimitDisabled &&
 			!loginLimiter.reserve(req.Email) {
+			auditPasswordFailure(r, pool, req.Email, "rate_limited")
 			jsonError(w, "too many login attempts, "+
 				"try again later",
 				http.StatusTooManyRequests)
@@ -52,38 +42,84 @@ func loginHandler(
 			r.Context(), pool, req.Email, req.Password,
 		)
 		if err != nil {
+			auditPasswordFailure(r, pool, req.Email, "invalid_credentials")
 			jsonError(w, "invalid credentials",
 				http.StatusUnauthorized)
 			return
 		}
 
 		loginLimiter.reset(req.Email)
-
-		sessionID, err := auth.CreateSession(
-			r.Context(), pool, user.ID,
-		)
-		if err != nil {
-			jsonError(w, "failed to create session",
-				http.StatusInternalServerError)
-			return
-		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sage_session",
-			Value:    sessionID,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   isSecureRequest(r),
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(auth.SessionDuration.Seconds()),
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
+			Event: auth.AuditLoginSucceeded, ActorUserID: user.ID,
+			TargetUserID: user.ID, Detail: map[string]any{"method": "password"},
 		})
 
+		if !setLoginSession(w, r, pool, user.ID) {
+			return
+		}
 		jsonResponse(w, map[string]any{
 			"id":    user.ID,
 			"email": user.Email,
 			"role":  user.Role,
 		})
 	}
+}
+
+// setLoginSession creates a session and sets its cookie (Secure only when
+// the request arrived over TLS); it reports false after a 500.
+func setLoginSession(
+	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
+) bool {
+	sessionID, err := auth.CreateSession(r.Context(), pool, userID)
+	if err != nil {
+		jsonError(w, "failed to create session", http.StatusInternalServerError)
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sage_session",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(auth.SessionDuration.Seconds()),
+	})
+	return true
+}
+
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// decodeLogin reads the login body; it reports false after a 400.
+func decodeLogin(w http.ResponseWriter, r *http.Request) (loginRequest, bool) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return req, false
+	}
+	if req.Email == "" || req.Password == "" {
+		jsonError(w, "email and password required", http.StatusBadRequest)
+		return req, false
+	}
+	return req, true
+}
+
+// auditPasswordFailure records a refused password login against the
+// targeted account when it exists (0 otherwise); the email is not stored.
+func auditPasswordFailure(r *http.Request, pool *pgxpool.Pool, email, reason string) {
+	if pool == nil {
+		return
+	}
+	target, err := auth.UserIDByEmail(r.Context(), pool, email)
+	if err != nil && !errors.Is(err, auth.ErrUserNotFound) {
+		slog.Warn("login audit: looking up the targeted account failed", "error", err)
+	}
+	recordAuthEvent(r, pool, auth.AuthAuditEvent{
+		Event: auth.AuditLoginFailed, TargetUserID: target,
+		Detail: map[string]any{"method": "password", "reason": reason},
+	})
 }
 
 func logoutHandler(
@@ -224,6 +260,10 @@ func createUserHandler(
 				http.StatusConflict)
 			return
 		}
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
+			Event: auth.AuditUserCreated, ActorUserID: actorID(r), TargetUserID: id,
+			Detail: map[string]any{"role": req.Role, "sso_only": req.SSOOnly},
+		})
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, map[string]any{
 			"id":       id,
@@ -270,6 +310,9 @@ func deleteUserHandler(
 			}
 			return
 		}
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
+			Event: auth.AuditUserDeleted, ActorUserID: actorID(r), TargetUserID: id,
+		})
 		jsonResponse(w, map[string]string{
 			"status": "deleted",
 		})
@@ -305,26 +348,33 @@ func updateUserRoleHandler(
 			}
 		}
 
+		oldRole, _ := auth.UserRole(r.Context(), pool, id)
 		if err := auth.UpdateUserRolePreservingAdmin(
 			r.Context(), pool, id, req.Role,
 		); err != nil {
-			switch {
-			case errors.Is(err, auth.ErrInvalidRole):
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-			case errors.Is(err, auth.ErrUserNotFound):
-				jsonError(w, "user not found",
-					http.StatusNotFound)
-			case errors.Is(err, auth.ErrLastAdmin):
-				jsonError(w, "cannot demote the last admin",
-					http.StatusForbidden)
-			default:
-				internalError(w, r, "update user role", err)
-			}
+			writeRoleUpdateError(w, r, err)
 			return
 		}
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
+			Event: auth.AuditUserRoleChanged, ActorUserID: actorID(r), TargetUserID: id,
+			Detail: map[string]any{"old_role": oldRole, "new_role": req.Role,
+				"source": "api"},
+		})
 		jsonResponse(w, map[string]string{
 			"status": "updated",
 		})
+	}
+}
+
+func writeRoleUpdateError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrInvalidRole):
+		jsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, auth.ErrUserNotFound):
+		jsonError(w, "user not found", http.StatusNotFound)
+	case errors.Is(err, auth.ErrLastAdmin):
+		jsonError(w, "cannot demote the last admin", http.StatusForbidden)
+	default:
+		internalError(w, r, "update user role", err)
 	}
 }

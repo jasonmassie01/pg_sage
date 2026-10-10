@@ -685,7 +685,14 @@
   "encryption_key": {
     "type": "string",
     "default": null,
-    "doc": "Passphrase used to encrypt sensitive fleet-mode fields (per-database passwords). Rotate via the key-rotation runbook.",
+    "doc": "Passphrase that encrypts stored secrets: per-database passwords, channel secrets and API-set config secrets. Also SAGE_ENCRYPTION_KEY(_FILE).",
+    "secret": true,
+    "class": "safety_critical"
+  },
+  "encryption_key_previous": {
+    "type": "string",
+    "default": null,
+    "doc": "Previous encryption_key during a rotation: config secrets sealed under it are re-encrypted at startup. Remove once rotated.",
     "secret": true,
     "class": "safety_critical"
   },
@@ -1255,6 +1262,19 @@
     "doc": "Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart.",
     "class": "safety_critical"
   },
+  "oauth.break_glass.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Enable the break-glass admin login (POST /api/v1/auth/break-glass). Every use is audited and alerts every channel.",
+    "class": "safety_critical"
+  },
+  "oauth.break_glass.password_hash": {
+    "type": "string",
+    "default": null,
+    "doc": "bcrypt hash of the break-glass password. Prefer SAGE_BREAK_GLASS_PASSWORD_HASH or its _FILE variant.",
+    "secret": true,
+    "class": "safety_critical"
+  },
   "oauth.client_id": {
     "type": "string",
     "default": "",
@@ -1280,6 +1300,12 @@
     "doc": "Enable OAuth single sign-on for the sidecar UI. When false, the UI falls back to local auth.",
     "class": "safety_critical"
   },
+  "oauth.groups_claim": {
+    "type": "string",
+    "default": "groups",
+    "doc": "ID-token (or userinfo) claim that lists the user's IdP groups for role_mapping. Default groups.",
+    "class": "safety_critical"
+  },
   "oauth.issuer_url": {
     "type": "string",
     "default": "",
@@ -1296,6 +1322,24 @@
     "type": "string",
     "default": "",
     "doc": "Absolute URL the provider redirects to after authentication. Must match the URI registered at the provider.",
+    "class": "safety_critical"
+  },
+  "oauth.role_mapping[].group": {
+    "type": "string",
+    "default": "",
+    "doc": "IdP group name exactly as the groups claim carries it (case-sensitive).",
+    "class": "safety_critical"
+  },
+  "oauth.role_mapping[].role": {
+    "type": "string",
+    "default": "",
+    "doc": "pg_sage role for members of the group: admin, operator or viewer.",
+    "class": "safety_critical"
+  },
+  "oauth.unmapped_users": {
+    "type": "string",
+    "default": "deny",
+    "doc": "When role_mapping is set, what a user in no mapped group gets: deny (default, refused) or default_role.",
     "class": "safety_critical"
   },
   "policy.profile": {
