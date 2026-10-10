@@ -54,6 +54,10 @@ var (
 	ErrApproveForAgent = errors.New("mcptoken: approve scope is only for operator tokens")
 	ErrOwnerRequired   = errors.New(
 		"mcptoken: an operator token needs an operator or admin owner")
+	// ErrPrincipalRequired: from G1 an agent token is minted for an agent
+	// principal (POST /api/v1/agents/{id}/tokens), never on its own.
+	ErrPrincipalRequired = errors.New(
+		"mcptoken: an agent token is issued for an agent principal")
 	ErrNotFound     = errors.New("mcptoken: token not found")
 	ErrUnauthorized = errors.New("mcptoken: token invalid, expired or revoked")
 )
@@ -66,6 +70,9 @@ type CreateRequest struct {
 	Databases   []string // ["*"] = every database
 	ExpiresIn   time.Duration
 	OwnerUserID int // operator tokens only
+	// PrincipalID is the agent principal ("agp_…") an agent token acts
+	// for; required for agent tokens, refused on operator tokens.
+	PrincipalID string
 	CreatedBy   string
 }
 
@@ -77,6 +84,7 @@ type Token struct {
 	Scopes      []string   `json:"scopes"`
 	Databases   []string   `json:"databases"` // ["*"] when all
 	OwnerUserID *int       `json:"owner_user_id,omitempty"`
+	PrincipalID string     `json:"principal_id,omitempty"`
 	CreatedBy   string     `json:"created_by"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ExpiresAt   time.Time  `json:"expires_at"`
@@ -96,6 +104,7 @@ type Grant struct {
 	Databases   []string // nil = every database
 	OwnerUserID int      // operator tokens only
 	OwnerRole   string   // operator tokens only: the owner's current role
+	PrincipalID string   // agent tokens only: the principal it acts for
 }
 
 // HashSecret is the stored form of a secret: SHA-256, base64url without
