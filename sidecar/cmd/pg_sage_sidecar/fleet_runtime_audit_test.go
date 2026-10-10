@@ -2,7 +2,6 @@ package main
 
 import (
 	"go/ast"
-	"go/token"
 	"strings"
 	"testing"
 
@@ -51,28 +50,6 @@ func TestFleetOrchestratorRecordsHealthHistory(t *testing.T) {
 
 	// Error propagation is deliberately not applicable here: one database's
 	// health-history write must not terminate another database's orchestrator.
-}
-
-// compositeFieldIdentifier returns the identifier assigned to field in the
-// first composite literal of typeName, "" when absent.
-func compositeFieldIdentifier(fn *ast.FuncDecl, typeName, field string) string {
-	value := ""
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		literal, ok := node.(*ast.CompositeLit)
-		ident, isIdent := literalType(literal).(*ast.Ident)
-		if !ok || !isIdent || ident.Name != typeName {
-			return true
-		}
-		for _, element := range literal.Elts {
-			item, isItem := element.(*ast.KeyValueExpr)
-			key, isKey := itemKey(item).(*ast.Ident)
-			if isItem && isKey && key.Name == field {
-				value = expressionIdentifier(item.Value)
-			}
-		}
-		return false
-	})
-	return value
 }
 
 func TestMetaDBBootstrapBuildsGeneralLLMRuntime(t *testing.T) {
@@ -226,91 +203,6 @@ func packageSelector(expr ast.Expr) string {
 		return ""
 	}
 	return pkg.Name + "." + selector.Sel.Name
-}
-
-func firstArgumentToSelectorCall(
-	fn *ast.FuncDecl, pkg, selector string,
-) string {
-	argument := ""
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || packageSelector(call.Fun) != pkg+"."+selector ||
-			len(call.Args) == 0 {
-			return true
-		}
-		argument = expressionIdentifier(call.Args[0])
-		return false
-	})
-	return argument
-}
-
-func expressionIdentifier(expr ast.Expr) string {
-	ident, ok := expr.(*ast.Ident)
-	if ok {
-		return ident.Name
-	}
-	return "non-identifier"
-}
-
-func databaseInstanceFields(fn *ast.FuncDecl) map[string]bool {
-	fields := make(map[string]bool)
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		literal, ok := node.(*ast.CompositeLit)
-		selector, isSelector := literalType(literal).(*ast.SelectorExpr)
-		if !ok || !isSelector || selector.Sel.Name != "DatabaseInstance" {
-			return true
-		}
-		for _, element := range literal.Elts {
-			item, isItem := element.(*ast.KeyValueExpr)
-			key, isKey := itemKey(item).(*ast.Ident)
-			if isItem && isKey {
-				fields[key.Name] = true
-			}
-		}
-		return false
-	})
-	return fields
-}
-
-func literalType(literal *ast.CompositeLit) ast.Expr {
-	if literal == nil {
-		return nil
-	}
-	return literal.Type
-}
-
-func itemKey(item *ast.KeyValueExpr) ast.Expr {
-	if item == nil {
-		return nil
-	}
-	return item.Key
-}
-
-func positionOfSelectorCall(fn *ast.FuncDecl, selector string) token.Pos {
-	position := token.NoPos
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if position == token.NoPos && ok &&
-			selectorName(call.Fun) == selector {
-			position = call.Pos()
-			return false
-		}
-		return true
-	})
-	return position
-}
-
-func positionOfIdentifier(fn *ast.FuncDecl, name string) token.Pos {
-	position := token.NoPos
-	ast.Inspect(fn.Body, func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
-		if position == token.NoPos && ok && ident.Name == name {
-			position = ident.Pos()
-			return false
-		}
-		return true
-	})
-	return position
 }
 
 func assignedPackageCalls(fn *ast.FuncDecl) map[string]string {
