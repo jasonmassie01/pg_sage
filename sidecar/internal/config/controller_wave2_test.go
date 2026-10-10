@@ -11,28 +11,20 @@ import (
 
 func TestConfigControllerSnapshotsAreDeeplyImmutable(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.AgentDB.Providers = map[string]AgentDBProviderConfig{
-		"aws": {AllowedRegions: []string{"us-east-1"}},
-	}
 	cfg.Alerting.Webhooks = []WebhookConfig{{
 		Name: "ops", Headers: map[string]string{"Authorization": "secret"},
 	}}
 
 	controller := NewConfigController(cfg, nil)
-	cfg.AgentDB.Providers["aws"].AllowedRegions[0] = "mutated"
 	cfg.Alerting.Webhooks[0].Headers["Authorization"] = "mutated"
 
 	first := controller.Active()
-	if got := first.Config.AgentDB.Providers["aws"].AllowedRegions[0]; got != "us-east-1" {
-		t.Fatalf("published provider region = %q, want detached value", got)
+	if got := first.Config.Alerting.Webhooks[0].Headers["Authorization"]; got != "secret" {
+		t.Fatalf("published webhook header = %q, want detached value", got)
 	}
-	first.Config.AgentDB.Providers["aws"].AllowedRegions[0] = "reader-mutated"
 	first.Config.Alerting.Webhooks[0].Headers["Authorization"] = "reader-mutated"
 
 	second := controller.Active()
-	if got := second.Config.AgentDB.Providers["aws"].AllowedRegions[0]; got != "us-east-1" {
-		t.Fatalf("reader mutation reached active snapshot: %q", got)
-	}
 	if got := second.Config.Alerting.Webhooks[0].Headers["Authorization"]; got != "secret" {
 		t.Fatalf("reader mutation reached nested map: %q", got)
 	}

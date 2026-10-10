@@ -167,8 +167,6 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadSchemaLint(cfg, key, value)
 	case strings.HasPrefix(key, "migration."):
 		hotReloadMigration(cfg, key, value)
-	case strings.HasPrefix(key, "agentdb."):
-		hotReloadAgentDB(cfg, key, value)
 	case strings.HasPrefix(key, "policy."),
 		strings.HasPrefix(key, "value."),
 		strings.HasPrefix(key, "verify."),
@@ -525,19 +523,6 @@ func hotReloadMigration(cfg *config.Config, key, v string) {
 		cfg.Migration.PollIntervalSeconds = atoi(v)
 	case "migration.ddl_row_threshold":
 		cfg.Migration.DDLRowThreshold = atoi(v)
-	}
-}
-
-func hotReloadAgentDB(cfg *config.Config, key, v string) {
-	switch key {
-	case "agentdb.live_provisioning_enabled":
-		cfg.AgentDB.LiveProvisioningEnabled = v == "true"
-	case "agentdb.allow_public_ip":
-		cfg.AgentDB.AllowPublicIP = v == "true"
-	case "agentdb.require_backup_before_destroy":
-		cfg.AgentDB.RequireBackupBeforeDrop = v == "true"
-	case "agentdb.reconcile_interval_seconds":
-		cfg.AgentDB.ReconcileIntervalSeconds = atoi(v)
 	}
 }
 

@@ -77,47 +77,6 @@ func TestWave5CurrentLifecycleClaimsUseTypedRegistry(t *testing.T) {
 	}
 }
 
-func TestWave5AgentDBDocsDescribeImplementedAuthorityAndMonitoring(t *testing.T) {
-	root := wave5RepoRoot(t)
-	deployments := wave5ReadFile(
-		t, filepath.Join(root, "docs", "agent-db-deployments.md"),
-	)
-	deployments = strings.ToLower(deployments)
-	for _, claim := range []string{
-		"four-layer effective policy",
-		"/provision/authorize-live",
-		"single-consumption",
-		"durable monitoring work",
-	} {
-		if !strings.Contains(deployments, claim) {
-			t.Errorf("AgentDB deployment guide omits current contract %q", claim)
-		}
-	}
-
-	reverseSpec := wave5ReadFile(
-		t, filepath.Join(root, "docs", "reverse_spec", "05-agentdb.md"),
-	)
-	for _, claim := range []string{
-		"syncAgentDBsToFleet",
-		"startAgentDBReconciler",
-		"ScheduleMonitoring",
-		"agent_db_live_plans",
-	} {
-		if !strings.Contains(reverseSpec, claim) {
-			t.Errorf("AgentDB reverse spec omits current contract %q", claim)
-		}
-	}
-	for _, stale := range []string{
-		"No scheduled reconciliation",
-		"No fleet/monitoring integration",
-		"No goroutine/cron in `cmd/` calls these",
-	} {
-		if strings.Contains(reverseSpec, stale) {
-			t.Errorf("AgentDB reverse spec retains stale claim %q", stale)
-		}
-	}
-}
-
 func wave5RepoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

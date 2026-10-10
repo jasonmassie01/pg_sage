@@ -190,11 +190,6 @@ const (
 	DefaultLogWatchTempFileMinBytes = 10485760 // 10MB
 	DefaultLogWatchMaxLinesPerCycle = 10000
 
-	// DefaultAgentDBReconcileInterval is how often (seconds) the agent-DB
-	// lifecycle reconciler archives expired leases and destroys abandoned
-	// deployments.
-	DefaultAgentDBReconcileInterval = 300
-
 	DefaultPolicyProfile             = "unattended"
 	DefaultToilModelVersion          = 1
 	DefaultVerifyWindowMinutes       = 120

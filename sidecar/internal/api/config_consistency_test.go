@@ -180,10 +180,6 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "120000000",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.WraparoundFreezeXIDAge) },
 	},
-	"agentdb.reconcile_interval_seconds": {
-		input:  "600",
-		reader: func(c *config.Config) string { return itoa(c.AgentDB.ReconcileIntervalSeconds) },
-	},
 	"llm.context_budget_tokens": {
 		input:  "8192",
 		reader: func(c *config.Config) string { return itoa(c.LLM.ContextBudgetTokens) },
@@ -261,20 +257,6 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"retention.sage_size_warning_pct": {
 		input:  "25",
 		reader: func(c *config.Config) string { return itoa(c.Retention.SageSizeWarningPct) },
-	},
-
-	// --- agentdb ---
-	"agentdb.live_provisioning_enabled": {
-		input:  "true",
-		reader: func(c *config.Config) string { return btoa(c.AgentDB.LiveProvisioningEnabled) },
-	},
-	"agentdb.allow_public_ip": {
-		input:  "true",
-		reader: func(c *config.Config) string { return btoa(c.AgentDB.AllowPublicIP) },
-	},
-	"agentdb.require_backup_before_destroy": {
-		input:  "true",
-		reader: func(c *config.Config) string { return btoa(c.AgentDB.RequireBackupBeforeDrop) },
 	},
 
 	// --- v0.9.2: slow active replication slot threshold ---

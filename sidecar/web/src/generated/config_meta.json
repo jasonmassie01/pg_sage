@@ -47,36 +47,6 @@
     "doc": "",
     "class": "operator_preference"
   },
-  "agentdb.allow_public_ip": {
-    "type": "bool",
-    "default": false,
-    "doc": "",
-    "class": "safety_critical"
-  },
-  "agentdb.live_provisioning_enabled": {
-    "type": "bool",
-    "default": false,
-    "doc": "",
-    "class": "safety_critical"
-  },
-  "agentdb.providers": {
-    "type": "map[string]struct",
-    "default": null,
-    "doc": "",
-    "class": "safety_critical"
-  },
-  "agentdb.reconcile_interval_seconds": {
-    "type": "int",
-    "default": 300,
-    "doc": "How often to reconcile agent-DB deployments: archive expired leases and destroy abandoned ones. 0 disables. Default: 300.",
-    "class": "safety_critical"
-  },
-  "agentdb.require_backup_before_destroy": {
-    "type": "bool",
-    "default": true,
-    "doc": "",
-    "class": "safety_critical"
-  },
   "alerting.check_interval_seconds": {
     "type": "int",
     "default": 60,

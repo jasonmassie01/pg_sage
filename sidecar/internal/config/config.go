@@ -88,7 +88,6 @@ type Config struct {
 	Prometheus  PrometheusConfig    `yaml:"prometheus"`
 	Azure       AzureConfig         `yaml:"azure"`
 	OAuth       OAuthConfig         `yaml:"oauth"`
-	AgentDB     AgentDBConfig       `yaml:"agentdb"`
 	Policy      PolicyConfig        `yaml:"policy"`
 	Value       ValueConfig         `yaml:"value"`
 	Verify      VerifyConfig        `yaml:"verify"`
@@ -142,24 +141,6 @@ type PostgresConfig struct {
 	SSLMode        string `yaml:"sslmode" doc:"libpq sslmode string (disable, allow, prefer, require, verify-ca, verify-full). Use verify-full in production."`
 	MaxConnections int    `yaml:"max_connections" doc:"Maximum connections the sidecar pgx pool will open to this target. Keep well below max_connections on the server."`
 	DatabaseURL    string `yaml:"database_url" doc:"Full libpq connection URL. When set, overrides host/port/user/password/database/sslmode."`
-}
-
-type AgentDBConfig struct {
-	LiveProvisioningEnabled  bool                             `yaml:"live_provisioning_enabled"`
-	AllowPublicIP            bool                             `yaml:"allow_public_ip"`
-	RequireBackupBeforeDrop  bool                             `yaml:"require_backup_before_destroy"`
-	ReconcileIntervalSeconds int                              `yaml:"reconcile_interval_seconds" doc:"How often to reconcile agent-DB deployments: archive expired leases and destroy abandoned ones. 0 disables. Default: 300."`
-	Providers                map[string]AgentDBProviderConfig `yaml:"providers"`
-}
-
-type AgentDBProviderConfig struct {
-	Enabled           bool     `yaml:"enabled"`
-	AllowedRegions    []string `yaml:"allowed_regions"`
-	AllowedAccounts   []string `yaml:"allowed_accounts"`
-	AllowedProjects   []string `yaml:"allowed_projects"`
-	AllowedWorkspaces []string `yaml:"allowed_workspaces"`
-	MaxTTLSeconds     int      `yaml:"max_ttl_seconds"`
-	MaxCostUSD        float64  `yaml:"max_estimated_cost_usd"`
 }
 
 type CollectorConfig struct {
@@ -1041,13 +1022,6 @@ func newDefaults() *Config {
 		API: APIConfig{
 			ListenAddr: DefaultAPIListenAddr,
 		},
-		AgentDB: AgentDBConfig{
-			LiveProvisioningEnabled:  false,
-			AllowPublicIP:            false,
-			RequireBackupBeforeDrop:  true,
-			ReconcileIntervalSeconds: DefaultAgentDBReconcileInterval,
-			Providers:                map[string]AgentDBProviderConfig{},
-		},
 		Policy: PolicyConfig{Profile: DefaultPolicyProfile},
 		Value:  ValueConfig{ToilModelVersion: DefaultToilModelVersion},
 		Verify: VerifyConfig{
@@ -1103,12 +1077,9 @@ func loadYAML(path string, cfg *Config) error {
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
-	expanded, retiredWarnings, err := stripRetiredKeys(expanded)
+	expanded, err = dropRetired(expanded)
 	if err != nil {
 		return err
-	}
-	for _, warning := range retiredWarnings {
-		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
 
 	candidate := Clone(cfg)

@@ -127,7 +127,7 @@ func TestAuthorityCredentialAndEndpointKeysAreSafetyCritical(t *testing.T) {
 			`hmac_secret|bearer_token|bearer_token_file|dle_token|routing_key)$`),
 		regexp.MustCompile(`(^|\.)(endpoint|url|database_url|issuer_url|redirect_url|` +
 			`dle_endpoint|local_dsn|host|listen_addr)$`),
-		regexp.MustCompile(`^(postgres|oauth|mcp|agentdb|azure|api)\.`),
+		regexp.MustCompile(`^(postgres|oauth|mcp|azure|api)\.`),
 		regexp.MustCompile(`^sre\.(autonomy|actions)\.`),
 		regexp.MustCompile(`^(mode|meta_db|encryption_key|policy\.profile)$`),
 		regexp.MustCompile(`^llm\.(enabled|model|endpoint|api_key|json_mode)$`),
