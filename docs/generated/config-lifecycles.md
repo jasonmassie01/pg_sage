@@ -18,12 +18,14 @@
 | `agents.broker.pool_idle_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.broker.pool_max_conns` | `restart` | `-` | `safety_critical` |
 | `agents.broker.rotation_days` | `restart` | `-` | `safety_critical` |
+| `agents.capabilities.max_duration_minutes` | `restart` | `-` | `safety_critical` |
 | `agents.client_patterns` | `restart` | `-` | `operator_preference` |
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
+| `agents.reconcile_interval_seconds` | `restart` | `-` | `operator_preference` |
 | `agents.roles.connection_limit` | `restart` | `-` | `safety_critical` |
 | `agents.roles.idle_in_transaction_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `agents.roles.idle_session_timeout_ms` | `restart` | `-` | `safety_critical` |

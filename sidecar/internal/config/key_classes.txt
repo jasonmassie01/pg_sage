@@ -516,3 +516,5 @@ safety_critical agents.broker.pool_max_conns
 safety_critical agents.broker.pool_idle_seconds
 safety_critical agents.broker.max_total_connections
 safety_critical agents.single_operator_mode
+safety_critical agents.capabilities.max_duration_minutes
+operator_preference agents.reconcile_interval_seconds

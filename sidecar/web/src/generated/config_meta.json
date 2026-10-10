@@ -71,6 +71,12 @@
     "doc": "Days between rotations of each agent's broker password; it also rotates at every unfreeze after a kill. At least 1. Default: 7.",
     "class": "safety_critical"
   },
+  "agents.capabilities.max_duration_minutes": {
+    "type": "int",
+    "default": 240,
+    "doc": "Longest agent grant, in minutes; every grant expires and the reconciler revokes it. 1-10080. Default: 240.",
+    "class": "safety_critical"
+  },
   "agents.client_patterns": {
     "type": "[]string",
     "default": null,
@@ -105,6 +111,12 @@
     "type": "float64",
     "default": 5,
     "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
+    "class": "operator_preference"
+  },
+  "agents.reconcile_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between agent reconcile passes on the leader sidecar (grant expiry). 10-3600. Default: 60.",
     "class": "operator_preference"
   },
   "agents.roles.connection_limit": {

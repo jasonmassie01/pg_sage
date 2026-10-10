@@ -23,6 +23,9 @@ type AgentsConfig struct {
 	// ControlDatabase and DefaultEnvironment: agents_env.go (spec §6.5).
 	ControlDatabase    string `yaml:"control_database" doc:"Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty."`
 	DefaultEnvironment string `yaml:"default_environment" doc:"Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod."`
+	// Capabilities and ReconcileIntervalSeconds: agents_grants.go (spec §6.6).
+	Capabilities             AgentsCapabilitiesConfig `yaml:"capabilities"`
+	ReconcileIntervalSeconds int                      `yaml:"reconcile_interval_seconds" doc:"Seconds between agent reconcile passes on the leader sidecar (grant expiry). 10-3600. Default: 60."`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -47,7 +50,9 @@ func defaultAgentsConfig() AgentsConfig {
 		DefaultEnvironment: DefaultAgentsEnvironment,
 		Posture: AgentsPostureConfig{MemoryGrowthGBDay: DefaultPostureMemoryGrowthGBDay,
 			DailyAt: DefaultPostureDailyAt},
-		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker()}
+		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker(),
+		Capabilities:             AgentsCapabilitiesConfig{MaxDurationMinutes: DefaultAgentGrantMaxMinutes},
+		ReconcileIntervalSeconds: DefaultAgentReconcileIntervalSecs}
 }
 
 func (a AgentsConfig) validate() error {
@@ -69,6 +74,9 @@ func (a AgentsConfig) validate() error {
 		return fmt.Errorf("agents.posture.daily_at: %w", err)
 	}
 	if err := a.validateCore(); err != nil {
+		return err
+	}
+	if err := a.validateGrants(); err != nil {
 		return err
 	}
 	return a.validateEnvironment()
