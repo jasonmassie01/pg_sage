@@ -42,7 +42,8 @@ func startAgentGate(c *config.Config, mgr *fleet.DatabaseManager, meta *metaDBSt
 		return
 	}
 	cfg := decide.Config{Principals: agentguard.NewStore(control),
-		Profiles: decide.DefaultProfiles(), Recovery: fleetRecovery{mgr: mgr}}
+		Profiles: decide.DefaultProfiles(), Recovery: fleetRecovery{mgr: mgr},
+		Freezes: agentFreezes(control)}
 	if envs != nil {
 		cfg.Environments = envSource{svc: envs}
 	}

@@ -122,6 +122,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
 		startAgentGovernance(shutdownCtx, authPool, fleetMgr)
 		startAgentGate(cfg, fleetMgr, globalMetaState, agentEnvSvc)
+		startAgentKill(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startDecommissionReport(shutdownCtx, authPool, cfg.ConfigPath)
 		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
 		startSpecialistOutbound(shutdownCtx)
