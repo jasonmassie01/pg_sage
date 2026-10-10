@@ -110,7 +110,7 @@ func TestKill_PrincipalContainsEverything(t *testing.T) {
 	require.NotNil(t, killID)
 	require.Equal(t, rep.KillID, *killID)
 	// Audited: one guard_kill action on the target, with its statements.
-	require.Equal(t, 1, f.actionCount(t, "guard_kill", since))
+	require.Equal(t, 1, f.actionCount(t, "guard_kill", p, since))
 	var sqlText string
 	require.NoError(t, f.super.QueryRow(ctx, `SELECT sql_executed FROM sage.action_log
 		WHERE id = $1`, db.ActionID).Scan(&sqlText))
@@ -370,8 +370,8 @@ func TestFreeze_Operator(t *testing.T) {
 	require.NoError(t, f.super.QueryRow(ctx, `SELECT kill_id FROM sage.guard_freezes
 		WHERE scope = 'principal' AND target = $1 AND cleared_at IS NULL`, p.ID).Scan(&killID))
 	require.Nil(t, killID)
-	require.Equal(t, 1, f.actionCount(t, "guard_freeze", since))
-	require.Equal(t, 0, f.actionCount(t, "guard_kill", since))
+	require.Equal(t, 1, f.actionCount(t, "guard_freeze", p, since))
+	require.Equal(t, 0, f.actionCount(t, "guard_kill", p, since))
 	_, err = f.sw.Freeze(ctx, FreezeRequest{PrincipalID: "agp_" + strings.Repeat("q", 20),
 		Reason: "r", Actor: "a"})
 	require.ErrorIs(t, err, ErrNotFound)
@@ -395,14 +395,14 @@ func TestFrozen_NoFlags(t *testing.T) {
 func TestFallback_Reconcile(t *testing.T) {
 	f := newKillFixture(t)
 	require.NoError(t, f.fallback.Append(FallbackEntry{ActionType: "guard_kill",
-		Database: f.db, Scope: "principal", Target: validPID, Reason: "r", Actor: "a",
+		Database: f.db, Scope: "principal", PrincipalID: validPID, Reason: "r", Actor: "a",
 		Statements: []string{"ALTER ROLE x NOLOGIN CONNECTION LIMIT 0"},
 		Outcome: "success"}))
 	since := time.Now().Add(-time.Second)
 	n, err := f.sw.ReconcileFallback(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
-	require.Equal(t, 1, f.actionCount(t, "guard_kill", since))
+	require.Equal(t, 1, f.actionCount(t, "guard_kill", Principal{ID: validPID}, since))
 	entries, err := f.fallback.Entries()
 	require.NoError(t, err)
 	require.Empty(t, entries)

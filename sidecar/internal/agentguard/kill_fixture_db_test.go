@@ -30,6 +30,7 @@ func newKillFixture(t *testing.T) *killFixture {
 	t.Helper()
 	f := &killFixture{roleFixture: newRoleFixture(t), memory: &fakeMemory{}}
 	f.grantSignal(t, true)
+	f.grantRole(t, "pg_monitor") // pg_stat_replication details (unconfigured standbys)
 	f.cfg = DefaultKillConfig()
 	f.fallback = NewFallbackLog(filepath.Join(t.TempDir(), "kill-fallback.log"))
 	f.targets = []KillTarget{{Name: f.db, Pool: f.admin, Executor: f.exec,
@@ -60,6 +61,14 @@ func (f *killFixture) grantSignal(t *testing.T, grant bool) {
 		stmt = "REVOKE pg_signal_backend FROM " + ident(role)
 	}
 	_, err := f.super.Exec(context.Background(), stmt)
+	require.NoError(t, err)
+}
+
+func (f *killFixture) grantRole(t *testing.T, role string) {
+	t.Helper()
+	var me string
+	require.NoError(t, f.admin.QueryRow(context.Background(), "SELECT current_user").Scan(&me))
+	_, err := f.super.Exec(context.Background(), "GRANT "+role+" TO "+ident(me))
 	require.NoError(t, err)
 }
 
@@ -187,13 +196,16 @@ func (f *killFixture) tokenRevoked(t *testing.T, id string) bool {
 	return revoked
 }
 
-// actionCount counts action_log rows of a type recorded since t0.
-func (f *killFixture) actionCount(t *testing.T, actionType string, since time.Time) int {
+// actionCount counts p's action_log rows of a type recorded since t0. It
+// filters by principal: the package's tests share the fixture database,
+// and a time window alone also counted the previous test's kills.
+func (f *killFixture) actionCount(t *testing.T, actionType string, p Principal,
+	since time.Time) int {
 	t.Helper()
 	var n int
 	require.NoError(t, f.super.QueryRow(context.Background(), `SELECT count(*)::int
-		FROM sage.action_log WHERE action_type = $1 AND executed_at >= $2`, actionType,
-		since).Scan(&n))
+		FROM sage.action_log WHERE action_type = $1 AND principal_id = $2
+		AND executed_at >= $3`, actionType, p.ID, since).Scan(&n))
 	return n
 }
 

@@ -94,7 +94,7 @@ func TestUnfreeze_AfterKillTwoPeopleRestoresAndRotates(t *testing.T) {
 	require.NoError(t, f.super.QueryRow(ctx, `SELECT count(*)::int FROM sage.guard_freezes
 		WHERE scope = 'principal' AND target = $1 AND cleared_at IS NULL`, p.ID).Scan(&open))
 	require.Zero(t, open)
-	require.Equal(t, 1, f.actionCount(t, "guard_unfreeze", since))
+	require.Equal(t, 1, f.actionCount(t, "guard_unfreeze", p, since))
 	var approvedBy int
 	require.NoError(t, f.super.QueryRow(ctx, `SELECT approved_by FROM sage.action_log
 		WHERE id = $1`, done.Clusters[0].ActionID).Scan(&approvedBy))
@@ -265,7 +265,7 @@ func TestUnfreeze_ConcurrentSecondApprovers(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, applied)
-	require.Equal(t, 1, f.actionCount(t, "guard_unfreeze", since))
+	require.Equal(t, 1, f.actionCount(t, "guard_unfreeze", p, since))
 	require.Equal(t, StatusActive, mustGet(t, f.store, p.ID).Status)
 }
 
