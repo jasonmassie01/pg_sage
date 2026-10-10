@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,6 +141,9 @@ func assertFirstLookStatementsWithinBudget(t *testing.T, ctx context.Context,
 			t.Fatalf("scan: %v", err)
 		}
 		seen++
+		if strings.Contains(q, "agent_posture") {
+			t.Logf("posture statement %q: max %.1f ms", q, maxMs)
+		}
 		if maxMs > budget {
 			t.Errorf("first look statement %q took %.0f ms, catalog budget %.0f ms", q,
 				maxMs, budget)
