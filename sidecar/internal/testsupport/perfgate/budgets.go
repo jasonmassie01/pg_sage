@@ -97,17 +97,23 @@ func DefaultBudgets() Budgets {
 }
 
 // defaultMeanExempt: each ceiling sits just above the slowest mean seen
-// on CI (250 ms, 135 ms), so a regression in either still fails gate B.
+// on CI for what the statement reads (250 ms for the cluster size; 135 ms
+// for the whole-catalog scan whose rows the structural column summary
+// reads), so a regression in either still fails gate B.
 func defaultMeanExempt() map[string]MeanExemption {
 	return map[string]MeanExemption{
 		"sre:cluster_database_size": {CeilingMs: 300, Reason: "pg_database_size stats " +
 			"every file of every database: its time follows the cluster's file count and " +
 			"the disk, not the SQL (105-250 ms on CI, 37 ms locally on the same fixture); " +
 			"no index, hint or setting makes it faster"},
-		"schema_guard:structural": {CeilingMs: 200, Reason: "the schema guard's " +
-			"structural scan reads every column of every user table once (92-135 ms on " +
-			"CI at 20,000 relations); it reruns only when the catalog counters move, at " +
-			"most every 5 min, not every cycle"},
+		"structural:columns": {CeilingMs: 150, Reason: "the schema guard's first " +
+			"structural pass after startup, and its daily full pass, summarize every column " +
+			"of every user table in this one statement; the gate's steady phase holds the " +
+			"first pass (the autonomy worker's first tick comes 60 s after start). Its time " +
+			"follows the catalog's column count: the whole-catalog scan it replaced read " +
+			"the same rows in 92-135 ms on CI at 20,000 relations (locally 40 ms; this " +
+			"statement 22 ms); no index, hint or setting avoids reading them. Later passes " +
+			"summarize only new or changed tables"},
 	}
 }
 

@@ -30,7 +30,9 @@ import (
 // structuralColumnsSQL summarizes each listed table's columns once: how
 // many, how many text (a type named text or varchar, given as oids), and
 // the text columns named like a number. A window over every column of
-// every table spilled to disk at 5,000 relations (perf gate, 111 ms).
+// every table spilled to disk at 5,000 relations (perf gate, 111 ms). On
+// a full pass it reads every column of every user table: its tag names it
+// to the performance gate, which judges its mean against its own ceiling.
 const (
 	structuralTablesSQL = `/* pg_sage structural:tables */
 SELECT tbl.oid, ns.nspname::text, tbl.relname::text,
