@@ -26,10 +26,12 @@ ORDER BY 2
 LIMIT $2`)
 
 func (ap16) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	hints := in.Env.HintAgents()
-	if !in.Env.PrincipalsExist || len(hints) == 0 {
+	if !in.Env.PrincipalsExist {
 		return nil, nil
 	}
+	// The statement runs even without hints (it then reads nothing), so
+	// the performance gate measures it wherever a principal exists.
+	hints := in.Env.HintAgents()
 	oids := make([]uint32, len(hints))
 	for i, h := range hints {
 		oids[i] = h.OID
