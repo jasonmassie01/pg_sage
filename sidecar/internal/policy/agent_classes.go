@@ -30,8 +30,10 @@ func IsAgentChangeClass(class ChangeClass) bool {
 // SQL text a caller could shape: their contract and arguments are the
 // request, so SQL validation does not apply (the statements are generated
 // from validated identifiers inside the action). The agent role contracts
-// are among them (§6.3, §6.6).
+// are among them (§6.3, §6.6), and so are freeze, unfreeze and the kill
+// switch (§6.10).
 var typedInternalActions = map[string]bool{
 	"declare_table_contract": true, "register_consumer": true, "retention_delete": true,
 	"guard_role_ensure": true, "guard_role_retire": true,
+	"guard_freeze": true, "guard_unfreeze": true, "guard_kill": true,
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -103,6 +104,9 @@ type RuntimeDeps struct {
 	// FleetLearning serves look-alikes and the leader status (fleet
 	// learning); nil answers 503 / "election disabled".
 	FleetLearning FleetLearningReader
+	// AgentEnvironments serves agent environment labels; nil answers 503
+	// (no control database: agent governance is posture-only).
+	AgentEnvironments *envbind.Service
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -179,6 +183,8 @@ func registerFleetScopedRoutes(
 	registerShadowRoutes(apiMux, mgr)
 	registerDerivedSettingsRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
+	registerAgentClassRoutes(apiMux, mgr)
+	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
@@ -221,7 +227,9 @@ func registerControlPoolRoutes(
 	}
 	registerNotificationRoutes(apiMux, pool, notifyDeps)
 	registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
-	registerPolicyRoutes(apiMux, policy.NewStore(pool))
+	registerPolicyRoutesWith(apiMux, policy.NewStore(pool), func() bool {
+		return cfg != nil && cfg.Agents.SingleOperatorMode
+	})
 	registerDecommissionRoutes(apiMux, pool)
 }
 
