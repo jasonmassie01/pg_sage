@@ -18,6 +18,7 @@ func TestReportShowsCalibration(t *testing.T) {
 	for _, want := range []string{
 		"## Runner calibration", "AMD EPYC 7763 64-Core Processor, 4 CPUs",
 		fmt.Sprintf("best of %d runs", calibrationRuns), "x0.75-x1.25",
+		fmt.Sprintf("median of %d reference runs", len(referenceRuns)),
 		fmt.Sprintf("| CPU workload | %.1f ms | %.1f ms | x0.80 |", ReferenceCPUMs*0.8,
 			ReferenceCPUMs),
 		fmt.Sprintf("| SQL workload | %.1f ms | %.1f ms | x1.20 |", ReferenceDBMs*1.2,
