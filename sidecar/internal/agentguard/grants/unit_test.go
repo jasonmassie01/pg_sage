@@ -91,7 +91,6 @@ func TestFixStatements(t *testing.T) {
 		grantOptionFix("s", "t", []string{"a", "b c"}, "me"))
 	require.Equal(t, `GRANT USAGE ON SCHEMA "s" TO "me" WITH GRANT OPTION;`,
 		schemaOptionFix("s", "me"))
-	require.Equal(t, `REVOKE CREATE ON SCHEMA "x""y" FROM PUBLIC;`, publicCreateFix(`x"y`))
 }
 
 func TestErrorsAreDistinct(t *testing.T) {

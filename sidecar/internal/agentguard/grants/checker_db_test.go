@@ -3,6 +3,7 @@ package grants
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"testing"
@@ -128,88 +129,71 @@ func TestCheckObjects_SecretAndExpired(t *testing.T) {
 	denied(t, err, decide.ReasonLeaseExpired)
 }
 
-// G1-02 from the grant side: the broker role's effective privileges over
-// the catalog (pg_catalog and information_schema excluded) equal its
-// registry grants plus what PUBLIC holds, before and after grants and
-// after their revoke.
+// G1-02 from the grant side: the broker role's effective privileges are
+// exactly its registry grants plus the PUBLIC baseline the preflight
+// recorded (core's CheckEffectivePrivileges), before and after grants and
+// after their expiry; a privilege granted outside the registry is excess.
 func TestEffectivePrivileges_EqualGrantsPlusPublic(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	check := func(stage string) {
-		got := effective(t, f, "role", f.p.BrokerRole())
-		want := union(registry(t, f), effective(t, f, "public", ""))
-		require.Equal(t, want, got, stage)
+	_, err := agentguard.Preflight(ctx, f.super, nil)
+	require.NoError(t, err)
+	check := func(stage string, wantExcess int) {
+		privs, err := RegistryPrivileges(ctx, f.super, f.p.ID)
+		require.NoError(t, err)
+		rep, err := agentguard.CheckEffectivePrivileges(ctx, f.super, f.p.BrokerRole(),
+			privs)
+		require.NoError(t, err)
+		require.Len(t, rep.Excess, wantExcess, "%s: %+v", stage, rep.Excess)
+		eff, err := agentguard.EffectivePrivileges(ctx, f.super, f.p.BrokerRole())
+		require.NoError(t, err)
+		held := map[string]bool{}
+		for _, p := range eff {
+			held[fmt.Sprintf("%s/%d/%d/%s", p.Kind, p.OID, p.Attnum, p.Privilege)] = true
+		}
+		for _, p := range privs {
+			key := fmt.Sprintf("%s/%d/%d/%s", p.Kind, p.OID, p.Attnum, p.Privilege)
+			require.True(t, held[key], "%s: registry privilege %s not held", stage, key)
+		}
 	}
-	check("before any grant")
+	check("before any grant", 0)
 	res, err := f.manager.Grant(ctx, f.request())
 	require.NoError(t, err)
-	check("after a prod grant")
+	check("after a prod grant", 0)
 	f.target.Env = envbind.EnvDev
 	_, err = f.manager.Grant(ctx, f.request())
 	require.NoError(t, err)
-	check("after a dev grant")
+	check("after a dev grant", 0)
 	f.expireNow(t, grantIDs(res.Grants)...)
 	_, err = f.manager.ExpireDue(ctx, f.target, Fence{}, 100)
 	require.NoError(t, err)
-	check("after expiry")
+	check("after expiry", 0)
+	f.exec1(t, "GRANT SELECT (amount) ON "+pgx.Identifier{f.schema, "orders"}.Sanitize()+
+		" TO "+f.p.BrokerRole())
+	check("a grant outside the registry", 1)
 }
 
-// effectiveSQL lists relation columns and schemas in user schemas a role
-// (or PUBLIC, with role 'public') can SELECT or USAGE.
-const effectiveSQL = `SELECT 'column:' || n.nspname || '.' || c.relname || '.' || a.attname
-FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
-WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f')
-  AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_toast'
-  AND has_column_privilege($1, c.oid, a.attnum, 'SELECT')
-UNION ALL
-SELECT 'schema:' || n.nspname FROM pg_namespace n
-WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_'
-  AND has_schema_privilege($1, n.oid, 'USAGE')`
-
-func effective(t *testing.T, f *fixture, kind, role string) map[string]bool {
-	t.Helper()
-	if kind == "public" {
-		role = "public"
-	}
-	rows, err := f.super.Query(context.Background(), effectiveSQL, role)
+func TestRegistryPrivileges_Shape(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	none, err := RegistryPrivileges(ctx, f.super, f.p.ID)
 	require.NoError(t, err)
-	list, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.Empty(t, none)
+	g := f.grantID(t)
+	privs, err := RegistryPrivileges(ctx, f.super, f.p.ID)
 	require.NoError(t, err)
-	out := map[string]bool{}
-	for _, s := range list {
-		out[s] = true
+	require.Len(t, privs, 2)
+	kinds := map[string]agentguard.Privilege{}
+	for _, p := range privs {
+		kinds[p.Kind] = p
 	}
-	return out
-}
-
-func registry(t *testing.T, f *fixture) map[string]bool {
-	t.Helper()
-	page, err := List(context.Background(), f.super, Filter{PrincipalID: f.p.ID,
-		State: StateActive, Limit: 200})
-	require.NoError(t, err)
-	out := map[string]bool{}
-	for _, g := range page.Items {
-		if g.ObjectKind == KindSchema {
-			out["schema:"+g.ObjectName] = true
-			continue
-		}
-		for _, c := range g.Columns {
-			out["column:"+g.ObjectName+"."+c] = true
-		}
-	}
-	return out
-}
-
-func union(a, b map[string]bool) map[string]bool {
-	out := map[string]bool{}
-	for k := range a {
-		out[k] = true
-	}
-	for k := range b {
-		out[k] = true
-	}
-	return out
+	require.Equal(t, g.ObjectOID, kinds["column"].OID)
+	require.Equal(t, int16(1), kinds["column"].Attnum) // id is the first column
+	require.Equal(t, "SELECT", kinds["column"].Privilege)
+	require.Equal(t, g.SchemaOID, kinds["schema"].OID)
+	require.Equal(t, "USAGE", kinds["schema"].Privilege)
+	_, err = RegistryPrivileges(ctx, f.super, "bob")
+	require.ErrorIs(t, err, agentguard.ErrInvalid)
 }
 
 func TestList_PagesAndFilters(t *testing.T) {
