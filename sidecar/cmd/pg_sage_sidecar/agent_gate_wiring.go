@@ -44,12 +44,13 @@ func startAgentGate(c *config.Config, mgr *fleet.DatabaseManager, meta *metaDBSt
 	cfg := decide.Config{Principals: agentguard.NewStore(control),
 		Profiles: decide.DefaultProfiles(), Recovery: fleetRecovery{mgr: mgr},
 		Freezes: agentFreezes(control)}
+	agentGrantSources(&cfg, mgr) // D5, D9 and D10 (agent_grants_wiring.go)
 	if envs != nil {
 		cfg.Environments = envSource{svc: envs}
-		// D5 for brokered requests (agent_broker_wiring.go).
-		cfg.Objects = agentObjectChecker(envs)
+		// D5 for brokered requests: the catalog and classification check
+		// (agent_broker_wiring.go) and the grant registry's, both must pass.
+		cfg.Objects = allObjects{agentObjectChecker(envs), cfg.Objects}
 	}
-	agentGrantSources(&cfg, mgr) // D5, D9 and D10 (agent_grants_wiring.go)
 	agentGate.Store(&agentGateState{decider: decide.New(cfg), control: control})
 }
 
@@ -146,4 +147,20 @@ SELECT current_setting('archive_mode'), COALESCE(current_setting('archive_comman
 	archives := strings.TrimSpace(library) != "" ||
 		(strings.TrimSpace(command) != "" && command != "(disabled)")
 	return (mode == "on" || mode == "always") && archives, time.Time{}, nil
+}
+
+// allObjects is D5 from several sources: the first denial wins.
+type allObjects []decide.ObjectChecker
+
+func (a allObjects) CheckObjects(ctx context.Context, p agentguard.Principal,
+	database string, env envbind.Env, objects []decide.Object) error {
+	for _, c := range a {
+		if c == nil {
+			continue
+		}
+		if err := c.CheckObjects(ctx, p, database, env, objects); err != nil {
+			return err
+		}
+	}
+	return nil
 }

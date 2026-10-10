@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
+	"github.com/pg-sage/sidecar/internal/agentguard/decide"
+	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -105,5 +107,33 @@ func TestWALArchivedReadsSettings(t *testing.T) {
 	got, _, err := fleetRecovery{mgr: mgr}.Recovery(context.Background(), "live")
 	if err != nil || got != pitr {
 		t.Fatalf("fleetRecovery = (%v, %v), want %v", got, err, pitr)
+	}
+}
+
+type objectsFunc func() error
+
+func (f objectsFunc) CheckObjects(context.Context, agentguard.Principal, string,
+	envbind.Env, []decide.Object) error {
+	return f()
+}
+
+func TestAllObjectsNeedsEveryCheckerToPass(t *testing.T) {
+	calls := 0
+	pass := objectsFunc(func() error { calls++; return nil })
+	deny := objectsFunc(func() error {
+		calls++
+		return &agentguard.DeniedError{Reason: "agent_classification"}
+	})
+	ctx := context.Background()
+	if err := (allObjects{pass, nil, pass}).CheckObjects(ctx, agentguard.Principal{}, "db",
+		envbind.EnvDev, nil); err != nil || calls != 2 {
+		t.Fatalf("all pass: err %v after %d calls", err, calls)
+	}
+	calls = 0
+	err := (allObjects{pass, deny, pass}).CheckObjects(ctx, agentguard.Principal{}, "db",
+		envbind.EnvDev, nil)
+	if d, ok := agentguard.IsDenied(err); !ok || d.Reason != "agent_classification" ||
+		calls != 2 {
+		t.Fatalf("a denial wins and stops: err %v after %d calls", err, calls)
 	}
 }

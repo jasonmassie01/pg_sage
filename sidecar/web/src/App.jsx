@@ -22,6 +22,7 @@ import { TrustPage } from './pages/TrustPage'
 import { FactsPage } from './pages/FactsPage'
 import { AskPage } from './pages/AskPage'
 import { MCPTokensPage } from './pages/MCPTokensPage'
+import { AgentsPage } from './pages/AgentsPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -247,6 +248,10 @@ export default function App() {
       case '/users':
         return isAdmin ? { title: 'Users',
           node: <UsersPage currentUser={user} /> } : denied
+      case '/agents':
+        return isAdmin || user.role === 'operator' ? { title: 'Agents',
+          node: <AgentsPage user={user}
+            databases={databases.map(d => d.name)} /> } : denied
       case '/mcp-tokens':
         return isAdmin ? { title: 'MCP tokens', node: <MCPTokensPage /> }
           : denied

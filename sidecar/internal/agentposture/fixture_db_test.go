@@ -2,7 +2,6 @@ package agentposture
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -27,11 +26,7 @@ func newFixture(t *testing.T) *fixture {
 	pool, ctx := livePool(t)
 	// Agent roles are cluster-wide: AP-13 and AP-16 assume none exists, so
 	// posture fixtures serialize with every test that creates agent roles.
-	release, err := testdb.LockCluster(ctx, os.Getenv(testdb.EnvName), testdb.AgentRolesLock)
-	if err != nil {
-		t.Fatalf("agent roles lock: %v", err)
-	}
-	t.Cleanup(release)
+	testdb.LockAgentRoles(t)
 	s := suffix(t)
 	f := &fixture{t: t, ctx: ctx, pool: pool, schema: "pst_" + s, exposed: "pexp_" + s}
 	createRole(t, ctx, pool, f.exposed, "NOLOGIN")

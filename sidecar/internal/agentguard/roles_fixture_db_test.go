@@ -20,17 +20,17 @@ import (
 // CREATEROLE (what Guard requires), with an executor whose gate the test
 // controls.
 type roleFixture struct {
-	super    *pgxpool.Pool // superuser, for setup and inspection
-	admin    *pgxpool.Pool // pg_sage's role
+	super     *pgxpool.Pool // superuser, for setup and inspection
+	admin     *pgxpool.Pool // pg_sage's role
 	adminName string
-	dsn      string
-	db       string
-	store    *Store
-	manager  *RoleManager
-	exec     *executor.Executor
-	cluster  Cluster
-	runtime  atomic.Value // policy.RuntimeState
-	document atomic.Value // policy.Document
+	dsn       string
+	db        string
+	store     *Store
+	manager   *RoleManager
+	exec      *executor.Executor
+	cluster   Cluster
+	runtime   atomic.Value // policy.RuntimeState
+	document  atomic.Value // policy.Document
 }
 
 var adminSeq atomic.Int64
@@ -44,7 +44,7 @@ func newRoleFixture(t *testing.T) *roleFixture {
 		t.Skip("role management needs PostgreSQL 16+; " +
 			"TestEnsure_RefusedBeforePG16 covers older servers")
 	}
-	lockAgentRoles(t)
+	testdb.LockAgentRoles(t)
 	f := &roleFixture{super: super, dsn: testdb.SkipUnlessLive(t), store: NewStore(super)}
 	f.db = currentDatabase(t, super)
 	f.admin = f.createAdmin(t)

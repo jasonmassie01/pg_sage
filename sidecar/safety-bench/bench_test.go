@@ -22,11 +22,7 @@ func TestMain(m *testing.M) {
 func newPool(ctx context.Context, t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
-	release, err := testdb.LockCluster(ctx, dsn, testdb.AgentRolesLock)
-	if err != nil {
-		t.Fatalf("agent roles lock: %v", err)
-	}
-	t.Cleanup(release)
+	testdb.LockAgentRolesOn(t, dsn)
 	// The posture fixtures create the cluster-wide Supabase roles.
 	testdb.HoldSupabaseRoles(t, dsn)
 	pool, err := pgxpool.New(ctx, dsn)

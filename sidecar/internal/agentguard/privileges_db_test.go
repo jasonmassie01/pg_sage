@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -19,7 +20,7 @@ type privFixture struct {
 func newPrivFixture(t *testing.T) privFixture {
 	t.Helper()
 	pool := livePool(t)
-	lockAgentRoles(t)
+	testdb.LockAgentRoles(t)
 	ctx := context.Background()
 	suffix := strings.ToLower(uniqName("p"))[2:]
 	suffix = strings.NewReplacer("-", "").Replace(suffix)
