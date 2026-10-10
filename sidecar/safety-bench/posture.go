@@ -10,7 +10,7 @@ import (
 )
 
 // PostureFinding is one posture-detector hit. It mirrors the shape the
-// detector framework (workstreams posturea/postureb, AGENTDB-SPEC §6.15)
+// detector framework (workstreams posturea/postureb, spec §6.15)
 // produces, reduced to what the bench scores: which detector fired, on what
 // object, how severe.
 type PostureFinding struct {
@@ -52,7 +52,7 @@ type PostureScenario struct {
 	// Name is a short human label.
 	Name string `json:"name"`
 	// Expect lists the detector ids that should fire for this scenario
-	// (AGENTDB-SPEC §6.15). A scenario can expect more than one.
+	// (spec §6.15). A scenario can expect more than one.
 	Expect []string `json:"expect"`
 	// Scope is the text every counted finding's object contains (the
 	// scenario's schema or role): the detectors read the whole database,

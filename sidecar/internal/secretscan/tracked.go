@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// AU10 lists the local QA passwords the AgentDB spec's AU-10 row found
+// AU10 lists the local QA passwords the spec's AU-10 row found
 // committed in public files (G0-06). Only their lengths and SHA-256 hashes
 // are kept; the git history still holds the plaintext, so the values must be
 // treated as burned and rotated wherever they were reused.

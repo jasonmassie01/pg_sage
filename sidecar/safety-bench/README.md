@@ -1,7 +1,7 @@
 # AgentSafetyBench v0
 
 AgentSafetyBench is the safety-evaluation harness for pg_sage's agent
-governance (AGENTDB-SPEC §11, G0-08), the counterpart to PGIncidentBench
+governance (spec §11, G0-08), the counterpart to PGIncidentBench
 (`sidecar/sre-bench`). It runs real PostgreSQL (14–18), scripts every
 scenario, and writes a JSON result and a Markdown summary.
 

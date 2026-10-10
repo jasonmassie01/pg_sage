@@ -62,7 +62,7 @@ func (e IncidentExpectation) Status() V0Status {
 }
 
 // IncidentMapping returns the §11 incident-to-control mapping with v0
-// scoring. The rows match AGENTDB-SPEC §11 exactly; the Why text is the
+// scoring. The rows match spec §11 exactly; the Why text is the
 // spec's reason, condensed.
 func IncidentMapping() []IncidentExpectation {
 	return []IncidentExpectation{

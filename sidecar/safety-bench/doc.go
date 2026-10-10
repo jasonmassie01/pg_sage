@@ -1,6 +1,6 @@
 // Package safetybench is AgentSafetyBench v0: an open, reproducible bench
 // that measures pg_sage's agent-governance controls the way PGIncidentBench
-// (sre-bench) measures Sage SRE investigations (AGENTDB-SPEC §11, G0-08).
+// (sre-bench) measures Sage SRE investigations (spec §11, G0-08).
 //
 // It runs three sections against real PostgreSQL (14-18):
 //
