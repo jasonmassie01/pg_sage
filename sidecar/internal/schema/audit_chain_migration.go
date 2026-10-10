@@ -39,6 +39,19 @@ CREATE INDEX IF NOT EXISTS guard_pgaudit_events_logged
     ON sage.guard_pgaudit_events (logged_at);
 `
 
+// ddlSIEMCursor keeps each SIEM sink's export position per source database
+// and audit chain (E2). Rows only move forward.
+const ddlSIEMCursor = `
+CREATE TABLE IF NOT EXISTS sage.siem_cursor (
+    sink       text        NOT NULL,
+    source     text        NOT NULL,
+    chain      text        NOT NULL,
+    seq        bigint      NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (sink, source, chain)
+);
+`
+
 // ddlGuardIdentityBindings maps an external identity (issuer, subject) to a
 // principal (E2, §7). It references sage.guard_principals, which the G1
 // core migration creates, so it is created once that table exists.

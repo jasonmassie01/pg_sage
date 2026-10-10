@@ -430,7 +430,7 @@ func migrationStatements() []string {
 		ddlDecommission,
 		ddlAuthAuditSourceIP,
 		ddlAuthAuditCreatedIndex,
-		ddlGuardPGAuditEvents, ddlGuardIdentityBindings)
+		ddlGuardPGAuditEvents, ddlGuardIdentityBindings, ddlSIEMCursor)
 }
 
 // ---------------------------------------------------------------------------
