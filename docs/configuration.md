@@ -147,6 +147,12 @@ go run ./cmd/gen_config_meta -lifecycle-only \
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |
+| `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
+| `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
+| `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
+
+A `_FILE` variant reads the value from the named file (for Docker, Kubernetes
+or Vault Agent secrets); set either the variable or its `_FILE`, not both.
 
 ---
 
@@ -624,6 +630,12 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
+
+SSO (`oauth.*`) validates the OIDC `id_token` with PKCE and a nonce, can map
+IdP groups to roles (`oauth.role_mapping`, `oauth.groups_claim`,
+`oauth.unmapped_users`), and audits every login. A break-glass admin
+(`oauth.break_glass`) works when the IdP is down and alerts every channel on
+use. See [SSO login validation](security.md#sso-login-validation).
 
 #### Profiling the sidecar
 
