@@ -42,8 +42,9 @@ ORDER BY tc.schema_name, tc.table_name`
 // structuralPathologySQL aggregates each table's columns once: every
 // column text (three or more), and text columns named like a number. A
 // window over every column of every table spilled to disk at 5,000
-// relations (perf gate, 111 ms on CI).
-const structuralPathologySQL = `/* pg_sage */
+// relations (perf gate, 111 ms on CI). Its tag names it to the
+// performance gate, which judges its mean against its own ceiling.
+const structuralPathologySQL = `/* pg_sage schema_guard:structural v1 */
 WITH tables AS (
     SELECT ns.nspname AS schema_name, tbl.relname AS table_name,
            count(*) AS column_count,

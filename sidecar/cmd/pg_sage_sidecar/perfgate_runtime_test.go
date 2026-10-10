@@ -52,6 +52,7 @@ func runPerfRuntime(
 	initStandalone()
 	router := perfRouter(t)
 	stopWorkload := startPerfWorkload(t, dsn, scale.HotTables())
+	stopShadowSeen := startPerfShadowSeen(t, dsn)
 	time.Sleep(timing.Warmup)
 	warm := readPerfCounters(t, ctx, harness, logs, true)
 
@@ -64,6 +65,7 @@ func runPerfRuntime(
 	time.Sleep(time.Until(steadyStart.Add(timing.Window)))
 	cpu := perfProcessCPU(t) - cpuStart - apiCPU
 	stopWorkload()
+	stopShadowSeen()
 	stopPerfRuntime(t, monitored)
 	end := readPerfCounters(t, ctx, harness, logs, false)
 

@@ -79,10 +79,14 @@ func shapeTable(shape string) (string, bool) {
 	return table, ok && table != ""
 }
 
+// markAppliedSQL notes when a pending decision's change was found applied
+// outside pg_sage. It sets only unindexed columns, so it stays HOT.
+const markAppliedSQL = `/* pg_sage */ UPDATE sage.shadow_decision
+	SET applied_after = last_seen_at, applied_detected_at = now()
+	WHERE id = $1 AND status = 'pending' AND applied_detected_at IS NULL`
+
 func (s *Scorer) markApplied(ctx context.Context, id int64) error {
-	if _, err := s.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.shadow_decision
-		SET applied_after = last_seen_at, applied_detected_at = now()
-		WHERE id = $1 AND status = 'pending' AND applied_detected_at IS NULL`, id); err != nil {
+	if _, err := s.pool.Exec(ctx, markAppliedSQL, id); err != nil {
 		return fmt.Errorf("shadow: mark decision %d applied: %w", id, err)
 	}
 	return nil
