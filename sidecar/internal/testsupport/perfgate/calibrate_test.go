@@ -162,6 +162,11 @@ func TestCalibratedBudgetsKeepCountsAndTheOriginal(t *testing.T) {
 	if same := b.Calibrated(Calibration{}); !reflect.DeepEqual(same, b) {
 		t.Fatalf("an unmeasured calibration scaled the budgets: %+v", same)
 	}
+	b.MeanExempt = nil
+	got = b.Calibrated(mustCalibration(t, ReferenceCPUMs, ReferenceDBMs*1.2))
+	if got.MeanExempt != nil || !near(got.StatementMeanMs, b.StatementMeanMs*1.2) {
+		t.Fatalf("budgets without mean exemptions: %+v, want none and a scaled mean", got)
+	}
 }
 
 // A mean exemption's ceiling is a database time like the mean budget: it

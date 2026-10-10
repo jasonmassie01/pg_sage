@@ -31,6 +31,7 @@ func TestParseCPUModel(t *testing.T) {
 		{"a value holding a colon", "model name\t: Vendor: Part 9\n", "Vendor: Part 9"},
 		{"a key without a colon is no model", "model name\n", ""},
 		{"a longer key is another key", "model name extra\t: X\nmodel name\t: Y\n", "Y"},
+		{"two models: the first", "model name\t: First\nmodel name\t: Second\n", "First"},
 	}
 	for _, c := range cases {
 		got, err := parseCPUModel(strings.NewReader(c.in))
