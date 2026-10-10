@@ -80,9 +80,9 @@ func TestPlanIsEmptyWhenConverged(t *testing.T) {
 	}
 }
 
-// Widening is judged per field: a higher environment, a profile with
-// classes the old lacks, an unfreeze, a new identity; their opposites
-// narrow.
+// Widening is judged per field as core's Patch.Widens does: a higher
+// environment and any profile change widen, as do an unfreeze and a new
+// identity; a lower environment, a freeze and an unbind narrow.
 func TestPlanClassifiesWidening(t *testing.T) {
 	b := newMem(Principal{Name: "ci-bot", Sponsor: "alice@example.com",
 		Profile: "app-writer", EnvCeiling: "dev", Status: "frozen", ManagedBy: managed,
@@ -91,7 +91,7 @@ func TestPlanClassifiesWidening(t *testing.T) {
 			EnvCeiling: "prod", Status: "frozen", ManagedBy: managed})
 	got := ops(plan(t, mustParse(t, validFile), b))
 	for _, want := range []string{
-		"update ci-bot profile",                // app-writer -> readonly: narrower
+		"update ci-bot profile (widening)",     // any other profile (core's rule)
 		"update ci-bot env_ceiling (widening)", // dev -> stage
 		"unfreeze ci-bot status (widening)",
 		"bind ci-bot 0oa1 (widening)",
@@ -101,8 +101,7 @@ func TestPlanClassifiesWidening(t *testing.T) {
 			t.Fatalf("plan lacks %q: %s", want, got)
 		}
 	}
-	if strings.Contains(got, "update ci-bot profile (widening)") ||
-		strings.Contains(got, "unbind ci-bot old (widening)") {
+	if strings.Contains(got, "unbind ci-bot old (widening)") {
 		t.Fatalf("a narrowing change is marked widening: %s", got)
 	}
 }
@@ -269,4 +268,24 @@ func mustList(t *testing.T, b Backend) []Principal {
 		t.Fatalf("list: %v", err)
 	}
 	return ps
+}
+
+// Lowering the environment ceiling narrows; a tenant cannot change (core
+// keeps a principal's tenant for life), so the plan refuses it.
+func TestPlanNarrowingAndTenant(t *testing.T) {
+	b := newMem(Principal{Name: "ci-bot", Sponsor: "alice@example.com",
+		Profile: "readonly-analyst", EnvCeiling: "prod", Status: "active",
+		ManagedBy: managed, Identities: []Identity{{"https://idp.example.com", "0oa1"}}},
+		Principal{Name: "etl-writer", Sponsor: "bob@example.com", Profile: "app-writer",
+			EnvCeiling: "prod", Status: "frozen", ManagedBy: managed})
+	p := plan(t, mustParse(t, validFile), b)
+	if got := ops(p); got != "update ci-bot env_ceiling" || p.Widening() {
+		t.Fatalf("lowered ceiling plan = %s", got)
+	}
+	f := mustParse(t, validFile)
+	f.Spec.Principals[0].Tenant = "team-b"
+	if _, err := MakePlan(context.Background(), f, b, memCatalog{}); !errors.Is(err,
+		ErrConflict) || !strings.Contains(err.Error(), "tenant") {
+		t.Fatalf("tenant change: err = %v", err)
+	}
 }
