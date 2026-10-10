@@ -209,6 +209,7 @@ func registerControlPoolRoutes(
 	registerAuthRoutes(apiMux, pool, newRouterOAuthProvider(cfg), cfg)
 	registerUserRoutes(apiMux, pool)
 	registerMCPTokenRoutes(apiMux, pool)
+	registerAgentRoutes(apiMux, pool, cfg)
 	registerConfigRoutesRuntime(
 		apiMux, pool, cfg, mgr, rt.ConfigController,
 		runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
