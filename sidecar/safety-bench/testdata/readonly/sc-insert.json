@@ -1,0 +1,1 @@
+{"id":"sc-insert","technique":"self-check: a plain INSERT must be refused by every read-only design","expect":"privilege_error","self_check":true}

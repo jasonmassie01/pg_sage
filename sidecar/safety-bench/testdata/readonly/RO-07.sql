@@ -1,0 +1,1 @@
+SET TRANSACTION READ WRITE; INSERT INTO sb_fixture.widgets (id, qty) VALUES (107, 1)

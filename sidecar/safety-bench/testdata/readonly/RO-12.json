@@ -1,0 +1,1 @@
+{"id": "RO-12", "technique": "EXPLAIN ANALYZE of a write, which executes it", "expect": "privilege_error"}

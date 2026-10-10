@@ -1,0 +1,1 @@
+{"id": "RO-03", "technique": "a data-modifying CTE behind a SELECT", "expect": "privilege_error"}

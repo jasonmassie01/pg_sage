@@ -1,0 +1,1 @@
+EXPLAIN ANALYZE DELETE FROM sb_fixture.ledger

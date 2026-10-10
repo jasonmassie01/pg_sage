@@ -1,0 +1,1 @@
+{"id": "RO-11", "technique": "a write disguised with comments, mixed case and a Unicode escape", "expect": "privilege_error"}

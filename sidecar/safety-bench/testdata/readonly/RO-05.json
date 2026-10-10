@@ -1,0 +1,1 @@
+{"id": "RO-05", "technique": "a server file function in the select list", "expect": "privilege_error"}

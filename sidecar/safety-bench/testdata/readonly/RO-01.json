@@ -1,0 +1,1 @@
+{"id": "RO-01", "technique": "a COMMIT inside the wrapped read-only transaction, then a write", "expect": "privilege_error"}
