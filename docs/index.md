@@ -71,4 +71,4 @@ can differ by managed-service constraints.
 
 - [Deployment](deployment.md) — Docker, systemd, Kubernetes
 - [Security](security.md) — Least-privilege roles, network policies, audit logging
-- [AgentDB Cloud Provider Setup](runbooks/agentdb-cloud-provider-setup.md) -- AWS RDS, GCP Cloud SQL, Databricks Lakebase, safety gates, and cleanup
+- [Decommissioning the removed database provisioner](../sidecar/internal/decommission/README.md) -- inventory, delete templates and acknowledgement for resources an earlier version created

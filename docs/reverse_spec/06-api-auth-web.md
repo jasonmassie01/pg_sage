@@ -62,9 +62,7 @@ request travels in:
   expired session → 401.
 - `shouldSkipAuth` (`auth_middleware.go:97`) unauthenticated allowlist:
   `POST /api/v1/auth/login`, `GET /api/v1/auth/oauth/{callback,config,authorize}`,
-  `/health` (dead, see above), **any agent-ping path** (`isAgentPingPath`,
-  `auth_middleware.go:117-125`: matches `/api/v1/agent-dbs/{id}/agent-ping`), and
-  any path not starting with `/api/` (static assets).
+  `/health` (dead, see above), and any path not starting with `/api/` (static assets).
 - `RequireRole(roles...)` (`auth_middleware.go:63`) — per-route RBAC; 401 if no
   user in context, 403 if role not allowed.
 
@@ -254,86 +252,10 @@ Registered only when `DatabaseDeps.Store` is non-nil (meta-db/standalone/fleet,
 | POST | `/databases/managed/{id}/test` | Test stored connection |
 | POST | `/databases/managed/test-connection` | Test ad-hoc connection (preview) |
 
-### 4.10 Agent DBs (`registerAgentDBRoutes`, `agent_db_handlers.go:15`)
+### 4.10 Agent-database provisioning (removed in G0)
 
-The agent-DB area (ephemeral provisioned databases for AI agents) uses a hand-
-rolled subrouter (`agentDBSubrouterWithRegistry`, `agent_db_handlers.go:45`)
-mounted on the prefix `/api/v1/agent-dbs/`. Top-level routes are **operator+**;
-the subrouter is wrapped operator+ too, **except** the token agent-ping path
-which is unauthenticated (`shouldSkipAuth` → `isAgentPingPath`).
-
-Enumerated routes (method + path, all under `/api/v1/agent-dbs`):
-
-```
-POST   /{deployment_id}/agent-ping               (PUBLIC — token auth)
-GET    /                                          list deployments
-POST   /                                          register/provision
-POST   /cleanup                                   archive all expired
-GET    /{id}                                      get deployment
-DELETE /{id}                                      delete (archive first)
-POST   /{id}/ping                                 heartbeat
-POST   /{id}/extend-lease
-GET    /{id}/recommendations
-POST   /{id}/recommendations
-POST   /{id}/recommendations/{recId}/feedback
-GET    /{id}/audit
-GET    /{id}/audit/export
-GET    /{id}/deploy-requests
-POST   /{id}/deploy-requests
-GET    /{id}/deploy-requests/{drId}
-POST   /{id}/deploy-requests/{drId}/request-review
-POST   /{id}/deploy-requests/{drId}/approve
-POST   /{id}/deploy-requests/{drId}/deny
-GET    /{id}/ping-tokens
-POST   /{id}/ping-tokens
-POST   /{id}/ping-tokens/{tokenId}/rotate
-POST   /{id}/ping-tokens/{tokenId}/revoke
-POST   /{id}/cost-samples
-GET    /{id}/cost
-GET    /{id}/backups
-POST   /{id}/backups
-POST   /{id}/backups/check
-POST   /{id}/backups/restore-drill-dry-run
-GET    /{id}/tuning-hints
-POST   /{id}/provision/preflight
-POST   /{id}/provision/execute
-POST   /{id}/provision/status
-POST   /{id}/provision/destroy-dry-run
-POST   /{id}/provision/destroy-live
-GET    /{id}/provision/attempts
-GET    /{id}/cleanup
-POST   /{id}/archive
-POST   /{id}/restore
-# collection sub-resources (not deployment-scoped):
-POST   /requests
-GET    /requests
-GET    /requests/{reqId}
-POST   /requests/{reqId}/approve
-POST   /requests/{reqId}/deny
-POST   /requests/{reqId}/provision
-GET    /providers
-GET    /provider-configs
-POST   /provider-configs/{provider}
-GET    /terraform-templates
-POST   /terraform-templates
-POST   /terraform-templates/{tplId}/approve
-POST   /terraform-templates/{tplId}/provision
-GET    /blueprints
-POST   /blueprints
-POST   /blueprints/{bpId}/approve
-POST   /blueprints/{bpId}/provision
-GET    /identities
-POST   /identities
-POST   /reconcile
-GET    /size-profiles
-POST   /size-profiles
-DELETE /size-profiles/{id}
-```
-
-Agent-DB error mapping (`agent_db_handlers.go:378-412`): `ErrNotFound`→404,
-`ErrRestoreRequired`→409, `ErrRateLimited`→429, `ErrRunnerUnavailable`→409,
-`ErrBlueprintLLMRequired`→503, `ErrDeleteBlocked`→409, `ErrInvalid`→400,
-`ErrConflict`→409.
+The 62 provisioning routes were removed and answer 404; see
+`sidecar/internal/decommission/README.md`.
 
 ### Endpoint count
 
@@ -348,11 +270,11 @@ Counting distinct method+path pairs registered:
 - Notifications: 10
 - Actions queue: 7
 - Managed DBs: 8
-- Agent DBs: 62
+- Provisioning (removed in G0): 62
 
 **Total ≈ 139 REST endpoints** (vs. the stale "17" claimed in `pg_sage/CLAUDE.md`;
-the agent-DB subsystem alone is 62). Without the agent-DB subsystem the
-"classic" DBA surface is ~77.
+the provisioning subsystem, removed in G0, was 62). Without it the "classic" DBA
+surface is ~77.
 
 ---
 
@@ -398,7 +320,6 @@ React 19 + Vite, **hash-based routing** (no react-router). Route switch in
 |---|---|---|---|
 | `/` | `Dashboard` | — | Fleet hero, stat cards, `FleetHealthChart`, tabbed tiles/readiness/recos |
 | `/manage-databases` | `DatabasesPage` | admin | Managed-DB CRUD + CSV import |
-| `/agent-dbs` | `AgentDBsPage` | — | Ephemeral agent-DB provisioning workspace |
 | `/findings`, `/cases` | `CasesPage` | — | Unified cases table (`/api/v1/cases`) |
 | `/forecasts` | `CasesPage initialSource=forecast` | — | filtered cases |
 | `/query-hints` | `CasesPage initialSource=query_hint` | — | filtered cases |
@@ -412,7 +333,7 @@ React 19 + Vite, **hash-based routing** (no react-router). Route switch in
 | `/users` | `UsersPage` | admin | User CRUD (no nav entry) |
 | default | `NotFound` | — | — |
 
-**Distinct routed components: 10** (`Dashboard`, `DatabasesPage`, `AgentDBsPage`,
+**Distinct routed components: 10** (`Dashboard`, `DatabasesPage`, the removed provisioning page,
 `CasesPage`, `Actions`, `DatabasePage`, `AlertLogPage`, `SettingsPage`,
 `NotificationsPage`, `UsersPage`) + `LoginPage` (pre-auth) and
 `NotFound`/`AccessDenied` helpers. **15 routed URL paths** (6 collapse onto

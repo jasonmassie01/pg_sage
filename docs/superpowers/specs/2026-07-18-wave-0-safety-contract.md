@@ -42,27 +42,10 @@ authorization, execution control, approvals, and audit state. A monitored target
 database is not an alternative authority source. Missing, stale, or unavailable
 canonical control state fails closed for mutations.
 
-## AgentDB policy and lifecycle
+## Agent-database provisioning
 
-AgentDB mutation authority is the intersection of:
-
-1. runtime execution authority;
-2. global hard ceilings;
-3. provider-specific capabilities and narrower provider ceilings; and
-4. authorization for the exact requested operation and resource.
-
-Providers may narrow global policy but cannot widen it. Missing policy,
-unsupported operations, unknown providers, and stale authorization fail closed.
-Lease renewal wins over expiry cleanup when they race. Expiry reconciliation must
-claim work atomically, revalidate before provider mutation, and permit at most one
-provider mutation across concurrent reconcilers.
-
-## AgentDB monitoring
-
-The target monitoring model is tiered and adaptive: inexpensive health signals
-run most often, diagnostic collection escalates when evidence warrants it, and
-costly analysis backs off for stable databases. Monitoring cadence does not grant
-mutation authority; executor policy remains an orthogonal gate.
+Removed in G0 (decision D-1); its policy, lifecycle and monitoring contracts no
+longer apply. See `sidecar/internal/decommission/README.md`.
 
 ## Product surface
 
@@ -90,7 +73,6 @@ objects are not mutated piecemeal beneath running goroutines.
 - API presentation and live execution share one typed action policy.
 - Every action is authorized against current state immediately before mutation,
   without data races.
-- AgentDB expiry handling is renewal-safe and single-winner under concurrency.
 - PostgreSQL advisory locks are acquired and released on the same pinned session.
 - Focused tests, race tests, build, vet, and the full uncached coverage suite pass,
   with skips and coverage gaps reported explicitly.
