@@ -3,6 +3,8 @@ package onboarding
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // Grant names in the trust guide.
@@ -10,6 +12,7 @@ const (
 	GrantMonitor        = "pg_monitor"
 	GrantSageSchema     = "sage_schema"
 	GrantTableOwnership = "table_ownership"
+	GrantSchemaCreate   = "schema_create"
 	GrantMaintain       = "pg_maintain"
 	GrantSignalBackend  = "pg_signal_backend"
 	GrantAlterSystem    = "alter_system"
@@ -151,7 +154,7 @@ func ownershipGrants(g GrantStatus, role string) []Grant {
 		owned.Present = &all
 		owned.Detail = fmt.Sprintf("owns %d of %d tables", g.TablesOwned, g.TablesTotal)
 	}
-	out := []Grant{owned}
+	out := []Grant{owned, schemaCreateGrant(g.SchemaCreate, role)}
 	if g.Maintain != nil {
 		out = append(out, Grant{Name: GrantMaintain,
 			Why: "VACUUM, ANALYZE and REINDEX tables it does not own (PostgreSQL 17+).",
@@ -162,16 +165,49 @@ func ownershipGrants(g GrantStatus, role string) []Grant {
 		SQL: "GRANT pg_signal_backend TO " + role + ";", Present: g.SignalBackend})
 }
 
-// quoteRole quotes a role name unless it is a plain lower-case name.
+// schemaCreateGrant is CREATE on the schemas holding user tables, with the
+// same SQL the startup check prints (rolegrants). It is unknown when it was
+// not checked or no user table exists yet.
+func schemaCreateGrant(sc *rolegrants.SchemaCreate, role string) Grant {
+	var s rolegrants.SchemaCreate
+	if sc != nil {
+		s = *sc
+	}
+	out := Grant{Name: GrantSchemaCreate,
+		Why: "CREATE INDEX and CREATE STATISTICS also need CREATE on the table's schema, " +
+			"even for the table's owner.",
+		SQL: s.GrantSQL(role) + ";"}
+	if len(s.Schemas) == 0 {
+		return out
+	}
+	ok := !s.Lacking()
+	out.Present = &ok
+	out.Detail = fmt.Sprintf("CREATE on %d of %d schemas with tables",
+		len(s.Schemas)-len(s.Missing), len(s.Schemas))
+	if !ok {
+		out.Detail += "; missing: " + nameSome(s.Missing)
+	}
+	return out
+}
+
+// detailSchemaNames is how many missing schemas a grant's one-line detail
+// names; the SQL names every one.
+const detailSchemaNames = 10
+
+// nameSome lists the first detailSchemaNames names and counts the rest.
+func nameSome(names []string) string {
+	if len(names) <= detailSchemaNames {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(names[:detailSchemaNames], ", "),
+		len(names)-detailSchemaNames)
+}
+
+// quoteRole quotes a role name the way the startup check does; an unknown
+// role reads as the documented sage_agent.
 func quoteRole(role string) string {
 	if role == "" {
 		return "sage_agent"
 	}
-	for i, r := range role {
-		plain := r >= 'a' && r <= 'z' || r == '_' || (i > 0 && r >= '0' && r <= '9')
-		if !plain {
-			return `"` + strings.ReplaceAll(role, `"`, `""`) + `"`
-		}
-	}
-	return role
+	return rolegrants.QuoteRole(role)
 }

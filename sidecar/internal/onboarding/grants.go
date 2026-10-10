@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // GrantStatus is what pg_sage's role may do in the monitored database.
@@ -18,6 +20,8 @@ type GrantStatus struct {
 	SignalBackend *bool  `json:"pg_signal_backend,omitempty"`
 	Maintain      *bool  `json:"pg_maintain,omitempty"`
 	AlterSystem   *bool  `json:"alter_system,omitempty"`
+	// SchemaCreate is CREATE on the schemas holding user tables.
+	SchemaCreate *rolegrants.SchemaCreate `json:"schema_create,omitempty"`
 	TablesOwned   int    `json:"tables_owned"`
 	TablesTotal   int    `json:"tables_total"`
 }
@@ -70,6 +74,11 @@ func CheckGrants(ctx context.Context, pool *pgxpool.Pool) (GrantStatus, error) {
 		return GrantStatus{}, err
 	}
 	g.AlterSystem = &alter
+	sc, err := rolegrants.CheckSchemaCreate(ctx, pool)
+	if err != nil {
+		return GrantStatus{}, err
+	}
+	g.SchemaCreate = &sc
 	return g, nil
 }
 

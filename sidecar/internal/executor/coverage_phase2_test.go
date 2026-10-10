@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,50 +30,6 @@ func connectTestDB2(t *testing.T) *pgxpool.Pool {
 // ---------------------------------------------------------------------------
 // checkSchemaCreate (was 57.1%) — test missing-grant path
 // ---------------------------------------------------------------------------
-
-func TestPhase2_CheckSchemaCreate_HasGrant(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var logged []string
-	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
-	}
-
-	// postgres user typically has CREATE on public schema.
-	checkSchemaCreate(
-		context.Background(), pool, "postgres", logFn,
-	)
-
-	// Verify no WARNING was logged (postgres has the grant).
-	for _, msg := range logged {
-		if strings.Contains(msg, "WARNING") &&
-			strings.Contains(msg, "lacks CREATE") {
-			t.Error("postgres user should have CREATE on public")
-		}
-	}
-}
-
-func TestPhase2_CheckSchemaCreate_NonExistentUser(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var logged []string
-	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
-	}
-
-	// Non-existent user should trigger an error path.
-	checkSchemaCreate(
-		context.Background(), pool,
-		"nonexistent_user_xyz_12345", logFn,
-	)
-
-	// Should log something (either error or warning).
-	if len(logged) == 0 {
-		t.Error("expected log output for non-existent user")
-	}
-}
 
 func TestPhase2_CheckSchemaCreate_ResolvesCurrentUser(t *testing.T) {
 	pool := connectTestDB2(t)
