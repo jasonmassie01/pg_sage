@@ -127,8 +127,7 @@ func TestModelSuggesterFailureModes(t *testing.T) {
 		want    error
 	}{
 		"malformed": {reply(`[{"column": "app.t.c", "class": `), ErrModelOutput},
-		"object":    {reply(`{"column":"app.tickets.body","class":"pii"}`), ErrModelOutput},
-		"prose":     {reply("No sensitive columns."), ErrModelOutput},
+		"prose": {reply("No sensitive columns."), ErrModelOutput},
 		"empty":     {reply(""), llm.ErrEmptyResponse},
 	}
 	for name, c := range cases {
@@ -138,7 +137,19 @@ func TestModelSuggesterFailureModes(t *testing.T) {
 			t.Errorf("%s: %v (%+v), want %v", name, err, got, c.want)
 		}
 	}
-	client, _ := fakeModel(t, reply("[]"))
+	// llm.StripJSON reads a lone object as a one-item list (project-wide);
+	// the item is still validated like any other.
+	client, _ := fakeModel(t, reply(`{"column":"app.tickets.body","class":"pii"}`))
+	if got, err := NewModelSuggester(client).Suggest(context.Background(),
+		modelCols()); err != nil || len(got) != 1 || got[0].Column.Name != "body" {
+		t.Fatalf("lone object: %+v %v", got, err)
+	}
+	client, _ = fakeModel(t, reply(`{"column":"app.tickets.body","class":"clean"}`))
+	if got, err := NewModelSuggester(client).Suggest(context.Background(),
+		modelCols()); err != nil || len(got) != 0 {
+		t.Fatalf("lone invalid object: %+v %v", got, err)
+	}
+	client, _ = fakeModel(t, reply("[]"))
 	if got, err := NewModelSuggester(client).Suggest(context.Background(),
 		modelCols()); err != nil || len(got) != 0 {
 		t.Fatalf("explicit empty list: %+v %v", got, err)

@@ -30,7 +30,7 @@ func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) 
 	}
 	defer rollbackQuietly(ctx, tx)
 	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
-		FROM sage.facts WHERE id = $1 FOR UPDATE`, id))
+		FROM sage.facts WHERE id = $1 AND `+ownTypes+` FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, ErrNotFound
 	}
@@ -77,7 +77,8 @@ func statusIn(st Status, set []Status) bool {
 func (s *Store) Expire(ctx context.Context, id int64, reason string) (Fact, error) {
 	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts
 		SET status = 'expired', expired_reason = $2, updated_at = now()
-		WHERE id = $1 AND status IN ('proposed', 'confirmed') RETURNING `+factColumns,
+		WHERE id = $1 AND `+ownTypes+` AND status IN ('proposed', 'confirmed')
+		RETURNING `+factColumns,
 		id, clip(cleanText(reason), 500)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		cur, getErr := s.Get(ctx, id)
