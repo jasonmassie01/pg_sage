@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   perfgate:
@@ -26,10 +27,15 @@ jobs:
         with:
           go-version-file: sidecar/go.mod
 
+      - name: Log in to the GitHub container registry
+        if: ${{ !cancelled() }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Start a clean PostgreSQL for the performance gate
         run: |
           docker run -d --name perfgate-pg -e POSTGRES_PASSWORD=postgres \
-            -p 5433:5432 pgvector/pgvector:0.8.2-pg17 >/dev/null
+            -p 5433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17 >/dev/null
           for _ in $(seq 1 60); do
             docker exec perfgate-pg pg_isready -U postgres >/dev/null 2>&1 && break
             sleep 1
