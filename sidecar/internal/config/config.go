@@ -106,6 +106,8 @@ type Config struct {
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
+	// Agents is agent posture (agents.go).
+	Agents AgentsConfig `yaml:"agents"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -762,6 +764,9 @@ func (c *Config) validate() error {
 	if err := c.FleetLearning.validate(); err != nil {
 		return err
 	}
+	if err := c.Agents.validate(); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
@@ -1081,6 +1086,7 @@ func newDefaults() *Config {
 		},
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
+		Agents:        defaultAgentsConfig(),
 	}
 }
 

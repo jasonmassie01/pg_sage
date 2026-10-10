@@ -77,6 +77,30 @@
     "doc": "",
     "class": "safety_critical"
   },
+  "agents.client_patterns": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai.",
+    "class": "operator_preference"
+  },
+  "agents.exposed_roles": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none.",
+    "class": "safety_critical"
+  },
+  "agents.posture.daily_at": {
+    "type": "string",
+    "default": "03:00",
+    "doc": "Local time (HH:MM, 24-hour) of the daily posture run; it also runs in the first look and when the catalog it reads changes. Default: 03:00.",
+    "class": "operator_preference"
+  },
+  "agents.posture.memory_growth_gb_day": {
+    "type": "float64",
+    "default": 5,
+    "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
+    "class": "operator_preference"
+  },
   "alerting.check_interval_seconds": {
     "type": "int",
     "default": 60,

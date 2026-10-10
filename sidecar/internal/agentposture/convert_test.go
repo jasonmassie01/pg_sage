@@ -2,18 +2,18 @@ package agentposture
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // stubQuerier satisfies Querier for tests that never reach the database.
 type stubQuerier struct{}
 
 func (*stubQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return nil, pgconn.Timeout(nil)
+	return nil, errors.New("stub querier: no database")
 }
 
 func (*stubQuerier) QueryRow(context.Context, string, ...any) pgx.Row { return nil }

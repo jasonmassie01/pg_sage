@@ -19,6 +19,10 @@
 | `agentdb.providers` | `restart` | `-` | `safety_critical` |
 | `agentdb.reconcile_interval_seconds` | `reconfigure` | `agentdb` | `safety_critical` |
 | `agentdb.require_backup_before_destroy` | `restart` | `-` | `safety_critical` |
+| `agents.client_patterns` | `restart` | `-` | `operator_preference` |
+| `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
+| `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
+| `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
 | `alerting.check_interval_seconds` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.cooldown_minutes` | `reconfigure` | `alerting` | `operator_preference` |
 | `alerting.enabled` | `reconfigure` | `alerting` | `operator_preference` |
