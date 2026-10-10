@@ -95,7 +95,7 @@ func fleetLearningSources(mgr *fleet.DatabaseManager) func() []fleetlearn.Databa
 				continue
 			}
 			out = append(out, fleetlearn.DatabaseSource{Name: name, Pool: inst.Pool,
-				Boundary: fleetlearn.Boundary(name, inst.Config.Tags)})
+				Boundary: fleetlearn.Boundary(inst.Config.Tags)})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return out

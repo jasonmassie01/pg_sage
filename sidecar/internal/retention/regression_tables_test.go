@@ -3,7 +3,6 @@ package retention
 import (
 	"context"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -66,11 +65,9 @@ func TestRun_PurgesPreviouslyUnboundedTables(t *testing.T) {
 
 // G7-B12 guard: every sage table with a time column must either have a
 // purge rule or an explicit, justified exemption. New tables fail here
-// until someone decides their retention. The agent_db_* tables are created
-// on first use, so the guard creates them first; partitions of a
-// partitioned table are covered by its rule.
+// until someone decides their retention. Partitions of a partitioned table
+// are covered by its rule.
 func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
-	ensureAgentSchema(t)
 	_, ctx := requireDB(t)
 	rows, err := testPool.Query(ctx, `SELECT DISTINCT c.table_name
 		FROM information_schema.columns c
@@ -90,14 +87,10 @@ func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
 		covered[r.table] = true
 	}
 	var missing []string
-	agentTables := 0
 	for rows.Next() {
 		var table string
 		if err := rows.Scan(&table); err != nil {
 			t.Fatal(err)
-		}
-		if strings.HasPrefix(table, "agent_db_") {
-			agentTables++
 		}
 		if !covered[table] && retentionExemptions[table] == "" {
 			missing = append(missing, table)
@@ -109,9 +102,6 @@ func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Fatalf("sage tables with no purge rule or exemption: %v", missing)
-	}
-	if agentTables < 18 {
-		t.Fatalf("the guard saw %d agent_db_* tables, want all 18+", agentTables)
 	}
 }
 

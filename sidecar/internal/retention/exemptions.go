@@ -1,10 +1,18 @@
 package retention
 
+import "github.com/pg-sage/sidecar/internal/decommission"
+
 // retentionExemptions documents sage tables with time columns that are
 // intentionally NOT purged by age. A new time-series table must be added
 // to purgeRules or here (enforced by a test).
-var retentionExemptions = mergeExemptions(coreExemptions, agentExemptions,
-	fleetLearningExemptions)
+var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
+	decommissionExemptions)
+
+// decommissionExemptions: the operator's acknowledgements of the
+// decommission inventory are audit evidence (AGENTDB-SPEC §12).
+var decommissionExemptions = map[string]string{
+	decommission.AckTable: "decommission acknowledgements (audit), one row per resource",
+}
 
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
@@ -94,33 +102,6 @@ var coreExemptions = map[string]string{
 	"table_contract": "declared contracts, current state",
 	"toil_model":     "model configuration",
 	"users":          "accounts, not a time-series",
-}
-
-// agentExemptions: the agent_db_* tables are created on first use
-// (agentdb.Store.Ensure). Append-only ones have rules (agent_rules.go);
-// these back live objects, ledgers or audit trails.
-var agentExemptions = map[string]string{
-	"agent_identities":             "agent registry, current state",
-	"agent_db_requests":            "database request ledger, one row per request; low volume",
-	"agent_db_deployments":         "deployment registry: live and deleted databases",
-	"agent_db_provider_configs":    "provider configuration",
-	"agent_db_creation_receipts":   "evidence of created cloud resources, one per deployment",
-	"agent_db_terraform_templates": "versioned configuration",
-	"agent_db_blueprints":          "versioned configuration",
-	"agent_db_size_profiles":       "configuration",
-	"agent_db_recommendations":     "current recommendations, one row per kind per deployment",
-	"agent_db_tuning_hints":        "current hints, one row per hint per deployment",
-	"agent_db_cost_samples": "budget ledger: lifetime spend is checked against the " +
-		"deployment's budget, so dropping samples would hide spend",
-	"agent_db_backups":             "backups whose archives exist; restore evidence",
-	"agent_db_audit":               "audit trail of agent database actions",
-	"agent_db_deploy_requests":     "reviewed schema change requests (audit)",
-	"agent_db_live_plans":          "plans live authorizations and receipts reference",
-	"agent_db_live_authorizations": "authorizations of live cloud operations (audit)",
-	"agent_db_live_receipts":       "receipts of live cloud operations (audit)",
-	"agent_db_monitoring_policies": "configuration, one row per scope",
-	"agent_db_monitoring_state":    "current schedule, one row per monitored target",
-	"agent_db_schema_version":      "schema version marker, one row",
 }
 
 // mergeExemptions joins exemption maps.

@@ -32,7 +32,6 @@ test.describe('Sidebar navigation', () => {
       { testid: 'nav-value', label: 'Value' },
       { testid: 'nav-cases', label: 'Cases' },
       { testid: 'nav-actions', label: 'Actions' },
-      { testid: 'nav-agent-dbs', label: 'Agent DBs' },
     ]
 
     for (const item of navItems) {
@@ -64,7 +63,6 @@ test.describe('Sidebar navigation', () => {
     const routes = [
       { testid: 'nav-cases', hash: '#/cases' },
       { testid: 'nav-actions', hash: '#/actions' },
-      { testid: 'nav-agent-dbs', hash: '#/agent-dbs' },
       { testid: 'nav-settings', hash: '#/settings' },
       { testid: 'nav-value', hash: '#/' },
     ]

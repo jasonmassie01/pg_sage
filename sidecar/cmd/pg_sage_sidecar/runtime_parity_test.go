@@ -74,7 +74,6 @@ var runtimeModeEntries = map[string]string{
 	"standalone": "initStandalone",
 	"yaml-fleet": "initFleetMultiDB",
 	"meta-db":    "prepareStoreDatabaseConnection",
-	"agentdb":    "connectAgentDBToFleet",
 }
 
 func TestRuntimeParityEveryModeWiresEveryCapability(t *testing.T) {

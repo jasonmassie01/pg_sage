@@ -245,18 +245,12 @@ func TestRunOnce_ResolvedFindingsAgeOnResolvedAt(t *testing.T) {
 	execRetry(t, ctx, `DELETE FROM sage.findings WHERE category = $1`, tag)
 }
 
-// A rule for a table that does not exist yet (agent_db_* tables are
-// created on first use) is skipped quietly, not logged as a failure.
-func TestPurge_MissingOptionalTableIsSkipped(t *testing.T) {
+// A rule for a table that does not exist is logged as a failure.
+func TestPurge_MissingTableIsLogged(t *testing.T) {
 	pool, ctx := requireDB(t)
 	logs := &captureLog{}
 	c := New(pool, allDays(30), logs.log)
 	stats := newRunStats()
-	c.purge(ctx, purgeRule{table: "agent_db_not_created", timeCol: "created_at", days: 1,
-		optional: true}, &stats, time.Now().Add(time.Minute))
-	if stats.Statements != 0 || logs.contains("ERROR", "agent_db_not_created") {
-		t.Fatalf("optional missing table: stats %+v, logs %v", stats, logs.lines)
-	}
 	c.purge(ctx, purgeRule{table: "required_not_created", timeCol: "created_at", days: 1},
 		&stats, time.Now().Add(time.Minute))
 	if !logs.contains("ERROR", "required_not_created") {

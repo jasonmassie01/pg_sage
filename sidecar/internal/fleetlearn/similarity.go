@@ -80,11 +80,10 @@ type LookAlike struct {
 
 // LookAlikes are the peers of target in the same boundary whose
 // similarity is at least min (and above zero), most similar first. A
-// database is never its own look-alike; an isolated or empty target has
-// none.
+// database is never its own look-alike; an empty target has none.
 func LookAlikes(target Fingerprint, peers []Fingerprint, min float64) []LookAlike {
 	out := []LookAlike{}
-	if Isolated(target.Boundary) || target.empty() {
+	if target.empty() {
 		return out
 	}
 	for _, p := range peers {

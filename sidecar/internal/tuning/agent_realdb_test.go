@@ -125,7 +125,7 @@ func realAgent(t *testing.T, pool *pgxpool.Pool, model Model,
 		Now: func() time.Time { return t0 }}, logs.fn), logs
 }
 
-func TestAgentDB_VerifiedIndexWithRealHypoPG(t *testing.T) {
+func TestAgentRealDB_VerifiedIndexWithRealHypoPG(t *testing.T) {
 	pool := dbPool(t)
 	requireHypoPG(t, pool)
 	w := ordersWorkload(t, pool)
@@ -165,7 +165,7 @@ func TestAgentDB_VerifiedIndexWithRealHypoPG(t *testing.T) {
 	}
 }
 
-func TestAgentDB_RejectedIdeaIsRememberedAndNotRemeasured(t *testing.T) {
+func TestAgentRealDB_RejectedIdeaIsRememberedAndNotRemeasured(t *testing.T) {
 	pool := dbPool(t)
 	requireHypoPG(t, pool)
 	w := ordersWorkload(t, pool)
@@ -203,7 +203,7 @@ func TestAgentDB_RejectedIdeaIsRememberedAndNotRemeasured(t *testing.T) {
 	}
 }
 
-func TestAgentDB_ConfirmedFactFromTheRealStore(t *testing.T) {
+func TestAgentRealDB_ConfirmedFactFromTheRealStore(t *testing.T) {
 	pool := dbPool(t)
 	requireHypoPG(t, pool)
 	w := ordersWorkload(t, pool)

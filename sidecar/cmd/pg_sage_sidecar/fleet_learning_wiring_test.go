@@ -81,8 +81,8 @@ func (s stubLease) Release(context.Context, string, string) error { return nil }
 func TestFleetLearningSourcesCarryBoundaries(t *testing.T) {
 	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
 	pool := &pgxpool.Pool{}
-	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "agentdb:d1", Pool: pool,
-		Config: config.DatabaseConfig{Tags: []string{"agentdb", "local", "ten-1"}},
+	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "tenant-db", Pool: pool,
+		Config: config.DatabaseConfig{Tags: []string{"tenant=ten-1"}},
 		Status: &fleet.InstanceStatus{}})
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "orders", Pool: pool,
 		Status: &fleet.InstanceStatus{}})
@@ -96,7 +96,7 @@ func TestFleetLearningSourcesCarryBoundaries(t *testing.T) {
 	for _, s := range got {
 		byName[s.Name] = s.Boundary
 	}
-	if byName["agentdb:d1"] != "agentdb-tenant:ten-1" || byName["orders"] != "" {
+	if byName["tenant-db"] != "tenant:ten-1" || byName["orders"] != "" {
 		t.Fatalf("boundaries = %v", byName)
 	}
 	if fleetLearningSources(nil)() != nil {

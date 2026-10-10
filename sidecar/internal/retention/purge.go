@@ -39,8 +39,6 @@ func (c *Cleaner) purge(ctx context.Context, rule purgeRule, stats *RunStats,
 	case err != nil:
 		c.logFn("ERROR", "retention: purging sage.%s failed: %v", rule.table, err)
 		return true
-	case kind == "" && rule.optional:
-		return true // created on first use; nothing to purge yet
 	case kind == "":
 		c.logFn("ERROR", "retention: purging sage.%s failed: the table does not exist",
 			rule.table)

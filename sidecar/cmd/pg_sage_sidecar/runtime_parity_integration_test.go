@@ -43,7 +43,7 @@ func TestRuntimeParityEquivalentDatabase(t *testing.T) {
 func runParityModes(t *testing.T, base *config.Config, dsn string, stopped bool) {
 	modes := map[string]parityModeBuilder{
 		"standalone": buildStandaloneParity, "yaml-fleet": buildFleetParity,
-		"meta-db": buildMetaParity, "agentdb": buildAgentDBParity,
+		"meta-db": buildMetaParity,
 	}
 	names := make([]string, 0, len(modes))
 	for mode := range modes {
@@ -415,23 +415,4 @@ func buildMetaParity(
 	}
 	activateStoreDatabaseWithManager(fleetMgr, inst)
 	return inst
-}
-
-func buildAgentDBParity(
-	t *testing.T, base *config.Config, dsn string,
-) *fleet.DatabaseInstance {
-	preserveParityGlobals(t, base)
-	cfg.Mode = "fleet"
-	control, err := connectMetaDB(dsn)
-	if err != nil {
-		t.Fatalf("connect control pool: %v", err)
-	}
-	t.Cleanup(control.Close)
-	// The reconciler only runs with an auth pool: the primary instance.
-	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name: "primary", Pool: control, Status: &fleet.InstanceStatus{},
-	})
-	dbCfg := parityDatabaseConfig(base, agentFleetPrefix+"parity")
-	connectAgentDBToFleet(context.Background(), fleetMgr, dbCfg)
-	return fleetMgr.GetInstance(dbCfg.Name)
 }

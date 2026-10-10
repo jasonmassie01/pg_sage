@@ -21,7 +21,7 @@ import (
 //
 // The adapter is also the single registration point of Sage SRE for a
 // database: buildDatabaseRuntime creates it for every mode (standalone,
-// YAML fleet, meta-db, AgentDB). It starts the lock-chain fast path on the
+// YAML fleet, meta-db). It starts the lock-chain fast path on the
 // instance worker group and attaches the catalog probe runner used for
 // narration evidence.
 type rcaAdapter struct {

@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"go/ast"
 	"go/token"
 	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
 func TestFleetRuntimeInitializesAnalyzeSemaphore(t *testing.T) {
@@ -55,39 +53,6 @@ func TestFleetOrchestratorRecordsHealthHistory(t *testing.T) {
 	// health-history write must not terminate another database's orchestrator.
 }
 
-func TestAgentDBCollectorHasProcessLifetimeAndLifecycleOwnership(t *testing.T) {
-	fn := productionFunction(t, "connectAgentDBToFleet")
-	parent := compositeFieldIdentifier(fn, "databaseRuntimeSpec", "Parent")
-	if parent == "" {
-		t.Fatal("AgentDB runtime has no process-lifetime parent context")
-	}
-	if parent == "ctx" {
-		t.Fatal("AgentDB runtime inherits the 60-second reconcile context")
-	}
-	lifecycle := productionFunction(t, "newDatabaseRuntime")
-	if firstArgumentToSelectorCall(lifecycle, "context", "WithCancel") != "parent" {
-		t.Fatal("database runtime does not derive a cancellable context from its parent")
-	}
-	start := productionFunction(t, "databaseRuntime.start")
-	if !callsIdentifier(start, "startInstanceWorker") {
-		t.Fatal("runtime workers are not tracked as instance-owned workers")
-	}
-	fields := databaseInstanceFields(productionFunction(t, "databaseRuntime.instance"))
-	for _, required := range []string{"Collector", "Cancel", "Workers"} {
-		if !fields[required] {
-			t.Errorf("database runtime does not publish lifecycle field %s", required)
-		}
-	}
-	if positionOfSelectorCall(fn, "publish") <
-		positionOfIdentifier(fn, "buildDatabaseRuntime") {
-		t.Error("AgentDB instance is registered before its runtime is built")
-	}
-
-	// Invalid deployment shapes are covered by TestEligibleForFleet_Rejections.
-	// No state-transition test is needed here: removal/drain behavior belongs to
-	// fleet manager lifecycle tests; this test verifies the missing ownership link.
-}
-
 // compositeFieldIdentifier returns the identifier assigned to field in the
 // first composite literal of typeName, "" when absent.
 func compositeFieldIdentifier(fn *ast.FuncDecl, typeName, field string) string {
@@ -108,20 +73,6 @@ func compositeFieldIdentifier(fn *ast.FuncDecl, typeName, field string) string {
 		return false
 	})
 	return value
-}
-
-func TestAgentDBCollectorRejectsCanceledRegistration(t *testing.T) {
-	manager := fleet.NewManager(config.DefaultConfig())
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	connectAgentDBToFleet(ctx, manager, config.DatabaseConfig{
-		Name: "agentdb:late", Host: "127.0.0.1", Database: "late",
-	})
-
-	if got := manager.InstanceCount(); got != 0 {
-		t.Fatalf("canceled reconcile registered %d AgentDB instances, want 0", got)
-	}
 }
 
 func TestMetaDBBootstrapBuildsGeneralLLMRuntime(t *testing.T) {

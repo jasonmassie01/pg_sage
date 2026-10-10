@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/agentdb"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/mcp"
@@ -46,17 +45,12 @@ func surfacePool(t *testing.T) *pgxpool.Pool {
 	if err := schema.Bootstrap(context.Background(), pool); err != nil {
 		t.Fatal(err)
 	}
-	if err := agentdb.NewStore(pool).Ensure(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	return pool
 }
 
 func surfaceRouter(t *testing.T, pool *pgxpool.Pool, cfg *config.Config,
 	runtime *RuntimeDeps) *surfaceFixture {
 	t.Helper()
-	// No cloud credentials or live runners are needed or permitted in this suite.
-	t.Setenv("PG_SAGE_LIVE_PROVISIONING", "0")
 	handler := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil, runtime,
 		SessionAuthMiddleware(pool))
 	server := httptest.NewTLSServer(handler)

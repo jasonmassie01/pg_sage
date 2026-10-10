@@ -369,7 +369,7 @@ func TestRegisterWithoutExecutorSkipsRestore(t *testing.T) {
 		calls++
 		return executor.EmergencyStopState{Stopped: true}, nil
 	}
-	inst := &DatabaseInstance{Name: "agentdb:x", Status: &InstanceStatus{}}
+	inst := &DatabaseInstance{Name: "executorless:x", Status: &InstanceStatus{}}
 
 	mgr.RegisterInstance(inst)
 

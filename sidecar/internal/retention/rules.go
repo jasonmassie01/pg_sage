@@ -9,9 +9,7 @@ import (
 // days. extra is a constant SQL predicate (never user input) that keeps
 // rows which must survive, e.g. parents of NOT NULL references; it names
 // the row being purged by the table's name. batch bounds one statement
-// (default batchSize). optional marks a table created on first use (the
-// agent_db_* tables): absent, it is skipped. partitioned names a table
-// partitioned by day: expired days are dropped, rows are deleted only from
+// (default batchSize). partitioned names a table partitioned by day: expired days are dropped, rows are deleted only from
 // its history and default partitions.
 type purgeRule struct {
 	table       string
@@ -19,7 +17,6 @@ type purgeRule struct {
 	days        int
 	extra       string
 	batch       int
-	optional    bool
 	partitioned *partition.Table
 	// sweepCol, when set, makes the rule swept (sweep.go): an incremental
 	// pass reads only rows with sweepCol at or after its floor.
@@ -218,7 +215,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
-	return append(rules, agentRules(r)...)
+	return rules
 }
 
 // explainResultsGrace is one day, or 0 (off) with explain retention off.
