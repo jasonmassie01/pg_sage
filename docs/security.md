@@ -198,9 +198,26 @@ reads it.
 
 ### TLS
 
-pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes
-Ingress, Cloud Run, load balancer, or other trusted edge. Restrict direct access
-to the API/dashboard listener to trusted networks.
+Set `SAGE_TLS_CERT` and `SAGE_TLS_KEY` to PEM files and the API and dashboard
+listener serves HTTPS only (TLS 1.2 or newer); session cookies are then marked
+`Secure`. Without them it serves plain HTTP, for use behind a TLS-terminating
+reverse proxy, Kubernetes Ingress, Cloud Run or load balancer.
+
+- Setting only one of the two is a startup error, so a typo can't silently
+  downgrade to HTTP.
+- At startup a missing file, a key that doesn't match the certificate, or an
+  expired or not-yet-valid certificate stops the sidecar with a message naming
+  the variable and file. A certificate expiring within 14 days logs a warning.
+- Rotation needs no restart: on new connections pg_sage checks the two files'
+  modification times at most every 5 seconds and loads a changed pair. The
+  check follows symlinks, so cert-manager and Kubernetes secret volume swaps
+  work. A pair that fails to load is logged and the current certificate keeps
+  serving until the files change again.
+- The Prometheus listener (`:9187`) stays plain HTTP; keep it on a private
+  network.
+
+Restrict direct access to the API/dashboard listener to trusted networks
+either way.
 
 ### Input Validation
 
@@ -292,7 +309,7 @@ Both tables are subject to retention policies (configurable via `retention.actio
 ## Production Checklist
 
 1. **Protect the dashboard/API listener** -- use a private network, reverse proxy, or identity-aware edge.
-2. **Terminate TLS at the edge** -- do not expose plain HTTP directly to the internet.
+2. **Use TLS** -- set `SAGE_TLS_CERT`/`SAGE_TLS_KEY` or terminate TLS at the edge; do not expose plain HTTP directly to the internet.
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.

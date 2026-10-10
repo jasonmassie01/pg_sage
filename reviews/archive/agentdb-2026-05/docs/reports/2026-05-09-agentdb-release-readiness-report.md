@@ -5,7 +5,7 @@
 - URL: http://127.0.0.1:8085/
 - Metrics: http://127.0.0.1:9187/metrics
 - Admin email: admin@pg-sage.local
-- Admin password: pgSageQA!2026
+- Admin password: (redacted; rotate any reuse, see CHANGELOG)
 - Process: `pg_sage_sidecar_qa.exe --config=..\local_config.yaml`
 - Latest verified PID: 40896
 

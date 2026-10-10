@@ -336,6 +336,7 @@ The deterministic walkthrough fixture is the safest local smoke target:
 
 ```powershell
 Set-Location C:\Users\jmass\pg_sage
+$env:PG_SAGE_ADMIN_PASS = "<choose-a-local-admin-password>"
 docker compose -f .\docker-compose.test.yml up -d pg-target pg-target-2
 powershell -ExecutionPolicy Bypass `
   -File .\test-fixtures\full_surface\run_walkthrough_fixture.ps1 `
@@ -347,7 +348,7 @@ It leaves the app running here:
 ```text
 URL:      http://127.0.0.1:18085
 Email:    admin@pg-sage.local
-Password: CodexVerify123!
+Password: the value you set in $env:PG_SAGE_ADMIN_PASS
 ```
 
 Manual API smoke:
@@ -355,7 +356,7 @@ Manual API smoke:
 ```powershell
 $body = @{
   email = "admin@pg-sage.local"
-  password = "CodexVerify123!"
+  password = $env:PG_SAGE_ADMIN_PASS
 } | ConvertTo-Json
 
 Invoke-WebRequest -UseBasicParsing `
@@ -375,7 +376,7 @@ For Playwright against the fixture:
 ```powershell
 Set-Location C:\Users\jmass\pg_sage\sidecar\web
 $env:PG_SAGE_ADMIN_EMAIL = "admin@pg-sage.local"
-$env:PG_SAGE_ADMIN_PASS = "CodexVerify123!"
+$env:PG_SAGE_ADMIN_PASS = "<choose-a-local-admin-password>"
 $env:PG_SAGE_E2E_BASE_URL = "http://127.0.0.1:18085"
 $env:PG_SAGE_E2E_FIXTURES = "1"
 npm run test:e2e

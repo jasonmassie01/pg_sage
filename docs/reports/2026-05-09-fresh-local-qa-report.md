@@ -8,7 +8,7 @@ HEAD: `001a91b`
 
 - URL: `http://127.0.0.1:18085`
 - Metrics: `http://127.0.0.1:19187/metrics`
-- Login: `admin@pg-sage.local` / `CodexVerify123!`
+- Login: `admin@pg-sage.local` / (password redacted)
 - Fresh Postgres: `pg_sage_fresh_qa` on `127.0.0.1:55432`
 - DSN: `postgres://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable`
 - Gemini live testing used environment variables only; no key is recorded here.

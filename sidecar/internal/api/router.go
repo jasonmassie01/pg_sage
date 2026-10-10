@@ -145,6 +145,8 @@ func NewRouterFullRuntime(
 		// signature authenticates them); identity mapping stays admin-only.
 		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
 	}
+	// Readiness (E1): config loaded, control database up, schema migrated.
+	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
 	registerRootRoutes(root)
 	return root
 }

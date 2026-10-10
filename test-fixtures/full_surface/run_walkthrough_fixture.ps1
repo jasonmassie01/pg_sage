@@ -1,10 +1,13 @@
 param(
   [switch]$SkipTests,
   [switch]$RestoreFullSurface,
-  [string]$AdminPassword = "CodexVerify123!"
+  [string]$AdminPassword = $env:PG_SAGE_ADMIN_PASS
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrEmpty($AdminPassword)) {
+  throw "Set PG_SAGE_ADMIN_PASS (or pass -AdminPassword) to a local-only admin password."
+}
 
 $Repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Sidecar = Join-Path $Repo "sidecar"
