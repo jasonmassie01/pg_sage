@@ -60,15 +60,6 @@ func TestStartAgentGateDecidesThroughTheControlDatabase(t *testing.T) {
 	}
 }
 
-func TestBindStdioPrincipalUnresolvedStaysUnbound(t *testing.T) {
-	mgr, _ := managerWith(t, "app")
-	c := &config.Config{}
-	c.MCP.StdioPrincipal = "coder"
-	// No control database: the name cannot resolve; nothing panics and the
-	// runtime is left unbound (nil runtime is a no-op too).
-	bindStdioPrincipal(nil, c, mgr, nil)
-}
-
 func TestFleetRecoveryUnknownDatabaseHasNoPITR(t *testing.T) {
 	mgr, _ := managerWith(t, "app")
 	pitr, drill, err := fleetRecovery{mgr: mgr}.Recovery(context.Background(), "missing")

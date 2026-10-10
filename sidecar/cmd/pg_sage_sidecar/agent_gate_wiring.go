@@ -15,7 +15,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
-	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -88,26 +87,6 @@ func (e envSource) Environment(ctx context.Context, database string) (envbind.Bi
 		return envbind.Binding{}, err
 	}
 	return e.svc.Binder.EnvironmentOf(ctx, db)
-}
-
-// bindStdioPrincipal binds the stdio client to mcp.stdio_principal. A name
-// that does not resolve leaves stdio unbound (read and propose, capped at
-// approval; agent_* tools agent_unsponsored) and says why once.
-func bindStdioPrincipal(rt *mcp.Runtime, c *config.Config, mgr *fleet.DatabaseManager,
-	meta *metaDBState) {
-	if rt == nil || c == nil || c.MCP.StdioPrincipal == "" {
-		return
-	}
-	control := governanceControlPool(c, mgr, meta)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	p, err := agentguard.NewStore(control).GetByName(ctx, c.MCP.StdioPrincipal)
-	if err != nil {
-		logError("mcp", "mcp.stdio_principal %q: %v: stdio stays unbound (read and "+
-			"propose tools, capped at approval)", c.MCP.StdioPrincipal, err)
-		return
-	}
-	rt.SetStdioPrincipal(p.ID)
 }
 
 // fleetRecovery is D7's recovery posture: the provider's PITR flag from

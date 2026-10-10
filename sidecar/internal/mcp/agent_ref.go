@@ -25,16 +25,6 @@ func bindAgentRef(ctx context.Context, tool string) context.Context {
 	return policy.WithPrincipalRef(ctx, ref)
 }
 
-// StdioPrincipalFor is the stdio client's principal: today's local agent
-// (read and propose, never approve), bound to principalID when
-// mcp.stdio_principal names one.
-func StdioPrincipalFor(principalID string) Principal {
-	p := stdioPrincipal
-	p.Scopes = append([]Scope(nil), stdioPrincipal.Scopes...)
-	p.PrincipalID = principalID
-	return p
-}
-
 // proposingAgent is the agent behind a policy proposal, nil for a person:
 // an agent's widening proposal needs two people to ratify (G1-14).
 func proposingAgent(ctx context.Context) *policy.PrincipalRef {

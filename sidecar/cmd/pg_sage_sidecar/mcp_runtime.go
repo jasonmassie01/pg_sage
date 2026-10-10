@@ -38,9 +38,9 @@ func startMCPRuntime() {
 	if runtime == nil || runtime.Transport() != "stdio" {
 		return
 	}
-	bindStdioPrincipal(runtime, cfg, fleetMgr, globalMetaState)
+	serveCtx := stdioServeContext(shutdownCtx, runtime)
 	go func() {
-		if err := runtime.Serve(shutdownCtx); err != nil && err != context.Canceled {
+		if err := runtime.Serve(serveCtx); err != nil && err != context.Canceled {
 			logError("mcp", "stdio server: %v", err)
 		}
 	}()
