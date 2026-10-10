@@ -107,7 +107,8 @@ func manualAttributeFixes(st agentguard.RoleState, role string) []string {
 func ident(name string) string {
 	plain := name != ""
 	for _, c := range name {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+		lower, digit := c >= 'a' && c <= 'z', c >= '0' && c <= '9'
+		if !lower && !digit && c != '_' {
 			plain = false
 			break
 		}
