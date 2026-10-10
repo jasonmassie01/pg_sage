@@ -47,6 +47,7 @@ safety_critical oauth.break_glass.enabled
 safety_critical oauth.break_glass.password_hash
 safety_critical mcp.enabled
 safety_critical mcp.transport
+safety_critical mcp.stdio_principal
 safety_critical notification_policy.allow_private_targets
 safety_critical policy.profile
 safety_critical self_config.enabled
@@ -500,3 +501,16 @@ safety_critical agents.exposed_roles
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
 operator_preference agents.posture.memory_growth_gb_day
+safety_critical agents.roles.connection_limit
+safety_critical agents.roles.statement_timeout_ms
+safety_critical agents.roles.lock_timeout_ms
+safety_critical agents.roles.idle_in_transaction_timeout_ms
+safety_critical agents.roles.idle_session_timeout_ms
+safety_critical agents.roles.transaction_timeout_ms
+safety_critical agents.roles.temp_file_limit_mb
+safety_critical agents.roles.retire_grace_days
+safety_critical agents.broker.rotation_days
+safety_critical agents.broker.pool_max_conns
+safety_critical agents.broker.pool_idle_seconds
+safety_critical agents.broker.max_total_connections
+safety_critical agents.single_operator_mode
