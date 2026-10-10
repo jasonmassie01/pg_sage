@@ -397,7 +397,7 @@ func TestFallback_Reconcile(t *testing.T) {
 	require.NoError(t, f.fallback.Append(FallbackEntry{ActionType: "guard_kill",
 		Database: f.db, Scope: "principal", PrincipalID: validPID, Reason: "r", Actor: "a",
 		Statements: []string{"ALTER ROLE x NOLOGIN CONNECTION LIMIT 0"},
-		Outcome: "success"}))
+		Outcome:    "success"}))
 	since := time.Now().Add(-time.Second)
 	n, err := f.sw.ReconcileFallback(context.Background())
 	require.NoError(t, err)

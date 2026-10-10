@@ -358,4 +358,3 @@ func liftFreeze(ctx context.Context, tx pgx.Tx, so signoff, requestID int64) err
 	}
 	return nil
 }
-

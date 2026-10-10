@@ -55,7 +55,7 @@ func guardUnfreezeContract() ActionContract {
 			"store the new sealed credential", "principal active"},
 		SuccessCriteria: []string{"roles have their prior attributes",
 			"the old broker password fails"},
-		PostChecks: []string{"grants restored; credentials rotated"},
+		PostChecks:    []string{"grants restored; credentials rotated"},
 		RollbackClass: "reversible",
 		Cooldown:      "none",
 		AuditFields:   []string{"principal_id", "cluster_key", "approved_by", "reason"},
