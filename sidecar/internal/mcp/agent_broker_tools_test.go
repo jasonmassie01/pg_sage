@@ -183,3 +183,16 @@ func TestAgentBrokerToolsUnavailableWithoutBackend(t *testing.T) {
 		toolCall("agent_query", `{"database":"app","sql":"SELECT 1"}`))
 	require.Equal(t, codeUnavailable, response.Error.Code, "no broker configured")
 }
+
+// D9's agent_rate reaches the client as the existing rate_limited code
+// (-32011) with retry_after, one rate-limit signal (spec §6.2.2).
+func TestAgentQueryRateLimitIsMinus32011WithRetryAfter(t *testing.T) {
+	backend := &brokerBackend{result: readapi.Result{Verdict: readapi.VerdictBlocked,
+		ReasonCode: "agent_rate", RetryAfterSeconds: 90}}
+	response := invoke(t, NewServer(backend), brokerAgentCtx(),
+		toolCall("agent_query", `{"database":"app","sql":"SELECT 1"}`))
+	require.Equal(t, codeRateLimited, response.Error.Code, "agent_rate maps to -32011")
+	failure := objectMap(t, structuredContent(t, response)["error"])
+	require.Equal(t, "rate_limited", failure["reason"])
+	require.Equal(t, json.Number("90"), failure["retry_after"])
+}

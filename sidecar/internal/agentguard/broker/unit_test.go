@@ -87,8 +87,6 @@ func TestConfigValidateRejectsBadBounds(t *testing.T) {
 		"zero pool":            func(c *Config) { c.PoolMaxConns = 0 },
 		"total below pool":     func(c *Config) { c.MaxTotalConns = 1 },
 		"zero idle":            func(c *Config) { c.PoolIdle = 0 },
-		"bad search path":      func(c *Config) { c.SearchPath = []string{"a;b"} },
-		"empty search element": func(c *Config) { c.SearchPath = []string{""} },
 	}
 	for name, mutate := range mutations {
 		c := DefaultConfig()

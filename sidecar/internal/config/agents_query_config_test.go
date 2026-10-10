@@ -10,7 +10,7 @@ import (
 func TestAgentsQueryDefaults(t *testing.T) {
 	c := DefaultConfig()
 	if c.Agents.Query != (AgentsQueryConfig{MaxRows: 200, MaxRowsCeiling: 1000,
-		MaxBytes: 1048576}) {
+		MaxBytes: 1048576, AuditRetentionDays: 30}) {
 		t.Fatalf("query = %+v", c.Agents.Query)
 	}
 	if err := c.Validate(); err != nil {
@@ -26,7 +26,7 @@ func TestAgentsQueryPartialYAMLKeepsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Agents.Query.MaxRows != 50 || c.Agents.Query.MaxRowsCeiling != 1000 ||
-		c.Agents.Query.MaxBytes != 1048576 {
+		c.Agents.Query.MaxBytes != 1048576 || c.Agents.Query.AuditRetentionDays != 30 {
 		t.Fatalf("query = %+v", c.Agents.Query)
 	}
 	if err := c.Validate(); err != nil {
@@ -46,6 +46,10 @@ func TestAgentsQueryValidation(t *testing.T) {
 		"neg bytes":     {func(q *AgentsQueryConfig) { q.MaxBytes = -1 }, "agents.query.max_bytes"},
 		"huge ceiling":  {func(q *AgentsQueryConfig) { q.MaxRowsCeiling = 100001 }, "100000"},
 		"huge max byte": {func(q *AgentsQueryConfig) { q.MaxBytes = 1<<30 + 1 }, "max_bytes"},
+		"neg retention": {func(q *AgentsQueryConfig) { q.AuditRetentionDays = -1 },
+			"agents.query.audit_retention_days"},
+		"huge retention": {func(q *AgentsQueryConfig) { q.AuditRetentionDays = 3651 },
+			"agents.query.audit_retention_days"},
 	}
 	for name, c := range cases {
 		cfg := DefaultConfig()
@@ -59,5 +63,16 @@ func TestAgentsQueryValidation(t *testing.T) {
 	cfg.Agents.Query.MaxRows = cfg.Agents.Query.MaxRowsCeiling // boundary
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("max_rows == ceiling rejected: %v", err)
+	}
+}
+
+// Boundary: 0 keeps the audit forever and 3650 is the longest window.
+func TestAgentsQueryAuditRetentionBounds(t *testing.T) {
+	for _, days := range []int{0, 1, 3650} {
+		cfg := DefaultConfig()
+		cfg.Agents.Query.AuditRetentionDays = days
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("audit_retention_days %d rejected: %v", days, err)
+		}
 	}
 }

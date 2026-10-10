@@ -122,7 +122,6 @@ func newFixtureOn(t *testing.T, super *pgxpool.Pool, env envbind.Env,
 	for _, m := range mutate {
 		m(&f.cfg)
 	}
-	f.cfg.SearchPath = []string{f.schema}
 	f.logins = &fakeLogins{role: f.role, pw: f.pw}
 	f.decider = allowIn(env, f.p)
 	f.target = Target{Name: "db", DatabaseID: "00000000-0000-4000-8000-00000000b001",
