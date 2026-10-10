@@ -77,7 +77,11 @@ func TestReadiness_EachFailingCheckIs503AndNamed(t *testing.T) {
 			"config", "not_loaded"},
 		"no control db": {func() ReadinessProbe { p := okProbe(); p.ControlDB = nil; return p }(),
 			"control_db", "absent"},
-		"control db down": {func() ReadinessProbe { p := okProbe(); p.ControlDB = boom; return p }(),
+		"control db down": {func() ReadinessProbe {
+			p := okProbe()
+			p.ControlDB = boom
+			return p
+		}(),
 			"control_db", "unreachable"},
 		"schema missing": {func() ReadinessProbe {
 			p := okProbe()
@@ -86,7 +90,11 @@ func TestReadiness_EachFailingCheckIs503AndNamed(t *testing.T) {
 			}
 			return p
 		}(), "schema", "not_migrated"},
-		"schema query failed": {func() ReadinessProbe { p := okProbe(); p.Schema = boom; return p }(),
+		"schema query failed": {func() ReadinessProbe {
+			p := okProbe()
+			p.Schema = boom
+			return p
+		}(),
 			"schema", "unknown"},
 	}
 	for name, tc := range cases {
