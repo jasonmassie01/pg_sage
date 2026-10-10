@@ -107,6 +107,24 @@
     "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
     "class": "operator_preference"
   },
+  "agents.query.max_bytes": {
+    "type": "int",
+    "default": 1048576,
+    "doc": "Bytes of row values one agent_query result may carry; the rows that fit are returned and the result is marked truncated. 1 to 1073741824. Default: 1048576.",
+    "class": "safety_critical"
+  },
+  "agents.query.max_rows": {
+    "type": "int",
+    "default": 200,
+    "doc": "Rows agent_query returns when the agent asks for no bound; it fetches one more only to report truncation. At least 1 and at most max_rows_ceiling. Default: 200.",
+    "class": "safety_critical"
+  },
+  "agents.query.max_rows_ceiling": {
+    "type": "int",
+    "default": 1000,
+    "doc": "Largest max_rows an agent may ask agent_query for. At most 100000. Default: 1000.",
+    "class": "safety_critical"
+  },
   "agents.roles.connection_limit": {
     "type": "int",
     "default": 5,

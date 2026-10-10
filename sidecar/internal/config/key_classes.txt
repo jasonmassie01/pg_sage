@@ -515,4 +515,7 @@ safety_critical agents.broker.rotation_days
 safety_critical agents.broker.pool_max_conns
 safety_critical agents.broker.pool_idle_seconds
 safety_critical agents.broker.max_total_connections
+safety_critical agents.query.max_rows
+safety_critical agents.query.max_rows_ceiling
+safety_critical agents.query.max_bytes
 safety_critical agents.single_operator_mode

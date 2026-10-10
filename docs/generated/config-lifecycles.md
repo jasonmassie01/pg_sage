@@ -24,6 +24,9 @@
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
+| `agents.query.max_bytes` | `restart` | `-` | `safety_critical` |
+| `agents.query.max_rows` | `restart` | `-` | `safety_critical` |
+| `agents.query.max_rows_ceiling` | `restart` | `-` | `safety_critical` |
 | `agents.roles.connection_limit` | `restart` | `-` | `safety_critical` |
 | `agents.roles.idle_in_transaction_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `agents.roles.idle_session_timeout_ms` | `restart` | `-` | `safety_critical` |
