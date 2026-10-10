@@ -243,8 +243,8 @@ func TestList_PagesAndFilters(t *testing.T) {
 	require.Len(t, revoked.Items, 1)
 	require.Equal(t, ids[0], revoked.Items[0].ID)
 	for name, bad := range map[string]Filter{"limit 0": {PrincipalID: f.p.ID},
-		"limit 201": {PrincipalID: f.p.ID, Limit: 201},
-		"bad state": {PrincipalID: f.p.ID, Limit: 1, State: "gone"},
+		"limit 201":  {PrincipalID: f.p.ID, Limit: 201},
+		"bad state":  {PrincipalID: f.p.ID, Limit: 1, State: "gone"},
 		"bad cursor": {PrincipalID: f.p.ID, Limit: 1, Cursor: "abc"}} {
 		_, err := List(ctx, f.super, bad)
 		require.ErrorIs(t, err, agentguard.ErrInvalid, name)

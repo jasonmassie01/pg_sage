@@ -136,7 +136,8 @@ func (f *fixture) createAdmin(t *testing.T) {
 // createApp makes schema <s> owned by an owner role with table orders.
 // pg_sage holds SELECT WITH GRANT OPTION on id, email, secret_token, note
 // and region, and plain SELECT on amount (no grant option). Classes: id
-// and amount clean, email pii, secret_token secret, region pending clean,
+// and amount clean, email pii, secret_token secret, region proposed pii
+// (pending: proposals only narrow),
 // note unclassified.
 func (f *fixture) createApp(t *testing.T) {
 	t.Helper()
@@ -171,7 +172,7 @@ func (f *fixture) createApp(t *testing.T) {
 	c, err := cs.ResolveColumn(context.Background(), f.schema, "orders", "region")
 	require.NoError(t, err)
 	_, _, err = cs.Propose(context.Background(), classify.Proposal{Column: c,
-		Class: classify.ClassClean, Source: classify.SourceDetector,
+		Class: classify.ClassPII, Source: classify.SourceDetector,
 		ProposedBy: classify.RulesProposer, Rationale: "fixture",
 		Evidence: []classify.Citation{{Kind: "name", Ref: "region"}}})
 	require.NoError(t, err)
@@ -204,7 +205,7 @@ func (f *fixture) principal(t *testing.T, ceiling agentguard.Env,
 		sponsor = &id
 	}
 	p, err := f.store.Create(ctx, agentguard.CreateRequest{
-		Name: fmt.Sprintf("bot-%d-%d", time.Now().UnixNano()%1e9, seq.Add(1)),
+		Name:          fmt.Sprintf("bot-%d-%d", time.Now().UnixNano()%1e9, seq.Add(1)),
 		SponsorUserID: sponsor, Profile: "readonly-analyst", EnvCeiling: ceiling,
 		CreatedBy: "admin@example.com"})
 	require.NoError(t, err)
@@ -215,6 +216,12 @@ func (f *fixture) principal(t *testing.T, ceiling agentguard.Env,
 	t.Cleanup(func() {
 		f.dropRole(p.BrokerRole())
 		f.dropRole(p.LoginRole())
+		// The registry is database-wide: a later test's reconcile pass must
+		// not meet this test's rows.
+		_, _ = f.super.Exec(ctx, "DELETE FROM sage.guard_grants WHERE principal_id = $1",
+			p.ID)
+		_, _ = f.super.Exec(ctx, "DELETE FROM sage.guard_grant_requests "+
+			"WHERE principal_id = $1", p.ID)
 	})
 	_, err = rm.Ensure(ctx, agentguard.RoleRequest{PrincipalID: p.ID,
 		Cluster: agentguard.Cluster{Key: "g1g-" + f.db, Admin: f.admin,
@@ -280,14 +287,6 @@ func (f *fixture) expireNow(t *testing.T, ids ...int64) {
 		SET granted_at = now() - interval '2 minutes', expires_at = now() - interval '1 second'
 		WHERE id = ANY($1)`, ids)
 	require.NoError(t, err)
-}
-
-func grantIDs(gs []Grant) []int64 {
-	out := make([]int64, 0, len(gs))
-	for _, g := range gs {
-		out = append(out, g.ID)
-	}
-	return out
 }
 
 func relationGrant(t *testing.T, gs []Grant) Grant {

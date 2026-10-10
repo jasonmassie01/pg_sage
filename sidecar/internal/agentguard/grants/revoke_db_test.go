@@ -158,10 +158,13 @@ func TestExpireDue_RevokesExpiredGrants(t *testing.T) {
 	require.Equal(t, []int64{live.ID}, rep.Revoked)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
 	require.False(t, f.schemaUsage(t, f.p.BrokerRole()))
-	for _, sql := range f.actions(t, executor.ActionTypeGuardRevoke) {
-		require.True(t, strings.Contains(sql, "GRANTED BY "+
-			pgx.Identifier{f.adminRol}.Sanitize()), sql)
-	}
+	// The first revoke ran no statement: the live grant still listed id, and
+	// PostgreSQL keeps one ACL entry per column. The last one revoked it.
+	sqls := f.actions(t, executor.ActionTypeGuardRevoke)
+	require.Len(t, sqls, 2)
+	require.Equal(t, "", sqls[0])
+	require.True(t, strings.Contains(sqls[1], "GRANTED BY "+
+		pgx.Identifier{f.adminRol}.Sanitize()), sqls[1])
 	var causes []string
 	rows, err := f.super.Query(context.Background(), `SELECT after_state->>'cause'
 		FROM sage.action_log WHERE principal_id = $1 AND action_type = 'guard_revoke'`, f.p.ID)
@@ -188,11 +191,16 @@ func TestExpireDue_RunsDuringStopAndAtObservation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []int64{g.ID}, rep.Revoked)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
-	var reason string
-	require.NoError(t, f.super.QueryRow(context.Background(), `SELECT d.reason
-		FROM sage.action_log l JOIN sage.decision d ON d.id = l.decision_id
-		WHERE l.principal_id = $1 AND l.action_type = 'guard_revoke'`, f.p.ID).Scan(&reason))
-	require.Equal(t, string(policy.ReasonNarrowingDuringStop), reason)
+	var cause string
+	require.NoError(t, f.super.QueryRow(context.Background(), `SELECT after_state->>'cause'
+		FROM sage.action_log WHERE principal_id = $1 AND action_type = 'guard_revoke'`,
+		f.p.ID).Scan(&cause))
+	require.Equal(t, CauseExpired, cause)
+	req, err := gateRequest(executor.ActionTypeGuardRevoke, f.p.ID, f.target, nil, nil, false)
+	require.NoError(t, err)
+	d := f.exec.StandingPolicyGate().(policy.Explainer).Explain(context.Background(), req)
+	require.Equal(t, policy.VerdictExecute, d.Verdict)
+	require.Equal(t, policy.ReasonNarrowingDuringStop, d.Reason)
 }
 
 func TestExpireDue_LimitBoundsOnePass(t *testing.T) {
@@ -269,6 +277,7 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 		time.Sleep(interval)
 	}
 	elapsed := time.Since(start)
+	t.Logf("revoked %v after the expiry; bound interval+ttl = %v", elapsed, interval+ttl)
 	require.Equal(t, StateRevoked, f.row(t, g.ID).State)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
 	require.True(t, elapsed <= interval+ttl+time.Second, "revoked after %v", elapsed)
@@ -291,4 +300,42 @@ func TestExpireDue_UnknownFenceScopeIsFenced(t *testing.T) {
 	_, err = f.manager.ExpireDue(context.Background(), f.target, Fence{Scope: "s",
 		Holder: "x", Epoch: 1}, 100)
 	require.ErrorIs(t, err, agentguard.ErrInvalid, "a fence needs its control pool")
+}
+
+// A retired principal's role is gone with its privileges: the reconciler
+// closes its rows instead of failing every pass.
+func TestExpireDue_DroppedRoleClosesRows(t *testing.T) {
+	f := newFixture(t)
+	g := f.grantID(t)
+	// As a retire does: pg_sage's role (ADMIN on the agent role) revokes
+	// what it granted, then drops the role, outside the grant registry.
+	b := f.p.BrokerRole()
+	for _, stmt := range []string{
+		"REVOKE SELECT (id) ON TABLE " + pgx.Identifier{f.schema, "orders"}.Sanitize() +
+			" FROM " + b,
+		"REVOKE USAGE ON SCHEMA " + pgx.Identifier{f.schema}.Sanitize() + " FROM " + b,
+		"REVOKE CONNECT ON DATABASE " + pgx.Identifier{f.db}.Sanitize() + " FROM " + b,
+		"DROP ROLE " + b} {
+		_, err := f.admin.Exec(context.Background(), stmt)
+		require.NoError(t, err, stmt)
+	}
+	var exists bool
+	require.NoError(t, f.super.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 "+
+		"FROM pg_roles WHERE rolname = $1)", f.p.BrokerRole()).Scan(&exists))
+	require.False(t, exists, "broker role dropped")
+	_, err := f.super.Exec(context.Background(), `UPDATE sage.guard_grants
+		SET expires_at = now() - interval '1 second', granted_at = now() - interval '2 minutes'
+		WHERE principal_id = $1`, f.p.ID)
+	require.NoError(t, err)
+	rep, err := f.manager.ExpireDue(context.Background(), f.target, Fence{}, 100)
+	require.NoError(t, err)
+	require.Empty(t, rep.Failed)
+	require.Equal(t, []int64{g.ID}, rep.Revoked)
+	got := f.row(t, g.ID)
+	require.Equal(t, StateRevoked, got.State)
+	require.Equal(t, "the role was dropped", got.RevokeDetail)
+	page, err := List(context.Background(), f.super, Filter{PrincipalID: f.p.ID,
+		State: StateActive, Limit: 10})
+	require.NoError(t, err)
+	require.Empty(t, page.Items, "the schema row closed too")
 }
