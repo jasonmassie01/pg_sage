@@ -2,9 +2,9 @@ package mcpauth
 
 import (
 	"context"
-	"encoding/base64"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"

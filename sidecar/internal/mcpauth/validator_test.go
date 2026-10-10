@@ -105,9 +105,9 @@ func TestInvalidTokensAreRefused(t *testing.T) {
 		t.Fatalf("key: %v", err)
 	}
 	cases := map[string]string{
-		"expired":        p.sign(expired),
-		"not yet valid":  p.sign(future),
-		"no expiry":      p.sign(noExp),
+		"expired":       p.sign(expired),
+		"not yet valid": p.sign(future),
+		"no expiry":     p.sign(noExp),
 		"wrong key": signWith(t, jose.RS256, otherKey, testKeyID,
 			p.claims("agent-1", aud)),
 		"hmac": signWith(t, jose.HS256, []byte(strings.Repeat("k", 32)), testKeyID,
