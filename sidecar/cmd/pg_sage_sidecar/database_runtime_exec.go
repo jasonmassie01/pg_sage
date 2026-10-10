@@ -85,6 +85,7 @@ func (rt *databaseRuntime) buildExecutor() {
 	// over the autonomy this database's settings (applied above) grant.
 	rt.installAutonomy(ex)
 	ex.WithFactBinder(rt.factBinder())
+	installAgentGovernance(ex, rt.spec.Name)
 	if err := ex.EnableStandingPolicyWithStore(
 		rt.ctx, rt.spec.ControlPool, cfg.Policy.Profile, policyDatabaseID,
 	); err != nil {
