@@ -279,6 +279,7 @@ func TestUnfreeze_ConcurrentSecondApprovers(t *testing.T) {
 // admins. It lifts the flag only; principals stay frozen until each is
 // unfrozen.
 func TestRelease_FleetFlagTwoPeople(t *testing.T) {
+	requireDedicatedServer(t)
 	f := newKillFixture(t)
 	p, _ := f.ensured(t)
 	ctx := context.Background()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -70,6 +71,19 @@ func (f *killFixture) grantRole(t *testing.T, role string) {
 	require.NoError(t, f.admin.QueryRow(context.Background(), "SELECT current_user").Scan(&me))
 	_, err := f.super.Exec(context.Background(), "GRANT "+role+" TO "+ident(me))
 	require.NoError(t, err)
+}
+
+// requireDedicatedServer skips a fleet kill unless the test server is the
+// kill topology's own (scripts/ci/kill-replica-topology.sh): a fleet kill
+// disables every agent role and ends every agent session on the server,
+// which would break other packages' tests sharing it in parallel.
+func requireDedicatedServer(t *testing.T) {
+	t.Helper()
+	if os.Getenv(envKillReplica) == "" {
+		t.Skipf("a fleet kill touches every agent role on the server: it runs on the "+
+			"dedicated kill topology (set %s, see scripts/ci/kill-replica-topology.sh)",
+			envKillReplica)
+	}
 }
 
 // clearFlags lifts fleet and database flags a test left, so the next test

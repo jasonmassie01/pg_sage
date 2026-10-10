@@ -276,6 +276,7 @@ func TestKill_ControlDatabaseDown(t *testing.T) {
 // Kill all: every principal, every agent role on the cluster (even one
 // pg_sage never registered), and the fleet flag.
 func TestKill_AllFreezesFleet(t *testing.T) {
+	requireDedicatedServer(t)
 	f := newKillFixture(t)
 	a, pa := f.ensured(t)
 	b, _ := f.ensured(t)
@@ -310,6 +311,7 @@ func TestKill_AllFreezesFleet(t *testing.T) {
 // not an agent role name, as CheckBackends flags them) and names them in
 // the report; it leaves their attributes alone (pg_sage does not own them).
 func TestKill_AllEndsAndReportsLookalikes(t *testing.T) {
+	requireDedicatedServer(t)
 	f := newKillFixture(t)
 	ctx := context.Background()
 	look := "sage_agent_lookalike"

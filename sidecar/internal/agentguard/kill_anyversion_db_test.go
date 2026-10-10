@@ -55,6 +55,7 @@ func optionalReplica(t *testing.T, db, role string) (*pgxpool.Pool, string, []Re
 // direct path when no executor is wired. With the replica topology env
 // set, the replica is checked too.
 func TestKill_AnyVersionManualAgentRoles(t *testing.T) {
+	requireDedicatedServer(t)
 	super := livePool(t)
 	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
