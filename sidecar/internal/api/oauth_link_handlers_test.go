@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/auth"

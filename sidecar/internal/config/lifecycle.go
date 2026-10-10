@@ -108,7 +108,8 @@ func classifyField(path string) (ConfigLifecycle, string) {
 }
 
 func isRestartField(path string) bool {
-	if path == "mode" || path == "meta_db" || path == "encryption_key" {
+	if path == "mode" || path == "meta_db" || path == "encryption_key" ||
+		path == "encryption_key_previous" {
 		return true
 	}
 	if strings.HasPrefix(path, "postgres.") || strings.HasPrefix(path, "oauth.") {

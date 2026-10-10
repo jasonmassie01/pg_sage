@@ -3965,7 +3965,7 @@ func TestPhase2_OAuthCallbackHandler_NotConfigured(
 	t *testing.T,
 ) {
 	pool, _ := phase2RequireDB(t)
-	handler := oauthCallbackHandler(nil, pool, "viewer", "")
+	handler := oauthCallbackHandler(nil, pool, &config.OAuthConfig{DefaultRole: "viewer"})
 	req := httptest.NewRequest("GET",
 		"/api/v1/auth/oauth/callback?code=x&state=y", nil)
 	w := httptest.NewRecorder()

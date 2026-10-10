@@ -11,7 +11,7 @@ import (
 // "fixture-break-glass-pw"; it guards nothing.
 const fixtureBcryptHash = "$2a$04$C1ODnQFDul1rqzdJ52pN1uFXtmzyOArkugPCm1mrPJqtPc4WJgGey"
 
-func chdirTemp(t *testing.T) string {
+func chdirAuthzTemp(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
 	orig, err := os.Getwd()
@@ -22,6 +22,9 @@ func chdirTemp(t *testing.T) string {
 	if err := os.Chdir(tmp); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("SAGE_DATABASE_URL", "")
+	t.Setenv("SAGE_MODE", "")
+	t.Setenv("SAGE_CONFIG_PATH", "")
 	return tmp
 }
 
@@ -127,7 +130,7 @@ func TestLookupSecretEnv_OversizedFileRejected(t *testing.T) {
 }
 
 func TestLoad_EncryptionKeysFromFiles(t *testing.T) {
-	dir := chdirTemp(t)
+	dir := chdirAuthzTemp(t)
 	t.Setenv("SAGE_ENCRYPTION_KEY", "")
 	t.Setenv("SAGE_ENCRYPTION_KEY_FILE", writeSecretFile(t, dir, "k", "new-passphrase\n"))
 	t.Setenv("SAGE_ENCRYPTION_KEY_PREVIOUS", "")
@@ -146,7 +149,7 @@ func TestLoad_EncryptionKeysFromFiles(t *testing.T) {
 }
 
 func TestLoad_EncryptionKeyFileErrorFailsStartup(t *testing.T) {
-	chdirTemp(t)
+	chdirAuthzTemp(t)
 	t.Setenv("SAGE_ENCRYPTION_KEY", "")
 	t.Setenv("SAGE_ENCRYPTION_KEY_FILE", filepath.Join(t.TempDir(), "absent"))
 	if _, err := Load([]string{"--mode=standalone"}); err == nil ||
@@ -156,7 +159,7 @@ func TestLoad_EncryptionKeyFileErrorFailsStartup(t *testing.T) {
 }
 
 func TestLoad_PreviousKeyWithoutActiveKeyRejected(t *testing.T) {
-	chdirTemp(t)
+	chdirAuthzTemp(t)
 	t.Setenv("SAGE_ENCRYPTION_KEY", "")
 	t.Setenv("SAGE_ENCRYPTION_KEY_FILE", "")
 	t.Setenv("SAGE_ENCRYPTION_KEY_PREVIOUS", "old-passphrase")
@@ -167,7 +170,7 @@ func TestLoad_PreviousKeyWithoutActiveKeyRejected(t *testing.T) {
 }
 
 func TestLoad_BreakGlassHashFromFile(t *testing.T) {
-	dir := chdirTemp(t)
+	dir := chdirAuthzTemp(t)
 	yaml := "oauth:\n  break_glass:\n    enabled: true\n"
 	writeSecretFile(t, dir, "config.yaml", yaml)
 	t.Setenv("SAGE_BREAK_GLASS_PASSWORD_HASH", "")
@@ -255,7 +258,7 @@ func enableBreakGlass(c *Config, hash string) {
 }
 
 func TestLoad_RoleMappingFromYAML(t *testing.T) {
-	dir := chdirTemp(t)
+	dir := chdirAuthzTemp(t)
 	yaml := "oauth:\n  groups_claim: roles\n  unmapped_users: default_role\n" +
 		"  role_mapping:\n    - group: sre\n      role: operator\n" +
 		"    - group: platform-admins\n      role: admin\n"
@@ -276,7 +279,7 @@ func TestLoad_RoleMappingFromYAML(t *testing.T) {
 }
 
 func TestLoad_InvalidRoleMappingFailsStartup(t *testing.T) {
-	dir := chdirTemp(t)
+	dir := chdirAuthzTemp(t)
 	writeSecretFile(t, dir, "config.yaml",
 		"oauth:\n  role_mapping:\n    - group: sre\n      role: god\n")
 	if _, err := Load([]string{"--mode=standalone"}); err == nil ||

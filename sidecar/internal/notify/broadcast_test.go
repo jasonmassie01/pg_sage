@@ -140,11 +140,10 @@ func TestBroadcast_NilDispatcher(t *testing.T) {
 	}
 }
 
-func TestSecurityBreakGlassEventIsCriticalAndValid(t *testing.T) {
-	if !ValidEventTypes[EventSecurityBreakGlass] {
-		t.Fatal("security_break_glass is not a valid event type for rules")
-	}
-	if EventSeverity[EventSecurityBreakGlass] != "critical" {
-		t.Fatalf("severity = %q, want critical", EventSeverity[EventSecurityBreakGlass])
+// Broadcast ignores rules, so the event is not offered as a rule event: a
+// rule for it would suggest routing that does not exist.
+func TestSecurityBreakGlassEventIsNotARuleEvent(t *testing.T) {
+	if ValidEventTypes[EventSecurityBreakGlass] {
+		t.Fatal("security_break_glass must not be a rule event type")
 	}
 }

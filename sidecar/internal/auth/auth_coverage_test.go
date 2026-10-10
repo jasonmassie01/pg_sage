@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -143,7 +144,9 @@ func TestDiscoverOIDC_Success(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(disc)
+		served := disc
+		served.Issuer = "http://" + r.Host // CG-03: issuer must match
+		json.NewEncoder(w).Encode(served)
 	}))
 	defer srv.Close()
 
@@ -185,6 +188,9 @@ func TestDiscoverOIDC_TrailingSlashTrimmed(t *testing.T) {
 		disc := OIDCDiscovery{
 			AuthorizationEndpoint: "https://x.com/auth",
 			TokenEndpoint:         "https://x.com/token",
+			// CG-03: a valid document names its issuer and its keys.
+			Issuer:  "http://" + r.Host,
+			JWKSURI: "https://x.com/jwks",
 		}
 		json.NewEncoder(w).Encode(disc)
 	}))
@@ -440,9 +446,12 @@ func TestAuthorizationURL_OIDC_Scope(t *testing.T) {
 	disc := OIDCDiscovery{
 		AuthorizationEndpoint: "https://example.com/authorize",
 		TokenEndpoint:         "https://example.com/token",
+		JWKSURI:               "https://example.com/jwks",
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(disc)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		served := disc
+		served.Issuer = "http://" + r.Host // CG-03: issuer must match
+		json.NewEncoder(w).Encode(served)
 	}))
 	defer srv.Close()
 
@@ -1251,7 +1260,7 @@ func TestFetchGitHubEmail_PrimaryEmailInUserEndpoint(t *testing.T) {
 	pOIDC := NewOAuthProvider(cfgOIDC)
 	pOIDC.discovery = &OIDCDiscovery{UserinfoEndpoint: ghSrv.URL + "/user"}
 
-	ident, err := pOIDC.fetchIdentity(context.Background(), "gh-token")
+	ident, err := pOIDC.fetchOIDCIdentity(context.Background(), "gh-token")
 	if err != nil {
 		t.Fatalf("fetchEmail(oidc) error: %v", err)
 	}
@@ -1280,7 +1289,7 @@ func TestFetchEmail_DispatchesCorrectly(t *testing.T) {
 	pOIDC.discovery = &OIDCDiscovery{
 		UserinfoEndpoint: srv.URL + "/userinfo",
 	}
-	ident, err := pOIDC.fetchIdentity(context.Background(), "token")
+	ident, err := pOIDC.fetchOIDCIdentity(context.Background(), "token")
 	if err != nil {
 		t.Fatalf("fetchEmail(oidc) error: %v", err)
 	}
@@ -1518,7 +1527,10 @@ func TestFetchGitHubEmail_UserEndpointNon200(t *testing.T) {
 // Exchange — full integration with httptest
 // ---------------------------------------------------------------------------
 
-func TestExchange_FullFlow_OIDC(t *testing.T) {
+// CG-03 changed this contract: an OIDC login that returns only an access
+// token (userinfo, no id_token) used to sign in; it must now be refused.
+// The full successful flow is TestOIDCExchange_ValidTokenYieldsIdentity.
+func TestExchange_OIDCWithoutIDTokenRefused(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1563,12 +1575,11 @@ func TestExchange_FullFlow_OIDC(t *testing.T) {
 
 	ident, err := p.Exchange(
 		context.Background(), "auth-code", state, state)
-	if err != nil {
-		t.Fatalf("Exchange error: %v", err)
+	if !errors.Is(err, ErrOIDCIDTokenMissing) {
+		t.Fatalf("Exchange error = %v, want ErrOIDCIDTokenMissing", err)
 	}
-	email := ident.Email
-	if email != "exchanged@example.com" {
-		t.Errorf("email = %q, want 'exchanged@example.com'", email)
+	if ident.Email != "" || ident.Subject != "" {
+		t.Errorf("refused login returned identity %+v", ident)
 	}
 
 	// State should be consumed.

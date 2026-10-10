@@ -142,6 +142,8 @@ func wireRouter(p WireParams) WireResult {
 	middlewares = append(middlewares, api.SessionAuthMiddleware(authPool))
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
+	// Auth audit rows record the client address the rate limiter sees.
+	api.SetClientIPResolver(clientIP)
 	router := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,
 		p.LLMMgr, &api.RuntimeDeps{

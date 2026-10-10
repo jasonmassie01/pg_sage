@@ -20,6 +20,7 @@ func Clone(cfg *Config) *Config {
 	cp.Verify.IOCapacity = cloneIOCapacity(cfg.Verify.IOCapacity)
 	cp.CloudTelemetry.Enabled = cloneBool(cfg.CloudTelemetry.Enabled)
 	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
+	cp.OAuth.RoleMapping = append([]OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
 	if cfg.AgentDB.Providers != nil {
 		cp.AgentDB.Providers = make(
 			map[string]AgentDBProviderConfig, len(cfg.AgentDB.Providers))

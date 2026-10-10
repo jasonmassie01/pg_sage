@@ -17,6 +17,10 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	}
 	generation := uint64(1)
 	if controlPool != nil {
+		// Before any ConfigStore exists: they capture the keyring (CG-01).
+		if err := initConfigSecrets(context.Background(), controlPool); err != nil {
+			return err
+		}
 		configStore := store.NewConfigStore(controlPool)
 		var err error
 		generation, err = configStore.GetGeneration(context.Background(), 0)

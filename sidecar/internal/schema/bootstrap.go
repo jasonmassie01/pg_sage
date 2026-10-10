@@ -423,7 +423,8 @@ func migrationStatements() []string {
 		ddlManagedChangeProposals,
 		ddlFleetLearning,
 		ddlIndexReplace,
-		ddlChangeFeedIndexes())
+		ddlChangeFeedIndexes(),
+		ddlAuthAuditSourceIP)
 }
 
 // ---------------------------------------------------------------------------
