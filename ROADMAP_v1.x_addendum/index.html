@@ -1138,7 +1138,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <li><code>research/v1_codebase_reality_check.md</code> — production-readiness audit (this batch)</li>
 <li><code>research/v1_vector_search_landscape.md</code> — operator failure modes (this batch)</li>
 <li><code>research/v1_hnsw_autotuning_prior_art.md</code> — VDTuner / FastPGT prior art + algorithm sketch (this batch)</li>
-<li><code>research/v1_agent_created_databases.md</code> — agent-DB workload patterns (this batch)</li>
+<li><code>research/v1_agent_created_databases.md</code> (archived under <code>reviews/archive/</code> with the removed provisioner) — agent-created-database workload patterns (this batch)</li>
 <li><code>research/v1_cross_db_ai_landscape.md</code> — Lakebase/PlanetScale/Mongo Atlas patterns (this batch)</li>
 </ul>
 </blockquote>
@@ -1147,7 +1147,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <p>The 2026-04-27 autonomous-DBA spec set the right product center: pg_sage is an <strong>operator that closes the loop</strong> (Observe → Diagnose → Decide → Act → Verify → Remember), not a metrics console. This addendum does not contest that. It extends it.</p>
 <p>Two shifts in the world have happened faster than the existing roadmap accounts for:</p>
 <ol>
-<li><strong>Postgres became the default vector store of the AI stack</strong> — 80% of new Neon databases and 97% of branches are now agent-created (per the agent-DB research). pgvector is everywhere; the pain is concentrated in HNSW tuning, filtered ANN, build-time OOM, and recall drift. None of pg_sage's existing rules touch this.</li>
+<li><strong>Postgres became the default vector store of the AI stack</strong> — 80% of new Neon databases and 97% of branches are now agent-created (per the agent-created-database research). pgvector is everywhere; the pain is concentrated in HNSW tuning, filtered ANN, build-time OOM, and recall drift. None of pg_sage's existing rules touch this.</li>
 <li><strong>The buyer of an autonomous DBA changed</strong> — it is increasingly <em>another agent</em>, not a human DBA. Agents provision schemas, embed corpora, run cron jobs, and stomp each other under the same Postgres role. pg_sage's trust-ramp is well-suited to this, but its <em>evidence model</em> (rules over <code>pg_stat_statements</code> snapshots) is built for a stable workload that agent traffic does not produce.</li>
 </ol>
 <p>So the v1.x thesis sharpens to:</p>
@@ -1188,7 +1188,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <tr>
 <td>F2</td>
 <td><strong>LLM failures silent.</strong> Misconfigured Gemini → advisors return <code>(nil, nil)</code> with no log. Operators see no findings, assume system healthy.</td>
-<td>Vector autotuner depends on LLM for query-pattern classification; agent-DB guard depends on LLM for DDL safety analysis. Silent failure is unacceptable in either.</td>
+<td>Vector autotuner depends on LLM for query-pattern classification; agent-database guard depends on LLM for DDL safety analysis. Silent failure is unacceptable in either.</td>
 <td>1 day</td>
 </tr>
 <tr>
@@ -1326,7 +1326,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 </ul>
 <hr />
 <h2 id="6-new-theater-b-agent-native-operation">6. New Theater B — Agent-Native Operation<a class="headerlink" href="#6-new-theater-b-agent-native-operation" title="Permanent link">&para;</a></h2>
-<p>This is the harder strategic question. The 2026-04-27 spec's Cases-and-Actions architecture is <em>agent-friendly</em> (typed actions, identity keys, evidence) but does not ship anything <em>agent-aware</em>. The agent-DB research surfaces concrete reasons why this matters:</p>
+<p>This is the harder strategic question. The 2026-04-27 spec's Cases-and-Actions architecture is <em>agent-friendly</em> (typed actions, identity keys, evidence) but does not ship anything <em>agent-aware</em>. The agent-created-database research surfaces concrete reasons why this matters:</p>
 <ul>
 <li>80% of Neon DBs are agent-created.</li>
 <li>Dolt sees 4 → 600 concurrent agents per host.</li>
@@ -1400,7 +1400,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 - Make pg_sage a runtime dependency, not a sidecar (architectural shift).
 - Compete with LangChain SQL toolkits and LlamaIndex SQL.
 - Bind pg_sage to specific agent-side schemas (e.g. memory-store opinions).</p>
-<p>The agent-DB research lands on "ship A1–A6 first; revisit the write-API question in 6 months when we have data on what agents do that violates the SAFE tier." This is correct. Do not ship A1–A6 <em>and</em> a write API in v1.x. Ship the observability + advisory side, learn, then decide.</p>
+<p>The agent-created-database research lands on "ship A1–A6 first; revisit the write-API question in 6 months when we have data on what agents do that violates the SAFE tier." This is correct. Do not ship A1–A6 <em>and</em> a write API in v1.x. Ship the observability + advisory side, learn, then decide.</p>
 <hr />
 <h2 id="7-cross-db-strategic-moves">7. Cross-DB Strategic Moves<a class="headerlink" href="#7-cross-db-strategic-moves" title="Permanent link">&para;</a></h2>
 <p>From <code>v1_cross_db_ai_landscape.md</code>, the highest-leverage portable patterns:</p>
@@ -1449,7 +1449,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <ul>
 <li>v1.0.1: zero new CRITICAL findings in <code>golangci-lint</code>, zero files &gt; 500 lines, every advisor has a startup capability check.</li>
 <li>v1.1: recall@10 reported continuously for ≥ 3 reference workloads; query-time autotuner produces ≥ 10% latency improvement on demo with no recall regression &gt; 1pp.</li>
-<li>v1.2: A4 memory-hygiene rules detect ≥ 5 distinct agent-DB anti-patterns on dogfood Postgres.</li>
+<li>v1.2: A4 memory-hygiene rules detect ≥ 5 distinct agent-created-database anti-patterns on dogfood Postgres.</li>
 <li>v1.3: V6 autotuner converges on a Pareto-improving config in &lt; 2h for a 1M-row reference dataset; produces a no-op when defaults are already on the frontier.</li>
 </ul>
 <hr />
@@ -1457,7 +1457,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <p>These are the strategic questions surfaced by the research that <em>no current spec or roadmap document addresses</em>. They are not in any priority order — every one of them is decision-forcing.</p>
 <ol>
 <li>
-<p><strong>Who is the buyer?</strong> The autonomous-DBA spec assumes "operator." The agent-DB research suggests it is increasingly "platform team that runs agents." These have different budgets, different procurement paths, different reference-deployment shapes. Until you decide, the pricing page and the docs both pull in two directions.</p>
+<p><strong>Who is the buyer?</strong> The autonomous-DBA spec assumes "operator." The agent-created-database research suggests it is increasingly "platform team that runs agents." These have different budgets, different procurement paths, different reference-deployment shapes. Until you decide, the pricing page and the docs both pull in two directions.</p>
 </li>
 <li>
 <p><strong>What is the right deployment unit?</strong> Sidecar-per-database (current), sidecar-per-cluster (fleet mode), or <em>control-plane-as-a-service</em>? The Lakebase/Genie threat is strongest against sidecar deployments because Lakebase ships its own. A managed pg_sage service may be defensive necessity, not optional.</p>
@@ -1493,13 +1493,13 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <p><strong>Should pg_sage open-source the rule definitions while keeping the executor proprietary?</strong> Splinter's distribution play (open-source linter) drove ecosystem adoption beyond Supabase's platform. The same applies to pg_sage's deterministic Tier 1 rules. AGPL on the whole binary is the current answer; a dual-license with permissively-licensed rule definitions could 10× distribution at low cost — but only if the rules are clean enough to publish. They aren't yet (see F-risks).</p>
 </li>
 <li>
-<p><strong>Do you actually need an LLM, or do you need a <em>constrained</em> LLM?</strong> Several reality-check findings (silent LLM failures, opaque confidence, hardcoded threshold) suggest the LLM is a soft point. Vector autotuner doesn't need LLM at all — it's a BO loop. Agent-DB rules can be deterministic. Maybe v1.x is the release where pg_sage becomes "deterministic-first, LLM-augmented" instead of "deterministic + LLM." This was already principle 7.4 of the spec, but the code doesn't enforce it.</p>
+<p><strong>Do you actually need an LLM, or do you need a <em>constrained</em> LLM?</strong> Several reality-check findings (silent LLM failures, opaque confidence, hardcoded threshold) suggest the LLM is a soft point. Vector autotuner doesn't need LLM at all — it's a BO loop. Agent-database rules can be deterministic. Maybe v1.x is the release where pg_sage becomes "deterministic-first, LLM-augmented" instead of "deterministic + LLM." This was already principle 7.4 of the spec, but the code doesn't enforce it.</p>
 </li>
 <li>
 <p><strong>What's the recall test for the recall framework?</strong> When V2 reports <code>recall@10 = 0.94</code>, how do you know it's right? You need a meta-test: synthetic dataset with known ground truth, V2 measurement, expected ≥ 0.99 of true recall. Without this, V2 is unverifiable infrastructure underneath every vector recommendation.</p>
 </li>
 <li>
-<p><strong>Is "Cases" the right unit, or is "Workloads" the right unit?</strong> The autonomous-DBA spec centers cases (incident-driven). The agent-DB research suggests workloads (per-agent, per-app, per-tenant) are the unit operators care about. They are not the same thing — a vector workload generates many cases over time. Do they nest? Are workloads first-class? The spec doesn't say.</p>
+<p><strong>Is "Cases" the right unit, or is "Workloads" the right unit?</strong> The autonomous-DBA spec centers cases (incident-driven). The agent-created-database research suggests workloads (per-agent, per-app, per-tenant) are the unit operators care about. They are not the same thing — a vector workload generates many cases over time. Do they nest? Are workloads first-class? The spec doesn't say.</p>
 </li>
 </ol>
 <hr />
@@ -1508,7 +1508,7 @@ native vector DB / NL-SQL / cache / BI-agent directions.
 <li><code>research/v1_codebase_reality_check.md</code> (~2,200 words; 3.2/5 audit, F1–F5)</li>
 <li><code>research/v1_vector_search_landscape.md</code> (~3,500 words; ecosystem + 8 failure modes + Top 5 features)</li>
 <li><code>research/v1_hnsw_autotuning_prior_art.md</code> (~3,500 words; VDTuner + FastPGT + 4-phase algorithm)</li>
-<li><code>research/v1_agent_created_databases.md</code> (~3,400 words; 5 agent-DB definitions + 10 features + Top 5 bets)</li>
+<li><code>research/v1_agent_created_databases.md</code> (archived under <code>reviews/archive/</code> with the removed provisioner) (~3,400 words; 5 agent-created-database definitions + 10 features + Top 5 bets)</li>
 <li><code>research/v1_cross_db_ai_landscape.md</code> (~4,800 words; 10 targets + table stakes / differentiators / don't-bother)</li>
 <li>This addendum: <code>docs/ROADMAP_v1.x_addendum.md</code></li>
 </ul>

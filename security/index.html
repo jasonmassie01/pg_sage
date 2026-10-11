@@ -799,6 +799,61 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sso-login-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSO Login Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#group-to-role-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group to Role Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication Audit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#break-glass-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Break-glass Admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#secrets-at-rest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secrets at Rest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -925,6 +980,17 @@
     <span class="md-ellipsis">
       
         Action Log (sage.action_log)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication-log-sageauth_audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication Log (sage.auth_audit)
       
     </span>
   </a>
@@ -1202,6 +1268,61 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sso-login-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSO Login Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#group-to-role-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group to Role Mapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication Audit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#break-glass-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Break-glass Admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#secrets-at-rest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secrets at Rest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1328,6 +1449,17 @@
     <span class="md-ellipsis">
       
         Action Log (sage.action_log)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication-log-sageauth_audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication Log (sage.auth_audit)
       
     </span>
   </a>
@@ -1617,10 +1749,163 @@ page, or the account page for a signed-in link, shows as a message. Other
 clients receive the JSON status (<code>403</code>, <code>409</code> or <code>401</code>). The grant landing
 page removes the grant from the address and browser history as soon as it
 reads it.</p>
+<h3 id="sso-login-validation">SSO Login Validation<a class="headerlink" href="#sso-login-validation" title="Permanent link">&para;</a></h3>
+<p>pg_sage's SSO login follows OpenID Connect for <code>oidc</code> and <code>google</code>
+providers:</p>
+<ul>
+<li><strong>PKCE.</strong> Every authorization request carries an S256 <code>code_challenge</code>; the
+  callback redeems the code with its <code>code_verifier</code>. GitHub (OAuth 2, no
+  <code>id_token</code>) uses PKCE too.</li>
+<li><strong>Nonce.</strong> Each login sends a fresh random <code>nonce</code>, kept server-side with
+  the single-use <code>state</code>. An <code>id_token</code> whose nonce differs, or has none, is
+  refused with <code>401</code>.</li>
+<li><strong><code>id_token</code> validation.</strong> The token endpoint must return an <code>id_token</code>.
+  pg_sage verifies its signature against the provider's JWKS (<code>jwks_uri</code>
+  from discovery, through <code>coreos/go-oidc</code>), its issuer, its audience (the
+  client id) and its expiry. Userinfo is consulted only when the token has
+  no email, and must name the same subject.</li>
+<li><strong>Discovery.</strong> The discovery document must name the configured issuer
+  (<code>oauth.issuer_url</code>, trailing slash ignored) and publish <code>jwks_uri</code>;
+  otherwise SSO stays disabled and startup logs why.</li>
+</ul>
+<p>Every refusal is recorded in <code>sage.auth_audit</code> as <code>login_failed</code> with a
+reason code (<code>nonce_mismatch</code>, <code>id_token_invalid</code>, <code>id_token_missing</code>,
+<code>state_invalid</code>, <code>subject_mismatch</code>, <code>email_unverified</code>, <code>link_required</code>,
+<code>not_authorized</code>, <code>exchange_failed</code>).</p>
+<h3 id="group-to-role-mapping">Group to Role Mapping<a class="headerlink" href="#group-to-role-mapping" title="Permanent link">&para;</a></h3>
+<p>Map IdP groups to pg_sage roles with <code>oauth.role_mapping</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">oauth</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">groups_claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">groups</span><span class="w">          </span><span class="c1"># id_token (or userinfo) claim with the groups</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">unmapped_users</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deny</span><span class="w">          </span><span class="c1"># deny (default) | default_role</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">role_mapping</span><span class="p">:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="nv">pg-sage-admins</span><span class="p p-Indicator">,</span><span class="nt">    role</span><span class="p">:</span><span class="w"> </span><span class="nv">admin</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="nv">dba</span><span class="p p-Indicator">,</span><span class="nt">               role</span><span class="p">:</span><span class="w"> </span><span class="nv">operator</span><span class="p p-Indicator">}</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">group</span><span class="p">:</span><span class="w"> </span><span class="nv">engineering</span><span class="p p-Indicator">,</span><span class="nt">       role</span><span class="p">:</span><span class="w"> </span><span class="nv">viewer</span><span class="p p-Indicator">}</span>
+</code></pre></div>
+<ul>
+<li>Group names match exactly (case-sensitive). The claim may be an array of
+  strings or a single string.</li>
+<li>A user in several mapped groups gets the highest role.</li>
+<li>The IdP is the source of truth: the mapped role is applied at every SSO
+  login, and a change is audited as <code>user_role_changed</code> with
+  <code>"source": "idp"</code>. A role set in the UI is overwritten at the next login.
+  The last admin is never demoted this way; pg_sage logs a warning instead.</li>
+<li><strong>Unmapped users are denied by default</strong> (<code>403</code>, <code>sso_error=not_authorized</code>):
+  listing groups names who may sign in, and an IdP tenant usually holds far
+  more people than that. Set <code>unmapped_users: default_role</code> to give them
+  <code>oauth.default_role</code> instead.</li>
+<li>Without <code>role_mapping</code>, every SSO user gets <code>oauth.default_role</code>
+  (<code>viewer</code>), as before.</li>
+</ul>
+<h3 id="authentication-audit">Authentication Audit<a class="headerlink" href="#authentication-audit" title="Permanent link">&para;</a></h3>
+<p><code>sage.auth_audit</code> records, with actor and target user ids, time and the
+client address (<code>source_ip</code>, honouring <code>api.trusted_proxies</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>login_succeeded</code> / <code>login_failed</code></td>
+<td>Password and SSO sign-ins (<code>detail.method</code>, <code>detail.reason</code>)</td>
+</tr>
+<tr>
+<td><code>break_glass_login</code> / <code>break_glass_login_failed</code></td>
+<td>Every break-glass attempt</td>
+</tr>
+<tr>
+<td><code>user_created</code>, <code>user_deleted</code></td>
+<td>Admin user administration</td>
+</tr>
+<tr>
+<td><code>user_role_changed</code></td>
+<td>Role changes from the API (<code>source: api</code>) or the IdP (<code>source: idp</code>)</td>
+</tr>
+<tr>
+<td><code>oidc_linked</code>, <code>oidc_unlinked</code>, <code>oidc_link_grant_*</code></td>
+<td>Account linking</td>
+</tr>
+</tbody>
+</table>
+<p>Rows never contain passwords, tokens or email addresses; a failed password
+login names the targeted account by id when it exists.</p>
+<h3 id="break-glass-admin">Break-glass Admin<a class="headerlink" href="#break-glass-admin" title="Permanent link">&para;</a></h3>
+<p>A local admin for when the IdP is down. It is off unless configured:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">oauth</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">break_glass</span><span class="p">:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="c1"># password_hash: prefer SAGE_BREAK_GLASS_PASSWORD_HASH or its _FILE form</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># bcrypt hash of the break-glass password (keep the password offline)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>htpasswd<span class="w"> </span>-bnBC<span class="w"> </span><span class="m">12</span><span class="w"> </span><span class="s2">""</span><span class="w"> </span><span class="s1">'the-break-glass-password'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">':\n'</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_BREAK_GLASS_PASSWORD_HASH_FILE</span><span class="o">=</span>/run/secrets/pg_sage_break_glass_hash
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>https://sage.example.com/api/v1/auth/break-glass<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"password":"the-break-glass-password"}'</span>
+</code></pre></div>
+<ul>
+<li>It signs in as the dedicated admin <code>break-glass@pg-sage.local</code>, which has
+  no stored password (the normal login cannot use it). If that email belongs
+  to another account, break-glass refuses (<code>409</code>).</li>
+<li>The session lasts one hour.</li>
+<li>Every use is logged at ERROR, recorded as <code>break_glass_login</code>, and
+  broadcast as a critical <code>security_break_glass</code> notification to <strong>every
+  enabled notification channel</strong>, regardless of notification rules. Configure
+  at least one channel. Failed attempts are audited and rate-limited per
+  client address (5 per 15 minutes).</li>
+<li>After use, review what the session did and rotate the password.</li>
+</ul>
+<h3 id="secrets-at-rest">Secrets at Rest<a class="headerlink" href="#secrets-at-rest" title="Permanent link">&para;</a></h3>
+<p>Secrets set through the API or UI (<code>llm.api_key</code>, <code>clone.dle_token</code>,
+<code>alerting.slack_webhook_url</code>, <code>alerting.pagerduty_routing_key</code>) are stored in
+<code>sage.config</code> sealed with AES-256-GCM under a key derived from
+<code>encryption_key</code> (argon2id with the deployment's random salt). A stored value
+looks like <code>sage-enc:v1:&lt;key id&gt;:&lt;ciphertext&gt;</code>; the key id is a public
+fingerprint of the key. Each value is bound to its key name and scope, so it
+cannot be copied to another key. Audit rows never hold the value or its
+ciphertext.</p>
+<ul>
+<li><strong>Key source.</strong> <code>encryption_key</code>, <code>SAGE_ENCRYPTION_KEY</code>, or
+  <code>SAGE_ENCRYPTION_KEY_FILE</code> (a file a secrets manager fills; trailing newline
+  trimmed; setting both the variable and <code>_FILE</code> is an error).</li>
+<li><strong>Startup migration.</strong> With a key configured, startup seals existing
+  plaintext secret rows and logs how many.</li>
+<li><strong>No key.</strong> Secrets stay plaintext, as before, and startup warns once when
+  any are stored.</li>
+<li><strong>Rotation.</strong> Set the new passphrase as <code>encryption_key</code> and the old one as
+  <code>encryption_key_previous</code> (or <code>SAGE_ENCRYPTION_KEY_PREVIOUS[_FILE]</code>) and
+  restart: values sealed under the old key are read and re-sealed under the
+  new one. Then remove <code>encryption_key_previous</code>. A value no configured key
+  can open is ignored with an ERROR naming its key and key id. Rotation
+  currently covers config secrets only: per-database passwords and
+  notification channel secrets are still sealed with <code>encryption_key</code> alone
+  and must be re-entered after a rotation.</li>
+</ul>
 <h3 id="tls">TLS<a class="headerlink" href="#tls" title="Permanent link">&para;</a></h3>
-<p>pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes
-Ingress, Cloud Run, load balancer, or other trusted edge. Restrict direct access
-to the API/dashboard listener to trusted networks.</p>
+<p>Set <code>SAGE_TLS_CERT</code> and <code>SAGE_TLS_KEY</code> to PEM files and the API and dashboard
+listener serves HTTPS only (TLS 1.2 or newer); session cookies are then marked
+<code>Secure</code>. Without them it serves plain HTTP, for use behind a TLS-terminating
+reverse proxy, Kubernetes Ingress, Cloud Run or load balancer.</p>
+<ul>
+<li>Setting only one of the two is a startup error, so a typo can't silently
+  downgrade to HTTP.</li>
+<li>At startup a missing file, a key that doesn't match the certificate, or an
+  expired or not-yet-valid certificate stops the sidecar with a message naming
+  the variable and file. A certificate expiring within 14 days logs a warning.</li>
+<li>Rotation needs no restart: on new connections pg_sage checks the two files'
+  modification times at most every 5 seconds and loads a changed pair. The
+  check follows symlinks, so cert-manager and Kubernetes secret volume swaps
+  work. A pair that fails to load is logged and the current certificate keeps
+  serving until the files change again.</li>
+<li>The Prometheus listener (<code>:9187</code>) stays plain HTTP; keep it on a private
+  network.</li>
+</ul>
+<p>Restrict direct access to the API/dashboard listener to trusted networks
+either way.</p>
 <h3 id="input-validation">Input Validation<a class="headerlink" href="#input-validation" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Table names</strong> are validated against a strict regex. No SQL injection is possible through resource URIs or tool arguments.</li>
@@ -1648,18 +1933,18 @@ to the API/dashboard listener to trusted networks.</p>
 <hr />
 <h2 id="emergency-stop">Emergency Stop<a class="headerlink" href="#emergency-stop" title="Permanent link">&para;</a></h2>
 <p>Halt all autonomous activity immediately by setting the emergency stop flag in <code>sage.config</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'true'</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'emergency_stop'</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'true'</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'emergency_stop'</span><span class="p">;</span>
 </code></pre></div>
 <p>Or use the web UI emergency stop button, or the authenticated REST API:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/emergency-stop<span class="w"> </span>--data<span class="w"> </span><span class="s1">'{}'</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/emergency-stop<span class="w"> </span>--data<span class="w"> </span><span class="s1">'{}'</span>
 </code></pre></div>
 <p>Resume with:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'false'</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'emergency_stop'</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'false'</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'emergency_stop'</span><span class="p">;</span>
 </code></pre></div>
 <p>Or use the web UI resume button, or the authenticated REST API:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/resume<span class="w"> </span>--data<span class="w"> </span><span class="s1">'{}'</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/resume<span class="w"> </span>--data<span class="w"> </span><span class="s1">'{}'</span>
 </code></pre></div>
 <hr />
 <h2 id="audit-trail">Audit Trail<a class="headerlink" href="#audit-trail" title="Permanent link">&para;</a></h2>
@@ -1672,6 +1957,9 @@ to the API/dashboard listener to trusted networks.</p>
 <li>The finding that triggered the action</li>
 <li>Before/after state</li>
 </ul>
+<h3 id="authentication-log-sageauth_audit">Authentication Log (<code>sage.auth_audit</code>)<a class="headerlink" href="#authentication-log-sageauth_audit" title="Permanent link">&para;</a></h3>
+<p>Logins, break-glass use, and user and role changes, with actor, time and
+client address; see <a href="#authentication-audit">Authentication Audit</a>.</p>
 <h3 id="api-request-log">API Request Log<a class="headerlink" href="#api-request-log" title="Permanent link">&para;</a></h3>
 <p>API requests are logged for audit purposes.</p>
 <p>Both tables are subject to retention policies (configurable via <code>retention.actions_days</code>).</p>
@@ -1679,13 +1967,15 @@ to the API/dashboard listener to trusted networks.</p>
 <h2 id="production-checklist">Production Checklist<a class="headerlink" href="#production-checklist" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>Protect the dashboard/API listener</strong> -- use a private network, reverse proxy, or identity-aware edge.</li>
-<li><strong>Terminate TLS at the edge</strong> -- do not expose plain HTTP directly to the internet.</li>
+<li><strong>Use TLS</strong> -- set <code>SAGE_TLS_CERT</code>/<code>SAGE_TLS_KEY</code> or terminate TLS at the edge; do not expose plain HTTP directly to the internet.</li>
 <li><strong>Start in observation mode</strong> -- deploy with <code>trust.level: observation</code> and review findings for at least a week.</li>
 <li><strong>Set a maintenance window</strong> -- restrict autonomous actions to low-traffic periods.</li>
 <li><strong>Review findings before escalating trust</strong> -- move to <code>advisory</code> then <code>autonomous</code> only after confirming recommendations are appropriate.</li>
 <li><strong>Set a token budget</strong> -- cap LLM spend with <code>llm.token_budget_daily</code>.</li>
 <li><strong>Use a dedicated database role</strong> -- grant only the required privileges listed above.</li>
-<li><strong>Capture and rotate the initial admin password</strong> -- then use named users or OAuth for operators.</li>
+<li><strong>Capture and rotate the initial admin password</strong> -- then use named users or OAuth for operators.
+   With SSO, set <code>oauth.role_mapping</code>, and configure a break-glass admin plus a notification channel.</li>
+<li><strong>Set <code>encryption_key</code></strong> (or <code>SAGE_ENCRYPTION_KEY_FILE</code>) -- API-set secrets are then encrypted at rest.</li>
 <li><strong>Monitor pg_sage itself</strong> -- check Prometheus metrics and circuit breaker state.</li>
 </ol>
 

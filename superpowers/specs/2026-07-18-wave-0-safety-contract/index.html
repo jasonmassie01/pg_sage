@@ -757,21 +757,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agentdb-policy-and-lifecycle" class="md-nav__link">
+  <a href="#agent-database-provisioning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        AgentDB policy and lifecycle
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agentdb-monitoring" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        AgentDB monitoring
+        Agent-database provisioning
       
     </span>
   </a>
@@ -892,24 +881,9 @@ intersection of both controls, never the more permissive of the two.</p>
 authorization, execution control, approvals, and audit state. A monitored target
 database is not an alternative authority source. Missing, stale, or unavailable
 canonical control state fails closed for mutations.</p>
-<h2 id="agentdb-policy-and-lifecycle">AgentDB policy and lifecycle<a class="headerlink" href="#agentdb-policy-and-lifecycle" title="Permanent link">&para;</a></h2>
-<p>AgentDB mutation authority is the intersection of:</p>
-<ol>
-<li>runtime execution authority;</li>
-<li>global hard ceilings;</li>
-<li>provider-specific capabilities and narrower provider ceilings; and</li>
-<li>authorization for the exact requested operation and resource.</li>
-</ol>
-<p>Providers may narrow global policy but cannot widen it. Missing policy,
-unsupported operations, unknown providers, and stale authorization fail closed.
-Lease renewal wins over expiry cleanup when they race. Expiry reconciliation must
-claim work atomically, revalidate before provider mutation, and permit at most one
-provider mutation across concurrent reconcilers.</p>
-<h2 id="agentdb-monitoring">AgentDB monitoring<a class="headerlink" href="#agentdb-monitoring" title="Permanent link">&para;</a></h2>
-<p>The target monitoring model is tiered and adaptive: inexpensive health signals
-run most often, diagnostic collection escalates when evidence warrants it, and
-costly analysis backs off for stable databases. Monitoring cadence does not grant
-mutation authority; executor policy remains an orthogonal gate.</p>
+<h2 id="agent-database-provisioning">Agent-database provisioning<a class="headerlink" href="#agent-database-provisioning" title="Permanent link">&para;</a></h2>
+<p>Removed in G0 (decision D-1); its policy, lifecycle and monitoring contracts no
+longer apply. See <code>sidecar/internal/decommission/README.md</code>.</p>
 <h2 id="product-surface">Product surface<a class="headerlink" href="#product-surface" title="Permanent link">&para;</a></h2>
 <p>MCP is retired. Current configuration, examples, and roadmap language must not
 advertise MCP as an active interface. Historical changelog entries may retain
@@ -932,7 +906,6 @@ objects are not mutated piecemeal beneath running goroutines.</p>
 <li>API presentation and live execution share one typed action policy.</li>
 <li>Every action is authorized against current state immediately before mutation,
   without data races.</li>
-<li>AgentDB expiry handling is renewal-safe and single-winner under concurrency.</li>
 <li>PostgreSQL advisory locks are acquired and released on the same pinned session.</li>
 <li>Focused tests, race tests, build, vet, and the full uncached coverage suite pass,
   with skips and coverage gaps reported explicitly.</li>

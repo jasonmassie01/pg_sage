@@ -913,10 +913,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#410-agent-dbs-registeragentdbroutes-agent_db_handlersgo15" class="md-nav__link">
+  <a href="#410-agent-database-provisioning-removed-in-g0" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4.10 Agent DBs (registerAgentDBRoutes, agent_db_handlers.go:15)
+        4.10 Agent-database provisioning (removed in G0)
       
     </span>
   </a>
@@ -1151,9 +1151,7 @@ request travels in:</p>
   expired session → 401.</li>
 <li><code>shouldSkipAuth</code> (<code>auth_middleware.go:97</code>) unauthenticated allowlist:
   <code>POST /api/v1/auth/login</code>, <code>GET /api/v1/auth/oauth/{callback,config,authorize}</code>,
-  <code>/health</code> (dead, see above), <strong>any agent-ping path</strong> (<code>isAgentPingPath</code>,
-  <code>auth_middleware.go:117-125</code>: matches <code>/api/v1/agent-dbs/{id}/agent-ping</code>), and
-  any path not starting with <code>/api/</code> (static assets).</li>
+  <code>/health</code> (dead, see above), and any path not starting with <code>/api/</code> (static assets).</li>
 <li><code>RequireRole(roles...)</code> (<code>auth_middleware.go:63</code>) — per-route RBAC; 401 if no
   user in context, 403 if role not allowed.</li>
 </ul>
@@ -1773,81 +1771,9 @@ register a stub returning <strong>501 Not Implemented</strong> (<code>router.go:
 </tr>
 </tbody>
 </table>
-<h3 id="410-agent-dbs-registeragentdbroutes-agent_db_handlersgo15">4.10 Agent DBs (<code>registerAgentDBRoutes</code>, <code>agent_db_handlers.go:15</code>)<a class="headerlink" href="#410-agent-dbs-registeragentdbroutes-agent_db_handlersgo15" title="Permanent link">&para;</a></h3>
-<p>The agent-DB area (ephemeral provisioned databases for AI agents) uses a hand-
-rolled subrouter (<code>agentDBSubrouterWithRegistry</code>, <code>agent_db_handlers.go:45</code>)
-mounted on the prefix <code>/api/v1/agent-dbs/</code>. Top-level routes are <strong>operator+</strong>;
-the subrouter is wrapped operator+ too, <strong>except</strong> the token agent-ping path
-which is unauthenticated (<code>shouldSkipAuth</code> → <code>isAgentPingPath</code>).</p>
-<p>Enumerated routes (method + path, all under <code>/api/v1/agent-dbs</code>):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>POST   /{deployment_id}/agent-ping               (PUBLIC — token auth)
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>GET    /                                          list deployments
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>POST   /                                          register/provision
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>POST   /cleanup                                   archive all expired
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>GET    /{id}                                      get deployment
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>DELETE /{id}                                      delete (archive first)
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>POST   /{id}/ping                                 heartbeat
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>POST   /{id}/extend-lease
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>GET    /{id}/recommendations
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>POST   /{id}/recommendations
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>POST   /{id}/recommendations/{recId}/feedback
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>GET    /{id}/audit
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>GET    /{id}/audit/export
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>GET    /{id}/deploy-requests
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>POST   /{id}/deploy-requests
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>GET    /{id}/deploy-requests/{drId}
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>POST   /{id}/deploy-requests/{drId}/request-review
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>POST   /{id}/deploy-requests/{drId}/approve
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>POST   /{id}/deploy-requests/{drId}/deny
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>GET    /{id}/ping-tokens
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>POST   /{id}/ping-tokens
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>POST   /{id}/ping-tokens/{tokenId}/rotate
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>POST   /{id}/ping-tokens/{tokenId}/revoke
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>POST   /{id}/cost-samples
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>GET    /{id}/cost
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>GET    /{id}/backups
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>POST   /{id}/backups
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>POST   /{id}/backups/check
-<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>POST   /{id}/backups/restore-drill-dry-run
-<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>GET    /{id}/tuning-hints
-<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>POST   /{id}/provision/preflight
-<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>POST   /{id}/provision/execute
-<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>POST   /{id}/provision/status
-<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>POST   /{id}/provision/destroy-dry-run
-<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>POST   /{id}/provision/destroy-live
-<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>GET    /{id}/provision/attempts
-<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>GET    /{id}/cleanup
-<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>POST   /{id}/archive
-<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>POST   /{id}/restore
-<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a># collection sub-resources (not deployment-scoped):
-<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>POST   /requests
-<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>GET    /requests
-<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>GET    /requests/{reqId}
-<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>POST   /requests/{reqId}/approve
-<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>POST   /requests/{reqId}/deny
-<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>POST   /requests/{reqId}/provision
-<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>GET    /providers
-<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>GET    /provider-configs
-<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>POST   /provider-configs/{provider}
-<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>GET    /terraform-templates
-<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>POST   /terraform-templates
-<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>POST   /terraform-templates/{tplId}/approve
-<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>POST   /terraform-templates/{tplId}/provision
-<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>GET    /blueprints
-<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>POST   /blueprints
-<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>POST   /blueprints/{bpId}/approve
-<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>POST   /blueprints/{bpId}/provision
-<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>GET    /identities
-<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>POST   /identities
-<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>POST   /reconcile
-<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>GET    /size-profiles
-<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a>POST   /size-profiles
-<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a>DELETE /size-profiles/{id}
-</code></pre></div>
-<p>Agent-DB error mapping (<code>agent_db_handlers.go:378-412</code>): <code>ErrNotFound</code>→404,
-<code>ErrRestoreRequired</code>→409, <code>ErrRateLimited</code>→429, <code>ErrRunnerUnavailable</code>→409,
-<code>ErrBlueprintLLMRequired</code>→503, <code>ErrDeleteBlocked</code>→409, <code>ErrInvalid</code>→400,
-<code>ErrConflict</code>→409.</p>
+<h3 id="410-agent-database-provisioning-removed-in-g0">4.10 Agent-database provisioning (removed in G0)<a class="headerlink" href="#410-agent-database-provisioning-removed-in-g0" title="Permanent link">&para;</a></h3>
+<p>The 62 provisioning routes were removed and answer 404; see
+<code>sidecar/internal/decommission/README.md</code>.</p>
 <h3 id="endpoint-count">Endpoint count<a class="headerlink" href="#endpoint-count" title="Permanent link">&para;</a></h3>
 <p>Counting distinct method+path pairs registered:</p>
 <ul>
@@ -1860,11 +1786,11 @@ which is unauthenticated (<code>shouldSkipAuth</code> → <code>isAgentPingPath<
 <li>Notifications: 10</li>
 <li>Actions queue: 7</li>
 <li>Managed DBs: 8</li>
-<li>Agent DBs: 62</li>
+<li>Provisioning (removed in G0): 62</li>
 </ul>
 <p><strong>Total ≈ 139 REST endpoints</strong> (vs. the stale "17" claimed in <code>pg_sage/CLAUDE.md</code>;
-the agent-DB subsystem alone is 62). Without the agent-DB subsystem the
-"classic" DBA surface is ~77.</p>
+the provisioning subsystem, removed in G0, was 62). Without it the "classic" DBA
+surface is ~77.</p>
 <hr />
 <h2 id="5-prometheus-metrics-9187metrics">5. Prometheus Metrics (<code>:9187/metrics</code>)<a class="headerlink" href="#5-prometheus-metrics-9187metrics" title="Permanent link">&para;</a></h2>
 <p>Hand-rendered text format (no client_golang) by <code>handleMetrics</code>
@@ -2014,12 +1940,6 @@ status, not Prometheus text (<code>handlers.go:844</code>).</p>
 <td>Managed-DB CRUD + CSV import</td>
 </tr>
 <tr>
-<td><code>/agent-dbs</code></td>
-<td><code>AgentDBsPage</code></td>
-<td>—</td>
-<td>Ephemeral agent-DB provisioning workspace</td>
-</tr>
-<tr>
 <td><code>/findings</code>, <code>/cases</code></td>
 <td><code>CasesPage</code></td>
 <td>—</td>
@@ -2093,7 +2013,7 @@ status, not Prometheus text (<code>handlers.go:844</code>).</p>
 </tr>
 </tbody>
 </table>
-<p><strong>Distinct routed components: 10</strong> (<code>Dashboard</code>, <code>DatabasesPage</code>, <code>AgentDBsPage</code>,
+<p><strong>Distinct routed components: 10</strong> (<code>Dashboard</code>, <code>DatabasesPage</code>, the removed provisioning page,
 <code>CasesPage</code>, <code>Actions</code>, <code>DatabasePage</code>, <code>AlertLogPage</code>, <code>SettingsPage</code>,
 <code>NotificationsPage</code>, <code>UsersPage</code>) + <code>LoginPage</code> (pre-auth) and
 <code>NotFound</code>/<code>AccessDenied</code> helpers. <strong>15 routed URL paths</strong> (6 collapse onto

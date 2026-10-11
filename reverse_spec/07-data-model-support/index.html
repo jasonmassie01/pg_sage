@@ -775,10 +775,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#12-agentdb-owned-tables-25-tables" class="md-nav__link">
+  <a href="#12-provisioning-tables-removed-in-g0" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1.2 AgentDB-owned tables (25 tables)
+        1.2 Provisioning tables (removed in G0)
       
     </span>
   </a>
@@ -1000,10 +1000,10 @@ alerting/notification, retention, HA, log-watching, and crypto/sanitization.</p>
    (<code>migrationStatements</code>, <code>bootstrap.go:259</code>). Finally it folds in
    <code>MigrateConfigSchema</code> (<code>config_migration.go:31</code>) and
    <code>migrateIncidentConstraints</code> (<code>incident_migration.go:12</code>).</li>
-<li><strong>AgentDB schema</strong> — <code>internal/agentdb</code> package. A separate, self-contained
-   set of tables created by <code>Store.Ensure()</code> from <code>schemaStatements</code>,
-   <code>liveExecutionSchemaStatements</code>, and <code>monitoringSchemaStatements</code>. These are
-   created only when the AgentDB subsystem is initialized.</li>
+<li><strong>Provisioning schema (removed in G0)</strong> — a separate set of tables the removed
+   agent-database provisioner created on first use. G0 no longer creates them;
+   existing installs keep them for the decommission inventory until G1 drops them
+   (<code>sidecar/internal/decommission/README.md</code>).</li>
 </ol>
 <h3 id="11-core-sage-tables-21-bootstrapped-2-migration-created">1.1 Core <code>sage.*</code> tables (21 bootstrapped + 2 migration-created)<a class="headerlink" href="#11-core-sage-tables-21-bootstrapped-2-migration-created" title="Permanent link">&para;</a></h3>
 <p><code>expectedTables</code> (<code>bootstrap.go:12</code>) lists 21 tables. Two more
@@ -1196,146 +1196,8 @@ different purposes (<code>bootstrap.go:806</code> comment).</p>
   <code>schema_advisor</code>, <code>schema_lint</code>, <code>n_plus_one</code>; action_risk adds
   <code>low/medium/high</code>.</li>
 </ul>
-<h3 id="12-agentdb-owned-tables-25-tables">1.2 AgentDB-owned tables (25 tables)<a class="headerlink" href="#12-agentdb-owned-tables-25-tables" title="Permanent link">&para;</a></h3>
-<p>Created by <code>agentdb.Store.Ensure()</code> (<code>agentdb/schema.go:17</code>) — a self-contained
-provisioning/lifecycle subsystem for agent-owned databases (local Postgres + AWS
-RDS / GCP Cloud SQL / Lakebase providers).</p>
-<table>
-<thead>
-<tr>
-<th>Table</th>
-<th>Purpose</th>
-<th>DDL</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>sage.agent_identities</code></td>
-<td>Registered agents (tenant/owner/status)</td>
-<td><code>schema.go:182</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_requests</code></td>
-<td>Provisioning requests (policy decision, idempotency, budget)</td>
-<td><code>schema.go:194</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_deployments</code></td>
-<td>Provisioned deployments (safety_mode, lease, secret_ref, connection_info)</td>
-<td><code>schema.go:223</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_provider_configs</code></td>
-<td>Per-provider enable/settings</td>
-<td><code>schema.go:279</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_creation_receipts</code></td>
-<td>Provider resource creation receipts</td>
-<td><code>schema.go:287</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_terraform_templates</code></td>
-<td>Terraform template store + policy findings</td>
-<td><code>schema.go:300</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_blueprints</code></td>
-<td>LLM-generated provisioning blueprints</td>
-<td><code>schema.go:316</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_size_profiles</code></td>
-<td>CPU/mem/storage size profiles (seeded defaults)</td>
-<td><code>schema.go:342</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_pings</code></td>
-<td>Liveness/metrics pings per deployment</td>
-<td><code>schema.go:357</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_ping_tokens</code></td>
-<td>Hashed ping auth tokens (rotation)</td>
-<td><code>schema.go:367</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_ping_token_failures</code></td>
-<td>Failed ping-token attempts</td>
-<td><code>schema.go:387</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_recommendations</code></td>
-<td>Tuning/index recommendations for agent DBs</td>
-<td><code>schema.go:396</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_cost_samples</code></td>
-<td>Cost telemetry samples</td>
-<td><code>schema.go:424</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_backups</code></td>
-<td>Backup records (verify/restore-verify)</td>
-<td><code>schema.go:437</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_tuning_hints</code></td>
-<td>Per-deployment tuning hints</td>
-<td><code>schema.go:451</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_provision_attempts</code></td>
-<td>Provision runner attempts (dry_run/live, stdout/stderr)</td>
-<td><code>schema.go:465</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_audit</code></td>
-<td>AgentDB event audit log</td>
-<td><code>schema.go:482</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_deploy_requests</code></td>
-<td>DDL/migration deploy requests with gate results</td>
-<td><code>schema.go:491</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_live_plans</code></td>
-<td>Immutable normalized live-operation plans</td>
-<td><code>live_execution_schema.go</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_live_estimates</code></td>
-<td>Server-issued cost estimates bound to plan hash</td>
-<td><code>live_execution_schema.go</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_live_authorizations</code></td>
-<td>Exact-operation authorization and consumption state</td>
-<td><code>live_execution_schema.go</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_live_receipts</code></td>
-<td>Idempotent provider mutation receipts</td>
-<td><code>live_execution_schema.go</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_monitoring_policies</code></td>
-<td>Scoped monitoring concurrency limits</td>
-<td><code>monitoring_schema.go</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_monitoring_state</code></td>
-<td>Per-physical-target scheduling state</td>
-<td><code>monitoring_schema.go</code></td>
-</tr>
-<tr>
-<td><code>sage.agent_db_monitoring_work</code></td>
-<td>Durable leased tiered monitoring work</td>
-<td><code>monitoring_schema.go</code></td>
-</tr>
-</tbody>
-</table>
+<h3 id="12-provisioning-tables-removed-in-g0">1.2 Provisioning tables (removed in G0)<a class="headerlink" href="#12-provisioning-tables-removed-in-g0" title="Permanent link">&para;</a></h3>
+<p>See item 2 above.</p>
 <blockquote>
 <p>The <code>internal/cases</code> package (incident/query-hint projectors, vacuum
 autopilot, shadow execution) defines <strong>no tables of its own</strong> — it projects
@@ -1492,12 +1354,6 @@ auto-synthesizes <code>Databases[0]</code> from the legacy <code>postgres</code>
 <td><code>config.go:435</code></td>
 </tr>
 <tr>
-<td>AgentDB</td>
-<td><code>agentdb</code></td>
-<td><code>AgentDBConfig</code></td>
-<td><code>config.go:122</code></td>
-</tr>
-<tr>
 <td>Databases</td>
 <td><code>databases</code></td>
 <td><code>[]DatabaseConfig</code> (fleet)</td>
@@ -1609,10 +1465,6 @@ stats/ANALYZE (<code>analyze_max_table_mb</code> 10240, <code>analyze_timeout_ms
 <p><strong>prometheus</strong> — <code>listen_addr</code> (<code>127.0.0.1:9187</code>).</p>
 <p><strong>oauth</strong> — <code>enabled</code>, <code>provider</code> (google/github/okta/oidc), <code>client_id</code>,
 <code>client_secret</code> (secret), <code>redirect_url</code>, <code>issuer_url</code>, <code>default_role</code>.</p>
-<p><strong>agentdb</strong> — <code>live_provisioning_enabled</code> (false), <code>allow_public_ip</code> (false),
-<code>require_backup_before_destroy</code> (true), <code>providers</code> map of
-<code>{enabled, allowed_regions/accounts/projects/workspaces, max_ttl_seconds,
-max_estimated_cost_usd}</code>.</p>
 <p><strong>api</strong> — <code>listen_addr</code> (<code>0.0.0.0:8080</code>), <code>trusted_proxies</code> (default loopback
 <code>[127.0.0.1, ::1]</code>).</p>
 <p><strong>fleet (<code>databases[]</code>)</strong> — per-DB <code>name</code>/<code>host</code>/<code>port</code>/<code>user</code>/<code>password</code>

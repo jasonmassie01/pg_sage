@@ -1337,9 +1337,7 @@ is unimplemented.</strong></p>
   <code>LLMJsonbAnalyzer.Enhance</code> confirms which JSONB columns appear in JOIN/WHERE
   via slow-query analysis, enriching <code>lint_jsonb_in_joins</code> findings. Wired via
   <code>lintRunner.SetLLMClient(llmClient)</code> (<code>main.go:653-654</code>).</li>
-<li><strong>Agent-DB blueprint generation</strong> (<code>internal/api/agent_db_blueprint_handlers.go:118</code>):
-  translates a natural-language deployment intent into a strict blueprint JSON
-  object. HTTP-triggered, uses <code>mgr.General</code>.</li>
+<li>Deployment blueprint generation (removed in G0 with the provisioning subsystem).</li>
 </ul>
 <hr />
 <h2 id="10-complete-list-of-distinct-llm-call-sites-today">10. Complete List of Distinct LLM Call-Sites (today)<a class="headerlink" href="#10-complete-list-of-distinct-llm-call-sites-today" title="Permanent link">&para;</a></h2>
@@ -1359,7 +1357,7 @@ is unimplemented.</strong></p>
 <li><code>internal/migration/llm_fallback.go:37</code> — DDL risk classification.</li>
 <li><code>internal/migration/llm_scripts.go:59</code> — migration script generation.</li>
 <li><code>internal/schema/lint/llm_jsonb.go:116</code> — JSONB-in-joins enrichment.</li>
-<li><code>internal/api/agent_db_blueprint_handlers.go:118</code> — deployment blueprint JSON.</li>
+<li>Deployment blueprint JSON (removed in G0 with the provisioning subsystem).</li>
 </ol>
 <p>(#3–8 route through <code>Manager.ChatForPurpose("advisor", …)</code> which, given the
 <code>nil</code>/<code>false</code> Manager wiring, always uses the General client.)</p>

@@ -475,6 +475,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#secrets-from-files-_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secrets from files (*_FILE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1221,6 +1238,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#secrets-from-files-_file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secrets from files (*_FILE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1788,12 +1822,12 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <tr>
 <td><code>SAGE_TLS_CERT</code></td>
 <td>(none)</td>
-<td>Legacy/reserved; terminate TLS at a reverse proxy</td>
+<td>PEM certificate (chain) file; with <code>SAGE_TLS_KEY</code>, the API serves HTTPS only</td>
 </tr>
 <tr>
 <td><code>SAGE_TLS_KEY</code></td>
 <td>(none)</td>
-<td>Legacy/reserved; terminate TLS at a reverse proxy</td>
+<td>PEM private key file for <code>SAGE_TLS_CERT</code>; set both or neither</td>
 </tr>
 <tr>
 <td><code>SAGE_PROMETHEUS_PORT</code></td>
@@ -1810,8 +1844,80 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td><code>2</code></td>
 <td>Max PostgreSQL connections in pool</td>
 </tr>
+<tr>
+<td><code>SAGE_ENCRYPTION_KEY</code> / <code>_FILE</code></td>
+<td>(none)</td>
+<td>Passphrase that encrypts stored secrets, including API-set config secrets (<a href="../security/#secrets-at-rest">secrets at rest</a>)</td>
+</tr>
+<tr>
+<td><code>SAGE_ENCRYPTION_KEY_PREVIOUS</code> / <code>_FILE</code></td>
+<td>(none)</td>
+<td>The previous passphrase during a key rotation</td>
+</tr>
+<tr>
+<td><code>SAGE_BREAK_GLASS_PASSWORD_HASH</code> / <code>_FILE</code></td>
+<td>(none)</td>
+<td>bcrypt hash of the <a href="../security/#break-glass-admin">break-glass admin</a> password</td>
+</tr>
 </tbody>
 </table>
+<p>A <code>_FILE</code> variant reads the value from the named file (for Docker, Kubernetes
+or Vault Agent secrets); set either the variable or its <code>_FILE</code>, not both.</p>
+<h3 id="secrets-from-files-_file">Secrets from files (<code>*_FILE</code>)<a class="headerlink" href="#secrets-from-files-_file" title="Permanent link">&para;</a></h3>
+<p>Every secret pg_sage reads for itself also accepts a file: set <code>NAME_FILE</code> to a
+path instead of <code>NAME</code>. Vault Agent, the Secrets Store CSI driver, External
+Secrets, Kubernetes secret volumes and Docker secrets can all fill it; pg_sage
+needs no vendor SDK.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Also read as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SAGE_DATABASE_URL</code>, <code>SAGE_PG_PASSWORD</code>, <code>SAGE_META_DB</code></td>
+<td><code>SAGE_DATABASE_URL_FILE</code>, ...</td>
+</tr>
+<tr>
+<td><code>SAGE_ENCRYPTION_KEY</code></td>
+<td><code>SAGE_ENCRYPTION_KEY_FILE</code></td>
+</tr>
+<tr>
+<td><code>SAGE_LLM_API_KEY</code>, <code>SAGE_OPTIMIZER_LLM_API_KEY</code></td>
+<td><code>..._FILE</code></td>
+</tr>
+<tr>
+<td><code>SAGE_OAUTH_CLIENT_SECRET</code>, <code>SAGE_CLONE_DLE_TOKEN</code>, <code>SAGE_API_KEY</code></td>
+<td><code>..._FILE</code></td>
+</tr>
+<tr>
+<td><code>SAGE_SUPABASE_OBSERVABILITY_TOKEN</code></td>
+<td><code>SAGE_SUPABASE_OBSERVABILITY_TOKEN_FILE</code></td>
+</tr>
+<tr>
+<td><code>SAGE_VECTORLAB_DATABASE_URL</code>, <code>SAGE_HISTORY_MONITORED_DSN</code> (subcommands)</td>
+<td><code>..._FILE</code></td>
+</tr>
+<tr>
+<td>any <code>${NAME}</code> referenced in the YAML (fleet passwords, webhook secrets)</td>
+<td><code>NAME_FILE</code></td>
+</tr>
+</tbody>
+</table>
+<p>Rules:</p>
+<ul>
+<li>Setting both <code>NAME</code> and <code>NAME_FILE</code> is a startup error; neither silently wins.</li>
+<li>The value is the file's content minus <strong>one</strong> trailing newline (LF or CRLF).
+  An empty file, or one over 64 KiB, is a startup error.</li>
+<li>A file other users can read or write draws a startup warning; <code>chmod 600</code>
+  (or <code>400</code>) it. Group access is fine, so Kubernetes <code>fsGroup</code> mounts don't warn.</li>
+<li>Errors name the variable and path, never the content.</li>
+<li>CLI flags (<code>--pg-url</code>, <code>--meta-db</code>, <code>--encryption-key</code>) still win over both.</li>
+<li>A config hot reload re-reads files behind <code>${NAME}</code> references, so a rotated
+  file takes effect for hot-reloadable keys.</li>
+</ul>
 <hr />
 <h2 id="yaml-config-file">YAML Config File<a class="headerlink" href="#yaml-config-file" title="Permanent link">&para;</a></h2>
 <p>Full example (see also <code>sidecar/config.example.yaml</code>):</p>
@@ -2640,6 +2746,11 @@ returned <code>sage_session</code> cookie:</p>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
 </code></pre></div>
+<p>SSO (<code>oauth.*</code>) validates the OIDC <code>id_token</code> with PKCE and a nonce, can map
+IdP groups to roles (<code>oauth.role_mapping</code>, <code>oauth.groups_claim</code>,
+<code>oauth.unmapped_users</code>), and audits every login. A break-glass admin
+(<code>oauth.break_glass</code>) works when the IdP is down and alerts every channel on
+use. See <a href="../security/#sso-login-validation">SSO login validation</a>.</p>
 <h4 id="profiling-the-sidecar">Profiling the sidecar<a class="headerlink" href="#profiling-the-sidecar" title="Permanent link">&para;</a></h4>
 <p><code>debug.pprof_enabled: true</code> (default <code>false</code>, restart to change) serves Go's profiler
 on the API listener at <code>/api/v1/debug/pprof/</code>, to signed-in <strong>admins only</strong>, through

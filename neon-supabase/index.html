@@ -757,10 +757,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#agentdb-management-apis" class="md-nav__link">
+  <a href="#provisioning-removed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        AgentDB management APIs
+        Provisioning (removed)
       
     </span>
   </a>
@@ -772,17 +772,6 @@
     <span class="md-ellipsis">
       
         Verified limitations and remaining integrations
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#terraform-blueprints" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Terraform blueprints
       
     </span>
   </a>
@@ -871,94 +860,31 @@ and RCA input. It derives CPU utilization from core idle metrics and exposes mem
 Data/WAL device utilization remains unknown, so actions requiring complete host-load admission
 stay blocked. Malformed log records are reported without stopping valid records; transient storage
 errors remain retryable. Neon Free did not expose the paid log/metrics export integration.</p>
-<h2 id="agentdb-management-apis">AgentDB management APIs<a class="headerlink" href="#agentdb-management-apis" title="Permanent link">&para;</a></h2>
-<p>AgentDB can plan Neon/Supabase project or branch resources. Profiles are neon_project, neon_branch,
-supabase_project and supabase_branch. Set provider parameters explicitly:</p>
-<ul>
-<li>mode: project or branch.</li>
-<li>project: existing parent project for branch mode.</li>
-<li>source_branch: Neon source branch; schema-only copies are requested.</li>
-<li>organization: organization ID/slug for project mode.</li>
-<li>region: provider region; required for Supabase project creation.</li>
-</ul>
-<p>Runtime runners require PG_SAGE_LIVE_PROVISIONING=1 and the corresponding enable flag:</p>
-<table>
-<thead>
-<tr>
-<th>Provider</th>
-<th>Enable flag</th>
-<th>Credential</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Neon</td>
-<td>PG_SAGE_ENABLE_NEON_RUNNER=1</td>
-<td>PG_SAGE_NEON_API_KEY</td>
-</tr>
-<tr>
-<td>Supabase</td>
-<td>PG_SAGE_ENABLE_SUPABASE_RUNNER=1</td>
-<td>PG_SAGE_SUPABASE_ACCESS_TOKEN</td>
-</tr>
-</tbody>
-</table>
-<p>Supabase project creation additionally requires PG_SAGE_SUPABASE_DATABASE_PASSWORD. Keep the
-password in a secret manager and provide a deployment secret reference where needed; it is never
-included in the provider plan or returned API detail. The API runner preserves an existing secret
-reference; it does not automatically create a new secret-manager entry.</p>
-<p>To connect an active AgentDB deployment to fleet monitoring, set its secret_ref to
-<code>env:AGENT_DATABASE_URL</code> or <code>env://AGENT_DATABASE_URL</code>, and supply that environment variable to the
-sidecar process. Its value must be a full PostgreSQL URL for the recorded resource endpoint.
-The resolver rejects mismatched hosts or database identities, expired references and hosted connections
-without required TLS. Advanced TLS and session URL options are preserved in runtime memory.
-Credentials are read only into runtime memory. An unresolved cloud secret-manager ARN is
-not treated as a usable password. Update the environment reference when a resource's endpoint or
-credentials change; a source branch URL does not automatically authorize a different endpoint.</p>
-<p>Prefer a project-scoped Neon key for branch operations. Project creation needs broader permissions.
-Use scoped Supabase management credentials where available; a PostgREST service_role key does not
-authorize management APIs. Enable the persisted AgentDB provider policy and appropriate
-organization/project/region allowlists. Existing authorization receipts, budgets, TTL, public endpoint
-policy and backup-before-destroy gates still apply.</p>
-<p>Creation is asynchronous. The runner records the server-generated resource ID, verifies its exact
-deployment name and parent ownership before deletion, and refuses default/protected branches.
-Uncertain POST outcomes require reconciliation, not automatic retry. Native Neon branch expiry is
-not assumed; pg_sage keeps its TTL cleanup responsibility.</p>
+<h2 id="provisioning-removed">Provisioning (removed)<a class="headerlink" href="#provisioning-removed" title="Permanent link">&para;</a></h2>
+<p>pg_sage no longer creates, monitors or deletes Neon or Supabase projects and branches: that
+provisioner was removed in G0. If an earlier version created resources for you, follow the
+decommission runbook in <code>sidecar/internal/decommission/README.md</code>, which lists every resource
+it may have created, with a delete template per provider. Governed short-lived branches return
+as sandbox substrates in a later release.</p>
 <h2 id="verified-limitations-and-remaining-integrations">Verified limitations and remaining integrations<a class="headerlink" href="#verified-limitations-and-remaining-integrations" title="Permanent link">&para;</a></h2>
 <p>The Free Supabase organization used for verification reported no branch entitlement and no managed
-backup retention. The runner checks branch entitlement before creation. Free project lifecycle and
+backup retention. Free project lifecycle and
 SQL schema isolation remain available within the account quota. Sending plan=free cannot enforce
 billing: Supabase ignores that deprecated field and uses the organization plan. <a href="https://supabase.com/docs/reference/api/v1-create-a-project">Project API</a>,
 <a href="https://supabase.com/docs/guides/platform/backups">backup plans</a></p>
-<p>Neon Free rejected a custom suspend timeout. The runner therefore retains the provider's default
-instead of changing that setting. Schema-only branch creation, availability and deletion were
-verified live. Supabase Free project creation, availability and deletion were also verified live.</p>
+<p>Neon Free rejected a custom suspend timeout.</p>
 <p>The tested Neon role could install pg_hint_plan but could not load it or enable effective hints.
 Capability reporting distinguishes installation from a loaded, enabled module. Supabase did not
 offer pg_hint_plan in its extension catalog. These results apply to the tested projects and roles.</p>
 <p>Backup checks describe completed backups or the configured restoration window and explicitly do
-not claim a restore drill. Free Supabase needs logical exports for backup assurance. Existing
-backup-before-destroy policy must not be bypassed because a managed backup feature is unavailable.</p>
-<h2 id="terraform-blueprints">Terraform blueprints<a class="headerlink" href="#terraform-blueprints" title="Permanent link">&para;</a></h2>
-<p>Project and branch intents generate provider-specific Terraform using <code>kislerdm/neon</code> 0.15.0 or
-<code>supabase/supabase</code> 1.10.1. All four generated configurations were validated with Terraform against
-the installed provider schemas. Organization, name and parent identifiers are Terraform variables;
-Supabase project passwords use a sensitive variable without a default. Keep provider credentials
-in their documented environment variables and protect Terraform state, which can contain secrets.
-<a href="https://registry.terraform.io/providers/kislerdm/neon/latest/docs">Neon provider</a>, <a href="https://supabase.com/docs/guides/deployment/terraform">Supabase provider</a></p>
-<p>Neon Terraform branches copy parent data; the native AgentDB API runner instead requests a
-schema-only branch. Branch blueprints flag isolation and entitlement review. Supabase Free branch
-entitlement was unavailable, so its Terraform configuration was validated but never applied.
-Requested private networking, HA or backup controls that a generated template does not configure
-are explicit policy findings, as are unconfigured storage, compute, version and extension requests.
-Unknown hosted modes are rejected. Existing approval and minimum-backup policies remain in force.</p>
+not claim a restore drill. Free Supabase needs logical exports for backup assurance.</p>
 <h2 id="backup-and-rehearsal-evidence">Backup and rehearsal evidence<a class="headerlink" href="#backup-and-rehearsal-evidence" title="Permanent link">&para;</a></h2>
 <p>Application-schema logical export and restore were verified live for both providers using
 PostgreSQL 17 pg_dump and pg_restore. Fresh disposable local databases reproduced all 100 rows,
 ordered content hashes including vectors, HNSW and other indexes, constraints, partition children
 and identity sequence state. Negative foreign-key and check-constraint writes failed correctly.
 This test excludes provider-owned schemas, roles and ACLs; it does not claim a complete platform
-restore, automated AgentDB restore drill or managed PITR execution.</p>
+restore, automated restore drill or managed PITR execution.</p>
 <p>The existing MCP snapshot factory remains unconfigured for all native providers;
 its clone-unavailable path yields a recommendation rather than a successful rehearsal. These are
 implementation gaps, not provider impossibilities. A configured external DLE provider remains a

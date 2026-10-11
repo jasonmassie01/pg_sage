@@ -822,14 +822,19 @@
 
 <h1 id="pg_sage-reverse-engineered-specification-as-built-2026-06-10">pg_sage — Reverse-Engineered Specification (as-built, 2026-06-10)<a class="headerlink" href="#pg_sage-reverse-engineered-specification-as-built-2026-06-10" title="Permanent link">&para;</a></h1>
 <p>This document describes <strong>what pg_sage actually is and does today</strong>, derived by reading the
-source — not the README or marketing. It is the ground-truth baseline for the roadmap.
-Detailed sections live in <a href="./reverse_spec/"><code>docs/reverse_spec/</code></a>:</p>
+source — not the README or marketing. It is the ground-truth baseline for the roadmap.</p>
+<blockquote>
+<p><strong>G0 note:</strong> the agent-database provisioning subsystem this snapshot describes was removed
+(decision D-1). Its routes, tables and UI are gone; operators decommission what an earlier
+version created with <code>sidecar/internal/decommission/README.md</code>.</p>
+</blockquote>
+<p>Detailed sections live in <a href="./reverse_spec/"><code>docs/reverse_spec/</code></a>:</p>
 <ol>
 <li><a href="../reverse_spec/01-architecture/">Architecture &amp; Process Model</a></li>
 <li><a href="../reverse_spec/02-tier1-rules/">Tier 1 — Collector &amp; Deterministic Rules</a></li>
 <li><a href="../reverse_spec/03-tier2-llm/">Tier 2 — LLM-Enhanced Features</a></li>
 <li><a href="../reverse_spec/04-tier3-executor/">Tier 3 — Action Executor &amp; Safety</a></li>
-<li><a href="../reverse_spec/05-agentdb/">AgentDB — Provisioning Subsystem</a></li>
+<li>Agent-database provisioning: removed in G0 (archived under <code>reviews/archive/</code>)</li>
 <li><a href="../reverse_spec/06-api-auth-web/">API, Auth &amp; Web Dashboard</a></li>
 <li><a href="../reverse_spec/07-data-model-support/">Data Model &amp; Supporting Subsystems</a></li>
 </ol>
@@ -842,16 +847,14 @@ Detailed sections live in <a href="./reverse_spec/"><code>docs/reverse_spec/</co
 <li><strong>Tier 1 (deterministic):</strong> a collector snapshots ~13 stat categories into <code>sage.*</code> tables;
   a rules engine (~20 rules) turns them into <code>findings</code>.</li>
 <li><strong>Tier 2 (LLM, optional):</strong> 15 distinct LLM call-sites enrich analysis (briefings, index
-  recs, config tuning, query rewrites, RCA, migration risk, JSONB lint, AgentDB blueprints).
+  recs, config tuning, query rewrites, RCA, migration risk, JSONB lint).
   <strong>Every LLM output degrades to a <code>finding</code>/<code>incident</code>; none feeds the executor directly.</strong></li>
 <li><strong>Tier 3 (executor):</strong> a trust-gated, SQL-whitelisted action runner applies SAFE/MODERATE
   changes (CREATE INDEX CONCURRENTLY, VACUUM, REINDEX, config) with rollback metadata.</li>
 </ul>
 <p>It runs in three deployment shapes selected by <code>cfg.Mode</code> + the <code>--meta-db</code> flag:
 <strong>standalone</strong> (one DB), <strong>fleet</strong> (N YAML-defined DBs, one pipeline each), and <strong>meta-db
-fleet</strong> (store-backed, the only mode with dynamic add/remove/reconnect). A separate
-<strong>AgentDB</strong> subsystem provisions agent-requested databases on AWS RDS / GCP Cloud SQL /
-Databricks Lakebase.</p>
+fleet</strong> (store-backed, the only mode with dynamic add/remove/reconnect).</p>
 <p><strong>Scale of the codebase:</strong> ~65k LOC Go across 32 internal packages, 38 <code>sage.*</code> tables,
 ~139 REST endpoints, 10 dashboard pages, React 19 + Vite frontend embedded via <code>go:embed</code>.</p>
 <h2 id="2-control-flow-one-database">2. Control flow (one database)<a class="headerlink" href="#2-control-flow-one-database" title="Permanent link">&para;</a></h2>
@@ -880,7 +883,7 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 <tbody>
 <tr>
 <td>"17 REST endpoints" (CLAUDE.md)</td>
-<td><strong>~139</strong> method+path pairs; AgentDB alone is 62.</td>
+<td><strong>~139</strong> method+path pairs at the time (about 77 after the G0 removal).</td>
 </tr>
 <tr>
 <td>Trust auto-ramps observation→advisory→autonomous</td>
@@ -915,14 +918,6 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 <td>Senders <strong>never registered</strong>; all event notifications silently no-op ("no sender for type"). Only the API test path delivers.</td>
 </tr>
 <tr>
-<td>AgentDB databases are monitored</td>
-<td><strong>Partial.</strong> Eligible inline-credential deployments join the fleet collector after scheduled reconciliation; analyzer/executor and secret-ref resolution are absent. Durable monitoring work exists but has no runtime worker.</td>
-</tr>
-<tr>
-<td>Terraform provisioning</td>
-<td>Rendered + policy-scanned but <strong>never executed</strong>; only the SDK/REST runners run.</td>
-</tr>
-<tr>
 <td>Maintenance windows as <code>HH:MM-HH:MM</code></td>
 <td>Parser understands only cron + <code>"always"</code>; range strings are silently never-in-window.</td>
 </tr>
@@ -946,9 +941,8 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 <p>Core (22): <code>findings</code>, <code>action_log</code>, <code>action_queue</code>, <code>snapshots</code>, <code>config</code>, <code>config_audit</code>,
 <code>databases</code>, <code>users</code>, <code>sessions</code>, <code>incidents</code>, <code>cases</code>(projection), <code>explain_cache</code>,
 <code>explain_results</code>, <code>query_hints</code>, <code>briefings</code>, <code>alert_log</code>, <code>notification_channels/rules/log</code>,
-<code>size_history</code>, <code>health_history</code>, <code>schema_findings</code>(legacy), <code>crypto_meta</code>. AgentDB (25):
-<code>agent_db_*</code> (instances, leases, costs, budgets, tokens, blueprints, templates, deploy_requests,
-audit, …). See section 7 for the full reference and the ~25 config blocks.</p>
+<code>size_history</code>, <code>health_history</code>, <code>schema_findings</code>(legacy), <code>crypto_meta</code>. The 25
+provisioning tables of the removed subsystem stay until G1 drops them. See section 7 for the full reference and the ~25 config blocks.</p>
 <h2 id="6-tech-stack-conventions">6. Tech stack &amp; conventions<a class="headerlink" href="#6-tech-stack-conventions" title="Permanent link">&para;</a></h2>
 <p>Go 1.24, <code>pgx/v5</code> + <code>pgxpool</code> (no <code>database/sql</code>, no ORM), <code>yaml.v3</code> + env + <code>sage.config</code>
 runtime overrides, <code>log/slog</code>, typed config lifecycles, stdlib <code>testing</code> (no testify), React 19 +
