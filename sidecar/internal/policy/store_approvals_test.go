@@ -9,7 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// G1-14 (SAFE-TOOL-08, AGENTDB-SPEC §6.11): an agent can propose a policy
+// G1-14 (SAFE-TOOL-08, spec §6.11): an agent can propose a policy
 // change but never ratify it, and a widening agent proposal needs two
 // people (neither of them the agent's sponsor) unless
 // agents.single_operator_mode lets one person approve with a recorded

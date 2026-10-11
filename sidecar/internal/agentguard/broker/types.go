@@ -1,4 +1,4 @@
-// Package broker is agent governance's brokered read path (AGENTDB-SPEC
+// Package broker is agent governance's brokered read path (spec
 // §6.8): agent_query runs one read statement as the principal's broker
 // role (sage_agentb_<id10>), in a session of its own that logs in with the
 // broker credential, never through SET ROLE on pg_sage's session. Each

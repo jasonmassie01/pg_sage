@@ -5,7 +5,7 @@ import {
   admin, bodiesOf, callsTo, coder, frozenBot, operator, response, stubAPI,
 } from './agents/testStub'
 
-// The Agents page (AGENTDB-SPEC §8.4): every principal with its status,
+// The Agents page (spec §8.4): every principal with its status,
 // sponsor, environment ceiling and taint; admins create agents and hold
 // the fleet kill switch; operators see the list and open an agent.
 

@@ -1,6 +1,6 @@
 package policy
 
-// The six agent change classes (AGENTDB-SPEC §6.3, the contracts' Feature
+// The six agent change classes (spec §6.3, the contracts' Feature
 // column). The default document lists them as allowed and approval
 // required (§6.2.2 A6): an agent change, or a change pg_sage makes on an
 // agent's behalf, runs only after a human approved it until the agent

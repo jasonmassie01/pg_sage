@@ -1,6 +1,6 @@
 package executor
 
-// Agent grant contracts (AGENTDB-SPEC §6.3, §6.6). guard_grant widens: it
+// Agent grant contracts (spec §6.3, §6.6). guard_grant widens: it
 // runs operator-approved (L2) only. guard_revoke narrows (§6.2.4): it runs
 // during an emergency stop and at every trust level, so a grant still
 // expires on schedule (G1-08b).

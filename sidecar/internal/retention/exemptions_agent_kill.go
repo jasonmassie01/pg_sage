@@ -1,6 +1,6 @@
 package retention
 
-// agentKillExemptions: the kill switch's records (AGENTDB-SPEC §6.10).
+// agentKillExemptions: the kill switch's records (spec §6.10).
 // Kills, freezes and unfreeze requests are the audit of who stopped and
 // who restored an agent; §6.17 sets no age retention for them, and they
 // grow by one row per human action. In-flight rows are current state:

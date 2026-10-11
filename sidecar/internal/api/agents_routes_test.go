@@ -17,7 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// /api/v1/agents (AGENTDB-SPEC §8.3) on the real router with a real store:
+// /api/v1/agents (spec §8.3) on the real router with a real store:
 // role gates, the sponsor requirement, error statuses (§8.1), paging, the
 // two-person rule for widening changes and agent token minting.
 

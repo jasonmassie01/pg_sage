@@ -1,4 +1,4 @@
-// Agents page (AGENTDB-SPEC §8.3, §8.4): REST helpers and pure rules.
+// Agents page (spec §8.3, §8.4): REST helpers and pure rules.
 
 export const AGENTS_URL = '/api/v1/agents'
 export const ENVIRONMENTS = ['branch', 'dev', 'stage', 'prod']

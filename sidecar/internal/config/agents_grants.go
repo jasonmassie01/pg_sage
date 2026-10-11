@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// AgentsCapabilitiesConfig bounds agent grants (AGENTDB-SPEC §6.6, §9).
+// AgentsCapabilitiesConfig bounds agent grants (spec §6.6, §9).
 type AgentsCapabilitiesConfig struct {
 	MaxDurationMinutes int `yaml:"max_duration_minutes" doc:"Longest agent grant, in minutes; every grant expires and the reconciler revokes it. 1-10080. Default: 240."`
 }

@@ -1,4 +1,4 @@
-// Agents (AGENTDB-SPEC §8.4): the agent principals pg_sage governs, with
+// Agents (spec §8.4): the agent principals pg_sage governs, with
 // status, sponsor, environment ceiling and taint. Operators open an agent
 // to freeze it and to decide its grants; admins also create agents, issue
 // their tokens, unfreeze them and hold the fleet kill switch. App.jsx keeps

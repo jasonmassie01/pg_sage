@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/decommission"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
@@ -149,10 +150,10 @@ func TestMigrateLegacyTokens_ConcurrentSidecarsMigrateOnce(t *testing.T) {
 	require.Equal(t, 5, n)
 }
 
-func TestMigrateLegacyTokens_ReportsAgentDBTokens(t *testing.T) {
+func TestMigrateLegacyTokens_ReportsRemovedProvisionerTokens(t *testing.T) {
 	pool := livePool(t)
 	ctx := context.Background()
-	_, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS sage.agent_db_agent_tokens (
+	_, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS sage.`+decommission.LegacyTokensTable+` (
 		token_id text PRIMARY KEY, tenant_id text NOT NULL, agent_id text NOT NULL,
 		token_hash text NOT NULL UNIQUE, status text NOT NULL DEFAULT 'active',
 		created_by text NOT NULL DEFAULT '', expires_at timestamptz NOT NULL,
@@ -160,9 +161,10 @@ func TestMigrateLegacyTokens_ReportsAgentDBTokens(t *testing.T) {
 		revoked_at timestamptz)`)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS sage.agent_db_agent_tokens")
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS sage."+
+			decommission.LegacyTokensTable)
 	})
-	_, err = pool.Exec(ctx, `INSERT INTO sage.agent_db_agent_tokens (token_id, tenant_id,
+	_, err = pool.Exec(ctx, `INSERT INTO sage.`+decommission.LegacyTokensTable+` (token_id, tenant_id,
 		agent_id, token_hash, expires_at, revoked_at) VALUES
 		('t1', 'acme', 'a1', 'h1', now() + interval '1 day', NULL),
 		('t2', 'acme', 'a1', 'h2', now() + interval '1 day', now()),
@@ -170,7 +172,8 @@ func TestMigrateLegacyTokens_ReportsAgentDBTokens(t *testing.T) {
 	require.NoError(t, err)
 	res, err := MigrateLegacyTokens(ctx, pool)
 	require.NoError(t, err)
-	require.Equal(t, 1, res.AgentDBTokens, "only the live AgentDB token is reported")
+	require.Equal(t, 1, res.RemovedProvisionerTokens,
+		"only the live token of the removed provisioner is reported")
 	_, err = MigrateLegacyTokens(ctx, nil)
 	require.ErrorIs(t, err, ErrUnavailable)
 }

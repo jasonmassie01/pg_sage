@@ -13,7 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// Kill switch and freeze (AGENTDB-SPEC §6.10, §8.3): request validation,
+// Kill switch and freeze (spec §6.10, §8.3): request validation,
 // configuration, the report's wire shape, standby classification, prior
 // attributes and the local fallback log. No database.
 

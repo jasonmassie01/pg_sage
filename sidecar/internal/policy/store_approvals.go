@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Approvals of agent policy proposals (AGENTDB-SPEC §6.11, G1-14). An agent
+// Approvals of agent policy proposals (spec §6.11, G1-14). An agent
 // can only propose; a person ratifies. When the agent's proposal widens
 // its base version, two different people must approve it and the agent's
 // sponsor is not one of them, unless agents.single_operator_mode lets one

@@ -1,5 +1,5 @@
 // Package upkeep runs agent governance's scheduled role jobs on the fleet
-// leader (AGENTDB-SPEC §6.4, §6.6, G1-01): dropping a retired agent's
+// leader (spec §6.4, §6.6, G1-01): dropping a retired agent's
 // roles once agents.roles.retire_grace_days have passed, rotating broker
 // passwords every agents.broker.rotation_days, and checking connected
 // agent backends. Every write is fenced by the leader lease.

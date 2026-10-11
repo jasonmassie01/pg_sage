@@ -2,7 +2,7 @@ package policy
 
 import "context"
 
-// Agent-originated requests (AGENTDB-SPEC §6.2). policy imports no internal
+// Agent-originated requests (spec §6.2). policy imports no internal
 // package, so it defines the decider interface and cmd injects the
 // implementation (internal/agentguard/decide), as with GateConfig.Autonomy
 // and GateConfig.Facts.

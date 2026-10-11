@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/decommission"
 )
 
 // agentGovernanceStartupTimeout bounds the startup migration and checks.
@@ -34,9 +35,10 @@ func runAgentGovernanceStartup(ctx context.Context, pool *pgxpool.Pool, c *confi
 			"reads work, proposals queue for a human; assign a sponsor in Agents",
 			m.TokenName, m.Principal)
 	}
-	if res.AgentDBTokens > 0 {
-		logWarn("agents", "%d live tokens of the removed AgentDB provisioner remain in "+
-			"sage.agent_db_agent_tokens; nothing accepts them", res.AgentDBTokens)
+	if res.RemovedProvisionerTokens > 0 {
+		logWarn("agents", "%d live tokens of the removed agent provisioner remain in "+
+			"sage.%s; nothing accepts them", res.RemovedProvisionerTokens,
+			decommission.LegacyTokensTable)
 	}
 	logAgentGovernanceReadiness(sctx, pool, c)
 }

@@ -17,7 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
-// The agent kill switch, freeze and unfreeze (AGENTDB-SPEC §6.10). The API
+// The agent kill switch, freeze and unfreeze (spec §6.10). The API
 // router is built before the governance control database is known, so it
 // holds lateKillSwitch, which answers 503 until startAgentKill builds the
 // switch. The kill reaches every monitored database of the fleet and each

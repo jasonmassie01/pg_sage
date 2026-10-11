@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Agent-originated requests (AGENTDB-SPEC §6.2.2, §6.2.3): A1-A3 as for
+// Agent-originated requests (spec §6.2.2, §6.2.3): A1-A3 as for
 // any request, then A4 (GateConfig.Agents), A5 (the level: decider cap,
 // operator ceiling, rollback-class cap) and A6 (the change-class
 // allowlist), mapped to verdicts by level.

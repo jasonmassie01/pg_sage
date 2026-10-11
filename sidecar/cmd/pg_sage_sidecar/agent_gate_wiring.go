@@ -19,7 +19,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// Agent governance gate composition (AGENTDB-SPEC §6.2.1): policy defines
+// Agent governance gate composition (spec §6.2.1): policy defines
 // AgentDecider, cmd injects decide.Decider into every database's standing
 // gate and the §6.2.7 hold into every executor. Executors are built before
 // the control database is known, so both read the process's governance at

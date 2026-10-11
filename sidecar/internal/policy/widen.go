@@ -2,7 +2,7 @@ package policy
 
 import "fmt"
 
-// Widens reports whether next grants anything base does not (AGENTDB-SPEC
+// Widens reports whether next grants anything base does not (spec
 // §6.11: a policy proposal that widens needs two people when an agent
 // proposed it). It is conservative: any change it cannot show to be equal
 // or tighter counts as widening.

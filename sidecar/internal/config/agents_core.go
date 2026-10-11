@@ -6,7 +6,7 @@ import (
 )
 
 // AgentsRolesConfig is the attributes and per-database settings of agent
-// roles (AGENTDB-SPEC §6.6, §9). The timeouts also bound sessions a kill
+// roles (spec §6.6, §9). The timeouts also bound sessions a kill
 // cannot reach (an unconfigured standby).
 type AgentsRolesConfig struct {
 	ConnectionLimit            int `yaml:"connection_limit" doc:"CONNECTION LIMIT of each agent's direct-lane role. At least 1. Default: 5."`

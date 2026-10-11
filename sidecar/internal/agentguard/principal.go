@@ -1,4 +1,4 @@
-// Package agentguard is pg_sage's agent governance core (AGENTDB-SPEC §6.4,
+// Package agentguard is pg_sage's agent governance core (spec §6.4,
 // §6.6): agent principals and their accountable sponsors, the MCP tokens
 // bound to them, the request plumbing that carries a principal, and the
 // two cluster roles every principal gets (sage_agent_<id10> for the direct

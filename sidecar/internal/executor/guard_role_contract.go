@@ -6,7 +6,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// Agent role contracts (AGENTDB-SPEC §6.3, §6.6). The agent governance
+// Agent role contracts (spec §6.3, §6.6). The agent governance
 // package builds and runs them; their action types are typed internal
 // actions (no caller-shaped SQL), their change class is agent_access, and
 // in G1 they run only operator-approved (L2).

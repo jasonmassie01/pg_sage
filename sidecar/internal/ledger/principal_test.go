@@ -25,7 +25,7 @@ func legacyFingerprint(input DecisionInput) string {
 	return "fp_" + hex.EncodeToString(sum[:16])
 }
 
-// Agent provenance on sage.decision (AGENTDB-SPEC §6.2.3, §7):
+// Agent provenance on sage.decision (spec §6.2.3, §7):
 // principal_id, task_id and artifact_hash.
 
 func TestFingerprintUnchangedWithoutPrincipal(t *testing.T) {

@@ -1,7 +1,7 @@
 package agentguard
 
 // OutOfGatePath is one entry of the closed list of paths that change agent
-// access without policy.Gate → Executor.Apply (AGENTDB-SPEC §6.2.5). The
+// access without policy.Gate → Executor.Apply (spec §6.2.5). The
 // list is closed: everything else, the watchdog and the trash purge
 // included, goes through the gate. A census test fails when code that
 // changes agent roles, grants or sessions appears outside the gate and
@@ -22,8 +22,9 @@ const (
 	// OutOfGateBreakGlass is the break-glass login (E1), for when the IdP is
 	// down. Audit: auth_audit and an alert on every use.
 	OutOfGateBreakGlass OutOfGatePath = "break_glass_login"
-	// OutOfGateDecommissionAck is the AgentDB decommission acknowledgement
-	// (§12). Audit: sage.agentdb_decommission, with actor and time.
+	// OutOfGateDecommissionAck is the removed provisioner's decommission
+	// acknowledgement (§12). Audit: decommission.AckTable, with actor and
+	// time.
 	OutOfGateDecommissionAck OutOfGatePath = "decommission_acknowledgement"
 )
 

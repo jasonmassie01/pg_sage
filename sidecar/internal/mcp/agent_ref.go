@@ -7,7 +7,7 @@ import (
 )
 
 // bindAgentRef marks an agent's tool call as agent-originated for the
-// policy gate (AGENTDB-SPEC §6.2.6): every ActionRequest built under ctx
+// policy gate (spec §6.2.6): every ActionRequest built under ctx
 // then carries the principal and the tool. The authenticated MCP
 // principal is the authority; a ref the transport bound for the same
 // principal keeps its sponsor, task and act claim. A person's call

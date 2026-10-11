@@ -16,7 +16,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// AGENTDB-SPEC §6.2.1 wiring: the decider and the §6.2.7 hold are read at
+// spec §6.2.1 wiring: the decider and the §6.2.7 hold are read at
 // decision time; before governance starts (or without a control database)
 // agent requests are capped at approval and agent changes fail closed.
 

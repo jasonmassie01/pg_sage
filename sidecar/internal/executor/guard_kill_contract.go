@@ -1,6 +1,6 @@
 package executor
 
-// Freeze, kill switch and unfreeze contracts (AGENTDB-SPEC §6.3, §6.10).
+// Freeze, kill switch and unfreeze contracts (spec §6.3, §6.10).
 // guard_freeze and guard_kill only take access away: they are Narrowing,
 // so the gate lets them through the emergency stop, a disabled executor,
 // any trust level, the standing document, budgets and windows (§6.2.4).

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The kill switch's settings (AGENTDB-SPEC §6.10, §9):
+// The kill switch's settings (spec §6.10, §9):
 // agents.kill_verify_timeout_seconds bounds the verification that no agent
 // backend remains, and databases[].replicas lists the standbys the kill
 // reaches (it reports the others it sees in pg_stat_replication).

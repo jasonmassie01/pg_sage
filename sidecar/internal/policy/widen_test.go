@@ -2,7 +2,7 @@ package policy
 
 import "testing"
 
-// Widens decides whether a policy proposal widens anything (AGENTDB-SPEC
+// Widens decides whether a policy proposal widens anything (spec
 // §6.11): an agent's widening proposal needs two people (G1-14). Anything
 // not provably equal or tighter counts as widening.
 

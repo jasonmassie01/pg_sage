@@ -3,7 +3,7 @@ package config
 import "fmt"
 
 // AgentsQueryConfig bounds agent_query, the brokered read path
-// (AGENTDB-SPEC §6.8, §9). Its statement timeout is
+// (spec §6.8, §9). Its statement timeout is
 // agents.roles.statement_timeout_ms, set in every brokered transaction.
 type AgentsQueryConfig struct {
 	MaxRows        int `yaml:"max_rows" doc:"Rows agent_query returns when the agent asks for no bound; it fetches one more only to report truncation. At least 1 and at most max_rows_ceiling. Default: 200."`

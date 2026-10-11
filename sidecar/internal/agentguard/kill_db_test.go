@@ -11,7 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// The kill switch on one primary (AGENTDB-SPEC §6.10 steps 1-8): every
+// The kill switch on one primary (spec §6.10 steps 1-8): every
 // step is checked against the catalog and the control tables, not only
 // against the report.
 

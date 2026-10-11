@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// AGENTDB-SPEC §6.2.1, §6.2.6: an agent token binds the policy gate's
+// spec §6.2.1, §6.2.6: an agent token binds the policy gate's
 // principal ref too, so every gate request under the call is the agent's.
 
 type refCapture struct {

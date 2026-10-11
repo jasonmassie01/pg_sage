@@ -1,4 +1,4 @@
-// Package decide is agent governance's gate composition (AGENTDB-SPEC
+// Package decide is agent governance's gate composition (spec
 // §6.2): the D-steps D1-D10 every agent-originated request passes, the
 // mapping of existing MCP tools to capability classes (§6.2.6) and the
 // cross-database re-check that keeps a principal active until its write

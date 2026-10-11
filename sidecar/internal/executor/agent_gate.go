@@ -8,7 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// Agent governance in the executor (AGENTDB-SPEC §6.2.1, §6.2.7): cmd
+// Agent governance in the executor (spec §6.2.1, §6.2.7): cmd
 // injects the decider into the standing gate, and an agent-originated
 // change holds its principal active in the control database from the
 // re-authorization until its target commit returns.

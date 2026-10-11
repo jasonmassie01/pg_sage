@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
-// Agent provenance on the approval queue (AGENTDB-SPEC §6.2.2 D9, §7): an
+// Agent provenance on the approval queue (spec §6.2.2 D9, §7): an
 // item an agent's request queued carries its principal, the approved run
 // reads it back, and the per-principal pending count (D9
 // max_pending_per_principal) uses the (principal_id, status) index.

@@ -16,7 +16,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 )
 
-// Agent principals (agent governance, AGENTDB-SPEC §8.3): operators list
+// Agent principals (agent governance, spec §8.3): operators list
 // and read them; admins create them with an accountable sponsor, change
 // them, retire them and mint their MCP tokens. A widening change (a higher
 // ceiling, another profile) needs a second person unless

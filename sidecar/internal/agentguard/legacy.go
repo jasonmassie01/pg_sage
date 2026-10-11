@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/decommission"
 )
 
 // LegacyProfile is the profile migrated agent tokens get (§6.4, §9:
@@ -62,10 +64,11 @@ type MigratedToken struct {
 // LegacyResult is what the migration did.
 type LegacyResult struct {
 	Migrated []MigratedToken `json:"migrated"`
-	// AgentDBTokens counts live tokens of the removed AgentDB provisioner
-	// (sage.agent_db_agent_tokens). Nothing authenticates them any more;
-	// they are reported, not migrated, and go with the legacy tables.
-	AgentDBTokens int `json:"agentdb_tokens"`
+	// RemovedProvisionerTokens counts live tokens of the removed agent
+	// provisioner (decommission.LegacyTokensTable). Nothing authenticates
+	// them any more; they are reported, not migrated, and go with the
+	// legacy tables.
+	RemovedProvisionerTokens int `json:"removed_provisioner_tokens"`
 }
 
 // MigrateLegacyTokens binds every live agent MCP token that has no
@@ -95,7 +98,7 @@ func MigrateLegacyTokens(ctx context.Context, pool *pgxpool.Pool) (LegacyResult,
 			}
 			res.Migrated = append(res.Migrated, m)
 		}
-		res.AgentDBTokens, err = countAgentDBTokens(ctx, tx)
+		res.RemovedProvisionerTokens, err = decommission.CountLiveLegacyTokens(ctx, tx)
 		return err
 	})
 	if err != nil {
@@ -172,20 +175,4 @@ func insertLegacyPrincipal(ctx context.Context, tx pgx.Tx, id, name,
 		return false, err
 	}
 	return true, sp.Commit(ctx)
-}
-
-func countAgentDBTokens(ctx context.Context, tx pgx.Tx) (int, error) {
-	var exists bool
-	if err := tx.QueryRow(ctx, `/* pg_sage guard_legacy v1 */
-		SELECT to_regclass('sage.agent_db_agent_tokens') IS NOT NULL`).Scan(&exists); err != nil {
-		return 0, err
-	}
-	if !exists {
-		return 0, nil
-	}
-	var n int
-	err := tx.QueryRow(ctx, `/* pg_sage guard_legacy v1 */
-		SELECT count(*)::int FROM sage.agent_db_agent_tokens
-		WHERE revoked_at IS NULL AND expires_at > now()`).Scan(&n)
-	return n, err
 }

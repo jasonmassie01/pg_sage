@@ -1,4 +1,4 @@
-// Package grants runs agent grants (AGENTDB-SPEC §6.3, §6.6, §6.7): the
+// Package grants runs agent grants (spec §6.3, §6.6, §6.7): the
 // typed executor contracts guard_grant and guard_revoke, the grant registry
 // sage.guard_grants in each monitored database, the reconciler that revokes
 // grants when they expire, and the lease check the broker applies before it

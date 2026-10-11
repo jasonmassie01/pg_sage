@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Kill switch and freeze (AGENTDB-SPEC §6.10, §8.3). A kill freezes every
+// Kill switch and freeze (spec §6.10, §8.3). A kill freezes every
 // agent of its scope at once, across every configured database and
 // replica; a freeze does the same for one principal on an operator's
 // word. Both are narrowing (§6.2.4): they need no approval and work under

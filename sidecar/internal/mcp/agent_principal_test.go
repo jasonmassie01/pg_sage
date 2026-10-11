@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// AGENTDB-SPEC §6.2.6 (CG-08): every ActionRequest built from an agent's
+// spec §6.2.6 (CG-08): every ActionRequest built from an agent's
 // MCP call carries the agent. The server binds a policy.PrincipalRef with
 // the tool name on the call's context; the gate fills Principal from it.
 

@@ -1,7 +1,7 @@
 package retention
 
 // agentGrantExemptions: the grant registry is the record of who held which
-// privilege and when (AGENTDB-SPEC §6.6, §6.17), and a decided capability
+// privilege and when (spec §6.6, §6.17), and a decided capability
 // request is the approval behind a grant.
 var agentGrantExemptions = map[string]string{
 	"guard_grants": "the agent grant registry: one row per grant, kept as the " +

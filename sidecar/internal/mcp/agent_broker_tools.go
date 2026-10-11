@@ -11,7 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
-// Agent governance read tools (AGENTDB-SPEC §8.2): agent_query runs one
+// Agent governance read tools (spec §8.2): agent_query runs one
 // read as the calling principal's broker role; agent_whoami describes the
 // principal. Both need the read scope. Gate outcomes (blocked) are normal
 // results; failures the model can act on are isError results (§8.1).

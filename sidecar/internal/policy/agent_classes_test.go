@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Agent change classes (AGENTDB-SPEC §6.2.2 A6, §6.3) and the typed agent
+// Agent change classes (spec §6.2.2 A6, §6.3) and the typed agent
 // role contracts.
 
 func TestAgentChangeClasses_SixInSpecOrder(t *testing.T) {

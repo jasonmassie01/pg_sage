@@ -31,7 +31,7 @@ type DecisionInput struct {
 	// Execute verdicts leave it empty: each backs its own action.
 	Fingerprint string
 	// PrincipalID, TaskID and ArtifactHash are an agent request's
-	// provenance (AGENTDB-SPEC §6.2.3); empty for pg_sage's own.
+	// provenance (spec §6.2.3); empty for pg_sage's own.
 	PrincipalID  string
 	TaskID       string
 	ArtifactHash string

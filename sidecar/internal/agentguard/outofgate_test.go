@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// AGENTDB-SPEC §6.2.5: the closed list of out-of-gate paths. This census
+// spec §6.2.5: the closed list of out-of-gate paths. This census
 // scans pg_sage's production Go source (internal/ and cmd/) for code that
 // changes agent access: a SQL literal that alters, grants, revokes or
 // terminates, in a file that names agent roles (the agentguard packages,
@@ -63,7 +63,7 @@ var closedListAnchors = map[OutOfGatePath]struct{ file, marker string }{
 	OutOfGateKillFallback:    {"internal/agentguard/kill_run.go", "appendFallback"},
 	OutOfGateManualRunbook:   {"../docs/agent-guard.md", "NOLOGIN CONNECTION LIMIT 0"},
 	OutOfGateBreakGlass:      {"internal/auth/break_glass.go", "break"},
-	OutOfGateDecommissionAck: {"internal/decommission/ack.go", "agentdb_decommission"},
+	OutOfGateDecommissionAck: {"internal/decommission/ack.go", "func Acknowledge("},
 }
 
 var (

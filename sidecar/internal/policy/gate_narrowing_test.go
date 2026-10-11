@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Narrowing contracts (AGENTDB-SPEC §6.2.4): guard_revoke, guard_freeze,
+// Narrowing contracts (spec §6.2.4): guard_revoke, guard_freeze,
 // the kill steps, guard_watchdog_cancel and estate_quarantine only take
 // access away. They pass A1's stops (executor disabled, emergency stop,
 // replica), A5's trust ceiling and A6's document, budgets and windows, but

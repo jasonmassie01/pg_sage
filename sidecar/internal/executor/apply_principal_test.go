@@ -10,7 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// Cross-database re-check (AGENTDB-SPEC §6.2.7): an agent-originated
+// Cross-database re-check (spec §6.2.7): an agent-originated
 // change holds its principal active in the control database from the
 // re-authorization until the change (and its target COMMIT) returns.
 

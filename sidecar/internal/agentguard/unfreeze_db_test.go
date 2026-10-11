@@ -12,7 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-// guard_unfreeze (AGENTDB-SPEC §6.3, §6.10, §6.11; G1-06): widening, so it
+// guard_unfreeze (spec §6.3, §6.10, §6.11; G1-06): widening, so it
 // runs through the gate like any other change (emergency stop, trust,
 // operator approval). After a kill it needs two admins, neither of them
 // the principal's sponsor for the second, unless single-operator mode. It

@@ -10,7 +10,7 @@ var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemption
 	agentGateExemptions, auditChainExemptions, agentKillExemptions, agentGrantExemptions)
 
 // agentGuardExemptions: agent identities and their roles are the record of
-// truth for who could act (AGENTDB-SPEC §6.4, §6.6); §6.17 sets no age
+// truth for who could act (spec §6.4, §6.6); §6.17 sets no age
 // retention for them, and retired principals stay for audit.
 var agentGuardExemptions = map[string]string{
 	"guard_principals": "agent identities, one row per principal; retired " +

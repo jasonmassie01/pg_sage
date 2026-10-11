@@ -16,7 +16,7 @@ import (
 // releaseTimeout bounds the rollback that ends a hold.
 const releaseTimeout = 5 * time.Second
 
-// HoldActive is the cross-database re-check (AGENTDB-SPEC §6.2.7).
+// HoldActive is the cross-database re-check (spec §6.2.7).
 // Principals live in the control database while writes commit in the
 // target, so from the re-authorization until the target COMMIT returns,
 // the executor holds the principal's row FOR SHARE on the control

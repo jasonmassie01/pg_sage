@@ -112,7 +112,7 @@ func serveMCPToken(
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// principalRef is the policy gate's view of an agent identity (AGENTDB-SPEC
+// principalRef is the policy gate's view of an agent identity (spec
 // §6.2.1): the MCP server adds the tool to it on every call.
 func principalRef(id agentguard.Identity) policy.PrincipalRef {
 	ref := policy.PrincipalRef{ID: id.Principal.ID, TaskID: id.TaskID,

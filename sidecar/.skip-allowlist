@@ -42,7 +42,7 @@ internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintR
 internal/tuner TestGeneratePlanFixtures # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
 test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 
-# Agent role management (AGENTDB-SPEC section 6.6) needs PostgreSQL 16+ (CREATEROLE
+# Agent role management (spec section 6.6) needs PostgreSQL 16+ (CREATEROLE
 # no longer implies membership; GRANT ... WITH INHERIT/SET). On PG14/15 Guard is
 # posture-only and TestEnsure_RefusedBeforePG16 pins the refusal; it skips on 16+.
 internal/agentguard TestEnsure_RefusedBeforePG16 # covers PG14/15 only; the PG16+ legs run the role tests it stands in for

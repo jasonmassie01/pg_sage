@@ -1,5 +1,5 @@
 // Package readapi is the request and result vocabulary of agent
-// governance's brokered read path (agent_query, agent_whoami; AGENTDB-SPEC
+// governance's brokered read path (agent_query, agent_whoami; spec
 // §8.2). It imports nothing from agent governance, so transports (MCP,
 // REST) can name it without importing the broker and its gate.
 package readapi

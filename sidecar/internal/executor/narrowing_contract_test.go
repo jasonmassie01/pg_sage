@@ -3,7 +3,7 @@ package executor
 import "testing"
 
 // The executor contract's Narrowing flag reaches the gate's contract
-// (AGENTDB-SPEC §6.2.4); without it a narrowing action would stop at the
+// (spec §6.2.4); without it a narrowing action would stop at the
 // emergency stop like any other.
 func TestPolicyContractCarriesNarrowing(t *testing.T) {
 	c := ActionContract{ActionType: "guard_freeze", BaseRiskTier: "safe",

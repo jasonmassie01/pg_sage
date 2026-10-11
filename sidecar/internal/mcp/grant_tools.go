@@ -11,7 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 )
 
-// agent_request_capability (AGENTDB-SPEC §8.2): an agent asks for a
+// agent_request_capability (spec §8.2): an agent asks for a
 // time-boxed, column-listed grant. Agent governance decides the request
 // (D1-D10); an allowed one waits for an operator's approval in pg_sage
 // (every G1 grant is L2), which runs guard_grant. The agent never grants

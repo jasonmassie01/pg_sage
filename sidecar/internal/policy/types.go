@@ -123,7 +123,7 @@ type ActionContract struct {
 	// DropKind classifies a dropped object. Empty means the gate derives
 	// it from the request SQL.
 	DropKind DropKind
-	// Narrowing marks a contract that only takes access away (AGENTDB-SPEC
+	// Narrowing marks a contract that only takes access away (spec
 	// §6.2.4: guard_revoke, guard_freeze, the kill steps,
 	// guard_watchdog_cancel, estate_quarantine). It passes the hard stops,
 	// trust level, standing document, budgets and windows; it is still
@@ -166,7 +166,7 @@ type ActionRequest struct {
 	// and the kind budgets do not park it (BudgetBypassFor); the rest of the
 	// gate still binds.
 	Rollback bool
-	// Principal is the agent a request comes from (AGENTDB-SPEC §6.2); nil
+	// Principal is the agent a request comes from (spec §6.2); nil
 	// for pg_sage's own actions and people's. Authorize and Explain fill it
 	// from the context (WithPrincipalRef) when the caller left it nil.
 	Principal *PrincipalRef
@@ -299,7 +299,7 @@ type GateConfig struct {
 		error)
 	// Facts answers which confirmed facts bind a request (roadmap 2.3); nil
 	// consults none. A binding blocks the request: facts only narrow.
-	Facts FactBinder	// Verification lists the changes still being verified on a request's
+	Facts FactBinder // Verification lists the changes still being verified on a request's
 	// objects (one change per object); nil consults none.
 	Verification VerificationTracker
 	// Agents decides agent-originated requests (Principal != nil, §6.2.2
