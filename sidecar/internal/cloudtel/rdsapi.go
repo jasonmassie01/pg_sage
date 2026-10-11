@@ -23,6 +23,8 @@ type rdsInstance struct {
 	PIEnabled                                bool
 	ParameterGroup, ParameterApplyStatus     string
 	Replicas                                 []string
+	BackupRetention                          *int32
+	DeletionProtection                       *bool
 }
 
 type rdsAPI struct{ client *rds.Client }
@@ -52,7 +54,8 @@ func (a *rdsAPI) instance(ctx context.Context, id string) (rdsInstance, error) {
 		ResourceID: aws.ToString(d.DbiResourceId), ClusterID: aws.ToString(d.DBClusterIdentifier),
 		AllocatedGiB: aws.ToInt32(d.AllocatedStorage), MaxAllocatedGiB: aws.ToInt32(
 			d.MaxAllocatedStorage), PIEnabled: aws.ToBool(d.PerformanceInsightsEnabled),
-		Replicas: d.ReadReplicaDBInstanceIdentifiers}
+		Replicas: d.ReadReplicaDBInstanceIdentifiers, BackupRetention: d.BackupRetentionPeriod,
+		DeletionProtection: d.DeletionProtection}
 	if len(d.DBParameterGroups) > 0 {
 		inst.ParameterGroup = aws.ToString(d.DBParameterGroups[0].DBParameterGroupName)
 		inst.ParameterApplyStatus = aws.ToString(d.DBParameterGroups[0].ParameterApplyStatus)

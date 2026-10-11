@@ -108,7 +108,8 @@ func classifyField(path string) (ConfigLifecycle, string) {
 }
 
 func isRestartField(path string) bool {
-	if path == "mode" || path == "meta_db" || path == "encryption_key" {
+	if path == "mode" || path == "meta_db" || path == "encryption_key" ||
+		path == "encryption_key_previous" {
 		return true
 	}
 	if strings.HasPrefix(path, "postgres.") || strings.HasPrefix(path, "oauth.") {
@@ -122,7 +123,6 @@ func reconfigurationOwner(path string) string {
 	exact := map[string]string{
 		"collector.interval_seconds":            "collector",
 		"analyzer.interval_seconds":             "analyzer",
-		"agentdb.reconcile_interval_seconds":    "agentdb",
 		"tuner.revalidation_interval_hours":     "tuner",
 		"schema_lint.scan_interval_minutes":     "schema_lint",
 		"auto_explain.collect_interval_seconds": "auto_explain",

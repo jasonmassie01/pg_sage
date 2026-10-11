@@ -1,0 +1,1 @@
+{"id": "RO-06", "technique": "COPY to a server program", "expect": "privilege_error"}

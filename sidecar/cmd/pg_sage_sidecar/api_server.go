@@ -102,7 +102,7 @@ func configureAPIProcessHooks() {
 }
 
 // startAuthPoolServices reports a missing auth pool and otherwise starts
-// the agent-DB lifecycle reconciler on it.
+// the control-pool services on it.
 func startAuthPoolServices(authPool *pgxpool.Pool) {
 	// Fail loudly (not silently) when there is no usable auth pool.
 	// Without it, registerAuthRoutes is skipped and every /api/* path
@@ -117,13 +117,10 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 				"restart.")
 	}
 
-	// Start the agent-DB lifecycle reconciler: it archives expired leases
-	// and destroys abandoned deployments. The logic was built and tested
-	// but never scheduled (F4). Dormant when no agent DBs exist.
 	if authPool != nil {
 		// Election first: the leader-only loops below read its result.
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
-		startAgentDBReconciler(shutdownCtx, authPool)
+		startDecommissionReport(shutdownCtx, authPool, cfg.ConfigPath)
 		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
 		startSpecialistOutbound(shutdownCtx)
 	}
@@ -142,8 +139,8 @@ func serveAPI(addr string, handler http.Handler) {
 	}
 
 	go func() {
-		logInfo("api", "listening on %s", addr)
-		if err := apiServer.ListenAndServe(); err != nil &&
+		logInfo("api", "%s", apiListenLog(addr, apiTLS))
+		if err := listenAPI(apiServer, apiTLS); err != nil &&
 			err != http.ErrServerClosed {
 			logError("api", "server error: %v", err)
 		}

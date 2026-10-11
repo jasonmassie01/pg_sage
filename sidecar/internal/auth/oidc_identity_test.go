@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,7 +76,7 @@ func TestFetchOIDCIdentity_ReturnsIssuerSubjectEmail(t *testing.T) {
 			Issuer: "https://idp.example.com", Subject: "subject-42",
 			Email: "a@example.com", EmailVerified: true,
 		}
-		if id != want {
+		if !reflect.DeepEqual(id, want) {
 			t.Errorf("identity = %+v, want %+v", id, want)
 		}
 	}

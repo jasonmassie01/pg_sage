@@ -3,10 +3,14 @@ param(
   [switch]$PreserveSageState,
   [switch]$SkipActionLifecycle,
   [int]$PollSeconds = 90,
-  [string]$ConfigPath = ""
+  [string]$ConfigPath = "",
+  [string]$AdminPassword = $env:PG_SAGE_ADMIN_PASS
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrEmpty($AdminPassword)) {
+  throw "Set PG_SAGE_ADMIN_PASS (or pass -AdminPassword) to a local-only admin password."
+}
 
 $Repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Sidecar = Join-Path $Repo "sidecar"
@@ -307,7 +311,7 @@ Write-Host "Resetting verification admin password..."
 Push-Location $Sidecar
 try {
   $env:GOCACHE = Join-Path $Repo ".gocache"
-  go run ./cmd/reset_admin_for_test -dsn "postgres://postgres:test@127.0.0.1:5433/testdb?sslmode=disable" -email admin@pg-sage.local -password "CodexVerify123!"
+  go run ./cmd/reset_admin_for_test -dsn "postgres://postgres:test@127.0.0.1:5433/testdb?sslmode=disable" -email admin@pg-sage.local -password $AdminPassword
 } finally {
   Pop-Location
 }
@@ -344,7 +348,7 @@ foreach ($target in $Targets) {
 
 Write-Host ""
 Write-Host "Verification API smoke:"
-$body = @{ email = "admin@pg-sage.local"; password = "CodexVerify123!" } | ConvertTo-Json
+$body = @{ email = "admin@pg-sage.local"; password = $AdminPassword } | ConvertTo-Json
 $session = $null
 $login = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18085/api/v1/auth/login" -Method Post -ContentType "application/json" -Body $body -SessionVariable session
 Write-Host "login=$($login.StatusCode)"

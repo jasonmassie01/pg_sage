@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -108,16 +107,7 @@ func Authenticate(
 func CreateSession(
 	ctx context.Context, pool *pgxpool.Pool, userID int,
 ) (string, error) {
-	var sessionID string
-	err := pool.QueryRow(ctx,
-		"INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2) RETURNING id",
-		userID, time.Now().Add(SessionDuration),
-	).Scan(&sessionID)
-	if err != nil {
-		return "", fmt.Errorf("creating session: %w", err)
-	}
-	return sessionID, nil
+	return CreateSessionWithDuration(ctx, pool, userID, SessionDuration)
 }
 
 // ValidateSession checks that a session exists and is not expired.

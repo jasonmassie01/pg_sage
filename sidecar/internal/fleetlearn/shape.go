@@ -57,16 +57,10 @@ func QueryShapeHash(sql string) string {
 }
 
 // Boundary is the sharing boundary of a fleet database: priors only flow
-// between databases of the same boundary. An agent database belongs to its
-// tenant (isolated without one); a database tagged tenant=<x> belongs to
-// that tenant; every other database shares the operator's boundary "".
-func Boundary(name string, tags []string) string {
-	if strings.HasPrefix(name, "agentdb:") {
-		if len(tags) >= 3 && tags[0] == "agentdb" && strings.TrimSpace(tags[2]) != "" {
-			return "agentdb-tenant:" + strings.TrimSpace(tags[2])
-		}
-		return isolatedPrefix + name
-	}
+// between databases of the same boundary. A database tagged tenant=<x>
+// belongs to that tenant; every other database shares the operator's
+// boundary "".
+func Boundary(tags []string) string {
 	for _, tag := range tags {
 		key, value, ok := cutTag(tag)
 		if ok && strings.EqualFold(key, "tenant") && value != "" {
@@ -74,13 +68,6 @@ func Boundary(name string, tags []string) string {
 		}
 	}
 	return ""
-}
-
-const isolatedPrefix = "agentdb-isolated:"
-
-// Isolated reports a boundary with no peers at all.
-func Isolated(boundary string) bool {
-	return strings.HasPrefix(boundary, isolatedPrefix)
 }
 
 func cutTag(tag string) (string, string, bool) {

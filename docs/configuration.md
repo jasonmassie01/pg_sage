@@ -142,11 +142,46 @@ go run ./cmd/gen_config_meta -lifecycle-only \
 | `SAGE_LLM_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
 | `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
 | `SAGE_API_KEY` | (none) | Legacy config field; the current web/API path uses session login cookies |
-| `SAGE_TLS_CERT` | (none) | Legacy/reserved; terminate TLS at a reverse proxy |
-| `SAGE_TLS_KEY` | (none) | Legacy/reserved; terminate TLS at a reverse proxy |
+| `SAGE_TLS_CERT` | (none) | PEM certificate (chain) file; with `SAGE_TLS_KEY`, the API serves HTTPS only |
+| `SAGE_TLS_KEY` | (none) | PEM private key file for `SAGE_TLS_CERT`; set both or neither |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |
+| `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
+| `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
+| `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
+
+A `_FILE` variant reads the value from the named file (for Docker, Kubernetes
+or Vault Agent secrets); set either the variable or its `_FILE`, not both.
+
+### Secrets from files (`*_FILE`)
+
+Every secret pg_sage reads for itself also accepts a file: set `NAME_FILE` to a
+path instead of `NAME`. Vault Agent, the Secrets Store CSI driver, External
+Secrets, Kubernetes secret volumes and Docker secrets can all fill it; pg_sage
+needs no vendor SDK.
+
+| Variable | Also read as |
+|---|---|
+| `SAGE_DATABASE_URL`, `SAGE_PG_PASSWORD`, `SAGE_META_DB` | `SAGE_DATABASE_URL_FILE`, ... |
+| `SAGE_ENCRYPTION_KEY` | `SAGE_ENCRYPTION_KEY_FILE` |
+| `SAGE_LLM_API_KEY`, `SAGE_OPTIMIZER_LLM_API_KEY` | `..._FILE` |
+| `SAGE_OAUTH_CLIENT_SECRET`, `SAGE_CLONE_DLE_TOKEN`, `SAGE_API_KEY` | `..._FILE` |
+| `SAGE_SUPABASE_OBSERVABILITY_TOKEN` | `SAGE_SUPABASE_OBSERVABILITY_TOKEN_FILE` |
+| `SAGE_VECTORLAB_DATABASE_URL`, `SAGE_HISTORY_MONITORED_DSN` (subcommands) | `..._FILE` |
+| any `${NAME}` referenced in the YAML (fleet passwords, webhook secrets) | `NAME_FILE` |
+
+Rules:
+
+- Setting both `NAME` and `NAME_FILE` is a startup error; neither silently wins.
+- The value is the file's content minus **one** trailing newline (LF or CRLF).
+  An empty file, or one over 64 KiB, is a startup error.
+- A file other users can read or write draws a startup warning; `chmod 600`
+  (or `400`) it. Group access is fine, so Kubernetes `fsGroup` mounts don't warn.
+- Errors name the variable and path, never the content.
+- CLI flags (`--pg-url`, `--meta-db`, `--encryption-key`) still win over both.
+- A config hot reload re-reads files behind `${NAME}` references, so a rotated
+  file takes effect for hot-reloadable keys.
 
 ---
 
@@ -624,6 +659,12 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
+
+SSO (`oauth.*`) validates the OIDC `id_token` with PKCE and a nonce, can map
+IdP groups to roles (`oauth.role_mapping`, `oauth.groups_claim`,
+`oauth.unmapped_users`), and audits every login. A break-glass admin
+(`oauth.break_glass`) works when the IdP is down and alerts every channel on
+use. See [SSO login validation](security.md#sso-login-validation).
 
 #### Profiling the sidecar
 

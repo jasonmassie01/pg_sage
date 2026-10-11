@@ -141,8 +141,9 @@ func firstLookOptions(c *config.Config, operatorSet map[string]bool) firstlook.O
 		th.XIDWarnFraction = firstlook.XIDFraction(c.Analyzer.XIDWraparoundWarning)
 		th.XIDCriticalFraction = firstlook.XIDFraction(c.Analyzer.XIDWraparoundCritical)
 	}
+	posture := postureConfig(c)
 	opts := firstlook.Options{StatementTimeout: firstlook.DefaultStatementTimeout,
-		Thresholds: th}
+		Thresholds: th, Posture: &posture}
 	limit := time.Duration(c.Safety.QueryTimeoutMs) * time.Millisecond
 	operator := operatorSet == nil || operatorSet[queryTimeoutKey]
 	if operator && limit > 0 && limit < opts.StatementTimeout {

@@ -105,15 +105,13 @@ func shouldSkipAuth(path string) bool {
 	case path == "/api/v1/auth/oauth/authorize":
 		// intent=link resolves the session inside the handler (D7).
 		return true
+	case path == breakGlassPath:
+		// Authenticated by the break-glass password in the body (E1).
+		return true
 	case path == oauthLinkGrantPath:
 		// Authenticated by the single-use link grant in the body (D7).
 		return true
 	case path == "/health":
-		return true
-	case isAgentPingPath(path):
-		return true
-	case isAgentDBAgentAPIPath(path):
-		// Authenticated by requireAgentPrincipal (tenant-bound agent token).
 		return true
 	case isSignedIngestPath(path):
 		// Authenticated by the HMAC signature (signed change events, SLIs).
@@ -122,14 +120,4 @@ func shouldSkipAuth(path string) bool {
 		return true
 	}
 	return false
-}
-
-func isAgentPingPath(path string) bool {
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	return len(parts) == 5 &&
-		parts[0] == "api" &&
-		parts[1] == "v1" &&
-		parts[2] == "agent-dbs" &&
-		parts[3] != "" &&
-		parts[4] == "agent-ping"
 }

@@ -128,6 +128,13 @@ func Convert(ctx context.Context, db DB, t Table) (Result, error) {
 		err = fmt.Errorf("partition: convert %s: %w", t.regclass(), err)
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 		defer cancel()
+		// The failed step may have left any statement timeout on the session;
+		// the undo and the unlock run under the cleanup's, and withConvertLock
+		// restores the caller's afterwards.
+		if _, rerr := setSession(cctx, s, LockTimeout, cleanupTimeout); rerr != nil {
+			return res, errors.Join(err, fmt.Errorf("partition: undo the conversion of %s: %w",
+				t.regclass(), rerr))
+		}
 		if cerr := cleanupLocked(cctx, s, t); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("partition: undo the conversion of %s: %w",
 				t.regclass(), cerr))
@@ -168,18 +175,20 @@ func withConvertLock(ctx context.Context, s DB, t Table,
 // a func restoring the previous values.
 func setSession(ctx context.Context, s DB, lock, stmt time.Duration) (
 	func(context.Context) error, error) {
+	// One statement reads the old values and sets the new ones: a session
+	// left with a tiny statement timeout runs as little as possible under it.
 	var oldLock, oldStmt string
 	if err := s.QueryRow(ctx, `SELECT pg_catalog.current_setting('lock_timeout'),
-		pg_catalog.current_setting('statement_timeout')`).Scan(&oldLock, &oldStmt); err != nil {
-		return nil, fmt.Errorf("read session timeouts: %w", err)
+		pg_catalog.current_setting('statement_timeout'),
+		pg_catalog.set_config('lock_timeout', $1, false),
+		pg_catalog.set_config('statement_timeout', $2, false)`, ms(lock), ms(stmt)).
+		Scan(&oldLock, &oldStmt, nil, nil); err != nil {
+		return nil, fmt.Errorf("set session timeouts: %w", err)
 	}
 	set := func(ctx context.Context, lock, stmt string) error {
 		_, err := s.Exec(ctx, `SELECT pg_catalog.set_config('lock_timeout', $1, false),
 			pg_catalog.set_config('statement_timeout', $2, false)`, lock, stmt)
 		return err
-	}
-	if err := set(ctx, ms(lock), ms(stmt)); err != nil {
-		return nil, fmt.Errorf("set session timeouts: %w", err)
 	}
 	return func(ctx context.Context) error {
 		if err := set(ctx, oldLock, oldStmt); err != nil {

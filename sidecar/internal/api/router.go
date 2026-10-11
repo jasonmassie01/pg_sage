@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/agentdb"
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -124,7 +123,7 @@ func NewRouterFullRuntime(
 	}
 	registerFleetScopedRoutes(apiMux, mgr, cfg, pool, llmMgr, rt)
 	if pool != nil {
-		registerControlPoolRoutes(apiMux, mgr, cfg, pool, llmMgr, rt)
+		registerControlPoolRoutes(apiMux, mgr, cfg, pool, rt)
 	}
 	if actions != nil && (actions.Store != nil ||
 		actions.Fleet != nil) {
@@ -146,6 +145,8 @@ func NewRouterFullRuntime(
 		// signature authenticates them); identity mapping stays admin-only.
 		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
 	}
+	// Readiness (E1): config loaded, control database up, schema migrated.
+	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
 	registerRootRoutes(root)
 	return root
 }
@@ -196,14 +197,13 @@ func registerFleetScopedRoutes(
 }
 
 // registerControlPoolRoutes registers the routes backed by the control
-// database: auth, users, persistent config, notifications, policy and
-// agent databases.
+// database: auth, users, persistent config, notifications, policy and the
+// decommission inventory of the removed agent-database provisioner.
 func registerControlPoolRoutes(
 	apiMux *http.ServeMux,
 	mgr *fleet.DatabaseManager,
 	cfg *config.Config,
 	pool *pgxpool.Pool,
-	llmMgr *llm.Manager,
 	rt RuntimeDeps,
 ) {
 	registerAuthRoutes(apiMux, pool, newRouterOAuthProvider(cfg), cfg)
@@ -214,17 +214,14 @@ func registerControlPoolRoutes(
 		runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
 		rt.DisableConfigWrites,
 	)
-	registerNotificationRoutes(apiMux, pool, notificationRouteDeps{
+	notifyDeps := notificationRouteDeps{
 		secretKey: rt.NotificationSecretKey,
 		policy:    rt.NotificationTargetPolicy,
-	})
+	}
+	registerNotificationRoutes(apiMux, pool, notifyDeps)
+	registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
 	registerPolicyRoutes(apiMux, policy.NewStore(pool))
-	registerAgentDBRoutesWithAuthority(
-		apiMux,
-		agentdb.NewStore(pool),
-		newAgentDBBlueprintGenerator(llmMgr),
-		newAgentDBLiveAuthority(cfg.AgentDB),
-	)
+	registerDecommissionRoutes(apiMux, pool)
 }
 
 // newRouterOAuthProvider discovers the configured OAuth provider and starts

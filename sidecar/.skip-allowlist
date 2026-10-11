@@ -4,8 +4,6 @@
 # (cmd/skipbudget). Add an entry only with a reason a reviewer can verify.
 
 # Live cloud provisioning: opt-in via PG_SAGE_LIVE_* and real credentials.
-internal/agentdb Test(AWSRDS|CloudSQL|Lakebase)LiveProvisioning # live cloud, PG_SAGE_LIVE_* opt-in
-internal/agentdb TestAgentDBLiveGauntlet.* # live cloud, PG_SAGE_LIVE_AGENTDB_GAUNTLET opt-in
 internal/azure TestAzureLiveServerParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
 internal/azure TestAzureLiveRestartBoundParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
 
@@ -31,12 +29,15 @@ internal/optimizer TestGenericPlanCapturesUnboundParameters # EXPLAIN (GENERIC_P
 internal/api TestActionLogCappedCountWalksTheTimeIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/recommendation TestVerifyingEffectsReachActionsByIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/retention TestPurgeGenericPlansProbeLargeTablesByIndex # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/retention TestAuthAuditPurge_GenericPlanUsesAnIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/sre TestInvestigationRetentionReadIsAnIndexRange # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/value TestRealizedValueGenericPlanIsAnIndexRange # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/earned TestReconcilerFactReadsNeverScanOutcomes # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/analyzer TestFindingRefreshIsAHeapOnlyUpdate # pg_stat_force_next_flush() is PG15+
 internal/partition TestConvert_ExclusiveWindowReadsNoHeap # pg_stat_force_next_flush() is PG15+
 internal/rca TestPersist_UnchangedCausalChainWritesNoToast # pg_stat_force_next_flush() is PG15+
+internal/agentposture TestAP03_SecurityInvokerViewIsNotExposure # security_invoker views are PG15+ (PG14 views run as their owner)
+internal/agentposture TestAP14_NoInheritGrantIsFine # per-grant INHERIT (GRANT ... WITH INHERIT FALSE) is PG16+; PG14/15 run the role-level arm tests
 internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly|TestBuildFinding_EmptyHintIsNeverInserted|TestBuildFinding_ProposalIsNotActive|TestLoadActiveHints_IncludesProposed|TestReconcileHintStatuses_.* # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 internal/tuner TestGeneratePlanFixtures # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
 test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
@@ -45,6 +46,7 @@ test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_
 # not inside ./... suites.
 sre-bench TestPGIncidentBench # dedicated "PGIncidentBench (...)" CI steps set SAGE_BENCH_RUN=1
 sre-bench TestLiveModelArm # nightly live-model arm (ci.yml bench-live) only: SAGE_BENCH_LIVE_ARM=1 + PG_SAGE_LIVE_LLM=1 opt-in
+safety-bench TestAgentSafetyBench # dedicated "AgentSafetyBench" CI steps set SAGE_SAFETY_BENCH_RUN=1
 internal/ha TestContainer_FailoverWhileDownOpensTheCooldown # needs a disposable standby to promote (SAGE_TEST_HA_STANDBY_URL)
 internal/sre/causal TestContainer_(Restart|Promotion)BetweenSamplesInvalidatesComparisons # restarts/promotes a disposable server (SAGE_TEST_RESTARTABLE_SUPERUSER_URL, SAGE_TEST_CAUSAL_STANDBY_URL)
 internal/sre/pooler TestPgBouncer_.* # needs a PgBouncer (SAGE_TEST_PGBOUNCER_ADMIN_URL, SAGE_TEST_PGBOUNCER_CLIENT_URL)

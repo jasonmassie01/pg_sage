@@ -145,7 +145,12 @@ func runSubcommandAndExit() {
 		os.Exit(runBenchCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "history" {
-		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], os.Getenv, os.Stdout,
+		getenv, err := secretGetenv("SAGE_HISTORY_MONITORED_DSN", "SAGE_META_DB")
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "history: %v\n", err)
+			os.Exit(2)
+		}
+		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], getenv, os.Stdout,
 			os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
@@ -178,6 +183,7 @@ func loadStartupConfigOrExit() {
 	// falls back to loopback. Must run before any HTTP listener starts
 	// so rate-limiter IP extraction is correct from the first request.
 	setTrustedProxies(cfg.API.TrustedProxies)
+	loadAPITLSOrExit()
 }
 
 // connectMetaDatabaseOrExit connects and initializes the metadata database

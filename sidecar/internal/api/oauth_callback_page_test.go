@@ -19,7 +19,8 @@ const browserAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*
 func (f *linkFixture) browserCallback(t *testing.T, state string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, f.server.URL+
-		"/api/v1/auth/oauth/callback?code=stub-code&state="+url.QueryEscape(state), nil)
+		"/api/v1/auth/oauth/callback?code=code-"+url.QueryEscape(state)+
+		"&state="+url.QueryEscape(state), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,10 +33,16 @@ func registerAuthRoutes(
 		oauthAuthorizeRouter(oauthProvider, pool))
 	mux.HandleFunc(
 		"GET /api/v1/auth/oauth/callback",
-		oauthCallbackHandler(
-			oauthProvider, pool,
-			cfg.OAuth.DefaultRole, cfg.OAuth.Provider))
+		oauthCallbackHandler(oauthProvider, pool, oauthSnapshot(cfg)))
 	registerAccountLinkRoutes(mux, pool, oauthProvider, cfg.OAuth.Provider)
+}
+
+// oauthSnapshot copies the OAuth settings at registration: they are
+// restart-only, and the handlers must not read the hot-reloaded *cfg.
+func oauthSnapshot(cfg *config.Config) *config.OAuthConfig {
+	snap := cfg.OAuth
+	snap.RoleMapping = append([]config.OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
+	return &snap
 }
 
 func registerUserRoutes(

@@ -172,6 +172,8 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9187"
     spec:
+      securityContext:
+        fsGroup: 1000          # the image runs as uid/gid 1000 (sage)
       containers:
         - name: pg-sage
           image: ghcr.io/jasonmassie01/pg_sage:latest
@@ -182,23 +184,51 @@ spec:
             - containerPort: 9187
               name: metrics
           env:
-            - name: SAGE_DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: pg-sage-secrets
-                  key: database-url
-            - name: SAGE_LLM_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: pg-sage-secrets
-                  key: gemini-api-key
+            # Secrets as files (see "Secrets from files" in configuration.md):
+            # they stay out of the process environment and rotate in place.
+            - name: SAGE_DATABASE_URL_FILE
+              value: /var/run/secrets/pg-sage/database-url
+            - name: SAGE_LLM_API_KEY_FILE
+              value: /var/run/secrets/pg-sage/gemini-api-key
+            # Optional: serve HTTPS from a cert-manager or other TLS secret.
+            - name: SAGE_TLS_CERT
+              value: /var/run/tls/tls.crt
+            - name: SAGE_TLS_KEY
+              value: /var/run/tls/tls.key
+          livenessProbe:          # static: the process answers HTTP
+            httpGet: {path: /health, port: api, scheme: HTTPS}
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:         # config loaded, control DB up, schema migrated
+            httpGet: {path: /ready, port: api, scheme: HTTPS}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          startupProbe:           # first start bootstraps the sage schema
+            httpGet: {path: /health, port: api, scheme: HTTPS}
+            periodSeconds: 5
+            failureThreshold: 60
           volumeMounts:
             - name: config
               mountPath: /etc/pg_sage
+            - name: secrets
+              mountPath: /var/run/secrets/pg-sage
+              readOnly: true
+            - name: tls
+              mountPath: /var/run/tls
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: pg-sage-config
+        - name: secrets
+          secret:
+            secretName: pg-sage-secrets
+            defaultMode: 0440   # group-readable by fsGroup below
+        - name: tls
+          secret:
+            secretName: pg-sage-tls
+            defaultMode: 0440   # group-readable by fsGroup below
 ---
 apiVersion: v1
 kind: Service
@@ -215,6 +245,38 @@ spec:
       targetPort: 9187
       name: metrics
 ```
+
+Without `SAGE_TLS_CERT`/`SAGE_TLS_KEY`, drop them and use `scheme: HTTP` in the
+probes.
+
+### Health and readiness
+
+Both endpoints are on the API port and need no session.
+
+| Endpoint | Answers | Use it for |
+|---|---|---|
+| `GET /health` | Always `200 {"status":"ok"}` while the process serves HTTP | Liveness and startup probes, Docker `HEALTHCHECK` |
+| `GET /ready` | `200` when ready, `503` when not | Readiness probes, load balancer health checks |
+
+`/ready` is ready when the configuration is loaded, the control database
+answers (the metadata database, or the monitored database in standalone and
+fleet mode), and its `sage` schema has every table the bootstrap migrations
+create. Each probe is bounded to 0.9 s. The body names the state of each check
+and never an error message, because the endpoint is unauthenticated:
+
+```json
+{"status":"not_ready","checks":{"config":"ok","control_db":"unreachable","schema":"skipped"}}
+```
+
+| Check | Values |
+|---|---|
+| `config` | `ok`, `not_loaded` |
+| `control_db` | `ok`, `absent` (no reachable database owns sessions), `unreachable` |
+| `schema` | `ok`, `not_migrated`, `unknown` (the check failed), `skipped` |
+
+The reason behind a `503` is logged once each time readiness changes. Don't use
+`/ready` as a liveness probe: a control database outage would restart every
+replica without fixing anything.
 
 ---
 

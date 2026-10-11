@@ -20,10 +20,10 @@ The schema is bootstrapped in two layers:
    (`migrationStatements`, `bootstrap.go:259`). Finally it folds in
    `MigrateConfigSchema` (`config_migration.go:31`) and
    `migrateIncidentConstraints` (`incident_migration.go:12`).
-2. **AgentDB schema** — `internal/agentdb` package. A separate, self-contained
-   set of tables created by `Store.Ensure()` from `schemaStatements`,
-   `liveExecutionSchemaStatements`, and `monitoringSchemaStatements`. These are
-   created only when the AgentDB subsystem is initialized.
+2. **Provisioning schema (removed in G0)** — a separate set of tables the removed
+   agent-database provisioner created on first use. G0 no longer creates them;
+   existing installs keep them for the decommission inventory until G1 drops them
+   (`sidecar/internal/decommission/README.md`).
 
 ### 1.1 Core `sage.*` tables (21 bootstrapped + 2 migration-created)
 
@@ -74,39 +74,9 @@ config migration. Full table reference:
   `schema_advisor`, `schema_lint`, `n_plus_one`; action_risk adds
   `low/medium/high`.
 
-### 1.2 AgentDB-owned tables (25 tables)
+### 1.2 Provisioning tables (removed in G0)
 
-Created by `agentdb.Store.Ensure()` (`agentdb/schema.go:17`) — a self-contained
-provisioning/lifecycle subsystem for agent-owned databases (local Postgres + AWS
-RDS / GCP Cloud SQL / Lakebase providers).
-
-| Table | Purpose | DDL |
-|-------|---------|-----|
-| `sage.agent_identities` | Registered agents (tenant/owner/status) | `schema.go:182` |
-| `sage.agent_db_requests` | Provisioning requests (policy decision, idempotency, budget) | `schema.go:194` |
-| `sage.agent_db_deployments` | Provisioned deployments (safety_mode, lease, secret_ref, connection_info) | `schema.go:223` |
-| `sage.agent_db_provider_configs` | Per-provider enable/settings | `schema.go:279` |
-| `sage.agent_db_creation_receipts` | Provider resource creation receipts | `schema.go:287` |
-| `sage.agent_db_terraform_templates` | Terraform template store + policy findings | `schema.go:300` |
-| `sage.agent_db_blueprints` | LLM-generated provisioning blueprints | `schema.go:316` |
-| `sage.agent_db_size_profiles` | CPU/mem/storage size profiles (seeded defaults) | `schema.go:342` |
-| `sage.agent_db_pings` | Liveness/metrics pings per deployment | `schema.go:357` |
-| `sage.agent_db_ping_tokens` | Hashed ping auth tokens (rotation) | `schema.go:367` |
-| `sage.agent_db_ping_token_failures` | Failed ping-token attempts | `schema.go:387` |
-| `sage.agent_db_recommendations` | Tuning/index recommendations for agent DBs | `schema.go:396` |
-| `sage.agent_db_cost_samples` | Cost telemetry samples | `schema.go:424` |
-| `sage.agent_db_backups` | Backup records (verify/restore-verify) | `schema.go:437` |
-| `sage.agent_db_tuning_hints` | Per-deployment tuning hints | `schema.go:451` |
-| `sage.agent_db_provision_attempts` | Provision runner attempts (dry_run/live, stdout/stderr) | `schema.go:465` |
-| `sage.agent_db_audit` | AgentDB event audit log | `schema.go:482` |
-| `sage.agent_db_deploy_requests` | DDL/migration deploy requests with gate results | `schema.go:491` |
-| `sage.agent_db_live_plans` | Immutable normalized live-operation plans | `live_execution_schema.go` |
-| `sage.agent_db_live_estimates` | Server-issued cost estimates bound to plan hash | `live_execution_schema.go` |
-| `sage.agent_db_live_authorizations` | Exact-operation authorization and consumption state | `live_execution_schema.go` |
-| `sage.agent_db_live_receipts` | Idempotent provider mutation receipts | `live_execution_schema.go` |
-| `sage.agent_db_monitoring_policies` | Scoped monitoring concurrency limits | `monitoring_schema.go` |
-| `sage.agent_db_monitoring_state` | Per-physical-target scheduling state | `monitoring_schema.go` |
-| `sage.agent_db_monitoring_work` | Durable leased tiered monitoring work | `monitoring_schema.go` |
+See item 2 above.
 
 > The `internal/cases` package (incident/query-hint projectors, vacuum
 > autopilot, shadow execution) defines **no tables of its own** — it projects
@@ -148,7 +118,6 @@ auto-synthesizes `Databases[0]` from the legacy `postgres` block (`normalize`,
 | Retention | `retention` | `RetentionConfig` | `config.go:423` |
 | Prometheus | `prometheus` | `PrometheusConfig` | `config.go:430` |
 | OAuth | `oauth` | `OAuthConfig` | `config.go:435` |
-| AgentDB | `agentdb` | `AgentDBConfig` | `config.go:122` |
 | Databases | `databases` | `[]DatabaseConfig` (fleet) | `fleet.go:6` |
 | Defaults | `defaults` | `DefaultsConfig` (fleet) | `fleet.go:64` |
 | API | `api` | `APIConfig` | `fleet.go:73` |
@@ -261,11 +230,6 @@ stats/ANALYZE (`analyze_max_table_mb` 10240, `analyze_timeout_ms` 600000,
 
 **oauth** — `enabled`, `provider` (google/github/okta/oidc), `client_id`,
 `client_secret` (secret), `redirect_url`, `issuer_url`, `default_role`.
-
-**agentdb** — `live_provisioning_enabled` (false), `allow_public_ip` (false),
-`require_backup_before_destroy` (true), `providers` map of
-`{enabled, allowed_regions/accounts/projects/workspaces, max_ttl_seconds,
-max_estimated_cost_usd}`.
 
 **api** — `listen_addr` (`0.0.0.0:8080`), `trusted_proxies` (default loopback
 `[127.0.0.1, ::1]`).

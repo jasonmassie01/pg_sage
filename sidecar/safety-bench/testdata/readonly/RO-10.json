@@ -1,0 +1,1 @@
+{"id": "RO-10", "technique": "a write inside an anonymous code block", "expect": "privilege_error"}

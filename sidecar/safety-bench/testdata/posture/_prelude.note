@@ -1,0 +1,7 @@
+Posture fixtures create known-bad configurations for the posture detectors
+to find. Each is self-contained and idempotent (drops and recreates its own
+schema). Exposed roles anon/authenticated are created NOLOGIN if absent, as
+on Supabase, and dropped by the scenario's <name>_down.sql; the bench's
+tests hold testdb.HoldSupabaseRoles meanwhile.
+Agent scenarios use registered agent role names (sage_agentb_ and 10 base32
+characters); their <name>_down.sql teardown drops those cluster-wide roles.

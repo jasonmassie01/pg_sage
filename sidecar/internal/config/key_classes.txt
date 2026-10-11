@@ -21,6 +21,7 @@
 safety_critical mode
 safety_critical meta_db
 safety_critical encryption_key
+safety_critical encryption_key_previous
 safety_critical postgres.database
 safety_critical postgres.database_url
 safety_critical postgres.host
@@ -39,6 +40,11 @@ safety_critical oauth.enabled
 safety_critical oauth.issuer_url
 safety_critical oauth.provider
 safety_critical oauth.redirect_url
+safety_critical oauth.groups_claim
+safety_critical oauth.role_mapping
+safety_critical oauth.unmapped_users
+safety_critical oauth.break_glass.enabled
+safety_critical oauth.break_glass.password_hash
 safety_critical mcp.enabled
 safety_critical mcp.transport
 safety_critical notification_policy.allow_private_targets
@@ -109,11 +115,6 @@ safety_critical runaway.safe_patterns
 safety_critical custodian.freeze.red_buffer_pct
 safety_critical custodian.wal.abandon_after_minutes
 safety_critical custodian.wal.retained_wal_disk_pct_ceiling
-safety_critical agentdb.allow_public_ip
-safety_critical agentdb.live_provisioning_enabled
-safety_critical agentdb.providers
-safety_critical agentdb.reconcile_interval_seconds
-safety_critical agentdb.require_backup_before_destroy
 safety_critical azure.resource_group
 safety_critical azure.server_name
 safety_critical azure.subscription_id
@@ -308,6 +309,7 @@ safety_critical briefing.slack_webhook_url
 
 # Retention: audit records are the operator's; history windows are derivable
 operator_preference retention.actions_days
+operator_preference retention.auth_audit_days
 operator_preference retention.decisions_days
 derivable retention.explains_days
 derivable retention.findings_days
@@ -491,3 +493,10 @@ operator_preference fleet_learning.min_prior_outcomes
 # until the history is migrated, so it cannot hide verification evidence. The
 # database it points at is meta_db, already safety_critical.
 operator_preference history.store
+
+# Agent posture (G0, spec §9): exposed roles widen what posture treats as
+# reachable by untrusted clients, so they are safety-critical.
+safety_critical agents.exposed_roles
+operator_preference agents.client_patterns
+operator_preference agents.posture.daily_at
+operator_preference agents.posture.memory_growth_gb_day

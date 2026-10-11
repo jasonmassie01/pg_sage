@@ -34,10 +34,10 @@ import (
 
 // databaseRuntimeSpec is everything that legitimately differs between the
 // deployment modes for one monitored database. buildDatabaseRuntime turns
-// it into the same runtime in standalone, YAML fleet, meta-db and AgentDB
-// mode (G5-I07).
+// it into the same runtime in standalone, YAML fleet and meta-db mode
+// (G5-I07).
 type databaseRuntimeSpec struct {
-	// Scope names the mode in logs: startup, fleet, meta-db or agentdb.
+	// Scope names the mode in logs: startup, fleet or meta-db.
 	Scope string
 	// Name is the fleet instance name and every event's database_name.
 	Name string

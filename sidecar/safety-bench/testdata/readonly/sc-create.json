@@ -1,0 +1,1 @@
+{"id":"sc-create","technique":"self-check: a CREATE TABLE must be refused by every read-only design","expect":"privilege_error","self_check":true}

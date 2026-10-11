@@ -196,11 +196,156 @@ clients receive the JSON status (`403`, `409` or `401`). The grant landing
 page removes the grant from the address and browser history as soon as it
 reads it.
 
+### SSO Login Validation
+
+pg_sage's SSO login follows OpenID Connect for `oidc` and `google`
+providers:
+
+- **PKCE.** Every authorization request carries an S256 `code_challenge`; the
+  callback redeems the code with its `code_verifier`. GitHub (OAuth 2, no
+  `id_token`) uses PKCE too.
+- **Nonce.** Each login sends a fresh random `nonce`, kept server-side with
+  the single-use `state`. An `id_token` whose nonce differs, or has none, is
+  refused with `401`.
+- **`id_token` validation.** The token endpoint must return an `id_token`.
+  pg_sage verifies its signature against the provider's JWKS (`jwks_uri`
+  from discovery, through `coreos/go-oidc`), its issuer, its audience (the
+  client id) and its expiry. Userinfo is consulted only when the token has
+  no email, and must name the same subject.
+- **Discovery.** The discovery document must name the configured issuer
+  (`oauth.issuer_url`, trailing slash ignored) and publish `jwks_uri`;
+  otherwise SSO stays disabled and startup logs why.
+
+Every refusal is recorded in `sage.auth_audit` as `login_failed` with a
+reason code (`nonce_mismatch`, `id_token_invalid`, `id_token_missing`,
+`state_invalid`, `subject_mismatch`, `email_unverified`, `link_required`,
+`not_authorized`, `exchange_failed`).
+
+### Group to Role Mapping
+
+Map IdP groups to pg_sage roles with `oauth.role_mapping`:
+
+```yaml
+oauth:
+  groups_claim: groups          # id_token (or userinfo) claim with the groups
+  unmapped_users: deny          # deny (default) | default_role
+  role_mapping:
+    - {group: pg-sage-admins,    role: admin}
+    - {group: dba,               role: operator}
+    - {group: engineering,       role: viewer}
+```
+
+- Group names match exactly (case-sensitive). The claim may be an array of
+  strings or a single string.
+- A user in several mapped groups gets the highest role.
+- The IdP is the source of truth: the mapped role is applied at every SSO
+  login, and a change is audited as `user_role_changed` with
+  `"source": "idp"`. A role set in the UI is overwritten at the next login.
+  The last admin is never demoted this way; pg_sage logs a warning instead.
+- **Unmapped users are denied by default** (`403`, `sso_error=not_authorized`):
+  listing groups names who may sign in, and an IdP tenant usually holds far
+  more people than that. Set `unmapped_users: default_role` to give them
+  `oauth.default_role` instead.
+- Without `role_mapping`, every SSO user gets `oauth.default_role`
+  (`viewer`), as before.
+
+### Authentication Audit
+
+`sage.auth_audit` records, with actor and target user ids, time and the
+client address (`source_ip`, honouring `api.trusted_proxies`):
+
+| Event | When |
+|---|---|
+| `login_succeeded` / `login_failed` | Password and SSO sign-ins (`detail.method`, `detail.reason`) |
+| `break_glass_login` / `break_glass_login_failed` | Every break-glass attempt |
+| `user_created`, `user_deleted` | Admin user administration |
+| `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
+| `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
+
+Rows never contain passwords, tokens or email addresses; a failed password
+login names the targeted account by id when it exists.
+
+### Break-glass Admin
+
+A local admin for when the IdP is down. It is off unless configured:
+
+```yaml
+oauth:
+  break_glass:
+    enabled: true
+    # password_hash: prefer SAGE_BREAK_GLASS_PASSWORD_HASH or its _FILE form
+```
+
+```bash
+# bcrypt hash of the break-glass password (keep the password offline)
+htpasswd -bnBC 12 "" 'the-break-glass-password' | tr -d ':\n'
+export SAGE_BREAK_GLASS_PASSWORD_HASH_FILE=/run/secrets/pg_sage_break_glass_hash
+
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST https://sage.example.com/api/v1/auth/break-glass \
+  --data '{"password":"the-break-glass-password"}'
+```
+
+- It signs in as the dedicated admin `break-glass@pg-sage.local`, which has
+  no stored password (the normal login cannot use it). If that email belongs
+  to another account, break-glass refuses (`409`).
+- The session lasts one hour.
+- Every use is logged at ERROR, recorded as `break_glass_login`, and
+  broadcast as a critical `security_break_glass` notification to **every
+  enabled notification channel**, regardless of notification rules. Configure
+  at least one channel. Failed attempts are audited and rate-limited per
+  client address (5 per 15 minutes).
+- After use, review what the session did and rotate the password.
+
+### Secrets at Rest
+
+Secrets set through the API or UI (`llm.api_key`, `clone.dle_token`,
+`alerting.slack_webhook_url`, `alerting.pagerduty_routing_key`) are stored in
+`sage.config` sealed with AES-256-GCM under a key derived from
+`encryption_key` (argon2id with the deployment's random salt). A stored value
+looks like `sage-enc:v1:<key id>:<ciphertext>`; the key id is a public
+fingerprint of the key. Each value is bound to its key name and scope, so it
+cannot be copied to another key. Audit rows never hold the value or its
+ciphertext.
+
+- **Key source.** `encryption_key`, `SAGE_ENCRYPTION_KEY`, or
+  `SAGE_ENCRYPTION_KEY_FILE` (a file a secrets manager fills; trailing newline
+  trimmed; setting both the variable and `_FILE` is an error).
+- **Startup migration.** With a key configured, startup seals existing
+  plaintext secret rows and logs how many.
+- **No key.** Secrets stay plaintext, as before, and startup warns once when
+  any are stored.
+- **Rotation.** Set the new passphrase as `encryption_key` and the old one as
+  `encryption_key_previous` (or `SAGE_ENCRYPTION_KEY_PREVIOUS[_FILE]`) and
+  restart: values sealed under the old key are read and re-sealed under the
+  new one. Then remove `encryption_key_previous`. A value no configured key
+  can open is ignored with an ERROR naming its key and key id. Rotation
+  currently covers config secrets only: per-database passwords and
+  notification channel secrets are still sealed with `encryption_key` alone
+  and must be re-entered after a rotation.
+
 ### TLS
 
-pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes
-Ingress, Cloud Run, load balancer, or other trusted edge. Restrict direct access
-to the API/dashboard listener to trusted networks.
+Set `SAGE_TLS_CERT` and `SAGE_TLS_KEY` to PEM files and the API and dashboard
+listener serves HTTPS only (TLS 1.2 or newer); session cookies are then marked
+`Secure`. Without them it serves plain HTTP, for use behind a TLS-terminating
+reverse proxy, Kubernetes Ingress, Cloud Run or load balancer.
+
+- Setting only one of the two is a startup error, so a typo can't silently
+  downgrade to HTTP.
+- At startup a missing file, a key that doesn't match the certificate, or an
+  expired or not-yet-valid certificate stops the sidecar with a message naming
+  the variable and file. A certificate expiring within 14 days logs a warning.
+- Rotation needs no restart: on new connections pg_sage checks the two files'
+  modification times at most every 5 seconds and loads a changed pair. The
+  check follows symlinks, so cert-manager and Kubernetes secret volume swaps
+  work. A pair that fails to load is logged and the current certificate keeps
+  serving until the files change again.
+- The Prometheus listener (`:9187`) stays plain HTTP; keep it on a private
+  network.
+
+Restrict direct access to the API/dashboard listener to trusted networks
+either way.
 
 ### Input Validation
 
@@ -281,6 +426,11 @@ Every autonomous action is recorded with:
 - The finding that triggered the action
 - Before/after state
 
+### Authentication Log (`sage.auth_audit`)
+
+Logins, break-glass use, and user and role changes, with actor, time and
+client address; see [Authentication Audit](#authentication-audit).
+
 ### API Request Log
 
 API requests are logged for audit purposes.
@@ -292,11 +442,13 @@ Both tables are subject to retention policies (configurable via `retention.actio
 ## Production Checklist
 
 1. **Protect the dashboard/API listener** -- use a private network, reverse proxy, or identity-aware edge.
-2. **Terminate TLS at the edge** -- do not expose plain HTTP directly to the internet.
+2. **Use TLS** -- set `SAGE_TLS_CERT`/`SAGE_TLS_KEY` or terminate TLS at the edge; do not expose plain HTTP directly to the internet.
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.
 6. **Set a token budget** -- cap LLM spend with `llm.token_budget_daily`.
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
 8. **Capture and rotate the initial admin password** -- then use named users or OAuth for operators.
-9. **Monitor pg_sage itself** -- check Prometheus metrics and circuit breaker state.
+   With SSO, set `oauth.role_mapping`, and configure a break-glass admin plus a notification channel.
+9. **Set `encryption_key`** (or `SAGE_ENCRYPTION_KEY_FILE`) -- API-set secrets are then encrypted at rest.
+10. **Monitor pg_sage itself** -- check Prometheus metrics and circuit breaker state.

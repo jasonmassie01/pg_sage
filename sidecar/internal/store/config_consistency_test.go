@@ -37,6 +37,8 @@ var excludedPrefixes = []string{
 	"self_config.", // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
 	"fleet_learning.",
+	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
+	"agents.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
@@ -47,6 +49,9 @@ var excludedExactKeys = map[string]bool{
 	"mode":           true,
 	"meta_db":        true,
 	"encryption_key": true,
+	// The rotation key must never be API-settable: it would be stored
+	// next to what it protects.
+	"encryption_key_previous": true,
 
 	// Safety fields present in struct but not exposed as overrides.
 	"safety.disk_pressure_threshold_pct": true,
@@ -73,6 +78,8 @@ var excludedExactKeys = map[string]bool{
 	// are YAML only and restart-bound, like decisions_days.
 	"retention.query_store_days":  true,
 	"retention.snapshots_max_pct": true,
+	// The sign-in audit window (E1) is YAML only, like decisions_days.
+	"retention.auth_audit_days": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
@@ -860,7 +867,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 116 // Update when adding/removing keys.
+	const expectedCount = 112 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -889,7 +896,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 116 // Should match allowedConfigKeys.
+	const expectedCount = 112 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

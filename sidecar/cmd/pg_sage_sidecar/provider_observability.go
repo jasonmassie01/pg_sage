@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -67,8 +66,12 @@ func startProviderObservability(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, exec *executor.Executor, rcaEngine *rca.Engine,
 ) {
-	runtime, sink, err := buildProviderObservability(
-		pool, cfg, os.Getenv("SAGE_SUPABASE_OBSERVABILITY_TOKEN"))
+	token, err := config.LookupSecretEnv("SAGE_SUPABASE_OBSERVABILITY_TOKEN")
+	if err != nil {
+		logWarn("provider", "observability unavailable: %v", err)
+		return
+	}
+	runtime, sink, err := buildProviderObservability(pool, cfg, token)
 	if err != nil {
 		logWarn("provider", "observability unavailable: %v", err)
 		return

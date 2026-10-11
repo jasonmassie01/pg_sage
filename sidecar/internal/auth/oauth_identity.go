@@ -10,12 +10,14 @@ import (
 )
 
 // Identity is an external login keyed on issuer+subject. Email is
-// informational and is only trusted when EmailVerified is true.
+// informational and is only trusted when EmailVerified is true. Groups
+// come from the configured groups claim of a verified OIDC login.
 type Identity struct {
 	Issuer        string
 	Subject       string
 	Email         string
 	EmailVerified bool
+	Groups        []string
 }
 
 var (
@@ -31,15 +33,6 @@ var (
 )
 
 const githubIssuer = "https://github.com"
-
-func (p *OAuthProvider) fetchIdentity(
-	ctx context.Context, accessToken string,
-) (Identity, error) {
-	if p.cfg.Provider == "github" {
-		return p.fetchGitHubIdentity(ctx, accessToken)
-	}
-	return p.fetchOIDCIdentity(ctx, accessToken)
-}
 
 // issuer returns the configured issuer without a trailing slash.
 func (p *OAuthProvider) issuer() string {
@@ -74,36 +67,36 @@ func (p *OAuthProvider) getJSON(
 	return nil
 }
 
+// fetchUserinfo returns the userinfo claims for an access token.
+func (p *OAuthProvider) fetchUserinfo(
+	ctx context.Context, accessToken string,
+) (map[string]json.RawMessage, error) {
+	endpoint := p.discovery.UserinfoEndpoint
+	if endpoint == "" {
+		return nil, fmt.Errorf("oauth: no userinfo endpoint")
+	}
+	var info map[string]json.RawMessage
+	if err := p.getJSON(ctx, endpoint, accessToken, "userinfo", &info); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+// fetchOIDCIdentity builds an identity from userinfo alone. It requires a
+// subject and a verified email.
 func (p *OAuthProvider) fetchOIDCIdentity(
 	ctx context.Context, accessToken string,
 ) (Identity, error) {
-	endpoint := p.discovery.UserinfoEndpoint
-	if endpoint == "" {
-		return Identity{}, fmt.Errorf("oauth: no userinfo endpoint")
-	}
-	var info struct {
-		Subject       string          `json:"sub"`
-		Email         string          `json:"email"`
-		EmailVerified json.RawMessage `json:"email_verified"`
-	}
-	if err := p.getJSON(ctx, endpoint, accessToken,
-		"userinfo", &info); err != nil {
+	info, err := p.fetchUserinfo(ctx, accessToken)
+	if err != nil {
 		return Identity{}, err
 	}
-	if strings.TrimSpace(info.Subject) == "" {
+	subject := claimString(info["sub"])
+	if strings.TrimSpace(subject) == "" {
 		return Identity{}, fmt.Errorf(
 			"oauth: no subject (sub) in userinfo response")
 	}
-	if info.Email == "" {
-		return Identity{}, fmt.Errorf("oauth: no email in userinfo response")
-	}
-	if !verifiedClaim(info.EmailVerified) {
-		return Identity{}, ErrOAuthEmailUnverified
-	}
-	return Identity{
-		Issuer: p.issuer(), Subject: info.Subject,
-		Email: info.Email, EmailVerified: true,
-	}, nil
+	return p.identityFromClaims(subject, info)
 }
 
 // verifiedClaim accepts the boolean true and the string "true" (some

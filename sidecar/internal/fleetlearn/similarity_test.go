@@ -104,13 +104,8 @@ func TestLookAlikes_ThresholdBoundaryIsInclusive(t *testing.T) {
 	}
 }
 
-func TestLookAlikes_IsolatedBoundaryHasNoPeers(t *testing.T) {
-	b := "agentdb-isolated:agentdb:x"
-	target := fp("agentdb:x", b, []string{"a"}, nil, nil)
-	peer := fp("agentdb:y", b, []string{"a"}, nil, nil)
-	if got := LookAlikes(target, []Fingerprint{peer}, 0.1); len(got) != 0 {
-		t.Fatalf("an isolated database got peers: %+v", got)
-	}
+func TestLookAlikes_NoPeersIsAnEmptyList(t *testing.T) {
+	target := fp("x", "tenant:a", []string{"a"}, nil, nil)
 	if got := LookAlikes(target, nil, 0.1); got == nil || len(got) != 0 {
 		t.Fatalf("no peers must be an empty, non-nil list, got %#v", got)
 	}

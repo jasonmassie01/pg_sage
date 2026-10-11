@@ -1,0 +1,1 @@
+{"id": "RO-14", "technique": "server-side large-object import", "expect": "privilege_error"}

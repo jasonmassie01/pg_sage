@@ -12,51 +12,32 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testsupport/fakeidp"
 )
 
 // D7: SSO identities bind to an existing account only through a signed-in
 // link or an admin-issued one-time grant. Email alone never links.
 
+// stubIdP is a signing OIDC provider (CG-03): the callback must receive a
+// verified id_token whose nonce matches the login, so the D7 tests sign in
+// through fakeidp instead of a userinfo-only stub.
 type stubIdP struct {
+	*fakeidp.IdP
 	server *httptest.Server
-	mu     sync.Mutex
-	info   map[string]any
 }
 
 func newStubIdP(t *testing.T) *stubIdP {
 	t.Helper()
-	idp := &stubIdP{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter,
-		_ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"authorization_endpoint": idp.server.URL + "/auth",
-			"token_endpoint":         idp.server.URL + "/token",
-			"userinfo_endpoint":      idp.server.URL + "/userinfo",
-		})
-	})
-	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "stub-access"})
-	})
-	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, _ *http.Request) {
-		idp.mu.Lock()
-		defer idp.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(idp.info)
-	})
-	idp.server = httptest.NewServer(mux)
-	t.Cleanup(idp.server.Close)
-	return idp
+	idp := fakeidp.New(t, "cid")
+	return &stubIdP{IdP: idp, server: idp.Server}
 }
 
 func (idp *stubIdP) assert(subject, email string, verified bool) {
-	idp.mu.Lock()
-	defer idp.mu.Unlock()
-	idp.info = map[string]any{"sub": subject, "email": email, "email_verified": verified}
+	idp.SetClaims(map[string]any{"sub": subject, "email": email, "email_verified": verified})
 }
 
 type linkFixture struct {
@@ -147,13 +128,17 @@ func (f *linkFixture) authorizeState(t *testing.T, method, path, body string) st
 	if err != nil || parsed.Query().Get("state") == "" {
 		t.Fatalf("authorize URL without state: %q", out.URL)
 	}
+	if _, err := f.idp.Authorize(out.URL); err != nil {
+		t.Fatal(err)
+	}
 	return parsed.Query().Get("state")
 }
 
 func (f *linkFixture) callback(t *testing.T, state string) *http.Response {
 	t.Helper()
 	return f.raw(t, http.MethodGet,
-		"/api/v1/auth/oauth/callback?code=stub-code&state="+url.QueryEscape(state), "")
+		"/api/v1/auth/oauth/callback?code=code-"+url.QueryEscape(state)+
+			"&state="+url.QueryEscape(state), "")
 }
 
 func (f *linkFixture) createUser(t *testing.T, suffix, role string) (int, string) {

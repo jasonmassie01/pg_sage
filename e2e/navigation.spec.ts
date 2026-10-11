@@ -27,7 +27,6 @@ test.describe('Navigation', () => {
       { tid: 'nav-value', label: 'Value' },
       { tid: 'nav-cases', label: 'Cases' },
       { tid: 'nav-actions', label: 'Actions' },
-      { tid: 'nav-agent-dbs', label: 'Agent DBs' },
       { tid: 'nav-databases', label: 'Databases' },
       { tid: 'nav-settings', label: 'Settings' },
     ];
@@ -61,7 +60,7 @@ test.describe('Navigation', () => {
   // Verifies no unexpected console errors during full page navigation
   test('no console errors on any page navigation', async ({ page }) => {
     const allHashes = [
-      '#/', '#/cases', '#/actions', '#/agent-dbs', '#/settings',
+      '#/', '#/cases', '#/actions', '#/settings',
       '#/manage-databases',
     ];
 

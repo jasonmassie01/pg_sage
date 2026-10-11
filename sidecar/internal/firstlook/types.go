@@ -72,7 +72,10 @@ type Evidence struct {
 // Item is one first-look finding. SuggestedSQL is for the operator to
 // review; pg_sage never runs it.
 type Item struct {
-	Rule           string     `json:"rule"`
+	Rule string `json:"rule"`
+	// Section groups items in the report; empty is the catalog checks,
+	// SectionAgentPosture the agent posture checks.
+	Section        string     `json:"section,omitempty"`
 	Severity       string     `json:"severity"`
 	Object         string     `json:"object"`
 	Title          string     `json:"title"`
@@ -85,9 +88,10 @@ type Item struct {
 
 // Check is how one rule's catalog check went; a degraded check states why.
 type Check struct {
-	Rule   string      `json:"rule"`
-	Status CheckStatus `json:"status"`
-	Note   string      `json:"note,omitempty"`
+	Rule    string      `json:"rule"`
+	Section string      `json:"section,omitempty"`
+	Status  CheckStatus `json:"status"`
+	Note    string      `json:"note,omitempty"`
 	// Retried: the check degraded with a transient error and was run once
 	// more; Note keeps the first attempt's failure.
 	Retried bool `json:"retried,omitempty"`

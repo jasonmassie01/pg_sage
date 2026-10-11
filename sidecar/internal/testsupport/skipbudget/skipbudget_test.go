@@ -78,10 +78,10 @@ func TestCheckEmptyInput(t *testing.T) {
 }
 
 func TestCheckMatchesSubtestsAndAnchorsNames(t *testing.T) {
-	rules := mustRules(t, "internal/agentdb TestLive # live cloud\n")
-	input := event("skip", "internal/agentdb", "TestLive/aws", "") +
-		event("skip", "internal/agentdb", "TestLiveExtra", "") +
-		event("skip", "internal/agentdbx", "TestLive", "")
+	rules := mustRules(t, "internal/livecloud TestLive # live cloud\n")
+	input := event("skip", "internal/livecloud", "TestLive/aws", "") +
+		event("skip", "internal/livecloud", "TestLiveExtra", "") +
+		event("skip", "internal/livecloudx", "TestLive", "")
 	report, err := Check(strings.NewReader(input), rules)
 	if err != nil {
 		t.Fatalf("Check: %v", err)

@@ -4,10 +4,10 @@ package main
 
 import (
 	"context"
-	"os"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -48,6 +48,7 @@ func runPerfRuntime(
 	cloudEnvironment = detectCloudEnvironment()
 	cfg.CloudEnvironment = cloudEnvironment
 
+	setupPerfPosture(t, ctx, harness)
 	base := readPerfCounters(t, ctx, harness, logs, true)
 	initStandalone()
 	router := perfRouter(t)
@@ -57,6 +58,7 @@ func runPerfRuntime(
 	warm := readPerfCounters(t, ctx, harness, logs, true)
 
 	steadyStart := time.Now()
+	triggerPerfPosture(t, ctx, harness)
 	cpuStart := perfProcessCPU(t)
 	time.Sleep(timing.Window / 2)
 	apiStart := perfProcessCPU(t)
@@ -74,6 +76,8 @@ func runPerfRuntime(
 	steady.Endpoints = endpoints
 	steady.ProcessCPU, steady.CPUKnown = cpu, true
 	explainPerfPhases(t, ctx, harness, &warmup, &steady)
+	requirePostureMeasured(t, warmup)
+	requirePostureMeasured(t, steady)
 	return []perfgate.Phase{warmup, steady}
 }
 

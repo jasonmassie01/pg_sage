@@ -3,14 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testsupport/fakeidp"
 )
 
 func TestPreflightSurfaceMCPViewerCannotPersistPolicyProposal(t *testing.T) {
@@ -77,30 +76,21 @@ func TestPreflightSurfaceMCPAuthenticationAndStopControls(t *testing.T) {
 	t.Log("anonymous route denied; emergency-stop policy denied write; persisted row count=0")
 }
 
-func surfaceOIDCProvider(t *testing.T, identity map[string]any) string {
+// surfaceOIDCProvider signs id_tokens carrying identity (CG-03: login
+// needs a verified id_token, not just userinfo). A claim absent from
+// identity is absent from the token.
+func surfaceOIDCProvider(t *testing.T, identity map[string]any) *fakeidp.IdP {
 	t.Helper()
-	var provider *httptest.Server
-	provider = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": provider.URL,
-				"authorization_endpoint": provider.URL + "/authorize", "token_endpoint": provider.URL + "/token",
-				"userinfo_endpoint": provider.URL + "/userinfo", "jwks_uri": provider.URL + "/jwks"})
-		case "/token":
-			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "local-fixture-token",
-				"token_type": "Bearer"})
-		case "/userinfo":
-			_ = json.NewEncoder(w).Encode(identity)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(provider.Close)
-	return provider.URL
+	idp := fakeidp.New(t, "fixture")
+	claims := map[string]any{"email_verified": nil}
+	for k, v := range identity {
+		claims[k] = v
+	}
+	idp.SetClaims(claims)
+	return idp
 }
 
-func surfaceOIDCFlow(t *testing.T, f *surfaceFixture) (int, string) {
+func surfaceOIDCFlow(t *testing.T, f *surfaceFixture, idp *fakeidp.IdP) (int, string) {
 	t.Helper()
 	status, body := f.request(t, "GET", "/api/v1/auth/oauth/authorize", "")
 	if status != 200 {
@@ -118,7 +108,12 @@ func surfaceOIDCFlow(t *testing.T, f *surfaceFixture) (int, string) {
 	if state == "" {
 		t.Fatal("authorization returned no state")
 	}
-	return f.request(t, "GET", "/api/v1/auth/oauth/callback?code=fixture&state="+url.QueryEscape(state), "")
+	code, err := idp.Authorize(response["url"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f.request(t, "GET", "/api/v1/auth/oauth/callback?code="+url.QueryEscape(code)+
+		"&state="+url.QueryEscape(state), "")
 }
 
 func TestPreflightSurfaceOIDCRejectsUnverifiedExistingAdmin(t *testing.T) {
@@ -133,13 +128,14 @@ func TestPreflightSurfaceOIDCRejectsUnverifiedExistingAdmin(t *testing.T) {
 			if mode == "false" {
 				identity["email_verified"] = false
 			}
-			issuer := surfaceOIDCProvider(t, identity)
+			idp := surfaceOIDCProvider(t, identity)
+			issuer := idp.Issuer()
 			cfg := config.DefaultConfig()
 			cfg.OAuth = config.OAuthConfig{Enabled: true, Provider: "oidc", IssuerURL: issuer,
 				ClientID: "fixture", ClientSecret: "fixture", RedirectURL: "https://fixture.invalid/callback",
 				DefaultRole: "viewer"}
 			f := surfaceRouter(t, pool, cfg, nil)
-			status, body := surfaceOIDCFlow(t, f)
+			status, body := surfaceOIDCFlow(t, f, idp)
 			meStatus, meBody := f.request(t, "GET", "/api/v1/auth/me", "")
 			t.Logf("email_verified=%s callback=%d me=%d identity=%s", mode, status, meStatus, meBody)
 			if status != 401 || meStatus != 401 {
@@ -153,14 +149,15 @@ func TestPreflightSurfaceOIDCRejectsUnverifiedExistingAdmin(t *testing.T) {
 func TestPreflightSurfaceOIDCVerifiedNewUserGetsViewer(t *testing.T) {
 	pool := surfacePool(t)
 	email := "verified-new-user@fixture.invalid"
-	issuer := surfaceOIDCProvider(t, map[string]any{"sub": "verified-subject",
+	idp := surfaceOIDCProvider(t, map[string]any{"sub": "verified-subject",
 		"email": email, "email_verified": true})
+	issuer := idp.Issuer()
 	cfg := config.DefaultConfig()
 	cfg.OAuth = config.OAuthConfig{Enabled: true, Provider: "oidc", IssuerURL: issuer,
 		ClientID: "fixture", ClientSecret: "fixture", RedirectURL: "https://fixture.invalid/callback",
 		DefaultRole: "viewer"}
 	f := surfaceRouter(t, pool, cfg, nil)
-	status, body := surfaceOIDCFlow(t, f)
+	status, body := surfaceOIDCFlow(t, f, idp)
 	if status != 302 {
 		t.Fatalf("verified callback=%d %s", status, body)
 	}

@@ -116,32 +116,21 @@ func TestIndexShapeHash_DependsOnEveryComponent(t *testing.T) {
 func TestBoundary(t *testing.T) {
 	cases := []struct {
 		name string
-		db   string
 		tags []string
 		want string
 	}{
-		{"operator fleet", "orders", nil, ""},
-		{"tenant tag", "t1", []string{"tier=prod", "tenant=acme"}, "tenant:acme"},
-		{"tenant tag colon", "t1", []string{"tenant:Acme"}, "tenant:acme"},
-		{"agent db tenant", "agentdb:dep-1", []string{"agentdb", "local", "ten-9"},
-			"agentdb-tenant:ten-9"},
-		{"agent db no tenant", "agentdb:dep-2", []string{"agentdb", "local", ""},
-			"agentdb-isolated:agentdb:dep-2"},
-		{"agent db no tags", "agentdb:dep-3", nil, "agentdb-isolated:agentdb:dep-3"},
-		{"empty tenant tag", "t2", []string{"tenant="}, ""},
+		{"operator fleet", nil, ""},
+		{"tenant tag", []string{"tier=prod", "tenant=acme"}, "tenant:acme"},
+		{"tenant tag colon", []string{"tenant:Acme"}, "tenant:acme"},
+		{"empty tenant tag", []string{"tenant="}, ""},
+		{"positional tags are not a tenant", []string{"guard", "local", "ten-9"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Boundary(tc.db, tc.tags); got != tc.want {
-				t.Fatalf("Boundary(%q,%v) = %q, want %q", tc.db, tc.tags, got, tc.want)
+			if got := Boundary(tc.tags); got != tc.want {
+				t.Fatalf("Boundary(%v) = %q, want %q", tc.tags, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestIsolatedBoundaryNeverPeers(t *testing.T) {
-	if !Isolated("agentdb-isolated:agentdb:x") || Isolated("") || Isolated("tenant:a") {
-		t.Fatal("Isolated misclassifies boundaries")
 	}
 }
 

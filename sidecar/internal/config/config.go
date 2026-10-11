@@ -19,14 +19,15 @@ import (
 var braceEnvRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // expandBracedEnv expands only ${NAME} references (set → value, unset →
-// empty string, matching the documented "empty when unset" behavior).
+// empty string, matching the documented "empty when unset" behavior). A
+// NAME_FILE variable supplies the value from a file (GR-11).
 // Unlike os.ExpandEnv it leaves bare '$' untouched, so a literal '$' in
 // a password or API key written directly into YAML is no longer
 // silently truncated (H5). Used by both initial load and hot-reload.
 func expandBracedEnv(raw string) string {
 	return braceEnvRe.ReplaceAllStringFunc(raw, func(match string) string {
 		name := braceEnvRe.FindStringSubmatch(match)[1]
-		return os.Getenv(name)
+		return bracedEnvValue(name)
 	})
 }
 
@@ -88,7 +89,6 @@ type Config struct {
 	Prometheus  PrometheusConfig    `yaml:"prometheus"`
 	Azure       AzureConfig         `yaml:"azure"`
 	OAuth       OAuthConfig         `yaml:"oauth"`
-	AgentDB     AgentDBConfig       `yaml:"agentdb"`
 	Policy      PolicyConfig        `yaml:"policy"`
 	Value       ValueConfig         `yaml:"value"`
 	Verify      VerifyConfig        `yaml:"verify"`
@@ -106,6 +106,8 @@ type Config struct {
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
+	// Agents is agent posture (agents.go).
+	Agents AgentsConfig `yaml:"agents"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -118,7 +120,10 @@ type Config struct {
 
 	// Meta database and encryption (--meta-db, --encryption-key).
 	MetaDB        string `yaml:"meta_db" doc:"DSN of the metadata database used in fleet mode to persist cross-target state. Blank in standalone mode."`
-	EncryptionKey string `yaml:"encryption_key" doc:"Passphrase used to encrypt sensitive fleet-mode fields (per-database passwords). Rotate via the key-rotation runbook." secret:"true"`
+	EncryptionKey string `yaml:"encryption_key" doc:"Passphrase that encrypts stored secrets: per-database passwords, channel secrets and API-set config secrets. Also SAGE_ENCRYPTION_KEY(_FILE)." secret:"true"`
+	// EncryptionKeyPrevious opens config secrets sealed under the key
+	// before a rotation; startup re-seals them under encryption_key.
+	EncryptionKeyPrevious string `yaml:"encryption_key_previous" doc:"Previous encryption_key during a rotation: config secrets sealed under it are re-encrypted at startup. Remove once rotated." secret:"true"`
 
 	// Legacy env-var fields
 	APIKey  string `yaml:"-"`
@@ -142,24 +147,6 @@ type PostgresConfig struct {
 	SSLMode        string `yaml:"sslmode" doc:"libpq sslmode string (disable, allow, prefer, require, verify-ca, verify-full). Use verify-full in production."`
 	MaxConnections int    `yaml:"max_connections" doc:"Maximum connections the sidecar pgx pool will open to this target. Keep well below max_connections on the server."`
 	DatabaseURL    string `yaml:"database_url" doc:"Full libpq connection URL. When set, overrides host/port/user/password/database/sslmode."`
-}
-
-type AgentDBConfig struct {
-	LiveProvisioningEnabled  bool                             `yaml:"live_provisioning_enabled"`
-	AllowPublicIP            bool                             `yaml:"allow_public_ip"`
-	RequireBackupBeforeDrop  bool                             `yaml:"require_backup_before_destroy"`
-	ReconcileIntervalSeconds int                              `yaml:"reconcile_interval_seconds" doc:"How often to reconcile agent-DB deployments: archive expired leases and destroy abandoned ones. 0 disables. Default: 300."`
-	Providers                map[string]AgentDBProviderConfig `yaml:"providers"`
-}
-
-type AgentDBProviderConfig struct {
-	Enabled           bool     `yaml:"enabled"`
-	AllowedRegions    []string `yaml:"allowed_regions"`
-	AllowedAccounts   []string `yaml:"allowed_accounts"`
-	AllowedProjects   []string `yaml:"allowed_projects"`
-	AllowedWorkspaces []string `yaml:"allowed_workspaces"`
-	MaxTTLSeconds     int      `yaml:"max_ttl_seconds"`
-	MaxCostUSD        float64  `yaml:"max_estimated_cost_usd"`
 }
 
 type CollectorConfig struct {
@@ -478,6 +465,7 @@ type RetentionConfig struct {
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
 	DecisionsDays int `yaml:"decisions_days" doc:"Days to keep parked, queued, blocked and observe-only decisions after they were last seen; ones behind an action or verification are kept. 0 disables. Range 0-3650. Default 30."`
+	AuthAuditDays int `yaml:"auth_audit_days" doc:"Days to keep the sign-in audit trail (sage.auth_audit: SSO logins, links, grants and break-glass use). 0 keeps it forever. Range 0-3650. Default 365."`
 	// SageSizeWarningPct: see sage_footprint.go.
 	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size; below 256 MB it is never a finding. 0 disables the check. Default 10."`
 	// QueryStoreDays and SnapshotsMaxPct: see storage_retention.go.
@@ -505,6 +493,11 @@ type OAuthConfig struct {
 	RedirectURL  string `yaml:"redirect_url" doc:"Absolute URL the provider redirects to after authentication. Must match the URI registered at the provider."`
 	IssuerURL    string `yaml:"issuer_url" doc:"OIDC issuer URL used to discover the provider's authorization and token endpoints."`
 	DefaultRole  string `yaml:"default_role" doc:"Role assigned to newly authenticated users when no role mapping rule matches."`
+	// Group to role mapping and break-glass (E1); see authz.go.
+	GroupsClaim   string             `yaml:"groups_claim" doc:"ID-token (or userinfo) claim that lists the user's IdP groups for role_mapping. Default groups."`
+	RoleMapping   []OAuthRoleMapping `yaml:"role_mapping" doc:"Maps IdP groups to pg_sage roles; the highest matching role wins and is re-applied at every SSO login."`
+	UnmappedUsers string             `yaml:"unmapped_users" doc:"When role_mapping is set, what a user in no mapped group gets: deny (default, refused) or default_role."`
+	BreakGlass    BreakGlassConfig   `yaml:"break_glass"`
 }
 
 // Interval helpers.
@@ -612,8 +605,11 @@ func Load(args []string) (*Config, error) {
 		cfg.ConfigPath = yamlPath
 	}
 
-	// Step 2: Overlay environment variables.
+	// Step 2: Overlay environment variables, then NAME_FILE secrets.
 	overlayEnv(cfg)
+	if err := applySecretFiles(cfg); err != nil {
+		return nil, err
+	}
 
 	// Step 3: Overlay CLI flags (highest precedence).
 	if *mode != "" {
@@ -651,7 +647,9 @@ func Load(args []string) (*Config, error) {
 	}
 
 	// Legacy env-var compat.
-	cfg.APIKey = os.Getenv("SAGE_API_KEY")
+	if v := os.Getenv("SAGE_API_KEY"); v != "" {
+		cfg.APIKey = v
+	}
 	cfg.TLSCert = os.Getenv("SAGE_TLS_CERT")
 	cfg.TLSKey = os.Getenv("SAGE_TLS_KEY")
 
@@ -678,7 +676,13 @@ func Load(args []string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if err := c.validateTLS(); err != nil {
+		return err
+	}
 	if err := c.validateAgentNative(); err != nil {
+		return err
+	}
+	if err := c.validateAuthz(); err != nil {
 		return err
 	}
 	if c.Collector.IntervalSeconds <= 0 {
@@ -753,6 +757,9 @@ func (c *Config) validate() error {
 	if err := c.Retention.validateDecisionsDays(); err != nil {
 		return err
 	}
+	if err := c.Retention.validateAuthAuditDays(); err != nil {
+		return err
+	}
 	if err := c.Retention.validateStorage(); err != nil {
 		return err
 	}
@@ -760,6 +767,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.FleetLearning.validate(); err != nil {
+		return err
+	}
+	if err := c.Agents.validate(); err != nil {
 		return err
 	}
 
@@ -1029,6 +1039,7 @@ func newDefaults() *Config {
 
 			SageSizeWarningPct: DefaultRetentionSageSizeWarningPct,
 			DecisionsDays:      DefaultRetentionDecisionsDays,
+			AuthAuditDays:      DefaultRetentionAuthAuditDays,
 			QueryStoreDays:     DefaultRetentionQueryStoreDays,
 			SnapshotsMaxPct:    DefaultRetentionSnapshotsMaxPct,
 		},
@@ -1040,13 +1051,6 @@ func newDefaults() *Config {
 		},
 		API: APIConfig{
 			ListenAddr: DefaultAPIListenAddr,
-		},
-		AgentDB: AgentDBConfig{
-			LiveProvisioningEnabled:  false,
-			AllowPublicIP:            false,
-			RequireBackupBeforeDrop:  true,
-			ReconcileIntervalSeconds: DefaultAgentDBReconcileInterval,
-			Providers:                map[string]AgentDBProviderConfig{},
 		},
 		Policy: PolicyConfig{Profile: DefaultPolicyProfile},
 		Value:  ValueConfig{ToilModelVersion: DefaultToilModelVersion},
@@ -1077,10 +1081,13 @@ func newDefaults() *Config {
 		SelfBudget: DefaultSelfBudget(),
 		History:    DefaultHistory(),
 		OAuth: OAuthConfig{
-			DefaultRole: "viewer",
+			DefaultRole:   "viewer",
+			GroupsClaim:   "groups",
+			UnmappedUsers: UnmappedUsersDeny,
 		},
 		SelfConfig:    defaultSelfConfigConfig(),
 		FleetLearning: defaultFleetLearningConfig(),
+		Agents:        defaultAgentsConfig(),
 	}
 }
 
@@ -1092,6 +1099,9 @@ func loadYAML(path string, cfg *Config) error {
 	// Expand ${ENV_VAR} references with validation. Only the braced
 	// form is expanded; a bare '$' (e.g. in a password) is left intact.
 	raw := string(data)
+	if err := checkBracedSecretFiles(raw); err != nil {
+		return err
+	}
 	expanded := expandBracedEnv(raw)
 
 	// Warn about env vars that expanded to empty strings. This catches the
@@ -1103,12 +1113,9 @@ func loadYAML(path string, cfg *Config) error {
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
-	expanded, retiredWarnings, err := stripRetiredKeys(expanded)
+	expanded, err = dropRetired(expanded)
 	if err != nil {
 		return err
-	}
-	for _, warning := range retiredWarnings {
-		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
 
 	candidate := Clone(cfg)
@@ -1172,7 +1179,8 @@ func unexpandedEnvWarnings(path, raw string) []string {
 	seen := map[string]bool{}
 	walkScalars(&document, func(value string) {
 		for _, name := range bracedEnvNames(value) {
-			if seen[name] || os.Getenv(name) != "" {
+			if seen[name] || os.Getenv(name) != "" ||
+				os.Getenv(name+secretFileSuffix) != "" {
 				continue
 			}
 			seen[name] = true
@@ -1284,6 +1292,12 @@ func overlayEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SAGE_ENCRYPTION_KEY"); v != "" {
 		cfg.EncryptionKey = v
+	}
+	if v := os.Getenv("SAGE_ENCRYPTION_KEY_PREVIOUS"); v != "" {
+		cfg.EncryptionKeyPrevious = v
+	}
+	if v := os.Getenv("SAGE_BREAK_GLASS_PASSWORD_HASH"); v != "" {
+		cfg.OAuth.BreakGlass.PasswordHash = v
 	}
 	if v := os.Getenv("SAGE_OPTIMIZER_LLM_API_KEY"); v != "" {
 		cfg.LLM.OptimizerLLM.APIKey = v

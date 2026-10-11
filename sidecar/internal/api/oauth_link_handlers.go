@@ -1,10 +1,8 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -110,7 +108,7 @@ func oauthLinkGrantHandler(
 			internalError(w, r, "redeem link grant", err)
 			return
 		}
-		recordAuthAudit(r.Context(), pool, auth.AuthAuditEvent{
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
 			Event: auth.AuditOIDCLinkGrantUsed, ActorUserID: userID, TargetUserID: userID,
 		})
 		startLinkRoundTrip(w, r, provider, userID, auth.LinkViaGrant)
@@ -128,7 +126,7 @@ func completeOAuthLink(
 		writeOAuthUserError(w, r, err, link)
 		return
 	}
-	recordAuthAudit(r.Context(), pool, auth.AuthAuditEvent{
+	recordAuthEvent(r, pool, auth.AuthAuditEvent{
 		Event: auth.AuditOIDCLinked, ActorUserID: link.UserID, TargetUserID: link.UserID,
 		Detail: map[string]any{"issuer": identity.Issuer, "via": link.Via},
 	})
@@ -177,7 +175,7 @@ func unlinkUserSSOHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			internalError(w, r, "unlink sso", err)
 			return
 		}
-		recordAuthAudit(r.Context(), pool, auth.AuthAuditEvent{
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
 			Event: auth.AuditOIDCUnlinked, ActorUserID: actorID(r), TargetUserID: id,
 		})
 		jsonResponse(w, map[string]string{"status": "unlinked"})
@@ -202,7 +200,7 @@ func issueLinkGrantHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			internalError(w, r, "issue link grant", err)
 			return
 		}
-		recordAuthAudit(r.Context(), pool, auth.AuthAuditEvent{
+		recordAuthEvent(r, pool, auth.AuthAuditEvent{
 			Event: auth.AuditOIDCLinkGrantIssued, ActorUserID: actorID(r), TargetUserID: id,
 			Detail: map[string]any{"expires_at": expires.UTC().Format(time.RFC3339)},
 		})
@@ -225,13 +223,4 @@ func actorID(r *http.Request) int {
 		return user.ID
 	}
 	return 0
-}
-
-// recordAuthAudit writes an identity-change audit row. The change it
-// describes has already happened, so a failed write is logged, not undone.
-func recordAuthAudit(ctx context.Context, pool *pgxpool.Pool, ev auth.AuthAuditEvent) {
-	if err := auth.RecordAuthAudit(ctx, pool, ev); err != nil {
-		slog.Error("auth audit write failed", "event", ev.Event,
-			"target_user_id", ev.TargetUserID, "error", err)
-	}
 }

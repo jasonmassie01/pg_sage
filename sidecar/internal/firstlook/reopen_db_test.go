@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/agentposture"
 )
 
 // A step whose transaction cannot be reopened is degraded with the reason,
@@ -18,7 +20,8 @@ import (
 //
 // The session's own statement_timeout (300 ms, SET on the session) ends
 // the opening read of pg_settings, which another session holds locked;
-// the connection stays usable, unlike after a client-side deadline.
+// the connection stays usable, unlike after a client-side deadline. The
+// posture detectors are left out: the test is about the 9 rules' steps.
 func TestFailedReopenDoesNotLeakAnAbortedTransaction(t *testing.T) {
 	admin, ctx := livePool(t)
 	single := warmSingleConn(t, ctx, sessionTimeoutPool(t, ctx, admin, "300"))
@@ -33,7 +36,9 @@ func TestFailedReopenDoesNotLeakAnAbortedTransaction(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	r, err := Run(ctx, single, testOptions("app"))
+	opts := testOptions("app")
+	opts.PostureRegistry = agentposture.NewRegistry()
+	r, err := Run(ctx, single, opts)
 	if err != nil {
 		t.Fatalf("run = %v, want a report with degraded checks", err)
 	}
@@ -53,7 +58,7 @@ func TestFailedReopenDoesNotLeakAnAbortedTransaction(t *testing.T) {
 	if _, err := lock.Exec(ctx, "ROLLBACK"); err != nil {
 		t.Fatalf("release pg_settings: %v", err)
 	}
-	retried, err := Retry(ctx, single, testOptions("app"), r)
+	retried, err := Retry(ctx, single, opts, r)
 	if err != nil {
 		t.Fatalf("retry: %v", err)
 	}

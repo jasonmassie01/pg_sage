@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/agentposture"
 )
 
 // Retry runs once more the steps whose checks degraded with a transient
@@ -95,7 +97,8 @@ func joinNotes(a, b string) string {
 // a timeout, a lock or serialization conflict, a lost connection. A missing
 // privilege or object fails the same way every time.
 func retryableError(err error) bool {
-	if err == nil {
+	if err == nil || errors.Is(err, agentposture.ErrInvalidConfig) ||
+		errors.Is(err, agentposture.ErrInvalidFinding) {
 		return false
 	}
 	var pgErr *pgconn.PgError
