@@ -157,6 +157,9 @@ func wireRouter(p WireParams) WireResult {
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
+			MCPOAuth:   mcpOAuthValidator(p.Cfg, p.FleetMgr, authPool),
+			Audit: api.AuditDeps{SIEMStatus: siemStatusFunc(p.Cfg),
+				EvidenceKey: evidenceSigningKey(p.Cfg)},
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 			Ask:        askServices(),
 			Specialist: specialistHandler,
@@ -164,6 +167,14 @@ func wireRouter(p WireParams) WireResult {
 			FleetLearning: fleetLearningAPI{},
 			// The request audit of the Postgres-specialist contract.
 			SpecialistAudit: specialistAudit,
+			// Agent environment labels (agent_envclass_wiring.go).
+			AgentEnvironments: agentEnvironmentService(p.Cfg, p.FleetMgr, p.MetaState),
+			// Kill switch, freeze and unfreeze (agent_kill_wiring.go).
+			AgentKill: lateKillSwitch{},
+			// An agent's activity (agent_broker_wiring.go).
+			AgentActivity: agentActivityAPI{},
+			// Agent grants and capability requests (agent_grants_wiring.go).
+			AgentGrants: agentGrantAPI(p.Cfg, p.FleetMgr, p.MetaState),
 		},
 		middlewares...,
 	)

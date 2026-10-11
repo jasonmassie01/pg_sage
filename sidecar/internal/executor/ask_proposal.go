@@ -250,7 +250,7 @@ func (e *Executor) queueProposal(ctx context.Context, proposer ActionMetadataPro
 		risk = contract.BaseRiskTier
 	}
 	id, err := proposer.ProposeWithMetadata(ctx, e.databaseID, int(p.FindingID), p.SQL,
-		p.RollbackSQL, risk, meta)
+		p.RollbackSQL, risk, withAgentProvenance(ctx, meta))
 	if err != nil {
 		return p, fmt.Errorf("queue proposal of finding %d: %w", p.FindingID, err)
 	}

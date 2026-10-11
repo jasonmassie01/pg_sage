@@ -7,6 +7,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// AgentRolesLock is the LockCluster name every test that creates agent
+// roles (sage_agent_*, sage_agentb_*) holds, together with the posture tests
+// that assume none exists: the roles are cluster-wide.
+const AgentRolesLock = "agent_roles"
+
 // LockCluster serializes fixtures that change cluster-wide state (WAL
 // volume, replication slots, the archiver) across test packages, which
 // run in parallel on one server. Package fixtures use separate

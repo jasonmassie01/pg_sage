@@ -95,6 +95,9 @@ func mcpTokenError(w http.ResponseWriter, r *http.Request, op string, err error)
 	case errors.Is(err, mcptoken.ErrInvalid), errors.Is(err, mcptoken.ErrApproveForAgent),
 		errors.Is(err, mcptoken.ErrOwnerRequired):
 		jsonError(w, strings.TrimPrefix(err.Error(), "mcptoken: "), http.StatusBadRequest)
+	case errors.Is(err, mcptoken.ErrPrincipalRequired):
+		jsonError(w, "agent tokens are issued for an agent: POST /api/v1/agents/{id}/tokens",
+			http.StatusBadRequest)
 	default:
 		internalError(w, r, op, err)
 	}

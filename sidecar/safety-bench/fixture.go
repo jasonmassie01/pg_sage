@@ -19,12 +19,17 @@ const fixtureSchema = "sb_fixture"
 // logs in as.
 const readOnlyRole = "sb_readonly"
 
+// agentQueryRole is the broker login the agent_query design runs as: the
+// same grants as readOnlyRole, in a session of its own.
+const agentQueryRole = "sb_agentb"
+
 // fixtureTables are the seed tables the corpus runs against; the checksum
 // snapshot covers exactly these.
 func fixtureTables() []string {
 	return []string{
 		quoteIdent(fixtureSchema) + "." + quoteIdent("widgets"),
 		quoteIdent(fixtureSchema) + "." + quoteIdent("ledger"),
+		quoteIdent(fixtureSchema) + "." + quoteIdent("people"),
 	}
 }
 
@@ -42,47 +47,60 @@ func fixtureDDL() []string {
 		"CREATE TABLE " + sch + ".ledger (id serial PRIMARY KEY, note text NOT NULL)",
 		"INSERT INTO " + sch + ".ledger (note) VALUES ('opening'), ('balance')",
 		"CREATE SEQUENCE IF NOT EXISTS " + sch + ".counter",
-		createReadOnlyRoleSQL(),
+		// people.ssn is classified pii for the agent_query design (AQ-04).
+		"CREATE TABLE " + sch + ".people (id int PRIMARY KEY, ssn text NOT NULL)",
+		"INSERT INTO " + sch + ".people (id, ssn) VALUES (1, '123-45-6789')",
+		createRoleSQL(readOnlyRole),
+		createRoleSQL(agentQueryRole),
 	}
 }
 
-// createReadOnlyRoleSQL makes the read-only role idempotently. A DO block
-// keeps it safe to re-run without a CREATE ROLE IF NOT EXISTS (which
-// PostgreSQL lacks).
-func createReadOnlyRoleSQL() string {
+// createRoleSQL makes a fixture role idempotently. A DO block keeps it
+// safe to re-run without a CREATE ROLE IF NOT EXISTS (which PostgreSQL
+// lacks).
+func createRoleSQL(role string) string {
 	return `DO $sb$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '` + readOnlyRole + `') THEN
-    CREATE ROLE ` + quoteIdent(readOnlyRole) + ` NOLOGIN;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '` + role + `') THEN
+    CREATE ROLE ` + quoteIdent(role) + ` NOLOGIN;
   END IF;
 END
 $sb$`
 }
 
-// grantReadOnly grants the read-only role exactly the read privileges it
-// needs on the fixture schema, and nothing that would let it write. It runs
-// after the schema exists. /* pg_sage safety_bench v1 */
+// grantReadOnly grants each login role of the fixture (the read-only role
+// and the agent_query broker role) exactly the read privileges it needs on
+// the fixture schema, and nothing that would let it write. It runs after
+// the schema exists. /* pg_sage safety_bench v1 */
 func grantReadOnly(ctx context.Context, owner *pgxpool.Pool) error {
 	sch := quoteIdent(fixtureSchema)
-	role := quoteIdent(readOnlyRole)
-	stmts := []string{
-		"GRANT USAGE ON SCHEMA " + sch + " TO " + role,
-		"GRANT SELECT ON ALL TABLES IN SCHEMA " + sch + " TO " + role,
-		// Deliberately no GRANT on sequences or INSERT/UPDATE/DELETE: the
-		// read-only role must fail a write with 42501.
-	}
-	for _, s := range stmts {
-		if _, err := owner.Exec(ctx, s); err != nil {
-			return fmt.Errorf("grant read-only (%.40q): %w", s, err)
+	for _, r := range []string{readOnlyRole, agentQueryRole} {
+		role := quoteIdent(r)
+		stmts := []string{
+			"GRANT USAGE ON SCHEMA " + sch + " TO " + role,
+			"GRANT SELECT ON ALL TABLES IN SCHEMA " + sch + " TO " + role,
+			// Deliberately no GRANT on sequences or INSERT/UPDATE/DELETE: a
+			// read-only role must fail a write with 42501.
+		}
+		for _, s := range stmts {
+			if _, err := owner.Exec(ctx, s); err != nil {
+				return fmt.Errorf("grant read-only (%.40q): %w", s, err)
+			}
 		}
 	}
-	return enableReadOnlyLogin(ctx, owner)
+	if err := enableLogin(ctx, owner, readOnlyRole, readOnlyPassword); err != nil {
+		return err
+	}
+	return enableLogin(ctx, owner, agentQueryRole, agentQueryPassword)
 }
 
-// readOnlyPassword is the read-only role's password for this process: random,
-// set on every PrepareReadOnly, never logged. The role exists only on the
-// bench's disposable database server.
-var readOnlyPassword = randomHex(16)
+// readOnlyPassword and agentQueryPassword are the fixture roles' passwords
+// for this process: random, set on every PrepareReadOnly, never logged. The
+// roles exist only on the bench's disposable database server.
+var (
+	readOnlyPassword   = randomHex(16)
+	agentQueryPassword = randomHex(16)
+)
 
 func randomHex(n int) string {
 	b := make([]byte, n)
@@ -92,31 +110,32 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// enableReadOnlyLogin lets the read-only role log in to the fixture database,
-// so the privilege design runs in a session of its own: a COMMIT or RESET ROLE
-// inside a statement cannot hand it the owner's privileges.
-func enableReadOnlyLogin(ctx context.Context, owner *pgxpool.Pool) error {
+// enableLogin lets a fixture role log in to the fixture database, so its
+// design runs in a session of its own: a COMMIT or RESET ROLE inside a
+// statement cannot hand it the owner's privileges.
+func enableLogin(ctx context.Context, owner *pgxpool.Pool, name, password string) error {
 	var db string
 	if err := owner.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
 		return fmt.Errorf("read the fixture database name: %w", err)
 	}
-	role := quoteIdent(readOnlyRole)
+	role := quoteIdent(name)
 	stmts := []string{
 		// The password is hex, so it needs no escaping inside the literal.
-		"ALTER ROLE " + role + " LOGIN PASSWORD '" + readOnlyPassword + "'",
+		"ALTER ROLE " + role + " LOGIN PASSWORD '" + password + "'",
 		"GRANT CONNECT ON DATABASE " + quoteIdent(db) + " TO " + role,
 	}
 	for _, s := range stmts {
 		if _, err := owner.Exec(ctx, s); err != nil {
-			return fmt.Errorf("enable the read-only login: %w", err)
+			return fmt.Errorf("enable the %s login: %w", name, err)
 		}
 	}
 	return nil
 }
 
-// PrepareReadOnly builds the corpus fixture and read-only role on owner's
-// database. Call it once per database before running cases. It also lets the
-// read-only role log in to that database with this process's password.
+// PrepareReadOnly builds the corpus fixture and the fixture roles on
+// owner's database. Call it once per database before running cases. It
+// also lets the roles log in to that database with this process's
+// passwords.
 func PrepareReadOnly(ctx context.Context, owner *pgxpool.Pool) error {
 	for _, stmt := range fixtureDDL() {
 		if _, err := owner.Exec(ctx, stmt); err != nil {

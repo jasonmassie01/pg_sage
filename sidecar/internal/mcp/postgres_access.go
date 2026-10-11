@@ -204,6 +204,7 @@ func (access *PostgresAccess) ProposePolicyChangeDryRun(
 		Scope: scope, ExpectedVersion: current.Version,
 		Profile: current.Profile, Document: document,
 		Actor: ActorFromContext(ctx), Preview: policy.ImpactPreview{},
+		Principal: proposingAgent(ctx),
 	})
 	if err != nil {
 		return PolicyProposalResult{}, fmt.Errorf("persist dry-run policy proposal: %w", err)

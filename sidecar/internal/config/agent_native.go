@@ -58,9 +58,17 @@ type WALCustodianConfig struct {
 type MCPConfig struct {
 	Enabled   bool   `yaml:"enabled" doc:"Enable the intent-level MCP server."`
 	Transport string `yaml:"transport" doc:"MCP transport: http (default, credential required) or stdio."`
+	// OAuth makes MCP over HTTP an OAuth 2.1 resource server (mcp_oauth.go).
+	OAuth MCPOAuthConfig `yaml:"oauth"`
+	// StdioPrincipal names the agent principal the stdio client acts as
+	// (agents_core.go).
+	StdioPrincipal string `yaml:"stdio_principal" doc:"Name of the agent principal the stdio client acts as. Empty: stdio keeps read and propose tools capped at approval, and agent_* tools answer agent_unsponsored. Default: empty."`
 }
 
 func (c *Config) validateAgentNative() error {
+	if err := ValidStdioPrincipal(c.MCP.StdioPrincipal); err != nil {
+		return err
+	}
 	if c.Policy.Profile != "staffed" && c.Policy.Profile != "unattended" {
 		return fmt.Errorf("policy.profile must be staffed or unattended")
 	}

@@ -83,6 +83,10 @@ func familyOf(name string) toolFamily {
 		return (*Server).callAskTool
 	case fleetToolNames[name]:
 		return (*Server).callFleetTool
+	case agentBrokerToolNames[name]:
+		return (*Server).callAgentBrokerTool
+	case name == toolRequestCapability:
+		return (*Server).callGrantTool
 	case name == "list_databases":
 		return (*Server).listDatabases
 	}
@@ -115,6 +119,7 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]
 	if failed != nil {
 		return toolError(failed), nil
 	}
+	ctx = bindAgentRef(ctx, call.Name)
 	result, failed := familyOf(call.Name)(s, ctx, call.Name, arguments)
 	if failed != nil {
 		if failed.Code == codeCancelled {

@@ -2,6 +2,7 @@ package mcptoken
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"unicode"
 	"unicode/utf8"
@@ -13,6 +14,9 @@ const (
 	maxActorLen    = 200
 	allDatabases   = "*"
 )
+
+// principalIDPattern is an agent principal id (sage.guard_principals.id).
+var principalIDPattern = regexp.MustCompile(`^agp_[a-z2-7]{20}$`)
 
 // scopeOrder is the canonical scope order: read, propose, approve.
 var scopeOrder = map[string]int{ScopeRead: 0, ScopePropose: 1, ScopeApprove: 2}
@@ -103,6 +107,10 @@ func checkOwner(req CreateRequest, scopes []string) error {
 		return ErrOwnerRequired
 	case req.Kind == KindAgent && req.OwnerUserID != 0:
 		return invalid("owner_user_id is only for operator tokens")
+	case req.Kind == KindAgent && !principalIDPattern.MatchString(req.PrincipalID):
+		return ErrPrincipalRequired
+	case req.Kind == KindOperator && req.PrincipalID != "":
+		return invalid("principal_id is only for agent tokens")
 	}
 	return nil
 }

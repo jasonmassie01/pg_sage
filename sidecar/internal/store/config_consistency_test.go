@@ -39,6 +39,10 @@ var excludedPrefixes = []string{
 	"fleet_learning.",
 	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
 	"agents.",
+	// E2 audit export and the MCP OAuth resource server: YAML only,
+	// restart-bound, safety-critical (endpoints, credentials, who may call MCP)
+	"audit.",
+	"mcp.oauth.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
@@ -80,6 +84,9 @@ var excludedExactKeys = map[string]bool{
 	"retention.snapshots_max_pct": true,
 	// The sign-in audit window (E1) is YAML only, like decisions_days.
 	"retention.auth_audit_days": true,
+	// The stdio transport's agent identity (agent governance G1) is YAML
+	// only and restart-bound: an API write must never rebind it.
+	"mcp.stdio_principal": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,

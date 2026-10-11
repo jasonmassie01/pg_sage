@@ -39,10 +39,14 @@ func DecisionFingerprint(input DecisionInput) string {
 	}
 	targets := append([]string(nil), input.TargetObjects...)
 	sort.Strings(targets)
-	sum := sha256.Sum256([]byte(strings.Join([]string{
+	parts := []string{
 		database, input.Feature, input.Intent, strings.Join(targets, "\x1e"),
 		string(input.Verdict), strconv.Itoa(input.PolicyVersion), input.ProposedSQL,
-	}, "\x1f")))
+	}
+	if input.PrincipalID != "" { // pg_sage's own fingerprints are unchanged
+		parts = append(parts, "principal="+input.PrincipalID)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
 	return "fp_" + hex.EncodeToString(sum[:16])
 }
 
@@ -64,7 +68,7 @@ func (r *PostgresRepository) UpsertDecision(
 	if err != nil {
 		return 0, "", err
 	}
-	values[len(values)-1] = input.Fingerprint
+	values[fingerprintParam] = input.Fingerprint
 	var id int64
 	var evidenceID string
 	err = r.pool.QueryRow(ctx, upsertDecisionSQL, values...).Scan(&id, &evidenceID)
@@ -83,8 +87,9 @@ func (r *PostgresRepository) UpsertDecision(
 const upsertDecisionSQL = `INSERT INTO sage.decision
 	(database_id, feature, intent, target_objects, policy_version, verdict,
 	 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
-	 fingerprint)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13)
+	 fingerprint, principal_id, task_id, artifact_hash)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
+	        NULLIF($14,''),NULLIF($15,''),NULLIF($16,''))
 	ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL AND resolved_at IS NULL
 	DO UPDATE SET repeat_count = sage.decision.repeat_count + 1,
 	              last_seen_at = now(), reason = EXCLUDED.reason,
@@ -92,3 +97,6 @@ const upsertDecisionSQL = `INSERT INTO sage.decision
 	              deadline_kind = EXCLUDED.deadline_kind,
 	              deadline_hard_at = EXCLUDED.deadline_hard_at
 	RETURNING id, evidence_id`
+
+// fingerprintParam is the index of $13, fingerprint, in decisionValues.
+const fingerprintParam = 12

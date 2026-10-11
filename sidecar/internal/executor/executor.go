@@ -89,6 +89,8 @@ type Executor struct {
 	policyGate         policy.Gate
 	autonomy           policy.AutonomyLimiter // earned-autonomy ledger (M7)
 	facts              policy.FactBinder      // confirmed facts (roadmap 2.3)
+	agentDecider       policy.AgentDecider    // agent governance (spec §6.2)
+	principalHold      PrincipalHold          // §6.2.7 cross-database re-check
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
 	hostCPU            HostCPUReader

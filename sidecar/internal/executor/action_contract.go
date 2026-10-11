@@ -15,6 +15,9 @@ type ActionContract struct {
 	RollbackClass       string
 	Cooldown            string
 	AuditFields         []string
+	// Narrowing marks a contract that only takes access away (§6.2.4); the
+	// gate lets it pass the hard stops, trust, budgets and windows.
+	Narrowing bool
 }
 
 func (c ActionContract) Validate() error {
@@ -134,6 +137,20 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return replaceIndexContract(), true
 	case "revert_created_statistics":
 		return revertCreatedStatisticsContract(), true
+	case ActionTypeGuardRoleEnsure:
+		return guardRoleEnsureContract(), true
+	case ActionTypeGuardRoleRetire:
+		return guardRoleRetireContract(), true
+	case ActionTypeGuardFreeze:
+		return guardContainContract(actionType, "one principal, cluster-wide"), true
+	case ActionTypeGuardKill:
+		return guardContainContract(actionType, "every agent role of the scope"), true
+	case ActionTypeGuardUnfreeze:
+		return guardUnfreezeContract(), true
+	case ActionTypeGuardGrant:
+		return guardGrantContract(), true
+	case ActionTypeGuardRevoke:
+		return guardRevokeContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,

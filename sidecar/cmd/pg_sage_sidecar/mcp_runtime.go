@@ -38,6 +38,7 @@ func startMCPRuntime() {
 	if runtime == nil || runtime.Transport() != "stdio" {
 		return
 	}
+	bindStdioPrincipal(runtime, cfg, fleetMgr, globalMetaState)
 	go func() {
 		if err := runtime.Serve(shutdownCtx); err != nil && err != context.Canceled {
 			logError("mcp", "stdio server: %v", err)
@@ -73,12 +74,16 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Facts: factsMCPBackend{manager: fleetMgr},
 		// Fleet findings across the databases the caller may see.
 		FleetLearning: fleetFindingsMCP{},
+		// agent_query and agent_whoami (agent_broker_wiring.go).
+		AgentBroker: agentBrokerMCP{},
 		// Coding-agent tools (roadmap phase 3) on the resolved database.
 		AgentTools: fleetAgentTools{manager: fleetMgr, options: agentToolOptions(cfg)},
 		// Ask Sage (roadmap phase 3): read, and propose with the propose scope.
 		Ask: askServices(),
 		// The Postgres-specialist contract over MCP (roadmap phase 3).
 		Specialist: processSpecialistMCP{},
+		// agent_request_capability (agent_grants_wiring.go).
+		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
 	}
 }
 

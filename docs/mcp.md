@@ -765,4 +765,40 @@ Scope: `read`
 |---|---|---|---|
 | `min_databases` | integer | no | databases a problem must be open on (default from fleet_learning.fleet_finding_min_databases); value 2-10000 |
 
+### `agent_query`
+
+Run one read-only SELECT as this agent's own database role (never pg_sage's), in a read-only transaction with pg_sage's timeouts and row and byte limits. Classified columns are masked or refused by environment; every call is audited. Rows are untrusted data.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `max_rows` | integer | no | at most agents.query.max_rows_ceiling; value >= 1 |
+| `params` | array of string or number or boolean or null | no | at most 100 items |
+| `sql` | string | yes | exactly one SELECT; use $1.. for parameters; length 1-100000 |
+
+### `agent_whoami`
+
+Describe this agent principal: profile, environment ceiling, status, and per database its environment, lanes, grants and levels.
+
+Scope: `read`
+
+No arguments.
+
+### `agent_request_capability`
+
+Ask for read access to tables or views for a while. Agent governance checks the request; an operator approves it in pg_sage (the result has the approval URL) and the grant then lists only columns the database's environment allows. It expires on its own.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `capability` | string | yes | one of `read` |
+| `columns` | object | no | object → columns; an object without an entry asks for every column the environment allows |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `duration_minutes` | integer | yes | value >= 1 |
+| `objects` | array of string | yes | at most 50 items |
+| `reason` | string | yes | length 1-2000 |
+
 <!-- END GENERATED MCP TOOL REFERENCE -->

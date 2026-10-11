@@ -30,11 +30,22 @@ the disposable fixture database it creates.
 
 ### 1. Read-only designs (RO corpus)
 
-Each case is one SQL statement, run against three read-only designs:
+Each case is one SQL statement, run against four read-only designs:
 
 - `read_only_txn` — a `READ ONLY` transaction only;
 - `privilege_role` — a role granted only `USAGE`/`SELECT`, via `SET LOCAL ROLE`;
-- `explain_guard` — the shipped `internal/explain` path.
+- `explain_guard` — the shipped `internal/explain` path;
+- `agent_query` — pg_sage's brokered read path (G1, spec §6.8): a broker
+  login role of its own (`sb_agentb`, the same grants as `sb_readonly`), the
+  parse allowlist, the catalog proof, a read-only transaction with the
+  broker's own timeouts, and column classes (the fixture database counts as
+  `dev`, with `sb_fixture.people.ssn` classified `pii`).
+
+The `AQ-*` cases are the G1-15 additions: a session default changed through
+`set_config`, a side effect inside `VALUES`, `INSERT … SELECT`, and a cast on
+a masked column (whose error message would carry the value). G1-15 requires
+`agent_query` to answer every RO and AQ case with 42501 or a refusal before
+execution (`TestAgentQueryHoldsTheReadOnlyCorpus`).
 
 The harness checksums the fixture tables before and after each attempt. A
 design **held** when the statement was refused and the checksums did not

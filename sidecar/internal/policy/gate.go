@@ -3,7 +3,6 @@ package policy
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 )
@@ -26,7 +25,8 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
-	if !spendsBudget(req) {
+	req = withContextPrincipal(ctx, req)
+	if !spendsBudget(req) || req.Principal != nil { // agent requests read no usage
 		return gate.finish(ctx, req, gate.evaluate(ctx, req))
 	}
 	gate.budgetMu.Lock()
@@ -39,6 +39,7 @@ func (gate *authorizationGate) Authorize(
 
 // Explain runs the same evaluation as Authorize and records nothing.
 func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) Decision {
+	req = withContextPrincipal(ctx, req)
 	return decisionForRequest(req, gate.evaluate(ctx, req))
 }
 
@@ -47,8 +48,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if err != nil {
 		return blocked(ReasonPolicyUnavailable, err.Error())
 	}
-	if decision, stop := hardStop(runtime, req); stop {
-		return decision
+	stopped, isStop := hardStop(runtime, req)
+	if isStop && !IsNarrowing(req) {
+		return stopped
 	}
 	if decision, stop := gate.validateRequest(req); stop {
 		return decision
@@ -58,6 +60,12 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	}
 	if decision, stop := gate.factDecision(ctx, req); stop {
 		return decision
+	}
+	if IsNarrowing(req) {
+		return narrowingDecision(req, isStop)
+	}
+	if req.Principal != nil {
+		return gate.agentDecision(ctx, runtime, req)
 	}
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
@@ -96,25 +104,6 @@ func (gate *authorizationGate) selfInitiatedDecision(
 		return decision
 	}
 	return tier
-}
-
-// providerDecision blocks actions whose contract excludes the target's
-// provider (formerly checked only by the legacy executor engine).
-func providerDecision(runtime RuntimeState, req ActionRequest) (Decision, bool) {
-	support := req.Contract.ProviderSupport
-	if len(support) == 0 {
-		return Decision{}, false
-	}
-	provider := strings.ToLower(strings.TrimSpace(runtime.Provider))
-	if provider == "" || provider == "self-managed" {
-		provider = "postgres"
-	}
-	for _, item := range support {
-		if strings.EqualFold(provider, item) {
-			return Decision{}, false
-		}
-	}
-	return blocked(ReasonProviderUnsupported, "provider "+provider), true
 }
 
 // documentDecision applies the standing policy document: change class,
@@ -191,6 +180,23 @@ func hardStop(runtime RuntimeState, req ActionRequest) (Decision, bool) {
 	return Decision{}, false
 }
 
+// IsNarrowing reports a request whose contract only takes access away
+// (§6.2.4).
+func IsNarrowing(req ActionRequest) bool {
+	return req.Contract != nil && req.Contract.Narrowing
+}
+
+// narrowingDecision executes a validated narrowing request at any trust
+// level, outside the document, budgets and windows; duringStop records that
+// a hard stop held everything else back.
+func narrowingDecision(req ActionRequest, duringStop bool) Decision {
+	reason := ReasonNarrowing
+	if duringStop {
+		reason = ReasonNarrowingDuringStop
+	}
+	return decisionForRequest(req, blockedAs(VerdictExecute, reason))
+}
+
 func requestIsReadOnly(req ActionRequest) bool {
 	return req.Contract != nil && req.Contract.RiskTier == RiskReadOnly
 }
@@ -222,12 +228,7 @@ func trustedInternalControl(req ActionRequest) bool {
 	if !req.InternalControl || req.SQL != "" || req.Contract == nil {
 		return false
 	}
-	switch req.Contract.ActionType {
-	case "declare_table_contract", "register_consumer", "retention_delete":
-		return true
-	default:
-		return false
-	}
+	return typedInternalActions[req.Contract.ActionType]
 }
 
 func unknownGuardrail(contract ActionContract) (Guardrail, bool) {

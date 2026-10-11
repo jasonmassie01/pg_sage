@@ -6,7 +6,22 @@ import "github.com/pg-sage/sidecar/internal/decommission"
 // intentionally NOT purged by age. A new time-series table must be added
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
-	decommissionExemptions)
+	decommissionExemptions, agentEnvClassExemptions, agentGuardExemptions,
+	agentGateExemptions, auditChainExemptions, agentKillExemptions, agentGrantExemptions)
+
+// agentGuardExemptions: agent identities and their roles are the record of
+// truth for who could act (spec §6.4, §6.6); §6.17 sets no age
+// retention for them, and retired principals stay for audit.
+var agentGuardExemptions = map[string]string{
+	"guard_principals": "agent identities, one row per principal; retired " +
+		"principals stay as the audit record of who could act",
+	"guard_cluster_roles": "current state, one row per principal and cluster; " +
+		"retired rows stay with their principal",
+	"guard_taint": "taint has no time expiry (GR-05); rows are cleared, never " +
+		"aged out, and stay as evidence",
+	"guard_public_baseline": "current state: the PUBLIC baseline is replaced " +
+		"whole at each preflight",
+}
 
 // decommissionExemptions: the operator's acknowledgements of the
 // decommission inventory are audit evidence (Agent Guard spec §12).
@@ -16,17 +31,17 @@ var decommissionExemptions = map[string]string{
 
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
-	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
-	"ask_messages":          "deleted with its conversation (ON DELETE CASCADE)",
-	"chatops_identities":    "admin-managed mapping of chat users to accounts, current state",
-	"chatops_replay":        "pruned by chatops on every callback (24 h replay window)",
-	"config":                "current configuration, not a time-series",
-	"config_audit":          "security audit trail of configuration changes",
-	"crypto_meta":           "key metadata, not a time-series",
-	"databases":             "fleet registry, not a time-series",
+	"action_outcome":     "deleted with its action (ON DELETE CASCADE, actions_days)",
+	"ask_messages":       "deleted with its conversation (ON DELETE CASCADE)",
+	"chatops_identities": "admin-managed mapping of chat users to accounts, current state",
+	"chatops_replay":     "pruned by chatops on every callback (24 h replay window)",
+	"config":             "current configuration, not a time-series",
+	"config_audit":       "security audit trail of configuration changes",
+	"crypto_meta":        "key metadata, not a time-series",
+	"databases":          "fleet registry, not a time-series",
 	"first_look": "bounded by its writer: firstlook.Store.Save keeps the newest 10 " +
 		"reports per database",
-	"onboarding": "one row per database, current state",
+	"onboarding":            "one row per database, current state",
 	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",
 	"io_rate_sample":        "pruned by the IO sampler (verify.io_sample_retention_days)",

@@ -53,6 +53,10 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
                    WHERE conname = 'action_queue_proposed_via_check'
+                     AND conrelid = 'sage.action_queue'::regclass)
+       -- G1 replaced it with action_queue_proposed_via_v2 (guard_core_migration.go)
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'action_queue_proposed_via_v2'
                      AND conrelid = 'sage.action_queue'::regclass) THEN
         ALTER TABLE sage.action_queue ADD CONSTRAINT action_queue_proposed_via_check
             CHECK ((proposed_via IS NULL OR proposed_via IN ('ask_sage'))

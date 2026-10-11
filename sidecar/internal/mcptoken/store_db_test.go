@@ -32,6 +32,11 @@ func livePool(t *testing.T) *pgxpool.Pool {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	require.NoError(t, schema.Bootstrap(ctx, pool))
+	// From G1 every agent token acts for an agent principal (§6.4).
+	_, err = pool.Exec(ctx, `INSERT INTO sage.guard_principals (id, name, profile,
+		created_by) VALUES ($1, 'mcptoken-test-agent', 'legacy', 'test')
+		ON CONFLICT (id) DO NOTHING`, testPrincipalID)
+	require.NoError(t, err)
 	return pool
 }
 
@@ -55,6 +60,7 @@ func agentReq(name string, databases ...string) mcptoken.CreateRequest {
 	return mcptoken.CreateRequest{
 		Name: name, Kind: mcptoken.KindAgent, Scopes: []string{"read", "propose"},
 		Databases: databases, ExpiresIn: day, CreatedBy: "admin@example.com",
+		PrincipalID: testPrincipalID,
 	}
 }
 
@@ -63,6 +69,7 @@ func operatorReq(name string, owner int) mcptoken.CreateRequest {
 	req.Kind = mcptoken.KindOperator
 	req.Scopes = []string{"read", "propose", "approve"}
 	req.OwnerUserID = owner
+	req.PrincipalID = ""
 	return req
 }
 
