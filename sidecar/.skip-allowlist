@@ -51,6 +51,7 @@ internal/agentguard TestKill_.* # agent roles (kill, freeze) are PG16+ on PG14/1
 internal/agentguard TestFreeze_Operator|TestFrozen_NoFlags|TestInflight_RegisterAndKillCancels|TestFallback_Reconcile # agent roles are PG16+ (posture-only on PG14/15)
 internal/agentguard TestCheckBackends_RegisteredRolePassesThenDrifts # registering an agent role is PG16+ (posture-only on PG14/15)
 internal/agentguard/grants Test(Approve|CheckObjects|EffectivePrivileges|ExpireDue|Grant|LeaseActive|List|RegistryPrivileges|RequestCapability|Revoke)_.*|TestGrantNowAndRevokeNow # agent grants need agent roles, PG16+ (posture-only on PG14/15)
+internal/agentguard/upkeep TestDrift_.*|TestEndToEnd_(RotationSetsANewPasswordAndSaysItIsScheduled|RetireDropsTheRolesAfterGrace|ObservationWithholdsRotation) # drift, rotation and retire act on agent roles, PG16+ (posture-only on PG14/15)
 internal/retention TestGuardQueryAuditPurge_GenericPlanUsesAnIndex # EXPLAIN (GENERIC_PLAN) is PG16+
 
 # Agent governance tests that need servers of their own; ci.yml agent-servers runs
