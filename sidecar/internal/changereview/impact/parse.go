@@ -28,13 +28,13 @@ func (r *run) parseFiles(files []changereview.SQLFile) []textFile {
 			continue
 		}
 		if !astAvailable() {
-			texts = append(texts, r.parseText(f, "the SQL parser (libpg_query) is not "+
-				"compiled into this build"))
+			texts = r.addText(texts, f, "the SQL parser (libpg_query) is not compiled "+
+				"into this build")
 			continue
 		}
 		parts, err := inspectDDL(f.Content)
 		if err != nil {
-			texts = append(texts, r.parseText(f, parseReason(err)))
+			texts = r.addText(texts, f, parseReason(err))
 			continue
 		}
 		r.addParsed(f.Path, parts)
@@ -101,10 +101,19 @@ func commandKind(command string) string {
 	return strings.ToLower(camelBoundary.ReplaceAllString(c, "${1}_${2}"))
 }
 
+// addText adds a file in text mode, unless it holds no statement (only
+// comments).
+func (r *run) addText(texts []textFile, f changereview.SQLFile, reason string) []textFile {
+	if tf := r.parseText(f, reason); len(tf.stmts) > 0 {
+		r.mode = changereview.ParseText
+		return append(texts, tf)
+	}
+	return texts
+}
+
 // parseText is a file in text mode: its statements as the classifier
 // splits them, each with the classifications that matched it.
 func (r *run) parseText(f changereview.SQLFile, reason string) textFile {
-	r.mode = changereview.ParseText
 	tf := textFile{path: f.Path, reason: reason}
 	byText := map[string]*stmt{}
 	for _, raw := range migration.SplitStatements(f.Content) {
@@ -145,10 +154,6 @@ func (r *run) textModeFindings(files []textFile) {
 		name := tf.path
 		if name == "" {
 			name = "the inline SQL"
-		}
-		if len(ids) == 0 {
-			ids = append(ids, r.addEvidence("unknown", "unparsed."+name, name+": "+tf.reason,
-				unknownData{Subject: name, Reason: tf.reason}))
 		}
 		r.find(changereview.RuleTextMode, changereview.SeverityWarning,
 			"SQL analyzed in text mode: "+name,
