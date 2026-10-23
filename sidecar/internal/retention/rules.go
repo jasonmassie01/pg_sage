@@ -59,6 +59,10 @@ const (
 	// go with them (ON DELETE CASCADE). Live ones are kept however old.
 	keepRecommendation = `AND state IN ('verified', 'reverted', 'inconclusive',
 	                   'superseded', 'abandoned')`
+	// A change review is kept while it runs, waits to land or holds a
+	// pending credit (its receipt can still settle it).
+	keepChangeReview = `AND state <> 'running' AND credit_state <> 'pending'
+	                   AND landing_state IS DISTINCT FROM 'awaiting'`
 	// OFFSET 0 keeps a keep check on a large table a correlated index probe
 	// per candidate (a subplan): as an anti join, the generic plan of a
 	// purge with many candidates hashed all of sage.action_log or
@@ -205,6 +209,11 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// kept; decided, applied and superseded ones age from their last change.
 		{table: "managed_change_proposals", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND status NOT IN ('pending', 'approved')"},
+		// Change reviews age from their last change; a review still running,
+		// waiting to land or holding a pending credit is kept however old.
+		{table: "change_review", timeCol: "updated_at", days: r.ActionsDays,
+			extra: keepChangeReview},
+		{table: "change_review_budget_day", timeCol: "day", days: r.ActionsDays},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is
