@@ -66,6 +66,10 @@ type ProductionDependencies struct {
 	AgentTools AgentToolBackend
 	// Ask serves ask_sage (roadmap phase 3); optional.
 	Ask AskBackend
+	// ChangeReview serves the Change Review tools (review_change,
+	// get_change_review, list_change_reviews, report_change_deployed);
+	// optional. Build it with NewChangeReviewBackend(registry).
+	ChangeReview ChangeReviewBackend
 	// Specialist serves the Postgres-specialist contract tools; optional.
 	Specialist SpecialistBackend
 }
