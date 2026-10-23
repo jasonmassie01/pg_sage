@@ -15,6 +15,7 @@ export function DatabasesPage() {
   const [readOnly, setReadOnly] = useState(false)
   const [writeGuidance, setWriteGuidance] = useState('edit the YAML file')
   const [loading, setLoading] = useState(true)
+  const [configFileDBs, setConfigFileDBs] = useState([])
 
   const fetchDatabases = useCallback(async () => {
     setLoading(true)
@@ -44,8 +45,10 @@ export function DatabasesPage() {
       })
       if (!res.ok) throw new Error('Failed to load databases')
       const data = await res.json()
+      const managed = data.databases || []
       setReadOnly(false)
-      setDatabases(data.databases || [])
+      setDatabases(managed)
+      setConfigFileDBs(await fetchConfigFileDBs(managed))
       setError(null)
     } catch (err) {
       setError(err.message)
@@ -169,6 +172,17 @@ export function DatabasesPage() {
           onCancel={() => setDeleteTarget(null)} />
       )}
 
+      {!loading && !readOnly && configFileDBs.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm" data-testid="config-file-note"
+            style={{ color: 'var(--text-secondary)' }}>
+            From the config file (edit the YAML file to change these):
+          </p>
+          <ReadOnlyFleet databases={configFileDBs}
+            testId="config-file-databases" />
+        </div>
+      )}
+
       {!loading && (readOnly ? (
         <ReadOnlyFleet databases={databases} />
       ) : (
@@ -183,10 +197,25 @@ export function DatabasesPage() {
   )
 }
 
-function ReadOnlyFleet({ databases }) {
+// fetchConfigFileDBs returns the running databases that are not in the
+// managed list: in standalone mode, the one from the YAML postgres section.
+// A failed read only hides that section; the managed list still shows.
+async function fetchConfigFileDBs(managed) {
+  try {
+    const res = await fetch('/api/v1/databases', { credentials: 'include' })
+    if (!res.ok) return []
+    const data = await res.json()
+    const names = new Set(managed.map(db => db.name))
+    return (data.databases || []).filter(db => !names.has(db.name))
+  } catch {
+    return []
+  }
+}
+
+function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list' }) {
   return (
     <div className="rounded-lg divide-y"
-      data-testid="yaml-fleet-list"
+      data-testid={testId}
       style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
