@@ -31,7 +31,7 @@ func (a *Advisor) refineAlterType(ctx context.Context, c *DDLClassification) {
 		a.logFn("debug", "migration: column type lookup failed: %v", err)
 		return
 	}
-	if isBinaryCoercibleChange(current, c.TargetType) {
+	if IsBinaryCoercibleChange(current, c.TargetType) {
 		c.RequiresRewrite = false
 		c.Description = "Binary-coercible type change: no rewrite, " +
 			"but ACCESS EXCLUSIVE is still taken"
@@ -41,11 +41,11 @@ func (a *Advisor) refineAlterType(ctx context.Context, c *DDLClassification) {
 var reVarchar = regexp.MustCompile(
 	`^(?:character varying|varchar)\s*(?:\(\s*(\d+)\s*\))?$`)
 
-// isBinaryCoercibleChange reports whether changing a column from
+// IsBinaryCoercibleChange reports whether changing a column from
 // current (format_type output) to target (as written in the DDL) is a
 // no-rewrite change. Only the common varchar/text widenings are
 // recognized; anything else is conservatively treated as a rewrite.
-func isBinaryCoercibleChange(current, target string) bool {
+func IsBinaryCoercibleChange(current, target string) bool {
 	cur := strings.ToLower(strings.TrimSpace(current))
 	tgt := strings.ToLower(strings.TrimSpace(target))
 	curVC := reVarchar.FindStringSubmatch(cur)

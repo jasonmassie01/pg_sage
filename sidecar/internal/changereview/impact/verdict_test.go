@@ -72,7 +72,7 @@ func TestVerdictTableOf14RuleCombinations(t *testing.T) {
 func TestEveryRuleHasAName(t *testing.T) {
 	want := map[string]string{
 		RuleLockAndRewrite: "lock_and_rewrite", RuleLockQueue: "lock_queue_exposure",
-		RuleColumnReferenced: "column_still_referenced",
+		RuleColumnReferenced:   "column_still_referenced",
 		RuleRelationReferenced: "relation_still_referenced",
 		RuleWillFail:           "change_will_fail", RuleTypeChange: "type_change_impact",
 		RuleIndexUsed: "index_still_used", RuleIndexRedundant: "index_redundant",

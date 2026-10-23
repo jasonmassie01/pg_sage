@@ -65,18 +65,21 @@ func catalogDigest(t *testing.T, e *env) string {
 	t.Helper()
 	var digest string
 	err := e.f.Pool.QueryRow(e.ctx, `SELECT md5(concat_ws('#',
-		(SELECT string_agg(c.relname || c.relkind || c.relnatts ||
+		(SELECT string_agg(c.relname::text || c.relkind::text || c.relnatts::text ||
 		        coalesce(c.reloptions::text, ''), ',' ORDER BY c.relname)
 		   FROM pg_class c WHERE c.relnamespace = 'rv'::regnamespace),
-		(SELECT string_agg(a.attrelid::regclass || a.attname || a.atttypid || a.attnotnull,
+		(SELECT string_agg(a.attrelid::regclass::text || a.attname::text ||
+		        a.atttypid::text || a.attnotnull::text,
 		        ',' ORDER BY a.attrelid, a.attnum)
 		   FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
 		  WHERE c.relnamespace = 'rv'::regnamespace),
-		(SELECT string_agg(i.indexrelid::regclass || i.indisvalid || i.indkey::text, ','
+		(SELECT string_agg(i.indexrelid::regclass::text || i.indisvalid::text ||
+		        i.indkey::text, ','
 		        ORDER BY i.indexrelid)
 		   FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid
 		  WHERE c.relnamespace = 'rv'::regnamespace),
-		(SELECT string_agg(conname || contype || convalidated, ',' ORDER BY conname)
+		(SELECT string_agg(conname::text || contype::text || convalidated::text, ','
+		        ORDER BY conname)
 		   FROM pg_constraint WHERE connamespace = 'rv'::regnamespace)))`).Scan(&digest)
 	if err != nil {
 		t.Fatal(err)
