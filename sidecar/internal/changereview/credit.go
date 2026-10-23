@@ -34,6 +34,7 @@ type CreditFacts struct {
 //
 //	final, void                         → unchanged (terminal)
 //	carried verdict                     → none
+//	landing not_applicable              → none (nothing lands; no receipt)
 //	concur_with_edits, override         → none
 //	receipt regressed or unverifiable,
 //	or landing expired                  → void
@@ -47,7 +48,7 @@ func NextCredit(cur Credit, f CreditFacts, toil ToilModel, now time.Time) Credit
 	case CreditFinal, CreditVoid:
 		return cur
 	}
-	if f.Carried {
+	if f.Carried || f.LandingState == LandingNotApplicable {
 		return Credit{State: CreditNone}
 	}
 	switch f.DBAVerdict {

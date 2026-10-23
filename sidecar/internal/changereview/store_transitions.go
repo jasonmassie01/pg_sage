@@ -108,11 +108,15 @@ func (st *Store) MarkLanded(ctx context.Context, id string, l Landing) (Review, 
 }
 
 // MarkNotApplicable records that a complete review's post-conditions
-// already held when it completed: there is nothing to land.
+// already held when it completed: there is nothing to land, so no receipt
+// can settle a credit and a pending one becomes none (NextCredit).
 func (st *Store) MarkNotApplicable(ctx context.Context, id string) (Review, error) {
 	row := st.pool.QueryRow(ctx, `/* pg_sage change_review_not_applicable v1 */
-		UPDATE sage.change_review SET landing_state = 'not_applicable', updated_at = now()
+		UPDATE sage.change_review SET landing_state = 'not_applicable',
+		credit_state = 'none', credited_minutes = 0, toil_model_version = NULL,
+		credit_final_at = NULL, updated_at = now()
 		WHERE id = $1::uuid AND state = 'complete' AND landing_state = 'awaiting'
+		  AND credit_state IN ('none', 'pending')
 		RETURNING `+selectFull, id)
 	return st.transitioned(ctx, row, id, "landing")
 }
