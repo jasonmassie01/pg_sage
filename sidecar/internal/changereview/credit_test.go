@@ -59,7 +59,9 @@ func TestNextCreditTable(t *testing.T) {
 		{"carried verdict", none, CreditFacts{DBAVerdict: DBAConcur, Carried: true,
 			ReceiptVerdict: ReceiptClean, LandingState: LandingLanded}, none},
 		{"not applicable landing", none, CreditFacts{DBAVerdict: DBAConcur,
-			ReceiptVerdict: ReceiptPending, LandingState: LandingNotApplicable}, pending},
+			ReceiptVerdict: ReceiptPending, LandingState: LandingNotApplicable}, none},
+		{"pending, then not applicable", pending, CreditFacts{DBAVerdict: DBAConcur,
+			ReceiptVerdict: ReceiptPending, LandingState: LandingNotApplicable}, none},
 	}
 	for _, c := range cases {
 		got := NextCredit(c.cur, c.f, toil, now)

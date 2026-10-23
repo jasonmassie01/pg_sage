@@ -127,6 +127,38 @@ func TestStoreExpireAndNotApplicable(t *testing.T) {
 	}
 }
 
+// A change already in place when it was reviewed never lands, so no
+// receipt can settle a credit: a concurred review that becomes
+// not_applicable holds no pending credit (which retention would keep and
+// the Value page would show as pending forever), and a concur after it
+// earns none.
+func TestNotApplicableHoldsNoCredit(t *testing.T) {
+	f := newFixture(t)
+	st := NewStore(f.pool, "testdb", nil)
+	r := completeReview(t, f, st, nil)
+	dec, err := st.Decide(f.ctx, r.ID, DBAVerdict{Verdict: DBAConcur, Actor: "user:1"})
+	if err != nil || dec.CreditState != CreditPending || dec.CreditedMinutes != 15 {
+		t.Fatalf("concur = %+v, %v", dec, err)
+	}
+	na, err := st.MarkNotApplicable(f.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("MarkNotApplicable: %v", err)
+	}
+	if na.CreditState != CreditNone || na.CreditedMinutes != 0 ||
+		na.ToilModelVersion != nil || na.DBAVerdict != DBAConcur {
+		t.Fatalf("not applicable after concur = credit %s %d min v%v, verdict %q",
+			na.CreditState, na.CreditedMinutes, na.ToilModelVersion, na.DBAVerdict)
+	}
+	later := completeReview(t, f, st, nil)
+	if _, err := st.MarkNotApplicable(f.ctx, later.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Decide(f.ctx, later.ID, DBAVerdict{Verdict: DBAConcur, Actor: "user:2"})
+	if err != nil || got.CreditState != CreditNone || got.CreditedMinutes != 0 {
+		t.Fatalf("concur on a not_applicable review = %+v, %v", got, err)
+	}
+}
+
 func TestStoreLandingValidation(t *testing.T) {
 	f := newFixture(t)
 	st := NewStore(f.pool, "testdb", nil)
