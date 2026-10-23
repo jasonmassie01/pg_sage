@@ -24,10 +24,10 @@ var ErrUserNotFound = errors.New("user not found")
 // system without any admin account.
 var ErrLastAdmin = errors.New("cannot remove the last admin")
 
-// HashPassword returns a bcrypt hash of the password.
+// HashPassword returns a bcrypt hash of the password at BcryptCost.
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword(
-		[]byte(password), BcryptCost,
+		[]byte(password), int(hashCost.Load()),
 	)
 	if err != nil {
 		return "", fmt.Errorf("hashing password: %w", err)
