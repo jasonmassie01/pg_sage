@@ -129,7 +129,7 @@ func (c *mcpClient) rpc(ctx context.Context, method string, params any, notifica
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxMCPResponse))
 	if notification && resp.StatusCode == http.StatusAccepted {
 		return nil, nil

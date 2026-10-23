@@ -166,7 +166,7 @@ func diffChangedPaths(diff string) []string {
 // path classes of the reasoner's diffscan (migrations, ORM models,
 // repositories, DAOs). diffscan's ORM call patterns run server-side.
 var dataAccessDirs = []string{"migrations", "migrate", "versions", "prisma", "models",
-	"repositories", "dao", "schema"}
+	"repositories", "dao"}
 
 // reviewDataAccessPath reports whether a changed file may touch the
 // database.

@@ -134,7 +134,7 @@ func (g *githubContext) do(ctx context.Context, method, path string, in, out any
 		return transportError{msg: strings.ReplaceAll(fmt.Sprintf("GitHub %s %s: %v",
 			method, path, err), g.token, "[redacted]")}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxGitHubBody))
 	if resp.StatusCode/100 != 2 {
 		return transportError{msg: fmt.Sprintf("GitHub %s %s answered HTTP %d", method,
