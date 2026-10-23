@@ -43,6 +43,7 @@ var ValidEventTypes = map[string]bool{
 	"incident_detected":       true,
 	"incident_escalated":      true,
 	"incident_resolved":       true,
+	EventChangeReviewNeedsDBA: true,
 }
 
 // ValidSeverities lists all supported severity levels with numeric rank.
@@ -60,6 +61,7 @@ var EventSeverity = map[string]string{
 	"approval_needed":         "warning",
 	"finding_critical":        "critical",
 	"query_rewrite_suggested": "warning",
+	EventChangeReviewNeedsDBA: "warning",
 }
 
 // DefaultMinSeverity is the min_severity a new rule for event gets when
