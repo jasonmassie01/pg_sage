@@ -92,12 +92,6 @@ func (f *fixture) service(d Deps) *Service {
 	return s
 }
 
-var (
-	cliCaller = Caller{Actor: "mcp:token:ci", Source: SourceCLI}
-	apiCaller = Caller{Actor: "user:7", Source: SourceAPI}
-)
+var cliCaller = Caller{Actor: "mcp:token:ci", Source: SourceCLI}
 
 func ptr[T any](v T) *T { return &v }
-
-// utc is t truncated to the store's precision.
-func utc(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }

@@ -183,6 +183,9 @@ func nullText(s string) any {
 	return s
 }
 
+// utc is t in UTC at the store's microsecond precision.
+func utc(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }
+
 // nullTime is t, or NULL when zero.
 func nullTime(t time.Time) any {
 	if t.IsZero() {

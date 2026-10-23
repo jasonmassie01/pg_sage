@@ -32,7 +32,7 @@ func InputHash(database string, r Request) string {
 		HeadSHA: r.PR.HeadSHA, Tool: strings.ToLower(strings.TrimSpace(r.MigrationTool)),
 		Transactional: r.Transactional, Files: []file{}}
 	for _, f := range r.SQLFiles {
-		v.Files = append(v.Files, file{Path: f.Path, Content: f.Content})
+		v.Files = append(v.Files, file(f))
 	}
 	raw, _ := json.Marshal(v) // plain strings and bools always marshal
 	return sha256Hex(raw)
