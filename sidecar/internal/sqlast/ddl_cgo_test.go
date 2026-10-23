@@ -311,9 +311,6 @@ func TestInspectDDLParseErrorRejectsWholeScript(t *testing.T) {
 			t.Fatalf("%q: error %T is not a *ParseError", c.script, err)
 		}
 		wantOffset := strings.LastIndex(c.script, c.token)
-		if c.token == "SELEC" {
-			wantOffset = strings.Index(c.script, c.token)
-		}
 		if !strings.Contains(pe.Message, c.message) || pe.Offset != wantOffset ||
 			pe.Line != c.line {
 			t.Errorf("%q: ParseError = %+v, want %q at %d line %d",

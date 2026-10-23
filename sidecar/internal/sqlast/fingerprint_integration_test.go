@@ -70,25 +70,26 @@ SELECT query FROM pg_stat_statements
 // protocol equals the fingerprint of what the application sent.
 func TestFingerprintMatchesPgStatStatementsText(t *testing.T) {
 	conn, ctx := connectTestDB(t)
-	// A fresh schema per run: a recreated table gets a new OID and so a new
-	// queryid, and old entries must not match.
-	schema := fmt.Sprintf("sqlast_fp_%d", time.Now().UnixNano())
+	// Fresh table names per run: a recreated table gets a new OID and so a
+	// new queryid on PG 14-17, while PG 18 jumbles relation names without
+	// their schema, so old entries of the same name would match.
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	lit, par := "sqlast_fp.t"+suffix, "sqlast_fp.p"+suffix
 	execAll(t, ctx, conn,
 		"CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
-		"CREATE SCHEMA "+schema,
-		"CREATE TABLE "+schema+".t (id int, code int)",
-		"CREATE TABLE "+schema+".p (id int, code int)")
+		"CREATE SCHEMA IF NOT EXISTS sqlast_fp",
+		"CREATE TABLE "+lit+" (id int, code int)",
+		"CREATE TABLE "+par+" (id int, code int)")
 	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		_, _ = conn.Exec(context.Background(), "DROP SCHEMA IF EXISTS sqlast_fp CASCADE")
 	})
-	literal := "SELECT * FROM " + schema + ".t WHERE id = 42 /* app='x' */"
+	literal := "SELECT * FROM " + lit + " WHERE id = 42 /* app='x' */"
 	execAll(t, ctx, conn, literal)
-	param := "SELECT * FROM " + schema + ".p WHERE id = $1"
-	if _, err := conn.Exec(ctx, param, 42); err != nil {
+	if _, err := conn.Exec(ctx, "SELECT * FROM "+par+" WHERE id = $1", 42); err != nil {
 		t.Fatalf("parameterized query: %v", err)
 	}
-	recordedLiteral := statementsText(t, ctx, conn, schema+".t")
-	recordedParam := statementsText(t, ctx, conn, schema+".p")
+	recordedLiteral := statementsText(t, ctx, conn, lit)
+	recordedParam := statementsText(t, ctx, conn, par)
 	if recordedLiteral == literal {
 		t.Fatalf("pg_stat_statements kept the literal %q; normalization not active", literal)
 	}
@@ -96,11 +97,11 @@ func TestFingerprintMatchesPgStatStatementsText(t *testing.T) {
 		t.Errorf("Fingerprint(%q) = %s, want %s (sent %q)", recordedLiteral, got, want, literal)
 	}
 	if got, want := mustFingerprint(t, recordedParam),
-		mustFingerprint(t, "SELECT * FROM "+schema+".p WHERE id = 42"); got != want {
+		mustFingerprint(t, "SELECT * FROM "+par+" WHERE id = 42"); got != want {
 		t.Errorf("Fingerprint(%q) = %s, want %s", recordedParam, got, want)
 	}
 	if mustFingerprint(t, recordedLiteral) ==
-		mustFingerprint(t, "SELECT * FROM "+schema+".t WHERE code = $1") {
+		mustFingerprint(t, "SELECT * FROM "+lit+" WHERE code = $1") {
 		t.Error("a different predicate column matched the recorded statement")
 	}
 }
@@ -110,7 +111,8 @@ func TestFingerprintMatchesPgStatStatementsText(t *testing.T) {
 func TestPG18OnlySyntaxMatchesServer(t *testing.T) {
 	conn, ctx := connectTestDB(t)
 	var version int
-	if err := conn.QueryRow(ctx, "SHOW server_version_num").Scan(&version); err != nil {
+	if err := conn.QueryRow(ctx,
+		"SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
 		t.Fatalf("server_version_num: %v", err)
 	}
 	stmts := []string{
