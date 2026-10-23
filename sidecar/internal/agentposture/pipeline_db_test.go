@@ -111,6 +111,12 @@ func TestMonitor_RetriesOnlyTransientFailures(t *testing.T) {
 			if _, err := m.Detect(ctx); err != nil {
 				t.Fatalf("first Detect: %v", err)
 			}
+			// Only a permanent failure counts as a run: a transient one
+			// leaves the cadence unrecorded, so the next cycle runs again.
+			if recorded := !m.st.ran.IsZero(); recorded == c.again {
+				t.Fatalf("after a %s the run was recorded = %v, want %v", c.name,
+					recorded, !c.again)
+			}
 			now = now.Add(time.Minute)
 			before := m.st.fp
 			got, err := m.Detect(ctx)
