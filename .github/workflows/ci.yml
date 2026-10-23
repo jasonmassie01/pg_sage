@@ -388,6 +388,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
 
       - name: Log in to the GitHub container registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" |
