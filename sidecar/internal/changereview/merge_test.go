@@ -2,6 +2,7 @@ package changereview
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -175,6 +176,27 @@ func TestMergeModelCriticalStoredAsWarning(t *testing.T) {
 	}
 	if m.Findings[0].Title != "model critical" || m.Findings[0].Origin != OriginModel {
 		t.Fatalf("the clamp changed more than the severity: %+v", m.Findings[0])
+	}
+}
+
+// A model finding that cites nothing, or cites evidence the review does
+// not hold, is dropped with its reason and raises nothing.
+func TestMergeDropsUncitedAndUnknownEvidenceFindings(t *testing.T) {
+	a := Analysis{ParseMode: ParseAST, Statements: []Statement{{Index: 1,
+		Origin: OriginSQLInput, SQL: "SELECT 1", Kind: "other", EvidenceID: "stmt:1"}},
+		Evidence: []Evidence{mustEvidence(t, "stmt", "1", "s", map[string]any{"a": 1})}}
+	uncited := modelFinding(SeverityWarning)
+	uncited.Title, uncited.EvidenceIDs = "uncited", nil
+	unknown := modelFinding(SeverityWarning)
+	unknown.Title, unknown.EvidenceIDs = "unknown", []string{"stmt:1", "queryid:9"}
+	m := Merge(a, &Reasoning{ModelStatus: ModelOK, Findings: []Finding{uncited, unknown}})
+	if len(m.Findings) != 0 || m.Verdict != VerdictSafe {
+		t.Fatalf("findings %+v, verdict %s: want none stored and safe", m.Findings, m.Verdict)
+	}
+	want := []Dropped{{Kind: "finding", Text: "uncited", Reason: "uncited"},
+		{Kind: "finding", Text: "unknown", Reason: "unknown_evidence"}}
+	if !reflect.DeepEqual(m.Dropped, want) {
+		t.Fatalf("dropped = %+v, want %+v", m.Dropped, want)
 	}
 }
 
