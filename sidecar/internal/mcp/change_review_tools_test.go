@@ -155,8 +155,13 @@ func TestChangeReviewToolsPassTheRequestThrough(t *testing.T) {
 	require.Equal(t, "flyway", r.MigrationTool)
 	require.True(t, r.Transactional != nil && !*r.Transactional)
 	require.Equal(t, 30, r.WaitSeconds)
+}
 
-	response = invoke(t, server, ctx, toolCall("get_change_review", crGetArgs))
+func TestChangeReviewReadAndDeployToolsPassThrough(t *testing.T) {
+	ctx := agentContext(ScopeRead, ScopePropose)
+	backend := &crRecordingBackend{}
+	server := NewServer(backend)
+	response := invoke(t, server, ctx, toolCall("get_change_review", crGetArgs))
 	require.Empty(t, response.Error.Code)
 	require.Equal(t, "00000000-0000-0000-0000-0000000000aa", backend.id)
 	require.Equal(t, 5*time.Second, backend.wait)
@@ -174,8 +179,10 @@ func TestChangeReviewToolsPassTheRequestThrough(t *testing.T) {
 	require.Equal(t, "abcdef1", backend.deploy.Commit)
 	require.True(t, backend.deploy.DeployedAt.Equal(time.Date(2026, 10, 21, 9, 30, 0, 0,
 		time.UTC)))
-	require.Equal(t, []string{"review_change", "get_change_review", "list_change_reviews",
+	require.Equal(t, []string{"get_change_review", "list_change_reviews",
 		"report_change_deployed"}, backend.calls)
+	require.Equal(t, changereview.Caller{Actor: "mcp:token:agt1",
+		Source: changereview.SourceMCP}, backend.caller)
 }
 
 func TestChangeReviewDeployNeedsProposeScope(t *testing.T) {

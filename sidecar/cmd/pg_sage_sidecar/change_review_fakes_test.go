@@ -34,6 +34,7 @@ type crMCP struct {
 	calls  []crCall
 	raw    []string // every request: headers and body
 	status int      // non-zero: answer every request with this HTTP status
+	errMsg string   // the message of isError results ("refused by the fake")
 	tools  func(tool string, args map[string]any) (map[string]any, int)
 }
 
@@ -94,7 +95,11 @@ func (m *crMCP) answer(w http.ResponseWriter, id json.RawMessage, method, tool s
 		out, code := m.tools(tool, args)
 		result = map[string]any{"structuredContent": out, "content": []any{}}
 		if code != 0 {
-			failed := map[string]any{"code": code, "message": "refused by the fake"}
+			msg := m.errMsg
+			if msg == "" {
+				msg = "refused by the fake"
+			}
+			failed := map[string]any{"code": code, "message": msg}
 			result = map[string]any{"isError": true, "content": []any{},
 				"structuredContent": map[string]any{"error": failed}}
 		}
