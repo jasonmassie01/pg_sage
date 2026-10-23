@@ -64,7 +64,8 @@ func TestReadShapeUnsupported(t *testing.T) {
 		"INSERT INTO rv.t DEFAULT VALUES",
 		"CREATE INDEX i ON rv.t (a)",
 		"WITH d AS (DELETE FROM rv.t RETURNING id) SELECT id FROM d",
-		"WITH d AS (DELETE FROM rv.t RETURNING id) UPDATE rv.u SET a = 1 WHERE id IN (SELECT id FROM d)",
+		"WITH d AS (DELETE FROM rv.t RETURNING id) " +
+			"UPDATE rv.u SET a = 1 WHERE id IN (SELECT id FROM d)",
 		"UPDATE rv.t SET a = 1 WHERE CURRENT OF c",
 		"SELECT * INTO rv.copy FROM rv.t",
 		"VACUUM rv.t",
