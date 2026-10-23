@@ -14,19 +14,30 @@ import (
 
 var toil = ToilModel{Version: 1, Minutes: 15}
 
+type creditCase struct {
+	name string
+	cur  Credit
+	f    CreditFacts
+	want Credit
+}
+
 func TestNextCreditTable(t *testing.T) {
 	now := utc(time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC))
+	for _, c := range creditCases(now) {
+		got := NextCredit(c.cur, c.f, toil, now)
+		if !creditEqual(got, c.want) {
+			t.Errorf("%s: NextCredit = %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func creditCases(now time.Time) []creditCase {
 	earlier := now.Add(-time.Hour)
 	none := Credit{State: CreditNone}
 	pending := Credit{State: CreditPending, Minutes: 15, ToilModelVersion: 1}
 	final := Credit{State: CreditFinal, Minutes: 15, ToilModelVersion: 1, FinalAt: &earlier}
 	void := Credit{State: CreditVoid}
-	cases := []struct {
-		name string
-		cur  Credit
-		f    CreditFacts
-		want Credit
-	}{
+	return []creditCase{
 		{"no verdict yet", none, CreditFacts{ReceiptVerdict: ReceiptPending,
 			LandingState: LandingAwaiting}, none},
 		{"concur", none, CreditFacts{DBAVerdict: DBAConcur, ReceiptVerdict: ReceiptPending,
@@ -62,12 +73,6 @@ func TestNextCreditTable(t *testing.T) {
 			ReceiptVerdict: ReceiptPending, LandingState: LandingNotApplicable}, none},
 		{"pending, then not applicable", pending, CreditFacts{DBAVerdict: DBAConcur,
 			ReceiptVerdict: ReceiptPending, LandingState: LandingNotApplicable}, none},
-	}
-	for _, c := range cases {
-		got := NextCredit(c.cur, c.f, toil, now)
-		if !creditEqual(got, c.want) {
-			t.Errorf("%s: NextCredit = %+v, want %+v", c.name, got, c.want)
-		}
 	}
 }
 

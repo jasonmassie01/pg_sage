@@ -37,12 +37,29 @@ func TestValidateRequestAcceptsAndNormalizes(t *testing.T) {
 	}
 }
 
+type refusalCase struct {
+	edit func(*Request)
+	want string
+}
+
 func TestValidateRequestRefusals(t *testing.T) {
 	cfg := testConfig()
-	cases := map[string]struct {
-		edit func(*Request)
-		want string
-	}{
+	for name, c := range refusalCases() {
+		r := validRequest()
+		c.edit(&r)
+		_, err := validateRequest(cfg, "testdb", cliCaller, r)
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %q does not mention %q", name, err, c.want)
+		}
+	}
+}
+
+func refusalCases() map[string]refusalCase {
+	return map[string]refusalCase{
 		"empty sql and diff": {func(r *Request) { r.SQL = "  \n" }, "sql or a diff"},
 		"sql over the limit": {func(r *Request) { r.SQL = strings.Repeat("x", 100001) },
 			"change_review.max_sql_bytes (100000)"},
@@ -52,9 +69,10 @@ func TestValidateRequestRefusals(t *testing.T) {
 		}, "max_sql_bytes"},
 		"diff over the limit": {func(r *Request) { r.Diff = strings.Repeat("d", 524289) },
 			"change_review.max_diff_bytes (524288)"},
-		"unknown tool":     {func(r *Request) { r.MigrationTool = "liquibasex" }, "liquibasex"},
-		"other database":   {func(r *Request) { r.Database = "otherdb" }, "otherdb"},
-		"http pr url":      {func(r *Request) { r.PR.URL = "http://github.com/a/b/pull/1" }, "https"},
+		"unknown tool":   {func(r *Request) { r.MigrationTool = "liquibasex" }, "liquibasex"},
+		"other database": {func(r *Request) { r.Database = "otherdb" }, "otherdb"},
+		"http pr url": {func(r *Request) { r.PR.URL = "http://github.com/a/b/pull/1" },
+			"https"},
 		"pr url with user": {func(r *Request) { r.PR.URL = "https://u:p@github.com/a" }, "https"},
 		"pr url space":     {func(r *Request) { r.PR.URL = "https://github.com/a b" }, "pr.url"},
 		"bad head sha":     {func(r *Request) { r.PR.HeadSHA = "XYZ" }, "head_sha"},
@@ -79,18 +97,6 @@ func TestValidateRequestRefusals(t *testing.T) {
 			r.PR.OpenedAt = ptr(time.Now().Add(48 * time.Hour))
 		}, "opened_at"},
 		"long repo": {func(r *Request) { r.PR.Repo = strings.Repeat("r", 301) }, "pr.repo"},
-	}
-	for name, c := range cases {
-		r := validRequest()
-		c.edit(&r)
-		_, err := validateRequest(cfg, "testdb", cliCaller, r)
-		if !errors.Is(err, ErrInvalid) {
-			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
-			continue
-		}
-		if !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s: %q does not mention %q", name, err, c.want)
-		}
 	}
 }
 

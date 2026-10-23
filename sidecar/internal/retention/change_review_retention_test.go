@@ -31,25 +31,7 @@ func TestRun_ChangeReviewsAgeOutUnlessStillOwed(t *testing.T) {
 	_, ctx := requireDB(t)
 	tag := uniqueTag("cr_ret")
 	insert := func(state, credit, landing, age string) string {
-		var id string
-		err := testPool.QueryRow(ctx, `INSERT INTO sage.change_review (database_name, source,
-			actor, input_hash, state, verdict, deterministic_verdict, parse_mode,
-			model_status, landing_state, receipt_verdict, credit_state, credit_final_at,
-			completed_at, created_at, updated_at)
-			VALUES ('db', 'cli', $1, repeat('a', 64), $2,
-			CASE WHEN $2 = 'complete' THEN 'safe' END,
-			CASE WHEN $2 = 'complete' THEN 'safe' END,
-			CASE WHEN $2 = 'complete' THEN 'ast' END,
-			CASE WHEN $2 = 'complete' THEN 'ok' END,
-			NULLIF($4, ''), CASE WHEN $2 = 'complete' THEN 'pending' END, $3,
-			CASE WHEN $3 = 'final' THEN now() - $5::interval END,
-			CASE WHEN $2 = 'complete' THEN now() - $5::interval END,
-			now() - $5::interval, now() - $5::interval) RETURNING id::text`,
-			tag, state, credit, landing, age).Scan(&id)
-		if err != nil {
-			t.Fatalf("seed review: %v", err)
-		}
-		return id
+		return seedChangeReview(t, ctx, tag, state, credit, landing, age)
 	}
 	finalOld := insert("complete", "final", "not_applicable", "40 days")
 	pendingOld := insert("complete", "pending", "not_applicable", "40 days")
@@ -81,4 +63,29 @@ func TestRun_ChangeReviewsAgeOutUnlessStillOwed(t *testing.T) {
 		WHERE actor = $1`, tag); got != 1 {
 		t.Fatalf("budget rows left = %d, want today's only", got)
 	}
+}
+
+// seedChangeReview inserts one review of actor tag in state, aged age.
+func seedChangeReview(t *testing.T, ctx context.Context, tag, state, credit, landing,
+	age string) string {
+	t.Helper()
+	var id string
+	err := testPool.QueryRow(ctx, `INSERT INTO sage.change_review (database_name, source,
+		actor, input_hash, state, verdict, deterministic_verdict, parse_mode,
+		model_status, landing_state, receipt_verdict, credit_state, credit_final_at,
+		completed_at, created_at, updated_at)
+		VALUES ('db', 'cli', $1, repeat('a', 64), $2,
+		CASE WHEN $2 = 'complete' THEN 'safe' END,
+		CASE WHEN $2 = 'complete' THEN 'safe' END,
+		CASE WHEN $2 = 'complete' THEN 'ast' END,
+		CASE WHEN $2 = 'complete' THEN 'ok' END,
+		NULLIF($4, ''), CASE WHEN $2 = 'complete' THEN 'pending' END, $3,
+		CASE WHEN $3 = 'final' THEN now() - $5::interval END,
+		CASE WHEN $2 = 'complete' THEN now() - $5::interval END,
+		now() - $5::interval, now() - $5::interval) RETURNING id::text`,
+		tag, state, credit, landing, age).Scan(&id)
+	if err != nil {
+		t.Fatalf("seed review: %v", err)
+	}
+	return id
 }

@@ -66,9 +66,10 @@ func TestChangeReviewValidateNamesTheKey(t *testing.T) {
 		"lock queue order": {func(c *crc) { c.LockQueueCritical = c.LockQueueWarn },
 			"lock_queue_critical"},
 		"lock queue warn 0": {func(c *crc) { c.LockQueueWarn = 0 }, "lock_queue_warn"},
-		"backfill order":    {func(c *crc) { c.BackfillRowsCritical = 5 }, "backfill_rows_critical"},
-		"backfill warn 0":   {func(c *crc) { c.BackfillRowsWarn = 0 }, "backfill_rows_warn"},
-		"large scan 0":      {func(c *crc) { c.LargeScanRows = 0 }, "large_scan_rows"},
+		"backfill order": {func(c *crc) { c.BackfillRowsCritical = 5 },
+			"backfill_rows_critical"},
+		"backfill warn 0": {func(c *crc) { c.BackfillRowsWarn = 0 }, "backfill_rows_warn"},
+		"large scan 0":    {func(c *crc) { c.LargeScanRows = 0 }, "large_scan_rows"},
 		"auto clear negative": {func(c *crc) { c.AutoClearMaxTableBytes = -1 },
 			"auto_clear_max_table_bytes"},
 	}
@@ -93,9 +94,11 @@ func TestChangeReviewValidateBoundaries(t *testing.T) {
 		"concurrency 1":         func(c *crc) { c.MaxConcurrentPerDatabase = 1 },
 		"concurrency 8":         func(c *crc) { c.MaxConcurrentPerDatabase = 8 },
 		"actor equals database": func(c *crc) { c.DailyTokensPerActor = c.DailyTokensPerDatabase },
-		"zero daily budgets":    func(c *crc) { c.DailyTokensPerDatabase, c.DailyTokensPerActor = 0, 0 },
-		"offered equals diff":   func(c *crc) { c.MaxOfferedDiffBytes = c.MaxDiffBytes },
-		"auto clear zero":       func(c *crc) { c.AutoClearMaxTableBytes = 0 },
+		"zero daily budgets": func(c *crc) {
+			c.DailyTokensPerDatabase, c.DailyTokensPerActor = 0, 0
+		},
+		"offered equals diff": func(c *crc) { c.MaxOfferedDiffBytes = c.MaxDiffBytes },
+		"auto clear zero":     func(c *crc) { c.AutoClearMaxTableBytes = 0 },
 		"disabled actor over cap": func(c *crc) {
 			c.Enabled = false
 			c.DailyTokensPerActor = c.DailyTokensPerDatabase + 1

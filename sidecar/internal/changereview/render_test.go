@@ -69,6 +69,12 @@ func renderFixtures(t *testing.T) map[string]Review {
 	off.NotDetermined = []NotDetermined{{Subject: "app-code changes",
 		Reason: "no model is configured"}}
 
+	return map[string]Review{"safe": safe, "review": review, "risky": risky,
+		"llm_off": off, "model_suggestions": modelFixture(t),
+		"decided_receipt": decidedFixture(t)}
+}
+
+func modelFixture(t *testing.T) Review {
 	model := renderBase(t)
 	model.Verdict, model.DeterministicVerdict = VerdictReview, VerdictSafe
 	model.Findings = []Finding{{Kind: "n_plus_one", Severity: SeverityWarning,
@@ -82,7 +88,10 @@ func renderFixtures(t *testing.T) map[string]Review {
 	model.Dropped = []Dropped{{Kind: "finding", Text: "uncited", Reason: "uncited"},
 		{Kind: "claim", Text: "made-up 99%", Reason: "ungrounded"}}
 	model.Tokens = 4200
+	return model
+}
 
+func decidedFixture(t *testing.T) Review {
 	decided := renderBase(t)
 	decided.Verdict, decided.DeterministicVerdict = VerdictSafe, VerdictSafe
 	decided.DBAVerdict, decided.DBAActor = DBAConcur, "user:1"
@@ -98,9 +107,7 @@ func renderFixtures(t *testing.T) map[string]Review {
 			MeanMs: 0.4, Calls: 31}}}
 	decided.ReceiptHash = strings.Repeat("9", 64)
 	decided.CreditState, decided.CreditedMinutes = CreditFinal, 15
-
-	return map[string]Review{"safe": safe, "review": review, "risky": risky,
-		"llm_off": off, "model_suggestions": model, "decided_receipt": decided}
+	return decided
 }
 
 func TestRenderGoldens(t *testing.T) {

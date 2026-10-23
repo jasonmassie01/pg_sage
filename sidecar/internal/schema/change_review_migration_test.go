@@ -100,7 +100,8 @@ func TestChangeReviewConstraintsAndIndexes(t *testing.T) {
 		}
 	}
 	var def string
-	if err := pool.QueryRow(ctx, `SELECT pg_get_indexdef('sage.idx_change_review_credit'::regclass)`).
+	if err := pool.QueryRow(ctx,
+		`SELECT pg_get_indexdef('sage.idx_change_review_credit'::regclass)`).
 		Scan(&def); err != nil || !strings.Contains(def, "INCLUDE (credited_minutes)") {
 		t.Fatalf("idx_change_review_credit = %q (%v), want credited_minutes included", def, err)
 	}

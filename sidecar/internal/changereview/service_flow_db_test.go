@@ -270,7 +270,8 @@ func TestServiceListAndSummary(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("List = %d %v", len(list), err)
 	}
-	if _, err := s.Decide(f.ctx, a.ID, DBAVerdict{Verdict: DBAConcur, Actor: "user:1"}); err != nil {
+	concur := DBAVerdict{Verdict: DBAConcur, Actor: "user:1"}
+	if _, err := s.Decide(f.ctx, a.ID, concur); err != nil {
 		t.Fatal(err)
 	}
 	sum, err := s.Summary(f.ctx, time.Now().Add(-time.Hour))

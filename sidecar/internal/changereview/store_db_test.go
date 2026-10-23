@@ -19,17 +19,15 @@ import (
 
 func fullReview(t *testing.T) Review {
 	now := utc(time.Now().Add(-2 * time.Hour))
-	pct := -35.5
-	return Review{Database: "testdb", Source: SourceMCP, Actor: "mcp:token:ci",
+	r := Review{Database: "testdb", Source: SourceMCP, Actor: "mcp:token:ci",
 		Repo: "acme/shop", PRURL: "https://github.com/acme/shop/pull/7", PRNumber: 7,
 		HeadSHA: "abc1234", BaseSHA: "def5678", PRTitle: "Rename email",
 		PROpenedAt: ptr(now.Add(-time.Hour)), MigrationTool: "rails",
 		Transactional: ptr(true), RevisionOf: "0f14e45f-ceea-467a-9575-0c9a1d8e7a01",
 		InputHash: strings.Repeat("a", 64), ContentHash: strings.Repeat("b", 64),
 		DiffSHA256: strings.Repeat("c", 64), State: StateComplete, Stage: StageDone,
-		FailureReason: "retried once",
-		Verdict: VerdictRisky, DeterministicVerdict: VerdictRisky, ParseMode: ParseAST,
-		ModelStatus: ModelOK,
+		FailureReason: "retried once", Verdict: VerdictRisky,
+		DeterministicVerdict: VerdictRisky, ParseMode: ParseAST, ModelStatus: ModelOK,
 		Statements: []Statement{{Index: 1, Origin: OriginModelTranslated,
 			File: "db/migrate/1.rb", Line: 4, SQL: "ALTER TABLE orders RENAME email TO e",
 			Kind: "rename_column", Relations: []string{"public.orders"},
@@ -40,41 +38,58 @@ func fullReview(t *testing.T) Review {
 			EvidenceIDs: []string{"stmt:1"},
 			Suggestion:  &Suggestion{Language: "ruby", Code: "add_column :o, :e, :text"}}},
 		Evidence: []Evidence{mustEvidence(t, "stmt", "1", "statement 1",
-			map[string]any{"calls": 2000, "mean_ms": 0.5, "nested": map[string]any{"a": []any{1, "x"}}})},
+			map[string]any{"calls": 2000, "mean_ms": 0.5,
+				"nested": map[string]any{"a": []any{1, "x"}}})},
 		Dropped:       []Dropped{{Kind: "claim", Text: "uncited", Reason: "uncited"}},
 		NotDetermined: []NotDetermined{{Subject: "app/models/x.rb", Reason: "cut"}},
-		Summary: ReviewSummary{Critical: 1, Warning: 1, Rules: []string{"CR-03"},
-			ModelFindings: 1, DroppedCount: 1, AppCodeAnalyzed: true, Intent: "contract",
-			Calibration: &Calibration{Since: now.Add(-90 * 24 * time.Hour), Reviews: 3,
-				FalseSafe: 1, ByVerdict: map[string]VerdictClass{VerdictSafe: {Reviews: 2,
-					Decided: 1, Concurred: 1, Receipts: 1, Clean: 0, Regressed: 1}}}},
-		Expectations: Expectations{PostConditions: []PostCondition{{StatementIndex: 1,
-			Kind: PostColumnRenamed, Relation: "public.orders", Column: "email",
-			NewName: "e"}}, WatchQueryIDs: []int64{-42, 7}, Relations: []string{"public.orders"},
-			Predictions: []verify.Prediction{{Class: "change_review", Method: "rule",
-				TargetQueryIDs: []int64{-42}, ExpectedChangePct: &pct}}},
+		Summary:       fullSummary(now), Expectations: fullExpectations(),
 		Transcript: &agentloop.Transcript{Protocol: agentloop.ProtocolNative, Stop: "final",
 			ModelCalls: 2, Tokens: 1234, Steps: []agentloop.Step{}},
 		Markdown: "<!-- marker -->", Tokens: 1234, ReceiptHash: strings.Repeat("d", 64),
-		DBAVerdict: DBAOverride, DBADirection: DirectionTooStrict, DBAReason: "known",
-		DBAActor: "user:1", DBADecidedAt: ptr(now.Add(time.Minute)),
-		VerdictCarriedFrom: "1f14e45f-ceea-467a-9575-0c9a1d8e7a01",
-		LandingState:       LandingLanded, LandingSource: LandingSourceChangeEvent,
-		LandedLower: ptr(now.Add(2 * time.Minute)), LandedAt: ptr(now.Add(3 * time.Minute)),
-		ReceiptVerdict: ReceiptRegressed, Receipt: &Receipt{Verdict: ReceiptRegressed,
-			Reason: "latency", WindowHours: 24, BeforeFrom: now, BeforeTo: now, AfterFrom: now,
-			AfterTo: now, Targets: []ReceiptTarget{{QueryID: -42, Verdict: "regressed",
-				BeforeMeanMs: 1, AfterMeanMs: 1.8, BeforeCalls: 40, AfterCalls: 41,
-				ChangePct: 80, PValue: 0.001}}, Tolerance: "missed",
-			Incidents: []string{"i-1"}, LockFindings: []int64{3},
-			BornQueryIDs: []BornQuery{{QueryID: 9, FirstSeen: now, MeanMs: 2, Calls: 5,
-				Relations: []string{"public.orders"}}}, Confounders: []string{"none"},
-			ContradictedBy: []string{"queryid:-42"}, EvidenceIDs: []string{"stmt:1"}},
-		ReceiptDecidedAt: ptr(now.Add(4 * time.Minute)), ShadowAutoClear: ptr(false),
-		ShadowScore: ShadowIncorrect, CreditState: CreditFinal, CreditedMinutes: 15,
-		ToilModelVersion: ptr(1), CreditFinalAt: ptr(now.Add(5 * time.Minute)), CreatedAt: now,
-		CompletedAt: ptr(now.Add(30 * time.Second)),
+		CreatedAt: now, CompletedAt: ptr(now.Add(30 * time.Second)),
 		UpdatedAt: now.Add(5 * time.Minute)}
+	fillDecided(&r, now)
+	return r
+}
+
+func fullSummary(now time.Time) ReviewSummary {
+	return ReviewSummary{Critical: 1, Warning: 1, Rules: []string{"CR-03"},
+		ModelFindings: 1, DroppedCount: 1, AppCodeAnalyzed: true, Intent: "contract",
+		Calibration: &Calibration{Since: now.Add(-90 * 24 * time.Hour), Reviews: 3,
+			FalseSafe: 1, ByVerdict: map[string]VerdictClass{VerdictSafe: {Reviews: 2,
+				Decided: 1, Concurred: 1, Receipts: 1, Clean: 0, Regressed: 1}}}}
+}
+
+func fullExpectations() Expectations {
+	pct := -35.5
+	return Expectations{PostConditions: []PostCondition{{StatementIndex: 1,
+		Kind: PostColumnRenamed, Relation: "public.orders", Column: "email",
+		NewName: "e"}}, WatchQueryIDs: []int64{-42, 7}, Relations: []string{"public.orders"},
+		Predictions: []verify.Prediction{{Class: "change_review", Method: "rule",
+			TargetQueryIDs: []int64{-42}, ExpectedChangePct: &pct}}}
+}
+
+// fillDecided sets the DBA verdict, landing, receipt, shadow and credit
+// fields of the round-trip fixture.
+func fillDecided(r *Review, now time.Time) {
+	r.DBAVerdict, r.DBADirection, r.DBAReason = DBAOverride, DirectionTooStrict, "known"
+	r.DBAActor, r.DBADecidedAt = "user:1", ptr(now.Add(time.Minute))
+	r.VerdictCarriedFrom = "1f14e45f-ceea-467a-9575-0c9a1d8e7a01"
+	r.LandingState, r.LandingSource = LandingLanded, LandingSourceChangeEvent
+	r.LandedLower, r.LandedAt = ptr(now.Add(2*time.Minute)), ptr(now.Add(3*time.Minute))
+	r.ReceiptVerdict = ReceiptRegressed
+	r.Receipt = &Receipt{Verdict: ReceiptRegressed, Reason: "latency", WindowHours: 24,
+		BeforeFrom: now, BeforeTo: now, AfterFrom: now, AfterTo: now,
+		Targets: []ReceiptTarget{{QueryID: -42, Verdict: "regressed", BeforeMeanMs: 1,
+			AfterMeanMs: 1.8, BeforeCalls: 40, AfterCalls: 41, ChangePct: 80,
+			PValue: 0.001}}, Tolerance: "missed", Incidents: []string{"i-1"},
+		LockFindings: []int64{3}, BornQueryIDs: []BornQuery{{QueryID: 9, FirstSeen: now,
+			MeanMs: 2, Calls: 5, Relations: []string{"public.orders"}}},
+		Confounders: []string{"none"}, ContradictedBy: []string{"queryid:-42"},
+		EvidenceIDs: []string{"stmt:1"}}
+	r.ReceiptDecidedAt, r.ShadowAutoClear = ptr(now.Add(4*time.Minute)), ptr(false)
+	r.ShadowScore, r.CreditState, r.CreditedMinutes = ShadowIncorrect, CreditFinal, 15
+	r.ToilModelVersion, r.CreditFinalAt = ptr(1), ptr(now.Add(5*time.Minute))
 }
 
 func TestStoreRoundTripPreservesEveryField(t *testing.T) {
@@ -246,7 +261,8 @@ func TestStoreDecideRace(t *testing.T) {
 	if ok != 1 || already != 9 {
 		t.Fatalf("%d decided and %d ErrAlreadyDecided, want 1 and 9", ok, already)
 	}
-	if n := f.count(`SELECT count(*) FROM sage.change_review WHERE dba_verdict IS NOT NULL`); n != 1 {
+	decided := `SELECT count(*) FROM sage.change_review WHERE dba_verdict IS NOT NULL`
+	if n := f.count(decided); n != 1 {
 		t.Fatalf("%d verdicts stored, want 1", n)
 	}
 }
