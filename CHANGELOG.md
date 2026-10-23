@@ -146,6 +146,11 @@ tamper-evident audit.
 - **MCP stdio clients hear about every fleet change.** A database added or removed right after a
   client subscribed to tool-list changes could be missed when the watcher started late; the
   watcher now compares against the tool list as it was when the session started.
+- **Merging legacy duplicate incidents takes time linear in the backlog.** At startup pg_sage
+  merges the open incidents of each identity that were written before identity keys existed.
+  With table statistics older than that backlog, the merge re-ran its grouping once per open
+  row: 5,000 duplicates of one incident took 25 million index reads. It now reads each
+  identity's open rows once.
 - **The cluster's size is sampled every 10 minutes** (`sre.runways.size_interval_seconds`,
   default 600) instead of every minute: summing every database's size took 100-300 ms on large
   catalogs, and the disk runway forecasts over hours.
