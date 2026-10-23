@@ -83,7 +83,7 @@ func TestChangeReviewConstraintsAndIndexes(t *testing.T) {
 	bootstrapWithRetry(t, ctx, pool)
 	for _, name := range changeReviewChecks {
 		var contype string
-		err := pool.QueryRow(ctx, `SELECT contype FROM pg_constraint
+		err := pool.QueryRow(ctx, `SELECT contype::text FROM pg_constraint
 			WHERE conrelid = 'sage.change_review'::regclass AND conname = $1`, name).
 			Scan(&contype)
 		if err != nil || contype != "c" {
@@ -171,8 +171,8 @@ func changeReviewInvalidRows() map[string]string {
 		"final without timestamp":  head + `, credit_state)` + vals + `, 'final')`,
 		"short input hash": `INSERT INTO sage.change_review (database_name, source, actor,
 			input_hash) VALUES ('db', 'cli', 'mig:cr', 'abc')`,
-		"bad head sha":    head + `, head_sha)` + vals + `, 'XYZ')`,
-		"long title":      head + `, pr_title)` + vals + `, repeat('t', 301))`,
+		"bad head sha": head + `, head_sha)` + vals + `, 'XYZ')`,
+		"long title":   head + `, pr_title)` + vals + `, repeat('t', 301))`,
 		"negative tokens": `INSERT INTO sage.change_review_budget_day (day, actor, tokens)
 			VALUES (current_date, 'mig:cr', -1)`,
 	}

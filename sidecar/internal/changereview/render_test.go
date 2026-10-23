@@ -57,8 +57,8 @@ func renderFixtures(t *testing.T) map[string]Review {
 	risky.Verdict, risky.DeterministicVerdict = VerdictRisky, VerdictRisky
 	risky.Findings = []Finding{{RuleID: "CR-03", Kind: "column_still_referenced",
 		Severity: SeverityCritical, Origin: OriginRule,
-		Title: "orders.email is still read by 1 hot statement",
-		Text:  "queryid -42 ran 2000 times this week <script>alert(1)</script>\nsecond line",
+		Title:       "orders.email is still read by 1 hot statement",
+		Text:        "queryid -42 ran 2000 times this week <script>alert(1)</script>\nsecond line",
 		EvidenceIDs: []string{"stmt:1", "queryid:-42"}},
 		ruleFinding("CR-02", SeverityWarning)}
 
