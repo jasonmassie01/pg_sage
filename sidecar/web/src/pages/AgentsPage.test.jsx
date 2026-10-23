@@ -68,7 +68,8 @@ describe('AgentsPage list', () => {
   it('opens an agent', async () => {
     await renderPage()
     fireEvent.click(el('agent-open-coder'))
-    expect(await screen.findByTestId('agent-detail')).toBeInTheDocument()
+    // The drawer opens before the agent loads: wait for its status.
+    expect(await screen.findByTestId('agent-detail-status')).toBeInTheDocument()
     expect(el('agent-detail-name')).toHaveTextContent('coder')
   })
 })

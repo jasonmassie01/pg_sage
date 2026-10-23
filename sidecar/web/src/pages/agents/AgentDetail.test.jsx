@@ -26,7 +26,8 @@ async function renderDetail(agent = coder, user = admin, routes = {}) {
   const onChanged = vi.fn()
   render(<AgentDetail agentId={agent.id} user={user} databases={['orders', 'billing']}
     onChanged={onChanged} onClose={vi.fn()} />)
-  await screen.findByTestId('agent-detail-name')
+  // The name shows the id before the agent loads; its status only after.
+  await screen.findByTestId('agent-detail-status')
   return { mock, onChanged }
 }
 
