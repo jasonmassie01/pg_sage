@@ -43,12 +43,19 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
+// testTimeouts bound the engine's catalog reads in tests. The shipped
+// 500 ms bound (catalogread.Default) is too tight for PostgreSQL 14's
+// statistics collector on a loaded CI host: a pg_stat_all_indexes read
+// timed out there and turned a CR-07 into CR-17. What a read that hits
+// its bound does is TestBlockedCatalogReadIsTimedOutEvidence's subject.
+var testTimeouts = catalogread.Timeouts{Statement: 10 * time.Second, Lock: 5 * time.Second}
+
 // engine is an engine over pool with the default configuration; mod
 // adjusts its dependencies first.
 func (e *env) engine(pool *pgxpool.Pool, mod func(*Deps)) *Engine {
 	e.t.Helper()
 	d := Deps{Pool: pool, Config: config.DefaultChangeReviewConfig(),
-		Timeouts: catalogread.Default(), Logf: e.t.Logf}
+		Timeouts: testTimeouts, Logf: e.t.Logf}
 	if mod != nil {
 		mod(&d)
 	}

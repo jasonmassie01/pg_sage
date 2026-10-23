@@ -13,7 +13,7 @@ import (
 
 func (e *env) evaluate(pcs []changereview.PostCondition) []PostResult {
 	e.t.Helper()
-	got, err := EvaluatePostConditions(e.ctx, catalogread.New(e.f.Pool, catalogread.Default()),
+	got, err := EvaluatePostConditions(e.ctx, catalogread.New(e.f.Pool, testTimeouts),
 		pcs)
 	if err != nil {
 		e.t.Fatalf("EvaluatePostConditions: %v", err)
@@ -77,7 +77,7 @@ func TestMigrationAlreadyHoldingIsNotApplicable(t *testing.T) {
 	e := newEnv(t)
 	exp := e.analyze("ALTER TABLE rv.rv_orders ADD COLUMN IF NOT EXISTS email text").
 		Expectations
-	reader := catalogread.New(e.f.Pool, catalogread.Default())
+	reader := catalogread.New(e.f.Pool, testTimeouts)
 	landed, err := AlreadyLanded(e.ctx, reader, exp)
 	if err != nil || !landed {
 		t.Fatalf("AlreadyLanded = %v, %v; want true", landed, err)

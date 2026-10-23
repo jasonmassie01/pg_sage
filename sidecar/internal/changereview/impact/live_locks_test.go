@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/migration"
 )
@@ -67,7 +66,7 @@ func TestRewriteTypeChangeLockQueue(t *testing.T) {
 func assessedLockMs(t *testing.T, e *env, sql string) int64 {
 	t.Helper()
 	ra := migration.NewRiskAssessor(e.f.Pool, func(string, string, ...any) {})
-	ra.SetCatalogReadTimeouts(catalogread.Default())
+	ra.SetCatalogReadTimeouts(testTimeouts)
 	var hold int64
 	for _, c := range migration.NewRegexClassifier().Classify(sql, 170000) {
 		if c.RuleID == "ddl_missing_lock_timeout" {
