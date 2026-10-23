@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/config"

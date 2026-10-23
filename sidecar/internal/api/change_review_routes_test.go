@@ -163,7 +163,10 @@ func TestChangeReviewRoutes_UnknownDatabaseIs404AndBadNameIs400(t *testing.T) {
 	a := newCRAPI(t, nil)
 	other := "/api/v1/databases/nope/change-reviews"
 	id := "/00000000-0000-0000-0000-000000000001"
-	probes := []struct{ user *auth.User; method, path, body string }{
+	probes := []struct {
+		user               *auth.User
+		method, path, body string
+	}{
 		{viewerUser(), "POST", other, submitBody("SELECT 1", "")},
 		{viewerUser(), "GET", other, ""},
 		{viewerUser(), "GET", other + id, ""},
