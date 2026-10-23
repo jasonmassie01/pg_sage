@@ -26,6 +26,8 @@ var excludedPrefixes = []string{
 	"databases.",
 	"defaults.",
 	"ask.", // Ask Sage (roadmap phase 3): YAML only, read when a runtime starts
+	// Change Review: YAML only, read when a database runtime starts.
+	"change_review.",
 	// pg_sage's declared self-budget and the admin-only profiler are
 	// YAML only and restart-bound, not API overrides (phase 3 observer).
 	"self_budget.",
