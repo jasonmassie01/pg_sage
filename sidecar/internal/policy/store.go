@@ -103,6 +103,13 @@ func (s *Store) Ratify(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	policy, err := ratifyInTransaction(ctx, tx, request)
+	if errors.Is(err, ErrSecondApprovalRequired) {
+		// The first approval is recorded; the proposal waits for a second.
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			return Policy{}, fmt.Errorf("commit policy approval: %w", commitErr)
+		}
+		return Policy{}, err
+	}
 	if err != nil {
 		return Policy{}, err
 	}

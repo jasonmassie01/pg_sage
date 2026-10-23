@@ -70,6 +70,7 @@ type analyzeGuard struct {
 	inspect func(string) (sqlast.ReadQuery, error)
 	q       catalogQuerier
 	views   int
+	opts    ReadProofOptions
 }
 
 func (g *analyzeGuard) check(ctx context.Context, sql string, depth int) (string, error) {
@@ -80,8 +81,12 @@ func (g *analyzeGuard) check(ctx context.Context, sql string, depth int) (string
 	if reason := structuralRefusal(shape); reason != "" {
 		return reason, nil
 	}
+	if reason := g.deniedByName(shape); reason != "" {
+		return reason, nil
+	}
 	steps := []func(context.Context, sqlast.ReadQuery) (string, error){
-		g.checkFunctions, g.checkAttributeCalls, g.checkOperators, g.checkTypes,
+		g.checkFunctions, g.checkDefiners, g.checkAttributeCalls, g.checkOperators,
+		g.checkTypes,
 	}
 	for _, step := range steps {
 		if reason, err := step(ctx, shape); err != nil || reason != "" {

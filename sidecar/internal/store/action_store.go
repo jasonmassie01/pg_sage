@@ -47,6 +47,8 @@ type QueuedAction struct {
 	// ProposedVia and ProposedBy: how and by whom the item was proposed.
 	ProposedVia string
 	ProposedBy  string
+	// PrincipalID is the agent whose request queued the item, or "".
+	PrincipalID string
 }
 
 type ActionProposalMetadata struct {
@@ -66,6 +68,9 @@ type ActionProposalMetadata struct {
 	// ("ask_sage") and by whom; empty for pg_sage's own proposals.
 	ProposedVia string
 	ProposedBy  string
+	// PrincipalID is the agent whose request queued the item ("" for
+	// pg_sage's own and people's); its approved run is that agent's.
+	PrincipalID string
 }
 
 // ActionStore handles CRUD for sage.action_queue.
@@ -111,11 +116,11 @@ func (s *ActionStore) ProposeWithMetadata(
 		     identity_key, policy_decision, guardrails,
 		     verification_status, shadow_toil_minutes, expires_at,
 		     recommendation_id, recommendation_revision, content_hash,
-		     proposed_via, proposed_by)
+		     proposed_via, proposed_by, principal_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
 		         $9::jsonb, COALESCE($10, 'not_started'),
 		         $11, COALESCE($12, now() + INTERVAL '7 days'),
-		         NULLIF($13::bigint, 0), NULLIF($14::int, 0), $15, $16, $17)
+		         NULLIF($13::bigint, 0), NULLIF($14::int, 0), $15, $16, $17, $18)
 		 RETURNING id`,
 		databaseID, findingID, sql,
 		NilIfEmpty(rollbackSQL), risk,
@@ -124,7 +129,7 @@ func (s *ActionStore) ProposeWithMetadata(
 		NilIfEmpty(meta.VerificationStatus), meta.ShadowToilMinutes,
 		meta.ExpiresAt, meta.RecommendationID, meta.RecommendationRevision,
 		NilIfEmpty(meta.ContentHash), NilIfEmpty(meta.ProposedVia),
-		NilIfEmpty(meta.ProposedBy),
+		NilIfEmpty(meta.ProposedBy), NilIfEmpty(meta.PrincipalID),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("proposing action: %w", err)
@@ -274,7 +279,8 @@ const queuedActionColumns = `q.id, q.database_id, q.finding_id,
  COALESCE(q.verification_status, ''),
  COALESCE(q.shadow_toil_minutes, 0), q.action_log_id,
  q.recommendation_id, q.recommendation_revision, COALESCE(q.content_hash, ''),
- COALESCE(q.proposed_via, ''), COALESCE(q.proposed_by, '')`
+ COALESCE(q.proposed_via, ''), COALESCE(q.proposed_by, ''),
+ COALESCE(q.principal_id, '')`
 
 const listPendingBaseSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
  FROM sage.action_queue q

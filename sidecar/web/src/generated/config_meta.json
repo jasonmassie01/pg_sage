@@ -47,16 +47,70 @@
     "doc": "",
     "class": "operator_preference"
   },
+  "agents.broker.max_total_connections": {
+    "type": "int",
+    "default": 20,
+    "doc": "Broker connections across every agent, per sidecar. At least pool_max_conns. Default: 20.",
+    "class": "safety_critical"
+  },
+  "agents.broker.pool_idle_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds an idle broker connection is kept. At least 1. Default: 60.",
+    "class": "safety_critical"
+  },
+  "agents.broker.pool_max_conns": {
+    "type": "int",
+    "default": 2,
+    "doc": "Connections per agent broker pool, and the broker role's CONNECTION LIMIT. At least 1. Default: 2.",
+    "class": "safety_critical"
+  },
+  "agents.broker.rotation_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Days between rotations of each agent's broker password; it also rotates at every unfreeze after a kill. At least 1. Default: 7.",
+    "class": "safety_critical"
+  },
+  "agents.capabilities.max_duration_minutes": {
+    "type": "int",
+    "default": 240,
+    "doc": "Longest agent grant, in minutes; every grant expires and the reconciler revokes it. 1-10080. Default: 240.",
+    "class": "safety_critical"
+  },
   "agents.client_patterns": {
     "type": "[]string",
     "default": null,
     "doc": "Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai.",
     "class": "operator_preference"
   },
+  "agents.control_database": {
+    "type": "string",
+    "default": "",
+    "doc": "Monitored database that holds agent governance state. Required unless mode is meta; without it agent governance runs posture checks only. Default: empty.",
+    "class": "safety_critical"
+  },
+  "agents.default_environment": {
+    "type": "string",
+    "default": "prod",
+    "doc": "Environment of a database without a verified label. Only prod is accepted: an unverified binding is always prod. Default: prod.",
+    "class": "safety_critical"
+  },
   "agents.exposed_roles": {
     "type": "[]string",
     "default": null,
     "doc": "Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none.",
+    "class": "safety_critical"
+  },
+  "agents.kill_fallback_log": {
+    "type": "string",
+    "default": "agent-kill-fallback.log",
+    "doc": "Local file logging kill steps run without the gate or control database; copied to the action log once it is back. Default: agent-kill-fallback.log.",
+    "class": "operator_preference"
+  },
+  "agents.kill_verify_timeout_seconds": {
+    "type": "int",
+    "default": 10,
+    "doc": "Seconds the agent kill switch waits to verify that no agent session remains on the primary and each configured replica. 1 to 3600. Default: 10.",
     "class": "safety_critical"
   },
   "agents.posture.daily_at": {
@@ -70,6 +124,90 @@
     "default": 5,
     "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
     "class": "operator_preference"
+  },
+  "agents.query.audit_retention_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days to keep the agent_query audit (sage.guard_query_audit, in each monitored database). 0 keeps it forever. Range 0-3650. Default: 30.",
+    "class": "operator_preference"
+  },
+  "agents.query.max_bytes": {
+    "type": "int",
+    "default": 1048576,
+    "doc": "Bytes of row values one agent_query result may carry; the rows that fit are returned and the result is marked truncated. 1 to 1073741824. Default: 1048576.",
+    "class": "safety_critical"
+  },
+  "agents.query.max_rows": {
+    "type": "int",
+    "default": 200,
+    "doc": "Rows agent_query returns when the agent asks for no bound; it fetches one more only to report truncation. At least 1 and at most max_rows_ceiling. Default: 200.",
+    "class": "safety_critical"
+  },
+  "agents.query.max_rows_ceiling": {
+    "type": "int",
+    "default": 1000,
+    "doc": "Largest max_rows an agent may ask agent_query for. At most 100000. Default: 1000.",
+    "class": "safety_critical"
+  },
+  "agents.reconcile_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between agent reconcile passes on the leader sidecar (grant expiry). 10-3600. Default: 60.",
+    "class": "operator_preference"
+  },
+  "agents.roles.connection_limit": {
+    "type": "int",
+    "default": 5,
+    "doc": "CONNECTION LIMIT of each agent's direct-lane role. At least 1. Default: 5.",
+    "class": "safety_critical"
+  },
+  "agents.roles.idle_in_transaction_timeout_ms": {
+    "type": "int",
+    "default": 60000,
+    "doc": "idle_in_transaction_session_timeout set on agent roles, in milliseconds. Greater than 0. Default: 60000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.idle_session_timeout_ms": {
+    "type": "int",
+    "default": 600000,
+    "doc": "idle_session_timeout set on agent roles, in milliseconds; it bounds sessions a kill cannot reach. Greater than 0. Default: 600000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.lock_timeout_ms": {
+    "type": "int",
+    "default": 2000,
+    "doc": "lock_timeout set on agent roles in each database, in milliseconds. Greater than 0. Default: 2000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.retire_grace_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "Days a retired agent's roles are kept before they are dropped. 0 or more. Default: 7.",
+    "class": "safety_critical"
+  },
+  "agents.roles.statement_timeout_ms": {
+    "type": "int",
+    "default": 30000,
+    "doc": "statement_timeout set on agent roles in each database, in milliseconds. Greater than 0. Default: 30000.",
+    "class": "safety_critical"
+  },
+  "agents.roles.temp_file_limit_mb": {
+    "type": "int",
+    "default": 1024,
+    "doc": "temp_file_limit set on agent roles where pg_sage may set it (it is superuser-only unless granted); 0 sets none. Default: 1024.",
+    "class": "safety_critical"
+  },
+  "agents.roles.transaction_timeout_ms": {
+    "type": "int",
+    "default": 600000,
+    "doc": "transaction_timeout set on agent roles on PostgreSQL 17 and later, in milliseconds. Greater than 0. Default: 600000.",
+    "class": "safety_critical"
+  },
+  "agents.single_operator_mode": {
+    "type": "bool",
+    "default": false,
+    "doc": "Lets one person approve a widening agent change (profile, ceiling, unfreeze after a kill) with a recorded reason; each such approval enters a review queue. Default: false.",
+    "class": "safety_critical"
   },
   "alerting.check_interval_seconds": {
     "type": "int",
@@ -362,6 +500,90 @@
     "doc": "Days a conversation is kept after its last question, with its answers. Range 1-3650. Default: 30.",
     "class": "operator_preference"
   },
+  "audit.evidence.signing_key_env": {
+    "type": "string",
+    "default": "",
+    "doc": "Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed.",
+    "class": "safety_critical"
+  },
+  "audit.pgaudit.correlate": {
+    "type": "bool",
+    "default": true,
+    "doc": "Where pgaudit is installed and the server log is readable, keep the pgaudit records of pg_sage actions and agent principals. Default: true.",
+    "class": "operator_preference"
+  },
+  "audit.siem.batch_size": {
+    "type": "int",
+    "default": 200,
+    "doc": "Events per delivery. 1-1000. Default: 200.",
+    "class": "operator_preference"
+  },
+  "audit.siem.interval_seconds": {
+    "type": "int",
+    "default": 10,
+    "doc": "Seconds between export passes when caught up. 1-3600. Default: 10.",
+    "class": "operator_preference"
+  },
+  "audit.siem.max_backoff_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Longest wait between retries of a failing sink; the cursor holds, so nothing is lost. 1-3600. Default: 300.",
+    "class": "operator_preference"
+  },
+  "audit.siem.sinks[].address": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].chains": {
+    "type": "[]string",
+    "default": null,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].network": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].timeout_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].token_env": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].type": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].url": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.verify_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between verifications of the audit hash chains; a broken chain raises a critical finding. 0 disables. 0-168. Default: 24.",
+    "class": "operator_preference"
+  },
   "auto_explain.collect_interval_seconds": {
     "type": "int",
     "default": 300,
@@ -612,6 +834,18 @@
     "doc": "TCP port of this fleet database.",
     "mode": "fleet-only",
     "class": "safety_critical"
+  },
+  "databases[].replicas[].dsn_env": {
+    "type": "string",
+    "default": "",
+    "doc": "Environment variable holding the replica's connection string. The agent kill switch connects with it to end agent sessions on the replica.",
+    "class": "operator_preference"
+  },
+  "databases[].replicas[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the replica in kill reports; unique within its database. Match it to the standby's cluster_name so the kill does not also report it as unconfigured.",
+    "class": "operator_preference"
   },
   "databases[].sslmode": {
     "type": "string",
@@ -1194,6 +1428,48 @@
     "type": "bool",
     "default": true,
     "doc": "Enable the intent-level MCP server.",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Accept OAuth 2.1 access tokens (JWTs) from the listed issuers on the MCP endpoint, beside pg_sage's own MCP tokens. Default: false.",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.issuers[].issuer": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.issuers[].jwks_uri": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.issuers[].signing_algs": {
+    "type": "[]string",
+    "default": null,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.resource": {
+    "type": "string",
+    "default": "",
+    "doc": "Canonical URL of the MCP endpoint, e.g. https://sage.example.com/api/v1/mcp. Tokens must name it or \u003cresource\u003e/databases/\u003cname\u003e as audience. Required when enabled.",
+    "class": "safety_critical"
+  },
+  "mcp.oauth.task_claim": {
+    "type": "string",
+    "default": "task_id",
+    "doc": "Access-token claim that carries the runtime-asserted task id (per-task taint). Empty ignores tasks. Default: task_id.",
+    "class": "safety_critical"
+  },
+  "mcp.stdio_principal": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the agent principal the stdio client acts as. Empty: stdio keeps read and propose tools capped at approval, and agent_* tools answer agent_unsponsored. Default: empty.",
     "class": "safety_critical"
   },
   "mcp.transport": {

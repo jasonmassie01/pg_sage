@@ -103,11 +103,19 @@ func TestMonitor_RetriesOnlyTransientFailures(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			now := time.Now()
+			// A fixed noon clock: from the wall clock, the minute below
+			// crosses the 03:00 daily run when the test starts at 02:59.
+			now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.Local)
 			d := &failingOnce{countingDetector: countingDetector{id: "AP-01"}, err: c.err}
 			m := newTestMonitor(t, pool, &now, d)
 			if _, err := m.Detect(ctx); err != nil {
 				t.Fatalf("first Detect: %v", err)
+			}
+			// Only a permanent failure counts as a run: a transient one
+			// leaves the cadence unrecorded, so the next cycle runs again.
+			if recorded := !m.st.ran.IsZero(); recorded == c.again {
+				t.Fatalf("after a %s the run was recorded = %v, want %v", c.name,
+					recorded, !c.again)
 			}
 			now = now.Add(time.Minute)
 			before := m.st.fp

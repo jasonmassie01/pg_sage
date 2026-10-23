@@ -21,6 +21,14 @@ type policyService interface {
 }
 
 func registerPolicyRoutes(mux *http.ServeMux, service policyService) {
+	registerPolicyRoutesWith(mux, service, nil)
+}
+
+// registerPolicyRoutesWith registers the policy routes; singleOperator
+// reads agents.single_operator_mode at ratification (nil: off).
+func registerPolicyRoutesWith(
+	mux *http.ServeMux, service policyService, singleOperator func() bool,
+) {
 	mux.HandleFunc("GET /api/v1/policy", authenticatedPolicy(
 		func(w http.ResponseWriter, r *http.Request, _ *auth.User) {
 			scope, ok := policyScope(w, r)
@@ -66,6 +74,8 @@ func registerPolicyRoutes(mux *http.ServeMux, service policyService) {
 			if !ok {
 				return
 			}
+			request.ApproverUserID = user.ID
+			request.SingleOperatorMode = singleOperator != nil && singleOperator()
 			result, err := service.Ratify(r.Context(), request)
 			writePolicyResult(w, result, err, http.StatusOK)
 		}))
@@ -147,6 +157,7 @@ func decodeRatification(
 	var wire struct {
 		ExpectedVersion int64  `json:"expected_version"`
 		Actor           string `json:"actor"`
+		Reason          string `json:"reason"`
 	}
 	if !decodePolicyJSON(w, r, &wire) || wire.ExpectedVersion <= 0 {
 		if wire.ExpectedVersion <= 0 {
@@ -155,7 +166,7 @@ func decodeRatification(
 		return policy.RatifyRequest{}, false
 	}
 	return policy.RatifyRequest{ProposalID: id, ExpectedVersion: wire.ExpectedVersion,
-		Actor: actor}, true
+		Actor: actor, Reason: wire.Reason}, true
 }
 
 func decodePolicyJSON(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -187,6 +198,13 @@ func writePolicyResult(w http.ResponseWriter, result any, err error, status int)
 
 func writePolicyError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, policy.ErrSecondApprovalRequired):
+		writePolicyResult(w, map[string]string{"status": "awaiting_second_approval",
+			"message": err.Error()}, nil, http.StatusAccepted)
+	case errors.Is(err, policy.ErrSponsorCannotApprove):
+		jsonError(w, err.Error(), http.StatusForbidden)
+	case errors.Is(err, policy.ErrReasonRequired):
+		jsonError(w, err.Error(), http.StatusUnprocessableEntity)
 	case errors.Is(err, policy.ErrInvalidDocument):
 		jsonError(w, "invalid policy document", http.StatusBadRequest)
 	case errors.Is(err, policy.ErrVersionConflict):

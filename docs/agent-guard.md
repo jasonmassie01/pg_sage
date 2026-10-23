@@ -136,6 +136,64 @@ agents:
 
 The keys take effect on restart. The analyzer's posture run reads them each time it runs.
 
+## Kill switch, freeze and unfreeze
+
+The kill switch stops agents at once. It needs no approval: it works under the emergency stop
+and at every `trust.level`, because it only takes access away.
+
+| Request | Who | What it does |
+|---|---|---|
+| `POST /api/v1/agents/kill` `{"scope": "all", "reason": "..."}` | admin | Every agent, every database and configured replica; sets the fleet freeze |
+| `POST /api/v1/agents/kill` `{"scope": "principal", "id": "agp_...", "reason": "..."}` | admin | One agent, on every cluster where it has roles |
+| `POST /api/v1/agents/kill` `{"scope": "database", "id": "orders", "reason": "..."}` | admin | Every agent session in one database; sets that database's freeze |
+| `POST /api/v1/agents/{id}/freeze` `{"reason": "..."}` | operator | Like a one-agent kill, but the agent's MCP tokens stay (they get `agent_frozen`) |
+| `POST /api/v1/agents/{id}/unfreeze` `{"reason": "..."}` | admin | Restores the roles' previous attributes and rotates the broker password |
+| `POST /api/v1/agents/kill/release` `{"scope": "all"}` or `{"scope": "database", "database": "orders"}` | admin | Lifts a fleet or database freeze |
+
+A kill, step by step:
+
+1. The agents are marked frozen. The kill waits up to 2 s for an agent change that is
+   committing, then cancels it.
+2. Their MCP tokens are revoked.
+3. Their pending approvals become `cancelled_kill`.
+4. Their roles get `NOLOGIN CONNECTION LIMIT 0`. pg_sage records the previous attributes.
+5. Their sessions end on the primary and on each replica listed under `databases[].replicas`.
+   Sessions of look-alike roles (`sage_agent_...` names that are not agent roles) end too, and
+   the report names them.
+6. pg_sage checks for up to `agents.kill_verify_timeout_seconds` (10) that no agent session is
+   left. The report says, per database and replica, whether that held.
+
+Standbys you did not list still stop new agent logins, because `NOLOGIN` replicates. Open
+sessions there end within the agent roles' `statement_timeout`, `idle_session_timeout` and
+(PostgreSQL 17+) `transaction_timeout`. The report names each such standby with that bound. Set
+each standby's `cluster_name` to its `replicas[].name`, so a listed replica is not also
+reported as unlisted.
+
+```yaml
+databases:
+  - name: orders
+    host: db1
+    replicas:
+      - name: orders-replica1         # = the standby's cluster_name
+        dsn_env: ORDERS_REPLICA1_DSN  # the DSN is read from this variable
+agents:
+  kill_verify_timeout_seconds: 10
+  kill_fallback_log: agent-kill-fallback.log
+```
+
+pg_sage's role needs `pg_signal_backend` to end agent sessions (it holds `SET`, not `INHERIT`,
+on agent roles), and `pg_monitor` to name standbys. If the control database or the gate is
+unreachable, the kill still runs against each database. It records each step in
+`agents.kill_fallback_log`, and copies those entries into the action log when the control
+database is back.
+
+Lifting a freeze widens access, so it goes through the gate like any change. The emergency stop
+and `trust.level: observation` hold it back. After a kill it needs two admins: the first
+request waits up to 15 minutes for a second admin who is not the agent's sponsor. Lifting an
+operator freeze needs one admin. With `agents.single_operator_mode`, one admin can lift a kill
+freeze, but must give a reason. Every unfreeze rotates the broker password, so the old one
+fails. Tokens revoked by a kill stay revoked: mint new ones.
+
 ## Manual runbook
 
 These are the SQL statements you run yourself when pg_sage is down or you want to check by

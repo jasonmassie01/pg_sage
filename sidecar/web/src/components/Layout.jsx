@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings, Gauge,
   Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
-  MessageSquare,
+  MessageSquare, Bot,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { EmergencyStopControl } from './EmergencyStopControl'
@@ -44,6 +44,8 @@ const NAV_GROUPS = [
         admin: true, tid: 'nav-settings' },
       { path: '#/mcp-tokens', icon: KeyRound, label: 'MCP tokens',
         admin: true, tid: 'nav-mcp-tokens' },
+      { path: '#/agents', icon: Bot, label: 'Agents',
+        operator: true, tid: 'nav-agents' },
     ],
   },
 ]
@@ -192,7 +194,7 @@ export function Layout({
 
       {NAV_GROUPS.map(group => {
         const visible = group.items.filter(
-          n => !n.admin || isAdmin,
+          n => (!n.admin || isAdmin) && (!n.operator || canReviewActions),
         )
         if (visible.length === 0) return null
         return (

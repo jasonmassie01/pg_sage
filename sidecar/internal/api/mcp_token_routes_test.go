@@ -68,9 +68,11 @@ func decodeObject(t *testing.T, body string) map[string]any {
 	return out
 }
 
-func agentTokenBody(name string) string {
-	return fmt.Sprintf(`{"name":%q,"kind":"agent","scopes":["read","propose"],`+
-		`"databases":["orders"],"expires_in_days":30}`, name)
+// personTokenBody is an operator token (a person's) with read and propose:
+// from G1 agent tokens are minted only at /api/v1/agents/{id}/tokens.
+func personTokenBody(name string, owner int) string {
+	return fmt.Sprintf(`{"name":%q,"kind":"operator","scopes":["read","propose"],`+
+		`"databases":["orders"],"expires_in_days":30,"owner_user_id":%d}`, name, owner)
 }
 
 func countTokensNamed(t *testing.T, pool *pgxpool.Pool, name string) int {
@@ -103,16 +105,18 @@ func TestMCPTokenRoutesAdminCreateListRevoke(t *testing.T) {
 	pool := surfacePool(t)
 	admin := tokenRouteUser(t, pool, auth.RoleAdmin)
 	h := tokenRouter(t, pool, admin)
-	name := fmt.Sprintf("route-agent-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("route-person-%d", time.Now().UnixNano())
+	owner := tokenRouteUser(t, pool, auth.RoleOperator)
 
-	code, body := tokenCall(t, h, http.MethodPost, tokenRoutesPath, agentTokenBody(name))
+	code, body := tokenCall(t, h, http.MethodPost, tokenRoutesPath,
+		personTokenBody(name, owner.ID))
 	require.Equal(t, http.StatusCreated, code, body)
 	created := decodeObject(t, body)
 	secret, _ := created["token"].(string)
 	id, _ := created["id"].(string)
 	require.True(t, strings.HasPrefix(secret, mcptoken.SecretPrefix), body)
 	require.NotEmpty(t, id)
-	require.Equal(t, "agent", created["kind"])
+	require.Equal(t, "operator", created["kind"])
 	require.Equal(t, []any{"read", "propose"}, created["scopes"])
 	require.Equal(t, []any{"orders"}, created["databases"])
 	require.Equal(t, admin.Email, created["created_by"])
@@ -147,8 +151,10 @@ func TestMCPTokenRoutesAdminCreateListRevoke(t *testing.T) {
 func TestMCPTokenRoutesForbiddenForNonAdmins(t *testing.T) {
 	pool := surfacePool(t)
 	admin := tokenRouteUser(t, pool, auth.RoleAdmin)
+	owner := tokenRouteUser(t, pool, auth.RoleOperator)
 	code, body := tokenCall(t, tokenRouter(t, pool, admin), http.MethodPost,
-		tokenRoutesPath, agentTokenBody(fmt.Sprintf("victim-%d", time.Now().UnixNano())))
+		tokenRoutesPath, personTokenBody(fmt.Sprintf("victim-%d", time.Now().UnixNano()),
+			owner.ID))
 	require.Equal(t, http.StatusCreated, code, body)
 	victim, _ := decodeObject(t, body)["id"].(string)
 
@@ -158,7 +164,8 @@ func TestMCPTokenRoutesForbiddenForNonAdmins(t *testing.T) {
 		code, body = tokenCall(t, h, http.MethodGet, tokenRoutesPath, "")
 		require.Equal(t, http.StatusForbidden, code, "%s list: %s", role, body)
 		require.NotContains(t, body, victim)
-		code, _ = tokenCall(t, h, http.MethodPost, tokenRoutesPath, agentTokenBody(name))
+		code, _ = tokenCall(t, h, http.MethodPost, tokenRoutesPath,
+			personTokenBody(name, owner.ID))
 		require.Equal(t, http.StatusForbidden, code, "%s create", role)
 		require.Equal(t, 0, countTokensNamed(t, pool, name))
 		code, _ = tokenCall(t, h, http.MethodDelete, tokenRoutesPath+"/"+victim, "")
@@ -182,6 +189,21 @@ func TestMCPTokenRoutesRejectAgentApprove(t *testing.T) {
 	code, resp := tokenCall(t, h, http.MethodPost, tokenRoutesPath, body)
 	require.Equal(t, http.StatusBadRequest, code, resp)
 	require.Contains(t, strings.ToLower(resp), "operator token")
+	require.NotContains(t, resp, mcptoken.SecretPrefix)
+	require.Equal(t, 0, countTokensNamed(t, pool, name))
+}
+
+// TestMCPTokenRoutesRefuseAgentKind: from G1 an agent token is minted for
+// an agent principal (POST /api/v1/agents/{id}/tokens), never here (§6.4).
+func TestMCPTokenRoutesRefuseAgentKind(t *testing.T) {
+	pool := surfacePool(t)
+	h := tokenRouter(t, pool, tokenRouteUser(t, pool, auth.RoleAdmin))
+	name := fmt.Sprintf("agent-kind-%d", time.Now().UnixNano())
+	body := fmt.Sprintf(`{"name":%q,"kind":"agent","scopes":["read","propose"],`+
+		`"databases":["orders"],"expires_in_days":7}`, name)
+	code, resp := tokenCall(t, h, http.MethodPost, tokenRoutesPath, body)
+	require.Equal(t, http.StatusBadRequest, code, resp)
+	require.Contains(t, resp, "/api/v1/agents/{id}/tokens")
 	require.NotContains(t, resp, mcptoken.SecretPrefix)
 	require.Equal(t, 0, countTokensNamed(t, pool, name))
 }
@@ -220,24 +242,27 @@ func TestMCPTokenRoutesOperatorTokenOwner(t *testing.T) {
 	require.Equal(t, []any{"*"}, created["databases"])
 }
 
-func lifetimeBody(name string, days int) string {
-	return fmt.Sprintf(`{"name":%q,"kind":"agent","scopes":["read"],`+
-		`"databases":["orders"],"expires_in_days":%d}`, name, days)
+func lifetimeBody(name string, days, owner int) string {
+	return fmt.Sprintf(`{"name":%q,"kind":"operator","scopes":["read"],`+
+		`"databases":["orders"],"expires_in_days":%d,"owner_user_id":%d}`, name, days, owner)
 }
 
 func TestMCPTokenRoutesLifetimeBounds(t *testing.T) {
 	pool := surfacePool(t)
 	h := tokenRouter(t, pool, tokenRouteUser(t, pool, auth.RoleAdmin))
+	owner := tokenRouteUser(t, pool, auth.RoleOperator).ID
 	stamp := time.Now().UnixNano()
 	for _, days := range []int{0, 91, -1, 3650} {
 		name := fmt.Sprintf("life-bad-%d-%d", days, stamp)
-		code, body := tokenCall(t, h, http.MethodPost, tokenRoutesPath, lifetimeBody(name, days))
+		code, body := tokenCall(t, h, http.MethodPost, tokenRoutesPath,
+			lifetimeBody(name, days, owner))
 		require.Equal(t, http.StatusBadRequest, code, "%d days: %s", days, body)
 		require.Equal(t, 0, countTokensNamed(t, pool, name))
 	}
 	for _, days := range []int{1, 90} {
 		name := fmt.Sprintf("life-ok-%d-%d", days, stamp)
-		code, body := tokenCall(t, h, http.MethodPost, tokenRoutesPath, lifetimeBody(name, days))
+		code, body := tokenCall(t, h, http.MethodPost, tokenRoutesPath,
+			lifetimeBody(name, days, owner))
 		require.Equal(t, http.StatusCreated, code, "%d days: %s", days, body)
 		created := decodeObject(t, body)
 		createdAt, err := time.Parse(time.RFC3339Nano, created["created_at"].(string))

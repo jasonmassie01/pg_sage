@@ -20,7 +20,7 @@ var proposeTools = []string{"propose_policy_change", "request_change", "optimize
 	"apply_migration", "ensure_fk_indexes", "set_maintenance_policy", "sre_propose_action",
 	"sre_request_execution", "sre_draft_runbook", "sre_compile_runbook",
 	"sre_evaluate_autonomy", "propose_fact", "mark_object", "report_source_fix",
-	"specialist_request_remediation"}
+	"specialist_request_remediation", "agent_request_capability"}
 
 func agentContext(scopes ...Scope) context.Context {
 	return WithPrincipal(context.Background(), Principal{Actor: "token:agt1",

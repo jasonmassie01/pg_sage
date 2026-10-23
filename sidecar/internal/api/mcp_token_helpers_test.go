@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
@@ -28,6 +29,26 @@ func mcpRoleToken(t *testing.T, pool *pgxpool.Pool, role string) mcptoken.Token 
 		Kind: mcptoken.KindOperator, Scopes: scopes, Databases: []string{"*"},
 		ExpiresIn: time.Hour, OwnerUserID: owner.ID, CreatedBy: "test@example.com",
 	})
+	require.NoError(t, err)
+	return tok
+}
+
+// mintAgentToken creates a sponsored agent principal and an agent token
+// for it (from G1 every agent token acts for a principal, §6.4).
+func mintAgentToken(t *testing.T, pool *pgxpool.Pool, databases []string) mcptoken.Token {
+	t.Helper()
+	ctx := context.Background()
+	sponsor := tokenRouteUser(t, pool, "admin")
+	principals := agentguard.NewStore(pool)
+	p, err := principals.Create(ctx, agentguard.CreateRequest{
+		Name:    fmt.Sprintf("api-agent-%d", time.Now().UnixNano()),
+		Profile: "readonly-analyst", EnvCeiling: agentguard.EnvProd,
+		SponsorUserID: &sponsor.ID, CreatedBy: "admin@example.com"})
+	require.NoError(t, err)
+	tok, err := agentguard.IssueToken(ctx, principals, mcptoken.NewStore(pool), p.ID,
+		agentguard.TokenRequest{Name: "bearer-agent-" + p.Name,
+			Scopes: []string{"read", "propose"}, Databases: databases,
+			ExpiresIn: 24 * time.Hour, CreatedBy: "admin@example.com"})
 	require.NoError(t, err)
 	return tok
 }

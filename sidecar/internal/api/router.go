@@ -9,12 +9,15 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentguard"
+	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/mcpauth"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -82,6 +85,12 @@ type RuntimeDeps struct {
 	ConfigBaseLoader    func() (*config.Config, error)
 	DisableConfigWrites bool
 	MCPHandler          http.Handler
+	// MCPOAuth validates OAuth 2.1 access tokens on the MCP endpoints (E2);
+	// nil accepts pg_sage's own MCP tokens only.
+	MCPOAuth *mcpauth.Validator
+	// Audit serves the E2 audit routes; its Pool and Control are filled
+	// from the fleet and the control pool.
+	Audit AuditDeps
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
 	LLMBudgets LLMBudgetRegistry
@@ -103,6 +112,17 @@ type RuntimeDeps struct {
 	// FleetLearning serves look-alikes and the leader status (fleet
 	// learning); nil answers 503 / "election disabled".
 	FleetLearning FleetLearningReader
+	// AgentEnvironments serves agent environment labels; nil answers 503
+	// (no control database: agent governance is posture-only).
+	AgentEnvironments *envbind.Service
+	// AgentKill serves the agent kill switch, freeze and unfreeze; nil
+	// answers 503 (agent_kill_routes.go).
+	AgentKill AgentKillSwitch
+	// AgentActivity serves an agent's activity (G1-10); nil answers 503.
+	AgentActivity AgentActivityReader
+	// AgentGrants serves agent grants and capability requests; nil answers
+	// 503 (no control database or executor).
+	AgentGrants AgentGrantService
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -135,6 +155,9 @@ func NewRouterFullRuntime(
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
 	}
+	audit := rt.Audit
+	audit.Pool, audit.Control = fleetAuditPool(mgr, pool), pool
+	registerAuditRoutes(apiMux, audit)
 	apiHandler := wrapAPIHandler(apiMux, middlewares)
 
 	// Top-level mux: API routes get auth, static does not.
@@ -147,6 +170,9 @@ func NewRouterFullRuntime(
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
 	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
+	if rt.MCPHandler != nil {
+		registerMCPMetadata(root, rt.MCPOAuth)
+	}
 	registerRootRoutes(root)
 	return root
 }
@@ -179,6 +205,11 @@ func registerFleetScopedRoutes(
 	registerShadowRoutes(apiMux, mgr)
 	registerDerivedSettingsRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
+	registerAgentClassRoutes(apiMux, mgr)
+	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
+	registerAgentKillRoutes(apiMux, rt.AgentKill)
+	registerAgentActivityRoutes(apiMux, rt.AgentActivity)
+	registerAgentGrantRoutes(apiMux, rt.AgentGrants)
 	registerFleetLearningRoutes(apiMux, mgr, cfg, rt.FleetLearning)
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
@@ -187,8 +218,8 @@ func registerFleetScopedRoutes(
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
-		apiMux.Handle("POST /api/v1/mcp",
-			bindMCPPrincipal(rt.MCPHandler, mcpTokenStore(pool)))
+		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,
+			agentguard.NewStore(pool))
 	}
 	// Value is read from every monitored database in all modes (D3), so
 	// it depends on the fleet, not on the control pool.
@@ -209,6 +240,7 @@ func registerControlPoolRoutes(
 	registerAuthRoutes(apiMux, pool, newRouterOAuthProvider(cfg), cfg)
 	registerUserRoutes(apiMux, pool)
 	registerMCPTokenRoutes(apiMux, pool)
+	registerAgentRoutes(apiMux, pool, cfg)
 	registerConfigRoutesRuntime(
 		apiMux, pool, cfg, mgr, rt.ConfigController,
 		runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
@@ -220,7 +252,9 @@ func registerControlPoolRoutes(
 	}
 	registerNotificationRoutes(apiMux, pool, notifyDeps)
 	registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
-	registerPolicyRoutes(apiMux, policy.NewStore(pool))
+	registerPolicyRoutesWith(apiMux, policy.NewStore(pool), func() bool {
+		return cfg != nil && cfg.Agents.SingleOperatorMode
+	})
 	registerDecommissionRoutes(apiMux, pool)
 }
 

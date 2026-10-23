@@ -74,6 +74,7 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 		ProviderSupport: append([]string(nil), contract.ProviderSupport...),
 		RollbackClass:   policy.RollbackClass(contract.RollbackClass),
 		DropKind:        dropKindForActionType(contract.ActionType),
+		Narrowing:       contract.Narrowing,
 	}
 	for _, guardrail := range contract.Guardrails {
 		if isApprovalRequiredGuardrail(guardrail) {

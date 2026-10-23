@@ -1,0 +1,1 @@
+{"id": "AQ-02", "technique": "a side-effect function inside a VALUES list", "expect": "privilege_error"}

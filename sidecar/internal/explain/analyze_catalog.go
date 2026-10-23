@@ -69,11 +69,12 @@ LEFT JOIN pg_catalog.pg_type ty ON ty.oid = pg_catalog.to_regtype(
 	ELSE pg_catalog.format('%I.%I', t.schema, t.name) END)`
 
 const relationResolutionSQL = `
-SELECT r.schema, r.name, c.oid, c.relkind::text, c.relrowsecurity
+SELECT r.schema, r.name, c.oid, c.relkind::text, c.relrowsecurity, n.nspname
 FROM ROWS FROM (pg_catalog.unnest($1::text[]), pg_catalog.unnest($2::text[])) AS r(schema, name)
 LEFT JOIN pg_catalog.pg_class c ON c.oid = pg_catalog.to_regclass(
 	CASE WHEN r.schema = '' THEN pg_catalog.format('%I', r.name)
-	ELSE pg_catalog.format('%I.%I', r.schema, r.name) END)`
+	ELSE pg_catalog.format('%I.%I', r.schema, r.name) END)
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace`
 
 func resolveFunctions(
 	ctx context.Context, q catalogQuerier, names []sqlast.QualifiedName,
@@ -127,6 +128,7 @@ type relationInfo struct {
 	oid  *uint32
 	kind *string
 	rls  *bool
+	nsp  *string
 }
 
 func resolveRelations(
@@ -143,7 +145,7 @@ func resolveRelations(
 		var name sqlast.QualifiedName
 		var info relationInfo
 		if err := rows.Scan(&name.Schema, &name.Name, &info.oid, &info.kind,
-			&info.rls); err != nil {
+			&info.rls, &info.nsp); err != nil {
 			return nil, fmt.Errorf("scan relation resolution: %w", err)
 		}
 		out[name] = info
@@ -191,8 +193,11 @@ func (g *analyzeGuard) checkRelations(
 func (g *analyzeGuard) checkRelation(
 	ctx context.Context, rel sqlast.QualifiedName, info relationInfo, depth int,
 ) (string, error) {
+	if reason, decided := g.catalogDecision(rel, info); decided {
+		return reason, nil
+	}
 	if *info.kind != "v" {
-		return relationKindRefusal(rel, *info.kind, info.rls != nil && *info.rls), nil
+		return g.tableRefusal(ctx, rel, info, depth)
 	}
 	g.views++
 	if depth >= maxViewDepth || g.views > maxViewsChecked {

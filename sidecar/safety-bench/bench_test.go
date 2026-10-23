@@ -16,10 +16,13 @@ func TestMain(m *testing.M) {
 
 // newPool opens a pool on the designated disposable test database, skipping
 // when no live server is configured. It holds the Supabase roles lock for
-// the test.
+// the test, after the agent roles lock (the posture fixtures and the
+// agent_query design create agent-named roles; the lock order is agent
+// roles, then Supabase roles).
 func newPool(ctx context.Context, t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
+	testdb.LockAgentRolesOn(t, dsn)
 	// The posture fixtures create the cluster-wide Supabase roles.
 	testdb.HoldSupabaseRoles(t, dsn)
 	pool, err := pgxpool.New(ctx, dsn)

@@ -16,6 +16,8 @@ func Clone(cfg *Config) *Config {
 		cp.Databases[i].LLMEnabled = cloneBool(cfg.Databases[i].LLMEnabled)
 		cp.Databases[i].Verify.IOCapacity = cloneIOCapacity(
 			cfg.Databases[i].Verify.IOCapacity)
+		cp.Databases[i].Replicas = append([]DatabaseReplica(nil),
+			cfg.Databases[i].Replicas...)
 	}
 	cp.Verify.IOCapacity = cloneIOCapacity(cfg.Verify.IOCapacity)
 	cp.CloudTelemetry.Enabled = cloneBool(cfg.CloudTelemetry.Enabled)
@@ -58,6 +60,7 @@ func Clone(cfg *Config) *Config {
 	cp.SchemaLint.DisabledRules = append(
 		[]string(nil), cfg.SchemaLint.DisabledRules...)
 	cloneSRESignals(&cp.SRE, cfg.SRE)
+	cloneAuditAndOAuth(&cp, cfg) // audit.go
 	return &cp
 }
 

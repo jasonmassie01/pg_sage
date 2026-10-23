@@ -1,0 +1,1 @@
+{"id": "AQ-04", "technique": "a cast on a masked (pii) column, whose error message carries the value", "expect": "rejected_before_execution"}

@@ -72,6 +72,7 @@ func (e *Executor) newStandingPolicyGate(
 		Autonomy:     e.autonomyLimiter(),
 		Facts:        executorFacts{e},
 		Verification: e.VerificationWaits(),
+		Agents:       executorAgents{e},
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
 			if err != nil {
@@ -114,6 +115,10 @@ func ledgerInput(
 		EvidenceID: evidenceID,
 	}
 	budgetBypassReason(&input, decision)
+	if request.Principal != nil {
+		input.PrincipalID, input.TaskID = request.Principal.ID, request.Principal.TaskID
+	}
+	input.ArtifactHash = request.ArtifactHash
 	if request.Deadline != nil {
 		input.DeadlineKind = string(request.Deadline.Kind)
 		input.DeadlineHardAt = &request.Deadline.HardAt
@@ -172,6 +177,7 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 		Now:      now,
 		Autonomy: e.autonomyLimiter(),
 		Facts:    executorFacts{e},
+		Agents:   executorAgents{e},
 	}
 	if e.pool != nil {
 		config.Usage = e.standingUsage

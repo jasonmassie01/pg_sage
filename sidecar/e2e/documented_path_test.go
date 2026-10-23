@@ -17,6 +17,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // G10-I01: run the binary exactly as README.md and docs/installation.md
@@ -77,6 +79,7 @@ func freshDatabase(t *testing.T, admin string) string {
 	t.Cleanup(pool.Close)
 	suffix := fmt.Sprintf("%d_%d", os.Getpid(), time.Now().UnixNano())
 	name, role := "sage_docpath_"+suffix, "sage_agent_"+suffix
+	testdb.LockAgentRolesOn(t, admin) // agent-named roles are cluster-wide
 	password := randomHex(t)
 	t.Cleanup(func() {
 		mustExecAdmin(t, pool, "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())

@@ -29,6 +29,8 @@ type DatabaseConfig struct {
 
 	// Verify carries this database's own load-admission attestation (D6).
 	Verify DatabaseVerifyConfig `yaml:"verify"`
+	// Replicas are the standbys the agent kill switch reaches (agents_kill.go).
+	Replicas []DatabaseReplica `yaml:"replicas"`
 }
 
 // DatabaseVerifyConfig holds per-database load-admission attestations.

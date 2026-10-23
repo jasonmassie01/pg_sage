@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/agentposture"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/perfgate"
 )
 
@@ -28,6 +29,7 @@ const perfAgentRole = "sage_agentb_perfgate22"
 // dropped when the test ends.
 func setupPerfPosture(t *testing.T, ctx context.Context, harness *pgxpool.Pool) {
 	t.Helper()
+	testdb.LockAgentRoles(t) // agent roles are cluster-wide
 	createPerfRole(t, ctx, harness, perfAgentRole+" LOGIN", perfAgentRole)
 }
 

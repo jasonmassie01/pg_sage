@@ -340,9 +340,10 @@ func UnattendedProfile() Document {
 
 func baseProfile() Document {
 	classes := allChangeClasses()
+	approval := append([]ChangeClass{ChangeOnlineMigration}, AgentChangeClasses()...)
 	return Document{
 		AllowedChangeClasses:    append([]ChangeClass(nil), classes...),
-		ApprovalRequiredClasses: []ChangeClass{ChangeOnlineMigration},
+		ApprovalRequiredClasses: approval,
 		LockDurationCeilingMS:   3000,
 		BlastRadius: BlastRadius{
 			MaxRowsRewritten:   5000000,
@@ -365,7 +366,8 @@ func allChangeClasses() []ChangeClass {
 		ChangeIndex, ChangeAnalyze, ChangeVacuum, ChangeFreeze,
 		ChangeAutovacuumTuning, ChangeConfigGUC, ChangeRetention,
 		ChangeFKIndex, ChangeOnlineMigration, ChangeBackendSignal, ChangeQueryHint,
-		ChangeSchemaChange,
+		ChangeSchemaChange, ChangeAgentAccess, ChangeAgentDataWrite, ChangeAgentSchemaChange,
+		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate,
 	}
 }
 

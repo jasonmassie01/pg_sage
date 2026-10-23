@@ -214,6 +214,13 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// created_at so even the generic plan reads it by index (gate A).
 		{table: "auth_audit", timeCol: "created_at", days: r.AuthAuditDays,
 			sweepCol: "created_at"},
+		// Correlated pgaudit records are audit evidence of actions (E2).
+		{table: "guard_pgaudit_events", timeCol: "logged_at", days: r.ActionsDays,
+			sweepCol: "logged_at"},
+		// The agent_query audit (spec §6.8, §6.17) lives in each monitored
+		// database, where this cleaner runs; swept on the (at) index.
+		{table: "guard_query_audit", timeCol: "at", days: cfg.Agents.Query.AuditRetentionDays,
+			sweepCol: "at"},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{table: "user_oidc_link_grants", timeCol: "expires_at", days: r.ActionsDays},
 		{table: "sre_eval_runs", timeCol: "ingested_at",

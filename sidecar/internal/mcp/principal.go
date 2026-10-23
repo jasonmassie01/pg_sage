@@ -39,6 +39,9 @@ type Principal struct {
 	TokenID   string
 	// Name is the token's name (the external system it belongs to).
 	Name string
+	// PrincipalID is the agent principal an agent token acts for ("agp_…");
+	// the HTTP transport also binds its agentguard.Identity on the context.
+	PrincipalID string
 }
 
 type principalKey struct{}

@@ -68,16 +68,22 @@ func TestDesigns_RefuseBenignWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load self-checks: %v", err)
 	}
-	results, err := RunReadOnly(ctx, pool, cases, Designs(readOnlyRole))
+	designs := Designs(readOnlyRole)
+	defer closeDesigns(designs)
+	results, err := RunReadOnly(ctx, pool, cases, designs)
 	if err != nil {
 		t.Fatalf("run: %v", err)
+	}
+	if len(designs) != 4 {
+		t.Fatalf("%d designs, want read_only_txn, privilege_role, explain_guard, agent_query",
+			len(designs))
 	}
 	if len(results) != len(cases) {
 		t.Fatalf("got %d results, want %d", len(results), len(cases))
 	}
 	for _, c := range results {
-		if len(c.Attempts) != 3 {
-			t.Errorf("%s: %d attempts, want 3", c.ID, len(c.Attempts))
+		if len(c.Attempts) != len(designs) {
+			t.Errorf("%s: %d attempts, want %d", c.ID, len(c.Attempts), len(designs))
 		}
 		for _, a := range c.Attempts {
 			if !a.Held() {
@@ -103,8 +109,11 @@ func TestDesigns_ClassifyRefusal(t *testing.T) {
 		"read_only_txn":  ClassReadOnly,
 		"privilege_role": ClassPrivilege,
 		"explain_guard":  ClassBeforeExecution,
+		"agent_query":    ClassBeforeExecution,
 	}
-	for _, d := range Designs(readOnlyRole) {
+	designs := Designs(readOnlyRole)
+	defer closeDesigns(designs)
+	for _, d := range designs {
 		got := classify(d.Attempt(ctx, pool, write))
 		if got != want[d.Name()] {
 			t.Errorf("%s: observed %s, want %s", d.Name(), got, want[d.Name()])
@@ -155,7 +164,9 @@ func TestDesigns_AllowBenignRead(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	const read = "SELECT id, qty FROM sb_fixture.widgets"
-	for _, d := range Designs(readOnlyRole) {
+	designs := Designs(readOnlyRole)
+	defer closeDesigns(designs)
+	for _, d := range designs {
 		if got := classify(d.Attempt(ctx, pool, read)); got != ClassExecuted {
 			t.Errorf("%s: benign SELECT observed %s, want executed", d.Name(), got)
 		}

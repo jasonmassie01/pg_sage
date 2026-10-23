@@ -447,6 +447,9 @@ func removeAgentNativeSchema(
 		"DROP TABLE IF EXISTS sage.policy CASCADE",
 		"DROP TABLE IF EXISTS sage.toil_model CASCADE",
 		"DROP TABLE IF EXISTS sage.schema_migrations CASCADE",
+		// The previous schema predates the E2 audit chain, whose update
+		// trigger reads the columns dropped below.
+		"DROP TRIGGER IF EXISTS audit_chain_v1_u ON sage.action_log",
 		`ALTER TABLE sage.action_log DROP COLUMN IF EXISTS decision_id,
 			DROP COLUMN IF EXISTS verification_id,
 			DROP COLUMN IF EXISTS toil_minutes_saved,

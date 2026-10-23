@@ -113,16 +113,10 @@ func newBearerFixture(t *testing.T) *bearerFixture {
 	return &bearerFixture{pool: pool, store: mcptoken.NewStore(pool), backend: backend, h: h}
 }
 
+// agentToken mints an agent token the G1 way: for an agent principal.
 func (f *bearerFixture) agentToken(t *testing.T) mcptoken.Token {
 	t.Helper()
-	tok, err := f.store.Create(context.Background(), mcptoken.CreateRequest{
-		Name: fmt.Sprintf("bearer-agent-%d", time.Now().UnixNano()),
-		Kind: mcptoken.KindAgent, Scopes: []string{"read", "propose"},
-		Databases: []string{"orders"}, ExpiresIn: 24 * time.Hour,
-		CreatedBy: "admin@example.com",
-	})
-	require.NoError(t, err)
-	return tok
+	return mintAgentToken(t, f.pool, []string{"orders"})
 }
 
 func (f *bearerFixture) operatorToken(t *testing.T, role string) (mcptoken.Token, int) {

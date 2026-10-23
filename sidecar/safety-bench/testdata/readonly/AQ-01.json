@@ -1,0 +1,1 @@
+{"id": "AQ-01", "technique": "a session default changed through set_config inside a SELECT, carried to the next statement on a pooled session", "expect": "privilege_error"}

@@ -48,5 +48,5 @@ and the report says so rather than hiding it. Add a case by dropping a new
 `<id>.json`/`<id>.sql` pair here; the embedded loader picks it up.
 
 The self-check cases (`sc-insert`, `sc-update`, `sc-create`) prove the
-harness with trivially benign writes and must be refused under all three
+harness with trivially benign writes and must be refused under all four
 designs with checksums intact.
