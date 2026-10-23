@@ -23,9 +23,9 @@ import (
 const planOpenDuplicates = 2000
 
 // mergeTuplesPerOpenRow bounds the tuples every scan node of the merge
-// (tables, indexes and CTEs) returns per open row. A linear merge needs
-// under 10, counting the dead index entries the backfill leaves; a
-// quadratic one needs about planOpenDuplicates.
+// (tables, indexes and CTEs) returns per open row. The linear merge
+// returns 3 to 10, counting the dead index entries the backfill leaves; a
+// quadratic one about planOpenDuplicates.
 const mergeTuplesPerOpenRow = 25
 
 func TestReconcile_MergeIsLinearInTheOpenBacklog(t *testing.T) {
