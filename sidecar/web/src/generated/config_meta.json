@@ -428,6 +428,102 @@
     "doc": "",
     "class": "safety_critical"
   },
+  "change_review.auto_clear_max_table_bytes": {
+    "type": "int64",
+    "default": 10737418240,
+    "doc": "Largest table a CREATE INDEX CONCURRENTLY may target to count as shadow auto-clear eligible. Shadow only: nothing is cleared automatically. Range 0-1099511627776. Default: 10737418240 (10 GiB).",
+    "class": "safety_critical"
+  },
+  "change_review.backfill_rows_critical": {
+    "type": "int64",
+    "default": 10000000,
+    "doc": "Rows a migration's UPDATE or DELETE touches that make it critical (CR-12); above backfill_rows_warn. Default: 10000000.",
+    "class": "safety_critical"
+  },
+  "change_review.backfill_rows_warn": {
+    "type": "int64",
+    "default": 1000000,
+    "doc": "Rows a migration's UPDATE or DELETE touches that make it a warning (CR-12). At least 1. Default: 1000000.",
+    "class": "safety_critical"
+  },
+  "change_review.daily_tokens_per_actor": {
+    "type": "int",
+    "default": 200000,
+    "doc": "Change Review's daily LLM tokens for one caller (user or MCP token) on one database; at most daily_tokens_per_database. Range 0-100000000. Default: 200000.",
+    "class": "operator_preference"
+  },
+  "change_review.daily_tokens_per_database": {
+    "type": "int",
+    "default": 500000,
+    "doc": "Change Review's own daily LLM tokens for one database, all callers (UTC day, kept across restarts). 0 runs deterministic reviews only. Range 0-100000000. Default: 500000.",
+    "class": "derivable"
+  },
+  "change_review.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Review migration and data-access changes against the live database (MCP review_change, REST, CLI). It reads, plans and runs session-local HypoPG what-ifs; it never runs the change. Default: true.",
+    "class": "safety_critical"
+  },
+  "change_review.landing_expiry_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days a completed review waits to land before it expires (receipt unverifiable, credit void). Range 1-365. Default: 30.",
+    "class": "operator_preference"
+  },
+  "change_review.large_scan_rows": {
+    "type": "int64",
+    "default": 100000,
+    "doc": "Estimated rows of a sequential scan in a reviewed statement's plan that are reported (CR-14). At least 1. Default: 100000.",
+    "class": "safety_critical"
+  },
+  "change_review.lock_queue_critical": {
+    "type": "int",
+    "default": 5000,
+    "doc": "Statements expected to queue behind a change's lock at peak rate that make it critical (CR-02); above lock_queue_warn. Default: 5000.",
+    "class": "safety_critical"
+  },
+  "change_review.lock_queue_warn": {
+    "type": "int",
+    "default": 100,
+    "doc": "Statements expected to queue behind a change's lock at peak rate that make it a warning (CR-02). At least 1. Default: 100.",
+    "class": "safety_critical"
+  },
+  "change_review.max_concurrent_per_database": {
+    "type": "int",
+    "default": 2,
+    "doc": "Reviews running at once on one database; 8 more may queue. Range 1-8. Default: 2.",
+    "class": "operator_preference"
+  },
+  "change_review.max_diff_bytes": {
+    "type": "int",
+    "default": 524288,
+    "doc": "Largest unified diff a review accepts. The raw diff is never stored. Range 1024-10485760. Default: 524288.",
+    "class": "operator_preference"
+  },
+  "change_review.max_offered_diff_bytes": {
+    "type": "int",
+    "default": 200000,
+    "doc": "Most redacted data-access diff bytes offered to the model; at most max_diff_bytes. Range 1024-10485760. Default: 200000.",
+    "class": "operator_preference"
+  },
+  "change_review.max_sql_bytes": {
+    "type": "int",
+    "default": 100000,
+    "doc": "Largest migration SQL a review accepts, all files together. Range 1024-100000. Default: 100000.",
+    "class": "operator_preference"
+  },
+  "change_review.max_tokens_per_review": {
+    "type": "int",
+    "default": 60000,
+    "doc": "Most LLM tokens one review may use across its model calls. Range 4000-500000. Default: 60000.",
+    "class": "derivable"
+  },
+  "change_review.receipt_window_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours of workload compared before and after a reviewed change lands to decide its receipt. Range 2-168. Default: 24.",
+    "class": "safety_critical"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",
