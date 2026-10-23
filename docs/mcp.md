@@ -137,6 +137,15 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 migrations (`owned`) or must be left alone by pg_sage's DDL (`exempt`). It is recorded as a
 proposed [binding fact](facts.md) and binds nothing until a person confirms it.
 
+## Reviewing a change before it merges
+
+`review_change` reviews a migration and the application code that uses it against the live
+database and returns a cited review with verdict `safe`, `review` or `risky`; it never runs
+the SQL. `get_change_review` and `list_change_reviews` read reviews, and
+`report_change_deployed` (propose scope) tells pg_sage the change was deployed so it can
+stamp the receipt. A DBA's verdict is never recorded over MCP. CI uses the same tools through
+`pg_sage review`; see [Change Review](change-review.md).
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:
