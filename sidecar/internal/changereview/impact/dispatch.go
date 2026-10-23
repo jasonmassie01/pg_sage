@@ -34,6 +34,7 @@ func (r *run) partRules(s *stmt, i int, as []assessment, expandID string,
 	}
 	rel := r.target(s, i)
 	if rel == nil {
+		r.missingIndex(s, i)
 		return
 	}
 	if !rel.found {
@@ -138,4 +139,30 @@ func (r *run) expandSteps(s *stmt) []string {
 	ids[0] = r.addEvidence("expand", partRef(s.index, 0), "expand/contract for "+
 		string(pl.Classification), d)
 	return ids
+}
+
+// missingIndex is a DROP INDEX of an index the catalog does not hold:
+// the change fails unless the script creates it first or says IF EXISTS.
+func (r *run) missingIndex(s *stmt, i int) {
+	p := s.parts[i]
+	if p.Kind != sqlast.DDLDropIndex || p.IfExists || r.createdIndex(s, p.Object.Name) {
+		return
+	}
+	r.unknownFact(s, "index "+qualified(p.Object), "not found", "the catalog has no such "+
+		"index, so the DROP fails", "")
+}
+
+// createdIndex reports whether a statement before s creates index name.
+func (r *run) createdIndex(s *stmt, name string) bool {
+	for _, o := range r.stmts {
+		if o.index >= s.index {
+			return false
+		}
+		for _, p := range o.parts {
+			if p.Kind == sqlast.DDLCreateIndex && indexName(p) == name {
+				return true
+			}
+		}
+	}
+	return false
 }

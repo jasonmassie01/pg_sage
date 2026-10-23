@@ -215,5 +215,3 @@ func stmtEvidenceID(n int) string { return "stmt:" + strconv.Itoa(n) }
 func partRef(n, part int) string { return strconv.Itoa(n) + "." + strconv.Itoa(part) }
 
 func queryEvidenceID(id int64) string { return "queryid:" + strconv.FormatInt(id, 10) }
-
-func tableEvidenceID(rel string) string { return "table:" + evidenceRef(rel) }

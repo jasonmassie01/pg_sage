@@ -6,50 +6,56 @@ import (
 	"github.com/pg-sage/sidecar/internal/changereview"
 )
 
+// hit is one rule finding of a verdict case.
+type hit struct{ rule, sev string }
+
+const (
+	sevI = changereview.SeverityInfo
+	sevW = changereview.SeverityWarning
+	sevC = changereview.SeverityCritical
+)
+
+// verdictCases are the 14 rule combinations of CHECK-IMP-16.
+var verdictCases = []struct {
+	name string
+	hits []hit
+	mode string
+	want string
+}{
+	{"nothing", nil, changereview.ParseAST, changereview.VerdictSafe},
+	{"info only", []hit{{RuleLockQueue, sevI}}, changereview.ParseAST,
+		changereview.VerdictSafe},
+	{"several infos", []hit{{RuleIndexBenefit, sevI}, {RuleNewObject, sevI},
+		{RulePublished, sevI}}, changereview.ParseAST, changereview.VerdictSafe},
+	{"one warning", []hit{{RuleIndexRedundant, sevW}}, changereview.ParseAST,
+		changereview.VerdictReview},
+	{"warning among infos", []hit{{RuleLockQueue, sevI}, {RuleFKUnindexed, sevW},
+		{RuleNewObject, sevI}}, changereview.ParseAST, changereview.VerdictReview},
+	{"one critical", []hit{{RuleColumnReferenced, sevC}}, changereview.ParseAST,
+		changereview.VerdictRisky},
+	{"critical after warnings", []hit{{RuleFKTypeMismatch, sevW}, {RuleBackfill, sevW},
+		{RuleWillFail, sevC}}, changereview.ParseAST, changereview.VerdictRisky},
+	{"critical before info", []hit{{RuleIndexUsed, sevC}, {RuleIndexBenefit, sevI}},
+		changereview.ParseAST, changereview.VerdictRisky},
+	{"unknown impact warns", []hit{{RuleImpactUnknown, sevW}}, changereview.ParseAST,
+		changereview.VerdictReview},
+	{"partitioned warns", []hit{{RulePartitioned, sevW}, {RuleLockQueue, sevI}},
+		changereview.ParseAST, changereview.VerdictReview},
+	{"lock queue critical", []hit{{RuleLockQueue, sevC}}, changereview.ParseAST,
+		changereview.VerdictRisky},
+	{"text mode alone", nil, changereview.ParseText, changereview.VerdictReview},
+	{"text mode info", []hit{{RuleLockAndRewrite, sevI}}, changereview.ParseText,
+		changereview.VerdictReview},
+	{"text mode critical", []hit{{changereview.RuleTextMode, sevW},
+		{RuleLockAndRewrite, sevC}}, changereview.ParseText, changereview.VerdictRisky},
+}
+
 // CHECK-IMP-16: any critical gives risky, any warning gives review, only
 // info gives safe. The findings are built with the engine's own
 // constructor, so a constructor that loses or rewrites a severity fails
 // here. Stateless: no concurrent-access test applies.
 func TestVerdictTableOf14RuleCombinations(t *testing.T) {
-	type hit struct{ rule, sev string }
-	const (
-		I = changereview.SeverityInfo
-		W = changereview.SeverityWarning
-		C = changereview.SeverityCritical
-	)
-	cases := []struct {
-		name string
-		hits []hit
-		mode string
-		want string
-	}{
-		{"nothing", nil, changereview.ParseAST, changereview.VerdictSafe},
-		{"info only", []hit{{RuleLockQueue, I}}, changereview.ParseAST,
-			changereview.VerdictSafe},
-		{"several infos", []hit{{RuleIndexBenefit, I}, {RuleNewObject, I},
-			{RulePublished, I}}, changereview.ParseAST, changereview.VerdictSafe},
-		{"one warning", []hit{{RuleIndexRedundant, W}}, changereview.ParseAST,
-			changereview.VerdictReview},
-		{"warning among infos", []hit{{RuleLockQueue, I}, {RuleFKUnindexed, W},
-			{RuleNewObject, I}}, changereview.ParseAST, changereview.VerdictReview},
-		{"one critical", []hit{{RuleColumnReferenced, C}}, changereview.ParseAST,
-			changereview.VerdictRisky},
-		{"critical after warnings", []hit{{RuleFKTypeMismatch, W}, {RuleBackfill, W},
-			{RuleWillFail, C}}, changereview.ParseAST, changereview.VerdictRisky},
-		{"critical before info", []hit{{RuleIndexUsed, C}, {RuleIndexBenefit, I}},
-			changereview.ParseAST, changereview.VerdictRisky},
-		{"unknown impact warns", []hit{{RuleImpactUnknown, W}}, changereview.ParseAST,
-			changereview.VerdictReview},
-		{"partitioned warns", []hit{{RulePartitioned, W}, {RuleLockQueue, I}},
-			changereview.ParseAST, changereview.VerdictReview},
-		{"lock queue critical", []hit{{RuleLockQueue, C}}, changereview.ParseAST,
-			changereview.VerdictRisky},
-		{"text mode alone", nil, changereview.ParseText, changereview.VerdictReview},
-		{"text mode info", []hit{{RuleLockAndRewrite, I}}, changereview.ParseText,
-			changereview.VerdictReview},
-		{"text mode critical", []hit{{changereview.RuleTextMode, W},
-			{RuleLockAndRewrite, C}}, changereview.ParseText, changereview.VerdictRisky},
-	}
+	cases := verdictCases
 	if len(cases) != 14 {
 		t.Fatalf("the verdict table has %d combinations, want 14", len(cases))
 	}

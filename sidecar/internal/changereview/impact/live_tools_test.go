@@ -132,9 +132,9 @@ func TestTableContextIsCitable(t *testing.T) {
 
 func TestWhatIfIndexMeasuresTheGivenStatements(t *testing.T) {
 	e := newEnv(t)
-	ev, err := e.eng.WhatIfIndex(e.ctx, "CREATE INDEX CONCURRENTLY rv_orders_sc_idx ON "+
-		"rv.rv_orders (status, created_at)", []string{"SELECT id FROM rv.rv_orders "+
-		"WHERE status = $1 ORDER BY created_at LIMIT 50"})
+	ev, err := e.eng.WhatIfIndex(e.ctx, "CREATE INDEX CONCURRENTLY rv_orders_cust_idx ON "+
+		"rv.rv_orders (customer_id)", []string{"SELECT id FROM rv.rv_orders " +
+		"WHERE customer_id = $1"})
 	if err != nil {
 		t.Fatal(err)
 	}

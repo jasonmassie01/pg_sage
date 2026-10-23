@@ -203,61 +203,64 @@ func TestEvidenceRefIsAlwaysValid(t *testing.T) {
 	}
 }
 
+var rvOrders = sqlast.QualifiedName{Schema: "rv", Name: "rv_orders"}
+
+// postConditionCases is one DDL part of every kind with its post-condition.
+var postConditionCases = []struct {
+	p    sqlast.DDLStatement
+	want changereview.PostCondition
+}{
+	{sqlast.DDLStatement{Kind: sqlast.DDLCreateIndex, Relation: rvOrders,
+		Object: sqlast.QualifiedName{Schema: "rv", Name: "ix"},
+		Index:  &sqlast.IndexDef{Name: "ix"}},
+		changereview.PostCondition{Kind: changereview.PostIndexValid,
+			Relation: "rv.rv_orders", Index: "ix"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLAddColumn, Relation: rvOrders,
+		Column: &sqlast.ColumnDef{Name: "note", Type: "text"}},
+		changereview.PostCondition{Kind: changereview.PostColumnPresent,
+			Relation: "rv.rv_orders", Column: "note", Type: "text"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLDropColumn, Relation: rvOrders,
+		Column: &sqlast.ColumnDef{Name: "status"}},
+		changereview.PostCondition{Kind: changereview.PostColumnAbsent,
+			Relation: "rv.rv_orders", Column: "status"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLRenameColumn, Relation: rvOrders,
+		Columns: []string{"email"}, NewName: "email_address"},
+		changereview.PostCondition{Kind: changereview.PostColumnRenamed,
+			Relation: "rv.rv_orders", Column: "email", NewName: "email_address"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLAlterType, Relation: rvOrders,
+		Column: &sqlast.ColumnDef{Name: "code", Type: "varchar(40)"}},
+		changereview.PostCondition{Kind: changereview.PostColumnType,
+			Relation: "rv.rv_orders", Column: "code", Type: "character varying(40)"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLSetNotNull, Relation: rvOrders,
+		Column: &sqlast.ColumnDef{Name: "customer_id"}},
+		changereview.PostCondition{Kind: changereview.PostNotNull,
+			Relation: "rv.rv_orders", Column: "customer_id"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLDropNotNull, Relation: rvOrders,
+		Column: &sqlast.ColumnDef{Name: "email"}},
+		changereview.PostCondition{Kind: changereview.PostNullable,
+			Relation: "rv.rv_orders", Column: "email"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLRenameTable, Relation: rvOrders,
+		NewName: "orders2"},
+		changereview.PostCondition{Kind: changereview.PostRelationRenamed,
+			Relation: "rv.rv_orders", NewName: "orders2"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLDropTable, Relation: rvOrders},
+		changereview.PostCondition{Kind: changereview.PostRelationAbsent,
+			Relation: "rv.rv_orders"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLCreateTable, Relation: rvOrders},
+		changereview.PostCondition{Kind: changereview.PostRelationPresent,
+			Relation: "rv.rv_orders"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLDropConstraint, Relation: rvOrders,
+		Constraint: &sqlast.ConstraintDef{Name: "c1"}},
+		changereview.PostCondition{Kind: changereview.PostConstraintAbsent,
+			Relation: "rv.rv_orders", Constraint: "c1"}},
+	{sqlast.DDLStatement{Kind: sqlast.DDLValidateConstraint, Relation: rvOrders,
+		Constraint: &sqlast.ConstraintDef{Name: "c1"}},
+		changereview.PostCondition{Kind: changereview.PostConstraint,
+			Relation: "rv.rv_orders", Constraint: "c1", Type: constraintValidated}},
+}
+
 func TestPostConditionPerDDLKind(t *testing.T) {
-	rel := sqlast.QualifiedName{Schema: "rv", Name: "rv_orders"}
-	cases := []struct {
-		p    sqlast.DDLStatement
-		want changereview.PostCondition
-	}{
-		{sqlast.DDLStatement{Kind: sqlast.DDLCreateIndex, Relation: rel,
-			Object: sqlast.QualifiedName{Schema: "rv", Name: "ix"},
-			Index:  &sqlast.IndexDef{Name: "ix"}},
-			changereview.PostCondition{Kind: changereview.PostIndexValid,
-				Relation: "rv.rv_orders", Index: "ix"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLAddColumn, Relation: rel,
-			Column: &sqlast.ColumnDef{Name: "note", Type: "text"}},
-			changereview.PostCondition{Kind: changereview.PostColumnPresent,
-				Relation: "rv.rv_orders", Column: "note", Type: "text"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLDropColumn, Relation: rel,
-			Column: &sqlast.ColumnDef{Name: "status"}},
-			changereview.PostCondition{Kind: changereview.PostColumnAbsent,
-				Relation: "rv.rv_orders", Column: "status"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLRenameColumn, Relation: rel,
-			Columns: []string{"email"}, NewName: "email_address"},
-			changereview.PostCondition{Kind: changereview.PostColumnRenamed,
-				Relation: "rv.rv_orders", Column: "email", NewName: "email_address"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLAlterType, Relation: rel,
-			Column: &sqlast.ColumnDef{Name: "code", Type: "varchar(40)"}},
-			changereview.PostCondition{Kind: changereview.PostColumnType,
-				Relation: "rv.rv_orders", Column: "code", Type: "character varying(40)"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLSetNotNull, Relation: rel,
-			Column: &sqlast.ColumnDef{Name: "customer_id"}},
-			changereview.PostCondition{Kind: changereview.PostNotNull,
-				Relation: "rv.rv_orders", Column: "customer_id"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLDropNotNull, Relation: rel,
-			Column: &sqlast.ColumnDef{Name: "email"}},
-			changereview.PostCondition{Kind: changereview.PostNullable,
-				Relation: "rv.rv_orders", Column: "email"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLRenameTable, Relation: rel,
-			NewName: "orders2"},
-			changereview.PostCondition{Kind: changereview.PostRelationRenamed,
-				Relation: "rv.rv_orders", NewName: "orders2"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLDropTable, Relation: rel},
-			changereview.PostCondition{Kind: changereview.PostRelationAbsent,
-				Relation: "rv.rv_orders"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLCreateTable, Relation: rel},
-			changereview.PostCondition{Kind: changereview.PostRelationPresent,
-				Relation: "rv.rv_orders"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLDropConstraint, Relation: rel,
-			Constraint: &sqlast.ConstraintDef{Name: "c1"}},
-			changereview.PostCondition{Kind: changereview.PostConstraintAbsent,
-				Relation: "rv.rv_orders", Constraint: "c1"}},
-		{sqlast.DDLStatement{Kind: sqlast.DDLValidateConstraint, Relation: rel,
-			Constraint: &sqlast.ConstraintDef{Name: "c1"}},
-			changereview.PostCondition{Kind: changereview.PostConstraint,
-				Relation: "rv.rv_orders", Constraint: "c1", Type: constraintValidated}},
-	}
-	for _, c := range cases {
+	for _, c := range postConditionCases {
 		got, ok := postCondition(3, c.p, "")
 		c.want.StatementIndex = 3
 		if !ok || got != c.want {

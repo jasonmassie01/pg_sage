@@ -78,8 +78,9 @@ func plainIdent(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if !(c == '_' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
-			c >= 'A' && c <= 'Z') {
+		word := c == '_' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' ||
+			c >= 'A' && c <= 'Z'
+		if !word {
 			return false
 		}
 	}
@@ -90,34 +91,40 @@ func plainIdent(s string) bool {
 // the table (and the review's own reads of it), with the other new
 // indexes of the review on that table as the baseline.
 func (r *run) whatIf(s *stmt, i int, rel *relation) {
-	def := s.parts[i].Index
+	queries, qids := r.whatIfQueries(rel)
+	d := r.measureIndex(rel, s.parts[i].Index, queries, qids, r.alongside(s, i, rel))
+	if r.err != nil {
+		return
+	}
+	if d.ImprovementPct != nil {
+		r.predict(qids, *d.ImprovementPct)
+	}
+	id := r.addEvidence("whatif", partRef(s.index, i), whatIfTitle(d), d)
+	r.find(RuleIndexBenefit, changereview.SeverityInfo, whatIfTitle(d), whatIfText(rel, d),
+		s.evID, rel.evID, id)
+}
+
+// measureIndex measures def on rel over queries with HypoPG; qids are the
+// workload queryids among them (a prediction's targets).
+func (r *run) measureIndex(rel *relation, def *sqlast.IndexDef,
+	queries []optimizer.QueryInfo, qids []int64, alongside []string) whatIfData {
 	d := whatIfData{DDL: hypoDDL(rel, def), Method: verify.MethodHypoPG,
 		WritesPerS: rel.rate.ins + rel.rate.upd + rel.rate.del}
-	ids := []string{s.evID, rel.evID}
-	queries, qids := r.whatIfQueries(rel)
-	ref := partRef(s.index, i)
 	switch {
 	case !r.e.d.WhatIf.IsAvailable(r.ctx):
-		d.Method = verify.MethodNone
-		r.find(RuleIndexBenefit, changereview.SeverityInfo, "Index benefit not measured",
-			"HypoPG unavailable: the index's benefit to the workload was not measured; "+
-				"install the hypopg extension to measure it.", append(ids,
-				r.addEvidence("whatif", ref, "HypoPG unavailable", d))...)
-		return
+		d.Method, d.Reason = verify.MethodNone, "HypoPG unavailable"
+		return d
 	case len(queries) == 0:
 		d.Method, d.Available = verify.MethodNone, true
-		r.find(RuleIndexBenefit, changereview.SeverityInfo, "No workload statement to "+
-			"measure", "No workload statement reads "+rel.name+", so the index's benefit "+
-			"is not measured; it adds write cost from the start.", append(ids,
-			r.addEvidence("whatif", ref, "nothing to measure", d))...)
-		return
+		d.Reason = "no workload statement reads " + rel.name
+		return d
 	}
 	d.Available, d.QueryIDs = true, qids
 	res, err := r.e.d.WhatIf.Validate(r.ctx, optimizer.Recommendation{Table: rel.name,
-		DDL: d.DDL, Alongside: r.alongside(s, i, rel)}, queries)
+		DDL: d.DDL, Alongside: alongside}, queries)
 	if r.ctx.Err() != nil {
 		r.err = r.ctx.Err()
-		return
+		return d
 	}
 	d.Measured, d.Failed, d.SizeBytes = res.Measured, res.Failed, res.SizeBytes
 	d.Verdict, d.Reason = optimizer.WhatIfVerdict(res, err, whatIfMinPct)
@@ -127,10 +134,8 @@ func (r *run) whatIf(s *stmt, i int, rel *relation) {
 	if err == nil && res.Measured > 0 {
 		pct := res.Improvement
 		d.ImprovementPct = &pct
-		r.predict(qids, pct)
 	}
-	r.find(RuleIndexBenefit, changereview.SeverityInfo, whatIfTitle(d), whatIfText(rel, d),
-		append(ids, r.addEvidence("whatif", ref, whatIfTitle(d), d))...)
+	return d
 }
 
 func whatIfTitle(d whatIfData) string {
@@ -142,8 +147,17 @@ func whatIfTitle(d whatIfData) string {
 }
 
 func whatIfText(rel *relation, d whatIfData) string {
-	t := "HypoPG could not measure the index"
-	if d.ImprovementPct != nil {
+	var t string
+	switch {
+	case !d.Available:
+		return "HypoPG unavailable: the index's benefit to the workload was not " +
+			"measured; install the hypopg extension to measure it."
+	case d.Method == verify.MethodNone:
+		return "No workload statement reads " + rel.name + ", so the index's benefit is " +
+			"not measured; it adds write cost from the start."
+	case d.ImprovementPct == nil:
+		t = "HypoPG could not measure the index"
+	default:
 		t = fmt.Sprintf("With the index, HypoPG plans %d workload statements at %.1f%% "+
 			"lower cost (call-weighted; verdict %s)", d.Measured, *d.ImprovementPct,
 			d.Verdict)
