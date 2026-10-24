@@ -111,7 +111,7 @@ func (c *refCollector) collectUtilityRelations(stmt *pg_query.Node) {
 
 func (c *refCollector) result(kind StatementKind) Refs {
 	out := Refs{Kind: kind, Target: c.target, ModifiesData: c.modifies}
-	out.Relations = sortedNames(c.relations)
+	out.Relations = sortedQualifiedNames(c.relations)
 	for _, name := range out.Relations {
 		mode, ok := c.locks[name]
 		if !ok {
@@ -132,10 +132,10 @@ func (c *refCollector) result(kind StatementKind) Refs {
 		}
 		return a.Column < b.Column
 	})
-	out.Star = sortedNames(c.star)
+	out.Star = sortedQualifiedNames(c.star)
 	for column, set := range c.ambiguous {
 		out.Ambiguous = append(out.Ambiguous,
-			AmbiguousColumn{Column: column, Candidates: sortedNames(set)})
+			AmbiguousColumn{Column: column, Candidates: sortedQualifiedNames(set)})
 	}
 	sort.Slice(out.Ambiguous, func(i, j int) bool {
 		return out.Ambiguous[i].Column < out.Ambiguous[j].Column
@@ -152,7 +152,7 @@ func lessName(a, b QualifiedName) bool {
 	return a.Name < b.Name
 }
 
-func sortedNames(set map[QualifiedName]bool) []QualifiedName {
+func sortedQualifiedNames(set map[QualifiedName]bool) []QualifiedName {
 	var out []QualifiedName
 	for name := range set {
 		out = append(out, name)
