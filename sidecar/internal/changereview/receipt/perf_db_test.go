@@ -1,7 +1,6 @@
 package receipt
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -11,9 +10,10 @@ import (
 
 // CHECK-RCP-10: one leader cycle over 500 awaiting and 500 decided reviews
 // (among 19,000 older settled ones) finishes in under 2 s and reads
-// sage.change_review only through its indexes: no sequential scan, by the
-// table's counters on every version and by the perf gate's generic plans
-// on PostgreSQL 16+.
+// sage.change_review only through its indexes: the perf gate's table
+// reading (perfgate.ReadTableStats, gate A) counts no sequential scan.
+// (Generic plans of pg_stat_statements text cannot judge it: normalization
+// turns the partial indexes' literals into parameters.)
 
 const (
 	perfAwaiting = 500
@@ -52,22 +52,24 @@ func (f *fixture) seedPerfReviews() {
 	f.exec(`ANALYZE sage.change_review`)
 }
 
-func (f *fixture) seqScans(table string) int64 {
+// tableStats is the perf gate's reading of the sage tables (flushed first):
+// differenced, it gives each table's sequential scans (gate A).
+func (f *fixture) tableStats() perfgate.TableStats {
 	f.t.Helper()
 	if err := testdb.FlushIdleSessions(f.ctx, f.pool); err != nil {
 		f.t.Fatalf("flush statistics: %v", err)
 	}
-	return f.int64(`SELECT COALESCE(seq_scan, 0) FROM pg_stat_user_tables
-		WHERE relid = $1::regclass`, table)
+	st, err := perfgate.ReadTableStats(f.ctx, f.pool)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return st
 }
 
 func TestLeaderCycleAtScale(t *testing.T) {
 	f := newFixture(t)
 	f.seedPerfReviews()
-	if err := perfgate.Prepare(f.ctx, f.pool); err != nil {
-		t.Fatalf("pg_stat_statements: %v", err)
-	}
-	before := f.seqScans("sage.change_review")
+	before := f.tableStats()
 	start := time.Now()
 	rep := f.run()
 	elapsed := time.Since(start)
@@ -77,70 +79,13 @@ func TestLeaderCycleAtScale(t *testing.T) {
 	if elapsed > 2*time.Second {
 		t.Fatalf("one cycle took %s, want under 2 s", elapsed)
 	}
-	if n := f.seqScans("sage.change_review") - before; n != 0 {
-		t.Fatalf("the cycle ran %d sequential scans of sage.change_review", n)
-	}
-	f.genericPlansAvoidSeqScans()
-}
-
-// cycleTags are the statement tags a receipts cycle runs on
-// sage.change_review: its own and the store transitions it calls.
-// pg_stat_statements is not reset (other packages share the server), so
-// the statements are picked by tag; every earlier cycle's count too.
-var cycleTags = []string{"change_review_receipt_", "change_review_awaiting",
-	"change_review_receipts_due", "change_review_landed", "change_review_not_applicable",
-	"change_review_seal", "change_review_get", "change_review_shadow",
-	"change_review_list_pr"}
-
-func cycleStatement(q string) bool {
-	for _, tag := range cycleTags {
-		if strings.Contains(q, "pg_sage "+tag) {
-			return true
+	for _, d := range f.tableStats().Delta(before) {
+		if d.Name == "sage.change_review" && d.SeqScans != 0 {
+			t.Fatalf("the cycle ran %d sequential scans of sage.change_review (%d rows read)",
+				d.SeqScans, d.SeqTupRead)
 		}
-	}
-	return false
-}
-
-// genericPlansAvoidSeqScans explains every statement the cycle ran on
-// sage.change_review as the perf gate does (EXPLAIN GENERIC_PLAN, 16+).
-func (f *fixture) genericPlansAvoidSeqScans() {
-	f.t.Helper()
-	var version int
-	if err := f.pool.QueryRow(f.ctx, `SELECT current_setting('server_version_num')::int`).
-		Scan(&version); err != nil {
-		f.t.Fatal(err)
-	}
-	if version < 160000 {
-		return // GENERIC_PLAN needs 16+; the scan counters above cover 14 and 15.
-	}
-	name, err := testdb.DatabaseName(testdb.SkipUnlessLive(f.t))
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	stmts, err := perfgate.ReadStatements(f.ctx, f.pool, name)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	plans, err := perfgate.ExplainStatements(f.ctx, f.pool, stmts)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	seen := 0
-	for _, p := range plans {
-		if !cycleStatement(p.Statement.Query) {
-			continue
+		if d.Name == "sage.change_review" && d.IdxScans == 0 {
+			t.Fatal("no index scan of sage.change_review was counted; the check proves nothing")
 		}
-		seen++
-		if p.Err != "" {
-			f.t.Errorf("explain %q: %s", p.Statement.Query, p.Err)
-		}
-		for _, s := range p.SeqScans {
-			if s.Relation == "change_review" {
-				f.t.Errorf("generic plan seq-scans sage.change_review:\n%s", p.Statement.Query)
-			}
-		}
-	}
-	if seen == 0 {
-		f.t.Fatal("no change_review statement was recorded; the check proves nothing")
 	}
 }

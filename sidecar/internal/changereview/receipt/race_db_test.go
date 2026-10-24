@@ -58,25 +58,7 @@ func TestReceiptRacingJobsDecideOnce(t *testing.T) {
 		f.beforeAfter(int64(700+i), at, at, 10, 5, 5)
 		ids = append(ids, r.ID)
 	}
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	reports := make([]Report, 2)
-	errs := make([]error, 2)
-	for i := range reports {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			reports[i], errs[i] = f.job().RunDatabase(f.ctx, f.db())
-		}(i)
-	}
-	close(start)
-	wg.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("job %d: %v", i, err)
-		}
-	}
+	reports := f.raceJobs(2)
 	if d := reports[0].Decided + reports[1].Decided; d != n {
 		t.Fatalf("decided %d + %d, want exactly %d", reports[0].Decided,
 			reports[1].Decided, n)
@@ -101,4 +83,29 @@ func TestReceiptRacingJobsDecideOnce(t *testing.T) {
 			t.Fatalf("review %s receipt changed after it was decided", id)
 		}
 	}
+}
+
+// raceJobs runs n jobs on the fixture's database at once.
+func (f *fixture) raceJobs(n int) []Report {
+	f.t.Helper()
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	reports := make([]Report, n)
+	errs := make([]error, n)
+	for i := range reports {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			reports[i], errs[i] = f.job().RunDatabase(f.ctx, f.db())
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			f.t.Fatalf("job %d: %v", i, err)
+		}
+	}
+	return reports
 }

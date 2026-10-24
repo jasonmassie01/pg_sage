@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 
 func statusIndexReview(r *changereview.Review, index string) {
 	r.Statements = []changereview.Statement{{Index: 1, Origin: changereview.OriginSQLInput,
-		SQL: "CREATE INDEX CONCURRENTLY " + index + " ON rv.rv_orders (status)",
+		SQL:  "CREATE INDEX CONCURRENTLY " + index + " ON rv.rv_orders (status)",
 		Kind: "create_index", Relations: []string{rvfixture.Orders}, EvidenceID: "stmt:1"}}
 	r.Expectations.PostConditions = []changereview.PostCondition{{StatementIndex: 1,
 		Kind: changereview.PostIndexValid, Relation: rvfixture.Orders, Index: index}}
@@ -233,5 +234,30 @@ func TestLandingExpiresAfterLandingExpiryDays(t *testing.T) {
 	}
 	if got.ReceiptHash == "" || !changereview.VerifyReceipt(got) {
 		t.Fatal("the expired receipt is not sealed")
+	}
+}
+
+// A malformed post-condition fails its own review only: the others in the
+// same batched catalog read still land.
+func TestLandingIsolatesAMalformedPostCondition(t *testing.T) {
+	f := newFixture(t)
+	good := f.seed(func(r *changereview.Review) {
+		r.Expectations.PostConditions = []changereview.PostCondition{{StatementIndex: 1,
+			Kind: changereview.PostIndexValid, Relation: "sage.change_review",
+			Index: "change_review_created"}}
+	})
+	bad := f.seed(func(r *changereview.Review) {
+		r.Expectations.PostConditions = []changereview.PostCondition{{StatementIndex: 1,
+			Kind: "bogus", Relation: "sage.change_review"}}
+	})
+	rep := f.run()
+	if got := f.get(good.ID); got.LandingState != changereview.LandingNotApplicable {
+		t.Fatalf("good review landing %s, want not_applicable", got.LandingState)
+	}
+	if got := f.get(bad.ID); got.LandingState != changereview.LandingAwaiting {
+		t.Fatalf("malformed review landing %s, want awaiting", got.LandingState)
+	}
+	if len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0], bad.ID) {
+		t.Fatalf("errors %v, want one naming review %s", rep.Errors, bad.ID)
 	}
 }

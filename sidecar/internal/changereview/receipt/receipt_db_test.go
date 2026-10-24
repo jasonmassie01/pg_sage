@@ -128,35 +128,36 @@ func TestReceiptRegressedNamesTheQueryAndCountsFalseSafe(t *testing.T) {
 	}
 }
 
+var lockHarmCases = []struct {
+	name  string
+	harm  func(f *fixture, at time.Time)
+	lock  bool
+	check func(t *testing.T, rc *changereview.Receipt)
+}{
+	{"incident on the table", func(f *fixture, at time.Time) {
+		f.incident(at.Add(5*time.Minute), "rv.rv_orders")
+	}, true, func(t *testing.T, rc *changereview.Receipt) {
+		if len(rc.Incidents) != 1 {
+			t.Fatalf("incidents %v, want one", rc.Incidents)
+		}
+	}},
+	{"lock_chain finding on the table", func(f *fixture, at time.Time) {
+		f.lockFinding(at.Add(-10*time.Minute), "rv.rv_orders")
+	}, true, func(t *testing.T, rc *changereview.Receipt) {
+		if len(rc.LockFindings) != 1 {
+			t.Fatalf("lock findings %v, want one", rc.LockFindings)
+		}
+	}},
+	{"incident outside 15 minutes", func(f *fixture, at time.Time) {
+		f.incident(at.Add(30*time.Minute), "rv.rv_orders")
+	}, false, nil},
+	{"lock_chain finding on another table", func(f *fixture, at time.Time) {
+		f.lockFinding(at, "rv.rv_items")
+	}, false, nil},
+}
+
 func TestReceiptRegressedByLockHarm(t *testing.T) {
-	cases := []struct {
-		name  string
-		harm  func(f *fixture, at time.Time)
-		lock  bool
-		check func(t *testing.T, rc *changereview.Receipt)
-	}{
-		{"incident on the table", func(f *fixture, at time.Time) {
-			f.incident(at.Add(5*time.Minute), "rv.rv_orders")
-		}, true, func(t *testing.T, rc *changereview.Receipt) {
-			if len(rc.Incidents) != 1 {
-				t.Fatalf("incidents %v, want one", rc.Incidents)
-			}
-		}},
-		{"lock_chain finding on the table", func(f *fixture, at time.Time) {
-			f.lockFinding(at.Add(-10*time.Minute), "rv.rv_orders")
-		}, true, func(t *testing.T, rc *changereview.Receipt) {
-			if len(rc.LockFindings) != 1 {
-				t.Fatalf("lock findings %v, want one", rc.LockFindings)
-			}
-		}},
-		{"incident outside 15 minutes", func(f *fixture, at time.Time) {
-			f.incident(at.Add(30*time.Minute), "rv.rv_orders")
-		}, false, nil},
-		{"lock_chain finding on another table", func(f *fixture, at time.Time) {
-			f.lockFinding(at, "rv.rv_items")
-		}, false, nil},
-	}
-	for _, tc := range cases {
+	for _, tc := range lockHarmCases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			r, at := f.landedReview(changereview.VerdictSafe, 505)

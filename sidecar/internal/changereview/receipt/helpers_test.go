@@ -3,6 +3,7 @@ package receipt
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
@@ -169,7 +170,7 @@ func (f *fixture) lockFinding(at time.Time, relation string) int64 {
 		category, severity, object_type, object_identifier, title, detail, status)
 		VALUES ($1, $1, 'lock_chain', 'critical', 'lock', 'pid:' || $3::text,
 		'Lock chain', jsonb_build_object('locked_relation', $2::text), 'resolved')
-		RETURNING id`, at, relation, at.UnixNano()%100000).Scan(&id); err != nil {
+		RETURNING id`, at, relation, fmt.Sprint(at.UnixNano()%100000)).Scan(&id); err != nil {
 		f.t.Fatalf("seed lock finding: %v", err)
 	}
 	return id
