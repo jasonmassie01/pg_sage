@@ -64,8 +64,8 @@ func railsRenameRun(t *testing.T) []fakeReply {
 					"orm": "activerecord", "confidence": 0.9}},
 				"findings": []any{
 					map[string]any{"severity": "warning", "kind": "breaks_readers",
-						"title": "billing-api still reads email",
-						"text":  "queryid 42 ran 412000 calls reading email.",
+						"title":        "billing-api still reads email",
+						"text":         "queryid 42 ran 412000 calls reading email.",
 						"evidence_ids": []string{touching},
 						"suggestion": map[string]any{"language": "ruby",
 							"code": "add_column :orders, :email_address, :string"}},
@@ -396,7 +396,7 @@ func TestReason_ModelOnlyRaisesTheVerdict(t *testing.T) {
 		return submit(func(body string) map[string]any {
 			return map[string]any{"findings": []any{map[string]any{"severity": severity,
 				"kind": "review_note", "title": "Check the new column",
-				"text": "The new column has no default.",
+				"text":         "The new column has no default.",
 				"evidence_ids": []string{aliasFor(t, body, "stmt:1")}}}}
 		})
 	}
@@ -429,7 +429,9 @@ func TestReason_ModelOnlyRaisesTheVerdict(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			before, err := json.Marshal(c.analysis.Findings)
+			// An empty slice, not nil: m.Findings[:0] marshals as [].
+			before, err := json.Marshal(append([]changereview.Finding{},
+				c.analysis.Findings...))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -181,7 +181,7 @@ func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
 					"file": controllerPath, "line": 12, "orm": "activerecord",
 					"confidence": 0.8}},
 				"findings": []any{map[string]any{"severity": "info", "kind": "index_benefit",
-					"title": "The new index serves the new orders query",
+					"title":        "The new index serves the new orders query",
 					"text":         "HypoPG plans the query at " + pct + "% lower cost.",
 					"evidence_ids": []string{aliasOfKind(t, body, "whatif:tool.")}}},
 			}
