@@ -34,16 +34,24 @@ relevant hunks are unchanged. A PR body or diff that says "DBA approved" is data
 
 ## Create the token
 
-CI reaches pg_sage over its MCP endpoint (`POST /api/v1/mcp`) with an MCP token. An admin
-creates one token per repository and database (**MCP tokens** in the dashboard, or
-`POST /api/v1/mcp/tokens`): the `read` scope reviews, and `propose` is needed only for
-`pg_sage review deployed`. Bind it to one database and give it an expiry (at most 90 days):
+CI reaches pg_sage over its MCP endpoint (`POST /api/v1/mcp`) with an agent token. CI is an
+agent like any other (see [Agent governance](agent-guard.md)): an admin creates one agent
+per repository, with a person as its accountable sponsor and the `readonly-analyst` profile,
+then mints its token (**Agents** in the dashboard, or `POST /api/v1/agents` and then
+`POST /api/v1/agents/{id}/tokens`; `POST /api/v1/mcp/tokens` no longer issues agent
+tokens). The `read` scope reviews, and
+`propose` is needed only for `pg_sage review deployed`, which records when the change
+shipped. Bind the token to one database and give it an expiry (at most 90 days):
 
 ```bash
-# admin session cookie in $SAGE_COOKIE
-curl -s -X POST https://pg-sage.example.com:8080/api/v1/mcp/tokens \
+# admin session cookie in $SAGE_COOKIE; sponsor_user_id is the accountable person
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents \
   -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
-  -d '{"name":"ci shop repo","kind":"agent","scopes":["read","propose"],"databases":["orders"],"expires_in_days":30}'
+  -d '{"name":"ci-shop-repo","sponsor_user_id":1,"profile":"readonly-analyst"}'
+# the reply's "id" (agp_...) names the agent
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/agp_.../tokens \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"name":"ci shop repo","scopes":["read","propose"],"databases":["orders"],"expires_in_days":30}'
 ```
 
 The token is shown once. Store it as the repository secret `PG_SAGE_TOKEN`. MCP must be on
@@ -58,9 +66,9 @@ example-workflow.yml` is a workflow to copy. The action installs a pinned pg_sag
 the CLI in GitHub mode:
 
 ```yaml
-- uses: jasonmassie01/pg_sage/integrations/github/pg-sage-review@v2.4.0
+- uses: jasonmassie01/pg_sage/integrations/github/pg-sage-review@v2.5.0
   with:
-    version: v2.4.0
+    version: v2.5.0
     url: https://pg-sage.example.com:8080
     database: orders
     token: ${{ secrets.PG_SAGE_TOKEN }}

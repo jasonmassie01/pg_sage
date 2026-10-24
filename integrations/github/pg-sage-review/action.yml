@@ -8,7 +8,7 @@ author: pg_sage
 
 inputs:
   version:
-    description: pg_sage release to install, like v2.4.0 (pin it).
+    description: pg_sage release to install, like v2.5.0 (pin it).
     required: true
   url:
     description: pg_sage base URL the runner can reach, like https://pg-sage.example.com:8080.
@@ -74,7 +74,7 @@ runs:
       run: |
         set -euo pipefail
         if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          echo "::error::version must be a pinned release like v2.4.0, got '$VERSION'"
+          echo "::error::version must be a pinned release like v2.5.0, got '$VERSION'"
           exit 2
         fi
         case "$(uname -s)-$(uname -m)" in

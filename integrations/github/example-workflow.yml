@@ -53,9 +53,9 @@ jobs:
 
       - name: Review the change with pg_sage
         if: steps.fork.outputs.skip != 'true'
-        uses: jasonmassie01/pg_sage/integrations/github/pg-sage-review@v2.4.0
+        uses: jasonmassie01/pg_sage/integrations/github/pg-sage-review@v2.5.0
         with:
-          version: v2.4.0
+          version: v2.5.0
           url: ${{ env.PG_SAGE_URL }}
           database: ${{ env.PG_SAGE_DATABASE }}
           token: ${{ secrets.PG_SAGE_TOKEN }}
@@ -67,9 +67,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install pg_sage
-        uses: jasonmassie01/pg_sage/integrations/github/pg-sage-review@v2.4.0
+        uses: jasonmassie01/pg_sage/integrations/github/pg-sage-review@v2.5.0
         with:
-          version: v2.4.0
+          version: v2.5.0
           url: ${{ env.PG_SAGE_URL }}
           database: ${{ env.PG_SAGE_DATABASE }}
           token: ${{ secrets.PG_SAGE_TOKEN }}

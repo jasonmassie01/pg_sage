@@ -155,7 +155,9 @@ func TestChangeReviewDocsCoverTheSurfaces(t *testing.T) {
 		t.Fatal("mkdocs.yml nav must list change-review.md")
 	}
 	for _, want := range []string{
-		"POST /api/v1/mcp/tokens", `"scopes":["read","propose"]`, `"databases":["orders"]`,
+		// Agent tokens are minted for an agent principal since v2.4.0.
+		"POST /api/v1/agents/{id}/tokens", `"sponsor_user_id"`,
+		`"scopes":["read","propose"]`, `"databases":["orders"]`,
 		"expires_in_days", "integrations/github/pg-sage-review", "pg_sage review submit",
 		"pg_sage review status", "pg_sage review deployed", "PG_SAGE_TOKEN_FILE",
 		"| 0 |", "| 1 |", "| 2 |", "| 3 |", "## What pg_sage reads",
