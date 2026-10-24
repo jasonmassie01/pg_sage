@@ -193,10 +193,8 @@ func TestQueryChangeReviewCasesWithoutTheTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `DROP TABLE sage.change_review`); err != nil {
+	// A sage schema from before Change Review: no sage.change_review.
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA sage`); err != nil {
 		t.Fatal(err)
 	}
 	got, err := queryChangeReviewCases(ctx, namedPool{name: "old", pool: pool}, time.Now())
