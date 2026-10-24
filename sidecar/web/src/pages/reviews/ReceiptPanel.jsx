@@ -28,13 +28,20 @@ function Awaiting({ review }) {
   )
 }
 
+const LANDING_SOURCES = {
+  catalog: 'catalog post-conditions',
+  change_event: 'a signed change event',
+  reported: 'a deploy report',
+}
+
 function Landing({ review }) {
   if (!review.landed_at) return null
   return (
     <p data-testid="receipt-landing" className="text-sm"
       style={{ color: 'var(--text-secondary)' }}>
       Landed between {formatTime(review.landed_lower)} and {formatTime(review.landed_at)}
-      {' '}(detected by {humanize(review.landing_source)}).
+      {' '}(detected by
+      {' '}{LANDING_SOURCES[review.landing_source] || humanize(review.landing_source)}).
     </p>
   )
 }
