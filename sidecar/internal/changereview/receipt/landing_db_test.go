@@ -261,3 +261,29 @@ func TestLandingIsolatesAMalformedPostCondition(t *testing.T) {
 		t.Fatalf("errors %v, want one naming review %s", rep.Errors, bad.ID)
 	}
 }
+
+// A revision created after a deploy did not ship in it, even with the
+// same content as the one that did.
+func TestLandingByEventSkipsLaterRevisions(t *testing.T) {
+	f := newFixture(t)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	content := randomHex(64)
+	shipped := f.seed(func(r *changereview.Review) {
+		r.PRURL, r.ContentHash, r.CreatedAt, r.CompletedAt = testPR, content,
+			now.Add(-3*time.Hour), ptr(now.Add(-3*time.Hour+time.Minute))
+	})
+	later := f.seed(func(r *changereview.Review) {
+		r.PRURL, r.ContentHash, r.CreatedAt, r.CompletedAt = testPR, content,
+			now.Add(-time.Hour), ptr(now.Add(-time.Hour+time.Minute))
+	})
+	f.event(changefeed.KindDeploy, testPR, now.Add(-2*time.Hour))
+	if rep := f.run(); rep.Landed != 1 {
+		t.Fatalf("report %+v, want only the shipped revision landed", rep)
+	}
+	if got := f.get(shipped.ID); got.LandingState != changereview.LandingLanded {
+		t.Fatalf("shipped revision landing %s", got.LandingState)
+	}
+	if got := f.get(later.ID); got.LandingState != changereview.LandingAwaiting {
+		t.Fatalf("a revision created after the deploy landed: %s", got.LandingState)
+	}
+}
