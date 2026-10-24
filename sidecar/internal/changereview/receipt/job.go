@@ -4,10 +4,11 @@
 //
 // Landing comes from the review's catalog post-conditions (bracketed
 // between the last check that saw them unmet and the check that saw them
-// hold), a signed change-feed deploy, migration or DDL event whose link is
-// the review's PR, or report_change_deployed. A review whose
-// post-conditions already hold when first checked is not applicable; one
-// that never lands expires after landing_expiry_days.
+// hold, the first unmet check being the review's own at completion), a
+// signed change-feed deploy, migration or DDL event whose link is the
+// review's PR, or report_change_deployed. A review whose post-conditions
+// already held at review time is not applicable from completion; one that
+// never lands expires after landing_expiry_days.
 //
 // The receipt compares the watched statements before and after landing
 // with verify.DecideTargets over sage.query_store (read through
@@ -62,24 +63,32 @@ type Database struct {
 
 // Deps configure the job. Timeouts bound each catalog read (zero:
 // catalogread.Default(); production passes catalogread.FromSafety).
+// ReadTimeout bounds each observation read of a receipt (zero:
+// DefaultReadTimeout) and DatabaseBudget one database's cycle (zero:
+// DefaultDatabaseBudget): what does not fit waits for the next cycle.
 type Deps struct {
-	Timeouts catalogread.Timeouts
-	Now      func() time.Time
-	Logf     func(format string, args ...any)
+	Timeouts       catalogread.Timeouts
+	ReadTimeout    time.Duration
+	DatabaseBudget time.Duration
+	Now            func() time.Time
+	Logf           func(format string, args ...any)
 }
+
+// DefaultDatabaseBudget bounds one database's share of a cycle, so a slow
+// history on one database delays neither the next cycle nor the others.
+const DefaultDatabaseBudget = 2 * time.Minute
 
 // Report is what one cycle did on one database. Lost counts transitions a
 // concurrent writer made first (changereview.ErrAlreadyDecided).
 type Report struct {
-	Database      string   `json:"database"`
-	Evaluated     int      `json:"evaluated"`
-	Landed        int      `json:"landed"`
-	NotApplicable int      `json:"not_applicable"`
-	Expired       int      `json:"expired"`
-	Decided       int      `json:"decided"`
-	Scored        int      `json:"scored"`
-	Lost          int      `json:"lost"`
-	Errors        []string `json:"errors,omitempty"`
+	Database  string   `json:"database"`
+	Evaluated int      `json:"evaluated"`
+	Landed    int      `json:"landed"`
+	Expired   int      `json:"expired"`
+	Decided   int      `json:"decided"`
+	Scored    int      `json:"scored"`
+	Lost      int      `json:"lost"`
+	Errors    []string `json:"errors,omitempty"`
 }
 
 func (r *Report) addError(format string, args ...any) {
@@ -103,6 +112,12 @@ func NewJob(d Deps) *Job {
 	}
 	if d.Logf == nil {
 		d.Logf = func(string, ...any) {}
+	}
+	if d.ReadTimeout <= 0 {
+		d.ReadTimeout = DefaultReadTimeout
+	}
+	if d.DatabaseBudget <= 0 {
+		d.DatabaseBudget = DefaultDatabaseBudget
 	}
 	return &Job{d: d}
 }
@@ -142,10 +157,19 @@ func (j *Job) RunDatabase(ctx context.Context, db Database) (Report, error) {
 		return rep, err
 	}
 	now := j.d.Now()
+	bctx, cancel := context.WithTimeout(ctx, j.d.DatabaseBudget)
+	defer cancel()
 	steps := []func(context.Context, Database, time.Time, *Report) error{j.land,
 		j.decideDue, j.score}
 	for _, step := range steps {
-		if err := step(ctx, db, now, &rep); err != nil {
+		err := step(bctx, db, now, &rep)
+		switch {
+		case err == nil:
+		case ctx.Err() == nil && bctx.Err() != nil:
+			rep.addError("cycle budget of %s reached; the rest waits for the next cycle",
+				j.d.DatabaseBudget)
+			return rep, nil
+		default:
 			return rep, err
 		}
 	}
@@ -161,7 +185,8 @@ func (j *Job) decideDue(ctx context.Context, db Database, now time.Time, rep *Re
 	if err != nil {
 		return fmt.Errorf("list receipts due: %w", err)
 	}
-	obs := Observer{Pool: db.Pool, Changes: db.Changes, Logf: j.d.Logf}
+	obs := Observer{Pool: db.Pool, Changes: db.Changes, Logf: j.d.Logf,
+		ReadTimeout: j.d.ReadTimeout}
 	for _, r := range due {
 		if err := ctx.Err(); err != nil {
 			return err

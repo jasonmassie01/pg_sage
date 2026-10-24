@@ -19,61 +19,59 @@ const (
 	BornLookback = 7 * 24 * time.Hour
 	// MaxBorn bounds the born queryids one receipt lists.
 	MaxBorn = 20
-	// maxBornCandidates bounds the new queryids read before the relation
-	// filter.
+	// maxBornCandidates bounds the statements on the touched relations
+	// whose history is probed (the busiest first).
 	maxBornCandidates = 200
 )
 
-// bornSQL lists queryids sampled in the after window with no sample in
-// the lookback before landing, with their newest cumulative counters. It
-// reads idx_query_store_time for the window and idx_query_store_qid_time
-// per candidate.
-const bornSQL = `/* pg_sage change_review_receipt_born v1 */
-SELECT q.queryid, min(q.captured_at),
-	(array_agg(q.calls ORDER BY q.captured_at DESC))[1],
-	(array_agg(q.total_exec_time ORDER BY q.captured_at DESC))[1]
-FROM sage.query_store q
-WHERE {db:q} AND q.captured_at >= $1 AND q.captured_at <= $2
-  AND NOT EXISTS (SELECT 1 FROM sage.query_store p
-                  WHERE {db:p} AND p.queryid = q.queryid
-                    AND p.captured_at < $1 AND p.captured_at >= $3)
-GROUP BY q.queryid
-ORDER BY min(q.captured_at), q.queryid
-LIMIT $4`
-
-// bornTextSQL reads the candidates' statement text in this database.
-const bornTextSQL = `/* pg_sage change_review_receipt_born_text v1 */
-SELECT s.queryid, s.query FROM pg_stat_statements s
+// bornTextSQL is the statements of this database whose text names a
+// touched relation as a whole word, busiest first: the candidates.
+const bornTextSQL = `/* pg_sage change_review_receipt_born_text v2 */
+SELECT s.queryid, min(s.query) FROM pg_stat_statements s
 WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND s.queryid = ANY($1::bigint[])`
+  AND s.queryid IS NOT NULL AND s.query ~* $1
+GROUP BY s.queryid ORDER BY sum(s.calls) DESC, 1 LIMIT $2`
 
-// born lists the born queryids of r: first seen in [landed_at, after_to],
-// reading a touched relation (by their pg_stat_statements text).
+// bornSQL keeps the candidates sampled in the after window with no sample
+// in the lookback before landing, with their first sample and newest
+// cumulative counters there. Each test is one index probe per candidate
+// (idx_query_store_qid_time): it never reads the window's samples.
+const bornSQL = `/* pg_sage change_review_receipt_born v2 */
+SELECT c.queryid, f.first, l.calls, l.total
+FROM unnest($1::int8[]) AS c(queryid)
+CROSS JOIN LATERAL (
+  SELECT q.captured_at AS first FROM sage.query_store q
+   WHERE {db:q} AND q.queryid = c.queryid AND q.captured_at >= $2 AND q.captured_at <= $3
+   ORDER BY q.captured_at LIMIT 1) f
+CROSS JOIN LATERAL (
+  SELECT q.calls, q.total_exec_time AS total FROM sage.query_store q
+   WHERE {db:q} AND q.queryid = c.queryid AND q.captured_at >= $2 AND q.captured_at <= $3
+   ORDER BY q.captured_at DESC LIMIT 1) l
+WHERE NOT EXISTS (SELECT 1 FROM sage.query_store p
+                  WHERE {db:p} AND p.queryid = c.queryid
+                    AND p.captured_at < $2 AND p.captured_at >= $4)
+ORDER BY f.first, c.queryid
+LIMIT $5`
+
+// born lists the born queryids of r: statements on a touched relation
+// (by their pg_stat_statements text) first seen in [landed_at, after_to].
 func (o Observer) born(ctx context.Context, r changereview.Review,
 	w Windows) ([]changereview.BornQuery, error) {
 	rels := r.Expectations.Relations
 	if len(rels) == 0 {
 		return nil, nil
 	}
-	cands, err := o.bornCandidates(ctx, w)
-	if err != nil || len(cands) == 0 {
+	texts, ids, err := o.candidateTexts(ctx, rels, r.Expectations.WatchQueryIDs)
+	if err != nil || len(ids) == 0 {
 		return nil, err
 	}
-	texts, err := o.statementTexts(ctx, cands)
+	cands, err := o.bornCandidates(ctx, ids, w)
 	if err != nil {
 		return nil, err
 	}
-	watched := map[int64]bool{}
-	for _, id := range r.Expectations.WatchQueryIDs {
-		watched[id] = true
-	}
 	var out []changereview.BornQuery
 	for _, c := range cands {
-		text, ok := texts[c.QueryID]
-		if !ok || watched[c.QueryID] {
-			continue
-		}
-		if c.Relations = touched(text, rels); len(c.Relations) > 0 {
+		if c.Relations = touched(texts[c.QueryID], rels); len(c.Relations) > 0 {
 			out = append(out, c)
 		}
 		if len(out) == MaxBorn {
@@ -83,9 +81,42 @@ func (o Observer) born(ctx context.Context, r changereview.Review,
 	return out, nil
 }
 
-func (o Observer) bornCandidates(ctx context.Context, w Windows) ([]changereview.BornQuery,
-	error) {
-	rows, err := histstore.Resolve(o.Pool).Query(ctx, bornSQL, w.AfterFrom, w.AfterTo,
+// candidateTexts reads the statements naming a touched relation that the
+// review did not watch.
+func (o Observer) candidateTexts(ctx context.Context, rels []string, watch []int64) (
+	map[int64]string, []int64, error) {
+	rctx, cancel := o.readContext(ctx)
+	defer cancel()
+	rows, err := o.Pool.Query(rctx, bornTextSQL, relationWords(rels), maxBornCandidates)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	watched := map[int64]bool{}
+	for _, id := range watch {
+		watched[id] = true
+	}
+	texts := map[int64]string{}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		var text string
+		if err := rows.Scan(&id, &text); err != nil {
+			return nil, nil, err
+		}
+		if !watched[id] {
+			texts[id] = text
+			ids = append(ids, id)
+		}
+	}
+	return texts, ids, rows.Err()
+}
+
+func (o Observer) bornCandidates(ctx context.Context, ids []int64,
+	w Windows) ([]changereview.BornQuery, error) {
+	rctx, cancel := o.readContext(ctx)
+	defer cancel()
+	rows, err := histstore.Resolve(o.Pool).Query(rctx, bornSQL, ids, w.AfterFrom, w.AfterTo,
 		w.AfterFrom.Add(-BornLookback), maxBornCandidates)
 	if err != nil {
 		return nil, err
@@ -107,29 +138,20 @@ func (o Observer) bornCandidates(ctx context.Context, w Windows) ([]changereview
 	return out, rows.Err()
 }
 
-func (o Observer) statementTexts(ctx context.Context,
-	cands []changereview.BornQuery) (map[int64]string, error) {
-	ids := make([]int64, 0, len(cands))
-	for _, c := range cands {
-		ids = append(ids, c.QueryID)
-	}
-	rows, err := o.Pool.Query(ctx, bornTextSQL, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[int64]string{}
-	for rows.Next() {
-		var id int64
-		var text string
-		if err := rows.Scan(&id, &text); err != nil {
-			return nil, err
+var regexMeta = regexp.MustCompile(`[.^$|?*+()\[\]{}\\]`)
+
+// relationWords matches the bare names of rels ("schema.name") as whole
+// words (PostgreSQL regex).
+func relationWords(rels []string) string {
+	words := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		name := rel
+		if _, n, ok := strings.Cut(rel, "."); ok {
+			name = n
 		}
-		if _, dup := out[id]; !dup {
-			out[id] = text
-		}
+		words = append(words, regexMeta.ReplaceAllString(name, `\$0`))
 	}
-	return out, rows.Err()
+	return `\m(` + strings.Join(words, "|") + `)\M`
 }
 
 // touched are the relations of rels ("schema.name") that text reads: by

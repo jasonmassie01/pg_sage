@@ -39,9 +39,10 @@ type landing struct {
 	failed map[string]error
 }
 
-// land evaluates the oldest awaiting reviews: anchors first, then catalog
-// post-conditions, then expiry. Reviews still unmet are recorded as
-// checked, the lower end of a later catalog landing.
+// land evaluates the awaiting reviews checked longest ago (never checked
+// first): anchors first, then catalog post-conditions, then expiry.
+// Reviews still unmet are recorded as checked, the lower end of a later
+// catalog landing, and wait behind the others for the next cycle.
 func (j *Job) land(ctx context.Context, db Database, now time.Time, rep *Report) error {
 	st := db.Service.Store()
 	awaiting, err := st.ListAwaiting(ctx, MaxAwaitingPerCycle)
@@ -116,19 +117,17 @@ func (j *Job) landOne(ctx context.Context, l *landing, r changereview.Review,
 }
 
 // landByCatalog lands r whose post-conditions hold: between the last
-// check that saw them unmet and now, or, never seen unmet, not applicable
-// (the change was there before the review).
+// check that saw them unmet (the review's own at completion, then each
+// cycle's) and now. A review never seen unmet (its check at review time
+// failed, or it predates that check) is bracketed from its creation: a
+// reviewed change is presumed to land after its review. A change that was
+// there before the review is not applicable from completion, never here.
 func (j *Job) landByCatalog(ctx context.Context, l *landing, r changereview.Review,
 	rep *Report) {
-	checked := l.checks[r.ID]
-	if checked == nil {
-		j.record(rep, r.ID, "landing", func() error {
-			_, err := l.st.MarkNotApplicable(ctx, r.ID)
-			return err
-		}, &rep.NotApplicable)
-		return
+	lower := r.CreatedAt
+	if checked := l.checks[r.ID]; checked != nil {
+		lower = *checked
 	}
-	lower := *checked
 	if lower.After(l.observed) {
 		lower = l.observed
 	}

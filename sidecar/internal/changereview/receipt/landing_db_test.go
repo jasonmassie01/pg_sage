@@ -15,8 +15,9 @@ import (
 // lands when its catalog post-conditions hold (bracketed between the last
 // check that saw it not landed and the check that saw it landed), when a
 // signed change event links its PR, or when a deploy is reported. One
-// already satisfied when first checked is not applicable; one that never
-// lands expires.
+// already satisfied at review time is not applicable from completion (the
+// service's job: changereview's TestLandingAtReviewSetsTheLandingState);
+// one that never lands expires.
 
 func statusIndexReview(r *changereview.Review, index string) {
 	r.Statements = []changereview.Statement{{Index: 1, Origin: changereview.OriginSQLInput,
@@ -78,28 +79,6 @@ func TestLandingByCatalogBracketsTheDDL(t *testing.T) {
 	}
 	if rep = f.run(); rep.Landed != 0 || rep.Evaluated != 0 {
 		t.Fatalf("a landed review was evaluated again: %+v", rep)
-	}
-}
-
-// A post-condition that already holds the first time it is checked means
-// the change was there before the review: nothing lands, nothing credits.
-func TestLandingAlreadySatisfiedIsNotApplicable(t *testing.T) {
-	rv := rvfixture.New(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	f := newFixtureOn(t, ctx, rv.Pool, rv.Name)
-	r := f.seed(func(r *changereview.Review) {
-		statusIndexReview(r, "rv_orders_created_idx")
-		concurred(r)
-	})
-	rep := f.run()
-	got := f.get(r.ID)
-	if rep.NotApplicable != 1 || got.LandingState != changereview.LandingNotApplicable {
-		t.Fatalf("landing %s, report %+v; want not_applicable", got.LandingState, rep)
-	}
-	if got.CreditState != changereview.CreditNone || got.CreditedMinutes != 0 {
-		t.Fatalf("credit %s/%d, want none: nothing landed", got.CreditState,
-			got.CreditedMinutes)
 	}
 }
 
@@ -251,8 +230,9 @@ func TestLandingIsolatesAMalformedPostCondition(t *testing.T) {
 			Kind: "bogus", Relation: "sage.change_review"}}
 	})
 	rep := f.run()
-	if got := f.get(good.ID); got.LandingState != changereview.LandingNotApplicable {
-		t.Fatalf("good review landing %s, want not_applicable", got.LandingState)
+	if got := f.get(good.ID); got.LandingState != changereview.LandingLanded {
+		t.Fatalf("good review landing %s, want landed (its post-condition holds)",
+			got.LandingState)
 	}
 	if got := f.get(bad.ID); got.LandingState != changereview.LandingAwaiting {
 		t.Fatalf("malformed review landing %s, want awaiting", got.LandingState)

@@ -37,7 +37,7 @@ func TestChangeAppliedBeforeTheFirstCycleLands(t *testing.T) {
 	rv.Exec("CREATE INDEX CONCURRENTLY rv_orders_status_idx ON rv.rv_orders (status)")
 	rep := f.run()
 	got := f.get(r.ID)
-	if rep.Landed != 1 || rep.NotApplicable != 0 || got.LandingState !=
+	if rep.Landed != 1 || got.LandingState !=
 		changereview.LandingLanded || !got.LandedLower.Equal(completed) {
 		t.Fatalf("landing %s lower %v, report %+v; want landed from the completion %v",
 			got.LandingState, got.LandedLower, rep, completed)
@@ -109,8 +109,7 @@ func lockQueryStore(t *testing.T, f *fixture, hold time.Duration) func() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(f.ctx, "LOCK TABLE sage.query_store IN ACCESS EXCLUSIVE MODE");
-		err != nil {
+	if _, err := tx.Exec(f.ctx, "LOCK TABLE sage.query_store IN ACCESS EXCLUSIVE MODE"); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})

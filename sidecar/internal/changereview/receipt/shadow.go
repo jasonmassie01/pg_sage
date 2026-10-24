@@ -71,10 +71,12 @@ func reviewBlocks(r changereview.Review) string {
 	}
 	inputs := 0
 	for _, s := range r.Statements {
-		switch s.Origin {
-		case changereview.OriginModelTranslated:
+		switch {
+		case s.Origin == changereview.OriginModelTranslated:
 			return fmt.Sprintf("statement %d is model-translated", s.Index)
-		case changereview.OriginSQLInput:
+		case changereview.IsModelDDL(s):
+			return fmt.Sprintf("statement %d is DDL the model derived", s.Index)
+		case s.Origin == changereview.OriginSQLInput:
 			inputs++
 		}
 	}

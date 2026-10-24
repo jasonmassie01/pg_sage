@@ -30,11 +30,26 @@ type ChangeFeed interface {
 // watched statements' history through histstore.Resolve(Pool) (the meta
 // database with history.store: meta), incidents, lock_chain findings,
 // pg_stat_statements text for born queryids, and the change feed. Changes
-// nil means no feed: no confounders are known.
+// nil means no feed: no confounders are known. Every read is cut off at
+// ReadTimeout (zero: DefaultReadTimeout), so a slow history never holds
+// the leader's cycle.
 type Observer struct {
-	Pool    *pgxpool.Pool
-	Changes ChangeFeed
-	Logf    func(format string, args ...any)
+	Pool        *pgxpool.Pool
+	Changes     ChangeFeed
+	Logf        func(format string, args ...any)
+	ReadTimeout time.Duration
+}
+
+// DefaultReadTimeout bounds one observation read.
+const DefaultReadTimeout = 10 * time.Second
+
+// readContext is ctx bounded by the read timeout.
+func (o Observer) readContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	d := o.ReadTimeout
+	if d <= 0 {
+		d = DefaultReadTimeout
+	}
+	return context.WithTimeout(ctx, d)
 }
 
 // Observe reads the observations of landed review r over w. A failed read
@@ -48,13 +63,8 @@ func (o Observer) Observe(ctx context.Context, r changereview.Review,
 	}
 	var obs Observations
 	var err error
-	src := verify.NewPostgresObservationSource(o.Pool)
-	ids := r.Expectations.WatchQueryIDs
-	if obs.Before, err = src.QueryMeasurements(ctx, ids, w.BeforeFrom, w.BeforeTo); err != nil {
-		return obs, unavailable("read the watched statements before landing", err)
-	}
-	if obs.After, err = src.QueryMeasurements(ctx, ids, w.AfterFrom, w.AfterTo); err != nil {
-		return obs, unavailable("read the watched statements after landing", err)
+	if obs.Before, obs.After, err = o.measurements(ctx, r, w); err != nil {
+		return obs, err
 	}
 	if obs.Confounders, err = o.confounders(ctx, w); err != nil {
 		return obs, unavailable("read the change feed", err)
@@ -72,6 +82,24 @@ func (o Observer) Observe(ctx context.Context, r changereview.Review,
 		obs.Born = nil
 	}
 	return obs, nil
+}
+
+// measurements reads the watched statements before and after landing.
+func (o Observer) measurements(ctx context.Context, r changereview.Review,
+	w Windows) (before, after map[int64]verify.Measurement, err error) {
+	src := verify.NewPostgresObservationSource(o.Pool)
+	ids := r.Expectations.WatchQueryIDs
+	rctx, cancel := o.readContext(ctx)
+	defer cancel()
+	if before, err = src.QueryMeasurements(rctx, ids, w.BeforeFrom, w.BeforeTo); err != nil {
+		return nil, nil, unavailable("read the watched statements before landing", err)
+	}
+	actx, cancelAfter := o.readContext(ctx)
+	defer cancelAfter()
+	if after, err = src.QueryMeasurements(actx, ids, w.AfterFrom, w.AfterTo); err != nil {
+		return nil, nil, unavailable("read the watched statements after landing", err)
+	}
+	return before, after, nil
 }
 
 func unavailable(what string, err error) error {
@@ -93,7 +121,9 @@ func (o Observer) confounders(ctx context.Context, w Windows) ([]string, error) 
 	if o.Changes == nil {
 		return nil, nil
 	}
-	events, err := listEvents(ctx, o.Changes, w.BeforeFrom, w.AfterTo)
+	rctx, cancel := o.readContext(ctx)
+	defer cancel()
+	events, err := listEvents(rctx, o.Changes, w.BeforeFrom, w.AfterTo)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +192,9 @@ func (o Observer) incidents(ctx context.Context, names []string, lo,
 	if len(names) == 0 {
 		return nil, nil
 	}
-	rows, err := o.Pool.Query(ctx, incidentsSQL, lo, hi, names, maxHarm)
+	rctx, cancel := o.readContext(ctx)
+	defer cancel()
+	rows, err := o.Pool.Query(rctx, incidentsSQL, lo, hi, names, maxHarm)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +223,9 @@ func (o Observer) lockFindings(ctx context.Context, names []string, lo,
 	if len(names) == 0 {
 		return nil, nil
 	}
-	rows, err := o.Pool.Query(ctx, lockFindingsSQL, lo, hi, names, maxHarm)
+	rctx, cancel := o.readContext(ctx)
+	defer cancel()
+	rows, err := o.Pool.Query(rctx, lockFindingsSQL, lo, hi, names, maxHarm)
 	if err != nil {
 		return nil, err
 	}

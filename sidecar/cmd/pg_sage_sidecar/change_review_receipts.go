@@ -48,10 +48,9 @@ func runChangeReviewReceipts(ctx context.Context, job *receipt.Job,
 			logWarn("change_review", "receipts on %s: %d errors, first: %s", rep.Database,
 				len(rep.Errors), rep.Errors[0])
 		}
-		if rep.Landed+rep.NotApplicable+rep.Expired+rep.Decided+rep.Scored > 0 {
-			logInfo("change_review", "receipts on %s: %d landed, %d not applicable, "+
-				"%d expired, %d decided, %d scored", rep.Database, rep.Landed,
-				rep.NotApplicable, rep.Expired, rep.Decided, rep.Scored)
+		if rep.Landed+rep.Expired+rep.Decided+rep.Scored > 0 {
+			logInfo("change_review", "receipts on %s: %d landed, %d expired, %d decided, "+
+				"%d scored", rep.Database, rep.Landed, rep.Expired, rep.Decided, rep.Scored)
 		}
 	}
 	return true
