@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased -- Change Review: pg_sage reviews your migrations before they merge
+
+Change Review makes pg_sage, the agentic DBA, the database reviewer on migration and
+data-access pull requests. CI or a coding agent sends the migration SQL and the diff over
+MCP; pg_sage answers with a cited review grounded in the live database, a verdict (safe,
+review or risky), and after the deploy a receipt that says whether the change held up.
+Read-only: plan-only EXPLAIN, session-local HypoPG, nothing applied, no GitHub credentials.
+
+### Added
+
+- **Deterministic review against the live database (rules CR-01..CR-18).** Statements and
+  functions that still use a column or table you rename or drop, with their call counts and
+  sqlcommenter routes; how many statements queue behind a lock at peak rate and whether
+  `lock_timeout` bounds the wait; changes that will fail (a view over the column, NULLs
+  under `SET NOT NULL`, `CONCURRENTLY` in a transaction, a constraint-backed index);
+  scans and plan users of an index you drop; duplicate indexes and HypoPG-measured benefit;
+  unindexed or mistyped foreign keys; backfill size from a plan-only EXPLAIN; published and
+  partitioned tables; new-table anti-patterns. Unknown impact (no `pg_stat_statements`,
+  hidden text, `SELECT *`, timed-out reads, SQL the parser rejects) is a warning, never
+  safe. The verdict comes from the rules alone.
+- **The model reads the app code.** With an LLM configured, pg_sage translates ORM
+  migrations into SQL, extracts the statements new data-access code will run (each parsed,
+  planned and pinned to an added diff line), prices indexes on them with HypoPG and writes
+  cited findings in your framework's idiom. It can only raise a verdict to review; uncited
+  or ungrounded claims are dropped and counted, secrets are redacted before any model call,
+  and only data-access hunks are offered. Without an LLM, an ORM-only migration gets CR-20
+  with the exact command that exports its SQL.
+- **Surfaces.** MCP tools `review_change`, `get_change_review`, `list_change_reviews` and
+  `report_change_deployed`; REST under `/api/v1/databases/{db}/change-reviews`, a fleet
+  list and `/api/v1/change-reviews/summary`; the CLI `pg_sage review submit|status|deployed`
+  (exit 0 pass, 1 at or above `--fail-on`, 2 usage, 3 transport) with a `--github` mode
+  that keeps one marker comment and a `pg_sage/db-review (<db>)` commit status using the
+  runner's own token; a sample GitHub Action (`integrations/github`); the notify event
+  `change_review_needs_dba`. Docs: `docs/change-review.md`.
+- **Reviews page and DBA verdicts.** `#/reviews` lists reviews with their findings,
+  citations, statements, receipts and metrics. Operators and admins concur, concur with
+  edits, or override with a reason and a direction; no MCP tool records a verdict, and a
+  verdict carries to a new PR revision only when its statements are unchanged. Reviews
+  waiting for a DBA appear in Cases.
+- **Receipts and credit.** A leader job detects the landing from catalog post-conditions,
+  a signed deploy event or `report_change_deployed`, compares the watched statements before
+  and after with the Welch test, checks lock incidents on the touched tables and lists new
+  queryids. A stats reset, restart or failover makes a receipt unverifiable; a regressed
+  "safe" counts against pg_sage in every later review. The Value page credits 15 minutes
+  only for a review a DBA concurred with whose receipt came back clean. A shadow-only
+  auto-clear readiness bar records, and never acts on, which reviews could clear alone.
+- **Config.** A `change_review.*` section, on by default (`docs/generated`); two new tables,
+  `sage.change_review` and `sage.change_review_budget_day`, with retention.
+
 ## v2.4.0 (2026-10-23) -- pg_sage governs the agents that touch your database
 
 Agent governance, first two steps. pg_sage now reports how exposed each database is to AI
