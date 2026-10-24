@@ -12,7 +12,9 @@ const Redacted = "[redacted]"
 var (
 	pemKey = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?s:.*?)` +
 		`(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)`)
-	awsKeyID = regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b`)
+	// awsKeyID has no word boundaries: a key glued to other characters
+	// (a concatenated blob, a key and a suffix) is still a key.
+	awsKeyID = regexp.MustCompile(`(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}`)
 	// urlCreds is scheme://user:password@ up to the last '@' of the URL: a
 	// password may hold '/' or an unencoded '@'.
 	urlCreds  = regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9+.\-]*://)[^/\s:@'"\[\]]+:[^\s'"]+@`)
