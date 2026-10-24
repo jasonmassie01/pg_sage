@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/pg-sage/sidecar/internal/agentloop"
 	"github.com/pg-sage/sidecar/internal/catalogread"
@@ -10,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/changereview/diffscan"
 	"github.com/pg-sage/sidecar/internal/changereview/impact"
 	"github.com/pg-sage/sidecar/internal/changereview/reasoner"
+	"github.com/pg-sage/sidecar/internal/changereview/receipt"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -17,21 +17,10 @@ import (
 // impact engine and the reasoner read only that database's pool, reviews
 // are stored in its own sage.change_review, and the runner's goroutines
 // run on the runtime's worker group. The service is registered in one
-// process-wide registry that the REST routes and the MCP tools route
+// process-wide registry (change_review_registry.go) that the REST routes and the MCP tools route
 // through, and removed when the runtime stops. The reasoner always runs:
 // without a model it keeps reviews deterministic (model_status no_model)
 // and gives ORM-only migrations CR-20.
-
-var (
-	changeReviewRegistryOnce sync.Once
-	changeReviewRegistry     *changereview.Registry
-)
-
-// changeReviewServices is the process-wide Change Review registry.
-func changeReviewServices() *changereview.Registry {
-	changeReviewRegistryOnce.Do(func() { changeReviewRegistry = changereview.NewRegistry() })
-	return changeReviewRegistry
-}
 
 // startChangeReview registers the database's Change Review until the
 // runtime stops.
@@ -75,7 +64,7 @@ func (rt *databaseRuntime) newChangeReview() (*changereview.Service, error) {
 		Config: crCfg, Analyzer: engine, Reasoner: r,
 		Notifier:   newChangeReviewNotifier(rt.dispatcher, render, logf),
 		HunkFilter: diffscan.HunkFilter, Redact: diffscan.Redact, Render: render,
-		Go: rt.start, Logf: logf})
+		AutoClear: receipt.AutoClear(crCfg), Go: rt.start, Logf: logf})
 }
 
 // changeReviewModel is the client for the change_review purpose (the
