@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"time"
 
@@ -42,6 +43,7 @@ func Run(ctx context.Context, m Model, cfg Config) (Result, error) {
 	defer cancel()
 	err := r.loop(runCtx, ctx)
 	r.res.Transcript.Protocol = r.protocol
+	r.res.Evidence = maps.Clone(r.aliases)
 	return r.res, err
 }
 
