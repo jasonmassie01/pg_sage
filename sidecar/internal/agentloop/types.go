@@ -236,9 +236,13 @@ type Transcript struct {
 }
 
 // Result is a finished run. Final is nil unless the model concluded.
+// Evidence is every alias the run held (the seed and each citable tool
+// result), so a caller can resolve aliases cited in final fields other
+// than claims; it is the caller's own copy and never nil.
 type Result struct {
 	Final      json.RawMessage
 	Claims     []Claim
 	Dropped    []DroppedClaim
+	Evidence   map[string]Evidence
 	Transcript Transcript
 }

@@ -162,7 +162,9 @@ func wireRouter(p WireParams) WireResult {
 				EvidenceKey: evidenceSigningKey(p.Cfg)},
 			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 			Ask:        askServices(),
-			Specialist: specialistHandler,
+			// Change Review: every database runtime's service.
+			ChangeReview: changeReviewServices(),
+			Specialist:   specialistHandler,
 			// Look-alikes and leader status (fleet learning).
 			FleetLearning: fleetLearningAPI{},
 			// The request audit of the Postgres-specialist contract.

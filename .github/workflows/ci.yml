@@ -105,6 +105,8 @@ jobs:
       # Blocking: any offender fails the build. TestPerfGateFirstLook times the
       # catalog-only first look, Agent posture included (G0-04): 5 s small and
       # 20 s large over 10k+ relations, no degraded check, no user-table scan.
+      # TestPerfGateChangeReview reviews a 7-statement migration over the same
+      # catalog: inside 20 s, no timed-out read, every statement under 500 ms.
       # The gate gets a fresh server of its own: the shared one holds what the
       # suites above left behind, and cluster-wide reads (the databases'
       # total size stats every file of every database) would charge pg_sage
@@ -135,7 +137,8 @@ jobs:
           PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
         run: |
           go test ./cmd/pg_sage_sidecar -tags=perfgate \
-            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 1800s -v
+            -run '^(TestPerfGate|TestPerfGateFirstLook|TestPerfGateChangeReview)$' \
+            -count=1 -timeout 1800s -v
 
       - name: Upload performance gate report
         if: ${{ !cancelled() }}

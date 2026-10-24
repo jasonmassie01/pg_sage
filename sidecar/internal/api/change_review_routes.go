@@ -29,7 +29,18 @@ const (
 
 type changeReviewHandlers struct{ reg *changereview.Registry }
 
+// registerChangeReviewRoutes registers every Change Review route on one
+// mux (a mux without the managed-database routes).
 func registerChangeReviewRoutes(mux *http.ServeMux, reg *changereview.Registry) {
+	registerChangeReviewDatabaseRoutes(mux, reg)
+	registerChangeReviewSummaryRoute(mux, reg)
+}
+
+// registerChangeReviewDatabaseRoutes registers the per-database routes.
+// The router puts them on the per-database mux behind the {db} catch-all
+// (sre_handlers.go): "{db}/change-reviews" and "managed/{id}" overlap
+// with neither more specific, which ServeMux refuses on one mux.
+func registerChangeReviewDatabaseRoutes(mux *http.ServeMux, reg *changereview.Registry) {
 	if reg == nil {
 		return
 	}
@@ -40,6 +51,15 @@ func registerChangeReviewRoutes(mux *http.ServeMux, reg *changereview.Registry) 
 	mux.Handle("GET "+changeReviewBasePath, viewer(http.HandlerFunc(h.list)))
 	mux.Handle("GET "+changeReviewBasePath+"/{id}", viewer(http.HandlerFunc(h.get)))
 	mux.Handle("POST "+changeReviewBasePath+"/{id}/verdict", dba(http.HandlerFunc(h.verdict)))
+}
+
+// registerChangeReviewSummaryRoute registers the fleet summary.
+func registerChangeReviewSummaryRoute(mux *http.ServeMux, reg *changereview.Registry) {
+	if reg == nil {
+		return
+	}
+	viewer := RequireRole("admin", "operator", "viewer")
+	h := changeReviewHandlers{reg: reg}
 	mux.Handle("GET "+changeReviewSummary, viewer(http.HandlerFunc(h.summary)))
 }
 

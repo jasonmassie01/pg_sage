@@ -201,7 +201,7 @@ func registerFleetScopedRoutes(
 	registerLLMBudgetRoutes(apiMux, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
-	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy), rt.ChangeReview)
 	registerSRESignalRoutes(apiMux, mgr, cfg)
 	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
@@ -217,7 +217,7 @@ func registerFleetScopedRoutes(
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)
-	registerChangeReviewRoutes(apiMux, rt.ChangeReview)
+	registerChangeReviewSummaryRoute(apiMux, rt.ChangeReview) // per-database: SRE mux
 	registerPprofRoutes(apiMux, cfg != nil && cfg.Debug.PprofEnabled)
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
