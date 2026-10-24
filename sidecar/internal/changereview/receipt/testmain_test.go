@@ -143,15 +143,6 @@ func (f *fixture) exec(sql string, args ...any) {
 	}
 }
 
-func (f *fixture) int64(sql string, args ...any) int64 {
-	f.t.Helper()
-	var n int64
-	if err := f.pool.QueryRow(f.ctx, sql, args...).Scan(&n); err != nil {
-		f.t.Fatalf("%s: %v", sql, err)
-	}
-	return n
-}
-
 // job is a receipts job on the fixture's clock.
 func (f *fixture) job() *Job {
 	return NewJob(Deps{Now: f.clock.Now, Logf: f.t.Logf})
