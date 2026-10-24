@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/agent-guard/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/agent-governance/">
       
       
       
@@ -19,18 +19,18 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
     
     
       
-        <title>Agent Guard: agent posture - pg_sage</title>
+        <title>Agent governance: agent posture - pg_sage</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
       
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agent-guard-agent-posture" class="md-skip">
+        <a href="#agent-governance-agent-posture" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Agent Guard: agent posture
+              Agent governance: agent posture
             
           </span>
         </div>
@@ -820,9 +820,7 @@
   
 
 
-<h1 id="agent-guard-agent-posture">Agent Guard: agent posture<a class="headerlink" href="#agent-guard-agent-posture" title="Permanent link">&para;</a></h1>
-<!-- The product name appears only in the title above. To rename, change that line. -->
-
+<h1 id="agent-governance-agent-posture">Agent governance: agent posture<a class="headerlink" href="#agent-governance-agent-posture" title="Permanent link">&para;</a></h1>
 <p>pg_sage's agent posture check reports how exposed a PostgreSQL database is to the AI agents
 and untrusted clients that connect to it. This covers MCP servers, coding agents, LangGraph
 or CrewAI workers, and PostgREST/Supabase anonymous roles. It reads only the system catalog
@@ -975,7 +973,7 @@ exposed role inherits through membership in another role are not followed.</p>
 </tr>
 <tr>
 <td>AP-16</td>
-<td>Once any registered agent role exists, a login role seen with an agent-like <code>application_name</code> that isn't one (an agent outside Agent Guard)</td>
+<td>Once any registered agent role exists, a login role seen with an agent-like <code>application_name</code> that isn't one (an agent outside agent governance)</td>
 <td>warning</td>
 <td><code>ALTER ROLE … NOLOGIN</code> after the agent moves to its own credentials</td>
 </tr>
@@ -1003,7 +1001,7 @@ AP-08 skips pg_sage's own role, reserved <code>pg_</code> roles and managed-serv
 - <strong>AP-13</strong> needs <code>pg_read_all_stats</code> (part of <code>pg_monitor</code>) to see other roles' client
   addresses. Without it, clients are counted by <code>application_name</code> only, and the finding's
   caveat says so.
-- <strong>AP-14.</strong> pg_sage also warns once at startup when it connects as a superuser: Agent Guard
+- <strong>AP-14.</strong> pg_sage also warns once at startup when it connects as a superuser: agent governance
   features need a non-superuser role. Posture still runs. Inheritance is read with
   <code>pg_has_role</code> on every version; the arms decide the fix (PostgreSQL 14/15 inherit per role,
   16+ per grant).</p>
@@ -1258,10 +1256,10 @@ statement.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
       
     
   </body>
