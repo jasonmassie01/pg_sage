@@ -157,6 +157,9 @@ func TestForeignKeyQueuesOnlyTheReferencedTablesWrites(t *testing.T) {
 // Unqualified statements are attributed to a table only when no other
 // schema has a table of that name: in a schema-per-tenant database they
 // are unknown, never another tenant's load.
+// thisDB is the current database's oid, for pg_stat_statements probes.
+const thisDB = `(SELECT oid FROM pg_database WHERE datname = current_database())`
+
 func TestUnqualifiedStatementsOfHomonymTablesAreNotAttributed(t *testing.T) {
 	e := newEnv(t)
 	e.f.Exec("CREATE SCHEMA rv2")
@@ -182,6 +185,21 @@ func TestUnqualifiedStatementsOfHomonymTablesAreNotAttributed(t *testing.T) {
 	f := one(t, a, RuleColumnReferenced)
 	if ids := queryIDsOf(t, a, f); !slices.Equal(ids, []int64{e.f.Q1.ID}) {
 		t.Fatalf("CR-03 cites %v, want only the qualified Q1 %d", ids, e.f.Q1.ID)
+	}
+	// PostgreSQL 18 jumbles relation names, not OIDs: the unqualified
+	// statement then shares Q1's queryid (and text), and pg_stat_statements
+	// itself cannot tell them apart; there is no unqualified entry to flag.
+	// The same queryid then exists in every fixture database, so both
+	// probes read this database's rows only.
+	if e.f.Int64(`SELECT count(*) FROM pg_stat_statements WHERE dbid = `+thisDB+`
+		AND query = 'SELECT email FROM rv_orders WHERE id = $1'`) == 0 {
+		if calls := e.f.Int64(`SELECT calls FROM pg_stat_statements WHERE dbid = `+thisDB+`
+			AND queryid = $1`, e.f.Q1.ID); calls < e.f.Q1.Calls+300 {
+			t.Fatalf("no unqualified entry, yet Q1 has %d calls: the statement vanished",
+				calls)
+		}
+		t.Logf("this server merges the unqualified statement into Q1's queryid")
+		return
 	}
 	found := false
 	for _, u := range byRule(a, RuleImpactUnknown) {
