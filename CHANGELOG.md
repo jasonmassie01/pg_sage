@@ -1,9 +1,143 @@
 # Changelog
 
-## Unreleased
+## v2.4.0 (2026-10-23) -- pg_sage governs the agents that touch your database
+
+Agent governance, first two steps. pg_sage now reports how exposed each database is to AI
+agents and untrusted clients (Agent posture), gives every agent its own identity, roles and
+time-boxed grants, puts every agent request through one gate, and can stop every agent at
+once. AgentDB provisioning is removed. The release also adds what an enterprise install asks
+for first: TLS on the API, secrets from files and encrypted at rest, validated SSO, and a
+tamper-evident audit.
+
+### Breaking
+
+- **`POST /api/v1/mcp/tokens` no longer issues agent tokens.** It answers 400; mint them for
+  an agent with `POST /api/v1/agents/{id}/tokens`. Operator tokens are unchanged. Existing
+  agent tokens migrate at startup to unsponsored principals with the read-only `legacy`
+  profile.
+- **MCP requests from agents never auto-execute.** An agent's proposal queues for a person
+  (L2) at any trust level. Narrowing actions (freeze, kill, revoke, grant expiry) still run,
+  including under `emergency_stop`.
+- **The kill switch needs `pg_signal_backend` and `pg_monitor` on pg_sage's role**: the first
+  to end agent sessions, the second to name standbys. Without them a kill still disables the
+  agent roles, and its report names the missing grant.
+- **AgentDB provisioning is removed.** Instance runners, project creation, Terraform,
+  blueprints, deploy requests, `agt_` tokens and 70 routes (now 404) are gone. An `agentdb:`
+  config section is ignored with a warning; `live_provisioning_enabled: true` refuses startup,
+  so nobody is left believing billed databases are still managed. Persisted `agentdb.*`
+  settings are deleted, with audit rows. A decommission inventory lists every resource a live
+  call touched, whatever its status (RDS final snapshots, `local_postgres` artifacts, `sage`
+  schemas in agent databases), each with a per-provider delete template. pg_sage deletes
+  nothing itself.
+
+### Security
+
+- **The AU-10 local QA passwords are burned.** They are removed from every tracked file, the
+  archive included, and a hash-only test keeps them out, but they remain in git history.
+  Treat them as public and rotate them anywhere they were reused.
+- **SSO validates the `id_token`.** Login used to trust userinfo alone. OIDC login now uses
+  PKCE and a nonce and verifies the `id_token`'s signature (JWKS), issuer, audience and
+  expiry; every refusal is audited with a reason code.
+
+### Added
+
+- **Agent posture.** 16 read-only detectors, AP-01..AP-16, report what lets an agent do more
+  than its job: an agent role that is superuser, holds `BYPASSRLS` or owns objects; a table an
+  exposed role reads with row-level security off; a definer function without a pinned
+  `search_path`; remote access or untrusted languages an exposed role can reach; no
+  point-in-time recovery; and more. They run in the first look (an "Agent posture" section)
+  and in the analyzer, daily at `agents.posture.daily_at` or when the catalog they read
+  changes. Every finding carries only a manual fix script at L1, never recommended SQL, so
+  pg_sage never runs a posture fix. On by default, PostgreSQL 14-18, needs only `pg_monitor`;
+  the slowest posture statement takes 6-8 ms at 36,000 relations.
+- **Agents have identities.** Each agent is a principal with an accountable sponsor and its
+  own database roles, `sage_agent_<id>` and `sage_agentb_<id>` (PostgreSQL 16+): never
+  superuser, owning nothing, changed only through operator-approved executor contracts. The
+  `PUBLIC` baseline is recorded at preflight and effective privileges are checked against it.
+  The Agents page (`#/agents`) lists them; the MCP tool `agent_whoami` tells an agent its own
+  state.
+- **pg_sage decides an agent's environment.** The environment an agent claims is ignored and
+  anything unverified is prod. A re-pointed DSN, or a copy of prod labelled dev, is prod and
+  raises a critical finding.
+- **Column classification:** `clean`, `pii`, `secret`, `untrusted_input`. Prod and stage
+  grants list only columns an operator confirmed clean.
+- **One gate for every agent request** (steps D1-D10). The principal is re-read live, so a
+  freeze, retire or taint stops a live token on its next request. A census fails on any
+  unclassified MCP tool and on any agent-role SQL path outside the closed list. A policy
+  change that widens an agent's access needs two people other than its sponsor
+  (`agents.single_operator_mode`: one person, with a reason and a review queue).
+- **Grants are column-listed, time-boxed and operator-approved** (MCP
+  `agent_request_capability`). Expiry runs on the leader, fenced by its lease, and still runs
+  under `emergency_stop`. A revoke runs `GRANTED BY` the recorded grantor; residue another
+  grantor left gives `revoke_incomplete` with the exact fix.
+- **`agent_query`: agents read as themselves.** One `SELECT` in the agent's own broker
+  session and role (never pg_sage's), read-only, on a search path limited to the schemas
+  granted to that role, with timeouts and row and byte limits. Classified columns are
+  masked, every call writes an audit row, and the statement is attributed through
+  pg_stat_statements. It holds all 23 AgentSafetyBench read-only cases, against 17 for a
+  `READ ONLY` transaction and 21 for a privilege-based role.
+- **Kill switch.** `POST /api/v1/agents/kill` (every agent, one agent or one database) needs
+  no approval and runs under the emergency stop at every trust level: tokens revoked, pending
+  approvals cancelled, roles set `NOLOGIN CONNECTION LIMIT 0`, sessions ended on the primary
+  and each `databases[].replicas` entry, then verified for up to
+  `agents.kill_verify_timeout_seconds`. A standby you did not list is named in the report with
+  the timeout that bounds its open sessions. Unfreezing after a kill needs two admins other
+  than the sponsor, restores the roles' previous attributes and rotates the broker password.
+- **Upkeep on the leader.** Retired agent roles are dropped after
+  `agents.roles.retire_grace_days` (7), broker passwords rotate every
+  `agents.broker.rotation_days` (7), connected sessions are checked every minute, and a daily
+  drift reconciler corrects narrowing drift and reports the rest. Each run cites the approval
+  it runs under.
+- **AgentSafetyBench v0.** A read-only corpus (RO-01..RO-16, plus the `agent_query` cases)
+  run against each read-only design, seven posture scenarios scored by the real detectors,
+  and an incident-to-control mapping. CI runs it on PostgreSQL 14-18; the PG17 report is
+  signed keyless (Sigstore) and attached to the release.
+- **Tamper-evident audit.** Action, sign-in, config and pgaudit records are hash-chained and
+  verified daily (`audit.verify_interval_hours`); a broken chain raises a critical finding.
+- **SIEM export.** Every audit event as OCSF over HTTP, syslog (TCP, UDP or TLS) or OTLP, at
+  least once, without slowing pg_sage (`audit.siem.sinks`).
+- **MCP accepts OAuth 2.1 access tokens** from configured issuers (`mcp.oauth`), each bound to
+  one database by its audience.
+- **Evidence packs.** `GET /api/v1/audit/evidence` downloads a signed or hashed bundle for an
+  action or a time window. pgaudit records are correlated with pg_sage's actions
+  (`audit.pgaudit.correlate`).
+- **The API serves TLS itself.** Set `SAGE_TLS_CERT` and `SAGE_TLS_KEY` (PEM) and it serves
+  HTTPS only, TLS 1.2+, with `Secure` cookies; rotated certificates load without a restart.
+  Setting only one is a startup error, so a typo can't downgrade to HTTP.
+- **Every secret can come from a file.** `NAME_FILE` works for each secret variable and for
+  every `${NAME}` the YAML references, for Vault Agent, the CSI driver and Docker or
+  Kubernetes secrets. Setting both is a startup error; a file other users can read warns.
+- **Secrets set through the API are encrypted at rest** with AES-256-GCM under a key derived
+  from `encryption_key`, with key ids and rotation (`encryption_key_previous`). With a key
+  configured, startup seals existing plaintext rows.
+- **IdP groups map to roles** (`oauth.role_mapping`, `oauth.groups_claim`). With a mapping,
+  unmapped users are denied by default (`oauth.unmapped_users`).
+- **Login audit.** `sage.auth_audit` records sign-ins, failures with reason codes, break-glass
+  use, and user and role changes, kept 365 days (`retention.auth_audit_days`).
+- **Break-glass admin** (`oauth.break_glass`, `SAGE_BREAK_GLASS_PASSWORD_HASH[_FILE]`) for when
+  the IdP is down: a one-hour, rate-limited session, and every use alerts every enabled
+  notification channel.
+- **`/ready`.** Unauthenticated readiness: 200 when the config is loaded, the control database
+  answers and its `sage` schema is migrated, 503 otherwise. `/health` stays liveness only.
+- **"Grant more" asks for CREATE on the schemas that hold your tables.** PostgreSQL needs
+  CREATE on a table's schema for `CREATE INDEX` and `CREATE STATISTICS`, even when pg_sage owns
+  the table. "Grant more" now lists it for the advisory and autonomous levels, checks it live,
+  and gives one ready-to-run `GRANT CREATE ON SCHEMA ...` naming only the schemas missing it.
+  The startup check looks at the same schemas (it checked only `public`) and prints the same
+  SQL, with the role name quoted.
 
 ### Fixed
 
+- **The Fleet page shows the config-file database.** On a standalone install it listed only
+  UI-registered databases, so the database from the YAML `postgres:` section never appeared.
+  It now shows in a read-only "From the config file" section.
+- **The first look's sequence read can't time out on stale statistics.** On a freshly
+  restored or migrated database it took 12 s and hit the 5 s statement timeout, degrading the
+  sequence runway check; it now reads by key (0.2 s at 5,000 sequences).
+- **The first look reads indexes about twice as fast** on large catalogs (15,000 indexes) and
+  sends 40% less data: constraint-backed indexes are read as one hashed set instead of a
+  per-index `EXISTS`, and index scan counts come from `pg_stat_get_numscans` instead of the
+  statistics view.
 - **A first-look check that timed out is retried instead of failing the next one.** When a
   step could not reopen its read-only transaction (for example while DDL held the catalog), the
   following step ran in the aborted transaction and was reported as "current transaction is
@@ -12,6 +146,35 @@
 - **MCP stdio clients hear about every fleet change.** A database added or removed right after a
   client subscribed to tool-list changes could be missed when the watcher started late; the
   watcher now compares against the tool list as it was when the session started.
+- **Merging legacy duplicate incidents takes time linear in the backlog.** At startup pg_sage
+  merges the open incidents of each identity that were written before identity keys existed.
+  With table statistics older than that backlog, the merge re-ran its grouping once per open
+  row: 5,000 duplicates of one incident took 25 million index reads. It now reads each
+  identity's open rows once.
+- **The cluster's size is sampled every 10 minutes** (`sre.runways.size_interval_seconds`,
+  default 600) instead of every minute: summing every database's size took 100-300 ms on large
+  catalogs, and the disk runway forecasts over hours.
+- **The schema guard's structural scan reads only the tables whose catalog rows changed,**
+  with a full pass daily. Temporary tables, and tables an extension owns, are no longer
+  reported.
+- **Less sidecar CPU per cycle.** Snapshot catalog documents are validated once and sliced
+  instead of decoded (5,000 changed tables: 62 ms to 22 ms), and an element identical to the
+  previous cycle's reuses its parse.
+
+### Performance gate
+
+- Timing budgets scale with the runner: the gate times a fixed CPU and a fixed SQL workload
+  first and scales by the runner's speed over a reference (the median of 12 CI runs), both
+  ways, clamped to x0.75-x1.25, so a fast runner can't hide a regression.
+- Exemptions are narrow and capped: each names one tagged statement, a reason and its own
+  ceiling just above CI's slowest mean (`sre:cluster_database_size` 300 ms,
+  `structural:columns` 150 ms). The catalog classifier ignores comments and literals and
+  never counts a statement over a `sage` table as a catalog read.
+- The fixture is checkpointed before the measured phases, CI also runs the first-look gate
+  (`TestPerfGateFirstLook`), and `perfgate.yml` runs the gate alone on any branch on demand.
+- CI pulls its PostgreSQL images from a GHCR mirror instead of Docker Hub, whose anonymous
+  pull limit failed every job on 2026-10-09. A new `agent-servers` job runs the kill switch on
+  a real PG17 primary, replica and standby, with no skips allowed.
 
 ## v2.3.1 (2026-10-07) -- pg_sage stays light on large databases
 

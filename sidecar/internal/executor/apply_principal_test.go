@@ -174,11 +174,16 @@ func TestApplyConcurrentAgentHoldsBalance(t *testing.T) {
 	h := &holdProbe{}
 	e.WithPrincipalHold(h.hold)
 	var wg sync.WaitGroup
+	// 16 changes contend for the executor's 3 DDL slots. Each waits for a
+	// slot, as operator actions do; a non-waiting intent is skipped with
+	// ErrDDLSlotUnavailable when the slots are busy, before any hold.
 	for range 16 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := e.Apply(context.Background(), agentIntent(h, nil)); err != nil {
+			intent := agentIntent(h, nil)
+			intent.WaitForSlot = true
+			if _, err := e.Apply(context.Background(), intent); err != nil {
 				t.Errorf("Apply = %v", err)
 			}
 		}()

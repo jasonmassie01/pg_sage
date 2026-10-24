@@ -51,37 +51,41 @@ WITH b AS (
 UPDATE sage.incidents i SET database_name = $1, identity_key = ` + identityKeySQL + `
 FROM b WHERE i.id = b.id AND i.resolved_at IS NULL`
 
+// mergeDuplicatesSQL reads the open rows of at most $2 identities once,
+// into s: one row per identity with its survivor (the earliest) and the
+// merged values. Both updates join s, so a plan that rescans it costs at
+// most $2 tuples per row. It used to join a per-row CTE: with statistics
+// older than the backlog, the plan re-ran the grouping once per open row
+// (25 million index reads for 5,000 duplicates of one identity) or
+// rescanned that CTE once per row.
 const mergeDuplicatesSQL = `/* pg_sage */
-WITH g AS (
-    SELECT identity_key FROM sage.incidents
+WITH s AS MATERIALIZED (
+    SELECT identity_key,
+           (array_agg(id ORDER BY detected_at, id))[1] AS survivor,
+           sum(occurrence_count) AS total,
+           max(COALESCE(last_detected_at, detected_at)) AS last_seen,
+           max(CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END) AS sev,
+           min(escalated_at) AS escalated
+    FROM sage.incidents
     WHERE resolved_at IS NULL AND database_name = $1 AND identity_key IS NOT NULL
     GROUP BY identity_key HAVING count(*) > 1
     LIMIT $2
-), r AS (
-    SELECT i.id, row_number() OVER w AS rn, first_value(i.id) OVER w AS survivor,
-           sum(i.occurrence_count) OVER p AS total,
-           max(COALESCE(i.last_detected_at, i.detected_at)) OVER p AS last_seen,
-           max(CASE i.severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END)
-               OVER p AS sev,
-           min(i.escalated_at) OVER p AS escalated
-    FROM sage.incidents i JOIN g ON g.identity_key = i.identity_key
-    WHERE i.resolved_at IS NULL AND i.database_name = $1
-    WINDOW p AS (PARTITION BY i.identity_key),
-           w AS (PARTITION BY i.identity_key ORDER BY i.detected_at, i.id)
 ), keep AS (
     UPDATE sage.incidents i
-    SET occurrence_count = LEAST(r.total, 2147483647)::int,
-        last_detected_at = GREATEST(i.last_detected_at, r.last_seen),
-        severity = CASE r.sev WHEN 3 THEN 'critical' WHEN 2 THEN 'warning' ELSE 'info' END,
-        escalated_at = COALESCE(i.escalated_at, r.escalated)
-    FROM r WHERE i.id = r.id AND r.rn = 1
+    SET occurrence_count = LEAST(s.total, 2147483647)::int,
+        last_detected_at = GREATEST(i.last_detected_at, s.last_seen),
+        severity = CASE s.sev WHEN 3 THEN 'critical' WHEN 2 THEN 'warning' ELSE 'info' END,
+        escalated_at = COALESCE(i.escalated_at, s.escalated)
+    FROM s WHERE i.id = s.survivor
     RETURNING i.id
 ), gone AS (
     UPDATE sage.incidents i
     SET resolved_at = pg_catalog.now(), resolved_by = $3,
-        resolution_reason = 'merged into ' || r.survivor::text ||
+        resolution_reason = 'merged into ' || s.survivor::text ||
             ': duplicate open incident with the same identity'
-    FROM r WHERE i.id = r.id AND r.rn > 1 AND i.resolved_at IS NULL
+    FROM s
+    WHERE i.database_name = $1 AND i.identity_key = s.identity_key
+      AND i.resolved_at IS NULL AND i.id <> s.survivor
     RETURNING i.id
 )
 SELECT (SELECT count(*) FROM keep), (SELECT count(*) FROM gone)`
