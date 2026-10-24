@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -25,10 +26,12 @@ const sreInvestigationsPath = "/api/v1/databases/{db}/investigations"
 const fleetInvestigationLimit = 100
 
 func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	ledgers *earned.Registry) {
+	ledgers *earned.Registry, changeReviews *changereview.Registry) {
 	viewerUp := RequireRole("admin", "operator", "viewer")
 	mux.Handle("GET /api/v1/investigations", viewerUp(fleetInvestigationsHandler(mgr)))
 	perDB := perDatabaseSREMux(mgr, ledgers)
+	// Change Review's per-database routes overlap the managed routes too.
+	registerChangeReviewDatabaseRoutes(perDB, changeReviews)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which

@@ -36,14 +36,14 @@ func buildFleetChangeReviewRouter(t *testing.T) (h http.Handler) {
 func TestRouter_ChangeReviewBesideManagedDatabaseRoutes(t *testing.T) {
 	h := buildFleetChangeReviewRouter(t)
 	want := map[routeProbe]string{
-		{"POST", "/api/v1/databases/orders/change-reviews"}:          "gate:viewer",
-		{"GET", "/api/v1/databases/orders/change-reviews"}:           "gate:viewer",
-		{"GET", "/api/v1/databases/orders/change-reviews/7"}:         "gate:viewer",
+		{"POST", "/api/v1/databases/orders/change-reviews"}:           "gate:viewer",
+		{"GET", "/api/v1/databases/orders/change-reviews"}:            "gate:viewer",
+		{"GET", "/api/v1/databases/orders/change-reviews/7"}:          "gate:viewer",
 		{"POST", "/api/v1/databases/orders/change-reviews/7/verdict"}: "gate:operator",
 		{"GET", "/api/v1/change-reviews/summary"}:                     "gate:viewer",
 		{"GET", "/api/v1/databases/managed/7"}:                        "gate:admin",
 		{"POST", "/api/v1/databases/managed/7/test"}:                  "gate:admin",
-		{"GET", "/api/v1/databases/orders/investigations"}:           "gate:viewer",
+		{"GET", "/api/v1/databases/orders/investigations"}:            "gate:viewer",
 	}
 	for p, class := range want {
 		if got := classifyRoute(h, p); got != class {
