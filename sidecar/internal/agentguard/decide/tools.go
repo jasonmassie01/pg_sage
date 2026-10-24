@@ -44,6 +44,8 @@ var toolClasses = map[string]toolClass{
 	// Unchanged: facts stay proposed until a person confirms.
 	"propose_fact": propose(""), "mark_object": propose(""),
 	"report_source_fix": propose(""), "sre_evaluate_autonomy": propose(""),
+	// Change Review: a deploy report only records when the change shipped.
+	"report_change_deployed": propose(""),
 	// Approve scope: out of an agent's reach.
 	"decide_fact": approve(), "declare_table_contract": approve(),
 	"register_consumer": approve(), "sre_downgrade_autonomy": approve(),
@@ -61,7 +63,8 @@ var toolClasses = map[string]toolClass{
 	"sre_list_changes":   read(),
 	"sre_list_incidents": read(), "sre_list_runbooks": read(), "sre_list_slos": read(),
 	"sre_runbook_runs": read(), "sre_similar_incidents": read(), "top_queries": read(),
-	"whatif_index": read(),
+	"whatif_index":  read(),
+	"review_change": read(), "get_change_review": read(), "list_change_reviews": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
 	// The capability class of a grant request is the class it asks for;
