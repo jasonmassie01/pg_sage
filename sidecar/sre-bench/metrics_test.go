@@ -107,6 +107,68 @@ func TestProp_RateAndInterval(t *testing.T) {
 	}
 }
 
+// The difference interval CHECK-42 reads is Newcombe's hybrid score
+// interval (method 10); the expected bounds are his published values
+// (Newcombe 1998, Statistics in Medicine 17:873, Table II).
+// No concurrency tests: DiffInterval is a pure function of four counts.
+func TestDiffInterval_MatchesNewcombe1998(t *testing.T) {
+	cases := []struct {
+		a, b   Prop
+		lo, hi float64
+	}{
+		{Prop{56, 70}, Prop{48, 80}, 0.0524, 0.3339},
+		{Prop{9, 10}, Prop{3, 10}, 0.1705, 0.8090},
+		{Prop{5, 56}, Prop{0, 29}, -0.0381, 0.1926},
+		{Prop{0, 10}, Prop{0, 20}, -0.1611, 0.2775},
+		{Prop{10, 10}, Prop{0, 20}, 0.6791, 1},
+		{Prop{10, 10}, Prop{0, 10}, 0.6075, 1},
+	}
+	for _, c := range cases {
+		lo, hi := DiffInterval(c.a, c.b)
+		if !near(lo, c.lo) || !near(hi, c.hi) {
+			t.Errorf("DiffInterval(%v, %v) = [%.4f, %.4f], want [%.4f, %.4f]", c.a, c.b, lo,
+				hi, c.lo, c.hi)
+		}
+	}
+}
+
+// Every interval holds the point difference, stays in [-1, 1], and
+// swapping the samples mirrors it.
+func TestDiffInterval_HoldsThePointAndMirrors(t *testing.T) {
+	for n1 := 1; n1 <= 12; n1++ {
+		for n2 := 1; n2 <= 12; n2++ {
+			for k1 := 0; k1 <= n1; k1++ {
+				for k2 := 0; k2 <= n2; k2++ {
+					a, b := Prop{k1, n1}, Prop{k2, n2}
+					d := a.Rate() - b.Rate()
+					lo, hi := DiffInterval(a, b)
+					rlo, rhi := DiffInterval(b, a)
+					if lo > d+1e-12 || hi < d-1e-12 || lo < -1-1e-12 || hi > 1+1e-12 {
+						t.Fatalf("DiffInterval(%v, %v) = [%v, %v] for difference %v", a, b, lo,
+							hi, d)
+					}
+					if math.Abs(lo+rhi) > 1e-12 || math.Abs(hi+rlo) > 1e-12 {
+						t.Fatalf("DiffInterval(%v, %v) = [%v, %v] does not mirror [%v, %v]", a,
+							b, lo, hi, rlo, rhi)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestDiffInterval_UndefinedWithoutValidDenominators(t *testing.T) {
+	ok := Prop{3, 4}
+	for _, bad := range []Prop{{0, 0}, {1, 0}, {-1, 5}, {6, 5}} {
+		for _, pair := range [][2]Prop{{ok, bad}, {bad, ok}} {
+			lo, hi := DiffInterval(pair[0], pair[1])
+			if !math.IsNaN(lo) || !math.IsNaN(hi) {
+				t.Errorf("DiffInterval(%v, %v) = [%v, %v], want NaN", pair[0], pair[1], lo, hi)
+			}
+		}
+	}
+}
+
 func TestGradeResult(t *testing.T) {
 	idle := Gold{Root: "idle_in_tx_holder"}
 	decoy := Gold{Lookalike: "pool_fan_out"}
