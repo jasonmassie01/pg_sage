@@ -141,6 +141,7 @@ func buildDatabaseRuntime(
 	rt.startActionOutcomeFeed() // M7: approved M5 runs feed the ledger
 	rt.startRunways()
 	rt.startAsk()
+	rt.startChangeReview() // change_review_wiring.go
 	rt.startSelfConfig()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
