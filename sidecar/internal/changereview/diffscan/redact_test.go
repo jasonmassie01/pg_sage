@@ -18,6 +18,10 @@ const pemBlock = "-----BEGIN RSA PRIVATE KEY-----\n" +
 func TestRedact_Secrets(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"aws access key", "key = AKIAIOSFODNN7EXAMPLE end", "key = [redacted] end"},
+		{"aws key glued to more characters", "id AKIAIOSFODNN7EXAMPLE00 x",
+			"id [redacted]00 x"},
+		{"aws key glued to a prefix", "id xAKIAIOSFODNN7EXAMPLE x", "id x[redacted] x"},
+		{"aws prefix too short to be a key", "AKIASHORT1", "AKIASHORT1"},
 		{"aws session key", "id ASIAZZZZZZZZZZZZZZZZ.", "id [redacted]."},
 		{"pem block", "before\n" + pemBlock + "\nafter", "before\n[redacted]\nafter"},
 		{"pem in diff lines", "+x\n+-----BEGIN PRIVATE KEY-----\n+MIIEvQIBADANBgkqhkiG9w0B\n" +
