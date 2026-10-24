@@ -61,7 +61,7 @@ var agentAccessCensus = map[string]string{
 // exist (a path may not silently disappear) and must mention its marker.
 var closedListAnchors = map[OutOfGatePath]struct{ file, marker string }{
 	OutOfGateKillFallback:    {"internal/agentguard/kill_run.go", "appendFallback"},
-	OutOfGateManualRunbook:   {"../docs/agent-guard.md", "NOLOGIN CONNECTION LIMIT 0"},
+	OutOfGateManualRunbook:   {"../docs/agent-governance.md", "NOLOGIN CONNECTION LIMIT 0"},
 	OutOfGateBreakGlass:      {"internal/auth/break_glass.go", "break"},
 	OutOfGateDecommissionAck: {"internal/decommission/ack.go", "func Acknowledge("},
 }
