@@ -10,8 +10,8 @@ var ErrUnavailable = errors.New("parse-tree inspection unavailable in this build
 // its spelling: unquoted identifiers are folded, quoted ones kept. Schema
 // is empty when the query relies on the search_path.
 type QualifiedName struct {
-	Schema string
-	Name   string
+	Schema string `json:"schema,omitempty"`
+	Name   string `json:"name"`
 }
 
 // String renders the name for messages: "schema.name" or "name".
