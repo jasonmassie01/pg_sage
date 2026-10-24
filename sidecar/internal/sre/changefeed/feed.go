@@ -68,6 +68,17 @@ func (f *Feed) Recent(ctx context.Context, window time.Duration, limit int) ([]E
 		Limit: limit})
 }
 
+// List reads the changes that occurred in the filter's window, newest
+// first (Store.List on the bound scope). Change Review receipts read
+// landing anchors and confounders around a past landing with it.
+func (f *Feed) List(ctx context.Context, filter Filter) ([]Event, error) {
+	scope, err := f.bound(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return f.store.List(ctx, scope, filter)
+}
+
 // probeLimit bounds the changes one change_feed probe returns.
 const probeLimit = 50
 
