@@ -121,8 +121,21 @@ func statementLock(p sqlast.DDLStatement) string {
 		sqlast.DDLDropTable:
 		return lockAccessExclusive
 	case sqlast.DDLOther:
-		if p.Command == "AlterTableStmt" {
-			return lockAccessExclusive
+		return otherLock(p)
+	}
+	return ""
+}
+
+// otherLock is the table lock of a statement of kind other: ALTER TABLE
+// and TRUNCATE take ACCESS EXCLUSIVE, LOCK TABLE the mode it names (""
+// for one that blocks no read or write).
+func otherLock(p sqlast.DDLStatement) string {
+	switch p.Command {
+	case "AlterTableStmt", "TruncateStmt":
+		return lockAccessExclusive
+	case "LockStmt":
+		if _, blocks := conflictsWith[p.TableLock]; blocks {
+			return p.TableLock
 		}
 	}
 	return ""
@@ -180,13 +193,16 @@ func backfillSeverity(rows float64, cfg config.ChangeReviewConfig) string {
 	return changereview.SeverityInfo
 }
 
-// typeNames maps libpg_query's internal type names to format_type's.
+// typeNames maps libpg_query's internal type names, and the serial
+// pseudo-types (which it keeps as written), to format_type's.
 var typeNames = map[string]string{
 	"int2": "smallint", "int4": "integer", "int8": "bigint", "bool": "boolean",
 	"float4": "real", "float8": "double precision", "varchar": "character varying",
 	"bpchar": "character", "timestamptz": "timestamp with time zone",
 	"timestamp": "timestamp without time zone", "timetz": "time with time zone",
 	"time": "time without time zone", "varbit": "bit varying",
+	"serial": "integer", "serial4": "integer", "bigserial": "bigint", "serial8": "bigint",
+	"smallserial": "smallint", "serial2": "smallint",
 }
 
 var typeWithMod = regexp.MustCompile(`^([a-z0-9_ ]+?)(\([0-9, ]+\))?((?:\[\])*)$`)

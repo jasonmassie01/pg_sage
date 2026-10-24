@@ -13,11 +13,12 @@ import (
 // inside a transaction block or a transactional migration file.
 func (r *run) concurrentInTransaction(s *stmt, i int) {
 	p := s.parts[i]
-	if p.Index == nil || !p.Index.Concurrent || (!p.InTransactionBlock && !r.in.Transactional) {
+	fileTxn := r.transactional(s)
+	if p.Index == nil || !p.Index.Concurrent || (!p.InTransactionBlock && !fileTxn) {
 		return
 	}
 	d := txnData{InTransactionBlock: p.InTransactionBlock,
-		TransactionalFile: r.in.Transactional, TransactionalFrom: r.in.TransactionalFrom,
+		TransactionalFile: fileTxn, TransactionalFrom: r.in.TransactionalFrom,
 		MigrationTool: r.in.MigrationTool}
 	id := r.addEvidence("txn", fmt.Sprint(s.index), "transaction of statement "+
 		fmt.Sprint(s.index), d)

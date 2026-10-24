@@ -72,6 +72,7 @@ func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []st
 	}
 	res := WhatIfResult{Failed: failed}
 	res.Improvement, res.Measured = weightedImprovement(queries, before, after)
+	res.PerQuery = perQueryImprovement(queries, before, after)
 	for id := range before {
 		if _, ok := after[id]; !ok {
 			res.Failed++ // planned without the index but not with it

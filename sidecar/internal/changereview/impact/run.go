@@ -57,6 +57,9 @@ type stmt struct {
 	planSummary string
 	planErr     string
 	evID        string
+	// noTxn: the statement's file opts out of its migration tool's
+	// transaction (txn.go).
+	noTxn bool
 }
 
 func (e *Engine) newRun(ctx context.Context, cfg config.ChangeReviewConfig,
@@ -184,9 +187,10 @@ func unknownText(subject, reason, detail, fix string) string {
 
 // analysis is the run's result.
 func (r *run) analysis() changereview.Analysis {
+	exp := r.expectations()
+	exp.AtReview = r.atReview(exp)
 	a := changereview.Analysis{ParseMode: r.mode, Evidence: r.ev, Findings: r.finds,
-		NotDetermined: r.nd, Statements: []changereview.Statement{},
-		Expectations: r.expectations()}
+		NotDetermined: r.nd, Statements: []changereview.Statement{}, Expectations: exp}
 	for _, s := range r.stmts {
 		a.Statements = append(a.Statements, r.statement(s))
 	}

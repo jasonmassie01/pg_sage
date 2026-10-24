@@ -3,6 +3,7 @@ package impact
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/migration"
@@ -50,7 +51,9 @@ func (r *run) lockRules(s *stmt, expand []string) []assessment {
 }
 
 // refineType marks a type change PostgreSQL does without a rewrite
-// (varchar widening, varchar to text: migration/alter_type.go).
+// (varchar widening, varchar to text: migration/alter_type.go). A USING
+// expression other than the column itself makes PostgreSQL compute every
+// row again: a rewrite whatever the types.
 func (r *run) refineType(s *stmt, c *migration.DDLClassification) bool {
 	if c.RuleID != "ddl_alter_type_rewrite" || s.text {
 		return false
@@ -61,7 +64,8 @@ func (r *run) refineType(s *stmt, c *migration.DDLClassification) bool {
 			continue
 		}
 		cur, ok := r.currentType(s, i, p.Column.Name)
-		if !ok || !migration.IsBinaryCoercibleChange(cur, formatType(p.Column.Type)) {
+		if !ok || !usingOnlyTheColumn(p.Column) ||
+			!migration.IsBinaryCoercibleChange(cur, formatType(p.Column.Type)) {
 			return false
 		}
 		coercible = true
@@ -72,6 +76,13 @@ func (r *run) refineType(s *stmt, c *migration.DDLClassification) bool {
 			"is still taken"
 	}
 	return coercible
+}
+
+// usingOnlyTheColumn reports whether an ALTER TYPE has no USING clause or
+// one that is just the column (quoted or not).
+func usingOnlyTheColumn(c *sqlast.ColumnDef) bool {
+	u := strings.TrimSpace(c.Using)
+	return u == "" || u == c.Name || u == `"`+strings.ReplaceAll(c.Name, `"`, `""`)+`"`
 }
 
 // currentType is the catalog type of a column of part i's table.
@@ -165,14 +176,17 @@ func (r *run) holdMs(s *stmt, i int, mode string, as []assessment) int64 {
 	return r.assess(c).EstimatedLockMs
 }
 
-// conflicting is the workload statements on rels whose lock conflicts
-// with mode, sorted by queryid.
-func (r *run) conflicting(mode string, rels ...string) []*workStmt {
+// tableLock is a lock a statement takes on one relation.
+type tableLock struct{ rel, mode string }
+
+// conflicting is the workload statements on the locked relations whose
+// lock conflicts with the mode taken there, sorted by queryid.
+func (r *run) conflicting(locks ...tableLock) []*workStmt {
 	seen := map[int64]bool{}
 	var out []*workStmt
-	for _, rel := range rels {
-		for _, ws := range r.work.byRelation[rel] {
-			if !seen[ws.id] && conflicts(mode, ws.lockMode()) {
+	for _, l := range locks {
+		for _, ws := range r.work.byRelation[l.rel] {
+			if !seen[ws.id] && conflicts(l.mode, ws.lockMode()) {
 				seen[ws.id] = true
 				out = append(out, ws)
 			}

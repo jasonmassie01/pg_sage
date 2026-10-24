@@ -121,7 +121,7 @@ func (r *run) analyzeStatements(texts []textFile) {
 		r.statementEvidence(s)
 	}
 	r.textModeFindings(texts)
-	r.loadWorkload()
+	r.loadWorkloadFacts()
 	for _, s := range r.stmts {
 		if r.err != nil {
 			return

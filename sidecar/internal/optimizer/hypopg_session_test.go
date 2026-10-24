@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +18,7 @@ func TestHypoPGNilPoolFailsClosed(t *testing.T) {
 		t.Fatal("nil pool reported HypoPG available")
 	}
 	res, err := h.Validate(t.Context(), Recommendation{}, nil)
-	if err == nil || res != (WhatIfResult{}) {
+	if err == nil || !reflect.DeepEqual(res, WhatIfResult{}) {
 		t.Fatalf("nil pool must fail closed: %+v %v", res, err)
 	}
 }
@@ -109,7 +110,7 @@ func TestHypoPGFailureAndEmptyQueriesCleanSession(t *testing.T) {
 	}
 	assertHypoPGSessionClean(t, pool)
 	res, err = h.Validate(t.Context(), rec, nil)
-	if err != nil || res != (WhatIfResult{}) {
+	if err != nil || !reflect.DeepEqual(res, WhatIfResult{}) {
 		t.Fatalf("empty workload must produce no evidence: %+v %v", res, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())

@@ -36,17 +36,20 @@ func viewsOn(rel *relation, col string) []viewDep {
 
 // dependentViews is a drop under views: without CASCADE PostgreSQL
 // refuses it (CR-05); with CASCADE it drops the views too (CR-03/CR-04).
+// Views the script drops first do not count; views it redefines first
+// may no longer depend on the column (a CR-05 warning).
 func (r *run) dependentViews(s *stmt, rel *relation, col string, cascade bool) {
 	if _, failed := rel.failed[readViews]; failed {
 		return
 	}
-	views := viewsOn(rel, col)
-	if len(views) == 0 {
-		return
-	}
+	views, redefined := r.viewsAt(s, viewsOn(rel, col))
 	what := rel.name
 	if col != "" {
 		what += "." + col
+	}
+	if len(views) == 0 {
+		r.redefinedViews(s, rel, what, "dropping", redefined)
+		return
 	}
 	ids, names := r.viewEvidence(s, rel, views)
 	if cascade {
@@ -62,6 +65,60 @@ func (r *run) dependentViews(s *stmt, rel *relation, col string, cascade bool) {
 	r.find(RuleWillFail, changereview.SeverityCritical, "Dropping "+what+" will fail: "+
 		"views depend on it", "PostgreSQL refuses to drop "+what+" because views "+names+
 		" depend on it; the migration fails.", ids...)
+}
+
+// viewsAt is the catalog views of rel as they stand when s runs: those
+// the script drops earlier are gone; those it redefines earlier are
+// returned apart (whether they still read the column is not known).
+func (r *run) viewsAt(s *stmt, views []viewDep) ([]viewDep, []viewDep) {
+	var kept, redefined []viewDep
+	for _, v := range views {
+		switch r.earlierViewChange(s, v.name) {
+		case "dropped":
+		case "redefined":
+			redefined = append(redefined, v)
+		default:
+			kept = append(kept, v)
+		}
+	}
+	return kept, redefined
+}
+
+// earlierViewChange is what a statement before s does to view: "dropped",
+// "redefined" (CREATE OR REPLACE VIEW) or "".
+func (r *run) earlierViewChange(s *stmt, view string) string {
+	change := ""
+	for _, o := range r.stmts {
+		if o.index >= s.index {
+			break
+		}
+		for i, p := range o.parts {
+			if i >= len(o.targets) || o.targets[i] != view {
+				continue
+			}
+			switch {
+			case p.Kind == sqlast.DDLDropTable:
+				change = "dropped"
+			case p.Kind == sqlast.DDLOther && p.Command == "ViewStmt":
+				change = "redefined"
+			}
+		}
+	}
+	return change
+}
+
+// redefinedViews is the CR-05 warning for a change under views the script
+// redefines first.
+func (r *run) redefinedViews(s *stmt, rel *relation, what, verb string,
+	views []viewDep) {
+	if len(views) == 0 {
+		return
+	}
+	ids, names := r.viewEvidence(s, rel, views)
+	r.find(RuleWillFail, changereview.SeverityWarning, verb+" "+what+" may fail: views "+
+		"are redefined first", "The script redefines views "+names+" before "+verb+" "+
+		what+"; if the new definitions still use it, PostgreSQL refuses the change and "+
+		"the migration fails.", ids...)
 }
 
 func (r *run) viewEvidence(s *stmt, rel *relation, views []viewDep) ([]string, string) {
@@ -80,11 +137,14 @@ func (r *run) viewEvidence(s *stmt, rel *relation, views []viewDep) ([]string, s
 func (r *run) alterType(s *stmt, i int, rel *relation, as []assessment) {
 	p := s.parts[i]
 	col, target := p.Column.Name, formatType(p.Column.Type)
-	if views := viewsOn(rel, col); len(views) > 0 {
+	views, redefined := r.viewsAt(s, viewsOn(rel, col))
+	if len(views) > 0 {
 		ids, names := r.viewEvidence(s, rel, views)
 		r.find(RuleWillFail, changereview.SeverityCritical, "Changing the type of "+
 			rel.name+"."+col+" will fail: views use it", "PostgreSQL cannot alter the type "+
 			"of a column used by a view or rule ("+names+"); the migration fails.", ids...)
+	} else {
+		r.redefinedViews(s, rel, rel.name+"."+col, "changing the type of", redefined)
 	}
 	cur, ok := rel.columns[col]
 	if !ok {
@@ -161,9 +221,35 @@ func (r *run) setNotNull(s *stmt, i int, rel *relation, expandID string) {
 		EstimatedNullRows: frac * max(rel.reltuples, 0)}
 	id := r.addEvidence("nulls", rel.name+"."+col, fmt.Sprintf("%s.%s: null_frac %.4f",
 		rel.name, col, frac), d)
+	if fill := r.earlierBackfill(s, rel.name, col); fill != nil {
+		r.find(RuleWillFail, changereview.SeverityWarning, "SET NOT NULL on "+col+
+			" fails unless the backfill fills every NULL", fmt.Sprintf("pg_stats says "+
+			"%.2f%% of %s.%s is NULL (about %.0f rows), but statement %d backfills %s "+
+			"first; SET NOT NULL fails if any NULL is left.", frac*100, rel.name, col,
+			d.EstimatedNullRows, fill.index, col), s.evID, rel.evID, id, fill.evID,
+			expandID)
+		return
+	}
 	r.find(RuleWillFail, changereview.SeverityCritical, "SET NOT NULL on "+col+" will fail",
 		fmt.Sprintf("pg_stats says %.2f%% of %s.%s is NULL (about %.0f rows): SET NOT NULL "+
 			"fails. Backfill first, then add a NOT VALID check, validate it and set NOT "+
 			"NULL.", frac*100, rel.name, col, d.EstimatedNullRows), s.evID, rel.evID, id,
 		expandID)
+}
+
+// earlierBackfill is the statement before s that sets col of rel (an
+// UPDATE ... SET col = ...), or nil.
+func (r *run) earlierBackfill(s *stmt, rel, col string) *stmt {
+	for _, o := range r.stmts {
+		if o.index >= s.index {
+			return nil
+		}
+		for i, p := range o.parts {
+			if p.Kind == sqlast.DDLUpdate && i < len(o.targets) && o.targets[i] == rel &&
+				hasString(p.Columns, col) {
+				return o
+			}
+		}
+	}
+	return nil
 }

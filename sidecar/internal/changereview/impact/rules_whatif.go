@@ -2,6 +2,8 @@ package impact
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -96,9 +98,8 @@ func (r *run) whatIf(s *stmt, i int, rel *relation) {
 	if r.err != nil {
 		return
 	}
-	if d.ImprovementPct != nil {
-		r.predict(qids, *d.ImprovementPct)
-	}
+	d.Considered = r.workloadReads(rel)
+	r.predict(d.PerQueryPct)
 	id := r.addEvidence("whatif", partRef(s.index, i), whatIfTitle(d), d)
 	r.find(RuleIndexBenefit, changereview.SeverityInfo, whatIfTitle(d), whatIfText(rel, d),
 		s.evID, rel.evID, id)
@@ -134,8 +135,24 @@ func (r *run) measureIndex(rel *relation, def *sqlast.IndexDef,
 	if err == nil && res.Measured > 0 {
 		pct := res.Improvement
 		d.ImprovementPct = &pct
+		d.PerQueryPct = perQueryPct(res.PerQuery, qids)
 	}
 	return d
+}
+
+// perQueryPct is the per-statement figures of the workload queryids (the
+// review's own reads, numbered 1..n, predict nothing after landing).
+func perQueryPct(per map[int64]float64, qids []int64) map[string]float64 {
+	out := map[string]float64{}
+	for _, id := range qids {
+		if v, ok := per[id]; ok {
+			out[strconv.FormatInt(id, 10)] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func whatIfTitle(d whatIfData) string {
@@ -165,21 +182,43 @@ func whatIfText(rel *relation, d whatIfData) string {
 	if d.Reason != "" {
 		t += ": " + d.Reason
 	}
+	if d.Considered > len(d.QueryIDs) {
+		t += fmt.Sprintf(" (the busiest %d of %d workload reads, one per shape)",
+			len(d.QueryIDs), d.Considered)
+	}
 	return t + fmt.Sprintf(". Each of %s's %.2f writes/s also maintains it (%d bytes "+
 		"estimated).", rel.name, d.WritesPerS, d.SizeBytes)
 }
 
-// whatIfQueries is the read statements on rel: workload reads by calls,
-// then the review's own reads (synthetic ids 1..n).
+// maxWhatIfQueries bounds the workload reads one what-if plans (twice
+// each, without and with the index): the busiest, one per fingerprint,
+// as the optimizer's own what-ifs do.
+const maxWhatIfQueries = 50
+
+// whatIfQueries is the read statements on rel: the busiest workload reads
+// (at most maxWhatIfQueries, one per fingerprint), then the review's own
+// reads (synthetic ids 1..n).
 func (r *run) whatIfQueries(rel *relation) ([]optimizer.QueryInfo, []int64) {
-	var qs []optimizer.QueryInfo
-	var ids []int64
+	var reads []*workStmt
 	for _, ws := range r.work.byRelation[rel.name] {
 		if ws.refs.Kind == sqlast.StmtSelect {
-			qs = append(qs, optimizer.QueryInfo{QueryID: ws.id, Text: ws.text,
-				Calls: ws.calls})
-			ids = append(ids, ws.id)
+			reads = append(reads, ws)
 		}
+	}
+	sort.SliceStable(reads, func(i, j int) bool { return reads[i].calls > reads[j].calls })
+	var qs []optimizer.QueryInfo
+	var ids []int64
+	shapes := map[string]bool{}
+	for _, ws := range reads {
+		if len(ids) == maxWhatIfQueries {
+			break
+		}
+		if ws.fingerprint != "" && shapes[ws.fingerprint] {
+			continue
+		}
+		shapes[ws.fingerprint] = true
+		qs = append(qs, optimizer.QueryInfo{QueryID: ws.id, Text: ws.text, Calls: ws.calls})
+		ids = append(ids, ws.id)
 	}
 	for _, s := range r.stmts {
 		if s.kind == "select" && hasString(s.relations, rel.name) {
@@ -188,6 +227,17 @@ func (r *run) whatIfQueries(rel *relation) ([]optimizer.QueryInfo, []int64) {
 		}
 	}
 	return qs, ids
+}
+
+// workloadReads is how many workload reads of rel there are.
+func (r *run) workloadReads(rel *relation) int {
+	n := 0
+	for _, ws := range r.work.byRelation[rel.name] {
+		if ws.refs.Kind == sqlast.StmtSelect {
+			n++
+		}
+	}
+	return n
 }
 
 // alongside is the review's other new indexes on rel, as HypoPG DDL.

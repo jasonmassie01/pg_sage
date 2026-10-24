@@ -59,7 +59,9 @@ type DDLStatement struct {
 	// object of create_statistics. Empty when the SQL names none.
 	Object QualifiedName `json:"object"`
 	// ObjectType is "table", "view", "materialized_view" or "foreign_table"
-	// for drop_table and rename_table.
+	// for drop_table and rename_table; for a DROP of another object (kind
+	// other) the dropped type in lower case ("schema", "function",
+	// "sequence", ...), and "view" for CREATE [OR REPLACE] VIEW.
 	ObjectType string `json:"object_type,omitempty"`
 	// Columns are the plain column names the statement names: the touched
 	// column, constraint columns, index key and INCLUDE columns, table
@@ -79,8 +81,11 @@ type DDLStatement struct {
 	// Subcommand is the ALTER TABLE subcommand (e.g. "AT_AddColumn",
 	// "AT_SetRelOptions") of every ALTER TABLE part.
 	Subcommand string `json:"subcommand,omitempty"`
+	// TableLock is the lock mode LOCK TABLE requests ("ACCESS EXCLUSIVE",
+	// "SHARE", ...); LOCK and TRUNCATE yield one part per table.
+	TableLock string `json:"table_lock,omitempty"`
 	// Behavior is "restrict" or "cascade" for drop_index, drop_table,
-	// drop_column and drop_constraint.
+	// drop_column, drop_constraint, TRUNCATE and the DROP of other objects.
 	Behavior    string `json:"behavior,omitempty"`
 	IfExists    bool   `json:"if_exists,omitempty"`
 	IfNotExists bool   `json:"if_not_exists,omitempty"`

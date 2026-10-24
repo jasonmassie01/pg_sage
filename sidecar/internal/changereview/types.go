@@ -321,7 +321,18 @@ type Expectations struct {
 	WatchQueryIDs  []int64             `json:"watch_queryids"`
 	Relations      []string            `json:"relations"`
 	Predictions    []verify.Prediction `json:"predictions"`
+	// AtReview is what the post-conditions read when the review was
+	// written: AtReviewLanded (the change was already there: landing not
+	// applicable), AtReviewUnmet (the lower end of a later catalog landing)
+	// or "" (no post-condition, or the read failed).
+	AtReview string `json:"at_review,omitempty"`
 }
+
+// Expectations.AtReview values.
+const (
+	AtReviewLanded = "landed"
+	AtReviewUnmet  = "not_landed"
+)
 
 // ReviewSummary is the per-review digest stored in the summary column.
 type ReviewSummary struct {

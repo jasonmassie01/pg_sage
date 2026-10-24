@@ -141,28 +141,36 @@ func (r *run) historyErr(ctx context.Context, err error) error {
 }
 
 // queryRatesSQL is each queryid's calls over the window and its peak
-// calls per second: per hour, the calls between consecutive samples of
-// one statistics epoch over the seconds between them.
-const queryRatesSQL = `/* pg_sage change_review_query_rates v1 */
-	WITH q AS (
-	    SELECT q.queryid, q.captured_at, q.calls, q.stats_epoch,
-	           lag(q.calls) OVER w AS prev_calls, lag(q.captured_at) OVER w AS prev_at,
-	           lag(q.stats_epoch) OVER w AS prev_epoch
-	      FROM sage.query_store q
-	     WHERE {db:q} AND q.queryid = ANY($1::int8[]) AND q.captured_at >= $2
-	    WINDOW w AS (PARTITION BY q.queryid ORDER BY q.captured_at)
+// calls per second. It reads at most one sample per queryid and hour
+// (the first of the hour, by index) plus the newest one, never every
+// sample of a mature history: the rate between consecutive such anchors
+// of one statistics epoch is an hourly rate, and the busiest is the peak.
+const queryRatesSQL = `/* pg_sage change_review_query_rates v2 */
+	WITH ids AS (SELECT DISTINCT unnest($1::int8[]) AS queryid),
+	hours AS (SELECT generate_series(date_trunc('hour', $2::timestamptz), $3::timestamptz,
+	                                 interval '1 hour') AS h),
+	a AS (
+	    SELECT i.queryid, s.captured_at, s.calls, s.stats_epoch
+	      FROM ids i CROSS JOIN hours h
+	      CROSS JOIN LATERAL (
+	        SELECT q.captured_at, q.calls, q.stats_epoch FROM sage.query_store q
+	         WHERE {db:q} AND q.queryid = i.queryid AND q.captured_at >= greatest(h.h, $2)
+	           AND q.captured_at < h.h + interval '1 hour'
+	         ORDER BY q.captured_at LIMIT 1) s
+	    UNION
+	    SELECT i.queryid, s.captured_at, s.calls, s.stats_epoch
+	      FROM ids i CROSS JOIN LATERAL (
+	        SELECT q.captured_at, q.calls, q.stats_epoch FROM sage.query_store q
+	         WHERE {db:q} AND q.queryid = i.queryid AND q.captured_at >= $2
+	         ORDER BY q.captured_at DESC LIMIT 1) s
 	), d AS (
-	    SELECT queryid, date_trunc('hour', captured_at) AS hour,
-	           calls - prev_calls AS dcalls,
-	           extract(epoch FROM captured_at - prev_at)::float8 AS dt
-	      FROM q
-	     WHERE prev_calls IS NOT NULL AND calls >= prev_calls AND captured_at > prev_at
-	       AND stats_epoch IS NOT DISTINCT FROM prev_epoch
-	), h AS (
-	    SELECT queryid, hour, sum(dcalls) AS calls, sum(dt) AS secs FROM d GROUP BY 1, 2
+	    SELECT queryid, calls - lag(calls) OVER w AS dcalls,
+	           extract(epoch FROM captured_at - lag(captured_at) OVER w)::float8 AS dt,
+	           stats_epoch IS NOT DISTINCT FROM lag(stats_epoch) OVER w AS same_epoch
+	      FROM a WINDOW w AS (PARTITION BY queryid ORDER BY captured_at)
 	)
-	SELECT queryid, sum(calls)::int8, coalesce(max(calls / nullif(secs, 0)), 0)::float8
-	  FROM h GROUP BY queryid`
+	SELECT queryid, coalesce(sum(dcalls), 0)::int8, coalesce(max(dcalls / dt), 0)::float8
+	  FROM d WHERE same_epoch AND dcalls >= 0 AND dt > 0 GROUP BY queryid`
 
 // rateWindow is the history the workload's calls and peak rate cover.
 const rateWindow = 7 * 24 * time.Hour
@@ -176,8 +184,9 @@ type queryRate struct {
 func (r *run) queryRates(ids []int64) (map[int64]queryRate, error) {
 	ctx, cancel := r.historyContext()
 	defer cancel()
+	now := r.e.d.Now()
 	rows, err := histstore.Resolve(r.e.d.Pool).Query(ctx, queryRatesSQL, ids,
-		r.e.d.Now().Add(-rateWindow))
+		now.Add(-rateWindow), now)
 	if err != nil {
 		return nil, r.historyErr(ctx, err)
 	}

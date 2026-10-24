@@ -165,3 +165,21 @@ func AlreadyLanded(ctx context.Context, q catalogread.Querier,
 	}
 	return Landing(res) == PostLanded, nil
 }
+
+// atReview is what exp's post-conditions read now, at review time
+// (changereview.AtReviewLanded or AtReviewUnmet), or "" without one or
+// when the read fails (logged: it bears on the receipt, not the risk).
+func (r *run) atReview(exp changereview.Expectations) string {
+	if len(exp.PostConditions) == 0 || r.ctx.Err() != nil {
+		return ""
+	}
+	landed, err := AlreadyLanded(r.ctx, r.reader, exp)
+	switch {
+	case err != nil:
+		r.e.logf("change review impact: post-conditions at review time: %v", err)
+		return ""
+	case landed:
+		return changereview.AtReviewLanded
+	}
+	return changereview.AtReviewUnmet
+}

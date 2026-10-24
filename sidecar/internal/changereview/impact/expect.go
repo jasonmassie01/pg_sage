@@ -2,7 +2,9 @@ package impact
 
 import (
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/sqlast"
@@ -81,21 +83,59 @@ func relationCondition(pc changereview.PostCondition, p sqlast.DDLStatement) (
 }
 
 // indexName is a new index's name, or the one PostgreSQL generates:
-// table_col1_col2_idx ("expr" for an expression).
+// table_col1_col2_idx ("expr" for an expression), shortened to fit.
 func indexName(p sqlast.DDLStatement) string {
 	if p.Index != nil && p.Index.Name != "" {
 		return p.Index.Name
 	}
-	parts := []string{p.Relation.Name}
+	var cols []string
 	if p.Index != nil {
 		for _, c := range p.Index.Columns {
 			if !plainIdent(c) {
 				c = "expr"
 			}
-			parts = append(parts, c)
+			cols = append(cols, c)
 		}
 	}
-	return strings.Join(parts, "_") + "_idx"
+	return objectName(p.Relation.Name, strings.Join(cols, "_"), "idx")
+}
+
+// maxNameBytes is NAMEDATALEN - 1: the longest identifier PostgreSQL keeps.
+const maxNameBytes = 63
+
+// objectName is PostgreSQL's makeObjectName: name1_name2_label, the
+// longer of name1 and name2 shortened a byte at a time (name2 on a tie)
+// until the whole fits in 63 bytes, never splitting a character.
+func objectName(name1, name2, label string) string {
+	overhead := len(label) + 1
+	if name2 != "" {
+		overhead++
+	}
+	n1, n2 := len(name1), len(name2)
+	for n1+n2 > maxNameBytes-overhead {
+		if n1 > n2 {
+			n1--
+		} else {
+			n2--
+		}
+	}
+	out := clipBytes(name1, n1)
+	if name2 != "" {
+		out += "_" + clipBytes(name2, n2)
+	}
+	return out + "_" + label
+}
+
+// clipBytes is the longest prefix of s of at most n bytes that ends on a
+// character boundary (pg_mbcliplen).
+func clipBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // constraintSuffixes are PostgreSQL's generated constraint name endings.
@@ -104,7 +144,8 @@ var constraintSuffixes = map[string]string{sqlast.ConstraintForeignKey: "fkey",
 	sqlast.ConstraintExclusion: "excl"}
 
 // constraintName is a new constraint's name, or the one PostgreSQL
-// generates (table_pkey, table_col_fkey, table_col_key, table_col_check).
+// generates (table_pkey, table_col_fkey, table_col_key, table_col_check;
+// a CHECK over no column or several is table_check).
 func constraintName(p sqlast.DDLStatement) string {
 	c := p.Constraint
 	if c == nil {
@@ -114,19 +155,25 @@ func constraintName(p sqlast.DDLStatement) string {
 		return c.Name
 	}
 	if c.Kind == sqlast.ConstraintPrimaryKey {
-		return p.Relation.Name + "_pkey"
+		return objectName(p.Relation.Name, "", "pkey")
 	}
-	parts := append([]string{p.Relation.Name}, c.Columns...)
-	return strings.Join(parts, "_") + "_" + constraintSuffixes[c.Kind]
+	cols := strings.Join(c.Columns, "_")
+	if c.Kind == sqlast.ConstraintCheck && len(c.Columns) != 1 {
+		cols = ""
+	}
+	return objectName(p.Relation.Name, cols, constraintSuffixes[c.Kind])
 }
 
-// predict records a HypoPG-predicted change for CR-09's targets.
-func (r *run) predict(ids []int64, improvementPct float64) {
+// predict records each CR-09 target's own HypoPG-predicted change (a
+// cost reduction is a negative expected change), by queryid.
+func (r *run) predict(per map[string]float64) {
 	if r.predicted == nil {
 		r.predicted = map[int64]float64{}
 	}
-	for _, id := range ids {
-		r.predicted[id] = -improvementPct
+	for key, pct := range per {
+		if id, err := strconv.ParseInt(key, 10, 64); err == nil {
+			r.predicted[id] = -pct
+		}
 	}
 }
 

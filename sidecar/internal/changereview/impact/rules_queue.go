@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
@@ -24,14 +25,17 @@ func (r *run) lockQueue(s *stmt, i int, as []assessment) {
 	if _, blocks := conflictsWith[mode]; !blocks || rel == nil || !rel.found {
 		return
 	}
-	rels := []string{rel.name}
+	// A new foreign key takes SHARE ROW EXCLUSIVE on the referenced table,
+	// whatever the referencing side takes: only its writes queue.
+	locks := []tableLock{{rel: rel.name, mode: mode}}
 	for _, fk := range foreignKeys(&p) {
-		rels = append(rels, qualified(*fk.def.RefRelation))
+		locks = append(locks, tableLock{rel: qualified(*fk.def.RefRelation),
+			mode: lockShareRowExclusive})
 	}
 	q := lockQueueData{Relation: rel.name, LockMode: mode, Method: "rule",
 		ConflictingQueryIDs: []int64{}, LockTimeoutMs: p.LockTimeoutMs}
 	ids := []string{s.evID, rel.evID}
-	for _, ws := range r.conflicting(mode, rels...) {
+	for _, ws := range r.conflicting(locks...) {
 		q.ConflictingQueryIDs = append(q.ConflictingQueryIDs, ws.id)
 		ids = append(ids, r.queryEvidence(ws, rel))
 		if ws.rateKnown {
@@ -51,8 +55,19 @@ func (r *run) lockQueue(s *stmt, i int, as []assessment) {
 		q.PeakConflictingPerS, float64(q.HoldMs)/1000, q.Queued)
 	id := r.addEvidence("lockq", partRef(s.index, i), fmt.Sprintf("%s on %s: about %.1f "+
 		"statements queue", mode, rel.name, q.Queued), q)
-	r.find(RuleLockQueue, queueSeverity(q.Queued, r.cfg), lockQueueTitle(q),
+	r.find(RuleLockQueue, lockQueueSeverity(q, r.cfg), lockQueueTitle(q),
 		lockQueueText(q, r.work), append(ids, id)...)
+}
+
+// lockQueueSeverity is the queue's severity; with no conflicting rate
+// known at all, nothing proves the queue is short: at least a warning.
+func lockQueueSeverity(q lockQueueData, cfg config.ChangeReviewConfig) string {
+	sev := queueSeverity(q.Queued, cfg)
+	if sev == changereview.SeverityInfo && q.PeakConflictingPerS == 0 &&
+		len(q.RateUnknownIDs) > 0 {
+		return changereview.SeverityWarning
+	}
+	return sev
 }
 
 func lockQueueTitle(q lockQueueData) string {
@@ -75,8 +90,8 @@ func lockQueueText(q lockQueueData, w *workload) string {
 			"SET lock_timeout before the DDL."
 	}
 	if len(q.RateUnknownIDs) > 0 {
-		t += fmt.Sprintf(" %d conflicting statements have no query_store history; "+
-			"their rate is not counted.", len(q.RateUnknownIDs))
+		t += fmt.Sprintf(" %d conflicting statements have no query_store history: "+
+			"their rate is unknown and not counted.", len(q.RateUnknownIDs))
 	}
 	if w != nil && !w.available {
 		t += " The workload is unknown (" + w.reason + "): nothing proves no " +

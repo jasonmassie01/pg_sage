@@ -37,7 +37,12 @@ func (r *run) parseFiles(files []changereview.SQLFile) []textFile {
 			texts = r.addText(texts, f, parseReason(err))
 			continue
 		}
+		first := len(r.stmts)
 		r.addParsed(f.Path, parts)
+		optOut := txnOptOut(r.in.MigrationTool, f.Content)
+		for _, s := range r.stmts[first:] {
+			s.noTxn = optOut(s.line)
+		}
 	}
 	return texts
 }

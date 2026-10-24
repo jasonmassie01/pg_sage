@@ -27,7 +27,7 @@ func dropStatements(drop *pg_query.DropStmt) []DDLStatement {
 	objectType, isRelation := relationObjectTypes[drop.GetRemoveType()]
 	isIndex := drop.GetRemoveType() == pg_query.ObjectType_OBJECT_INDEX
 	if !isRelation && !isIndex {
-		return []DDLStatement{{Kind: DDLOther}}
+		return otherDrop(drop)
 	}
 	out := make([]DDLStatement, 0, len(drop.GetObjects()))
 	for _, object := range drop.GetObjects() {

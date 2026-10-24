@@ -20,6 +20,10 @@ func (r *run) resolvePart(s *stmt, p *sqlast.DDLStatement) {
 		target = r.indexTable(s, p.Object)
 	case sqlast.DDLCreateTable:
 		r.created[target] = true
+	case sqlast.DDLOther:
+		if p.Command == "ViewStmt" && target != "" {
+			r.created[target] = true // a new view, or the one it replaces
+		}
 	}
 	s.targets = append(s.targets, target)
 	if target != "" {

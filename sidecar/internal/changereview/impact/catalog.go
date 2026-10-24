@@ -30,9 +30,12 @@ type relation struct {
 	views        []viewDep
 	publications []string
 	inherits     int
-	rate         writeRate
-	evID         string
-	failed       map[string]string
+	// homonyms counts the other schemas' tables and views of this name: an
+	// unqualified workload statement may mean any of them.
+	homonyms int64
+	rate     writeRate
+	evID     string
+	failed   map[string]string
 }
 
 type column struct {
@@ -165,11 +168,14 @@ func (r *run) resolveName(s *stmt, n *sqlast.QualifiedName) {
 // size, columns, indexes, constraints, views, publications, partitions.
 func (r *run) loadRelation(rel *relation) {
 	var kind string
-	err := r.reader.QueryRow(r.ctx, `/* pg_sage change_review_relation v1 */
-		SELECT c.oid, c.relkind::text, c.reltuples::float8
+	err := r.reader.QueryRow(r.ctx, `/* pg_sage change_review_relation v2 */
+		SELECT c.oid, c.relkind::text, c.reltuples::float8,
+		       (SELECT count(*) FROM pg_catalog.pg_class o
+		         WHERE o.relname = c.relname AND o.oid <> c.oid
+		           AND o.relkind IN ('r', 'p', 'v', 'm', 'f'))
 		FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = $1 AND c.relname = $2`, rel.schema, rel.rel).
-		Scan(&rel.oid, &kind, &rel.reltuples)
+		Scan(&rel.oid, &kind, &rel.reltuples, &rel.homonyms)
 	if errors.Is(err, pgx.ErrNoRows) {
 		rel.created = r.created[rel.name]
 		return

@@ -96,9 +96,12 @@ func TestMigrationAlreadyHoldingIsNotApplicable(t *testing.T) {
 	if landed, err = AlreadyLanded(e.ctx, reader, r.Expectations); err != nil || !landed {
 		t.Fatalf("stored expectations: AlreadyLanded = %v, %v", landed, err)
 	}
-	got, err := svc.Store().MarkNotApplicable(e.ctx, r.ID)
-	if err != nil || got.LandingState != changereview.LandingNotApplicable {
-		t.Fatalf("MarkNotApplicable: %v, landing %s", err, got.LandingState)
+	// The review's own check at review time makes it not applicable at
+	// completion; no receipts cycle has to find it.
+	if r.LandingState != changereview.LandingNotApplicable ||
+		r.Expectations.AtReview != changereview.AtReviewLanded {
+		t.Fatalf("completed review: landing %s at review %q, want not_applicable",
+			r.LandingState, r.Expectations.AtReview)
 	}
 }
 

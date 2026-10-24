@@ -117,7 +117,7 @@ func inspectStatement(node *pg_query.Node) []DDLStatement {
 	case node.GetVariableSetStmt() != nil:
 		return []DDLStatement{{Kind: DDLSet, Setting: settingOf(node.GetVariableSetStmt())}}
 	}
-	return []DDLStatement{{Kind: DDLOther}}
+	return otherStatement(node)
 }
 
 // targetNames lists the column names of UPDATE SET targets and INSERT

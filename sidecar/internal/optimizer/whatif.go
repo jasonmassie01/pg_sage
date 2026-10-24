@@ -23,6 +23,24 @@ type WhatIfResult struct {
 	// Failed counts workload queries whose EXPLAIN failed (each is
 	// isolated in a savepoint and does not abort the evaluation).
 	Failed int
+	// PerQuery is each measured query's own planner-cost reduction in
+	// percent (negative: costlier with the index), by QueryID.
+	PerQuery map[int64]float64
+}
+
+// perQueryImprovement is each query's own cost reduction in percent, for
+// the queries planned on both sides with a positive baseline cost.
+func perQueryImprovement(queries []QueryInfo, before, after map[int64]float64,
+) map[int64]float64 {
+	out := make(map[int64]float64, len(queries))
+	for _, q := range queries {
+		cost, ok := before[q.QueryID]
+		next, okAfter := after[q.QueryID]
+		if ok && okAfter && cost > 0 {
+			out[q.QueryID] = (cost - next) / cost * 100
+		}
+	}
+	return out
 }
 
 // whatIfVerdict turns an evaluation into a verdict and, unless verified,

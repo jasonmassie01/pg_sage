@@ -159,8 +159,14 @@ type whatIfData struct {
 	Verdict        string   `json:"verdict,omitempty"`
 	Reason         string   `json:"reason,omitempty"`
 	QueryIDs       []int64  `json:"queryids,omitempty"`
-	WritesPerS     float64  `json:"table_writes_per_s"`
-	Error          string   `json:"error,omitempty"`
+	// PerQueryPct is each measured workload statement's own planned-cost
+	// reduction, by queryid: its prediction (the receipt's tolerance).
+	PerQueryPct map[string]float64 `json:"per_query_pct,omitempty"`
+	// Considered is how many workload reads of the table there were; at
+	// most maxWhatIfQueries of them, the busiest, are measured.
+	Considered int     `json:"considered,omitempty"`
+	WritesPerS float64 `json:"table_writes_per_s"`
+	Error      string  `json:"error,omitempty"`
 }
 
 // fkData is "fk:<n>.<part>": a new foreign key.
@@ -200,6 +206,13 @@ type expandData struct {
 type stepData struct {
 	Phase string `json:"phase"`
 	SQL   string `json:"sql"`
+}
+
+// schemaData is "schema:<name>": a dropped schema's tables and views.
+type schemaData struct {
+	Schema    string   `json:"schema"`
+	Relations int64    `json:"relations"`
+	Sample    []string `json:"sample"`
 }
 
 // txnData is "txn:<n>": the transaction a statement runs in.

@@ -146,7 +146,7 @@ func (r *run) backfill(s *stmt) {
 		return
 	}
 	where := "a single transaction"
-	if r.in.Transactional {
+	if r.transactional(s) {
 		where += " (with the rest of its migration file)"
 	}
 	r.find(RuleBackfill, backfillSeverity(d.Rows, r.cfg), fmt.Sprintf("Changes about %.0f "+

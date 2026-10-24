@@ -22,6 +22,7 @@ func (r *run) runRules(s *stmt) {
 			return
 		}
 	}
+	r.unmodeled(s, len(as) > 0)
 	r.planRules(s)
 }
 
@@ -35,6 +36,7 @@ func (r *run) partRules(s *stmt, i int, as []assessment, expandID string,
 	rel := r.target(s, i)
 	if rel == nil {
 		r.missingIndex(s, i)
+		r.otherObject(s, i)
 		return
 	}
 	if !rel.found {
@@ -94,6 +96,8 @@ func (r *run) kindRules(s *stmt, i int, rel *relation, as []assessment, expandID
 		r.relationRemoved(s, i, rel, "dropped")
 	case sqlast.DDLRenameTable:
 		r.relationRemoved(s, i, rel, "renamed to "+p.NewName)
+	case sqlast.DDLOther:
+		r.otherRules(s, i, rel)
 	}
 }
 
