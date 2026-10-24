@@ -23,6 +23,7 @@ import { FactsPage } from './pages/FactsPage'
 import { AskPage } from './pages/AskPage'
 import { MCPTokensPage } from './pages/MCPTokensPage'
 import { AgentsPage } from './pages/AgentsPage'
+import { ReviewsPage } from './pages/ReviewsPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -204,6 +205,9 @@ export default function App() {
       case '/cases':
         return { title: 'Cases',
           node: <CasesPage key={route} database={effectiveDB} user={user} /> }
+      case '/reviews':
+        return { title: 'Reviews',
+          node: <ReviewsPage key={route} database={effectiveDB} user={user} /> }
       case '/actions':
         return { title: 'Actions',
           node: <Actions database={effectiveDB} user={user} /> }

@@ -175,6 +175,7 @@ The dashboard and scripts use the REST API with a session:
 | `GET /api/v1/databases/{db}/change-reviews/{id}?wait_seconds=` | viewer and up |
 | `POST /api/v1/databases/{db}/change-reviews/{id}/verdict` | operator, admin: `{"verdict":"concur"}`, or override with `direction` and `reason` |
 | `GET /api/v1/change-reviews/summary?database=&days=` | viewer and up: the fleet, or one database |
+| `GET /api/v1/change-reviews?database=&pr_url=&state=&limit=` | viewer and up: the fleet's reviews newest first, or one database's (`partial` with `unavailable` names when a database cannot be read) |
 
 Errors: 400 `invalid_request`, 404 `not_found` (unknown database or review), 409
 `already_decided`, 429 `review_busy` (two reviews run per database and eight queue; retry),
@@ -185,6 +186,22 @@ A review that completes with verdict `review` or `risky` and no DBA verdict emit
 notification event `change_review_needs_dba` once, through the notification rules you
 configure. It names the database, the verdict, the top finding and the PR link (scheme and
 host only), and links the review in the UI.
+
+## The Reviews page
+
+**Reviews** in the dashboard's Operate menu lists every review of the selected database, or
+of the fleet, with its PR, verdict, DBA verdict, receipt state and age, above the measured
+track record: concurrence per verdict class, time to a DBA verdict, false-safe count,
+receipts, override rate per rule with the stated reasons, hours credited and pending, and the
+auto-clear readiness bar (30 scored, 97% correct, no regression in 90 days), which is labeled
+"shadow only — not enabled": nothing is cleared without a DBA in this release.
+
+Opening a review shows its findings by severity, each citation expanding into the evidence it
+rests on, the statements with file:line, origin and matched queryid, how many model claims the
+evidence gates dropped, the model status and tokens, the receipt, and the credit. Operators
+and admins record the DBA verdict there; viewers see it. Reviews that wait for a DBA also
+appear in **Cases** (source Reviews): critical for `risky`, warning for `review`, until a
+verdict is recorded.
 
 ## What pg_sage reads
 
