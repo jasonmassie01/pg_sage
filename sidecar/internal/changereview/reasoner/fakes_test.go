@@ -180,25 +180,28 @@ type memBudget struct {
 	err      error // a store failure on Reserve
 }
 
-func (b *memBudget) Reserve(_ context.Context, _ string, tokens int64) error {
+func (b *memBudget) Reserve(_ context.Context, actor string, tokens int64) (
+	changereview.Reservation, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.err != nil {
-		return b.err
+		return changereview.Reservation{}, b.err
 	}
 	b.reserves++
 	if b.used+tokens > b.limit {
-		return &changereview.BudgetError{Scope: changereview.BudgetScopeDatabase,
-			Used: b.used, Limit: b.limit, Need: tokens}
+		return changereview.Reservation{}, &changereview.BudgetError{
+			Scope: changereview.BudgetScopeDatabase, Used: b.used, Limit: b.limit,
+			Need: tokens}
 	}
 	b.used += tokens
-	return nil
+	return changereview.Reservation{Day: time.Now().UTC(), Actor: actor,
+		Tokens: tokens}, nil
 }
 
-func (b *memBudget) Settle(_ context.Context, _ string, reserved, used int64) error {
+func (b *memBudget) Settle(_ context.Context, r changereview.Reservation, used int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.used += used - reserved
+	b.used += used - r.Tokens
 	b.settled = append(b.settled, used)
 	return nil
 }

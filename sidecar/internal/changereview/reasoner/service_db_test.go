@@ -245,7 +245,7 @@ func TestService_RealBudgetUnderConcurrentReviews(t *testing.T) {
 func TestService_ExhaustedRealBudgetMakesNoRequest(t *testing.T) {
 	f := newDBFixture(t)
 	budget := changereview.NewBudget(f.pool, 1000, 1000, nil)
-	if err := budget.Reserve(f.ctx, "user:other", 1000); err != nil {
+	if _, err := budget.Reserve(f.ctx, "user:other", 1000); err != nil {
 		t.Fatal(err)
 	}
 	fake := newFakeLLM(t, emptySubmit())

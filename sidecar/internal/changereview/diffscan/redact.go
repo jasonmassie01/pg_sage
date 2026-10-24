@@ -12,12 +12,22 @@ const Redacted = "[redacted]"
 var (
 	pemKey = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?s:.*?)` +
 		`(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)`)
-	awsKeyID   = regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b`)
-	urlCreds   = regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9+.\-]*://)[^/\s:@'"\[\]]+:[^@\s'"/]+@`)
-	assignment = regexp.MustCompile(`(?i)\b[A-Za-z0-9_\-]*(?:password|passwd|pwd|secret|` +
-		`token|api_?key|access_?key|private_?key|auth_?key|credentials?)[A-Za-z0-9_\-]*` +
+	awsKeyID = regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b`)
+	// urlCreds is scheme://user:password@ up to the last '@' of the URL: a
+	// password may hold '/' or an unencoded '@'.
+	urlCreds  = regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9+.\-]*://)[^/\s:@'"\[\]]+:[^\s'"]+@`)
+	secretKey = `[A-Za-z0-9_\-]*(?:password|passwd|pwd|secret|token|api_?key|access_?key|` +
+		`private_?key|auth_?key|credentials?)[A-Za-z0-9_\-]*`
+	assignment = regexp.MustCompile(`(?i)\b` + secretKey +
 		`["']?\s*(?:=>|:=|=|:)\s*("[^"\n]*"|'[^'\n]*'|[^\s,;'"]+)`)
+	// sqlSecret is SQL's keyword form: PASSWORD 'x', OPTIONS (password 'x').
+	sqlSecret = regexp.MustCompile(`(?i)\b(` + secretKey + `\s+)('(?:[^'\n]|'')*')`)
 	longToken = regexp.MustCompile(`[A-Za-z0-9+_\-]{32,}={0,2}`)
+	// Unquoted values that are code, not a secret: a variable or template
+	// reference, a member path, a call or an index.
+	envRef     = regexp.MustCompile(`^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*|\()`)
+	memberPath = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	callOrItem = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*[(\[]`)
 )
 
 // notSecretValues are unquoted assignment values that name a type or a
@@ -40,6 +50,7 @@ func Redact(text string) string {
 	text = pemKey.ReplaceAllString(text, Redacted)
 	text = urlCreds.ReplaceAllString(text, "${1}"+Redacted+"@")
 	text = awsKeyID.ReplaceAllString(text, Redacted)
+	text = sqlSecret.ReplaceAllStringFunc(text, redactSQLSecret)
 	text = assignment.ReplaceAllStringFunc(text, redactAssignment)
 	return longToken.ReplaceAllStringFunc(text, func(tok string) string {
 		if highEntropy(tok) {
@@ -64,11 +75,29 @@ func redactAssignment(m string) string {
 		}
 		return key + string(q) + Redacted + string(q)
 	}
-	if strings.ContainsAny(value, "([{.$<") || notSecretValues[strings.ToLower(value)] ||
-		value == Redacted {
+	if codeValue(value) || notSecretValues[strings.ToLower(value)] || value == Redacted {
 		return m
 	}
 	return key + Redacted
+}
+
+// codeValue reports whether an unquoted assignment value is code that
+// names a secret rather than the secret: a variable or template reference
+// ($VAR, ${VAR}, <%= %>, {{ }}), a member path (settings.DB_PASSWORD) or
+// a call or index (ENV.fetch(, params[). A value with other punctuation
+// (s3cr3t.2024, Hunter2$, p@ss.word!) is a literal.
+func codeValue(v string) bool {
+	return envRef.MatchString(v) || strings.HasPrefix(v, "<%") ||
+		strings.HasPrefix(v, "{{") || memberPath.MatchString(v) || callOrItem.MatchString(v)
+}
+
+// redactSQLSecret replaces the quoted literal of PASSWORD 'x'.
+func redactSQLSecret(m string) string {
+	sub := sqlSecret.FindStringSubmatch(m)
+	if sub == nil || sub[2] == "''" || sub[2] == "'"+Redacted+"'" {
+		return m
+	}
+	return sub[1] + "'" + Redacted + "'"
 }
 
 // highEntropy reports whether a 32+ character token looks generated: mixed

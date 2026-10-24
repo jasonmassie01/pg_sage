@@ -10,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentloop"
 	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/changereview/diffscan"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -124,25 +125,36 @@ func seedEvidence(a changereview.Analysis) []agentloop.Evidence {
 	for _, id := range order {
 		e := byID[id]
 		out = append(out, agentloop.Evidence{ID: e.ID, Digest: e.Digest,
-			Label: e.ID + " " + e.Label, Text: clipRunes(groundText(e), maxSeedRunes)})
+			Label: e.ID + " " + diffscan.Redact(e.Label),
+			Text:  clipRunes(groundText(e), maxSeedRunes)})
 	}
 	return out
 }
 
-// groundText is what claims citing e are checked against: its id, label
-// and data.
+// groundText is what claims citing e are checked against, and what the
+// model is shown of it: its id, label and data with secrets redacted and
+// SQL literals and comments removed, as the migration SQL itself is
+// (evidence carries the submitted statements and workload texts
+// verbatim). Numbers outside quotes stay, so claims still ground.
 func groundText(e changereview.Evidence) string {
-	return e.ID + " " + e.Label + " " + string(e.Data)
+	return e.ID + " " + diffscan.Redact(e.Label) + " " + promptData(e.Data)
+}
+
+// promptData is evidence data as the model may see it.
+func promptData(data []byte) string {
+	return llm.SanitizeForLLM(diffscan.Redact(string(data)))
 }
 
 // cite keeps a tool result and makes it citable under the next alias;
-// label is pg_sage's own text (it is shown outside the data fence).
+// label is pg_sage's own text (it is shown outside the data fence). What
+// the model reads of the result is redacted like the seed.
 func (s *session) cite(e changereview.Evidence, label, summary string) agentloop.Output {
 	s.evidence[e.ID] = e
 	s.aliases[fmt.Sprintf("E%d", len(s.aliases)+1)] = e.ID
-	text := summary + "\n" + string(e.Data)
+	text := diffscan.Redact(summary) + "\n" + promptData(e.Data)
 	return agentloop.Output{Status: "ok", Text: text, Evidence: &agentloop.Evidence{
-		ID: e.ID, Digest: e.Digest, Label: e.ID + " " + label, Text: groundText(e)}}
+		ID: e.ID, Digest: e.Digest, Label: e.ID + " " + diffscan.Redact(label),
+		Text: groundText(e)}}
 }
 
 // resolve is the durable evidence id of an alias the model cited, or the

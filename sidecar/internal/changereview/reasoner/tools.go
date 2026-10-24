@@ -110,6 +110,13 @@ func (s *session) inspectTool(ctx context.Context, raw json.RawMessage) (agentlo
 	if err != nil {
 		return agentloop.Output{}, engineErr(err)
 	}
+	// The model's label is not trusted: DDL it calls extracted is still
+	// DDL it derived, never safe (CR-19).
+	if ins.Parsed && changereview.IsModelDDL(changereview.Statement{Origin: origin,
+		Kind: ins.Statement.Kind}) {
+		origin = changereview.OriginModelTranslated
+		ins.Statement.Origin = origin
+	}
 	rec := &inspection{sql: a.SQL, origin: origin, ins: ins,
 		byID: map[string]changereview.Evidence{}}
 	for _, e := range ins.Evidence {

@@ -80,8 +80,9 @@ type Tools interface {
 // TokenBudget is the daily token budget every model call is reserved
 // against and settled with (*changereview.Budget).
 type TokenBudget interface {
-	Reserve(ctx context.Context, actor string, tokens int64) error
-	Settle(ctx context.Context, actor string, reserved, used int64) error
+	Reserve(ctx context.Context, actor string, tokens int64) (changereview.Reservation,
+		error)
+	Settle(ctx context.Context, r changereview.Reservation, used int64) error
 }
 
 // Deps is what the reasoner needs. Tools is required. Model nil (or a
@@ -166,7 +167,8 @@ func (r *Reasoner) Reason(ctx context.Context, in changereview.Input,
 	cfg := s.config(r.bounds(ctx, in))
 	model := budgetedModel{inner: r.d.Model, budget: r.d.Budget, actor: in.Actor,
 		logf: r.d.Logf}
-	res, err := agentloop.Run(ctx, model, cfg)
+	// The run's tool calls share one workload read of the engine.
+	res, err := agentloop.Run(impact.WithSessionCache(ctx), model, cfg)
 	if err != nil {
 		if ctx.Err() != nil {
 			return changereview.Reasoning{}, fmt.Errorf("model stage: %w", ctx.Err())
@@ -236,7 +238,8 @@ type budgetedModel struct {
 func (m budgetedModel) ChatWithTools(ctx context.Context, msgs []llm.Message,
 	tools []llm.ToolSpec, opts llm.ToolOptions) (llm.ToolResult, error) {
 	est := int64(agentloop.EstimateTokens(msgs, tools, opts.MaxTokens))
-	if err := m.budget.Reserve(ctx, m.actor, est); err != nil {
+	reserved, err := m.budget.Reserve(ctx, m.actor, est)
+	if err != nil {
 		if errors.Is(err, changereview.ErrBudgetExhausted) {
 			return llm.ToolResult{}, fmt.Errorf("%w: %v", llm.ErrBudgetExhausted, err)
 		}
@@ -244,7 +247,7 @@ func (m budgetedModel) ChatWithTools(ctx context.Context, msgs []llm.Message,
 	}
 	res, err := m.inner.ChatWithTools(ctx, msgs, tools, opts)
 	used := usedTokens(res, err, est)
-	if serr := m.budget.Settle(context.WithoutCancel(ctx), m.actor, est, used); serr != nil {
+	if serr := m.budget.Settle(context.WithoutCancel(ctx), reserved, used); serr != nil {
 		m.logf("change review: settle %d of %d reserved tokens for %s: %v", used, est,
 			m.actor, serr)
 	}
