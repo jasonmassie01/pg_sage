@@ -268,3 +268,15 @@ describe('ReviewsPage detail', () => {
     expect(screen.getByText(/404 Not Found/)).toBeInTheDocument()
   })
 })
+
+describe('ReviewsPage untrusted PR fields', () => {
+  it('links the PR only when its URL is https', () => {
+    window.location.hash = '#/reviews?id=11111111-1111-4111-8111-111111111111' +
+      '&database=orders'
+    serve({ [DETAIL]: makeReview({ pr_url: 'javascript:alert(1)' }) })
+    render(<ReviewsPage database="all" user={viewer} />)
+    const detail = screen.getByTestId('review-detail')
+    expect(detail).toHaveTextContent('javascript:alert(1)')
+    expect(within(detail).queryByRole('link', { name: 'javascript:alert(1)' })).toBeNull()
+  })
+})

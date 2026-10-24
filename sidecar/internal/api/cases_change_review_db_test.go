@@ -270,3 +270,20 @@ func TestQueryChangeReviewCasesKeepsTheNewestCompleted(t *testing.T) {
 		}
 	}
 }
+
+// Post-test audit: one review whose stored findings are not a list must
+// not fail the whole cases view; it is still listed, explained by its
+// verdict.
+func TestCasesSurviveAReviewWithUnreadableFindings(t *testing.T) {
+	f := newCRCasesFixture(t)
+	risky := submitCR(t, f.svc, "ALTER TABLE orders DROP COLUMN email; "+crfake.MarkRisky)
+	if _, err := f.pool.Exec(context.Background(), `UPDATE sage.change_review
+		SET findings = '{"not":"a list"}'::jsonb WHERE id = $1`, risky.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := getCases(t, f.mgr, "?database=db1")
+	c, ok := caseByReview(got, risky.ID)
+	if !ok || c.Why != "verdict risky" || c.Severity != cases.SeverityCritical {
+		t.Fatalf("cases %+v, want the risky review explained by its verdict", got)
+	}
+}

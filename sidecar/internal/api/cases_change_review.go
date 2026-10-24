@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -84,7 +85,10 @@ func scanChangeReviewCase(scan func(...any) error) (cases.SourceChangeReview, er
 		Title    string `json:"title"`
 	}
 	if err := json.Unmarshal(findings, &stored); err != nil {
-		return src, fmt.Errorf("review %s findings: %w", src.ID, err)
+		// One unreadable row must not fail the cases view: the case is
+		// still listed, explained by its verdict.
+		slog.Warn("change review case without findings", "review", src.ID, "error", err)
+		return src, nil
 	}
 	for _, f := range stored {
 		src.Findings = append(src.Findings, cases.ChangeReviewFinding{RuleID: f.RuleID,

@@ -76,12 +76,12 @@ function Header({ review }) {
       </div>
       <div className="flex flex-wrap gap-3 text-xs" style={muted}>
         <span>Database: {review.database}</span>
-        {review.pr_url && (
+        {review.pr_url && (/^https:\/\//i.test(review.pr_url) ? (
           <a href={review.pr_url} target="_blank" rel="noreferrer noopener"
             className="underline" style={{ color: 'var(--accent)' }}>
             {review.pr_url}
           </a>
-        )}
+        ) : <span>{review.pr_url}</span>)}
         {review.head_sha && <span className="font-mono">{review.head_sha}</span>}
         <span>Requested by {review.actor} via {review.source}</span>
       </div>
