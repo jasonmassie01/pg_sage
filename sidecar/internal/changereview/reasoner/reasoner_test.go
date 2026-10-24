@@ -283,7 +283,7 @@ func limitsRun(t *testing.T, sqls []string) []fakeReply {
 					"origin": "extracted", "file": controllerPath, "line": 12})
 			}
 			return map[string]any{"statements": out, "findings": findings,
-				"not_determined": []string{"a", "b", "c", "d", "e", "f", "g", "row 7 unclear"}}
+				"not_determined": []string{"row 7 unclear", "a", "b", "c", "d", "e", "f", "g"}}
 		}),
 	}
 }

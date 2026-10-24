@@ -57,10 +57,13 @@ func TestReason_NoModelGivesCR20WithTheExportCommand(t *testing.T) {
 
 func TestReason_DisabledClientMakesNoRequest(t *testing.T) {
 	fake := newFakeLLM(t, emptySubmit())
-	r := newTestReasoner(t, Deps{Model: fake.clientEnabled(false)})
+	budget := &memBudget{limit: 1 << 30}
+	r := newTestReasoner(t, Deps{Model: fake.clientEnabled(false), Budget: budget})
 	res := reason(t, r, testInput(railsRenameDiff, "rails"), noSQLAnalysis())
-	if fake.calls() != 0 || res.ModelStatus != changereview.ModelNoModel {
-		t.Fatalf("status %q after %d requests", res.ModelStatus, fake.calls())
+	if fake.calls() != 0 || res.ModelStatus != changereview.ModelNoModel ||
+		budget.reserves != 0 || res.Transcript != nil {
+		t.Fatalf("status %q after %d requests, %d reservations, transcript %+v",
+			res.ModelStatus, fake.calls(), budget.reserves, res.Transcript)
 	}
 	cr20(t, res)
 }
