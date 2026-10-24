@@ -22,13 +22,17 @@ var anchorKinds = map[changefeed.Kind]bool{changefeed.KindDeploy: true,
 
 // landing is the per-cycle context of one database's landing pass.
 type landing struct {
-	st      *changereview.Store
-	reader  catalogread.Reader
-	now     time.Time
-	expiry  time.Duration
-	anchors map[string]changefeed.Event
-	feedOK  bool
-	checks  map[string]*time.Time
+	st     *changereview.Store
+	reader catalogread.Reader
+	now    time.Time
+	// observed is when the post-conditions were read: the upper end of a
+	// catalog landing (now, the cycle start, is the lower end recorded for
+	// the reviews still unmet).
+	observed time.Time
+	expiry   time.Duration
+	anchors  map[string]changefeed.Event
+	feedOK   bool
+	checks   map[string]*time.Time
 	// states is each review's post-condition landing (impact.Landing);
 	// failed holds the reviews whose evaluation failed, with the error.
 	states map[string]string
@@ -59,6 +63,7 @@ func (j *Job) land(ctx context.Context, db Database, now time.Time, rep *Report)
 		return fmt.Errorf("read landing checks: %w", err)
 	}
 	l.states, l.failed = evaluateAll(ctx, l.reader, awaiting)
+	l.observed = j.d.Now()
 	var unmet []string
 	for _, r := range awaiting {
 		if err := ctx.Err(); err != nil {
@@ -124,12 +129,12 @@ func (j *Job) landByCatalog(ctx context.Context, l *landing, r changereview.Revi
 		return
 	}
 	lower := *checked
-	if lower.After(l.now) {
-		lower = l.now
+	if lower.After(l.observed) {
+		lower = l.observed
 	}
 	j.record(rep, r.ID, "landing", func() error {
 		_, err := l.st.MarkLanded(ctx, r.ID, changereview.Landing{
-			Source: changereview.LandingSourceCatalog, Lower: lower, At: l.now})
+			Source: changereview.LandingSourceCatalog, Lower: lower, At: l.observed})
 		return err
 	}, &rep.Landed)
 }
