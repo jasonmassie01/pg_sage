@@ -457,6 +457,29 @@ safety_critical ask.enabled
 derivable ask.max_tokens_per_question
 operator_preference ask.retention_days
 
+# Change Review: enabling a model feature is authority; the per-review and
+# per-database model budgets are spend caps derivable downward. The receipt
+# window feeds verification (what earns credit), and the verdict thresholds
+# and the auto-clear table cap decide how lenient a verdict is, so loosening
+# one widens what pg_sage calls safe. Input limits, concurrency, the per-actor
+# budget and landing expiry are the operator's policy.
+safety_critical change_review.auto_clear_max_table_bytes
+safety_critical change_review.backfill_rows_critical
+safety_critical change_review.backfill_rows_warn
+derivable change_review.daily_tokens_per_database
+operator_preference change_review.daily_tokens_per_actor
+safety_critical change_review.enabled
+operator_preference change_review.landing_expiry_days
+safety_critical change_review.large_scan_rows
+safety_critical change_review.lock_queue_critical
+safety_critical change_review.lock_queue_warn
+operator_preference change_review.max_concurrent_per_database
+operator_preference change_review.max_diff_bytes
+operator_preference change_review.max_offered_diff_bytes
+operator_preference change_review.max_sql_bytes
+derivable change_review.max_tokens_per_review
+safety_critical change_review.receipt_window_hours
+
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the
 # guard floors gate builds and memory changes, so loosening one widens what
 # pg_sage may do; the switch and the poll cadence are not authority.

@@ -110,6 +110,9 @@ type Config struct {
 	Agents AgentsConfig `yaml:"agents"`
 	// Audit is the audit export and evidence of E2 (audit.go).
 	Audit AuditConfig `yaml:"audit"`
+	// ChangeReview is the pre-merge database review of migrations and
+	// data-access changes, with post-deploy receipts (review.go).
+	ChangeReview ChangeReviewConfig `yaml:"change_review"`
 
 	// NotificationPolicy governs notification channel targets (G7-B21). The
 	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
@@ -714,6 +717,9 @@ func (c *Config) validate() error {
 	if err := c.Ask.validate(); err != nil {
 		return err
 	}
+	if err := c.ChangeReview.Validate(); err != nil {
+		return err
+	}
 	if err := c.Specialist.validate(); err != nil {
 		return err
 	}
@@ -1101,6 +1107,7 @@ func newDefaults() *Config {
 		FleetLearning: defaultFleetLearningConfig(),
 		Agents:        defaultAgentsConfig(),
 		Audit:         defaultAuditConfig(),
+		ChangeReview:  defaultChangeReviewConfig(),
 	}
 }
 
