@@ -1,0 +1,130 @@
+name: pg_sage database review
+description: >-
+  Review migration and data-access changes with pg_sage, the agentic DBA, against the
+  live database before they merge. Posts one cited review comment and sets the commit
+  status "pg_sage/db-review (<database>)". pg_sage only reads: it never runs the
+  migration and holds no GitHub credentials; this action uses the runner's own token.
+author: pg_sage
+
+inputs:
+  version:
+    description: pg_sage release to install, like v2.4.0 (pin it).
+    required: true
+  url:
+    description: pg_sage base URL the runner can reach, like https://pg-sage.example.com:8080.
+    required: true
+  database:
+    description: Monitored database the change is reviewed against.
+    required: true
+  token:
+    description: >-
+      pg_sage MCP token (read scope; add propose for "deployed"), bound to this one
+      database, with an expiry. Pass it from a repository secret.
+    required: true
+  command:
+    description: submit (review the pull request), status (refresh open pull requests) or install.
+    required: false
+    default: submit
+  sql-dir:
+    description: Directory of .sql migrations; only the files this pull request changes are sent.
+    required: false
+    default: ""
+  migration-tool:
+    description: flyway, liquibase, goose, golang-migrate, dbmate, sqitch, atlas, rails, django, alembic, prisma, knex, sequelize or typeorm.
+    required: false
+    default: ""
+  fail-on:
+    description: Fail the job at this verdict or above (risky, review or never).
+    required: false
+    default: risky
+  wait:
+    description: How long to wait for the review to complete.
+    required: false
+    default: 10m
+  github-token:
+    description: Token for the comment and the commit status (the runner's own by default).
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the pg_sage token
+      id: token
+      shell: bash
+      env:
+        PG_SAGE_TOKEN: ${{ inputs.token }}
+      run: |
+        if [ -z "$PG_SAGE_TOKEN" ]; then
+          echo "::notice::pg_sage review skipped: no pg_sage token (fork pull requests get no repository secrets)"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        umask 077
+        token_file="$RUNNER_TEMP/pg_sage-mcp-token"
+        printf '%s' "$PG_SAGE_TOKEN" > "$token_file"
+        echo "PG_SAGE_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
+        echo "skip=false" >> "$GITHUB_OUTPUT"
+
+    - name: Install pg_sage
+      if: steps.token.outputs.skip != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::version must be a pinned release like v2.4.0, got '$VERSION'"
+          exit 2
+        fi
+        case "$(uname -s)-$(uname -m)" in
+          Linux-x86_64) asset=pg_sage_linux_amd64.tar.gz ;;
+          Linux-aarch64) asset=pg_sage_linux_arm64.tar.gz ;;
+          Darwin-x86_64) asset=pg_sage_darwin_amd64.tar.gz ;;
+          Darwin-arm64) asset=pg_sage_darwin_arm64.tar.gz ;;
+          *) echo "::error::no pg_sage release for $(uname -s)-$(uname -m)"; exit 2 ;;
+        esac
+        dir="$RUNNER_TEMP/pg_sage-$VERSION"
+        mkdir -p "$dir"
+        base="https://github.com/jasonmassie01/pg_sage/releases/download/$VERSION"
+        curl -fsSL --retry 3 -o "$dir/$asset" "$base/$asset"
+        curl -fsSL --retry 3 -o "$dir/checksums.txt" "$base/checksums.txt"
+        (cd "$dir" && grep " $asset\$" checksums.txt | sha256sum -c -)
+        tar -xzf "$dir/$asset" -C "$dir"
+        echo "$dir" >> "$GITHUB_PATH"
+
+    - name: Review the change
+      if: steps.token.outputs.skip != 'true' && inputs.command == 'submit'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PG_SAGE_URL: ${{ inputs.url }}
+        DATABASE: ${{ inputs.database }}
+        SQL_DIR: ${{ inputs.sql-dir }}
+        MIGRATION_TOOL: ${{ inputs.migration-tool }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        WAIT: ${{ inputs.wait }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+        range="${BASE_SHA:-origin/$DEFAULT_BRANCH}...${HEAD_SHA:-HEAD}"
+        args=(--database "$DATABASE" --git-diff "$range" --fail-on "$FAIL_ON" --wait="$WAIT")
+        if [ -n "$SQL_DIR" ]; then
+          args+=(--sql-dir "$SQL_DIR" --changed-only)
+        fi
+        if [ -n "$MIGRATION_TOOL" ]; then
+          args+=(--migration-tool "$MIGRATION_TOOL")
+        fi
+        pg_sage review submit --github "${args[@]}"
+
+    - name: Refresh review status
+      if: steps.token.outputs.skip != 'true' && inputs.command == 'status'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PG_SAGE_URL: ${{ inputs.url }}
+        DATABASE: ${{ inputs.database }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: pg_sage review status --github --database "$DATABASE" --fail-on "$FAIL_ON"

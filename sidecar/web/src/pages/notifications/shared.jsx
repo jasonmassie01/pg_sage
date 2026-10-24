@@ -23,6 +23,7 @@ export const EVENT_SEVERITY = {
   incident_detected: 'warning',
   incident_escalated: 'warning',
   incident_resolved: 'warning',
+  change_review_needs_dba: 'warning',
 }
 
 export const EVENT_TYPES = Object.keys(EVENT_SEVERITY)

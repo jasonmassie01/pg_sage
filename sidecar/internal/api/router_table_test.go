@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -186,8 +187,9 @@ func buildStandaloneRouter(t *testing.T) http.Handler {
 		w.WriteHeader(http.StatusTeapot)
 	})
 	rt := &RuntimeDeps{
-		MCPHandler: mcp,
-		Autonomy:   &AutonomyDeps{Ledgers: earned.NewRegistry(false)},
+		MCPHandler:   mcp,
+		Autonomy:     &AutonomyDeps{Ledgers: earned.NewRegistry(false)},
+		ChangeReview: changereview.NewRegistry(),
 	}
 	return NewRouterFullRuntime(mgr, cfg, pool, actions, nil, nil, rt, injectCharRole)
 }
