@@ -5,13 +5,13 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
+	"github.com/pg-sage/sidecar/internal/changereview/diffscan"
 )
 
 // What 'pg_sage review submit' sends: migration SQL (--sql-file, or the
@@ -162,39 +162,10 @@ func diffChangedPaths(diff string) []string {
 	return out
 }
 
-// dataAccessDirs and the .sql suffix mark database-touching files: the
-// path classes of the reasoner's diffscan (migrations, ORM models,
-// repositories, DAOs). diffscan's ORM call patterns run server-side.
-var dataAccessDirs = []string{"migrations", "migrate", "versions", "prisma", "models",
-	"repositories", "dao"}
-
-// reviewDataAccessPath reports whether a changed file may touch the
-// database.
-func reviewDataAccessPath(p string) bool {
-	p = strings.ToLower(p)
-	if path.Ext(p) == ".sql" || strings.HasSuffix(p, "schema.prisma") ||
-		strings.HasSuffix(p, "schema.rb") {
-		return true
-	}
-	for _, seg := range strings.Split(path.Dir(p), "/") {
-		for _, d := range dataAccessDirs {
-			if seg == d {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// touchesDatabase: SQL was given, or the diff changes a data-access file.
+// touchesDatabase: SQL was given, or the diff changes a data-access file
+// by diffscan's classifier, the same one that picks the hunks offered to
+// the model: migrations, *.sql, models, repositories, DAOs, or code whose
+// added lines call an ORM or embed SQL.
 func (in reviewInput) touchesDatabase() bool {
-	if len(in.files) > 0 {
-		return true
-	}
-	for _, p := range diffChangedPaths(in.diff) {
-		if reviewDataAccessPath(p) {
-			return true
-		}
-	}
-	return false
+	return len(in.files) > 0 || diffscan.TouchesDatabase(in.diff)
 }

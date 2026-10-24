@@ -61,22 +61,53 @@ func TestReviewGateTable(t *testing.T) {
 	}
 }
 
-func TestReviewDataAccessPath(t *testing.T) {
-	yes := []string{"db/migrate/20261023_rename.rb", "migrations/V2__add.sql",
-		"alembic/versions/3f2_add.py", "prisma/schema.prisma", "sql/report.SQL",
-		"app/models/order.rb", "src/repositories/orders.ts", "internal/dao/user.go",
-		"app/orders/migrations/0002_auto.py", "db/schema.rb"}
-	no := []string{"README.md", "web/site.css", "docs/img/logo.png", "app/controllers/a.rb",
-		"docs/schema/diagram.png", "Makefile", "models.md"}
-	for _, p := range yes {
-		if !reviewDataAccessPath(p) {
-			t.Errorf("%s must count as database-touching", p)
+// reviewDiffOf is a one-hunk unified diff adding lines to file.
+func reviewDiffOf(file string, added ...string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n@@ -1,0 +1,%d @@\n",
+		file, file, file, file, len(added))
+	for _, l := range added {
+		b.WriteString("+" + l + "\n")
+	}
+	return b.String()
+}
+
+// The CLI skips a change only when diffscan (the reasoner's classifier)
+// finds no data-access file: paths, plus ORM calls in added app code.
+func TestReviewInputTouchesDatabase(t *testing.T) {
+	yes := map[string]string{
+		"rails migration": reviewDiffOf("db/migrate/20261023_rename.rb", "rename_column :o"),
+		"flyway sql":      reviewDiffOf("migrations/V2__add.sql", "ALTER TABLE t ADD c int;"),
+		"alembic":         reviewDiffOf("alembic/versions/3f2_add.py", "op.add_column('t')"),
+		"prisma schema":   reviewDiffOf("prisma/schema.prisma", "model Order {"),
+		"model":           reviewDiffOf("app/models/order.rb", "class Order"),
+		"repository":      reviewDiffOf("src/repositories/orders.ts", "export {}"),
+		"dao":             reviewDiffOf("internal/dao/user.go", "package dao"),
+		"schema.rb":       reviewDiffOf("db/schema.rb", "create_table"),
+		// An N+1 in a controller: no data-access path, but an ORM call.
+		"controller orm call": reviewDiffOf("app/controllers/orders_controller.rb",
+			"@orders = Order.where(status: params[:status]).order(:created_at).limit(50)"),
+	}
+	for name, diff := range yes {
+		if !(reviewInput{diff: diff}).touchesDatabase() {
+			t.Errorf("%s must count as database-touching", name)
 		}
 	}
-	for _, p := range no {
-		if reviewDataAccessPath(p) {
-			t.Errorf("%s must not count as database-touching", p)
+	no := map[string]string{
+		"readme":           reviewDiffOf("README.md", "Run the migrations first."),
+		"css":              reviewDiffOf("web/site.css", "body { margin: 0 }"),
+		"plain controller": reviewDiffOf("app/controllers/a.rb", "render :index"),
+		"makefile":         reviewDiffOf("Makefile", "test:"),
+		"empty":            "",
+	}
+	for name, diff := range no {
+		if (reviewInput{diff: diff}).touchesDatabase() {
+			t.Errorf("%s must not count as database-touching", name)
 		}
+	}
+	sqlOnly := reviewInput{files: []changereview.SQLFile{{Path: "a.sql", Content: "SELECT 1"}}}
+	if !sqlOnly.touchesDatabase() {
+		t.Error("given SQL always touches the database, whatever the diff")
 	}
 }
 
