@@ -182,33 +182,43 @@ func gateRun(t *testing.T, stmts []map[string]any, sqls []string) []fakeReply {
 	})}
 }
 
-func TestReason_ExtractionGate(t *testing.T) {
-	const (
-		broken  = "SELEC id FROM orders"
-		noPlan  = "SELECT id FROM orders o, LATERAL bad(o) x"
-		byID    = "SELECT email FROM orders WHERE id = $1"
-		other   = "SELECT 1 FROM orders WHERE note IS NULL"
-		farAway = "SELECT 2 FROM orders WHERE note IS NULL"
-	)
+// The extraction gate fixture: one statement per gate outcome.
+const (
+	gateBroken  = "SELEC id FROM orders"
+	gateNoPlan  = "SELECT id FROM orders o, LATERAL bad(o) x"
+	gateByID    = "SELECT email FROM orders WHERE id = $1"
+	gateOther   = "SELECT 1 FROM orders WHERE note IS NULL"
+	gateFarAway = "SELECT 2 FROM orders WHERE note IS NULL"
+)
+
+func gateFixture(t *testing.T) (*fakeTools, *fakeLLM) {
 	tools := newFakeTools()
-	tools.parseFail[broken] = "syntax error at or near \"SELEC\""
-	tools.planFail[noPlan] = "function bad(orders) does not exist"
-	tools.matched[byID] = 42
+	tools.parseFail[gateBroken] = "syntax error at or near \"SELEC\""
+	tools.planFail[gateNoPlan] = "function bad(orders) does not exist"
+	tools.matched[gateByID] = 42
 	stmt := func(sql, file string, line int, conf float64) map[string]any {
 		return map[string]any{"sql": sql, "origin": "extracted", "file": file, "line": line,
-			"orm": "activerecord", "confidence": conf, "in_loop": sql == byID}
+			"orm": "activerecord", "confidence": conf, "in_loop": sql == gateByID}
 	}
 	stmts := []map[string]any{
-		stmt(broken, controllerPath, 12, 0.5),
-		stmt(noPlan, controllerPath, 12, 0.5),
-		stmt(other, "app/models/other.rb", 12, 0.5),
-		stmt(farAway, controllerPath, 17, 0.5),
-		stmt(byID, controllerPath, 16, -0.2),
+		stmt(gateBroken, controllerPath, 12, 0.5),
+		stmt(gateNoPlan, controllerPath, 12, 0.5),
+		stmt(gateOther, "app/models/other.rb", 12, 0.5),
+		stmt(gateFarAway, controllerPath, 17, 0.5),
+		stmt(gateByID, controllerPath, 16, -0.2),
 		stmt(extractedSQL, controllerPath, 12, 1.7),
 		{"evidence_id": "E99", "origin": "extracted", "file": controllerPath, "line": 12},
 	}
-	fake := newFakeLLM(t, gateRun(t, stmts, []string{broken, noPlan, other, farAway, byID,
-		extractedSQL})...)
+	return tools, newFakeLLM(t, gateRun(t, stmts, []string{gateBroken, gateNoPlan, gateOther,
+		gateFarAway, gateByID, extractedSQL})...)
+}
+
+func TestReason_ExtractionGate(t *testing.T) {
+	const (
+		broken, noPlan, byID = gateBroken, gateNoPlan, gateByID
+		other, farAway       = gateOther, gateFarAway
+	)
+	tools, fake := gateFixture(t)
 	r := newTestReasoner(t, Deps{Model: fake.client(), Tools: tools})
 	res := reason(t, r, testInput(controllerDiff, "rails"), safeAnalysis())
 	if len(res.Statements) != 2 {
@@ -254,19 +264,16 @@ func notDeterminedText(res changereview.Reasoning) string {
 	return b.String()
 }
 
-func TestReason_StatementAndFindingLimits(t *testing.T) {
-	var sqls []string
-	for i := 0; i < MaxStatements+1; i++ {
-		sqls = append(sqls, "SELECT "+string(rune('a'+i))+" FROM orders WHERE status = $1")
-	}
+// limitsRun inspects 11 statements in two turns and submits them all with
+// 9 findings and 8 not_determined items.
+func limitsRun(t *testing.T, sqls []string) []fakeReply {
 	var findings []any
 	for i := 0; i < MaxFindings+1; i++ {
 		findings = append(findings, map[string]any{"severity": "info", "kind": "note",
 			"title": "Note " + string(rune('A'+i)), "text": "See the statement.",
 			"evidence_ids": []string{"E1"}})
 	}
-	tools := newFakeTools()
-	reply := []fakeReply{
+	return []fakeReply{
 		calls(inspectCalls(sqls[:6])...), calls(inspectCalls(sqls[6:])...),
 		submit(func(body string) map[string]any {
 			out := []any{}
@@ -279,10 +286,17 @@ func TestReason_StatementAndFindingLimits(t *testing.T) {
 				"not_determined": []string{"a", "b", "c", "d", "e", "f", "g", "row 7 unclear"}}
 		}),
 	}
+}
+
+func TestReason_StatementAndFindingLimits(t *testing.T) {
+	var sqls []string
+	for i := 0; i < MaxStatements+1; i++ {
+		sqls = append(sqls, "SELECT "+string(rune('a'+i))+" FROM orders WHERE status = $1")
+	}
 	b := testBounds()
 	b.MaxCost, b.MaxCalls = 20, 20
-	r := newTestReasoner(t, Deps{Model: newFakeLLM(t, reply...).client(), Tools: tools,
-		Bounds: b})
+	r := newTestReasoner(t, Deps{Model: newFakeLLM(t, limitsRun(t, sqls)...).client(),
+		Tools: newFakeTools(), Bounds: b})
 	res := reason(t, r, testInput(controllerDiff, "rails"), safeAnalysis())
 	if len(res.Statements) != MaxStatements {
 		t.Fatalf("accepted %d statements, want %d", len(res.Statements), MaxStatements)
@@ -391,7 +405,16 @@ func TestReason_IntentAndClaims(t *testing.T) {
 // Downgrade-only (CHECK-RSN-03): the model can raise safe to review, never
 // lower a verdict, never reach risky and never touch a deterministic
 // finding.
-func TestReason_ModelOnlyRaisesTheVerdict(t *testing.T) {
+type raiseCase struct {
+	name     string
+	analysis changereview.Analysis
+	script   []fakeReply
+	diff     string
+	verdict  string
+	rule     string
+}
+
+func raiseCases(t *testing.T) []raiseCase {
 	warning := func(severity string) fakeReply {
 		return submit(func(body string) map[string]any {
 			return map[string]any{"findings": []any{map[string]any{"severity": severity,
@@ -410,14 +433,7 @@ func TestReason_ModelOnlyRaisesTheVerdict(t *testing.T) {
 				"confidence": 0.8}}}
 		}),
 	}
-	cases := []struct {
-		name     string
-		analysis changereview.Analysis
-		script   []fakeReply
-		diff     string
-		verdict  string
-		rule     string
-	}{
+	return []raiseCase{
 		{"risky stays risky", riskyAnalysis(), []fakeReply{emptySubmit()}, "",
 			changereview.VerdictRisky, ""},
 		{"warning raises safe", safeAnalysis(), []fakeReply{warning("warning")}, "",
@@ -427,33 +443,42 @@ func TestReason_ModelOnlyRaisesTheVerdict(t *testing.T) {
 		{"translated DDL", safeAnalysis(), translated, railsRenameDiff,
 			changereview.VerdictReview, changereview.RuleModelTranslated},
 	}
-	for _, c := range cases {
+}
+
+func TestReason_ModelOnlyRaisesTheVerdict(t *testing.T) {
+	for _, c := range raiseCases(t) {
 		t.Run(c.name, func(t *testing.T) {
-			// An empty slice, not nil: m.Findings[:0] marshals as [].
-			before, err := json.Marshal(append([]changereview.Finding{},
-				c.analysis.Findings...))
-			if err != nil {
-				t.Fatal(err)
-			}
 			r := newTestReasoner(t, Deps{Model: newFakeLLM(t, c.script...).client()})
 			res := reason(t, r, testInput(c.diff, "rails"), c.analysis)
 			m, _ := rendered(c.analysis, res)
 			if m.Verdict != c.verdict {
 				t.Fatalf("verdict %s, want %s (findings %+v)", m.Verdict, c.verdict, m.Findings)
 			}
-			after, err := json.Marshal(m.Findings[:len(c.analysis.Findings)])
-			if err != nil || string(after) != string(before) {
-				t.Fatalf("deterministic findings changed:\n%s\n%s", before, after)
-			}
-			for _, f := range m.Findings[len(c.analysis.Findings):] {
-				if f.Severity == changereview.SeverityCritical {
-					t.Fatalf("a model-stage finding is critical: %+v", f)
-				}
-			}
+			checkRaiseOnly(t, c.analysis, m)
 			if c.rule != "" && !hasRule(m.Findings, c.rule) {
 				t.Fatalf("no %s in %+v", c.rule, m.Findings)
 			}
 		})
+	}
+}
+
+// checkRaiseOnly: the deterministic findings lead the merged review
+// byte-for-byte, and nothing the model stage added is critical.
+func checkRaiseOnly(t *testing.T, a changereview.Analysis, m changereview.Merged) {
+	t.Helper()
+	// An empty slice, not nil: m.Findings[:0] marshals as [].
+	before, err := json.Marshal(append([]changereview.Finding{}, a.Findings...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := json.Marshal(m.Findings[:len(a.Findings)])
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("deterministic findings changed:\n%s\n%s", before, after)
+	}
+	for _, f := range m.Findings[len(a.Findings):] {
+		if f.Severity == changereview.SeverityCritical {
+			t.Fatalf("a model-stage finding is critical: %+v", f)
+		}
 	}
 }
 

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
-	"github.com/pg-sage/sidecar/internal/changereview/diffscan"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
@@ -94,62 +93,53 @@ func TestLiveLLM_FixturePRs(t *testing.T) {
 	for _, pr := range livePRs {
 		t.Run(pr.name, func(t *testing.T) {
 			e := newLiveEnv(t)
-			cfg := config.DefaultChangeReviewConfig()
-			r, err := New(Deps{Model: model, Tools: e.eng, Logf: t.Logf,
-				Budget: changereview.NewBudget(e.f.Pool, int64(cfg.DailyTokensPerDatabase),
-					int64(cfg.DailyTokensPerActor), nil)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			s, err := changereview.New(changereview.Deps{Database: e.f.Name, Pool: e.f.Pool,
-				Config: cfg, Analyzer: e.eng, Reasoner: r, Redact: diffscan.Redact,
-				HunkFilter: diffscan.HunkFilter, Logf: t.Logf, ModelTimeout: 75 * time.Second})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.Start(e.ctx); err != nil {
-				t.Fatal(err)
-			}
-			got := e.submit(s, changereview.Request{Diff: pr.diff, MigrationTool: pr.tool})
+			got := e.submit(e.serviceFor(model, DefaultBounds(), 75*time.Second),
+				changereview.Request{Diff: pr.diff, MigrationTool: pr.tool})
 			t.Logf("%s: %s/%s, %d statements, %d findings, %d dropped, %d tokens", pr.name,
 				got.Verdict, got.ModelStatus, len(got.Statements), len(got.Findings),
 				len(got.Dropped), got.Tokens)
 			if got.ModelStatus != changereview.ModelOK {
 				t.Fatalf("model status %q (transcript %+v)", got.ModelStatus, got.Transcript)
 			}
-			extracted, model := 0, 0
+			extracted, derived := 0, 0
 			for _, st := range got.Statements {
 				if st.Origin == changereview.OriginModelExtracted {
 					extracted++
 				}
 				if st.Origin != changereview.OriginSQLInput {
-					model++
+					derived++
 				}
 			}
 			if pr.extracted && extracted == 0 {
 				t.Errorf("no accepted extracted statement; not determined %+v", got.NotDetermined)
 			}
-			if pr.none && model != 0 {
-				t.Errorf("a README-only change has %d model statements", model)
+			if pr.none && derived != 0 {
+				t.Errorf("a README-only change has %d model statements", derived)
 			}
-			held := map[string]bool{}
-			for _, ev := range got.Evidence {
-				held[ev.ID] = true
-			}
-			for _, f := range got.Findings {
-				if f.Origin != changereview.OriginModel {
-					continue
-				}
-				if len(f.EvidenceIDs) == 0 {
-					t.Errorf("surviving finding %q cites nothing", f.Title)
-				}
-				for _, id := range f.EvidenceIDs {
-					if !held[id] {
-						t.Errorf("finding %q cites %s, which the review does not hold", f.Title,
-							id)
-					}
-				}
-			}
+			checkModelCitations(t, got)
 		})
+	}
+}
+
+// checkModelCitations: every surviving model finding cites evidence the
+// review holds.
+func checkModelCitations(t *testing.T, got changereview.Review) {
+	t.Helper()
+	held := map[string]bool{}
+	for _, ev := range got.Evidence {
+		held[ev.ID] = true
+	}
+	for _, f := range got.Findings {
+		if f.Origin != changereview.OriginModel {
+			continue
+		}
+		if len(f.EvidenceIDs) == 0 {
+			t.Errorf("surviving finding %q cites nothing", f.Title)
+		}
+		for _, id := range f.EvidenceIDs {
+			if !held[id] {
+				t.Errorf("finding %q cites %s, which the review does not hold", f.Title, id)
+			}
+		}
 	}
 }

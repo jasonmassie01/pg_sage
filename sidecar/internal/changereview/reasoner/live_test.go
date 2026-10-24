@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/agentloop"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/changereview/diffscan"
@@ -48,9 +49,14 @@ func newLiveEnv(t *testing.T) *liveEnv {
 // service is Change Review on the fixture database with the impact engine
 // and the reasoner over model, wired as production wires it.
 func (e *liveEnv) service(model *fakeLLM) *changereview.Service {
+	return e.serviceFor(model.client(), testBounds(), 60*time.Second)
+}
+
+func (e *liveEnv) serviceFor(model agentloop.Model, b Bounds,
+	modelTimeout time.Duration) *changereview.Service {
 	e.t.Helper()
 	cfg := config.DefaultChangeReviewConfig()
-	r, err := New(Deps{Model: model.client(), Tools: e.eng, Bounds: testBounds(),
+	r, err := New(Deps{Model: model, Tools: e.eng, Bounds: b,
 		Budget: changereview.NewBudget(e.f.Pool, int64(cfg.DailyTokensPerDatabase),
 			int64(cfg.DailyTokensPerActor), nil), Logf: e.t.Logf})
 	if err != nil {
@@ -58,7 +64,7 @@ func (e *liveEnv) service(model *fakeLLM) *changereview.Service {
 	}
 	s, err := changereview.New(changereview.Deps{Database: e.f.Name, Pool: e.f.Pool,
 		Config: cfg, Analyzer: e.eng, Reasoner: r, Redact: diffscan.Redact,
-		HunkFilter: diffscan.HunkFilter, Logf: e.t.Logf, ModelTimeout: 60 * time.Second})
+		HunkFilter: diffscan.HunkFilter, Logf: e.t.Logf, ModelTimeout: modelTimeout})
 	if err != nil {
 		e.t.Fatalf("changereview.New: %v", err)
 	}
@@ -89,10 +95,10 @@ const rvRenameSQL = "ALTER TABLE rv.rv_orders RENAME COLUMN email TO email_addre
 var rvRailsDiff = strings.Replace(railsRenameDiff, ":orders, :email", `"rv.rv_orders", :email`,
 	1)
 
-func TestLive_RailsRenameIsTranslatedInspectedAndCited(t *testing.T) {
-	e := newLiveEnv(t)
-	q1 := e.f.Q1
-	fake := newFakeLLM(t,
+// liveRenameRun translates the Rails rename, asks which statements read
+// email and submits a cited finding with Q1's numbers and an uncited one.
+func liveRenameRun(t *testing.T, q1 rvfixture.Query) []fakeReply {
+	return []fakeReply{
 		calls(toolCall{ToolInspect, jsonArgs(map[string]any{"sql": rvRenameSQL,
 			"origin": "translated"})}),
 		calls(toolCall{ToolQueriesTouching, `{"relation":"rv.rv_orders","column":"email"}`}),
@@ -111,7 +117,14 @@ func TestLive_RailsRenameIsTranslatedInspectedAndCited(t *testing.T) {
 					map[string]any{"severity": "warning", "kind": "breaks_readers",
 						"title": "Uncited", "text": "Trust me.", "evidence_ids": []string{}},
 				}}
-		}))
+		}),
+	}
+}
+
+func TestLive_RailsRenameIsTranslatedInspectedAndCited(t *testing.T) {
+	e := newLiveEnv(t)
+	q1 := e.f.Q1
+	fake := newFakeLLM(t, liveRenameRun(t, q1)...)
 	got := e.submit(e.service(fake), railsRequest(rvRailsDiff))
 	if got.ModelStatus != changereview.ModelOK || got.Verdict != changereview.VerdictReview {
 		t.Fatalf("review %s/%s findings %+v dropped %+v", got.ModelStatus, got.Verdict,
@@ -150,17 +163,18 @@ func TestLive_RailsRenameIsTranslatedInspectedAndCited(t *testing.T) {
 
 var improvementRe = regexp.MustCompile(`\\"improvement_pct\\":([0-9.]+)`)
 
-func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
-	e := newLiveEnv(t)
-	// 2000 distinct statuses, so status = $1 is selective and the composite
-	// index beats rv_orders_created_idx for the extracted query.
-	e.f.Exec(`UPDATE rv.rv_orders SET status = 's' || (id % 2000)`)
-	e.f.Exec(`ANALYZE rv.rv_orders`)
-	const query = "SELECT id, status, created_at FROM rv.rv_orders WHERE status = $1 " +
+const (
+	liveQuery = "SELECT id, status, created_at FROM rv.rv_orders WHERE status = $1 " +
 		"ORDER BY created_at LIMIT 50"
-	const ddl = "CREATE INDEX CONCURRENTLY ON rv.rv_orders (status, created_at)"
-	var pct string
-	fake := newFakeLLM(t,
+	liveDDL = "CREATE INDEX CONCURRENTLY ON rv.rv_orders (status, created_at)"
+)
+
+// liveWhatIfRun inspects the extracted query, prices the PR's index on it
+// and submits a finding quoting the improvement the what-if returned
+// (stored in pct).
+func liveWhatIfRun(t *testing.T, pct *string) []fakeReply {
+	const query, ddl = liveQuery, liveDDL
+	return []fakeReply{
 		calls(toolCall{ToolInspect, jsonArgs(map[string]any{"sql": query,
 			"origin": "extracted"})}),
 		callTools(func(body string) []toolCall {
@@ -174,7 +188,7 @@ func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
 				t.Errorf("the what-if result shows no improvement_pct")
 				return map[string]any{"findings": []any{}}
 			}
-			pct = m[len(m)-1][1]
+			*pct = m[len(m)-1][1]
 			return map[string]any{
 				"statements": []any{map[string]any{"evidence_id": aliasFor(t, body,
 					inspectID(changereview.OriginModelExtracted, query)), "origin": "extracted",
@@ -182,10 +196,39 @@ func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
 					"confidence": 0.8}},
 				"findings": []any{map[string]any{"severity": "info", "kind": "index_benefit",
 					"title":        "The new index serves the new orders query",
-					"text":         "HypoPG plans the query at " + pct + "% lower cost.",
+					"text":         "HypoPG plans the query at " + *pct + "% lower cost.",
 					"evidence_ids": []string{aliasOfKind(t, body, "whatif:tool.")}}},
 			}
-		}))
+		}),
+	}
+}
+
+type whatIfFields struct {
+	ImprovementPct *json.Number `json:"improvement_pct"`
+	Method         string       `json:"method"`
+}
+
+func evidenceData(t *testing.T, r changereview.Review, id string) whatIfFields {
+	t.Helper()
+	var data whatIfFields
+	for _, ev := range r.Evidence {
+		if ev.ID == id {
+			if err := json.Unmarshal(ev.Data, &data); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return data
+}
+
+func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
+	e := newLiveEnv(t)
+	// 2000 distinct statuses, so status = $1 is selective and the composite
+	// index beats rv_orders_created_idx for the extracted query.
+	e.f.Exec(`UPDATE rv.rv_orders SET status = 's' || (id % 2000)`)
+	e.f.Exec(`ANALYZE rv.rv_orders`)
+	var pct string
+	fake := newFakeLLM(t, liveWhatIfRun(t, &pct)...)
 	got := e.submit(e.service(fake), changereview.Request{MigrationTool: "flyway",
 		SQL: "CREATE INDEX CONCURRENTLY rv_orders_status_created_idx " +
 			"ON rv.rv_orders (status, created_at)",
@@ -194,17 +237,7 @@ func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
 	if f == nil || len(f.EvidenceIDs) != 1 {
 		t.Fatalf("finding = %+v, dropped %+v", f, got.Dropped)
 	}
-	var data struct {
-		ImprovementPct *json.Number `json:"improvement_pct"`
-		Method         string       `json:"method"`
-	}
-	for _, ev := range got.Evidence {
-		if ev.ID == f.EvidenceIDs[0] {
-			if err := json.Unmarshal(ev.Data, &data); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
+	data := evidenceData(t, got, f.EvidenceIDs[0])
 	if data.ImprovementPct == nil || data.Method != "hypopg" {
 		t.Fatalf("what-if evidence %+v", data)
 	}
@@ -221,7 +254,7 @@ func TestLive_WhatIfOnTheExtractedQueryGroundsTheFinding(t *testing.T) {
 		}
 	}
 	if stmt == nil || stmt.MatchedQueryID != nil || stmt.Fingerprint == "" ||
-		stmt.EvidenceID != inspectID(changereview.OriginModelExtracted, query) ||
+		stmt.EvidenceID != inspectID(changereview.OriginModelExtracted, liveQuery) ||
 		!strings.Contains(got.Markdown, "new shape") {
 		t.Fatalf("extracted statement %+v, markdown:\n%s", stmt, got.Markdown)
 	}

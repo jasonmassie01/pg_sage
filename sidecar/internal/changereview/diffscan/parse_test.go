@@ -84,8 +84,7 @@ func TestParse_GitDiffFilesHunksAndLineNumbers(t *testing.T) {
 	}
 }
 
-func TestParse_DeletedRenamedAndBinaryFiles(t *testing.T) {
-	diff := `diff --git a/db/old.sql b/db/old.sql
+const statusDiff = `diff --git a/db/old.sql b/db/old.sql
 deleted file mode 100644
 index 1111111..0000000
 --- a/db/old.sql
@@ -112,7 +111,9 @@ similarity index 100%
 rename from docs/moved.md
 rename to docs/renamed.md
 `
-	files := Parse(diff)
+
+func TestParse_DeletedRenamedAndBinaryFiles(t *testing.T) {
+	files := Parse(statusDiff)
 	if len(files) != 4 {
 		t.Fatalf("files = %d, want 4: %+v", len(files), files)
 	}

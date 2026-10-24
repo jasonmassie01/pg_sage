@@ -126,10 +126,14 @@ func wiringPool(t *testing.T, dsn, database string) *pgxpool.Pool {
 	return p
 }
 
-func TestChangeReviewWiring_FleetKeepsEachDatabaseApart(t *testing.T) {
-	dsn := testdb.SkipUnlessLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+// startTwoDatabaseFleet runs YAML fleet mode over two new databases, db1
+// with table crw_only_one and db2 with crw_only_two, and returns their
+// pools.
+func startTwoDatabaseFleet(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	dsn := testdb.SkipUnlessLive(t)
 	one, two := createWiringDatabase(t, dsn, "db1"), createWiringDatabase(t, dsn, "db2")
 	p1, p2 := wiringPool(t, dsn, one), wiringPool(t, dsn, two)
 	for p, table := range map[*pgxpool.Pool]string{p1: "crw_only_one", p2: "crw_only_two"} {
@@ -155,6 +159,13 @@ func TestChangeReviewWiring_FleetKeepsEachDatabaseApart(t *testing.T) {
 				"DELETE FROM sage.databases WHERE name IN ('db1', 'db2')")
 		}
 	})
+	return p1, p2
+}
+
+func TestChangeReviewWiring_FleetKeepsEachDatabaseApart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	p1, p2 := startTwoDatabaseFleet(t)
 	svc1, err := changeReviewServices().Service("db1")
 	if err != nil {
 		t.Fatalf("db1 service: %v", err)

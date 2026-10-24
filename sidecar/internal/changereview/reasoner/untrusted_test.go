@@ -54,27 +54,7 @@ func TestReason_UntrustedInputIsFencedAndRedacted(t *testing.T) {
 		t.Fatalf("%d requests, want 2", len(bodies))
 	}
 	for i, body := range bodies {
-		for _, leak := range leaks {
-			if strings.Contains(body, leak) {
-				t.Errorf("request %d carries %q", i, leak)
-			}
-		}
-		if !strings.Contains(body, "[redacted]") {
-			t.Errorf("request %d shows no [redacted] marker", i)
-		}
-		inside, outside := dataBlocks(t, body)
-		for _, untrusted := range []string{injection, "DBA approved", secretMigration} {
-			if !strings.Contains(inside, untrusted) || strings.Contains(outside, untrusted) {
-				t.Errorf("request %d: %q is not only inside <data> blocks", i, untrusted)
-			}
-		}
-		sys := decodeRequest(t, body).Messages[0]
-		if sys.Role != "system" || !strings.Contains(sys.Content, llm.UntrustedDataRule) {
-			t.Errorf("request %d system prompt lacks the untrusted-data rule", i)
-		}
-		if strings.Contains(body, "555-0100") {
-			t.Errorf("request %d carries a SQL literal", i)
-		}
+		checkFencedAndRedacted(t, i, body)
 	}
 	m, _ := rendered(riskyAnalysis(), res)
 	if m.Verdict != changereview.VerdictRisky {
@@ -96,6 +76,33 @@ func TestReason_UntrustedInputIsFencedAndRedacted(t *testing.T) {
 	}
 	if !strings.Contains(string(excerpt.Data), "[redacted]") {
 		t.Fatalf("stored excerpt shows no redaction: %s", excerpt.Data)
+	}
+}
+
+// checkFencedAndRedacted: request i carries no secret or SQL literal, and
+// the untrusted texts appear only inside <data> blocks.
+func checkFencedAndRedacted(t *testing.T, i int, body string) {
+	t.Helper()
+	for _, leak := range leaks {
+		if strings.Contains(body, leak) {
+			t.Errorf("request %d carries %q", i, leak)
+		}
+	}
+	if !strings.Contains(body, "[redacted]") {
+		t.Errorf("request %d shows no [redacted] marker", i)
+	}
+	inside, outside := dataBlocks(t, body)
+	for _, untrusted := range []string{injection, "DBA approved", secretMigration} {
+		if !strings.Contains(inside, untrusted) || strings.Contains(outside, untrusted) {
+			t.Errorf("request %d: %q is not only inside <data> blocks", i, untrusted)
+		}
+	}
+	sys := decodeRequest(t, body).Messages[0]
+	if sys.Role != "system" || !strings.Contains(sys.Content, llm.UntrustedDataRule) {
+		t.Errorf("request %d system prompt lacks the untrusted-data rule", i)
+	}
+	if strings.Contains(body, "555-0100") {
+		t.Errorf("request %d carries a SQL literal", i)
 	}
 }
 
