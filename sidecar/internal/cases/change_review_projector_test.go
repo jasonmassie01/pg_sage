@@ -43,7 +43,7 @@ func TestProjectChangeReview_RiskyIsCriticalWithTheTopFinding(t *testing.T) {
 	if !ok {
 		t.Fatal("a risky review waiting for a DBA must be a case")
 	}
-	if c.SourceType != SourceChangeReviewType || c.SourceType != "change_review" {
+	if SourceChangeReviewType != "change_review" || c.SourceType != SourceChangeReviewType {
 		t.Fatalf("source type %q, want change_review", c.SourceType)
 	}
 	wantKey := "change_review:7f8a1c2e-0000-4000-8000-000000000001"

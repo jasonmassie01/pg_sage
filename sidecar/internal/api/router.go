@@ -187,6 +187,7 @@ func registerFleetScopedRoutes(
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)
 	registerChangeReviewSummaryRoute(apiMux, rt.ChangeReview) // per-database: SRE mux
+	registerChangeReviewFleetRoutes(apiMux, rt.ChangeReview)
 	registerPprofRoutes(apiMux, cfg != nil && cfg.Debug.PprofEnabled)
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&

@@ -102,16 +102,7 @@ func queryProjectedCases(
 		selectedCases := make([]cases.Case, 0, len(rows))
 		findingIDs := make([]int, 0, len(rows))
 		for _, row := range rows {
-			// Never surface pg_sage's own monitoring queries as cases —
-			// including historical findings captured before queries were
-			// tagged (recognized by their catalog-read signature).
-			if selfmonitor.IsFinding(selfmonitor.FindingFields{
-				ObjectIdentifier: stringValue(row["object_identifier"]),
-				Title:            stringValue(row["title"]),
-				Detail:           detailMap(row["detail"]),
-				RecommendedSQL:   stringValue(row["recommended_sql"]),
-				RollbackSQL:      stringValue(row["rollback_sql"]),
-			}) {
+			if isSelfMonitoringFindingRow(row) {
 				continue
 			}
 			projected := cases.ProjectFinding(sourceFindingFromMap(row))
@@ -126,19 +117,27 @@ func queryProjectedCases(
 			store.NewActionStore(selected.pool), findingIDs,
 		)
 		out = append(out, selectedCases...)
-		incidentCases, err := queryIncidentCases(ctx, mgr, selected)
+		others, err := queryNonFindingCases(ctx, mgr, selected)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, incidentCases...)
-		queryHintCases, err := queryHintCases(ctx, selected)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, queryHintCases...)
+		out = append(out, others...)
 	}
 	sortCasesGlobally(out)
 	return out, nil
+}
+
+// isSelfMonitoringFindingRow keeps pg_sage's own monitoring queries out
+// of cases, including historical findings captured before queries were
+// tagged (recognized by their catalog-read signature).
+func isSelfMonitoringFindingRow(row map[string]any) bool {
+	return selfmonitor.IsFinding(selfmonitor.FindingFields{
+		ObjectIdentifier: stringValue(row["object_identifier"]),
+		Title:            stringValue(row["title"]),
+		Detail:           detailMap(row["detail"]),
+		RecommendedSQL:   stringValue(row["recommended_sql"]),
+		RollbackSQL:      stringValue(row["rollback_sql"]),
+	})
 }
 
 func caseFindingID(c cases.Case) (int, bool) {

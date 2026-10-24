@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -227,7 +228,7 @@ func TestMergeReviewLists_OrdersAndCuts(t *testing.T) {
 	}
 	for i := range want {
 		if got[i].ID != want[i] {
-			t.Fatalf("order %v, want %v (ties by id)", ids(got), want)
+			t.Fatalf("order %v, want %v (ties by id)", mergedIDs(got), want)
 		}
 	}
 	if len(mergeReviewLists(nil, 5)) != 0 {
@@ -235,10 +236,21 @@ func TestMergeReviewLists_OrdersAndCuts(t *testing.T) {
 	}
 }
 
-func ids(rs []changereview.Review) []string {
+func mergedIDs(rs []changereview.Review) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {
 		out[i] = r.ID
 	}
 	return out
+}
+
+// Post-test audit: an unknown database is named as one Change Review does
+// not run for, not as a missing review.
+func TestChangeReviewFleetList_UnknownDatabaseMessage(t *testing.T) {
+	f := newCRFleet(t)
+	_, body := f.api.do(t, viewerUser(), "GET", crFleetPath+"?database=nope", "")
+	msg, _ := body["error"].(string)
+	if !strings.Contains(msg, "Change Review is not running") {
+		t.Fatalf("error %q, want it to say Change Review is not running for it", msg)
+	}
 }

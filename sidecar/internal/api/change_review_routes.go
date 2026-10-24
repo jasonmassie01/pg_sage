@@ -34,6 +34,7 @@ type changeReviewHandlers struct{ reg *changereview.Registry }
 func registerChangeReviewRoutes(mux *http.ServeMux, reg *changereview.Registry) {
 	registerChangeReviewDatabaseRoutes(mux, reg)
 	registerChangeReviewSummaryRoute(mux, reg)
+	registerChangeReviewFleetRoutes(mux, reg)
 }
 
 // registerChangeReviewDatabaseRoutes registers the per-database routes.

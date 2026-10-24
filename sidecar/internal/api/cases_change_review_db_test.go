@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -237,5 +238,37 @@ func TestChangeReviewCasesQueryUsesTheDBAQueueIndex(t *testing.T) {
 	if !strings.HasPrefix(strings.TrimSpace(changeReviewCasesSQL),
 		"/* pg_sage change_review_cases v1 */") {
 		t.Fatal("the statement must carry its pg_sage tag")
+	}
+}
+
+// Post-test audit: the read is bounded at changeReviewCasesLimit and keeps
+// the most recently completed reviews (a PR closed without a verdict must
+// not crowd new work out of the queue).
+func TestQueryChangeReviewCasesKeepsTheNewestCompleted(t *testing.T) {
+	f := newCRCasesFixture(t)
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `INSERT INTO sage.change_review (database_name, source,
+		actor, input_hash, state, stage, verdict, deterministic_verdict, parse_mode,
+		model_status, landing_state, receipt_verdict, completed_at, findings)
+		SELECT 'db1', 'mcp', 'a', md5(g::text) || md5(g::text), 'complete', 'done',
+		'review', 'review', 'ast', 'no_model', 'awaiting', 'pending',
+		now() - make_interval(hours => g),
+		'[{"rule_id":"CR-01","severity":"warning","title":"t"}]'::jsonb
+		FROM generate_series(1, $1::int + 1) g`, changeReviewCasesLimit); err != nil {
+		t.Fatalf("seed reviews: %v", err)
+	}
+	got, err := queryChangeReviewCases(ctx, namedPool{name: "db1", pool: f.pool},
+		time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != changeReviewCasesLimit {
+		t.Fatalf("got %d cases, want the bound %d", len(got), changeReviewCasesLimit)
+	}
+	oldest := fmt.Sprintf("waiting %dh for a DBA verdict", changeReviewCasesLimit+1)
+	for _, c := range got {
+		if c.WhyNow == oldest {
+			t.Fatalf("the oldest completed review %q must be the one left out", c.WhyNow)
+		}
 	}
 }
