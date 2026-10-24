@@ -122,6 +122,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
 		startDecommissionReport(shutdownCtx, authPool, cfg.ConfigPath)
 		startApprovalCardLoop(shutdownCtx, authPool, fleetMgr)
+		startChangeReviewReceipts(shutdownCtx, fleetMgr)
 		startSpecialistOutbound(shutdownCtx)
 	}
 }

@@ -23,6 +23,10 @@ func readSnapshot(
 	if err := readPotential(ctx, pool, filter, &result); err != nil {
 		return Snapshot{}, fmt.Errorf("read snapshot potential value: %w", err)
 	}
+	// After readPotential, which sets the potential the reviews add to.
+	if err := readReviewCredits(ctx, pool, name, filter, &result); err != nil {
+		return Snapshot{}, fmt.Errorf("read snapshot change review credits: %w", err)
+	}
 	if err := readIncidents(ctx, pool, filter, &result); err != nil {
 		return Snapshot{}, fmt.Errorf("read snapshot incidents: %w", err)
 	}
