@@ -61,16 +61,19 @@ func TestPerfGateChangeReview(t *testing.T) {
 		t.Fatalf("monitored pool: %v", err)
 	}
 	defer monitored.Close()
-	runChangeReviewWorkload(t, ctx, monitored)
-	seedChangeReviewHistory(t, ctx, harness)
 	svc := perfChangeReviewService(t, ctx, monitored)
-	seqBefore := userSeqScans(t, ctx, harness)
-	// From here on the database runs only the review and the harness. PG18
-	// keeps no leading comment in pg_stat_statements, so the statements are
-	// told apart by time, not by tag.
+	// From here on the database runs only the workload, the seeding and the
+	// review. PG18 keeps no leading comment in pg_stat_statements, so the
+	// harness's own statements carry its tag at their end.
 	if _, err := harness.Exec(ctx, "SELECT pg_stat_statements_reset()"); err != nil {
 		t.Fatalf("reset pg_stat_statements: %v", err)
 	}
+	runChangeReviewWorkload(t, ctx, monitored)
+	seedChangeReviewHistory(t, ctx, harness)
+	if err := testdb.FlushIdleSessions(ctx, monitored); err != nil {
+		t.Fatalf("flush statistics: %v", err)
+	}
+	seqBefore := userSeqScans(t, ctx, harness)
 	started := time.Now()
 	got, _, err := svc.Submit(ctx, changereview.Caller{Actor: "perf", Source: "cli"},
 		changereview.Request{SQL: changeReviewPerfSQL, MigrationTool: "flyway",
@@ -148,26 +151,26 @@ func runHotStatements(t *testing.T, ctx context.Context, p *pgxpool.Pool) {
 // old of 20,000 relations.
 func seedChangeReviewHistory(t *testing.T, ctx context.Context, p *pgxpool.Pool) {
 	t.Helper()
-	tag := "/* " + perfgate.HarnessTag + " */ "
-	if _, err := p.Exec(ctx, tag+`INSERT INTO sage.query_store (captured_at, queryid, calls,
+	tag := " /* " + perfgate.HarnessTag + " */"
+	if _, err := p.Exec(ctx, `INSERT INTO sage.query_store (captured_at, queryid, calls,
 		total_exec_time, mean_exec_time)
 		SELECT now() - interval '7 days' + g * interval '1 minute', s.queryid, 60 * g,
 		       0.01 * g, 0.01
 		  FROM (SELECT DISTINCT queryid FROM pg_stat_statements
 		         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 		           AND query LIKE '%perf_app_000.t_0000%') s
-		 CROSS JOIN generate_series(0, 7 * 24 * 60) g`); err != nil {
+		 CROSS JOIN generate_series(0, 7 * 24 * 60) g`+tag); err != nil {
 		t.Fatalf("seed query_store: %v", err)
 	}
-	if _, err := p.Exec(ctx, tag+`INSERT INTO sage.snapshots (collected_at, category, data)
+	if _, err := p.Exec(ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
 		SELECT now() - interval '2 hours', 'tables', jsonb_agg(jsonb_build_object(
 		         'schemaname', 'perf_app_' || lpad((g / 1000)::text, 3, '0'),
 		         'relname', 't_' || lpad((g % 1000)::text, 4, '0'),
 		         'n_tup_ins', g, 'n_tup_upd', g, 'n_tup_del', 0, 'n_live_tup', g))
-		  FROM generate_series(0, 19999) g`); err != nil {
+		  FROM generate_series(0, 19999) g`+tag); err != nil {
 		t.Fatalf("seed the tables snapshot: %v", err)
 	}
-	if _, err := p.Exec(ctx, tag+"ANALYZE sage.query_store, sage.snapshots"); err != nil {
+	if _, err := p.Exec(ctx, "ANALYZE sage.query_store, sage.snapshots"+tag); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -204,7 +207,8 @@ func assertChangeReviewStatementsWithinBudget(t *testing.T, ctx context.Context,
 	rows, err := p.Query(ctx, `/* `+perfgate.HarnessTag+` */ SELECT left(query, 90),
 		max_exec_time FROM pg_stat_statements
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-		  AND calls > 0 AND query NOT LIKE '%pg_stat_statements%'`)
+		  AND calls > 0 AND query NOT LIKE '%pg_stat_statements%'
+		  AND query NOT LIKE '%`+perfgate.HarnessTag+`%'`)
 	if err != nil {
 		t.Fatalf("read the review's statements: %v", err)
 	}
