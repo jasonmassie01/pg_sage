@@ -746,6 +746,12 @@
     "doc": "Hours of workload compared before and after a reviewed change lands to decide its receipt. Range 2-168. Default: 24.",
     "class": "safety_critical"
   },
+  "change_review.ui_base_url": {
+    "type": "string",
+    "default": "",
+    "doc": "pg_sage UI address (https://sage.example.com) that PR comments and needs-DBA notifications link reviews through. Empty names the review instead. Default: empty.",
+    "class": "operator_preference"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",

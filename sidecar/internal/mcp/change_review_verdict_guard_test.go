@@ -16,23 +16,53 @@ import (
 // package calls a Decide method. No concurrency test: the checks read
 // static definitions.
 
-var verdictArguments = map[string]bool{"verdict": true, "dba_verdict": true,
-	"direction": true, "dba_direction": true, "dba_reason": true}
+// dbaArguments are a DBA verdict's fields under any tool's name;
+// reviewArguments are what a verdict looks like on a tool about change
+// reviews (other tools, an SRE investigation's review say, have verdicts
+// of their own).
+var (
+	dbaArguments = map[string]bool{"dba_verdict": true, "dba_direction": true,
+		"dba_reason": true, "dba_actor": true}
+	reviewArguments = map[string]bool{"verdict": true, "direction": true, "reason": true,
+		"concur": true, "override": true}
+)
+
+// aboutChangeReviews reports whether a tool reaches change reviews: by
+// name or by what it says it does.
+func aboutChangeReviews(name, description string) bool {
+	text := strings.ToLower(name + " " + description)
+	if changeReviewToolNames[name] {
+		return true
+	}
+	for _, s := range []string{"change review", "change_review", "review_change",
+		"change-review", "reviewed change"} {
+		if strings.Contains(text, s) {
+			return true
+		}
+	}
+	return false
+}
 
 func TestNoMCPToolTakesADBAVerdict(t *testing.T) {
 	tools := NewServer(&crRecordingBackend{}).Tools()
-	if len(tools) < 4 {
-		t.Fatalf("%d tools registered; the check proves nothing", len(tools))
-	}
+	reviewTools := 0
 	for _, tool := range tools {
 		schema := decodeSchema(t, tool.InputSchema)
 		props, _ := schema["properties"].(map[string]any)
+		about := aboutChangeReviews(tool.Name, tool.Description)
+		if about {
+			reviewTools++
+		}
 		for name := range props {
-			if verdictArguments[strings.ToLower(name)] {
+			n := strings.ToLower(name)
+			if dbaArguments[n] || (about && reviewArguments[n]) {
 				t.Errorf("tool %s takes %q: no MCP tool may record a DBA verdict",
 					tool.Name, name)
 			}
 		}
+	}
+	if reviewTools < 4 {
+		t.Fatalf("%d change-review tools found; the check proves nothing", reviewTools)
 	}
 }
 

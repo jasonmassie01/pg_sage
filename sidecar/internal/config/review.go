@@ -1,6 +1,10 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
 
 // Change Review: pg_sage reviews migration and data-access pull requests
 // against the live database before they merge, and stamps a receipt
@@ -41,22 +45,23 @@ const (
 // ChangeReviewConfig configures Change Review. All fields are read when a
 // database's runtime starts (restart lifecycle).
 type ChangeReviewConfig struct {
-	Enabled                  bool  `yaml:"enabled" doc:"Review migration and data-access changes against the live database (MCP review_change, REST, CLI). It reads, plans and runs session-local HypoPG what-ifs; it never runs the change. Default: true."`
-	MaxTokensPerReview       int   `yaml:"max_tokens_per_review" doc:"Most LLM tokens one review may use across its model calls. Range 4000-500000. Default: 60000."`
-	DailyTokensPerDatabase   int   `yaml:"daily_tokens_per_database" doc:"Change Review's own daily LLM tokens for one database, all callers (UTC day, kept across restarts). 0 runs deterministic reviews only. Range 0-100000000. Default: 500000."`
-	DailyTokensPerActor      int   `yaml:"daily_tokens_per_actor" doc:"Change Review's daily LLM tokens for one caller (user or MCP token) on one database; at most daily_tokens_per_database. Range 0-100000000. Default: 200000."`
-	ReceiptWindowHours       int   `yaml:"receipt_window_hours" doc:"Hours of workload compared before and after a reviewed change lands to decide its receipt. Range 2-168. Default: 24."`
-	LandingExpiryDays        int   `yaml:"landing_expiry_days" doc:"Days a completed review waits to land before it expires (receipt unverifiable, credit void). Range 1-365. Default: 30."`
-	MaxSQLBytes              int   `yaml:"max_sql_bytes" doc:"Largest migration SQL a review accepts, all files together. Range 1024-100000. Default: 100000."`
-	MaxDiffBytes             int   `yaml:"max_diff_bytes" doc:"Largest unified diff a review accepts. The raw diff is never stored. Range 1024-10485760. Default: 524288."`
-	MaxOfferedDiffBytes      int   `yaml:"max_offered_diff_bytes" doc:"Most redacted data-access diff bytes offered to the model; at most max_diff_bytes. Range 1024-10485760. Default: 200000."`
-	MaxConcurrentPerDatabase int   `yaml:"max_concurrent_per_database" doc:"Reviews running at once on one database; 8 more may queue. Range 1-8. Default: 2."`
-	LockQueueWarn            int   `yaml:"lock_queue_warn" doc:"Statements expected to queue behind a change's lock at peak rate that make it a warning (CR-02). At least 1. Default: 100."`
-	LockQueueCritical        int   `yaml:"lock_queue_critical" doc:"Statements expected to queue behind a change's lock at peak rate that make it critical (CR-02); above lock_queue_warn. Default: 5000."`
-	BackfillRowsWarn         int64 `yaml:"backfill_rows_warn" doc:"Rows a migration's UPDATE or DELETE touches that make it a warning (CR-12). At least 1. Default: 1000000."`
-	BackfillRowsCritical     int64 `yaml:"backfill_rows_critical" doc:"Rows a migration's UPDATE or DELETE touches that make it critical (CR-12); above backfill_rows_warn. Default: 10000000."`
-	LargeScanRows            int64 `yaml:"large_scan_rows" doc:"Estimated rows of a sequential scan in a reviewed statement's plan that are reported (CR-14). At least 1. Default: 100000."`
-	AutoClearMaxTableBytes   int64 `yaml:"auto_clear_max_table_bytes" doc:"Largest table a CREATE INDEX CONCURRENTLY may target to count as shadow auto-clear eligible. Shadow only: nothing is cleared automatically. Range 0-1099511627776. Default: 10737418240 (10 GiB)."`
+	Enabled                  bool   `yaml:"enabled" doc:"Review migration and data-access changes against the live database (MCP review_change, REST, CLI). It reads, plans and runs session-local HypoPG what-ifs; it never runs the change. Default: true."`
+	MaxTokensPerReview       int    `yaml:"max_tokens_per_review" doc:"Most LLM tokens one review may use across its model calls. Range 4000-500000. Default: 60000."`
+	DailyTokensPerDatabase   int    `yaml:"daily_tokens_per_database" doc:"Change Review's own daily LLM tokens for one database, all callers (UTC day, kept across restarts). 0 runs deterministic reviews only. Range 0-100000000. Default: 500000."`
+	DailyTokensPerActor      int    `yaml:"daily_tokens_per_actor" doc:"Change Review's daily LLM tokens for one caller (user or MCP token) on one database; at most daily_tokens_per_database. Range 0-100000000. Default: 200000."`
+	ReceiptWindowHours       int    `yaml:"receipt_window_hours" doc:"Hours of workload compared before and after a reviewed change lands to decide its receipt. Range 2-168. Default: 24."`
+	LandingExpiryDays        int    `yaml:"landing_expiry_days" doc:"Days a completed review waits to land before it expires (receipt unverifiable, credit void). Range 1-365. Default: 30."`
+	MaxSQLBytes              int    `yaml:"max_sql_bytes" doc:"Largest migration SQL a review accepts, all files together. Range 1024-100000. Default: 100000."`
+	MaxDiffBytes             int    `yaml:"max_diff_bytes" doc:"Largest unified diff a review accepts. The raw diff is never stored. Range 1024-10485760. Default: 524288."`
+	MaxOfferedDiffBytes      int    `yaml:"max_offered_diff_bytes" doc:"Most redacted data-access diff bytes offered to the model; at most max_diff_bytes. Range 1024-10485760. Default: 200000."`
+	MaxConcurrentPerDatabase int    `yaml:"max_concurrent_per_database" doc:"Reviews running at once on one database; 8 more may queue. Range 1-8. Default: 2."`
+	LockQueueWarn            int    `yaml:"lock_queue_warn" doc:"Statements expected to queue behind a change's lock at peak rate that make it a warning (CR-02). At least 1. Default: 100."`
+	LockQueueCritical        int    `yaml:"lock_queue_critical" doc:"Statements expected to queue behind a change's lock at peak rate that make it critical (CR-02); above lock_queue_warn. Default: 5000."`
+	BackfillRowsWarn         int64  `yaml:"backfill_rows_warn" doc:"Rows a migration's UPDATE or DELETE touches that make it a warning (CR-12). At least 1. Default: 1000000."`
+	BackfillRowsCritical     int64  `yaml:"backfill_rows_critical" doc:"Rows a migration's UPDATE or DELETE touches that make it critical (CR-12); above backfill_rows_warn. Default: 10000000."`
+	LargeScanRows            int64  `yaml:"large_scan_rows" doc:"Estimated rows of a sequential scan in a reviewed statement's plan that are reported (CR-14). At least 1. Default: 100000."`
+	AutoClearMaxTableBytes   int64  `yaml:"auto_clear_max_table_bytes" doc:"Largest table a CREATE INDEX CONCURRENTLY may target to count as shadow auto-clear eligible. Shadow only: nothing is cleared automatically. Range 0-1099511627776. Default: 10737418240 (10 GiB)."`
+	UIBaseURL                string `yaml:"ui_base_url" doc:"pg_sage UI address (https://sage.example.com) that PR comments and needs-DBA notifications link reviews through. Empty names the review instead. Default: empty."`
 }
 
 func defaultChangeReviewConfig() ChangeReviewConfig {
@@ -91,7 +96,26 @@ func (c ChangeReviewConfig) Validate() error {
 	if err := c.validateLimits(); err != nil {
 		return err
 	}
-	return c.validateThresholds()
+	if err := c.validateThresholds(); err != nil {
+		return err
+	}
+	return validUIBaseURL(c.UIBaseURL)
+}
+
+// validUIBaseURL accepts "" or an absolute http(s) URL with a host and no
+// user info, query or fragment.
+func validUIBaseURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" ||
+		strings.TrimSpace(raw) != raw {
+		return fmt.Errorf("change_review.ui_base_url must be an absolute http(s) URL "+
+			"without user info, query or fragment, got %q", raw)
+	}
+	return nil
 }
 
 func (c ChangeReviewConfig) validateBudgets() error {

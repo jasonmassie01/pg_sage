@@ -193,3 +193,14 @@ func TestChangeReviewRenderUsesTheUIAddress(t *testing.T) {
 		t.Fatalf("UI address %q", got.UIBaseURL)
 	}
 }
+
+// The docs say to require the status, not the job, and how to link the UI.
+func TestChangeReviewDocsCoverTheGateAndTheUIAddress(t *testing.T) {
+	doc := readRepoFile(t, "docs/change-review.md")
+	for _, want := range []string{"`fail-job`", "change_review.ui_base_url",
+		"Require the commit status", "PG_SAGE_FAIL_ON", "not applicable from completion"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("docs/change-review.md lacks %q", want)
+		}
+	}
+}

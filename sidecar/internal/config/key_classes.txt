@@ -479,6 +479,7 @@ operator_preference change_review.max_offered_diff_bytes
 operator_preference change_review.max_sql_bytes
 derivable change_review.max_tokens_per_review
 safety_critical change_review.receipt_window_hours
+operator_preference change_review.ui_base_url
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the
 # guard floors gate builds and memory changes, so loosening one widens what

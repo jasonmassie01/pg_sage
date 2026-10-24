@@ -246,7 +246,7 @@ func TestChangeReviewCasesQueryUsesTheDBAQueueIndex(t *testing.T) {
 		t.Fatalf("plan %s, want an index scan of change_review_dba_queue", plan)
 	}
 	if !strings.HasPrefix(strings.TrimSpace(changeReviewCasesSQL),
-		"/* pg_sage change_review_cases v1 */") {
+		"/* pg_sage change_review_cases v2 */") {
 		t.Fatal("the statement must carry its pg_sage tag")
 	}
 }

@@ -8,6 +8,9 @@
 # pg_sage only reads: it plans with EXPLAIN (never ANALYZE), runs session-local
 # HypoPG what-ifs and never runs the migration. It holds no GitHub credentials:
 # the comment and the commit status are written with this workflow's own token.
+# Require the "pg_sage/db-review (<database>)" status in branch protection, not
+# the review job: a DBA's verdict in pg_sage turns the status green without a
+# new push.
 name: pg_sage database review
 
 on:
@@ -25,6 +28,9 @@ permissions:
 env:
   PG_SAGE_URL: https://pg-sage.example.com:8080
   PG_SAGE_DATABASE: orders
+  # One gate for both jobs: the review sets the status at this verdict or above,
+  # and the 15-minute status job must re-score with the same value.
+  PG_SAGE_FAIL_ON: risky
 
 concurrency:
   group: pg-sage-review-${{ github.event.pull_request.number || github.ref }}
@@ -60,7 +66,10 @@ jobs:
           database: ${{ env.PG_SAGE_DATABASE }}
           token: ${{ secrets.PG_SAGE_TOKEN }}
           sql-dir: db/migrate
-          fail-on: risky
+          fail-on: ${{ env.PG_SAGE_FAIL_ON }}
+          # A personal token for the comment and status (optional); the status
+          # job below must use the same one, so it finds and edits its comment.
+          github-token: ${{ secrets.PG_SAGE_GITHUB_TOKEN || github.token }}
 
   status:
     if: github.event_name == 'schedule'
@@ -77,5 +86,5 @@ jobs:
 
       - name: Refresh pg_sage review status on open pull requests
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: pg_sage review status --github --url "$PG_SAGE_URL" --database "$PG_SAGE_DATABASE" --fail-on risky
+          GITHUB_TOKEN: ${{ secrets.PG_SAGE_GITHUB_TOKEN || github.token }}
+        run: pg_sage review status --github --url "$PG_SAGE_URL" --database "$PG_SAGE_DATABASE" --fail-on "$PG_SAGE_FAIL_ON"

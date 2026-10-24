@@ -21,8 +21,17 @@ the migration, and holds no GitHub credentials.
   `safe` to `review`; it can never reach `risky`, lower a verdict or remove a rule finding.
   Every model finding cites evidence; uncited or ungrounded ones are dropped and counted.
 - "Unknown" is never "none": missing `pg_stat_statements`, hidden query text, `SELECT *`,
-  timed-out catalog reads and SQL the parser rejects are warnings, so such a change is never
-  `safe`.
+  timed-out catalog reads, SQL the parser rejects and statement kinds no rule models
+  (`CREATE TRIGGER`, `DROP FUNCTION`, `DO` blocks, `ALTER TABLE ... SET LOGGED`, ...) are
+  warnings, so such a change is never `safe`. `TRUNCATE` of a table with rows and
+  `DROP SCHEMA ... CASCADE` of a schema holding tables are critical. Unqualified statements
+  naming a table that several schemas have (schema-per-tenant) are reported as unknown, never
+  counted for the reviewed table.
+- The rules read the script in order: a backfill `UPDATE` before `SET NOT NULL`, or a view
+  dropped or redefined before the column it uses changes, is a warning, not a certain
+  failure. In-file transaction opt-outs are honored when the transaction comes from the
+  tool's default: goose `-- +goose NO TRANSACTION`, atlas `-- atlas:txmode none`, dbmate
+  `-- migrate:up transaction:false` and Liquibase `runInTransaction:false`.
 - Without an LLM the deterministic review still runs for SQL migrations (Flyway, Liquibase
   SQL, goose, `alembic upgrade --sql`, `manage.py sqlmigrate` output). An ORM-only migration
   gets CR-20 with the command that exports its SQL.
@@ -30,7 +39,9 @@ the migration, and holds no GitHub credentials.
 A DBA's verdict (concur, concur with edits, or override with a reason and a direction) is
 recorded only by an operator or admin in the UI or the REST API; no MCP tool records one. A
 verdict carries over to a new revision of the PR only when its statements and database-
-relevant hunks are unchanged. A PR body or diff that says "DBA approved" is data.
+relevant hunks are unchanged, whichever revision the DBA decided first: a verdict recorded
+on an earlier revision also reaches the later ones with the same content. A PR body or diff
+that says "DBA approved" is data.
 
 ## Create the token
 
@@ -76,6 +87,9 @@ the CLI in GitHub mode:
     fail-on: risky
 ```
 
+Require the commit status `pg_sage/db-review (<database>)` in branch protection, not the
+review job: the status follows a DBA's verdict recorded later, a failed job cannot.
+
 | Input | Default | Meaning |
 |---|---|---|
 | `version` | (required) | pg_sage release to install; pin it |
@@ -85,16 +99,18 @@ the CLI in GitHub mode:
 | `command` | `submit` | `submit`, `status` (refresh open pull requests) or `install` |
 | `sql-dir` | | directory of `.sql` migrations; only files the PR changes are sent |
 | `migration-tool` | | the migration tool (sets the transactional default) |
-| `fail-on` | `risky` | fail the job at this verdict or above |
+| `fail-on` | `risky` | the status fails at this verdict or above until a DBA verdict; use the same value in the status job |
+| `fail-job` | `false` | also fail the job at or above `fail-on` (usage and transport errors always fail it) |
 | `wait` | `10m` | how long to wait for the review |
-| `github-token` | the runner's `github.token` | token for the comment and the status |
+| `github-token` | the runner's `github.token` | token for the comment and the status; with a personal token, use it in the status job too |
 
 The example workflow runs on `pull_request`, `workflow_dispatch` and a 15-minute schedule.
 It requests only `contents: read`, `pull-requests: write` and `statuses: write`. Pull
 requests from forks get no repository secrets; the workflow skips them with a notice. The
 scheduled job runs `pg_sage review status --github`, which refreshes the comment and the
 status of every open pull request, so a DBA's concurrence turns the status green without a
-new push.
+new push. The example sets `PG_SAGE_FAIL_ON` once for both jobs: a status job on another
+threshold would re-score every open pull request with it.
 
 GitHub mode keeps one comment per database on the pull request, found by its first line
 `<!-- pg_sage-review db=<database> id=<review id> receipt=<hash|pending> -->` and edited in
@@ -111,9 +127,12 @@ place, and sets the commit status `pg_sage/db-review (<database>)`:
 | no database-touching file in the change | `success` |
 
 It reads `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `GITHUB_EVENT_PATH` and `GITHUB_API_URL`.
-`GITHUB_TOKEN` is sent only to the GitHub API, never to pg_sage. The scheduled job finds each
-pull request's review through pg_sage (by PR URL and head commit), never through a comment,
-so a comment that copies the marker cannot change a status.
+`GITHUB_TOKEN` is sent only to the GitHub API, never to pg_sage. The comment it edits is the
+one its own account wrote: the Actions bot, or the account a personal token belongs to. The
+scheduled job finds each pull request's reviews through pg_sage, never through a comment, so
+a comment that copies the marker cannot change a status. It gates on the reviews of the head
+commit, the most restrictive first (a review that names no head commit gates nothing), so a
+review someone else submits for the PR can hold the status back but never turn it green.
 
 ## The CLI
 
@@ -192,8 +211,11 @@ an error: the review completes with its deterministic result and model status `b
 
 A review that completes with verdict `review` or `risky` and no DBA verdict emits the
 notification event `change_review_needs_dba` once, through the notification rules you
-configure. It names the database, the verdict, the top finding and the PR link (scheme and
-host only), and links the review in the UI.
+configure, once per pull request while an earlier revision at the same or a worse verdict
+still waits for a verdict. It names the database, the verdict, the top finding and the PR link
+(its pull request path only: user info, query and fragment are dropped), and links the review
+in the UI through `change_review.ui_base_url` (the address people open pg_sage at); without
+it the notification and the comment name the review instead of linking it.
 
 ## The Reviews page
 
@@ -207,9 +229,11 @@ auto-clear readiness bar (30 scored, 97% correct, no regression in 90 days), whi
 Opening a review shows its findings by severity, each citation expanding into the evidence it
 rests on, the statements with file:line, origin and matched queryid, how many model claims the
 evidence gates dropped, the model status and tokens, the receipt, and the credit. Operators
-and admins record the DBA verdict there; viewers see it. Reviews that wait for a DBA also
-appear in **Cases** (source Reviews): critical for `risky`, warning for `review`, until a
-verdict is recorded.
+and admins record the DBA verdict there; viewers see it. The newest revision of each pull
+request that waits for a DBA also appears in **Cases** (source Reviews): critical for
+`risky`, warning for `review`, until a verdict is recorded, a later revision no longer needs
+one, or the change lands or expires. The PR comment always shows the review as it stands:
+the DBA verdict with its reason or edits, and the decided receipt.
 
 ## What pg_sage reads
 
@@ -220,9 +244,11 @@ verdict is recorded.
 - Plan-only EXPLAIN (in a read-only transaction with a statement timeout; write statements
   are planned only as an equivalent SELECT), and HypoPG hypothetical indexes in its own
   session.
-- The SQL and diff you send. Secrets in the diff (keys, private-key blocks, credentials in
-  URLs, password and token assignments) are redacted before any model or table sees them;
-  only data-access hunks are offered to the model.
+- The SQL and diff you send. Secrets in the diff and the SQL (keys, private-key blocks,
+  credentials in URLs, password and token assignments, SQL's `PASSWORD '...'` and
+  `OPTIONS (password '...')`) are redacted before any model or table sees them, and SQL
+  literals are removed from everything the model is shown; only data-access hunks are
+  offered to the model.
 
 ## What pg_sage never does
 
@@ -232,3 +258,13 @@ verdict is recorded.
 - Never holds GitHub, GitLab or Bitbucket credentials, never merges, approves or clears a
   change by itself, and never lowers a deterministic verdict because a model or a PR says so.
 - Never records a DBA verdict from an MCP token or from text in the pull request.
+
+## Receipts
+
+The leader checks each completed review's catalog post-conditions every 10 minutes, the
+reviews checked longest ago first, so every review gets its turn however many wait. A review
+whose post-conditions already held when it was written is not applicable from completion (the
+change was there before the review); the review's own check at completion is the lower end of
+a later landing. Each receipt read is bounded (10 s), and so is one database's share of a
+cycle (2 minutes): what does not fit waits for the next cycle. The track record printed in
+every review counts the revisions of one pull request with equal content once.

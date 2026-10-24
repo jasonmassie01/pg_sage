@@ -52,6 +52,7 @@ type githubContext struct {
 	sha              string // GITHUB_SHA: the commit of a run without a pull request
 	event            githubEvent
 	http             *http.Client
+	self             *string // the token's login once read ("": not a user token)
 }
 
 // loadGitHubContext reads the Actions environment; a missing variable or

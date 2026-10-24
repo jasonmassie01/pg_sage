@@ -120,6 +120,7 @@
 | `change_review.max_sql_bytes` | `restart` | `-` | `operator_preference` |
 | `change_review.max_tokens_per_review` | `restart` | `-` | `derivable` |
 | `change_review.receipt_window_hours` | `restart` | `-` | `safety_critical` |
+| `change_review.ui_base_url` | `restart` | `-` | `operator_preference` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |

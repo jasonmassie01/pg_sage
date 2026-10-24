@@ -122,8 +122,8 @@ func mustReviews(t *testing.T, f crFleet, path string) []map[string]any {
 
 func TestChangeReviewFleetList_LimitAndFilters(t *testing.T) {
 	f := newCRFleet(t)
-	submitCR(t, f.api.svc, "ALTER TABLE a ADD COLUMN x text")
-	newest := submitCR(t, f.svc2, "ALTER TABLE b ADD COLUMN y text")
+	submitCRTo(t, f.api.svc, "ALTER TABLE a ADD COLUMN x text", 7)
+	newest := submitCRTo(t, f.svc2, "ALTER TABLE b ADD COLUMN y text", 7)
 	_, body := f.api.do(t, viewerUser(), "GET", crFleetPath+"?limit=1", "")
 	if got := reviewIDs(t, body); len(got) != 1 || got[0] != newest.ID {
 		t.Fatalf("limit=1: %v, want only the newest review %s", got, newest.ID)

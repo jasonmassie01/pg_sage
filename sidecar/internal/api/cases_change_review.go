@@ -15,19 +15,27 @@ import (
 )
 
 // Change reviews waiting for a DBA verdict are cases (source
-// change_review). They are read from each database's own
+// change_review): one per pull request, its newest complete revision,
+// while that revision needs a verdict and its change still waits to land
+// (a PR that merged and landed, or closed and expired, is no longer a
+// DBA's queue item). They are read from each database's own
 // sage.change_review through the DBA-queue partial index
-// (change_review_dba_queue), newest completion first.
+// (change_review_dba_queue), newest completion first; a later revision of
+// the PR is found through change_review_pr_created.
 
 const changeReviewCasesLimit = 200
 
-const changeReviewCasesSQL = `/* pg_sage change_review_cases v1 */
-SELECT id::text, COALESCE(repo, ''), COALESCE(pr_url, ''), COALESCE(pr_number, 0),
-       COALESCE(pr_title, ''), state, verdict, COALESCE(dba_verdict, ''), completed_at,
-       findings
-FROM sage.change_review
-WHERE state = 'complete' AND dba_verdict IS NULL AND verdict IN ('review', 'risky')
-ORDER BY completed_at DESC
+const changeReviewCasesSQL = `/* pg_sage change_review_cases v2 */
+SELECT r.id::text, COALESCE(r.repo, ''), COALESCE(r.pr_url, ''), COALESCE(r.pr_number, 0),
+       COALESCE(r.pr_title, ''), r.state, r.verdict, COALESCE(r.dba_verdict, ''),
+       r.completed_at, r.findings
+FROM sage.change_review r
+WHERE r.state = 'complete' AND r.dba_verdict IS NULL AND r.verdict IN ('review', 'risky')
+  AND r.landing_state = 'awaiting'
+  AND NOT EXISTS (SELECT 1 FROM sage.change_review later
+                  WHERE later.pr_url = r.pr_url AND later.created_at > r.created_at
+                    AND later.state = 'complete')
+ORDER BY r.completed_at DESC
 LIMIT $1`
 
 // pgUndefinedTable is SQLSTATE 42P01: a schema bootstrapped before

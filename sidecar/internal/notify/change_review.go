@@ -1,6 +1,10 @@
 package notify
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+)
 
 // EventChangeReviewNeedsDBA is emitted once when a Change Review completes
 // with verdict review or risky and no DBA verdict carried over.
@@ -24,14 +28,15 @@ type ChangeReviewInfo struct {
 }
 
 // ChangeReviewNeedsDBAEvent asks a DBA for a verdict on a review. The PR
-// link keeps only its scheme and host (RedactURL); URLs in the PR title and
-// finding text are redacted the same way. The event has one severity
+// link keeps its pull request path so the DBA can open it, and nothing
+// else (PRLink); URLs in the PR title and finding text are redacted to
+// their host. Without the UI's address the body names the review. The event has one severity
 // (warning) so a rule at its default min_severity always fires; the
 // verdict is in the subject and the data.
 func ChangeReviewNeedsDBAEvent(info ChangeReviewInfo) Event {
 	pr := ""
 	if info.PRURL != "" {
-		pr = RedactURL(info.PRURL)
+		pr = PRLink(info.PRURL)
 	}
 	title := TruncateRunes(RedactURLs(info.PRTitle), maxChangeReviewTextRunes)
 	top := TruncateRunes(RedactURLs(info.TopFinding), maxChangeReviewTextRunes)
@@ -51,6 +56,9 @@ func ChangeReviewNeedsDBAEvent(info ChangeReviewInfo) Event {
 	}
 	if info.Link != "" {
 		body += "\nReview: " + info.Link
+	} else {
+		body += "\nReview: " + info.ID + " on pg_sage's Reviews page (set " +
+			"change_review.ui_base_url to link it)"
 	}
 	return Event{Type: EventChangeReviewNeedsDBA, Severity: "warning", Subject: subject,
 		Body: body, DedupKey: "change_review:" + info.ID,
@@ -58,6 +66,24 @@ func ChangeReviewNeedsDBAEvent(info ChangeReviewInfo) Event {
 			"pr_url": pr, "pr_title": title, "verdict": info.Verdict,
 			"top_rule": info.TopRule, "top_finding": top, "critical": info.Critical,
 			"warning": info.Warning, "link": info.Link}}
+}
+
+// prPath is a pull request's path on GitHub (/owner/repo/pull/N), GitLab
+// (/group/.../project/-/merge_requests/N) or Bitbucket
+// (/workspace/repo/pull-requests/N): names and a number, no secret.
+var prPath = regexp.MustCompile(`^(?:/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/\d+|` +
+	`(?:/[A-Za-z0-9._-]+)+/-/merge_requests/\d+|` +
+	`/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull-requests/\d+)$`)
+
+// PRLink is a pull request URL a DBA can open: https, its host and its
+// pull request path, without user info, query or fragment. Anything else
+// is redacted to its host (RedactURL).
+func PRLink(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || !prPath.MatchString(u.Path) {
+		return RedactURL(raw)
+	}
+	return "https://" + u.Host + u.Path
 }
 
 func orNone(s string) string {

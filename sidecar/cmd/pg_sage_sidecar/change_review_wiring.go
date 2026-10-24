@@ -84,12 +84,18 @@ func buildChangeReview(p changeReviewParts) (*changereview.Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reasoner: %w", err)
 	}
-	render := changereview.RenderOptions{}
+	render := changeReviewRender(p.Config)
 	return changereview.New(changereview.Deps{Database: p.Database, Pool: p.Pool,
 		Config: crCfg, Analyzer: engine, Reasoner: r,
 		Notifier:   newChangeReviewNotifier(p.Dispatcher, render, p.Logf),
 		HunkFilter: diffscan.HunkFilter, Redact: diffscan.Redact, Render: render,
 		AutoClear: receipt.AutoClear(crCfg), Go: p.Go, Logf: p.Logf})
+}
+
+// changeReviewRender is how reviews link the UI: through
+// change_review.ui_base_url (empty: they name the review instead).
+func changeReviewRender(cfg *config.Config) changereview.RenderOptions {
+	return changereview.RenderOptions{UIBaseURL: cfg.ChangeReview.UIBaseURL}
 }
 
 // changeReviewModel is the client for the change_review purpose (the

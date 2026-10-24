@@ -10,11 +10,15 @@ import (
 )
 
 // The marker comment and the commit status. A comment is pg_sage's when
-// its first line is the marker of this database and a bot (the Actions
-// token's identity) wrote it; a person's comment that copies the marker is
-// never edited. The status job finds each pull request's review through
-// pg_sage (by PR URL and head commit), never through a comment, so a
-// planted marker cannot change a status.
+// its first line is the marker of this database and the token's own
+// account wrote it: a bot (the Actions token's identity) or the account
+// GET /user names (a personal token); another person's comment that
+// copies the marker is never edited. The status job finds each pull
+// request's reviews through pg_sage, never through a comment, so a
+// planted marker cannot change a status; and it gates on the reviews of
+// the head commit, the most restrictive first, so a review someone else
+// submits for the PR (any read-scoped caller can) can only hold the
+// status back, never turn it green.
 
 const maxCommentPages = 10
 
@@ -22,8 +26,35 @@ type githubComment struct {
 	ID   int64  `json:"id"`
 	Body string `json:"body"`
 	User struct {
-		Type string `json:"type"`
+		Login string `json:"login"`
+		Type  string `json:"type"`
 	} `json:"user"`
+}
+
+// login is the token's own account for a personal token, "" for the
+// runner's token (GET /user is not open to an integration) or when it
+// cannot be read: then only bot comments are pg_sage's.
+func (g *githubContext) login(ctx context.Context) string {
+	if g.self != nil {
+		return *g.self
+	}
+	var me struct {
+		Login string `json:"login"`
+	}
+	if err := g.do(ctx, "GET", "/user", nil, &me); err != nil {
+		me.Login = ""
+	}
+	g.self = &me.Login
+	return me.Login
+}
+
+// ownComment reports whether c was written by the token's account.
+func (g *githubContext) ownComment(ctx context.Context, c githubComment) bool {
+	if c.User.Type == "Bot" {
+		return true
+	}
+	me := g.login(ctx)
+	return me != "" && c.User.Login == me
 }
 
 // markerPrefix is the start of line 1 of database's review comments.
@@ -46,7 +77,7 @@ func (g *githubContext) findComment(ctx context.Context, pr int, database string
 			return nil, err
 		}
 		for i := range comments {
-			if comments[i].User.Type == "Bot" && strings.HasPrefix(comments[i].Body, prefix) {
+			if strings.HasPrefix(comments[i].Body, prefix) && g.ownComment(ctx, comments[i]) {
 				return &comments[i], nil
 			}
 		}
@@ -120,12 +151,12 @@ func (c *reviewCLI) refreshOpenPulls(ctx context.Context) error {
 		return err
 	}
 	for _, pull := range pulls {
-		f, ok, err := c.newestReview(ctx, pull.HTMLURL)
+		f, ok, err := c.gatingReview(ctx, pull.HTMLURL, pull.Head.SHA)
 		if err != nil {
 			return err
 		}
-		if !ok || (f.review.HeadSHA != "" && f.review.HeadSHA != pull.Head.SHA) {
-			continue // not reviewed yet, or reviewed at an older commit
+		if !ok {
+			continue // no review of the head commit yet
 		}
 		if err := c.gh.upsertComment(ctx, pull.Number, c.o.database,
 			reviewMarkdown(f.review)); err != nil {

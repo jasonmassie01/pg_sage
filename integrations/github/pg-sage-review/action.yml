@@ -34,9 +34,18 @@ inputs:
     required: false
     default: ""
   fail-on:
-    description: Fail the job at this verdict or above (risky, review or never).
+    description: >-
+      The commit status fails at this verdict or above (risky, review or never) until a
+      DBA records a verdict. Use the same value in the scheduled status job.
     required: false
     default: risky
+  fail-job:
+    description: >-
+      Also fail this job at or above fail-on. Leave it false and require the
+      "pg_sage/db-review (<database>)" status in branch protection instead: a DBA's
+      verdict turns that status green without a new push, which a failed job cannot follow.
+    required: false
+    default: "false"
   wait:
     description: How long to wait for the review to complete.
     required: false
@@ -103,6 +112,7 @@ runs:
         SQL_DIR: ${{ inputs.sql-dir }}
         MIGRATION_TOOL: ${{ inputs.migration-tool }}
         FAIL_ON: ${{ inputs.fail-on }}
+        FAIL_JOB: ${{ inputs.fail-job }}
         WAIT: ${{ inputs.wait }}
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -117,7 +127,18 @@ runs:
         if [ -n "$MIGRATION_TOOL" ]; then
           args+=(--migration-tool "$MIGRATION_TOOL")
         fi
+        set +e
         pg_sage review submit --github "${args[@]}"
+        status=$?
+        set -e
+        # Exit 1 is the verdict (or a review still running): the commit status
+        # carries it and follows a later DBA verdict; usage (2) and transport (3)
+        # errors always fail the job.
+        if [ "$status" -eq 1 ] && [ "$FAIL_JOB" != "true" ]; then
+          echo "::notice::pg_sage's verdict is in the commit status pg_sage/db-review ($DATABASE); require that status in branch protection, not this job"
+          exit 0
+        fi
+        exit "$status"
 
     - name: Refresh review status
       if: steps.token.outputs.skip != 'true' && inputs.command == 'status'
