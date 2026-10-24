@@ -427,7 +427,8 @@ func migrationStatements() []string {
 		ddlDecommission,
 		ddlAuthAuditSourceIP,
 		ddlAuthAuditCreatedIndex,
-		ddlChangeReview)
+		ddlChangeReview,
+		ddlChangeReviewReceipts)
 }
 
 // ---------------------------------------------------------------------------
