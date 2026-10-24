@@ -17,6 +17,7 @@ const SOURCE_FILTERS = [
   { value: 'query_hint', label: 'Query Hints' },
   { value: 'forecast', label: 'Forecasts' },
   { value: 'incident', label: 'Incidents' },
+  { value: 'change_review', label: 'Reviews' },
 ]
 
 function dbParam(database) {
@@ -43,12 +44,22 @@ function investigationsByCase(items) {
 }
 
 function nextStep(caseRow) {
+  if (caseRow.source_type === 'change_review') return 'DBA verdict'
   const candidate = caseRow.action_candidates?.[0]
   if (!candidate) return 'Needs investigation'
   if (candidate.blocked_reason) {
     return `${candidate.action_type}: ${candidate.blocked_reason}`
   }
   return candidate.action_type
+}
+
+// reviewLink is a change review case's link to its review, where the DBA
+// records the verdict.
+function reviewLink(caseRow) {
+  if (caseRow.source_type !== 'change_review') return null
+  const id = caseRow.source_ids?.[0]
+  if (!id) return null
+  return `#/reviews?${new URLSearchParams({ id, database: caseRow.database_name || '' })}`
 }
 
 function policyLabel(candidate) {
@@ -102,7 +113,8 @@ export function CasesPage({ database, initialSource = 'all', user }) {
         <p className="text-sm" data-testid="cases-page-description"
           style={{ color: 'var(--text-secondary)' }}>
           Cases group findings into ranked work items (by severity, then most
-          recent observation) across findings, incidents and query hints.
+          recent observation) across findings, incidents, query hints and
+          change reviews waiting for a DBA verdict.
           pg_sage attaches
           evidence and action candidates here, then approved or executable
           work flows to Actions for review, execution, and audit history.
@@ -200,6 +212,13 @@ function CaseCard({ caseRow, user, investigation, onDone }) {
           style={{ color: 'var(--text-secondary)' }}>
           {caseRow.why}
         </div>
+      )}
+      {reviewLink(caseRow) && (
+        <a href={reviewLink(caseRow)} data-testid="case-review-link"
+          className="inline-block mt-2 text-sm underline"
+          style={{ color: 'var(--accent)' }}>
+          Open the review to record a verdict
+        </a>
       )}
       <CaseFacts target={factTarget} user={user} onDone={onDone} />
       <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />

@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings, Gauge,
   Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
-  MessageSquare,
+  MessageSquare, GitPullRequest,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { EmergencyStopControl } from './EmergencyStopControl'
@@ -27,6 +27,8 @@ const NAV_GROUPS = [
       { path: '#/cases', icon: AlertTriangle,
         label: 'Cases', tid: 'nav-cases',
         aliases: ['#/findings'] },
+      { path: '#/reviews', icon: GitPullRequest, label: 'Reviews',
+        tid: 'nav-reviews' },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
       { path: '#/slos', icon: Gauge, label: 'SLOs',
@@ -113,6 +115,8 @@ export function Layout({
   ...rest
 }) {
   const hash = window.location.hash || '#/'
+  // Nav items match on the path; a route may carry a query (?id=).
+  const hashPath = hash.split('?')[0]
   const canReviewActions =
     user?.role === 'admin' || user?.role === 'operator'
   const { data: countData, refetch: refetchPending } = useAPI(
@@ -202,7 +206,7 @@ export function Layout({
               <NavLink
                 key={n.path}
                 item={n}
-                active={hash === n.path || n.aliases?.includes(hash)}
+                active={hashPath === n.path || n.aliases?.includes(hashPath)}
                 pendingCount={pendingCount}
               />
             ))}

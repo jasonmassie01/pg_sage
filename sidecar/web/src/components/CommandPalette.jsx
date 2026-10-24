@@ -6,6 +6,8 @@ const NAV_COMMANDS = [
     hint: 'Verified DBA hours saved', hash: '#/' },
   { id: 'nav-cases', label: 'Go to Cases',
     hint: 'Open DBA work queue', hash: '#/cases' },
+  { id: 'nav-reviews', label: 'Go to Reviews',
+    hint: 'Change reviews and DBA verdicts', hash: '#/reviews' },
   { id: 'nav-actions', label: 'Go to Actions',
     hint: 'Executed + pending timeline', hash: '#/actions' },
   { id: 'nav-databases', label: 'Go to Fleet',
