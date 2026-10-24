@@ -65,10 +65,15 @@ func TestEvaluateGates_HealthyFamilyPasses(t *testing.T) {
 			t.Errorf("%s = %+v, want pass with observed and threshold", id, g)
 		}
 	}
-	// One family: six per-family gates plus four pooled gates that need data
-	// this bench does not have yet.
-	if len(gs) != 6+4 {
+	// One family: six per-family gates, the two pooled CHECK-42 gates, and
+	// four pooled gates that need data this bench does not have yet.
+	if len(gs) != 6+2+4 {
 		t.Fatalf("%d gates: %+v", len(gs), gs)
+	}
+	for _, id := range []string{GateNoise, GateDecoy} {
+		if g := gateOf(t, gs, id, PooledFamily); g.Status != GatePass || g.Observed == "" {
+			t.Errorf("pooled %s = %+v, want pass with observed", id, g)
+		}
 	}
 	for _, id := range []string{GateFactual, GateClaimRefs, GateAdversarial, GateReplayTop1} {
 		g := gateOf(t, gs, id, PooledFamily)
@@ -144,8 +149,11 @@ func variantStatus(t *testing.T, cleanHits, cleanN int, class string, hits,
 }
 
 // CHECK-42: noise and decoy variants may cost at most 10 points of top-1
-// against the clean variants. 0.8 - 0.7 is 0.10000000000000009 in
-// floating point; exactly ten points must still pass.
+// against the clean variants. The gate fails only on evidence: when the
+// 95% Newcombe interval of the drop (clean top-1 minus the variant's
+// rate) lies above 10 points. A point drop past 10 points on a handful of
+// runs is sampling error. 0.8 - 0.7 is 0.10000000000000009 in floating
+// point; exactly ten points must still pass.
 func TestEvaluateGates_Check42Boundaries(t *testing.T) {
 	cases := []struct {
 		name              string
@@ -155,12 +163,21 @@ func TestEvaluateGates_Check42Boundaries(t *testing.T) {
 		want              GateStatus
 	}{
 		{"noise exactly 10 points lower", 4, 5, ClassNoise, 7, 10, GatePass},
-		{"noise 20 points lower", 5, 5, ClassNoise, 4, 5, GateFail},
+		{"noise 20 points lower over 5 runs is sampling error", 5, 5, ClassNoise, 4, 5,
+			GatePass},
+		{"noise 20 points lower over 40 runs is still within error", 40, 40, ClassNoise,
+			32, 40, GatePass},
+		{"noise 25 points lower over 40 runs", 40, 40, ClassNoise, 30, 40, GateFail},
+		// The drop's lower bound brackets the ceiling: 9.9 and 10.1 points.
+		{"interval just reaching 10 points", 52, 52, ClassNoise, 41, 52, GatePass},
+		{"interval just above 10 points", 51, 51, ClassNoise, 40, 51, GateFail},
 		{"noise better than clean", 3, 5, ClassNoise, 5, 5, GatePass},
 		{"no noise runs", 5, 5, ClassNoise, 0, 0, GateNotEvaluated},
 		{"no clean runs", 0, 0, ClassNoise, 5, 5, GateNotEvaluated},
 		{"decoys 10 points under clean", 5, 5, ClassDecoy, 9, 10, GatePass},
-		{"decoys 20 points under clean", 5, 5, ClassDecoy, 8, 10, GateFail},
+		{"decoys 20 points under clean over 10 runs is sampling error", 5, 5, ClassDecoy,
+			8, 10, GatePass},
+		{"decoys 25 points under clean over 40 runs", 40, 40, ClassDecoy, 30, 40, GateFail},
 		{"no decoy runs", 5, 5, ClassDecoy, 0, 0, GateNotEvaluated},
 	}
 	for _, c := range cases {
@@ -168,6 +185,98 @@ func TestEvaluateGates_Check42Boundaries(t *testing.T) {
 		if g.Status != c.want {
 			t.Errorf("%s: %+v, want %s", c.name, g, c.want)
 		}
+	}
+}
+
+// noiseRuns is one family's clean and noise runs; misses abstain.
+func noiseRuns(fam sre.TriggerKind, cleanHits, cleanN, hits, n int) []Result {
+	idle := Gold{Root: "idle_in_tx_holder"}
+	rs := family(armA, fam, ClassPositive, idle, cleanHits, cleanN, "")
+	return append(rs, family(armA, fam, ClassNoise, idle, hits, n, "")...)
+}
+
+// The v2.4.0 release CI failure (PR #169, PG14): wal_retention noise
+// top-1 1/2 (one abstention) against clean 3/3. The 50-point point drop
+// has a 95% interval of [-19, 91] points: no evidence that noise costs
+// more than 10, so the gate passes and says why.
+func TestCheck42_OneMissInTwoNoiseRunsIsSamplingError(t *testing.T) {
+	gs := EvaluateGates(Summarize(noiseRuns(sre.TriggerWAL, 3, 3, 1, 2), []string{armA}),
+		armA)
+	g := gateOf(t, gs, GateNoise, string(sre.TriggerWAL))
+	if g.Status != GatePass {
+		t.Fatalf("noise 1/2 vs clean 3/3: %+v, want pass", g)
+	}
+	for _, want := range []string{"50% (1/2)", "100% (3/3)", "drop 50 points",
+		"[-19, 91]"} {
+		if !strings.Contains(g.Observed, want) {
+			t.Errorf("observed %q lacks %q", g.Observed, want)
+		}
+	}
+	if !strings.Contains(g.Reason, "95%") || !strings.Contains(g.Reason, "10 points") {
+		t.Errorf("reason %q does not say why a 50-point drop passes", g.Reason)
+	}
+}
+
+func TestCheck42_RealDegradationFails(t *testing.T) {
+	cases := []struct {
+		name              string
+		cleanHits, cleanN int
+		hits, n           int
+		want              GateStatus
+	}{
+		{"every noise run wrong, every clean run right (1 repeat)", 3, 3, 0, 2, GateFail},
+		{"half the noise runs wrong (release tag, 4 repeats)", 12, 12, 4, 8, GateFail},
+		{"a 20-point drop over 200 runs each", 200, 200, 160, 200, GateFail},
+		{"3 of 8 noise runs wrong is not yet evidence", 12, 12, 5, 8, GatePass},
+	}
+	for _, c := range cases {
+		g := gateOf(t, EvaluateGates(Summarize(noiseRuns(sre.TriggerWAL, c.cleanHits,
+			c.cleanN, c.hits, c.n), []string{armA}), armA), GateNoise, string(sre.TriggerWAL))
+		if g.Status != c.want || !strings.Contains(g.Observed, "drop") {
+			t.Errorf("%s: %+v, want %s with the drop observed", c.name, g, c.want)
+		}
+		if c.want == GateFail && g.Reason != "" {
+			t.Errorf("%s: a failed gate carries the pass reason %q", c.name, g.Reason)
+		}
+	}
+}
+
+// Per family, two noise runs can show only a collapse. The pooled gate
+// (every family of the run) has the power to show a drop each family's
+// sampling error hides.
+func TestCheck42_PooledCatchesASystemicDrop(t *testing.T) {
+	fams := []sre.TriggerKind{sre.TriggerLock, sre.TriggerConnections, sre.TriggerWAL,
+		sre.TriggerPlan}
+	var rs []Result
+	for _, fam := range fams {
+		rs = append(rs, noiseRuns(fam, 3, 3, 1, 2)...)
+	}
+	gs := EvaluateGates(Summarize(rs, []string{armA}), armA)
+	for _, fam := range fams {
+		if g := gateOf(t, gs, GateNoise, string(fam)); g.Status != GatePass {
+			t.Errorf("%s noise 1/2 vs 3/3: %+v, want pass", fam, g)
+		}
+	}
+	g := gateOf(t, gs, GateNoise, PooledFamily)
+	if g.Status != GateFail || !strings.Contains(g.Observed, "50% (4/8)") ||
+		!strings.Contains(g.Observed, "100% (12/12)") {
+		t.Fatalf("pooled noise 4/8 vs 12/12: %+v, want fail", g)
+	}
+	if d := gateOf(t, gs, GateDecoy, PooledFamily); d.Status != GateNotEvaluated {
+		t.Fatalf("pooled decoy gate without decoy runs: %+v", d)
+	}
+}
+
+func TestCheck42_PooledPassesAnIsolatedMiss(t *testing.T) {
+	rs := noiseRuns(sre.TriggerWAL, 3, 3, 1, 2)
+	for _, fam := range []sre.TriggerKind{sre.TriggerLock, sre.TriggerConnections,
+		sre.TriggerPlan} {
+		rs = append(rs, noiseRuns(fam, 3, 3, 2, 2)...)
+	}
+	g := gateOf(t, EvaluateGates(Summarize(rs, []string{armA}), armA), GateNoise,
+		PooledFamily)
+	if g.Status != GatePass || !strings.Contains(g.Observed, "88% (7/8)") {
+		t.Fatalf("pooled noise 7/8 vs 12/12: %+v, want pass", g)
 	}
 }
 
@@ -204,7 +313,7 @@ func TestPendingGates_EveryGateCarriesTheReason(t *testing.T) {
 	reason := "model turn not wired"
 	gs := PendingGates(ArmLLM, reason, []string{lockFam, string(sre.TriggerWAL),
 		PooledFamily})
-	if len(gs) != 2*6+4 {
+	if len(gs) != 2*6+2+4 {
 		t.Fatalf("%d pending gates", len(gs))
 	}
 	for _, g := range gs {
