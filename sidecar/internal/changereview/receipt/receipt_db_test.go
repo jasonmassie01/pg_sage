@@ -151,6 +151,9 @@ var lockHarmCases = []struct {
 	{"incident outside 15 minutes", func(f *fixture, at time.Time) {
 		f.incident(at.Add(30*time.Minute), "rv.rv_orders")
 	}, false, nil},
+	{"lock_chain finding 30 minutes before landing", func(f *fixture, at time.Time) {
+		f.lockFinding(at.Add(-30*time.Minute), "rv.rv_orders")
+	}, false, nil},
 	{"lock_chain finding on another table", func(f *fixture, at time.Time) {
 		f.lockFinding(at, "rv.rv_items")
 	}, false, nil},

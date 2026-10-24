@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,13 +46,24 @@ func newCRCasesFixture(t *testing.T) crCasesFixture {
 	return crCasesFixture{mgr: mgr, pool: pool, svc: svc}
 }
 
-// submitCR runs one review to completion and returns it.
+// crPRs numbers the fixture's pull requests: each submitCR is its own PR.
+var crPRs atomic.Int64
+
+// submitCR runs one review of its own pull request to completion and
+// returns it.
 func submitCR(t *testing.T, svc *changereview.Service, sql string) changereview.Review {
+	t.Helper()
+	return submitCRTo(t, svc, sql, int(crPRs.Add(1)))
+}
+
+// submitCRTo runs one review of pull request n to completion.
+func submitCRTo(t *testing.T, svc *changereview.Service, sql string,
+	n int) changereview.Review {
 	t.Helper()
 	r, _, err := svc.Submit(context.Background(), changereview.Caller{Actor: "user:1",
 		Source: changereview.SourceAPI}, changereview.Request{SQL: sql, WaitSeconds: 20,
-		PR: changereview.PRInfo{URL: "https://github.com/acme/app/pull/7", Number: 7,
-			Repo: "acme/app", Title: "PR for " + sql[:12]}})
+		PR: changereview.PRInfo{URL: fmt.Sprintf("https://github.com/acme/app/pull/%d", n),
+			Number: n, Repo: "acme/app", Title: "PR for " + sql[:12]}})
 	if err != nil || r.State != changereview.StateComplete {
 		t.Fatalf("submit %q: state %q err %v", sql, r.State, err)
 	}
@@ -285,5 +297,35 @@ func TestCasesSurviveAReviewWithUnreadableFindings(t *testing.T) {
 	c, ok := caseByReview(got, risky.ID)
 	if !ok || c.Why != "verdict risky" || c.Severity != cases.SeverityCritical {
 		t.Fatalf("cases %+v, want the risky review explained by its verdict", got)
+	}
+}
+
+// The DBA queue holds one case per pull request: its newest revision,
+// while that revision still needs a verdict and has not landed. Older
+// revisions of the PR leave the queue; a later safe revision clears it.
+func TestCasesShowTheNewestRevisionOfAPullRequest(t *testing.T) {
+	f := newCRCasesFixture(t)
+	const pr = 900
+	first := submitCRTo(t, f.svc, "ALTER TABLE orders DROP COLUMN a; "+crfake.MarkRisky, pr)
+	second := submitCRTo(t, f.svc, "ALTER TABLE orders DROP COLUMN b; "+crfake.MarkRisky, pr)
+	got := getCases(t, f.mgr, "")
+	if _, ok := caseByReview(got, first.ID); ok || len(got) != 1 {
+		t.Fatalf("cases %+v, want only the newest revision %s", got, second.ID)
+	}
+	if _, ok := caseByReview(got, second.ID); !ok {
+		t.Fatalf("the newest revision %s is not a case: %+v", second.ID, got)
+	}
+	submitCRTo(t, f.svc, "CREATE TABLE orders_archive2 (id bigint primary key)", pr)
+	if got := getCases(t, f.mgr, ""); len(got) != 0 {
+		t.Fatalf("a safe newest revision left cases %+v", got)
+	}
+	other := submitCR(t, f.svc, "ALTER TABLE orders DROP COLUMN c; "+crfake.MarkRisky)
+	if _, err := f.pool.Exec(context.Background(), `UPDATE sage.change_review
+		SET landing_state = 'expired', receipt_verdict = 'unverifiable'
+		WHERE id = $1`, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := getCases(t, f.mgr, ""); len(got) != 0 {
+		t.Fatalf("a review that is no longer waiting to land is still a case: %+v", got)
 	}
 }

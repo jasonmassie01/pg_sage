@@ -43,6 +43,7 @@ type fakeGitHub struct {
 	writes   []string // "POST comment", "PATCH 12", "POST status"
 	auth     []string
 	nextID   int64
+	user     string // GET /user's login ("": 403, as for the runner's own token)
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -60,6 +61,12 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	path := r.URL.Path
 	switch {
+	case r.Method == "GET" && path == "/user":
+		if g.user == "" {
+			http.Error(w, "Resource not accessible by integration", http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"login": g.user, "type": "User"})
 	case r.Method == "GET" && path == "/repos/o/r/issues/7/comments":
 		writeJSON(w, g.comments)
 	case r.Method == "POST" && path == "/repos/o/r/issues/7/comments":
@@ -68,6 +75,9 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		g.nextID++
 		_ = json.Unmarshal(body, &c)
 		c.User.Login, c.User.Type = "github-actions[bot]", "Bot"
+		if g.user != "" {
+			c.User.Login, c.User.Type = g.user, "User"
+		}
 		g.comments = append(g.comments, c)
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, c)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/changereview"
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 // CHECK-RCP-08 eligibility fixtures: only allowlisted statement kinds,
@@ -103,5 +104,24 @@ func TestAutoClearEligibleCIC(t *testing.T) {
 	r := shadowReview(t, cic, gib, "table")
 	if ok, why := Eligible(r, 10*gib); !ok {
 		t.Fatalf("a safe CIC on a 1 GB table is not eligible: %s", why)
+	}
+}
+
+// AutoClear binds the configured table-size limit: the same safe CIC is
+// eligible under the default limit and not under a zero one (the positive
+// control proves the parse succeeded, so the refusal is the limit's).
+func TestAutoClearUsesTheConfiguredLimit(t *testing.T) {
+	cfg := config.DefaultChangeReviewConfig()
+	r := shadowReview(t, cic, gib, "table")
+	if !AutoClear(cfg)(r) {
+		t.Fatal("a safe CIC on a 1 GB table is not eligible under the default limit")
+	}
+	cfg.AutoClearMaxTableBytes = 0
+	if AutoClear(cfg)(r) {
+		t.Fatal("a CIC was eligible under a zero table-size limit")
+	}
+	cfg.AutoClearMaxTableBytes = gib - 1
+	if AutoClear(cfg)(r) {
+		t.Fatal("a CIC one byte over the limit was eligible")
 	}
 }

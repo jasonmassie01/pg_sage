@@ -84,6 +84,7 @@ func TestRedact_Idempotent(t *testing.T) {
 func FuzzRedact(f *testing.F) {
 	f.Add("password = 'x' AKIAIOSFODNN7EXAMPLE postgres://a:b@c")
 	f.Add(pemBlock)
+	f.Add("CREATE ROLE r PASSWORD 'it''s' postgres://u:p/@q@h/d PGPASSWORD=a.1$")
 	f.Fuzz(func(t *testing.T, in string) {
 		out := Redact(in)
 		if Redact(out) != out {

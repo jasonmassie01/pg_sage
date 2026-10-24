@@ -44,7 +44,8 @@ type fakeTools struct {
 	hitEv     map[string][]changereview.Evidence
 	whatIfPct *float64
 	whatIfErr error
-	err       error // every tool fails with it
+	touchText string // queries_touching's statement text ("": the default)
+	err       error  // every tool fails with it
 
 	inspected []string
 	origins   []string
@@ -109,9 +110,13 @@ func (f *fakeTools) QueriesTouching(_ context.Context, relation, column string) 
 		return impact.Touching{}, fmt.Errorf("%w: relation public.missing",
 			changereview.ErrNotFound)
 	}
+	text := "SELECT email FROM orders WHERE id = $1"
+	if f.touchText != "" {
+		text = f.touchText
+	}
 	q := mustEvidence("queryid", "42", "queryid 42: 412000 calls", map[string]any{
 		"queryid": 42, "calls": 412000, "calls_7d": 2800000, "peak_calls_per_s": 31.5,
-		"text": "SELECT email FROM orders WHERE id = $1",
+		"text": text,
 		"tags": map[string]string{"application": "billing-api"}})
 	return impact.Touching{Relation: "public.orders", Known: true,
 		Evidence: []changereview.Evidence{q}}, nil

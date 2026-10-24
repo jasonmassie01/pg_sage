@@ -109,18 +109,13 @@ func TestScore(t *testing.T) {
 	}
 }
 
-// AutoClear binds the configured table-size limit; a zero limit makes no
-// index build eligible.
-func TestAutoClearUsesTheConfiguredLimit(t *testing.T) {
-	cfg := config.DefaultChangeReviewConfig()
+// AutoClear refuses a risky review before parsing anything. Whether it
+// binds the configured table-size limit needs the parser to accept the
+// statement first: shadow_cgo_test.go checks it with a positive control.
+func TestAutoClearRefusesARiskyReview(t *testing.T) {
 	r := shadowReview(t, cic, gib, "table")
 	r.Verdict = changereview.VerdictRisky
-	if AutoClear(cfg)(r) {
+	if AutoClear(config.DefaultChangeReviewConfig())(r) {
 		t.Fatal("a risky review was eligible")
-	}
-	cfg.AutoClearMaxTableBytes = 0
-	r.Verdict = changereview.VerdictSafe
-	if AutoClear(cfg)(r) {
-		t.Fatal("a CIC was eligible under a zero table-size limit")
 	}
 }

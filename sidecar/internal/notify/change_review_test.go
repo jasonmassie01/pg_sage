@@ -7,8 +7,9 @@ import (
 
 // change_review_needs_dba (CHECK-SRF-07): emitted once when a Change
 // Review completes with verdict review or risky and no DBA verdict. It
-// names the database, the PR (scheme and host only: notify.RedactURL),
-// the verdict and the top finding, and links the review in the UI.
+// names the database, the PR (its pull request path only, so the DBA can
+// open it; anything else about the URL is redacted), the verdict and the
+// top finding, and links the review in the UI.
 
 func crInfo() ChangeReviewInfo {
 	return ChangeReviewInfo{ID: "3f0c8a52-0000-4000-8000-000000000001", Database: "orders",
@@ -31,21 +32,22 @@ func TestChangeReviewNeedsDBAEvent(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"Database: orders", "Verdict: risky",
-		"PR: https://github.com/[redacted]", "CR-03: email is still read by 2 statements",
+		"PR: https://github.com/acme/shop/pull/42", "CR-03: email is still read by 2 statements",
 		"1 critical, 2 warning", "https://sage.example.com/#/reviews?id=3f0c8a52"} {
 		if !strings.Contains(evt.Body, want) {
 			t.Errorf("body %q lacks %q", evt.Body, want)
 		}
 	}
 	all := evt.Subject + evt.Body
-	for _, leak := range []string{"s3cret", "acme/shop/pull/42"} {
+	for _, leak := range []string{"s3cret", "token="} {
 		if strings.Contains(all, leak) {
 			t.Errorf("the PR link leaked %q: %s", leak, all)
 		}
 	}
 	data := evt.Data
 	want := map[string]any{"review_id": "3f0c8a52-0000-4000-8000-000000000001",
-		"database": "orders", "pr_url": "https://github.com/[redacted]", "verdict": "risky",
+		"database": "orders", "pr_url": "https://github.com/acme/shop/pull/42",
+		"verdict": "risky",
 		"top_rule": "CR-03", "top_finding": "email is still read by 2 statements",
 		"critical": 1, "warning": 2,
 		"link": "https://sage.example.com/#/reviews?id=3f0c8a52"}
@@ -96,5 +98,43 @@ func TestChangeReviewNeedsDBAIsARegisteredEvent(t *testing.T) {
 	}
 	if sev, ok := maxEventSeverity("change_review_needs_dba"); !ok || sev != "warning" {
 		t.Fatalf("max severity %q %v", sev, ok)
+	}
+}
+
+// PRLink keeps a pull request URL's path (owner, repo, number) and drops
+// what may carry a secret: user info, query and fragment. A URL that is
+// not a pull request path is redacted to its host.
+func TestPRLink(t *testing.T) {
+	gh := "https://github.com/acme/shop/pull/42"
+	gl := "https://gitlab.example.com/g/sub/p/-/merge_requests/7"
+	bb := "https://bitbucket.org/w/r/pull-requests/3"
+	cases := [][2]string{
+		{gh, gh},
+		{gh + "?token=s3cret", gh},
+		{"https://u:p@github.com/acme/shop/pull/42#x", gh},
+		{gl, gl},
+		{bb, bb},
+		{"https://hooks.slack.com/services/T0/B0/xyz", "https://hooks.slack.com/[redacted]"},
+		{gh + "/files?x=1", "https://github.com/[redacted]"},
+		{"http://github.com/acme/shop/pull/42", "http://github.com/[redacted]"},
+		{"not a url", "[redacted-url]"},
+	}
+	for _, c := range cases {
+		if got := PRLink(c[0]); got != c[1] {
+			t.Errorf("PRLink(%q) = %q, want %q", c[0], got, c[1])
+		}
+	}
+}
+
+// Without a UI address the body names the review instead of a link that
+// cannot open.
+func TestChangeReviewNeedsDBAEventWithoutAUILink(t *testing.T) {
+	info := crInfo()
+	info.Link = ""
+	evt := ChangeReviewNeedsDBAEvent(info)
+	if !strings.Contains(evt.Body, "Review: 3f0c8a52-0000-4000-8000-000000000001") ||
+		!strings.Contains(evt.Body, "change_review.ui_base_url") ||
+		strings.Contains(evt.Body, "#/reviews") {
+		t.Fatalf("body without a UI link: %q", evt.Body)
 	}
 }

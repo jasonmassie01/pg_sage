@@ -114,9 +114,9 @@ func TestChangeReviewNotifierEmitsOneEventForARiskyReview(t *testing.T) {
 		e.Data["top_rule"] != "CR-03" {
 		t.Fatalf("event %+v", e)
 	}
-	if e.Data["pr_url"] != "https://github.com/[redacted]" ||
-		strings.Contains(e.Body, "acme/shop") {
-		t.Fatalf("the PR link must be redacted: %v / %q", e.Data["pr_url"], e.Body)
+	if e.Data["pr_url"] != "https://github.com/acme/shop/pull/42" ||
+		!strings.Contains(e.Body, "PR: https://github.com/acme/shop/pull/42") {
+		t.Fatalf("the PR link must open the pull request: %v / %q", e.Data["pr_url"], e.Body)
 	}
 	if !strings.Contains(e.Body, "https://sage.example.com/#/reviews?id="+r.ID) {
 		t.Fatalf("body %q must link the review", e.Body)
@@ -147,8 +147,7 @@ func TestChangeReviewInfoPicksTheMostSevereFinding(t *testing.T) {
 		}, Summary: changereview.ReviewSummary{Critical: 1, Warning: 2, Info: 1}}
 	info := changeReviewInfo(r, changereview.RenderOptions{})
 	if info.TopRule != "CR-05" || info.TopFinding != "SET NOT NULL will fail" ||
-		info.Critical != 1 || info.Warning != 2 ||
-		info.Link != "/#/reviews?id=id-1&database=orders" {
+		info.Critical != 1 || info.Warning != 2 || info.Link != "" {
 		t.Fatalf("info %+v", info)
 	}
 	r.Findings = r.Findings[:3]

@@ -25,8 +25,10 @@ import (
 // tables of the first-look catalog (10k+ relations), with the shipped
 // catalog-read timeouts, completes inside the deterministic stage's 20 s
 // without a timed-out read, and no statement it runs exceeds the
-// catalog incident budget. The engine only reads and plans: no user table
-// is scanned by it.
+// catalog incident budget. The history it reads is a mature one: a week
+// of query_store samples (one a minute) for 100 hot statements on a
+// reviewed table, and a 'tables' snapshot of 20,000 relations. The engine
+// only reads and plans: no user table is scanned by it.
 
 const changeReviewPerfSQL = `
 ALTER TABLE perf_app_000.t_0000 RENAME COLUMN payload TO body;
@@ -60,6 +62,7 @@ func TestPerfGateChangeReview(t *testing.T) {
 	}
 	defer monitored.Close()
 	runChangeReviewWorkload(t, ctx, monitored)
+	seedChangeReviewHistory(t, ctx, harness)
 	svc := perfChangeReviewService(t, ctx, monitored)
 	seqBefore := userSeqScans(t, ctx, harness)
 	// From here on the database runs only the review and the harness. PG18
@@ -83,10 +86,19 @@ func TestPerfGateChangeReview(t *testing.T) {
 		t.Fatalf("review %s (%s), %d statements, took %s", got.State, got.FailureReason,
 			len(got.Statements), took)
 	}
+	rated := 0
 	for _, e := range got.Evidence {
 		if strings.Contains(e.Label, "timed out") {
 			t.Errorf("evidence %s: %s", e.ID, e.Label)
 		}
+		if strings.HasPrefix(e.ID, "queryid:") && strings.Contains(string(e.Data),
+			`"peak_calls_per_s":1`) {
+			rated++
+		}
+	}
+	if rated < 50 {
+		t.Errorf("%d workload statements carry their seeded peak rate, want the hot ones",
+			rated)
 	}
 	if err := testdb.FlushIdleSessions(ctx, monitored); err != nil {
 		t.Fatalf("flush statistics: %v", err)
@@ -110,6 +122,53 @@ func runChangeReviewWorkload(t *testing.T, ctx context.Context, p *pgxpool.Pool)
 				t.Fatalf("workload %s: %v", q, err)
 			}
 		}
+	}
+	runHotStatements(t, ctx, p)
+}
+
+// hotStatements is how many distinct hot statements read t_0000.
+const hotStatements = 100
+
+// runHotStatements gives pg_stat_statements hotStatements distinct
+// statements on t_0000 (one more OR term each).
+func runHotStatements(t *testing.T, ctx context.Context, p *pgxpool.Pool) {
+	t.Helper()
+	for k := 1; k <= hotStatements; k++ {
+		q := "SELECT payload FROM perf_app_000.t_0000 WHERE id = $1" +
+			strings.Repeat(" OR id = $1", k)
+		if _, err := p.Exec(ctx, q, k); err != nil {
+			t.Fatalf("hot statement %d: %v", k, err)
+		}
+	}
+}
+
+// seedChangeReviewHistory writes a week of query_store samples, one a
+// minute, at one call per second for every workload statement on
+// t_0000 (the hot statements included), and a 'tables' snapshot two hours
+// old of 20,000 relations.
+func seedChangeReviewHistory(t *testing.T, ctx context.Context, p *pgxpool.Pool) {
+	t.Helper()
+	tag := "/* " + perfgate.HarnessTag + " */ "
+	if _, err := p.Exec(ctx, tag+`INSERT INTO sage.query_store (captured_at, queryid, calls,
+		total_exec_time, mean_exec_time)
+		SELECT now() - interval '7 days' + g * interval '1 minute', s.queryid, 60 * g,
+		       0.01 * g, 0.01
+		  FROM (SELECT DISTINCT queryid FROM pg_stat_statements
+		         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+		           AND query LIKE '%perf_app_000.t_0000%') s
+		 CROSS JOIN generate_series(0, 7 * 24 * 60) g`); err != nil {
+		t.Fatalf("seed query_store: %v", err)
+	}
+	if _, err := p.Exec(ctx, tag+`INSERT INTO sage.snapshots (collected_at, category, data)
+		SELECT now() - interval '2 hours', 'tables', jsonb_agg(jsonb_build_object(
+		         'schemaname', 'perf_app_' || lpad((g / 1000)::text, 3, '0'),
+		         'relname', 't_' || lpad((g % 1000)::text, 4, '0'),
+		         'n_tup_ins', g, 'n_tup_upd', g, 'n_tup_del', 0, 'n_live_tup', g))
+		  FROM generate_series(0, 19999) g`); err != nil {
+		t.Fatalf("seed the tables snapshot: %v", err)
+	}
+	if _, err := p.Exec(ctx, tag+"ANALYZE sage.query_store, sage.snapshots"); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -24,6 +24,8 @@ func TestReceiptConfounders(t *testing.T) {
 		{changefeed.KindRestart, 2 * time.Hour, changereview.ReceiptUnverifiable},
 		{changefeed.KindFailover, 23 * time.Hour, changereview.ReceiptUnverifiable},
 		{changefeed.KindRestart, -30 * time.Hour, changereview.ReceiptClean},
+		// After the after-window closed (landing 25 h ago, a 24 h window).
+		{changefeed.KindRestart, 24*time.Hour + 30*time.Minute, changereview.ReceiptClean},
 		{changefeed.KindExtension, time.Hour, changereview.ReceiptClean},
 	}
 	for _, tc := range cases {
