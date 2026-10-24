@@ -31,13 +31,13 @@ func (st *Store) Insert(ctx context.Context, r Review) (Review, error) {
 		dba_decided_at, verdict_carried_from, landing_state, landing_source, landed_lower,
 		landed_at, receipt_verdict, receipt, receipt_decided_at, shadow_auto_clear,
 		shadow_score, credit_state, credited_minutes, toil_model_version, credit_final_at,
-		created_at, completed_at, updated_at)
+		created_at, completed_at, updated_at, landing_checked_at)
 		VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9, $10,
 		$11, $12, $13, $14::uuid, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
 		$27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41::uuid, $42,
 		$43, $44, $45, $46, $47, $48, $49, COALESCE($50, 'unscored'), COALESCE($51, 'none'),
-		$52, $53, $54, COALESCE($55, now()), $56, COALESCE($57, now()))
-		RETURNING `+selectFull, insertArgs(r, j)...)
+		$52, $53, $54, COALESCE($55, now()), $56, COALESCE($57, now()), $58)
+		RETURNING `+selectFull, append(insertArgs(r, j), unmetAt(r))...)
 	out, err := scanReview(row)
 	if err != nil {
 		return Review{}, fmt.Errorf("%w: store the review: %v", ErrUnavailable, err)
@@ -61,6 +61,16 @@ func insertArgs(r Review, j reviewJSON) []any {
 		nullText(r.ShadowScore), nullText(r.CreditState), r.CreditedMinutes,
 		r.ToilModelVersion, r.CreditFinalAt, nullTime(r.CreatedAt), r.CompletedAt,
 		nullTime(r.UpdatedAt)}
+}
+
+// unmetAt is the landing check a review carries from its own review time:
+// its completion, when its post-conditions were unmet then and it waits to
+// land (the lower end of a later catalog landing); nil otherwise.
+func unmetAt(r Review) *time.Time {
+	if r.Expectations.AtReview != AtReviewUnmet || r.LandingState != LandingAwaiting {
+		return nil
+	}
+	return r.CompletedAt
 }
 
 // saveDeterministic stores the deterministic result of a running review,
@@ -110,16 +120,16 @@ func (st *Store) complete(ctx context.Context, r Review) (Review, error) {
 		statements = $8, findings = $9, evidence = $10, dropped = $11, not_determined = $12,
 		summary = $13, expectations = $14, transcript = $15, markdown = $16, tokens = $17,
 		dba_verdict = $18, dba_direction = $19, dba_reason = $20, dba_actor = $21,
-		dba_decided_at = $22, verdict_carried_from = $23::uuid, landing_state = 'awaiting',
+		dba_decided_at = $22, verdict_carried_from = $23::uuid, landing_state = $27,
 		receipt_verdict = 'pending', shadow_auto_clear = $24, credit_state = $25,
-		completed_at = $26, updated_at = now()
+		completed_at = $26, landing_checked_at = $28, updated_at = now()
 		WHERE id = $1::uuid AND state = 'running' RETURNING `+selectFull,
 		r.ID, StageDone, nullText(r.ContentHash), r.Verdict, r.DeterministicVerdict,
 		r.ParseMode, r.ModelStatus, j.statements, j.findings, j.evidence, j.dropped,
 		j.notDetermined, j.summary, j.expectations, j.transcript, r.Markdown, r.Tokens,
 		nullText(r.DBAVerdict), nullText(r.DBADirection), nullText(r.DBAReason),
 		nullText(r.DBAActor), r.DBADecidedAt, nullText(r.VerdictCarriedFrom),
-		r.ShadowAutoClear, r.CreditState, r.CompletedAt)
+		r.ShadowAutoClear, r.CreditState, r.CompletedAt, r.LandingState, unmetAt(r))
 	out, err := scanReview(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Review{}, fmt.Errorf("%w: review %s is no longer running", ErrAlreadyDecided,

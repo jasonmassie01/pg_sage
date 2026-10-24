@@ -130,9 +130,19 @@ func (s *Service) Store() *Store { return s.store }
 // against it).
 func (s *Service) Budget() *Budget { return s.budget }
 
-// Get is one review.
+// Get is one review as it stands.
 func (s *Service) Get(ctx context.Context, id string) (Review, error) {
-	return s.store.Get(ctx, id)
+	return s.current(s.store.Get(ctx, id))
+}
+
+// current renders a complete review's comment from its stored state, so
+// it shows what was recorded after completion: a DBA verdict (with its
+// reason or edits), a landing, a decided receipt and the sealed marker.
+func (s *Service) current(r Review, err error) (Review, error) {
+	if err == nil && r.State == StateComplete {
+		r.Markdown = RenderMarkdown(r, s.d.Render)
+	}
+	return r, err
 }
 
 // List is reviews matching f, newest first, without transcripts.
@@ -141,9 +151,10 @@ func (s *Service) List(ctx context.Context, f ListFilter) ([]Review, error) {
 }
 
 // Decide records a DBA verdict (the surfaces allow it only to operator
-// and admin sessions; no MCP tool calls it).
+// and admin sessions; no MCP tool calls it). The later revisions of the
+// PR with the same content take it too (Store.Decide).
 func (s *Service) Decide(ctx context.Context, id string, v DBAVerdict) (Review, error) {
-	return s.store.Decide(ctx, id, v)
+	return s.current(s.store.Decide(ctx, id, v))
 }
 
 // Summary is the database's Reviews-page figures since.
@@ -159,7 +170,7 @@ func (s *Service) Wait(ctx context.Context, id string, d time.Duration) (Review,
 	}
 	r, err := s.store.Get(ctx, id)
 	if err != nil || r.State != StateRunning || d <= 0 {
-		return r, err
+		return s.current(r, err)
 	}
 	s.mu.Lock()
 	done := s.done[id]
@@ -171,14 +182,14 @@ func (s *Service) Wait(ctx context.Context, id string, d time.Duration) (Review,
 	for {
 		select {
 		case <-done:
-			return s.store.Get(ctx, id)
+			return s.current(s.store.Get(ctx, id))
 		case <-timer.C:
-			return s.store.Get(ctx, id)
+			return s.current(s.store.Get(ctx, id))
 		case <-ctx.Done():
 			return r, ctx.Err()
 		case <-tick.C:
 			if r, err = s.store.Get(ctx, id); err != nil || r.State != StateRunning {
-				return r, err
+				return s.current(r, err)
 			}
 		}
 	}

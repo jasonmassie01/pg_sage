@@ -123,6 +123,27 @@ func (st *Store) carrySource(ctx context.Context, prURL, contentHash,
 	return optionalReview(r, err, "carry-over source")
 }
 
+// waitingAtLeast reports whether an earlier complete revision of r's PR
+// with a verdict at least as severe as r's still waits for a DBA verdict
+// (through change_review_pr_created).
+func (st *Store) waitingAtLeast(ctx context.Context, r Review) (bool, error) {
+	severe := []string{VerdictRisky}
+	if r.Verdict == VerdictReview {
+		severe = append(severe, VerdictReview)
+	}
+	var waiting bool
+	err := st.pool.QueryRow(ctx, `/* pg_sage change_review_paged v1 */
+		SELECT EXISTS (SELECT 1 FROM sage.change_review
+		WHERE pr_url = $1 AND created_at < $2 AND id <> $3::uuid AND state = 'complete'
+		  AND dba_verdict IS NULL AND verdict = ANY($4::text[]))`, r.PRURL, r.CreatedAt,
+		r.ID, severe).Scan(&waiting)
+	if err != nil {
+		return false, fmt.Errorf("%w: read the PR's earlier revisions: %v", ErrUnavailable,
+			err)
+	}
+	return waiting, nil
+}
+
 func optionalReview(r Review, err error, what string) (Review, bool, error) {
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -133,15 +154,18 @@ func optionalReview(r Review, err error, what string) (Review, bool, error) {
 	return r, true, nil
 }
 
-// ListAwaiting is up to limit complete reviews waiting to land, oldest
-// completion first (through change_review_landing_awaiting).
+// ListAwaiting is up to limit complete reviews waiting to land: those
+// never checked first (oldest completion first), then those checked
+// longest ago, so a cycle that cannot take them all leaves the rest for
+// the next one (through change_review_landing_rotation).
 func (st *Store) ListAwaiting(ctx context.Context, limit int) ([]Review, error) {
 	if limit < 1 || limit > maxQueueRead {
 		return nil, invalid("limit must be 1-%d, got %d", maxQueueRead, limit)
 	}
-	rows, err := st.pool.Query(ctx, `/* pg_sage change_review_awaiting v1 */
+	rows, err := st.pool.Query(ctx, `/* pg_sage change_review_awaiting v2 */
 		SELECT `+selectBrief+` FROM sage.change_review
-		WHERE landing_state = 'awaiting' ORDER BY completed_at LIMIT $1`, limit)
+		WHERE landing_state = 'awaiting'
+		ORDER BY landing_checked_at NULLS FIRST, completed_at LIMIT $1`, limit)
 	return listResult(rows, err)
 }
 

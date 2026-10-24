@@ -214,13 +214,13 @@ func TestNotifierPagesOncePerPR(t *testing.T) {
 	review.Notifier = n
 	risky := f.deps(staticAnalysis(t, ruleFinding("CR-03", SeverityCritical)))
 	risky.Notifier = n
-	submitAndWait(t, f, f.service(review), revision("ALTER TABLE t ADD COLUMN a int", "a1"))
-	submitAndWait(t, f, f.service(review), revision("ALTER TABLE t ADD COLUMN b int", "a2"))
+	submitAndWait(t, f, f.service(review), revision("ALTER TABLE t ADD COLUMN a int", "aaaa111"))
+	submitAndWait(t, f, f.service(review), revision("ALTER TABLE t ADD COLUMN b int", "aaaa222"))
 	if got := len(n.calls()); got != 1 {
 		t.Fatalf("two review revisions paged %d times, want 1", got)
 	}
-	submitAndWait(t, f, f.service(risky), revision("ALTER TABLE t DROP COLUMN c", "a3"))
-	submitAndWait(t, f, f.service(risky), revision("ALTER TABLE t DROP COLUMN d", "a4"))
+	submitAndWait(t, f, f.service(risky), revision("ALTER TABLE t DROP COLUMN c", "aaaa333"))
+	submitAndWait(t, f, f.service(risky), revision("ALTER TABLE t DROP COLUMN d", "aaaa444"))
 	if got := len(n.calls()); got != 2 {
 		t.Fatalf("a revision turning risky paged %d times in all, want 2", got)
 	}

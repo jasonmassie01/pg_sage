@@ -34,11 +34,25 @@ func Marker(r Review) string {
 		markerUnsafe.ReplaceAllString(receipt, "_") + " -->"
 }
 
-// ReviewLink is the review's page in the pg_sage UI.
+// ReviewLink is the review's page in the pg_sage UI, or "" without the
+// UI's address (change_review.ui_base_url): a relative link would resolve
+// against GitHub or a chat client and open nothing.
 func ReviewLink(r Review, o RenderOptions) string {
 	base := strings.TrimRight(o.UIBaseURL, "/")
+	if base == "" {
+		return ""
+	}
 	return base + "/#/reviews?id=" + r.ID + "&database=" + markerUnsafe.ReplaceAllString(
 		r.Database, "_")
+}
+
+// reviewPointer is where the full review is: its UI link, or its id on
+// the Reviews page.
+func reviewPointer(r Review, o RenderOptions) string {
+	if link := ReviewLink(r, o); link != "" {
+		return link
+	}
+	return "review " + markerUnsafe.ReplaceAllString(r.ID, "_") + " on pg_sage's Reviews page"
 }
 
 // RenderMarkdown is the review comment: marker, verdict, calibration,
@@ -63,7 +77,7 @@ func RenderMarkdown(r Review, o RenderOptions) string {
 	blocks := findingBlocks(r.Findings)
 	note := func(left int) string {
 		return fmt.Sprintf("\n_%d more findings not shown; see the full review: %s_\n",
-			left, ReviewLink(r, o))
+			left, reviewPointer(r, o))
 	}
 	used := utf8.RuneCountInString(head)
 	noteRunes := utf8.RuneCountInString(note(len(blocks)))
@@ -113,14 +127,33 @@ func renderHead(r Review) string {
 		b.WriteString("\n" + r.Summary.Calibration.Line() + "\n")
 	}
 	b.WriteString("\n" + modelLine(r) + "\n")
-	if r.DBAVerdict != "" {
-		fmt.Fprintf(&b, "\nDBA verdict: %s by %s", r.DBAVerdict, escapeMarkdown(r.DBAActor))
-		if r.VerdictCarriedFrom != "" {
-			fmt.Fprintf(&b, " (carried over from review %s)", r.VerdictCarriedFrom)
-		}
-		b.WriteString(".\n")
-	}
+	b.WriteString(dbaLine(r))
 	return b.String()
+}
+
+// dbaLine is the DBA's verdict as the developer must act on it: the
+// verdict, an override's direction, who, and the edits or reason given.
+func dbaLine(r Review) string {
+	if r.DBAVerdict == "" {
+		return ""
+	}
+	verdict := strings.ReplaceAll(r.DBAVerdict, "_", " ")
+	if r.DBAVerdict == DBAOverride && r.DBADirection != "" {
+		verdict += " (pg_sage was " + strings.ReplaceAll(r.DBADirection, "_", " ") + ")"
+	}
+	line := fmt.Sprintf("\nDBA verdict: %s by %s", verdict, escapeMarkdown(r.DBAActor))
+	if r.VerdictCarriedFrom != "" {
+		line += fmt.Sprintf(" (carried over from review %s)", r.VerdictCarriedFrom)
+	}
+	line += "."
+	if reason := escapeMarkdown(r.DBAReason); reason != "" {
+		label := "Reason"
+		if r.DBAVerdict == DBAConcurWithEdits {
+			label = "Edits"
+		}
+		line += " " + label + ": " + reason
+	}
+	return line + "\n"
 }
 
 func modelLine(r Review) string {

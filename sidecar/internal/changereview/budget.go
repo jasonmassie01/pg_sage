@@ -70,14 +70,23 @@ func (b *Budget) day() time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// Reservation is tokens charged to an actor on a UTC budget day: Settle
+// trues up that day, even when the call it paid for ends on the next.
+type Reservation struct {
+	Day    time.Time
+	Actor  string
+	Tokens int64
+}
+
 // Reserve charges tokens to the database and the actor, or refuses with
 // a *BudgetError when either allocation cannot pay for it.
-func (b *Budget) Reserve(ctx context.Context, actor string, tokens int64) error {
+func (b *Budget) Reserve(ctx context.Context, actor string, tokens int64) (Reservation,
+	error) {
 	if err := checkActor(actor); err != nil {
-		return err
+		return Reservation{}, err
 	}
 	if tokens <= 0 {
-		return invalid("reservation of %d tokens", tokens)
+		return Reservation{}, invalid("reservation of %d tokens", tokens)
 	}
 	day := b.day()
 	err := pgx.BeginFunc(ctx, b.pool, func(tx pgx.Tx) error {
@@ -95,7 +104,10 @@ func (b *Budget) Reserve(ctx context.Context, actor string, tokens int64) error 
 		}
 		return addBudget(ctx, tx, day, actor, tokens)
 	})
-	return budgetErr(err, "reserve")
+	if err := budgetErr(err, "reserve"); err != nil {
+		return Reservation{}, err
+	}
+	return Reservation{Day: day, Actor: actor, Tokens: tokens}, nil
 }
 
 // lockBudgetRows creates the day's rows if needed and locks them, the
@@ -142,23 +154,24 @@ func addBudget(ctx context.Context, tx pgx.Tx, day time.Time, actor string,
 	return err
 }
 
-// Settle trues a reservation up (or down) to the reported usage.
-func (b *Budget) Settle(ctx context.Context, actor string, reserved, used int64) error {
-	if err := checkActor(actor); err != nil {
+// Settle trues a reservation up (or down) to the reported usage, on the
+// day it was charged to.
+func (b *Budget) Settle(ctx context.Context, r Reservation, used int64) error {
+	if err := checkActor(r.Actor); err != nil {
 		return err
 	}
-	if used < 0 || reserved < 0 {
-		return invalid("settle %d of %d reserved tokens", used, reserved)
+	if used < 0 || r.Tokens < 0 || r.Day.IsZero() {
+		return invalid("settle %d of %d tokens reserved on %v", used, r.Tokens, r.Day)
 	}
-	if used == reserved {
+	if used == r.Tokens {
 		return nil
 	}
-	day := b.day()
+	day := r.Day.UTC()
 	err := pgx.BeginFunc(ctx, b.pool, func(tx pgx.Tx) error {
-		if _, _, err := lockBudgetRows(ctx, tx, day, actor); err != nil {
+		if _, _, err := lockBudgetRows(ctx, tx, day, r.Actor); err != nil {
 			return err
 		}
-		return addBudget(ctx, tx, day, actor, used-reserved)
+		return addBudget(ctx, tx, day, r.Actor, used-r.Tokens)
 	})
 	return budgetErr(err, "settle")
 }

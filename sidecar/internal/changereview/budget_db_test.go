@@ -31,6 +31,18 @@ func (c *clock) set(t time.Time) {
 	c.t = t
 }
 
+// today is a reservation of tokens by actor on the current UTC day.
+func today(actor string, tokens int64) Reservation {
+	t := time.Now().UTC()
+	return Reservation{Day: time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC),
+		Actor: actor, Tokens: tokens}
+}
+
+func reserveErr(f *fixture, b *Budget, actor string, tokens int64) error {
+	_, err := b.Reserve(f.ctx, actor, tokens)
+	return err
+}
+
 func TestBudgetDatabaseCapUnderConcurrency(t *testing.T) {
 	f := newFixture(t)
 	c := &clock{t: time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)}
@@ -41,7 +53,7 @@ func TestBudgetDatabaseCapUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			err := b.Reserve(f.ctx, "actor:"+strconv.Itoa(i), 10000)
+			_, err := b.Reserve(f.ctx, "actor:"+strconv.Itoa(i), 10000)
 			var be *BudgetError
 			switch {
 			case err == nil:
@@ -66,16 +78,16 @@ func TestBudgetDatabaseCapUnderConcurrency(t *testing.T) {
 func TestBudgetActorCap(t *testing.T) {
 	f := newFixture(t)
 	b := NewBudget(f.pool, 500000, 200000, nil)
-	if err := b.Reserve(f.ctx, "user:1", 200000); err != nil {
+	if _, err := b.Reserve(f.ctx, "user:1", 200000); err != nil {
 		t.Fatalf("reserve to the cap: %v", err)
 	}
-	err := b.Reserve(f.ctx, "user:1", 1)
+	_, err := b.Reserve(f.ctx, "user:1", 1)
 	var be *BudgetError
 	if !errors.As(err, &be) || be.Scope != BudgetScopeActor || be.Used != 200000 ||
 		be.Limit != 200000 || be.Need != 1 || !errors.Is(err, ErrBudgetExhausted) {
 		t.Fatalf("actor over its cap: %v (%+v)", err, be)
 	}
-	if err := b.Reserve(f.ctx, "user:2", 50000); err != nil {
+	if _, err := b.Reserve(f.ctx, "user:2", 50000); err != nil {
 		t.Fatalf("another actor refused: %v", err)
 	}
 	st, err := b.Status(f.ctx, "user:2")
@@ -89,14 +101,14 @@ func TestBudgetDayRollsOver(t *testing.T) {
 	f := newFixture(t)
 	c := &clock{t: time.Date(2026, 10, 22, 23, 59, 0, 0, time.UTC)}
 	b := NewBudget(f.pool, 1000, 1000, c.now)
-	if err := b.Reserve(f.ctx, "user:1", 1000); err != nil {
+	if _, err := b.Reserve(f.ctx, "user:1", 1000); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Reserve(f.ctx, "user:1", 1); err == nil {
+	if _, err := b.Reserve(f.ctx, "user:1", 1); err == nil {
 		t.Fatal("over the cap the same day was accepted")
 	}
 	c.set(time.Date(2026, 10, 23, 0, 0, 1, 0, time.UTC))
-	if err := b.Reserve(f.ctx, "user:1", 1000); err != nil {
+	if _, err := b.Reserve(f.ctx, "user:1", 1000); err != nil {
 		t.Fatalf("a new UTC day still refused: %v", err)
 	}
 	st, _ := b.Status(f.ctx, "user:1")
@@ -113,23 +125,23 @@ func TestBudgetDayRollsOver(t *testing.T) {
 func TestBudgetSettleRefundsAndCharges(t *testing.T) {
 	f := newFixture(t)
 	b := NewBudget(f.pool, 100000, 100000, nil)
-	if err := b.Reserve(f.ctx, "user:1", 3000); err != nil {
+	if _, err := b.Reserve(f.ctx, "user:1", 3000); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.Settle(f.ctx, "user:1", 3000, 1200); err != nil {
+	if err := b.Settle(f.ctx, today("user:1", 3000), 1200); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	st, _ := b.Status(f.ctx, "user:1")
 	if st.DatabaseUsed != 1200 || st.ActorUsed != 1200 {
 		t.Fatalf("after a refund: %+v, want 1200 used", st)
 	}
-	if err := b.Settle(f.ctx, "user:1", 1000, 1500); err != nil {
+	if err := b.Settle(f.ctx, today("user:1", 1000), 1500); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := b.Status(f.ctx, "user:1"); st.ActorUsed != 1700 {
 		t.Fatalf("after an overrun: %+v, want 1700", st)
 	}
-	if err := b.Settle(f.ctx, "user:1", 99999, 0); err != nil {
+	if err := b.Settle(f.ctx, today("user:1", 99999), 0); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := b.Status(f.ctx, "user:1"); st.ActorUsed != 0 || st.DatabaseUsed != 0 {
@@ -141,11 +153,11 @@ func TestBudgetInvalidArguments(t *testing.T) {
 	f := newFixture(t)
 	b := NewBudget(f.pool, 1000, 1000, nil)
 	for name, err := range map[string]error{
-		"zero tokens":     b.Reserve(f.ctx, "user:1", 0),
-		"negative tokens": b.Reserve(f.ctx, "user:1", -5),
-		"star actor":      b.Reserve(f.ctx, "*", 10),
-		"empty actor":     b.Reserve(f.ctx, " ", 10),
-		"negative settle": b.Settle(f.ctx, "user:1", 10, -1),
+		"zero tokens":     reserveErr(f, b, "user:1", 0),
+		"negative tokens": reserveErr(f, b, "user:1", -5),
+		"star actor":      reserveErr(f, b, "*", 10),
+		"empty actor":     reserveErr(f, b, " ", 10),
+		"negative settle": b.Settle(f.ctx, today("user:1", 10), -1),
 	} {
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v, want ErrInvalid", name, err)
@@ -154,7 +166,7 @@ func TestBudgetInvalidArguments(t *testing.T) {
 	if _, err := b.Status(f.ctx, ""); !errors.Is(err, ErrInvalid) {
 		t.Errorf("status of an empty actor: %v", err)
 	}
-	if err := b.Settle(f.ctx, "user:1", 10, 10); err != nil {
+	if err := b.Settle(f.ctx, today("user:1", 10), 10); err != nil {
 		t.Errorf("settle with no change: %v", err)
 	}
 }
@@ -163,7 +175,7 @@ func TestBudgetZeroCapRefusesEverything(t *testing.T) {
 	f := newFixture(t)
 	b := NewBudget(f.pool, 0, 0, nil)
 	var be *BudgetError
-	if err := b.Reserve(f.ctx, "user:1", 1); !errors.As(err, &be) ||
+	if _, err := b.Reserve(f.ctx, "user:1", 1); !errors.As(err, &be) ||
 		be.Scope != BudgetScopeDatabase {
 		t.Fatalf("zero cap: %v", err)
 	}
@@ -173,7 +185,7 @@ func TestBudgetStoreFailureIsUnavailable(t *testing.T) {
 	f := newFixture(t)
 	b := NewBudget(f.pool, 1000, 1000, nil)
 	f.pool.Close()
-	if err := b.Reserve(f.ctx, "user:1", 10); !errors.Is(err, ErrUnavailable) {
+	if _, err := b.Reserve(f.ctx, "user:1", 10); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("a closed pool gives %v, want ErrUnavailable", err)
 	}
 }

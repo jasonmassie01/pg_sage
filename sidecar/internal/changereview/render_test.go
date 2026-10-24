@@ -221,7 +221,9 @@ func TestRenderTruncatesAt65000(t *testing.T) {
 		t.Fatal("truncation lost the marker")
 	}
 	small := RenderMarkdown(r, RenderOptions{MaxRunes: 2000})
-	if n := len([]rune(small)); n > 2000 || !strings.Contains(small, "#/reviews?id="+renderID) {
+	// Without the UI's address the note names the review (a relative link
+	// would open nothing from GitHub).
+	if n := len([]rune(small)); n > 2000 || !strings.Contains(small, "review "+renderID) {
 		t.Fatalf("a 2000-rune cap rendered %d runes", n)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"unicode/utf8"
 
@@ -84,9 +85,32 @@ func (st *Store) Decide(ctx context.Context, id string, v DBAVerdict) (Review, e
 		if err != nil {
 			return Review{}, fmt.Errorf("%w: record the verdict: %v", ErrUnavailable, err)
 		}
+		st.carryForward(ctx, out)
 		return out, nil
 	}
 	return Review{}, fmt.Errorf("%w: review %s kept changing", ErrUnavailable, id)
+}
+
+// carryForward gives d's verdict to the later complete revisions of its
+// PR with the same content that have none: one DBA decision covers equal
+// content, whichever revision it was recorded on. The credit stays with
+// d. A failure is logged: the verdict itself is recorded.
+func (st *Store) carryForward(ctx context.Context, d Review) {
+	if d.PRURL == "" || d.ContentHash == "" {
+		return
+	}
+	_, err := st.pool.Exec(ctx, `/* pg_sage change_review_carry_forward v1 */
+		UPDATE sage.change_review SET dba_verdict = $3, dba_direction = $4,
+		dba_reason = $5, dba_actor = $6, dba_decided_at = $7,
+		verdict_carried_from = $1::uuid, updated_at = now()
+		WHERE pr_url = $2 AND content_hash = $8 AND created_at > $9
+		  AND state = 'complete' AND dba_verdict IS NULL AND id <> $1::uuid`, d.ID,
+		d.PRURL, d.DBAVerdict, nullText(d.DBADirection), nullText(d.DBAReason), d.DBAActor,
+		d.DBADecidedAt, d.ContentHash, d.CreatedAt)
+	if err != nil {
+		slog.Warn("change review: carrying a DBA verdict to later revisions failed",
+			"review", d.ID, "database", st.database, "error", err)
+	}
 }
 
 // MarkLanded records when a complete, awaiting review's change landed.

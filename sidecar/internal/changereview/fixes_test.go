@@ -38,10 +38,11 @@ func TestIsModelDDL(t *testing.T) {
 // DDL the model labels "extracted" is still model-derived DDL: CR-19,
 // never safe.
 func TestMergeRaisesCR19ForMislabeledModelDDL(t *testing.T) {
-	a := Analysis{ParseMode: ParseAST}
+	a := Analysis{ParseMode: ParseAST, Statements: []Statement{{Index: 1,
+		Origin: OriginSQLInput, Kind: "add_column", EvidenceID: "stmt:1"}}}
 	r := &Reasoning{ModelStatus: ModelOK, Statements: []Statement{{Index: 2,
 		Origin: OriginModelExtracted, File: "db/migrate/2_audit.rb", Line: 4,
-		SQL: "CREATE TABLE rv.audit (id bigint PRIMARY KEY, note text)",
+		SQL:  "CREATE TABLE rv.audit (id bigint PRIMARY KEY, note text)",
 		Kind: "create_table", EvidenceID: "inspect:abc"}}}
 	m := Merge(a, r)
 	if m.Verdict != VerdictReview {

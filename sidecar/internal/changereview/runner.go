@@ -65,10 +65,27 @@ func (s *Service) process(ctx context.Context, r Review, in Input) error {
 	if err != nil {
 		return err
 	}
-	if s.d.Notifier != nil && stored.Verdict != VerdictSafe && stored.DBAVerdict == "" {
+	if s.d.Notifier != nil && stored.Verdict != VerdictSafe && stored.DBAVerdict == "" &&
+		!s.alreadyPaged(persist, stored) {
 		s.d.Notifier.ReviewNeedsDBA(persist, stored)
 	}
 	return nil
+}
+
+// alreadyPaged reports whether the DBA was already asked about this PR:
+// an earlier revision at the same or a worse verdict still waits for a
+// verdict. A read failure pages (better twice than never).
+func (s *Service) alreadyPaged(ctx context.Context, r Review) bool {
+	if r.PRURL == "" {
+		return false
+	}
+	paged, err := s.store.waitingAtLeast(ctx, r)
+	if err != nil {
+		s.d.Logf("change review: %s: earlier revisions of %s unreadable, paging: %v",
+			s.d.Database, r.ID, err)
+		return false
+	}
+	return paged
 }
 
 // analyze runs the deterministic stage under its time limit.
@@ -166,6 +183,11 @@ func (s *Service) finalize(ctx context.Context, r Review, in Input, a Analysis,
 	r.State, r.Stage, r.CompletedAt, r.CreditState = StateComplete, StageDone, &now,
 		CreditNone
 	r.LandingState, r.ReceiptVerdict = LandingAwaiting, ReceiptPending
+	if a.Expectations.AtReview == AtReviewLanded {
+		// The change was already there when it was reviewed: it can never
+		// land, so it earns no receipt and no credit.
+		r.LandingState = LandingNotApplicable
+	}
 	r.Markdown = RenderMarkdown(r, s.d.Render)
 	return r, nil
 }

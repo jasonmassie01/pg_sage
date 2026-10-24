@@ -172,11 +172,30 @@ func clampModelFinding(f Finding, held map[string]bool) (Finding, string) {
 func translatedStatements(stmts []Statement) []Statement {
 	var out []Statement
 	for _, s := range stmts {
-		if s.Origin == OriginModelTranslated {
+		if IsModelDDL(s) {
 			out = append(out, s)
 		}
 	}
 	return out
+}
+
+// modelReadKinds are the statement kinds a model may extract from
+// application code: reads and DML. Anything else it brings is DDL.
+var modelReadKinds = map[string]bool{"select": true, "dml_update": true,
+	"dml_delete": true, "dml_insert": true, "merge": true}
+
+// IsModelDDL reports whether s is DDL the model derived: translated from
+// an ORM migration, or "extracted" but of a kind application code does
+// not run (the model's label is not trusted). Such DDL is never safe
+// (CR-19) and never shadow auto-clear eligible.
+func IsModelDDL(s Statement) bool {
+	switch s.Origin {
+	case OriginModelTranslated:
+		return true
+	case OriginModelExtracted:
+		return !modelReadKinds[s.Kind]
+	}
+	return false
 }
 
 // cr19 is the finding that model-translated DDL can never be safe.

@@ -32,18 +32,38 @@ type Calibration struct {
 	ByVerdict map[string]VerdictClass `json:"by_verdict"`
 }
 
-// Calibration reads the track record of complete reviews created since.
+// reviewUnitsSQL is the complete reviews created since $1 as decision
+// units: the revisions of one PR with equal content are one DBA decision
+// and ship as one change, so they count once. A unit has its newest
+// revision's verdict, the DBA verdict any revision carries and its most
+// telling receipt (regressed, then clean, then clean_low_traffic, then
+// unverifiable, else pending).
+const reviewUnitsSQL = `WITH units AS (
+	SELECT (array_agg(verdict ORDER BY created_at DESC))[1] AS verdict,
+	  (array_agg(dba_verdict ORDER BY dba_verdict IS NULL, created_at DESC))[1]
+	    AS dba_verdict,
+	  CASE WHEN bool_or(receipt_verdict = 'regressed') THEN 'regressed'
+	       WHEN bool_or(receipt_verdict = 'clean') THEN 'clean'
+	       WHEN bool_or(receipt_verdict = 'clean_low_traffic') THEN 'clean_low_traffic'
+	       WHEN bool_or(receipt_verdict = 'unverifiable') THEN 'unverifiable'
+	       ELSE 'pending' END AS receipt_verdict
+	FROM sage.change_review WHERE created_at >= $1 AND state = 'complete'
+	GROUP BY COALESCE(pr_url, id::text), COALESCE(content_hash, id::text))
+`
+
+// Calibration reads the track record of complete reviews created since,
+// one count per decision unit (reviewUnitsSQL).
 func (st *Store) Calibration(ctx context.Context, since time.Time) (Calibration, error) {
 	c := Calibration{Since: utc(since), ByVerdict: map[string]VerdictClass{}}
-	rows, err := st.pool.Query(ctx, `/* pg_sage change_review_calibration v1 */
+	rows, err := st.pool.Query(ctx, `/* pg_sage change_review_calibration v2 */
+		`+reviewUnitsSQL+`
 		SELECT verdict, count(*), count(*) FILTER (WHERE dba_verdict IS NOT NULL),
 		  count(*) FILTER (WHERE dba_verdict = 'concur'),
 		  count(*) FILTER (WHERE receipt_verdict IN ('clean', 'clean_low_traffic',
 		                                             'regressed', 'unverifiable')),
 		  count(*) FILTER (WHERE receipt_verdict IN ('clean', 'clean_low_traffic')),
 		  count(*) FILTER (WHERE receipt_verdict = 'regressed')
-		FROM sage.change_review WHERE created_at >= $1 AND state = 'complete'
-		GROUP BY verdict`, since)
+		FROM units GROUP BY verdict`, since)
 	if err != nil {
 		return c, fmt.Errorf("%w: read the calibration: %v", ErrUnavailable, err)
 	}

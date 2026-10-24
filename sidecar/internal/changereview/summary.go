@@ -107,13 +107,12 @@ func emptySummary(since time.Time) Summary {
 			Label: AutoClearLabel}}
 }
 
-// summaryCounts reads totals, credit hours, tokens, false-safe, caught
-// changes and the DBA wait samples.
+// summaryCounts reads totals, credit hours, tokens, caught changes and
+// the DBA wait samples.
 func (st *Store) summaryCounts(ctx context.Context, s *Summary) error {
 	var credited, pending int64
 	err := st.pool.QueryRow(ctx, `/* pg_sage change_review_summary v1 */
 		SELECT count(*), COALESCE(sum(tokens), 0),
-		  count(*) FILTER (WHERE verdict = 'safe' AND receipt_verdict = 'regressed'),
 		  COALESCE(sum(credited_minutes) FILTER (WHERE credit_state = 'pending'), 0),
 		  COALESCE(array_agg(extract(epoch FROM dba_decided_at - completed_at)::float8)
 		    FILTER (WHERE dba_decided_at IS NOT NULL AND verdict_carried_from IS NULL),
@@ -125,19 +124,20 @@ func (st *Store) summaryCounts(ctx context.Context, s *Summary) error {
 		  (SELECT COALESCE(sum(credited_minutes), 0) FROM sage.change_review
 		    WHERE credit_state = 'final' AND credit_final_at >= $1)
 		FROM sage.change_review r WHERE created_at >= $1 AND state = 'complete'`, s.Since).
-		Scan(&s.Reviews, &s.tokens, &s.FalseSafe, &pending, &s.dbaWaits,
+		Scan(&s.Reviews, &s.tokens, &pending, &s.dbaWaits,
 			&s.CaughtBeforeMerge, &credited)
 	s.HoursCredited, s.HoursPending = float64(credited)/60, float64(pending)/60
 	return err
 }
 
-// summaryMixes reads the verdict, DBA verdict and receipt mixes and the
-// concurrence per verdict class.
+// summaryMixes reads the verdict, DBA verdict and receipt mixes, the
+// concurrence per verdict class and the false-safe count, per decision
+// unit (reviewUnitsSQL): one PR's equal revisions are one decision.
 func (st *Store) summaryMixes(ctx context.Context, s *Summary) error {
-	rows, err := st.pool.Query(ctx, `/* pg_sage change_review_summary_mix v1 */
+	rows, err := st.pool.Query(ctx, `/* pg_sage change_review_summary_mix v2 */
+		`+reviewUnitsSQL+`
 		SELECT verdict, COALESCE(dba_verdict, ''), receipt_verdict, count(*)
-		FROM sage.change_review WHERE created_at >= $1 AND state = 'complete'
-		GROUP BY 1, 2, 3`, s.Since)
+		FROM units GROUP BY 1, 2, 3`, s.Since)
 	if err != nil {
 		return err
 	}
@@ -150,6 +150,9 @@ func (st *Store) summaryMixes(ctx context.Context, s *Summary) error {
 		}
 		s.VerdictMix[verdict] += n
 		s.Receipts[receipt] += n
+		if verdict == VerdictSafe && receipt == ReceiptRegressed {
+			s.FalseSafe += n
+		}
 		c := s.Concurrence[verdict]
 		if dba != "" {
 			s.DBAVerdictMix[dba] += n

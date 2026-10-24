@@ -66,7 +66,8 @@ func fullExpectations() Expectations {
 		Kind: PostColumnRenamed, Relation: "public.orders", Column: "email",
 		NewName: "e"}}, WatchQueryIDs: []int64{-42, 7}, Relations: []string{"public.orders"},
 		Predictions: []verify.Prediction{{Class: "change_review", Method: "rule",
-			TargetQueryIDs: []int64{-42}, ExpectedChangePct: &pct}}}
+			TargetQueryIDs: []int64{-42}, ExpectedChangePct: &pct}},
+		AtReview: AtReviewUnmet}
 }
 
 // fillDecided sets the DBA verdict, landing, receipt, shadow and credit

@@ -38,4 +38,15 @@ func TestChangeReviewReceiptsMigration(t *testing.T) {
 			t.Errorf("change_review_shadow_due = %q, want it to name %s", def, want)
 		}
 	}
+	if err := pool.QueryRow(ctx,
+		`SELECT pg_get_indexdef('sage.change_review_landing_rotation'::regclass)`).
+		Scan(&def); err != nil {
+		t.Fatalf("change_review_landing_rotation: %v", err)
+	}
+	for _, want := range []string{"landing_checked_at NULLS FIRST", "completed_at",
+		"WHERE (landing_state = 'awaiting'"} {
+		if !strings.Contains(def, want) {
+			t.Errorf("change_review_landing_rotation = %q, want it to name %s", def, want)
+		}
+	}
 }
