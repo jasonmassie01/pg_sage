@@ -810,4 +810,60 @@ Scope: `propose`
 | `objects` | array of string | yes | at most 50 items |
 | `reason` | string | yes | length 1-2000 |
 
+### `review_change`
+
+Review a migration or data-access change against the live database before it merges: lock and rewrite risk, the workload statements it affects, lock-queue exposure, index use, constraints that will fail. Returns a cited review with verdict safe, review or risky (deterministic rules set the floor), its Markdown comment and the receipt plan. Read-only: it never runs the SQL. Running reviews return state running; wait with wait_seconds or get_change_review.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `diff` | string | no | unified diff of the change (redacted before any model sees it; never stored) |
+| `migration_tool` | string | no | flyway, liquibase, goose, golang-migrate, dbmate, sqitch, atlas, rails, django, alembic, prisma, knex, sequelize, typeorm or sql |
+| `pr` | object | no |  |
+| `sql` | string | no | migration SQL |
+| `sql_files` | array of object | no | at most 200 items |
+| `transactional` | boolean | no | the migration runs in one transaction (default: the tool's) |
+| `wait_seconds` | integer | no | value 0-50 |
+
+### `get_change_review`
+
+One Change Review by id, waiting up to wait_seconds while it runs.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `id` | string | yes |  |
+| `wait_seconds` | integer | no | value 0-50 |
+
+### `list_change_reviews`
+
+Change Reviews newest first, by PR URL and state.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `limit` | integer | no | value 1-100 |
+| `pr_url` | string | no |  |
+| `state` | string | no | one of `running`, `complete`, `failed` |
+
+### `report_change_deployed`
+
+Report that a reviewed change was deployed (by review id, or the newest complete review of pr_url) so pg_sage compares the workload before and after it and decides its receipt. It records the deploy time; it never runs or approves anything.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `commit` | string | no |  |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `deployed_at` | string | yes | format date-time |
+| `id` | string | no |  |
+| `pr_url` | string | no |  |
+
 <!-- END GENERATED MCP TOOL REFERENCE -->
