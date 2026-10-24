@@ -102,6 +102,11 @@ var allToolsArgs = map[string]string{
 		`"remediation_id":"custodian.0123456789abcdef"}`,
 	"specialist_investigation_transcript": `{"investigation_id":` +
 		`"5f0c2a52-0d55-4a43-9a3c-0d6c1f6c9a11"}`,
+	"review_change":       `{"sql":"ALTER TABLE public.t ADD COLUMN c int"}`,
+	"get_change_review":   `{"id":"5f0c2a52-0d55-4a43-9a3c-0d6c1f6c9a11"}`,
+	"list_change_reviews": `{}`,
+	"report_change_deployed": `{"id":"5f0c2a52-0d55-4a43-9a3c-0d6c1f6c9a11",` +
+		`"deployed_at":"2026-10-23T10:00:00Z"}`,
 }
 
 func (b *allToolsBackend) validArgs(tool string) string {

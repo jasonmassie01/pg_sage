@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/changereview"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -104,6 +105,8 @@ type RuntimeDeps struct {
 	Autonomy *AutonomyDeps
 	// Ask serves the Ask Sage routes (roadmap phase 3); nil omits them.
 	Ask *ask.Registry
+	// ChangeReview serves the Change Review routes; nil omits them.
+	ChangeReview *changereview.Registry
 	// Specialist serves the Postgres-specialist contract under
 	// /api/v1/specialist/ (MCP tokens only); nil omits it. SpecialistAudit
 	// reads its request audit for the dashboard; nil omits the route.
@@ -214,6 +217,7 @@ func registerFleetScopedRoutes(
 	registerManagedCloudRoutes(apiMux, mgr)
 	registerModelLiftRoutes(apiMux, rt.Autonomy)
 	registerAskRoutes(apiMux, rt.Ask)
+	registerChangeReviewRoutes(apiMux, rt.ChangeReview)
 	registerPprofRoutes(apiMux, cfg != nil && cfg.Debug.PprofEnabled)
 	registerSpecialistRoutes(apiMux, rt)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&

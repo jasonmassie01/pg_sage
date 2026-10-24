@@ -153,6 +153,9 @@ func runSubcommandAndExit() {
 		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], getenv, os.Stdout,
 			os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "review" {
+		os.Exit(runReviewSubcommand(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Printf("pg_sage %s (commit: %s, built: %s, sql-ast: %s)\n",
 			version, commit, date, sqlASTStatus())

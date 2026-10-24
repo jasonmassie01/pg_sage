@@ -23,7 +23,7 @@ var proposeScopeTools = map[string]bool{"propose_policy_change": true, "request_
 	"sre_request_execution": true, "sre_draft_runbook": true, "sre_compile_runbook": true,
 	"sre_evaluate_autonomy": true, "propose_fact": true, "mark_object": true,
 	"report_source_fix": true, "specialist_request_remediation": true,
-	"agent_request_capability": true}
+	"agent_request_capability": true, "report_change_deployed": true}
 
 var (
 	knownToolsOnce sync.Once

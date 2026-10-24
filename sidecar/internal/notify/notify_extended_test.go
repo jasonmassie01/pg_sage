@@ -352,6 +352,7 @@ func TestValidEventTypes_Completeness(t *testing.T) {
 		"incident_detected":       true,
 		"incident_escalated":      true,
 		"incident_resolved":       true,
+		"change_review_needs_dba": true,
 	}
 
 	// Verify exact count.

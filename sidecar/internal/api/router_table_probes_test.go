@@ -111,6 +111,12 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/sre/autonomy"},
 	{"POST", "/api/v1/sre/autonomy/bench-results"},
 	{"GET", "/api/v1/databases/orders/investigations"},
+	// Change Review (session auth; verdicts are operator and admin only).
+	{"POST", "/api/v1/databases/orders/change-reviews"},
+	{"GET", "/api/v1/databases/orders/change-reviews"},
+	{"GET", "/api/v1/databases/orders/change-reviews/7"},
+	{"POST", "/api/v1/databases/orders/change-reviews/7/verdict"},
+	{"GET", "/api/v1/change-reviews/summary"},
 	// Root-level and SPA paths.
 	{"GET", "/health"},
 	{"GET", "/ready"},
