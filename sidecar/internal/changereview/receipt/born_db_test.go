@@ -55,6 +55,8 @@ func TestReceiptListsBornQueries(t *testing.T) {
 	f.beforeAfter(rv.Q1.ID, at, at, 10, 0.2, 0.2)
 	last := f.series(born, at.Add(90*time.Minute), 4, 30*time.Minute, 20, 4, counters{})
 	f.series(elsewhere, at.Add(time.Hour), 4, 30*time.Minute, 20, 1, counters{})
+	// Q2 reads rv_orders too but ran before landing: not born.
+	f.beforeAfter(rv.Q2.ID, at, at, 10, 0.3, 0.3)
 	f.run()
 	got := f.get(r.ID)
 	if got.Receipt == nil || got.ReceiptVerdict != changereview.ReceiptClean {
