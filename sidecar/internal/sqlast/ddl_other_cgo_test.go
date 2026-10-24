@@ -37,8 +37,8 @@ func TestInspectDDLTruncateNamesEveryTable(t *testing.T) {
 
 func TestInspectDDLLockTableCarriesTheMode(t *testing.T) {
 	cases := map[string]string{
-		"LOCK TABLE rv.rv_orders IN ACCESS EXCLUSIVE MODE":   "ACCESS EXCLUSIVE",
-		"LOCK rv.rv_orders":                                  "ACCESS EXCLUSIVE",
+		"LOCK TABLE rv.rv_orders IN ACCESS EXCLUSIVE MODE": "ACCESS EXCLUSIVE",
+		"LOCK rv.rv_orders": "ACCESS EXCLUSIVE",
 		"LOCK TABLE rv.rv_orders IN SHARE ROW EXCLUSIVE MODE": "SHARE ROW EXCLUSIVE",
 		"LOCK TABLE rv.rv_orders IN ACCESS SHARE MODE":        "ACCESS SHARE",
 		"LOCK TABLE rv.rv_orders IN SHARE MODE":               "SHARE",
@@ -120,11 +120,11 @@ func TestInspectDDLViewNamesTheView(t *testing.T) {
 // Statements that were already "other" keep their kind and command.
 func TestInspectDDLOtherStatementsKeepTheirKind(t *testing.T) {
 	for sql, command := range map[string]string{
-		"TRUNCATE rv.rv_orders":           "TruncateStmt",
-		"LOCK TABLE rv.rv_orders":         "LockStmt",
-		"DROP SCHEMA rv":                  "DropStmt",
-		"CREATE VIEW rv.v AS SELECT 1":    "ViewStmt",
-		"ALTER INDEX rv.i RENAME TO j":    "RenameStmt",
+		"TRUNCATE rv.rv_orders":        "TruncateStmt",
+		"LOCK TABLE rv.rv_orders":      "LockStmt",
+		"DROP SCHEMA rv":               "DropStmt",
+		"CREATE VIEW rv.v AS SELECT 1": "ViewStmt",
+		"ALTER INDEX rv.i RENAME TO j": "RenameStmt",
 		"CREATE TRIGGER trg AFTER INSERT ON rv.rv_orders FOR EACH ROW EXECUTE " +
 			"FUNCTION rv.f()": "CreateTrigStmt",
 	} {

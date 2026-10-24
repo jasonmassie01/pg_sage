@@ -47,7 +47,7 @@ func TestChangeReviewNeedsDBAEvent(t *testing.T) {
 	data := evt.Data
 	want := map[string]any{"review_id": "3f0c8a52-0000-4000-8000-000000000001",
 		"database": "orders", "pr_url": "https://github.com/acme/shop/pull/42",
-		"verdict": "risky",
+		"verdict":  "risky",
 		"top_rule": "CR-03", "top_finding": "email is still read by 2 statements",
 		"critical": 1, "warning": 2,
 		"link": "https://sage.example.com/#/reviews?id=3f0c8a52"}
