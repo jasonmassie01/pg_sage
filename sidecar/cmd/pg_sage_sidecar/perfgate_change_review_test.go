@@ -46,16 +46,7 @@ func TestPerfGateChangeReview(t *testing.T) {
 	scale, _ := firstLookScale(t)
 	dsn := testdb.CreateDatabase(t, "perfgate_change_review")
 	ctx := context.Background()
-	harness := perfHarnessPool(t, dsn)
-	if err := perfgate.Prepare(ctx, harness); err != nil {
-		t.Fatalf("prepare (pg_stat_statements must be preloaded): %v", err)
-	}
-	if err := schema.Bootstrap(ctx, harness); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	if err := perfgate.BuildCatalog(ctx, harness, scale); err != nil {
-		t.Fatalf("build catalog: %v", err)
-	}
+	harness := preparePerfChangeReview(t, ctx, dsn, scale)
 	monitored, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("monitored pool: %v", err)
@@ -89,6 +80,38 @@ func TestPerfGateChangeReview(t *testing.T) {
 		t.Fatalf("review %s (%s), %d statements, took %s", got.State, got.FailureReason,
 			len(got.Statements), took)
 	}
+	assertRatedWorkload(t, got)
+	if err := testdb.FlushIdleSessions(ctx, monitored); err != nil {
+		t.Fatalf("flush statistics: %v", err)
+	}
+	if after := userSeqScans(t, ctx, harness); after != seqBefore {
+		t.Errorf("user table sequential scans %d -> %d during the review", seqBefore, after)
+	}
+	assertChangeReviewStatementsWithinBudget(t, ctx, harness)
+}
+
+// preparePerfChangeReview builds the perf catalog and pg_sage's schema in
+// dsn and returns the harness pool.
+func preparePerfChangeReview(t *testing.T, ctx context.Context, dsn string,
+	scale perfgate.Scale) *pgxpool.Pool {
+	t.Helper()
+	harness := perfHarnessPool(t, dsn)
+	if err := perfgate.Prepare(ctx, harness); err != nil {
+		t.Fatalf("prepare (pg_stat_statements must be preloaded): %v", err)
+	}
+	if err := schema.Bootstrap(ctx, harness); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if err := perfgate.BuildCatalog(ctx, harness, scale); err != nil {
+		t.Fatalf("build catalog: %v", err)
+	}
+	return harness
+}
+
+// assertRatedWorkload fails when a read timed out or the hot workload
+// statements lost their seeded query_store peak rate.
+func assertRatedWorkload(t *testing.T, got changereview.Review) {
+	t.Helper()
 	rated := 0
 	for _, e := range got.Evidence {
 		if strings.Contains(e.Label, "timed out") {
@@ -103,13 +126,6 @@ func TestPerfGateChangeReview(t *testing.T) {
 		t.Errorf("%d workload statements carry their seeded peak rate, want the hot ones",
 			rated)
 	}
-	if err := testdb.FlushIdleSessions(ctx, monitored); err != nil {
-		t.Fatalf("flush statistics: %v", err)
-	}
-	if after := userSeqScans(t, ctx, harness); after != seqBefore {
-		t.Errorf("user table sequential scans %d -> %d during the review", seqBefore, after)
-	}
-	assertChangeReviewStatementsWithinBudget(t, ctx, harness)
 }
 
 // runChangeReviewWorkload gives pg_stat_statements statements on the
