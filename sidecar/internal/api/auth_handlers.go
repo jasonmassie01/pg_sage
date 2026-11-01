@@ -161,11 +161,15 @@ func meHandler() http.HandlerFunc {
 				http.StatusUnauthorized)
 			return
 		}
-		jsonResponse(w, map[string]any{
+		response := map[string]any{
 			"id":    user.ID,
 			"email": user.Email,
 			"role":  user.Role,
-		})
+		}
+		if mode, ok := r.Context().Value(authModeContextKey).(string); ok {
+			response["auth_mode"] = mode
+		}
+		jsonResponse(w, response)
 	}
 }
 

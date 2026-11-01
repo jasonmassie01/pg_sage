@@ -65,8 +65,8 @@ test.describe('Actions', () => {
     // If there are pending actions, Approve buttons appear (testid from
     // Actions.jsx:345). If there are none, Actions.jsx:370 renders an
     // EmptyState with "No actions waiting for approval...".
-    const approveButtons = page.locator('[data-testid="approve-button"]');
-    const emptyState = page.locator('text=/No actions waiting/i');
+    const approveButtons = page.getByRole('button', { name: 'Approve', exact: true });
+    const emptyState = page.getByTestId('approval-cards-empty');
 
     const approveCount = await approveButtons.count();
     const emptyCount = await emptyState.count();

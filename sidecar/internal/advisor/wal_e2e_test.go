@@ -10,13 +10,11 @@ import (
 )
 
 func TestWALE2E_FullPipeline(t *testing.T) {
-	pool := e2ePool(t)
 	mgr := e2eLLMManager(t)
+	pool := e2ePool(t)
 	snap := e2eSnapshot(t, pool)
 	cfg := &config.Config{}
-	logFn := func(level, msg string, args ...any) {
-		t.Logf("[%s] "+msg, append([]any{level}, args...)...)
-	}
+	logFn := e2eAdvisorLog(t)
 
 	findings, err := analyzeWAL(
 		context.Background(), mgr, snap, nil, cfg, logFn,

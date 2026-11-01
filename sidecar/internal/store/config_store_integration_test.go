@@ -77,6 +77,45 @@ func cleanupConfig(pool *pgxpool.Pool) {
 		"DELETE FROM sage.users WHERE id = 1 AND email = 'test@test.com'")
 }
 
+func TestConfigStoreLLMAuthRoundTrip(t *testing.T) {
+	pool := setupConfigTestDB(t)
+	ctx := context.Background()
+	cs := NewConfigStore(pool)
+	cfg := config.DefaultConfig()
+	cfg.LLM.Auth = "api_key"
+	t.Cleanup(func() {
+		if err := cs.DeleteOverride(ctx, "llm.auth", 0); err != nil {
+			t.Errorf("delete llm auth override: %v", err)
+		}
+	})
+	if err := cs.SetOverride(ctx, "llm.auth", "databricks", 0, 1); err != nil {
+		t.Fatalf("persist auth: %v", err)
+	}
+	// A fresh store must read the durable override, rather than using
+	// either the YAML value or state from the writer.
+	reloaded := NewConfigStore(pool)
+	assertAuth := func(wantValue, wantSource string) {
+		t.Helper()
+		merged, err := reloaded.GetMergedConfig(ctx, cfg, 0)
+		if err != nil {
+			t.Fatalf("merged config: %v", err)
+		}
+		entry, ok := merged["llm.auth"].(map[string]any)
+		if !ok || entry["value"] != wantValue || entry["source"] != wantSource {
+			t.Fatalf("auth entry = %v, want %q from %q", merged["llm.auth"], wantValue, wantSource)
+		}
+	}
+	assertAuth("databricks", "override")
+	if err := cs.SetOverride(ctx, "llm.auth", "oauth", 0, 1); err == nil {
+		t.Fatal("invalid auth accepted")
+	}
+	assertAuth("databricks", "override")
+	if err := cs.DeleteOverride(ctx, "llm.auth", 0); err != nil {
+		t.Fatalf("reset auth: %v", err)
+	}
+	assertAuth("api_key", "yaml")
+}
+
 func TestConfigStoreSameValueCASPersistsOverrideAndGeneration(t *testing.T) {
 	pool := setupConfigTestDB(t)
 	cs := NewConfigStore(pool)

@@ -183,7 +183,7 @@ func familyReadiness(
 
 func directExecutionImplemented(actionType string) bool {
 	switch actionType {
-	case "create_statistics", "promote_role_work_mem":
+	case "promote_role_work_mem":
 		return false
 	default:
 		return true

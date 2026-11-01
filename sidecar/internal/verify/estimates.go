@@ -17,7 +17,7 @@ const targetPlansSQL = `/* pg_sage */ SELECT p.plan_json::text
 	FROM unnest($1::bigint[]) AS q(id)
 	CROSS JOIN LATERAL (
 		SELECT e.plan_json FROM sage.explain_cache e
-		WHERE e.queryid = q.id AND e.captured_at >= $2 AND e.captured_at <= $3
+		WHERE e.queryid = q.id AND e.source <> 'lakebase_plan_history' AND e.captured_at >= $2 AND e.captured_at <= $3
 		ORDER BY e.captured_at DESC LIMIT $4) p`
 
 // EstimateErrors summarizes the row-estimate error of the targets' plans

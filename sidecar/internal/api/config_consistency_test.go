@@ -144,6 +144,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "sk-test-key-12345",
 		reader: func(c *config.Config) string { return c.LLM.APIKey },
 	},
+	"llm.auth": {
+		input:  "databricks",
+		reader: func(c *config.Config) string { return c.LLM.Auth },
+	},
 	"llm.model": {
 		input:  "gpt-4o",
 		reader: func(c *config.Config) string { return c.LLM.Model },

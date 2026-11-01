@@ -87,6 +87,7 @@ func TestManagedProviderSteps(t *testing.T) {
 	e.StatStatementsInstalled, e.StatStatementsLoaded = false, boolp(false)
 	e.HypoPGInstalled, e.AutoExplainLoaded = false, false
 	cases := map[string][]string{
+		"lakebase":  {"Lakebase manages", "CREATE EXTENSION"},
 		"rds":       {"parameter group", "shared_preload_libraries", "reboot"},
 		"aurora":    {"parameter group", "shared_preload_libraries"},
 		"cloud-sql": {"Cloud SQL", "database flag"},

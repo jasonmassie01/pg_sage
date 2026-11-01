@@ -52,8 +52,11 @@ WHERE d.datname = pg_catalog.current_database()
 LIMIT $1`
 
 // statTablesSQL picks the top user tables first and names only those.
-var statTablesSQL = `/* pg_sage sre:stat_tables v2 */
+var statTablesSQL = `/* pg_sage sre:stat_tables v3 */
 SELECT ` + fmt.Sprintf(relationName, "t.relid") + ` AS relation,
+	   t.relid::int8 AS table_oid,
+	   (SELECT d.oid::int8 FROM pg_catalog.pg_database d
+	     WHERE d.datname=pg_catalog.current_database()) AS database_oid,
        t.seq_scan, t.idx_scan, t.n_live_tup, t.n_dead_tup, t.n_mod_since_analyze,
        t.vacuum_age_s, t.analyze_age_s, t.autovacuum_count
 FROM (SELECT s.relid, s.seq_scan::int8 AS seq_scan,
@@ -98,8 +101,8 @@ func statViewSpecs() []Spec {
 	return []Spec{
 		spec(StatDatabase, FamilyStats, ArgsNone,
 			Variant{MinVersion: 140000, SQL: statDatabaseSQL}),
-		capped(spec(StatTables, FamilyStats, ArgsNone,
-			Variant{MinVersion: 140000, SQL: statTablesSQL}), statViewRows),
+		versioned(capped(spec(StatTables, FamilyStats, ArgsNone,
+			Variant{MinVersion: 140000, SQL: statTablesSQL}), statViewRows), "v3"),
 		capped(statements, statViewRows),
 	}
 }

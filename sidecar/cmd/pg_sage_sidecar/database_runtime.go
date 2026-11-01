@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,14 +101,15 @@ type databaseRuntime struct {
 	changeFeed *changefeed.Feed
 	// runwayAdvisor attaches custodian proposals to runway investigations.
 	runwayAdvisor *runwayAdvisor
-	logFanout  *logwatch.LogFanout
-	brief      *briefing.Worker
-	features   []string
-	inst       *fleet.DatabaseInstance
+	logFanout     *logwatch.LogFanout
+	brief         *briefing.Worker
+	features      []string
+	inst          *fleet.DatabaseInstance
 	// facts is the database's fact store (roadmap 2.3).
 	facts *facts.Store
 	// cloud is managed-cloud host telemetry and cloudResolver the managed
 	// change target (nil when the provider has none).
+	lakebaseScope atomic.Value // verified immutable resource/policy pair, loaded by plan capture
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
 }
@@ -213,11 +215,11 @@ func newDatabaseRuntime(
 	}
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
-	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter)
 	rt.facts = newFactStore(spec.Pool)
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()
+	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter, rt.sreReadPolicy())
 	rt.deriveSettingsAtStartup()
 	rt.initCloudTelemetry()
 	rt.resolveLLM()

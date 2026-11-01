@@ -57,7 +57,18 @@ npm run build
 npm run test:e2e
 ```
 
+With Node 26, run unit tests with
+`NODE_OPTIONS=--no-experimental-webstorage npm test`. Its experimental global
+storage otherwise overrides jsdom's browser storage and fails storage-dependent
+tests. The production browser uses its own storage.
+
 Use `-count=1` for Go tests so cached results do not hide failures.
+
+Databricks Apps packaging (from the repository root, Python standard library only):
+
+```bash
+python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
+```
 
 ## Pull Request Process
 

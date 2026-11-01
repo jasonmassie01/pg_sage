@@ -34,16 +34,17 @@ type ActionDeps struct {
 
 // ActionService proposes, hands off and verifies one database's actions.
 type ActionService struct {
-	svc      *sre.Service
-	st       *sre.PostgresStore
-	ps       proposalStore
-	targets  sre.ProbeRunner
-	queue    ApprovalQueue
-	exec     BackendCanceller
-	notifier ApprovalNotifier
-	cfg      ActionConfig
-	logFn    func(string, string, ...any)
-	now      func() time.Time
+	maintenance *MaintenanceService
+	svc         *sre.Service
+	st          *sre.PostgresStore
+	ps          proposalStore
+	targets     sre.ProbeRunner
+	queue       ApprovalQueue
+	exec        BackendCanceller
+	notifier    ApprovalNotifier
+	cfg         ActionConfig
+	logFn       func(string, string, ...any)
+	now         func() time.Time
 }
 
 // systemActor is the actor of automatic proposals and checks.
@@ -206,6 +207,9 @@ func proposedEvent(p Proposal) actionEvent {
 // Owns reports whether an approval item is one of this database's
 // proposals.
 func (a *ActionService) Owns(action store.QueuedAction) bool {
+	if a.maintenance != nil && a.maintenance.Owns(action) {
+		return true
+	}
 	id, ok := ProposalIDFromIdentityKey(action.IdentityKey)
 	if !ok {
 		return false
@@ -218,3 +222,9 @@ func (a *ActionService) Owns(action store.QueuedAction) bool {
 
 // Database is the service's database name.
 func (a *ActionService) Database() string { return a.svc.Name() }
+
+// SetMaintenanceService attaches the operator-only maintenance bridge before serving requests.
+func (a *ActionService) SetMaintenanceService(m *MaintenanceService) { a.maintenance = m }
+
+// MaintenanceService returns the explicitly attached operator maintenance bridge.
+func (a *ActionService) MaintenanceService() *MaintenanceService { return a.maintenance }

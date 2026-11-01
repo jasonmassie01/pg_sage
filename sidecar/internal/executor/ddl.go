@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -114,12 +115,22 @@ func execStatementsInTransaction(
 		}
 	}
 
+	if o.before != nil {
+		if err := o.before(ctx, tx); err != nil {
+			return err
+		}
+	}
 	for _, sql := range statements {
 		if _, err := tx.Exec(ctx, sql); err != nil {
 			return wrapDDLError(err)
 		}
 	}
 
+	if o.after != nil {
+		if err := o.after(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing transaction: %w", err)
 	}
@@ -132,6 +143,8 @@ type DDLOption func(*ddlOpts)
 
 type ddlOpts struct {
 	lockTimeoutMs int
+	before        func(context.Context, pgx.Tx) error
+	after         func(context.Context, pgx.Tx) error
 }
 
 func applyDDLOpts(opts []DDLOption) ddlOpts {

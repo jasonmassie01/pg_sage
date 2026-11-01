@@ -74,12 +74,18 @@ func placeholders(body string) int {
 // and never returns an untyped failure.
 func (x *StatementExplainer) ExplainStatement(ctx context.Context,
 	queryID int64) probes.Result {
+	if denied := probes.CheckReadPolicy(ctx, nil, ExplainProbeID, probes.Args{QueryID: queryID}); denied != nil {
+		return *denied
+	}
 	res := probes.Result{ProbeID: ExplainProbeID, Version: "v1", ObservedAt: time.Now()}
 	switch {
 	case x == nil || x.pool == nil:
 		return failedRead(res, probes.StatusError, "not_configured", nil)
 	case queryID == 0:
 		return failedRead(res, probes.StatusError, "invalid_args", nil)
+	}
+	if p := probes.ContextReadPolicy(ctx); p != nil && (p.Database != x.pool.Config().ConnConfig.Database || p.Binding != probes.PoolBinding(x.pool)) {
+		return probes.PolicyDenied(ExplainProbeID, "pool database does not match trusted read policy")
 	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, probes.MaxStatementTimeout+time.Second)

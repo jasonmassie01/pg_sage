@@ -40,7 +40,7 @@ var workloadStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_stateme
 // index: one index range of idx_explain_queryid per target.
 const planReferencedSQL = `/* pg_sage */ SELECT q.id FROM unnest($1::bigint[]) AS q(id)
 	WHERE EXISTS (SELECT 1 FROM (SELECT e.plan_json FROM sage.explain_cache e
-	                WHERE e.queryid = q.id ORDER BY e.captured_at DESC LIMIT 3) p
+	                WHERE e.queryid = q.id AND e.source <> 'lakebase_plan_history' ORDER BY e.captured_at DESC LIMIT 3) p
 	              WHERE strpos(p.plan_json::text, $2) > 0)`
 
 const droppedIndexTableSQL = `/* pg_sage */ SELECT c.relname, ic.relname

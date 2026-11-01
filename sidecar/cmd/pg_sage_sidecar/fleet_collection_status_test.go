@@ -72,7 +72,7 @@ func TestFleetCollectionStatusUsesManagedCollector(t *testing.T) {
 	state, input, userID := metaLifecycleFixture(t)
 	input.Name = "status-refresh-fixture"
 	prepareMetaGlobals(t)
-	cfg.Collector.IntervalSeconds = 1
+	cfg.Collector.IntervalSeconds = 3600
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	record, err := applyMetaDatabaseCreate(ctx, fleetMgr, state, input, userID)
@@ -98,7 +98,12 @@ func TestFleetCollectionStatusUsesManagedCollector(t *testing.T) {
 	if snapshot == nil {
 		t.Fatal("managed collector did not produce a real snapshot")
 	}
-	updateInstanceFindings(ctx, inst)
+	// Simulate an analyzer/status refresh that preceded the first collector
+	// result. Readers must see the real sample without waiting for analysis.
+	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+		s.CollectorLastRun = time.Time{}
+		s.DatabaseSize = 0
+	})
 	got := inst.SnapshotStatus()
 	if got.PGVersion != version || got.DatabaseSize != snapshot.System.DBSizeBytes ||
 		got.DatabaseSize <= 0 || !got.CollectorLastRun.Equal(snapshot.CollectedAt) {

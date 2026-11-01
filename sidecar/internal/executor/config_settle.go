@@ -51,6 +51,9 @@ func (e *Executor) readbackWait() time.Duration {
 func (e *Executor) readBackConfig(
 	ctx context.Context, c *configChange,
 ) (readbackState, string, map[string]any) {
+	if c.kind == configKindDatabaseGUC {
+		return readDatabaseSetting(ctx, e.pool, c.database)
+	}
 	if c.kind == configKindGUC {
 		out := applyConfigChangeWithin(ctx, e.pool, c.sql, e.cfg.CloudEnvironment,
 			e.logFn, e.readbackWait())

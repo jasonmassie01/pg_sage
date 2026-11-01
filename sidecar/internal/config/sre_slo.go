@@ -45,7 +45,7 @@ type SREPrometheusConfig struct {
 
 // SRESLIPushConfig authenticates pushed SLI counters.
 type SRESLIPushConfig struct {
-	HMACSecret                string `yaml:"hmac_secret" secret:"true" doc:"Shared secret (at least 32 bytes) signing POST /api/v1/sre/sli/{name}. Empty disables pushes."`
+	HMACSecret                string `yaml:"hmac_secret" secret:"true" doc:"Shared secret (at least 32 bytes) signing POST /api/v1/sre/sli/{name}. Empty disables signed pushes; Databricks Apps use the platform-authenticated admin samples API."`
 	TimestampToleranceSeconds int    `yaml:"timestamp_tolerance_seconds" doc:"Accepted signature clock skew, 30-3600. Default: 300."`
 }
 

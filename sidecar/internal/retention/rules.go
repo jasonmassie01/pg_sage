@@ -47,14 +47,40 @@ func keepSnapshotBases(from string) string {
 // retention in days.
 var keepSnapshotKeyframe = keepSnapshotBases("now() - make_interval(days => $1)")
 
+// maintenanceActionLink identifies the exact durable executor record. An
+// execution can commit before the bridge saves its action ID; preserve that
+// crash window only for an unresolved proposal and the exact bound finding,
+// forward SQL and inverse. Once an ID is recorded, no replacement action can
+// claim its lifetime. The finding expression index bounds the JSON lookup.
+const maintenanceActionLink = `p.proposal->>'finding_id' = al.finding_id::text
+    AND (p.proposal->>'action_log_id' = al.id::text
+         OR (p.state IN ('executing', 'uncertain')
+             AND COALESCE(p.proposal->>'action_log_id', '0') = '0'
+             AND p.proposal->>'sql' = al.sql_executed
+             AND p.proposal->>'rollback_sql' = al.rollback_sql
+             AND EXISTS (SELECT 1 FROM sage.findings f
+                 WHERE f.id = al.finding_id AND f.category = 'sre_maintenance'
+                   AND f.object_identifier = 'sre_maintenance:' || p.id::text
+                   AND f.recommended_sql = al.sql_executed
+                   AND f.rollback_sql = al.rollback_sql)))`
+
 const (
+	// Maintenance retains its exact action and audit dependencies while its
+	// SRE ledger exists. The bridge requires a colocated coordination/target
+	// binding; integer IDs must not be compared across monitored databases.
+	// JSON IDs are compared as text so malformed data cannot break a purge.
 	keepActionLog = `AND NOT (action_log.outcome = 'success'
 	                   AND action_log.toil_minutes_saved IS NOT NULL)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.action_log_id = action_log.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.recommendation r
 	                   WHERE r.action_log_id = action_log.id
-	                   AND r.state IN ('applied', 'verifying', 'failed'))`
+	                   AND r.state IN ('applied', 'verifying', 'failed'))
+	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
+	                   WHERE al.id = action_log.id
+	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
+	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                   OFFSET 0)`
 	// Only terminal recommendations age out; their revisions and history
 	// go with them (ON DELETE CASCADE). Live ones are kept however old.
 	keepRecommendation = `AND state IN ('verified', 'reverted', 'inconclusive',
@@ -69,14 +95,25 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.id = verification.action_log_id
 	                   AND al.outcome = 'success'
-	                   AND al.toil_minutes_saved IS NOT NULL OFFSET 0)`
+	                   AND al.toil_minutes_saved IS NOT NULL OFFSET 0)
+	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
+	                   WHERE (al.id = verification.action_log_id
+	                          OR al.verification_id = verification.id)
+	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
+	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                   OFFSET 0)`
 	keepDecision = `AND (deadline_hard_at IS NULL OR deadline_hard_at < now()
 	                   OR resolved_at IS NOT NULL)
 	    AND NOT EXISTS (SELECT 1 FROM sage.verification v WHERE v.decision_id = decision.id
 	                   OFFSET 0)
 	    AND NOT EXISTS (SELECT 1 FROM sage.change_lease cl WHERE cl.decision_id = decision.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
-	                   WHERE ia.decision_id = decision.id)`
+	                   WHERE ia.decision_id = decision.id)
+	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
+	                   WHERE al.decision_id = decision.id
+	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
+	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                   OFFSET 0)`
 	// Non-execute decisions (withheld gate verdicts, schema guard
 	// observations) are facts about candidates, not the record of a change:
 	// they age out on decisions_days from when they were last seen. A row an
@@ -124,7 +161,10 @@ const (
 	                   WHERE al.id = action_queue.action_log_id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.decision d WHERE d.queue_id = action_queue.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.sre_action_proposals p
-	                   WHERE p.queue_id = action_queue.id)`
+	                   WHERE p.queue_id = action_queue.id)
+	    AND NOT EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
+	                   WHERE action_queue.identity_key = 'sre_maintenance:' || p.id::text
+	                   OFFSET 0)`
 )
 
 // purgeRules lists every sage time-series and its retention window
@@ -146,7 +186,11 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// Resolved findings age from their resolution (perf storage phase:
 		// last_seen is refreshed every cycle and may not be indexed).
 		{table: "findings", timeCol: "resolved_at", days: r.FindingsDays,
-			extra: "AND status = 'resolved'"},
+			extra: `AND status = 'resolved'
+		    AND NOT EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
+		                   WHERE findings.category = 'sre_maintenance'
+		                     AND findings.object_identifier = 'sre_maintenance:' || p.id::text
+		                     AND p.proposal->>'finding_id' = findings.id::text OFFSET 0)`},
 		{table: "briefings", timeCol: "generated_at", days: r.FindingsDays},
 		// Remembered what-if rejections age from their last measurement.
 		{table: "optimizer_rejection", timeCol: "measured_at", days: r.FindingsDays},

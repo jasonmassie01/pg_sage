@@ -25,7 +25,7 @@ func TestCatalog_StatViewProbes(t *testing.T) {
 		if !ok {
 			t.Fatalf("catalog lacks %s", id)
 		}
-		if spec.Family != FamilyStats || spec.Args != ArgsNone || spec.Version != "v1" {
+		if spec.Family != FamilyStats || spec.Args != ArgsNone || spec.Version != specVersion(id) {
 			t.Errorf("%s = family %q args %d version %s", id, spec.Family, spec.Args,
 				spec.Version)
 		}
@@ -91,6 +91,10 @@ func TestCatalog_StatTablesListsAUserTable(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE "+ident) })
+	var databaseOID, tableOID int64
+	if err := pool.QueryRow(ctx, `SELECT d.oid::int8,$1::regclass::oid::int8 FROM pg_catalog.pg_database d WHERE d.datname=current_database()`, "public."+name).Scan(&databaseOID, &tableOID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, "INSERT INTO "+ident+
 		" SELECT g FROM generate_series(1, 100) g"); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -108,6 +112,9 @@ func TestCatalog_StatTablesListsAUserTable(t *testing.T) {
 		}
 		for _, row := range res.Rows {
 			if row["relation"] == "public."+name {
+				if res.Version != "v3" || row["database_oid"] != databaseOID || row["table_oid"] != tableOID {
+					t.Fatalf("stat_tables did not bind current physical database/table: %+v", res)
+				}
 				if row["n_dead_tup"].(int64) < 1 {
 					break
 				}

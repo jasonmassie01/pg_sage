@@ -45,6 +45,48 @@ describe('AskPage database guard', () => {
     expect(urls).toContain('/api/v1/databases/my%20db%2Fx/ask/conversations')
     expect(urls.every(u => !u.includes('my db/x'))).toBe(true)
   })
+
+  it('shows inventory loading without asking for an unavailable picker', () => {
+    const mock = stubAsk()
+    render(<AskPage database="all" databaseLoading user={operator} />)
+    expect(screen.getByTestId('ask-databases-loading')).toHaveAttribute('role', 'status')
+    expect(screen.queryByTestId('ask-pick-database')).toBeNull()
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('waits for inventory before opening an unverified stored database', () => {
+    const mock = stubAsk()
+    render(<AskPage database="deleted-stored-name" databaseLoading user={operator} />)
+    expect(screen.getByTestId('ask-databases-loading')).toBeInTheDocument()
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('keeps a validated database session available during a background fleet error', async () => {
+    stubAsk()
+    render(<AskPage database="orders" databases={[{ name: 'orders' }]}
+      databaseError={new Error('refresh offline')} user={operator} />)
+    expect(await screen.findByTestId('ask-input')).toBeInTheDocument()
+    expect(screen.queryByTestId('ask-databases-error')).toBeNull()
+  })
+
+  it('shows inventory failures with an actionable retry', () => {
+    stubAsk()
+    const retry = vi.fn()
+    render(<AskPage database="all" databaseError={new Error('HTTP 503')}
+      onRetryDatabase={retry} user={operator} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('HTTP 503')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(retry).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('ask-pick-database')).toBeNull()
+  })
+
+  it.each([[admin, true], [viewer, false]])('explains an empty inventory for role %j', (user, canManage) => {
+    stubAsk()
+    render(<AskPage database="all" databases={[]} user={user} />)
+    expect(screen.getByTestId('ask-databases-empty')).toHaveTextContent(/No monitored databases/)
+    expect(Boolean(screen.queryByRole('link', { name: /Open Fleet/ }))).toBe(canManage)
+    expect(screen.queryByTestId('ask-pick-database')).toBeNull()
+  })
 })
 
 describe('AskPage composer', () => {

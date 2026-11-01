@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -16,17 +19,26 @@ func listModelsHandler(
 	cfg *config.LLMConfig,
 	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
+	return listModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
+}
+
+type gatewayModelLister func(context.Context, string, string) ([]databricksauth.GatewayModel, error)
+
+func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.ConfigController, discover gatewayModelLister) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := activeLLMConfig(cfg, controllers)
-		if cfg.Endpoint == "" || cfg.APIKey == "" {
+		if err := cfg.ValidateDatabricksApp(); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if cfg.Endpoint == "" || (cfg.APIKey == "" && cfg.Auth != "databricks") {
 			jsonError(w,
 				"LLM not configured (missing endpoint or API key)",
 				http.StatusServiceUnavailable)
 			return
 		}
 
-		models, err := llm.ListModels(
-			r.Context(), cfg.Endpoint, cfg.APIKey)
+		models, err := modelsForConfig(r.Context(), cfg, http.DefaultClient, discover)
 		if err != nil {
 			slog.Error("LLM list models failed", "error", err)
 			jsonError(w, "LLM request failed",
@@ -65,9 +77,14 @@ func discoverModelsHandler(
 	cfg *config.LLMConfig,
 	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
+	return discoverModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
+}
+
+func discoverModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.ConfigController, discover gatewayModelLister) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		discoveryCfg := activeLLMConfig(cfg, controllers)
 		configuredEndpoint := discoveryCfg.Endpoint
+		configuredAuth := discoveryCfg.Auth
 		endpointSupplied := false
 		apiKeySupplied := false
 		var req modelDiscoveryRequest
@@ -81,6 +98,12 @@ func discoverModelsHandler(
 				value = fmt.Sprintf("%v", raw)
 			}
 			switch key {
+			case "llm.auth":
+				if value != "" && value != "api_key" && value != "databricks" {
+					jsonError(w, "invalid LLM authentication mode", http.StatusBadRequest)
+					return
+				}
+				discoveryCfg.Auth = value
 			case "llm.endpoint":
 				discoveryCfg.Endpoint = value
 				endpointSupplied = true
@@ -93,7 +116,21 @@ func discoverModelsHandler(
 				discoveryCfg.Model = value
 			}
 		}
-		if endpointSupplied {
+		if err := discoveryCfg.ValidateDatabricksApp(); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if endpointSupplied && discoveryCfg.Auth == "databricks" {
+			// Native discovery calls the SDK workspace catalog. Never allow a
+			// request-scoped endpoint to redirect workspace credentials.
+			// Initial setup is validated against the SDK's workspace by the
+			// native lister. Existing native config also pins its API origin.
+			if configuredAuth == "databricks" && configuredEndpoint != "" &&
+				!sameLLMOrigin(discoveryCfg.Endpoint, configuredEndpoint) {
+				jsonError(w, "Databricks endpoint override must use the configured HTTPS workspace origin", http.StatusBadRequest)
+				return
+			}
+		} else if endpointSupplied {
 			if err := validateLLMDiscoveryEndpoint(
 				r.Context(), discoveryCfg.Endpoint,
 			); err != nil {
@@ -109,7 +146,7 @@ func discoverModelsHandler(
 			}
 		}
 
-		if discoveryCfg.Endpoint == "" || discoveryCfg.APIKey == "" {
+		if discoveryCfg.Endpoint == "" || (discoveryCfg.APIKey == "" && discoveryCfg.Auth != "databricks") {
 			jsonError(w,
 				"LLM not configured (missing endpoint or API key)",
 				http.StatusServiceUnavailable)
@@ -120,10 +157,7 @@ func discoverModelsHandler(
 		if endpointSupplied {
 			httpClient = safeLLMDiscoveryHTTPClient()
 		}
-		models, err := llm.ListModelsWithClient(
-			r.Context(), discoveryCfg.Endpoint,
-			discoveryCfg.APIKey, httpClient,
-		)
+		models, err := modelsForConfig(r.Context(), discoveryCfg, httpClient, discover)
 		if err != nil {
 			slog.Error("LLM list models failed", "error", err)
 			jsonError(w, "LLM request failed",
@@ -136,6 +170,29 @@ func discoverModelsHandler(
 			"current": discoveryCfg.Model,
 		})
 	}
+}
+
+func modelsForConfig(ctx context.Context, cfg config.LLMConfig, client *http.Client, discover gatewayModelLister) ([]llm.ModelInfo, error) {
+	if err := cfg.ValidateDatabricksApp(); err != nil {
+		return nil, err
+	}
+	if cfg.Auth != "databricks" {
+		return llm.ListModelsWithClient(ctx, cfg.Endpoint, cfg.APIKey, client)
+	}
+	schema := "system.ai"
+	parts := strings.Split(strings.TrimPrefix(cfg.Model, "model-services/"), ".")
+	if len(parts) == 3 && parts[0] != "" && parts[1] != "" {
+		schema = parts[0] + "." + parts[1]
+	}
+	services, err := discover(ctx, cfg.Endpoint, schema)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]llm.ModelInfo, 0, len(services))
+	for _, service := range services {
+		models = append(models, llm.ModelInfo{ID: service.ID, Name: service.ID, Description: service.Description})
+	}
+	return models, nil
 }
 
 // LLMBudgetRegistry reports and resets the token budget of every LLM
@@ -200,8 +257,9 @@ func llmStatusHandler(
 			// banner polls this on every page; a 503 here spams
 			// browser console errors and masks real failures.
 			jsonResponse(w, map[string]any{
-				"clients":       []any{},
-				"any_exhausted": false,
+				"clients":         []any{},
+				"any_exhausted":   false,
+				"databricks_auth": databricksauth.CurrentAuthMetadata(),
 			})
 			return
 		}
@@ -218,8 +276,9 @@ func llmStatusHandler(
 		}
 
 		jsonResponse(w, map[string]any{
-			"clients":       status,
-			"any_exhausted": anyExhausted,
+			"clients":         status,
+			"any_exhausted":   anyExhausted,
+			"databricks_auth": databricksauth.CurrentAuthMetadata(),
 		})
 	}
 }

@@ -17,7 +17,7 @@ func sreModelClient(settings config.SREConfig, client *llm.Client, notices *sre.
 	}
 	if client == nil || !client.IsEnabled() {
 		sre.NoteModelUnavailable(notices, logFn, "no LLM is configured: set "+
-			"llm.enabled, llm.endpoint and llm.api_key to use it, or set "+
+			"llm.enabled, llm.endpoint and the provider's authentication (llm.auth=databricks for native OAuth), or set "+
 			"sre.llm.enabled: false to keep investigations deterministic without this notice")
 		return nil
 	}

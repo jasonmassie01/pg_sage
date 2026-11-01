@@ -227,14 +227,16 @@ func rollbackClassForAction(actionType string) string {
 		return "not_applicable"
 	case "create_index_concurrently", "drop_unused_index":
 		return "reversible"
-	case "set_table_autovacuum": // rollback is ALTER TABLE ... RESET (...)
-		return "reversible"
+	case "set_table_autovacuum":
+		return "unknown" // the previous reloptions must be captured
 	case "prepare_query_rewrite":
 		return "application_rollback"
-	case "promote_role_work_mem", "retire_query_hint", "apply_query_hint":
+	case "apply_query_hint":
 		return "reversible"
-	case "create_statistics", "reindex_concurrently":
+	case "create_statistics":
 		return "reversible"
+	case "promote_role_work_mem", "retire_query_hint", "reindex_concurrently":
+		return "unknown"
 	case "prepare_parameterized_query":
 		return "application_rollback"
 	case "ddl_preflight":
@@ -344,8 +346,8 @@ func whyNowForFinding(f SourceFinding) string {
 			return fmt.Sprintf("forecast threshold projected at %v", v)
 		}
 	}
-	if f.Severity == SeverityCritical {
-		return "critical severity requires immediate review"
+	if f.Category == "sequence_exhaustion" {
+		return "The observed sequence is near its configured limit; time to exhaustion and application impact have not been established."
 	}
-	return "not urgent"
+	return "Urgency not assessed"
 }

@@ -69,6 +69,7 @@ var AllRules = []RuleSpec{
 	// Query rules
 	{"slow_queries", ruleSlowQueries, cats("slow_query"), hasQueries},
 	{"high_plan_time", ruleHighPlanTime, cats("high_plan_time"), hasQueries},
+	{"temp_spills", ruleTempSpills, cats("temp_spill"), hasTempSpillWindow},
 
 	// System rules
 	{"cache_hit_ratio", ruleCacheHitRatio, cats("cache_hit_ratio"), hasCacheRatio},

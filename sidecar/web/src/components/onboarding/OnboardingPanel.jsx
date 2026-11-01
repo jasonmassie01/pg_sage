@@ -39,8 +39,8 @@ function StepItem({ step }) {
   )
 }
 
-function DatabaseChecklist({ entry, onGrant }) {
-  const steps = entry.steps || []
+function DatabaseChecklist({ entry, onGrant, platformManaged }) {
+  const steps = (entry.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
   const required = steps.filter(s => !s.optional)
   const complete = required.length > 0 && required.every(s => s.done)
   const grantStep = steps.find(s => s.id === 'grant_more')
@@ -72,7 +72,7 @@ function DatabaseChecklist({ entry, onGrant }) {
   )
 }
 
-export function OnboardingPanel({ database }) {
+export function OnboardingPanel({ database, authMode }) {
   const { data, error, refetch } = useAPI(onboardingURL(database), 10000)
   const [granting, setGranting] = useState(null)
   if (error && !data) {
@@ -89,7 +89,8 @@ export function OnboardingPanel({ database }) {
       style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
       <h2 id="getting-started" className="text-lg font-semibold">Getting started</h2>
       {entries.map(entry => (
-        <DatabaseChecklist key={entry.database} entry={entry} onGrant={setGranting} />
+        <DatabaseChecklist key={entry.database} entry={entry} onGrant={setGranting}
+          platformManaged={authMode === 'databricks_app'} />
       ))}
       {granting && (
         <GrantMoreDialog database={granting} onClose={() => setGranting(null)}

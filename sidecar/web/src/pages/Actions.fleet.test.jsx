@@ -45,8 +45,8 @@ describe('Fleet action identity', () => {
     fireEvent.click(screen.getByLabelText('Collapse row'))
     const second = screen.getByRole('cell', { name: 'second', exact: true }).closest('tr')
     fireEvent.click(within(second).getByTestId('reject-button'))
-    expect(screen.getAllByPlaceholderText('Reason for rejection...')).toHaveLength(1)
-    fireEvent.change(screen.getByPlaceholderText('Reason for rejection...'), {
+    expect(screen.getAllByRole('textbox', { name: 'Reason for rejection' })).toHaveLength(1)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reason for rejection' }), {
       target: { value: 'Keep the selected database unchanged' },
     })
     fireEvent.click(screen.getByText('Confirm Reject'))

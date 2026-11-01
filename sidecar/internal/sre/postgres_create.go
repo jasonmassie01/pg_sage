@@ -38,7 +38,8 @@ func (s *PostgresStore) Create(
 			created = true
 			return appendEvent(ctx, tx, inv.Scope, inv.ID, EventCreated,
 				req.actor(), map[string]any{"trigger_kind": req.TriggerKind,
-					"case_id": req.CaseID, "incident_id": req.IncidentID,
+					"read_policy": req.ReadPolicy.Clone(),
+					"case_id":     req.CaseID, "incident_id": req.IncidentID,
 					"subject": req.Subject})
 		}
 		if !errors.Is(err, ErrNotFound) {

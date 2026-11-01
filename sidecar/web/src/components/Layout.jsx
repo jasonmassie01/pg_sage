@@ -11,6 +11,8 @@ import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { TimeRangePicker } from './TimeRangePicker'
 import { TrustBadge } from './TrustBadge'
+import { PostgresMeme } from './PostgresMeme'
+import { MonitoringContext } from './MonitoringContext'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
@@ -43,9 +45,9 @@ const NAV_GROUPS = [
       { path: '#/settings', icon: Settings, label: 'Settings',
         admin: true, tid: 'nav-settings' },
       { path: '#/mcp-tokens', icon: KeyRound, label: 'MCP tokens',
-        admin: true, tid: 'nav-mcp-tokens' },
+        admin: true, standaloneOnly: true, tid: 'nav-mcp-tokens' },
       { path: '#/agents', icon: Bot, label: 'Agents',
-        operator: true, tid: 'nav-agents' },
+        operator: true, standaloneOnly: true, tid: 'nav-agents' },
     ],
   },
 ]
@@ -83,8 +85,9 @@ function NavLink({ item, active, pendingCount }) {
   return (
     <a
       href={item.path}
+      aria-current={active ? 'page' : undefined}
       data-testid={item.tid}
-      className="flex items-center gap-2 px-3 py-2 rounded text-sm"
+      className={`sage-nav-link flex items-center gap-2 px-3 py-2 rounded text-sm${active ? ' sage-nav-link-active' : ''}`}
       style={{
         color: active
           ? 'var(--accent)' : 'var(--text-secondary)',
@@ -111,10 +114,10 @@ function NavLink({ item, active, pendingCount }) {
 
 export function Layout({
   children, databases, selectedDB, onSelectDB,
-  user, fleetData: fleetDataProp, onFleetChanged, onLogout, pageTitle,
+  user, authMode = user?.auth_mode, fleetData: fleetDataProp, fleetError, onFleetChanged, onLogout, pageTitle,
   ...rest
 }) {
-  const hash = window.location.hash || '#/'
+  const hash = (window.location.hash || '#/').split('?')[0]
   const canReviewActions =
     user?.role === 'admin' || user?.role === 'operator'
   const { data: countData, refetch: refetchPending } = useAPI(
@@ -154,6 +157,7 @@ export function Layout({
   })()
 
   const isAdmin = user?.role === 'admin'
+  const platformManaged = authMode === 'databricks_app'
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
@@ -176,11 +180,11 @@ export function Layout({
 
   const navContent = (
     <>
-      <div
-        className="text-lg font-bold mb-4 flex items-center
-          justify-between"
-        style={{ color: 'var(--accent)' }}>
-        <span>pg_sage</span>
+      <div className="sage-brand">
+        <a href="#/" className="sage-brand-home" aria-label="pg_sage home">
+          <span className="sage-brand-mark" aria-hidden="true">pg<span>_</span></span>
+          <span><span className="sage-brand-name">pg_sage</span><span className="sage-brand-caption">POSTGRES, WITH RECEIPTS.</span></span>
+        </a>
         <button
           type="button"
           aria-label="Close navigation"
@@ -192,9 +196,12 @@ export function Layout({
         </button>
       </div>
 
+      <div className="sage-sidebar-label"><span className="sage-terminal-prompt" aria-hidden="true">❯</span> database control room</div>
+
       {NAV_GROUPS.map(group => {
         const visible = group.items.filter(
-          n => (!n.admin || isAdmin) && (!n.operator || canReviewActions),
+          n => (!n.admin || isAdmin) && (!n.operator || canReviewActions)
+            && (!n.standaloneOnly || !platformManaged),
         )
         if (visible.length === 0) return null
         return (
@@ -242,7 +249,7 @@ export function Layout({
       </div>
 
       <div
-        className="mt-auto pt-4"
+        className="sage-account mt-auto pt-4"
         style={{ borderTop: '1px solid var(--border)' }}>
         {user && (
           <a
@@ -272,11 +279,12 @@ export function Layout({
   )
 
   return (
-    <div className="flex h-screen min-w-0 overflow-hidden" {...rest}>
+    <div className="sage-shell flex h-screen min-w-0 overflow-hidden" {...rest}>
       {/* Desktop sidebar */}
       <nav
         data-testid="sidebar-desktop"
-        className="hidden md:flex w-56 flex-shrink-0 border-r
+        aria-label="Main navigation"
+        className="sage-sidebar hidden md:flex w-56 flex-shrink-0 border-r
           flex-col p-4 gap-1"
         style={{
           background: 'var(--bg-card)',
@@ -295,8 +303,9 @@ export function Layout({
             onClick={() => setDrawerOpen(false)}
           />
           <nav
+            aria-label="Mobile navigation"
             data-testid="sidebar-drawer"
-            className="md:hidden fixed top-0 left-0 bottom-0 z-50
+            className="sage-sidebar md:hidden fixed top-0 left-0 bottom-0 z-50
               w-64 border-r flex flex-col p-4 gap-1 overflow-y-auto"
             style={{
               background: 'var(--bg-card)',
@@ -307,9 +316,9 @@ export function Layout({
         </>
       )}
 
-      <main className="flex-1 overflow-auto min-w-0">
+      <main className="sage-main flex-1 overflow-auto min-w-0" id="main-content">
         <header
-          className="flex items-center justify-between gap-2
+          className="sage-header flex items-center justify-between gap-2
             px-3 md:px-4 py-3 md:py-4 border-b"
           style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-2 min-w-0">
@@ -325,12 +334,15 @@ export function Layout({
               }}>
               <Menu size={18} />
             </button>
-            <h1
+            <div className="min-w-0">
+              <div className="sage-header-eyebrow">POSTGRES OPERATIONS <span aria-hidden="true">/</span> CONTROL ROOM</div>
+              <h1
               className="text-base md:text-lg font-semibold truncate"
               style={{ color: 'var(--text-primary)' }}>
               {pageTitle || ALL_NAV_ITEMS.find(n => n.path === hash)?.label
                 || 'pg_sage'}
-            </h1>
+              </h1>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 md:gap-3
             flex-wrap justify-end min-w-0">
@@ -343,7 +355,7 @@ export function Layout({
             />
             {trustLevel && <TrustBadge level={trustLevel} />}
             <TimeRangePicker />
-            {databases && databases.length > 1 && (
+            {databases && databases.length > 0 && (
               <DatabasePicker
                 data-testid="database-picker"
                 databases={databases}
@@ -353,11 +365,13 @@ export function Layout({
             )}
           </div>
         </header>
-        <div className="p-3 md:p-6">
+        <div className="sage-content p-3 md:p-6">
+          <MonitoringContext database={selectedDB} fleetData={fleetData} error={fleetError} user={user} />
           <PendingActionsContext.Provider
             value={{ refetch: refetchPending }}>
             {children}
           </PendingActionsContext.Provider>
+          <PostgresMeme route={hash} compact />
         </div>
       </main>
     </div>

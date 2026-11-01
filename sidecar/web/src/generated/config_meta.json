@@ -1086,11 +1086,107 @@
     "doc": "Where pg_sage keeps snapshots and the query store: monitored (each monitored database) or meta (the meta database; needs meta_db). Restart and history migrate to change. Default monitored.",
     "class": "operator_preference"
   },
+  "lakebase_observability.allow_payload": {
+    "type": "bool",
+    "default": false,
+    "doc": "Permit approved resource-scoped query/plan/log payload reads. Default metadata-only; does not grant UC or unmasking privileges.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.bindings[].allow_compute": {
+    "type": "bool",
+    "default": false,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.bindings[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.bindings[].endpoint": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.bindings[].host": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Read explicitly bound Lakebase system-table history through a SQL warehouse. Default off; never authorizes live host admission.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.max_bytes": {
+    "type": "int",
+    "default": 0,
+    "doc": "Maximum result bytes per read; 0=4194304, range 1024-16777216.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.max_rows": {
+    "type": "int",
+    "default": 0,
+    "doc": "Maximum rows per read window; 0=500, range 1-10000. Full windows split rather than silently truncate.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.poll_interval_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Seconds between bounded polls; 0=60, range 30-3600. Queries consume warehouse capacity.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.queries_per_poll": {
+    "type": "int",
+    "default": 0,
+    "doc": "Query budget per poll; 0=12, range 1-1000. Backlog or expiry gaps remain visible.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.query_timeout_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Per-query deadline; 0=30, range 1-120.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.retention_hours": {
+    "type": "int",
+    "default": 0,
+    "doc": "Raw provider payload retention by event time; 0=168, range 1-168. Dedup receipts outlive the replay horizon.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.streams": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Optional fixed system-table streams. Empty selects plans, logs, ASH, DDL and database counters/gauges.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.warehouse_id": {
+    "type": "string",
+    "default": "",
+    "doc": "Existing SQL warehouse for bounded system-table reads. Uses Databricks unified authentication, never an inline credential.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.window_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Initial reconciliation window in seconds; 0=900, at most seven days.",
+    "class": "safety_critical"
+  },
   "llm.api_key": {
     "type": "string",
     "default": null,
     "doc": "Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values.",
     "secret": true,
+    "class": "safety_critical"
+  },
+  "llm.auth": {
+    "type": "string",
+    "default": "",
+    "doc": "LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin.",
     "class": "safety_critical"
   },
   "llm.context_budget_tokens": {
@@ -2429,6 +2525,18 @@
     "doc": "Time allowed to connect and read one pooler, 100-2000 ms. Default: 1000.",
     "class": "safety_critical"
   },
+  "sre.read_policy.allowed_sources": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Optional narrowing list of SRE source IDs; cannot widen database scope. Nil uses every eligible source; an empty explicit list denies all. Restart required.",
+    "class": "safety_critical"
+  },
+  "sre.read_policy.scope": {
+    "type": "string",
+    "default": "",
+    "doc": "SRE observation scope: auto (database on Lakebase, legacy standalone elsewhere), database, or cluster. Restart required. Default: auto.",
+    "class": "safety_critical"
+  },
   "sre.runways.disk_critical_hours": {
     "type": "int",
     "default": 24,
@@ -2715,7 +2823,7 @@
   "sre.slo.push.hmac_secret": {
     "type": "string",
     "default": null,
-    "doc": "Shared secret (at least 32 bytes) signing POST /api/v1/sre/sli/{name}. Empty disables pushes.",
+    "doc": "Shared secret (at least 32 bytes) signing POST /api/v1/sre/sli/{name}. Empty disables signed pushes; Databricks Apps use the platform-authenticated admin samples API.",
     "secret": true,
     "class": "safety_critical"
   },

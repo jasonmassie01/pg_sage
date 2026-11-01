@@ -246,16 +246,17 @@ type Row map[string]any
 
 // Result is the typed outcome of one probe run.
 type Result struct {
-	ProbeID    ID        `json:"probe_id"`
-	Version    string    `json:"probe_version"`
-	Status     Status    `json:"status"`
-	Reason     string    `json:"reason,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	ObservedAt time.Time `json:"observed_at"`
-	ElapsedMS  int64     `json:"elapsed_ms"`
-	Columns    []string  `json:"columns,omitempty"`
-	Rows       []Row     `json:"rows,omitempty"`
-	Truncated  bool      `json:"truncated,omitempty"`
+	History    *HistoricalWindow `json:"historical_window,omitempty"`
+	ProbeID    ID                `json:"probe_id"`
+	Version    string            `json:"probe_version"`
+	Status     Status            `json:"status"`
+	Reason     string            `json:"reason,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	ObservedAt time.Time         `json:"observed_at"`
+	ElapsedMS  int64             `json:"elapsed_ms"`
+	Columns    []string          `json:"columns,omitempty"`
+	Rows       []Row             `json:"rows,omitempty"`
+	Truncated  bool              `json:"truncated,omitempty"`
 	// Phase is where a failed run spent its budget; empty when usable.
 	Phase Phase `json:"phase,omitempty"`
 	// Timing is where the run spent its time (logs and tests only).

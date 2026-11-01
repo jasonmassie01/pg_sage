@@ -1,5 +1,198 @@
 # Changelog
 
+## v2.5.0-dev.10 (unreleased) -- One proposal per reviewed change
+
+- Documentation follow-up (2026-11-01): document the Databricks-native
+  implementation, linked from the README and
+  documentation index, with portable local/App deployment instructions, OAuth
+  identity boundaries, telemetry/SRE behavior, operations and feature-level
+  compatibility evidence. Keep the dev.5 full-suite run distinct from later
+  changed-package and deployed-App acceptance.
+- Publish the dated compatibility, controlled finding and UX acceptance reports;
+  remove private research/environment details and exclude local test artifacts
+  from Git and Docker contexts. Parameterize the bounded Lakebase fixture harness
+  so it has no default workspace, endpoint or personal database principal.
+- Consolidate explicitly related index/statistics/maintenance action aliases
+  into one review item, while keeping the current case proposal separate from
+  the stored revision's risk and recovery claims.
+- Withhold stored recovery SQL when it has not been validated against the
+  current proposal; an old revision cannot override unknown recovery.
+- Use an explicit policy provider when capability metadata reports an unknown
+  provider, preserving managed-setting applicability checks.
+
+## v2.5.0-dev.9 (unreleased) -- Cases, decisions and trustworthy recovery
+
+- Lead Cases with plain-language observations, possible consequences, unknown
+  impact/urgency and a supported next step. Keep exact SQL and evidence in
+  expandable details; explain suppression separately from fixing a condition.
+- Keep database and case context across Cases, Actions and Ask Sage. Prepare
+  explanation-only questions for user review without submitting them automatically.
+- Organize Actions into proposed changes, needs your review, in progress and
+  history. Distinguish operational risk, execution restrictions, accepted
+  approvals, completed SQL and verified outcomes.
+- Show reported execution mode and collection context before page content;
+  keep page-specific DBA memes as compact secondary content.
+- Withhold guessed recovery/catalog verification for unnamed indexes and other
+  proposals without captured recovery. Unknown size and urgency remain unknown;
+  provider-managed system-setting guidance is reviewed for applicability.
+
+## v2.5.0-dev.8 (unreleased) -- Preserve invalid-index evidence on restart
+
+- Keep existing invalid-index findings open while a restarted analyzer rebuilds
+  its two-observation baseline, an index build is active, or build evidence is
+  unavailable. Resolve only after a complete supported observation clears it.
+- Retain two-observation detection, exact query identities, the refreshed UI,
+  Databricks-only authentication and the bounded Lakebase scenario proofs.
+
+## v2.5.0-dev.7 (unreleased) -- Exact query identities
+
+- Preserve signed 64-bit PostgreSQL query IDs as decimal strings in finding
+  responses, Cases evidence and generated investigation artifacts, including
+  previously stored findings whose JSON numbers would round in JavaScript.
+- Verify a ninth controlled Lakebase finding family at the production slow-query
+  threshold, with isolated native recovery and a real deployed App case.
+
+## v2.5.0-dev.6 (unreleased) -- Postgres observatory and Lakebase scenarios
+
+- Select the single running database automatically, keep the database picker
+  available, and distinguish Ask Sage inventory loading, failure, and empty states.
+- Show running/configured databases as real Fleet inventory; preserve visibility
+  when management reads fail and remove contradictory empty-fleet guidance.
+- Refresh the dashboard with a dark Postgres observatory theme, responsive
+  navigation, accessible controls, and original page-specific DBA memes.
+- Add hint-free temporary-spill findings from consecutive query-statistics
+  counters, with controlled work_mem advice and no automatic settings changes.
+- Exercise exact-owned Lakebase workloads and record which findings are detected,
+  resolved, provider-restricted, or remain unproven.
+
+## v2.5.0-dev.5 (unreleased) -- Maintenance retention and full-suite closure
+
+- Retain active or unresolved SRE statistics maintenance through evidence and
+  timeline aging, and age finalized maintenance from its latest change. Keep its
+  exact rollback and audit records until the parent investigation expires.
+- Recheck maintenance holds after locking purge candidates under READ COMMITTED;
+  filter holds before batch limits so held records cannot starve eligible cleanup.
+- Preserve the executor-commit/proposal-save crash window through exact finding,
+  identity and SQL links; index retention lookups for large proposal payloads.
+- Refuse typed maintenance with a separate coordination database; keep ordinary
+  SRE observations and existing actions available. Distributed retention holds
+  remain unsupported.
+- Isolate YAML normalization tests from the integration fixture DSN and include
+  the maintenance child table in migration fixture teardown without bypassing
+  foreign-key integrity. Preserve the complete failed dev.4 regression inventory.
+- Upgrade the earlier nine-state maintenance constraint atomically to include
+  `uncertain`; validate existing rows, reject unsupported states, and preserve
+  the current validated check on repeated startup.
+- Prevent backward database wall-clock movement from refunding already charged
+  SRE active time or violating its nonnegative budget constraint. Preserve the
+  existing cap, lease fencing and expiry behavior.
+
+## v2.5.0-dev.4 (unreleased) -- Lakebase compatibility gap closure
+
+- Verify controlled provider plan, PostgreSQL log and DDL capture, normalization,
+  and all ten telemetry streams. Use short unique fixture application names to
+  avoid an observed 31-character provider truncation that caused false negatives.
+- Add five scoped historical SRE sources and a durable, citable `read_history`
+  tool. Recheck physical database identity, durable policy and retention on reads;
+  retain structured observations without raw SQL, plans, log bodies or actors.
+  Historical observations remain incomplete and cannot establish live admission
+  or a complete database error-rate SLO.
+- Add Databricks-authenticated, administrator-only application SLI ingestion with
+  explicit database/objective binding, actor-bound series, durable database
+  namespaces, replay/conflict checks and stale-to-unknown evaluation. Legacy
+  signed ingestion remains unavailable in Apps; standalone behavior is retained.
+- Add an operator-requested statistics maintenance bridge with fresh retained
+  evidence, physical object identity checks, durable human approval, existing
+  execution policy gates, structural verification and exact-object rollback.
+  Rollback cannot restore prior ANALYZE statistics; no performance or incident
+  recovery credit is inferred. The App remains in observation mode.
+- Distinguish pg_sage's default database-only observation policy from native
+  Lakebase query support. Previously policy-denied cluster probes execute on the
+  isolated authorized test branch; empty results do not prove incident diagnosis.
+- Preserve explicit provider restrictions on pg_hint_plan activation and HypoPG,
+  and document real-index trials as a separate supported fallback.
+- Fix review-mode SRE initialization when no investigator configuration exists.
+- Fix historical query-ID filtering before retained-row limits so newer monitoring
+  events cannot hide a requested older plan or ASH event. Preserve signed/unsigned
+  PostgreSQL query IDs and database, policy and retention fences.
+- Give a historical read a bounded five-second operation budget while keeping
+  backend statements at 500 ms and rollback on an independent bounded context.
+
+## v2.5.0-dev.3 (unreleased) -- Scoped Lakebase history and native SRE
+
+- Add an opt-in, bounded reader for all ten Lakebase system-table streams,
+  verified endpoint/database identities, durable replay/cursors/acknowledgments,
+  policy revocation and event-time payload expiration. Metadata-only by default.
+- Add authenticated source status, admin-only normalized historical evidence,
+  and a sanitized effective deployment configuration snapshot.
+- Feed valid captured provider plans into the plan cache and optimizer without
+  requiring session auto_explain. Preserve capture flags, occurrence/receipt
+  times, source and compute identity. Exclude delayed plans from current counters
+  and refuse regression comparisons without known compatible execution context.
+- Enforce a database-scoped SRE observation policy on Lakebase, including model,
+  background and resumed paths. Native Gateway investigations, controlled lock
+  and sequence diagnoses, and a signed diagnostic runbook have passed.
+- Pin Apps authentication to platform service-principal OAuth, reject AI API-key
+  or foreign-origin overrides, and explicitly refuse unsupported optional caller
+  protocols after Databricks authentication.
+- Hide unavailable MCP-token and agent-governance flows in the App dashboard;
+  direct links explain their status without calling unsupported APIs. Update
+  Lakebase capability guidance for configured historical telemetry.
+- Selected-resource telemetry delivery remains unverified: all ten native schema
+  reads succeed, but controlled plan/log/DDL delivery has returned zero rows.
+  Historical telemetry does not supply live host admission or a complete SLO.
+
+## v2.5.0-dev.2 (unreleased) -- Databricks Apps sign-in
+
+- Databricks Apps uses its authenticated ingress identity for browser/API access,
+  without a second pg_sage login, local session or bootstrap password.
+- Explicitly bound administrator identity preserves the existing account ID;
+  other Databricks users start as viewers and retain per-request role checks.
+- Local sign-in, account linking, break-glass login and local user creation are
+  disabled in App mode; standalone installations retain session authentication.
+- The App UI identifies Databricks-managed sign-in and handles missing identity
+  without displaying a separate password form.
+- Lakebase capability guidance distinguishes its available system-table telemetry
+  from pg_sage's missing telemetry connector and unverified SRE workflows.
+
+## v2.5.0-dev.1 (unreleased) -- Lakebase and Databricks Apps
+
+Development release for native Lakebase OAuth connections, Unity AI Gateway,
+and deployment of the existing Go/React application on Databricks Apps.
+Live validation and the exact supported feature boundaries are recorded in
+`docs/lakebase.md`, `docs/databricks-apps.md`, and the compatibility reviews.
+
+### Added
+
+- Databricks unified authentication with refreshing Lakebase connection
+  credentials, direct endpoint verification, and multi-endpoint fleet mappings.
+- Native Unity Gateway chat, structured responses, tools, and model discovery.
+  Workspace credentials remain bound to the configured HTTPS origin.
+- Databricks Apps native Linux packaging, platform port/H2C handling, durable
+  secrets, restart handling, and first-admin bootstrap support.
+- Lakebase-specific managed-setting guidance and capability reporting. Unsupported
+  extensions, server administration, and authentication mechanisms remain explicit.
+- Eight individually validated Lakebase maintenance/configuration contracts,
+  including exact database-setting capture, derived rollback, and fresh-session
+  readback. The development App uses observation trust by default.
+
+### Fixed
+
+- Storage runway regression no longer invents growth/decline from cancellation
+  on large, nearly constant byte totals.
+- Recurring incidents link to the canonical prior incident instead of a merged
+  duplicate tombstone.
+- Integration and browser fixtures follow current UI/schema behavior and use
+  the PostgreSQL clock for database-stamped timing assertions.
+- Statistics actions refuse `IF NOT EXISTS`, preventing a rollback from dropping
+  a pre-existing statistics object. New recommendations use plain `CREATE`.
+- Lakebase fleet readiness reports the tested provider capabilities and preserves
+  managed-platform restrictions after runtime catalog probes.
+- Dashboard collection time and database size update from completed collector
+  samples without waiting for the slower analyzer status refresh.
+- LLM authentication mode validates, persists and resets through the settings
+  store, including Databricks unified authentication.
+
 ## v2.4.0 (2026-10-23) -- pg_sage governs the agents that touch your database
 
 Agent governance, first two steps. pg_sage now reports how exposed each database is to AI
@@ -2490,10 +2683,10 @@ configuration, and the verified feature boundaries.
 - Added backup assurance, restore-verification gates, ping/token lifecycle,
   TTL cleanup, cost samples, query tuning recommendation contracts, audit
   export, and deploy-request promotion records for agent-owned databases.
-- Added a dedicated
-  [AgentDB Cloud Provider Setup](docs/runbooks/agentdb-cloud-provider-setup.md)
+- Added a dedicated AgentDB Cloud Provider Setup
   guide for AWS, GCP, Databricks, live safety gates, validation commands, and
-  cleanup evidence.
+  cleanup evidence. That feature and guide were later removed; see the current
+  [decommissioning guide](sidecar/internal/decommission/README.md).
 
 ### Changed
 

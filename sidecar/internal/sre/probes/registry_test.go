@@ -47,6 +47,8 @@ func specVersion(id ID) string {
 		return "v2" // v2: pg_sage's own sessions and statements left out
 	case TempSpillStatements:
 		return "v3" // v3: no query text; own_role marks pg_sage's role
+	case StatTables:
+		return "v3" // physical database/table identities bind maintenance evidence
 	}
 	return "v1"
 }

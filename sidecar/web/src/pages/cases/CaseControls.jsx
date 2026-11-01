@@ -60,22 +60,36 @@ export function CaseControls({ caseRow, user, onDone }) {
   const id = encodeURIComponent(sourceID)
   if (FINDING_SOURCES.has(caseRow.source_type)) {
     return (
+      <details className="mt-3 text-xs" data-testid="case-secondary-options">
+        <summary className="cursor-pointer" style={{ color: 'var(--text-secondary)' }}>More case options</summary>
+        <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
+          Suppression hides this finding from the active list. It does not repair
+          the database condition. You can restore it from suppressed findings.
+        </p>
       <button type="button" data-testid="case-suppress" disabled={busy}
         className="mt-3 rounded px-2 py-1 text-xs" style={buttonStyle}
         onClick={() => run(`/api/v1/findings/${id}/suppress${db}`, {},
           'Finding suppressed')}>
-        Suppress
+        Suppress finding
       </button>
+      </details>
     )
   }
   if (caseRow.source_type === 'incident') {
     return (
+      <details className="mt-3 text-xs" data-testid="case-secondary-options">
+        <summary className="cursor-pointer" style={{ color: 'var(--text-secondary)' }}>More case options</summary>
+        <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
+          Marking this incident resolved updates its record. It does not itself
+          repair the cause or verify recovery.
+        </p>
       <button type="button" data-testid="case-resolve" disabled={busy}
         className="mt-3 rounded px-2 py-1 text-xs" style={buttonStyle}
         onClick={() => run(`/api/v1/incidents/${id}/resolve${db}`,
           { reason: 'resolved from Cases' }, 'Incident resolved')}>
         Resolve incident
       </button>
+      </details>
     )
   }
   return null

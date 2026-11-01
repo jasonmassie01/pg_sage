@@ -15,6 +15,23 @@ func TestRuntimeCapabilitiesNilPoolDoesNotInventEvidence(t *testing.T) {
 	}
 }
 
+func TestLakebaseRuntimeCannotAdvertiseUnsupportedIntegrations(t *testing.T) {
+	caps := CollectProviderCapabilities(t.Context(), nil, "lakebase", nil)
+	for _, ext := range []string{"auto_explain", "hypopg"} {
+		if caps.Extensions[ext] != "unavailable" {
+			t.Errorf("known unavailable %s became %q", ext, caps.Extensions[ext])
+		}
+		caps.Extensions[ext] = "available" // catalog/module presence is insufficient
+	}
+	applyProviderCapabilityLimits(&caps)
+	if caps.Extensions["auto_explain"] != "unavailable" || caps.Extensions["hypopg"] != "unavailable" {
+		t.Fatal("catalog presence overwrote provider integration restrictions")
+	}
+	if caps.Extensions["pg_hint_plan"] != "unknown" || caps.Extensions["vector"] != "unknown" {
+		t.Fatal("provider limits invented evidence about optional extensions")
+	}
+}
+
 // Read-only catalog probes; no schema or provider state is modified.
 func TestRuntimeCapabilitiesInstalledExtensions(t *testing.T) {
 	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")

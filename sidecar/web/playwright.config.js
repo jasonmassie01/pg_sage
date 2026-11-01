@@ -27,7 +27,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? {
+          launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE },
+        } : {}),
+      },
     },
   ],
   // Spin up Vite on demand so `npm run test:e2e` works standalone.

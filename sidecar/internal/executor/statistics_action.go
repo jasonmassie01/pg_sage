@@ -51,6 +51,9 @@ func checkStatisticsForm(normalized, prefix string) error {
 func statisticsRollback(sql, rollbackSQL string) (string, error) {
 	c, err := extstats.ParseCreate(sql)
 	if err != nil {
+		if extstats.IsCreate(sql) {
+			return "", fmt.Errorf("%w: %v", ErrDisallowedSQL, err)
+		}
 		return rollbackSQL, nil
 	}
 	if strings.TrimSpace(rollbackSQL) == "" {
@@ -91,7 +94,12 @@ func ExecStatistics(
 	if err := ValidateExecutorSQL(analyze); err != nil {
 		return fmt.Errorf("SQL validation: %w", err)
 	}
-	if err := execStatementsInTransaction(ctx, pool, timeout, applyDDLOpts(opts), sql,
+	o := applyDDLOpts(opts)
+	if r := statisticsRun(ctx); r != nil {
+		o.before = r.guard
+		o.after = r.verify
+	}
+	if err := execStatementsInTransaction(ctx, pool, timeout, o, sql,
 		analyze); err != nil {
 		return err
 	}

@@ -402,7 +402,7 @@ func testManagedDBHandler(
 				return
 			}
 		}
-		result := testFromConnString(r.Context(), connStr)
+		result := testFromConnStringAtIP(r.Context(), connStr, req.resolvedIP)
 		jsonResponse(w, result)
 	}
 }
@@ -446,7 +446,7 @@ func testConnectionPreviewHandler() http.HandlerFunc {
 			return
 		}
 		u := buildManagedTestURL(req, req.Password)
-		result := testFromConnString(r.Context(), u.String())
+		result := testFromConnStringAtIP(r.Context(), u.String(), req.resolvedIP)
 		jsonResponse(w, result)
 	}
 }
@@ -469,7 +469,9 @@ func applySafePreviewHost(
 		return false
 	}
 
-	req.Host = safeIP
+	// Preserve the logical hostname for endpoint authorization and TLS SNI.
+	// The connection helper uses only this already-validated IP for dialing.
+	req.resolvedIP = safeIP
 	applyManagedTestDefaults(req)
 	return true
 }
@@ -514,7 +516,7 @@ func buildManagedTestURL(
 	return &url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(req.Username, password),
-		Host:   fmt.Sprintf("%s:%d", req.Host, port),
+		Host:   net.JoinHostPort(req.Host, strconv.Itoa(port)),
 		Path:   req.DatabaseName,
 		RawQuery: url.Values{
 			"sslmode":         {ssl},
@@ -609,6 +611,7 @@ func importCSVHandler(
 
 // dbCreateRequest is the JSON body for create/update.
 type dbCreateRequest struct {
+	resolvedIP     string
 	Name           string            `json:"name"`
 	Host           string            `json:"host"`
 	Port           int               `json:"port"`

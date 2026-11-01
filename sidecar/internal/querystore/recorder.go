@@ -42,6 +42,7 @@ const recordSamplesSQL = `/* pg_sage */ INSERT INTO sage.query_store
 	 LEFT JOIN LATERAL (
 	     SELECT e.plan_hash FROM sage.explain_cache e
 	     WHERE e.queryid = u.queryid AND e.plan_hash IS NOT NULL
+       AND e.source <> 'lakebase_plan_history'
 	     ORDER BY e.captured_at DESC, e.id DESC LIMIT 1) p ON true`
 
 // latestPlanHashesSQL is recordSamplesSQL's join, read on the monitored
@@ -52,6 +53,7 @@ const latestPlanHashesSQL = `/* pg_sage */ SELECT u.queryid, p.plan_hash
 	 JOIN LATERAL (
 	     SELECT e.plan_hash FROM sage.explain_cache e
 	     WHERE e.queryid = u.queryid AND e.plan_hash IS NOT NULL
+       AND e.source <> 'lakebase_plan_history'
 	     ORDER BY e.captured_at DESC, e.id DESC LIMIT 1) p ON true`
 
 // recordStoreSQL inserts samples already stamped with their fingerprints

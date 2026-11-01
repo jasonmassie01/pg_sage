@@ -131,3 +131,52 @@ func plansCarried(plan testdb.PlanNode) float64 {
 	})
 	return most
 }
+
+// A context key alone cannot authorize provider history on an unbound generic
+// rule. The explicit provider-aware optimizer owns resource-scoped reads.
+func TestPlanPairsProviderCannotEnterUnboundRegression(t *testing.T) {
+	pool := phase2Pool(t)
+	cleanPlanPairs(t, pool)
+	t.Cleanup(func() { cleanPlanPairs(t, pool) })
+	ctx := t.Context()
+	qid := int64(planPairQueryBase + 88)
+	_, err := pool.Exec(ctx, `INSERT INTO sage.explain_cache(queryid,query_text,plan_json,source,total_cost,execution_time,captured_at,provider_scope_hash,provider_compute_id,analyze_enabled,comparison_key)
+ VALUES ($1,'SELECT 1',$2,'lakebase_plan_history',100,1,now()-interval '2 hours','scope-a','compute-a',false,'known-context'),
+ ($1,'SELECT 1',$3,'lakebase_plan_history',400,8,now()-interval '1 hour','scope-a','compute-a',false,'known-context')`, qid, planJSON(t, "Index Scan"), planJSON(t, "Seq Scan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairs := func() []planPair {
+		rows, e := pool.Query(ctx, planPairsSQL)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer rows.Close()
+		var result []planPair
+		for rows.Next() {
+			var p planPair
+			if e = rows.Scan(&p.QueryID, &p.QueryText, &p.CurrentPlan, &p.CurrentCost, &p.CurrentTime, &p.PreviousPlan, &p.PreviousCost, &p.PreviousTime); e != nil {
+				t.Fatal(e)
+			}
+			if p.QueryID == qid {
+				result = append(result, p)
+			}
+		}
+		if e = rows.Err(); e != nil {
+			t.Fatal(e)
+		}
+		return result
+	}
+	if len(pairs()) != 0 {
+		t.Fatal("unbound provider plans compared despite absent resource authorization")
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO sage.explain_cache(queryid,query_text,plan_json,source,total_cost,execution_time,captured_at)
+ VALUES ($1,'SELECT 1',$2,'auto_explain_log',10,1,now()-interval '4 hours'),($1,'SELECT 1',$3,'auto_explain_log',20,2,now()-interval '3 hours')`, qid, planJSON(t, "Index Scan"), planJSON(t, "Seq Scan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := pairs()
+	if len(got) != 1 || got[0].CurrentCost != 20 || got[0].PreviousCost != 10 {
+		t.Fatalf("provider history displaced compatible local evidence: %+v", got)
+	}
+}

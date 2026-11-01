@@ -140,6 +140,9 @@ go run ./cmd/gen_config_meta -lifecycle-only \
 |---|---|---|
 | `SAGE_DATABASE_URL` | (none) | PostgreSQL connection string |
 | `SAGE_LLM_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
+| `SAGE_LLM_AUTH` | `api_key` | `databricks` uses SDK unified authentication with token refresh for Unity Gateway |
+| `SAGE_LAKEBASE_ENDPOINT` | (none) | Lakebase endpoint resource path for OAuth; applies to target and metadata pools |
+| `SAGE_LAKEBASE_ENDPOINTS` | (none) | JSON hostname-to-endpoint map for a fleet spanning Lakebase endpoints; use instead of the singular variable |
 | `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
 | `SAGE_API_KEY` | (none) | Legacy config field; the current web/API path uses session login cookies |
 | `SAGE_TLS_CERT` | (none) | PEM certificate (chain) file; with `SAGE_TLS_KEY`, the API serves HTTPS only |
@@ -537,7 +540,9 @@ reloaded or saved.
 ### LLM
 
 LLM features are on by default, but they call a provider only once `llm.endpoint` and
-`llm.api_key` (or `SAGE_LLM_ENDPOINT` and `SAGE_LLM_API_KEY`) are set. Until then every
+`llm.api_key` (or `SAGE_LLM_ENDPOINT` and `SAGE_LLM_API_KEY`) are set. With
+`llm.auth: databricks`, an endpoint and Databricks unified authentication replace
+the static API key; see [Lakebase and Unity Gateway](lakebase.md). Until then every
 feature runs its deterministic path, no LLM request is made, and startup logs one line
 saying the LLM is not configured. `llm.token_budget_daily` caps spend across the general
 LLM features. Turning a feature on grants no autonomy: what an LLM proposes executes only
@@ -549,6 +554,7 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.endpoint` | (none) | OpenAI-compatible chat completions endpoint |
 | `llm.model` | (none) | Model name |
 | `llm.api_key` | (none) | API key (supports `${ENV_VAR}` expansion) |
+| `llm.auth` | `api_key` | `databricks` authenticates each request using the official SDK and restricts credentials to the configured workspace HTTPS origin |
 | `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
 | `llm.token_budget_daily` | `500000` | Maximum tokens per day across general LLM features; `0` means no cap |
 | `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of redundant or long-unused indexes |
@@ -647,7 +653,8 @@ Safeguards learned from dogfooding:
 
 ### Web UI and API Authentication
 
-The embedded web UI and `/api/v1/*` endpoints require a session login. On first
+Standalone installations use a session login for the embedded web UI and
+`/api/v1/*` endpoints. On first
 start, pg_sage creates `admin@pg-sage.local` and prints a one-time initial
 password to stderr. Use `/api/v1/auth/login` for API scripts and keep the
 returned `sage_session` cookie:
@@ -665,6 +672,20 @@ IdP groups to roles (`oauth.role_mapping`, `oauth.groups_claim`,
 `oauth.unmapped_users`), and audits every login. A break-glass admin
 (`oauth.break_glass`) works when the IdP is down and alerts every channel on
 use. See [SSO login validation](security.md#sso-login-validation).
+
+Databricks Apps deployments instead set `SAGE_AUTH_MODE=databricks_app` and
+`SAGE_DATABRICKS_ADMIN_EMAIL` for the explicitly selected administrator. This
+mode requires the Apps runtime's port and workspace host (a bare hostname is
+normalized to an HTTPS origin, as in Databricks unified authentication). It accepts
+the authenticated ingress email on each protected request and ignores local
+session cookies; password/OAuth login, break-glass, account linking and local
+user creation/deletion are disabled. The configured administrator is explicitly
+bound while preserving its account ID; other newly provisioned platform users
+start as viewers. Stored pg_sage roles still control access and are reread per
+request. Grant/revoke App access through Databricks permissions. See the
+[Apps deployment guide](databricks-apps.md) for the trusted-ingress boundary and
+resource setup. This browser identity does not change the App service principal
+used by Lakebase and Gateway background operations.
 
 #### Profiling the sidecar
 

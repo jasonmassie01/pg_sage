@@ -2,6 +2,13 @@
 
 pg_sage is designed to observe and optimize PostgreSQL without accessing user data. This page documents the security model, privacy controls, and operational safeguards.
 
+For Databricks deployments, also read the
+[native implementation and identity boundaries](databricks-native.md#architecture-and-identity).
+The password-user and session/SSO examples below describe standalone deployments.
+Databricks Apps uses platform sign-in, local pg_sage roles and a separate App
+service principal for outbound OAuth. Use the [Lakebase grants and limits](lakebase.md)
+instead of assuming every standalone grant or setting is available.
+
 ---
 
 ## Required Database Grants
@@ -68,7 +75,11 @@ All data sources are read-only catalog views and statistics:
 - **Never rewrites application queries autonomously.** Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.
 - **Never parameterizes application code autonomously.** Parameterization candidates are change-control artifacts, not direct database actions.
 - **Never promotes role-level memory settings without review.** Repeated per-query `work_mem` patterns can become a reviewed `ALTER ROLE` candidate, but they require approval because the blast radius is role-wide.
-- **Never uses ALTER SYSTEM.** Configuration changes are made through the YAML config file, not database-side settings.
+- **Database settings are provider-gated.** Supported typed configuration actions
+  require their execution/approval contracts; YAML config is separate from
+  PostgreSQL settings. Lakebase system settings are provider-managed, and
+  `ALTER SYSTEM` procedures are withheld. Supported database-level settings
+  require database ownership and parameter-specific validation.
 - **Never phones home.** Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.
 
 ---
@@ -111,11 +122,19 @@ pg_sage acquires PostgreSQL advisory lock `710190109` (`hashtext('pg_sage')`) at
 
 ### No LLM configured (default)
 
-LLM features are on by default (`llm.enabled: true`), but a provider is contacted only once both `llm.endpoint` and `llm.api_key` are set. Until then, or with `llm.enabled: false`, pg_sage makes **no LLM requests**: all analysis is performed locally using the rules engine, and startup logs one line saying the LLM is not configured.
+LLM features are on by default (`llm.enabled: true`), but need an endpoint and
+configured authentication. API-key providers use `llm.api_key`; native Databricks
+authentication uses `llm.auth: databricks` and SDK OAuth credentials. Until
+configured, or with `llm.enabled: false`, analysis uses the local rules engine.
 
 ### LLM configured
 
-When `llm.enabled: true` and both `llm.endpoint` and `llm.api_key` are set, pg_sage makes HTTP POST requests to the configured `llm.endpoint`. These requests contain **metadata only** -- never row data.
+When enabled and configured, pg_sage makes requests to the configured
+`llm.endpoint`. Databricks Apps rejects AI API keys and alternate auth modes;
+Gateway calls use the App principal's OAuth M2M identity and the configured HTTPS
+workspace origin. These requests carry diagnostic metadata rather than table-row
+results. See [Lakebase telemetry consent](lakebase.md#advanced-telemetry-auto_explain-and-sre-history)
+for the separate optional provider payload path and its privacy boundaries.
 
 What is sent to the LLM:
 
@@ -135,7 +154,7 @@ What is **never** sent: row data, column values, passwords, connection strings, 
 
 ### Session Authentication
 
-The web UI and `/api/v1/*` endpoints use session-cookie authentication. On
+In standalone mode, the web UI and `/api/v1/*` endpoints use session-cookie authentication. On
 first startup against a metadata database with no users, pg_sage creates
 `admin@pg-sage.local` and prints a one-time initial password to stderr.
 
@@ -151,6 +170,18 @@ curl -b cookies.txt http://localhost:8080/api/v1/cases
 
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
+
+### Databricks Apps Authentication
+
+Apps mode requires `SAGE_AUTH_MODE=databricks_app`, the injected platform runtime
+and an explicit administrator email. The platform ingress authenticates the
+user; pg_sage authorizes the forwarded identity using its own stored roles.
+There is no local password/session, break-glass login or local-token fallback.
+Do not expose the native listener behind a proxy that permits user-supplied
+identity headers. Background Lakebase/Gateway access uses the App principal,
+not on-behalf-of user permissions. Agent transports and signed machine ingestion
+without an equivalent platform identity/grant contract remain explicitly
+unsupported. See the [App auth contract](databricks-apps.md#what-runs-where).
 
 ### SSO Account Linking
 
@@ -448,7 +479,9 @@ Both tables are subject to retention policies (configurable via `retention.actio
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.
 6. **Set a token budget** -- cap LLM spend with `llm.token_budget_daily`.
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
-8. **Capture and rotate the initial admin password** -- then use named users or OAuth for operators.
+8. **Select the deployment's authentication model.** For standalone, capture and rotate the initial admin password, then use named users or OAuth for operators.
    With SSO, set `oauth.role_mapping`, and configure a break-glass admin plus a notification channel.
+   In Databricks Apps, use platform access controls, the explicit administrator
+   identity and reviewed pg_sage roles; there is no local password or break-glass fallback.
 9. **Set `encryption_key`** (or `SAGE_ENCRYPTION_KEY_FILE`) -- API-set secrets are then encrypted at rest.
 10. **Monitor pg_sage itself** -- check Prometheus metrics and circuit breaker state.

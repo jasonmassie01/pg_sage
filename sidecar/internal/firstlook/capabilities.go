@@ -116,6 +116,9 @@ func statStatements(e Extensions, provider string) Capability {
 func preloadSteps(provider, lib string, preload *string) []string {
 	create := "CREATE EXTENSION IF NOT EXISTS " + lib + ";"
 	switch provider {
+	case "lakebase":
+		return []string{"Lakebase manages shared_preload_libraries; verify the extension is " +
+			"supported by this endpoint and ask a database owner to enable it in this database.", create}
 	case "rds", "aurora":
 		group := "DB parameter group"
 		if provider == "aurora" {
@@ -180,6 +183,10 @@ func hypoPG(e Extensions, provider string) Capability {
 			c.Steps = []string{"Add HYPOPG to the azure.extensions server parameter, " +
 				"then CREATE EXTENSION IF NOT EXISTS hypopg;"}
 		}
+		if provider == "lakebase" {
+			c.Steps = []string{"HypoPG is not available on this Lakebase endpoint. " +
+				"Hypothetical-index validation is unavailable; server packages cannot be installed on Lakebase."}
+		}
 	}
 	c.Detail = "Optional: without HypoPG, index recommendations are not checked " +
 		"against the planner before they are proposed."
@@ -189,13 +196,18 @@ func hypoPG(e Extensions, provider string) Capability {
 func autoExplain(e Extensions, provider string) Capability {
 	c := Capability{Name: CapAutoExplain, Status: CapabilityOK,
 		Detail: "Slow statements log their plans."}
-	if e.AutoExplainLoaded {
+	if e.AutoExplainLoaded && provider != "lakebase" {
 		return c
 	}
 	c.Status = CapabilityNotLoaded
 	c.Detail = "Optional: without auto_explain, plans of slow statements are only " +
 		"captured when pg_sage runs EXPLAIN itself."
 	switch provider {
+	case "lakebase":
+		c.Status = CapabilityUnavailable
+		c.Detail = "Direct auto_explain log access is unavailable; Lakebase plan history has a separate delivery status."
+		c.Steps = []string{"Lakebase exposes plan history and PostgreSQL logs through system.lakebase. " +
+			"Configure the opt-in lakebase_observability reader with an explicit endpoint/database binding and inspect its source status. Direct server log-file ingestion is unavailable."}
 	case "rds", "aurora", "azure", "azure-cosmos":
 		steps := preloadSteps(provider, "auto_explain", e.PreloadLibraries)
 		c.Steps = append(steps[:len(steps)-1], "Set auto_explain.log_min_duration "+

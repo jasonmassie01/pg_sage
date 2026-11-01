@@ -16,7 +16,7 @@ vi.mock('../components/Toast', () => ({
 
 const queuedRow = {
   id: '7', ledger_key: 'queue:7', record_kind: 'queued',
-  action_type: 'create_index', status: 'pending', outcome: 'pending',
+  action_type: 'create_index', status: 'expired', outcome: 'expired',
   sql_executed: 'CREATE INDEX CONCURRENTLY idx_q ON t(c)',
   rollback_sql: 'DROP INDEX CONCURRENTLY idx_q',
   executed_at: '2026-09-26T10:00:00Z', verification_status: 'not_started',
@@ -49,6 +49,7 @@ function rowFor(text) {
 describe('Action ledger record kinds', () => {
   it('never offers rollback on a queued proposal', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     const queued = screen.getAllByLabelText('Expand row')[0]
     fireEvent.click(queued)
     expect(screen.queryByTestId('rollback-action-button')).toBeNull()
@@ -56,10 +57,11 @@ describe('Action ledger record kinds', () => {
     expect(screen.queryByText('SQL Executed')).toBeNull()
   })
 
-  it('labels queued proposals as awaiting approval, not monitoring', () => {
+  it('labels expired proposals truthfully in History', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     expect(screen.queryByText('Monitoring')).toBeNull()
-    expect(screen.getByText('Pending approval')).toBeInTheDocument()
+    expect(screen.getByText('Expired')).toBeInTheDocument()
   })
 
   it('offers rollback on an executed action and sends record_kind', async () => {
@@ -69,6 +71,7 @@ describe('Action ledger record kinds', () => {
     vi.stubGlobal('fetch', fetch)
     vi.stubGlobal('confirm', () => true)
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     fireEvent.click(screen.getAllByLabelText('Expand row')[1])
     const buttons = screen.getAllByTestId('rollback-action-button')
     expect(buttons).toHaveLength(1)
@@ -82,6 +85,7 @@ describe('Action ledger record kinds', () => {
 
   it('expands exactly one row when queue and log ids collide', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     fireEvent.click(screen.getAllByLabelText('Expand row')[0])
     expect(screen.getAllByLabelText('Collapse row')).toHaveLength(1)
     expect(screen.getAllByLabelText('Expand row')).toHaveLength(1)
@@ -89,6 +93,7 @@ describe('Action ledger record kinds', () => {
 
   it('shows the server verification status for executed rows', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     const executed = rowFor('idx_l') || screen.getAllByRole('row')[2]
     expect(within(executed).getByText('verified')).toBeInTheDocument()
   })

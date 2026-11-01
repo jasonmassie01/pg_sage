@@ -41,6 +41,16 @@ func setupTestPool(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("creating users table: %v", err)
 	}
+	// ListUsers reads the OAuth identity fields added by the production
+	// migrations. Keep this minimal integration fixture at the same schema.
+	_, err = pool.Exec(ctx, `ALTER TABLE sage.users
+		ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '',
+		ADD COLUMN IF NOT EXISTS oauth_issuer TEXT,
+		ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+		ALTER TABLE sage.users ALTER COLUMN password DROP NOT NULL`)
+	if err != nil {
+		t.Fatalf("adding OAuth identity fields: %v", err)
+	}
 	_, err = pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS sage.sessions (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

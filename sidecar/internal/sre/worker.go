@@ -46,6 +46,10 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
+	if err := c.checkReadPolicy(ctx, inv); err != nil {
+		return c.fail(ctx, lease, "read_policy_changed", err.Error())
+	}
+	ctx = probes.WithReadPolicy(ctx, c.readPolicy)
 	plan, ok := c.plan(inv.TriggerKind)
 	plan = scopePlanQuery(plan, inv)
 	if !ok {

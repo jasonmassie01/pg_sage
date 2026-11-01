@@ -42,7 +42,7 @@ func RequiresRestart(settingName string) bool {
 // service where ALTER SYSTEM is unavailable.
 func IsManagedService(platform string) bool {
 	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "neon", "supabase":
+	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "neon", "supabase", "lakebase":
 		return true
 	}
 	return false
@@ -57,7 +57,7 @@ func TransformForCloud(
 	settings ...[]collector.PGSetting,
 ) []analyzer.Finding {
 	platform = strings.ToLower(strings.TrimSpace(platform))
-	if platform == "neon" || platform == "supabase" {
+	if platform == "neon" || platform == "supabase" || platform == "lakebase" {
 		return transformTenantConfig(findings, platform, dbName, settings)
 	}
 	if !IsManagedService(platform) {

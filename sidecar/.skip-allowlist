@@ -6,10 +6,26 @@
 # Live cloud provisioning: opt-in via PG_SAGE_LIVE_* and real credentials.
 internal/azure TestAzureLiveServerParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
 internal/azure TestAzureLiveRestartBoundParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
+internal/databricksauth TestLakebaseLiveOAuthReconnect # read-only real Lakebase endpoint, PG_SAGE_LIVE_LAKEBASE=1 and selected workspace credentials
+internal/api TestLakebaseConnectionTestsLive # read-only native dashboard connection tests, PG_SAGE_LIVE_LAKEBASE=1 and selected-workspace fixture
+internal/agentguard TestLakebaseReplicaConnectionLive # read-only native replica connection bootstrap, PG_SAGE_LIVE_LAKEBASE=1 and selected-workspace fixture
+internal/databricksauth TestLakebaseLiveCredentialExpiry # real credential-expiry soak, PG_SAGE_LIVE_LAKEBASE_SOAK=1 and isolated pg-sage-test endpoint
+internal/databricksauth TestLakebaseLivePersistenceReadback # read-only persisted-fixture check, PG_SAGE_LIVE_LAKEBASE_READBACK=1 and exact isolated projects/search/branches/pg-sage-test/endpoints/primary endpoint
+tests/lakebaselive TestLakebaseNative|TestLakebaseOperatorActions|TestLakebasePlannerFeatures|TestLakebaseFindingScenarios|TestLakebaseDefaultSlowQuery # mutating native Lakebase fixtures, PG_SAGE_LIVE_LAKEBASE_MUTATE=1 and explicitly isolated pg-sage-test/pg_sage_test
+tests/lakebaselive TestLakebaseSRESourceMatrix # bounded database-scoped native probe acceptance, PG_SAGE_LIVE_LAKEBASE_SRE=1 and exact isolated endpoint/database guard
+tests/lakebaselive TestLakebaseSRERealGatewayInvestigator # native durable read-only investigator with billed Gateway calls, PG_SAGE_LIVE_LAKEBASE_SRE=1 plus explicit Databricks OAuth LLM opt-in
+tests/lakebaselive TestLakebaseSREControlledIncidents # bounded owned lock/idle and sequence fixtures, PG_SAGE_LIVE_LAKEBASE_SRE=1 and exact isolated endpoint/database guard
+tests/lakebaselive TestLakebasePushedApplicationSLOLifecycle # scoped cumulative application SLI persistence/burn/replay/staleness and read-only SRE case, exact isolated native endpoint/database plus PG_SAGE_LIVE_LAKEBASE_SRE=1
+tests/lakebaselive TestLakebaseProviderExtensionCompatibility # owned native extension fixture matrix, exact isolated endpoint/database plus PG_SAGE_LIVE_PROVIDER_COMPATIBILITY=1
+tests/lakebaselive TestLakebaseProviderProbeCompatibility # native strict provider probe matrix, PG_SAGE_LIVE_LAKEBASE_PROVIDER_PROBES=1 plus exact SAGE_PROVIDER_PROBE_IDS allowlist and isolated endpoint/database
+tests/lakebaselive TestLakebaseTelemetry # controlled selected-resource system-table reads/delivery, PG_SAGE_LIVE_LAKEBASE_TELEMETRY=1, exact isolated native fixture and explicit SQL warehouse; absent delivery remains skipped/unverified
+tests/lakebaselive TestLakebaseTelemetryAttribution # bounded read-only counts for exact owned telemetry fixture identities, PG_SAGE_LIVE_LAKEBASE_TELEMETRY_ATTRIBUTION=1 plus prior owned report
+internal/databricksauth TestGatewayModelDiscoveryLive # real Unity Gateway catalog, PG_SAGE_LIVE_LLM=1 and selected workspace credentials
 
 # Live LLM calls: need a provider key and spend quota.
 internal/rca TestTier2Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
 internal/llm TestChat(WithTools)?Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
+internal/advisor TestBloatE2E_FullPipeline|TestConnE2E_FullPipeline|TestFullPipeline_AllAdvisorsRun|TestRewriteE2E_FullPipeline|TestWALE2E_FullPipeline # billed advisor E2Es, SAGE_GEMINI_API_KEY or PG_SAGE_LIVE_LLM=1 plus native auth/endpoint/model; native acceptance reported separately
 e2e TestLLM.* # live LLM, SAGE_LLM_API_KEY opt-in
 e2e TestTuningAgentLive # live LLM, PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY opt-in
 
@@ -68,3 +84,5 @@ safety-bench TestAgentSafetyBench # dedicated "AgentSafetyBench" CI steps set SA
 internal/ha TestContainer_FailoverWhileDownOpensTheCooldown # needs a disposable standby to promote (SAGE_TEST_HA_STANDBY_URL)
 internal/sre/causal TestContainer_(Restart|Promotion)BetweenSamplesInvalidatesComparisons # restarts/promotes a disposable server (SAGE_TEST_RESTARTABLE_SUPERUSER_URL, SAGE_TEST_CAUSAL_STANDBY_URL)
 internal/sre/pooler TestPgBouncer_.* # needs a PgBouncer (SAGE_TEST_PGBOUNCER_ADMIN_URL, SAGE_TEST_PGBOUNCER_CLIENT_URL)
+
+tests/lakebaselive TestLakebaseSREStatisticsMaintenance # owned native Lakebase fixture with OAuth and explicit PG_SAGE_LIVE_LAKEBASE_MUTATE=1

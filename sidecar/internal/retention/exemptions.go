@@ -92,6 +92,9 @@ var coreExemptions = map[string]string{
 		"(sre.timeline_retention_days)",
 	"sre_action_proposals": "SRE action proposals; deleted with their investigation " +
 		"(ON DELETE CASCADE) by sre retention",
+	"sre_maintenance_proposals": "operator maintenance proposals; deleted with their " +
+		"investigation (ON DELETE CASCADE) by SRE retention, after the latest " +
+		"maintenance change ages out; in-flight and unresolved outcomes are held",
 	"sre_budget_reservations": "SRE model budget ledger; deleted with its investigation " +
 		"by sre retention (sre.timeline_retention_days) unless the hold is unsettled",
 	"sre_database_bindings": "stable SRE database identity, one row per database",

@@ -1,7 +1,7 @@
 # pg_sage
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791.svg)](https://www.postgresql.org)
 
 **Agentic Postgres DBA.** No extension required.
@@ -12,11 +12,18 @@ pg_sage runs as a single Go binary alongside your PostgreSQL instance. It connec
 over the standard wire protocol, collects performance data from catalog views and
 `pg_stat_statements`, projects issues into DBA **Cases**, and uses an LLM for
 deeper analysis: LLM features are on by default and start once you configure an
-endpoint and API key (until then pg_sage runs its deterministic rules). A trust-ramped executor proposes or applies typed
+endpoint and its authentication (until then pg_sage runs its deterministic rules).
+Databricks Apps uses platform OAuth for Unity Gateway, without an API key;
+standalone providers can use API keys. A trust-ramped executor proposes or applies typed
 actions with guardrails, approval gates, rollback metadata, and a shadow-mode
 report showing what autonomous policy would have handled. Works on Lakebase, Cloud SQL,
 AlloyDB, Aurora, RDS, Neon, Supabase, and self-managed Postgres.
 See [Neon and Supabase setup](docs/neon-supabase.md) for hosted connection requirements.
+
+For Lakebase and Databricks Apps, start with the
+[Databricks-native implementation](docs/databricks-native.md): architecture,
+Databricks-only sign-in, OAuth, deployment, verified compatibility and remaining
+platform limits. The integration is a development pilot; support varies by feature.
 
 ## Quick Start
 
@@ -50,11 +57,12 @@ After verification retains a replacement index, superseded indexes are preserved
 for reviewed cleanup. The verification reason records `reviewed_cleanup_required`
 while the verified index remains retained.
 
-On first start, pg_sage creates `admin@pg-sage.local` and prints a one-time
+On first standalone start, pg_sage creates `admin@pg-sage.local` and prints a one-time
 initial admin password to stderr. The dashboard and JSON API use the
 `sage_session` login cookie; unauthenticated API calls return `401`.
 
-For Docker, retrieve the password with:
+Databricks Apps uses Databricks sign-in and pg_sage roles, without this local
+password login. For standalone Docker, retrieve the password with:
 
 ```bash
 docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
@@ -69,7 +77,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Incident Playbooks** | Runaway queries, lock blockers, connection exhaustion, WAL/replication risk, and sequence exhaustion become typed diagnostics or reviewed action scripts |
 | **Vacuum/Bloat/Freeze Autopilot** | Table bloat, dead tuples, XID runway, freeze blockers, and per-table autovacuum tuning produce guarded candidates with verification plans |
 | **Query Tuning Beyond Hints** | Query rewrites, broken-hint retirement, `CREATE STATISTICS`, parameterization, and repeated role-level work_mem patterns become reviewable actions with verification steps |
-| **Provider Capability Adapters** | Cloud SQL, AlloyDB, RDS, Aurora, and self-managed Postgres expose provider-specific extension paths, log access, limitations, and action readiness |
+| **Provider Capability Adapters** | Lakebase, Cloud SQL, AlloyDB, RDS, Aurora, and self-managed Postgres expose provider-specific extension paths, log access, limitations, and action readiness |
 | **DDL Safety + PR/CI Output** | Migration-risk cases include lock/rewrite/live-risk preflight, guarded migration SQL, rollback or forward-fix guidance, verification SQL, and PR-ready metadata |
 | **Rules Engine** | 20+ deterministic checks: duplicate/unused/missing indexes, slow queries, regressions, seq scans, vacuum & bloat, dead tuples, sequence exhaustion, replication lag, security audit, config drift |
 | **Index Optimizer** | LLM-powered recommendations validated through 8 checks + HypoPG cost estimation, confidence scored 0.0--1.0 |
@@ -89,6 +97,9 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 See the [docs/](docs/) directory for guides and reference:
 
 - [Installation](docs/installation.md) -- database user setup, binary and Docker deployment
+- [Databricks-native implementation](docs/databricks-native.md) -- architecture, auth, operations, test evidence and platform boundaries
+- [Lakebase and Unity Gateway](docs/lakebase.md) -- OAuth refresh, live checks and managed-service limits
+- [Databricks Apps pilot](docs/databricks-apps.md) -- native Go packaging and deployment acceptance checks
 - [Configuration](docs/configuration.md) -- YAML, environment variables, typed reload lifecycles
 - [Architecture](docs/architecture.md) -- component design, goroutine model, data flow
 - [Deployment](docs/deployment.md) -- production hardening, resource sizing
@@ -103,7 +114,7 @@ See the [docs/](docs/) directory for guides and reference:
 
 ## Building from Source
 
-Requires Go 1.24+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
+Requires Go 1.25+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
 
 A C compiler (gcc or clang) is also needed: with cgo the binary links
 libpg_query, which checks every executor statement against its PostgreSQL

@@ -106,6 +106,7 @@ type Config struct {
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
+	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
 	// Audit is the audit export and evidence of E2 (audit.go).
@@ -226,6 +227,7 @@ type TrustConfig struct {
 }
 
 type LLMConfig struct {
+	Auth                  string               `yaml:"auth" doc:"LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin."`
 	Enabled               bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only."`
 	Endpoint              string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
 	APIKey                string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
@@ -733,6 +735,9 @@ func (c *Config) validate() error {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
 	}
 	if err := c.validateIOAdmission(); err != nil {
+		return err
+	}
+	if err := c.LakebaseObservability.validate(); err != nil {
 		return err
 	}
 	if err := c.validateCloudTelemetry(); err != nil {
@@ -1290,6 +1295,9 @@ func overlayEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SAGE_LLM_API_KEY"); v != "" {
 		cfg.LLM.APIKey = v
+	}
+	if v := os.Getenv("SAGE_LLM_AUTH"); v != "" {
+		cfg.LLM.Auth = v
 	}
 	if v := os.Getenv("SAGE_LLM_ENDPOINT"); v != "" {
 		cfg.LLM.Endpoint = v

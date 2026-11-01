@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -20,12 +21,13 @@ import (
 // Each field corresponds to a global variable or startup artifact
 // that startAPIServer previously read directly.
 type WireParams struct {
-	Cfg       *config.Config
-	Pool      *pgxpool.Pool // global pool (standalone or meta-db)
-	FleetMgr  *fleet.DatabaseManager
-	LLMMgr    *llm.Manager
-	MetaState *metaDBState
-	Actions   struct {
+	DatabricksAppAuth *auth.DatabricksAppConfig
+	Cfg               *config.Config
+	Pool              *pgxpool.Pool // global pool (standalone or meta-db)
+	FleetMgr          *fleet.DatabaseManager
+	LLMMgr            *llm.Manager
+	MetaState         *metaDBState
+	Actions           struct {
 		Store    *store.ActionStore
 		Executor *executor.Executor
 	}
@@ -139,7 +141,11 @@ func wireRouter(p WireParams) WireResult {
 				return rateLimitMiddleware(rl, next)
 			})
 	}
-	middlewares = append(middlewares, api.SessionAuthMiddleware(authPool))
+	if p.DatabricksAppAuth != nil {
+		middlewares = append(middlewares, api.DatabricksAppAuthMiddleware(authPool, *p.DatabricksAppAuth))
+	} else {
+		middlewares = append(middlewares, api.SessionAuthMiddleware(authPool))
+	}
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
 	// Auth audit rows record the client address the rate limiter sees.
@@ -147,10 +153,13 @@ func wireRouter(p WireParams) WireResult {
 	router := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,
 		p.LLMMgr, &api.RuntimeDeps{
-			ConfigController: p.Config,
-			ConfigBase:       p.ConfigBase,
-			ConfigBaseLoader: p.ConfigBaseLoader,
-			LLMBudgets:       p.LLMBudgets,
+			DatabricksAppAuth: p.DatabricksAppAuth != nil,
+			ConfigController:  p.Config,
+			ConfigBase:        p.ConfigBase,
+			ConfigBaseLoader:  p.ConfigBaseLoader,
+			LLMBudgets:        p.LLMBudgets,
+			TelemetryStatus:   lakebaseTelemetryStatuses,
+			TelemetryHistory:  lakebaseTelemetryHistory,
 			// Same key and policy as the runtime dispatchers (G7-B20/B21).
 			NotificationSecretKey:    notificationSecretKey(authPool),
 			NotificationTargetPolicy: notificationTargetPolicy(),

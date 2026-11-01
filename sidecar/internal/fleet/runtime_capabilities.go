@@ -8,6 +8,7 @@ import (
 )
 
 func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities) {
+	defer applyProviderCapabilityLimits(caps)
 	for name := range caps.Extensions {
 		caps.Extensions[name] = "unknown"
 	}
@@ -19,6 +20,16 @@ func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *Provi
 	defer cancel()
 	collectExtensionEvidence(ctx, pool, caps)
 	collectStatsPrivilege(ctx, pool, caps)
+}
+
+// A loaded module does not imply its product integration is usable. Lakebase
+// exposes logs/plans through a separate opt-in history reader. Direct log-file
+// auto_explain access and HypoPG remain unavailable.
+func applyProviderCapabilityLimits(caps *ProviderCapabilities) {
+	if normalizeProviderName(caps.Provider) == "lakebase" {
+		caps.Extensions["auto_explain"] = "unavailable"
+		caps.Extensions["hypopg"] = "unavailable"
+	}
 }
 
 func collectExtensionEvidence(ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities) {

@@ -45,7 +45,8 @@ function SSOSection({ status, busy, onLink }) {
   )
 }
 
-export function ProfilePage({ user, navigate = redirectTo }) {
+export function ProfilePage({ user, navigate = redirectTo, authMode = user?.auth_mode }) {
+  const platformManaged = authMode === 'databricks_app'
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -53,8 +54,9 @@ export function ProfilePage({ user, navigate = redirectTo }) {
   const [ssoError] = useState(() => ssoErrorMessage(hashParam('sso_error')))
 
   useEffect(() => {
+    if (platformManaged) return
     fetchSSOStatus().then(setStatus).catch(err => setError(err.message))
-  }, [])
+  }, [platformManaged])
 
   // Drop the one-time callback result from the address after reading it.
   useEffect(() => {
@@ -81,25 +83,31 @@ export function ProfilePage({ user, navigate = redirectTo }) {
       <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
         <span>{user?.email}</span> ({user?.role})
       </p>
-      {justLinked && status?.linked && (
+      {platformManaged && (
+        <p data-testid="databricks-sign-in" className="text-sm"
+          style={{ color: 'var(--text-secondary)' }}>
+          Signed in with Databricks. Your workspace manages sign-in and access to this app.
+        </p>
+      )}
+      {!platformManaged && justLinked && status?.linked && (
         <div data-testid="sso-link-success" className="text-sm p-2 rounded mb-3"
           style={{ color: '#16a34a', border: '1px solid rgba(22,163,74,0.3)' }}>
           SSO linked.
         </div>
       )}
-      {ssoError && (
+      {!platformManaged && ssoError && (
         <div data-testid="sso-error" role="alert" className="text-sm p-2 rounded mb-3"
           style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
           {ssoError}
         </div>
       )}
-      {error && (
+      {!platformManaged && error && (
         <div className="text-sm p-2 rounded mb-3"
           style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
           {error}
         </div>
       )}
-      <SSOSection status={status} busy={busy} onLink={handleLink} />
+      {!platformManaged && <SSOSection status={status} busy={busy} onLink={handleLink} />}
     </div>
   )
 }

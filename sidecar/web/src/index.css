@@ -1,26 +1,149 @@
 @import "tailwindcss";
 
 :root {
-  --bg-primary: #0f1117;
-  --bg-card: #1a1d27;
-  --bg-hover: #222533;
-  --text-primary: #e4e6eb;
-  --text-secondary: #8b8fa3;
-  --border: #2d3044;
-  --accent: #4a9eff;
-  --green: #34d399;
-  --yellow: #fbbf24;
-  --red: #ef4444;
+  color-scheme: dark;
+  --bg-primary: #091319;
+  --bg-main: var(--bg-primary);
+  --bg-card: #12232c;
+  --bg-hover: #1c343d;
+  --text-primary: #edf5f6;
+  --text-secondary: #a3b9c2;
+  --border: #2b4651;
+  --accent: #72e6c7;
+  --accent-solid: #176e5d;
+  --green: #72e6c7;
+  --yellow: #eac083;
+  --red: #ff8b91;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 
 body {
   margin: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Avenir Next', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 * { box-sizing: border-box; }
+
+::selection { color: #091319; background: var(--accent); }
+
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:not(:disabled), select:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+button, a, input, select, textarea { transition: border-color 140ms, background-color 140ms, box-shadow 140ms; }
+code, pre, kbd { font-family: var(--font-mono); }
+input, select, textarea { accent-color: var(--accent); }
+input:hover, select:hover, textarea:hover { border-color: #587d87; }
+
+/* Legacy screens share an inline accent token for links and primary buttons.
+   Keep mint links luminous while giving white-labelled buttons a dark, AA surface. */
+button[style*="background: var(--accent)"] {
+  background: var(--accent-solid) !important;
+  color: #f2fffb !important;
+}
+button[style*="background: var(--accent)"]:hover:not(:disabled) {
+  background: #1d826c !important;
+}
+
+.sage-shell { isolation: isolate; }
+.sage-sidebar {
+  width: 244px;
+  background: linear-gradient(165deg, #142831 0%, #0e1d26 65%) !important;
+  padding: 22px 16px;
+  overflow-y: auto;
+  box-shadow: 8px 0 32px #00000016;
+}
+.sage-brand { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 24px; }
+.sage-brand-home { display: flex; align-items: center; gap: 10px; min-width: 0; text-decoration: none; }
+.sage-brand-mark {
+  display: flex; align-items: center; justify-content: center; width: 43px; height: 43px;
+  flex-shrink: 0; border: 1px solid #548777; border-radius: 12px; color: var(--accent);
+  background: #15382f; font: 700 20px var(--font-mono); box-shadow: inset 0 0 18px #72e6c70b;
+}
+.sage-brand-mark > span { font-weight: 400; color: #eac083; }
+.sage-brand-name { display: block; font: 700 23px var(--font-mono); letter-spacing: -1px; color: var(--text-primary); }
+.sage-brand-caption { display: block; color: #91b0ba; font: 500 7.5px var(--font-mono); letter-spacing: 1.1px; margin-top: 4px; white-space: nowrap; }
+.sage-sidebar-label { color: #8ba8b3; font: 10px var(--font-mono); padding: 8px 10px 14px; border-bottom: 1px solid #29424c; margin-bottom: 10px; }
+.sage-terminal-prompt { color: var(--accent); margin-right: 5px; }
+.sage-nav-link { min-height: 40px; margin: 3px 0; gap: 11px; border: 1px solid transparent; font-weight: 500; }
+.sage-nav-link:hover { color: var(--text-primary) !important; background: #1a343e !important; }
+.sage-nav-link-active { border-color: #3c6d65; background: linear-gradient(90deg, #20453d, #18343a) !important; box-shadow: inset 3px 0 var(--accent); }
+.sage-nav-link-active svg { stroke-width: 2.25px; }
+.sage-account { margin-top: auto; padding-top: 18px; }
+.sage-account [data-testid="user-email"] { overflow-wrap: anywhere; font-family: var(--font-mono); line-height: 1.7; font-size: 10px; }
+.sage-main {
+  background-image: radial-gradient(ellipse at 70% -20%, #1d544b36, transparent 55%),
+    linear-gradient(#83b8c004 1px, transparent 1px), linear-gradient(90deg, #83b8c004 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+  scrollbar-color: #355563 #0b1820;
+}
+.sage-header { min-height: 108px; padding: 22px 28px; background: #0e1d25dd; gap: 16px; }
+.sage-header-eyebrow { margin-bottom: 6px; color: #91b0ba; font: 9px var(--font-mono); letter-spacing: 1.5px; }
+.sage-header-eyebrow span { color: #537581; margin: 0 5px; }
+.sage-header h1 { font-size: 27px; line-height: 1.2; letter-spacing: -.9px; font-weight: 650; }
+.sage-header select { max-width: 220px; min-height: 34px; font: 11px var(--font-mono); }
+.sage-content { width: 100%; max-width: 1800px; margin: 0 auto; padding: 24px 28px 44px; }
+.sage-content :where(.rounded, .rounded-lg, .rounded-xl).border { border-radius: 12px; box-shadow: 0 4px 18px #0000000b; }
+.sage-content h2, .sage-content h3 { letter-spacing: -.25px; }
+.sage-content table { font-variant-numeric: tabular-nums; }
+.sage-content thead { background: #0d1b2380; }
+.sage-content thead th { font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .55px; color: #a9c1c9; }
+.sage-content th, .sage-content td { padding-left: 10px; padding-right: 10px; }
+.sage-content tbody tr:hover { background: #72e6c706; }
+.sage-content input, .sage-content select, .sage-content textarea { border-radius: 8px; }
+.sage-content pre { line-height: 1.7; border-radius: 10px; }
+
+.postgres-meme {
+  display: grid; grid-template-columns: 124px minmax(0, 1fr) minmax(160px, auto); align-items: center;
+  gap: 18px; min-width: 0; margin: 0 0 24px; padding: 4px 22px 4px 8px; border-radius: 14px;
+  border: 1px solid #36545b; background: linear-gradient(112deg, #193540c9, #14272fc7 60%, #193c352b);
+  box-shadow: inset 0 1px #a7e2df08, 0 8px 24px #0000000a; overflow: hidden;
+}
+.postgres-meme-art { display: block; width: 124px; height: 94px; color: #83adba; }
+.postgres-meme-caption { min-width: 0; }
+.postgres-meme-eyebrow { display: flex; flex-wrap: wrap; gap: 5px 14px; align-items: center; color: #9fc0ca; font: 8px var(--font-mono); letter-spacing: 1.3px; margin-bottom: 8px; }
+.postgres-meme-eyebrow > span:last-child { color: #86b39e; letter-spacing: .3px; text-transform: none; }
+.postgres-meme-setup { margin: 0 0 3px; color: #a6bec8; font-size: 12px; }
+.postgres-meme-punchline { margin: 0; color: #eff7f7; font-size: 14px; font-weight: 600; letter-spacing: -.1px; }
+.postgres-meme-comment { color: #9dc8b8; font-size: 10px; padding-left: 20px; border-left: 1px dashed #456560; max-width: 245px; overflow-wrap: anywhere; line-height: 1.8; }
+.postgres-meme-compact { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 8px; margin: 24px 0 0; text-align: left; }
+.postgres-meme-compact .postgres-meme-art { width: 82px; height: 75px; }
+.postgres-meme-compact .postgres-meme-eyebrow { font-size: 7px; letter-spacing: .6px; margin-bottom: 5px; }
+.postgres-meme-compact .postgres-meme-eyebrow > span:last-child { display: none; }
+.postgres-meme-compact .postgres-meme-setup { font-size: 10px; }
+.postgres-meme-compact .postgres-meme-punchline { font-size: 12px; }
+.postgres-meme-compact .postgres-meme-comment { display: none; }
+.sage-login-surface { padding: 24px; background-image: radial-gradient(ellipse at 50% 25%, #1b514b55, transparent 65%) !important; }
+.sage-login-card { box-shadow: 0 24px 80px #0005, inset 0 1px #d7efef0b; border-radius: 18px; }
+.sage-login-card h1 { font-family: var(--font-mono); letter-spacing: -1px; }
+.sage-login-caption { margin: -12px 0 24px; font-size: 12px; color: var(--text-secondary); text-align: center; line-height: 1.7; }
+
+@media (max-width: 1100px) {
+  .sage-header { flex-wrap: wrap; }
+  .postgres-meme { grid-template-columns: 108px minmax(0, 1fr); }
+  .postgres-meme-art { width: 108px; height: 92px; }
+  .postgres-meme-comment { display: none; }
+  .postgres-meme-compact { grid-template-columns: 82px minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  .sage-header { padding: 17px 16px; min-height: 100px; align-items: flex-start; }
+  .sage-header > div:last-child { width: 100%; justify-content: flex-start; }
+  .sage-header h1 { font-size: 24px; }
+  .sage-header-eyebrow { font-size: 7px; letter-spacing: 1px; }
+  .sage-content { padding: 16px 14px 32px; }
+  .postgres-meme { grid-template-columns: 78px minmax(0, 1fr); padding: 9px 12px 9px 2px; gap: 9px; margin-bottom: 18px; }
+  .postgres-meme-art { width: 78px; height: 80px; }
+  .postgres-meme-eyebrow { font-size: 7px; letter-spacing: .8px; gap: 4px; }
+  .postgres-meme-eyebrow > span:last-child { display: none; }
+  .postgres-meme-setup { font-size: 10px; line-height: 1.5; }
+  .postgres-meme-punchline { font-size: 12px; line-height: 1.5; }
+  .sage-login-surface { padding: 16px; }
+  .sage-login-card { padding: 24px; }
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }

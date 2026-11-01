@@ -11,11 +11,12 @@ import (
 // the deterministic causal graph, with a validated model turn when an
 // LLM is configured; they never execute actions.
 type SREConfig struct {
-	AutomaticStart         bool `yaml:"automatic_start" doc:"Start read-only, bounded investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes. false = on request only. Default: true."`
-	TriggerIntervalSeconds int  `yaml:"trigger_interval_seconds" doc:"Seconds between checks for new triggers and pending investigations, 5-600. Default: 15."`
-	SampleIntervalSeconds  int  `yaml:"sample_interval_seconds" doc:"Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."`
-	EvidenceRetentionDays  int  `yaml:"evidence_retention_days" doc:"Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."`
-	TimelineRetentionDays  int  `yaml:"timeline_retention_days" doc:"Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."`
+	ReadPolicy             SREReadPolicyConfig `yaml:"read_policy"`
+	AutomaticStart         bool                `yaml:"automatic_start" doc:"Start read-only, bounded investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes. false = on request only. Default: true."`
+	TriggerIntervalSeconds int                 `yaml:"trigger_interval_seconds" doc:"Seconds between checks for new triggers and pending investigations, 5-600. Default: 15."`
+	SampleIntervalSeconds  int                 `yaml:"sample_interval_seconds" doc:"Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."`
+	EvidenceRetentionDays  int                 `yaml:"evidence_retention_days" doc:"Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."`
+	TimelineRetentionDays  int                 `yaml:"timeline_retention_days" doc:"Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."`
 	// LLM is the model turn (M3).
 	LLM SRELLMConfig `yaml:"llm"`
 	// SLO is SLO burn-rate alerting (M5); ChangeEvents the change feed.
@@ -89,6 +90,9 @@ func (s SREConfig) TimelineRetention() time.Duration {
 }
 
 func (s SREConfig) validate() error {
+	if err := s.ReadPolicy.validate(); err != nil {
+		return err
+	}
 	checks := []struct {
 		ok      bool
 		problem string

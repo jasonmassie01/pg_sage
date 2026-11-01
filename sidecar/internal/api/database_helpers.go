@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
@@ -38,10 +41,21 @@ func queryPGVersion(
 func testFromConnString(
 	ctx context.Context, connStr string,
 ) *ConnectionTestResult {
+	return testFromConnStringAtIP(ctx, connStr, "")
+}
+
+func testFromConnStringAtIP(
+	ctx context.Context, connStr, pinnedIP string,
+) *ConnectionTestResult {
 	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := connectAsSage(testCtx, connStr)
+	cfg, err := sageConnectionConfig(testCtx, connStr, pinnedIP, databricksauth.ConfigureConnection)
+	if err != nil {
+		log.Printf("test-connection configuration failed: %v", err)
+		return &ConnectionTestResult{Status: "error", Error: "connection failed"}
+	}
+	conn, err := pgx.ConnectConfig(testCtx, cfg)
 	if err != nil {
 		log.Printf("test-connection (by connstr) failed: %v", err)
 		return &ConnectionTestResult{
@@ -67,15 +81,38 @@ func testFromConnString(
 	}
 }
 
-// connectAsSage opens a connection recognizable as pg_sage's own
-// (application_name pg_sage, statements tagged), like its pools'.
-func connectAsSage(ctx context.Context, connStr string) (*pgx.Conn, error) {
+// sageConnectionConfig preserves the endpoint's identity while pinning preview
+// connections to the address approved by the SSRF check. Sessions are tagged
+// like the monitoring pools and use their configured authentication mode.
+func sageConnectionConfig(ctx context.Context, connStr, pinnedIP string,
+	authorize func(context.Context, *pgx.ConnConfig) error,
+) (*pgx.ConnConfig, error) {
 	cfg, err := pgx.ParseConfig(connStr)
 	if err != nil {
 		return nil, err
 	}
+	if pinnedIP != "" {
+		if net.ParseIP(pinnedIP) == nil {
+			return nil, fmt.Errorf("invalid pinned database IP")
+		}
+		if _, status := resolveSafeHost(pinnedIP); status != hostAllowed {
+			return nil, fmt.Errorf("unsafe pinned database IP")
+		}
+		host := cfg.Host
+		cfg.LookupFunc = func(_ context.Context, requested string) ([]string, error) {
+			if !strings.EqualFold(requested, host) {
+				return nil, fmt.Errorf("database lookup differs from the pinned host")
+			}
+			return []string{pinnedIP}, nil
+		}
+	}
+	// Use the same configured endpoint mapping as monitoring pools, including
+	// replacing any bootstrap password when native OAuth is selected.
+	if err := authorize(ctx, cfg); err != nil {
+		return nil, err
+	}
 	selfmonitor.ConfigureConn(cfg)
-	return pgx.ConnectConfig(ctx, cfg)
+	return cfg, nil
 }
 
 // queryExtensions checks for pg_stat_statements and

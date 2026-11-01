@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // runwayAdvisor answers a concluded pre-incident investigation with the
@@ -48,7 +49,7 @@ func (a *runwayAdvisor) Advise(ctx context.Context,
 				"(the investigation's operator step); no custodian action covers it",
 			Verdict: manualOnly, RiskTier: "high"}}, nil
 	case sre.TriggerWraparound:
-		return a.fromCustodian(ctx, a.freeze, func(p autonomy.Proposal) bool {
+		return a.fromCustodian(ctx, "custodian_freeze", a.freeze, func(p autonomy.Proposal) bool {
 			table, byTable := strings.CutPrefix(req.Subject, "table ")
 			return !byTable || (len(p.TargetObjects) > 0 && p.TargetObjects[0] == table)
 		})
@@ -56,15 +57,18 @@ func (a *runwayAdvisor) Advise(ctx context.Context,
 		if req.Root != "inactive_slot" && req.Root != "slow_consumer" {
 			return nil, nil // only slot retention has a custodian action (the bound)
 		}
-		return a.fromCustodian(ctx, a.wal, func(autonomy.Proposal) bool { return true })
+		return a.fromCustodian(ctx, "custodian_wal", a.wal, func(autonomy.Proposal) bool { return true })
 	}
 	return nil, nil
 }
 
 // fromCustodian scans one custodian and explains up to MaxProposals of
 // its proposals that match.
-func (a *runwayAdvisor) fromCustodian(ctx context.Context, c autonomy.Custodian,
+func (a *runwayAdvisor) fromCustodian(ctx context.Context, source probes.ID, c autonomy.Custodian,
 	match func(autonomy.Proposal) bool) ([]sre.ActionProposal, error) {
+	if !probes.ContextReadPolicy(ctx).Allows(source) {
+		return nil, fmt.Errorf("%s: custodian scans require cluster read scope", probes.ReasonPolicyDenied)
+	}
 	exec := a.exec.Load()
 	if exec == nil {
 		return nil, fmt.Errorf("the executor is not running yet")

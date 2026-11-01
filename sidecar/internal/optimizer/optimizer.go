@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
@@ -236,4 +237,15 @@ func WithOperatorRequest(ctx context.Context) context.Context {
 func operatorRequested(ctx context.Context) bool {
 	requested, _ := ctx.Value(operatorRequestKey{}).(bool)
 	return requested
+}
+
+// WithLakebasePlanScope permits only plans from a live-verified resource binding.
+// A blank scope keeps provider history unavailable while startup is unresolved.
+func WithLakebasePlanScope(scope func() string, retention ...time.Duration) func(*Optimizer) {
+	return func(o *Optimizer) {
+		o.planner.providerScope = scope
+		if len(retention) == 1 {
+			o.planner.providerRetention = retention[0]
+		}
+	}
 }

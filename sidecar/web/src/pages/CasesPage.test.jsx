@@ -154,9 +154,9 @@ describe('CasesPage', () => {
     render(<CasesPage database="all" />)
 
     expect(screen.getByTestId('cases-page-description'))
-      .toHaveTextContent('Cases group findings into ranked work items')
+      .toHaveTextContent('Cases hold observations and evidence')
     expect(screen.getByTestId('cases-page-description'))
-      .toHaveTextContent('action candidates')
+      .toHaveTextContent('proposed changes, decisions and results')
     expect(screen.getByTestId('cases-page-description'))
       .toHaveTextContent('Actions')
   })

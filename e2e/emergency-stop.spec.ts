@@ -42,15 +42,14 @@ test.describe.serial('Emergency stop', () => {
     expect(before.summary.total_databases).toBeGreaterThan(0);
 
     await page.goto('/#/settings');
-    await page.getByTestId('emergency-stop-button').click();
-    await expect(page.getByTestId('emergency-stop-button'))
-      .toContainText('Confirm Emergency Stop');
+    await page.getByTestId('header-emergency-stop').click();
+    await expect(page.getByTestId('header-emergency-stop-dialog')).toBeVisible();
 
     const stopResponse = page.waitForResponse((res) =>
       res.url().includes('/api/v1/emergency-stop') &&
       res.status() === 200,
     );
-    await page.getByTestId('emergency-stop-button').click();
+    await page.getByTestId('header-emergency-stop-confirm').click();
     await stopResponse;
 
     await expect.poll(async () => {
@@ -62,7 +61,8 @@ test.describe.serial('Emergency stop', () => {
       res.url().includes('/api/v1/resume') &&
       res.status() === 200,
     );
-    await page.getByTestId('resume-button').click();
+    await page.getByTestId('header-emergency-resume').click();
+    await page.getByTestId('header-emergency-resume-confirm').click();
     await resumeResponse;
 
     await expect.poll(async () => {

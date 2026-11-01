@@ -65,6 +65,14 @@ describe('OnboardingPanel', () => {
     expect(urls).toContain('/api/v1/onboarding?database=my%20db')
   })
 
+  it('omits the unsupported MCP token step in Databricks Apps', () => {
+    respond(() => onboarding)
+    render(<OnboardingPanel database="app" authMode="databricks_app" />)
+    expect(screen.queryByRole('link', { name: /MCP token/ })).toBeNull()
+    expect(screen.getByRole('list', { name: 'Setup checklist' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument()
+  })
+
   it('opens the grant-more guide while read-only', () => {
     respond(url => (url.startsWith('/api/v1/onboarding/trust') ? null : onboarding))
     render(<OnboardingPanel database="app" />)

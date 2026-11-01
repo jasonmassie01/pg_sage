@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 )
 
 // Command is the supported pg_sage vector-lab entrypoint. Exit 2 is inconclusive evidence.
@@ -81,6 +82,9 @@ func commandPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg.MaxConns, cfg.MinConns = 1, 0
 	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	cfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage_vectorlab"
+	if err := databricksauth.ConfigurePool(ctx, cfg); err != nil {
+		return nil, fmt.Errorf("configure vector lab Lakebase authentication: %w", err)
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, errors.New("initialize vector lab database connection failed")

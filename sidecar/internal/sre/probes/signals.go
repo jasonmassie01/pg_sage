@@ -14,10 +14,15 @@ import (
 const (
 	ChangeFeed ID = "change_feed"
 	SLOStatus  ID = "slo_status"
+	// ApplicationSLOStatus is only a registered database's explicitly bound
+	// pushed application SLI; it cannot include Prometheus or database proxies.
+	ApplicationSLOStatus ID = "application_slo_status"
 )
 
 // IsSignal reports whether id is a signal probe.
-func IsSignal(id ID) bool { return id == ChangeFeed || id == SLOStatus || id == PoolerPools }
+func IsSignal(id ID) bool {
+	return id == ChangeFeed || id == SLOStatus || id == ApplicationSLOStatus || id == PoolerPools
+}
 
 // ChangeRow is one change_feed row: a change event in the window.
 type ChangeRow struct {
@@ -55,6 +60,7 @@ func ChangeRows(res Result) ([]ChangeRow, error) {
 // numbers (burn rates, budget) decode as NaN.
 type SLORow struct {
 	Name            string
+	Source          string
 	Kind            string
 	State           string
 	Unknown         string
@@ -71,14 +77,19 @@ type SLORow struct {
 
 // SLORows decodes an slo_status result.
 func SLORows(res Result) ([]SLORow, error) {
-	rows, err := rowsFor(res, SLOStatus)
+	id := SLOStatus
+	if res.ProbeID == ApplicationSLOStatus {
+		id = ApplicationSLOStatus
+	}
+	rows, err := rowsFor(res, id)
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
 	out := make([]SLORow, 0, len(rows))
 	for i, r := range rows {
 		s := SLORow{Name: strField(r, "name"), Kind: strField(r, "kind"),
-			State: strField(r, "state"), Unknown: strField(r, "unknown"),
+			Source: strField(r, "source"),
+			State:  strField(r, "state"), Unknown: strField(r, "unknown"),
 			FastBurning:    boolField(r, "fast_burning"),
 			CustomerImpact: boolField(r, "customer_impact"),
 			BurnLong:       floatField(r, "burn_long"), BurnShort: floatField(r, "burn_short"),
@@ -87,6 +98,9 @@ func SLORows(res Result) ([]SLORow, error) {
 			EvaluatedAt:     timeField(r, "evaluated_at"), AgeS: floatField(r, "age_s")}
 		if s.Name == "" {
 			return nil, fmt.Errorf("slo_status row %d: %w", i+1, errNoKey("name"))
+		}
+		if id == ApplicationSLOStatus && (s.Kind != "app" || s.Source != "push") {
+			return nil, fmt.Errorf("application_slo_status row %d is not a bound pushed application SLI", i+1)
 		}
 		out = append(out, s)
 	}

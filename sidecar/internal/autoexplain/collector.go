@@ -129,7 +129,7 @@ var candidateSQL = `
 		SELECT s.queryid, s.query
 		FROM pg_stat_statements s
 		LEFT JOIN sage.explain_cache e
-			ON e.queryid = s.queryid
+			ON e.queryid = s.queryid AND e.source <> 'lakebase_plan_history'
 			AND e.captured_at > now() - interval '1 day'
 		WHERE s.mean_exec_time > $1
 			AND s.calls > 10

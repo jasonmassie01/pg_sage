@@ -57,23 +57,22 @@ vi.mock('../hooks/useAPI', () => ({
 describe('Recommendations tab', () => {
   it('lists each recommendation with its state and revision', () => {
     render(<Actions database="prod" user={{ role: 'viewer' }} />)
-    fireEvent.click(screen.getByTestId('actions-tab-recommendations'))
+    fireEvent.click(screen.getByTestId('actions-tab-progress'))
     expect(seen).toContain('/api/v1/recommendations?database=prod')
     const table = screen.getByTestId('recommendations-table')
-    expect(table).toHaveTextContent('Verifying')
+    expect(table).toHaveTextContent('Verifying result')
     expect(table).toHaveTextContent('r3')
-    expect(table).toHaveTextContent('Abandoned')
     expect(table).toHaveTextContent('regressed')
-    expect(table).toHaveTextContent(
-      'retry budget exhausted after 3 attempts: lock timeout')
     expect(table).toHaveTextContent('policy:decision:9')
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
+    expect(screen.getByTestId('recommendations-table')).toHaveTextContent('retry budget exhausted after 3 attempts: lock timeout')
   })
 
   it('asks for one database when the fleet view is selected', () => {
     render(<Actions database="all" user={{ role: 'viewer' }} />)
     fireEvent.click(screen.getByTestId('actions-tab-recommendations'))
-    expect(screen.getByTestId('recommendations-select-database'))
-      .toBeInTheDocument()
+    expect(screen.getByTestId('actions-scope'))
+      .toHaveTextContent('Stored recommendations require a single database')
     expect(screen.queryByTestId('recommendations-table')).toBeNull()
   })
 

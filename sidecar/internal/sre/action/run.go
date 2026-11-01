@@ -20,6 +20,9 @@ import (
 // happened instead is attributed and verified (CHECK-19, CHECK-23).
 func (a *ActionService) RunApproved(ctx context.Context, action store.QueuedAction,
 	approvedBy int) (executor.ApprovedRun, error) {
+	if a.maintenance != nil && a.maintenance.Owns(action) {
+		return a.maintenance.RunApproved(ctx, action, approvedBy)
+	}
 	if !a.handoffAllowed() {
 		return executor.ApprovedRun{}, ErrHandoffBlocked
 	}

@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 const (
-	configKindGUC       = "guc"
-	configKindReloption = "reloption"
+	configKindGUC         = "guc"
+	configKindDatabaseGUC = "database_guc"
+	configKindReloption   = "reloption"
 )
 
 // configChange is one ALTER SYSTEM or ALTER TABLE ... SET/RESET (storage
@@ -19,15 +21,17 @@ const (
 // at apply time, the rollback that restores it, and the baseline of the
 // metric the change targets.
 type configChange struct {
-	kind        string
-	sql         string
-	guc         pgconf.SystemStmt
-	table       pgconf.TableStmt
-	priorGUC    settingRow
-	priorMain   map[string]string
-	priorToast  map[string]string
-	rollbackSQL string
-	outcome     *outcomeBaseline
+	kind          string
+	sql           string
+	guc           pgconf.SystemStmt
+	table         pgconf.TableStmt
+	priorGUC      settingRow
+	database      pgconf.DatabaseStmt
+	priorDatabase databaseSettingPrior
+	priorMain     map[string]string
+	priorToast    map[string]string
+	rollbackSQL   string
+	outcome       *outcomeBaseline
 }
 
 // prepareConfigChange captures the prior value of a config change and
@@ -48,6 +52,39 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		if c.rollbackSQL, err = gucRollbackSQL(stmt.Name, prior); err != nil {
 			return nil, err
 		}
+	} else if stmt, ok := pgconf.ParseAlterDatabase(normalizeSQLText(sql)); ok {
+		if e.pool == nil {
+			return nil, fmt.Errorf("%w: database pool unavailable", ErrConfigPrior)
+		}
+		var currentDatabase string
+		if err := e.pool.QueryRow(ctx, "/* pg_sage */ SELECT current_database()").Scan(&currentDatabase); err != nil {
+			return nil, fmt.Errorf("%w: current database: %v", ErrConfigPrior, err)
+		}
+		if databaseName(stmt) != currentDatabase {
+			return nil, fmt.Errorf("%w: ALTER DATABASE must target the connected database %s", ErrConfigPrior, currentDatabase)
+		}
+		if err := e.checkLakebaseDatabaseSetting(ctx, sql); err != nil {
+			return nil, err
+		}
+		if !stmt.Reset && strings.EqualFold(stmt.Value, "DEFAULT") {
+			return nil, fmt.Errorf("%w: use ALTER DATABASE RESET for a default value", ErrNoFaithfulRollback)
+		}
+		c.kind, c.database, c.guc = configKindDatabaseGUC, stmt, stmt.SystemStmt
+		prior, err := captureDatabaseSetting(ctx, e.pool, stmt)
+		if err != nil {
+			return nil, err
+		}
+		fresh, err := freshDatabaseSetting(ctx, e.pool, stmt)
+		if err != nil {
+			return nil, fmt.Errorf("%w: fresh database session: %v", ErrConfigPrior, err)
+		}
+		switch fresh.Source {
+		case "default", "environment variable", "configuration file", "command line", "global", "database":
+		default:
+			return nil, fmt.Errorf("%w: database setting %s is masked by %s in a fresh session", ErrConfigOverridden, stmt.Name, fresh.Source)
+		}
+		c.priorDatabase = prior
+		c.rollbackSQL = databaseRollbackSQL(stmt, prior)
 	} else if stmt, ok := pgconf.ParseAlterTableReloptions(sql); ok {
 		c.kind, c.table = configKindReloption, stmt
 		main, toast, err := captureReloptions(ctx, e.pool, stmt.Table)
@@ -78,10 +115,13 @@ func (c *configChange) record(state map[string]any) {
 		return
 	}
 	change := map[string]any{"kind": c.kind, "rollback_sql": c.rollbackSQL}
-	if c.kind == configKindGUC {
+	switch c.kind {
+	case configKindGUC:
 		change["name"], change["requested"], change["prior"] = c.guc.Name, c.guc.Value,
 			c.priorGUC
-	} else {
+	case configKindDatabaseGUC:
+		change["database"], change["name"], change["requested"], change["prior"] = c.priorDatabase.Database, c.guc.Name, c.guc.Value, c.priorDatabase
+	default:
 		change["table"] = c.table.Table
 		change["prior"] = map[string]any{"table": c.priorMain, "toast": c.priorToast}
 	}

@@ -13,17 +13,19 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 )
 
 // Client is an OpenAI-compatible LLM client with circuit breaker.
 type Client struct {
-	cfg        *config.LLMConfig
-	httpClient *http.Client
-	logFn      func(string, string, ...any)
-	stateMu    sync.Mutex
-	generation uint64
-	inflightID uint64
-	inflight   map[uint64]context.CancelFunc
+	cfg                 *config.LLMConfig
+	httpClient          *http.Client
+	logFn               func(string, string, ...any)
+	authorizeDatabricks func(*http.Request) error
+	stateMu             sync.Mutex
+	generation          uint64
+	inflightID          uint64
+	inflight            map[uint64]context.CancelFunc
 
 	// Circuit breaker state.
 	mu            sync.Mutex
@@ -106,14 +108,15 @@ func New(cfg *config.LLMConfig, logFn func(string, string, ...any)) *Client {
 	}
 	snapshot := *cfg
 	return &Client{
-		cfg:        &snapshot,
-		httpClient: &http.Client{},
-		logFn:      logFn,
-		cooldown:   circuitCooldown(cfg.CooldownSeconds),
-		generation: 1,
-		inflight:   make(map[uint64]context.CancelFunc),
-		activeKeys: make(map[string]struct{}),
-		lastCalls:  make(map[string]time.Time),
+		cfg:                 &snapshot,
+		httpClient:          &http.Client{},
+		logFn:               logFn,
+		authorizeDatabricks: databricksauth.Authorize,
+		cooldown:            circuitCooldown(cfg.CooldownSeconds),
+		generation:          1,
+		inflight:            make(map[uint64]context.CancelFunc),
+		activeKeys:          make(map[string]struct{}),
+		lastCalls:           make(map[string]time.Time),
 	}
 }
 
@@ -248,8 +251,13 @@ func (c *Client) sendChatOnce(
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	if cfg.Auth == "databricks" {
+		if err := c.authorizeDatabricks(httpReq); err != nil {
+			return nil, err
+		}
+	}
 
-	resp, err := c.doWithRetry(requestCtx, httpReq, body, cfg.APIKey)
+	resp, err := c.doWithRetry(requestCtx, httpReq, body, cfg)
 	if err != nil {
 		if shouldRecordProviderFailure(ctx, requestCtx) {
 			c.recordFailure()
@@ -353,7 +361,7 @@ func (c *Client) doWithRetry(
 	ctx context.Context,
 	req *http.Request,
 	body []byte,
-	apiKey string,
+	cfg config.LLMConfig,
 ) (*http.Response, error) {
 	delays := []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second}
 	var lastErr error
@@ -366,16 +374,18 @@ func (c *Client) doWithRetry(
 			case <-time.After(delays[i-1]):
 			}
 			// Recreate request with fresh body.
-			var err error
-			req, err = http.NewRequestWithContext(ctx, req.Method, req.URL.String(), bytes.NewReader(body))
-			if err != nil {
-				return nil, err
+			req = req.Clone(ctx)
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			if cfg.Auth == "databricks" {
+				if err := c.authorizeDatabricks(req); err != nil {
+					return nil, err
+				}
+			} else {
+				req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", "Bearer "+apiKey)
 		}
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := c.doRequest(req, cfg)
 		if err != nil {
 			lastErr = err
 			continue
@@ -388,6 +398,24 @@ func (c *Client) doWithRetry(
 		return resp, nil
 	}
 	return nil, fmt.Errorf("all retries failed: %w", lastErr)
+}
+
+// doRequest keeps native workspace credentials on the request's validated
+// origin. net/http's default redirect policy can forward Authorization to
+// subdomains and other ports, so native requests must not follow redirects.
+func (c *Client) doRequest(req *http.Request, cfg config.LLMConfig) (*http.Response, error) {
+	if err := cfg.ValidateDatabricksApp(); err != nil {
+		return nil, err
+	}
+	client := c.httpClient
+	if cfg.Auth == "databricks" {
+		nativeClient := *client
+		nativeClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		client = &nativeClient
+	}
+	return client.Do(req)
 }
 
 func (c *Client) recordFailure() {
@@ -415,6 +443,8 @@ func NewOptimizerClient(
 	opt *config.OptimizerLLMConfig,
 	logFn func(string, string, ...any),
 ) *Client {
+	authConfig := *parent
+	authConfig.OptimizerLLM = *opt
 	endpoint := opt.Endpoint
 	if endpoint == "" {
 		endpoint = parent.Endpoint
@@ -441,6 +471,7 @@ func NewOptimizerClient(
 	}
 
 	merged := &config.LLMConfig{
+		Auth:             authConfig.OptimizerAuth(),
 		Enabled:          opt.Enabled,
 		Endpoint:         endpoint,
 		APIKey:           apiKey,

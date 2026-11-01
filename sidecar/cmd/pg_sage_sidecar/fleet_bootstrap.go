@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
@@ -80,6 +81,9 @@ func openFleetPool(dbCfg config.DatabaseConfig) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}
 	poolCfg.MaxConns = int32(max(dbCfg.MaxConnections, 2))
+	if err := databricksauth.ConfigurePool(context.Background(), poolCfg); err != nil {
+		return nil, err
+	}
 	poolCfg.MinConns = 1
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute

@@ -3,6 +3,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { FactBadges } from '../../components/FactBadges'
 import { ApprovalCard } from './ApprovalCard'
 import { PendingErrors } from './PendingErrors'
+import { caseHref, relatedCase, rowDatabase } from './workflow'
 
 // CardFacts shows the binding facts about a card's targets (roadmap 2.3).
 // Approval cards are only loaded for operators and admins (Actions gates
@@ -18,13 +19,13 @@ function CardFacts({ card, onDecided }) {
 
 // PendingCardsView is the Pending Approval tab's default view: one
 // approval card per waiting action, with the compact table one click away.
-export function PendingCardsView({ cards, errors, onShowTable, onDecided }) {
+export function PendingCardsView({ cards, errors, onShowTable, onDecided, pending = [], cases = [], database, modeForDatabase }) {
   return (
     <div className="space-y-3" data-testid="approval-cards">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Each card says why the action needs you, the evidence behind it, the exact
-          SQL and how to undo it. Approve runs it now through the same policy checks.
+          Review the evidence, exact SQL, risk and recovery plan. Approve and run
+          requests immediate execution after current safety checks. A completed change still needs outcome verification.
         </p>
         <button data-testid="pending-view-table" onClick={onShowTable}
           className="px-2 py-1 rounded text-xs shrink-0"
@@ -35,26 +36,40 @@ export function PendingCardsView({ cards, errors, onShowTable, onDecided }) {
       <PendingErrors errors={errors} />
       {cards.length === 0 ? (
         <div data-testid="approval-cards-empty">
-          <EmptyState message="Nothing is waiting for your approval." />
+          <EmptyState message="Nothing needs your approval in this view. Review Proposed changes for opportunities and blocked work." />
         </div>
-      ) : cards.map(card => (
-        <ApprovalCard key={`${card.database}:${card.queue_id}`} card={card}
-          onDecided={onDecided}
-          facts={<CardFacts card={card} onDecided={onDecided} />} />
-      ))}
+      ) : cards.map(card => {
+        const readiness = pending.find(r => rowDatabase(r, database) === card.database
+          && String(r.id) === String(card.queue_id))
+        const linked = relatedCase(card, cases, database)
+        return <div key={`${card.database}:${card.queue_id}`} className="space-y-1">
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            {linked ? <a href={caseHref(linked, database)} className="underline"
+              style={{ color: 'var(--accent)' }}>Review case: {linked.title}</a>
+              : <>Case relation unavailable. <a href={caseHref(null, card.database)} className="underline"
+                style={{ color: 'var(--accent)' }}>View Cases for this database</a></>}
+          </p>
+          <ApprovalCard card={card} onDecided={onDecided} eligible={readiness?.eligible}
+            blockedReason={readiness?.defer_reason || readiness?.blocked_reason}
+            mode={modeForDatabase?.(card.database)}
+            facts={<CardFacts card={card} onDecided={onDecided} />} />
+        </div>
+      })}
     </div>
   )
 }
 
 // ApprovalCardDetail shows a queued action's card inside its detail row.
-export function ApprovalCardDetail({ action, onDecided }) {
+export function ApprovalCardDetail({ action, onDecided, mode }) {
   const db = action?.database_name
     ? `?database=${encodeURIComponent(action.database_name)}` : ''
   const { data } = useAPI(action?.id ? `/api/v1/approvals/${action.id}${db}` : null, 0)
   if (!data?.card) return null
   return (
     <div data-testid="approval-card-detail">
-      <ApprovalCard card={data.card} onDecided={onDecided}
+      <ApprovalCard card={data.card} onDecided={onDecided} mode={mode}
+        eligible={data.eligible ?? action.eligible}
+        blockedReason={data.defer_reason || action.defer_reason || action.blocked_reason}
         facts={<CardFacts card={data.card} onDecided={onDecided} />} />
     </div>
   )

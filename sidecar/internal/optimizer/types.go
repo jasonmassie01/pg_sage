@@ -1,5 +1,7 @@
 package optimizer
 
+import "time"
+
 // Recommendation is a validated index recommendation from the optimizer.
 type Recommendation struct {
 	Table   string `json:"table"`
@@ -93,6 +95,13 @@ type QueryInfo struct {
 
 // PlanSummary holds a condensed execution plan for one query.
 type PlanSummary struct {
+	Source           string
+	CapturedAt       time.Time
+	ComputeID        string
+	AnalyzeEnabled   *bool
+	BuffersEnabled   *bool
+	TimingEnabled    *bool
+	DurationSource   string
 	QueryID          int64
 	Summary          string
 	ScanType         string

@@ -178,7 +178,12 @@ func TestPGStore_OutboundClaimsAreExclusive(t *testing.T) {
 	st := NewPGStore(pool)
 	ctx := context.Background()
 	seedPending(t, pool, st, uniqueToken("out"), 6)
-	now := time.Now()
+	// Record defaults outbound_next_at from PostgreSQL's clock. Claim at
+	// that same clock boundary when the database runs in a separate VM.
+	var now time.Time
+	if err := pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
+		t.Fatal(err)
+	}
 	seen := claimConcurrently(t, st, now)
 	if len(seen) != 6 {
 		t.Fatalf("claimed %d of 6", len(seen))

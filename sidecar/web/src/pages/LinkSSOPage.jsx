@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { hashParam, redeemSSOLinkGrant, redirectTo } from './users/ssoApi'
 import { hashPath, replaceHash } from './users/ssoErrors'
+import { PostgresMeme } from '../components/PostgresMeme'
 
 // D7: landing page for an admin-issued one-time SSO link. Continuing uses
 // the link once, then signs in at the identity provider; the provider's
@@ -29,9 +30,9 @@ export function LinkSSOPage({ navigate = redirectTo }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center"
+    <div className="sage-login-surface min-h-screen flex items-center justify-center"
       style={{ background: 'var(--bg-main)' }}>
-      <div className="w-full max-w-sm rounded-lg p-6"
+      <div className="sage-login-card w-full max-w-sm rounded-lg p-6"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         <h1 className="text-lg font-semibold mb-2"
           style={{ color: 'var(--text-primary)' }}>
@@ -56,6 +57,7 @@ export function LinkSSOPage({ navigate = redirectTo }) {
             opacity: !grant || busy ? 0.6 : 1 }}>
           {busy ? 'Redirecting...' : 'Continue with SSO'}
         </button>
+        <PostgresMeme route="#/link-sso" compact />
       </div>
     </div>
   )

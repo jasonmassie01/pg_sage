@@ -21,6 +21,8 @@ func Clone(cfg *Config) *Config {
 	}
 	cp.Verify.IOCapacity = cloneIOCapacity(cfg.Verify.IOCapacity)
 	cp.CloudTelemetry.Enabled = cloneBool(cfg.CloudTelemetry.Enabled)
+	cp.LakebaseObservability.Streams = append([]string(nil), cfg.LakebaseObservability.Streams...)
+	cp.LakebaseObservability.Bindings = append([]LakebaseObservabilityBinding(nil), cfg.LakebaseObservability.Bindings...)
 	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
 	cp.OAuth.RoleMapping = append([]OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
 	cp.Briefing.Channels = append(

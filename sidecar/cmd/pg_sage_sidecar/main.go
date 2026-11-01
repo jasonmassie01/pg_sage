@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -48,11 +49,12 @@ var (
 	// this value when seeding each database's sage.config row so
 	// that YAML-configured ramp starts are not silently replaced by
 	// now() at first run. Zero value means YAML had no override.
-	configRampStart  time.Time
-	fleetMgr         *fleet.DatabaseManager
-	apiServer        *http.Server
-	globalMetaState  *metaDBState
-	configController *config.ConfigController
+	configRampStart   time.Time
+	fleetMgr          *fleet.DatabaseManager
+	apiServer         *http.Server
+	globalMetaState   *metaDBState
+	configController  *config.ConfigController
+	databricksAppAuth *auth.DatabricksAppConfig
 )
 
 var (
@@ -163,6 +165,12 @@ func runSubcommandAndExit() {
 // loadStartupConfigOrExit loads the config, keeps the file baseline and
 // installs the trusted-proxy list before any listener starts.
 func loadStartupConfigOrExit() {
+	var authErr error
+	databricksAppAuth, authErr = auth.LoadDatabricksAppConfigFromEnv(os.Getenv)
+	if authErr != nil {
+		logError("startup", "authentication configuration: %v", authErr)
+		os.Exit(1)
+	}
 	var err error
 	cfg, err = config.Load(os.Args[1:])
 	if err != nil {
