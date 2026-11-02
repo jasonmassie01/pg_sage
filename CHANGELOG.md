@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.0-dev.13 (unreleased) -- Top-of-page meme shuffle and standalone Settings
+
+- Move the DBA breakroom above page content and provide 50 distinct captioned
+  memes using the six locally bundled classic image templates.
+- Shuffle without repeating a meme until the full deck is used, including
+  navigation between pages. Rotate every 60 seconds with manual next/pause
+  controls; skip background tabs and focused controls, and start paused for
+  reduced-motion preferences. Reloading the App starts a fresh deck.
+- Load standalone instance Settings when a connected runtime database has no
+  managed registration ID. Confirm standalone mode before using global
+  configuration and explicitly label the instance-wide scope.
+
 ## v2.5.0-dev.12 (unreleased) -- Keep telemetry from blocking App access
 
 - Return retryable HTTP 503 for unavailable Databricks account storage, while

@@ -7,12 +7,12 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current recorded release is **2.5.0-dev.12**. Its
-[acceptance report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) records native
-CGO/libpg_query packaging, an immutable App snapshot, unchanged resource/scope
-bindings, Databricks-only sign-in, M2M AI, connected collection and desktop/mobile
-checks. The App remains in Observation mode with metadata-only telemetry and no
-approved/executed database change. Acceptance is scoped to that deployment;
+The current recorded release is **2.5.0-dev.13**. Its
+[acceptance report](../reviews/2026-11-02-v2.5-dev13-acceptance.md) records the
+50-meme shuffle, standalone Settings correction and scoped validation. The
+[dev.11–12 report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the
+earlier authentication, telemetry and event-stream evidence. The App remains in
+Observation mode with metadata-only telemetry. Acceptance is scoped to each deployment;
 it does not certify every Lakebase extension, cloud, privilege or long-duration
 scenario. Older release evidence remains linked from the matrix and reports.
 

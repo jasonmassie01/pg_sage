@@ -1,9 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { isMaskedSecret, SettingsPage } from './SettingsPage'
+import { useAPI } from '../hooks/useAPI'
 
 const refetch = vi.fn()
 let configReadOnly = false
+let configMode = 'fleet'
+let configError = null
+let configLoading = false
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
@@ -33,14 +37,14 @@ vi.mock('../hooks/useAPI', () => ({
 		  'trust.level': { value: 'observation', source: 'yaml' },
 		  execution_mode: { value: 'approval', source: 'db_override' },
         },
-        mode: 'fleet',
+        mode: configMode,
         databases: 3,
         desired_generation: 7,
         read_only: configReadOnly,
         write_guidance: configReadOnly ? 'edit the YAML file' : undefined,
       },
-      loading: false,
-      error: null,
+      loading: configLoading,
+      error: configError,
       refetch,
     }
   }),
@@ -61,7 +65,11 @@ describe('isMaskedSecret', () => {
 describe('SettingsPage', () => {
   beforeEach(() => {
     refetch.mockClear()
+    vi.mocked(useAPI).mockClear()
     configReadOnly = false
+    configMode = 'fleet'
+    configError = null
+    configLoading = false
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ status: 'updated' }),
@@ -100,6 +108,73 @@ describe('SettingsPage', () => {
     expect(screen.queryByTestId('settings-save')).not.toBeInTheDocument()
   })
 
+  it.each([undefined, null, 0])('shows instance settings for a standalone database without a managed ID (%s)', databaseId => {
+    configMode = 'standalone'
+    render(<SettingsPage database="pg_sage" databaseId={databaseId} />)
+
+    expect(useAPI).toHaveBeenCalledWith('/api/v1/config/global', 0)
+    expect(screen.getByTestId('settings-scope')).toHaveTextContent(
+      'Instance settings for pg_sage (standalone)'
+    )
+    expect(screen.getByTestId('settings-standalone-scope')).toHaveTextContent(
+      'a managed database registration is not required'
+    )
+    expect(screen.queryByText(/not available/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    expect(screen.getByTestId('setting-retention.snapshots_days')).toHaveValue(14)
+  })
+
+  it('writes standalone instance settings to the global endpoint with generation protection', async () => {
+    configMode = 'standalone'
+    render(<SettingsPage database="pg_sage" />)
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+      target: { value: '21' },
+    })
+    fireEvent.click(screen.getByTestId('settings-save'))
+    fireEvent.click(screen.getByTestId('config-diff-confirm'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/v1/config/global', expect.objectContaining({ method: 'PUT' })
+    ))
+    const [, options] = globalThis.fetch.mock.calls.find(([, init]) => init.method === 'PUT')
+    expect(JSON.parse(options.body)).toMatchObject({
+      'retention.snapshots_days': '21', expected_generation: 7,
+    })
+  })
+
+  it('does not treat an unavailable fleet database as global configuration', () => {
+    render(<SettingsPage database="missing-fleet-db" />)
+    expect(useAPI).toHaveBeenCalledWith('/api/v1/config/global', 0)
+    expect(screen.getByText('Selected database "missing-fleet-db" is not available')).toBeInTheDocument()
+    expect(screen.queryByTestId('settings-scope')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('settings-save')).not.toBeInTheDocument()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  it('shows the configuration fetch failure instead of claiming the database is missing', () => {
+    configError = '503 Service Unavailable'
+    render(<SettingsPage database="pg_sage" />)
+    expect(screen.getByText(configError)).toBeInTheDocument()
+    expect(screen.queryByText(/Selected database/)).not.toBeInTheDocument()
+  })
+
+  it('waits for deployment mode before deciding the selected database is missing', () => {
+    configLoading = true
+    render(<SettingsPage database="pg_sage" />)
+    expect(screen.queryByText(/Selected database/)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('settings-scope')).not.toBeInTheDocument()
+  })
+
+  it('retains the server read-only policy for standalone instance settings', () => {
+    configMode = 'standalone'
+    configReadOnly = true
+    render(<SettingsPage database="pg_sage" />)
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    expect(screen.getByTestId('setting-retention.snapshots_days')).toBeDisabled()
+    expect(screen.queryByTestId('settings-save')).not.toBeInTheDocument()
+  })
+
   it('sends the desired generation with global config writes', async () => {
     render(<SettingsPage database="all" />)
     fireEvent.click(screen.getByTestId('settings-tab-retention'))
@@ -127,7 +202,8 @@ describe('SettingsPage', () => {
 	  fireEvent.click(screen.getByTestId('config-diff-confirm'))
 
 	  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
-	  const [, options] = globalThis.fetch.mock.calls[0]
+	  const [url, options] = globalThis.fetch.mock.calls[0]
+	  expect(url).toBe('/api/v1/config/databases/12')
 	  expect(JSON.parse(options.body)).toMatchObject({
 	    execution_mode: 'manual',
 	    expected_generation: 7,

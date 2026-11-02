@@ -64,8 +64,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       await page.goto('/#' + route)
       const meme = page.getByTestId('postgres-meme')
       await expect(meme).toHaveCount(1)
-      await meme.scrollIntoViewIfNeeded()
-      await expect(meme).toBeVisible()
+      await expect(meme).toBeInViewport({ ratio: 1 })
       const image = meme.getByRole('img')
       await expect(image).toHaveCount(1)
       await expect(image).toHaveAttribute('src', /^\/memes\/[^/]+\.jpg$/)
@@ -78,6 +77,45 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     expect(errors).toEqual([])
   })
 }
+
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`all 50 shuffled memes fit near the top at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await singletonApp(page)
+    await page.goto('/#/ask')
+    const meme = page.getByTestId('postgres-meme')
+    const seen = new Set<string>()
+    const images = new Set<string>()
+    for (let i = 0; i < 50; i++) {
+      await expect(meme).toBeInViewport({ ratio: 1 })
+      const id = await meme.getAttribute('data-meme-id')
+      expect(id).toBeTruthy()
+      expect(seen.has(id!)).toBe(false)
+      seen.add(id!)
+      const image = meme.getByRole('img')
+      await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true)
+      images.add((await image.getAttribute('src'))!)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await meme.getByRole('button', { name: 'Another meme' }).click()
+    }
+    expect(seen.size).toBe(50)
+    expect(images.size).toBe(6)
+  })
+}
+
+test('standalone Settings loads instance configuration for the running ID-less database', async ({ page }) => {
+  await singletonApp(page)
+  const db = { ...mockDatabases.databases[0], id: 0, database_id: 0 }
+  await page.route('**/api/v1/databases', route => route.fulfill({ json: {
+    ...mockDatabases, databases: [db],
+  } }))
+  await page.route('**/api/v1/config/global', route => route.fulfill({ json: {
+    mode: 'standalone', config: { auth: { mode: 'databricks_app' }, postgres: { max_connections: 5 } }, generation: 12,
+  } }))
+  await page.goto('/#/settings')
+  await expect(page.getByText(/Instance settings for primary \(standalone\)/)).toBeVisible()
+  await expect(page.getByText(/Selected database .* is not available/)).toHaveCount(0)
+})
 
 test('mobile navigation closes after choosing Ask Sage', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

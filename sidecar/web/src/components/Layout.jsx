@@ -367,11 +367,11 @@ export function Layout({
         </header>
         <div className="sage-content p-3 md:p-6">
           <MonitoringContext database={selectedDB} fleetData={fleetData} error={fleetError} user={user} />
+          <PostgresMeme route={hash} />
           <PendingActionsContext.Provider
             value={{ refetch: refetchPending }}>
             {children}
           </PendingActionsContext.Provider>
-          <PostgresMeme route={hash} compact />
         </div>
       </main>
     </div>

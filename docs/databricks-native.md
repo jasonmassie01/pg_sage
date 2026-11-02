@@ -1,6 +1,6 @@
 # Databricks-native implementation
 
-pg_sage **2.5.0-dev.12** runs as a local native process against Lakebase or as
+pg_sage **2.5.0-dev.13** runs as a local native process against Lakebase or as
 a Go service with an embedded React dashboard in Databricks Apps. Lakebase
 connections and Unity Gateway AI requests use Databricks OAuth. In Apps,
 operators sign in through Databricks only; there is no second pg_sage login or
@@ -34,7 +34,7 @@ This does not establish unlimited viewer concurrency or a production load test.
 | Build, install, update or troubleshoot the Databricks App | [Databricks Apps operator guide](databricks-apps.md) |
 | Understand package files and deployment commands | [Deployment directory README](../deploy/databricks-apps/README.md) |
 | Check feature-level support and provider limitations | [Lakebase compatibility matrix](lakebase.md#compatibility-at-a-glance) |
-| Review actual delivered behavior and test evidence | [dev.11–12 acceptance](../reviews/2026-11-02-v2.5-dev12-acceptance.md), [dev.10 workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) and [evidence index below](#validation-and-evidence) |
+| Review actual delivered behavior and test evidence | [dev.13 UI acceptance](../reviews/2026-11-02-v2.5-dev13-acceptance.md), [dev.11–12 acceptance](../reviews/2026-11-02-v2.5-dev12-acceptance.md), [dev.10 workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) and [evidence index below](#validation-and-evidence) |
 
 ## Architecture and identity
 
@@ -271,6 +271,16 @@ them from a meme CDN. [Template provenance and rights notes](../sidecar/web/publ
 record sources, attribution, transformations and hashes. These third-party
 images do not acquire the repository's software license.
 
+Dev.13 moves the breakroom above page content and expands it to 50 distinct
+captioned memes on those six templates. A shuffled deck survives navigation
+without repeating until all 50 are used; reloading starts a fresh deck. It
+advances on page changes or every 60 seconds, with Another meme and pause/resume
+controls. Background tabs and focused meme controls do not consume cards;
+reduced-motion users start paused. No database or AI requests drive rotation.
+Standalone Settings also accepts the running database's absent/zero managed ID
+after the server confirms standalone mode, and labels configuration as
+instance-wide. Managed fleet databases retain their database-specific scope.
+
 These changes address heuristic usability findings. Actual novice usability
 testing and explicit synthetic-fixture labels in Cases remain outstanding; the
 UI does not infer that arbitrary schemas are synthetic from their names.
@@ -284,8 +294,9 @@ UI does not infer that arbitrary schemas are synthetic from their names.
 | dev.10 | [Workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md): 726 frontend tests/102 files; 46 browser tests including 22 desktop/mobile routes; 1,434 API/Cases race passes plus one opt-in live skip; lint/build and actual App auth/Gateway/Fleet/context/mobile checks |
 | dev.11 | [Audience and meme follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 755 frontend tests/102 files, 46 browser tests, 1,627 auth/API race passes plus one opt-in live skip, 24 packaging tests, scoped deployed-App checks and retained live browser failures. No new whole-repository or live database compatibility run |
 | dev.12 | [App availability correction](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 69 telemetry race/integration/e2e passes, zero skips/failures; 25 packaging tests; focused auth/API, HTTP/2 stream and limiter race checks. Final live desktop/mobile tour: 12 page checks, six decoded meme templates, six protected API checks, five clean stream completions and zero protocol errors. Earlier failed attempts remain documented |
+| dev.13 | [Meme shuffle and standalone Settings](../reviews/2026-11-02-v2.5-dev13-acceptance.md): 777 frontend tests/103 files, 49 browser tests, all 50 captioned memes at desktop/mobile widths, 25 packaging tests; no new database compatibility run |
 
-The whole-repository result is **dev.5**, not a new dev.10/dev.11/dev.12 whole-repository run.
+The latest whole-repository result remains **dev.5**. Later reports identify their narrower validation scope.
 The final dev.10 workflow-baseline App SNAPSHOT is `01f1d4c0a6af15be95fc0632b1a607e1`; the
 acceptance report retains exact macOS/Linux artifact hashes and its source
 fingerprint scope. The November 1 documentation publication changed guides, packaging
