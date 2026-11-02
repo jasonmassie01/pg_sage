@@ -18,7 +18,7 @@ import (
 
 // MigrationVersion is independent of pg_sage bootstrap migrations. EnsureSchema
 // must run against the persistent metadata/control pool before starting workers.
-const MigrationVersion = 4
+const MigrationVersion = 5
 const ddl = `
 CREATE SCHEMA IF NOT EXISTS sage;
 CREATE TABLE IF NOT EXISTS sage.lakebaseobs_schema(version integer PRIMARY KEY);
@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS sage.lakebaseobs_inbox(
  payload_until timestamptz NOT NULL, identity_until timestamptz NOT NULL,
  event jsonb, PRIMARY KEY(binding,event_id));
 CREATE INDEX IF NOT EXISTS lakebaseobs_inbox_pending ON sage.lakebaseobs_inbox(binding,stream,occurred_at,event_id);
+CREATE INDEX IF NOT EXISTS lakebaseobs_inbox_delivery ON sage.lakebaseobs_inbox(binding,occurred_at,event_id) INCLUDE(payload_until) WHERE event IS NOT NULL;
+CREATE INDEX IF NOT EXISTS lakebaseobs_inbox_payload_expiry ON sage.lakebaseobs_inbox(payload_until,binding,event_id) WHERE event IS NOT NULL;
+CREATE INDEX IF NOT EXISTS lakebaseobs_inbox_identity_expiry ON sage.lakebaseobs_inbox(identity_until,binding,event_id);
 CREATE TABLE IF NOT EXISTS sage.lakebaseobs_acks(
  binding text NOT NULL, event_id text NOT NULL, consumer text NOT NULL,
  acknowledged_at timestamptz NOT NULL DEFAULT now(),
@@ -48,7 +51,7 @@ CREATE TABLE IF NOT EXISTS sage.lakebaseobs_owner_policy(
  allowed_scopes text[] NOT NULL DEFAULT '{}', allow_payload boolean NOT NULL DEFAULT false,
  policy_epoch timestamptz NOT NULL DEFAULT 'epoch', updated_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(deployment_id,database_id));
-INSERT INTO sage.lakebaseobs_schema(version)VALUES(1),(2),(3),(4)ON CONFLICT DO NOTHING;`
+INSERT INTO sage.lakebaseobs_schema(version)VALUES(1),(2),(3),(4),(5)ON CONFLICT DO NOTHING;`
 
 type Store struct {
 	pool        *pgxpool.Pool
@@ -179,13 +182,29 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)ON CONFLICT(binding,event_id)DO NOTHING`, 
 
 var consumerName = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,80}$`)
 
+// Select identities before reading JSON documents: an ACK-heavy backlog can
+// walk the covering index without fetching every already delivered payload.
+// There is no consumer watermark: a late historical event is still eligible.
+const pendingSQL = `WITH pending AS MATERIALIZED (
+ SELECT i.binding,i.event_id,i.occurred_at FROM sage.lakebaseobs_inbox i
+ WHERE i.binding=$1 AND i.event IS NOT NULL AND i.payload_until>$3
+ AND NOT EXISTS(SELECT 1 FROM sage.lakebaseobs_acks a WHERE a.binding=i.binding AND a.event_id=i.event_id AND a.consumer=$2)
+ ORDER BY i.occurred_at,i.event_id LIMIT $4)
+SELECT (SELECT i.event FROM sage.lakebaseobs_inbox i WHERE i.binding=p.binding AND i.event_id=p.event_id)
+FROM pending p ORDER BY p.occurred_at,p.event_id`
+
 func (s *Store) Pending(ctx context.Context, binding, consumer string, limit int, now time.Time) ([]Event, error) {
 	if !consumerName.MatchString(consumer) || limit < 1 || limit > 10000 {
 		return nil, ErrScope
 	}
-	rows, err := s.pool.Query(ctx, `SELECT i.event FROM sage.lakebaseobs_inbox i WHERE i.binding=$1 AND i.event IS NOT NULL AND i.payload_until>$3
-AND NOT EXISTS(SELECT 1 FROM sage.lakebaseobs_acks a WHERE a.binding=i.binding AND a.event_id=i.event_id AND a.consumer=$2)
-ORDER BY i.occurred_at,i.event_id LIMIT $4`, binding, consumer, now, limit)
+	ctx, cancel := context.WithTimeout(ctx, storeOperationTimeout)
+	defer cancel()
+	tx, err := beginStoreOperation(ctx, s.pool, true)
+	if err != nil {
+		return nil, err
+	}
+	defer rollbackStoreOperation(tx)
+	rows, err := tx.Query(ctx, pendingSQL, binding, consumer, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -309,10 +328,20 @@ func (s *Store) EnforceRetention(ctx context.Context, scopeHash string, retentio
 	if _, err := hex.DecodeString(scopeHash); err != nil {
 		return ErrScope
 	}
-	_, err := s.pool.Exec(ctx, `UPDATE sage.lakebaseobs_inbox
+	ctx, cancel := context.WithTimeout(ctx, storeOperationTimeout)
+	defer cancel()
+	tx, err := beginStoreOperation(ctx, s.pool, false)
+	if err != nil {
+		return err
+	}
+	defer rollbackStoreOperation(tx)
+	_, err = tx.Exec(ctx, `UPDATE sage.lakebaseobs_inbox
 SET payload_until = occurred_at + make_interval(secs => $2)
 WHERE binding LIKE $1 AND payload_until > occurred_at + make_interval(secs => $2)`, scopeHash+":%", retention.Seconds())
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // BindOwner records durable ownership before ingestion, so a disabled or
@@ -554,7 +583,8 @@ AND database_id=$2::uuid AND policy_binding=$3 ORDER BY scope_hash`, deployment,
 	// caller. A database cannot erase another registered database's rows.
 	if _, err = tx.Exec(ctx, `UPDATE sage.lakebaseobs_inbox i
 SET payload_until=LEAST(i.payload_until,i.occurred_at+make_interval(secs=>$3))
-WHERE EXISTS(SELECT 1 FROM sage.lakebaseobs_owners o WHERE o.deployment_id=$1::uuid
+WHERE i.payload_until > i.occurred_at+make_interval(secs=>$3)
+AND EXISTS(SELECT 1 FROM sage.lakebaseobs_owners o WHERE o.deployment_id=$1::uuid
 AND o.database_id=$2::uuid AND i.binding LIKE o.scope_hash||':%')`, deployment, database, retention.Seconds()); err != nil {
 		return err
 	}
@@ -573,18 +603,51 @@ AND o.database_id=$2::uuid AND i.binding LIKE o.scope_hash||':%')`, deployment, 
 }
 
 // Purge erases payloads at event-time expiry but preserves identities/ACKs for
-// the entire seven-day replay horizon plus clock/delivery margin.
+// the entire seven-day replay horizon plus clock/delivery margin. Small committed
+// batches release the shared control pool between batches and make progress even
+// when the backlog exceeds one operation's budget. ErrRetentionPending requests
+// another scheduled pass; collection and the independent erasure worker both
+// retry. Pending, History, delivery and evidence refuse expired payloads even
+// while physical erasure remains pending. No locked rows are silently skipped.
 func (s *Store) Purge(ctx context.Context, now time.Time) error {
-	tx, err := s.pool.Begin(ctx)
+	ctx, cancel := context.WithTimeout(ctx, storeOperationTimeout)
+	defer cancel()
+	for {
+		more, err := s.purgeBatch(ctx, now)
+		if err != nil {
+			return errors.Join(ErrRetentionPending, err)
+		}
+		if !more {
+			return nil
+		}
+	}
+}
+
+func (s *Store) purgeBatch(ctx context.Context, now time.Time) (bool, error) {
+	tx, err := beginStoreOperation(ctx, s.pool, false)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err = tx.Exec(ctx, "UPDATE sage.lakebaseobs_inbox SET event=NULL WHERE event IS NOT NULL AND payload_until<=$1", now); err != nil {
-		return err
+	defer rollbackStoreOperation(tx)
+	erased, err := tx.Exec(ctx, `WITH expired AS (
+ SELECT binding,event_id FROM sage.lakebaseobs_inbox
+ WHERE event IS NOT NULL AND payload_until<=$1
+ ORDER BY payload_until,binding,event_id LIMIT $2 FOR UPDATE)
+UPDATE sage.lakebaseobs_inbox i SET event=NULL FROM expired e
+WHERE i.binding=e.binding AND i.event_id=e.event_id`, now, purgeBatchSize)
+	if err != nil {
+		return false, err
 	}
-	if _, err = tx.Exec(ctx, "DELETE FROM sage.lakebaseobs_inbox WHERE identity_until<=$1", now); err != nil {
-		return err
+	deleted, err := tx.Exec(ctx, `WITH expired AS (
+ SELECT binding,event_id FROM sage.lakebaseobs_inbox WHERE identity_until<=$1
+ ORDER BY identity_until,binding,event_id LIMIT $2 FOR UPDATE)
+DELETE FROM sage.lakebaseobs_inbox i USING expired e
+WHERE i.binding=e.binding AND i.event_id=e.event_id`, now, purgeBatchSize)
+	if err != nil {
+		return false, err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return erased.RowsAffected() == purgeBatchSize || deleted.RowsAffected() == purgeBatchSize, nil
 }

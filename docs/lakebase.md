@@ -7,6 +7,13 @@ October 29–30, 2026; public platform documentation was cross-checked November 
 certification** or a production reliability guarantee. A passing local
 PostgreSQL suite is separate from a passing native Lakebase test.
 
+The [dev.11–12 follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md) adds an
+optional App email-domain audience gate and classic meme images. It does not
+extend the version-specific database compatibility evidence in this guide.
+It also corrects telemetry inbox contention, App request-limit isolation and
+event-stream lifetime behavior; those availability checks are reported
+separately from feature compatibility.
+
 Start with the [native Databricks implementation guide](databricks-native.md)
 for the architecture and linked setup, or the [Databricks Apps guide](databricks-apps.md)
 for packaging, resources and platform sign-in. This page owns the database,

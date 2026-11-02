@@ -79,6 +79,10 @@ def runtime_config(env: dict[str, str], base: dict | None = None) -> dict:
     # No credentials are written to the generated configuration file.
     # Native pg_sage refreshes OAuth credentials for each physical connection.
     config = deepcopy(base or {})
+    # The single-database App shares a pool for account verification, control
+    # state and collectors. This adds capacity, not reserved auth connections;
+    # retain an operator's explicit pool size.
+    config.setdefault("postgres", {}).setdefault("max_connections", 5)
     telemetry = config.get("lakebase_observability", {})
     if telemetry.get("enabled") and env.get("DATABRICKS_WAREHOUSE_ID"):
         if telemetry.get("warehouse_id") not in (None, "", env["DATABRICKS_WAREHOUSE_ID"]):

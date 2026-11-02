@@ -18,6 +18,10 @@ env:
     value: databricks_app
   - name: SAGE_DATABRICKS_ADMIN_EMAIL
     value: '<explicit-admin-email>'
+  # Optional exact email-domain audience gate, checked before account lookup.
+  # Omit for an audience controlled solely by platform App permissions.
+  # - name: SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS
+  #   value: 'example.com,other.example.com'
   - name: SAGE_TRUST_LEVEL
     value: observation
   # Optional Unity AI Gateway configuration. Model and endpoint must match

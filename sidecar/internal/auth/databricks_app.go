@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/mail"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,13 +17,20 @@ import (
 
 const DatabricksAppMode = "databricks_app"
 
+// ErrDatabricksAppAudienceDenied distinguishes an audience refusal from an
+// unavailable account store, without querying or provisioning that identity.
+var ErrDatabricksAppAudienceDenied = errors.New("databricks identity is outside the configured App audience")
+
+var databricksEmailDomainLabel = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
 // DatabricksAppConfig is an explicit trust in Databricks Apps' authenticated
 // ingress, never a generic reverse-proxy authentication option. The platform
 // authenticates and asserts X-Forwarded-Email before forwarding requests.
 // Deployments must keep the application port behind that ingress.
 type DatabricksAppConfig struct {
-	Workspace  string
-	AdminEmail string
+	Workspace           string
+	AdminEmail          string
+	AllowedEmailDomains []string
 }
 
 // LoadDatabricksAppConfigFromEnv returns nil for ordinary session auth.
@@ -54,7 +63,61 @@ func LoadDatabricksAppConfigFromEnv(getenv func(string) string) (*DatabricksAppC
 	if err != nil {
 		return nil, fmt.Errorf("databricks_app auth requires a plain SAGE_DATABRICKS_ADMIN_EMAIL")
 	}
-	return &DatabricksAppConfig{Workspace: strings.TrimRight(u.String(), "/"), AdminEmail: email}, nil
+	domains, err := databricksAllowedEmailDomains(getenv("SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS"))
+	if err != nil {
+		return nil, err
+	}
+	cfg := &DatabricksAppConfig{Workspace: strings.TrimRight(u.String(), "/"), AdminEmail: email, AllowedEmailDomains: domains}
+	if err := cfg.CheckEmailAudience(email); err != nil {
+		return nil, fmt.Errorf("SAGE_DATABRICKS_ADMIN_EMAIL must belong to SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS: %w", err)
+	}
+	return cfg, nil
+}
+
+// An absent policy retains the App's platform-controlled audience. A configured
+// policy must contain exact DNS domains, never suffix patterns or wildcards.
+func databricksAllowedEmailDomains(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var domains []string
+	seen := make(map[string]bool)
+	for _, item := range strings.Split(raw, ",") {
+		domain := strings.ToLower(strings.TrimSpace(item))
+		labels := strings.Split(domain, ".")
+		valid := len(domain) <= 253 && len(labels) >= 2 && net.ParseIP(domain) == nil
+		for _, label := range labels {
+			valid = valid && databricksEmailDomainLabel.MatchString(label)
+		}
+		if !valid {
+			return nil, fmt.Errorf("SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS must contain comma-separated exact DNS domains without empty entries or wildcards")
+		}
+		if !seen[domain] {
+			domains = append(domains, domain)
+			seen[domain] = true
+		}
+	}
+	return domains, nil
+}
+
+// CheckEmailAudience runs before any account lookup, including for persisted
+// administrators. Domain matching is case-insensitive and exact: a subdomain
+// needs its own explicit entry. It does not establish a pg_sage role.
+func (c DatabricksAppConfig) CheckEmailAudience(email string) error {
+	if len(c.AllowedEmailDomains) == 0 {
+		return nil
+	}
+	email, err := DatabricksAppEmail(email)
+	if err != nil {
+		return err
+	}
+	domain := email[strings.LastIndexByte(email, '@')+1:]
+	for _, allowed := range c.AllowedEmailDomains {
+		if strings.EqualFold(domain, allowed) {
+			return nil
+		}
+	}
+	return ErrDatabricksAppAudienceDenied
 }
 
 // DatabricksAppEmail rejects lists, display names and whitespace. Identity is
@@ -77,6 +140,9 @@ func (c DatabricksAppConfig) Identity(email string) Identity {
 // ResolveDatabricksAppUser reads the durable role on every request. It does
 // not grant administrator privileges from request headers or cache stale roles.
 func ResolveDatabricksAppUser(ctx context.Context, pool *pgxpool.Pool, c DatabricksAppConfig, email string) (*User, error) {
+	if err := c.CheckEmailAudience(email); err != nil {
+		return nil, err
+	}
 	if pool == nil {
 		return nil, fmt.Errorf("databricks account store is unavailable")
 	}
@@ -96,6 +162,9 @@ func ResolveDatabricksAppUser(ctx context.Context, pool *pgxpool.Pool, c Databri
 // of arbitrary users: only the operator-configured owner may migrate a local
 // account. An account bound to a different external identity is refused.
 func BootstrapDatabricksAppAdmin(ctx context.Context, pool *pgxpool.Pool, c DatabricksAppConfig) error {
+	if err := c.CheckEmailAudience(c.AdminEmail); err != nil {
+		return fmt.Errorf("configured Databricks admin is outside the App audience: %w", err)
+	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin Databricks admin bootstrap: %w", err)

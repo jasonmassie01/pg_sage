@@ -177,6 +177,15 @@ Apps mode requires `SAGE_AUTH_MODE=databricks_app`, the injected platform runtim
 and an explicit administrator email. The platform ingress authenticates the
 user; pg_sage authorizes the forwarded identity using its own stored roles.
 There is no local password/session, break-glass login or local-token fallback.
+Optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` restricts protected access to
+exact email domains, checked before account lookup or provisioning on every
+request, including existing administrators. Domain matches are case-insensitive;
+subdomains and suffixes do not match implicitly. Invalid domain policies or an
+administrator outside the policy stop startup. Denied identities receive
+`403 databricks_app_audience_denied`. An omitted/empty environment setting retains
+the platform-controlled audience. This gate neither proves current employment
+nor replaces platform App access controls or pg_sage roles; deploy and test it
+before broadening sharing to a group that may contain external identities.
 Do not expose the native listener behind a proxy that permits user-supplied
 identity headers. Background Lakebase/Gateway access uses the App principal,
 not on-behalf-of user permissions. Agent transports and signed machine ingestion

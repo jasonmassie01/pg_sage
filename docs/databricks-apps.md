@@ -7,8 +7,8 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current recorded release is **2.5.0-dev.10**. Its
-[acceptance report](../reviews/2026-10-30-v2.5-dev10-acceptance.md) records native
+The current recorded release is **2.5.0-dev.12**. Its
+[acceptance report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) records native
 CGO/libpg_query packaging, an immutable App snapshot, unchanged resource/scope
 bindings, Databricks-only sign-in, M2M AI, connected collection and desktop/mobile
 checks. The App remains in Observation mode with metadata-only telemetry and no
@@ -34,6 +34,51 @@ platform users start as viewers, and existing platform-bound users retain their
 pg_sage roles. Other local accounts require a reviewed identity migration;
 matching an email does not automatically link them. Visiting first does not
 grant administration.
+
+An optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` audience gate restricts
+protected access to a comma-separated list of exact email domains. Matching is
+case-insensitive; subdomains need their own entry, and suffixes/wildcards are
+not accepted. This check runs before account lookup or provisioning on every
+authenticated request, including existing administrators. A denied identity
+receives HTTP 403 with `databricks_app_audience_denied` and an organization-access
+message. Missing/empty policy retains the App's existing platform-controlled
+audience. Invalid domain entries or an administrator outside the configured
+list stop startup. This is an email-domain restriction, not a directory lookup
+that proves current employment or a replacement for platform App permissions.
+
+Account-store timeouts and connection failures return retryable HTTP 503 with
+`databricks_app_auth_unavailable` and `Retry-After: 5`. They do not imply that
+the user lacks permission. The App fails closed and reads the durable role
+again on the next request; it does not cache an earlier administrator role.
+Reviewed account-link or unverified-identity refusals remain HTTP 403.
+
+Standalone Apps share one PostgreSQL pool between authentication, control
+state, monitoring and historical telemetry. The Apps launcher defaults
+`postgres.max_connections` to five, while respecting an explicit configuration
+value. Ordinary native-process defaults are unchanged. Size this against the
+endpoint's connection budget and expected concurrent viewers. More connections
+do not repair slow queries: the telemetry store also uses matching inbox
+indexes, bounded delivery/expiry work and transaction-local query limits.
+Dev.12 advances the telemetry store schema to version 5. Keep its data when
+rolling back an App package: older binaries may refuse the newer telemetry
+schema and report history unavailable. Restore a compatible binary rather
+than dropping history tables or removing migration records.
+
+In explicit Databricks Apps mode, the pre-authentication request limiter uses
+a validated platform email and workspace as its bucket identity. This prevents
+employees sharing a proxy address from using one shared allowance. Invalid or
+disallowed identities retain an IP bucket; native/session deployments retain
+their existing IP limiter. The default remains 60 requests per minute, and
+`SAGE_RATE_LIMIT` remains the explicit override. Rapid navigation across many
+data-heavy pages can still return HTTP 429; this is separate from account
+permission errors and database unavailability.
+
+Event streams close cleanly after 45 seconds and use EventSource's existing
+reconnect hint. Their route-specific write deadline remains bounded, while
+ordinary API server timeouts are unchanged. This avoids running an indefinite
+SSE response into the server's absolute write timeout or the Apps proxy's
+long-request limit. Pages also retain their normal polling; reconnecting a
+stream does not prove complete event delivery or continuous source telemetry.
 
 This mode is restricted to the Apps runtime and requires its injected port and
 `DATABRICKS_HOST` (a bare hostname is normalized to HTTPS). Missing platform
@@ -162,6 +207,7 @@ Use the same explicit profile for every command in a release.
 | `database_name` | Actual PostgreSQL database name; it need not equal the API resource ID. |
 | `secret_scope`, `secret_key` | Existing reference holding the stable encryption passphrase; never the passphrase itself. |
 | `databricks_admin_email` | Explicit administrator's Databricks identity; not a first-visitor admin rule. |
+| `databricks_allowed_email_domains` | Optional nonempty JSON array of exact DNS domains; renderer emits `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS`. Omit to retain platform-only audience control. Administrator must match. |
 | `pg_user` | Optional reviewed connecting PostgreSQL role; defaults to the platform resource/App principal identity. |
 | `gateway_endpoint`, `gateway_model` | Supply both for native AI; HTTPS workspace-origin base URL and fully qualified model service. |
 | `gateway_json_mode` | Explicit boolean supported by the chosen model; omitted package default is false. |
@@ -244,6 +290,43 @@ existing account where appropriate, and disables password/session authentication
 in this mode. The launcher rejects stale `SAGE_BOOTSTRAP_ADMIN_*` settings so an
 old deployment cannot silently retain the separate password flow. Standalone
 pg_sage deployments retain their existing password/OAuth authentication.
+
+For an organization-restricted App, add for example
+`"databricks_allowed_email_domains": ["example.com"]` to the local settings.
+Deploy and verify this gate before widening platform App access. Account-wide
+groups can contain external identities; platform membership alone does not
+establish an employee-only audience. Verify an allowed identity, a denied
+external identity and preserved pg_sage roles. Audience changes require a
+process restart. Standalone mode ignores this App-only setting.
+
+### Share an organization-restricted App
+
+The platform's **Anyone in my organization can use** setting grants `CAN_USE`
+to the account-level `account users` group. This differs from the workspace's
+`users` group. Account users can include external identities and service
+principals; the setting alone is not an employee-only rule. When a domain
+restriction is intended, deploy and verify the audience gate first. The gate
+protects authenticated APIs and data; static dashboard assets and public mode/
+health discovery retain their existing behavior behind platform access.
+
+Then add the platform grant without replacing existing owners or administrators:
+
+```bash
+databricks apps get-permissions "$PG_SAGE_APP" --profile "$PG_SAGE_PROFILE" -o json
+databricks apps update-permissions "$PG_SAGE_APP" --profile "$PG_SAGE_PROFILE" \
+  --json '{"access_control_list":[{"group_name":"account users","permission_level":"CAN_USE"}]}'
+databricks apps get-permissions "$PG_SAGE_APP" --profile "$PG_SAGE_PROFILE" -o json
+```
+
+New allowed-domain users receive pg_sage's viewer role; this grant does not
+create database roles or promote them to operators/administrators. Users must
+still authenticate through the organization's identity provider and be recognized
+as Databricks account users. App use does not by itself require workspace access,
+but account provisioning, SSO and workspace network/authentication policies still
+apply. This change does not enroll employees into FEVM or prove HR employment.
+See the [platform sharing reference](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/permissions).
+
+### Gateway configuration
 
 For Unity AI Gateway, supply the actual OpenAI-compatible `gateway_endpoint`
 (`https://<workspace>/ai-gateway/mlflow/v1`) and fully qualified `gateway_model`.
@@ -516,6 +599,7 @@ An App RUNNING state alone does not establish useful collection or AI access.
 | 302/login for an anonymous protected request | Expected platform ingress gate. Authenticate through Databricks; do not bypass it with identity headers. |
 | Missing identity, local login form, or a separate session seems required | Confirm `SAGE_AUTH_MODE=databricks_app`, the runtime port/workspace inputs and proxy access path; remove stale bootstrap/password configuration. Check the intended explicit admin binding. |
 | 403 after platform sign-in | Separate App access from pg_sage role and resource/database permissions. An email or App `CAN_USE` is not an administrator grant. |
+| `403 databricks_app_audience_denied` | The forwarded email domain is outside the configured audience. Sign in with an allowed organization account; inspect the exact-domain policy and administrator binding before changing platform sharing. Existing roles do not bypass it. |
 | App stopped, startup failure or 502 | Inspect system/App logs; confirm `python launch.py`, architecture/chunk checks, `0.0.0.0:$DATABRICKS_APP_PORT`, H2C and proxy TLS termination. Check missing secret/resource injection before changing code. |
 | Architecture or dynamic-interpreter rejection | Rebuild the static **Linux** ELF for the runtime architecture with CGO/libpg_query retained. A local macOS or dynamically linked binary is not compatible. |
 | Package checksum/size mismatch | Re-stage and re-upload the complete reviewed manifest/chunks; do not disable the verification or mix release files. |

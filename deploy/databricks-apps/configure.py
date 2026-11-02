@@ -2,16 +2,43 @@
 from __future__ import annotations
 import argparse
 from copy import deepcopy
+import ipaddress
 import json
 from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
 REQUIRED = {"app_name", "host", "endpoint", "branch", "database_resource", "database_name", "secret_scope", "secret_key", "databricks_admin_email"}
-OPTIONAL = {"pg_user", "gateway_endpoint", "gateway_model", "gateway_json_mode", "description", "lakebase_observability"}
+OPTIONAL = {"pg_user", "gateway_endpoint", "gateway_model", "gateway_json_mode", "description", "lakebase_observability", "databricks_allowed_email_domains"}
 RESOURCE = re.compile(r"projects/[a-z0-9-]+/branches/[a-z0-9-]+")
 HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+", re.I)
 RUNTIME_FILES = ["app.yaml", "binary.json", "binary.part-*", "config.json", "launch.py", "databricks.yml"]
+
+
+def allowed_email_domains(settings: dict) -> list[str]:
+    if "databricks_allowed_email_domains" not in settings:
+        return []
+    raw = settings["databricks_allowed_email_domains"]
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("databricks_allowed_email_domains must be a nonempty list of exact DNS domains")
+    domains = []
+    for item in raw:
+        domain = item.strip().lower() if isinstance(item, str) else ""
+        labels = domain.split(".")
+        valid = len(domain) <= 253 and len(labels) >= 2 and all(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+        try:
+            ipaddress.ip_address(domain)
+            valid = False
+        except ValueError:
+            pass
+        if not valid:
+            raise ValueError("databricks_allowed_email_domains must contain exact DNS domains without empty entries or wildcards")
+        if domain not in domains:
+            domains.append(domain)
+    if settings["databricks_admin_email"].rsplit("@", 1)[-1].lower() not in domains:
+        raise ValueError("databricks_admin_email must belong to databricks_allowed_email_domains")
+    return domains
 
 
 def telemetry_config(settings: dict) -> dict | None:
@@ -65,6 +92,7 @@ def render(settings: dict) -> tuple[dict, dict]:
         raise ValueError("host must be the endpoint hostname, without credentials, a scheme or a port")
     if not re.fullmatch(r"[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+", settings["databricks_admin_email"]):
         raise ValueError("databricks_admin_email must be a plain email address")
+    domains = allowed_email_domains(settings)
     gateway = settings.get("gateway_endpoint", "")
     model = settings.get("gateway_model", "")
     if bool(gateway) != bool(model):
@@ -91,6 +119,8 @@ def render(settings: dict) -> tuple[dict, dict]:
     ]
     if settings.get("pg_user"):
         env.append({"name": "PGUSER", "value": settings["pg_user"]})
+    if domains:
+        env.append({"name": "SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS", "value": ",".join(domains)})
     if gateway:
         env.extend([
             {"name": "SAGE_LLM_AUTH", "value": "databricks"},

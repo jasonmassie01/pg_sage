@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -41,9 +42,45 @@ func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.Us
 				return
 			}
 			user, err := resolve(r.Context(), email)
+			if errors.Is(err, auth.ErrDatabricksAppAudienceDenied) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				jsonResponse(w, map[string]string{
+					"error": "This app is restricted to the configured organization. Sign in with an allowed organization account.",
+					"code":  "databricks_app_audience_denied",
+				})
+				return
+			}
+			if errors.Is(err, auth.ErrOAuthLinkRequired) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				jsonResponse(w, map[string]string{
+					"error": "This Databricks identity requires a reviewed account link. Contact an app administrator.",
+					"code":  "databricks_app_account_link_required",
+				})
+				return
+			}
+			if errors.Is(err, auth.ErrOAuthEmailUnverified) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				jsonResponse(w, map[string]string{
+					"error": "This Databricks identity could not be verified. Contact an app administrator.",
+					"code":  "databricks_app_identity_rejected",
+				})
+				return
+			}
 			if err != nil || user == nil {
-				slog.Warn("Databricks app identity could not be resolved")
-				jsonError(w, "Databricks account is unavailable", http.StatusForbidden)
+				// Database/pool/context failures do not establish an identity
+				// rejection. Fail closed without reusing a previous role or
+				// disclosing raw resolver errors, SQL or connection details.
+				slog.Warn("Databricks app account verification is unavailable")
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", "5")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				jsonResponse(w, map[string]string{
+					"error": "Account verification is temporarily unavailable. Retry shortly; if this continues, ask an app administrator to check the metadata database and connection capacity.",
+					"code":  "databricks_app_auth_unavailable",
+				})
 				return
 			}
 			ctx := context.WithValue(r.Context(), userContextKey, user)

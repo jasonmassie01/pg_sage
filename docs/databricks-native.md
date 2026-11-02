@@ -1,6 +1,6 @@
 # Databricks-native implementation
 
-pg_sage **2.5.0-dev.10** runs as a local native process against Lakebase or as
+pg_sage **2.5.0-dev.12** runs as a local native process against Lakebase or as
 a Go service with an embedded React dashboard in Databricks Apps. Lakebase
 connections and Unity Gateway AI requests use Databricks OAuth. In Apps,
 operators sign in through Databricks only; there is no second pg_sage login or
@@ -12,6 +12,19 @@ identities. Public platform documentation was cross-checked November 1, 2026.
 The tables below distinguish native-process results from App-principal results
 and identify functionality that remains restricted or unproven.
 
+The [November 2 dev.11–12 follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md)
+adds the optional organization email-domain audience gate and recognizable,
+locally bundled meme images. Its new validation covers auth, packaging, telemetry storage and UI;
+the broader database/telemetry compatibility evidence below retains its original
+revision and date.
+
+Dev.12 corrects an availability failure found during that live UI check:
+telemetry inbox delivery and expiry scans competed with authentication in the
+standalone App's two-connection pool. It adds query bounds/indexes and an Apps
+default of five shared connections, preserving explicit configuration. Account
+storage outages return retryable 503; organization/identity refusals remain 403.
+This does not establish unlimited viewer concurrency or a production load test.
+
 ## Start here
 
 | Goal | Guide |
@@ -21,7 +34,7 @@ and identify functionality that remains restricted or unproven.
 | Build, install, update or troubleshoot the Databricks App | [Databricks Apps operator guide](databricks-apps.md) |
 | Understand package files and deployment commands | [Deployment directory README](../deploy/databricks-apps/README.md) |
 | Check feature-level support and provider limitations | [Lakebase compatibility matrix](lakebase.md#compatibility-at-a-glance) |
-| Review actual delivered behavior and test evidence | [dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) and [evidence index below](#validation-and-evidence) |
+| Review actual delivered behavior and test evidence | [dev.11–12 acceptance](../reviews/2026-11-02-v2.5-dev12-acceptance.md), [dev.10 workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) and [evidence index below](#validation-and-evidence) |
 
 ## Architecture and identity
 
@@ -52,6 +65,12 @@ Three authorization boundaries remain independent:
    first does not grant administration. Existing local accounts require reviewed
    identity migration. Access is trusted only behind the Apps ingress; this is
    not a general header-authentication mode for arbitrary proxies.
+   Optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` restricts the audience before
+   account lookup on every protected request, including existing administrators.
+   It matches exact email domains without accepting subdomains or suffixes
+   implicitly. The configured administrator must match; this domain check does
+   not prove directory employment or grant a pg_sage role. Without this setting,
+   platform App permissions continue to control the audience.
 2. **Background identity:** database, Gateway and warehouse requests use the
    App service principal. These requests do not impersonate the signed-in user
    or inherit their data/model privileges. App mode pins SDK authentication to
@@ -98,6 +117,7 @@ Packages must not contain database passwords, workspace tokens or raw test data.
 | `SAGE_LAKEBASE_ENDPOINT` | Full `projects/<project>/branches/<branch>/endpoints/<endpoint>` path; native multi-endpoint deployments instead use `SAGE_LAKEBASE_ENDPOINTS` |
 | `sage-encryption-key` secret resource | Supplies stable `SAGE_ENCRYPTION_KEY`; do not generate a new key on every boot |
 | `SAGE_AUTH_MODE=databricks_app` and `SAGE_DATABRICKS_ADMIN_EMAIL` | Platform-only authentication and explicit administrator selection |
+| Optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` | Comma-separated exact DNS-domain audience policy; invalid policies/admin lockout stop startup, and denied identities receive 403 before account lookup |
 | `gateway-model` resource, Gateway URL and model name | Model invocation authority; `llm.auth=databricks`, no API key |
 | Optional `lakebase-history-warehouse` resource | Warehouse `CAN_USE` plus appropriate UC/system-table permissions; does not grant access by itself |
 | `lakebase_observability` settings and bindings | Explicit endpoint/database identity, bounds, retention and payload consent for the optional history reader |
@@ -241,8 +261,15 @@ Cases → Actions → Ask preserves database/case context. Explain prepares a dr
 for the user to send; it does not automatically start an AI request. A single
 running database is selected automatically, and loading/error/empty states are
 distinct. Fleet includes actual running/configured databases. The observatory
-theme is responsive, with compact original DBA memes on each page and monitoring
+theme is responsive, with compact DBA meme images on each page and monitoring
 scope/mode context before the content.
+
+Dev.11 replaces the original illustrated jokes with six recognizable classic
+image templates and route-specific HTML captions. Images are bundled in the
+binary, lazy-loaded and served from the App origin; the browser does not fetch
+them from a meme CDN. [Template provenance and rights notes](../sidecar/web/public/memes/CREDITS.md)
+record sources, attribution, transformations and hashes. These third-party
+images do not acquire the repository's software license.
 
 These changes address heuristic usability findings. Actual novice usability
 testing and explicit synthetic-fixture labels in Cases remain outstanding; the
@@ -254,13 +281,15 @@ UI does not infer that arbitrary schemas are synthetic from their names.
 | --- | --- |
 | dev.5 | [Latest uninterrupted whole-repository run](../reviews/2026-10-30-v2.5-dev5-acceptance.md): 142 packages, 16,394 passing test/subtest events, 55 allowed skips, 141 package passes and one without tests. Native Lakebase: 79 pass, two explicit skips. Controlled telemetry: 24 records across all ten streams. Separate App/history/SLO acceptance |
 | dev.8 | [Scenario/restart acceptance](../reviews/2026-10-30-v2.5-dev8-acceptance.md): 627 analyzer race/integration/e2e tests/subtests; nine controlled finding families and invalid-index restart continuity |
-| dev.10 | [Current acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md): 726 frontend tests/102 files; 46 browser tests including 22 desktop/mobile routes; 1,434 API/Cases race passes plus one opt-in live skip; lint/build and actual App auth/Gateway/Fleet/context/mobile checks |
+| dev.10 | [Workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md): 726 frontend tests/102 files; 46 browser tests including 22 desktop/mobile routes; 1,434 API/Cases race passes plus one opt-in live skip; lint/build and actual App auth/Gateway/Fleet/context/mobile checks |
+| dev.11 | [Audience and meme follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 755 frontend tests/102 files, 46 browser tests, 1,627 auth/API race passes plus one opt-in live skip, 24 packaging tests, scoped deployed-App checks and retained live browser failures. No new whole-repository or live database compatibility run |
+| dev.12 | [App availability correction](../reviews/2026-11-02-v2.5-dev12-acceptance.md): 69 telemetry race/integration/e2e passes, zero skips/failures; 25 packaging tests; focused auth/API, HTTP/2 stream and limiter race checks. Final live desktop/mobile tour: 12 page checks, six decoded meme templates, six protected API checks, five clean stream completions and zero protocol errors. Earlier failed attempts remain documented |
 
-The whole-repository result is **dev.5**, not a new dev.10 whole-repository run.
-The final dev.10 App SNAPSHOT is `01f1d4c0a6af15be95fc0632b1a607e1`; the
+The whole-repository result is **dev.5**, not a new dev.10/dev.11/dev.12 whole-repository run.
+The final dev.10 workflow-baseline App SNAPSHOT is `01f1d4c0a6af15be95fc0632b1a607e1`; the
 acceptance report retains exact macOS/Linux artifact hashes and its source
-fingerprint scope. This documentation publication changes guides, packaging
-exclusions, the portable fixture helper and test-only credential setup; it does not rebuild/redeploy that
+fingerprint scope. The November 1 documentation publication changed guides, packaging
+exclusions, the portable fixture helper and test-only credential setup; it did not rebuild/redeploy that
 runtime or re-label its acceptance.
 
 Publication checks on November 1 passed all 22 existing Python packaging tests,
@@ -269,8 +298,8 @@ checks and fixture-helper configuration/refusal checks. Mocked helper checks
 verified that an endpoint-host mismatch is refused before minting a credential
 or invoking SQL. The native-auth race package also passed after its fixture URL
 was made passwordless while preserving the bootstrap-credential check.
-No new live workload or compatibility soak was run for this
-documentation follow-up.
+No new live workload or compatibility soak was run for that
+November 1 documentation follow-up.
 
 Additional evidence:
 

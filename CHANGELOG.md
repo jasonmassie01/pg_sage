@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.5.0-dev.12 (unreleased) -- Keep telemetry from blocking App access
+
+- Return retryable HTTP 503 for unavailable Databricks account storage, while
+  retaining HTTP 403 for organization and identity refusals. Resolve durable
+  roles on every request and expose no raw connection or SQL errors.
+- Add telemetry inbox indexes and bound background delivery/expiry database
+  work. Avoid rewriting retained events whose expiry has not changed.
+- Give Databricks Apps a five-connection default for its shared authentication,
+  control and monitoring pool, preserving explicit operator configuration.
+- Isolate the pre-authentication App rate limit by validated platform identity
+  and workspace; employees behind a shared proxy do not exhaust one IP bucket.
+  Preserve the existing limit and ordinary session/IP behavior.
+- End event streams cleanly before the server write deadline so EventSource
+  reconnects without HTTP/2 protocol errors; retain bounded server timeouts.
+- Retain failed live acceptance attempts and distinguish the corrected App's
+  checks from earlier full-suite and Lakebase compatibility evidence.
+
+## v2.5.0-dev.11 (unreleased) -- Company access and classic DBA memes
+
+- Add an optional exact email-domain audience policy to Databricks Apps.
+  Validate its administrator and domains at startup, and reject disallowed
+  identities before account lookup or provisioning, including existing users.
+  Keep Databricks-only sign-in, durable pg_sage roles and viewer defaults.
+- Document organization sharing separately from the application's audience
+  policy and FEVM account/SSO provisioning. Account-wide sharing alone does
+  not establish employee-only access.
+- Replace the original illustrated jokes with locally bundled recognizable
+  meme templates, accessible HTML captions and page-specific Postgres jokes.
+  Keep memes secondary to operational content and include source provenance.
+
 ## v2.5.0-dev.10 (unreleased) -- One proposal per reviewed change
 
 - Documentation follow-up (2026-11-01): document the Databricks-native

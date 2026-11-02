@@ -1,78 +1,96 @@
+const templates = {
+  distracted: {
+    name: 'Distracted Boyfriend', file: 'distracted-boyfriend.jpg', width: 720, height: 480,
+    alt: 'Distracted Boyfriend: a man looks at another woman while his girlfriend looks offended.',
+    roles: ['The tempting distraction', 'The distracted person', 'The ignored partner'],
+  },
+  buttons: {
+    name: 'Two Buttons', file: 'two-buttons.jpg', width: 475, height: 720,
+    alt: 'Two Buttons: a sweating man struggles to choose between two red buttons.',
+    roles: ['First button', 'Second button', 'The person choosing'],
+  },
+  drake: {
+    name: 'Drake Hotline Bling', file: 'drake.jpg', width: 720, height: 720,
+    alt: 'Drake Hotline Bling: Drake rejects the top option and approves the bottom option.',
+    roles: ['Drake rejects', 'Drake approves'],
+  },
+  disaster: {
+    name: 'Disaster Girl', file: 'disaster-girl.jpg', width: 720, height: 540,
+    alt: 'Disaster Girl: a girl gives the camera a knowing smile in front of a burning house.',
+    roles: ['Setup', 'Punchline'],
+  },
+  change: {
+    name: 'Change My Mind', file: 'change-my-mind.jpg', width: 720, height: 539,
+    alt: 'Change My Mind: a man sits behind a table with a sign inviting people to change his mind.',
+    roles: ['The sign'],
+  },
+  fine: {
+    name: 'This Is Fine', file: 'this-is-fine.jpg', width: 720, height: 350,
+    alt: 'This Is Fine: a cartoon dog sits in a burning room and says, “This is fine.”',
+    roles: ['Setup', 'Punchline'],
+  },
+}
+
+// Captions are HTML, not baked into the image: readable by assistive technology,
+// selectable, and sharp at every size. The photos/comics are bundled locally.
 const memes = [
-  ['#/advanced/findings', 'Findings explorer', 'Just one harmless sequential scan.', 'One million executions later: we should talk.', '-- the planner remembers'],
-  ['#/advanced/actions', 'Action history', 'I have a rollback plan.', 'Excellent. Does it contain more than COMMIT?', '-- receipts > reassurance'],
-  ['#/advanced/runbooks', 'Runbooks', 'Did you try turning it off and on?', 'This is why the DBA writes the runbook.', '-- step 0: know your primary'],
-  ['#/advanced/autonomy', 'Earned autonomy', 'Trust me. I tested the query.', 'In a production-shaped daydream?', '-- trust, then EXPLAIN'],
-  ['#/advanced', 'Snapshot & metrics', 'The cache hit ratio is 99.9%.', 'The other 0.1% has opened a ticket.', '-- averages have an alibi'],
-  ['#/manage-databases', 'Fleet', 'Every database is fine.', 'Each has a different definition of fine.', '-- SELECT * FROM reality;'],
-  ['#/database', 'Database', 'It is only a small table.', 'Small is a state of mind. And a stale statistic.', '-- ANALYZE your assumptions'],
-  ['#/cases', 'Cases', 'It only happens sometimes.', 'Excellent. A reproducible feeling.', '-- correlation has entered the chat'],
-  ['#/findings', 'Findings', 'Just one harmless sequential scan.', 'One million executions later: we should talk.', '-- the planner remembers'],
-  ['#/actions', 'Actions', 'I have a rollback plan.', 'Excellent. Does it contain more than COMMIT?', '-- receipts > reassurance'],
-  ['#/slos', 'SLOs', 'Everything is green.', 'The denominator has left the chat.', '-- no data is not zero errors'],
-  ['#/trust', 'Trust', 'Can we enable autonomous mode?', 'First, show me the WHERE clause.', '-- least privilege. maximum side-eye.'],
-  ['#/facts', 'Facts', 'It worked on my laptop.', 'Great. Is your laptop the primary?', '-- evidence beats folklore'],
-  ['#/ask', 'Ask Sage', 'Just one quick question.', 'Postgres: define “quick.”', '-- EXPLAIN yourself'],
-  ['#/settings', 'Settings', 'It says work_mem.', 'It did not say whole_server_mem.', '-- per operation. yes, really.'],
-  ['#/notifications', 'Notifications', 'We solved alert fatigue.', 'Now every alert whispers “VACUUM.”', '-- quiet is a feature'],
-  ['#/alert-log', 'Alert log', 'The alert resolved itself.', 'So did my confidence in that alert.', '-- retain the evidence'],
-  ['#/users', 'Users', 'Can I have superuser?', 'Best I can do is least privilege.', '-- GRANT good_judgment TO everyone;'],
-  ['#/profile', 'Profile', 'It is always DNS.', 'Until it is your role membership.', '-- current_user has questions'],
-  ['#/agents', 'Agents', 'The agent says it is safe.', 'The approval ledger would like a word.', '-- humans still own COMMIT'],
-  ['#/mcp-tokens', 'MCP tokens', 'I put the token somewhere safe.', 'Please tell me “somewhere” is not a screenshot.', '-- secrets do not belong in query plans'],
-  ['#/link-sso', 'Identity', 'It is always DNS.', 'Until it is your identity provider.', '-- authentication is not authorization'],
-  ['#/login', 'Sign in', 'I know who I am.', 'The database would like some evidence.', '-- authentication is not authorization'],
-  ['#/', 'Value', 'How much time did the index save?', 'Enough to finally drink the coffee warm.', '-- measure twice. CREATE INDEX once.'],
+  ['#/advanced/findings', 'Findings explorer', 'buttons', ['ADD AN INDEX', 'ADD TWO INDEXES', 'ME DISCOVERING BTREE']],
+  ['#/advanced/actions', 'Action history', 'disaster', ['“JUST ONE QUICK DDL”', 'FRIDAY. 4:59 PM.']],
+  ['#/advanced/runbooks', 'Runbooks', 'drake', ['“ASK DAVE”', 'A RUNBOOK THAT WORKS WHILE DAVE IS ON PTO']],
+  ['#/advanced/autonomy', 'Earned autonomy', 'buttons', ['AUTOMATE THE FIX', 'KEEP MY PAGER', 'DBA EVALUATING AUTONOMY']],
+  ['#/advanced', 'Snapshot & metrics', 'fine', ['CPU: 100%. CACHE HIT: 99.9%.', '“SO IT’S MOSTLY GREEN.”']],
+  ['#/manage-databases', 'Fleet', 'disaster', ['I SCHEDULED MAINTENANCE', 'ON ALL PRIMARIES AT ONCE']],
+  ['#/database', 'Database', 'distracted', ['SHARDING', 'MY APP', 'ONE MISSING INDEX']],
+  ['#/cases', 'Cases', 'distracted', ['A NEW EXTENSION', 'ME', 'THE OPEN SEV-1']],
+  ['#/findings', 'Findings', 'buttons', ['ADD AN INDEX', 'ADD TWO INDEXES', 'ME DISCOVERING BTREE']],
+  ['#/actions', 'Actions', 'disaster', ['“JUST ONE QUICK DDL”', 'FRIDAY. 4:59 PM.']],
+  ['#/slos', 'SLOs', 'fine', ['P99 IS IN SECONDS.', '“BUT THE AVERAGE IS FINE.”']],
+  ['#/trust', 'Trust', 'drake', ['“TRUST ME, I’M AN ADMIN”', 'A ROLLBACK WE’VE ACTUALLY TESTED']],
+  ['#/facts', 'Facts', 'change', ['“WORKED IN STAGING” IS NOT EVIDENCE.']],
+  ['#/ask', 'Ask Sage', 'drake', ['“IT’S PROBABLY THE CACHE”', 'EXPLAIN (ANALYZE, BUFFERS)']],
+  ['#/settings', 'Settings', 'drake', ['1 GB work_mem FOR EVERYONE', 'FIXING THE ONE QUERY THAT SPILLS']],
+  ['#/notifications', 'Notifications', 'drake', ['EMAIL EVERY DEAD TUPLE', 'PAGE ON SOMETHING ACTIONABLE']],
+  ['#/alerts', 'Alert log', 'fine', ['THE ALERT STOPPED FIRING.', '“I TURNED THE ALERT OFF.”']],
+  ['#/alert-log', 'Alert log', 'fine', ['THE ALERT STOPPED FIRING.', '“I TURNED THE ALERT OFF.”']],
+  ['#/users', 'Users', 'distracted', ['SUPERUSER', 'NEW APP', 'THE SELECT GRANT IT NEEDS']],
+  ['#/profile', 'Profile', 'change', ['YOUR JOB TITLE IS NOT A POSTGRES ROLE.']],
+  ['#/agents', 'Agents', 'buttons', ['APPROVE THE AGENT', 'READ THE SQL', 'THE HUMAN IN THE LOOP']],
+  ['#/mcp-tokens', 'MCP tokens', 'disaster', ['“I LOGGED THE ENTIRE REQUEST”', 'INCLUDING THE BEARER TOKEN']],
+  ['#/link-sso', 'Identity', 'drake', ['“BUT I OWN THIS DATABASE”', 'A VALID SESSION']],
+  ['#/login', 'Sign in', 'drake', ['“BUT I OWN THIS DATABASE”', 'A VALID SESSION']],
+  ['#/forecasts', 'Forecasts', 'buttons', ['ADD CAPACITY NOW', 'WAIT FOR THE PAGER', '“HOW FAST IS IT GROWING?”']],
+  ['#/query-hints', 'Query hints', 'distracted', ['FORCING THE PLAN', 'ME', 'UPDATING STATISTICS']],
+  ['#/schema-health', 'Schema health', 'disaster', ['“FOREIGN KEYS GET AN INDEX, RIGHT?”', 'POSTGRES: “THAT’S A YOU PROBLEM.”']],
+  ['#/incidents', 'Incidents', 'buttons', ['FIX THE INCIDENT', 'FIND WHO CAUSED IT', 'THE FIRST FIVE MINUTES']],
+  ['#/', 'Value', 'distracted', ['NEW HARDWARE', 'MY TEAM', 'CREATE INDEX']],
 ]
 
 function memeForRoute(route) {
   const path = String(route || '#/').split('?')[0]
   return memes.find(([prefix]) => path === prefix || (prefix !== '#/' && path.startsWith(`${prefix}/`)))
-    || ['#/', 'Postgres operations', 'We need to go deeper.', 'There is always another nested loop.', '-- welcome to the query plan']
+    || ['#/', 'Postgres operations', 'fine', ['THE PAGE IS MISSING.', '“MUST BE THE QUERY PLANNER.”']]
 }
 
-function ElephantDBA() {
-  return (
-    <svg viewBox="0 0 148 104" role="img"
-      aria-label="An elephant DBA with a headset, a query terminal, and a coffee"
-      className="postgres-meme-art">
-      <path d="M12 91h125" stroke="currentColor" opacity=".2" />
-      <path d="M42 81c-15-4-24-16-23-34 1-17 14-29 31-25l16 13-3 41Z"
-        fill="#28657a" stroke="#7ac9d7" strokeWidth="1.5" />
-      <path d="M49 25c13-12 35-11 48 3 9 10 11 26 7 38l-9 21H54L43 65c-6-17-6-30 6-40Z"
-        fill="#65a8b6" stroke="#a7e2df" strokeWidth="1.5" />
-      <path d="M82 51c4 8 9 14 10 25 1 9-3 15-11 16-8 1-12-5-9-12 2-5 6-7 11-5"
-        fill="none" stroke="#a7e2df" strokeWidth="10" strokeLinecap="round" />
-      <path d="M47 41c5-14 24-21 39-11" fill="none" stroke="#162d39" strokeWidth="6" strokeLinecap="round" />
-      <rect x="40" y="43" width="9" height="21" rx="4" fill="#172c38" stroke="#72e6c7" />
-      <path d="m45 61 6 9h14" fill="none" stroke="#72e6c7" strokeWidth="2" />
-      <circle cx="67" cy="70" r="3" fill="#72e6c7" />
-      <path d="m57 43 8-1m18 1 8 2" stroke="#173744" strokeWidth="2.5" strokeLinecap="round" />
-      <circle cx="63" cy="50" r="2.5" fill="#10222d" /><circle cx="87" cy="52" r="2.5" fill="#10222d" />
-      <path d="m52 83 12-7 8 9" fill="#264b5d" />
-      <rect x="14" y="74" width="46" height="25" rx="4" fill="#0a1822" stroke="#3e6978" />
-      <path d="m20 82 4 3-4 3m8 1h12" fill="none" stroke="#72e6c7" strokeWidth="1.5" />
-      <path d="M11 99h52" stroke="#73a5b0" strokeWidth="2" strokeLinecap="round" />
-      <path d="M112 76h15v17h-15Zm15 3h4c6 0 6 10 0 10h-4" fill="#d7aa72" stroke="#f4d5a6" strokeWidth="1.5" />
-      <path d="m117 69-1-5 3-5m5 9-1-4 2-4" fill="none" stroke="#d7aa72" strokeWidth="1.5" strokeLinecap="round" opacity=".7" />
-      <path d="m112 25 4-5m5 10 6-2" stroke="#72e6c7" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-/** Original, route-aware DBA humor. It is a captioned illustration, never a status signal. */
 export function PostgresMeme({ route = window.location.hash, compact = false }) {
-  const [, page, setup, punchline, comment] = memeForRoute(route)
+  const [, page, templateKey, captions] = memeForRoute(route)
+  const template = templates[templateKey]
   return (
     <figure className={`postgres-meme${compact ? ' postgres-meme-compact' : ''}`}
       data-testid="postgres-meme" aria-label={`PostgreSQL meme for ${page}`}>
-      <div className="postgres-meme-illustration"><ElephantDBA /></div>
-      <figcaption className="postgres-meme-caption">
-        <div className="postgres-meme-eyebrow"><span>THE DBA BREAKROOM</span><span>pg_sage originals</span></div>
-        <p className="postgres-meme-setup">{setup}</p>
-        <p className="postgres-meme-punchline">{punchline}</p>
+      <figcaption className="postgres-meme-heading">
+        <span className="postgres-meme-eyebrow">THE DBA BREAKROOM</span>
+        <span className="postgres-meme-template">{template.name}</span>
       </figcaption>
-      <code className="postgres-meme-comment">{comment}</code>
+      <div className={`postgres-meme-poster postgres-meme-${templateKey}`}>
+        <img src={`/memes/${template.file}`} alt={template.alt}
+          width={template.width} height={template.height} loading="lazy" decoding="async" />
+        {captions.map((caption, index) => (
+          <span key={index} className={`postgres-meme-label postgres-meme-label-${index + 1}`}>
+            <span className="sr-only">{template.roles[index]}: </span>{caption}
+          </span>
+        ))}
+      </div>
+      <a className="postgres-meme-credits" href="/memes/CREDITS.md">Template credits</a>
     </figure>
   )
 }

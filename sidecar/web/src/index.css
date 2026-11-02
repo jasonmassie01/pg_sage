@@ -97,26 +97,45 @@ button[style*="background: var(--accent)"]:hover:not(:disabled) {
 .sage-content input, .sage-content select, .sage-content textarea { border-radius: 8px; }
 .sage-content pre { line-height: 1.7; border-radius: 10px; }
 
+/* Secondary, locally hosted meme postcards. Keep the actual database UI first. */
 .postgres-meme {
-  display: grid; grid-template-columns: 124px minmax(0, 1fr) minmax(160px, auto); align-items: center;
-  gap: 18px; min-width: 0; margin: 0 0 24px; padding: 4px 22px 4px 8px; border-radius: 14px;
-  border: 1px solid #36545b; background: linear-gradient(112deg, #193540c9, #14272fc7 60%, #193c352b);
-  box-shadow: inset 0 1px #a7e2df08, 0 8px 24px #0000000a; overflow: hidden;
+  width: min(100%, 320px); margin: 32px 0 0 auto; padding: 10px;
+  border: 1px solid #36545b; border-radius: 12px; background: #10212acc;
+  box-shadow: 0 6px 22px #0002; overflow: hidden;
 }
-.postgres-meme-art { display: block; width: 124px; height: 94px; color: #83adba; }
-.postgres-meme-caption { min-width: 0; }
-.postgres-meme-eyebrow { display: flex; flex-wrap: wrap; gap: 5px 14px; align-items: center; color: #9fc0ca; font: 8px var(--font-mono); letter-spacing: 1.3px; margin-bottom: 8px; }
-.postgres-meme-eyebrow > span:last-child { color: #86b39e; letter-spacing: .3px; text-transform: none; }
-.postgres-meme-setup { margin: 0 0 3px; color: #a6bec8; font-size: 12px; }
-.postgres-meme-punchline { margin: 0; color: #eff7f7; font-size: 14px; font-weight: 600; letter-spacing: -.1px; }
-.postgres-meme-comment { color: #9dc8b8; font-size: 10px; padding-left: 20px; border-left: 1px dashed #456560; max-width: 245px; overflow-wrap: anywhere; line-height: 1.8; }
-.postgres-meme-compact { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 8px; margin: 24px 0 0; text-align: left; }
-.postgres-meme-compact .postgres-meme-art { width: 82px; height: 75px; }
-.postgres-meme-compact .postgres-meme-eyebrow { font-size: 7px; letter-spacing: .6px; margin-bottom: 5px; }
-.postgres-meme-compact .postgres-meme-eyebrow > span:last-child { display: none; }
-.postgres-meme-compact .postgres-meme-setup { font-size: 10px; }
-.postgres-meme-compact .postgres-meme-punchline { font-size: 12px; }
-.postgres-meme-compact .postgres-meme-comment { display: none; }
+.postgres-meme-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
+.postgres-meme-eyebrow { color: #9fc0ca; font: 8px var(--font-mono); letter-spacing: 1px; }
+.postgres-meme-template { color: #9dc8b8; font: 8px var(--font-mono); }
+.postgres-meme-poster { position: relative; width: 100%; container-type: inline-size; overflow: hidden; border-radius: 5px; background: #fff; }
+.postgres-meme-poster img { display: block; width: 100%; height: auto; }
+.postgres-meme-label {
+  position: absolute; display: block; padding: 2px 3px; text-align: center;
+  color: #fff; font-family: Impact, 'Arial Narrow', sans-serif; font-weight: 800;
+  font-size: 5.6cqw; line-height: 1.12; overflow-wrap: anywhere;
+  text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 2px 2px #000;
+}
+.postgres-meme-drake .postgres-meme-label { left: 52%; width: 46%; transform: translateY(-50%); color: #151515; text-shadow: none; font-size: 5.6cqw; line-height: 1.23; }
+.postgres-meme-drake .postgres-meme-label-1 { top: 25%; }
+.postgres-meme-drake .postgres-meme-label-2 { top: 75%; }
+.postgres-meme-distracted .postgres-meme-label { top: 69%; transform: translateX(-50%); font-size: 4.4cqw; background: #07131ddd; border-radius: 3px; text-shadow: none; line-height: 1.2; padding: 4px; }
+.postgres-meme-distracted .postgres-meme-label-1 { left: 23%; width: 31%; }
+.postgres-meme-distracted .postgres-meme-label-2 { left: 53%; width: 20%; }
+.postgres-meme-distracted .postgres-meme-label-3 { left: 82%; width: 30%; }
+.postgres-meme-disaster .postgres-meme-label, .postgres-meme-fine .postgres-meme-label { left: 2%; width: 96%; }
+.postgres-meme-disaster .postgres-meme-label-1 { top: 3%; }
+.postgres-meme-disaster .postgres-meme-label-2 { bottom: 3%; }
+.postgres-meme-fine .postgres-meme-label { font-size: 4.8cqw; background: #07131ddd; text-shadow: none; padding: 3px 5px; }
+.postgres-meme-fine .postgres-meme-label-1 { top: 2%; left: 2%; width: 46%; }
+.postgres-meme-fine .postgres-meme-label-2 { bottom: 2%; left: 51%; width: 47%; }
+.postgres-meme-change .postgres-meme-label { top: 67%; left: 46%; width: 44%; transform: rotate(-7deg); color: #131313; text-shadow: none; font-size: 4.2cqw; line-height: 1.15; }
+.postgres-meme-buttons { max-width: 220px; margin: 0 auto; }
+.postgres-meme-buttons .postgres-meme-label-1, .postgres-meme-buttons .postgres-meme-label-2 { color: #111; text-shadow: none; font-size: 4.7cqw; line-height: 1.05; transform: rotate(-19deg); }
+.postgres-meme-buttons .postgres-meme-label-1 { top: 12%; left: 11%; width: 36%; }
+.postgres-meme-buttons .postgres-meme-label-2 { top: 6%; left: 52%; width: 34%; }
+.postgres-meme-buttons .postgres-meme-label-3 { bottom: 5%; left: 6%; width: 88%; font-size: 5.5cqw; }
+.postgres-meme-credits { display: block; width: fit-content; margin: 7px 0 0 auto; color: #a3b9c2; font: 9px var(--font-mono); text-decoration: underline; text-underline-offset: 2px; }
+.postgres-meme-credits:hover { color: var(--accent); }
+.postgres-meme-compact { width: min(100%, 290px); }
 .sage-login-surface { padding: 24px; background-image: radial-gradient(ellipse at 50% 25%, #1b514b55, transparent 65%) !important; }
 .sage-login-card { box-shadow: 0 24px 80px #0005, inset 0 1px #d7efef0b; border-radius: 18px; }
 .sage-login-card h1 { font-family: var(--font-mono); letter-spacing: -1px; }
@@ -124,10 +143,6 @@ button[style*="background: var(--accent)"]:hover:not(:disabled) {
 
 @media (max-width: 1100px) {
   .sage-header { flex-wrap: wrap; }
-  .postgres-meme { grid-template-columns: 108px minmax(0, 1fr); }
-  .postgres-meme-art { width: 108px; height: 92px; }
-  .postgres-meme-comment { display: none; }
-  .postgres-meme-compact { grid-template-columns: 82px minmax(0, 1fr); }
 }
 @media (max-width: 767px) {
   .sage-header { padding: 17px 16px; min-height: 100px; align-items: flex-start; }
@@ -135,12 +150,6 @@ button[style*="background: var(--accent)"]:hover:not(:disabled) {
   .sage-header h1 { font-size: 24px; }
   .sage-header-eyebrow { font-size: 7px; letter-spacing: 1px; }
   .sage-content { padding: 16px 14px 32px; }
-  .postgres-meme { grid-template-columns: 78px minmax(0, 1fr); padding: 9px 12px 9px 2px; gap: 9px; margin-bottom: 18px; }
-  .postgres-meme-art { width: 78px; height: 80px; }
-  .postgres-meme-eyebrow { font-size: 7px; letter-spacing: .8px; gap: 4px; }
-  .postgres-meme-eyebrow > span:last-child { display: none; }
-  .postgres-meme-setup { font-size: 10px; line-height: 1.5; }
-  .postgres-meme-punchline { font-size: 12px; line-height: 1.5; }
   .sage-login-surface { padding: 16px; }
   .sage-login-card { padding: 24px; }
 }

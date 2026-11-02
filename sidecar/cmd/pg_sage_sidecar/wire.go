@@ -138,6 +138,9 @@ func wireRouter(p WireParams) WireResult {
 		rl := p.RateLimiter
 		middlewares = append(middlewares,
 			func(next http.Handler) http.Handler {
+				if p.DatabricksAppAuth != nil {
+					return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
+				}
 				return rateLimitMiddleware(rl, next)
 			})
 	}
@@ -148,7 +151,7 @@ func wireRouter(p WireParams) WireResult {
 	}
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
-	// Auth audit rows record the client address the rate limiter sees.
+	// Auth audit retains the client address independently of App identity buckets.
 	api.SetClientIPResolver(clientIP)
 	router := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,

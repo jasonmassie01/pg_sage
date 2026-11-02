@@ -3,11 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -42,6 +46,137 @@ func TestDatabricksAppAuthRequiresUnambiguousPlatformEmail(t *testing.T) {
 				t.Fatalf("identity bypass status=%d resolver=%v", w.Code, called)
 			}
 		})
+	}
+}
+
+func TestDatabricksAppAudienceDeniedBeforeDatabaseLookup(t *testing.T) {
+	cfg := auth.DatabricksAppConfig{
+		AllowedEmailDomains: []string{"databricks.com"}, AdminEmail: "former-admin@external.example",
+	}
+	called := false
+	h := DatabricksAppAuthMiddleware(nil, cfg)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+	for _, email := range []string{
+		"viewer@external.example", cfg.AdminEmail, "viewer@sub.databricks.com", "viewer@notdatabricks.com",
+		"viewer@databricks.com.evil.example",
+	} {
+		t.Run(email, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+			r.Header.Set("X-Forwarded-Email", email)
+			r.Header.Set("X-Forwarded-Role", "admin")
+			r.Header.Set("Authorization", "Bearer old-local-token")
+			r.AddCookie(&http.Cookie{Name: "sage_session", Value: "old-admin-session"})
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			var response map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != http.StatusForbidden || response["code"] != "databricks_app_audience_denied" || !strings.Contains(response["error"], "organization") || called {
+				t.Fatalf("audience denial = %d %s handler=%v", w.Code, w.Body.String(), called)
+			}
+			if strings.Contains(w.Body.String(), "account is unavailable") || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("audience denial reached nil account store or was cacheable: %s", w.Body.String())
+			}
+		})
+	}
+	// A matching mixed-case domain gets past audience checks and reaches the
+	// unavailable account store; the domain gate cannot grant a user or role.
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	r.Header.Set("X-Forwarded-Email", "Viewer@DATABRICKS.COM")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "databricks_app_auth_unavailable") || called {
+		t.Fatalf("allowed domain bypassed account resolution: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDatabricksAppAuthDistinguishesRejectionsFromUnavailableStore(t *testing.T) {
+	privateConnection := (&url.URL{Scheme: "postgres", Host: "private-host", Path: "/db",
+		User: url.UserPassword("private-user", "secret")}).String()
+	for _, tc := range []struct {
+		name   string
+		err    error
+		code   string
+		status int
+	}{
+		{"wrapped audience refusal", fmt.Errorf("private context: %w", auth.ErrDatabricksAppAudienceDenied), "databricks_app_audience_denied", http.StatusForbidden},
+		{"account link required", auth.ErrOAuthLinkRequired, "databricks_app_account_link_required", http.StatusForbidden},
+		{"wrapped account link required", fmt.Errorf("private context: %w", auth.ErrOAuthLinkRequired), "databricks_app_account_link_required", http.StatusForbidden},
+		{"unverified email", fmt.Errorf("private context: %w", auth.ErrOAuthEmailUnverified), "databricks_app_identity_rejected", http.StatusForbidden},
+		{"pool acquire timeout", fmt.Errorf("private context: %w", context.DeadlineExceeded), "databricks_app_auth_unavailable", http.StatusServiceUnavailable},
+		{"request canceled", context.Canceled, "databricks_app_auth_unavailable", http.StatusServiceUnavailable},
+		{"database capacity", &pgconn.PgError{Code: "53300", Message: "private database capacity detail", Detail: privateConnection}, "databricks_app_auth_unavailable", http.StatusServiceUnavailable},
+		{"database connectivity", errors.New(privateConnection + ": connection refused"), "databricks_app_auth_unavailable", http.StatusServiceUnavailable},
+		{"untyped refusal text", errors.New(auth.ErrOAuthLinkRequired.Error()), "databricks_app_auth_unavailable", http.StatusServiceUnavailable},
+		{"nil user invariant", nil, "databricks_app_auth_unavailable", http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			h := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+				if tc.err != nil {
+					// Even an accidentally returned administrator must not
+					// bypass a simultaneous resolver error.
+					return &auth.User{ID: 1, Role: auth.RoleAdmin}, tc.err
+				}
+				return nil, nil
+			})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+			r.Header.Set("X-Forwarded-Email", "viewer@example.com")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			var body map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != tc.status || body["code"] != tc.code || called {
+				t.Fatalf("resolver error response = %d %s handler=%v", w.Code, w.Body.String(), called)
+			}
+			if w.Header().Get("Cache-Control") != "no-store" || len(w.Result().Cookies()) != 0 {
+				t.Fatal("failure response was cacheable or issued a local session")
+			}
+			if tc.status == http.StatusServiceUnavailable {
+				if w.Header().Get("Retry-After") != "5" || !strings.Contains(body["error"], "Retry") || !strings.Contains(body["error"], "administrator") {
+					t.Fatalf("unavailable response lacks retry guidance: %v %s", w.Header(), w.Body.String())
+				}
+			} else if w.Header().Get("Retry-After") != "" {
+				t.Fatal("identity refusal was presented as an operational retry")
+			}
+			for _, secret := range []string{"private", "secret", "postgres://", "53300", "oauth:"} {
+				if strings.Contains(w.Body.String(), secret) {
+					t.Fatalf("raw resolver detail leaked: %s", w.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestDatabricksAppAuthNeverReusesRoleAfterResolverFailure(t *testing.T) {
+	calls := 0
+	h := databricksAppAuthMiddleware(func(context.Context, string) (*auth.User, error) {
+		calls++
+		switch calls {
+		case 1:
+			return &auth.User{ID: 8, Role: auth.RoleAdmin}, nil
+		case 2:
+			return nil, context.DeadlineExceeded
+		case 3:
+			return &auth.User{ID: 8, Role: auth.RoleViewer}, nil
+		default:
+			return nil, auth.ErrOAuthLinkRequired
+		}
+	})(RequireRole(auth.RoleAdmin)(http.HandlerFunc(meHandler())))
+	for i, status := range []int{http.StatusOK, http.StatusServiceUnavailable, http.StatusForbidden, http.StatusForbidden} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+		r.Header.Set("X-Forwarded-Email", "owner@example.com")
+		r.Header.Set("X-Forwarded-Role", "admin")
+		r.AddCookie(&http.Cookie{Name: "sage_session", Value: "old-admin-session"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != status || calls != i+1 {
+			t.Fatalf("request %d reused identity/role: status=%d calls=%d body=%s", i+1, w.Code, calls, w.Body.String())
+		}
 	}
 }
 

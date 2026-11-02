@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
@@ -88,11 +90,36 @@ func (rl *RateLimiter) evictExpired(now time.Time) {
 }
 
 func rateLimitMiddleware(rl *RateLimiter, next http.Handler) http.Handler {
+	return rateLimitMiddlewareWithKey(rl, clientIP, next)
+}
+
+// App identity headers are trusted only with the explicit, startup-validated
+// Apps auth config. This remains before account lookup and grants no identity
+// or role. Invalid or out-of-audience requests share the ordinary IP bucket.
+func databricksAppRateLimitMiddleware(rl *RateLimiter, cfg auth.DatabricksAppConfig, next http.Handler) http.Handler {
+	return rateLimitMiddlewareWithKey(rl, func(r *http.Request) string {
+		values := r.Header.Values("X-Forwarded-Email")
+		if cfg.Workspace == "" || len(values) != 1 {
+			return clientIP(r)
+		}
+		email, err := auth.DatabricksAppEmail(values[0])
+		if err != nil || cfg.CheckEmailAudience(email) != nil {
+			return clientIP(r)
+		}
+		// Retain no raw email in the limiter's keys. The separator prevents
+		// ambiguous concatenation; workspace scope keeps issuers separate.
+		workspace := strings.ToLower(strings.TrimRight(cfg.Workspace, "/"))
+		key := sha256.Sum256([]byte(workspace + "\x00" + email))
+		return fmt.Sprintf("databricks-app:%x", key)
+	}, next)
+}
+
+func rateLimitMiddlewareWithKey(rl *RateLimiter, key func(*http.Request) string, next http.Handler) http.Handler {
 	if rl == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !rl.Allow(clientIP(r)) {
+		if !rl.Allow(key(r)) {
 			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 			return
 		}

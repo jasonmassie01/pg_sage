@@ -89,6 +89,7 @@ class LauncherTests(unittest.TestCase):
         env = self.env()
         config = launcher.runtime_config(env)
         self.assertEqual(config["api"]["listen_addr"], "0.0.0.0:8123")
+        self.assertEqual(config["postgres"]["max_connections"], 5)
         self.assertEqual(env["SAGE_PG_USER"], "app-principal")
         self.assertEqual(env["SAGE_PG_DATABASE"], "sage_test")
         self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
@@ -115,6 +116,16 @@ class LauncherTests(unittest.TestCase):
         config = launcher.runtime_config(self.env(), {"api": {"listen_addr": "127.0.0.1:9999"}, "llm": {"json_mode": False}})
         self.assertEqual(config["api"]["listen_addr"], "0.0.0.0:8123")
         self.assertIs(config["llm"]["json_mode"], False)
+
+    def test_shared_postgres_pool_default_preserves_explicit_size_and_base(self):
+        for postgres, expected in (({"port": 5432}, 5), ({"port": 5432, "max_connections": 2}, 2)):
+            with self.subTest(postgres=postgres):
+                base = {"postgres": dict(postgres), "api": {"listen_addr": "127.0.0.1:9999"}}
+                config = launcher.runtime_config(self.env(), base)
+                self.assertEqual(config["postgres"]["max_connections"], expected)
+                self.assertEqual(config["postgres"]["port"], 5432)
+                self.assertEqual(base, {"postgres": postgres, "api": {"listen_addr": "127.0.0.1:9999"}})
+                self.assertIsNot(config["postgres"], base["postgres"])
 
     def test_telemetry_warehouse_matches_declared_app_resource(self):
         env = self.env() | {"DATABRICKS_WAREHOUSE_ID": "declared-warehouse"}
@@ -222,6 +233,31 @@ class ConfigureTests(unittest.TestCase):
         runtime, bundle = configurer.render(settings)
         self.assertEqual(len(bundle["resources"]["apps"]["pg_sage"]["resources"]), 2)
         self.assertNotIn("SAGE_LLM_MODEL", [item["name"] for item in runtime["env"]])
+
+    def test_optional_email_audience_matches_runtime_and_bundle(self):
+        runtime, bundle = configurer.render(self.settings())
+        self.assertNotIn("SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS", [item["name"] for item in runtime["env"]])
+        settings = self.settings() | {"databricks_allowed_email_domains": [" EXAMPLE.COM ", "other.example.com", "example.com"]}
+        runtime, bundle = configurer.render(settings)
+        expected = {"name": "SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS", "value": "example.com,other.example.com"}
+        self.assertIn(expected, runtime["env"])
+        self.assertIn(expected, bundle["resources"]["apps"]["pg_sage"]["config"]["env"])
+        env = LauncherTests().env()
+        env["SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS"] = expected["value"]
+        launcher.runtime_config(env)
+        self.assertEqual(env["SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS"], expected["value"])
+
+    def test_email_audience_rejects_malformed_domains_and_admin_lockout(self):
+        for domains in ([], "", "example.com", None, [None], [42], [""], [" "], ["*.example.com"],
+                        ["example.com,"], ["https://example.com"], ["example.com/path"], ["example.com:443"],
+                        ["user@example.com"], [".example.com"], ["example.com."], ["example..com"],
+                        ["-bad.example.com"], ["bad-.example.com"], ["bad_domain.example.com"], ["exam ple.com"],
+                        ["localhost"], ["127.0.0.1"], ["[::1]"], ["exämple.com"], ["a" * 64 + ".com"],
+                        ["a." * 126 + "com"], ["other.example.com"], ["sub.example.com"], ["notexample.com"],
+                        ["example.com.evil.test"]):
+            with self.subTest(domains=domains):
+                with self.assertRaises(ValueError):
+                    configurer.render(self.settings() | {"databricks_allowed_email_domains": domains})
 
     def test_telemetry_is_metadata_only_and_bound_to_reviewed_database(self):
         settings = self.settings() | {"lakebase_observability": {"enabled": True, "warehouse_id": "existing-warehouse", "max_rows": 50, "queries_per_poll": 2}}
