@@ -12,6 +12,7 @@ import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { TimeRangePicker } from './TimeRangePicker'
 import { TrustBadge } from './TrustBadge'
 import { PostgresMeme } from './PostgresMeme'
+import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
@@ -367,7 +368,7 @@ export function Layout({
         </header>
         <div className="sage-content p-3 md:p-6">
           <MonitoringContext database={selectedDB} fleetData={fleetData} error={fleetError} user={user} />
-          <PostgresMeme route={hash} />
+          <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
           <PendingActionsContext.Provider
             value={{ refetch: refetchPending }}>
             {children}

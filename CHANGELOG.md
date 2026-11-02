@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.5.0-dev.14 (unreleased) -- Explain each tab beside the meme
+
+- Add a short, tab-specific introduction beside the rotating meme on desktop,
+  wrapping below it on smaller screens. Keep page guidance stable while memes
+  rotate and describe each page's purpose and next steps in plain language.
+- Match guidance to filtered Cases links, access-denied and missing pages,
+  and Databricks-managed account/disabled agent and MCP workflows.
+
 ## v2.5.0-dev.13 (unreleased) -- Top-of-page meme shuffle and standalone Settings
 
 - Move the DBA breakroom above page content and provide 50 distinct captioned

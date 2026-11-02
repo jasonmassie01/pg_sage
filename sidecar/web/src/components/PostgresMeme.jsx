@@ -17,7 +17,7 @@ const pages = [
   ['#/incidents', 'Incidents'], ['#/', 'Value'],
 ]
 
-export function PostgresMeme({ route = window.location.hash, compact = false, rotation = memeRotation }) {
+export function PostgresMeme({ route = window.location.hash, compact = false, rotation = memeRotation, guide }) {
   const path = String(route || '#/').split('?')[0]
   const page = pages.find(([prefix]) => path === prefix || (prefix !== '#/' && path.startsWith(`${prefix}/`)))?.[1]
     || 'Postgres operations'
@@ -37,7 +37,7 @@ export function PostgresMeme({ route = window.location.hash, compact = false, ro
   }, [rotation, paused, meme.id])
 
   return (
-    <figure ref={figure} className={`postgres-meme${compact ? ' postgres-meme-compact' : ''}`}
+    <figure ref={figure} className={`postgres-meme${compact ? ' postgres-meme-compact' : ''}${guide ? ' postgres-meme-with-guide' : ''}`}
       data-testid="postgres-meme" data-meme-id={meme.id}
       aria-label={`PostgreSQL meme for ${page}`}>
       <div className="postgres-meme-media">
@@ -52,6 +52,14 @@ export function PostgresMeme({ route = window.location.hash, compact = false, ro
           ))}
         </div>
       </div>
+      {guide && (
+        <aside className="postgres-tab-intro" data-testid="tab-introduction"
+          aria-label={`About ${guide.title}`}>
+          <div className="postgres-tab-intro-eyebrow">WHAT’S HERE</div>
+          <h2>About {guide.title}</h2>
+          <p>{guide.description}</p>
+        </aside>
+      )}
       <figcaption className="postgres-meme-copy">
         <div className="postgres-meme-eyebrow">THE DBA BREAKROOM</div>
         <div className="postgres-meme-template">{template.name} · {memes.length} in the mix</div>

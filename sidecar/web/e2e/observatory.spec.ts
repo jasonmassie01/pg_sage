@@ -65,6 +65,14 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       const meme = page.getByTestId('postgres-meme')
       await expect(meme).toHaveCount(1)
       await expect(meme).toBeInViewport({ ratio: 1 })
+      const introduction = page.getByTestId('tab-introduction')
+      await expect(introduction).toBeVisible()
+      await expect(introduction.getByRole('heading', { level: 2 })).toContainText('About ')
+      if (viewport.width === 1440) {
+        const [imageBox, introBox] = await Promise.all([meme.getByRole('img').boundingBox(), introduction.boundingBox()])
+        expect(introBox!.x).toBeGreaterThan(imageBox!.x + imageBox!.width)
+        expect(introBox!.y).toBeLessThan(imageBox!.y + imageBox!.height)
+      }
       const image = meme.getByRole('img')
       await expect(image).toHaveCount(1)
       await expect(image).toHaveAttribute('src', /^\/memes\/[^/]+\.jpg$/)

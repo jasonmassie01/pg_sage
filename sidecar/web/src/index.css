@@ -107,6 +107,12 @@ button[style*="background: var(--accent)"]:hover:not(:disabled) {
 }
 .postgres-meme-media { display: flex; justify-content: center; align-items: center; height: 190px; min-width: 0; }
 .postgres-meme-copy { min-width: 0; }
+.postgres-meme-with-guide { grid-template-columns: minmax(0, 220px) minmax(0, 1fr) minmax(0, 1.2fr); }
+.postgres-meme-with-guide > .postgres-meme-copy { grid-column: 2; grid-row: 1; }
+.postgres-tab-intro { grid-column: 3; grid-row: 1; min-width: 0; padding: 10px 0 10px 24px; border-left: 1px solid #36545b; }
+.postgres-tab-intro-eyebrow { color: #9dc8b8; font: 8px var(--font-mono); letter-spacing: 1.3px; }
+.postgres-tab-intro h2 { margin: 9px 0 10px; color: #eff8f5; font-size: 21px; font-weight: 650; line-height: 1.25; }
+.postgres-tab-intro p { max-width: 48ch; margin: 0; color: #bfd0d6; font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
 .postgres-meme-eyebrow { color: #9fc0ca; font: 8px var(--font-mono); letter-spacing: 1px; }
 .postgres-meme-template { margin-top: 6px; color: #9dc8b8; font: 10px var(--font-mono); }
 .postgres-meme-poster { position: relative; width: min(100%, calc(var(--meme-ratio) * 180px)); container-type: inline-size; overflow: hidden; border-radius: 5px; background: #fff; }
@@ -158,6 +164,10 @@ button[style*="background: var(--accent)"]:hover:not(:disabled) {
 
 @media (max-width: 1100px) {
   .sage-header { flex-wrap: wrap; }
+  .postgres-meme-with-guide { grid-template-columns: minmax(0, 190px) minmax(0, 1fr); }
+  .postgres-tab-intro { grid-column: 1 / -1; grid-row: 2; padding: 14px 0 2px; border-left: 0; border-top: 1px solid #36545b; }
+  .postgres-tab-intro h2 { margin: 7px 0; font-size: 17px; }
+  .postgres-tab-intro p { max-width: 70ch; font-size: 12px; line-height: 1.6; }
 }
 @media (max-width: 767px) {
   .sage-header { padding: 17px 16px; min-height: 100px; align-items: flex-start; }
