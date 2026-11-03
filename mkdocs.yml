@@ -46,7 +46,7 @@ nav:
   - Azure: azure.md
   - Databricks:
       - Overview: databricks-native.md
-      - Lakebase and Unity AI Gateway: lakebase.md
+      - Lakebase and Unity Gateway: lakebase.md
       - Databricks Apps: databricks-apps.md
 
 markdown_extensions:

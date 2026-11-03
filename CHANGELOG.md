@@ -4,7 +4,7 @@
 
 pg_sage runs on Databricks. It connects to Lakebase with Databricks OAuth, runs as a Databricks
 App (the same Go server and embedded React dashboard) behind Databricks sign-in, and calls its
-models through Unity AI Gateway with the App's own OAuth identity, so there is no API key to
+models through Unity Gateway with the App's own OAuth identity, so there is no API key to
 manage. Support is established feature by feature, on Lakebase PostgreSQL 18 with connection
 probes on 16 and 17: the [Databricks-native guide](docs/databricks-native.md) and the
 [Lakebase matrix](docs/lakebase.md) list what is verified, what the platform restricts and what
@@ -42,7 +42,7 @@ is still unproven. The App starts in observation mode.
   viewer. The optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` limits the audience to exact
   email domains, checked before any account lookup. MCP, agent tokens and signed ingestion
   answer 501 in App mode: platform identity cannot carry their grants yet.
-- **Unity AI Gateway.** `llm.auth: databricks` drives chat, JSON responses, tools and the
+- **Unity Gateway.** `llm.auth: databricks` drives chat, JSON responses, tools and the
   advisors through the workspace gateway, and model discovery lists the Unity Catalog model
   services that support chat completions. Workspace credentials go only to the configured
   HTTPS origin; in Apps the SDK is pinned to OAuth M2M and API keys or foreign origins are
