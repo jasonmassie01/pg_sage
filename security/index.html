@@ -788,6 +788,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#databricks-apps-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databricks Apps Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sso-account-linking" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1113,6 +1124,151 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Databricks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../databricks-native/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase and Unity Gateway
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../databricks-apps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1250,6 +1406,17 @@
     <span class="md-ellipsis">
       
         Session Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#databricks-apps-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databricks Apps Authentication
       
     </span>
   </a>
@@ -1515,6 +1682,12 @@
 
 <h1 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h1>
 <p>pg_sage is designed to observe and optimize PostgreSQL without accessing user data. This page documents the security model, privacy controls, and operational safeguards.</p>
+<p>For Databricks deployments, also read the
+<a href="../databricks-native/#architecture-and-identity">native implementation and identity boundaries</a>.
+The password-user and session/SSO examples below describe standalone deployments.
+Databricks Apps uses platform sign-in, local pg_sage roles and a separate App
+service principal for outbound OAuth. Use the <a href="../lakebase/">Lakebase grants and limits</a>
+instead of assuming every standalone grant or setting is available.</p>
 <hr />
 <h2 id="required-database-grants">Required Database Grants<a class="headerlink" href="#required-database-grants" title="Permanent link">&para;</a></h2>
 <p>pg_sage connects as a regular database user -- no superuser required.</p>
@@ -1606,7 +1779,11 @@ probes report <code>no_privilege</code> instead of a partial answer. See
 <li><strong>Never rewrites application queries autonomously.</strong> Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.</li>
 <li><strong>Never parameterizes application code autonomously.</strong> Parameterization candidates are change-control artifacts, not direct database actions.</li>
 <li><strong>Never promotes role-level memory settings without review.</strong> Repeated per-query <code>work_mem</code> patterns can become a reviewed <code>ALTER ROLE</code> candidate, but they require approval because the blast radius is role-wide.</li>
-<li><strong>Never uses ALTER SYSTEM.</strong> Configuration changes are made through the YAML config file, not database-side settings.</li>
+<li><strong>Database settings are provider-gated.</strong> Supported typed configuration actions
+  require their execution/approval contracts; YAML config is separate from
+  PostgreSQL settings. Lakebase system settings are provider-managed, and
+  <code>ALTER SYSTEM</code> procedures are withheld. Supported database-level settings
+  require database ownership and parameter-specific validation.</li>
 <li><strong>Never phones home.</strong> Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.</li>
 </ul>
 <hr />
@@ -1658,9 +1835,17 @@ rechecked for each candidate and immediately before the mutating SQL call.</p>
 <hr />
 <h2 id="network-behavior">Network Behavior<a class="headerlink" href="#network-behavior" title="Permanent link">&para;</a></h2>
 <h3 id="no-llm-configured-default">No LLM configured (default)<a class="headerlink" href="#no-llm-configured-default" title="Permanent link">&para;</a></h3>
-<p>LLM features are on by default (<code>llm.enabled: true</code>), but a provider is contacted only once both <code>llm.endpoint</code> and <code>llm.api_key</code> are set. Until then, or with <code>llm.enabled: false</code>, pg_sage makes <strong>no LLM requests</strong>: all analysis is performed locally using the rules engine, and startup logs one line saying the LLM is not configured.</p>
+<p>LLM features are on by default (<code>llm.enabled: true</code>), but need an endpoint and
+configured authentication. API-key providers use <code>llm.api_key</code>; native Databricks
+authentication uses <code>llm.auth: databricks</code> and SDK OAuth credentials. Until
+configured, or with <code>llm.enabled: false</code>, analysis uses the local rules engine.</p>
 <h3 id="llm-configured">LLM configured<a class="headerlink" href="#llm-configured" title="Permanent link">&para;</a></h3>
-<p>When <code>llm.enabled: true</code> and both <code>llm.endpoint</code> and <code>llm.api_key</code> are set, pg_sage makes HTTP POST requests to the configured <code>llm.endpoint</code>. These requests contain <strong>metadata only</strong> -- never row data.</p>
+<p>When enabled and configured, pg_sage makes requests to the configured
+<code>llm.endpoint</code>. Databricks Apps rejects AI API keys and alternate auth modes;
+Gateway calls use the App principal's OAuth M2M identity and the configured HTTPS
+workspace origin. These requests carry diagnostic metadata rather than table-row
+results. See <a href="../lakebase/#advanced-telemetry-auto_explain-and-sre-history">Lakebase telemetry consent</a>
+for the separate optional provider payload path and its privacy boundaries.</p>
 <p>What is sent to the LLM:</p>
 <table>
 <thead>
@@ -1696,7 +1881,7 @@ rechecked for each candidate and immediately before the mutating SQL call.</p>
 <hr />
 <h2 id="api-security">API Security<a class="headerlink" href="#api-security" title="Permanent link">&para;</a></h2>
 <h3 id="session-authentication">Session Authentication<a class="headerlink" href="#session-authentication" title="Permanent link">&para;</a></h3>
-<p>The web UI and <code>/api/v1/*</code> endpoints use session-cookie authentication. On
+<p>In standalone mode, the web UI and <code>/api/v1/*</code> endpoints use session-cookie authentication. On
 first startup against a metadata database with no users, pg_sage creates
 <code>admin@pg-sage.local</code> and prints a one-time initial password to stderr.</p>
 <p>API clients log in and reuse the <code>sage_session</code> cookie:</p>
@@ -1708,6 +1893,25 @@ first startup against a metadata database with no users, pg_sage creates
 </code></pre></div>
 <p><code>SAGE_API_KEY</code> is a legacy config field and does not secure the current v1
 web/API path.</p>
+<h3 id="databricks-apps-authentication">Databricks Apps Authentication<a class="headerlink" href="#databricks-apps-authentication" title="Permanent link">&para;</a></h3>
+<p>Apps mode requires <code>SAGE_AUTH_MODE=databricks_app</code>, the injected platform runtime
+and an explicit administrator email. The platform ingress authenticates the
+user; pg_sage authorizes the forwarded identity using its own stored roles.
+There is no local password/session, break-glass login or local-token fallback.
+Optional <code>SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS</code> restricts protected access to
+exact email domains, checked before account lookup or provisioning on every
+request, including existing administrators. Domain matches are case-insensitive;
+subdomains and suffixes do not match implicitly. Invalid domain policies or an
+administrator outside the policy stop startup. Denied identities receive
+<code>403 databricks_app_audience_denied</code>. An omitted/empty environment setting retains
+the platform-controlled audience. This gate neither proves current employment
+nor replaces platform App access controls or pg_sage roles; deploy and test it
+before broadening sharing to a group that may contain external identities.
+Do not expose the native listener behind a proxy that permits user-supplied
+identity headers. Background Lakebase/Gateway access uses the App principal,
+not on-behalf-of user permissions. Agent transports and signed machine ingestion
+without an equivalent platform identity/grant contract remain explicitly
+unsupported. See the <a href="../databricks-apps/#what-runs-where">App auth contract</a>.</p>
 <h3 id="sso-account-linking">SSO Account Linking<a class="headerlink" href="#sso-account-linking" title="Permanent link">&para;</a></h3>
 <p>SSO users are matched on the identity provider's issuer and subject, never on
 email. A first SSO sign-in whose verified email belongs to an existing account
@@ -1973,8 +2177,10 @@ client address; see <a href="#authentication-audit">Authentication Audit</a>.</p
 <li><strong>Review findings before escalating trust</strong> -- move to <code>advisory</code> then <code>autonomous</code> only after confirming recommendations are appropriate.</li>
 <li><strong>Set a token budget</strong> -- cap LLM spend with <code>llm.token_budget_daily</code>.</li>
 <li><strong>Use a dedicated database role</strong> -- grant only the required privileges listed above.</li>
-<li><strong>Capture and rotate the initial admin password</strong> -- then use named users or OAuth for operators.
-   With SSO, set <code>oauth.role_mapping</code>, and configure a break-glass admin plus a notification channel.</li>
+<li><strong>Select the deployment's authentication model.</strong> For standalone, capture and rotate the initial admin password, then use named users or OAuth for operators.
+   With SSO, set <code>oauth.role_mapping</code>, and configure a break-glass admin plus a notification channel.
+   In Databricks Apps, use platform access controls, the explicit administrator
+   identity and reviewed pg_sage roles; there is no local password or break-glass fallback.</li>
 <li><strong>Set <code>encryption_key</code></strong> (or <code>SAGE_ENCRYPTION_KEY_FILE</code>) -- API-set secrets are then encrypted at rest.</li>
 <li><strong>Monitor pg_sage itself</strong> -- check Prometheus metrics and circuit breaker state.</li>
 </ol>

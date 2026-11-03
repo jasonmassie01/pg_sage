@@ -1,0 +1,2287 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/databricks-apps/">
+      
+      
+        <link rel="prev" href="../lakebase/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Databricks Apps - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#native-databricks-apps-operator-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Databricks Apps
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Binding Facts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ask-sage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask Sage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sage-sre-permissions-and-data-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Databricks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../databricks-native/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase and Unity Gateway
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks Apps
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-runs-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runs where
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#establish-the-operator-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Establish the operator inputs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-and-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build and package
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-and-validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure and validate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure and validate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#share-an-organization-restricted-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Share an organization-restricted App
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gateway-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gateway configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-or-update-an-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install or update an App
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install or update an App">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-all-resources-and-identity-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep all resources and identity settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validate-the-native-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate the native package
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upload-reviewed-runtime-files-and-deploy-a-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upload reviewed runtime files and deploy a snapshot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verify-the-deployed-artifact-and-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify the deployed artifact and service
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update-restart-and-roll-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update, restart and roll back
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logs-and-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs and troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retained-sre-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retained SRE history
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application-sli-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application SLI ingestion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operator-statistics-maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operator statistics maintenance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-acceptance-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live acceptance checks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources-and-verification-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources and verification boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-runs-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runs where
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#establish-the-operator-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Establish the operator inputs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-and-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build and package
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configure-and-validate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure and validate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure and validate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#share-an-organization-restricted-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Share an organization-restricted App
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gateway-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gateway configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-or-update-an-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install or update an App
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install or update an App">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-all-resources-and-identity-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep all resources and identity settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validate-the-native-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate the native package
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upload-reviewed-runtime-files-and-deploy-a-snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upload reviewed runtime files and deploy a snapshot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verify-the-deployed-artifact-and-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify the deployed artifact and service
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update-restart-and-roll-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update, restart and roll back
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logs-and-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs and troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retained-sre-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retained SRE history
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application-sli-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application SLI ingestion
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operator-statistics-maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operator statistics maintenance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-acceptance-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live acceptance checks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources-and-verification-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources and verification boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="native-databricks-apps-operator-guide">Native Databricks Apps operator guide<a class="headerlink" href="#native-databricks-apps-operator-guide" title="Permanent link">&para;</a></h1>
+<p>pg_sage runs its existing Go HTTP server and embedded React dashboard as a
+Databricks App. Start with the <a href="../databricks-native/">Databricks-native guide</a>
+for the integration overview and the <a href="../lakebase/">Lakebase support matrix</a>
+for feature-specific permissions, limitations and test evidence. This page
+covers packaging, installation, updates and recovery; it does not convert the
+application to AppKit or require a custom runtime container.</p>
+<p>The current release is <strong>2.5.0</strong>. The acceptance report for its last development
+build, <a href="../reviews/2026-11-02-v2.5-dev14-acceptance.md">2.5.0-dev.14</a>, covers the
+descriptions beside each tab's meme. The <a href="../reviews/2026-11-02-v2.5-dev13-acceptance.md">dev.13 report</a>
+records the 50-meme shuffle and standalone Settings correction. The
+<a href="../reviews/2026-11-02-v2.5-dev12-acceptance.md">dev.11–12 report</a> retains the
+earlier authentication, telemetry and event-stream evidence. The App remains in
+Observation mode with metadata-only telemetry. Acceptance is scoped to each deployment;
+it does not certify every Lakebase extension, cloud, privilege or long-duration
+scenario. Older release evidence remains linked from the matrix and reports.</p>
+<p>Follow the sections in order for a new installation. For an existing App, read
+<a href="#keep-all-resources-and-identity-settings">resource preservation</a> and
+<a href="#update-restart-and-roll-back">update/rollback</a> before changing its package.</p>
+<h2 id="what-runs-where">What runs where<a class="headerlink" href="#what-runs-where" title="Permanent link">&para;</a></h2>
+<p>The Apps process serves the dashboard and REST API on <code>0.0.0.0</code> and
+<code>DATABRICKS_APP_PORT</code>. When that environment variable is present, pg_sage accepts
+HTTP/1.1 and HTTP/2 cleartext (H2C), as required by the Apps proxy. Apps handles
+external TLS and login. The package explicitly sets
+<code>SAGE_AUTH_MODE=databricks_app</code>: protected requests use the Apps proxy's
+<code>X-Forwarded-Email</code> identity, with no separate pg_sage password or session cookie.
+pg_sage still enforces its local roles and action approvals. Configure
+<code>SAGE_DATABRICKS_ADMIN_EMAIL</code> for the reviewed administrator; newly provisioned
+platform users start as viewers, and existing platform-bound users retain their
+pg_sage roles. Other local accounts require a reviewed identity migration;
+matching an email does not automatically link them. Visiting first does not
+grant administration.</p>
+<p>An optional <code>SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS</code> audience gate restricts
+protected access to a comma-separated list of exact email domains. Matching is
+case-insensitive; subdomains need their own entry, and suffixes/wildcards are
+not accepted. This check runs before account lookup or provisioning on every
+authenticated request, including existing administrators. A denied identity
+receives HTTP 403 with <code>databricks_app_audience_denied</code> and an organization-access
+message. Missing/empty policy retains the App's existing platform-controlled
+audience. Invalid domain entries or an administrator outside the configured
+list stop startup. This is an email-domain restriction, not a directory lookup
+that proves current employment or a replacement for platform App permissions.</p>
+<p>Account-store timeouts and connection failures return retryable HTTP 503 with
+<code>databricks_app_auth_unavailable</code> and <code>Retry-After: 5</code>. They do not imply that
+the user lacks permission. The App fails closed and reads the durable role
+again on the next request; it does not cache an earlier administrator role.
+Reviewed account-link or unverified-identity refusals remain HTTP 403.</p>
+<p>Standalone Apps share one PostgreSQL pool between authentication, control
+state, monitoring and historical telemetry. The Apps launcher defaults
+<code>postgres.max_connections</code> to five, while respecting an explicit configuration
+value. Ordinary native-process defaults are unchanged. Size this against the
+endpoint's connection budget and expected concurrent viewers. More connections
+do not repair slow queries: the telemetry store also uses matching inbox
+indexes, bounded delivery/expiry work and transaction-local query limits.
+Dev.12 advances the telemetry store schema to version 5. Keep its data when
+rolling back an App package: older binaries may refuse the newer telemetry
+schema and report history unavailable. Restore a compatible binary rather
+than dropping history tables or removing migration records.</p>
+<p>In explicit Databricks Apps mode, the pre-authentication request limiter uses
+a validated platform email and workspace as its bucket identity. This prevents
+employees sharing a proxy address from using one shared allowance. Invalid or
+disallowed identities retain an IP bucket; native/session deployments retain
+their existing IP limiter. The default remains 60 requests per minute, and
+<code>SAGE_RATE_LIMIT</code> remains the explicit override. Rapid navigation across many
+data-heavy pages can still return HTTP 429; this is separate from account
+permission errors and database unavailability.</p>
+<p>Event streams close cleanly after 45 seconds and use EventSource's existing
+reconnect hint. Their route-specific write deadline remains bounded, while
+ordinary API server timeouts are unchanged. This avoids running an indefinite
+SSE response into the server's absolute write timeout or the Apps proxy's
+long-request limit. Pages also retain their normal polling; reconnecting a
+stream does not prove complete event delivery or continuous source telemetry.</p>
+<p>This mode is restricted to the Apps runtime and requires its injected port and
+<code>DATABRICKS_HOST</code> (a bare hostname is normalized to HTTPS). Missing platform
+identity fails closed. Do not expose
+the native listener through another proxy that lets clients supply identity
+headers. The <a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/http-headers">public HTTP header reference</a>
+documents the forwarded IdP email. The public reference does not specify a header-signature verification procedure or promise that
+every forwarded identity field is immutable. pg_sage does not infer roles from
+client-supplied role headers or assume the forwarded user ID equals a workspace
+SCIM ID. App service-principal authentication for background Lakebase/Gateway
+operations remains separate from the current viewer's identity.</p>
+<p>In Apps mode the outbound SDK is pinned to <code>oauth-m2m</code>, using the platform's
+injected workspace, client ID and client secret. The launcher and native SDK
+adapter reject PAT/basic/profile overrides instead of trying another identity.
+No Unity Gateway API key is needed. AI calls use the shared App principal,
+not the signed-in user's on-behalf-of permissions. General/advisor, optimizer
+and SRE clients must use native Databricks auth without API keys and remain on
+the exact configured HTTPS workspace origin, including its port. A dedicated
+optimizer endpoint in that workspace retains OAuth. Invalid YAML, environment,
+persisted/API or request-scoped discovery settings are refused. Standalone
+provider choices remain available outside Apps.</p>
+<p><code>/api/v1/llm/status</code> reports each client's auth mode and endpoint origin, plus
+safe SDK provider/workspace/principal metadata. <code>authentication_observed</code> means
+the adapter previously authenticated a workspace HTTP request; it does not
+promise that a cached token is currently valid. Credentials and token expiry
+values are not exposed. The cached workspace/provider configuration requires
+a process restart to change.</p>
+<p>Administrators can retrieve <code>/api/v1/deployment/status</code> for an allowlisted
+snapshot of the active global AI/SRE/source/action configuration after persisted
+overrides. It includes configuration generation and safe flags, never the
+configuration's secrets, DSNs or raw provider payloads. The response explicitly
+excludes per-database overrides and runtime liveness; those require separate
+runtime checks. <code>/api/v1/lakebase-observability/status</code> reports the telemetry
+runtime's sanitized state to authenticated viewers without returning events.</p>
+<p>Optional MCP, specialist, legacy signed SLI/change-event ingestion and local token
+issuance return <code>501 databricks_app_protocol_unsupported</code> after platform
+authentication. The separate administrator SLI sample route described below
+uses ordinary platform authentication; it does not enable signed machine
+ingestion. The normal user REST API remains available. The existing
+agent transports depend on verified agent/task/database grants; signed ingest
+depends on a source credential. An Apps email alone cannot preserve those
+contracts. A supported service-principal identity contract and explicit stored
+grant mapping are prerequisites to enabling these transports without another
+login secret. Caller-supplied headers/body fields must not supply that identity.
+Their existing standalone authentication and authorization remain unchanged.
+The App dashboard hides MCP-token and agent-governance navigation; direct links
+explain their unavailable status without calling those protocols. This does not
+remove the backend's existing authorization or explicit unsupported responses.</p>
+<p>PostgreSQL stores pg_sage's metadata, accounts, sessions, findings, and history.
+The binary and generated listen-address config live in ephemeral temporary
+storage; they can be recreated from the deployment package. The encryption key
+must remain stable across restarts and deployments: supply it from an existing
+Databricks secret resource. No database password or workspace token belongs in
+the package.</p>
+<p>Use a <strong>dedicated Lakebase test branch/database</strong> for the first deployment.
+The app service principal needs an OAuth PostgreSQL role and database/schema
+permissions. The bundle template attaches the current <code>postgres</code> resource with
+<code>CAN_CONNECT_AND_CREATE</code>; check additional permissions needed for monitoring,
+statistics and optional features. Let the app principal create and own the
+<code>sage</code> schema on its first run. Existing user-owned <code>sage</code> objects require a
+reviewed ownership/access migration; do not drop them to fix an access error.
+Database-level configuration actions additionally require database ownership
+and a supported, user-settable parameter; attaching the resource alone does
+not establish those capabilities. Transfer ownership only for the dedicated
+pg_sage database when that behavior is wanted. An App principal without
+<code>CREATEROLE</code> runs agent governance in posture-only mode; monitoring and the
+native Gateway integration do not require granting that privilege.</p>
+<p>The launcher maps <code>PGHOST</code>, <code>PGPORT</code>, <code>PGDATABASE</code>, <code>PGUSER</code>, and <code>PGSSLMODE</code> to
+pg_sage's existing connection settings. <code>PGUSER</code> defaults to the injected
+<code>DATABRICKS_CLIENT_ID</code>. <code>SAGE_LAKEBASE_ENDPOINT</code> is the full endpoint resource
+path (<code>projects/.../branches/.../endpoints/...</code>); <code>LAKEBASE_ENDPOINT</code> and
+<code>ENDPOINT_NAME</code> are accepted launcher aliases. Native Go unified authentication
+uses the app's injected service principal credentials, and obtains Lakebase
+credentials for new physical connections. The native pool caches a valid
+database credential and remints when fewer than two minutes remain before its
+reported expiry; no password is retained in the pool's bootstrap configuration.
+The endpoint API's direct host and TLS binding are checked before connecting;
+pooled endpoint hosts are refused. Existing connections can outlive a token,
+so successful pooled queries alone do not establish refresh. Local runs can use an explicitly
+selected Databricks CLI profile instead. A single <code>SAGE_LAKEBASE_ENDPOINT</code> applies
+to every pool in the process, including a separate metadata database. For
+different endpoint hosts, use the native <code>SAGE_LAKEBASE_ENDPOINTS</code> hostname-to-
+resource JSON map in a custom deployment instead of the single-endpoint launcher.</p>
+<h2 id="establish-the-operator-inputs">Establish the operator inputs<a class="headerlink" href="#establish-the-operator-inputs" title="Permanent link">&para;</a></h2>
+<p>The command recipes in this guide use Bash from the repository root and
+Databricks CLI <strong>1.20.0</strong>. Check the relevant <code>--help</code> with another CLI version.
+Use Python 3, a running Docker/Buildx installation and an authenticated
+Databricks CLI locally. The Dockerfile supplies Node 22 and Go 1.27 plus the C
+compiler; local backend tests additionally need the repository's Go/C toolchain
+and their documented fixture dependencies. The target App requires access to
+its workspace API, direct Lakebase TLS endpoint and selected AI route; optional
+history also needs the selected SQL warehouse and its Unity Catalog grants.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>databricks<span class="w"> </span>--version
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>databricks<span class="w"> </span>auth<span class="w"> </span>profiles
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">read</span><span class="w"> </span>-r<span class="w"> </span>-p<span class="w"> </span><span class="s1">'Explicitly selected profile: '</span><span class="w"> </span>PG_SAGE_PROFILE
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nb">read</span><span class="w"> </span>-r<span class="w"> </span>-p<span class="w"> </span><span class="s1">'Absolute reviewed settings JSON path: '</span><span class="w"> </span>PG_SAGE_SETTINGS
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nb">read</span><span class="w"> </span>-r<span class="w"> </span>-p<span class="w"> </span><span class="s1">'Absolute fresh local package directory: '</span><span class="w"> </span>PG_SAGE_PACKAGE
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nv">PG_SAGE_APP</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s1">'import json,sys; print(json.load(open(sys.argv[1]))["app_name"])'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_SETTINGS</span><span class="s2">"</span><span class="k">)</span><span class="s2">"</span>
+</code></pre></div>
+<p>Create the settings file from
+<a href="../deploy/databricks-apps/settings.example.json"><code>settings.example.json</code></a>, edit
+it outside version control, and fill actual resource references before running
+that block. No value in angle brackets is a deployable identifier. A fresh
+package directory is required: <code>package.py</code> refuses an existing output directory.
+Use the same explicit profile for every command in a release.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Required meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>app_name</code></td>
+<td>Reviewed workspace-unique App name; renderer accepts a lowercase initial letter and at most 26 lowercase letters, digits or hyphens.</td>
+</tr>
+<tr>
+<td><code>branch</code></td>
+<td>Full Autoscaling branch resource path. Use an isolated development branch for first installation.</td>
+</tr>
+<tr>
+<td><code>endpoint</code></td>
+<td>Direct endpoint resource path belonging to that branch.</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td>Exact direct connection hostname returned for that endpoint; no scheme, port or credentials. Pooled endpoint hostnames are refused.</td>
+</tr>
+<tr>
+<td><code>database_resource</code></td>
+<td>Full branch database resource path, including its API database ID.</td>
+</tr>
+<tr>
+<td><code>database_name</code></td>
+<td>Actual PostgreSQL database name; it need not equal the API resource ID.</td>
+</tr>
+<tr>
+<td><code>secret_scope</code>, <code>secret_key</code></td>
+<td>Existing reference holding the stable encryption passphrase; never the passphrase itself.</td>
+</tr>
+<tr>
+<td><code>databricks_admin_email</code></td>
+<td>Explicit administrator's Databricks identity; not a first-visitor admin rule.</td>
+</tr>
+<tr>
+<td><code>databricks_allowed_email_domains</code></td>
+<td>Optional nonempty JSON array of exact DNS domains; renderer emits <code>SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS</code>. Omit to retain platform-only audience control. Administrator must match.</td>
+</tr>
+<tr>
+<td><code>pg_user</code></td>
+<td>Optional reviewed connecting PostgreSQL role; defaults to the platform resource/App principal identity.</td>
+</tr>
+<tr>
+<td><code>gateway_endpoint</code>, <code>gateway_model</code></td>
+<td>Supply both for native AI; HTTPS workspace-origin base URL and fully qualified model service.</td>
+</tr>
+<tr>
+<td><code>gateway_json_mode</code></td>
+<td>Explicit boolean supported by the chosen model; omitted package default is false.</td>
+</tr>
+<tr>
+<td><code>lakebase_observability</code></td>
+<td>Optional bounded settings; enabled history needs an explicitly selected <code>warehouse_id</code>. Payload and compute consent are independent.</td>
+</tr>
+</tbody>
+</table>
+<p>Read resource metadata with the full names from that reviewed file using
+<code>databricks postgres get-endpoint NAME --profile "$PG_SAGE_PROFILE" -o json</code>
+and <code>databricks postgres get-database NAME --profile "$PG_SAGE_PROFILE" -o json</code>.
+Here <code>NAME</code> means the exact corresponding resource path, not its short label.
+Do not mint a database token merely to copy it into a file.</p>
+<h2 id="build-and-package">Build and package<a class="headerlink" href="#build-and-package" title="Permanent link">&para;</a></h2>
+<p>Apps runs Ubuntu 22.04; it does not provide the Go/C build toolchain. Build a
+statically linked Linux executable ahead of deployment, retaining CGO and
+<code>libpg_query</code> SQL AST validation. Do not use a macOS binary or disable CGO to
+cross-compile. The dedicated Dockerfile is a build tool, not an Apps custom
+container image.</p>
+<p>Run the build from the repository root with Docker running and
+<code>PG_SAGE_PACKAGE</code> set to a fresh absolute output directory from the operator
+inputs above. Keep a known-good package before replacing any build output:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">PG_SAGE_BUILD_COMMIT</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>--short<span class="w"> </span>HEAD<span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>git<span class="w"> </span>status<span class="w"> </span>--porcelain<span class="w"> </span>--untracked-files<span class="o">=</span>normal<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nv">PG_SAGE_BUILD_COMMIT</span><span class="o">=</span><span class="s2">"</span><span class="si">${</span><span class="nv">PG_SAGE_BUILD_COMMIT</span><span class="si">}</span><span class="s2">+local"</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">fi</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>docker<span class="w"> </span>buildx<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>-f<span class="w"> </span>deploy/databricks-apps/Dockerfile<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">COMMIT</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PG_SAGE_BUILD_COMMIT</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span>--target<span class="w"> </span>artifact<span class="w"> </span>--output<span class="w"> </span><span class="nv">type</span><span class="o">=</span>local,dest<span class="o">=</span>dist/apps-linux<span class="w"> </span>.
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>python3<span class="w"> </span>deploy/databricks-apps/package.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span>--binary<span class="w"> </span>dist/apps-linux/pg_sage<span class="w"> </span>--output<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PACKAGE</span><span class="s2">"</span>
+</code></pre></div>
+<p>The builder reads the repository <code>VERSION</code>, embeds the supplied commit and UTC
+build date, runs <code>--version</code>, and checks <code>sql-ast: libpg_query</code>. Optional <code>VERSION</code>
+and <code>BUILD_DATE</code> build arguments override those defaults. Verify the target
+workspace runtime architecture before deploying; the public Apps environment
+page does not promise a CPU architecture. Build with <code>--platform linux/arm64</code>
+if needed. The launcher refuses an architecture mismatch.</p>
+<p>Apps limits each uploaded file to 10 MB. The packager compresses the native
+binary into 8 MB chunks, records its size/SHA-256, and copies a small Python
+standard-library launcher. At startup the launcher verifies and reassembles the
+binary locally and makes it executable. A small supervisor relaunches the Go
+process only for its intentional restart exit code (42), including dashboard
+settings that require a restart. Ordinary failures remain visible as failures;
+more than five restart requests in a minute stop a restart loop. SIGTERM/SIGINT
+reach the entire child process group, with a 12-second shutdown budget inside
+Apps' 15-second platform allowance. This avoids a startup download and does not require
+network access to GitHub or a package registry. The checksum checks package
+integrity; normal repository/artifact provenance is still required.</p>
+<h2 id="configure-and-validate">Configure and validate<a class="headerlink" href="#configure-and-validate" title="Permanent link">&para;</a></h2>
+<p>Copy <code>deploy/databricks-apps/settings.example.json</code> to a local settings file and
+replace its placeholders with the exact isolated branch, endpoint hostname,
+database identifiers, and existing secret references. The database resource ID
+can differ from its PostgreSQL database name; obtain both from branch metadata.
+The settings file contains resource references only, never secret values.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python3<span class="w"> </span>deploy/databricks-apps/configure.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--package<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PACKAGE</span><span class="s2">"</span><span class="w"> </span>--settings<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_SETTINGS</span><span class="s2">"</span>
+</code></pre></div>
+<p>The renderer writes equivalent runtime and bundle configuration, sets
+observation trust, and attaches the PostgreSQL resource and encryption secret.
+Runtime <code>app.yaml</code> uses <code>valueFrom</code>; bundle <code>config.env</code> uses <code>value_from</code>. The
+current CLI ignores camelCase in the bundle block, so the renderer preserves
+the schema-specific spelling. JSON output is valid YAML.</p>
+<p>Set <code>databricks_admin_email</code> to the explicitly selected administrator's platform
+email. The renderer emits <code>SAGE_AUTH_MODE=databricks_app</code> and
+<code>SAGE_DATABRICKS_ADMIN_EMAIL</code>; no bootstrap password secret is required or
+injected. The native server binds that administrator explicitly, preserving the
+existing account where appropriate, and disables password/session authentication
+in this mode. The launcher rejects stale <code>SAGE_BOOTSTRAP_ADMIN_*</code> settings so an
+old deployment cannot silently retain the separate password flow. Standalone
+pg_sage deployments retain their existing password/OAuth authentication.</p>
+<p>For an organization-restricted App, add for example
+<code>"databricks_allowed_email_domains": ["example.com"]</code> to the local settings.
+Deploy and verify this gate before widening platform App access. Account-wide
+groups can contain external identities; platform membership alone does not
+establish an employee-only audience. Verify an allowed identity, a denied
+external identity and preserved pg_sage roles. Audience changes require a
+process restart. Standalone mode ignores this App-only setting.</p>
+<h3 id="share-an-organization-restricted-app">Share an organization-restricted App<a class="headerlink" href="#share-an-organization-restricted-app" title="Permanent link">&para;</a></h3>
+<p>The platform's <strong>Anyone in my organization can use</strong> setting grants <code>CAN_USE</code>
+to the account-level <code>account users</code> group. This differs from the workspace's
+<code>users</code> group. Account users can include external identities and service
+principals; the setting alone is not an employee-only rule. When a domain
+restriction is intended, deploy and verify the audience gate first. The gate
+protects authenticated APIs and data; static dashboard assets and public mode/
+health discovery retain their existing behavior behind platform access.</p>
+<p>Then add the platform grant without replacing existing owners or administrators:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>databricks<span class="w"> </span>apps<span class="w"> </span>get-permissions<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>databricks<span class="w"> </span>apps<span class="w"> </span>update-permissions<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--json<span class="w"> </span><span class="s1">'{"access_control_list":[{"group_name":"account users","permission_level":"CAN_USE"}]}'</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>databricks<span class="w"> </span>apps<span class="w"> </span>get-permissions<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json
+</code></pre></div>
+<p>New allowed-domain users receive pg_sage's viewer role; this grant does not
+create database roles or promote them to operators/administrators. Users must
+still authenticate through the organization's identity provider and be recognized
+as Databricks account users. App use does not by itself require workspace access,
+but account provisioning, SSO and workspace network/authentication policies still
+apply. This change does not enroll employees into FEVM or prove HR employment.
+See the <a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/permissions">platform sharing reference</a>.</p>
+<h3 id="gateway-configuration">Gateway configuration<a class="headerlink" href="#gateway-configuration" title="Permanent link">&para;</a></h3>
+<p>For Unity AI Gateway, supply the actual OpenAI-compatible <code>gateway_endpoint</code>
+(<code>https://&lt;workspace&gt;/ai-gateway/mlflow/v1</code>) and fully qualified <code>gateway_model</code>.
+The renderer adds native Databricks authentication and a <code>MODEL_SERVICE</code> resource
+with <code>EXECUTE</code> permission. Set optional <code>gateway_json_mode</code> to the boolean
+supported by that model. The tested <code>system.ai.gpt-6-sol</code> route supports <code>true</code>;
+some Claude routes reject <code>response_format</code> and require <code>false</code>. The package
+default is <code>false</code> until explicitly configured. Test the selected model's
+structured output rather than inferring support from another model. Other
+supported pg_sage YAML keys can be represented in <code>config.json</code>; the launcher
+sets the API bind address and validates its platform authentication/resource
+bindings.</p>
+<p>The optional <code>lakebase_observability</code> settings object is off by default and
+defaults to metadata-only reads (<code>allow_payload: false</code>). To enable it, supply
+<code>enabled: true</code> and an explicitly selected existing <code>warehouse_id</code>. The renderer
+derives its sole host/database/endpoint binding from the reviewed deployment
+settings, keeps bounded query/row/byte/time/retention settings, and declares a
+<code>lakebase-history-warehouse</code> resource with <code>CAN_USE</code>, preserving the other
+resources. The warehouse ID is injected through that resource; a conflicting
+configured ID is refused. This consumes warehouse capacity and adds that
+resource permission when applied. It does not grant Unity Catalog access or
+PII-group membership. Review existing inherited UC exposure separately.</p>
+<p>Default streams are plans, logs, ASH, DDL and database counters/gauges. Compute
+streams additionally require explicit <code>allow_compute: true</code>; a database binding
+does not authorize compute-wide history. Raw payload reads remain a separate
+reviewed <code>allow_payload</code> choice. Source delivery is asynchronous, so all history
+remains diagnostic evidence rather than a live maintenance admission source.
+Raw-payload retention cannot exceed seven days. Generic <code>config.json</code> remains
+available for reviewed native configuration options beyond this bounded renderer.</p>
+<h2 id="install-or-update-an-app">Install or update an App<a class="headerlink" href="#install-or-update-an-app" title="Permanent link">&para;</a></h2>
+<p>Use the same explicit workspace profile and rendered settings throughout an
+installation or update. The commands below apply resources and deploy code;
+local building, rendering and tests can be completed separately. No runtime
+<code>pip</code>/<code>npm</code> installation is required.</p>
+<h3 id="keep-all-resources-and-identity-settings">Keep all resources and identity settings<a class="headerlink" href="#keep-all-resources-and-identity-settings" title="Permanent link">&para;</a></h3>
+<p>The generated bundle defines the bindings below. On an <strong>existing</strong> App these
+are a required subset, not permission to replace its complete resource list.</p>
+<table>
+<thead>
+<tr>
+<th>Resource key</th>
+<th>Shape and permission</th>
+<th>Additional boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>postgres</code></td>
+<td><code>postgres</code> with <code>branch</code>, full <code>database</code> resource path, <code>CAN_CONNECT_AND_CREATE</code></td>
+<td>Creates the App principal's database connection role/CONNECT/CREATE access. Does not grant workload table ownership, every monitoring capability or execution authority.</td>
+</tr>
+<tr>
+<td><code>sage-encryption-key</code></td>
+<td><code>secret</code> with existing <code>scope</code>, <code>key</code>, <code>READ</code></td>
+<td>Keep the same secret value for existing encrypted metadata. Secret rotation is a separate key-rotation procedure.</td>
+</tr>
+<tr>
+<td><code>gateway-model</code></td>
+<td><code>uc_securable</code> with <code>MODEL_SERVICE</code>, full model name, <code>EXECUTE</code></td>
+<td>Declared when Gateway is configured. This is the tested model-service binding, not a substitution with an unrelated serving endpoint.</td>
+</tr>
+<tr>
+<td><code>lakebase-history-warehouse</code></td>
+<td><code>sql_warehouse</code> with selected <code>id</code>, <code>CAN_USE</code></td>
+<td>Declared only when retained history is enabled. UC access and payload/compute authorization remain separate.</td>
+</tr>
+</tbody>
+</table>
+<p>App access permissions, the App service principal, <code>user_api_scopes</code>, all other
+resource bindings, and any reviewed per-environment configuration must survive
+a code-only update. App resources are collections: a resources-field update
+replaces the <strong>whole list</strong>. Removing a Lakebase resource can reassign owned
+objects and remove the principal's PostgreSQL role; changing <code>database</code> to
+<code>postgres</code> is not a harmless rename. Do neither as an upgrade workaround.</p>
+<p>For a new App, create it without compute so its principal and resources can be
+prepared before the first server start:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>databricks<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--no-compute<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json
+</code></pre></div>
+<p>Attach the reviewed resources through the Apps UI, or use the current
+<code>apps create-update</code> API/CLI surface after inspecting the generated resource
+shapes. Let the principal own a fresh <code>sage</code> schema; an existing schema's
+ownership migration requires a separate reviewed plan. Keep end-user App access
+and PostgreSQL privileges scoped to the deployment's purpose.</p>
+<p>For either installation or update, capture the App metadata privately:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">read</span><span class="w"> </span>-r<span class="w"> </span>-p<span class="w"> </span><span class="s1">'Absolute private release-evidence directory: '</span><span class="w"> </span>PG_SAGE_EVIDENCE
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">"</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>databricks<span class="w"> </span>apps<span class="w"> </span>get<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/app-before.json"</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>databricks<span class="w"> </span>apps<span class="w"> </span>list-deployments<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--limit<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/deployments-before.json"</span>
+</code></pre></div>
+<p>If a resource change is actually required, prepare and review a JSON request
+with the <strong>complete merged</strong> resource list. CLI 1.20.0 documents positional
+<code>APP_NAME UPDATE_MASK</code>; its request body contains <code>app</code> and <code>update_mask</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Only after reviewing this separately prepared complete request:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>databricks<span class="w"> </span>apps<span class="w"> </span>create-update<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>resources<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--json<span class="w"> </span><span class="s2">"@</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/reviewed-resource-update.json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span>
+</code></pre></div>
+<p>The JSON shape is <code>{"update_mask":"resources","app":{"name":"actual-app-name","resources":[...]}}</code>;
+the ellipsis is explanatory, never a literal request. Preserve every current
+binding when constructing that array. Leave unrelated fields outside the mask;
+never use <code>*</code>. Re-read the App afterward and compare complete resources and user
+API scopes. A regular code-only update skips this resource-change step entirely.</p>
+<h3 id="validate-the-native-package">Validate the native package<a class="headerlink" href="#validate-the-native-package" title="Permanent link">&para;</a></h3>
+<p>Use the <a href="#build-and-package">build and package</a> recipe with the chosen fresh
+output, then render the reviewed settings:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>python3<span class="w"> </span>deploy/databricks-apps/configure.py<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--package<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PACKAGE</span><span class="s2">"</span><span class="w"> </span>--settings<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_SETTINGS</span><span class="s2">"</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>python3<span class="w"> </span>-m<span class="w"> </span>unittest<span class="w"> </span>discover<span class="w"> </span>-s<span class="w"> </span>deploy/databricks-apps<span class="w"> </span>-p<span class="w"> </span><span class="s1">'test_*.py'</span><span class="w"> </span>-v
+</code></pre></div>
+<p>Run the repository's backend/frontend release checks as well. Packaging tests
+cover ELF/static-link/architecture validation, chunk integrity, runtime config,
+OAuth conflict refusal, resource rendering and supervisor signals/restarts;
+they do not connect to the chosen Lakebase branch or certify its grants.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="o">(</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nb">cd</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PACKAGE</span><span class="s2">"</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>databricks<span class="w"> </span>bundle<span class="w"> </span>validate<span class="w"> </span>--strict<span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="o">)</span>
+</code></pre></div>
+<p>CLI 1.20.0's bundle schema omits <code>MODEL_SERVICE</code> from
+<code>uc_securable.securable_type</code>, although the deployed Apps API accepted that
+resource with <code>EXECUTE</code> in the recorded acceptance. A Gateway package therefore
+fails strict validation with that specific enum warning. Retain the correct
+resource, run non-strict <code>databricks bundle validate</code>, and establish that this
+is the only warning before using the direct App deployment path below. Record
+this as a schema discrepancy, <strong>not</strong> a strict-validation pass. Stop for other
+validation errors; future CLI versions may remove this exception.</p>
+<p>CLI 1.20.0 <code>databricks apps validate</code> recognizes Node projects and rejects this
+native Go/Python-launcher package. Do not add a dummy Node project to bypass it.
+<code>apps deploy</code> without an App name uses the enhanced bundle workflow; when the
+CLI fully supports all chosen resource types, <code>--skip-validation</code> bypasses only
+that unsuitable project check. Bundle deployment can be followed by
+<code>databricks bundle run pg_sage</code> when a two-phase principal/grants setup is needed.
+Keep that alternative separate from the already-configured direct snapshot path.</p>
+<h3 id="upload-reviewed-runtime-files-and-deploy-a-snapshot">Upload reviewed runtime files and deploy a snapshot<a class="headerlink" href="#upload-reviewed-runtime-files-and-deploy-a-snapshot" title="Permanent link">&para;</a></h3>
+<p>Make a runtime-only stage. The manifest decides the chunk count; dev10 had
+seven runtime files, but seven is not a universal package requirement. Keep the
+bundle, settings, source, evidence, environment dumps and <code>.databricks</code> state out
+of this stage.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">PG_SAGE_STAGE</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">TMPDIR</span><span class="k">:-</span><span class="p">/tmp</span><span class="si">}</span><span class="s2">/pg-sage-upload.XXXXXX"</span><span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>python3<span class="w"> </span>-<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PACKAGE</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_STAGE</span><span class="s2">"</span><span class="w"> </span><span class="s">&lt;&lt;'PY'</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="s">import hashlib, json, pathlib, shutil, sys</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="s">package, stage = map(pathlib.Path, sys.argv[1:])</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="s">manifest = json.loads((package / 'binary.json').read_text())</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="s">names = ['app.yaml', 'binary.json', 'config.json', 'launch.py', *manifest['chunks']]</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="s">assert len(names) == len(set(names)), 'duplicate runtime filename'</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="s">fingerprints = {}</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="s">for name in names:</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="s">    assert pathlib.Path(name).name == name, 'runtime path must be a filename'</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="s">    data = (package / name).read_bytes()</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="s">    assert len(data) &lt;= 10_000_000, 'runtime file exceeds conservative 10 MB bound'</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="s">    shutil.copyfile(package / name, stage / name)</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="s">    fingerprints[name] = hashlib.sha256(data).hexdigest()</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="s">(stage.parent / (stage.name + '.sha256.json')).write_text(json.dumps(fingerprints, indent=2) + '\n')</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="s">print('Staged', len(names), 'runtime files; fingerprints are beside the stage.')</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="s">PY</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="nb">read</span><span class="w"> </span>-r<span class="w"> </span>-p<span class="w"> </span><span class="s1">'Fresh absolute /Workspace source directory: '</span><span class="w"> </span>PG_SAGE_SOURCE
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>databricks<span class="w"> </span>workspace<span class="w"> </span>mkdirs<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_SOURCE</span><span class="s2">"</span><span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="k">for</span><span class="w"> </span>PG_SAGE_FILE<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_STAGE</span><span class="s2">"</span>/*<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">  </span>databricks<span class="w"> </span>workspace<span class="w"> </span>import<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_SOURCE</span><span class="s2">/</span><span class="k">$(</span>basename<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_FILE</span><span class="s2">"</span><span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">    </span>--file<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_FILE</span><span class="s2">"</span><span class="w"> </span>--format<span class="w"> </span>RAW<span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="k">done</span>
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>databricks<span class="w"> </span>apps<span class="w"> </span>deploy<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--source-code-path<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_SOURCE</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="w">  </span>--mode<span class="w"> </span>SNAPSHOT<span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">  </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/deployment.json"</span>
+</code></pre></div>
+<p>Use a fresh workspace directory and omit <code>--overwrite</code> so a reused filename
+fails. <code>RAW</code> preserves <code>launch.py</code> as a file; generic notebook import can change
+Python filenames. An explicit App name selects direct deployment even from a
+bundle directory. This deploys code/runtime configuration while preserving the
+App's existing resource bindings. <code>SNAPSHOT</code> freezes deployed code; it does not
+snapshot the database, grants, secret value or persisted pg_sage settings.</p>
+<h3 id="verify-the-deployed-artifact-and-service">Verify the deployed artifact and service<a class="headerlink" href="#verify-the-deployed-artifact-and-service" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">PG_SAGE_DEPLOYMENT</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s1">'import json,sys; print(json.load(open(sys.argv[1]))["deployment_id"])'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/deployment.json"</span><span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>databricks<span class="w"> </span>apps<span class="w"> </span>get-deployment<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_DEPLOYMENT</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/deployment-verified.json"</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>databricks<span class="w"> </span>apps<span class="w"> </span>get<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span><span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_EVIDENCE</span><span class="s2">/app-after.json"</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>databricks<span class="w"> </span>apps<span class="w"> </span>logs<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_APP</span><span class="s2">"</span><span class="w"> </span>--tail-lines<span class="w"> </span><span class="m">200</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span>--profile<span class="w"> </span><span class="s2">"</span><span class="nv">$PG_SAGE_PROFILE</span><span class="s2">"</span>
+</code></pre></div>
+<p>Require deployment status <code>SUCCEEDED</code>, an actually running App, and successful
+proxy readiness; these are separate signals. Read the App URL from <code>apps get</code>.
+Compare all resources and <code>user_api_scopes</code> with <code>app-before.json</code>; compare the
+App principal as well. The deployment response's
+<code>deployment_artifacts.source_code_path</code> identifies the snapshotted code actually
+loaded. Its outer <code>source_code_path</code> is the original upload source and is not
+a proof of immutable contents.</p>
+<p>For stronger provenance, export each runtime filename from that actual artifact
+path with <code>databricks workspace export SOURCE_PATH --format RAW --file LOCAL_PATH
+--profile "$PG_SAGE_PROFILE"</code> and compare SHA-256 with the private stage
+fingerprints. Do not place the fingerprint file in the runtime stage. Record
+<code>VERSION</code>, the embedded commit/dirty status, binary manifest SHA-256, runtime-file
+hashes, configuration hash, deployment ID and test results. A base Git commit
+alone does not identify a cumulative dirty working tree.</p>
+<p>Use an ordinary authenticated Databricks browser for the
+<a href="#live-acceptance-checks">live acceptance checks</a>. Protected API requests use
+that platform session, not a copied token or a manufactured forwarded header.
+No approval or database change is needed for release smoke checks. Inspect
+<code>/health</code>, <code>/ready</code>, <code>/api/v1/auth/me</code>, <code>/api/v1/databases</code>,
+<code>/api/v1/llm/status</code>, the administrator-only <code>/api/v1/deployment/status</code>, and the
+telemetry status route. Check the intended database and actual collection health,
+Observation mode, AI origin/auth mode, automatic-start/action flags and payload
+consent. Check Cases, Actions, Ask Sage and Fleet on desktop/mobile. A manual AI
+probe incurs model usage and requires its own operational authorization; a
+readiness check alone does not establish model inference.</p>
+<h3 id="update-restart-and-roll-back">Update, restart and roll back<a class="headerlink" href="#update-restart-and-roll-back" title="Permanent link">&para;</a></h3>
+<p>For a code-only update, retain the existing App, principal, resource set,
+secret, database and grants. Save the current known-good package and evidence,
+build into fresh local/workspace directories, deploy another <code>SNAPSHOT</code>, then
+repeat the artifact and service checks. Rendering a fresh template is not a
+replacement for the deployed effective configuration: persisted pg_sage API
+settings and per-database overrides must be reviewed separately.</p>
+<p>For a restart of unchanged code, the dashboard's intentional restart exits 42
+and the launcher restarts the child; an Apps stop/start recreates ephemeral
+files. A reviewed full compute restart uses <code>databricks apps stop APP_NAME</code>
+followed by <code>databricks apps start APP_NAME</code>, with the selected profile on both.
+These interrupt service; they are not read-only verification steps. Changing
+workspace credentials, endpoint mapping or SDK auth configuration requires a
+process restart. Egress-policy changes may require an Apps restart as described
+in the platform documentation.</p>
+<p>A code rollback redeploys the retained, hash-verified previous runtime package
+as a <strong>new</strong> <code>SNAPSHOT</code> to the same App, following the upload/deploy/check sequence.
+Do not assume <code>--deployment-id</code> means "restore this old deployment"; it identifies
+a deployment request, not a documented database rollback. Preserve all current
+bindings/scopes and the stable encryption secret. Confirm that the older binary
+supports the current metadata schema and configuration before running it:
+startup migrations are not reversed by redeploying code.</p>
+<p>If compatibility is uncertain, stop and plan recovery with the database owner.
+An Apps code snapshot is not a database backup. Lakebase branch/PITR restore,
+secret rotation and reverting an approved workload change are separate recovery
+operations with different owners and effects. Do not drop the <code>sage</code> schema,
+delete/recreate the App or detach its database to make an old binary start.</p>
+<h2 id="logs-and-troubleshooting">Logs and troubleshooting<a class="headerlink" href="#logs-and-troubleshooting" title="Permanent link">&para;</a></h2>
+<p>The launcher/Go server write to stdout/stderr, which Apps captures. Use
+<code>databricks apps logs "$PG_SAGE_APP" --follow --tail-lines 200 --profile
+"$PG_SAGE_PROFILE"</code> for an active investigation; stop following when finished.
+Logs require OAuth-capable operator CLI authentication. Keep release evidence
+private and sanitize it before sharing; never dump the App environment,
+Authorization headers, OAuth responses, secret values or password-bearing DSNs.
+An App RUNNING state alone does not establish useful collection or AI access.</p>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Check and supported response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>302/login for an anonymous protected request</td>
+<td>Expected platform ingress gate. Authenticate through Databricks; do not bypass it with identity headers.</td>
+</tr>
+<tr>
+<td>Missing identity, local login form, or a separate session seems required</td>
+<td>Confirm <code>SAGE_AUTH_MODE=databricks_app</code>, the runtime port/workspace inputs and proxy access path; remove stale bootstrap/password configuration. Check the intended explicit admin binding.</td>
+</tr>
+<tr>
+<td>403 after platform sign-in</td>
+<td>Separate App access from pg_sage role and resource/database permissions. An email or App <code>CAN_USE</code> is not an administrator grant.</td>
+</tr>
+<tr>
+<td><code>403 databricks_app_audience_denied</code></td>
+<td>The forwarded email domain is outside the configured audience. Sign in with an allowed organization account; inspect the exact-domain policy and administrator binding before changing platform sharing. Existing roles do not bypass it.</td>
+</tr>
+<tr>
+<td>App stopped, startup failure or 502</td>
+<td>Inspect system/App logs; confirm <code>python launch.py</code>, architecture/chunk checks, <code>0.0.0.0:$DATABRICKS_APP_PORT</code>, H2C and proxy TLS termination. Check missing secret/resource injection before changing code.</td>
+</tr>
+<tr>
+<td>Architecture or dynamic-interpreter rejection</td>
+<td>Rebuild the static <strong>Linux</strong> ELF for the runtime architecture with CGO/libpg_query retained. A local macOS or dynamically linked binary is not compatible.</td>
+</tr>
+<tr>
+<td>Package checksum/size mismatch</td>
+<td>Re-stage and re-upload the complete reviewed manifest/chunks; do not disable the verification or mix release files.</td>
+</tr>
+<tr>
+<td><code>app OAuth requires removing ...</code> or launcher rejects credentials</td>
+<td>Remove conflicting PAT/basic/profile/API-key/bootstrap variables from the App deployment. Keep platform <code>oauth-m2m</code>; do not add a fallback identity.</td>
+</tr>
+<tr>
+<td>Lakebase host mismatch/pooled-endpoint/TLS refusal</td>
+<td>Compare the exact endpoint resource with the API's direct hostname and <code>verify-full</code>. Do not substitute a pooled host, IP address or disabled TLS.</td>
+</tr>
+<tr>
+<td>Refresh/reconnect failure after initial success</td>
+<td>Check App principal permissions, current endpoint state, workspace reachability and expiry-aware fresh physical connections. Existing open sessions do not test renewal. Never paste a new token into the package.</td>
+</tr>
+<tr>
+<td><code>sage</code> migration/ownership error</td>
+<td>Inspect the selected database and object owners. Arrange a reviewed ownership/access migration; resource attachment does not transfer arbitrary pre-existing schema ownership.</td>
+</tr>
+<tr>
+<td>AI 401/403 or structured-output rejection</td>
+<td>Check each general/optimizer/SRE client's origin, M2M metadata, model <code>EXECUTE</code> grant and model-specific JSON mode. Do not route to a different origin or supply an API key.</td>
+</tr>
+<tr>
+<td>History empty/unavailable</td>
+<td>Check warehouse binding/<code>CAN_USE</code>, UC privileges, source bindings, delivery delay, retention and payload/compute consent. Empty retained history is not proof of no incidents or a healthy live denominator.</td>
+</tr>
+<tr>
+<td>Cases show blocked/unknown recovery or no Actions history</td>
+<td>In Observation mode this is expected for changes. Do not raise trust, enable execution or approve work to make a deployment smoke test look active.</td>
+</tr>
+<tr>
+<td>Baseline completed but index changes remain blocked</td>
+<td>Disk-load baseline is one safety condition. Mode, provider applicability, permissions and approval gates still apply.</td>
+</tr>
+<tr>
+<td>Encrypted metadata no longer decrypts</td>
+<td>Confirm the original encryption secret reference/value. Follow <a href="../security/#secrets-at-rest">key rotation</a>; do not overwrite the database or generate a replacement key as a restart fix.</td>
+</tr>
+<tr>
+<td>Repeated restart exit 42</td>
+<td>Launcher stops after more than five requests in 60 seconds. Inspect the restart-requiring setting and logs rather than masking a restart loop.</td>
+</tr>
+<tr>
+<td>Request times out at the platform</td>
+<td>Check current proxy limits and use the existing asynchronous investigation/status flow. Do not assume a client timeout proves that a submitted operation did not run.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="retained-sre-history">Retained SRE history<a class="headerlink" href="#retained-sre-history" title="Permanent link">&para;</a></h2>
+<p>With <code>lakebase_observability</code> configured, the investigator's <code>read_history</code>
+tool can consume <code>lakebase_plan_history</code>, <code>lakebase_log_history</code>,
+<code>lakebase_session_history</code>, <code>lakebase_ddl_history</code> and
+<code>lakebase_database_history</code>. These fixed adapters read retained observations
+under the current verified binding and owner policy, and the investigation's
+pinned database policy. An explicit <code>sre.read_policy.allowed_sources</code> list must
+include each requested source. The tool is exposed only when its investigation
+plan and policy allow history; it does not expand the App principal's warehouse
+or UC permissions.</p>
+<p>Reads retain original event/receipt times and source identities, enforce
+retention, and return at most 100 structured observations in a 60-second to
+seven-day window (24 hours by default). Raw SQL, plan JSON, log messages, actor
+identities and object names are excluded from durable SRE history evidence.
+Historical RCA classifications and DDL changes add citable context without
+asserting a live cause, current incident, exact event count, customer impact or
+complete SLO denominator. Empty history means completeness is unknown.
+See <a href="../lakebase/#advanced-telemetry-auto_explain-and-sre-history">Lakebase history</a> for
+source details and the separate controlled native delivery evidence.
+On final dev.5 SNAPSHOT <code>01f1d48e0748107d95b5bdd1ffad0e22</code>, two real-Gateway
+investigations executed and cited all five adapters with positive observations.
+Plan/log case <code>e0f50f43-5e45-46d0-9701-ae1f8187a53d</code> retrieved the exact
+controlled provider plan event, with four model calls/four tools/14,816 tokens
+and a verified 14-event chain. Case <code>ea555ad2-3ca6-48a3-bbcc-69d48f18ed9c</code>
+read ASH (100 observations), DDL (one) and database metrics (100), with three
+calls/four tools/13,563 tokens and a verified 17-event chain. The cited DDL evidence
+contains the exact controlled table-creation event also persisted by the actual
+scheduler and returned through the authenticated history API. Its unique owned
+schema/table were removed with identity checks; no trust, grant or payload
+configuration changed. Both cases passed idempotent readback, accepted evidence
+hashes/citations and eight unchanged action/approval ledgers.</p>
+<p>The advisory outcomes were inconclusive; no database cause or remediation was
+established. <code>allow_payload: false</code> remained active. This accepts structured
+retained history and its citations; App raw-plan-cache ingestion and complete
+telemetry remain unproven. The <a href="../reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence">dev.5 report</a>
+records artifact/event identities and preserved transport/cleanup failures.</p>
+<h2 id="application-sli-ingestion">Application SLI ingestion<a class="headerlink" href="#application-sli-ingestion" title="Permanent link">&para;</a></h2>
+<p>An administrator authenticated through Databricks Apps can submit cumulative
+application counters to:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>POST /api/v1/sre/slos/{name}/samples?database=&lt;registered-runtime-name&gt;
+</code></pre></div>
+<p>Configure the objective at startup in <code>sre.slo.objectives</code>, with the exact
+<code>name</code>, explicit <code>database</code>, <code>source: push</code>, <code>target</code>, <code>window_days</code>,
+<code>min_eligible_events</code> and <code>stale_after_seconds</code>. Enable <code>sre.slo.enabled</code>;
+<code>sre.slo.push.hmac_secret</code> can remain empty in Apps mode. The route does not
+create or edit objectives. To start a read-only investigation on a page burn,
+also enable <code>sre.slo.open_investigations</code> and allow <code>application_slo_status</code>
+under any explicit read allowlist. This registered application signal can open
+a <code>slo_burn</code> case while <code>sre.automatic_start</code> is false. Keep notification and
+action configuration independently controlled.</p>
+<p>The body accepts only <code>series</code>, <code>bad</code>, <code>eligible</code> and <code>observed_at</code>. Counters
+must be finite and nonnegative with <code>bad &lt;= eligible</code>; <code>observed_at</code> is a
+current RFC3339 timestamp, at most ten minutes old or one minute ahead. The
+server binds the series to the authenticated, persisted pg_sage administrator
+and the registered database identity. Client-supplied actor, deployment or
+database identity fields are refused. Same-origin mutation protection remains
+in force. A new sample returns 202, an identical same-series/time replay
+returns 200 without another row, and different counters at that identity
+return 409. A missing database selector is invalid; ambiguous or rebound
+database identity is refused.</p>
+<p>These must be real cumulative bad/eligible counters for the same population
+and time. Use stable series whose event populations do not overlap. Reposting
+one population through multiple administrator identities creates distinct
+series and can double count it. Counter decreases are resets. Both burn
+windows need sufficient eligible traffic and at least 90% sample coverage;
+no data, partial coverage, low traffic, stale samples or stale evaluations
+yield unknown. Sampled provider logs and interval metrics do not meet this
+application-denominator contract. Database proxy SLOs describe database
+symptoms. This human-admin route does not establish machine-source identity
+or support the legacy signed ingestion protocol, which remains 501 in Apps.</p>
+<p>Authenticated viewers can read <code>/api/v1/sre/slos?database=&lt;name&gt;</code> and
+<code>/api/v1/sre/slos/{name}?database=&lt;name&gt;</code>. Deployment status exposes SLO
+configuration flags/counts; individual status exposes the target and burn
+rules. The global config API does not expose every startup SRE field, so
+validate the reviewed deployment configuration as well as runtime behavior.
+The <a href="../reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass">dev.5 App SLO acceptance</a>
+passed fifteen real-time samples across seven minutes, replay/refusal checks,
+both burn windows, a cited real-Gateway case and actual stopped-source staleness
+after 123.06 seconds. Eight action/approval ledgers were unchanged and exact
+cleanup preserved the case. The final baseline has no application objectives or
+synthetic samples/status/transitions. Adding a real source is an explicit
+configuration choice. Synthetic counters establish only their scenario, and the
+advisory inconclusive case establishes no database cause or remediation.</p>
+<h2 id="operator-statistics-maintenance">Operator statistics maintenance<a class="headerlink" href="#operator-statistics-maintenance" title="Permanent link">&para;</a></h2>
+<p>Dev.4 adds a typed <code>create_statistics</code> lifecycle under
+<code>/api/v1/databases/{db}/investigations/{id}/maintenance</code>. Viewers/operators/admins
+can list proposals. Operators/admins can explicitly propose columns, kinds,
+rationale and the SHA-256/ID of fresh retained <code>stat_tables</code> v3 evidence, then
+call <code>/{proposal}/request</code> to create a pending human approval. The investigation
+must be concluded and the evidence must identify the same physical database
+and table. Durable approval, live standing policy, trust and emergency-stop
+checks gate execution. Only an admin can request <code>/{proposal}/rollback</code>, with
+a reason. There is no automatic maintenance proposal/execution/rollback path;
+observation trust prevents mutation.</p>
+<p>The <strong>App's connecting PostgreSQL role</strong> needs CREATE on the statistics schema
+and ownership of the target workload table. Database/schema ownership,
+<code>CAN_CONNECT_AND_CREATE</code>, or <code>MAINTAIN</code> alone does not establish these rights;
+the bridge excludes <code>sage</code> metadata tables. Evidence and approval expire within
+15 minutes. Under a bounded table lock, the typed runner rechecks physical
+table/owner/column identities, atomically creates statistics plus ANALYZE, and
+verifies the built object's OID. Rollback reauthorizes and removes only that
+exact object, preserving a same-name replacement. <strong>It cannot restore prior
+ANALYZE statistics.</strong> Structural success establishes neither performance
+improvement nor incident recovery and earns no value/autonomy credit.</p>
+<p>The <a href="../reviews/2026-10-30-sre-maintenance.md">native maintenance lifecycle</a>
+passed on an owned PG18 fixture as the native user role. App-principal
+maintenance execution remains unproven; no broad workload-table grants or
+ownership transfer is implied by deployment.</p>
+<h2 id="live-acceptance-checks">Live acceptance checks<a class="headerlink" href="#live-acceptance-checks" title="Permanent link">&para;</a></h2>
+<p>These full pilot checks run against the actual App URL and Lakebase endpoint.
+They include controlled writes, model usage and restart/endurance scenarios;
+select and authorize those scenarios separately from code-only release smoke
+checks. Record each result and any unproven item explicitly:</p>
+<ul>
+<li>The app reaches RUNNING, <code>/health</code> responds through the Apps proxy, and
+  <code>/ready</code> verifies its control database and migrated schema. <code>/health</code> is
+  liveness only; <code>/ready</code> does not verify an admin account. With an authenticated
+  Databricks browser session, the dashboard must load directly without a
+  pg_sage password form or <code>sage_session</code> cookie. <code>/api/v1/auth/me</code> must identify the
+  intended platform user and role. Anonymous platform access must remain gated,
+  and the old password endpoint must not establish authentication.</li>
+<li>Accounts, roles, findings and the encryption key survive both a dashboard
+  requested restart and an Apps stop/start; only temporary executable/config
+  files are recreated. Platform identity must continue to authenticate each
+  request, and an existing local cookie must not bypass it. Explicit admin
+  binding must not grant every platform user the administrator role.</li>
+<li>The service principal can create/use the intended <code>sage</code> schema, read the
+  monitoring catalogs and perform permitted fixture operations. Unsupported
+  extensions/admin settings are reported as unavailable.</li>
+<li>Open fresh database connections after the initial one-hour credential
+  lifetime; verify OAuth refresh rather than relying on existing pooled
+  sessions. Reconnect after a scale-to-zero cycle.</li>
+<li>One real structured request succeeds against the selected Unity Gateway
+  route/model, and denied credentials/permissions fail without fallback to a
+  different ungoverned endpoint.</li>
+<li>General/advisor, dedicated optimizer and SRE routing are checked separately.
+  HTTP 401/403 remain terminal; retryable transport/429/503 paths reauthorize
+  through the SDK, which may reuse a still-valid token. Measure actual renewal
+  where observable and label elapsed-time endurance evidence accurately.</li>
+<li>For the current deployment, read retained history through the actual investigator tool and
+  verify durable citations, source/event times and evidence hashes. Empty
+  history proves neither positive delivery nor incident detection. Keep
+  platform query support separate from the default database-only policy;
+  explicitly authorized native cluster/filesystem reads do not expand that
+  production policy. <code>pg_hint_plan</code> installation does not establish an active
+  planner hook, and unavailable HypoPG does not establish a what-if benefit.</li>
+<li>For an App SLO pilot, push actual current-time counters across both burn
+  windows, verify replay/refusal behavior and exactly one scoped durable case
+  for a continuing synthetic acceptance burn, then stop pushes and observe
+  actual stale-to-unknown behavior. Verify cited hashed SLO evidence, the real
+  Gateway investigator's terminal transcript/event chain, and unchanged
+  action/approval ledgers. Remove only owned fixture rows and the temporary
+  objective while preserving the case; synthetic data makes no production
+  customer-impact claim. These scoped dev.5 checks
+  <a href="../reviews/2026-10-30-app-slo-acceptance.md">passed on the dedicated development App</a>;
+  overall final deployment acceptance is tracked separately.</li>
+<li>SIGTERM shuts down cleanly within the platform allowance. The optional
+  secondary Prometheus listener is not exposed by Apps' single public port.</li>
+</ul>
+<p>The standard test suite includes backend, frontend and local PostgreSQL fixture
+coverage beyond these deployment checks. Passing that suite cannot certify
+host-level access, every supported PostgreSQL extension, or every LLM model.</p>
+<h2 id="sources-and-verification-boundary">Sources and verification boundary<a class="headerlink" href="#sources-and-verification-boundary" title="Permanent link">&para;</a></h2>
+<p>Internal documentation was consulted before checking public documentation,
+installed CLI help/schema and the implementation. This portable guide cites
+public sources and repository evidence only; internal design material is not a
+shipped-feature contract. CLI caveats above are version-specific and should be
+rechecked after upgrading the CLI.</p>
+<ul>
+<li><a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/system-env">Apps environment</a>:
+  Ubuntu, Python runtime, injected port and service principal credentials.</li>
+<li><a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/best-practices">Apps best practices</a>:
+  H2C, proxy TLS termination, required bind address and port.</li>
+<li><a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/app-development">Apps development</a>:
+  10 MB per-file deployment limit.</li>
+<li><a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/app-runtime">Runtime configuration</a>:
+  explicit command array, environment values and resource references.</li>
+<li><a href="https://docs.databricks.com/aws/en/oltp/projects/tutorial-databricks-apps-autoscaling">Lakebase custom app tutorial</a>:
+  OAuth connection credentials and service principal grants.</li>
+<li><a href="https://learn.microsoft.com/en-us/azure/databricks/oltp/projects/private-link">Azure Lakebase private connectivity</a>:
+  regional <code>*.database.&lt;region&gt;.azuredatabricks.net</code> ingress names. Provider
+  classification supports AWS and Azure regional names; Azure remains untested
+  against a live endpoint. OAuth still checks the actual endpoint API hostname.</li>
+<li>
+<p><code>databricks bundle schema</code> with CLI 1.20.0: current <code>postgres</code> resource shape
+  (<code>branch</code>, <code>database</code>, <code>permission</code>), secret resource and app config fields.</p>
+</li>
+<li>
+<p><a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/auth">App and user authorization</a>:
+  dedicated App identity versus separately consented user authorization.</p>
+</li>
+<li><a href="https://docs.databricks.com/aws/en/dev-tools/databricks-apps/lakebase">Lakebase App resources</a>:
+  principal roles, connection variables and resource-removal ownership effects.</li>
+<li><a href="https://docs.databricks.com/aws/en/dev-tools/cli/reference/apps-commands">Apps CLI reference</a>:
+  direct deployments, update masks, deployment status and logs. The installed
+  CLI's <code>--help</code> was cross-checked for the command forms in this page.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>

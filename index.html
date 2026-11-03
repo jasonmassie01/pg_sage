@@ -790,6 +790,151 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Databricks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="databricks-native/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase and Unity Gateway
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="databricks-apps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -880,17 +1025,16 @@ traditional observability dashboard:</p>
   actions. Schema-health, forecast, query-hint, and incident routes open Cases
   with the matching source filter selected; the legacy <code>#/findings</code> route
   aliases here.</li>
-<li><strong>Actions</strong> shows pending approval and executed action history.</li>
+<li><strong>Actions</strong> separates proposed changes, needs your review, in progress and
+  history. Approval, completed SQL and verified outcomes remain separate states.</li>
 <li><strong>Fleet</strong> manages database connections and per-database runtime state.</li>
 <li><strong>Settings</strong> includes system configuration, emergency controls, and the
   Shadow Mode report proving what auto-safe policy would have handled.</li>
-<li><strong>Agent DBs</strong> provisions local agent databases, reviews LLM blueprints and
-  Terraform templates, and runs gated cloud workflows for RDS, Cloud SQL, and
-  Lakebase when provider setup is complete.</li>
 </ul>
-<p>The web UI and JSON API are authenticated by default. On first start, pg_sage
+<p>The web UI and JSON API are authenticated by default. On first standalone start, pg_sage
 prints a one-time password for <code>admin@pg-sage.local</code>; API clients authenticate
-through <code>/api/v1/auth/login</code> and reuse the <code>sage_session</code> cookie.</p>
+through <code>/api/v1/auth/login</code> and reuse the <code>sage_session</code> cookie. Databricks Apps
+uses platform sign-in and pg_sage roles, with no separate pg_sage password.</p>
 <p>Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
 generates deterministic lock/rewrite and live-risk preflight evidence,
 migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
@@ -907,13 +1051,16 @@ suggested rewrites into PR-ready artifacts, retire broken hints through a safe
 metadata action, recommend <code>CREATE STATISTICS</code>, draft parameterization changes,
 and promote repeated per-query <code>work_mem</code> hints into reviewed role-level
 settings when the blast radius is explicit.</p>
-<p>Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
+<p>Provider readiness is adapter-driven for Lakebase, self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
 access, provider limitations, and action-family readiness so automation policy
 can differ by managed-service constraints.</p>
 <hr />
 <h2 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h2>
 <ul>
+<li><a href="databricks-native/">Databricks-native implementation</a> — architecture, Lakebase/App setup, OAuth, compatibility and evidence</li>
+<li><a href="lakebase/">Lakebase and Unity Gateway</a> — native connections, telemetry, SRE, supported actions and restrictions</li>
+<li><a href="databricks-apps/">Databricks Apps</a> — build, resource bindings, platform authentication and deployment</li>
 <li><a href="quickstart/">Five-minute quickstart</a> — minimal role, read-only first look in minute 1</li>
 <li><a href="installation/">Installation</a> — Download, prerequisites, database user setup</li>
 <li><a href="try-it-out/">Try It Out</a> — local v1 smoke path and UI checklist</li>
@@ -932,6 +1079,7 @@ can differ by managed-service constraints.</p>
 </ul>
 <h2 id="operations">Operations<a class="headerlink" href="#operations" title="Permanent link">&para;</a></h2>
 <ul>
+<li><a href="../deploy/databricks-apps/README.md">Databricks deployment templates</a> — package/configure commands and operator handoff</li>
 <li><a href="deployment/">Deployment</a> — Docker, systemd, Kubernetes</li>
 <li><a href="security/">Security</a> — Least-privilege roles, network policies, audit logging</li>
 <li><a href="../sidecar/internal/decommission/README.md">Decommissioning the removed database provisioner</a> -- inventory, delete templates and acknowledgement for resources an earlier version created</li>

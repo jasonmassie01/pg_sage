@@ -1,0 +1,2204 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/lakebase/">
+      
+      
+        <link rel="prev" href="../databricks-native/">
+      
+      
+        <link rel="next" href="../databricks-apps/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Lakebase and Unity Gateway - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#lakebase-compatibility-and-operations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Lakebase and Unity Gateway
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Five-minute quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Binding Facts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP for Coding Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ask-sage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ask Sage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../specialist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Postgres Specialist for Other Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sage-sre-permissions-and-data-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Databricks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../databricks-native/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase and Unity Gateway
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase and Unity Gateway
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility at a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local connection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unity-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unity Gateway
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#advanced-telemetry-auto_explain-and-sre-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced Telemetry, auto_explain and SRE history
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Advanced Telemetry, auto_explain and SRE history">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#platform-capture-and-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform capture and access
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ordinary-auto_explain-versus-provider-captured-plans" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ordinary auto_explain versus provider-captured plans
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configure-the-pg_sage-reader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure the pg_sage reader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre-with-and-without-advanced-telemetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SRE with and without Advanced Telemetry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application-slos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application SLOs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nine-controlled-finding-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nine controlled finding families
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#work_mem-advice-experiments-and-setting-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        work_mem: advice, experiments and setting scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managed-service-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managed-service limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operator-requested-statistics-maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operator-requested statistics maintenance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-and-evidence-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation and evidence map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduce-live-read-only-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduce live read-only checks
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../databricks-apps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Databricks Apps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility at a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local connection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unity-gateway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unity Gateway
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#advanced-telemetry-auto_explain-and-sre-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced Telemetry, auto_explain and SRE history
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Advanced Telemetry, auto_explain and SRE history">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#platform-capture-and-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Platform capture and access
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ordinary-auto_explain-versus-provider-captured-plans" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ordinary auto_explain versus provider-captured plans
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configure-the-pg_sage-reader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure the pg_sage reader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sre-with-and-without-advanced-telemetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SRE with and without Advanced Telemetry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#application-slos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Application SLOs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nine-controlled-finding-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nine controlled finding families
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#work_mem-advice-experiments-and-setting-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        work_mem: advice, experiments and setting scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managed-service-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managed-service limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operator-requested-statistics-maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operator-requested statistics maintenance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-and-evidence-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation and evidence map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reproduce-live-read-only-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reproduce live read-only checks
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="lakebase-compatibility-and-operations">Lakebase compatibility and operations<a class="headerlink" href="#lakebase-compatibility-and-operations" title="Permanent link">&para;</a></h1>
+<p>This guide describes the native Lakebase integration delivered through
+<strong>pg_sage <code>2.5.0-dev.10</code></strong>. Database and App acceptance evidence was collected
+October 29–30, 2026; public platform documentation was cross-checked November 1,
+2026. These are scoped development results, <strong>not full Lakebase compatibility
+certification</strong> or a production reliability guarantee. A passing local
+PostgreSQL suite is separate from a passing native Lakebase test.</p>
+<p>The <a href="../reviews/2026-11-02-v2.5-dev12-acceptance.md">dev.11–12 follow-up</a> adds an
+optional App email-domain audience gate and classic meme images. It does not
+extend the version-specific database compatibility evidence in this guide.
+It also corrects telemetry inbox contention, App request-limit isolation and
+event-stream lifetime behavior; those availability checks are reported
+separately from feature compatibility.</p>
+<p>Start with the <a href="../databricks-native/">native Databricks implementation guide</a>
+for the architecture and linked setup, or the <a href="../databricks-apps/">Databricks Apps guide</a>
+for packaging, resources and platform sign-in. This page owns the database,
+telemetry and SRE compatibility boundaries. Earlier acceptance reports are
+dated evidence; their original failures and limitations are retained even when a
+later revision closes a gap.</p>
+<p>The Lakebase integration uses the standard PostgreSQL wire protocol and the
+official Databricks Go SDK for unified authentication. It supports local CLI
+profiles and Databricks Apps service principal credentials. Short-lived
+database tokens are obtained at physical connection time, cached until two
+minutes before expiry, and never written into pg_sage configuration or its
+metadata database.</p>
+<p>The current <a href="../reviews/2026-10-30-v2.5-dev10-acceptance.md">dev.10 acceptance</a>
+verifies Databricks-only App sign-in, native Gateway OAuth M2M, connected Fleet,
+database-preserving Cases/Actions/Ask workflows and desktop/mobile rendering.
+Cases retain exact technical evidence while distinguishing unknown urgency,
+missing measurements and unproven impact. Unnamed indexes no longer receive a
+guessed inverse or catalog target; proposals without captured recovery remain
+unknown. Inapplicable Lakebase <code>ALTER SYSTEM</code> procedures are withheld, including
+older saved SQL when current applicability guidance rejects it. Saved and current
+procedures retain separate risk/recovery claims; matching a source does not
+validate an older proposal.</p>
+<p>The <a href="../reviews/2026-10-30-v2.5-dev8-acceptance.md">dev.8 acceptance</a>
+also preserves invalid-index findings during restart warmup and exact query
+identities in finding responses and Cases artifacts. The
+<a href="../reviews/2026-10-30-v2.5-dev6-acceptance.md">dev.6 acceptance</a>
+fixed singleton Ask Sage selection and Fleet inventory and added hint-free spill
+advice. Nine controlled finding families have real Lakebase proof. The
+<a href="../reviews/2026-10-30-nerdlab-findings.md">scenario matrix</a> distinguishes positive
+finding/recovery tests from readable sources, provider restrictions and incident
+conditions that were not induced.</p>
+<p>The <a href="../reviews/2026-10-30-v2.5-dev5-acceptance.md">dev.5 acceptance</a> passed
+one complete 142-package Go invocation, the native PG18 suite and final App
+SNAPSHOT <code>01f1d48e0748107d95b5bdd1ffad0e22</code>. All five historical SRE adapters
+returned positive observations and accepted citations, including exact controlled
+plan and DDL events. The same binary separately passed a real-time synthetic
+application SLI lifecycle. The App remains in observation mode with metadata-only
+consent; App-principal workload-table maintenance execution is unproven.</p>
+<p><code>temp_spill</code> findings use new temporary-block counters from comparable query
+snapshots and do not require pg_hint_plan or auto_explain. Their advice calls
+for controlled <code>SET LOCAL work_mem</code> experiments and memory budgeting per
+operation, worker and concurrent session. They do not choose or apply a setting.
+A new observed non-spilling execution can clear the finding; missing samples
+and known resets remain unknown. Aggregate counters cannot establish complete
+per-entry lineage across an unseen selective reset/eviction and regrowth.</p>
+<h2 id="compatibility-at-a-glance">Compatibility at a glance<a class="headerlink" href="#compatibility-at-a-glance" title="Permanent link">&para;</a></h2>
+<p>"Verified" below identifies the tested identity and workflow, rather than every
+role, endpoint, PostgreSQL version or deployment setting. The broad live action
+and incident fixtures used an isolated PG18 branch. PG16/17 connection and
+collector probes do not extend that entire PG18 result to those versions.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Native process using a selected Databricks identity</th>
+<th>Databricks App using its service principal</th>
+<th>Limit / next evidence needed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Direct TLS/OAuth connection, bootstrap and collection</td>
+<td>Verified; PG16/17/18 connection/probe coverage and deeper PG18 tests</td>
+<td>Verified on PG18, including ready database/schema and connected Fleet</td>
+<td>Each identity needs its own role and object permissions; OAuth uses a direct endpoint</td>
+</tr>
+<tr>
+<td>Credential renewal and idle/resume</td>
+<td>Real database-credential expiry/reconnect and endpoint idle/resume passed</td>
+<td>Earlier App artifact passed elapsed one-hour checks; dev.10 passed fresh M2M calls</td>
+<td>Latest artifact was not subjected to a new hour-boundary or multi-day soak; HA/failover unproven</td>
+</tr>
+<tr>
+<td>Unity Gateway model calls</td>
+<td>Chat, structured responses, tools and five advisor workflows verified for the tested model</td>
+<td>Uncached explanation and model-cited history verified with App M2M</td>
+<td>No Gateway API key; model-specific structured capabilities require validation</td>
+</tr>
+<tr>
+<td>Nine deterministic finding families</td>
+<td>Actual collection → finding → controlled correction/resolution verified</td>
+<td>All nine generated durable findings; scoped Cases/UI and invalid-index restart continuity verified</td>
+<td>App findings are not App-executed remediation; some fixtures remain for review</td>
+</tr>
+<tr>
+<td><code>work_mem</code> and spill advice</td>
+<td>Session-local spill/control and exact database-setting apply/restore verified</td>
+<td>Hint-free spill finding and review guidance verified</td>
+<td>No automatic memory value; role-wide promotion is not an enabled Lakebase execution contract</td>
+</tr>
+<tr>
+<td>Eight enabled SQL action contracts</td>
+<td>Native owned-object operator/policy paths verified</td>
+<td>App stays in Observation mode; workload-table execution unproven</td>
+<td>Trust, ownership, policy, admission and measured outcome checks remain independent</td>
+</tr>
+<tr>
+<td>Ordinary session/log-file <code>auto_explain</code></td>
+<td>pg_sage ingestion gate unavailable; standard logging disabled and the tested role cannot change its threshold</td>
+<td>Same integration gate and managed log-file restriction</td>
+<td>Provider preloading does not establish usable session/file ingestion; Advanced Telemetry is the separate plan path below</td>
+</tr>
+<tr>
+<td>Provider plan payload → cache → hashed history</td>
+<td>Verified with scoped, authorized native payload reads</td>
+<td>Actual scheduler/API plan metadata verified; raw plan payload/cache path unproven</td>
+<td>Payload consent and unmasking required; no complete delivery or latency SLA</td>
+</tr>
+<tr>
+<td>Plan/log/ASH/DDL/database historical SRE sources</td>
+<td>Positive native delivery/normalization, including all ten underlying streams</td>
+<td>All five history adapters returned positive, model-cited evidence in dev.5</td>
+<td>Asynchronous, partial history; not live admission or proof of current root cause</td>
+</tr>
+<tr>
+<td>Live database SRE</td>
+<td>Native read-only investigation and controlled lock/idle/sequence scenarios passed</td>
+<td>Catalog/history and synthetic SLO investigation paths verified</td>
+<td>Most incident/pressure scenarios were not induced; default policy is database-only</td>
+</tr>
+<tr>
+<td>Application SLOs</td>
+<td>Scoped push/burn/replay/restart/staleness lifecycle verified</td>
+<td>Real-time synthetic sample → burn → cited case → stale-to-unknown passed</td>
+<td>Requires application counters; provider logs cannot supply a complete customer-error denominator</td>
+</tr>
+<tr>
+<td>Operator statistics-maintenance bridge</td>
+<td>Native owned-table proposal → approval → execution → structural check → rollback verified</td>
+<td>Not executed under the App principal</td>
+<td>App workload-table ownership unproven; rollback cannot restore prior ANALYZE statistics</td>
+</tr>
+<tr>
+<td><code>pg_hint_plan</code> / HypoPG</td>
+<td>Hook activation unavailable / extension unavailable on tested PG18 image and role</td>
+<td>Not made available by Apps or telemetry</td>
+<td>Plain EXPLAIN and a reviewed disposable real-index experiment are separate, limited alternatives</td>
+</tr>
+</tbody>
+</table>
+<p>See the <a href="../reviews/2026-10-30-native-sre-source-matrix.md">dev.5 native and App source matrix</a>,
+<a href="../reviews/2026-10-29-lakebase-native-tests.md">native action tests</a>,
+<a href="../reviews/2026-10-30-provider-compatibility-gaps.md">provider follow-up</a> and
+<a href="../reviews/2026-10-30-v2.5-dev10-acceptance.md">dev.10 acceptance</a> for the
+specific successes, failed attempts and remaining boundaries behind this table.</p>
+<h2 id="local-connection">Local connection<a class="headerlink" href="#local-connection" title="Permanent link">&para;</a></h2>
+<p>Select the workspace profile explicitly and obtain the endpoint resource path
+and hostname from <code>databricks postgres get-endpoint</code>. Configure a passwordless
+PostgreSQL URL with TLS and the actual PostgreSQL role name:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATABRICKS_CONFIG_PROFILE</span><span class="o">=</span><span class="s1">'&lt;workspace-profile&gt;'</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_LAKEBASE_ENDPOINT</span><span class="o">=</span>projects/&lt;project&gt;/branches/&lt;branch&gt;/endpoints/&lt;endpoint&gt;
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_DATABASE_URL</span><span class="o">=</span><span class="s1">'postgres://&lt;url-encoded-role&gt;@&lt;endpoint-host&gt;:5432/&lt;database&gt;?sslmode=verify-full'</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>pg_sage<span class="w"> </span>--config<span class="w"> </span>config.yaml
+</code></pre></div>
+<p>The singular endpoint variable applies to both monitored and metadata pools.
+For a fleet with multiple endpoints, use <code>SAGE_LAKEBASE_ENDPOINTS</code> <strong>instead</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_LAKEBASE_ENDPOINTS</span><span class="o">=</span><span class="s1">'{"&lt;host-a&gt;":"projects/&lt;a&gt;/branches/&lt;branch&gt;/endpoints/&lt;endpoint&gt;","&lt;host-b&gt;":"projects/&lt;b&gt;/branches/&lt;branch&gt;/endpoints/&lt;endpoint&gt;"}'</span>
+</code></pre></div>
+<p>Every mapped hostname is checked against endpoint metadata before its pool
+receives a credential. Unmapped hosts retain ordinary PostgreSQL authentication.
+Plaintext fallback connections are refused for OAuth pools. Lakebase's built-in
+PgBouncer pooler does not support OAuth; use the direct endpoint hostname. Native
+OAuth configuration rejects the pooled hosts returned by endpoint metadata.
+Environment changes,
+including the profile or endpoint mapping, require a process restart.</p>
+<p>pg_sage creates its <code>sage</code> schema and persistent state during normal startup,
+including observation mode. Use a dedicated database for the first Apps
+deployment. Run the full destructive self-managed integration fixtures on a
+disposable PostgreSQL server: they change cluster roles, reset shared statistics
+and attempt instance settings that managed Lakebase restricts. Run the dedicated
+native Lakebase checks only on an isolated test branch/database; a separate
+database on an existing application branch cannot isolate cluster-wide effects.
+Schema ownership, monitoring privileges and access
+to application objects must be granted to the actual connecting identity.</p>
+<p>The dashboard's database connection-test and preview helpers use the same
+configured native OAuth mapping as monitoring pools, including replacing a
+bootstrap password when OAuth is selected. Preview keeps the endpoint hostname
+for credential authorization and TLS SNI, and connects only to the IP approved
+by its existing private-address/DNS check. Both native preview and saved-
+connection tests passed against the isolated PG18 test branch. Private/internal
+addresses remain blocked by the preview's existing safety policy.</p>
+<p>Configured-replica administrative connections also use the native mapping;
+their connection/bootstrap path passed against the PG18 direct endpoint.
+Standby session termination and role-revocation topology remain separate
+acceptance tests. Agent broker logins intentionally retain their own per-role
+SCRAM credentials. New Lakebase projects disable native password connections
+by default; workspace OAuth cannot substitute for a broker role's identity.
+This integration does not enable project-wide password connections or claim
+broker compatibility on an OAuth-only project. Action-provider gates remain
+subject to the limits below.</p>
+<h2 id="unity-gateway">Unity Gateway<a class="headerlink" href="#unity-gateway" title="Permanent link">&para;</a></h2>
+<p>Use the unified gateway base URL and a fully qualified model service name:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">llm</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">databricks</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://&lt;workspace-host&gt;/ai-gateway/mlflow/v1</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">system.ai.gpt-6-sol</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">json_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">token_budget_daily</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50000</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nt">trust</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">observation</span>
+</code></pre></div>
+<p><code>SAGE_LLM_AUTH=databricks</code>, <code>SAGE_LLM_ENDPOINT</code> and <code>SAGE_LLM_MODEL</code> override the
+corresponding fields. No <code>llm.api_key</code> is needed. The SDK refreshes workspace
+authentication for chat, retries and tool calls; credentials are restricted to
+the SDK's configured HTTPS workspace origin, and native requests reject HTTP
+redirects. The optimizer inherits this auth
+when it uses the same endpoint without an explicit API key. In Databricks Apps,
+the SDK is pinned to oauth-m2m and every configured AI client must use
+Databricks authentication on that same workspace origin. API-key overrides and
+foreign origins are rejected; there is no key fallback.</p>
+<p>The <code>/ai-gateway/openai/v1</code> provider-service API is a different interface and
+requires the <code>Databricks-Model-Provider-Service</code> header. This integration's
+native unified-auth configuration targets <code>/ai-gateway/mlflow/v1</code>; it does not
+add provider-service selection. UI model discovery uses the SDK's Unity Catalog
+model-service listing, because the unified gateway does not expose the generic
+OpenAI <code>/models</code> route. It lists services in the selected model's catalog and
+schema (default <code>system.ai</code>), follows pagination, and includes only services
+advertising unified Chat Completions support. It returns fully qualified model
+service names and uses the committed authentication settings without requiring
+an API key. A discovery preview cannot redirect workspace credentials to another
+origin. Live native discovery returned 53 accessible chat model services in the
+selected workspace, including <code>system.ai.gpt-6-sol</code>.</p>
+<p>Model capabilities vary. Live tests on 2026-10-29 verified chat, JSON-object
+responses, function calls and tool-result follow-up with <code>system.ai.gpt-6-sol</code>.
+The existing wire adaptation automatically adds <code>reasoning_effort: none</code> when
+required. <code>system.ai.claude-sonnet-4-5</code> accepted chat/tool requests but rejected
+<code>response_format: {type: json_object}</code>; use <code>json_mode: false</code> for that model and
+validate each structured workflow separately.</p>
+<h2 id="advanced-telemetry-auto_explain-and-sre-history">Advanced Telemetry, auto_explain and SRE history<a class="headerlink" href="#advanced-telemetry-auto_explain-and-sre-history" title="Permanent link">&para;</a></h2>
+<h3 id="platform-capture-and-access">Platform capture and access<a class="headerlink" href="#platform-capture-and-access" title="Permanent link">&para;</a></h3>
+<p>The public <a href="https://docs.databricks.com/aws/en/oltp/projects/observability-telemetry-reference">telemetry reference</a>
+describes <strong>Lakebase Observability in System Tables as Beta</strong>. A workspace
+administrator enables that preview; capture then starts automatically into
+<code>system.lakebase</code> while a project's compute runs. This is a platform prerequisite,
+separate from enabling the pg_sage reader below. The current public contract
+does not require creating a legacy observability configuration or supplying a
+customer catalog destination. Legacy configurations no longer receive new
+telemetry and cannot be newly created. The
+<a href="https://docs.databricks.com/aws/en/oltp/projects/observability-dashboards">observability overview</a>
+states seven-day system-table retention.</p>
+<p>The SDK identity also needs access to the existing SQL warehouse and appropriate
+Unity Catalog privileges. Public documentation describes schema-level telemetry
+access as spanning projects in the account, so a provider grant is broader than
+pg_sage's resource-filtered read. pg_sage performs no account-wide discovery and
+does not grant permissions. Choose the reader identity and scope deliberately.
+Statement-bearing columns are masked unless the identity has the platform's
+separate unmasking authority. See the public reference for account-admin and
+<code>databricks_pii_access</code> rules; this integration does not create that group or
+request broad payload access.</p>
+<h3 id="ordinary-auto_explain-versus-provider-captured-plans">Ordinary auto_explain versus provider-captured plans<a class="headerlink" href="#ordinary-auto_explain-versus-provider-captured-plans" title="Permanent link">&para;</a></h3>
+<p>Enabling Advanced Telemetry supplies a useful alternative plan source; it does
+not authorize session tuning, preload changes or server log-file access. The
+tested endpoint already listed <code>auto_explain</code> in <code>shared_preload_libraries</code>,
+but standard <code>auto_explain.log_min_duration</code> was <code>-1</code>, ANALYZE/buffer logging was
+off and the selected native role could not SET the threshold. These are dated
+endpoint observations, not fleet-wide defaults. The pg_sage ordinary
+<code>auto_explain</code> ingestion gate therefore remains unavailable; this does not mean
+that Lakebase cannot capture workload plans.</p>
+<p>The tested integration uses <code>system.lakebase.plan_history</code> and <code>postgres_logs</code>
+through the warehouse, rather than configuring the ordinary session path or
+tailing files. A capability badge saying ordinary <code>auto_explain</code> is unavailable
+must be read separately from provider-history availability. The
+<a href="../reviews/2026-10-29-lakebase-advanced-telemetry.md">original telemetry assessment</a>
+records those read-only settings checks and the initially empty delivery results;
+the later positive provider tests are recorded separately below.</p>
+<table>
+<thead>
+<tr>
+<th>Plan path</th>
+<th>What was verified</th>
+<th>What remains unknown or restricted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Plain on-demand EXPLAIN</td>
+<td>Native planner/cost reads and App plan explanation</td>
+<td>Estimates do not establish actual runtime or hint enforcement</td>
+</tr>
+<tr>
+<td>Native authorized provider payload</td>
+<td>Actual captured plan JSON → scoped durable cache → normalized plan hash → historical SRE evidence; original capture/receipt times and capture flags retained</td>
+<td>Partial asynchronous delivery, not a completeness or latency guarantee; unknown context equivalence blocks automatic regression comparison</td>
+</tr>
+<tr>
+<td>App metadata-only provider path</td>
+<td>Existing scheduler → durable inbox → authenticated history API, then positive model-cited structured history</td>
+<td>App raw plan/log payload-cache ingestion has not been exercised; <code>allow_payload: false</code> intentionally excludes it</td>
+</tr>
+</tbody>
+</table>
+<p>An available plan does not imply execution statistics, buffers or timing were
+captured: preserve each provider flag, including unknown values. Delayed plans
+are not current query samples and cannot establish a live memory/CPU admission
+decision. Payload-enabled native tests and metadata-only App tests are separate
+proofs, even when both consume the same public system-table family.</p>
+<p>Publicly documented capture gaps include COPY operations and statements that
+run only inside PL/pgSQL rather than as top-level statements. DDL around
+scale-to-zero/resume can be missed. Existing computes may not receive capture
+GUCs immediately after preview enablement; follow the public troubleshooting
+instructions rather than issuing unsupported ALTER SYSTEM/preload workarounds.
+No restart or provider-setting change is performed by this integration.</p>
+<h3 id="configure-the-pg_sage-reader">Configure the pg_sage reader<a class="headerlink" href="#configure-the-pg_sage-reader" title="Permanent link">&para;</a></h3>
+<p>Use an existing SQL warehouse and explicitly bind each monitored database to its
+verified direct endpoint. The reader uses the same Databricks SDK identity;
+PostgreSQL/model permissions alone do not establish warehouse or UC permission.
+The defaults read plans, logs, ASH, DDL and database counters/gauges:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">lakebase_observability</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">warehouse_id</span><span class="p">:</span><span class="w"> </span><span class="s">'&lt;existing-warehouse-id&gt;'</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">allow_payload</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">poll_interval_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">queries_per_poll</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">retention_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">168</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">bindings</span><span class="p">:</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">'&lt;direct-lakebase-host&gt;'</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="s">'&lt;monitored-database&gt;'</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">projects/&lt;project&gt;/branches/&lt;branch&gt;/endpoints/&lt;endpoint&gt;</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">      </span><span class="nt">allow_compute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+<p>This configuration is restart-bound and never grants permissions or enables a
+provider setting. Compute-wide streams require explicit <code>allow_compute: true</code>.
+Payload mode requires separately approved access; metadata mode does not select
+query text, parameters, plan JSON or log message/detail/hint/context/statement.
+No broad PII grant is part of this integration.</p>
+<p><code>GET /api/v1/lakebase-observability/status</code> reports read cursors, fixed failure
+states and unknown completeness. Administrators can request normalized history
+at <code>/api/v1/lakebase-observability/history?database=&lt;runtime-name&gt;&amp;stream=&lt;stream&gt;&amp;from=&lt;RFC3339&gt;&amp;to=&lt;RFC3339&gt;&amp;limit=100</code>.
+The bounded window is at most seven days and the row limit at most 1,000.</p>
+<p>Captured provider plans carry their original capture time and flags into the
+cache. The optimizer can use plans only after verifying the resource binding;
+a provider source does not imply <code>ANALYZE</code>, buffers or timing were enabled.
+Automatic regression comparison is withheld when execution-context equivalence
+is unknown. Delayed plans are not stamped onto current cumulative query samples.</p>
+<p>The SRE investigator's <code>read_history</code> tool can read five fixed sources from the
+retained, verified database binding:</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Historical observations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lakebase_plan_history</code></td>
+<td>Query ID, cost/duration metadata and, when authorized and available, structured plan hash and capture flags</td>
+</tr>
+<tr>
+<td><code>lakebase_log_history</code></td>
+<td>Typed SQLSTATE/severity and classified RCA signal</td>
+</tr>
+<tr>
+<td><code>lakebase_session_history</code></td>
+<td>Sampled activity, waits and blocking metadata</td>
+</tr>
+<tr>
+<td><code>lakebase_ddl_history</code></td>
+<td>Validated DDL command and object type</td>
+</tr>
+<tr>
+<td><code>lakebase_database_history</code></td>
+<td>Database interval counters and gauges</td>
+</tr>
+</tbody>
+</table>
+<p>The tool accepts <code>source</code>, optional <code>window_seconds</code> (60–604800; default 24
+hours), and optional <code>queryid</code> for plans or session history. Each read returns
+at most 100 structured observations, retains original event/receipt times and
+source identities, and enforces the current owner policy, pinned investigation
+policy, physical database identity, retention and read budgets. Raw SQL, plan
+JSON, log messages, actor identities and object names are excluded from durable
+SRE history evidence. These sources require the telemetry reader and requested
+streams to be configured; the tool grants no warehouse or UC access.</p>
+<p>Historical log classifications and DDL observations become citable context in
+the diagnosis. They do not change live root causes, confidence, incident state
+or customer-impact claims. Empty or unavailable history remains unknown;
+completeness and exact event multiplicity are never asserted. Sampled logs,
+ASH and interval metrics cannot establish an application's error denominator
+or populate live SLO counters. Automatic migration fan-out and provider-plan
+regression comparison remain separate gaps. Historical CPU/memory/storage
+observations never authorize live maintenance, and total memory does not mean
+available memory.</p>
+<p>The October 30 controlled native follow-up delivered exact-fixture plans,
+logs and DDL, with nonempty metadata in all ten requested streams. The earlier
+zero-row results remain valid for their original selectors and observation
+times. See the <a href="../reviews/2026-10-30-provider-compatibility-gaps.md">provider follow-up</a>
+for attribution, normalization and timing limits. This proves controlled native
+delivery, not a completeness/latency SLA or App-principal payload access.
+The final dev.5 App-principal investigator executed and cited all five history
+sources through real Unity Gateway calls. Case
+<code>e0f50f43-5e45-46d0-9701-ae1f8187a53d</code> cited retained plan/log evidence including
+the exact controlled provider plan event. Case
+<code>ea555ad2-3ca6-48a3-bbcc-69d48f18ed9c</code> cited ASH (100 observations), DDL (one)
+and database metrics (100). The DDL event matched a fresh owned table's exact
+resource/database/OID, short application tag, backend PID, command, object and
+original time window; the actual scheduler/API and durable evidence shared its
+event ID. Exact fixture cleanup, evidence hashes, lifecycle chains, idempotent
+readback and eight unchanged action/approval ledgers passed.</p>
+<p>Payload consent remained <code>allow_payload: false</code>. These are positive structured
+history paths; raw App plan/log cache access, complete delivery and live root
+cause remain separate claims. Both healthy cases concluded advisory inconclusive.
+The <a href="../reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence">dev.5 acceptance</a>
+records exact events, hashes, delays and the preserved failed transport attempt.
+Earlier <a href="../reviews/2026-10-29-lakebase-advanced-telemetry.md">telemetry</a> and
+<a href="../reviews/2026-10-29-lakebase-sre-acceptance.md">SRE acceptance</a> reports retain
+their original zero-row and version-specific evidence.</p>
+<h3 id="sre-with-and-without-advanced-telemetry">SRE with and without Advanced Telemetry<a class="headerlink" href="#sre-with-and-without-advanced-telemetry" title="Permanent link">&para;</a></h3>
+<p>Advanced Telemetry is not required for catalog-based monitoring, deterministic
+findings or the live database-scoped SRE probes. Without it, pg_sage can read
+the permitted <code>pg_stat_*</code>/catalog sources and investigate observed database
+conditions, but it lacks the provider's retained plan/log/session/DDL history.
+With it, historical evidence augments investigation; it does not prove a current
+root cause, change live incident state, or authorize maintenance by itself.</p>
+<p>The <a href="../reviews/2026-10-30-native-sre-source-matrix.md">per-source native matrix</a>
+inventories 32 catalog probes and the original auxiliary sources. A separate
+explicitly authorized gate completed 16 selected cluster/filesystem queries
+without new grants: eleven returned usable rows and five valid empty results.
+That test policy was not deployed. Production's database-only policy continues
+to withhold those broader sources. A policy refusal is not a Lakebase SQL
+incompatibility; a valid empty result is not positive incident detection.</p>
+<p>Controlled native lock/idle-blocker and sequence-pressure fixtures verified
+real signals and a read-only investigation. Native Gateway investigation and
+App history citations also passed, with healthy historical cases concluding
+advisory/inconclusive. Exhaustion, failover, sustained resource pressure,
+wraparound and many other incident variants were deliberately not induced.
+The <a href="../reviews/2026-10-30-nerdlab-findings.md#complete-analyzer-inventory-what-the-nine-fixtures-do-not-prove">scenario inventory</a>
+distinguishes readable inputs, tested detectors, uninduced incidents and actual
+provider restrictions. Automatic migration fan-out and context-equivalent
+provider-plan regression comparison remain incomplete.</p>
+<h2 id="application-slos">Application SLOs<a class="headerlink" href="#application-slos" title="Permanent link">&para;</a></h2>
+<p>An application SLO requires cumulative bad-event and eligible-event counters
+for the same real population and observation time. Series must partition that
+population without double counting; counter decreases are treated as resets.
+Configure an explicit database-bound application objective, target, traffic
+floor, stale limit and burn windows. Stored samples must cover at least 90% of
+each burn window, and both windows must reach the burn threshold. Missing,
+low-traffic, partial-window, stale or unavailable input is unknown. A database
+proxy SLO describes database symptoms and does not establish customer impact.</p>
+<p>Databricks Apps adds a platform-authenticated administrator sample route:
+<code>POST /api/v1/sre/slos/{name}/samples?database=&lt;runtime-name&gt;</code>. It accepts only
+an explicitly configured database-bound <code>source: push</code> objective, binds series
+to the persisted administrator, and namespaces storage by registered database
+identity. See the <a href="../databricks-apps/#application-sli-ingestion">Apps SLO contract</a>
+for body fields, replay semantics and source limitations. Standalone signed
+ingestion retains its existing source-credential contract.</p>
+<p>With SLO evaluation and <code>sre.slo.open_investigations</code> enabled, a page-level
+application burn can open a read-only <code>slo_burn</code> case even when
+<code>sre.automatic_start</code> is false. The database-scoped <code>application_slo_status</code>
+source provides bound push-SLO evidence; an explicit read allowlist must permit
+it. This enables an investigation, not action execution or notification.
+Synthetic acceptance counters establish synthetic behavior only. The
+<a href="../reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass">October 30 dev.5 App SLO acceptance</a>
+passed fifteen current-time samples over seven minutes, both configured burn
+windows, a cited real-Gateway investigation and actual stale-to-unknown behavior
+123.06 seconds after pushes stopped. Exact cleanup preserved the case and left
+all eight action/approval ledgers unchanged. The final deployment has no synthetic
+objective or samples. Historical investigator acceptance is separate from that
+synthetic SLO scenario; neither establishes production customer impact.</p>
+<h2 id="nine-controlled-finding-families">Nine controlled finding families<a class="headerlink" href="#nine-controlled-finding-families" title="Permanent link">&para;</a></h2>
+<p>These scenarios used the actual collector, analyzer and durable findings path,
+with production rule thresholds. No findings were inserted and no generated
+recommendations were executed. Native fixtures were corrected or removed and
+normal resolution was observed. The App separately generated all nine families;
+its retained fixtures support UI inspection, not a remediation-execution claim.</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Condition actually induced</th>
+<th>Native correction / resolution evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Duplicate index</td>
+<td>Two ordinary btree indexes over the same column</td>
+<td>One fixture index dropped; finding resolved</td>
+</tr>
+<tr>
+<td>Missing foreign-key index</td>
+<td>12,000 child rows without a leading-column supporting FK index</td>
+<td>Supporting index created; finding resolved</td>
+</tr>
+<tr>
+<td>Stale statistics</td>
+<td>Never-analyzed 12,000-row owned table</td>
+<td>ANALYZE; finding resolved</td>
+</tr>
+<tr>
+<td>Table bloat</td>
+<td>12,000 rows followed by 9,000 deletes in an owned fixture</td>
+<td>Non-FULL VACUUM/ANALYZE; finding resolved; dead-tuple heuristic is not a physical-bloat measurement</td>
+</tr>
+<tr>
+<td>Heavy sequential scans</td>
+<td>110,000 rows and 105 selective sequential scans without an index</td>
+<td>Fixture removal resolved the finding; no index latency gain was claimed</td>
+</tr>
+<tr>
+<td>Sequence exhaustion</td>
+<td>Owned integer sequence at 950 of a maximum 1,000</td>
+<td>Only that sequence's maximum expanded; finding resolved</td>
+</tr>
+<tr>
+<td>Invalid index</td>
+<td>Concurrent unique-index build failed on real duplicate values</td>
+<td>Invalid state persisted across cycles; fixture index removal resolved it; restart warmup continuity separately fixed and verified</td>
+</tr>
+<tr>
+<td>Slow query</td>
+<td>One constant-result sleep exceeded the unchanged 1,000 ms mean-latency threshold</td>
+<td>A new zero-sleep call of the same normalized statement lowered its cumulative mean; finding resolved</td>
+</tr>
+<tr>
+<td>Temporary spill</td>
+<td>Real sort spilled under session-local 64 kB <code>work_mem</code>, with actual plan and temp counters</td>
+<td>Same query under a 64 MB control did not spill; a newer observed non-spilling execution resolved the finding</td>
+</tr>
+</tbody>
+</table>
+<p>The eight-condition run passed in 99.92 seconds; the separate default slow-query
+run passed in 65.86 seconds. The <a href="../reviews/2026-10-30-nerdlab-findings.md">scenario report</a>
+records exact evidence, bounded workload/cleanup rules and untested analyzer
+branches. In particular, the ordinary unused-index rule's seven-day clean
+observation window was not accelerated, million-row autovacuum tuning and
+wraparound thresholds were not induced, and all duplicate/index variants were
+not exhaustively reproduced. The last dev.10 App walkthrough saw 13 retained
+Cases; that is a dated readback, not a permanent count or health assertion.</p>
+<h2 id="work_mem-advice-experiments-and-setting-scope">work_mem: advice, experiments and setting scope<a class="headerlink" href="#work_mem-advice-experiments-and-setting-scope" title="Permanent link">&para;</a></h2>
+<p>The new deterministic <code>temp_spill</code> rule closes the hint dependency: it requires
+comparable query snapshots, fresh calls, matching known global statistics epochs
+and at least 128 new temporary blocks. It needs neither <code>pg_hint_plan</code>, ordinary
+<code>auto_explain</code>, Advanced Telemetry nor an LLM. Advice asks for a reviewed plan,
+query/index alternatives and bounded <code>SET LOCAL work_mem</code> experiments. It does
+not propose an executable value or mark an untested setting safe.</p>
+<p>The 64 MB non-spilling control above is specific to a small synthetic fixture.
+PostgreSQL allocates work memory per operation and can multiply that across
+parallel workers and concurrent sessions. Fewer temp writes alone do not prove
+that a broad memory increase is safe or improves production latency.</p>
+<p>The <a href="https://docs.databricks.com/aws/en/oltp/projects/compatibility">public compatibility contract</a>
+permits user-context settings at session, database and role scope, subject to the
+connecting identity's authority. Session-local experiments and connected-database
+<code>work_mem</code> apply/fresh-session-readback/exact restore passed natively. The
+<code>alter_database_guc</code> executor captures the actual prior database override and
+refuses masked role/session overrides. Generic role-work_mem promotion remains
+outside the enabled Lakebase action list. Its review artifact does not fabricate
+<code>ALTER ROLE ... RESET work_mem</code> as restoration of an uncaptured prior setting.</p>
+<p>Recovery requires a still-observable query, newer calls and unchanged temp
+read/write counters. Inactivity, missing/top-N/evicted samples, unknown or changed
+epochs, visible counter decreases and small continuing spills stay unknown/open.
+Unseen selective reset/eviction followed by regrowth between samples can escape
+those guards; complete per-entry lineage is not established.</p>
+<h2 id="managed-service-limits">Managed-service limits<a class="headerlink" href="#managed-service-limits" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Verified behavior / limitation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PostgreSQL 16, 17, 18</td>
+<td>Native TLS/OAuth reconnect tests and collector SQL probes passed against existing Lakebase endpoints</td>
+</tr>
+<tr>
+<td><code>pg_stat_statements</code></td>
+<td>Supported but must be enabled per database; only 1 of 18 accessible databases had it installed in the October 29 survey. That inventory is not a current platform default or account-wide claim</td>
+</tr>
+<tr>
+<td>HypoPG</td>
+<td>Absent from the surveyed endpoints' available extensions; the PG18 native install attempt returned <code>42501</code>. Hypothetical-index validation is unavailable; a real index experiment on a disposable fixture is a separate workflow</td>
+</tr>
+<tr>
+<td><code>pg_hint_plan</code></td>
+<td>Publicly listed for PG18 and installed, but the planner hook is inactive; <code>LOAD</code> returned <code>0A000</code> and session/database preload settings returned <code>42501</code>. Hint enforcement remains unsupported in this configuration</td>
+</tr>
+<tr>
+<td><code>pgstattuple</code></td>
+<td>Owned-table inspection passed on the isolated PG18 branch</td>
+</tr>
+<tr>
+<td><code>pgaudit</code></td>
+<td>October 29 endpoint catalog advertised it, but installation returned <code>42501</code>; audit-log integration is unverified. The public extension table rechecked November 1 does not list it; catalog advertisement is not install/activation proof</td>
+</tr>
+<tr>
+<td><code>vector</code></td>
+<td>PG18 vector lab passed HNSW and exact-baseline comparison for three synthetic queries (recall 1.0); broader workload performance is unverified</td>
+</tr>
+<tr>
+<td>Server configuration</td>
+<td>Instance settings and <code>ALTER SYSTEM</code> are unavailable; permitted user-context session/database/role settings remain separate</td>
+</tr>
+<tr>
+<td>Server logs / OS metrics</td>
+<td>No direct log-file or host access. Lakebase exposes Beta plans, Postgres logs and compute metrics through <code>system.lakebase</code>; scoped history and controlled native delivery are verified within the follow-up report's limits. Asynchronous history cannot supply live admission</td>
+</tr>
+<tr>
+<td>Statistics continuity</td>
+<td>Suspend/restart can reset <code>pg_stat_statements</code>; never interpret a reset as workload improvement</td>
+</tr>
+<tr>
+<td>Roles</td>
+<td>Tested identity had <code>databricks_superuser</code> and <code>pg_monitor</code>, but was not a PostgreSQL superuser; a new app principal needs its own grants</td>
+</tr>
+<tr>
+<td>Existing project access</td>
+<td>October 29 survey: 18 of 21 databases authenticated as the selected native test identity; three service-principal-owned databases denied access. Access is identity-specific</td>
+</tr>
+</tbody>
+</table>
+<p>Lakebase's <a href="https://docs.databricks.com/aws/en/oltp/projects/observability-telemetry-reference">observability system tables</a>
+include real execution plans in <code>plan_history</code> and structured <code>postgres_logs</code>.
+Workspace preview enablement, Unity Catalog access and statement-text unmasking
+are separate prerequisites. The explicit telemetry configuration above enables
+scoped reads. A successful empty query does not prove capture, completeness,
+unmasking or zero errors. See the <a href="../reviews/2026-10-29-lakebase-advanced-telemetry.md">Advanced Telemetry and SRE gap assessment</a>.</p>
+<p>Lakebase's default SRE policy is database-only. A <code>policy_scope_denied</code> result
+for a cluster/filesystem source describes that trusted policy boundary; it does
+not prove the platform lacks the source. A separate, explicitly authorized
+read-only native matrix completed all 16 selected cluster/filesystem probes
+using the existing role and no added grants. Eleven returned usable rows and
+five returned valid empty results. Production policy remains database-only.
+Query support, configured authorization and positive incident detection are
+three separate claims: empty replication/lock/WAL reads do not establish those
+incident or platform semantics. The <a href="../reviews/2026-10-30-provider-compatibility-gaps.md#explicit-provider-probe-compatibility-matrix">provider matrix</a>
+records the exact sources and execution evidence.</p>
+<p>The same <a href="../reviews/2026-10-30-provider-compatibility-gaps.md#planner-extension-incompatibilities-observed">provider follow-up</a>
+cross-checks internal extension issues with the public extension list and live
+activation/install results. Installed <code>pg_hint_plan</code> is reported as
+<code>installed_not_loaded</code>; plain EXPLAIN remains usable but does not enforce hints.
+No unsupported preload workaround or hypothetical benefit is inferred.</p>
+<p>A separate disposable-fixture experiment created a real candidate index,
+reduced plan-only estimated cost from 339 to 97.34, and rolled back the index
+savepoint to restore the exact baseline estimate. This demonstrates a possible
+reviewed real-index experiment on an isolated fixture/branch. It is not a
+transparent HypoPG replacement, proof of latency improvement or permission to
+create candidate indexes on production workload tables. Advanced Telemetry
+does not activate either planner extension.</p>
+<p>Version <code>2.5.0-dev.1</code> explicitly enables eight Lakebase contracts after testing
+their production operator paths on an isolated PG18 test branch:
+<code>analyze_table</code>, <code>vacuum_table</code>, <code>create_index_concurrently</code>,
+<code>revert_created_index</code>, <code>reindex_concurrently</code>, <code>create_statistics</code>,
+<code>revert_created_statistics</code>, and <code>alter_database_guc</code>. Standing policy, trust,
+maintenance windows, object permissions, and replica checks still apply. The
+deployed development App starts in observation mode.</p>
+<p>Database-setting actions target only the connected database and user-context
+settings. They capture the exact database-wide prior override, derive their
+own inverse, refuse masked role/session overrides, and read back through a
+fresh physical OAuth connection after both apply and rollback. Statistics
+creation uses plain <code>CREATE STATISTICS</code> plus <code>ANALYZE</code>; <code>IF NOT EXISTS</code> is refused
+because its inverse could otherwise drop a pre-existing object. Catalog success
+does not establish a performance benefit. Unmeasured changes remain unverifiable.</p>
+<table>
+<thead>
+<tr>
+<th>SQL family</th>
+<th>Native Lakebase result</th>
+<th>pg_sage execution boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ANALYZE / ordinary VACUUM</td>
+<td>Owned-fixture SQL and operator/policy path passed</td>
+<td><code>analyze_table</code>, <code>vacuum_table</code> enabled; VACUUM FULL refused</td>
+</tr>
+<tr>
+<td>Concurrent index creation / its inverse</td>
+<td>Owned-index creation, catalog validity and rollback passed</td>
+<td><code>create_index_concurrently</code>, <code>revert_created_index</code> enabled; inverse targets the exact created object</td>
+</tr>
+<tr>
+<td>Concurrent REINDEX</td>
+<td>Owned single-index path passed</td>
+<td><code>reindex_concurrently</code> enabled; database/schema/system-wide rebuilds refused; no restoration of prior physical layout is promised</td>
+</tr>
+<tr>
+<td>Extended statistics / its inverse</td>
+<td>CREATE STATISTICS plus ANALYZE and exact-object removal passed</td>
+<td><code>create_statistics</code>, <code>revert_created_statistics</code> enabled for the guarded supported shape; no IF NOT EXISTS, and prior ANALYZE statistics are not restored</td>
+</tr>
+<tr>
+<td>Connected-database user-context GUC</td>
+<td><code>work_mem</code> forward/rollback on fresh OAuth sessions passed</td>
+<td><code>alter_database_guc</code> enabled with captured prior state, target/context checks and override refusal</td>
+</tr>
+<tr>
+<td>Ordinary user-index DROP</td>
+<td>Direct owned-fixture SQL passed</td>
+<td>Generic <code>drop_unused_index</code> is not enabled for Lakebase by these results; this is a pg_sage action restriction, not a claim that Lakebase cannot DROP an owned index</td>
+</tr>
+<tr>
+<td>Per-table autovacuum reloptions</td>
+<td>Owned-fixture SET/restoration SQL passed</td>
+<td>General <code>set_table_autovacuum</code> execution remains outside the Lakebase contract list; previous explicit options must be captured for recovery</td>
+</tr>
+<tr>
+<td>Role work_mem / arbitrary table DDL</td>
+<td>User-context scope may be permitted by platform/object authority</td>
+<td>Not enabled as general Lakebase execution families here; manual review is separate from automatic execution</td>
+</tr>
+<tr>
+<td>Instance settings, planner hints, broker roles, backend signaling and failover</td>
+<td>Restricted or separately unproven as detailed above</td>
+<td>Not enabled by these eight contracts, a successful model call or an attached App database resource</td>
+</tr>
+</tbody>
+</table>
+<p>The deployed App's Observation mode prevents database actions even where a
+contract is enabled. Completing a baseline, accepting a proposal or obtaining
+an approval does not prove SQL ran, recovery is complete or performance improved.
+The <a href="../reviews/2026-10-30-v2.5-dev10-acceptance.md">dev.10 workflow acceptance</a>
+covers that distinction, recovery guards and source-preserving proposal
+deduplication.</p>
+<h2 id="operator-requested-statistics-maintenance">Operator-requested statistics maintenance<a class="headerlink" href="#operator-requested-statistics-maintenance" title="Permanent link">&para;</a></h2>
+<p>The typed SRE maintenance bridge adds one explicit <code>create_statistics</code> request
+to a concluded investigation with retained, hash-verified <code>stat_tables</code> v3
+evidence. An operator/admin supplies the schema, table, columns, supported
+statistics kinds, evidence ID/SHA-256 and rationale. The evidence must identify
+the same physical database/table OIDs; table counters establish observation
+scope, not column correlation or a predicted benefit. The bridge excludes the
+<code>sage</code> metadata schema and allows one maintenance request per investigation.</p>
+<p>Under <code>/api/v1/databases/{db}/investigations/{id}/maintenance</code>, signed-in
+viewers/operators/admins can list proposals; operators/admins can propose and
+call <code>/{proposal}/request</code> to create a pending human approval. Execution uses
+the existing durable approval queue and standing policy. Only an admin can
+explicitly request <code>/{proposal}/rollback</code>, with a reason. There is no automatic
+proposal, approval, maintenance execution or rollback path. Observation trust
+continues to prevent mutation.</p>
+<p>Evidence freshness and approval TTL are bounded to 15 minutes; approval also
+expires when the cited evidence does. The current and pinned read policies,
+target pool, approval identity, emergency stop, trust and action policy are
+rechecked. The connecting database role needs CREATE on the statistics schema
+and ownership of the target table; <code>MAINTAIN</code> alone is insufficient for this
+bridge. Under a bounded <code>SHARE UPDATE EXCLUSIVE</code> table lock, one transaction
+rechecks table/owner/column identities, runs CREATE STATISTICS plus ANALYZE, and
+captures the newly built object's OID.</p>
+<p>Success is structural only. Performance verification remains <code>unverifiable</code>,
+without value or autonomy credit. Explicit rollback removes the exact created
+statistics object only after fresh policy and OID checks; a same-name
+replacement is preserved. <strong>Rollback cannot restore the table's prior ANALYZE
+statistics.</strong> This native lifecycle passed on an owned PG18 fixture using the
+native user role; App-principal maintenance execution remains unproven.
+Database/schema ownership or an attached Apps resource does not establish
+ownership of workload tables. See the <a href="../reviews/2026-10-30-sre-maintenance.md">maintenance evidence and refusal coverage</a>.</p>
+<p>Other mutation families retain their prior provider gates. User-index DROP,
+instance settings, OS/log access, broker role authentication, and failover are
+not established by these results. See the <a href="../reviews/2026-10-29-lakebase-native-tests.md">native test report</a>
+for actual grants, extension versions, action evidence, and unsupported fixtures.
+This remains a development release with explicit managed-platform boundaries.</p>
+<h2 id="implementation-and-evidence-map">Implementation and evidence map<a class="headerlink" href="#implementation-and-evidence-map" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>Source / recorded validation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Verified endpoint mapping and physical-connection credential refresh</td>
+<td><a href="../sidecar/internal/databricksauth/lakebase.go">Native OAuth pool hook</a>; <a href="../reviews/2026-10-29-lakebase-compatibility.md">native compatibility findings</a></td>
+</tr>
+<tr>
+<td>Resource-bound warehouse reader, normalization, durable delivery and retention</td>
+<td><a href="../sidecar/internal/config/lakebase_observability.go">Configuration</a>, <a href="../sidecar/internal/lakebaseobs/">reader and store</a>; <a href="../reviews/2026-10-30-provider-compatibility-gaps.md">provider follow-up</a></td>
+</tr>
+<tr>
+<td>Provider plan provenance, cache and historical evidence</td>
+<td><a href="../sidecar/internal/autoexplain/provider_plan.go">Provider-plan consumer</a>, <a href="../sidecar/internal/lakebaseobs/evidence.go">historical evidence adapter</a>; <a href="../reviews/2026-10-30-native-sre-source-matrix.md">source matrix</a></td>
+</tr>
+<tr>
+<td>Hint-free interval spill finding and recovery guards</td>
+<td><a href="../sidecar/internal/analyzer/rules_temp_spill.go">Spill rule</a>; <a href="../reviews/2026-10-30-nerdlab-findings.md">nine-scenario inventory</a></td>
+</tr>
+<tr>
+<td>Enabled Lakebase action families and connected-database GUC execution</td>
+<td><a href="../sidecar/internal/fleet/provider_adapter.go">Provider adapter</a>, <a href="../sidecar/internal/executor/database_setting.go">database setting executor</a>; <a href="../reviews/2026-10-29-lakebase-native-tests.md">native action tests</a></td>
+</tr>
+<tr>
+<td>SRE statistics proposal, approval and exact-object recovery</td>
+<td><a href="../sidecar/internal/sre/action/maintenance.go">Maintenance bridge</a>; <a href="../reviews/2026-10-30-sre-maintenance.md">maintenance acceptance</a></td>
+</tr>
+<tr>
+<td>Current applicability and recovery presentation</td>
+<td><a href="../sidecar/internal/cases/provider_applicability.go">Case applicability</a>, <a href="../sidecar/internal/cases/recovery.go">recovery normalization</a>; <a href="../reviews/2026-10-30-v2.5-dev10-acceptance.md">dev.10 acceptance</a></td>
+</tr>
+</tbody>
+</table>
+<p>Public references for platform behavior: <a href="https://docs.databricks.com/aws/en/oltp/projects/compatibility">PostgreSQL compatibility</a>,
+<a href="https://docs.databricks.com/aws/en/oltp/projects/extensions">extensions</a>,
+<a href="https://docs.databricks.com/aws/en/oltp/projects/authentication">authentication</a>,
+<a href="https://docs.databricks.com/aws/en/oltp/projects/external-apps-connect">external application connections</a>,
+<a href="https://docs.databricks.com/aws/en/oltp/projects/connection-pooling">connection pooling</a>,
+<a href="https://docs.databricks.com/aws/en/oltp/projects/scale-to-zero">scale-to-zero</a>,
+and <a href="https://docs.databricks.com/aws/en/oltp/projects/observability-telemetry-reference">telemetry tables and limitations</a>.
+The public extension list and actual activation results must be read together:
+listing <code>pg_hint_plan</code> does not resolve the measured install-versus-hook gap.</p>
+<h2 id="reproduce-live-read-only-checks">Reproduce live read-only checks<a class="headerlink" href="#reproduce-live-read-only-checks" title="Permanent link">&para;</a></h2>
+<p>The native reconnect test creates no database objects and performs its SQL in
+read-only transactions:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nv">PG_SAGE_LIVE_LAKEBASE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nv">SAGE_LAKEBASE_LIVE_DATABASE_URL</span><span class="o">=</span><span class="s2">"</span><span class="nv">$SAGE_DATABASE_URL</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>./internal/databricksauth<span class="w"> </span>-run<span class="w"> </span><span class="s1">'^TestLakebaseLiveOAuthReconnect$'</span><span class="w"> </span>-count<span class="o">=</span><span class="m">1</span><span class="w"> </span>-v
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nv">PG_SAGE_LIVE_LLM</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="nv">SAGE_LLM_AUTH</span><span class="o">=</span>databricks<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>./internal/llm<span class="w"> </span>-run<span class="w"> </span><span class="s1">'^Test(ChatWithToolsLive_RealProvider|ChatLive_RealProvider)$'</span><span class="w"> </span>-count<span class="o">=</span><span class="m">1</span><span class="w"> </span>-v
+</code></pre></div>
+<p>Set the gateway endpoint and model before running the LLM checks. They send
+synthetic prompts/evidence only. All five full advisor workflows passed with
+real native Unity Gateway calls and billed-token assertions on both isolated
+local PG17 and native Lakebase PG18. The native advisor fixture used a fresh
+prefixed database and an in-memory short-lived credential for its raw test
+connections; the production OAuth refresh hook is tested separately. Post-run
+database inventory confirmed cleanup. No real application query text was sent
+to the model.</p>
+<p>The real credential-expiry retry passed in 3,634.55 seconds: the held connection
+remained healthy through 30 seconds beyond expiry, then a fresh backend used a
+second minted credential with a later expiry. This verifies constant-query
+connection liveness and production credential refresh for the native user role;
+it does not test table grants or UC-only claims across expiry. The first attempt
+lost network continuity before expiry and remains recorded separately. Native
+idle/resume also passed: the API reported ACTIVE → IDLE → ACTIVE, followed by
+production OAuth reconnect and a read-only check of the existing marker,
+77 snapshots and 63 findings. The two race-enabled tests passed in 8.077 seconds.
+The App's separate service-principal hour-boundary check is tracked in its
+acceptance report; failover and multi-day reliability remain unverified.</p>
+<p>See the <a href="../reviews/2026-10-29-lakebase-compatibility.md">source-linked live findings</a>
+for exact versions, databases, failures and evidence, and the
+<a href="../databricks-apps/">Databricks Apps pilot</a> for packaging and deployed checks.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+    
+  </body>
+</html>
