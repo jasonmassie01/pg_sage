@@ -1164,7 +1164,7 @@ var (
 		"index_health", "unused_index", "invalid_index",
 		"duplicate_index", "missing_fk_index", "slow_query",
 		"high_plan_time", "query_regression", "seq_scan_heavy",
-		"high_total_time", "lock_chain", "connection_leak",
+		"high_total_time", "temp_spill", "lock_chain", "connection_leak",
 		"cache_hit_ratio", "checkpoint_pressure",
 		"stat_statements_pressure", "replication_lag",
 		"inactive_slot", "slow_replication_slot",
@@ -1204,6 +1204,7 @@ func buildFindingMapWithAction(
 			detailParsed = string(detail)
 		}
 	}
+	normalizeFindingQueryID(detailParsed, derefStr(objectType), derefStr(objectIdent))
 	return map[string]any{
 		"id":                strconv.FormatInt(id, 10),
 		"created_at":        createdAt,
@@ -1310,6 +1311,7 @@ func queryFindingByID(
 			detailParsed = string(detail)
 		}
 	}
+	normalizeFindingQueryID(detailParsed, derefStr(objectType), derefStr(objectIdent))
 	return map[string]any{
 		"id":                 strconv.FormatInt(fID, 10),
 		"created_at":         createdAt,

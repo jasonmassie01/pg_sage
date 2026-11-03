@@ -83,7 +83,7 @@ describe('ApprovalCard', () => {
     expect(screen.getByTestId('approval-rollback'))
       .toHaveTextContent('DROP INDEX CONCURRENTLY public.idx_orders_customer')
     const risk = screen.getByTestId('approval-risk')
-    expect(risk).toHaveTextContent('moderate')
+    expect(risk).toHaveTextContent('Moderate')
     expect(risk).toHaveTextContent('1 index on public.orders')
     expect(risk).toHaveTextContent('maintenance_window')
     expect(screen.getByTestId('approval-expiry')).toHaveTextContent(/Expires in [45]h/)

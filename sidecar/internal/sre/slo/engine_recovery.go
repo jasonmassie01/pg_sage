@@ -36,7 +36,7 @@ func (e *Engine) Recovery(ctx context.Context, name string, since time.Time) (Re
 	if !ok {
 		return Recovery{}, fmt.Errorf("%w: %q", ErrUnknownSLO, name)
 	}
-	scope, err := e.scope(ctx)
+	scope, err := e.BoundScope(ctx)
 	if err != nil {
 		return Recovery{}, err
 	}
@@ -85,7 +85,7 @@ func (e *Engine) storeWindow(ctx context.Context, scope sre.Scope, o Objective, 
 	if o.Source == SourceProxy {
 		series = string(scope.DatabaseID)
 	}
-	aggs, err := e.store.Aggregate(ctx, scope.DeploymentID, o.Name, series, from, to,
+	aggs, err := e.store.Aggregate(ctx, scope.DeploymentID, e.sampleName(scope, o), series, from, to,
 		o.staleAfter())
 	if err != nil {
 		return Window{Duration: to.Sub(from), Unknown: ReasonSourceError}

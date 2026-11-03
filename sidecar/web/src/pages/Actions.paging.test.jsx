@@ -33,7 +33,8 @@ describe('Executed actions paging', () => {
     firstPage = { actions: [action(1, 'CREATE INDEX a ON t (a)')], total: 1000,
       total_capped: true, next_cursor: '' }
     render(<Actions database="all" user={{ role: 'viewer' }} />)
-    expect(screen.getByTestId('executed-actions-count')).toHaveTextContent('1000+ actions')
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
+    expect(screen.getByTestId('executed-actions-count')).toHaveTextContent('1000+ total change records')
   })
 
   it('loads the next page with next_cursor and appends it', async () => {
@@ -44,11 +45,12 @@ describe('Executed actions paging', () => {
         next_cursor: '' }) }))
     vi.stubGlobal('fetch', fetchMock)
     render(<Actions database="all" user={{ role: 'viewer' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     fireEvent.click(screen.getByTestId('actions-load-more'))
     await waitFor(() => expect(screen.getAllByText(/invoices/).length)
       .toBeGreaterThan(0))
     expect(fetchMock.mock.calls[0][0]).toContain('cursor=c9')
-    expect(screen.getByTestId('executed-actions-count')).toHaveTextContent('2 actions')
+    expect(screen.getByTestId('executed-actions-count')).toHaveTextContent('2 total change records')
     expect(screen.queryByTestId('actions-load-more')).toBeNull()
   })
 })

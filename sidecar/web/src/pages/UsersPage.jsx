@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
 import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
 
-export function UsersPage({ currentUser }) {
+export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
+  const platformManaged = authMode === 'databricks_app'
   const [users, setUsers] = useState([])
   const [error, setError] = useState(null)
   const [email, setEmail] = useState('')
@@ -131,9 +132,15 @@ export function UsersPage({ currentUser }) {
         </div>
       )}
 
-      <SSOGrantNotice grant={grant} onDismiss={() => setGrant(null)} />
+      {!platformManaged && <SSOGrantNotice grant={grant} onDismiss={() => setGrant(null)} />}
 
-      <div className="rounded-lg p-4 mb-6"
+      {platformManaged && (
+        <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
+          Access is managed in Databricks. App roles below control pg_sage permissions.
+        </p>
+      )}
+
+      {!platformManaged && <div className="rounded-lg p-4 mb-6"
         style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border)',
@@ -202,7 +209,7 @@ export function UsersPage({ currentUser }) {
             {creating ? 'Adding...' : 'Add User'}
           </button>
         </form>
-      </div>
+      </div>}
 
       <div className="rounded-lg overflow-hidden"
         style={{
@@ -212,7 +219,8 @@ export function UsersPage({ currentUser }) {
         <table className="w-full text-sm" data-testid="users-table">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Email', 'Role', 'SSO', 'Created', 'Last Login', ''].map(
+              {['Email', 'Role', platformManaged ? 'Sign-in' : 'SSO', 'Created', 'Last Login',
+                ...(!platformManaged ? [''] : [])].map(
                 h => (
                   <th key={h} className="text-left px-4 py-2 text-xs"
                     style={{ color: 'var(--text-secondary)' }}>
@@ -261,8 +269,8 @@ export function UsersPage({ currentUser }) {
                   </select>
                 </td>
                 <td className="px-4 py-2">
-                  <UserSSOCell user={u} onUnlink={handleUnlink}
-                    onGrant={handleGrant} />
+                  {platformManaged ? 'Databricks' : <UserSSOCell user={u} onUnlink={handleUnlink}
+                    onGrant={handleGrant} />}
                 </td>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-secondary)' }}>
@@ -274,7 +282,7 @@ export function UsersPage({ currentUser }) {
                     ? new Date(u.last_login).toLocaleString()
                     : 'Never'}
                 </td>
-                <td className="px-4 py-2 text-right">
+                {!platformManaged && <td className="px-4 py-2 text-right">
                   <button
                     onClick={() => handleDelete(u.id, u.email)}
                     disabled={isCurrentUser || isLastAdmin}
@@ -291,7 +299,7 @@ export function UsersPage({ currentUser }) {
                     }}>
                     Delete
                   </button>
-                </td>
+                </td>}
               </tr>
               )
             })}

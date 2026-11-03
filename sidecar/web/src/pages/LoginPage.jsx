@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { hashParam } from './users/ssoApi'
 import { hashPath, replaceHash, ssoErrorMessage } from './users/ssoErrors'
+import { PostgresMeme } from '../components/PostgresMeme'
 
 const providerLabels = {
   google: 'Google',
@@ -87,9 +88,9 @@ export function LoginPage({ onLogin }) {
     : 'SSO'
 
   return (
-    <div className="flex items-center justify-center min-h-screen"
+    <div className="sage-login-surface flex items-center justify-center min-h-screen"
       style={{ background: 'var(--bg-main)' }}>
-      <div className="w-full max-w-sm p-8 rounded-lg shadow-lg"
+      <div className="sage-login-card w-full max-w-sm p-8 rounded-lg shadow-lg"
         style={{
           background: 'var(--bg-card)',
           border: '1px solid var(--border)',
@@ -98,6 +99,7 @@ export function LoginPage({ onLogin }) {
           style={{ color: 'var(--accent)' }}>
           pg_sage
         </h1>
+        <p className="sage-login-caption">Your Postgres control room. Bring evidence. And coffee.</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {ssoError && !error && (
             <div className="text-sm p-3 rounded"
@@ -123,12 +125,13 @@ export function LoginPage({ onLogin }) {
             </div>
           )}
           <div>
-            <label className="block text-sm mb-1"
+            <label htmlFor="login-email" className="block text-sm mb-1"
               style={{ color: 'var(--text-secondary)' }}>
               Email
             </label>
             <input
               type="text"
+              id="login-email"
               data-testid="login-email"
               value={email}
               onChange={e => setEmail(e.target.value)}
@@ -142,12 +145,13 @@ export function LoginPage({ onLogin }) {
             />
           </div>
           <div>
-            <label className="block text-sm mb-1"
+            <label htmlFor="login-password" className="block text-sm mb-1"
               style={{ color: 'var(--text-secondary)' }}>
               Password
             </label>
             <input
               type="password"
+              id="login-password"
               data-testid="login-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -201,6 +205,7 @@ export function LoginPage({ onLogin }) {
             </button>
           </>
         )}
+        <PostgresMeme route="#/login" compact />
       </div>
     </div>
   )

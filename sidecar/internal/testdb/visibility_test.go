@@ -119,6 +119,35 @@ func TestVacuumAllVisibleWaitsOutASnapshotHolder(t *testing.T) {
 	}
 }
 
+// With dead items on under 2% of the pages, PostgreSQL 14+ VACUUM skips
+// index vacuuming and leaves the items in place, and a page holding one is
+// never all-visible: plain retries cannot converge, with no snapshot holder.
+func TestVacuumAllVisibleClearsDeadItemsBelowTheIndexBypass(t *testing.T) {
+	pool := visibilityPool(t)
+	ctx := context.Background()
+	seedVisibilityTable(t, pool, 50000)
+	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE) public.vis"); err != nil {
+		t.Fatalf("vacuum the seeded table: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "DELETE FROM public.vis WHERE id % 5000 = 0"); err != nil {
+		t.Fatalf("delete scattered rows: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "VACUUM (ANALYZE) public.vis"); err != nil {
+		t.Fatalf("plain vacuum: %v", err)
+	}
+	if visible, pages := visiblePages(t, pool); visible >= pages {
+		t.Fatalf("precondition: plain VACUUM left %d of %d pages all-visible, "+
+			"want dead items kept below the index-vacuum bypass", visible, pages)
+	}
+	if err := VacuumAllVisible(ctx, pool, "public.vis", 5*time.Second); err != nil {
+		t.Fatalf("VacuumAllVisible with dead items below the bypass: %v", err)
+	}
+	visible, pages := visiblePages(t, pool)
+	if pages == 0 || visible != pages {
+		t.Fatalf("public.vis: %d of %d pages all-visible, want all", visible, pages)
+	}
+}
+
 func TestVacuumAllVisibleNamesAHolderThatOutlastsTheTimeout(t *testing.T) {
 	pool := visibilityPool(t)
 	seedVisibilityTable(t, pool, 10)

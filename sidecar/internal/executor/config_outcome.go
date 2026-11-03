@@ -45,7 +45,7 @@ func outcomeMetricFor(c *configChange) (metric, table string) {
 	if c == nil {
 		return "", ""
 	}
-	if c.kind == configKindGUC {
+	if c.kind == configKindGUC || c.kind == configKindDatabaseGUC {
 		switch {
 		case c.guc.Name == "work_mem":
 			return metricTempSpills, ""

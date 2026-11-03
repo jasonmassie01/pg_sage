@@ -23,10 +23,12 @@ func liveConfig(t *testing.T) *config.LLMConfig {
 		t.Skip("set PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY to run live LLM tests")
 	}
 	key := firstEnv("SAGE_LLM_API_KEY", "GEMINI_API_KEY")
-	if key == "" {
+	auth := os.Getenv("SAGE_LLM_AUTH")
+	if key == "" && auth != "databricks" {
 		t.Skip("SAGE_LLM_API_KEY / GEMINI_API_KEY not set; skipping live LLM test")
 	}
 	return &config.LLMConfig{
+		Auth:    auth,
 		Enabled: true,
 		Endpoint: envOr("SAGE_LLM_ENDPOINT",
 			"https://generativelanguage.googleapis.com/v1beta/openai"),

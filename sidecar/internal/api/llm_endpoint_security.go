@@ -56,6 +56,13 @@ func sameLLMEndpoint(left, right string) bool {
 		leftURL.EscapedPath() == rightURL.EscapedPath()
 }
 
+func sameLLMOrigin(left, right string) bool {
+	l, le := url.Parse(left)
+	r, re := url.Parse(right)
+	return le == nil && re == nil && l.Scheme == "https" && r.Scheme == "https" &&
+		l.Host != "" && l.User == nil && r.User == nil && strings.EqualFold(l.Host, r.Host)
+}
+
 func safeLLMDiscoveryHTTPClient() *http.Client {
 	dialer := &net.Dialer{}
 	transport := &http.Transport{

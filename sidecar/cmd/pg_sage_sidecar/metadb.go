@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/crypto"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -45,6 +46,9 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parsing meta-db DSN: %w", err)
 	}
 	poolCfg.MaxConns = 5
+	if err := databricksauth.ConfigurePool(context.Background(), poolCfg); err != nil {
+		return nil, err
+	}
 	poolCfg.MinConns = 1
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
@@ -151,10 +155,17 @@ func initMetaDB(
 }
 
 // bootstrapAdminUser creates the first admin user when the
-// sage.users table is empty. Prints credentials to stdout.
+// sage.users table is empty. Only generated credentials are printed to stderr.
 func bootstrapAdminUser(
 	ctx context.Context, pool *pgxpool.Pool,
 ) error {
+	appAuth, err := auth.LoadDatabricksAppConfigFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if appAuth != nil {
+		return auth.BootstrapDatabricksAppAdmin(ctx, pool, *appAuth)
+	}
 	count, err := auth.UserCount(ctx, pool)
 	if err != nil {
 		return fmt.Errorf("checking user count: %w", err)
@@ -163,20 +174,24 @@ func bootstrapAdminUser(
 		return nil
 	}
 
-	password, err := generateRandomPassword(adminPassLen)
+	credentials, err := loadBootstrapAdminCredentials()
 	if err != nil {
-		return fmt.Errorf("generating admin password: %w", err)
+		return fmt.Errorf("loading admin bootstrap credentials: %w", err)
 	}
 
 	if err := auth.BootstrapAdmin(
-		ctx, pool, adminEmail, password,
+		ctx, pool, credentials.email, credentials.password,
 	); err != nil {
 		return fmt.Errorf("creating admin: %w", err)
 	}
 
+	if credentials.supplied {
+		fmt.Fprintf(os.Stderr, "First admin created: %s (configured bootstrap secret; password not logged)\n", credentials.email)
+		return nil
+	}
 	fmt.Fprintf(os.Stderr,
 		"First admin created: %s\nInitial password: %s\nChange this password immediately.\n",
-		adminEmail, password,
+		credentials.email, credentials.password,
 	)
 	return nil
 }
@@ -231,6 +246,9 @@ func connectMonitoredDBContext(
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}
 	poolCfg.MaxConns = int32(maxConns)
+	if err := databricksauth.ConfigurePool(ctx, poolCfg); err != nil {
+		return nil, err
+	}
 	if poolCfg.MaxConns < 2 {
 		poolCfg.MaxConns = 2
 	}

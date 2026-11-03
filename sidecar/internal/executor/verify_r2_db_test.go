@@ -204,7 +204,7 @@ func statisticsAction(t *testing.T, meanAfterMs float64) (*Executor, int64,
 		t.Fatalf("load plan: %v", err)
 	}
 	waitBuiltSinceAction(t, ctx, pool, plan)
-	capture(time.Now().UTC())
+	capture(postAnalyzeCaptureTime(t, ctx, pool))
 	seedQuerySamples(t, ctx, pool, qid, executedAt.Add(time.Second), 110, 40, meanAfterMs)
 	bounded, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	t.Cleanup(cancel)

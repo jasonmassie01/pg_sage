@@ -21,24 +21,27 @@ import (
 // (change_feed and slo_status evidence) and open an slo_burn
 // investigation on a page-level burn.
 type sreSignals struct {
-	name     string
-	settings config.SREConfig
-	feed     *changefeed.Feed
-	poller   *changefeed.Poller
-	engine   *slo.Engine
-	coord    atomic.Pointer[sre.Coordinator]
-	logFn    func(string, string, ...any)
+	name            string
+	settings        config.SREConfig
+	feed            *changefeed.Feed
+	poller          *changefeed.Poller
+	engine          *slo.Engine
+	applicationOnly bool
+	coord           atomic.Pointer[sre.Coordinator]
+	logFn           func(string, string, ...any)
 }
 
 type sreSignalsDeps struct {
-	control   *pgxpool.Pool
-	monitored *pgxpool.Pool
-	name      string
-	legacyID  *int
-	settings  config.SREConfig
+	readPolicy *probes.ReadPolicy
+	control    *pgxpool.Pool
+	monitored  *pgxpool.Pool
+	name       string
+	legacyID   *int
+	settings   config.SREConfig
 	// errors counts server-class log errors; nil without a log source.
-	errors slo.ErrorCounter
-	logFn  func(string, string, ...any)
+	errors  slo.ErrorCounter
+	history probes.HistoricalSource
+	logFn   func(string, string, ...any)
 }
 
 // newSRESignals builds the feed (always: ingested events are read even
@@ -52,7 +55,7 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 	}
 	s.feed = changefeed.NewFeed(cs, d.name, s.scope)
 	ce := d.settings.ChangeEvents
-	if ce.FeedEnabled {
+	if ce.FeedEnabled && d.readPolicy.Allows(probes.WALRunwayProbe) {
 		s.poller, err = changefeed.NewPoller(changefeed.PollerDeps{Feed: s.feed,
 			Monitored: d.monitored, Control: d.control, LegacyDatabaseID: d.legacyID,
 			Interval: ce.FeedInterval(), Retention: ce.Retention(), Logf: d.logFn})
@@ -60,7 +63,8 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 			return nil, err
 		}
 	}
-	if d.settings.SLO.Enabled {
+	s.applicationOnly = !d.readPolicy.Allows(probes.SLOStatus) && d.readPolicy.Allows(probes.ApplicationSLOStatus)
+	if d.settings.SLO.Enabled && (d.readPolicy.Allows(probes.SLOStatus) || s.applicationOnly) {
 		if s.engine, err = s.newEngine(d); err != nil {
 			return nil, err
 		}
@@ -70,6 +74,13 @@ func newSRESignals(d sreSignalsDeps) (*sreSignals, error) {
 
 func (s *sreSignals) newEngine(d sreSignalsDeps) (*slo.Engine, error) {
 	cfg := d.settings.SLO
+	if s.applicationOnly {
+		// A database read policy cannot authorize deployment-wide Prometheus
+		// queries or cluster proxies. Only explicitly bound push counters qualify.
+		cfg.Objectives = databasePushObjectives(cfg.Objectives, d.name)
+		cfg.Prometheus = config.SREPrometheusConfig{}
+		cfg.Proxies.Enabled = false
+	}
 	objs, err := sloObjectives(cfg, d.name)
 	if err != nil {
 		return nil, err
@@ -89,12 +100,17 @@ func (s *sreSignals) newEngine(d sreSignalsDeps) (*slo.Engine, error) {
 	var proxies []slo.Proxy
 	if cfg.Proxies.Enabled {
 		pc := sloProxyConfig(cfg.Proxies)
+		errorProxy := slo.NewErrorProxy(d.monitored, d.errors, pc)
+		if d.history != nil && d.errors == nil {
+			errorProxy = slo.NewHistoricalErrorProxy(d.history, pc)
+		}
 		proxies = []slo.Proxy{slo.NewLatencyProxy(d.monitored, pc),
-			slo.NewErrorProxy(d.monitored, d.errors, pc), slo.NewConnectionProxy(d.monitored, pc),
+			errorProxy, slo.NewConnectionProxy(d.monitored, pc),
 			slo.NewReplicationLagProxy(d.monitored, pc)}
 	}
 	return slo.NewEngine(slo.EngineDeps{Database: d.name, Objectives: objs, Proxies: proxies,
-		Rules: rules, Store: ss, Prometheus: prom, Scope: s.scope, OnPage: s.onPage,
+		DatabaseScopedPush: s.applicationOnly || config.DatabricksAppMode(),
+		Rules:              rules, Store: ss, Prometheus: prom, Scope: s.scope, OnPage: s.onPage,
 		Interval: cfg.EvaluationInterval(), Logf: d.logFn})
 }
 
@@ -102,7 +118,25 @@ func (s *sreSignals) newEngine(d sreSignalsDeps) (*slo.Engine, error) {
 func (s *sreSignals) probes() []sre.SignalProbe {
 	out := []sre.SignalProbe{{ID: probes.ChangeFeed, Run: s.feed.Probe}}
 	if s.engine != nil {
-		out = append(out, sre.SignalProbe{ID: probes.SLOStatus, Run: s.engine.Probe})
+		id := probes.SLOStatus
+		if s.applicationOnly {
+			id = probes.ApplicationSLOStatus
+		}
+		out = append(out, sre.SignalProbe{ID: id, Run: func(ctx context.Context, args probes.Args) probes.Result {
+			r := s.engine.Probe(ctx, args)
+			r.ProbeID = id
+			return r
+		}})
+	}
+	return out
+}
+
+func databasePushObjectives(objectives []config.SREObjectiveConfig, database string) []config.SREObjectiveConfig {
+	var out []config.SREObjectiveConfig
+	for _, o := range objectives {
+		if o.Database == database && o.Source == "push" {
+			out = append(out, o)
+		}
 	}
 	return out
 }

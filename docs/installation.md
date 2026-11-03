@@ -22,7 +22,7 @@ chmod +x pg_sage
 
 ### Windows
 
-Windows users should currently build from source with Go 1.24+ and Node.js
+Windows users should currently build from source with Go 1.25+ and Node.js
 20+. The release archives are published for Linux and macOS.
 
 ---
@@ -135,7 +135,7 @@ prometheus:
 
 ## Build from Source
 
-Requires Go 1.24+ and Node.js 20+.
+Requires Go 1.25+ and Node.js 20+.
 A C compiler (gcc or clang) is also needed: with cgo the binary links
 libpg_query, which checks every executor statement against its PostgreSQL
 parse tree. Without a C compiler the build still succeeds, but that layer is

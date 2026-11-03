@@ -1,0 +1,25 @@
+{
+  "app_name": "pg-sage-dev",
+  "host": "<hostname-from-endpoint-api>",
+  "endpoint": "projects/<project>/branches/<isolated-dev-branch>/endpoints/<endpoint>",
+  "branch": "projects/<project>/branches/<isolated-dev-branch>",
+  "database_resource": "projects/<project>/branches/<isolated-dev-branch>/databases/<database-id>",
+  "database_name": "<postgres-database-name>",
+  "secret_scope": "<existing-secret-scope>",
+  "secret_key": "<existing-encryption-key-secret>",
+  "databricks_admin_email": "<explicit-admin-email>",
+  "gateway_endpoint": "https://<workspace>/ai-gateway/mlflow/v1",
+  "gateway_model": "system.ai.<model-service-name>",
+  "gateway_json_mode": true,
+  "lakebase_observability": {
+    "enabled": false,
+    "allow_payload": false,
+    "poll_interval_seconds": 60,
+    "query_timeout_seconds": 30,
+    "max_rows": 500,
+    "max_bytes": 4194304,
+    "queries_per_poll": 12,
+    "window_seconds": 900,
+    "retention_hours": 168
+  }
+}

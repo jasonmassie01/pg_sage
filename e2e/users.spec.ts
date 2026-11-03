@@ -44,7 +44,7 @@ test.describe('Users (admin)', () => {
     await expect(emailInput).toBeVisible();
 
     // Password input
-    const passwordLabel = page.locator('label:has-text("Password")');
+    const passwordLabel = page.locator('label').filter({ hasText: /^Password$/ });
     await expect(passwordLabel).toBeVisible();
     const passwordInput = page.locator(
       'form >> input[type="password"]',

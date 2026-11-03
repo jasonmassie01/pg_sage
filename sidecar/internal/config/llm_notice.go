@@ -7,7 +7,7 @@ package config
 // feature runs its deterministic path.
 func (c *Config) LLMSetupNotice() string {
 	if c == nil || !c.LLM.Enabled ||
-		(c.LLM.Endpoint != "" && c.LLM.APIKey != "") {
+		(c.LLM.Endpoint != "" && (c.LLM.APIKey != "" || c.LLM.Auth == "databricks")) {
 		return ""
 	}
 	return "LLM features are on by default but no LLM is configured: set " +

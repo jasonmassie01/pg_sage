@@ -4,7 +4,9 @@ package advisor
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,26 +28,82 @@ func e2ePool(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(func() { pool.Close() })
 	seedAuditWorkload(t, pool)
+	// Exceed the bloat advisor's 1,000-tuple eligibility threshold using only
+	// this disposable synthetic fixture. The shared integration fixture is
+	// deliberately smaller and otherwise lets this E2E skip the model call.
+	if _, err := pool.Exec(t.Context(), `INSERT INTO public.advisor_fixture
+		SELECT i, repeat('fixture',30) FROM generate_series(501,3000) i;
+		DELETE FROM public.advisor_fixture WHERE id>2000;
+		ANALYZE public.advisor_fixture;
+		DO $$ BEGIN
+		 IF to_regproc('pg_catalog.pg_stat_force_next_flush') IS NOT NULL THEN
+		  PERFORM pg_catalog.pg_stat_force_next_flush();
+		 END IF;
+		END $$`); err != nil {
+		t.Fatalf("expand synthetic advisor fixture: %v", err)
+	}
 	return pool
 }
 
-func e2eLLMManager(t *testing.T) *llm.Manager {
-	t.Helper()
-	apiKey := os.Getenv("SAGE_GEMINI_API_KEY")
-	if apiKey == "" {
-		t.Skip("SAGE_GEMINI_API_KEY not set")
-	}
-	llmCfg := &config.LLMConfig{
+func e2eLLMConfig(getenv func(string) string) (*config.LLMConfig, error) {
+	cfg := &config.LLMConfig{
 		Enabled:          true,
-		Model:            "gemini-2.5-flash",
-		Endpoint:         "https://generativelanguage.googleapis.com/v1beta/openai",
-		APIKey:           apiKey,
 		TimeoutSeconds:   60,
 		TokenBudgetDaily: 100000,
 		CooldownSeconds:  10,
 	}
+	if getenv("PG_SAGE_LIVE_LLM") == "1" && getenv("SAGE_LLM_AUTH") == "databricks" {
+		cfg.Auth = "databricks"
+		cfg.Endpoint, cfg.Model = getenv("SAGE_LLM_ENDPOINT"), getenv("SAGE_LLM_MODEL")
+		if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Model) == "" {
+			return nil, fmt.Errorf("native advisor E2E requires explicit SAGE_LLM_ENDPOINT and SAGE_LLM_MODEL")
+		}
+		return cfg, nil
+	}
+	if cfg.APIKey = getenv("SAGE_GEMINI_API_KEY"); cfg.APIKey == "" {
+		return nil, nil
+	}
+	cfg.Model = "gemini-2.5-flash"
+	cfg.Endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
+	return cfg, nil
+}
+
+func e2eLLMManager(t *testing.T) *llm.Manager {
+	t.Helper()
+	llmCfg, err := e2eLLMConfig(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llmCfg == nil {
+		t.Skip("set SAGE_GEMINI_API_KEY, or PG_SAGE_LIVE_LLM=1 with explicit native Databricks auth/endpoint/model")
+	}
 	client := llm.New(llmCfg, func(string, string, ...any) {})
+	t.Cleanup(func() {
+		if client.TokensUsedToday() == 0 {
+			t.Error("advisor E2E completed without a successful billed model call")
+		}
+	})
 	return llm.NewManager(client, nil, false)
+}
+
+func requireAdvisorModelCall(t *testing.T, mgr *llm.Manager, before int64) {
+	t.Helper()
+	after := mgr.General.TokensUsedToday()
+	if after <= before {
+		t.Error("advisor did not complete a successful billed model call")
+	}
+	t.Logf("advisor model usage: %d tokens", after-before)
+}
+
+func e2eAdvisorLog(t *testing.T) func(string, string, ...any) {
+	t.Helper()
+	return func(level, message string, args ...any) {
+		if strings.Contains(message, "parse error:") {
+			t.Errorf("[%s] %s", level, fmt.Sprintf(message, args...))
+		} else {
+			t.Logf("[%s] %s", level, fmt.Sprintf(message, args...))
+		}
+	}
 }
 
 func e2eSnapshot(t *testing.T, pool *pgxpool.Pool) *collector.Snapshot {
@@ -142,7 +200,7 @@ func e2eSnapshot(t *testing.T, pool *pgxpool.Pool) *collector.Snapshot {
 		       pg_table_size(schemaname || '.' || relname),
 		       pg_indexes_size(schemaname || '.' || relname)
 		FROM pg_stat_user_tables
-		WHERE schemaname NOT IN ('sage','pg_catalog','information_schema')`)
+		WHERE schemaname='public' AND relname='advisor_fixture'`)
 	if err == nil {
 		defer rows4.Close()
 		for rows4.Next() {
@@ -167,7 +225,7 @@ func e2eSnapshot(t *testing.T, pool *pgxpool.Pool) *collector.Snapshot {
 		       mean_exec_time, rows, shared_blks_hit, shared_blks_read,
 		       temp_blks_written
 		FROM pg_stat_statements
-		WHERE calls > 0 AND queryid != 0
+		WHERE calls > 0 AND queryid != 0 AND query LIKE '%advisor_fixture%'
 		ORDER BY total_exec_time DESC
 		LIMIT 50`)
 	if err == nil {
@@ -201,6 +259,17 @@ func e2eSnapshot(t *testing.T, pool *pgxpool.Pool) *collector.Snapshot {
 		&snap.System.MaxConnections, &snap.System.DBSizeBytes)
 	if err != nil {
 		t.Logf("system stats partial: %v", err)
+	}
+	// Controlled synthetic workload measurements exercise rewrite selection
+	// without running intentionally slow queries or sampling user statements.
+	// These are scenario inputs, not claimed measurements of this database.
+	snap.Queries = []collector.QueryStats{{QueryID: 760001,
+		Query: "SELECT * FROM public.advisor_fixture WHERE id IN (SELECT id FROM public.advisor_fixture WHERE payload LIKE '%fixture%') ORDER BY id OFFSET 1000 LIMIT 20",
+		Calls: 120, TotalExecTime: 9000, MeanExecTime: 75, Rows: 2400, TempBlksWritten: 128}}
+	var live, dead int64
+	if err := pool.QueryRow(t.Context(), `SELECT n_live_tup,n_dead_tup FROM pg_stat_user_tables
+		WHERE relid='public.advisor_fixture'::regclass`).Scan(&live, &dead); err != nil || live+dead < 1000 || dead*10 < live+dead {
+		t.Fatalf("synthetic fixture does not exercise bloat advisor: live=%d dead=%d error=%v", live, dead, err)
 	}
 
 	return snap

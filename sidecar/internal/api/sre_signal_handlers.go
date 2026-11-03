@@ -172,6 +172,10 @@ func signalError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, changefeed.ErrConflict):
 		sreErrorCode(w, "event id already recorded with other content", "conflict",
 			http.StatusConflict)
+	case errors.Is(err, slo.ErrSampleConflict):
+		sreErrorCode(w, "sample identity already recorded with other counters", "conflict", http.StatusConflict)
+	case errors.Is(err, slo.ErrScopeMismatch):
+		sreErrorCode(w, "registered SLO database identity changed", "scope_mismatch", http.StatusConflict)
 	case errors.Is(err, slo.ErrUnknownSLO), errors.Is(err, slo.ErrNotPush):
 		sreErrorCode(w, "SLO not found", "not_found", http.StatusNotFound)
 	case errors.Is(err, sre.ErrMetadataUnavailable):

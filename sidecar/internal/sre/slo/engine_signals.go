@@ -84,7 +84,7 @@ func (e *Engine) Probe(ctx context.Context, _ probes.Args) probes.Result {
 		res.Error = truncateText(err.Error(), 200)
 		return res
 	}
-	res.Columns = []string{"name", "kind", "state", "fast_burning", "customer_impact",
+	res.Columns = []string{"name", "kind", "source", "state", "fast_burning", "customer_impact",
 		"burn_long", "burn_short", "long_window", "short_window", "unknown",
 		"budget_remaining", "evaluated_at", "age_s"}
 	for _, st := range sts {
@@ -98,7 +98,7 @@ func (e *Engine) Probe(ctx context.Context, _ probes.Args) probes.Result {
 }
 
 func statusRow(st Status, at time.Time) probes.Row {
-	row := probes.Row{"name": st.Name, "kind": string(st.Kind), "state": string(st.State),
+	row := probes.Row{"name": st.Name, "kind": string(st.Kind), "source": string(st.Source), "state": string(st.State),
 		"fast_burning": st.FastBurning, "customer_impact": st.CustomerImpact,
 		"burn_long": nil, "burn_short": nil, "long_window": "", "short_window": "",
 		"unknown": strings.Join(st.Unknown, ","), "budget_remaining": nil,

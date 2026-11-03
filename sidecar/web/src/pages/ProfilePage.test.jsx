@@ -18,6 +18,16 @@ describe('ProfilePage SSO linking', () => {
     vi.restoreAllMocks()
   })
 
+  it('uses Databricks-managed sign-in without requesting or offering local SSO linking', () => {
+    globalThis.fetch = vi.fn()
+    window.location.hash = '#/profile?sso_error=link_conflict'
+    render(<ProfilePage user={{ ...user, auth_mode: 'databricks_app' }} />)
+    expect(screen.getByTestId('databricks-sign-in')).toHaveTextContent('Signed in with Databricks')
+    expect(screen.queryByTestId('link-sso-button')).toBeNull()
+    expect(screen.queryByTestId('sso-error')).toBeNull()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
   it('Link SSO button calls the authorize endpoint with intent=link', async () => {
     globalThis.fetch = vi.fn(url => {
       if (url === '/api/v1/auth/sso') {

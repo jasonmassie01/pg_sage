@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 
 	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -98,12 +99,12 @@ func runHistoryCommand(ctx context.Context, args []string, getenv func(string) s
 }
 
 func runHistory(ctx context.Context, a historyArgs, stdout, stderr io.Writer) error {
-	mon, err := pgxpool.New(ctx, a.monDSN)
+	mon, err := databricksauth.NewPool(ctx, a.monDSN)
 	if err != nil {
 		return fmt.Errorf("monitored database: %w", err)
 	}
 	defer mon.Close()
-	meta, err := pgxpool.New(ctx, a.metaDSN)
+	meta, err := databricksauth.NewPool(ctx, a.metaDSN)
 	if err != nil {
 		return fmt.Errorf("meta database: %w", err)
 	}

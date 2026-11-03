@@ -472,7 +472,7 @@ func (t *Tuner) fetchPlanJSON(
 	var planJSON []byte
 	err := t.pool.QueryRow(ctx,
 		`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
-		 WHERE queryid = $1
+		 WHERE queryid = $1 AND source <> 'lakebase_plan_history'
 		 ORDER BY captured_at DESC LIMIT 1`,
 		queryID,
 	).Scan(&planJSON)

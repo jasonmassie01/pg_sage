@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/pg-sage/sidecar/internal/store"
@@ -53,6 +55,9 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 	slot.mu.RUnlock()
 	if runner != nil && runner.Owns(action) {
 		return runner.RunApproved(ctx, action, approvedBy)
+	}
+	if strings.HasPrefix(action.IdentityKey, "sre_maintenance:") {
+		return ApprovedRun{}, fmt.Errorf("SRE maintenance requires its typed runner")
 	}
 	ctx = withProposalOrigin(ctx, action)
 	id, err := e.ExecuteManual(ctx, action.FindingID, action.ProposedSQL,

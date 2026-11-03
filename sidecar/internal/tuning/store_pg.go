@@ -127,7 +127,7 @@ func (s *postgresStore) Outcomes(ctx context.Context, classes []string, since ti
 
 const cachedPlanSQL = `/* pg_sage */
 SELECT plan_json::text FROM sage.explain_cache
-WHERE queryid = $1 ORDER BY captured_at DESC LIMIT 1`
+WHERE queryid = $1 AND source <> 'lakebase_plan_history' ORDER BY captured_at DESC LIMIT 1`
 
 // paramRef finds a bind parameter ($1) outside literals and comments.
 var paramRef = regexp.MustCompile(`\$[0-9]+`)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 )
 
 type adminConfig struct {
@@ -82,7 +83,7 @@ func createAdmin(
 
 func productionAdminDeps() adminDeps {
 	return adminDeps{
-		open: pgxpool.New,
+		open: databricksauth.NewPool,
 		close: func(pool *pgxpool.Pool) {
 			pool.Close()
 		},

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAPI, withTimeRange } from '../hooks/useAPI'
 import { useTimeRange } from '../context/TimeRangeContext'
 import { SQLBlock } from '../components/SQLBlock'
@@ -21,6 +21,8 @@ import { RecommendationsTab } from './actions/RecommendationsTab'
 import { revisionPin } from './actions/recommendation'
 import { ApprovalCardDetail, PendingCardsView } from './actions/ApprovalCards'
 import { ManagedChanges } from './actions/ManagedChanges'
+import { approvalOutcomeMessage } from './actions/ApprovalCard'
+import { actionLabel, awaitingReview, blockerText, caseHref, caseID, inProgress, proposedChanges, relatedCase, riskLabel, rowDatabase } from './actions/workflow'
 
 function actionStatus(row) {
   return row.status || row.action_status || row.outcome || 'unknown'
@@ -60,122 +62,165 @@ function formatActionTime(value) {
   return date.toLocaleString()
 }
 
-export function Actions({ database, user }) {
-  const [tab, setTab] = useState('executed')
+function actionCaseScope() {
+  const query = (window.location.hash || '').split('?')[1] || ''
+  return new URLSearchParams(query).get('case') || ''
+}
+
+export function Actions({ database, user, fleetData }) {
+  const [tab, setTab] = useState('recommendations')
+  const [caseScope, setCaseScope] = useState(actionCaseScope)
+  useEffect(() => {
+    const changed = () => setCaseScope(actionCaseScope())
+    window.addEventListener('hashchange', changed)
+    return () => window.removeEventListener('hashchange', changed)
+  }, [])
   const range = useTimeRange()
   const canReview = user?.role === 'admin' || user?.role === 'operator'
-  const activeTab = canReview || tab !== 'pending' ? tab : 'executed'
-  const dbParam = database && database !== 'all'
-    ? `?database=${database}` : ''
-
+  const activeTab = canReview || tab !== 'pending' ? tab : 'recommendations'
+  const single = database && database !== 'all'
+  const dbParam = single ? `?database=${encodeURIComponent(database)}` : ''
   const actionsURL = withTimeRange(`/api/v1/actions${dbParam}`, range)
   const { data, loading, error, refetch } = useAPI(actionsURL)
   const paging = useCursorPages(data, actionsURL, 'actions')
-  const {
-    data: pendingData,
-    loading: pendingLoading,
-    error: pendingError,
-    refetch: pendingRefetch,
-  } = useAPI(canReview ? `/api/v1/actions/pending${dbParam}` : null)
+  const pending = useAPI(canReview ? `/api/v1/actions/pending${dbParam}` : null)
   const cards = useAPI(canReview ? `/api/v1/approvals${dbParam}` : null)
+  const caseData = useAPI(`/api/v1/cases${dbParam}`)
+  const recommendations = useAPI(single
+    ? `/api/v1/recommendations?database=${encodeURIComponent(database)}` : null)
+  const managed = useAPI(`/api/v1/managed-changes${dbParam}`)
   useLiveRefetch(['actions'], refetch)
-  useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
+  useLiveRefetch(['actions'], canReview ? pending.refetch : null)
   useLiveRefetch(['actions'], canReview ? cards.refetch : null)
+  useLiveRefetch(['actions'], recommendations.refetch)
 
-  if (activeTab === 'recommendations') {
-    return (
-      <div className="space-y-4">
-        <ActionsDescription />
-        <TabBar tab={activeTab} setTab={setTab}
-          pendingCount={pendingData?.total || 0}
-          canReview={canReview} />
-        <RecommendationsTab database={database} />
-      </div>
-    )
+  const cases = caseData.data?.cases || []
+  const selectedCase = caseScope ? cases.find(c => String(caseID(c)) === caseScope) : null
+  const scoped = row => !caseScope || String(caseID(relatedCase(row, cases, database))) === caseScope
+  const scopedCases = caseScope ? cases.filter(c => String(caseID(c)) === caseScope) : cases
+  const recs = (recommendations.data?.recommendations || []).filter(scoped)
+  const pendingRows = (pending.data?.pending || []).filter(scoped)
+  const ledger = paging.rows.filter(scoped)
+  const modeForDatabase = db => fleetData?.databases?.find(d => d.name === db)?.status?.trust_level || null
+  const pendingFor = row => pendingRows.find(a => rowDatabase(a, database) === rowDatabase(row, database)
+    && String(a.recommendation_id) === String(row.id))
+  const proposals = proposedChanges(recs, scopedCases, database)
+    .map(r => ({ ...r, pendingAction: pendingFor(r) }))
+  const activeRecs = recs.filter(r => ['approved', 'applying', 'applied', 'verifying'].includes(r.state))
+    .map(r => ({ ...r, linkedCase: relatedCase(r, cases, database) }))
+  const progressRows = ledger.filter(inProgress)
+  const progressRecs = activeRecs.filter(r => !r.action_log_id || !progressRows.some(a =>
+    rowDatabase(a, database) === rowDatabase(r, database) && !isQueuedRow(a)
+    && String(a.id) === String(r.action_log_id)))
+  const historyRows = ledger.filter(r => !inProgress(r) && !awaitingReview(r))
+  const historyRecs = recs.filter(r => !['proposed', 'approved', 'applying', 'applied', 'verifying'].includes(r.state)
+    && !r.action_log_id).map(r => ({ ...r, linkedCase: relatedCase(r, cases, database) }))
+  const scopedManaged = (managed.data?.databases || []).map(d => ({ ...d,
+    proposals: (d.proposals || []).filter(r => scoped({ ...r, database: d.database })) }))
+  const managedCount = state => scopedManaged.reduce((n, d) => n + d.proposals.filter(r => r.status === state).length, 0)
+  const proposalUnknown = caseData.loading || (single && recommendations.loading)
+  const proposalError = caseData.error || recommendations.error
+  const counts = {
+    recommendations: proposalUnknown ? '…' : proposalError ? '?' : `${proposals.length}${recs.length >= 100 ? '+' : ''}`,
+    pending: pending.loading || managed.loading ? '…' : pending.error || managed.error || pending.data?.errors?.length ? '?'
+      : String(pendingRows.length + managedCount('pending')),
+    progress: loading || (single && recommendations.loading) || managed.loading ? '…'
+      : error || recommendations.error || managed.error ? '?'
+        : `${progressRows.length + progressRecs.length + managedCount('approved')}${paging.hasMore ? '+' : ''}`,
+    executed: loading || (single && recommendations.loading) ? '…' : error || recommendations.error ? '?'
+      : `${historyRows.length + historyRecs.length}${paging.hasMore ? '+' : ''}`,
   }
+  const scopedPending = { ...pending.data, pending: pendingRows }
+  const scopedCards = { ...cards, data: { ...cards.data,
+    ...(Array.isArray(cards.data?.cards) ? { cards: cards.data.cards.filter(scoped) } : {}) } }
+  const refreshAll = () => { refetch(); pending.refetch(); cards.refetch(); recommendations.refetch(); caseData.refetch() }
 
-  if (activeTab === 'executed') {
-    return (
-      <div className="space-y-4">
-        <ActionsDescription />
+  return (
+    <div className="space-y-4" data-testid="actions-page">
+      <p className="text-sm" data-testid="actions-page-description"
+        style={{ color: 'var(--text-secondary)' }}>
+        Review proposed database changes, decide which requests to approve, and track results.
+        Cases explain the evidence behind a change. Approval, execution, and a verified improvement are separate steps.
+      </p>
+      {caseScope && <div className="rounded border p-3 text-sm space-y-1" data-testid="actions-case-context"
+        style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+        <p>{selectedCase ? `Changes for case: ${selectedCase.title}`
+          : caseData.loading ? 'Loading the linked case…'
+            : caseData.error ? 'The linked case could not be loaded. Its related changes cannot be confirmed.'
+              : 'The linked case is unavailable in this database view.'}</p>
+        {caseData.error && <ErrorBanner message={caseData.error} onRetry={caseData.refetch} />}
+        {selectedCase && <a href={caseHref(selectedCase, database)} className="underline"
+          style={{ color: 'var(--accent)' }}>Review case evidence</a>}
+        <a href={`#/actions${single ? `?database=${encodeURIComponent(database)}` : ''}`}
+          className="ml-3 underline" style={{ color: 'var(--accent)' }} onClick={() => setCaseScope('')}>
+          Show all changes</a>
+      </div>}
+      <p className="text-xs" data-testid="actions-scope" style={{ color: 'var(--text-secondary)' }}>
+        {single ? database : 'All selected databases'} · Proposals and requests show current work.
+        {' '}In progress and History use {range?.range?.label?.toLowerCase() || 'the selected time range'} for change records.
+        {' '}Counts cover loaded items; + means more may be available.
+        {!single && ' Stored recommendations require a single database; case proposals are shown across the fleet.'}
+        {!canReview && ' Your role can inspect changes; approval requests are available to operators and admins.'}
+      </p>
+      {single && modeForDatabase(database) === 'observation' && <p className="text-sm" data-testid="actions-observation"
+        style={{ color: 'var(--yellow)' }}>
+        Database changes are disabled in Observation mode. Review Cases and proposed changes; no database changes will run in this mode.
+      </p>}
+      <TabBar tab={activeTab} setTab={setTab} counts={counts} canReview={canReview} />
+      {activeTab === 'recommendations' && <RecommendationsTab database={database} items={proposals}
+        loading={proposalUnknown} error={proposalError} refetch={() => { caseData.refetch(); recommendations.refetch() }}
+        modeForDatabase={modeForDatabase} onReview={canReview ? () => setTab('pending') : null} />}
+      {activeTab === 'pending' && <>
+        <ManagedChanges database={database} canDecide={canReview} response={{ ...managed,
+          data: { ...managed.data, databases: scopedManaged } }} statuses={['pending']} />
+        <PendingTab data={scopedPending} loading={pending.loading} error={pending.error}
+          refetch={refreshAll} cards={scopedCards} cases={cases} database={database} modeForDatabase={modeForDatabase} />
+      </>}
+      {activeTab === 'progress' && <>
+        {recommendations.error && <ErrorBanner message={`Recommendation progress could not be loaded: ${recommendations.error}`} onRetry={recommendations.refetch} />}
+        <ManagedChanges database={database} canDecide={false} response={{ ...managed,
+          data: { ...managed.data, databases: scopedManaged } }} statuses={['approved']} />
+        {progressRecs.length > 0 && <RecommendationsTab database={database} items={progressRecs}
+          modeForDatabase={modeForDatabase} view="progress" />}
+        <ExecutedTab data={data} paging={{ ...paging, rows: progressRows }} loading={loading}
+          error={error} refetch={refreshAll} user={user} view="progress" cases={cases} database={database} />
+      </>}
+      {activeTab === 'executed' && <>
+        {recommendations.error && <ErrorBanner message={`Recommendation outcomes could not be loaded: ${recommendations.error}`} onRetry={recommendations.refetch} />}
+        {historyRecs.length > 0 && <RecommendationsTab database={database} items={historyRecs}
+          modeForDatabase={modeForDatabase} view="history" />}
+        <ExecutedTab data={data} paging={{ ...paging, rows: historyRows }} loading={loading}
+          error={error} refetch={refreshAll} user={user} view="history" cases={cases} database={database} />
+      </>}
+      <details className="rounded border p-3 text-sm" data-testid="actions-safety-details"
+        style={{ borderColor: 'var(--border)' }}>
+        <summary className="cursor-pointer">Index-build safety conditions</summary>
+        <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Disk-load history is one safety check. Completing a baseline does not enable execution in Observation mode.
+          Current mode, permissions, supported actions, approval requirements and other safety checks still apply.
+        </p>
         <IndexAdmissionPanel database={database} />
-        <TabBar tab={activeTab} setTab={setTab}
-          pendingCount={pendingData?.total || 0}
-          canReview={canReview} />
-        <ManagedChanges database={database} canDecide={canReview} />
-        <ExecutedTab data={data} paging={paging} loading={loading}
-          error={error} refetch={refetch} user={user} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <ActionsDescription />
-      <IndexAdmissionPanel database={database} />
-      <TabBar tab={activeTab} setTab={setTab}
-        pendingCount={pendingData?.total || 0}
-        canReview={canReview} />
-      <ManagedChanges database={database} canDecide={canReview} />
-      <PendingTab data={pendingData}
-        loading={pendingLoading}
-        error={pendingError}
-        refetch={pendingRefetch}
-        cards={cards} />
+      </details>
     </div>
   )
 }
 
-function ActionsDescription() {
-  return (
-    <p className="text-sm" data-testid="actions-page-description"
-      style={{ color: 'var(--text-secondary)' }}>
-      Actions are the executable side of Cases. Safe work can run under
-      policy, higher-risk work is queued for approval, and every result is
-      logged here with scripts, rollback context, and verification status.
-    </p>
-  )
+function TabBar({ tab, setTab, counts, canReview }) {
+  const tabs = [{ key: 'recommendations', label: 'Proposed changes' }]
+  if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
+  tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
+  return <div className="flex flex-wrap gap-2" role="tablist" aria-label="Change tasks">
+    {tabs.map(t => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
+      onClick={() => setTab(t.key)} data-testid={`actions-tab-${t.key}`}
+      className="px-3 py-1.5 rounded text-sm" style={{
+        background: tab === t.key ? 'var(--accent)' : 'var(--bg-card)',
+        color: tab === t.key ? '#fff' : 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+      {t.label} <span className="ml-1.5" aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>
+    </button>)}
+  </div>
 }
 
-function TabBar({ tab, setTab, pendingCount, canReview }) {
-  const tabs = [
-    { key: 'executed', label: 'Executed' },
-  ]
-  if (canReview) {
-    tabs.push({ key: 'pending', label: 'Pending Approval' })
-  }
-  tabs.push({ key: 'recommendations', label: 'Recommendations' })
-
-  return (
-    <div className="flex gap-2">
-      {tabs.map(t => (
-        <button key={t.key} onClick={() => setTab(t.key)}
-          data-testid={`actions-tab-${t.key}`}
-          className="px-3 py-1.5 rounded text-sm"
-          style={{
-            background: tab === t.key
-              ? 'var(--accent)' : 'var(--bg-card)',
-            color: tab === t.key
-              ? '#fff' : 'var(--text-secondary)',
-            border: '1px solid var(--border)',
-          }}>
-          {t.label}
-          {t.key === 'pending' && pendingCount > 0 && (
-            <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs"
-              style={{
-                background: 'var(--red)',
-                color: '#fff',
-              }}>
-              {pendingCount}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function ExecutedTab({ data, paging, loading, error, refetch, user }) {
+function ExecutedTab({ data, paging, loading, error, refetch, user, view, cases, database }) {
   const toast = useToast()
   const canRollback = user?.role === 'admin' || user?.role === 'operator'
   if (loading) {
@@ -221,6 +266,7 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
   }
 
   const actionSummary = r => {
+    if (isQueuedRow(r)) return `Proposed: ${actionLabel(r.action_type)}`
     const t = (r.action_type || '').toLowerCase()
     const sql = r.sql_executed || ''
     const target = sql.match(
@@ -290,13 +336,13 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
       render: r => {
         const risk = actionRisk(r)
         const c = { safe: 'var(--green)', moderate: '#b58900',
-          high_risk: 'var(--red)' }[risk] || 'var(--text-secondary)'
+          high: 'var(--red)', high_risk: 'var(--red)' }[risk] || 'var(--text-secondary)'
         return (
           <span className="px-2 py-0.5 rounded-full text-xs font-medium
             inline-block"
             title="risk tier; executed rows are only logged here, queued rows await approval"
             style={{ border: `1px solid ${c}`, color: c }}>
-            {risk === 'high_risk' ? 'advisory' : (risk || 'safe')}
+            {riskLabel(risk)}
           </span>
         )
       },
@@ -357,7 +403,12 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
   }
 
   if (actions.length === 0) {
-    return <EmptyState message="No actions have been executed yet. Actions will appear here as pg_sage works on your databases." />
+    return <div className="space-y-2">
+      <EmptyState message={view === 'progress'
+        ? 'No change records are currently running or awaiting verification in the selected time range.'
+        : 'No completed change records are loaded for the selected time range.'} />
+      <LoadMore paging={paging} testId="actions-load-more" />
+    </div>
   }
 
   return (
@@ -411,6 +462,7 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
               </div>
               <SQLBlock sql={row.sql_executed} />
             </div>
+            <CaseRelation row={row} cases={cases} database={database} />
             <VerificationOutcome outcome={row.verification_outcome} />
             {row.rollback_sql && (
               <div>
@@ -454,7 +506,8 @@ function ExecutedTab({ data, paging, loading, error, refetch, user }) {
       <LoadMore paging={paging} testId="actions-load-more" />
       <div className="text-xs" data-testid="executed-actions-count"
         style={{ color: 'var(--text-secondary)' }}>
-        {formatTotal(data)} actions
+        {actions.length} loaded {view === 'progress' ? 'in-progress' : 'history'} records
+        {' · '}{formatTotal(data)} total change records across all cases in the selected time range
       </div>
     </div>
   )
@@ -478,7 +531,7 @@ function actionRowKey(row) {
 }
 
 function PendingTab({
-  data, loading, error, refetch, cards,
+  data, loading, error, refetch, cards, cases, database, modeForDatabase,
 }) {
   const [view, setView] = useState('cards')
   const [rejectId, setRejectId] = useState(null)
@@ -492,16 +545,21 @@ function PendingTab({
     onRetry={refetch} />
 
   const actions = data?.pending || []
-  const cardList = cards?.data?.cards
-  const hasCards = Array.isArray(cardList)
+  const rawCards = cards?.data?.cards
+  const hasCards = Array.isArray(rawCards)
+  const cardList = hasCards ? rawCards.filter(card => actions.some(action =>
+    rowDatabase(action, database) === card.database && String(action.id) === String(card.queue_id))) : []
+  const completeCards = hasCards && actions.every(action => cardList.some(card =>
+    rowDatabase(action, database) === card.database && String(action.id) === String(card.queue_id)))
   const refreshAll = () => {
     refetch()
     cards?.refetch?.()
     refetchPendingCount()
   }
-  if (hasCards && view === 'cards') {
+  if (completeCards && view === 'cards') {
     return <PendingCardsView cards={cardList} errors={cards.data.errors}
-      onShowTable={() => setView('table')} onDecided={refreshAll} />
+      onShowTable={() => setView('table')} onDecided={refreshAll}
+      pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase} />
   }
 
   async function handleApprove(action) {
@@ -519,15 +577,10 @@ function PendingTab({
         },
       )
       const json = await res.json()
-      if (json.ok) {
-        toast.success(`Action ${id} approved and executed`)
-        setActionMsg({ type: 'success',
-          text: `Action ${id} approved and executed` })
-      } else {
-        toast.error(json.error || 'Approve failed')
-        setActionMsg({ type: 'error',
-          text: json.error || 'Approve failed' })
-      }
+      const result = approvalOutcomeMessage(res.status, json)
+      if (result.ok) toast.success(result.text)
+      else toast.error(result.text)
+      setActionMsg({ type: result.ok ? 'success' : 'error', text: result.text })
       refetch()
       refetchPendingCount()
     } catch (err) {
@@ -586,6 +639,7 @@ function PendingTab({
             label: 'Moderate Risk', color: 'var(--yellow)',
           },
           high: { label: 'High Risk', color: 'var(--red)' },
+          high_risk: { label: 'High Risk', color: 'var(--red)' },
         }
         const risk = actionRisk(r)
         const info = riskMap[risk] || {
@@ -613,6 +667,14 @@ function PendingTab({
         key: 'lifecycle_state', label: 'Lifecycle',
         render: r => lifecycleStatus(r),
       }] : []),
+    { key: 'availability', label: 'Availability', render: r => {
+      const reason = modeForDatabase?.(rowDatabase(r, database)) === 'observation'
+        ? 'Database changes are disabled in Observation mode.'
+        : blockerText(r.defer_reason || r.blocked_reason)
+      return <span style={{ color: reason ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+        {reason || (r.eligible === false ? 'Cannot run yet; eligibility reason unavailable.' : 'Awaiting your decision; safety checks run again before execution.')}
+      </span>
+    } },
     { key: 'proposed_sql', label: 'SQL Preview',
       render: r => {
         const sql = (r.proposed_sql || '').replace(/\s+/g, ' ').trim()
@@ -623,35 +685,29 @@ function PendingTab({
       render: r => <LiveTimeAgo timestamp={r.proposed_at} />,
     },
     {
-      key: 'actions', label: '',
+      key: 'actions', label: 'Decision',
       render: r => (
-        <div className="flex gap-2">
-          <button onClick={() => handleApprove(r)}
-            data-testid="approve-button"
-            disabled={r.eligible === false}
-            title={r.eligible === false
-              ? (r.defer_reason || r.blocked_reason || 'Action is not eligible')
-              : undefined}
-            className="px-2 py-1 rounded text-xs"
-            style={{
-              background: 'var(--green)',
-              color: '#fff',
-              opacity: r.eligible === false ? 0.45 : 1,
-              cursor: r.eligible === false ? 'not-allowed' : 'pointer',
-            }}>
-            Approve
-          </button>
-          <button
-            onClick={() => setRejectId(
-              rejectId === actionRowKey(r) ? null : actionRowKey(r))}
-            data-testid="reject-button"
-            className="px-2 py-1 rounded text-xs"
-            style={{
-              background: 'var(--red)',
-              color: '#fff',
-            }}>
-            Reject
-          </button>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => handleApprove(r)} data-testid="approve-button"
+              disabled={r.eligible === false || modeForDatabase?.(rowDatabase(r, database)) === 'observation'}
+              title={r.eligible === false ? (r.defer_reason || r.blocked_reason || 'Action is not eligible') : undefined}
+              className="px-2 py-1 rounded text-xs" style={{ background: 'var(--green)', color: '#fff' }}>
+              Approve and run
+            </button>
+            <button onClick={() => setRejectId(rejectId === actionRowKey(r) ? null : actionRowKey(r))}
+              data-testid="reject-button" className="px-2 py-1 rounded text-xs"
+              style={{ background: 'var(--red)', color: '#fff' }}>Reject</button>
+          </div>
+          {rejectId === actionRowKey(r) && <div className="flex flex-wrap gap-2">
+            <input value={rejectReason} aria-label="Reason for rejection"
+              onChange={e => setRejectReason(e.target.value)} placeholder="Reason for rejection"
+              className="px-2 py-1 rounded text-sm" style={{ background: 'var(--bg-primary)',
+                color: 'var(--text-primary)', border: '1px solid var(--border)' }} />
+            <button onClick={() => handleReject(r)} disabled={!rejectReason.trim()}
+              className="px-2 py-1 rounded text-xs" style={{ background: 'var(--red)', color: '#fff' }}>
+              Confirm Reject</button>
+          </div>}
         </div>
       ),
     },
@@ -670,8 +726,8 @@ function PendingTab({
       <p data-testid="pending-help-text"
         className="text-sm"
         style={{ color: 'var(--text-secondary)' }}>
-        These actions are waiting for your review. Approve to
-        execute, or reject with a reason.
+        Review the evidence, exact SQL and recovery plan before deciding.
+        Approve and run requests immediate execution after current safety checks; it does not establish that the change helped.
       </p>
       {actionMsg && (
         <div className="p-2 rounded text-sm"
@@ -686,12 +742,14 @@ function PendingTab({
       )}
       <PendingErrors errors={data?.errors} />
       {actions.length === 0 ? (
-        <EmptyState message="No actions waiting for approval. When pg_sage identifies improvements that need your OK, they'll appear here." />
+        <EmptyState message="Nothing needs your approval in this view. Review Proposed changes for opportunities and blocked work." />
       ) : <DataTable data-testid="pending-actions-table"
         columns={columns} rows={actions} expandable rowKey={actionRowKey}
         renderExpanded={row => (
           <div className="space-y-3">
-            <ApprovalCardDetail action={row} onDecided={refreshAll} />
+            <CaseRelation row={row} cases={cases} database={database} />
+            <ApprovalCardDetail action={row} onDecided={refreshAll}
+              mode={modeForDatabase?.(rowDatabase(row, database))} />
             <div>
               <div className="text-xs font-medium mb-1"
                 style={{ color: 'var(--text-secondary)' }}>
@@ -758,34 +816,6 @@ function PendingTab({
               </div>
             )}
             <LifecycleDetails row={row} />
-            {rejectId === actionRowKey(row) && (
-              <div className="flex gap-2 items-center">
-                <input
-                  value={rejectReason}
-                  onChange={e =>
-                    setRejectReason(e.target.value)}
-                  placeholder="Reason for rejection..."
-                  className="px-2 py-1 rounded text-sm flex-1"
-                  style={{
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border)',
-                  }}
-                />
-                <button
-                  onClick={() => handleReject(row)}
-                  disabled={!rejectReason.trim()}
-                  className="px-2 py-1 rounded text-xs"
-                  style={{
-                    background: 'var(--red)',
-                    color: '#fff',
-                    opacity: rejectReason.trim() ? 1 : 0.45,
-                    cursor: rejectReason.trim() ? 'pointer' : 'not-allowed',
-                  }}>
-                  Confirm Reject
-                </button>
-              </div>
-            )}
           </div>
         )}
       />}
@@ -836,4 +866,14 @@ function LifecycleDetails({ row }) {
       )}
     </div>
   )
+}
+
+function CaseRelation({ row, cases, database }) {
+  const linked = relatedCase(row, cases, database)
+  return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+    {linked ? <a href={caseHref(linked, database)} className="underline"
+      style={{ color: 'var(--accent)' }}>Review case: {linked.title}</a>
+      : <>Case relation unavailable. <a href={caseHref(null, rowDatabase(row, database))}
+        className="underline" style={{ color: 'var(--accent)' }}>View Cases for this database</a></>}
+  </p>
 }

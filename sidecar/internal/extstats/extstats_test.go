@@ -26,16 +26,13 @@ func TestParseCreateAcceptsThePgSageForm(t *testing.T) {
 	if strings.Join(c.Columns, ",") != "a,b" {
 		t.Fatalf("columns = %v", c.Columns)
 	}
-	if c.IfNotExists {
-		t.Fatal("IfNotExists set for a plain CREATE")
-	}
 }
 
 func TestParseCreateVariants(t *testing.T) {
 	for sql, want := range map[string]string{
 		// no kind list: PostgreSQL builds every kind
-		"CREATE STATISTICS app.sage_stx_x ON a, b FROM app.t":                      "app.sage_stx_x|app.t|",
-		"create statistics if not exists App.SAGE_STX_X (mcv) on A, B from APP.T;": "App.SAGE_STX_X|APP.T|mcv",
+		"CREATE STATISTICS app.sage_stx_x ON a, b FROM app.t":        "app.sage_stx_x|app.t|",
+		"create statistics App.SAGE_STX_X (mcv) on A, B from APP.T;": "App.SAGE_STX_X|APP.T|mcv",
 		"CREATE   STATISTICS\n\t\"Sales\".sage_stx_y (dependencies)  ON \"Col\", b " +
 			"FROM \"Sales\".\"Orders\"": `"Sales".sage_stx_y|"Sales"."Orders"|dependencies`,
 	} {
@@ -52,12 +49,12 @@ func TestParseCreateVariants(t *testing.T) {
 }
 
 func TestParseCreateCanonicalNames(t *testing.T) {
-	c, err := ParseCreate(`CREATE STATISTICS IF NOT EXISTS "Sales".SAGE_STX_Y ON "Col", B ` +
+	c, err := ParseCreate(`CREATE STATISTICS "Sales".SAGE_STX_Y ON "Col", B ` +
 		`FROM "Sales"."Orders"`)
 	if err != nil {
 		t.Fatalf("ParseCreate: %v", err)
 	}
-	if !c.IfNotExists || c.Schema.Name != "Sales" || c.Name.Name != "sage_stx_y" ||
+	if c.Schema.Name != "Sales" || c.Name.Name != "sage_stx_y" ||
 		c.Table.Name != "Orders" || strings.Join(c.Columns, ",") != "Col,b" {
 		t.Fatalf("canonical names = %+v", c)
 	}
@@ -67,6 +64,7 @@ func TestParseCreateRefusesOtherForms(t *testing.T) {
 	for sql, want := range map[string]string{
 		"":                               "not a CREATE STATISTICS",
 		"CREATE INDEX i ON public.t (a)": "not a CREATE STATISTICS",
+		"CREATE STATISTICS IF NOT EXISTS public.sage_stx_x ON a, b FROM public.t":        "rollback requires a newly created object",
 		"CREATE STATISTICS sage_stx_x ON a, b FROM public.t":                             "schema-qualified",
 		"CREATE STATISTICS public.sage_stx_x ON a, b FROM t":                             "schema-qualified",
 		"CREATE STATISTICS public.st_orders ON a, b FROM public.t":                       "sage_stx_",

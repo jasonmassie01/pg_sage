@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"net/url"
 	"time"
 )
 
@@ -49,13 +50,16 @@ func (m *Manager) ChatForPurpose(
 
 // ClientStatus describes the token budget state for one LLM client.
 type ClientStatus struct {
-	Model          string `json:"model"`
-	Enabled        bool   `json:"enabled"`
-	TokensUsed     int64  `json:"tokens_used"`
-	TokenBudget    int    `json:"token_budget"`
-	Exhausted      bool   `json:"budget_exhausted"`
-	CircuitOpen    bool   `json:"circuit_open"`
-	ResetTimestamp string `json:"resets_at"`
+	Auth               string `json:"auth"`
+	EndpointOrigin     string `json:"endpoint_origin,omitempty"`
+	ConfigurationError string `json:"configuration_error,omitempty"`
+	Model              string `json:"model"`
+	Enabled            bool   `json:"enabled"`
+	TokensUsed         int64  `json:"tokens_used"`
+	TokenBudget        int    `json:"token_budget"`
+	Exhausted          bool   `json:"budget_exhausted"`
+	CircuitOpen        bool   `json:"circuit_open"`
+	ResetTimestamp     string `json:"resets_at"`
 }
 
 // TokenStatus returns the token budget status for all clients.
@@ -88,18 +92,30 @@ func StatusOf(c *Client) ClientStatus {
 }
 
 func clientStatus(c *Client) ClientStatus {
+	cfg, _ := c.configSnapshot()
+	configurationError := ""
+	if err := cfg.ValidateDatabricksApp(); err != nil {
+		configurationError = err.Error()
+	}
+	origin := ""
+	if u, err := url.Parse(cfg.Endpoint); err == nil && u.Scheme != "" && u.Host != "" {
+		origin = u.Scheme + "://" + u.Host
+	}
 	// Budgets reset at UTC midnight (see budgetDay).
 	now := time.Now().UTC()
 	tomorrow := time.Date(
 		now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC,
 	)
 	return ClientStatus{
-		Model:          c.Model(),
-		Enabled:        c.IsEnabled(),
-		TokensUsed:     c.TokensUsedToday(),
-		TokenBudget:    c.TokenBudgetDaily(),
-		Exhausted:      c.IsBudgetExhausted(),
-		CircuitOpen:    c.IsCircuitOpen(),
-		ResetTimestamp: tomorrow.Format(time.RFC3339),
+		Auth:               cfg.Auth,
+		EndpointOrigin:     origin,
+		ConfigurationError: configurationError,
+		Model:              c.Model(),
+		Enabled:            c.IsEnabled(),
+		TokensUsed:         c.TokensUsedToday(),
+		TokenBudget:        c.TokenBudgetDaily(),
+		Exhausted:          c.IsBudgetExhausted(),
+		CircuitOpen:        c.IsCircuitOpen(),
+		ResetTimestamp:     tomorrow.Format(time.RFC3339),
 	}
 }

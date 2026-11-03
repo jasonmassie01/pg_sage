@@ -1,6 +1,13 @@
 package main
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+// AWS and Azure ingress names vary by region. Connection authorization still
+// validates the exact host returned by the Lakebase endpoint API.
+var lakebaseHostname = regexp.MustCompile(`^[a-z0-9-]+\.database\.[a-z0-9-]+\.(cloud\.databricks\.com|azuredatabricks\.net)$`)
 
 // hostedProviderFromHost recognizes official hosted endpoints. Custom domains
 // still fall through to database probes; a hostname never grants permissions.
@@ -10,6 +17,8 @@ func hostedProviderFromHost(host string) string {
 		return ""
 	}
 	switch {
+	case lakebaseHostname.MatchString(host):
+		return "lakebase"
 	case strings.HasSuffix(host, ".neon.tech"):
 		return "neon"
 	case strings.HasSuffix(host, ".supabase.co"),

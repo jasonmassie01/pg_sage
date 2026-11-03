@@ -90,20 +90,28 @@ func StorageRunway(history []Point, now time.Time) Runway {
 
 func slopePerHour(pts []Point) float64 {
 	origin := pts[0].At
-	var sx, sy, sxx, sxy float64
+	baseline := pts[0].Value
+	var sx, sy float64
 	n := float64(len(pts))
 	for _, p := range pts {
-		x := p.At.Sub(origin).Hours()
-		sx += x
-		sy += p.Value
-		sxx += x * x
-		sxy += x * p.Value
+		sx += p.At.Sub(origin).Hours()
+		sy += p.Value - baseline
 	}
-	den := n*sxx - sx*sx
-	if den == 0 {
+	// Center both coordinates before fitting. Raw moments subtract large,
+	// nearly equal products of byte totals and can invent a negative slope
+	// for constant storage, or hide real changes on a large baseline.
+	mx, my := sx/n, sy/n
+	var sxx, sxy float64
+	for _, p := range pts {
+		x := p.At.Sub(origin).Hours() - mx
+		y := (p.Value - baseline) - my
+		sxx += x * x
+		sxy += x * y
+	}
+	if sxx == 0 {
 		return 0
 	}
-	return (n*sxy - sx*sy) / den
+	return sxy / sxx
 }
 
 // Withhold returns why autonomous heavy maintenance (index builds) should

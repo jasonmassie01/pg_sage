@@ -75,6 +75,7 @@ type ActionCandidate struct {
 	BlockedReason             string                `json:"blocked_reason,omitempty"`
 	OutputModes               []string              `json:"output_modes,omitempty"`
 	RollbackClass             string                `json:"rollback_class,omitempty"`
+	RecoveryDetail            string                `json:"recovery_detail,omitempty"`
 	VerificationPlan          []string              `json:"verification_plan,omitempty"`
 	DDLPreflight              *DDLPreflightReport   `json:"ddl_preflight,omitempty"`
 	ScriptOutput              *ScriptOutput         `json:"script_output,omitempty"`
@@ -158,8 +159,9 @@ func NewCase(input CaseInput) Case {
 
 	whyNow := input.WhyNow
 	if whyNow == "" {
-		whyNow = "not urgent"
+		whyNow = "Urgency not assessed"
 	}
+	normalizeRecoveryClaims(input.ActionCandidates)
 
 	return Case{
 		ID:               input.IdentityKey,

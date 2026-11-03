@@ -120,7 +120,8 @@ func (s SRESLOConfig) validateSource(prefix string, o SREObjectiveConfig) error 
 		})
 	case "push":
 		return firstProblem(prefix, []check{
-			{s.Push.HMACSecret != "", "a push source needs sre.slo.push.hmac_secret"},
+			{s.Push.HMACSecret != "" || DatabricksAppMode(), "a push source needs sre.slo.push.hmac_secret outside Databricks Apps"},
+			{!DatabricksAppMode() || o.Database != "", "a Databricks App push source needs an explicit database"},
 			{o.BadQuery == "" && o.EligibleQuery == "" && o.ResetsQuery == "",
 				"a push source takes no queries"},
 		})

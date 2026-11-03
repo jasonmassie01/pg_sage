@@ -37,7 +37,7 @@ func AnalyzeTableContract() ActionContract {
 	return ActionContract{
 		ActionType:      "analyze_table",
 		BaseRiskTier:    "safe",
-		ProviderSupport: portableActionProviders(),
+		ProviderSupport: lakebaseOwnedActionProviders(),
 		RequiredPermissions: []string{
 			"table ownership or ANALYZE privilege",
 		},
@@ -86,7 +86,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return gucChangeContract(actionType, "ALTER SYSTEM", []string{"postgres"}), true
 	case "alter_database_guc":
 		return gucChangeContract(actionType, "ALTER DATABASE",
-			portableActionProviders()), true
+			lakebaseOwnedActionProviders()), true
 	case "diagnose_lock_blockers":
 		return incidentDiagnoseLockBlockersContract(), true
 	case "diagnose_runaway_query":
@@ -155,7 +155,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return ActionContract{
 			ActionType:      actionType,
 			BaseRiskTier:    "moderate",
-			ProviderSupport: portableActionProviders(),
+			ProviderSupport: lakebaseOwnedActionProviders(),
 			RequiredPermissions: []string{
 				"schema CREATE privilege",
 				"table ownership or maintenance role",
@@ -563,7 +563,7 @@ func vacuumTableContract() ActionContract {
 	return ActionContract{
 		ActionType:      "vacuum_table",
 		BaseRiskTier:    "safe",
-		ProviderSupport: portableActionProviders(),
+		ProviderSupport: lakebaseOwnedActionProviders(),
 		RequiredPermissions: []string{
 			"table ownership or VACUUM privilege",
 		},
@@ -681,7 +681,7 @@ func reindexConcurrentlyContract() ActionContract {
 	return ActionContract{
 		ActionType:      "reindex_concurrently",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: portableActionProviders(),
+		ProviderSupport: lakebaseOwnedActionProviders(),
 		RequiredPermissions: []string{
 			"index ownership or maintenance role",
 		},
@@ -846,4 +846,12 @@ func prepareParameterizedQueryContract() ActionContract {
 func portableActionProviders() []string {
 	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
 		"neon", "supabase", "azure", "azure-cosmos"}
+}
+
+// lakebaseOwnedActionProviders is intentionally limited to the contracts whose
+// owned-table SQL and production operator path are covered by tests/lakebaselive.
+// Other portable contracts keep their existing provider list; a PostgreSQL wire
+// connection alone does not establish provider feature or privilege support.
+func lakebaseOwnedActionProviders() []string {
+	return append(portableActionProviders(), "lakebase")
 }

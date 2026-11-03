@@ -68,6 +68,10 @@ func truncateText(s string) string {
 // at most maxRows rows, naming omitted rows and cap truncation.
 func (r Result) Text(maxRows int) string {
 	head := fmt.Sprintf("%s %s %s", r.ProbeID, r.Version, r.Status)
+	if r.History != nil {
+		head += fmt.Sprintf(" historical_only=true complete=false exact_multiplicity=false event_window=[%s,%s)",
+			r.History.From.UTC().Format(time.RFC3339), r.History.To.UTC().Format(time.RFC3339))
+	}
 	if !r.Status.Usable() {
 		return head + ": " + r.Reason
 	}

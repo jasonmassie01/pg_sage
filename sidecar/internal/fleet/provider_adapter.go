@@ -11,6 +11,8 @@ type ProviderAdapter struct {
 func AdapterForProvider(provider string) ProviderAdapter {
 	normalized := normalizeProviderName(provider)
 	switch normalized {
+	case "lakebase":
+		return lakebaseAdapter()
 	case "neon", "supabase":
 		return hostedPostgresAdapter(normalized)
 	case "cloud-sql":
@@ -83,6 +85,32 @@ func AdapterForProvider(provider string) ProviderAdapter {
 		adapter.SupportedActions = map[string]bool{}
 		return adapter
 	}
+}
+
+// Lakebase only advertises action families verified on the native OAuth path.
+// Catalog collection still supplies the endpoint-specific extension evidence.
+func lakebaseAdapter() ProviderAdapter {
+	adapter := managedAdapter("lakebase", "unavailable", map[string]string{
+		"pg_stat_statements": "unknown",
+		"hypopg":             "unavailable",
+		"pg_hint_plan":       "unknown",
+		"auto_explain":       "unavailable",
+		"vector":             "unknown",
+	}, []string{
+		"instance settings and server log files are managed by Lakebase",
+		"HypoPG validation is unavailable; historical system-table telemetry requires a configured resource binding and verified delivery",
+		"mutations require ownership or the relevant object permission",
+		"OAuth requires a direct endpoint; the built-in transaction pooler requires native passwords",
+	})
+	adapter.SupportedActions = map[string]bool{}
+	for _, action := range []string{
+		"analyze_table", "vacuum_table", "create_index_concurrently",
+		"revert_created_index", "reindex_concurrently", "create_statistics",
+		"revert_created_statistics", "alter_database_guc",
+	} {
+		adapter.SupportedActions[action] = true
+	}
+	return adapter
 }
 
 // azureAdapter describes Azure Database for PostgreSQL flexible server.

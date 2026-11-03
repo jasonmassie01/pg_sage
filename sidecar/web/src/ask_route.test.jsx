@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
@@ -93,10 +93,52 @@ describe('Ask Sage route', () => {
 
   it('asks to pick one database in fleet mode and makes no Ask calls', async () => {
     localStorage.setItem('pg_sage_db', 'all')
+    api.useAPI.mockImplementation(url => ({
+      data: url === '/api/v1/databases' ? { ...fleet,
+        databases: [...fleet.databases, { name: 'analytics' }] } : null,
+      loading: false, error: null, refetch: vi.fn(),
+    }))
     signIn('operator')
     render(<App />)
     expect(await screen.findByTestId('ask-pick-database')).toBeInTheDocument()
     expect(screen.queryByTestId('ask-input')).toBeNull()
+    expect(askCalls()).toEqual([])
+    fireEvent.change(screen.getByRole('combobox', { name: 'Database for Ask Sage' }),
+      { target: { value: 'orders' } })
+    expect(await screen.findByTestId('ask-input')).toBeInTheDocument()
+    await vi.waitFor(() => expect(askCalls()).toContain('/api/v1/databases/orders/ask/budget'))
+  })
+
+  it.each(['all', 'deleted-database', ''])('opens the only monitored database from stored scope %s', async scope => {
+    localStorage.setItem('pg_sage_db', scope)
+    signIn('operator')
+    render(<App />)
+    expect(await screen.findByTestId('ask-input')).toBeInTheDocument()
+    expect(screen.queryByTestId('ask-pick-database')).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Database scope' })).toHaveValue('orders')
+    await vi.waitFor(() => expect(askCalls()).toContain('/api/v1/databases/orders/ask/budget'))
+  })
+
+  it('normalizes a null empty fleet instead of asking a deleted stored database', async () => {
+    api.useAPI.mockImplementation(url => ({
+      data: url === '/api/v1/databases' ? { databases: null } : null,
+      loading: false, error: null, refetch: vi.fn(),
+    }))
+    signIn('operator')
+    render(<App />)
+    expect(await screen.findByTestId('ask-databases-empty')).toBeInTheDocument()
+    expect(askCalls()).toEqual([])
+  })
+
+  it('reports malformed inventory instead of silently showing an empty fleet or asking a stale database', async () => {
+    api.useAPI.mockImplementation(url => ({
+      data: url === '/api/v1/databases' ? { databases: [null] } : null,
+      loading: false, error: null, refetch: vi.fn(),
+    }))
+    signIn('operator')
+    render(<App />)
+    expect(await screen.findByTestId('ask-databases-error')).toHaveTextContent('Invalid database inventory response')
+    expect(screen.queryByTestId('ask-databases-empty')).toBeNull()
     expect(askCalls()).toEqual([])
   })
 })

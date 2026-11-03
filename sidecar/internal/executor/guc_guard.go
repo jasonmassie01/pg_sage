@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 // ErrUnsafeGUCValue is returned when an allowlisted GUC value would harm
@@ -44,6 +46,9 @@ func parseWALKeepSizeBytes(sql string) (int64, bool, error) {
 // any replication slot currently retains: such a value invalidates the
 // slot at the next checkpoint (replica rebuild / CDC re-snapshot).
 func (e *Executor) checkGUCValueSafety(ctx context.Context, sql string) error {
+	if err := e.checkLakebaseDatabaseSetting(ctx, sql); err != nil {
+		return err
+	}
 	requested, isKeepSize, err := parseWALKeepSizeBytes(sql)
 	if !isKeepSize || err != nil || requested < 0 {
 		return err
@@ -57,6 +62,33 @@ func (e *Executor) checkGUCValueSafety(ctx context.Context, sql string) error {
 	if requested < retained+retained/2 {
 		return fmt.Errorf("%w: max_slot_wal_keep_size %d bytes is below 1.5x the "+
 			"%d bytes a slot retains", ErrUnsafeGUCValue, requested, retained)
+	}
+	return nil
+}
+
+// Lakebase exposes user-context settings at database scope. Its instance
+// settings remain provider controlled even when the SQL GUC allowlist includes
+// them for self-managed PostgreSQL. Unknown catalog state fails closed.
+func (e *Executor) checkLakebaseDatabaseSetting(ctx context.Context, sql string) error {
+	cfg, _, _ := e.policySnapshot()
+	if cfg == nil || !strings.EqualFold(strings.TrimSpace(cfg.CloudEnvironment), "lakebase") {
+		return nil
+	}
+	upper := strings.ToUpper(normalizeSQLText(sql))
+	if !strings.HasPrefix(upper, "ALTER DATABASE ") {
+		return nil
+	}
+	clause, ok := alterDatabaseClause(upper)
+	stmt, parsed := pgconf.ParseAlterSystem("ALTER SYSTEM " + clause)
+	if !ok || !parsed || e.pool == nil {
+		return fmt.Errorf("%w: cannot establish Lakebase database setting context", ErrManagedConfigUnsupported)
+	}
+	var settingContext string
+	if err := e.pool.QueryRow(ctx, "/* pg_sage */ SELECT context FROM pg_settings WHERE name=$1", stmt.Name).Scan(&settingContext); err != nil {
+		return fmt.Errorf("%w: cannot establish Lakebase setting %s context: %v", ErrManagedConfigUnsupported, stmt.Name, err)
+	}
+	if settingContext != "user" {
+		return fmt.Errorf("%w: Lakebase setting %s has %s context; only user-context database settings are supported", ErrManagedConfigUnsupported, stmt.Name, settingContext)
 	}
 	return nil
 }

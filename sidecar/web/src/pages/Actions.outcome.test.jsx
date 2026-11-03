@@ -46,6 +46,7 @@ vi.mock('../hooks/useAPI', () => ({
 describe('Actions verification outcome', () => {
   it('shows the verdict in the ledger and predicted vs observed in the detail', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
     const table = screen.getByTestId('executed-actions-table')
     expect(within(table).getByText('Neutral')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Expand row'))

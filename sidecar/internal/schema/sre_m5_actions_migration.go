@@ -15,7 +15,7 @@ package schema
 // The investigation event chain gains the action event types. Other
 // milestones add event types in parallel, so the check is rebuilt as the
 // union of every event-type check present, under the M3 name.
-const ddlSREActions = ddlSREActionProposals + ddlChatOps + ddlSREActionEventTypes
+const ddlSREActions = ddlSREActionProposals + ddlChatOps + ddlSREActionEventTypes + ddlSREMaintenance
 
 const ddlSREActionProposals = `
 CREATE TABLE IF NOT EXISTS sage.sre_action_proposals (

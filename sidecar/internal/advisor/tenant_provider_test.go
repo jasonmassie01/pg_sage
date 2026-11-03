@@ -15,7 +15,7 @@ func TestTenantCloudTransformUsesActualSettingContext(t *testing.T) {
 		{Name: "max_slot_wal_keep_size", Context: "sighup"},
 		{Name: "auto_explain.log_min_duration", Context: "superuser"},
 	}
-	for _, provider := range []string{"neon", "supabase"} {
+	for _, provider := range []string{"neon", "supabase", "lakebase"} {
 		t.Run(provider, func(t *testing.T) {
 			findings := []analyzer.Finding{
 				{RecommendedSQL: "ALTER SYSTEM SET work_mem = '16MB'",
@@ -45,7 +45,7 @@ func TestTenantCloudTransformUsesActualSettingContext(t *testing.T) {
 }
 
 func TestTenantCloudTransformMissingSettingsFailsClosed(t *testing.T) {
-	for _, provider := range []string{"neon", "supabase"} {
+	for _, provider := range []string{"neon", "supabase", "lakebase"} {
 		if !IsManagedService(provider) {
 			t.Fatalf("%s not classified as managed", provider)
 		}
@@ -62,7 +62,7 @@ func TestTenantCloudTransformMissingSettingsFailsClosed(t *testing.T) {
 
 func TestTenantCloudTransformResetAndUnrelatedActions(t *testing.T) {
 	settings := []collector.PGSetting{{Name: "work_mem", Context: "user"}}
-	for _, provider := range []string{"neon", "supabase"} {
+	for _, provider := range []string{"neon", "supabase", "lakebase"} {
 		input := []analyzer.Finding{
 			{RecommendedSQL: "  alter system reset work_mem;  ",
 				RollbackSQL: "ALTER SYSTEM SET work_mem = '4MB'"},

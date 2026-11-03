@@ -124,16 +124,23 @@ func (d *DatabaseInstance) UpdateStatus(mutator func(*InstanceStatus)) {
 	mutator(d.Status)
 }
 
-// SnapshotStatus returns a shallow copy of the current Status taken
-// under the read lock. Callers may read and marshal the returned
-// pointer without further synchronisation.
+// SnapshotStatus returns a shallow copy of Status and the collector's latest
+// in-memory observation. Collection runs independently of analyzer/status
+// refreshes, so a completed sample must be visible before the next analysis.
 func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 	d.statusMu.RLock()
-	defer d.statusMu.RUnlock()
-	if d.Status == nil {
-		return &InstanceStatus{}
+	var cp InstanceStatus
+	if d.Status != nil {
+		cp = *d.Status
 	}
-	cp := *d.Status
+	d.statusMu.RUnlock()
+	if d.Collector != nil {
+		sample := d.Collector.LatestSnapshot()
+		if sample != nil && !sample.CollectedAt.IsZero() && !sample.CollectedAt.Before(cp.CollectorLastRun) {
+			cp.CollectorLastRun = sample.CollectedAt
+			cp.DatabaseSize = sample.System.DBSizeBytes
+		}
+	}
 	return &cp
 }
 

@@ -11,8 +11,8 @@ import (
 )
 
 func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
-	pool := e2ePool(t)
 	mgr := e2eLLMManager(t)
+	pool := e2ePool(t)
 	snap := e2eSnapshot(t, pool)
 
 	cfg := &config.Config{}
@@ -24,51 +24,57 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	cfg.Advisor.BloatEnabled = true
 	cfg.LLM.Enabled = true
 
-	logFn := func(level, msg string, args ...any) {
-		t.Logf("[%s] "+msg, append([]any{level}, args...)...)
-	}
+	logFn := e2eAdvisorLog(t)
 
 	// Verify advisor struct can be constructed with real components.
 	adv := New(pool, cfg, nil, mgr, logFn)
 	_ = adv
 
 	var totalFindings int
+	before := mgr.General.TokensUsedToday()
 
 	if walFindings, err := analyzeWAL(
 		context.Background(), mgr, snap, nil, cfg, logFn,
 	); err != nil {
-		t.Logf("WAL error (non-fatal): %v", err)
+		t.Errorf("WAL error: %v", err)
 	} else {
 		totalFindings += len(walFindings)
 		t.Logf("WAL: %d findings", len(walFindings))
 	}
+	requireAdvisorModelCall(t, mgr, before)
+	before = mgr.General.TokensUsedToday()
 
 	if connFindings, err := analyzeConnections(
 		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
-		t.Logf("connection error (non-fatal): %v", err)
+		t.Errorf("connection error: %v", err)
 	} else {
 		totalFindings += len(connFindings)
 		t.Logf("connection: %d findings", len(connFindings))
 	}
+	requireAdvisorModelCall(t, mgr, before)
+	before = mgr.General.TokensUsedToday()
 
 	if rwFindings, err := analyzeQueryRewrites(
 		context.Background(), nil, mgr, snap, cfg, logFn,
 	); err != nil {
-		t.Logf("rewrite error (non-fatal): %v", err)
+		t.Errorf("rewrite error: %v", err)
 	} else {
 		totalFindings += len(rwFindings)
 		t.Logf("rewrite: %d findings", len(rwFindings))
 	}
+	requireAdvisorModelCall(t, mgr, before)
+	before = mgr.General.TokensUsedToday()
 
 	if bloatFindings, err := analyzeBloat(
 		context.Background(), mgr, snap, nil, cfg, logFn,
 	); err != nil {
-		t.Logf("bloat error (non-fatal): %v", err)
+		t.Errorf("bloat error: %v", err)
 	} else {
 		totalFindings += len(bloatFindings)
 		t.Logf("bloat: %d findings", len(bloatFindings))
 	}
+	requireAdvisorModelCall(t, mgr, before)
 
 	t.Logf("TOTAL FINDINGS: %d across all advisors", totalFindings)
 }

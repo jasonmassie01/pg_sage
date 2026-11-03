@@ -29,6 +29,7 @@ import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
 import { LiveEventsProvider } from './hooks/useLiveEvents'
 import { ToastProvider } from './components/Toast'
+import { PostgresMeme } from './components/PostgresMeme'
 
 function getRoute() {
   const hash = window.location.hash || '#/'
@@ -75,28 +76,100 @@ function NotFound() {
   )
 }
 
-export default function App() {
+function PlatformSignInError({ mode, onReload }) {
+  return (
+    <div role="alert" data-testid="platform-auth-error" className="p-6">
+      <h1 className="text-lg font-semibold mb-2">
+        {mode === 'databricks_app' ? 'Databricks sign-in required' : 'Unable to verify sign-in'}
+      </h1>
+      <p className="mb-4">
+        {mode === 'databricks_app'
+          ? 'Open this app from your Databricks workspace and check that you have access. Reload to try again.'
+          : 'Sign-in could not be verified. Reload to try again.'}
+      </p>
+      <button type="button" onClick={onReload} className="px-4 py-2 rounded"
+        style={{ background: 'var(--accent)', color: '#fff' }}>
+        Reload
+      </button>
+      <PostgresMeme route="#/login" compact />
+    </div>
+  )
+}
+
+function PlatformProtocolUnavailable({ agents = false }) {
+  return (
+    <div data-testid={agents ? 'databricks-agents-unavailable' : 'databricks-mcp-unavailable'} className="rounded p-5"
+      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+        {agents ? 'Agent governance unavailable' : 'MCP tokens unavailable'}
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        Agent governance, MCP connections and separate agent tokens are unavailable
+        in this Databricks-managed deployment. Use Databricks sign-in to access the
+        pg_sage dashboard and authenticated user APIs.
+      </p>
+      <a href="#/" className="inline-block mt-4 text-sm underline"
+        style={{ color: 'var(--accent)' }}>
+        Go to Dashboard
+      </a>
+    </div>
+  )
+}
+
+export default function App({ reloadPage = () => window.location.reload() }) {
   const [route, setRoute] = useState(getRoute())
   const [selectedDB, setSelectedDB] = useState(
     localStorage.getItem('pg_sage_db') || 'all'
   )
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
+  const [authMode, setAuthMode] = useState(null)
+  const [authAttempt, setAuthAttempt] = useState(0)
 
   useEffect(() => {
-    fetch('/api/v1/auth/me', { credentials: 'include' })
-      .then(res => {
-        if (res.ok) return res.json()
-        throw new Error('not authenticated')
-      })
-      .then(data => setUser(data))
-      .catch(() => setUser(null))
-      .finally(() => setAuthChecked(true))
-  }, [])
+    let cancelled = false
+    setAuthChecked(false)
+    async function checkAuth() {
+      let mode = null
+      // The public mode endpoint lets an identity failure keep the platform
+      // sign-in flow. Browser-supplied identity headers never choose the mode.
+      try {
+        const response = await fetch('/api/v1/auth/mode', { credentials: 'include' })
+        if (response.ok) {
+          const data = await response.json()
+          if (data.mode === 'session' || data.mode === 'databricks_app') mode = data.mode
+        }
+      } catch { /* An unknown mode fails closed if identity also fails. */ }
+      try {
+        const response = await fetch('/api/v1/auth/me', { credentials: 'include' })
+        if (!response.ok) throw new Error('not authenticated')
+        const data = await response.json()
+        if (data.auth_mode === 'databricks_app') mode = 'databricks_app'
+        if (!cancelled) setUser(data)
+        // An authenticated legacy standalone response has no auth_mode.
+        if (mode === null) mode = 'session'
+      } catch {
+        if (!cancelled) setUser(null)
+      } finally {
+        if (!cancelled) {
+          setAuthMode(mode)
+          setAuthChecked(true)
+        }
+      }
+    }
+    checkAuth()
+    return () => { cancelled = true }
+  }, [authAttempt])
 
-  const { data: fleetData, refetch: refetchFleet } = useAPI(
+  const { data: fleetData, loading: fleetLoading, error: fleetError,
+    refetch: refetchFleet } = useAPI(
     user ? '/api/v1/databases' : null, 30000
   )
+
+  useEffect(() => {
+    const linked = new URLSearchParams(route.split('?')[1] || '').get('database')
+    if (linked && fleetData?.databases?.some(db => db.name === linked)) setSelectedDB(linked)
+  }, [route, fleetData])
 
   useEffect(() => {
     const handler = () => setRoute(getRoute())
@@ -120,8 +193,17 @@ export default function App() {
 
   // Hash routes may carry a query (e.g. #/profile?linked=1); match on path.
   const routePath = route.split('?')[0]
+  const platformManaged = authMode === 'databricks_app'
 
   if (!user) {
+    if (authMode !== 'session') return (
+      <PlatformSignInError mode={authMode}
+        onReload={platformManaged
+          // A full navigation lets the Apps ingress renew an expired platform
+          // session; retrying fetch alone can remain stuck behind CORS redirects.
+          ? reloadPage
+          : () => setAuthAttempt(attempt => attempt + 1)} />
+    )
     // An admin-issued SSO link is used before the holder can sign in (D7).
     if (routePath === '/link-sso') return <LinkSSOPage />
     return <LoginPage onLogin={setUser} />
@@ -139,10 +221,32 @@ export default function App() {
     setUser(null)
   }
 
-  const databases = fleetData?.databases || []
-  // A stored selection for a deleted or renamed database would hide the
-  // picker and 404 every page; fall back to all databases (G9-B09).
-  const effectiveDB = resolveSelectedDB(selectedDB, fleetData?.databases)
+  // Go may encode an empty slice as null; keep that distinct from an inventory
+  // that has not loaded yet so a stale stored scope cannot open a missing DB.
+  const databaseInventory = fleetData?.databases === null ? []
+    : Array.isArray(fleetData?.databases)
+      && fleetData.databases.every(db => typeof db?.name === 'string' && db.name)
+      ? fleetData.databases : undefined
+  const databases = databaseInventory || []
+  const inventoryError = fleetError || (fleetData && databaseInventory === undefined
+    ? new Error('Invalid database inventory response') : null)
+  const routeParams = new URLSearchParams(route.split('?')[1] || '')
+  const linkedDatabase = routeParams.get('database')
+  const linkedCase = routeParams.get('case')
+  // Only inventory-known links may change scope. Resolve it before mounting
+  // a page so a case never opens an Ask session against the previous DB.
+  const effectiveDB = resolveSelectedDB(
+    databases.some(db => db.name === linkedDatabase) ? linkedDatabase : selectedDB,
+    databaseInventory,
+  )
+  function selectDatabase(name) {
+    setSelectedDB(name)
+    const params = new URLSearchParams(route.split('?')[1] || '')
+    params.delete('database')
+    params.delete('case')
+    const query = params.toString()
+    if (linkedDatabase || linkedCase) window.location.hash = `#${routePath}${query ? `?${query}` : ''}`
+  }
   const selectedDatabase = effectiveDB === 'all'
     ? null
     : databases.find(db => db.name === effectiveDB)
@@ -167,7 +271,7 @@ export default function App() {
       case '/':
         return { title: 'Value', node: (
           <div className="space-y-6">
-            <OnboardingPanel database={effectiveDB} />
+            <OnboardingPanel database={effectiveDB} authMode={authMode} />
             <FirstLookPanel database={effectiveDB} />
             <ValuePage database={effectiveDB} />
           </div>
@@ -181,7 +285,7 @@ export default function App() {
           node: <CasesPage key={route} database={effectiveDB} user={user} /> }
       case '/advanced/actions':
         return { title: 'Action history',
-          node: <Actions database={effectiveDB} user={user} /> }
+          node: <Actions database={effectiveDB} user={user} fleetData={fleetData} /> }
       case '/advanced/runbooks':
         return { title: 'Runbooks',
           node: <RunbooksPage database={effectiveDB} user={user} /> }
@@ -193,12 +297,15 @@ export default function App() {
           node: <FactsPage database={effectiveDB} user={user} /> }
       case '/ask':
         return { title: 'Ask Sage',
-          node: <AskPage database={effectiveDB} user={user} /> }
+          node: <AskPage database={effectiveDB} user={user} caseId={linkedCase}
+            databases={databaseInventory} databaseLoading={fleetLoading}
+            databaseError={inventoryError} onRetryDatabase={refetchFleet}
+            onSelectDatabase={selectDatabase} /> }
       case '/advanced/autonomy':
         return { title: 'Earned autonomy',
           node: <AutonomyPage database={effectiveDB} user={user} /> }
       case '/manage-databases':
-        return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
+        return isAdmin ? { title: 'Databases', node: <DatabasesPage onSelectDatabase={setSelectedDB} /> }
           : denied
       case '/findings':
       case '/cases':
@@ -206,7 +313,7 @@ export default function App() {
           node: <CasesPage key={route} database={effectiveDB} user={user} /> }
       case '/actions':
         return { title: 'Actions',
-          node: <Actions database={effectiveDB} user={user} /> }
+          node: <Actions database={effectiveDB} user={user} fleetData={fleetData} /> }
       case '/database':
         return { title: 'Database',
           node: <DatabasePage database={effectiveDB} /> }
@@ -244,15 +351,17 @@ export default function App() {
       // account page explains the sso_error (D7).
       case '/login':
       case '/profile':
-        return { title: 'Account', node: <ProfilePage user={user} /> }
+        return { title: 'Account', node: <ProfilePage user={user} authMode={authMode} /> }
       case '/users':
         return isAdmin ? { title: 'Users',
-          node: <UsersPage currentUser={user} /> } : denied
+          node: <UsersPage currentUser={user} authMode={authMode} /> } : denied
       case '/agents':
+        if (platformManaged) return { title: 'Agents', node: <PlatformProtocolUnavailable agents /> }
         return isAdmin || user.role === 'operator' ? { title: 'Agents',
           node: <AgentsPage user={user}
             databases={databases.map(d => d.name)} /> } : denied
       case '/mcp-tokens':
+        if (platformManaged) return { title: 'MCP tokens', node: <PlatformProtocolUnavailable /> }
         return isAdmin ? { title: 'MCP tokens', node: <MCPTokensPage /> }
           : denied
       default:
@@ -266,17 +375,18 @@ export default function App() {
         <TimeRangeProvider>
           <Layout data-testid="app-loaded" databases={databases}
             selectedDB={effectiveDB}
-            onSelectDB={setSelectedDB} user={user}
-            fleetData={fleetData}
+            onSelectDB={selectDatabase} user={user} authMode={authMode}
+            fleetError={inventoryError}
+            fleetData={fleetData ? { ...fleetData, databases } : fleetData}
             onFleetChanged={refetchFleet}
-            onLogout={handleLogout}
+            onLogout={platformManaged ? undefined : handleLogout}
             pageTitle={pageState.title}>
             {pageState.node}
           </Layout>
           <CommandPalette
             databases={databases}
             selectedDB={effectiveDB}
-            onSelectDB={setSelectedDB}
+            onSelectDB={selectDatabase}
             user={user}
           />
         </TimeRangeProvider>

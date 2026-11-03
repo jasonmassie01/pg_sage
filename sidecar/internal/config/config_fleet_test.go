@@ -9,6 +9,8 @@ import (
 // helper to write temp YAML and load it
 func loadFromYAML(t *testing.T, yaml string) *Config {
 	t.Helper()
+	// These tests exercise YAML normalization, independent of the test-server DSN.
+	t.Setenv("SAGE_DATABASE_URL", "")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {

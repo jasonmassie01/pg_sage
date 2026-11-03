@@ -2,11 +2,14 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/extstats"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/value"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -218,12 +221,32 @@ func executeRollbackSQL(
 	if timeout <= 0 {
 		timeout = time.Minute
 	}
+	if r := statisticsRun(ctx); r != nil && r.Rollback {
+		c, err := extstats.ParseCreate(r.SQL)
+		if err != nil {
+			return "", err
+		}
+		if sql != c.Rollback() {
+			return "", fmt.Errorf("statistics rollback mismatch")
+		}
+		o := applyDDLOpts([]DDLOption{WithLockTimeout(cfg.LockTimeoutMs)})
+		o.before = r.guard
+		err = execStatementsInTransaction(ctx, pool, timeout, o, sql)
+		return "created statistics removed; ANALYZE statistics are not restored", err
+	}
 	if err := cfg.exec(pool)(ctx, sql, timeout, WithLockTimeout(cfg.LockTimeoutMs)); err != nil {
 		return "", err
 	}
 	reason := "automatic rollback due to regression"
 	if isAlterSystem(sql) {
 		reason += "; " + cfg.reload(pool)(ctx, sql).Note
+	}
+	if stmt, ok := pgconf.ParseAlterDatabase(normalizeSQLText(sql)); ok {
+		state, note, _ := readDatabaseSetting(ctx, pool, stmt)
+		if state != readbackInEffect {
+			return "", fmt.Errorf("database setting rollback read-back: %s", note)
+		}
+		reason += "; " + note
 	}
 	return reason, nil
 }

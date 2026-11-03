@@ -98,13 +98,19 @@ describe('DatabaseForm tags (G9-B10)', () => {
 
 describe('resolveSelectedDB (G9-B09)', () => {
   it('falls back to all when the stored database is gone', () => {
-    expect(resolveSelectedDB('gone', [{ name: 'prod' }])).toBe('all')
+    expect(resolveSelectedDB('gone', [{ name: 'prod' }, { name: 'dev' }])).toBe('all')
   })
   it('keeps a database that still exists', () => {
     expect(resolveSelectedDB('prod', [{ name: 'prod' }])).toBe('prod')
   })
   it('keeps the selection while the fleet is still loading', () => {
     expect(resolveSelectedDB('prod', undefined)).toBe('prod')
+  })
+  it.each(['all', 'gone', '', null])('selects the only monitored database for %s', selected => {
+    expect(resolveSelectedDB(selected, [{ name: 'prod' }])).toBe('prod')
+  })
+  it('keeps all for a genuinely empty fleet', () => {
+    expect(resolveSelectedDB('gone', [])).toBe('all')
   })
 })
 

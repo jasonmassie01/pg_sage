@@ -495,9 +495,13 @@ func enrichCaseActionPolicies(
 		inst = mgr.GetInstance(databaseName)
 	}
 	isReplica := false
+	provider := ""
 	if inst != nil {
-		isReplica = inst.SnapshotStatus().Capabilities.IsReplica
+		capabilities := inst.SnapshotStatus().Capabilities
+		isReplica = capabilities.IsReplica
+		provider = capabilities.Provider
 	}
+	defer cases.ApplyProviderApplicability(c, provider)
 	var contracts []executor.ActionContract
 	var slots []int
 	for i := range c.ActionCandidates {

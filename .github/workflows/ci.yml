@@ -70,6 +70,9 @@ jobs:
         working-directory: sidecar
         run: go vet ./...
 
+      - name: Databricks Apps packaging tests
+        run: python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
+
       # Each suite writes go test -json for the skip budget and prints the
       # verbose log; the step fails with the suite's own exit status.
       - name: Unit tests (race detector)

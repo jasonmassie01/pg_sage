@@ -2,9 +2,14 @@ package slo
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sre"
 )
 
 // staleEvaluations is how many intervals an evaluation stays current.
@@ -14,7 +19,7 @@ const staleEvaluations = 3
 // An evaluation older than three intervals is unknown (evaluation_stale):
 // an old "ok" is not a current "ok".
 func (e *Engine) Statuses(ctx context.Context) ([]Status, error) {
-	scope, err := e.scope(ctx)
+	scope, err := e.BoundScope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -25,8 +30,12 @@ func (e *Engine) Statuses(ctx context.Context) ([]Status, error) {
 	now := e.now()
 	out := make([]Status, 0, len(stored))
 	for _, st := range stored {
-		if _, ok := e.objective(st.Name); !ok {
+		o, ok := e.objective(st.Name)
+		if !ok {
 			continue
+		}
+		if e.databaseScopedPush && o.Source == SourcePush && st.DefinitionHash != e.definitionHash(scope, o) {
+			st = unevaluatedStatus(o, e.definitionHash(scope, o))
 		}
 		if now.Sub(st.EvaluatedAt) > staleEvaluations*e.interval {
 			st = staleStatus(st)
@@ -60,10 +69,25 @@ func (e *Engine) Status(ctx context.Context, name string) (Status, error) {
 			return st, nil
 		}
 	}
-	return Status{Name: o.Name, Database: e.database, Kind: o.Kind, Source: o.Source,
+	scope, err := e.BoundScope(ctx)
+	if err != nil {
+		return Status{}, err
+	}
+	return unevaluatedStatus(o, e.definitionHash(scope, o)), nil
+}
+
+func unevaluatedStatus(o Objective, definition string) Status {
+	return Status{Name: o.Name, Database: o.Database, Kind: o.Kind, Source: o.Source,
 		Target: o.Target, Window: FormatWindow(o.Window), State: StateUnknown,
-		Unknown: []string{ReasonNotEvaluated}, Rules: []RuleResult{},
-		DefinitionHash: o.Hash()}, nil
+		Unknown: []string{ReasonNotEvaluated}, Rules: []RuleResult{}, DefinitionHash: definition}
+}
+
+func (e *Engine) definitionHash(scope sre.Scope, o Objective) string {
+	if !e.databaseScopedPush || o.Source != SourcePush {
+		return o.Hash()
+	}
+	h := sha256.Sum256([]byte(o.Hash() + "\x00" + e.sampleName(scope, o)))
+	return hex.EncodeToString(h[:])
 }
 
 // Transitions reads an SLO's state history, newest first.
@@ -72,7 +96,7 @@ func (e *Engine) Transitions(ctx context.Context, name string, limit int) ([]Tra
 	if _, ok := e.objective(name); !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownSLO, name)
 	}
-	scope, err := e.scope(ctx)
+	scope, err := e.BoundScope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +175,60 @@ const (
 // no-op (created false). Samples must be fresh: observed within the last
 // 10 minutes and at most a minute ahead.
 func (e *Engine) Push(ctx context.Context, name string, p PushSample) (bool, error) {
+	return e.push(ctx, nil, name, p)
+}
+
+// BoundScope resolves the durable registered scope, never the display name.
+func (e *Engine) BoundScope(ctx context.Context) (sre.Scope, error) {
+	scope, err := e.scope(ctx)
+	if err == nil && e.databaseScopedPush && scope.Validate() != nil {
+		err = ErrScopeMismatch
+	}
+	return scope, err
+}
+
+func (e *Engine) sampleName(scope sre.Scope, o Objective) string {
+	if e.databaseScopedPush && o.Source == SourcePush {
+		// ':' cannot occur in a public SLO name, so a scoped key cannot collide
+		// with a legacy deployment-wide objective, including a future name.
+		h := sha256.Sum256([]byte(string(scope.DatabaseID) + "\x00" + o.Name))
+		// Full SHA-256 as base64url plus reserved prefix fits the existing
+		// 64-character storage bound even for a maximal public SLO name.
+		return "db:" + base64.RawURLEncoding.EncodeToString(h[:])
+	}
+	return o.Name
+}
+
+// ReadLastPushSample reads this engine's correctly scoped cumulative series.
+// It never accepts a caller-supplied deployment/database identity or store key.
+func (e *Engine) ReadLastPushSample(ctx context.Context, name, series string) (PushSample, bool, error) {
+	o, ok := e.objective(name)
+	if !ok {
+		return PushSample{}, false, ErrUnknownSLO
+	}
+	if o.Source != SourcePush {
+		return PushSample{}, false, ErrNotPush
+	}
+	if series == "" {
+		series = DefaultSeries
+	}
+	if !seriesPattern.MatchString(series) {
+		return PushSample{}, false, ErrInvalidSample
+	}
+	scope, err := e.BoundScope(ctx)
+	if err != nil {
+		return PushSample{}, false, err
+	}
+	return e.store.LastSample(ctx, scope.DeploymentID, e.sampleName(scope, o), series)
+}
+
+// PushScoped is the human-authenticated ingress boundary. Resolve and compare
+// the expected registered identity once, then write under that exact scope.
+func (e *Engine) PushScoped(ctx context.Context, expected sre.Scope, name string, p PushSample) (bool, error) {
+	return e.push(ctx, &expected, name, p)
+}
+
+func (e *Engine) push(ctx context.Context, expected *sre.Scope, name string, p PushSample) (bool, error) {
 	o, ok := e.objective(name)
 	switch {
 	case !ok:
@@ -166,9 +244,12 @@ func (e *Engine) Push(ctx context.Context, name string, p PushSample) (bool, err
 		return false, fmt.Errorf("%w: observed_at must be within the last 10 minutes",
 			ErrInvalidSample)
 	}
-	scope, err := e.scope(ctx)
+	scope, err := e.BoundScope(ctx)
 	if err != nil {
 		return false, err
 	}
-	return e.store.RecordSample(ctx, scope.DeploymentID, name, p, nil)
+	if expected != nil && (expected.DeploymentID == "" || expected.DatabaseID == "" || *expected != scope) {
+		return false, ErrScopeMismatch
+	}
+	return e.store.RecordSample(ctx, scope.DeploymentID, e.sampleName(scope, o), p, nil)
 }

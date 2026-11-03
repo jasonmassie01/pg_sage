@@ -63,6 +63,9 @@ func (a *Analyzer) cycle(ctx context.Context) {
 
 	// Deduplicate conflicting findings across advisors.
 	all = DeduplicateFindings(all, computeIOUtilPct(current), a.logFn)
+	// A bounded query list cannot prove absent queries stopped spilling.
+	// Temp spills clear only on a new, observed, zero-spill execution.
+	a.finishTempSpillCycle(ctx, current, previous, all)
 	a.finalizeCycle(ctx, all, a.eval.resolvable(all))
 }
 
@@ -99,6 +102,11 @@ func (a *Analyzer) runSnapshotRules(
 		}
 		if skip {
 			continue
+		}
+		// The two-cycle invalid-index rule can withhold a finding during
+		// warmup/build uncertainty; that absence is not proof of clearance.
+		if rule.Name == "invalid_indexes" && !invalidIndexResolutionReady(current, a.extras) {
+			a.eval.fail("invalid_index")
 		}
 		a.eval.evaluated(rule.Categories...)
 		out = append(out, rule.Fn(current, previous, a.cfg, a.extras)...)

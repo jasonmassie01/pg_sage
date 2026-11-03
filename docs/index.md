@@ -11,17 +11,16 @@ traditional observability dashboard:
   actions. Schema-health, forecast, query-hint, and incident routes open Cases
   with the matching source filter selected; the legacy `#/findings` route
   aliases here.
-- **Actions** shows pending approval and executed action history.
+- **Actions** separates proposed changes, needs your review, in progress and
+  history. Approval, completed SQL and verified outcomes remain separate states.
 - **Fleet** manages database connections and per-database runtime state.
 - **Settings** includes system configuration, emergency controls, and the
   Shadow Mode report proving what auto-safe policy would have handled.
-- **Agent DBs** provisions local agent databases, reviews LLM blueprints and
-  Terraform templates, and runs gated cloud workflows for RDS, Cloud SQL, and
-  Lakebase when provider setup is complete.
 
-The web UI and JSON API are authenticated by default. On first start, pg_sage
+The web UI and JSON API are authenticated by default. On first standalone start, pg_sage
 prints a one-time password for `admin@pg-sage.local`; API clients authenticate
-through `/api/v1/auth/login` and reuse the `sage_session` cookie.
+through `/api/v1/auth/login` and reuse the `sage_session` cookie. Databricks Apps
+uses platform sign-in and pg_sage roles, with no separate pg_sage password.
 
 Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
 generates deterministic lock/rewrite and live-risk preflight evidence,
@@ -42,7 +41,7 @@ metadata action, recommend `CREATE STATISTICS`, draft parameterization changes,
 and promote repeated per-query `work_mem` hints into reviewed role-level
 settings when the blast radius is explicit.
 
-Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
+Provider readiness is adapter-driven for Lakebase, self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
 access, provider limitations, and action-family readiness so automation policy
 can differ by managed-service constraints.
@@ -51,6 +50,9 @@ can differ by managed-service constraints.
 
 ## Getting Started
 
+- [Databricks-native implementation](databricks-native.md) — architecture, Lakebase/App setup, OAuth, compatibility and evidence
+- [Lakebase and Unity Gateway](lakebase.md) — native connections, telemetry, SRE, supported actions and restrictions
+- [Databricks Apps](databricks-apps.md) — build, resource bindings, platform authentication and deployment
 - [Five-minute quickstart](quickstart.md) — minimal role, read-only first look in minute 1
 - [Installation](installation.md) — Download, prerequisites, database user setup
 - [Try It Out](try-it-out.md) — local v1 smoke path and UI checklist
@@ -69,6 +71,7 @@ can differ by managed-service constraints.
 
 ## Operations
 
+- [Databricks deployment templates](../deploy/databricks-apps/README.md) — package/configure commands and operator handoff
 - [Deployment](deployment.md) — Docker, systemd, Kubernetes
 - [Security](security.md) — Least-privilege roles, network policies, audit logging
 - [Decommissioning the removed database provisioner](../sidecar/internal/decommission/README.md) -- inventory, delete templates and acknowledgement for resources an earlier version created

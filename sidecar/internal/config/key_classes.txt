@@ -256,6 +256,7 @@ derivable llm.context_budget_tokens
 derivable llm.cooldown_seconds
 safety_critical llm.enabled
 safety_critical llm.endpoint
+safety_critical llm.auth
 operator_preference llm.fleet_token_budget_daily
 safety_critical llm.index_optimizer.enabled
 safety_critical llm.index_optimizer.max_include_columns
@@ -539,3 +540,17 @@ safety_critical agents.kill_verify_timeout_seconds
 operator_preference agents.kill_fallback_log
 safety_critical agents.capabilities.max_duration_minutes
 operator_preference agents.reconcile_interval_seconds
+safety_critical lakebase_observability.enabled
+safety_critical lakebase_observability.warehouse_id
+safety_critical lakebase_observability.allow_payload
+safety_critical lakebase_observability.poll_interval_seconds
+safety_critical lakebase_observability.query_timeout_seconds
+safety_critical lakebase_observability.max_rows
+safety_critical lakebase_observability.max_bytes
+safety_critical lakebase_observability.queries_per_poll
+safety_critical lakebase_observability.window_seconds
+safety_critical lakebase_observability.retention_hours
+safety_critical lakebase_observability.streams
+safety_critical lakebase_observability.bindings
+safety_critical sre.read_policy.scope
+safety_critical sre.read_policy.allowed_sources

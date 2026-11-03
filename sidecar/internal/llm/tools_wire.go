@@ -259,7 +259,12 @@ func (c *Client) postTools(
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	resp, err := c.httpClient.Do(httpReq)
+	if cfg.Auth == "databricks" {
+		if err := c.authorizeDatabricks(httpReq); err != nil {
+			return nil, err
+		}
+	}
+	resp, err := c.doRequest(httpReq, cfg)
 	if err != nil {
 		if shouldRecordProviderFailure(ctx, requestCtx) {
 			c.recordFailure()

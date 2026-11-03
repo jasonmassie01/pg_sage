@@ -29,6 +29,7 @@ INSERT INTO sage.incidents (
         SELECT p.id FROM sage.incidents p
         WHERE p.identity_key = $18 AND p.resolved_at IS NOT NULL
           AND p.id <> $1
+          AND p.resolved_by IS DISTINCT FROM '` + ResolvedByMerged + `'
         ORDER BY p.resolved_at DESC LIMIT 1))
 )
 ON CONFLICT (id) DO NOTHING

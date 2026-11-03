@@ -52,14 +52,20 @@ export function SettingsPage({ database, databaseId }) {
   const selectedDatabase = database && database !== 'all'
   const numericDatabaseId = Number(databaseId)
   const isDatabaseScope =
-    selectedDatabase && Number.isFinite(numericDatabaseId)
+    selectedDatabase && Number.isSafeInteger(numericDatabaseId)
     && numericDatabaseId > 0
-  const configUrl = selectedDatabase
-    ? isDatabaseScope
-      ? `/api/v1/config/databases/${numericDatabaseId}`
+  // Standalone runtimes appear in the monitoring inventory without a managed
+  // registration ID. Read the deployment mode before treating that as a
+  // missing database; only standalone may use instance-wide configuration.
+  const needsStandaloneConfig = selectedDatabase
+    && (databaseId == null || numericDatabaseId === 0)
+  const configUrl = isDatabaseScope
+    ? `/api/v1/config/databases/${numericDatabaseId}`
+    : !selectedDatabase || needsStandaloneConfig
+      ? '/api/v1/config/global'
       : null
-    : '/api/v1/config/global'
   const { data, loading, error, refetch } = useAPI(configUrl, 0)
+  const isStandaloneScope = needsStandaloneConfig && data?.mode === 'standalone'
   const toast = useToast()
   const [mode, setMode] = useState(getInitialMode)
   const [tab, setTab] = useState('General')
@@ -236,7 +242,7 @@ export function SettingsPage({ database, databaseId }) {
 	  }
       toast.success(
         `Saved ${Object.keys(edits).length} `
-        + `${isDatabaseScope ? 'database ' : 'global '}`
+        + `${isDatabaseScope ? 'database ' : isStandaloneScope ? 'instance ' : 'global '}`
         + 'configuration change(s)'
       )
       setEdits({})
@@ -281,7 +287,9 @@ export function SettingsPage({ database, databaseId }) {
     }
   }
 
-  if (selectedDatabase && !isDatabaseScope) {
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+  if (selectedDatabase && !isDatabaseScope && !isStandaloneScope) {
     return (
       <ErrorBanner
         message={`Selected database "${database}" is not available`}
@@ -289,8 +297,6 @@ export function SettingsPage({ database, databaseId }) {
       />
     )
   }
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
 
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
@@ -337,8 +343,17 @@ export function SettingsPage({ database, databaseId }) {
         style={{ color: 'var(--text-secondary)' }}>
         Scope: {isDatabaseScope
           ? `Database ${database} (ID ${numericDatabaseId})`
-          : 'Global defaults'}
+          : isStandaloneScope
+            ? `Instance settings for ${database} (standalone)`
+            : 'Global defaults'}
       </div>
+      {isStandaloneScope && (
+        <p className="text-xs" data-testid="settings-standalone-scope"
+          style={{ color: 'var(--text-secondary)' }}>
+          This deployment monitors one database. These settings apply to the
+          pg_sage instance; a managed database registration is not required.
+        </p>
+      )}
       {readOnly && (
         <div
           data-testid="settings-read-only"

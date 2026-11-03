@@ -57,7 +57,8 @@ func reindexCandidate(f SourceFinding) ActionCandidate {
 		ProposedSQL:      sql,
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
-		RollbackClass:    "reversible",
+		RollbackClass:    "unknown",
+		RecoveryDetail:   "Reindexing rebuilds the physical index. No procedure to restore the previous physical state is attached; capture the definition and review a forward recovery plan.",
 		VerificationPlan: verificationPlanForAction("reindex_concurrently"),
 	}
 }
@@ -146,7 +147,8 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 		ProposedSQL:      sql,
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
-		RollbackClass:    "reversible",
+		RollbackClass:    "unknown",
+		RecoveryDetail:   "The previous table storage parameters have not been captured. Capture which settings were explicit and their values before preparing recovery; RESET may not restore the previous state.",
 		VerificationPlan: verificationPlanForAction("set_table_autovacuum"),
 	}
 	candidate.ScriptOutput = scriptOutputFromFinding(f, candidate)

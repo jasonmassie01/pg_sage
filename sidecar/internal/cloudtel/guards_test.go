@@ -191,6 +191,43 @@ func TestStorageRunway(t *testing.T) {
 	}
 }
 
+func TestStorageRunwayLargeBaseline(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		baseline float64
+		slope    float64
+	}{
+		{name: "constant fractional bytes", baseline: 5*gib + 0.3},
+		{name: "constant large bytes", baseline: 1 << 50},
+		{name: "small decline", baseline: 1 << 50, slope: -60},
+		{name: "small growth", baseline: 1 << 50, slope: 60},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var points []Point
+			for _, minutes := range []int{0, 3, 11, 24, 37, 59, 70} {
+				points = append(points, Point{
+					At:    guardNow.Add(time.Duration(minutes-70) * time.Minute),
+					Value: tc.baseline + tc.slope*float64(minutes)/60,
+				})
+			}
+			r := StorageRunway(points, guardNow)
+			if !r.Known || math.Abs(r.SlopeBytesPerHour-tc.slope) > 1e-10 {
+				t.Fatalf("runway = %+v, want slope %v", r, tc.slope)
+			}
+			if tc.slope >= 0 {
+				if !math.IsInf(r.Hours, 1) {
+					t.Fatalf("non-declining runway = %+v, want +Inf", r)
+				}
+			} else {
+				wantHours := points[len(points)-1].Value / -tc.slope
+				if math.Abs(r.Hours/wantHours-1) > 1e-12 {
+					t.Fatalf("declining runway = %+v, want %v hours", r, wantHours)
+				}
+			}
+		})
+	}
+}
+
 // Never-widen property: telemetry only ever adds withhold reasons. For any
 // sample, admission with the cloud reasons is admitted only if admission
 // without them is admitted, and the reasons never touch CPU or capacity.

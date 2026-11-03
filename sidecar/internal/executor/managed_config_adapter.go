@@ -54,7 +54,7 @@ func (e *Executor) applyManagedCustodianConfig(
 	if err != nil {
 		return ManagedConfigResult{}, true, err
 	}
-	if provider == "neon" {
+	if provider == "neon" || provider == "lakebase" {
 		return ManagedConfigResult{}, true, fmt.Errorf("%w: %s",
 			ErrManagedConfigUnsupported, managedConfigGuidance(provider, change.Parameter))
 	}
@@ -122,7 +122,7 @@ func parseManagedConfigValue(raw string) (string, error) {
 
 func managedConfigMechanism(provider string) ManagedConfigMechanism {
 	switch provider {
-	case "neon", "supabase":
+	case "neon", "supabase", "lakebase":
 		return ManagedProviderConfig
 	case "cloud-sql", "cloudsql", "gcp", "alloydb":
 		return ManagedDatabaseFlag
@@ -135,6 +135,10 @@ func managedConfigMechanism(provider string) ManagedConfigMechanism {
 
 func managedConfigGuidance(provider, parameter string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "lakebase":
+		return "Lakebase manages instance parameter " + parameter +
+			"; ALTER SYSTEM and instance parameter changes are unavailable. " +
+			"Only permitted session, database, or role settings can be changed through SQL"
 	case "neon":
 		return "Neon controls instance parameter " + parameter +
 			"; only permitted session, database, or role settings can be changed through SQL"

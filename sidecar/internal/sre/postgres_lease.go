@@ -47,7 +47,7 @@ func (s *PostgresStore) lockForClaim(ctx context.Context, tx pgx.Tx, scope Scope
 	err := tx.QueryRow(ctx, `SELECT state,
 		    COALESCE(lease_until > clock_timestamp(), false),
 		    COALESCE(CASE WHEN lease_until <= clock_timestamp() THEN
-		        (EXTRACT(EPOCH FROM lease_until - lease_started_at) * 1000)::int8 END, 0),
+		        GREATEST(0::int8, (EXTRACT(EPOCH FROM lease_until - lease_started_at) * 1000)::int8) END, 0),
 		    active_ms,
 		    state IN ('queued', 'needs_evidence') AND expires_at < clock_timestamp()
 		FROM sage.sre_investigations
@@ -152,9 +152,10 @@ func (s *PostgresStore) Heartbeat(ctx context.Context, lease Lease) (Lease, erro
 }
 
 // chargeSQL charges the time since the lease started (at most until
-// the lease ended), capped at $cap milliseconds.
-const chargeSQL = `LEAST($%d::int8, active_ms + COALESCE((EXTRACT(EPOCH FROM
-	LEAST(clock_timestamp(), lease_until) - lease_started_at) * 1000)::int8, 0))`
+// the lease ended), capped at $cap milliseconds. Database wall clocks can
+// move backward; a negative elapsed interval must never refund prior charges.
+const chargeSQL = `LEAST($%d::int8, active_ms + GREATEST(0::int8, COALESCE((EXTRACT(EPOCH FROM
+	LEAST(clock_timestamp(), lease_until) - lease_started_at) * 1000)::int8, 0)))`
 
 // expiresSQL refreshes the queue expiry when an investigation waits again.
 const expiresSQL = `CASE WHEN $%d IN ('queued', 'needs_evidence', 'paused')

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentguard"
@@ -78,8 +79,10 @@ type ActionDeps struct {
 // RuntimeDeps carries process-scoped controllers that are optional for
 // embedders and tests but required by the production sidecar.
 type RuntimeDeps struct {
-	ConfigController *config.ConfigController
-	ConfigBase       *config.Config
+	// DatabricksAppAuth disables local login/account recovery in an App.
+	DatabricksAppAuth bool
+	ConfigController  *config.ConfigController
+	ConfigBase        *config.Config
 	// ConfigBaseLoader reloads the current file config (no overrides) so
 	// override deletes rebase on it instead of the startup clone (G5-B03).
 	ConfigBaseLoader    func() (*config.Config, error)
@@ -94,6 +97,12 @@ type RuntimeDeps struct {
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
 	LLMBudgets LLMBudgetRegistry
+	// TelemetryStatus must return a sanitized, read-only status projection:
+	// never event payloads, SQL, credentials, or SDK response objects.
+	TelemetryStatus func() any
+	// TelemetryHistory resolves a registered database to retained normalized
+	// history. It must never run caller-supplied SQL or broaden provider scope.
+	TelemetryHistory func(context.Context, string, string, time.Time, time.Time, int) (any, error)
 	// NotificationSecretKey seals channel secrets at rest; every runtime
 	// dispatcher must read with the same key (G7-B20). nil = plaintext.
 	NotificationSecretKey []byte
@@ -141,6 +150,7 @@ func NewRouterFullRuntime(
 	if runtime != nil {
 		rt = *runtime
 	}
+	registerAuthModeRoute(apiMux, rt.DatabricksAppAuth)
 	registerFleetScopedRoutes(apiMux, mgr, cfg, pool, llmMgr, rt)
 	if pool != nil {
 		registerControlPoolRoutes(apiMux, mgr, cfg, pool, rt)
@@ -158,19 +168,32 @@ func NewRouterFullRuntime(
 	audit := rt.Audit
 	audit.Pool, audit.Control = fleetAuditPool(mgr, pool), pool
 	registerAuditRoutes(apiMux, audit)
-	apiHandler := wrapAPIHandler(apiMux, middlewares)
+	if rt.DatabricksAppAuth {
+		// Innermost: verify platform identity before reporting unsupported
+		// optional protocols. No second token system is mounted in this mode.
+		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
+	}
+	apiHandler := wrapAPIHandler(apiMux, middlewares, !rt.DatabricksAppAuth)
+	if rt.DatabricksAppAuth {
+		apiHandler = http.NewCrossOriginProtection().Handler(apiHandler)
+	}
 
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
 	root.Handle("/api/v1/", apiHandler)
-	if pool != nil {
+	if rt.DatabricksAppAuth {
+		// Avoid a misleading SPA response for the common protocol alias.
+		root.Handle("/mcp", apiHandler)
+		root.Handle("/mcp/", apiHandler)
+	}
+	if pool != nil && !rt.DatabricksAppAuth {
 		// Signed ChatOps callbacks bypass session auth (their provider
 		// signature authenticates them); identity mapping stays admin-only.
 		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
 	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
-	if rt.MCPHandler != nil {
+	if rt.MCPHandler != nil && !rt.DatabricksAppAuth {
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}
 	registerRootRoutes(root)
@@ -196,10 +219,14 @@ func registerFleetScopedRoutes(
 		rt.DisableConfigWrites,
 	)
 	registerLLMBudgetRoutes(apiMux, llmBudgetSource(rt.LLMBudgets, llmMgr))
+	registerDeploymentStatusRoutes(apiMux, cfg, rt, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
 	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
 	registerSRESignalRoutes(apiMux, mgr, cfg)
+	if rt.DatabricksAppAuth {
+		registerAppSLISampleRoute(apiMux, mgr, cfg)
+	}
 	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
 	registerShadowRoutes(apiMux, mgr)
@@ -216,7 +243,7 @@ func registerFleetScopedRoutes(
 	registerAskRoutes(apiMux, rt.Ask)
 	registerPprofRoutes(apiMux, cfg != nil && cfg.Debug.PprofEnabled)
 	registerSpecialistRoutes(apiMux, rt)
-	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
+	if !rt.DatabricksAppAuth && cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
 		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,
 			agentguard.NewStore(pool))
@@ -237,9 +264,15 @@ func registerControlPoolRoutes(
 	pool *pgxpool.Pool,
 	rt RuntimeDeps,
 ) {
-	registerAuthRoutes(apiMux, pool, newRouterOAuthProvider(cfg), cfg)
-	registerUserRoutes(apiMux, pool)
-	registerMCPTokenRoutes(apiMux, pool)
+	if rt.DatabricksAppAuth {
+		registerDatabricksAppAuthRoutes(apiMux, pool)
+	} else {
+		registerAuthRoutes(apiMux, pool, newRouterOAuthProvider(cfg), cfg)
+		registerUserRoutes(apiMux, pool)
+	}
+	if !rt.DatabricksAppAuth {
+		registerMCPTokenRoutes(apiMux, pool)
+	}
 	registerAgentRoutes(apiMux, pool, cfg)
 	registerConfigRoutesRuntime(
 		apiMux, pool, cfg, mgr, rt.ConfigController,
@@ -251,7 +284,9 @@ func registerControlPoolRoutes(
 		policy:    rt.NotificationTargetPolicy,
 	}
 	registerNotificationRoutes(apiMux, pool, notifyDeps)
-	registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
+	if !rt.DatabricksAppAuth {
+		registerBreakGlassRoutes(apiMux, pool, cfg, newDefaultDispatcher(pool, notifyDeps))
+	}
 	registerPolicyRoutesWith(apiMux, policy.NewStore(pool), func() bool {
 		return cfg != nil && cfg.Agents.SingleOperatorMode
 	})
@@ -280,7 +315,7 @@ func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 // wrapAPIHandler stacks the caller middlewares onto the API mux, then the
 // fixed chain every API route gets.
 func wrapAPIHandler(
-	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler,
+	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler, localCORS ...bool,
 ) http.Handler {
 	// Stack middlewares onto API routes only.
 	var apiHandler http.Handler = apiMux
@@ -296,7 +331,9 @@ func wrapAPIHandler(
 	apiHandler = maxBodyMiddleware(apiHandler)
 	apiHandler = timeoutMiddleware(apiHandler)
 	apiHandler = securityHeadersMiddleware(apiHandler)
-	apiHandler = corsMiddleware(apiHandler)
+	if len(localCORS) == 0 || localCORS[0] {
+		apiHandler = corsMiddleware(apiHandler)
+	}
 	return apiHandler
 }
 

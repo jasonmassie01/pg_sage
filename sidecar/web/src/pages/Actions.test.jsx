@@ -79,11 +79,11 @@ describe('Actions', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
 
     expect(screen.getByTestId('actions-page-description'))
-      .toHaveTextContent('Actions are the executable side of Cases')
+      .toHaveTextContent('Review proposed database changes')
     expect(screen.getByTestId('actions-page-description'))
-      .toHaveTextContent('queued for approval')
+      .toHaveTextContent('Cases explain the evidence')
     expect(screen.getByTestId('actions-page-description'))
-      .toHaveTextContent('logged here')
+      .toHaveTextContent('Approval, execution, and a verified improvement are separate steps')
   })
 
   it('shows generated migration script output for pending DDL', () => {
@@ -131,8 +131,9 @@ describe('Actions', () => {
       .toBeInTheDocument()
   })
 
-  it('shows expired queued actions in the action ledger', () => {
+  it('shows expired queued actions in History', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
+    fireEvent.click(screen.getByTestId('actions-tab-executed'))
 
     expect(screen.getByText('Expired')).toBeInTheDocument()
     expect(screen.getByText('action proposal expired')).toBeInTheDocument()

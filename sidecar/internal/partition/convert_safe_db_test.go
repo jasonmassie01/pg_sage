@@ -553,14 +553,21 @@ func TestConvert_ConcurrentKeyBuildWaitsOutLongTransactions(t *testing.T) {
 		return nil
 	})
 	// The sleeping query must finish before the connection is released.
-	defer func() { <-slept }()
+	defer func() {
+		if err := <-slept; err != nil {
+			t.Errorf("application transaction: %v", err)
+		}
+	}()
 	started := time.Now()
 	res, err := Convert(ctx, pool, tbl)
 	if err != nil || !res.Converted {
 		t.Fatalf("Convert during a %s transaction = %+v, %v", hold, res, err)
 	}
-	if waited := time.Since(started); waited < hold {
-		t.Fatalf("conversion took %s: the key build did not wait for the transaction", waited)
+	// The regression boundary is the ordinary lock timeout. Do not compare
+	// against pg_sleep's exact requested duration: server/client clocks and
+	// scheduling can put completion a few milliseconds below that boundary.
+	if waited := time.Since(started); waited <= LockTimeout {
+		t.Fatalf("conversion took %s: the key build did not wait beyond the %s lock timeout", waited, LockTimeout)
 	}
 	var lockTimeout string
 	if err := pool.QueryRow(ctx, "SHOW lock_timeout").Scan(&lockTimeout); err != nil {

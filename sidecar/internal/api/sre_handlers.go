@@ -61,6 +61,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry) *ht
 	mux.Handle("POST "+base+"/{id}/resume", operatorUp(investigationTransitionHandler(mgr,
 		true)))
 	registerSREActionRoutes(mux, mgr)
+	registerSREMaintenanceRoutes(mux, mgr)
 	registerRunbookRoutes(mux, mgr, ledgers)
 	registerReplayCaseRoute(mux, mgr)
 	registerTranscriptRoute(mux, mgr)

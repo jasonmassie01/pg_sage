@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/runway"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // Sage SRE runways (M6): the runway monitor on the collector tick and the
@@ -66,6 +67,10 @@ var runwaySizeShare = runway.NewSizeShare()
 // investigations start through the investigator when it runs; without it
 // the monitor still opens forecast findings.
 func (rt *databaseRuntime) startRunways() {
+	if !rt.sreReadPolicy().Allows(probes.ClusterDatabaseSizeProbe) {
+		logInfo(rt.spec.Scope, "db %q: cluster runway sampler disabled by read scope; direct database probes remain available", rt.spec.Name)
+		return
+	}
 	if rt.runwayAdvisor != nil && rt.executor != nil {
 		rt.runwayAdvisor.attach(rt.executor)
 	}

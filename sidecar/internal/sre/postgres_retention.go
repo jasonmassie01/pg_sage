@@ -12,7 +12,9 @@ import (
 // Retention (AI-SRE-SPEC §10): terminal, unpinned investigations lose
 // their redacted evidence after EvidenceAge and their whole timeline
 // after TimelineAge, measured from their last change. Live and pinned
-// investigations are never touched. Every delete leaves a tombstone.
+// investigations are never touched. Maintenance changes restart the age
+// window, and in-flight or unresolved maintenance keeps its investigation
+// and evidence until the outcome is resolved. Every delete leaves a tombstone.
 // Rows are locked with SKIP LOCKED, so concurrent passes delete each
 // row once.
 
@@ -44,7 +46,7 @@ func (s *PostgresStore) Purge(ctx context.Context, scope Scope,
 		return PurgeResult{}, err
 	}
 	var res PurgeResult
-	err := s.inTx(ctx, "purge timelines", func(tx pgx.Tx) error {
+	err := s.retentionTx(ctx, "purge timelines", func(tx pgx.Tx) error {
 		n, err := purgeTimelines(ctx, tx, scope, p)
 		res.InvestigationsPurged = n
 		return err
@@ -52,7 +54,7 @@ func (s *PostgresStore) Purge(ctx context.Context, scope Scope,
 	if err != nil {
 		return res, err
 	}
-	err = s.inTx(ctx, "purge evidence", func(tx pgx.Tx) error {
+	err = s.retentionTx(ctx, "purge evidence", func(tx pgx.Tx) error {
 		n, err := purgeEvidence(ctx, tx, scope, p)
 		res.EvidencePurged = n
 		return err
@@ -70,7 +72,7 @@ func agedIDsSQL(extra string) string {
 		WHERE deployment_id = $1 AND database_id = $2 AND NOT pinned
 		  AND state IN ` + terminalStates + `
 		  AND created_at < now() - make_interval(secs => $3)
-		  AND updated_at < now() - make_interval(secs => $3) ` + extra + `
+		  AND updated_at < now() - make_interval(secs => $3) ` + keepMaintenance + extra + `
 		ORDER BY created_at, id LIMIT $4 FOR UPDATE SKIP LOCKED`
 }
 
@@ -82,7 +84,39 @@ func agedIDs(ctx context.Context, tx pgx.Tx, scope Scope, age time.Duration,
 	if err != nil {
 		return nil, err
 	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil || len(ids) == 0 {
+		return ids, err
+	}
+	// The candidate predicate and LockRows may straddle a maintenance
+	// commit that changed only the child row. Recheck on a fresh statement
+	// snapshot after locking parents; maintenance cannot now mutate them.
+	rows, err = tx.Query(ctx, `SELECT id::text FROM sage.sre_investigations
+		WHERE deployment_id=$1 AND database_id=$2 AND id=ANY($4::uuid[])
+		`+keepMaintenance+` ORDER BY created_at, id`, string(scope.DeploymentID), string(scope.DatabaseID),
+		age.Seconds(), ids)
+	if err != nil {
+		return nil, err
+	}
 	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// retentionTx requires a fresh snapshot for the post-lock maintenance check,
+// even if the connecting role changes its default transaction isolation.
+func (s *PostgresStore) retentionTx(ctx context.Context, op string, fn func(pgx.Tx) error) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return storeErr(ctx, op, err)
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	if err := fn(tx); err != nil {
+		return storeErr(ctx, op, err)
+	}
+	return storeErr(ctx, op, tx.Commit(ctx))
 }
 
 // keepHeldBudget keeps investigations whose model reservation is still
@@ -92,6 +126,26 @@ const keepHeldBudget = `AND NOT EXISTS (SELECT 1 FROM sage.sre_budget_reservatio
 	  AND b.database_id = sre_investigations.database_id
 	  AND b.investigation_id = sre_investigations.id
 	  AND b.state IN ('reserved', 'inflight', 'unknown'))`
+
+// keepMaintenance makes the maintenance ledger share the investigation's
+// bounded lifecycle. A terminal maintenance change ages from its own last
+// update, not the earlier diagnostic conclusion. Expired proposed/requested
+// work eventually ages out, while execution, rollback and unresolved outcomes
+// cannot lose their evidence or rollback identity underneath the operator.
+// Both purges lock the parent investigation; maintenance mutations use the
+// same lock before changing the proposal or appending its event. Unknown
+// future states fail closed. Proposed/requested work has a hard 15-minute
+// expiry, so legitimate age-eligible requests (minimum age one day) are expired.
+const keepMaintenance = `AND NOT EXISTS (
+    SELECT 1 FROM sage.sre_maintenance_proposals m
+    WHERE m.deployment_id = sre_investigations.deployment_id
+      AND m.database_id = sre_investigations.database_id
+      AND m.investigation_id = sre_investigations.id
+      AND (m.created_at >= now() - make_interval(secs => $3)
+           OR m.updated_at >= now() - make_interval(secs => $3)
+           OR m.state NOT IN ('proposed', 'requested', 'executed', 'failed', 'refused', 'rolled_back'))
+    OFFSET 0)
+`
 
 func purgeTimelines(ctx context.Context, tx pgx.Tx, scope Scope,
 	p RetentionPolicy) (int, error) {

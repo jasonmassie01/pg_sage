@@ -97,8 +97,23 @@ func (s *Store) recordSample(ctx context.Context, dep sre.UUID, slo string, p Pu
 		}
 		tag, err := tx.Exec(ctx, insertSampleSQL, string(dep), slo, p.Series, p.ObservedAt,
 			p.Bad, p.Eligible, value)
-		if err != nil || tag.RowsAffected() != 1 {
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() != 1 {
+			// The same series lock spans collision verification and commit;
+			// concurrent conflicting retries cannot silently accept one another.
+			var same bool
+			err = tx.QueryRow(ctx, `SELECT bad=$5 AND eligible=$6 AND value IS NOT DISTINCT FROM $7::double precision
+			FROM sage.sre_sli_samples WHERE deployment_id=$1 AND slo_name=$2 AND series=$3 AND observed_at=$4`,
+				string(dep), slo, p.Series, p.ObservedAt, p.Bad, p.Eligible, value).Scan(&same)
+			if err != nil {
+				return err
+			}
+			if !same {
+				return ErrSampleConflict
+			}
+			return nil
 		}
 		created = true
 		_, err = tx.Exec(ctx, rechainSQL, string(dep), slo, p.Series, p.ObservedAt)

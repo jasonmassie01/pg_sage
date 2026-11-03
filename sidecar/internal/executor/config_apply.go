@@ -19,6 +19,7 @@ var managedProviders = map[string]bool{
 	"alloydb": true, "neon": true, "supabase": true,
 	"azure": true, "azure-flexible": true, "azure-single": true,
 	"azure-cosmos": true,
+	"lakebase":     true,
 }
 
 // outcomeStatus maps whether a config change is live to an action_log
@@ -53,8 +54,8 @@ func configParamFromSQL(sql string) string {
 // configApplyOutcome describes whether a config change is actually in
 // effect after the ALTER SYSTEM ran, as read back from pg_settings.
 type configApplyOutcome struct {
-	InEffect       bool   // the read-back shows the requested value live
-	PendingRestart bool   // written, but only a restart applies it
+	InEffect       bool // the read-back shows the requested value live
+	PendingRestart bool // written, but only a restart applies it
 	State          readbackState
 	Effective      string // pg_settings.setting after the reload
 	Source         string // pg_settings.source after the reload

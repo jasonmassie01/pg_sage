@@ -8,7 +8,7 @@ func revertCreatedIndexContract() ActionContract {
 	return ActionContract{
 		ActionType:          "revert_created_index",
 		BaseRiskTier:        "moderate",
-		ProviderSupport:     portableActionProviders(),
+		ProviderSupport:     lakebaseOwnedActionProviders(),
 		RequiredPermissions: []string{"index ownership or maintenance role"},
 		Prechecks: []string{
 			"index OID equals the OID recorded when pg_sage created it",

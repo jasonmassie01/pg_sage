@@ -54,6 +54,9 @@ func (e *Executor) ExecuteManual(
 	defer release()
 	runCtx, cancel := e.detachedDDLContext(ctx)
 	defer cancel()
+	if err := e.checkLakebaseDatabaseSetting(runCtx, sql); err != nil {
+		return 0, err
+	}
 	// Refuse early without a ledger row; record once the finding checks out.
 	if preview := e.explainOperatorAction(runCtx, sql); preview.Decision != PolicyDecisionExecute {
 		return 0, fmt.Errorf("policy refused operator action: %s",
@@ -155,6 +158,13 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 		return nil
 	}
 	r.executor.notifyPostDDL(ctx, r.sql)
+	if run := statisticsRun(ctx); run != nil {
+		if err := mergeAfterState(ctx, r.executor.pool, actionID, "sre_maintenance", map[string]any{"structural_verification": "built", "statistics_oid": run.ObjectOID, "workload_benefit": "unproven", "incident_recovery": "unproven", "analyze_restorable": false}); err != nil {
+			return err
+		}
+		r.executor.verifyImmediate(ctx, actionID) // no performance measurement: no value/autonomy credit
+		return nil
+	}
 	if r.executor.settleConfigChange(ctx, actionID, r.config) {
 		r.executor.finishManualAction(ctx, actionID, r.sql, r.rollbackSQL)
 	}
@@ -294,16 +304,20 @@ func (e *Executor) runClaimedRollback(
 func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string, error) {
 	var rollbackSQL *string
 	var outcome string
+	var category string
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT rollback_sql, outcome
-		   FROM sage.action_log WHERE id = $1`,
+		`/* pg_sage */ SELECT a.rollback_sql, a.outcome, COALESCE(f.category,'')
+ FROM sage.action_log a LEFT JOIN sage.findings f ON f.id=a.finding_id WHERE a.id = $1`,
 		actionID,
-	).Scan(&rollbackSQL, &outcome)
+	).Scan(&rollbackSQL, &outcome, &category)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("action not found")
 		}
 		return "", fmt.Errorf("loading action %d: %w", actionID, err)
+	}
+	if category == "sre_maintenance" && statisticsRun(ctx) == nil {
+		return "", fmt.Errorf("SRE maintenance rollback requires its typed runner")
 	}
 	if outcome == "rolled_back" {
 		return "", fmt.Errorf("action already rolled back")
@@ -372,6 +386,9 @@ func (e *Executor) verifyManualFinding(
 			return manualFinding{}, ErrFindingNotActionable
 		}
 		return manualFinding{}, fmt.Errorf("checking finding %d: %w", findingID, err)
+	}
+	if err := validateSREStatisticsFinding(ctx, f.category, f.detail, sql); err != nil {
+		return manualFinding{}, err
 	}
 	if recommendedSQL == nil ||
 		compactSQL(*recommendedSQL) == "" ||

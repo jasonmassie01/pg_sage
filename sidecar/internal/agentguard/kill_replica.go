@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 )
 
 // Replicas (§6.10 step 6, GR-01): the kill connects to each configured
@@ -39,6 +40,10 @@ func (s *Switch) openReplica(ctx context.Context, target string, r Replica) *rep
 	cfg.RuntimeParams["application_name"] = "pg_sage agent kill"
 	cctx, cancel := context.WithTimeout(ctx, s.cfg.ReplicaConnectTimeout)
 	defer cancel()
+	if err := databricksauth.ConfigureConnection(cctx, cfg); err != nil {
+		run.report.Error = "unreachable: " + connectError(err)
+		return run
+	}
 	conn, err := pgx.ConnectConfig(cctx, cfg)
 	if err != nil {
 		run.report.Error = "unreachable: " + connectError(err)

@@ -288,6 +288,8 @@ func hotReloadSafety(cfg *config.Config, key, v string) {
 
 func hotReloadLLM(cfg *config.Config, key, v string) {
 	switch key {
+	case "llm.auth":
+		cfg.LLM.Auth = v
 	case "llm.enabled":
 		cfg.LLM.Enabled = v == "true"
 	case "llm.endpoint":

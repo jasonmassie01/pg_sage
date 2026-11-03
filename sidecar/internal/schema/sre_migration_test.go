@@ -17,7 +17,8 @@ var sreTables = []string{"sre_deployments", "sre_database_bindings",
 	"sre_investigations", "sre_steps", "sre_evidence", "sre_budget_reservations",
 	"sre_hypotheses", "sre_events", "sre_tombstones", "sre_service_slos",
 	"sre_slo_transitions", "sre_action_proposals", "sre_runbooks",
-	"sre_runbook_versions", "sre_runbook_runs", "sre_investigation_outcomes"}
+	"sre_runbook_versions", "sre_runbook_runs", "sre_investigation_outcomes",
+	"sre_maintenance_proposals"}
 
 func TestSREMigration_IdempotentAndPreservesIncidentsAndActions(t *testing.T) {
 	pool, ctx := requireDB(t)

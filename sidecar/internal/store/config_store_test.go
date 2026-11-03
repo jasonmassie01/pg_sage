@@ -56,6 +56,11 @@ func TestValidateConfigValue(t *testing.T) {
 		{"exec_mode now unknown", "execution_mode", "auto", true},
 		{"valid string", "llm.endpoint", "https://api.example.com", false},
 		{"empty string ok", "llm.endpoint", "", false},
+		{"default llm auth", "llm.auth", "", false},
+		{"api key llm auth", "llm.auth", "api_key", false},
+		{"databricks llm auth", "llm.auth", "databricks", false},
+		{"invalid llm auth", "llm.auth", "oauth", true},
+		{"case sensitive llm auth", "llm.auth", "DATABRICKS", true},
 		{"not a number", "collector.interval_seconds", "abc", true},
 	}
 	for _, tt := range tests {
