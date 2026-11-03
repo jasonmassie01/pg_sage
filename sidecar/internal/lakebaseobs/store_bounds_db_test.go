@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func boundedStore(t *testing.T, s *Store) *Store {
@@ -154,8 +155,12 @@ func TestDBPendingACKHeavyBacklogUsesCoveringIndexAndFindsLateHistory(t *testing
 	if err = s.CommitBatch(ctx, binding, Plans, Cursor{}, Cursor{}, []Event{late}, SourceRetention); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.pool.Exec(ctx, `VACUUM (ANALYZE) sage.lakebaseobs_inbox`); err != nil {
-		t.Fatal(err)
+	// The candidate scan fetches no heap rows only once VACUUM has marked every
+	// inbox page all-visible, which an older snapshot of the shared test database
+	// or dead items left by earlier tests prevent; settle until it has.
+	err = testdb.VacuumAllVisible(ctx, s.pool, "sage.lakebaseobs_inbox", 60*time.Second)
+	if err != nil {
+		t.Fatalf("vacuum the ACK backlog: %v", err)
 	}
 	if _, err = s.pool.Exec(ctx, `VACUUM (ANALYZE) sage.lakebaseobs_acks`); err != nil {
 		t.Fatal(err)
