@@ -44,6 +44,10 @@ nav:
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md
   - Deployment: deployment.md
   - Azure: azure.md
+  - Databricks:
+      - Overview: databricks-native.md
+      - Lakebase and Unity AI Gateway: lakebase.md
+      - Databricks Apps: databricks-apps.md
 
 markdown_extensions:
   - admonition

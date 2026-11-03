@@ -7,8 +7,8 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current recorded release is **2.5.0-dev.14**. Its
-[acceptance report](../reviews/2026-11-02-v2.5-dev14-acceptance.md) covers the
+The current release is **2.5.0**. The acceptance report for its last development
+build, [2.5.0-dev.14](../reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
 descriptions beside each tab's meme. The [dev.13 report](../reviews/2026-11-02-v2.5-dev13-acceptance.md)
 records the 50-meme shuffle and standalone Settings correction. The
 [dev.11–12 report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the

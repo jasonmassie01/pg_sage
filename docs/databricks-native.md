@@ -1,6 +1,6 @@
 # Databricks-native implementation
 
-pg_sage **2.5.0-dev.14** runs as a local native process against Lakebase or as
+pg_sage **2.5.0** runs as a local native process against Lakebase or as
 a Go service with an embedded React dashboard in Databricks Apps. Lakebase
 connections and Unity Gateway AI requests use Databricks OAuth. In Apps,
 operators sign in through Databricks only; there is no second pg_sage login or
