@@ -152,7 +152,7 @@ func TestHistoryCountsExternalReversionsPerIntentAndTarget(t *testing.T) {
 	}
 	recordGuardRow(t, pool, fk, []string{target},
 		map[string]any{"disposition": "apply", "external_reversion": "false"})
-	recordGuardRow(t, pool, string(schemaguard.InvariantRedundantIndex),
+	recordGuardRow(t, pool, string(schemaguard.InvariantUnboundedAppend),
 		[]string{target}, reverted)
 	recordGuardRow(t, pool, fk, []string{tag + ".other"}, reverted)
 	index, err := (postgresSchemaHistorySource{pool}).History(context.Background(),

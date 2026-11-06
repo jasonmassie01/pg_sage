@@ -8,15 +8,13 @@ import (
 
 func ClassifyInvariant(kind InvariantKind) (Classification, error) {
 	switch kind {
-	case InvariantMissingFKIndex, InvariantRedundantIndex:
+	case InvariantMissingFKIndex:
 		return Classification{Class: RemediationVerifiedIndex, AutoRemediable: true,
 			RequiresVerification: true}, nil
 	case InvariantUnboundedAppend:
 		return Classification{Class: RemediationRetention, AutoRemediable: true,
 			RequiresPolicyConsent: true}, nil
-	case InvariantMissingConstraint, InvariantNoPrimaryKey:
-		return Classification{Class: RemediationRecommendation}, nil
-	case InvariantEverythingText, InvariantTypeTightening, InvariantRandomUUIDPK:
+	case InvariantEverythingText, InvariantTypeTightening:
 		return Classification{Class: RemediationStructural, RequiresRehearsal: true}, nil
 	default:
 		return Classification{}, fmt.Errorf("unknown invariant kind %q", kind)
@@ -52,22 +50,18 @@ func Plan(ctx context.Context, request Request) (Decision, error) {
 		return planIndex(request, decision), nil
 	case RemediationRetention:
 		return planRetention(request, decision), nil
-	case RemediationStructural:
-		decision.Route, decision.Disposition = RouteCloneRehearsal, DispositionRecommend
-		return decision, nil
 	default:
+		// Structural: an advisory recommendation, never routed. pg_sage has
+		// no online column migration to rehearse or run (migration-09).
 		decision.Route, decision.Disposition = RouteRecommendation, DispositionRecommend
+		decision.Reason = StructuralReason
 		return decision, nil
 	}
 }
 
 func planIndex(request Request, decision Decision) Decision {
 	decision.Route = RouteVerifyIndex
-	allowed := request.Policy.AllowFKIndexApply
-	if request.Invariant.Kind == InvariantRedundantIndex {
-		allowed = request.Policy.AllowRedundantIndexCleanup
-	}
-	if !allowed {
+	if !request.Policy.AllowFKIndexApply {
 		decision.Disposition = DispositionRecommend
 		return decision
 	}

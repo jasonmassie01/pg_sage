@@ -178,7 +178,7 @@ func (c *Custodian) process(
 		return Remediation{}, err
 	}
 	item := Remediation{Invariant: invariant, Contract: contract, Decision: decision}
-	if !shouldRoute(decision) {
+	if !ShouldRoute(decision) {
 		return item, nil
 	}
 	if err := c.router.Route(ctx, item); err != nil {
@@ -267,9 +267,10 @@ func (c *Custodian) recordRouteFailure(
 	return err
 }
 
-func shouldRoute(decision Decision) bool {
+// ShouldRoute reports whether a decision is sent to the remediation router:
+// only an apply or a dry run is. A recommendation or a park is recorded and
+// never routed, so it is never counted as routed.
+func ShouldRoute(decision Decision) bool {
 	return decision.Disposition == DispositionApply ||
-		decision.Disposition == DispositionDryRun ||
-		(decision.Disposition == DispositionRecommend &&
-			decision.Route == RouteCloneRehearsal)
+		decision.Disposition == DispositionDryRun
 }

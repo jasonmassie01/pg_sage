@@ -1,6 +1,9 @@
 package schemaguard
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestClassifyInvariantUsesPrescribedRemediationClasses(t *testing.T) {
 	tests := []struct {
@@ -21,28 +24,12 @@ func TestClassifyInvariantUsesPrescribedRemediationClasses(t *testing.T) {
 			wantClass: RemediationRetention, auto: true, needsConsent: true,
 		},
 		{
-			name: "missing constraint", kind: InvariantMissingConstraint,
-			wantClass: RemediationRecommendation,
-		},
-		{
 			name: "everything text", kind: InvariantEverythingText,
 			wantClass: RemediationStructural, rehearse: true,
 		},
 		{
 			name: "type tightening", kind: InvariantTypeTightening,
 			wantClass: RemediationStructural, rehearse: true,
-		},
-		{
-			name: "random UUID primary key", kind: InvariantRandomUUIDPK,
-			wantClass: RemediationStructural, rehearse: true,
-		},
-		{
-			name: "no primary key", kind: InvariantNoPrimaryKey,
-			wantClass: RemediationRecommendation,
-		},
-		{
-			name: "redundant index", kind: InvariantRedundantIndex,
-			wantClass: RemediationVerifiedIndex, auto: true, verify: true,
 		},
 	}
 	for _, test := range tests {
@@ -68,6 +55,23 @@ func TestClassifyInvariantRejectsUnknownKind(t *testing.T) {
 	}
 	if classification.AutoRemediable {
 		t.Fatalf("unknown invariant became auto-remediable: %#v", classification)
+	}
+}
+
+// Kinds without a detector were removed (migration-09): they read as
+// unknown, so nothing can plan, route or auto-apply them.
+func TestClassifyInvariantRejectsKindsWithoutADetector(t *testing.T) {
+	for _, kind := range []InvariantKind{"redundant_index", "random_uuid_pk",
+		"no_primary_key", "missing_constraint", ""} {
+		t.Run(string(kind), func(t *testing.T) {
+			classification, err := ClassifyInvariant(kind)
+			if err == nil || !strings.Contains(err.Error(), "unknown invariant kind") {
+				t.Fatalf("ClassifyInvariant(%q) err = %v, want unknown-kind error", kind, err)
+			}
+			if classification != (Classification{}) {
+				t.Fatalf("classification = %#v, want zero", classification)
+			}
+		})
 	}
 }
 

@@ -53,7 +53,6 @@ func NewPostgresSchemaGuard(
 		schemaRemediationRouter{
 			database: database, router: router,
 			verifiedIndexes: verifiedRouter(router),
-			rehearsal:       structuralRouter(router),
 			retention: &postgresRetentionEnforcer{
 				pool: pool, batchLimit: 1000, pipeline: retentionPipeline,
 			},
@@ -66,7 +65,6 @@ type schemaRemediationRouter struct {
 	database        string
 	router          ProposalRouter
 	verifiedIndexes VerifiedIndexRouter
-	rehearsal       StructuralRehearsalRouter
 	retention       *postgresRetentionEnforcer
 }
 
@@ -91,12 +89,6 @@ func (r schemaRemediationRouter) Route(
 		return r.verifiedIndexes.RouteVerifiedIndex(
 			ctx, proposal, item.Invariant.RollbackSQL, item.Invariant.QueryIDs,
 		)
-	case schemaguard.RouteCloneRehearsal:
-		if r.rehearsal == nil || strings.TrimSpace(proposal.SQL) == "" {
-			return nil
-		}
-		proposal.Feature = string(policy.ChangeOnlineMigration)
-		return r.rehearsal.RouteStructuralRehearsal(ctx, proposal)
 	case "":
 		if strings.TrimSpace(proposal.SQL) == "" {
 			return fmt.Errorf("schema remediation SQL is empty")
@@ -109,11 +101,6 @@ func (r schemaRemediationRouter) Route(
 func verifiedRouter(router ProposalRouter) VerifiedIndexRouter {
 	verified, _ := router.(VerifiedIndexRouter)
 	return verified
-}
-
-func structuralRouter(router ProposalRouter) StructuralRehearsalRouter {
-	rehearsal, _ := router.(StructuralRehearsalRouter)
-	return rehearsal
 }
 
 // schemaDecisionRecorder writes one sage.decision row per changed schema
@@ -147,6 +134,10 @@ func schemaDecisionEvidence(record schemaguard.DecisionRecord) map[string]any {
 	if item.Invariant.Subject != "" {
 		evidence["subject"] = item.Invariant.Subject
 	}
+	if rewrite := typeTighteningRewrite(item.Invariant); rewrite != "" {
+		evidence["rewrite_statement"] = rewrite
+		evidence["rewrite_note"] = rewriteNote
+	}
 	if family := item.Invariant.Family; family != nil {
 		state := "live"
 		if family.Idle {
@@ -161,11 +152,34 @@ func schemaDecisionEvidence(record schemaguard.DecisionRecord) map[string]any {
 	return evidence
 }
 
+// schemaDecisionReason is the decision's own reason, else a default: an
+// apply or dry run waits on standing policy; anything else is advisory.
 func schemaDecisionReason(decision schemaguard.Decision) string {
 	if strings.TrimSpace(decision.Reason) != "" {
 		return decision.Reason
 	}
-	return "schema remediation planned; standing policy authorization pending"
+	if schemaguard.ShouldRoute(decision) {
+		return "schema remediation planned; standing policy authorization pending"
+	}
+	return "schema remediation recommended for operator review; " +
+		"pg_sage takes no automated action"
+}
+
+// rewriteNote labels a type tightening's rewrite statement: reference text
+// for the operator, never a proposal (migration-09).
+const rewriteNote = "Rewrites the whole table under ACCESS EXCLUSIVE; " +
+	"not an online migration. Shown for reference, not to run."
+
+// typeTighteningRewrite is the in-place ALTER TYPE a type tightening of a
+// text column to bigint would be, or "" for any other invariant.
+func typeTighteningRewrite(invariant schemaguard.Invariant) string {
+	if invariant.Kind != schemaguard.InvariantTypeTightening || invariant.Subject == "" {
+		return ""
+	}
+	column := quoteIdentifier(invariant.Subject)
+	return "ALTER TABLE " + quoteIdentifier(invariant.Schema) + "." +
+		quoteIdentifier(invariant.Table) + " ALTER COLUMN " + column + " TYPE bigint USING " +
+		column + "::bigint"
 }
 
 func schemaLedgerVerdict(disposition schemaguard.Disposition) ledger.Verdict {
