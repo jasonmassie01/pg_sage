@@ -27,7 +27,12 @@ func TestApproveRestoreCardRefusedDuringStopStaysPending(t *testing.T) {
 	if err := executor.SetEmergencyStop(ctx, pool, true, "test"); err != nil {
 		t.Fatalf("emergency stop: %v", err)
 	}
-	t.Cleanup(func() { _ = executor.SetEmergencyStop(context.Background(), pool, false, "") })
+	t.Cleanup(func() {
+		if err := executor.SetEmergencyStop(context.Background(), pool, false,
+			"test"); err != nil {
+			t.Errorf("lift emergency stop: %v", err)
+		}
+	})
 	actionStore := store.NewActionStore(pool)
 	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
 	card := queueRestoreCard(t, pool, ctx, actionStore, findingID)
