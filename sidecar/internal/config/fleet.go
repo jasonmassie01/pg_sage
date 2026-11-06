@@ -110,6 +110,12 @@ type APIConfig struct {
 	// ["127.0.0.1", "::1"] when unset. Expand this list when running
 	// behind a reverse proxy, load balancer, or CDN.
 	TrustedProxies []string `yaml:"trusted_proxies" doc:"IPs or CIDR blocks permitted to set X-Forwarded-For. Defaults to loopback only. Expand when running behind a trusted reverse proxy, load balancer, or CDN." warning:"Adding an untrusted or externally-reachable proxy lets attackers spoof their client IP and bypass login rate limits."`
+
+	// TrustedOrigins lists browser origins (scheme://host[:port]) whose
+	// cross-origin writes the API accepts (apiauth-10). Needed only when a
+	// reverse proxy rewrites Host and the browser sends no Sec-Fetch-Site,
+	// or when a separately hosted UI calls the API.
+	TrustedOrigins []string `yaml:"trusted_origins" doc:"Browser origins (scheme://host[:port]) allowed to send cross-origin writes to the API. Empty by default: only same-origin browser writes and non-browser clients are accepted." warning:"Every listed origin can submit authenticated writes with a signed-in user's cookie; list only origins you control."`
 }
 
 // normalize fills in defaults and synthesizes Databases from legacy

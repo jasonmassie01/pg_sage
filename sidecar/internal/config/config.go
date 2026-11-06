@@ -105,7 +105,7 @@ type Config struct {
 	// FleetLearning is fleet learning and leader election (fleet_learning.go).
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
-	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
+	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
@@ -681,6 +681,9 @@ func Load(args []string) (*Config, error) {
 
 func (c *Config) validate() error {
 	if err := c.validateTLS(); err != nil {
+		return err
+	}
+	if err := c.API.validateTrustedOrigins(); err != nil {
 		return err
 	}
 	if err := c.validateAgentNative(); err != nil {
@@ -1401,6 +1404,7 @@ func overlayAgentNativeEnv(cfg *Config) {
 	}
 	overlayAzureEnv(cfg)
 	overlayCloudTelemetryEnv(cfg)
+	overlayAPIOriginsEnv(cfg)
 }
 
 // HotReloadable returns the fields that can be reloaded without restart.

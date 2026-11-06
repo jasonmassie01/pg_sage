@@ -116,7 +116,7 @@ func isRestartField(path string) bool {
 		return true
 	}
 	return path == "api.listen_addr" || path == "api.trusted_proxies" ||
-		path == "prometheus.listen_addr"
+		path == "api.trusted_origins" || path == "prometheus.listen_addr"
 }
 
 func reconfigurationOwner(path string) string {
