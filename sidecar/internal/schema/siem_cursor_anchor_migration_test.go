@@ -30,6 +30,17 @@ func siemCursorColumns(t *testing.T, pool *pgxpool.Pool) map[string]string {
 	return out
 }
 
+func hashGuardTriggers(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_trigger
+		WHERE tgrelid = 'sage.siem_cursor'::regclass
+		AND tgname = 'siem_cursor_hash_guard'`).Scan(&n); err != nil {
+		t.Fatalf("read triggers: %v", err)
+	}
+	return n
+}
+
 // audit-01: bootstrap adds the cursor's hash and fork_to columns on a
 // fresh database and on one from before them, twice without error, and
 // keeps existing cursors (their hash NULL until the exporter fills it).
@@ -51,8 +62,11 @@ func TestSIEMCursorAnchorMigration(t *testing.T) {
 	if cols["hash"] != "text" || cols["fork_to"] != "bigint" {
 		t.Fatalf("fresh database columns = %v", cols)
 	}
-	for _, sql := range []string{"ALTER TABLE sage.siem_cursor DROP COLUMN hash, " +
-		"DROP COLUMN fork_to", `INSERT INTO sage.siem_cursor (sink, source, chain, seq)
+	if n := hashGuardTriggers(t, pool); n != 1 {
+		t.Fatalf("fresh database has %d hash guard triggers, want 1", n)
+	}
+	for _, sql := range []string{"DROP TRIGGER siem_cursor_hash_guard ON sage.siem_cursor",
+		"ALTER TABLE sage.siem_cursor DROP COLUMN hash, DROP COLUMN fork_to", `INSERT INTO sage.siem_cursor (sink, source, chain, seq)
 		VALUES ('soc', 'orders', 'action_log', 42)`} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
@@ -65,6 +79,9 @@ func TestSIEMCursorAnchorMigration(t *testing.T) {
 	}
 	if cols := siemCursorColumns(t, pool); len(cols) != 2 {
 		t.Fatalf("upgraded database columns = %v", cols)
+	}
+	if n := hashGuardTriggers(t, pool); n != 1 {
+		t.Fatalf("upgraded database has %d hash guard triggers, want 1", n)
 	}
 	var seq int64
 	var hashNull, forkNull bool

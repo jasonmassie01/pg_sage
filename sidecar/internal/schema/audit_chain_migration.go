@@ -99,9 +99,20 @@ func migrateAuditChain(ctx context.Context, db bootstrapDB) error {
 // ddlSIEMCursorAnchor adds what lets SIEM export see a chain going back
 // (audit-01): the hash of the last exported link (NULL on cursors saved
 // before it, checked by existence then filled) and how far a re-anchor
-// sent the cursor back. The catalog check keeps a second bootstrap from
-// taking the table lock at all.
+// sent the cursor back. The guard trigger drops the hash when an update
+// moves seq without writing one, which is what a sidecar from before this
+// column does during a rolling upgrade; a stale hash would otherwise stop a
+// healthy chain as regressed. The catalog checks keep a second bootstrap
+// from taking the table lock at all.
 const ddlSIEMCursorAnchor = `
+CREATE OR REPLACE FUNCTION sage.siem_cursor_hash_guard() RETURNS trigger
+LANGUAGE plpgsql AS $fn$
+BEGIN
+    IF NEW.seq IS DISTINCT FROM OLD.seq AND NEW.hash IS NOT DISTINCT FROM OLD.hash THEN
+        NEW.hash := NULL;
+    END IF;
+    RETURN NEW;
+END $fn$;
 DO $do$
 BEGIN
     IF to_regclass('sage.siem_cursor') IS NULL THEN
@@ -112,6 +123,12 @@ BEGIN
                    AND attname = 'fork_to' AND NOT attisdropped) THEN
         ALTER TABLE sage.siem_cursor ADD COLUMN IF NOT EXISTS hash text,
             ADD COLUMN IF NOT EXISTS fork_to bigint;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                   WHERE tgrelid = 'sage.siem_cursor'::regclass
+                   AND tgname = 'siem_cursor_hash_guard') THEN
+        CREATE TRIGGER siem_cursor_hash_guard BEFORE UPDATE ON sage.siem_cursor
+            FOR EACH ROW EXECUTE FUNCTION sage.siem_cursor_hash_guard();
     END IF;
 END $do$;
 `

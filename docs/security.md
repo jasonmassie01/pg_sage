@@ -506,7 +506,8 @@ cursor still has that hash.
   chain and position, and the scheduled verification raises a critical
   `audit_chain_regressed` finding on `audit_trail:<chain>`. Other chains
   and other sinks keep exporting. A cursor saved before pg_sage kept
-  hashes is checked for existence only, then gets its hash.
+  hashes, or moved by an older sidecar during a rolling upgrade, is
+  checked for existence only, then gets its hash.
 - **reanchor**: after comparing the SIEM's copy with the database, an
   admin resumes export with
   `POST /api/v1/audit/siem/{sink}/reanchor` and a body
