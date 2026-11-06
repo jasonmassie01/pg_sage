@@ -205,6 +205,16 @@ func isTrustedProxy(host string) bool {
 	return false
 }
 
+// fromTrustedProxy reports whether the request's immediate peer is a
+// configured trusted proxy (api.trusted_proxies).
+func fromTrustedProxy(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	return isTrustedProxy(host)
+}
+
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

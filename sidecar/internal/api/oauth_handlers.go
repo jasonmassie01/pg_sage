@@ -187,7 +187,9 @@ func startSession(
 	return startSessionFor(w, r, pool, userID, auth.SessionDuration)
 }
 
-// startSessionFor is startSession with an explicit lifetime.
+// startSessionFor is startSession with an explicit lifetime. Its cookie
+// (OAuth and break-glass) is always Secure: OAuth redirect URIs are HTTPS
+// or loopback, where browsers keep Secure cookies.
 func startSessionFor(
 	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
 	lifetime time.Duration,

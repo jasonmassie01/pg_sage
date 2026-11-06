@@ -65,8 +65,9 @@ func loginHandler(
 	}
 }
 
-// setLoginSession creates a session and sets its cookie (Secure only when
-// the request arrived over TLS); it reports false after a 500.
+// setLoginSession creates a session and sets its cookie (Secure when the
+// request arrived over TLS or through a trusted TLS proxy); it reports
+// false after a 500.
 func setLoginSession(
 	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
 ) bool {
@@ -80,7 +81,7 @@ func setLoginSession(
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   secureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(auth.SessionDuration.Seconds()),
 	})
@@ -132,20 +133,14 @@ func logoutHandler(
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   isSecureRequest(r),
+			Secure:   secureCookie(r),
+			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
 		jsonResponse(w, map[string]string{
 			"status": "logged out",
 		})
 	}
-}
-
-func isSecureRequest(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 func meHandler() http.HandlerFunc {
