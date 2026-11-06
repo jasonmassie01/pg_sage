@@ -532,6 +532,33 @@ A cursor that goes back because the control database itself was restored
 is not a regression: the link it names is still there, so export simply
 re-sends what follows (delivery is at least once).
 
+#### Attribution trusts the role, not `application_name`
+
+Any session can set `application_name`, so pg_sage never trusts it alone.
+The database role a session logged in as decides.
+
+- **pgaudit records** (`audit.pgaudit.correlate`) are kept in
+  `sage.guard_pgaudit_events` with `correlated_by`:
+  - `application_name`: `pg_sage agent:<principal>[:<action>]` from an
+    agent role (`sage_agent_…` or `sage_agentb_…`). The record names that
+    principal and action.
+  - `role`: any other session of an agent role.
+  - `pg_sage` / `statement`: `application_name = pg_sage` from pg_sage's
+    own login role (`session_user` of its connection), linked to the
+    action whose SQL it ran. The same name from any other role is not
+    pg_sage's and is not kept.
+  - `application_name_unverified`: an agent's application name from a
+    role that is not an agent role. The record is kept for forensics, with
+    the claimed name in `application`, but `principal_id` and `action_id`
+    are NULL, so it never joins an action's evidence.
+- **SIEM severity of audit-row deletes**: a delete is Informational only
+  when the link's `db_user` is pg_sage's role on that database
+  (`current_user` of the exporter's connection) and its application name
+  starts with `pg_sage`. Any other role's delete is Medium, whatever
+  application name it set; a truncate is always High. On managed
+  providers pg_sage's role is the configured user, including IAM and
+  OAuth users.
+
 ---
 
 ## Production Checklist
