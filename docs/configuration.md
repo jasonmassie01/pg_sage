@@ -14,6 +14,24 @@ snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
 `live_policy` field whose owner does not run in the current mode is treated
 as `restart`. In-flight work keeps its original snapshot.
 
+**Trust ceilings are live.** `trust.level`, `trust.tier3_safe`,
+`trust.tier3_moderate`, `trust.maintenance_window`, `trust.rollback_threshold_pct`,
+`trust.rollback_window_minutes`, `trust.rollback_cooldown_days` and
+`trust.cascade_cooldown_cycles` are `live_policy` fields of the `trust_policy` owner.
+Saving one in Settings, through `PUT /api/v1/config`, or in the watched YAML reaches every
+database's executor before its next authorization, in standalone, YAML fleet and meta-db
+mode; none of them is reported as `pending_restart`. A raise is live too (the API answers
+with a "ceiling raised" warning), and the trust ledger still gates every promotion beneath
+it. If the change fails part-way, each executor keeps the stricter of its old and the new
+ceiling (a tier3 switch stays on only if both have it on; the other bounds keep their old
+value), so a failure never raises autonomy. `trust.tier3_high_risk` and the trust ramp
+(`trust.ramp_*`) still need a restart.
+
+**Restarting from the dashboard** is offered only under a declared supervisor: set
+`SAGE_SUPERVISED=1` when a supervisor (systemd, Kubernetes, the Databricks Apps launcher)
+relaunches the sidecar after it exits with code 42. Without it the restart endpoint answers
+501 instead of exiting into nothing.
+
 **Adding, removing and changing databases without a restart.** In YAML fleet
 mode, editing `databases` (or `defaults`) in the watched config file is
 applied at once: a new entry starts a runtime, a removed entry is retired, a
@@ -153,6 +171,7 @@ go run ./cmd/gen_config_meta -lifecycle-only \
 | `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
 | `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
+| `SAGE_SUPERVISED` | (unset) | `1` or `true` declares a supervisor that relaunches the sidecar on exit code 42; only then does the dashboard's restart endpoint work (otherwise it answers 501) |
 
 A `_FILE` variant reads the value from the named file (for Docker, Kubernetes
 or Vault Agent secrets); set either the variable or its `_FILE`, not both.
@@ -345,7 +364,11 @@ time); the startup log prints one `derived settings:` line per database.
 | Parameter | Default | Description |
 |---|---|---|
 | `trust.level` | `observation` | Autonomy ceiling: `observation`, `advisory`, `autonomous`. The trust ledger decides each class's level; this is the most it may use, never a grant |
-| `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window |
+| `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window. Live |
+| `trust.tier3_safe` | `true` | Operator switch for unattended SAFE actions the ledger has earned; off caps them at approval. Live: turning it off stops the next unattended SAFE action |
+| `trust.tier3_moderate` | `false` | Operator switch for unattended MODERATE actions the ledger has earned; off caps them at approval. Live |
+| `trust.rollback_cooldown_days` | `7` | Days a rolled-back finding is not re-applied. Live; a negative value is rejected |
+| `trust.cascade_cooldown_cycles` | `3` | Collector cycles an object rests after an action before the next one. Live; a negative value is rejected |
 | `trust.ramp_start` | (auto) | When pg_sage began observing the database. Auto-persisted on first start; set to override |
 | `trust.ramp_safe_hours` | `192` | Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, `1`-`8760`. A floor, never a grant. Actions that cannot be rolled back always wait at least `192` |
 | `trust.ramp_moderate_hours` | `744` | Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3, 31 days, `1`-`8760`, at least `ramp_safe_hours`. A floor, never a grant. Actions that cannot be rolled back always wait at least `744` |
@@ -384,8 +407,9 @@ never exceed L1.
 
 **The ledger grants, the operator caps.** `trust.level` and the `tier3_safe` /
 `tier3_moderate` flags are the operator's ceiling and kill switch, and stay so permanently:
-the ledger never grants past them, and lowering them takes autonomy back at once (without
-touching the earned levels, which return when the cap is raised). `execution_mode` and the
+the ledger never grants past them, and lowering them takes autonomy back on the next
+authorization, without a restart (without touching the earned levels, which return when the
+cap is raised). `execution_mode` and the
 standing policy cap the same way: `advisory` never runs a MODERATE class unattended whatever
 its level, and `tier3_moderate: false` keeps every MODERATE class at approval.
 
@@ -512,8 +536,8 @@ outcome ledger (`sage.action_outcome`).
 
 | Parameter | Default | Description |
 |---|---|---|
-| `trust.rollback_window_minutes` | `15` | Minimum minutes before a first verdict (not for drops) |
-| `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean |
+| `trust.rollback_window_minutes` | `15` | Minimum minutes before a first verdict (not for drops). Live; a negative value is rejected |
+| `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean. Live, `0`-`100` |
 | `verify.min_samples` | `30` | Calls each window needs |
 | `verify.min_gain_pct` | `20` | Gain bar for `improved` |
 | `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
