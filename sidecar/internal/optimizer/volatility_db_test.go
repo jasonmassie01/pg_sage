@@ -322,3 +322,33 @@ func TestVolatility_QualifiedExtensionCall(t *testing.T) {
 		"CREATE INDEX CONCURRENTLY i ON public.t ((public.soundex(name)))")
 	wantRefused(t, ok, reason, "function_schema_not_allowed", "public.soundex")
 }
+
+// Attack (second review): names that Go normalization folds or collapses
+// onto a pg_catalog name are refused. PostgreSQL keeps İ and a no-break
+// space as part of the identifier, so these DDLs call the planted
+// functions, not pg_catalog.initcap, lower or the SIMILAR grammar.
+func TestVolatility_LexerDivergencePlantedRefused(t *testing.T) {
+	v, pool := volatilityValidator(t)
+	plantAsAttacker(t, pool, "public",
+		`CREATE FUNCTION public."İnitcap"(varchar) RETURNS text IMMUTABLE `+
+			`LANGUAGE sql AS $$SELECT 'x'::text$$`,
+		"CREATE FUNCTION public.\"lower\u00a0\"(varchar) RETURNS text IMMUTABLE "+
+			"LANGUAGE sql AS $$SELECT 'x'::text$$",
+		`CREATE FUNCTION public.similar(varchar) RETURNS text IMMUTABLE `+
+			`LANGUAGE sql AS $$SELECT 'x'::text$$`)
+	for _, keys := range []string{
+		"((İNITCAP(email)))",
+		"((lower\u00a0(email)))",
+		"((similar(email)))",
+	} {
+		ok, reason := checkVol(v, context.Background(),
+			"CREATE INDEX CONCURRENTLY i ON public.t "+keys)
+		if ok || !strings.Contains(reason, "function_schema_not_allowed") {
+			t.Errorf("%q: ok=%t reason=%q, want function_schema_not_allowed",
+				keys, ok, reason)
+		}
+	}
+	ok, reason := checkVol(v, context.Background(), "CREATE INDEX CONCURRENTLY i "+
+		"ON public.t ((lower(city))) WHERE lower(city) = 'zürich' AND email like ('a%')")
+	wantAdmitted(t, ok, reason)
+}

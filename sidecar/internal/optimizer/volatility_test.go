@@ -230,3 +230,45 @@ func TestVolatilityUnit_TrimFromForSkipped(t *testing.T) {
 			ok, reason, fc.begun.Load())
 	}
 }
+
+// Invalid input (second review): where the Go name match and the
+// PostgreSQL lexer disagree, the call is refused, never admitted.
+// TRİM and LIKE (K is the Kelvin sign) fold to trim and like in Go but
+// stay distinct names in PostgreSQL; ☃ is an identifier byte to
+// PostgreSQL; ilike, similar and is are callable function names; a
+// UESCAPE name hides the quote before "("; and PostgreSQL 16+ reads \v as
+// whitespace (the E” string leaves the rest unfolded and uncollapsed).
+func TestVolatilityUnit_LexerDivergenceRefused(t *testing.T) {
+	v, _ := failingValidator(errors.New("connection refused"))
+	for _, tc := range []struct{ keys, want string }{
+		{"((TRİM(email)))", "function_schema_not_allowed"},
+		{"((LI\u212aE(email, 'a')))", "function_schema_not_allowed"},
+		{"((sage☃(email)))", "sage☃"},
+		{"((★.lower(email)))", "★.lower"},
+		{"((similar(email)))", "similar"},
+		{"((ilike(email)))", "ilike"},
+		{"((is(email)))", "is"},
+		{`((U&"l!006fwer" UESCAPE '!'(email)))`, "function_schema_not_allowed"},
+		{"((E'\\'' || evil\v(email) || E'\\''))", "evil"},
+	} {
+		ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{
+			DDL: "CREATE INDEX CONCURRENTLY i ON public.t " + tc.keys})
+		if ok || !strings.Contains(reason, tc.want) {
+			t.Errorf("%q: ok=%t reason=%q, want refused naming %q",
+				tc.keys, ok, reason, tc.want)
+		}
+	}
+}
+
+// Happy path (second review): LIKE written with a parenthesised pattern
+// is looked up, and pg_catalog.like is IMMUTABLE in every overload, so a
+// non-ASCII letter in a literal or an ordinary call does not refuse.
+func TestVolatilityUnit_LikeLookedUpNotSkipped(t *testing.T) {
+	v, fc := failingValidator(errors.New("connection refused"))
+	ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{
+		DDL: "CREATE INDEX CONCURRENTLY i ON public.t (email) WHERE email like ('a%')"})
+	if ok || !strings.Contains(reason, "lookup for like failed") || fc.begun.Load() != 1 {
+		t.Fatalf("ok=%t reason=%q lookups=%d, want one failed lookup of like",
+			ok, reason, fc.begun.Load())
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 )
@@ -19,30 +21,56 @@ var expressionIndexExtensions = []string{
 }
 
 // sqlCallKeywords are SQL keywords that may be followed by "(" but are
-// grammar, not function calls: PostgreSQL never binds them to a user
-// function, so they are not looked up. TRIM is grammar that PostgreSQL
-// always binds to pg_catalog.btrim, ltrim or rtrim (all IMMUTABLE).
+// grammar, not function calls: they are reserved or column-name keywords,
+// which PostgreSQL never binds to a user function unqualified, so they
+// are not looked up. TRIM is grammar that PostgreSQL always binds to
+// pg_catalog.btrim, ltrim or rtrim (all IMMUTABLE). ILIKE, IS, LIKE and
+// SIMILAR are absent on purpose: "similar(x)" calls a function by that
+// name, which may be one another role planted.
 var sqlCallKeywords = map[string]bool{
 	"all": true, "and": true, "any": true, "array": true, "between": true,
 	"case": true, "cast": true, "coalesce": true, "distinct": true, "else": true,
-	"exists": true, "for": true, "from": true, "greatest": true, "ilike": true,
-	"in": true, "is": true, "least": true, "like": true, "not": true,
-	"nullif": true, "or": true, "row": true, "similar": true, "some": true,
-	"symmetric": true, "then": true, "trim": true, "when": true,
+	"exists": true, "for": true, "from": true, "greatest": true, "in": true,
+	"least": true, "not": true, "nullif": true, "or": true, "row": true,
+	"some": true, "symmetric": true, "then": true, "trim": true, "when": true,
 }
 
+// identStart and identCont are the PostgreSQL lexer's identifier
+// characters: ASCII letters, _, digits and $, and every non-ASCII
+// character. pgSpace adds \v, which PostgreSQL 16+ reads as whitespace.
+const (
+	identStart = `[A-Za-z_\x{80}-\x{10FFFF}]`
+	identCont  = `[A-Za-z0-9_$\x{80}-\x{10FFFF}]`
+	pgSpace    = `[\s\v]`
+)
+
 // funcCallRe finds each call: an optional unquoted schema qualifier and
-// the unquoted name (PostgreSQL identifiers may hold any letter, digits
-// and $). Matching is leftmost, so a qualifier is never split off its name.
-var funcCallRe = regexp.MustCompile(
-	`(?:([\p{L}_][\p{L}\p{N}_$]*)\s*\.\s*)?([\p{L}_][\p{L}\p{N}_$]*)\s*\(`)
+// the unquoted name. Matching is leftmost, so a qualifier is never split
+// off its name.
+var funcCallRe = regexp.MustCompile(`(?:(` + identStart + identCont + `*)` +
+	pgSpace + `*\.` + pgSpace + `*)?(` + identStart + identCont + `*)` + pgSpace + `*\(`)
 
 // unverifiableCallRe finds what funcCallRe cannot see: a quoted name used
-// as a function or a schema qualifier, and comments (PostgreSQL accepts
-// "f/**/(x)"). Quoted names are refused rather than parsed, because a
-// string literal holding '"' could otherwise read as a quoted name that
-// swallows a real call.
-var unverifiableCallRe = regexp.MustCompile(`"\s*[.(]|/\*|--`)
+// as a function or a schema qualifier (also U&"..." UESCAPE '!' before
+// "("), and comments (PostgreSQL accepts "f/**/(x)"). Quoted names are
+// refused rather than parsed, because a string literal holding '"' could
+// otherwise read as a quoted name that swallows a real call.
+var unverifiableCallRe = regexp.MustCompile(
+	`(?i)"` + pgSpace + `*[.(]|/\*|--|\buescape\b`)
+
+// foldsUnlikePostgres reports a character that normalizeFragment changes
+// but the PostgreSQL lexer keeps inside an identifier: non-ASCII
+// whitespace, which is collapsed (so "lower" + U+00A0 + "(" reads as
+// lower), and the two characters Go lower-cases to ASCII, U+0130 and the
+// Kelvin sign (so "TR" + U+0130 + "M(" reads as trim).
+func foldsUnlikePostgres(ddl string) bool {
+	for _, r := range ddl {
+		if r >= utf8.RuneSelf && (unicode.IsSpace(r) || unicode.ToLower(r) < utf8.RuneSelf) {
+			return true
+		}
+	}
+	return false
+}
 
 // funcCall is one function an index expression calls; schema is "" when
 // the call is unqualified.

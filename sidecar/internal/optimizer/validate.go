@@ -239,9 +239,10 @@ func (v *Validator) checkBRINCorrelation(
 // VOLATILE functions in index expressions). A name with no such overload
 // (a function planted in public, or none at all), a call qualified by a
 // schema that holds none, and a call the name match cannot see (a quoted
-// name, a comment) are refused with function_schema_not_allowed, and a
-// failed lookup refuses the index. ParseIndexDDL folds unquoted names to
-// lower case, as PostgreSQL does.
+// name, a comment, a character Go folds unlike PostgreSQL) are refused
+// with function_schema_not_allowed, and a failed lookup refuses the index.
+// ParseIndexDDL folds unquoted ASCII names to lower case, as PostgreSQL
+// does.
 func (v *Validator) checkExpressionVolatility(
 	ctx context.Context,
 	rec Recommendation,
@@ -251,9 +252,11 @@ func (v *Validator) checkExpressionVolatility(
 		return true, ""
 	}
 	frag := spec.Keys + " " + spec.Where
-	if unverifiableCallRe.MatchString(frag) {
+	if unverifiableCallRe.MatchString(frag) ||
+		(strings.Contains(frag, "(") && foldsUnlikePostgres(rec.DDL)) {
 		return false, "function_schema_not_allowed: a quoted function or schema " +
-			"name, or a comment, in an index expression cannot be verified"
+			"name, a comment, or a character PostgreSQL reads differently, in an " +
+			"index expression cannot be verified"
 	}
 	for _, c := range functionCalls(frag) {
 		if reason := v.functionVolatility(ctx, c); reason != "" {
