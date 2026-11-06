@@ -270,6 +270,45 @@ The hint is accepted by pg_hint_plan (confirmed via `pg_hint_plan.debug_print`).
 
 **Verdict:** `external merge Disk: 22MB` &rarr; `quicksort Memory: 125MB`. Temp I/O eliminated entirely (0 temp reads/writes).
 
+### How the tuner sizes a stat-based spill hint
+
+When no captured plan shows the sort or hash that spills, the tuner sizes the hint from
+`pg_stat_statements`. Its counters are cumulative, so the tuner sizes from the interval
+between two tuner cycles, never from the totals:
+
+1. Each cycle it keeps a baseline of `calls` and `temp_blks_written` for each statement and
+   role (`queryid`, `userid`). The first sighting of a statement only records the baseline,
+   so no `stat_temp_spill` finding appears on the first cycle after startup. A fall in either
+   counter (`pg_stat_statements_reset()`) starts a new baseline and gives no finding.
+2. The per-call spill is `Δtemp_blks_written × block_size / Δcalls`. `block_size` is read from
+   the server each cycle.
+3. The baseline `work_mem` is the one the statement's role runs with: its role-in-database
+   setting, then its role setting, then the database setting (`pg_db_role_setting`), then the
+   server default (`pg_settings.reset_val`). pg_sage's own session value is not used. A
+   per-call spill at or below that baseline gives no hint.
+4. The hint doubles the baseline until it is at least twice the per-call spill. There is no
+   64 MB floor. Example: 1,000 calls that wrote 2,048 blocks each spill 16 MB per call; at a
+   4 MB baseline the hint is `Set(work_mem "32MB")`. 100,000 calls of 1 MB each give no
+   hint at 4 MB.
+5. No hint is emitted when the result, after the cap below, is not above the baseline.
+
+The finding's `stat_spill_sizing` detail records each number in this arithmetic.
+
+### The per-query work_mem cap
+
+Every work_mem hint, from the deterministic rules or from the tuning agent, is capped at
+**min(`tuner.work_mem_max_mb`, 5% of host memory)**. This is the same 5% rule the config
+advisor applies to `ALTER SYSTEM SET work_mem`. One hint applies to every sort or hash node
+of every concurrent execution, multiplied by `hash_mem_multiplier`.
+
+- Deterministic hints above the cap are clamped to it. The finding's `work_mem_budget` detail
+  records the requested size, the cap and the host memory used.
+- The tuning agent's hints above 5% of host memory are refused ("above 5% of host memory").
+  Its prompt cites the computed cap.
+- When host memory is unknown (no managed-cloud memory telemetry, for example on a
+  self-managed host), only `tuner.work_mem_max_mb` applies. Every work_mem hint is then
+  marked `approval_required`, so it waits for an operator.
+
 ---
 
 ## 9. Missing FK Index &rarr; CREATE INDEX
