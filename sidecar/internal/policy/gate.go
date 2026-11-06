@@ -70,6 +70,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
 	}
+	if IsDropRestore(req) {
+		return gate.dropRestoreDecision(ctx, runtime, req)
+	}
 	if observeOnly(runtime) {
 		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
 	}

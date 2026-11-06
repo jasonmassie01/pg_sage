@@ -506,6 +506,40 @@ the table regresses or an active pg_sage hint names it (soft drop). VACUUM and A
 checked right after they run (dead tuples, rows modified since analyze, relfrozenxid age
 for VACUUM FREEZE).
 
+The soft-drop restore runs under its own typed contract:
+
+| Action contract | Risk | Rollback class | Change class | Approval | What it runs |
+|---|---|---|---|---|---|
+| `restore_dropped_index` | SAFE | reversible | `index` | none | `CREATE [UNIQUE] INDEX CONCURRENTLY` of the definition recorded with the drop |
+
+- **Same SQL everywhere.** When a drop runs, the definition the rule recorded is stored once,
+  in its `CONCURRENTLY` form, as the action's `rollback_sql`; the monitor and the operator's
+  rollback button run that statement. A restore that differs from it byte for byte, or
+  re-creates another index or table, is refused with the reason `rollback_sql_mismatch`
+  and never reaches the gate. Rows written before v2.5.1 keep the raw definition; it is
+  normalized when their monitor resumes.
+- **Survives trust downgrades.** The restore was a condition of the autonomy the drop ran
+  under, and it only re-creates what existed. Lowering trust after the drop
+  (`trust.level: observation`, `execution_mode: approval` or `manual`,
+  `trust.tier3_safe: false`, a ramp reset) does not strand it: the decision is
+  `execute` with the reason `drop_restore_bypass`, its detail names the downgrade it
+  passed, and it bypasses the kind budgets. The executor-disabled switch, a replica, the
+  provider list, the standing policy's change classes, approval classes and refusal set,
+  degraded SQL validation and the lock ceiling still bind. No other rollback gains this
+  bypass.
+- **The emergency stop still stops it, visibly.** A restore due during an emergency stop runs
+  no DDL: the action is recorded as `rollback_withheld` (reason `emergency_stop: ...`) and
+  one approval card, "Restore the index dropped by action N", is queued. The card is not
+  approvable during the stop; after the stop is lifted, approving it runs the recorded
+  restore through the operator rollback. It is superseded if the action is rolled back
+  another way, and expires like any queue item (7 days); the action's rollback stays
+  available after that.
+- **Reasons apart.** A rollback that no action contract classifies is withheld as
+  `no_rollback_contract: ...`, distinct from a policy refusal (`standing policy withheld
+  automatic rollback (<verdict>: <reason>)`). At startup the executor checks that every
+  reversible forward contract's rollback classifies to a contract and logs each one that
+  does not at ERROR.
+
 Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
 `/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
 outcome ledger (`sage.action_outcome`).

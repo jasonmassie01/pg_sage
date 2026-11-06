@@ -375,7 +375,7 @@ func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actio
 		e.verifyImmediate(ctx, actionID)
 		return
 	}
-	monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))
+	monitorCfg := e.findingMonitorConfig(f, actionID)
 	e.startRollbackMonitor(func() {
 		MonitorAndRollback(
 			context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,

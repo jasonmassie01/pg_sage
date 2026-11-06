@@ -53,8 +53,8 @@ func TestRestoreSQLForDropIsTheConcurrentDefinition(t *testing.T) {
 		}
 	}
 	for raw, want := range map[string]string{
-		"":                       "",
-		"   ;  ":                 "",
+		"":       "",
+		"   ;  ": "",
 		"  CREATE INDEX i ON public.t USING btree (a) ;\n": "CREATE INDEX CONCURRENTLY i ON " +
 			"public.t USING btree (a)",
 		"create index i on public.t (a)": "create index CONCURRENTLY i on public.t (a)",
@@ -135,7 +135,7 @@ func TestMatchDropRestoreRefusesEverythingElse(t *testing.T) {
 		"forward is no drop": {c.want, c.rollback, "VACUUM public.orders"},
 		"empty restore":      {"", c.rollback, c.drop},
 		"empty record":       {c.want, "", c.drop},
-		"record not create":  {"ALTER TABLE public.orders RESET (fillfactor)", "ALTER TABLE " +
+		"record not create": {"ALTER TABLE public.orders RESET (fillfactor)", "ALTER TABLE " +
 			"public.orders RESET (fillfactor)", c.drop},
 	}
 	for name, in := range cases {

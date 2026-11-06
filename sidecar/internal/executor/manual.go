@@ -498,6 +498,7 @@ func (e *Executor) logManualActionWithDecision(
 ) int64 {
 	beforeJSON, _ := json.Marshal(beforeState)
 	outcome := actionOutcome(execErr)
+	rollbackSQL = storedRollbackSQL(sql, rollbackSQL)
 	actionID, err := e.recordAction(ctx, claim, execErr,
 		func(q actionLogWriter) (int64, error) {
 			var id int64

@@ -181,6 +181,7 @@ func New(
 		},
 	}
 	executor.configureIndexVerification()
+	executor.checkRollbackContracts()
 	return executor
 }
 

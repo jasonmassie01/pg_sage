@@ -71,7 +71,7 @@ func (e *Executor) exceedsOscillationLimit(
 		`/* pg_sage */ SELECT count(*) FROM sage.action_log
 		 WHERE sql_executed = $1
 		   AND outcome IN ('success', 'rolled_back', 'rollback_failed',
-		                   'rollback_skipped')
+		                   'rollback_skipped', 'rollback_withheld')
 		   AND executed_at > now() - make_interval(days => $2)`,
 		f.RecommendedSQL, oscillationWindowDays,
 	).Scan(&n); err != nil {

@@ -193,7 +193,7 @@ func (f restoreFixture) restoreDecision(t *testing.T) (verdict, reason, gate str
 	t.Helper()
 	if err := f.pool.QueryRow(f.ctx, `SELECT verdict, reason,
 		COALESCE(evidence->>'gate_reason', '') FROM sage.decision
-		WHERE proposed_sql = $1 ORDER BY id DESC LIMIT 1`, f.finding.RollbackSQL).
+		WHERE evidence->>'proposed_sql' = $1 ORDER BY id DESC LIMIT 1`, f.finding.RollbackSQL).
 		Scan(&verdict, &reason, &gate); err != nil {
 		t.Fatalf("restore decision: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestDropRestoreRefusesMismatchedSQL(t *testing.T) {
 			}
 			var n int
 			if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM sage.decision
-				WHERE proposed_sql LIKE 'CREATE%'`).Scan(&n); err != nil || n != 0 {
+				WHERE evidence->>'proposed_sql' LIKE 'CREATE%'`).Scan(&n); err != nil || n != 0 {
 				t.Fatalf("mismatched restore reached the gate: %d decisions (%v)", n, err)
 			}
 		})
@@ -436,6 +436,29 @@ func TestDropRestoreFailedBuildIsRollbackFailed(t *testing.T) {
 	if calls := f.spy.calls(); len(calls) != 1 ||
 		!strings.HasPrefix(calls[0], "CREATE UNIQUE INDEX CONCURRENTLY ") {
 		t.Fatalf("rollback statements = %q, want the one failed CONCURRENTLY build", calls)
+	}
+}
+
+// Boundary: an INVALID index of the same name (a failed build left it) is
+// never read as "already restored"; the restore fails visibly instead.
+func TestDropRestoreInvalidLeftoverIsNotRestored(t *testing.T) {
+	f := newRestoreFixture(t, true)
+	mustExec(t, f.pool, f.ctx, "INSERT INTO public."+f.table+" VALUES (1), (1)")
+	if _, err := f.pool.Exec(f.ctx, f.finding.RollbackSQL); err == nil {
+		t.Fatal("the unique build over duplicates succeeded; no invalid leftover")
+	}
+
+	f.monitor()
+
+	if outcome, reason := f.outcome(t); outcome != "rollback_failed" {
+		t.Fatalf("outcome = %q (%s), want rollback_failed over an INVALID index", outcome,
+			reason)
+	}
+	var valid bool
+	if err := f.pool.QueryRow(f.ctx, `SELECT indisvalid FROM pg_index
+		WHERE indexrelid = to_regclass($1)`, "public."+f.index).Scan(&valid); err != nil ||
+		valid {
+		t.Fatalf("leftover index valid = %v (%v), want it left INVALID", valid, err)
 	}
 }
 

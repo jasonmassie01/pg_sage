@@ -147,7 +147,7 @@ func settlement(e effect) (verdict string, final State) {
 		return "regressed", StateReverted
 	case "unverifiable", "failed":
 		return outcome, StateInconclusive
-	case "rollback_failed", "rollback_skipped":
+	case "rollback_failed", "rollback_skipped", "rollback_withheld":
 		return "regressed", ""
 	}
 	if e.verification == nil {

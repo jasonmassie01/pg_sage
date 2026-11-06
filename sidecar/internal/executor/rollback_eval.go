@@ -41,7 +41,8 @@ func CheckHysteresis(
 	var one int
 	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT 1 FROM sage.action_log al
 		 LEFT JOIN sage.findings prev ON prev.id = al.finding_id
-		 WHERE al.outcome IN ('rolled_back', 'rollback_failed', 'rollback_skipped')
+		 WHERE al.outcome IN ('rolled_back', 'rollback_failed', 'rollback_skipped',
+		                      'rollback_withheld')
 		   AND al.executed_at > now() - make_interval(days => $2)
 		   AND (al.finding_id = $1 OR EXISTS (
 		        SELECT 1 FROM sage.findings cur WHERE cur.id = $1
@@ -133,7 +134,8 @@ func updateActionSuccess(ctx context.Context, pool *pgxpool.Pool, actionID int64
 		     after_state = jsonb_build_object('cache_hit_ratio', $1::float8),
 		     measured_at = now()
 		 WHERE id = $2 AND outcome NOT IN ('rolled_back', 'rolling_back',
-		       'rollback_failed', 'rollback_skipped', 'failed', 'unverifiable')`,
+		       'rollback_failed', 'rollback_skipped', 'rollback_withheld', 'failed',
+		       'unverifiable')`,
 		cacheHit, actionID,
 	)
 	if err != nil || tag.RowsAffected() != 1 {
