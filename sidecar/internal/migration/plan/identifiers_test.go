@@ -202,6 +202,7 @@ func TestPlannerRefusesOptionsItCannotCarry(t *testing.T) {
 		"NULLS DISTINCT (email)":                  `"NULLS DISTINCT (email)"`,
 		"(email) DEFERRABLE INCLUDE (name)":       `"INCLUDE (name)"`,
 		"(email) garbage":                         `"garbage"`,
+		"(email) -- trailing comment":             `"-- trailing comment"`,
 		"(email) 'literal'":                       `"'literal'"`,
 		"(email) INITIALLY DEFERRED WITH (x = 1)": `"WITH (x = 1)"`,
 	}
