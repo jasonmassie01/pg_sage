@@ -24,6 +24,9 @@ type ProviderCapabilities struct {
 	Blockers         []string                    `json:"blockers,omitempty"`
 	ActionFamilies   []ActionFamilyReadiness     `json:"action_families,omitempty"`
 	ReadyForAutoSafe bool                        `json:"ready_for_auto_safe"`
+	// PendingProvider is what a re-probe of an unknown provider found where
+	// the runtime cannot be rebuilt in place; it applies after a restart.
+	PendingProvider string `json:"pending_provider,omitempty"`
 }
 
 type ActionFamilyReadiness struct {
@@ -327,6 +330,10 @@ func readinessBlockers(caps ProviderCapabilities) []string {
 	var blockers []string
 	if caps.Provider == "" || caps.Provider == "unknown" {
 		blockers = append(blockers, "provider unknown")
+	}
+	if caps.PendingProvider != "" {
+		blockers = append(blockers,
+			"provider re-probe found "+caps.PendingProvider+"; restart pg_sage to apply")
 	}
 	if caps.IsReplica {
 		blockers = append(blockers, "target is a replica")
