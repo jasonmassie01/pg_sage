@@ -500,8 +500,8 @@ with a Bonferroni-corrected significance and the call-weighted pool decides. A f
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
 
-Verification pauses while its evidence is unreadable. A failed read of the query history,
-the write history or the catalog (a lost connection, or the meta database down under
+Verification pauses while its evidence is unreadable. A failed read of the query history
+or the catalog (a lost connection, or the meta database down under
 `history.store: meta`) and a shutdown mid-check are not evidence that the change failed: the
 watch stays open with `sage.verification.verdict = extended` and `reason =
 observation_retry: <error>`, and it is checked again after 5, 15 and then every 60 minutes
@@ -514,6 +514,22 @@ that reads the index as invalid still reverts it immediately. At startup, a watc
 earlier version closed after a transient read error or a shutdown (`observation_unavailable`
 or `context_canceled` with the hard deadline still ahead) is reopened and checked again;
 until that sweep succeeds, no index watch is resumed, so none of those changes is reverted.
+
+Write cost is advisory evidence for now, never a revert reason. The only write signal is
+database-wide (`pg_stat_database.blk_write_time` from the system snapshots, non-zero only
+with `track_io_timing`), so it cannot be charged to one index: an index built in a night
+window would otherwise be dropped by the daytime write load that follows, whatever it
+costs. Each index verdict records it as `write_signal` in the verdict evidence
+(`sage.action_outcome.evidence`): `scope: database`, `metric: blk_write_time`,
+`before_ms`, `after_ms`, `delta_pct`, `threshold_pct`, `exceeds_threshold` (a rise above
+`verify.write_impact_pct`) and `decisive: false`. With no baseline (`track_io_timing` off)
+it carries `unavailable` and no delta; a failed read of the write history is recorded in
+`write_signal.error` and does not pause the watch. When the rise exceeds the threshold, the
+outcome reason says so and that it is advisory. The index is kept or reverted on its
+queries alone (`query_regression`, `no_gain`, `invalid_index`, `insufficient_samples`).
+At startup, an open `write_impact` revert from an earlier version whose drop has not run
+is reopened and checked again on its queries. A table-scoped write signal that can revert
+again is planned (executor-03b).
 
 An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
 from the start. Its definition is kept, and the index is re-created as soon as a query on
@@ -565,6 +581,7 @@ outcome ledger (`sage.action_outcome`).
 | `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean |
 | `verify.min_samples` | `30` | Calls each window needs |
 | `verify.min_gain_pct` | `20` | Gain bar for `improved` |
+| `verify.write_impact_pct` | `20` | Advisory: rise in database-wide write time reported as `write_signal.exceeds_threshold`. It does not revert an index until a table-scoped signal replaces it (executor-03b) |
 | `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
 | `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
 

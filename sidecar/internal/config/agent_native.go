@@ -15,7 +15,7 @@ type VerifyConfig struct {
 	WindowMaxMinutes int     `yaml:"window_max_minutes" doc:"Maximum verification window."`
 	MinGainPct       float64 `yaml:"min_gain_pct" doc:"Minimum gain required to retain a change."`
 	RegressPct       float64 `yaml:"regress_pct" doc:"Regression percentage that triggers revert."`
-	WriteImpactPct   float64 `yaml:"write_impact_pct" doc:"Maximum write-latency increase."`
+	WriteImpactPct   float64 `yaml:"write_impact_pct" doc:"Advisory write-time rise; never reverts."`
 	MinSamples       int     `yaml:"min_samples" doc:"Minimum verification samples."`
 
 	// IO load admission (D6). io_capacity is standalone-only; fleet
