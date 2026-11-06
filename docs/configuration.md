@@ -905,8 +905,9 @@ whose age defines it; pg_sage never infers the column:
 
 The schema guard also detects structural pathologies: `everything_text` (a table
 of three or more columns, all text) and `type_tightening` (a text column named
-like a number, ending in `_id`, `_count` or `_number`). Fixing either needs an online column
-migration, which pg_sage cannot plan or run, so these invariants are never routed,
+like a number: ending in `_id`, `_count` or `_number`, or named `count_text`).
+Fixing either needs an online column migration, which pg_sage cannot plan or
+run, so these invariants are never routed,
 never auto-applied and never counted as routed:
 
 - The ledger records each one once as a `recommendation` (verdict `observe_only`,
