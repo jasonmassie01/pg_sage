@@ -100,6 +100,9 @@ type Executor struct {
 	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
+	// retriesReopened is set once the startup sweep of transient unverifiable
+	// watches from before observation retries has succeeded (executor-02).
+	retriesReopened atomic.Bool
 	// approvedRunner runs approved queue items it owns (Sage SRE M5).
 	approvedRunner approvedRunnerSlot
 	// replaceWatch and replaceHooks: the replace action's verification
