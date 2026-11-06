@@ -72,7 +72,10 @@ request travels in:
 
 - **Roles** (`types.go:21-35`): `admin`, `operator`, `viewer`. `ValidRoles` map +
   `IsValidRole`.
-- **Session** stored in `sage.sessions` (UUID PK, `user_id`, `expires_at`).
+- **Session** stored in `sage.sessions` (UUID PK, `user_id`, `expires_at`,
+  `token_hash`). The cookie is 32 random bytes (base64url); only its SHA-256
+  is stored and looked up (`session_token.go`, apiauth-04). `EndUserSessions`
+  is the one place that ends a user's sessions.
   `SessionDuration = 24h`, `BcryptCost = 12` (`types.go:26-27`).
   - `CreateSession` (`auth.go:108`), `ValidateSession` joins sessions→users,
     checks `expires_at > now()` (`auth.go:124`), `DeleteSession` (logout),
@@ -174,7 +177,8 @@ All under `/api/v1/`. **Auth = session cookie unless noted.** "Role" = extra
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/auth/login` | public | Email/password login → `sage_session` |
-| POST | `/auth/logout` | session | Delete session, clear cookie |
+| POST | `/auth/logout` | session | Delete session, clear cookie, audit `logout` |
+| DELETE | `/auth/sessions` | session | End the user's other sessions, audit `sessions_revoked` |
 | GET | `/auth/me` | session | Current user `{id,email,role}` |
 | GET | `/auth/oauth/config` | public | `{enabled, provider}` |
 | GET | `/auth/oauth/authorize` | public | Returns `{url}` + sets `oauth_state` cookie |

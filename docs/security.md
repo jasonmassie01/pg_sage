@@ -168,6 +168,25 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
+The `sage_session` cookie is 32 random bytes (base64url). pg_sage stores only
+its SHA-256 in `sage.sessions.token_hash`, so reading the `sage` schema (a role
+with `pg_read_all_data`, a logical dump, a restored backup) or a server log
+that records bind parameters does not yield a usable session. The row `id` is
+not a secret and does not authenticate. Sessions last 24 hours (break-glass
+sessions one hour); a malformed cookie is refused without a query.
+
+- `POST /api/v1/auth/logout` ends the current session and records `logout`.
+- `DELETE /api/v1/auth/sessions` ("sign out everywhere else") ends every other
+  session of the signed-in user, keeps the one that sent it, answers
+  `{"revoked": N}` and records `sessions_revoked` with the count.
+- Unlinking a user's SSO identity, and the Databricks admin bootstrap, end all
+  of that user's sessions.
+- If the session store cannot be read the API answers 503, not 401, so a
+  database blip does not look like an expired session.
+
+Upgrading to the release that introduced hashed sessions deletes every
+existing session once: every dashboard user signs in again after the upgrade.
+
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
 
@@ -301,6 +320,8 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `user_created`, `user_deleted` | Admin user administration |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
+| `logout` | A user signed out |
+| `sessions_revoked` | "Sign out everywhere else" (`detail.count`, `detail.scope`) |
 
 Rows never contain passwords, tokens or email addresses; a failed password
 login names the targeted account by id when it exists.
