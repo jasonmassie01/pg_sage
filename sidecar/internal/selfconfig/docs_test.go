@@ -1,6 +1,8 @@
 package selfconfig
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -52,6 +54,41 @@ func TestLiveKeyReadersListsOnlyLiveDerivedKeys(t *testing.T) {
 			t.Errorf("%s is listed as a live reader but is restart-bound", key)
 		}
 	}
+}
+
+// Every listed reader test exists: "pkg.TestName" names a func in a
+// _test.go file of internal/<pkg>, so a renamed or deleted reader test
+// cannot leave a live key vouched for by nothing.
+func TestLiveKeyReadersNameExistingTests(t *testing.T) {
+	for key, reader := range liveKeyReaders {
+		pkg, name, ok := strings.Cut(reader, ".")
+		if !ok || !strings.HasPrefix(name, "Test") {
+			t.Errorf("%s: reader %q is not pkg.TestName", key, reader)
+			continue
+		}
+		files, err := filepath.Glob(filepath.Join("..", pkg, "*_test.go"))
+		if err != nil || len(files) == 0 {
+			t.Errorf("%s: no test files for package %q (%v)", key, pkg, err)
+			continue
+		}
+		if !anyFileDeclares(t, files, "func "+name+"(t *testing.T)") {
+			t.Errorf("%s: reader test %s not found in internal/%s", key, name, pkg)
+		}
+	}
+}
+
+func anyFileDeclares(t *testing.T, files []string, decl string) bool {
+	t.Helper()
+	for _, f := range files {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if strings.Contains(string(src), decl) {
+			return true
+		}
+	}
+	return false
 }
 
 // CHECK-03: a new derived key marked live without a reader test is
