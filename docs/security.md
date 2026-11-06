@@ -391,12 +391,45 @@ ciphertext.
   notification channel secrets are still sealed with `encryption_key` alone
   and must be re-entered after a rotation.
 
+### CSRF and Cross-Origin Requests
+
+The session cookie is `HttpOnly` and `SameSite=Lax`, so another website cannot
+send it on a write. `SameSite` does not separate *sites* from *origins*: a page
+on a sibling subdomain or on another port of the same host is same-site and
+would get the cookie. Every `/api/v1/*` route therefore also runs Go's
+cross-origin protection (`http.CrossOriginProtection`), ahead of
+authentication:
+
+- `GET`, `HEAD` and `OPTIONS` always pass; they change nothing.
+- A browser write passes when it sends `Sec-Fetch-Site: same-origin` (or
+  `none`, a user-typed request). `same-site` and `cross-site` writes get 403,
+  including the multipart CSV import (`POST /api/v1/databases/managed/import`),
+  which an HTML form could otherwise submit.
+- A browser that sends no `Sec-Fetch-Site` (older than 2023) is checked by its
+  `Origin` header against the request's `Host`.
+- A request with neither header is not from a browser (curl, SDKs, MCP
+  clients, ChatOps callbacks) and passes to authentication unchanged.
+- `api.trusted_origins` (`SAGE_API_TRUSTED_ORIGINS`, comma-separated) lists
+  exact origins, `scheme://host[:port]`, whose cross-origin writes are
+  accepted: a separately hosted UI, or a reverse proxy that rewrites `Host`
+  for browsers that send no `Sec-Fetch-Site`. It is empty by default, ignored
+  in Databricks App mode, and a malformed entry stops startup with the entry
+  named. Every listed origin can submit writes with a signed-in user's
+  cookie, so list only origins you control.
+
+The API sends no CORS headers: the dashboard is served from the API's own
+origin, and the Vite dev server proxies `/api` to the sidecar.
+
 ### TLS
 
 Set `SAGE_TLS_CERT` and `SAGE_TLS_KEY` to PEM files and the API and dashboard
 listener serves HTTPS only (TLS 1.2 or newer); session cookies are then marked
 `Secure`. Without them it serves plain HTTP, for use behind a TLS-terminating
-reverse proxy, Kubernetes Ingress, Cloud Run or load balancer.
+reverse proxy, Kubernetes Ingress, Cloud Run or load balancer. Behind such a
+proxy the password-login session cookie is `Secure` only when the proxy's
+address is in `api.trusted_proxies` (default: loopback) and it sends
+`X-Forwarded-Proto: https`; the header from any other peer is ignored. SSO and
+break-glass session cookies are always `Secure`.
 
 - Setting only one of the two is a startup error, so a typo can't silently
   downgrade to HTTP.
@@ -509,7 +542,7 @@ Both tables are subject to retention policies (configurable via `retention.actio
 ## Production Checklist
 
 1. **Protect the dashboard/API listener** -- use a private network, reverse proxy, or identity-aware edge.
-2. **Use TLS** -- set `SAGE_TLS_CERT`/`SAGE_TLS_KEY` or terminate TLS at the edge; do not expose plain HTTP directly to the internet.
+2. **Use TLS** -- set `SAGE_TLS_CERT`/`SAGE_TLS_KEY` or terminate TLS at the edge; do not expose plain HTTP directly to the internet. Behind a TLS proxy, list it in `api.trusted_proxies` so session cookies are `Secure`.
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.

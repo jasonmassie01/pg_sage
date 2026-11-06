@@ -149,6 +149,7 @@ go run ./cmd/gen_config_meta -lifecycle-only \
 | `SAGE_TLS_KEY` | (none) | PEM private key file for `SAGE_TLS_CERT`; set both or neither |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
+| `SAGE_API_TRUSTED_ORIGINS` | (none) | Comma-separated `api.trusted_origins`: browser origins allowed to send cross-origin API writes ([CSRF](security.md#csrf-and-cross-origin-requests)) |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |
 | `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
@@ -686,6 +687,31 @@ request. Grant/revoke App access through Databricks permissions. See the
 [Apps deployment guide](databricks-apps.md) for the trusted-ingress boundary and
 resource setup. This browser identity does not change the App service principal
 used by Lakebase and Gateway background operations.
+
+#### Behind a reverse proxy
+
+Browser writes to the API must come from the API's own origin
+([CSRF model](security.md#csrf-and-cross-origin-requests)). Current browsers
+send `Sec-Fetch-Site`, so a proxy that serves the dashboard and the API on one
+origin needs nothing extra, even if it rewrites `Host`. Two cases need
+`api.trusted_origins` (restart to change):
+
+- The proxy rewrites `Host` (for example nginx `proxy_set_header Host upstream`)
+  and some users run browsers that send no `Sec-Fetch-Site`: list the public
+  origin, for example `https://sage.example.com`.
+- A UI on another origin calls the API: list that origin.
+
+```yaml
+api:
+  trusted_proxies: [10.0.0.0/8]          # the proxy's addresses
+  trusted_origins: [https://sage.example.com]
+```
+
+Entries are exact, lowercase origins with no path and no default port
+(`https://sage.example.com`, not `https://sage.example.com/` or
+`https://sage.example.com:443`). Put the proxy's address in
+`api.trusted_proxies` too: the session cookie is marked `Secure` from the
+proxy's `X-Forwarded-Proto: https` only when the proxy is trusted.
 
 #### Profiling the sidecar
 

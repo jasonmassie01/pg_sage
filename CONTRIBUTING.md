@@ -37,6 +37,11 @@ Run against a local database:
 On first startup, pg_sage prints a one-time password for
 `admin@pg-sage.local`; use it to log in at `http://localhost:8080`.
 
+For dashboard work, run `npm run dev` in `sidecar/web` and open
+`http://localhost:5173`. The Vite dev server proxies `/api` to the sidecar on
+`:8080`, so the browser sees one origin; the API sends no CORS headers and
+refuses cross-origin writes.
+
 ## Test Commands
 
 Backend:
