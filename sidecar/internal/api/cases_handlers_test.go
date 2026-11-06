@@ -231,13 +231,16 @@ func TestSourceIncidentFromMapProjectsPlaybookCandidate(t *testing.T) {
 	if projected.SourceType != cases.SourceIncidentType {
 		t.Fatalf("SourceType = %q", projected.SourceType)
 	}
-	if len(projected.ActionCandidates) != 3 {
-		t.Fatalf("ActionCandidates = %d, want 3",
+	// playbooks-01: the PID here is prose, not a structured blocker, so the
+	// playbook is the diagnostic plus a blocked cancel (no terminate).
+	if len(projected.ActionCandidates) != 2 {
+		t.Fatalf("ActionCandidates = %d, want 2",
 			len(projected.ActionCandidates))
 	}
-	if projected.ActionCandidates[1].ActionType != "cancel_backend" {
-		t.Fatalf("second candidate = %q",
-			projected.ActionCandidates[1].ActionType)
+	cancel := projected.ActionCandidates[1]
+	if cancel.ActionType != "cancel_backend" || cancel.BlockedReason == "" ||
+		cancel.ProposedSQL != "" {
+		t.Fatalf("second candidate = %+v, want a blocked cancel_backend", cancel)
 	}
 }
 

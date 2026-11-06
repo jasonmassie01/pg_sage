@@ -1,6 +1,8 @@
 package cases
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,20 +30,23 @@ func TestProjectIncidentCreatesHighUrgencyCase(t *testing.T) {
 	}
 }
 
+// playbooks-01: a PID in prose ("Idle-in-transaction PID 12345") is not a
+// backend identity, so the playbook offers the diagnostic and a blocked
+// cancel, never a bare-PID cancel or terminate.
 func TestIdleTxnIncidentAddsPlaybookCandidates(t *testing.T) {
 	incident := testIncident("prod")
 
 	got := ProjectIncident(incident)
 
-	if len(got.ActionCandidates) != 3 {
-		t.Fatalf("ActionCandidates = %d, want 3", len(got.ActionCandidates))
+	if len(got.ActionCandidates) != 2 {
+		t.Fatalf("ActionCandidates = %d, want 2", len(got.ActionCandidates))
 	}
 	assertCandidate(t, got.ActionCandidates[0],
 		"diagnose_lock_blockers", "safe", "")
-	assertCandidate(t, got.ActionCandidates[1],
-		"cancel_backend", "moderate", "SELECT pg_cancel_backend(12345)")
-	assertCandidate(t, got.ActionCandidates[2],
-		"terminate_backend", "high", "SELECT pg_terminate_backend(12345)")
+	assertCandidate(t, got.ActionCandidates[1], "cancel_backend", "moderate", "")
+	assertBlockedSignal(t, got.ActionCandidates[1],
+		"no single structured blocker identity")
+	assertNoBarePIDSignal(t, got)
 }
 
 func TestIdleTxnPlaybookBlocksPidActionsWithoutSinglePID(t *testing.T) {
@@ -55,13 +60,8 @@ func TestIdleTxnPlaybookBlocksPidActionsWithoutSinglePID(t *testing.T) {
 	if len(got.ActionCandidates) != 2 {
 		t.Fatalf("ActionCandidates = %d, want 2", len(got.ActionCandidates))
 	}
-	if got.ActionCandidates[1].BlockedReason != "blocker PID unavailable" {
-		t.Fatalf("BlockedReason = %q", got.ActionCandidates[1].BlockedReason)
-	}
-	if got.ActionCandidates[1].ProposedSQL != "" {
-		t.Fatalf("ProposedSQL = %q, want empty",
-			got.ActionCandidates[1].ProposedSQL)
-	}
+	assertBlockedSignal(t, got.ActionCandidates[1],
+		"no single structured blocker identity")
 }
 
 func TestNonActionableIncidentHasNoCandidates(t *testing.T) {
@@ -106,8 +106,14 @@ func TestRunawayQueryIncidentAddsCancelPlaybook(t *testing.T) {
 	}
 	assertCandidate(t, got.ActionCandidates[0],
 		"diagnose_runaway_query", "safe", "")
-	assertCandidate(t, got.ActionCandidates[1],
-		"cancel_backend", "moderate", "SELECT pg_cancel_backend(222)")
+	if !strings.Contains(got.ActionCandidates[0].ProposedSQL, "WHERE state = 'active'") ||
+		strings.Contains(got.ActionCandidates[0].ProposedSQL, "pid = 222") {
+		t.Fatalf("runaway diagnostic must not pin a prose PID: %s",
+			got.ActionCandidates[0].ProposedSQL)
+	}
+	assertCandidate(t, got.ActionCandidates[1], "cancel_backend", "moderate", "")
+	assertBlockedSignal(t, got.ActionCandidates[1], "no structured backend identity")
+	assertNoBarePIDSignal(t, got)
 }
 
 func TestConnectionExhaustionIncidentAddsPoolPlaybook(t *testing.T) {
@@ -298,5 +304,111 @@ func assertCandidate(
 	}
 	if sql != "" && got.ProposedSQL != sql {
 		t.Fatalf("ProposedSQL = %q, want %q", got.ProposedSQL, sql)
+	}
+}
+
+// idleTxSaturationIncident is the incident rca/trees.go (treeConnectionsHigh,
+// idle_in_tx_elevated branch) emits, verbatim. Its recommended SQL ends in
+// "LIMIT 20", which the old prose regex read as PID 20.
+func idleTxSaturationIncident(severity Severity) SourceIncident {
+	return SourceIncident{
+		ID:           "inc-idle-sat",
+		DatabaseName: "prod",
+		Severity:     severity,
+		RootCause:    "Idle-in-transaction sessions saturating connection pool",
+		CausalChain: []IncidentChainLink{
+			{Order: 1, Signal: "idle_in_tx_elevated",
+				Description: "Sessions stuck in idle-in-transaction state",
+				Evidence:    "37 idle-in-tx sessions"},
+			{Order: 2, Signal: "connections_high",
+				Description: "Connection slots exhausted by idle sessions",
+				Evidence:    "96/100 connections used"},
+		},
+		AffectedObjects: []string{"pg_stat_activity"},
+		SignalIDs:       []string{"connections_high", "idle_in_tx_elevated"},
+		RecommendedSQL: "SELECT pid, state, query, now()-state_change AS duration " +
+			"FROM pg_stat_activity " +
+			"WHERE state = 'idle in transaction' " +
+			"ORDER BY state_change LIMIT 20;",
+		ActionRisk: "moderate",
+		Source:     "deterministic",
+		Confidence: 0.85,
+	}
+}
+
+// Invalid input: the verbatim idle-tx saturation incident has no backend
+// identity, so it yields the diagnostic plus a blocked cancel and no signal
+// SQL at any severity (it produced pg_cancel_backend(20) and HIGH
+// pg_terminate_backend(20) before playbooks-01).
+func TestIdleTxSaturationIncidentYieldsNoSignalSQL(t *testing.T) {
+	for _, severity := range []Severity{SeverityWarning, SeverityCritical} {
+		got := ProjectIncident(idleTxSaturationIncident(severity))
+
+		if len(got.ActionCandidates) != 2 {
+			t.Fatalf("%s: ActionCandidates = %+v, want diagnostic + blocked cancel",
+				severity, got.ActionCandidates)
+		}
+		assertCandidate(t, got.ActionCandidates[0],
+			"diagnose_lock_blockers", "safe", "")
+		if got.ActionCandidates[0].ProposedSQL != diagnoseLockBlockersSQL() {
+			t.Fatalf("%s: diagnostic SQL changed", severity)
+		}
+		assertBlockedSignal(t, got.ActionCandidates[1],
+			"no single structured blocker identity")
+		assertNoBarePIDSignal(t, got)
+	}
+}
+
+// Invalid input: "pid unknown for 30 minutes" is prose, not PID 30.
+func TestProsePIDYieldsNoSignalSQL(t *testing.T) {
+	runaway := SourceIncident{
+		ID: "inc-prose", DatabaseName: "prod", Severity: SeverityCritical,
+		RootCause: "Runaway query: pid unknown for 30 minutes",
+		SignalIDs: []string{"runaway_query"}, Source: "rca", Confidence: 0.8,
+	}
+	lock := idleTxSaturationIncident(SeverityCritical)
+	lock.RootCause = "Blocker pid unknown for 30 minutes on a connection"
+
+	for _, incident := range []SourceIncident{runaway, lock} {
+		got := ProjectIncident(incident)
+
+		assertNoBarePIDSignal(t, got)
+		for _, c := range got.ActionCandidates {
+			if strings.Contains(c.ProposedSQL, "30") {
+				t.Fatalf("%s: %s SQL uses the prose number: %s",
+					incident.ID, c.ActionType, c.ProposedSQL)
+			}
+			if c.ActionType == "terminate_backend" {
+				t.Fatalf("%s: prose incident offered terminate", incident.ID)
+			}
+		}
+	}
+}
+
+var barePIDSignal = regexp.MustCompile(`pg_(cancel|terminate)_backend\(\d+\)`)
+
+// assertNoBarePIDSignal is CHECK-02: no candidate proposes a signal for a
+// literal PID.
+func assertNoBarePIDSignal(t *testing.T, c Case) {
+	t.Helper()
+	for _, candidate := range c.ActionCandidates {
+		if barePIDSignal.MatchString(candidate.ProposedSQL) {
+			t.Fatalf("%s proposes a bare-PID signal: %q",
+				candidate.ActionType, candidate.ProposedSQL)
+		}
+	}
+}
+
+func assertBlockedSignal(t *testing.T, c ActionCandidate, reason string) {
+	t.Helper()
+	if !strings.Contains(c.BlockedReason, reason) {
+		t.Fatalf("%s BlockedReason = %q, want it to contain %q",
+			c.ActionType, c.BlockedReason, reason)
+	}
+	if c.ProposedSQL != "" {
+		t.Fatalf("blocked %s still proposes SQL: %q", c.ActionType, c.ProposedSQL)
+	}
+	if c.ExpiresAt == nil {
+		t.Fatalf("blocked %s has no expiry", c.ActionType)
 	}
 }

@@ -126,7 +126,18 @@ schema work through their normal change-control process.
 Incident playbooks follow the same typed-action model. Read-only diagnostics
 can inspect blocker graphs, runaway queries, connection pressure,
 WAL/replication state, standby conflicts, and vacuum pressure. Backend
-cancel/terminate actions require exact PID evidence and approval. Sequence
+cancel/terminate candidates come only from the structured blocker identity
+RCA records on a lock_contention incident (pid, backend_start, query_start
+and a hash of the first 200 characters of the query), never from a PID in
+incident text, and only when the incident has exactly one root blocker.
+They are script only: the script re-checks that identity, the session state,
+`datname = current_database()` and the protected-session guards the executor
+uses, so it signals zero sessions once the backend has moved on. An active
+blocker gets a cancel (moderate) and, on a critical incident, a terminate
+(high); an idle-in-transaction blocker gets a terminate only, because
+`pg_cancel_backend` does not end an idle session. Idle-in-transaction
+saturation, runaway-query and older incidents without that identity show the
+diagnostic and a blocked cancel. Sequence
 capacity changes are treated as forward-fix migrations with script and
 verification output rather than autonomous DDL.
 

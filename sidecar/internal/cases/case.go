@@ -79,6 +79,7 @@ type ActionCandidate struct {
 	VerificationPlan          []string              `json:"verification_plan,omitempty"`
 	DDLPreflight              *DDLPreflightReport   `json:"ddl_preflight,omitempty"`
 	ScriptOutput              *ScriptOutput         `json:"script_output,omitempty"`
+	BackendIdentity           *IncidentBlocker      `json:"backend_identity,omitempty"`
 	Guardrails                []string              `json:"guardrails,omitempty"`
 	PolicyDecision            *ActionPolicyDecision `json:"policy_decision,omitempty"`
 	RequiresApproval          bool                  `json:"requires_approval,omitempty"`
