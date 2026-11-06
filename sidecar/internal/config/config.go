@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -610,7 +609,9 @@ func Load(args []string) (*Config, error) {
 	}
 
 	// Step 2: Overlay environment variables, then NAME_FILE secrets.
-	overlayEnv(cfg)
+	if err := overlayEnv(cfg); err != nil {
+		return nil, err
+	}
 	if err := applySecretFiles(cfg); err != nil {
 		return nil, err
 	}
@@ -679,6 +680,19 @@ func Load(args []string) (*Config, error) {
 	return cfg, nil
 }
 
+// validatePostgresPort checks the port standalone mode connects with; fleet
+// and meta-db modes take their connections from elsewhere.
+func (c *Config) validatePostgresPort() error {
+	if c.Mode != "standalone" || c.MetaDB != "" {
+		return nil
+	}
+	if p := c.Postgres.Port; p < 1 || p > 65535 {
+		return fmt.Errorf("postgres.port must be from 1 to 65535, got %d (standalone "+
+			"mode connects with the postgres settings; --meta-db selects a meta-db fleet)", p)
+	}
+	return nil
+}
+
 func (c *Config) validate() error {
 	if err := c.validateTLS(); err != nil {
 		return err
@@ -687,6 +701,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.validateAuthz(); err != nil {
+		return err
+	}
+	if err := c.validatePostgresPort(); err != nil {
 		return err
 	}
 	if c.Collector.IntervalSeconds <= 0 {
@@ -1265,147 +1282,6 @@ func validateMode(cfg *Config) error {
 	}
 }
 
-func overlayEnv(cfg *Config) {
-	if v := os.Getenv("SAGE_MODE"); v != "" {
-		cfg.Mode = v
-	}
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		cfg.Postgres.DatabaseURL = v
-	}
-	if v := os.Getenv("SAGE_PG_HOST"); v != "" {
-		cfg.Postgres.Host = v
-	}
-	if v := envInt("SAGE_PG_PORT"); v != 0 {
-		cfg.Postgres.Port = v
-	}
-	if v := os.Getenv("SAGE_PG_USER"); v != "" {
-		cfg.Postgres.User = v
-	}
-	if v := os.Getenv("SAGE_PG_PASSWORD"); v != "" {
-		cfg.Postgres.Password = v
-	}
-	if v := os.Getenv("SAGE_PG_DATABASE"); v != "" {
-		cfg.Postgres.Database = v
-	}
-	if v := os.Getenv("SAGE_PG_SSLMODE"); v != "" {
-		cfg.Postgres.SSLMode = v
-	}
-	if v := envInt("SAGE_PG_MAX_CONNS"); v != 0 {
-		cfg.Postgres.MaxConnections = v
-	}
-	if v := os.Getenv("SAGE_PROMETHEUS_PORT"); v != "" {
-		cfg.Prometheus.ListenAddr = "0.0.0.0:" + v
-	}
-	if v := os.Getenv("SAGE_LLM_API_KEY"); v != "" {
-		cfg.LLM.APIKey = v
-	}
-	if v := os.Getenv("SAGE_LLM_AUTH"); v != "" {
-		cfg.LLM.Auth = v
-	}
-	if v := os.Getenv("SAGE_LLM_ENDPOINT"); v != "" {
-		cfg.LLM.Endpoint = v
-	}
-	if v := os.Getenv("SAGE_LLM_MODEL"); v != "" {
-		cfg.LLM.Model = v
-	}
-	if v := os.Getenv("SAGE_TRUST_LEVEL"); v != "" {
-		cfg.Trust.Level = v
-	}
-	if v := os.Getenv("SAGE_META_DB"); v != "" {
-		cfg.MetaDB = v
-	}
-	if v := os.Getenv("SAGE_ENCRYPTION_KEY"); v != "" {
-		cfg.EncryptionKey = v
-	}
-	if v := os.Getenv("SAGE_ENCRYPTION_KEY_PREVIOUS"); v != "" {
-		cfg.EncryptionKeyPrevious = v
-	}
-	if v := os.Getenv("SAGE_BREAK_GLASS_PASSWORD_HASH"); v != "" {
-		cfg.OAuth.BreakGlass.PasswordHash = v
-	}
-	if v := os.Getenv("SAGE_OPTIMIZER_LLM_API_KEY"); v != "" {
-		cfg.LLM.OptimizerLLM.APIKey = v
-	}
-	if v := os.Getenv("SAGE_OPTIMIZER_LLM_ENDPOINT"); v != "" {
-		cfg.LLM.OptimizerLLM.Endpoint = v
-	}
-	if v := os.Getenv("SAGE_OPTIMIZER_LLM_MODEL"); v != "" {
-		cfg.LLM.OptimizerLLM.Model = v
-	}
-	if v := os.Getenv("SAGE_OAUTH_CLIENT_ID"); v != "" {
-		cfg.OAuth.ClientID = v
-	}
-	if v := os.Getenv("SAGE_OAUTH_CLIENT_SECRET"); v != "" {
-		cfg.OAuth.ClientSecret = v
-	}
-	if v := os.Getenv("SAGE_OAUTH_ISSUER_URL"); v != "" {
-		cfg.OAuth.IssuerURL = v
-	}
-	if v := os.Getenv("SAGE_OAUTH_REDIRECT_URL"); v != "" {
-		cfg.OAuth.RedirectURL = v
-	}
-	if v := os.Getenv("SAGE_OAUTH_PROVIDER"); v != "" {
-		cfg.OAuth.Provider = v
-	}
-	overlayAgentNativeEnv(cfg)
-}
-
-func overlayAgentNativeEnv(cfg *Config) {
-	if v := os.Getenv("SAGE_POLICY_PROFILE"); v != "" {
-		cfg.Policy.Profile = v
-	}
-	if v := envInt("SAGE_VALUE_TOIL_MODEL_VERSION"); v != 0 {
-		cfg.Value.ToilModelVersion = v
-	}
-	if v := envInt("SAGE_VERIFY_WINDOW_MINUTES"); v != 0 {
-		cfg.Verify.WindowMinutes = v
-	}
-	if v := envInt("SAGE_VERIFY_WINDOW_MAX_MINUTES"); v != 0 {
-		cfg.Verify.WindowMaxMinutes = v
-	}
-	if v := envFloat("SAGE_VERIFY_MIN_GAIN_PCT"); v != 0 {
-		cfg.Verify.MinGainPct = v
-	}
-	if v := envFloat("SAGE_VERIFY_REGRESS_PCT"); v != 0 {
-		cfg.Verify.RegressPct = v
-	}
-	if v := envFloat("SAGE_VERIFY_WRITE_IMPACT_PCT"); v != 0 {
-		cfg.Verify.WriteImpactPct = v
-	}
-	if v := envInt("SAGE_VERIFY_MIN_SAMPLES"); v != 0 {
-		cfg.Verify.MinSamples = v
-	}
-	if v := os.Getenv("SAGE_CLONE_PROVIDER"); v != "" {
-		cfg.Clone.Provider = v
-	}
-	if v := os.Getenv("SAGE_CLONE_DLE_ENDPOINT"); v != "" {
-		cfg.Clone.DLEEndpoint = v
-	}
-	if v := os.Getenv("SAGE_CLONE_DLE_TOKEN"); v != "" {
-		cfg.Clone.DLEToken = v
-	}
-	if v := envInt("SAGE_CLONE_MAX_AGE_MINUTES"); v != 0 {
-		cfg.Clone.MaxCloneAgeMinutes = v
-	}
-	if v := envFloat("SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT"); v != 0 {
-		cfg.Custodian.Freeze.RedBufferPct = v
-	}
-	if v := envInt("SAGE_CUSTODIAN_WAL_ABANDON_AFTER_MINUTES"); v != 0 {
-		cfg.Custodian.WAL.AbandonAfterMinutes = v
-	}
-	if v := envFloat("SAGE_CUSTODIAN_WAL_DISK_PCT_CEILING"); v != 0 {
-		cfg.Custodian.WAL.RetainedWALDiskPctCeiling = v
-	}
-	if v, ok := envBool("SAGE_MCP_ENABLED"); ok {
-		cfg.MCP.Enabled = v
-	}
-	if v := os.Getenv("SAGE_MCP_TRANSPORT"); v != "" {
-		cfg.MCP.Transport = v
-	}
-	overlayAzureEnv(cfg)
-	overlayCloudTelemetryEnv(cfg)
-}
-
 // HotReloadable returns the fields that can be reloaded without restart.
 func (c *Config) HotReloadable() []string {
 	return []string{
@@ -1444,52 +1320,6 @@ func (c *Config) HasMetaDB() bool {
 func (c *Config) HasEncryptionKey() bool {
 	return c.EncryptionKey != ""
 }
-
-// RateLimit returns the configured rate limit.
-func (c *Config) RateLimit() int {
-	if v := envInt("SAGE_RATE_LIMIT"); v > 0 {
-		return v
-	}
-	return DefaultRateLimit
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-func envInt(key string) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return 0
-}
-
-func envFloat(key string) float64 {
-	v := os.Getenv(key)
-	if v == "" {
-		return 0
-	}
-	f, _ := strconv.ParseFloat(v, 64)
-	return f
-}
-
-func envBool(key string) (bool, bool) {
-	raw := os.Getenv(key)
-	if raw == "" {
-		return false, false
-	}
-	value, err := strconv.ParseBool(raw)
-	return value, err == nil
-}
-
-// Suppress unused warnings.
-var _ = envFloat
-var _ = strings.Contains
 
 // DefaultConfig returns a Config populated with defaults.
 // Exported for use by cmd/gen_config_meta (v0.8.5 Feature 5).
