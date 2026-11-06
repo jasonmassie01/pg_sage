@@ -40,15 +40,51 @@ func NewScriptGenerator(
 	}
 }
 
-// Generate produces a tailored migration script for the given risk.
-// Falls back to risk.SafeAlternative when the LLM is unavailable.
+// ScriptResult is a migration recommendation. SQL is the validated model
+// script or the deterministic alternative. ModelText is the model's
+// script when pg_sage could not validate it, and Reason says why; it is
+// shown labelled, never as the recommendation (security-05).
+type ScriptResult struct {
+	SQL       string
+	ModelText string
+	Reason    string
+}
+
+// Generate returns the recommended script for the given risk: the
+// validated model script, else risk.SafeAlternative.
 func (g *ScriptGenerator) Generate(
 	ctx context.Context, risk *DDLRisk,
 ) (string, error) {
-	if g.llmClient == nil || !g.llmClient.IsEnabled() {
-		return risk.SafeAlternative, nil
-	}
+	return g.GenerateScript(ctx, risk).SQL, nil
+}
 
+// GenerateScript asks the model for a tailored migration script and keeps
+// it only when validateModelDDL accepts it for the risk's table. Falls
+// back to risk.SafeAlternative when the LLM is unavailable or fails.
+func (g *ScriptGenerator) GenerateScript(
+	ctx context.Context, risk *DDLRisk,
+) ScriptResult {
+	out := ScriptResult{SQL: risk.SafeAlternative}
+	if g.llmClient == nil || !g.llmClient.IsEnabled() {
+		return out
+	}
+	script := g.modelScript(ctx, risk)
+	if script == "" {
+		return out
+	}
+	target := modelTarget{Schema: risk.SchemaName, Table: risk.TableName}
+	if err := validateModelDDL(script, target); err != nil {
+		g.logFn("warn", "migration: model script for %s not validated: %v",
+			qualifiedName(risk.SchemaName, risk.TableName), err)
+		out.ModelText, out.Reason = script, err.Error()
+		return out
+	}
+	out.SQL = script
+	return out
+}
+
+// modelScript returns the model's script, or "" on any failure.
+func (g *ScriptGenerator) modelScript(ctx context.Context, risk *DDLRisk) string {
 	schema := g.fetchTableSchema(ctx, risk.SchemaName, risk.TableName)
 	system := scriptSystemPrompt()
 	user := scriptUserPrompt(risk, schema, g.pgVersion)
@@ -60,14 +96,9 @@ func (g *ScriptGenerator) Generate(
 	if err != nil {
 		g.logFn("warn",
 			"migration: LLM script generation failed: %v", err)
-		return risk.SafeAlternative, nil
+		return ""
 	}
-
-	script := extractSQLFromResponse(raw)
-	if script == "" {
-		return risk.SafeAlternative, nil
-	}
-	return script, nil
+	return extractSQLFromResponse(raw)
 }
 
 // fetchTableSchema queries pg_attribute and pg_constraint for a
@@ -245,7 +276,9 @@ Requirements:
 - Add NOT VALID + VALIDATE CONSTRAINT pattern for constraints
 - For type changes: new column, backfill in batches, swap columns
 - Include comments explaining each step
-- Return ONLY the SQL script, no explanations outside the SQL`
+- Return ONLY the SQL script, no explanations outside the SQL
+
+` + llm.UntrustedDataRule
 }
 
 // scriptUserPrompt builds the user prompt with risk context and
@@ -261,18 +294,18 @@ func scriptUserPrompt(
 	var b strings.Builder
 	fmt.Fprintf(&b, "PostgreSQL version: %s\n", formatPGVersion(pgVersion))
 	fmt.Fprintf(&b, "Original DDL (dangerous):\n%s\n\n",
-		sanitizeDDL(risk.Statement))
+		llm.UntrustedData("ddl", sanitizeDDL(risk.Statement)))
 	fmt.Fprintf(&b, "Risk: %s -- %s\n", risk.RuleID, risk.Description)
 	fmt.Fprintf(&b, "Lock level: %s\n", risk.LockLevel)
-	fmt.Fprintf(&b, "Table: %s.%s (%d rows, %d bytes)\n\n",
-		schemaName, risk.TableName,
-		risk.EstimatedRows, risk.TableSizeBytes)
+	fmt.Fprintf(&b, "Table (%d rows, %d bytes):\n%s\n\n",
+		risk.EstimatedRows, risk.TableSizeBytes,
+		llm.UntrustedData("table", schemaName+"."+risk.TableName))
 
 	if tableSchema != "" {
 		// Column defaults, CHECK bodies and index predicates can hold
 		// literals; redact them before egress (G7-B01).
 		fmt.Fprintf(&b, "Table schema:\n%s\n",
-			redactSchemaLiterals(tableSchema))
+			llm.UntrustedData("table_schema", redactSchemaLiterals(tableSchema)))
 	}
 
 	if risk.SafeAlternative != "" {
