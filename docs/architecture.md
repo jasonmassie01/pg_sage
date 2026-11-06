@@ -184,6 +184,19 @@ webhooks receive the resolves as ordinary messages ("Incident resolved: ...",
 is still prepended to every key. PagerDuty incidents opened before v2.5.1 used other keys and
 do not auto-resolve: close them by hand once after the upgrade.
 
+**Alerting manager keys.** The `alerting.*` manager runs once per monitored database and
+names that database in every Slack header, PagerDuty `source`/`component` and webhook
+`database` field. Its PagerDuty `dedup_key` is `<database>:<category>:<object>`, for the
+trigger and the resolve alike, so identical schemas in a fleet (shards, tenants, staging
+and prod) that share a routing key get one PagerDuty incident each, and one database's
+resolve never closes another's page. The database name is kept verbatim (a `:` inside it
+is fine; keys are opaque), and a key over 255 characters is shortened to its head plus a
+hash. Without a database name the key stays `<category>:<object>`. Cooldown, quiet hours
+and `sage.alert_log.dedup_key` (`<category>:<object>`) are unchanged: each database keeps
+its own `sage` schema and its own throttle. Alerts open at upgrade time used the old key,
+so they re-page once under the new key (standalone included) and the old PagerDuty
+incident must be closed by hand.
+
 ### AutoExplain Collector
 
 Detects and uses `auto_explain` (if available) to capture EXPLAIN plans for slow queries. Stores plans for optimizer and diagnostic use.
