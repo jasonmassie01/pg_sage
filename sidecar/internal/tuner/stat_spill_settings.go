@@ -15,9 +15,12 @@ const spillSettingsTimeout = 5 * time.Second
 
 // spillSettingsSQL reads, for each role, the work_mem its sessions in this
 // database start with: the role-in-database setting, then the role's, then
-// the database's, then the server default. current_setting('work_mem')
-// would be pg_sage's own session value, and pg_settings.reset_val carries
-// pg_sage's own role defaults when its source says so (boot_val then).
+// the database's, then ALTER ROLE ALL's, then the server default.
+// current_setting('work_mem') would be pg_sage's own session value, and
+// pg_settings.reset_val is only the server default when pg_sage's own login
+// role has no work_mem setting here and passed none as a startup option.
+// Otherwise the server default is unknown (NULL; boot_val would ignore
+// postgresql.conf and could size a hint below the role's real work_mem).
 const spillSettingsSQL = `/* pg_sage */
 WITH db AS (
     SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()
@@ -29,8 +32,10 @@ WITH db AS (
      WHERE s.setdatabase IN (0, (SELECT oid FROM db))
        AND split_part(c, '=', 1) = 'work_mem'
 ), dflt AS (
-    SELECT CASE WHEN source IN ('user', 'database user', 'client') THEN boot_val
-                ELSE reset_val END AS value
+    SELECT CASE WHEN source IN ('user', 'database user', 'client')
+                  OR EXISTS (SELECT 1 FROM cfg WHERE setrole =
+                       (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = session_user))
+                THEN NULL ELSE reset_val END AS value
       FROM pg_catalog.pg_settings WHERE name = 'work_mem'
 )
 SELECT r.userid,
@@ -38,11 +43,14 @@ SELECT r.userid,
          (SELECT value FROM cfg WHERE setrole = r.userid::oid AND setdatabase <> 0),
          (SELECT value FROM cfg WHERE setrole = r.userid::oid AND setdatabase = 0),
          (SELECT value FROM cfg WHERE setrole = 0 AND setdatabase <> 0),
+         (SELECT value FROM cfg WHERE setrole = 0 AND setdatabase = 0),
          (SELECT value FROM dflt)) AS work_mem,
        current_setting('block_size')::int8 AS block_size
   FROM unnest($1::int8[]) AS r(userid)`
 
-// readSpillSettings reads block_size and the roles' work_mem baselines.
+// readSpillSettings reads block_size and the roles' work_mem baselines; a
+// role whose baseline is unknown (a masked server default) is left out, so
+// nothing is sized for it.
 func (t *Tuner) readSpillSettings(ctx context.Context, userIDs []int64) (spillSettings, error) {
 	if t.pool == nil {
 		return spillSettings{}, errors.New("read work_mem baselines: no database pool")
@@ -58,11 +66,14 @@ func (t *Tuner) readSpillSettings(ctx context.Context, userIDs []int64) (spillSe
 	out := spillSettings{WorkMemKB: make(map[int64]int64, len(userIDs))}
 	for rows.Next() {
 		var user int64
-		var value string
+		var value *string
 		if err := rows.Scan(&user, &value, &out.BlockSize); err != nil {
 			return spillSettings{}, fmt.Errorf("scan work_mem baseline: %w", err)
 		}
-		kb, err := parseMemoryKB(value)
+		if value == nil {
+			continue
+		}
+		kb, err := parseMemoryKB(*value)
 		if err != nil {
 			return spillSettings{}, fmt.Errorf("work_mem baseline of role %d: %w", user, err)
 		}

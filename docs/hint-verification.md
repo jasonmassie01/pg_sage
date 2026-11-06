@@ -283,9 +283,12 @@ between two tuner cycles, never from the totals:
 2. The per-call spill is `Δtemp_blks_written × block_size / Δcalls`. `block_size` is read from
    the server each cycle.
 3. The baseline `work_mem` is the one the statement's role runs with: its role-in-database
-   setting, then its role setting, then the database setting (`pg_db_role_setting`), then the
-   server default (`pg_settings.reset_val`). pg_sage's own session value is not used. A
-   per-call spill at or below that baseline gives no hint.
+   setting, then its role setting, then the database setting, then the `ALTER ROLE ALL`
+   setting (`pg_db_role_setting`), then the server default (`pg_settings.reset_val`).
+   pg_sage's own session value is not used. When pg_sage's own login role has a `work_mem`
+   setting, or pg_sage passes one as a connection option, the server default is hidden
+   from it: a role with no setting of its own then has no known baseline and gets no
+   stat-spill hint. A per-call spill at or below the baseline gives no hint.
 4. The hint doubles the baseline until it is at least twice the per-call spill. There is no
    64 MB floor. Example: 1,000 calls that wrote 2,048 blocks each spill 16 MB per call; at a
    4 MB baseline the hint is `Set(work_mem "32MB")`. 100,000 calls of 1 MB each give no
