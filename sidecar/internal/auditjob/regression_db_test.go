@@ -224,9 +224,10 @@ func TestRegressionCheckErrors(t *testing.T) {
 	}
 }
 
-// Without SIEM export there are no cursors: nothing is read and an open
-// regression from an earlier export resolves.
-func TestNoCursorsResolvesRegressions(t *testing.T) {
+// Without a running SIEM exporter there are no cursors to check, which
+// proves nothing: an open regression from an earlier export stays open
+// (fail closed) until a check against the cursors clears it.
+func TestNoCursorsKeepsRegressions(t *testing.T) {
 	pool := fresh(t, "auditjob_regress_off", true)
 	ctx := context.Background()
 	cur := &fakeCursors{}
@@ -244,7 +245,15 @@ func TestNoCursorsResolvesRegressions(t *testing.T) {
 	if _, err := Run(ctx, Source{Name: "orders", Pool: pool}); err != nil {
 		t.Fatalf("run without export: %v", err)
 	}
+	if n, _, ident, _ := regressedFindings(t, pool); n != 1 || ident == "" {
+		t.Fatalf("export not running: %d regressions open (%q), want the one kept", n,
+			ident)
+	}
+	cur.set("action_log", 2, "")
+	if _, err := Run(ctx, Source{Name: "orders", Pool: pool, Cursors: cur}); err != nil {
+		t.Fatalf("run with export back: %v", err)
+	}
 	if n, _, _, _ := regressedFindings(t, pool); n != 0 {
-		t.Fatalf("export off left %d regressions open", n)
+		t.Fatalf("an anchored cursor left %d regressions open", n)
 	}
 }

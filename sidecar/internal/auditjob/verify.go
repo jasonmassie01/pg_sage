@@ -24,7 +24,7 @@ type Source struct {
 	Name string
 	Pool *pgxpool.Pool
 	// Cursors reads the SIEM export cursors of this source's chains; nil
-	// when export is off.
+	// when export is off, which leaves open regressions as they are.
 	Cursors CursorReader
 }
 

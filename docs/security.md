@@ -517,7 +517,9 @@ cursor still has that hash.
   only (409 elsewhere), is recorded in `sage.auth_audit` as
   `siem_reanchored`, and refuses a `from_seq` that would skip links never
   exported. It is never automatic. The finding resolves at the next
-  verification once every cursor is anchored again.
+  verification once every cursor is anchored again. While export is off
+  or failed to start, verification cannot check the cursors, so an open
+  `audit_chain_regressed` finding stays open.
 
 A cursor that goes back because the control database itself was restored
 is not a regression: the link it names is still there, so export simply

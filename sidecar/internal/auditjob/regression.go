@@ -28,14 +28,19 @@ type regressedSink struct {
 }
 
 // checkRegressions raises a finding per chain whose link at some sink's
-// cursor is missing or is another link, and resolves the rest. Without
-// export (no cursors) nothing can regress. A failed check resolves
-// nothing: an open regression stays until a check proves it gone.
+// cursor is missing or is another link, and resolves the rest. Without a
+// running exporter (no cursors) it checks nothing and resolves nothing: a
+// regression raised earlier stays open, since export being off or failing
+// to start proves no chain anchored again. A failed check resolves
+// nothing either: an open regression stays until a check proves it gone.
 func checkRegressions(ctx context.Context, src Source, chains []string) error {
+	if src.Cursors == nil {
+		return nil
+	}
 	var findings []analyzer.Finding
 	for _, chain := range chains {
 		spec, ok := auditchain.SpecFor(chain)
-		if !ok || src.Cursors == nil {
+		if !ok {
 			continue
 		}
 		sinks, err := regressedSinks(ctx, src, chain)
