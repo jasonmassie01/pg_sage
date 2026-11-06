@@ -39,6 +39,9 @@ type Report struct {
 	PostureWired   bool                  `json:"posture_wired"`
 	Incidents      []IncidentExpectation `json:"incidents"`
 	IncidentScore  IncidentScore         `json:"incident_score"`
+	// SQLParser records whether the build had the libpg_query parser (cgo).
+	// Without it explain_guard and agent_query refuse every statement.
+	SQLParser bool `json:"sql_parser"`
 }
 
 // ReportMeta carries the run metadata the report stamps.
@@ -46,6 +49,7 @@ type ReportMeta struct {
 	ServerVersion string
 	PgSageVersion string
 	PgSageCommit  string
+	SQLParser     bool
 	Designs       []string
 	PostureWired  bool
 }
@@ -60,6 +64,7 @@ func BuildReport(meta ReportMeta, ro []CaseResult, posture []PostureResult,
 		ServerVersion:  meta.ServerVersion,
 		PgSageVersion:  meta.PgSageVersion,
 		PgSageCommit:   meta.PgSageCommit,
+		SQLParser:      meta.SQLParser,
 		Designs:        meta.Designs,
 		ReadOnly:       ro,
 		Posture:        posture,

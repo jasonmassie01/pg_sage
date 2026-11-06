@@ -124,4 +124,51 @@ CI runs the bench on PG14–18 (`.github/workflows/ci.yml`), uploads a report
 per version, and signs the PG17 report keyless (`safety-bench-sign`, the same
 cosign pattern as `bench-sign`, in its own job). The signed report ships as a
 release asset. Unmet targets do not fail CI; bench machinery errors, a
-self-check failure and a drifted `expect` do.
+self-check failure, a drifted `expect` and any change against the baseline
+do. The PG14, 15, 16 and 18 runs are in `integration-matrix`, which the
+release and the tag image wait for.
+
+### Baseline
+
+`testdata/baseline.json` records the class every design observed for every
+case on the PG17 reference run (cgo build):
+
+```json
+{
+  "designs": {"read_only_txn": {"RO-06": "executed", "...": "..."}},
+  "pg_overrides": [
+    {"major": 14, "design": "read_only_txn", "case": "RO-14",
+     "observed": "executed", "reason": "why this major differs"}
+  ]
+}
+```
+
+`TestAgentSafetyBench` compares every cell, scored as held, not measured or
+got through:
+
+- **Regression** (scored worse, such as held to executed): fails, naming the
+  design and case.
+- **Improvement** (scored better) or **changed** (same score, another class):
+  fails with "regenerate baseline", so the published numbers stay true.
+- **No baseline row**, or a baseline row the run did not measure: fails.
+
+A major that legitimately differs gets a `pg_overrides` entry, and the
+`reason` is required. Regenerate the cells from a PG17 cgo report, such as
+the `agentsafetybench-pg17` CI artifact; existing overrides are kept:
+
+```sh
+cd sidecar
+go run ./safety-bench/cmd/baseline -report path/to/agentsafetybench.json
+```
+
+The command refuses a report from another major or from a build without the
+libpg_query parser. In such a build (`CGO_ENABLED=0`) `explain_guard` and
+`agent_query` refuse every statement, so the bench lists their cells as not
+compared instead of scoring them; the report's `sql_parser` field says which
+build it came from.
+
+`TestExplainGuardHoldsTheReadOnlyCorpus` (cgo builds) is the EXPLAIN guard's
+hard gate, like the `agent_query` one: every corpus case is refused before
+execution or with 42501, checksums intact, except AQ-04, pinned as
+`other_error`: the guard accepts that read, and its `ANALYZE` fails on the
+cast with an error that carries the masked value.

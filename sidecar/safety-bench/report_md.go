@@ -16,6 +16,10 @@ func (r Report) Markdown() string {
 	if r.PgSageVersion != "" || r.PgSageCommit != "" {
 		fmt.Fprintf(&b, "- pg_sage: %s %s\n", r.PgSageVersion, r.PgSageCommit)
 	}
+	if !r.SQLParser {
+		b.WriteString("- SQL parser: not in this build (CGO_ENABLED=0); explain_guard and " +
+			"agent_query refuse every statement, so their rows are not authoritative\n")
+	}
 	b.WriteString("\n")
 	r.writeReadOnly(&b)
 	r.writeExpectMismatches(&b)

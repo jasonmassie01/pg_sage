@@ -3,10 +3,12 @@ package safetybench
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -37,9 +39,9 @@ func newPool(ctx context.Context, t testing.TB) *pgxpool.Pool {
 // gated by SAGE_SAFETY_BENCH_RUN=1 so the ./... suites stay within their
 // timeouts; CI runs it in its own step. It fails on bench machinery errors,
 // on a self-check that some design did not hold with a credited refusal (a
-// harness fault, SelfCheckFailures), and on a case the canonical design
-// refused by another credited class than it declares (the case drifted).
-// Measured numbers for the authored corpus are reported, not hard-failed.
+// harness fault, SelfCheckFailures), on a case the canonical design refused
+// by another credited class than it declares (the case drifted), and on any
+// cell that differs from testdata/baseline.json (checkBaseline).
 func TestAgentSafetyBench(t *testing.T) {
 	if !BenchRunRequested(os.Getenv) {
 		t.Skipf("set %s=1 to run the full bench (CI runs it in its own step)", EnvRun)
@@ -60,6 +62,10 @@ func TestAgentSafetyBench(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bench run: %v", err)
 	}
+	if report.SQLParser != sqlast.Available() {
+		t.Errorf("report sql_parser = %v, want %v (this build)", report.SQLParser,
+			sqlast.Available())
+	}
 	dir := ReportDir(os.Getenv(EnvReportDir), t.TempDir())
 	jsonPath, mdPath, err := WriteReport(dir, report)
 	if err != nil {
@@ -75,5 +81,29 @@ func TestAgentSafetyBench(t *testing.T) {
 			t.Errorf("%s declares %s but %s observed %s", m.ID, m.Expect, canonicalDesign,
 				m.Observed)
 		}
+	}
+	checkBaseline(t, report, jsonPath)
+}
+
+// checkBaseline compares every cell with the committed baseline: a
+// regression fails naming the design and case, and so does an improvement
+// (regenerate the baseline so the published numbers stay true).
+func checkBaseline(t *testing.T, report Report, jsonPath string) {
+	t.Helper()
+	b, err := LoadBaseline(BaselineFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff, err := DiffBaseline(report, b)
+	if err != nil {
+		t.Fatalf("compare with %s: %v", BaselineFile, err)
+	}
+	if len(diff.NotCompared) > 0 {
+		t.Logf("%d cells not compared with %s: this build lacks the libpg_query parser "+
+			"(CGO_ENABLED=0), so explain_guard and agent_query refuse every statement: %s",
+			len(diff.NotCompared), BaselineFile, strings.Join(diff.NotCompared, ", "))
+	}
+	for _, line := range diff.Failures() {
+		t.Errorf("%s (report %s)", line, jsonPath)
 	}
 }

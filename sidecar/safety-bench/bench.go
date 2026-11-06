@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // Options configures a bench run.
@@ -41,6 +42,7 @@ func Run(ctx context.Context, owner *pgxpool.Pool, opts Options) (Report, error)
 	}
 	meta := opts.Meta
 	meta.Designs = designNames(designs)
+	meta.SQLParser = sqlast.Available()
 	meta.PostureWired = provider.Name() != (NotConnectedProvider{}).Name()
 	return BuildReport(meta, roResults, postureResults, IncidentMapping()), nil
 }
