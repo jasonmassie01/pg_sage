@@ -156,8 +156,7 @@ func runSubcommandAndExit() {
 			os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Printf("pg_sage %s (commit: %s, built: %s, sql-ast: %s)\n",
-			version, commit, date, sqlASTStatus())
+		fmt.Println(versionLine())
 		os.Exit(0)
 	}
 }
