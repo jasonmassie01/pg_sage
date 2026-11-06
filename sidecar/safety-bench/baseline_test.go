@@ -279,6 +279,9 @@ func TestParseBaseline_Rejects(t *testing.T) {
 		{"blank reason", withOverrides(override(14, "RO-14", "executed", " ")),
 			"reason is required"},
 		{"zero major", withOverrides(override(0, "RO-14", "executed", "r")), "major"},
+		{"reference major", withOverrides(override(17, "RO-14", "executed", "r")),
+			"reference major"},
+		{"trailing data", `{"designs": {}} {"designs": {}}`, "trailing data"},
 		{"bad class", withOverrides(override(14, "RO-14", "nope", "r")), `"nope"`},
 		{"no such cell", withOverrides(override(14, "RO-99", "executed", "r")),
 			"does not have"},
@@ -390,5 +393,26 @@ func TestMarkdownNamesAMissingParser(t *testing.T) {
 	r.SQLParser = false
 	if !strings.Contains(r.Markdown(), note) {
 		t.Fatal("a report without the parser must say so")
+	}
+}
+
+// CI always builds with cgo: a parser-less run there would publish
+// explain_guard and agent_query as holding every case while the baseline
+// skips their cells, so CI requires the parser.
+func TestParserRequired(t *testing.T) {
+	cases := []struct {
+		value string
+		want  bool
+	}{{"true", true}, {"", false}, {"false", false}}
+	for _, tc := range cases {
+		getenv := func(k string) string {
+			if k == "GITHUB_ACTIONS" {
+				return tc.value
+			}
+			return "true"
+		}
+		if got := ParserRequired(getenv); got != tc.want {
+			t.Errorf("GITHUB_ACTIONS=%q: ParserRequired = %v, want %v", tc.value, got, tc.want)
+		}
 	}
 }

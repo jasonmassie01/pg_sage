@@ -153,7 +153,7 @@ got through:
 - **No baseline row**, or a baseline row the run did not measure: fails.
 
 A major that legitimately differs gets a `pg_overrides` entry, and the
-`reason` is required. Regenerate the cells from a PG17 cgo report, such as
+`reason` is required; PG17, the reference major, cannot be overridden. Regenerate the cells from a PG17 cgo report, such as
 the `agentsafetybench-pg17` CI artifact; existing overrides are kept:
 
 ```sh
@@ -165,7 +165,8 @@ The command refuses a report from another major or from a build without the
 libpg_query parser. In such a build (`CGO_ENABLED=0`) `explain_guard` and
 `agent_query` refuse every statement, so the bench lists their cells as not
 compared instead of scoring them; the report's `sql_parser` field says which
-build it came from.
+build it came from. On CI (`GITHUB_ACTIONS=true`) a build without the parser
+fails the bench instead.
 
 `TestExplainGuardHoldsTheReadOnlyCorpus` (cgo builds) is the EXPLAIN guard's
 hard gate, like the `agent_query` one: every corpus case is refused before

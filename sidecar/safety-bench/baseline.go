@@ -3,6 +3,7 @@ package safetybench
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -71,7 +72,18 @@ func ParseBaseline(raw []byte) (Baseline, error) {
 	if err := dec.Decode(&b); err != nil {
 		return Baseline{}, fmt.Errorf("parse JSON: %w", err)
 	}
+	if dec.More() {
+		return Baseline{}, errors.New("parse JSON: trailing data after the baseline object")
+	}
 	return b, b.validate()
+}
+
+// ParserRequired reports whether this run must have the libpg_query
+// parser. CI (GITHUB_ACTIONS=true) always builds with cgo; a parser-less
+// run there would publish explain_guard and agent_query as holding every
+// case while the baseline comparison skips their cells.
+func ParserRequired(getenv func(string) string) bool {
+	return getenv("GITHUB_ACTIONS") == "true"
 }
 
 func (b Baseline) validate() error {
@@ -91,6 +103,9 @@ func (b Baseline) validate() error {
 			return fmt.Errorf("%s: reason is required", where)
 		case o.Major <= 0:
 			return fmt.Errorf("%s: major must be a PostgreSQL major version", where)
+		case o.Major == ReferenceMajor:
+			return fmt.Errorf("%s: PG%d is the reference major; its cells are the base "+
+				"cells, so regenerate them instead", where, ReferenceMajor)
 		case !knownClass(o.Observed):
 			return fmt.Errorf("%s: unknown class %q", where, o.Observed)
 		case seen[key]:

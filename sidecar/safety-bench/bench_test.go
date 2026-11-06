@@ -90,6 +90,10 @@ func TestAgentSafetyBench(t *testing.T) {
 // (regenerate the baseline so the published numbers stay true).
 func checkBaseline(t *testing.T, report Report, jsonPath string) {
 	t.Helper()
+	if !report.SQLParser && ParserRequired(os.Getenv) {
+		t.Fatalf("CI build lacks the libpg_query parser (CGO_ENABLED=0): the explain_guard "+
+			"and agent_query cells cannot be compared with %s; build with cgo", BaselineFile)
+	}
 	b, err := LoadBaseline(BaselineFile)
 	if err != nil {
 		t.Fatal(err)
