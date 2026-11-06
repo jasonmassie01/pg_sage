@@ -39,7 +39,7 @@ func UnprovenStatements(sql string) ([]string, error) {
 	var out []string
 	for _, stmt := range splitStatements(clean) {
 		stmt = collapseWhitespace(stmt)
-		if !provenAdditive(stmt) {
+		if !provenAdditive(pgWhitespace.ReplaceAllString(stmt, " ")) {
 			out = append(out, stmt)
 		}
 	}
@@ -47,6 +47,11 @@ func UnprovenStatements(sql string) ([]string, error) {
 }
 
 var (
+	// pgWhitespace is PostgreSQL's whitespace set. Go's \s lacks the
+	// vertical tab, which PG 16+ reads as a space, so the checks below
+	// see it as one (migration-04a review).
+	pgWhitespace = regexp.MustCompile(`[\s\v]+`)
+
 	// reLockingKeyword is the floor: these never appear in additive DDL.
 	reLockingKeyword = regexp.MustCompile(`(?i)\b(?:UNIQUE|REFERENCES|CHECK|` +
 		`EXCLUDE|PRIMARY\s+KEY|LOGGED|ACCESS\s+METHOD|NOT\s+NULL|RENAME|TRIGGER)\b`)
@@ -63,9 +68,10 @@ var (
 
 	reCreateTable = regexp.MustCompile(`(?i)^CREATE\s+TABLE\s`)
 	// reCreateTableLocks: PARTITION OF takes ACCESS EXCLUSIVE on the
-	// parent, INHERITS locks the parent, and CREATE TABLE AS runs a query.
+	// parent, INHERITS locks the parent, and CREATE TABLE AS runs a query,
+	// which PostgreSQL also accepts with no space before its parenthesis.
 	reCreateTableLocks = regexp.MustCompile(`(?i)\bPARTITION\s+OF\b|\bINHERITS\b|` +
-		`\bAS\s+(?:\(\s*)*(?:SELECT|VALUES|TABLE|EXECUTE|WITH)\b`)
+		`\bAS\b[\s(]*(?:SELECT|VALUES|TABLE|EXECUTE|WITH)\b`)
 
 	reCreateSchema = regexp.MustCompile(`(?i)^CREATE\s+SCHEMA\s+(?:IF\s+NOT\s+EXISTS\s+)?` +
 		`(?:` + identRE + `(?:\s+AUTHORIZATION\s+` + identRE + `)?` +

@@ -159,3 +159,22 @@ func TestUnprovenStatementsConcurrent(t *testing.T) {
 		t.Error(f)
 	}
 }
+
+// PostgreSQL 16+ treats a vertical tab as whitespace. The checks must
+// read it as a space, while the returned statement keeps the classifier's
+// form so lint can match it against rule hits.
+func TestUnprovenStatementsVerticalTab(t *testing.T) {
+	got, err := UnprovenStatements("CREATE TABLE app.c AS\v(SELECT 1)")
+	want := []string{"CREATE TABLE app.c AS\v(SELECT 1)"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("UnprovenStatements = %q, %v; want %q", got, err, want)
+	}
+	for _, sql := range []string{
+		"ALTER\vTABLE app.t ADD\vCOLUMN c\vint",
+		"COMMENT\vON TABLE t IS 'x'",
+	} {
+		if got, err := UnprovenStatements(sql); err != nil || len(got) != 0 {
+			t.Errorf("UnprovenStatements(%q) = %q, %v; want none", sql, got, err)
+		}
+	}
+}

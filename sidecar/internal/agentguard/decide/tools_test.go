@@ -324,3 +324,25 @@ func TestClassifyDDLConcurrentCallers(t *testing.T) {
 		t.Error(e)
 	}
 }
+
+// CREATE TABLE AS runs its query, and the query can call a function that
+// does any DDL. PostgreSQL needs no space before the parenthesis, and on
+// PG 16+ a vertical tab is whitespace, so neither spelling may slip
+// through to additive (migration-04a review).
+func TestClassifyDDLCreateTableAsSpellings(t *testing.T) {
+	requireClass(t, CapDDLLocking,
+		"CREATE TABLE app.copy AS(SELECT app.do_ddl())",
+		"CREATE TABLE app.copy AS((SELECT 1))",
+		"CREATE TABLE app.copy AS(VALUES (1))",
+		"CREATE TABLE app.copy AS\vSELECT * FROM app.big",
+		"CREATE TABLE app.copy\vAS TABLE app.big",
+		"CREATE TABLE app.p1 PARTITION\vOF app.p FOR VALUES IN (1)",
+		"ALTER TABLE app.t ADD COLUMN c int NOT\vNULL DEFAULT 0",
+	)
+	// AS inside a new table's own definition runs nothing.
+	requireClass(t, CapDDLAdditive,
+		"CREATE TABLE app.t (a int, b int GENERATED ALWAYS AS (a * 2) STORED)",
+		"CREATE TABLE app.t (id int GENERATED ALWAYS AS IDENTITY)",
+		"CREATE TABLE app.t\v(id int)",
+	)
+}
