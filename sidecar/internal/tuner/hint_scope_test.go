@@ -1,6 +1,7 @@
 package tuner
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -77,5 +78,21 @@ func TestHintScope_InsertedHintTextRejects(t *testing.T) {
 		if got, ok := InsertedHintText(tc.sql, tc.qid); ok {
 			t.Errorf("%s: InsertedHintText = %q, true; want false", name, got)
 		}
+	}
+}
+
+// The rule-based finding's rollback is scoped to the very text its INSERT
+// installs, so an action whose apply was a no-op over another row deletes
+// nothing when it is rolled back.
+func TestHintScope_BuildFindingRollbackMatchesInsert(t *testing.T) {
+	tu := &Tuner{hintPlan: &HintPlanAvailability{Available: true, HintTableReady: true}}
+	c := candidate{QueryID: 777, Query: "SELECT 1", MeanExecTime: 150, Calls: 100}
+	hint := "IndexScan(orders orders_pkey)"
+	f := tu.buildFinding(context.Background(), c, nil, hint, "t", "r", "", "")
+	if f.RollbackSQL != BuildDeleteSQL(777, hint) {
+		t.Fatalf("RollbackSQL = %q, want the delete scoped to %q", f.RollbackSQL, hint)
+	}
+	if got, ok := InsertedHintText(f.RecommendedSQL, 777); !ok || got != hint {
+		t.Fatalf("InsertedHintText(RecommendedSQL) = %q, %t; want %q", got, ok, hint)
 	}
 }
