@@ -9,6 +9,23 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 | Amazon Aurora PostgreSQL | CloudWatch (as RDS; `AuroraReplicaLagMaximum`), Performance Insights | DB parameter group of the writer |
 | Google Cloud SQL for PostgreSQL | Cloud Monitoring (CPU, memory quota/usage, disk quota/usage, disk ops, backends, replica lag) | Database flags |
 
+## Provider detection
+
+pg_sage names the provider of each database from its host name or, failing that, from SQL
+probes (`aurora_version()` and the `rds.*`, `alloydb.*`, `cloudsql.*` and `azure.*`
+settings). Each probe has its own 2 second timeout. "Function does not exist" or an unset
+setting means "not this provider"; no match means `self-managed`.
+
+A probe that fails (a timeout, a dropped connection, a permission error) makes the provider
+`unknown`, never `self-managed`. At startup the probes retry after 1, 2 and 4 seconds. An
+`unknown` provider matches no action's provider list, so provider-gated actions such as
+`ALTER SYSTEM` stay blocked, and readiness shows `provider unknown`. The runtime then
+re-probes with backoff from 1 minute to 30 minutes. When a probe succeeds, pg_sage logs the
+change and rebuilds that database's runtime (YAML fleet and meta-db databases). In
+standalone mode, and for the control database of a YAML fleet, it cannot rebuild one
+runtime, so readiness shows `provider re-probe found <provider>; restart pg_sage to apply`
+until you restart.
+
 ## What the telemetry is used for
 
 Telemetry is evidence only. It never raises a trust level or grants an action: every action
