@@ -21,7 +21,9 @@ type ExplainRequest struct {
 	Params  []string `json:"params,omitempty"`
 }
 
-// ExplainResult is the plan and what it says.
+// ExplainResult is the plan and what it says. Verdict and the fields after
+// it are set only for an agent's EXPLAIN (ExplainAsAgent): the broker's
+// verdict, and when the plan was refused or failed, why.
 type ExplainResult struct {
 	Query          string                `json:"query"`
 	PlanJSON       json.RawMessage       `json:"plan_json"`
@@ -32,11 +34,23 @@ type ExplainResult struct {
 	Analyzed       bool                  `json:"analyzed"`
 	Note           string                `json:"note,omitempty"`
 	AnalyzeRefused string                `json:"analyze_refused,omitempty"`
+	Verdict        string                `json:"verdict,omitempty"`
+	Status         string                `json:"status,omitempty"`
+	ReasonCode     string                `json:"reason_code,omitempty"`
+	Detail         string                `json:"detail,omitempty"`
+	Fix            string                `json:"fix,omitempty"`
+	SQLState       string                `json:"sqlstate,omitempty"`
+	Message        string                `json:"message,omitempty"`
+	Retryable      bool                  `json:"retryable,omitempty"`
 }
 
 // ExplainQuery explains one read statement (never a write, never several
-// statements) in a read-only transaction under a statement timeout.
+// statements) in a read-only transaction under a statement timeout, as
+// pg_sage's own role: the explainer for people. Agents use ExplainAsAgent.
 func (t *Tools) ExplainQuery(ctx context.Context, req ExplainRequest) (ExplainResult, error) {
+	if err := t.explainEnabled(); err != nil {
+		return ExplainResult{}, err
+	}
 	if err := t.ready(); err != nil {
 		return ExplainResult{}, err
 	}

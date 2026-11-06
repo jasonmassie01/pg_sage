@@ -5,6 +5,7 @@
 package readapi
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -40,6 +41,32 @@ type Request struct {
 	Params []any
 	// MaxRows is 0 for agents.query.max_rows; at most max_rows_ceiling.
 	MaxRows int
+}
+
+// ExplainRequest is one agent explain_query: plan-only EXPLAIN of one
+// SELECT as the agent's own broker role (security-02).
+type ExplainRequest struct {
+	Database string
+	SQL      string
+	// Params are the values of $1..$n as text; a missing or empty one is
+	// NULL, and then the statement gets its generic plan.
+	Params []string
+}
+
+// ExplainResult is the plan, or the verdict that refused it. The fields
+// mean what they mean in Result; PlanJSON is EXPLAIN (FORMAT JSON).
+type ExplainResult struct {
+	Verdict           string          `json:"verdict"`
+	Status            string          `json:"status,omitempty"`
+	ReasonCode        string          `json:"reason_code,omitempty"`
+	Detail            string          `json:"detail,omitempty"`
+	Fix               string          `json:"fix,omitempty"`
+	PlanJSON          json.RawMessage `json:"plan_json,omitempty"`
+	EnvelopeHash      string          `json:"envelope_hash,omitempty"`
+	SQLState          string          `json:"sqlstate,omitempty"`
+	Message           string          `json:"message,omitempty"`
+	Retryable         bool            `json:"retryable,omitempty"`
+	RetryAfterSeconds int             `json:"retry_after,omitempty"`
 }
 
 // Column is one output column.

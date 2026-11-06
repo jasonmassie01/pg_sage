@@ -26,12 +26,17 @@ func (backend *ProductionBackend) TopQueries(ctx context.Context,
 	return tools.TopQueries(ctx, request)
 }
 
-// ExplainQuery serves explain_query.
+// ExplainQuery serves explain_query: pg_sage's explainer for people, and
+// for agent principals plan-only EXPLAIN as the agent's own role
+// (agentExplain, security-02).
 func (backend *ProductionBackend) ExplainQuery(ctx context.Context,
 	request agenttools.ExplainRequest) (agenttools.ExplainResult, error) {
 	tools, err := backend.agentTools()
 	if err != nil {
 		return agenttools.ExplainResult{}, err
+	}
+	if p, bound := PrincipalFromContext(ctx); bound && p.Kind == KindAgent {
+		return backend.agentExplain(ctx, tools, request)
 	}
 	return tools.ExplainQuery(ctx, request)
 }

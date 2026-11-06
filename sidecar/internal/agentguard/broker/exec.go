@@ -79,15 +79,24 @@ func (c *call) begin(ctx context.Context, pg *pgconn.PgConn) error {
 	return nil
 }
 
-// rollback ends the transaction; a connection that cannot is closed so it
-// never returns to the pool mid-transaction.
+// rollback ends the transaction, then releases an explain's prepared
+// statement (it outlives the transaction); a connection that cannot is
+// closed so it never returns to the pool mid-transaction or still holding
+// the statement.
 func (c *call) rollback(conn *pgxpool.Conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.b.cfg.LockTimeout+
 		c.b.cfg.StatementTimeout)
 	defer cancel()
 	pg := conn.Conn().PgConn()
-	if _, err := pg.ExecParams(ctx, "ROLLBACK", nil, nil, nil, nil).Close(); err != nil {
-		closeBroken(conn)
+	stmts := []string{"ROLLBACK"}
+	if c.prepared {
+		stmts = append(stmts, "DEALLOCATE "+explainStatementName)
+	}
+	for _, s := range stmts {
+		if _, err := pg.ExecParams(ctx, s, nil, nil, nil, nil).Close(); err != nil {
+			closeBroken(conn)
+			return
+		}
 	}
 }
 
@@ -97,7 +106,8 @@ func closeBroken(conn *pgxpool.Conn) {
 	_ = conn.Conn().Close(ctx)
 }
 
-// inTransaction proves, describes, plans the output, then runs the cursor.
+// inTransaction proves, describes, plans the output, then runs the cursor
+// (or, for an explain, plans the statement without running it).
 func (c *call) inTransaction(ctx context.Context, conn *pgxpool.Conn,
 	read sqlast.BrokeredRead, rels []relation, env envbind.Env) (Result, error) {
 	refusal, err := explain.ProveRead(ctx, conn, read.Canonical, nil, c.b.proof)
@@ -119,6 +129,9 @@ func (c *call) inTransaction(ctx context.Context, conn *pgxpool.Conn,
 	plan, refused, err := c.plan(ctx, desc.Fields, rels, read, env)
 	if err != nil || refused.Verdict != "" {
 		return refused, err
+	}
+	if c.explain {
+		return c.explainPlan(ctx, pg, read)
 	}
 	return c.fetch(ctx, pg, read.Canonical, plan)
 }

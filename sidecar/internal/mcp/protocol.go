@@ -176,8 +176,7 @@ func (s *Server) toolsList(ctx context.Context, modern bool) map[string]any {
 	names := s.permittedDatabaseNames(ctx)
 	tools := make([]Tool, 0, len(s.tools))
 	for _, tool := range s.tools {
-		scope, _ := RequiredScope(tool.Name, nil)
-		if !mayCall(ctx, scope) {
+		if !mayCall(ctx, scopeFor(ctx, tool.Name, nil)) {
 			continue
 		}
 		tools = append(tools, withDatabaseEnum(tool, names))

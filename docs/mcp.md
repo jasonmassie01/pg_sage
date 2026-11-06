@@ -588,9 +588,9 @@ Scope: `read`
 
 ### `explain_query`
 
-Safe EXPLAIN of one read statement (text or a pg_stat_statements queryid) in a read-only transaction with a statement timeout. analyze runs EXPLAIN ANALYZE only when pg_sage proves the statement has no side effects; writes are never analyzed.
+Safe EXPLAIN of one read statement (text or a pg_stat_statements queryid) in a read-only transaction with a statement timeout. People need the propose scope (operator or admin); analyze runs EXPLAIN ANALYZE only when pg_sage proves the statement has no side effects, and writes are never analyzed. Agents get plan-only EXPLAIN as their own database role through agent governance (analyze is refused), so a plan never describes a table the agent cannot read.
 
-Scope: `read`
+Scope: `propose` (operator) for people; `read` for agents, plan-only, under the agent's role
 
 | Argument | Type | Required | Notes |
 |---|---|---|---|
