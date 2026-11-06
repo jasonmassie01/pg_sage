@@ -84,8 +84,12 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 		return err
 	}
 	proposals := c.advise(ctx, inv, d)
+	age, err := c.concludedAge(ctx, lease)
+	if err != nil {
+		return err
+	}
 	return c.conclude(ctx, lease, d, model, attachments{runbook: run,
-		proposals: proposals, evidence: ageOfEvidence(evidence, c.now())})
+		proposals: proposals, evidence: age})
 }
 
 // attachments are what a conclusion carries beside the diagnosis and

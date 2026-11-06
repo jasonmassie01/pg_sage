@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -315,5 +316,43 @@ func TestStore_ExpireStaleIsFenced(t *testing.T) {
 	}
 	if _, err := st.ExpireStale(ctx, Lease{}, sum); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("expire with an empty lease = %v, want ErrInvalidRequest", err)
+	}
+}
+
+// The age on a conclusion counts the evidence the model turn added: a
+// model probe observed after the plan's steps is the newest evidence, so
+// the age is not overstated by the plan's older rows.
+func TestStaleResume_AgeCountsTheModelProbe(t *testing.T) {
+	st, _, ctx := liveStore(t, budgetLimits())
+	m := newFakeModel(t, probeFirstReview(t), toolReply(validIdleReview(t)))
+	runner := retryLockRunner()
+	runner.hook = func(id probes.ID, call int) {
+		if id == probes.LockGraph && call == 1 { // the model's probe
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	c, _ := modelCoordinator(t, ctx, st, runner, m.client())
+	inv := startAndRun(t, ctx, c, lockTrigger("stale-model-probe"))
+	assertIdleRoot(t, st, inv)
+	ev, err := st.Evidence(ctx, inv.Scope, inv.ID)
+	if err != nil {
+		t.Fatalf("evidence: %v", err)
+	}
+	var probed, planned time.Time
+	for _, e := range ev {
+		if strings.HasPrefix(e.StepKey, "model-probe") {
+			probed = e.ObservedAt
+		} else if e.ObservedAt.After(planned) {
+			planned = e.ObservedAt
+		}
+	}
+	if probed.IsZero() || !probed.After(planned) {
+		t.Fatalf("model probe at %v, plan steps at %v; want a later model probe", probed,
+			planned)
+	}
+	got := inv.Summary.EvidenceNewestAt
+	if got == nil || !got.Equal(probed) {
+		t.Fatalf("evidence_newest_at = %v, want the model probe's %v (plan steps %v)", got,
+			probed, planned)
 	}
 }

@@ -68,3 +68,14 @@ func (c *Coordinator) expireStale(ctx context.Context, lease Lease, age evidence
 	_, err := c.store.ExpireStale(ctx, lease, s)
 	return err
 }
+
+// concludedAge is the age, at conclusion, of everything the run stored:
+// the plan's steps, the runbook's reads and any read or probe of the
+// model turn, which the evidence the diagnosis started from lacks.
+func (c *Coordinator) concludedAge(ctx context.Context, lease Lease) (evidenceAge, error) {
+	ev, err := c.store.Evidence(ctx, lease.Scope, lease.InvestigationID)
+	if err != nil {
+		return evidenceAge{}, err
+	}
+	return ageOfEvidence(ev, c.now()), nil
+}
