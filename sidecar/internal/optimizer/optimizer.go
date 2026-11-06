@@ -13,7 +13,6 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
@@ -26,12 +25,12 @@ type Optimizer struct {
 	pool      *pgxpool.Pool
 	cfg       *config.OptimizerConfig
 	validator *Validator
-	planner   *PlanCapture
 	hypopg    *HypoPG
 	whatIf    whatIfValidator  // defaults to hypopg; tests inject fakes
 	memory    *rejectionMemory // nil: rejection memory off or no database
 	logFn     func(string, string, ...any)
-	// catalogTimeouts bound the context builder's catalog reads.
+	// catalogTimeouts bound the context builder's catalog reads; their
+	// lock timeout also bounds the HypoPG what-if's lock waits.
 	catalogTimeouts catalogread.Timeouts
 
 	// whatIfSkips counts candidates rejection memory skipped (MemoryStats).
@@ -40,16 +39,19 @@ type Optimizer struct {
 
 // WithCatalogReadTimeouts bounds the context builder's catalog reads
 // (columns, pg_stats, collation) with the safety configuration's
-// statement and lock timeouts; the default is the shipped safety values.
+// statement and lock timeouts, and the HypoPG what-if's lock waits with
+// the lock timeout; the default is the shipped safety values.
 func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
 
-// New creates an Optimizer with all sub-components.
+// New creates an Optimizer with all sub-components. The server version
+// argument has had no reader since the plan capture it chose a strategy
+// for was removed (indexes-05); indexes-11 drops it from the signature.
 func New(
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
-	pgVersionNum int,
+	_ int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
 ) *Optimizer {
@@ -57,12 +59,8 @@ func New(
 		pool:      pool,
 		cfg:       cfg,
 		validator: NewValidator(pool, cfg, logFn),
-		planner: NewPlanCapture(
-			pool, pgVersionNum, false,
-			cfg.PlanSource, logFn,
-		),
-		hypopg: NewHypoPG(pool, logFn),
-		logFn:  logFn,
+		hypopg:    NewHypoPG(pool, logFn),
+		logFn:     logFn,
 
 		catalogTimeouts: catalogread.Default(),
 	}
@@ -74,6 +72,7 @@ func New(
 	for _, opt := range options {
 		opt(o)
 	}
+	o.hypopg.lockTimeout = o.catalogTimeouts.Lock
 	return o
 }
 
@@ -82,13 +81,6 @@ type whatIfValidator interface {
 	IsAvailable(ctx context.Context) bool
 	Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
 	) (WhatIfResult, error)
-}
-
-// WithAutoExplain enables auto_explain as a plan source.
-func WithAutoExplain() func(*Optimizer) {
-	return func(o *Optimizer) {
-		o.planner.autoExplainAvailable = true
-	}
 }
 
 // ColdStart reports whether there are fewer than min_snapshots snapshots,
@@ -237,15 +229,4 @@ func WithOperatorRequest(ctx context.Context) context.Context {
 func operatorRequested(ctx context.Context) bool {
 	requested, _ := ctx.Value(operatorRequestKey{}).(bool)
 	return requested
-}
-
-// WithLakebasePlanScope permits only plans from a live-verified resource binding.
-// A blank scope keeps provider history unavailable while startup is unresolved.
-func WithLakebasePlanScope(scope func() string, retention ...time.Duration) func(*Optimizer) {
-	return func(o *Optimizer) {
-		o.planner.providerScope = scope
-		if len(retention) == 1 {
-			o.planner.providerRetention = retention[0]
-		}
-	}
 }

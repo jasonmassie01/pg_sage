@@ -80,7 +80,7 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	}
 	adm := v.a.deps.Indexes.Admit(ctx, optimizer.Recommendation{DDL: ddl, Severity: "info",
 		Rationale: p.Rationale, IndexType: spec.Method, Alongside: ov.alongside,
-		Category: optimizer.OptimizerCategory}, tc)
+		Category: optimizer.OptimizerCategory, AffectedQueryIDs: v.targets(c, p)}, tc)
 	switch adm.Outcome {
 	case optimizer.AdmitAccepted:
 	case optimizer.AdmitMeasured:
@@ -93,7 +93,7 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	if ov.family != "" {
 		v.flight.families[ov.family] = ddl
 	}
-	f := analyzer.OptimizerRecommendationFinding(adm.Rec, tc.PlanSource)
+	f := analyzer.OptimizerRecommendationFinding(adm.Rec)
 	pred := v.createPrediction(c, p, adm.Rec)
 	if ov.replaces != nil {
 		return v.admitReplacement(p, f, table, adm.Rec.DDL, replaced, pred)

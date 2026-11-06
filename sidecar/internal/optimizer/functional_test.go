@@ -480,26 +480,6 @@ func TestFunctional_Validate_ExpressionNilPool(t *testing.T) {
 // Section 5: Detection Heuristics (15.6)
 // ----------------------------------------------------------------
 
-func TestFunctional_DetectIncludeCandidates(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Index Scan", HeapFetches: 5000},
-		{QueryID: 2, ScanType: "Index Scan", HeapFetches: 100},
-		{QueryID: 3, ScanType: "Seq Scan", HeapFetches: 9999},
-	}
-	candidates := DetectIncludeCandidates(plans, 1000)
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1", len(candidates))
-	}
-	if candidates[0].QueryID != 1 {
-		t.Errorf("QueryID = %d, want 1", candidates[0].QueryID)
-	}
-	if candidates[0].HeapFetches != 5000 {
-		t.Errorf(
-			"HeapFetches = %d, want 5000", candidates[0].HeapFetches,
-		)
-	}
-}
-
 func TestFunctional_DetectPartialCandidates(t *testing.T) {
 	queries := []QueryInfo{
 		{Text: "SELECT * FROM orders WHERE status = 'pending'"},
@@ -1083,8 +1063,6 @@ func TestFunctional_Context_ParseFloatArray(t *testing.T) {
 // ----------------------------------------------------------------
 
 // --- 16.1 filterPlansForTable ---
-
-// --- 16.2 WithAutoExplain ---
 
 // --- 16.3 lookupSelectivity ---
 

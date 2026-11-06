@@ -206,7 +206,7 @@ func TestHypoPGConcurrentSessionsAndAvailability(t *testing.T) {
 
 func TestHypoPGCleanupFailureDiscardsConnection(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	session, err := openHypoPGSession(t.Context(), pool)
+	session, err := openHypoPGSession(t.Context(), pool, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

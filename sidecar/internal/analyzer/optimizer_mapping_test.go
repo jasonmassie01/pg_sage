@@ -19,7 +19,7 @@ func TestOptimizerRecommendationFinding_RiskAndRollback(t *testing.T) {
 		EstimatedImprovementPct: 25,
 		AffectedQueries:         []string{"SELECT * FROM orders WHERE status = $1"},
 	}
-	finding := OptimizerRecommendationFinding(rec, "pg_stat_statements")
+	finding := OptimizerRecommendationFinding(rec)
 
 	if finding.ActionRisk != optimizer.RiskModerate {
 		t.Fatalf("ActionRisk = %q, want %q",
@@ -32,8 +32,10 @@ func TestOptimizerRecommendationFinding_RiskAndRollback(t *testing.T) {
 			t.Fatalf("detail %s = %v, want absent", key, finding.Detail[key])
 		}
 	}
-	if finding.Detail["plan_source"] != "pg_stat_statements" {
-		t.Fatalf("plan_source = %v", finding.Detail["plan_source"])
+	// indexes-05: the optimizer captures no plans, so the finding claims
+	// no plan source as evidence.
+	if src, ok := finding.Detail["plan_source"]; ok {
+		t.Fatalf("plan_source = %v, want absent", src)
 	}
 	if finding.RecommendedSQL != rec.DDL {
 		t.Fatalf("RecommendedSQL = %q, want %q",
@@ -91,7 +93,6 @@ func TestOptimizerSpecializedRecommendationsProjectToIndexActions(t *testing.T) 
 					Category:        tt.category,
 					AffectedQueries: []string{tt.query},
 				},
-				"test",
 			)
 
 			projected := cases.ProjectFinding(cases.SourceFinding{

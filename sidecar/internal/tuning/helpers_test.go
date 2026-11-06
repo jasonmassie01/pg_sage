@@ -219,6 +219,7 @@ func (f *fakeIndexes) Admit(_ context.Context, rec optimizer.Recommendation,
 	rec.Category = optimizer.OptimizerCategory
 	rec.WhatIf, rec.Validated = optimizer.WhatIfVerified, true
 	rec.EstimatedImprovementPct = 40
+	rec.AffectedQueryIDs = nil // the real Admit replaces them with the context's
 	for _, q := range tc.Queries {
 		rec.AffectedQueryIDs = append(rec.AffectedQueryIDs, q.QueryID)
 	}

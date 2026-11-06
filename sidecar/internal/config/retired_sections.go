@@ -99,8 +99,12 @@ func stripRetiredSections(raw string) (string, []string, error) {
 }
 
 // dropRetired removes retired tuner keys and retired sections from raw and
-// prints their warnings.
+// prints their warnings, plus one per key that loads but is ignored.
 func dropRetired(raw string) (string, error) {
+	ignoredWarnings, err := ignoredKeyWarnings(raw)
+	if err != nil {
+		return "", err
+	}
 	raw, keyWarnings, err := stripRetiredKeys(raw)
 	if err != nil {
 		return "", err
@@ -109,7 +113,8 @@ func dropRetired(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, warning := range append(keyWarnings, sectionWarnings...) {
+	warnings := append(append(ignoredWarnings, keyWarnings...), sectionWarnings...)
+	for _, warning := range warnings {
 		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
 	return raw, nil

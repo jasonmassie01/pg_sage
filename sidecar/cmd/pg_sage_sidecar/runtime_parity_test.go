@@ -34,7 +34,6 @@ var perDatabaseCapabilities = []runtimeCapability{
 	{"query tuner", []string{"tuner.New"}},
 	{"hint revalidation loop", []string{".StartRevalidationLoop"}},
 	{"index optimizer", []string{"optimizer.New"}},
-	{"optimizer auto_explain plans", []string{"optimizer.WithAutoExplain"}},
 	{"config advisor", []string{"advisor.New"}},
 	{"advisor cloud environment", []string{".WithCloudEnv"}},
 	{"auto_explain collector", []string{"autoexplain.NewCollector"}},

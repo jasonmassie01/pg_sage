@@ -42,7 +42,7 @@ func TestDefaultsWithoutLLMWireDeterministicRuntime(t *testing.T) {
 	if rt.llmOn {
 		t.Fatal("llmOn = true with no endpoint or key")
 	}
-	if agent := rt.newTuningAgent(false, nil); agent != nil {
+	if agent := rt.newTuningAgent(nil); agent != nil {
 		t.Error("tuning agent built without a usable LLM")
 	}
 	if adv := rt.newAdvisor(); adv != nil {
@@ -64,7 +64,7 @@ func TestDefaultsWithLLMWireLLMComponents(t *testing.T) {
 	if !rt.llmOn {
 		t.Fatal("llmOn = false with endpoint and key configured")
 	}
-	if rt.newTuningAgent(false, nil) == nil {
+	if rt.newTuningAgent(nil) == nil {
 		t.Error("tuning agent not built with a usable LLM")
 	}
 	if rt.newAdvisor() == nil {
@@ -87,7 +87,7 @@ func TestExplicitOptOutsWinWithConfiguredLLM(t *testing.T) {
 	rt := standaloneDefaultsRuntime(t, "http://127.0.0.1:1/v1", "fixture-key")
 	cfg.Tuning.Enabled = false
 	cfg.Advisor.Enabled = false
-	if rt.newTuningAgent(false, nil) != nil || rt.newAdvisor() != nil {
+	if rt.newTuningAgent(nil) != nil || rt.newAdvisor() != nil {
 		t.Error("explicit tuning/advisor false ignored")
 	}
 	if rt.newCollector().CollectsConfigSnapshots() {

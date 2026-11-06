@@ -109,7 +109,7 @@ type databaseRuntime struct {
 	facts *facts.Store
 	// cloud is managed-cloud host telemetry and cloudResolver the managed
 	// change target (nil when the provider has none).
-	lakebaseScope atomic.Value // verified immutable resource/policy pair, loaded by plan capture
+	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
 }

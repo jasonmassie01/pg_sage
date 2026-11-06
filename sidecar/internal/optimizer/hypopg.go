@@ -7,20 +7,27 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // HypoPG measures recommendations with hypothetical indexes.
 type HypoPG struct {
-	pool      *pgxpool.Pool
-	logFn     func(string, string, ...any)
-	mu        sync.Mutex
-	available *bool
+	pool  *pgxpool.Pool
+	logFn func(string, string, ...any)
+	// lockTimeout bounds each lock wait of a what-if session; the
+	// optimizer sets the safety configuration's (catalogread Lock).
+	lockTimeout time.Duration
+	mu          sync.Mutex
+	available   *bool
 }
 
+// NewHypoPG measures with the shipped safety lock timeout.
 func NewHypoPG(pool *pgxpool.Pool, logFn func(string, string, ...any)) *HypoPG {
-	return &HypoPG{pool: pool, logFn: logFn}
+	return &HypoPG{pool: pool, logFn: logFn, lockTimeout: catalogread.Default().Lock}
 }
 
 // IsAvailable returns true if HypoPG is installed. Failed probes are not cached.
@@ -45,9 +52,12 @@ func (h *HypoPG) IsAvailable(ctx context.Context) bool {
 }
 
 // Validate measures an index on one owning session and restores that
-// session before release. Each workload query is planned in its own
-// savepoint: one that cannot be planned is counted in Failed instead of
-// aborting the evaluation. The verdict is the caller's (whatIfVerdict).
+// session before release. It plans at most maxWhatIfStatements statements
+// (whatIfSample: the recommendation's affected queryids, then the hottest
+// by total time). Each workload query is planned in its own savepoint: one
+// that cannot be planned is counted in Failed instead of aborting the
+// evaluation, but a lock timeout ends it with an error. The verdict is the
+// caller's (whatIfVerdict).
 func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
 ) (res WhatIfResult, retErr error) {
 	if h.pool == nil {
@@ -56,10 +66,11 @@ func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []Que
 	if err := ctx.Err(); err != nil {
 		return WhatIfResult{}, err
 	}
+	queries = whatIfSample(queries, rec.AffectedQueryIDs)
 	if len(queries) == 0 {
 		return WhatIfResult{}, nil
 	}
-	session, err := openHypoPGSession(ctx, h.pool)
+	session, err := openHypoPGSession(ctx, h.pool, h.lockTimeout)
 	if err != nil {
 		return WhatIfResult{}, err
 	}

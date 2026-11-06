@@ -6,13 +6,6 @@ import (
 	"strings"
 )
 
-// IncludeCandidate identifies a query that would benefit from INCLUDE columns.
-type IncludeCandidate struct {
-	QueryID     int64
-	HeapFetches int64
-	SuggestCols []string // columns to INCLUDE (populated by LLM)
-}
-
 // PartialCandidate identifies a table where partial indexes may help.
 type PartialCandidate struct {
 	Column      string
@@ -44,28 +37,6 @@ var (
 	)
 	groupByRe = regexp.MustCompile(`(?i)\bGROUP\s+BY\b`)
 )
-
-// DetectIncludeCandidates finds queries where Index Scan has high heap
-// fetches, suggesting INCLUDE columns would help.
-func DetectIncludeCandidates(
-	plans []PlanSummary,
-	threshold int64,
-) []IncludeCandidate {
-	var candidates []IncludeCandidate
-	for _, p := range plans {
-		if !strings.Contains(p.ScanType, "Index Scan") {
-			continue
-		}
-		if p.HeapFetches <= threshold {
-			continue
-		}
-		candidates = append(candidates, IncludeCandidate{
-			QueryID:     p.QueryID,
-			HeapFetches: p.HeapFetches,
-		})
-	}
-	return candidates
-}
 
 // DetectPartialCandidates analyzes queries to find columns where >80%
 // of queries use the same constant filter AND the filter has <20%

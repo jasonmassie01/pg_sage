@@ -156,8 +156,12 @@ func TestOptimizerRecommendationFindingIsExported(t *testing.T) {
 	rec := optimizer.Recommendation{Table: "public.orders", Severity: "info",
 		DDL:    "CREATE INDEX CONCURRENTLY orders_a_idx ON public.orders (a)",
 		WhatIf: optimizer.WhatIfVerified, Validated: true}
-	f := OptimizerRecommendationFinding(rec, "explain_cache")
-	if f.Detail["what_if_verdict"] == nil || f.Detail["plan_source"] != "explain_cache" {
+	f := OptimizerRecommendationFinding(rec)
+	if f.Detail["what_if_verdict"] != optimizer.WhatIfVerified {
 		t.Fatalf("finding = %+v", f)
+	}
+	// indexes-05: no plan was captured, so no plan source is claimed.
+	if src, ok := f.Detail["plan_source"]; ok {
+		t.Fatalf("plan_source = %v, want absent", src)
 	}
 }

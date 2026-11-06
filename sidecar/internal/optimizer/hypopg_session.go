@@ -10,8 +10,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
+
+// hypopgStatementTimeout bounds each statement of a what-if session. The
+// catalog-read default (500 ms) is too short to plan in.
+const hypopgStatementTimeout = "5s"
+
+// sqlstateLockNotAvailable is lock_timeout's SQLSTATE.
+const sqlstateLockNotAvailable = "55P03"
 
 type hypopgSession struct {
 	conn      *pgxpool.Conn
@@ -20,7 +29,10 @@ type hypopgSession struct {
 	version   int
 }
 
-func openHypoPGSession(ctx context.Context, pool *pgxpool.Pool) (*hypopgSession, error) {
+// openHypoPGSession acquires one connection and opens the bounded
+// transaction every what-if statement runs in.
+func openHypoPGSession(ctx context.Context, pool *pgxpool.Pool, lockTimeout time.Duration,
+) (*hypopgSession, error) {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquire HypoPG session: %w", err)
@@ -36,12 +48,27 @@ func openHypoPGSession(ctx context.Context, pool *pgxpool.Pool) (*hypopgSession,
 	}
 	s.tx, err = conn.Begin(ctx)
 	if err == nil {
-		_, err = s.tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'")
+		err = boundSession(ctx, s.tx, lockTimeout)
 	}
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("begin bounded HypoPG transaction: %w", err), s.close())
 	}
 	return s, nil
+}
+
+// boundSession sets the transaction's LOCAL bounds: the statement timeout
+// and the lock timeout, so an EXPLAIN queued behind an ACCESS EXCLUSIVE
+// lock fails with 55P03 instead of holding the connection. A lock timeout
+// below 1 ms falls back to the shipped default: a what-if never waits
+// unbounded.
+func boundSession(ctx context.Context, tx pgx.Tx, lockTimeout time.Duration) error {
+	if lockTimeout < time.Millisecond {
+		lockTimeout = catalogread.Default().Lock
+	}
+	_, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true),
+		set_config('lock_timeout', $2, true)`, hypopgStatementTimeout,
+		fmt.Sprintf("%dms", lockTimeout.Milliseconds()))
+	return err
 }
 
 func (s *hypopgSession) function(name string) string {
@@ -109,7 +136,8 @@ func (s *hypopgSession) estimateSize(ctx context.Context, oid uint32) (int64, er
 // measureCosts plans every explainable workload query. Each EXPLAIN runs
 // in its own savepoint, so a query that fails (a dropped column, a type
 // it cannot plan) is counted and skipped instead of aborting the shared
-// transaction. A cancelled context aborts the measurement.
+// transaction. A cancelled context or a lock timeout (the table is locked:
+// every other statement on it would wait as long) aborts the measurement.
 func (s *hypopgSession) measureCosts(ctx context.Context,
 	queries []QueryInfo,
 ) (map[int64]float64, int, error) {
@@ -131,6 +159,10 @@ func (s *hypopgSession) measureCosts(ctx context.Context,
 			if errors.Is(err, errSessionBroken) {
 				return nil, failed, err
 			}
+			if isLockTimeout(err) {
+				return nil, failed, fmt.Errorf("lock timeout: queryid %d waited past "+
+					"lock_timeout for a lock on its tables: %w", query.QueryID, err)
+			}
 			failed++
 			continue
 		}
@@ -139,6 +171,12 @@ func (s *hypopgSession) measureCosts(ctx context.Context,
 		}
 	}
 	return costs, failed, nil
+}
+
+// isLockTimeout reports a statement cancelled by lock_timeout.
+func isLockTimeout(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == sqlstateLockNotAvailable
 }
 
 // errSessionBroken means a failed EXPLAIN could not be rolled back to its

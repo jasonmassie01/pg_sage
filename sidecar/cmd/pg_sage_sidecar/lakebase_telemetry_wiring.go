@@ -231,19 +231,6 @@ func (rt *databaseRuntime) runLakebaseTelemetry(history *lakebaseobs.Runtime, c 
 	}
 }
 
-func (rt *databaseRuntime) currentLakebaseScope() string {
-	if rt.cfg == nil || rt.spec.Pool == nil || !rt.cfg.LakebaseObservability.Enabled || !rt.cfg.LakebaseObservability.AllowPayload {
-		return ""
-	}
-	value, _ := rt.lakebaseScope.Load().(lakebaseVerifiedBinding)
-	conn := rt.spec.Pool.Config().ConnConfig
-	binding, ok := rt.cfg.LakebaseObservability.Binding(conn.Host, conn.Database)
-	if !ok || value.PolicyBinding != lakebasePolicyBinding(binding) {
-		return ""
-	}
-	return value.ScopeHash
-}
-
 func lakebasePolicyBinding(b config.LakebaseObservabilityBinding) string {
 	raw := strings.ToLower(strings.TrimSuffix(b.Host, ".")) + "/" + b.Database + "/" + b.Endpoint
 	sum := sha256.Sum256([]byte(raw))

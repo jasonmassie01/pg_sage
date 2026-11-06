@@ -1,7 +1,5 @@
 package optimizer
 
-import "time"
-
 // Recommendation is a validated index recommendation from the optimizer.
 type Recommendation struct {
 	Table   string `json:"table"`
@@ -42,7 +40,6 @@ type TableContext struct {
 	Columns          []ColumnInfo
 	Indexes          []IndexInfo
 	Queries          []QueryInfo
-	Plans            []PlanSummary
 	ColStats         []ColStat
 	LiveTuples       int64
 	DeadTuples       int64
@@ -61,9 +58,6 @@ type TableContext struct {
 	PartitionChildren []string
 	NestedPartitions  bool
 	WriteRateKnown    bool // true when the table had recorded scan/write activity
-	// PlanSource is where Plans came from: auto_explain, generic_plan,
-	// query_text_only (no plan captured) or none (not attempted).
-	PlanSource string
 }
 
 // ColumnInfo describes a table column.
@@ -95,20 +89,10 @@ type QueryInfo struct {
 
 // PlanSummary holds a condensed execution plan for one query.
 type PlanSummary struct {
-	Source           string
-	CapturedAt       time.Time
-	ComputeID        string
-	AnalyzeEnabled   *bool
-	BuffersEnabled   *bool
-	TimingEnabled    *bool
-	DurationSource   string
-	QueryID          int64
-	Summary          string
-	ScanType         string
-	HeapFetches      int64
-	SortDisk         int64
-	RowsRemoved      int64
-	FilterExpression string // extracted filter expression from plan (e.g., "extract(year from col)")
+	QueryID  int64
+	Summary  string
+	ScanType string
+	SortDisk int64
 }
 
 // ColStat holds pg_stats data for a single column.
