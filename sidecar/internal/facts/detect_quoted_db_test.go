@@ -160,7 +160,8 @@ func TestAppManagedDetectorOddNamesRoundTrip(t *testing.T) {
 }
 
 // Nil/empty: an index pg_sage dropped that is still gone (no current
-// definition) and a drop that named no schema give no proposal.
+// definition), a drop that named no schema and an index whose name holds
+// '*' give no proposal.
 func TestAppManagedDetectorSkipsGoneAndUnqualifiedDrops(t *testing.T) {
 	pool, ctx := livePool(t)
 	table := uniqueName("am_skip_")
@@ -175,12 +176,15 @@ func TestAppManagedDetectorSkipsGoneAndUnqualifiedDrops(t *testing.T) {
 		'success'`, "DROP INDEX CONCURRENTLY "+bare, "public."+bare); err != nil {
 		t.Fatal(err)
 	}
+	// '*' is a subject wildcard: the subject would cover other indexes.
+	recordQuotedDrop(t, ctx, pool, "public", "IX*_"+table, qt, "c", 1)
 	got, err := NewAppManagedDetector(pool).Detect(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("proposals %+v, want none for a gone index or an unqualified drop", got)
+		t.Fatalf("proposals %+v, want none for a gone index, an unqualified drop or a "+
+			"name with '*'", got)
 	}
 }
 

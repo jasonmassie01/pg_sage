@@ -33,7 +33,9 @@ would not have done anyway.
 
 * **Detectors** propose facts from deterministic evidence:
   * an index pg_sage dropped that came back with the same definition (the application's
-    migrations recreated it);
+    migrations recreated it). The subject spells the index as the catalog does, so an
+    EF Core-style `"IX_Orders_CustomerId"` is proposed as `public."IX_Orders_CustomerId"`;
+    a drop that named no schema, and an index whose name holds `*`, are not proposed;
   * test-named schemas (`test_*`, `tmp_*`, `*_test`, ...) with no scans or writes for six
     hours, as one pattern per family of copies;
   * logical replication slots and their consumer;

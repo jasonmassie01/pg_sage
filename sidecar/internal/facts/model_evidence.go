@@ -59,8 +59,13 @@ func CollectModelEvidence(ctx context.Context, pool *pgxpool.Pool) ([]EvidenceIt
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		add("action_log", "drop_index:"+k, fmt.Sprintf("dropped by pg_sage %d times, "+
-			"recreated with the same definition each time", managed[k].Drops))
+		index, table, ok := appManagedSubject(managed[k])
+		if !ok {
+			continue
+		}
+		add("action_log", "drop_index:"+index, fmt.Sprintf("dropped by pg_sage %d times, "+
+			"recreated on table %s with the same definition each time", managed[k].Drops,
+			table))
 	}
 	return out, nil
 }
