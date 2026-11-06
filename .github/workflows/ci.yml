@@ -527,11 +527,13 @@ jobs:
           go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
+      # golangci-lint refuses a module whose toolchain is newer than the Go
+      # it was built with: v2.14.0 is built with go1.27.0 (ci-01).
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           working-directory: sidecar
-          version: v2.11.4
+          version: v2.14.0
           args: --timeout 5m
 
   # Roadmap 1.1: sign this commit's PGIncidentBench reports keyless

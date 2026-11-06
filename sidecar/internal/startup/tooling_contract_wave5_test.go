@@ -38,8 +38,8 @@ func TestWave5GolangCILintUsesPinnedV2Contract(t *testing.T) {
 	if !strings.Contains(workflow, "golangci/golangci-lint-action@v9") {
 		t.Fatal("lint workflow does not use the v2-compatible v9 action")
 	}
-	if !strings.Contains(workflow, "version: v2.11.4") {
-		t.Fatal("lint workflow does not pin golangci-lint v2.11.4")
+	if !strings.Contains(workflow, "version: v2.14.0") {
+		t.Fatal("lint workflow does not pin golangci-lint v2.14.0")
 	}
 	if strings.Contains(workflow, "version: latest") {
 		t.Fatal("lint workflow still uses an unpinned latest version")
