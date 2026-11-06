@@ -129,16 +129,52 @@ func TestTrailRemovalSeverity(t *testing.T) {
 	if num(t, trunc, "severity_id") != SeverityHigh {
 		t.Fatalf("truncate severity = %v", trunc["severity_id"])
 	}
-	retention := Map(Record{Source: "db", Chain: "auth_audit",
+	retention := Map(Record{Source: "db", Chain: "auth_audit", OwnRole: "sage",
 		Link: link("auth_audit", 9, "D")})
 	if num(t, retention, "severity_id") != SeverityInformational {
 		t.Fatalf("pg_sage retention delete severity = %v", retention["severity_id"])
 	}
 	l := link("auth_audit", 10, "D")
 	l.App = "psql"
-	manual := Map(Record{Source: "db", Chain: "auth_audit", Link: l})
+	manual := Map(Record{Source: "db", Chain: "auth_audit", OwnRole: "sage", Link: l})
 	if num(t, manual, "severity_id") != SeverityMedium {
 		t.Fatalf("manual delete severity = %v", manual["severity_id"])
+	}
+}
+
+// The role decides whether a delete is pg_sage's own retention: anyone can
+// set application_name to pg_sage, only pg_sage connects as its own role.
+func TestTrailRemovalSeverityTrustsRoleNotApp(t *testing.T) {
+	cases := []struct {
+		op, app, user, own string
+		severity           int
+	}{
+		{"D", "pg_sage", "mallory", "sage", SeverityMedium},
+		{"D", "pg_sage", "sage", "sage", SeverityInformational},
+		{"D", "pg_sage agent:ci-bot:7", "sage", "sage", SeverityInformational},
+		{"D", "psql", "sage", "sage", SeverityMedium},
+		{"D", "pg_sage", "Sage", "sage", SeverityMedium},
+		{"D", "pg_sage", "sage_agent_k2m4q7x7ab", "sage", SeverityMedium},
+		// An unknown own role (nil/empty) never makes a delete routine.
+		{"D", "pg_sage", "sage", "", SeverityMedium},
+		{"D", "pg_sage", "", "", SeverityMedium},
+		{"T", "pg_sage", "sage", "sage", SeverityHigh},
+		{"T", "pg_sage", "mallory", "sage", SeverityHigh},
+	}
+	for i, c := range cases {
+		l := link("auth_audit", 10, c.op)
+		l.App, l.DBUser = c.app, c.user
+		e := Map(Record{Source: "db", Chain: "auth_audit", OwnRole: c.own, Link: l})
+		if got := num(t, e, "severity_id"); got != c.severity {
+			t.Fatalf("case %d (%s by %q as %q, own %q): severity %d, want %d", i, c.op,
+				c.user, c.app, c.own, got, c.severity)
+		}
+		if e["severity"] != severityNames[c.severity] {
+			t.Fatalf("case %d: severity name %v", i, e["severity"])
+		}
+		if c.op == "D" && e["activity_name"] != "Audit Record Deleted" {
+			t.Fatalf("case %d: activity %v", i, e["activity_name"])
+		}
 	}
 }
 

@@ -15,6 +15,9 @@ const (
 	ByPGSage      = "pg_sage"          // pg_sage's own connection
 	ByStatement   = "statement"        // pg_sage's own, linked to an action by its SQL
 	ByRole        = "role"             // an agent role connected directly
+	// ByApplicationUnverified is an agent's application_name set by a role
+	// that is not an agent role: kept for forensics, attributed to no one.
+	ByApplicationUnverified = "application_name_unverified"
 )
 
 var (
@@ -33,21 +36,28 @@ type Attribution struct {
 }
 
 // Attribute decides whether e belongs to an agent principal or to pg_sage.
+// Any session can set application_name, so the role it logged in as
+// decides: an agent's name counts only from an agent role, and pg_sage's
+// only from ownRole (pg_sage's own login role; empty matches nothing).
 // Other sessions are not pg_sage's to keep.
-func Attribute(e logwatch.LogEntry) (Attribution, bool) {
+func Attribute(e logwatch.LogEntry, ownRole string) (Attribution, bool) {
+	isAgent := agentguard.IsAgentRoleName(e.User)
 	if m := agentApp.FindStringSubmatch(e.Application); m != nil {
+		if !isAgent {
+			return Attribution{By: ByApplicationUnverified}, true
+		}
 		a := Attribution{By: ByApplication, Principal: m[1]}
 		if m[2] != "" {
 			a.ActionID, _ = strconv.ParseInt(m[2], 10, 64)
 		}
 		return a, true
 	}
-	if e.Application == selfmonitor.ApplicationName {
+	if e.Application == selfmonitor.ApplicationName && ownRole != "" && e.User == ownRole {
 		return Attribution{By: ByPGSage}, true
 	}
 	// An agent's broker or direct-lane role: the same names agentguard
 	// creates (sage_agent_/sage_agentb_ and ten lower base32 characters).
-	if agentguard.IsAgentRoleName(e.User) {
+	if isAgent {
 		return Attribution{By: ByRole, Role: e.User}, true
 	}
 	return Attribution{}, false
