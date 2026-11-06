@@ -34,11 +34,17 @@ type ChecklistInput struct {
 	Capabilities   []firstlook.Capability
 	FirstLookReady bool
 	FirstLookItems int
-	MCPEnabled     bool
-	MCPToken       *bool
-	Notifications  *bool
-	TrustLevel     string
-	TTFFSeconds    *float64
+	// FirstLookChecks, FirstLookDegraded and FirstLookTruncated count the
+	// catalog checks: all of them, those that could not run, and those that
+	// found more than the report shows.
+	FirstLookChecks    int
+	FirstLookDegraded  int
+	FirstLookTruncated int
+	MCPEnabled         bool
+	MCPToken           *bool
+	Notifications      *bool
+	TrustLevel         string
+	TTFFSeconds        *float64
 }
 
 // Checklist is the first-run checklist for one database.
@@ -93,16 +99,50 @@ func firstLookStep(in ChecklistInput) Step {
 	if !in.FirstLookReady {
 		return s
 	}
-	if in.FirstLookItems == 0 {
-		s.Detail = "No problems found in the catalog. Query findings follow as " +
-			"statistics accumulate."
-	} else {
-		s.Detail = fmt.Sprintf("%d findings from the catalog.", in.FirstLookItems)
+	s.Detail = firstLookDetail(in)
+	// A first look none of whose catalog checks ran has looked at nothing;
+	// more degraded than counted (an inconsistent report) fails closed too.
+	if in.FirstLookDegraded > 0 && in.FirstLookDegraded >= in.FirstLookChecks {
+		s.Done = false
+		s.Detail = fmt.Sprintf("First look could not run: none of its %d catalog checks "+
+			"ran. The first look lists why, with the grant that fixes each.",
+			max(in.FirstLookChecks, in.FirstLookDegraded))
+		return s
 	}
 	if in.TTFFSeconds != nil {
 		s.Detail += fmt.Sprintf(" First finding %s after start.", seconds(*in.TTFFSeconds))
 	}
 	return s
+}
+
+func firstLookDetail(in ChecklistInput) string {
+	var d string
+	switch ran := in.FirstLookChecks - in.FirstLookDegraded; {
+	case in.FirstLookItems > 0:
+		d = fmt.Sprintf("%d findings from the catalog.", in.FirstLookItems)
+	case in.FirstLookDegraded > 0:
+		d = fmt.Sprintf("No problems found in the %d %s that ran.", ran,
+			plural(ran, "check", "checks"))
+	default:
+		d = "No problems found in the catalog. Query findings follow as statistics " +
+			"accumulate."
+	}
+	if in.FirstLookDegraded > 0 {
+		d = fmt.Sprintf("First look partial: %d of %d checks could not run. %s",
+			in.FirstLookDegraded, in.FirstLookChecks, d)
+	}
+	if n := in.FirstLookTruncated; n > 0 {
+		d += fmt.Sprintf(" %d %s only %s first findings.", n,
+			plural(n, "check shows", "checks show"), plural(n, "its", "their"))
+	}
+	return d
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func seconds(s float64) string {

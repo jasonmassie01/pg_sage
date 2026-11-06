@@ -22,6 +22,12 @@ func (p *pass) indexChecks(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 	if err != nil {
 		return nil, err
 	}
+	return p.evalIndexes(idx, fks, truncated), nil
+}
+
+// evalIndexes evaluates the index rules; truncated means the index read
+// stopped at its row limit, so every rule saw only part of the indexes.
+func (p *pass) evalIndexes(idx []Index, fks []ForeignKey, truncated bool) []outcome {
 	th := p.opts.Thresholds
 	dups, flagged := DuplicateIndexes(idx)
 	out := []outcome{
@@ -33,11 +39,12 @@ func (p *pass) indexChecks(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 	}
 	if truncated {
 		for i := range out {
+			out[i].truncated = true
 			out[i].note = strings.TrimSpace(fmt.Sprintf("only the first %d indexes were "+
 				"read. %s", maxIndexRows, out[i].note))
 		}
 	}
-	return out, nil
+	return out
 }
 
 func (p *pass) xid(ctx context.Context, tx pgx.Tx) ([]outcome, error) {

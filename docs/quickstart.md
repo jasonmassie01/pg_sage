@@ -89,6 +89,9 @@ one read-only transaction, never touches table data, and gives every statement 5
 less if you set a lower `safety.query_timeout_ms` or a `statement_timeout` on pg_sage's
 role. A check it cannot run (a missing privilege, a timeout) is shown as degraded, with
 the reason and the grant that fixes it; one that timed out is retried once 30 s later.
+Those checks appear under **Catalog checks**, below the findings, with any grant SQL in a
+code block; a first look with degraded checks says how many could not run instead of "No
+problems found", and the checklist's "First look ready" step shows the same count.
 With a model configured (`llm.enabled`, `llm.endpoint`, `llm.api_key`), a short summary
 heads the list. The findings never depend on it.
 

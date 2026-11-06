@@ -47,6 +47,11 @@ type firstLookSummary struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	DurationMS int64      `json:"duration_ms"`
 	Summary    string     `json:"summary,omitempty"`
+	// Checks, Degraded and Truncated count the catalog checks (agent posture
+	// checks are counted in the report's own section).
+	Checks    int `json:"checks"`
+	Degraded  int `json:"degraded"`
+	Truncated int `json:"truncated"`
 }
 
 type onboardingEntry struct {
@@ -112,9 +117,13 @@ func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onb
 	}
 	if fl := db.FirstLook; fl != nil {
 		finished := fl.FinishedAt
+		n := firstlook.CountChecks(fl.Checks, "")
 		e.FirstLook = firstLookSummary{Ready: true, Items: len(fl.Items),
-			FinishedAt: &finished, DurationMS: fl.DurationMS, Summary: fl.Summary}
+			FinishedAt: &finished, DurationMS: fl.DurationMS, Summary: fl.Summary,
+			Checks: n.Total, Degraded: n.Degraded, Truncated: n.Truncated}
 		in.FirstLookReady, in.FirstLookItems = true, len(fl.Items)
+		in.FirstLookChecks, in.FirstLookDegraded = n.Total, n.Degraded
+		in.FirstLookTruncated = n.Truncated
 		in.Capabilities = fl.Capabilities
 	}
 	e.Steps = onboarding.Checklist(in)
