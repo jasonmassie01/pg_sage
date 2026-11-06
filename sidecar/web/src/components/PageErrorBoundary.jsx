@@ -1,4 +1,4 @@
-import { Component, Fragment } from 'react'
+import { Component } from 'react'
 
 // Render errors only: event-handler and fetch errors never reach a boundary
 // and keep their own toasts and banners.
@@ -41,12 +41,13 @@ function PageRenderError({ error, onRetry }) {
 }
 
 // PageErrorBoundary contains a render error to the page area. A new
-// resetKey (the route) clears the error without remounting a healthy page;
-// Retry remounts the page once.
+// resetKey (the route) clears the error without remounting a healthy page.
+// Retry clears it too; the fallback already unmounted the page, so the page
+// mounts afresh.
 export class PageErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { failed: false, error: null, resetKey: props.resetKey, attempt: 0 }
+    this.state = { failed: false, error: null, resetKey: props.resetKey }
     this.retry = this.retry.bind(this)
   }
 
@@ -60,14 +61,14 @@ export class PageErrorBoundary extends Component {
   }
 
   retry() {
-    this.setState(s => ({ failed: false, error: null, attempt: s.attempt + 1 }))
+    this.setState({ failed: false, error: null })
   }
 
   render() {
     if (this.state.failed) {
       return <PageRenderError error={this.state.error} onRetry={this.retry} />
     }
-    return <Fragment key={this.state.attempt}>{this.props.children}</Fragment>
+    return this.props.children
   }
 }
 
