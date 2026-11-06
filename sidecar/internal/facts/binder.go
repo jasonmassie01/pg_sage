@@ -43,7 +43,9 @@ type Binder struct {
 }
 
 // NewBinder binds requests with the facts from source; resolver may be nil
-// (references are then matched as written); now defaults to time.Now.
+// (references are then matched as written); a resolver that is also a
+// TargetResolver qualifies unqualified targets (binder_targets.go); now
+// defaults to time.Now.
 func NewBinder(source ConfirmedSource, resolver IndexResolver, now func() time.Time) *Binder {
 	if now == nil {
 		now = time.Now
@@ -72,13 +74,17 @@ func (b *Binder) Bind(ctx context.Context, req policy.ActionRequest) (
 	if req.Contract != nil {
 		r.ActionType = req.Contract.ActionType
 	}
-	refs := ResolveRefs(r)
-	siblings, err := b.siblingBindings(ctx, refs, r)
+	sqlOnly, targets := sqlRefs(scanSQL(r.SQL)), targetRefs(r.Targets)
+	siblings, err := b.siblingBindings(ctx, mergeRefs(sqlOnly, targets), r)
 	if err != nil {
 		return nil, err
 	}
 	if len(facts) == 0 {
 		return policyBindings(siblings), nil
+	}
+	refs, err := b.qualifyTargets(ctx, sqlOnly, targets)
+	if err != nil {
+		return nil, err
 	}
 	if b.resolver != nil && needsResolution(refs) {
 		if refs, err = b.resolver.ResolveIndexes(ctx, refs); err != nil {

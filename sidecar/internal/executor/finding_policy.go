@@ -84,9 +84,21 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 	return result
 }
 
+// nonRelationObjectTypes are finding object types whose identifier names
+// no relation ("instance", a database name, a query id): they are never
+// fact targets, so a schema-wide fact cannot catch them (facts-01).
+var nonRelationObjectTypes = map[string]bool{"configuration": true, "setting": true,
+	"database": true, "instance": true, "query": true}
+
+// targetObjectsForFinding is the finding's object as a gate target. A
+// slot target ("slot:<name>") is kept whatever the object type.
 func targetObjectsForFinding(finding analyzer.Finding) []string {
 	target := strings.TrimSpace(finding.ObjectIdentifier)
 	if target == "" {
+		return nil
+	}
+	if !strings.HasPrefix(target, "slot:") &&
+		nonRelationObjectTypes[strings.ToLower(strings.TrimSpace(finding.ObjectType))] {
 		return nil
 	}
 	return []string{target}

@@ -172,16 +172,31 @@ func verb(toks []token) string {
 // ResolveRefs names the objects a request touches: those its SQL names,
 // then its targets (deduplicated).
 func ResolveRefs(req Request) []ObjectRef {
-	toks := scanSQL(req.SQL)
-	refs := sqlRefs(toks)
-	for _, raw := range req.Targets {
-		ref, err := ParseObjectRef(raw)
-		if err != nil || containsRef(refs, ref) {
-			continue
+	return mergeRefs(sqlRefs(scanSQL(req.SQL)), targetRefs(req.Targets))
+}
+
+// targetRefs parses a request's targets; one that is no object reference
+// ("pid:123", "") is skipped.
+func targetRefs(targets []string) []ObjectRef {
+	var out []ObjectRef
+	for _, raw := range targets {
+		if ref, err := ParseObjectRef(raw); err == nil {
+			out = append(out, ref)
 		}
-		refs = append(refs, ref)
 	}
-	return refs
+	return out
+}
+
+// mergeRefs is refs followed by each of more it does not already hold, in
+// a new slice (refs is never written).
+func mergeRefs(refs, more []ObjectRef) []ObjectRef {
+	out := append([]ObjectRef(nil), refs...)
+	for _, ref := range more {
+		if !containsRef(out, ref) {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func containsRef(refs []ObjectRef, ref ObjectRef) bool {
