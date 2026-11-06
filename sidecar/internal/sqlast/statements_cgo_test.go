@@ -95,6 +95,29 @@ func TestInspectStatementsDropsCTEReferences(t *testing.T) {
 	}
 }
 
+// A CTE name hides a real table only where the CTE is in scope: never
+// for the UPDATE target, its own (non-recursive) body, or a sibling scope.
+func TestInspectStatementsKeepsTablesACTENameShadows(t *testing.T) {
+	accounts := QualifiedName{Name: "accounts"}
+	for _, sql := range []string{
+		`WITH accounts AS (SELECT 1) UPDATE accounts SET c = 1`,
+		`WITH accounts AS (SELECT * FROM accounts) UPDATE orders SET c = 1`,
+		`WITH a AS (SELECT * FROM accounts), accounts AS (SELECT 1)
+			UPDATE orders SET c = 1 FROM a`,
+		`UPDATE orders SET c = (SELECT c FROM accounts LIMIT 1)
+			WHERE id IN (WITH accounts AS (SELECT 1 AS id) SELECT id FROM accounts)`,
+	} {
+		st := inspectOne(t, sql)
+		found := false
+		for _, rel := range st.Relations {
+			found = found || rel == accounts
+		}
+		if !found {
+			t.Errorf("%s: relations = %v, want the table accounts kept", sql, st.Relations)
+		}
+	}
+}
+
 func TestInspectStatementsFlagsNestedWrites(t *testing.T) {
 	for _, sql := range []string{
 		`WITH d AS (DELETE FROM orders RETURNING id) UPDATE orders SET c = 1`,

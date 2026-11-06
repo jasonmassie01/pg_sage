@@ -40,6 +40,11 @@ var modelDDLCases = []struct {
 	{"update with writing cte",
 		"WITH d AS (DELETE FROM orders RETURNING id) UPDATE orders SET x = 0", orders,
 		false},
+	{"update of a table a cte name shadows",
+		"WITH accounts AS (SELECT 1) UPDATE accounts SET x = 0", orders, false},
+	{"read of a table a nested cte name shadows",
+		"UPDATE orders SET x = (SELECT x FROM accounts LIMIT 1) WHERE id IN " +
+			"(WITH accounts AS (SELECT 1 AS id) SELECT id FROM accounts)", orders, false},
 	{"update calling an admin function",
 		"UPDATE orders SET x = pg_terminate_backend(42)", orders, false},
 	{"update calling set_config", "UPDATE orders SET s = set_config('a.b', 'c', false)",

@@ -23,7 +23,8 @@ type Statement struct {
 	// Node is the parse-node name (e.g. "DropStmt"), always set.
 	Node string
 	// Relations are every relation the statement names, with references
-	// to its own common table expressions left out.
+	// to the CTEs of its own top-level WITH left out where they are in
+	// scope; the UPDATE target is always kept.
 	Relations []QualifiedName
 	// Functions are every function the statement calls.
 	Functions []QualifiedName

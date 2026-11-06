@@ -24,12 +24,10 @@ func InspectStatements(sql string) ([]Statement, error) {
 func describeStatement(root *pg_query.Node) Statement {
 	st := Statement{Kind: KindOther, Node: nodeName(root)}
 	classifyStatement(root, &st)
-	ctes := map[string]bool{}
+	ctes := scopedCTENames(root)
 	relations, functions := nameSet{}, nameSet{}
 	walk(root.ProtoReflect(), func(msg protoreflect.Message) bool {
 		switch n := msg.Interface().(type) {
-		case *pg_query.CommonTableExpr:
-			ctes[n.GetCtename()] = true
 		case *pg_query.RangeVar:
 			relations.add(QualifiedName{Schema: n.GetSchemaname(), Name: n.GetRelname()})
 		case *pg_query.FuncCall:
@@ -46,8 +44,59 @@ func describeStatement(root *pg_query.Node) Statement {
 			delete(relations, name)
 		}
 	}
+	if target := root.GetUpdateStmt().GetRelation(); target != nil {
+		// The UPDATE target is always a table, never a CTE of that name.
+		relations.add(QualifiedName{Schema: target.GetSchemaname(), Name: target.GetRelname()})
+	}
 	st.Relations, st.Functions = relations.sorted(), functions.sorted()
 	return st
+}
+
+// scopedCTENames are the CTE names of the statement's own top-level WITH,
+// which are in scope everywhere a reference to them can be written. A
+// nested WITH has a narrower scope, so its names are not collected and a
+// reference to them counts as a relation (fail closed). When a CTE body
+// names itself or a later CTE, which there is a table, none are collected.
+func scopedCTENames(root *pg_query.Node) map[string]bool {
+	var with *pg_query.WithClause
+	switch {
+	case root.GetSelectStmt() != nil:
+		with = root.GetSelectStmt().GetWithClause()
+	case root.GetUpdateStmt() != nil:
+		with = root.GetUpdateStmt().GetWithClause()
+	}
+	ctes := with.GetCtes()
+	names := make([]string, len(ctes))
+	for i, cte := range ctes {
+		names[i] = cte.GetCommonTableExpr().GetCtename()
+	}
+	for i, cte := range ctes {
+		if referencesAny(cte.GetCommonTableExpr().GetCtequery(), names[i:]) {
+			return nil
+		}
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		out[name] = true
+	}
+	return out
+}
+
+// referencesAny reports whether node names an unqualified relation in names.
+func referencesAny(node *pg_query.Node, names []string) bool {
+	if node == nil {
+		return false
+	}
+	found := false
+	walk(node.ProtoReflect(), func(msg protoreflect.Message) bool {
+		if rv, ok := msg.Interface().(*pg_query.RangeVar); ok && rv.GetSchemaname() == "" {
+			for _, name := range names {
+				found = found || rv.GetRelname() == name
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // classifyStatement fills the kind and the kind-specific fields.
