@@ -78,13 +78,7 @@ func TestReopenObservationRetriesSweepsOnlyTransientPreFixRows(t *testing.T) {
 	pool := verifyIntegrationPool(t)
 	ctx := t.Context()
 	now := time.Now().UTC()
-	type row struct {
-		reason     string
-		deadline   time.Duration
-		completed  bool
-		wantReopen bool
-	}
-	rows := map[string]row{
+	rows := map[string]sweepRow{
 		"observation_unavailable ahead": {"observation_unavailable", time.Hour, false, true},
 		"context_canceled ahead":        {"context_canceled", time.Hour, false, true},
 		"observation_unavailable past":  {"observation_unavailable", -time.Hour, false, false},
@@ -109,18 +103,7 @@ func TestReopenObservationRetriesSweepsOnlyTransientPreFixRows(t *testing.T) {
 		t.Fatalf("ReopenObservationRetries = %d, %v; want at least the 2 fixture rows",
 			reopened, err)
 	}
-	for name, r := range rows {
-		var verdict, reason string
-		if err := pool.QueryRow(ctx, `SELECT verdict, reason FROM sage.verification
-			WHERE action_log_id=$1`, ids[name]).Scan(&verdict, &reason); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		reopenedRow := verdict == "extended" && strings.HasPrefix(reason, "observation_retry: ")
-		if reopenedRow != r.wantReopen {
-			t.Errorf("%s: verdict=%s reason=%q, reopened=%v want %v",
-				name, verdict, reason, reopenedRow, r.wantReopen)
-		}
-	}
+	assertSweptRows(t, ctx, pool, rows, ids)
 	again, err := store.ReopenObservationRetries(ctx)
 	if err != nil || again != 0 {
 		t.Fatalf("second sweep = %d, %v; want 0 (idempotent)", again, err)
@@ -199,5 +182,31 @@ func TestMetaHistoryOutageKeepsWatchOpen(t *testing.T) {
 		failures != 1 || present != 1 {
 		t.Fatalf("watch row = %s/%q/%d failures, index present %d", status, reason,
 			failures, present)
+	}
+}
+
+type sweepRow struct {
+	reason     string
+	deadline   time.Duration
+	completed  bool
+	wantReopen bool
+}
+
+func assertSweptRows(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	rows map[string]sweepRow, ids map[string]int64,
+) {
+	t.Helper()
+	for name, r := range rows {
+		var verdict, reason string
+		if err := pool.QueryRow(ctx, `SELECT verdict, reason FROM sage.verification
+			WHERE action_log_id=$1`, ids[name]).Scan(&verdict, &reason); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		reopenedRow := verdict == "extended" && strings.HasPrefix(reason, "observation_retry: ")
+		if reopenedRow != r.wantReopen {
+			t.Errorf("%s: verdict=%s reason=%q, reopened=%v want %v",
+				name, verdict, reason, reopenedRow, r.wantReopen)
+		}
 	}
 }
