@@ -19,6 +19,7 @@ var errUnsupportedStatement = errors.New("unsupported migration statement")
 // every identifier already folded the way PostgreSQL resolves it.
 type statement struct {
 	classification Classification
+	schema, table  string   // ALTER TABLE target; schema "" when unqualified
 	constraint     string   // ADD CONSTRAINT ... UNIQUE
 	columns        []string // UNIQUE column list
 	timing         string   // " DEFERRABLE INITIALLY DEFERRED" or ""
@@ -36,31 +37,53 @@ func parseStatement(sql string) (statement, error) {
 		return statement{}, err
 	}
 	p := &parser{sql: sql, toks: toks}
-	if err := p.skipAlterTarget(); err != nil {
+	schema, table, err := p.alterTarget()
+	if err != nil {
 		return statement{}, err
 	}
+	var stmt statement
 	switch {
 	case p.keyword("ADD", "CONSTRAINT"):
-		return p.addUnique()
+		stmt, err = p.addUnique()
 	case p.keyword("ALTER", "COLUMN"):
-		return p.setNotNull()
+		stmt, err = p.setNotNull()
+	default:
+		err = errUnsupportedStatement
 	}
-	return statement{}, errUnsupportedStatement
+	stmt.schema, stmt.table = schema, table
+	return stmt, err
 }
 
-func (p *parser) skipAlterTarget() error {
+// alterTarget reads the ALTER TABLE target. PostgreSQL allows space
+// around the dot, which validateStatement's pattern does not see.
+func (p *parser) alterTarget() (schema, table string, err error) {
 	if !p.keyword("ALTER", "TABLE") {
-		return errUnsupportedStatement
+		return "", "", errUnsupportedStatement
 	}
 	p.keyword("IF", "EXISTS")
 	p.keyword("ONLY")
-	if _, err := p.ident("table name"); err != nil {
-		return err
+	if table, err = p.ident("table name"); err != nil {
+		return "", "", err
 	}
 	if p.punct(".") {
-		if _, err := p.ident("table name"); err != nil {
-			return err
+		schema = table
+		if table, err = p.ident("table name"); err != nil {
+			return "", "", err
 		}
+	}
+	return schema, table, nil
+}
+
+// checkTarget refuses a statement whose parsed target is not the
+// table the plan will be written against.
+func checkTarget(stmt statement, facts TableFacts) error {
+	wantSchema := facts.Schema
+	if wantSchema == "" {
+		wantSchema = "public"
+	}
+	if stmt.table != facts.Name || (stmt.schema != "" && stmt.schema != wantSchema) {
+		return fmt.Errorf("migration SQL targets %q but the request table is %s.%s",
+			strings.Trim(stmt.schema+"."+stmt.table, "."), wantSchema, facts.Name)
 	}
 	return nil
 }

@@ -325,3 +325,24 @@ func stepSQL(result Plan) []string {
 	}
 	return out
 }
+
+// TestPlannerRefusesTargetOtherThanRequestTable: PostgreSQL reads
+// "users . other" as users.other, so a plan written against
+// public.users would change a table the SQL never named.
+func TestPlannerRefusesTargetOtherThanRequestTable(t *testing.T) {
+	for _, sql := range []string{
+		`ALTER TABLE users . other ADD CONSTRAINT k UNIQUE (email)`,
+		`ALTER TABLE users .other ALTER COLUMN email SET NOT NULL`,
+		`ALTER TABLE ONLY users. "users" ADD CONSTRAINT k UNIQUE (email)`,
+	} {
+		refusePlan(t, sql, usersTable(), "migration SQL targets", "public.users")
+	}
+	// The spaced form plans when the target it names is the request table.
+	same := TableFacts{Schema: "users", Name: "users"}
+	got := stepSQL(mustPlan(t, `ALTER TABLE users . users ADD CONSTRAINT k UNIQUE (a)`,
+		same))
+	want := `CREATE UNIQUE INDEX CONCURRENTLY "k_idx" ON "users"."users" ("a")`
+	if len(got) != 2 || got[0] != want {
+		t.Fatalf("spaced qualified target: got %q, want first step %q", got, want)
+	}
+}

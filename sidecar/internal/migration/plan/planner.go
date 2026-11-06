@@ -94,6 +94,9 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	if err := checkTarget(stmt, request.Table); err != nil {
+		return Plan{}, err
+	}
 	if stmt.classification == ClassificationAddUnique {
 		return planUnique(request, stmt)
 	}
