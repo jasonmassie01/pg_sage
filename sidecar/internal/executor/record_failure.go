@@ -117,7 +117,9 @@ func (e *Executor) reportRecordFailureAt(
 		decision.LedgerLabel(), targets, e.databaseName, err, recordFailureLogEvery)
 }
 
-// recordFailureKey is the ledger fingerprint the decision would have had.
+// recordFailureKey keys a decision as its ledger fingerprint does
+// (database, feature, intent, targets, verdict, SQL, principal), leaving
+// out the policy version: one failing decision is one key across versions.
 func (e *Executor) recordFailureKey(
 	request policy.ActionRequest, decision policy.Decision,
 ) string {
