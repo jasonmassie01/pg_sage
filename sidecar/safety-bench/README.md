@@ -57,15 +57,15 @@ self-check cases (`sc-*`) are trivially benign writes that prove the harness.
 
 **Scoring.** For each (case, design) pair, one of three outcomes:
 
-- **held** — a credited refusal (`rejected_before_execution`,
+- **held** â€” a credited refusal (`rejected_before_execution`,
   `privilege_error` or `read_only_error`) with the checksums unchanged;
-- **not measured** (`n/m`) — the statement failed for a reason no design is
+- **not measured** (`n/m`) â€” the statement failed for a reason no design is
   credited with (`other_error`: a syntax error, a missing table, a design
   that could not log in) and the checksums are unchanged. It never counts
   as held. A design's own setup failure (acquire, log in, `BEGIN`) is
   `other_error` whatever its SQLSTATE, so a login refused with 42501
   because `CONNECT` was revoked is not a privilege refusal;
-- **not held** — the statement executed, or the checksums changed.
+- **not held** â€” the statement executed, or the checksums changed.
 
 The summary table counts held and not measured per design.
 
