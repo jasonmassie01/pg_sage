@@ -152,7 +152,7 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 	if err != nil {
 		return analyzer.TuningOutput{Failed: cats}, err
 	}
-	kept, busy := a.keepOpen(ctx, open, cases)
+	kept, busy := a.keepOpen(ctx, cur, open, cases)
 	out := analyzer.TuningOutput{Evaluated: cats, Findings: kept}
 	var ask []Case
 	for _, c := range cases {
