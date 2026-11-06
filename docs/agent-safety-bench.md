@@ -15,7 +15,7 @@ v0 answers three questions with evidence, not assertions:
 
 1. **Which "read-only" designs actually hold?** Agent tooling keeps shipping
    read-only modes that a crafted statement walks straight through. v0 runs a
-   bypass corpus against three designs and reports which design refused which
+   bypass corpus against four designs and reports which design refused which
    case, on real PostgreSQL, with the table contents checksummed before and
    after.
 2. **Does posture detection catch the known-bad setups?** A Supabase-style
@@ -41,7 +41,7 @@ credentials, and touches only the fixture database it creates.
 ### Read-only designs
 
 Each corpus case is a single SQL statement with a declared expected refusal.
-The harness runs it against three designs:
+The harness runs it against four designs:
 
 - **`read_only_txn`** — a `READ ONLY` transaction and nothing else: the
   session's own role, relying on `transaction_read_only`.
@@ -53,14 +53,20 @@ The harness runs it against three designs:
   explain tool uses). It accepts a single read statement and declines
   `EXPLAIN ANALYZE` for anything not proven side-effect free, so a write
   never executes.
+- **`agent_query`** — pg_sage's brokered read path: a broker login of its
+  own with the same grants, a parse allowlist, a catalog proof, a read-only
+  transaction with the broker's own timeouts, and column classes.
 
 Around every attempt the harness checksums the fixture tables (an
 order-independent content hash) and records whether they changed. A design
-**held** for a case when the statement was refused *and* the checksums were
-unchanged. The report shows the refusal class for each cell —
-`read_only_error`, `privilege_error`, or `rejected_before_execution` — so a
-case that "passes" only because of a syntax error is visible rather than
-hidden.
+**held** for a case when it refused the statement with a credited class —
+`read_only_error`, `privilege_error`, or `rejected_before_execution` — *and*
+the checksums were unchanged. A statement that failed for any other reason
+(a syntax error, a missing table, a design that could not log in) is
+**not measured** (`n/m`): it is counted in its own column and never as held.
+The harness self-checks must be held by every design with a credited class,
+and a case whose canonical design (`privilege_role`) refuses it with another
+credited class than declared fails the bench.
 
 The corpus is RO-01..RO-16 (from the read-only bypass research). Each case
 is a metadata file plus a `.sql` file under `testdata/readonly`; the harness
@@ -93,16 +99,23 @@ PostgreSQL action) are marked as such.
 
 ## Results (measured)
 
-From the PG17 reference run: the sixteen corpus cases RO-01..RO-16 plus three
-harness self-checks (plain `INSERT`, `UPDATE`, `CREATE TABLE`).
+From the PG17 reference run: the sixteen corpus cases RO-01..RO-16, the four
+`agent_query` cases AQ-01..AQ-04, and three harness self-checks (plain
+`INSERT`, `UPDATE`, `CREATE TABLE`).
 
 **Read-only designs**
 
-| Design | Held | Total | Got through |
-|---|---|---|---|
-| `read_only_txn` | 14 | 19 | RO-01 `COMMIT` then write, RO-05 server file read, RO-06 `COPY ... TO PROGRAM`, RO-07 switch to read-write, RO-15 lifting the timeout |
-| `privilege_role` | 18 | 19 | RO-15 lifting the timeout |
-| `explain_guard` | 19 | 19 | none |
+| Design | Held | Not measured | Total | Got through |
+|---|---|---|---|---|
+| `read_only_txn` | 16 | 1 (AQ-04) | 23 | AQ-01 session default via `set_config`, RO-01 `COMMIT` then write, RO-05 server file read, RO-06 `COPY ... TO PROGRAM`, RO-07 switch to read-write, RO-15 lifting the timeout |
+| `privilege_role` | 20 | 1 (AQ-04) | 23 | AQ-01 session default via `set_config`, RO-15 lifting the timeout |
+| `explain_guard` | 23 | 0 | 23 | none |
+| `agent_query` | 23 | 0 | 23 | none |
+
+AQ-04 casts a masked column. Under the transaction and role designs the
+cast fails with an error whose message carries the value; that is an
+`other_error`, so it is reported as not measured rather than held (the
+write checksums cannot score a leak through an error message).
 
 A `READ ONLY` transaction is a setting the session can end or change, so it
 loses to anything that ends the transaction or reads the server outside the

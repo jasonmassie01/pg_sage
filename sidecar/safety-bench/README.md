@@ -48,17 +48,34 @@ a masked column (whose error message would carry the value). G1-15 requires
 execution (`TestAgentQueryHoldsTheReadOnlyCorpus`).
 
 The harness checksums the fixture tables before and after each attempt. A
-design **held** when the statement was refused and the checksums did not
-change. The report records the refusal class per cell.
+design **held** when a credited design refused the statement and the
+checksums did not change. The report records the refusal class per cell.
 
 Cases live under `testdata/readonly` as `<id>.json` + `<id>.sql` pairs; see
 that directory's README for the format and where RO-01..RO-16 go. The
 self-check cases (`sc-*`) are trivially benign writes that prove the harness.
 
-**Scoring.** For each (case, design) pair: `held = refused AND checksums
-unchanged`. "Refused" is any of `rejected_before_execution`,
-`privilege_error`, `read_only_error`. An attempt that executed, or that only
-failed with an uncredited `other_error`, is reported distinctly.
+**Scoring.** For each (case, design) pair, one of three outcomes:
+
+- **held** — a credited refusal (`rejected_before_execution`,
+  `privilege_error` or `read_only_error`) with the checksums unchanged;
+- **not measured** (`n/m`) — the statement failed for a reason no design is
+  credited with (`other_error`: a syntax error, a missing table, a design
+  that could not log in) and the checksums are unchanged. It never counts
+  as held. A design's own setup failure (acquire, log in, `BEGIN`) is
+  `other_error` whatever its SQLSTATE, so a login refused with 42501
+  because `CONNECT` was revoked is not a privilege refusal;
+- **not held** — the statement executed, or the checksums changed.
+
+The summary table counts held and not measured per design.
+
+The harness self-checks (`SelfCheckFailures`) require every design to hold
+every `sc-*` case with a credited class; `other_error`, a missing attempt or
+a report without self-checks fails the bench. Each case's declared
+`expect` is scored against `privilege_role` and every difference is listed
+under "Declared vs observed". A credited refusal of another class than the
+declared one means the case drifted and fails the bench; an execution or an
+`other_error` there is listed but is already scored in the table.
 
 ### 2. Posture scenarios
 
@@ -106,4 +123,5 @@ The Â§11 mapping (`incidents.go`), scored against declared expectations
 CI runs the bench on PG14â€“18 (`.github/workflows/ci.yml`), uploads a report
 per version, and signs the PG17 report keyless (`safety-bench-sign`, the same
 cosign pattern as `bench-sign`, in its own job). The signed report ships as a
-release asset. Unmet targets do not fail CI; only bench machinery errors do.
+release asset. Unmet targets do not fail CI; bench machinery errors, a
+self-check failure and a drifted `expect` do.
