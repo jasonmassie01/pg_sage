@@ -73,9 +73,13 @@ func checkModelStatement(st sqlast.Statement, target modelTarget) error {
 			return fmt.Errorf("names %s, which is not the target table", rel.String())
 		}
 	}
-	for _, fn := range st.Functions {
-		if deniedModelFunction(fn.Name) {
-			return fmt.Errorf("calls %s, an administrative function", fn.String())
+	// x.name runs name(x) when x has no such column, so attribute
+	// references are checked as calls too.
+	for _, list := range [][]sqlast.QualifiedName{st.Functions, st.AttributeCalls} {
+		for _, fn := range list {
+			if deniedModelFunction(fn.Name) {
+				return fmt.Errorf("calls %s, an administrative function", fn.String())
+			}
 		}
 	}
 	return nil

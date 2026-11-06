@@ -25,13 +25,15 @@ func describeStatement(root *pg_query.Node) Statement {
 	st := Statement{Kind: KindOther, Node: nodeName(root)}
 	classifyStatement(root, &st)
 	ctes := scopedCTENames(root)
-	relations, functions := nameSet{}, nameSet{}
+	relations, functions, attributes := nameSet{}, nameSet{}, nameSet{}
 	walk(root.ProtoReflect(), func(msg protoreflect.Message) bool {
 		switch n := msg.Interface().(type) {
 		case *pg_query.RangeVar:
 			relations.add(QualifiedName{Schema: n.GetSchemaname(), Name: n.GetRelname()})
 		case *pg_query.FuncCall:
 			functions.add(nameFromList(n.GetFuncname()))
+		case *pg_query.ColumnRef, *pg_query.A_Indirection:
+			addAttributeCalls(n, attributes)
 		case *pg_query.InsertStmt, *pg_query.DeleteStmt, *pg_query.MergeStmt:
 			st.NestedWrite = true
 		case *pg_query.UpdateStmt:
@@ -49,6 +51,7 @@ func describeStatement(root *pg_query.Node) Statement {
 		relations.add(QualifiedName{Schema: target.GetSchemaname(), Name: target.GetRelname()})
 	}
 	st.Relations, st.Functions = relations.sorted(), functions.sorted()
+	st.AttributeCalls = attributes.sorted()
 	return st
 }
 

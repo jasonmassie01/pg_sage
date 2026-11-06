@@ -28,6 +28,9 @@ type Statement struct {
 	Relations []QualifiedName
 	// Functions are every function the statement calls.
 	Functions []QualifiedName
+	// AttributeCalls are x.name references: PostgreSQL runs x.name as
+	// name(x) when x has no column called name, a call with no FuncCall.
+	AttributeCalls []QualifiedName
 	// Setting is the parameter a SET or RESET names; "" for RESET ALL
 	// and SET TRANSACTION.
 	Setting string

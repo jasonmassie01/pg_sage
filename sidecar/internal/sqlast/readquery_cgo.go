@@ -66,10 +66,8 @@ func (c *collector) visit(node any) {
 		c.relations.add(QualifiedName{Schema: n.GetSchemaname(), Name: n.GetRelname()})
 	case *pg_query.CommonTableExpr:
 		c.ctes[n.GetCtename()] = true
-	case *pg_query.ColumnRef:
-		c.visitColumnRef(n.GetFields())
-	case *pg_query.A_Indirection:
-		c.visitIndirection(n.GetIndirection())
+	case *pg_query.ColumnRef, *pg_query.A_Indirection:
+		addAttributeCalls(n, c.attributes)
 	case *pg_query.SelectStmt:
 		c.out.LockingClause = c.out.LockingClause || len(n.GetLockingClause()) > 0
 		c.out.SelectInto = c.out.SelectInto || n.GetIntoClause() != nil
@@ -108,19 +106,24 @@ func (c *collector) visitSubLink(link *pg_query.SubLink) {
 	}
 }
 
-func (c *collector) visitColumnRef(fields []*pg_query.Node) {
-	if len(fields) < 2 {
-		return
-	}
-	if last := fields[len(fields)-1].GetString_(); last != nil {
-		c.attributes.add(QualifiedName{Name: last.GetSval()})
-	}
-}
-
-func (c *collector) visitIndirection(items []*pg_query.Node) {
-	for _, item := range items {
-		if s := item.GetString_(); s != nil {
-			c.attributes.add(QualifiedName{Name: s.GetSval()})
+// addAttributeCalls records the x.name references of a ColumnRef or an
+// A_Indirection: PostgreSQL runs x.name as name(x) when x has no column
+// called name.
+func addAttributeCalls(node any, set nameSet) {
+	switch n := node.(type) {
+	case *pg_query.ColumnRef:
+		fields := n.GetFields()
+		if len(fields) < 2 {
+			return
+		}
+		if last := fields[len(fields)-1].GetString_(); last != nil {
+			set.add(QualifiedName{Name: last.GetSval()})
+		}
+	case *pg_query.A_Indirection:
+		for _, item := range n.GetIndirection() {
+			if s := item.GetString_(); s != nil {
+				set.add(QualifiedName{Name: s.GetSval()})
+			}
 		}
 	}
 }

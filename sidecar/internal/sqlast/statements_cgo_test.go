@@ -193,3 +193,21 @@ func TestInspectStatementsInvalidAndEmpty(t *testing.T) {
 		t.Errorf("comment-only script = %v, %v; want no statements", got, err)
 	}
 }
+
+// x.name runs name(x) when x has no column name, so attribute notation is
+// a function call the parser does not mark as one (security-05 review).
+func TestInspectStatementsReportsAttributeCalls(t *testing.T) {
+	st := inspectOne(t, `UPDATE orders SET c = (42).pg_terminate_backend,
+		n = ('/etc/passwd'::text).pg_read_file WHERE orders.id = 1`)
+	want := []QualifiedName{{Name: "id"}, {Name: "pg_read_file"},
+		{Name: "pg_terminate_backend"}}
+	if !reflect.DeepEqual(st.AttributeCalls, want) {
+		t.Errorf("attribute calls = %v, want %v", st.AttributeCalls, want)
+	}
+	if len(st.Functions) != 0 {
+		t.Errorf("functions = %v, want none (no FuncCall node)", st.Functions)
+	}
+	if st = inspectOne(t, `UPDATE orders SET c = id`); len(st.AttributeCalls) != 0 {
+		t.Errorf("bare column refs = %v, want no attribute calls", st.AttributeCalls)
+	}
+}
