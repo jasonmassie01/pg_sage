@@ -512,7 +512,8 @@ without a successful check is reverted, with the reason `observation_unavailable
 whose watch could never be stored is reverted at once (`state_persist_failed`), and a check
 that reads the index as invalid still reverts it immediately. At startup, a watch that an
 earlier version closed after a transient read error or a shutdown (`observation_unavailable`
-or `context_canceled` with the hard deadline still ahead) is reopened and checked again.
+or `context_canceled` with the hard deadline still ahead) is reopened and checked again;
+until that sweep succeeds, no index watch is resumed, so none of those changes is reverted.
 
 An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
 from the start. Its definition is kept, and the index is re-created as soon as a query on
