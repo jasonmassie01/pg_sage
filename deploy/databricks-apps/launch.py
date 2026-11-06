@@ -90,6 +90,8 @@ def runtime_config(env: dict[str, str], base: dict | None = None) -> dict:
             env[target] = env[source]
     env.setdefault("SAGE_PG_PORT", "5432")
     env["SAGE_PG_SSLMODE"] = verified_sslmode(env)
+    # pgx falls back to PGSSLMODE when SAGE_DATABASE_URL names no sslmode.
+    env["PGSSLMODE"] = env["SAGE_PG_SSLMODE"]
     if not env.get("SAGE_PG_USER"):
         env["SAGE_PG_USER"] = env.get("DATABRICKS_CLIENT_ID", "")
     if not env.get("SAGE_DATABASE_URL") and not all(env.get("SAGE_PG_" + name) for name in ("HOST", "USER", "DATABASE")):

@@ -160,7 +160,8 @@ pg_sage's existing connection settings. Lakebase OAuth requires
 `verify-full` (strictly stronger, logged once on stderr), an absent
 `PGSSLMODE` defaults to `verify-full`, and any other weaker mode, or an
 explicit `SAGE_PG_SSLMODE` below `verify-full`, stops the launcher before
-pg_sage starts. `PGUSER` defaults to the injected
+pg_sage starts. pg_sage itself sees `PGSSLMODE=verify-full`, so a
+`SAGE_DATABASE_URL` without `sslmode` also verifies the endpoint. `PGUSER` defaults to the injected
 `DATABRICKS_CLIENT_ID`. `SAGE_LAKEBASE_ENDPOINT` is the full endpoint resource
 path (`projects/.../branches/.../endpoints/...`); `LAKEBASE_ENDPOINT` and
 `ENDPOINT_NAME` are accepted launcher aliases. Native Go unified authentication

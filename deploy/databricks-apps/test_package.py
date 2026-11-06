@@ -154,6 +154,18 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("PGSSLMODE=require", lines[0])
         self.assertIn("verify-full", lines[0])
 
+    def test_child_pgsslmode_matches_the_verified_mode(self):
+        # pgx reads PGSSLMODE when SAGE_DATABASE_URL names no sslmode, so the
+        # child must not inherit the injected require the launcher raised.
+        for change in ({"PGSSLMODE": "require"}, {},
+                       {"PGSSLMODE": "prefer", "SAGE_PG_SSLMODE": "verify-full"}):
+            with self.subTest(change=change):
+                env = self.env() | change | {"SAGE_DATABASE_URL": "postgres://app@db.example/app"}
+                with patch.object(launcher.sys, "stderr", new_callable=io.StringIO):
+                    launcher.runtime_config(env)
+                self.assertEqual(env["PGSSLMODE"], "verify-full")
+                self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
+
     def test_verify_full_sslmode_passes_unchanged_and_silently(self):
         for change in ({"PGSSLMODE": "verify-full"}, {"SAGE_PG_SSLMODE": "verify-full"}, {}):
             with self.subTest(change=change):
