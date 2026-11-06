@@ -43,9 +43,11 @@ func (t *Tuner) HintsAvailable() bool {
 
 // CheckHint turns an agent hint into a query_tuning finding with the
 // tuner's own safeguards: pg_hint_plan syntax, the Set() allowlist and the
-// work_mem clamp, and one hint per statement (proposed or active hints and
-// the cooldown). It has no side effects: the agent records only the hints
-// it keeps after its per-cycle cap, through RecordHint.
+// work_mem clamp, the host-memory budget (ErrHintMemory above 5% of host
+// RAM, approval_required when host memory is unknown), and one hint per
+// statement (proposed or active hints and the cooldown). It has no side
+// effects: the agent records only the hints it keeps after its per-cycle
+// cap, through RecordHint.
 func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding, error) {
 	hint, err := t.admitHint(p)
 	if err != nil {
@@ -56,7 +58,7 @@ func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding
 	if err := t.coolingErr(ctx, p.QueryID); err != nil {
 		return analyzer.Finding{}, err
 	}
-	return agentHintFinding(p, hint), nil
+	return t.workMemBudget().annotate(agentHintFinding(p, hint), hint, nil), nil
 }
 
 // RecordHint records a checked hint in sage.query_hints and cools the
@@ -109,6 +111,9 @@ func (t *Tuner) checkHint(p HintProposal) (string, error) {
 	hint, err := normalizeSetDirectives(strings.TrimSpace(p.Hint), t.cfg.WorkMemMaxMB)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidHint, err)
+	}
+	if err := t.workMemBudget().refuse(hint); err != nil {
+		return "", err
 	}
 	return hint, nil
 }

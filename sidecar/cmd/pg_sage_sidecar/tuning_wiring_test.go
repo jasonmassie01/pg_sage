@@ -83,3 +83,12 @@ func TestTuningSettingsDailyTokenLimit(t *testing.T) {
 		t.Fatalf("optimizer client without its own cap uses the general one: %d", got)
 	}
 }
+
+// tuning-03: the agent's work_mem rule cites tuner.work_mem_max_mb.
+func TestTuningSettingsCarryTheWorkMemCeiling(t *testing.T) {
+	c := config.DefaultConfig()
+	c.Tuner.WorkMemMaxMB = 300
+	if got := tuningSettings(c, "", "", 0).WorkMemMaxMB; got != 300 {
+		t.Fatalf("WorkMemMaxMB = %d, want tuner.work_mem_max_mb 300", got)
+	}
+}

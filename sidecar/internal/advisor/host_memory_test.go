@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
@@ -183,5 +184,25 @@ func TestAdvisorHostMemorySource(t *testing.T) {
 	a.WithHostMemorySource(func() HostMemory { return HostMemory{} })
 	if got := a.hostMemory(); got.TotalBytes != 8<<30 {
 		t.Fatalf("unknown telemetry falls back to the operator figure: %+v", got)
+	}
+}
+
+// tuning-03: the tuner caps per-query work_mem hints with the same rule.
+func TestMaxWorkMemBytes(t *testing.T) {
+	for total, want := range map[int64]int64{0: 0, -1: 0, 4 << 30: 214748364,
+		16 << 30: 858993459, 100: 5} {
+		if got := MaxWorkMemBytes(total); got != want {
+			t.Errorf("MaxWorkMemBytes(%d) = %d, want %d", total, got, want)
+		}
+	}
+	host := HostMemory{TotalBytes: 4 << 30}
+	at := MaxWorkMemBytes(host.TotalBytes) / 1024
+	if f := gateOne(t, fmt.Sprintf("ALTER SYSTEM SET work_mem = '%dkB'", at), "", host); f.
+		RecommendedSQL == "" {
+		t.Fatalf("work_mem at the cap stays executable: %+v", f)
+	}
+	if f := gateOne(t, fmt.Sprintf("ALTER SYSTEM SET work_mem = '%dkB'", at+1), "", host); f.
+		RecommendedSQL != "" {
+		t.Fatalf("work_mem above the cap is refused: %+v", f)
 	}
 }

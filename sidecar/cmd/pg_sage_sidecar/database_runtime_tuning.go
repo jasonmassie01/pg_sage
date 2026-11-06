@@ -96,6 +96,7 @@ func tuningSettings(c *config.Config, cloudEnv, dbName string, hostMem int64) tu
 		CloudEnv:        cloudEnv,
 		DatabaseName:    dbName,
 		HostMemoryBytes: hostMem,
+		WorkMemMaxMB:    c.Tuner.WorkMemMaxMB,
 		MaxOutputTokens: c.LLM.OptimizerLLM.MaxOutputTokens,
 		Thresholds:      tuning.DefaultThresholds(),
 		MaxNewPerTable:  c.LLM.Optimizer.MaxNewPerTable,

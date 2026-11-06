@@ -38,7 +38,10 @@ type Settings struct {
 	HostMemoryBytes int64
 	// HostMemory is live host memory from managed-cloud telemetry (nil:
 	// none); an unknown reading falls back to HostMemoryBytes.
-	HostMemory      func() advisor.HostMemory
+	HostMemory func() advisor.HostMemory
+	// WorkMemMaxMB is tuner.work_mem_max_mb, which rule 8 of the prompt
+	// cites with the host cap (0 means the default).
+	WorkMemMaxMB    int
 	MaxOutputTokens int
 	Thresholds      Thresholds
 	// MaxNewPerTable bounds new index proposals per table per cycle

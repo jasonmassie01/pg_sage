@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -36,6 +37,13 @@ type Tuner struct {
 	// facts are the catalog facts of the current cycle (table rows,
 	// usable indexes); nil when they could not be loaded.
 	facts *CatalogFacts
+
+	// spill holds the stat-spill baselines across cycles (tuning-03);
+	// guarded by mu.
+	spill statSpill
+
+	// hostMemory reads live host memory (nil: unknown); set before use.
+	hostMemory advisor.HostMemorySource
 }
 
 // New creates a Tuner with the given dependencies.
@@ -51,6 +59,7 @@ func New(
 		hintPlan:      hintPlan,
 		logFn:         logFn,
 		recentlyTuned: make(map[int64]int),
+		spill:         statSpill{baselines: map[spillKey]spillBaseline{}},
 	}
 	// Active hints are loaded on the first Tune() call when
 	// recentlyTuned is empty (see Tune()), so bootstrap here is
@@ -66,6 +75,7 @@ type candidate struct {
 	MeanPlanTime    float64
 	TempBlksRead    int64
 	TempBlksWritten int64
+	UserID          int64
 }
 
 // Tune queries pg_stat_statements for slow queries, scans
@@ -103,6 +113,7 @@ func (t *Tuner) Tune(
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
 	}
 	candidates = filterSelfMonitoringCandidates(candidates)
+	t.observeSpills(ctx, candidates)
 	if len(t.recentlyTuned) == 0 {
 		t.loadActiveHints(ctx)
 	}
@@ -210,7 +221,7 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 
 var candidateSQL = `/* pg_sage */
 SELECT queryid, query, calls, mean_exec_time,
-       mean_plan_time, temp_blks_read, temp_blks_written
+       mean_plan_time, temp_blks_read, temp_blks_written, userid::int8
 FROM pg_stat_statements
 WHERE calls >= $1
   AND dbid = (
@@ -256,7 +267,7 @@ func (t *Tuner) fetchCandidates(
 		err := rows.Scan(
 			&c.QueryID, &c.Query, &c.Calls,
 			&c.MeanExecTime, &c.MeanPlanTime,
-			&c.TempBlksRead, &c.TempBlksWritten,
+			&c.TempBlksRead, &c.TempBlksWritten, &c.UserID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
@@ -300,11 +311,16 @@ func (t *Tuner) processCandidate(
 			"dropping unparseable combined hint: %s", combined)
 		combined = ""
 	}
+	// Every work_mem hint stays within min(work_mem_max_mb, 5% of host
+	// memory); with host memory unknown it needs approval (tuning-03).
+	budget := t.workMemBudget()
+	combined, budgetDetail := budget.capHint(combined)
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
 	rewrite, rewriteRationale := extractRewrite(prescriptions)
 	finding := t.buildFinding(ctx, c, symptoms, combined,
 		title, rationale, rewrite, rewriteRationale)
+	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
 	return append(staleFindings, finding)
 }
 
@@ -321,15 +337,12 @@ func (t *Tuner) gatherSymptoms(
 		})
 	}
 
-	// Stat-based temp spill detection: when no plan-level
-	// spill symptoms were found but pg_stat_statements shows
-	// temp blocks written, emit a stat-based symptom.
-	if c.TempBlksWritten > 0 && !hasSpillSymptom(symptoms) {
+	// Stat-based temp spill (tuning-03): when no plan-level spill
+	// symptom was found, the spill this cycle sized from the interval's
+	// per-call temp blocks against the role's work_mem.
+	if sz, ok := t.spill.needs[keyOf(c)]; ok && !hasSpillSymptom(symptoms) {
 		symptoms = append(symptoms, PlanSymptom{
-			Kind: SymptomStatTempSpill,
-			Detail: map[string]any{
-				"temp_blks_written": c.TempBlksWritten,
-			},
+			Kind: SymptomStatTempSpill, Detail: sz.detail(),
 		})
 	}
 	return symptoms

@@ -28,7 +28,7 @@ func Prescribe(
 	case SymptomSortLimit:
 		return prescribeSortLimit(symptom)
 	case SymptomStatTempSpill:
-		return prescribeStatTempSpill(symptom, cfg)
+		return prescribeStatTempSpill(symptom)
 	case SymptomStaleStats:
 		return prescribeStaleStats(symptom)
 	default:
@@ -158,19 +158,18 @@ func prescribeSortLimit(s PlanSymptom) *Prescription {
 	}
 }
 
-func prescribeStatTempSpill(
-	s PlanSymptom, cfg TunerConfig,
-) *Prescription {
-	blks, _ := s.Detail["temp_blks_written"].(int64)
-	kb := blks * 8 // PostgreSQL default block = 8 KB
-	mem := CalcWorkMem(kb, cfg.WorkMemMaxMB)
+// prescribeStatTempSpill emits the work_mem the tuner sized for the
+// symptom from the interval's per-call spill (tuning-03, see
+// sizeStatSpillWorkMem); a symptom without a sized hint prescribes nothing.
+func prescribeStatTempSpill(s PlanSymptom) *Prescription {
+	mb, _ := s.Detail["hint_mb"].(int)
+	if mb <= 0 {
+		return nil
+	}
 	return &Prescription{
 		Symptom:       SymptomStatTempSpill,
-		HintDirective: fmtSetWorkMem(mem),
-		Rationale: fmt.Sprintf(
-			"query wrote %d temp blocks (~%d MB) to disk",
-			blks, kb/1024,
-		),
+		HintDirective: fmtSetWorkMem(mb),
+		Rationale:     statSpillRationale(s.Detail),
 	}
 }
 

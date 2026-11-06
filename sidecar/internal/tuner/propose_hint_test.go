@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
 // The tuning agent's per-query hints go through the tuner (roadmap 2.2):
@@ -151,5 +153,81 @@ func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 	if _, err := other.CheckHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
 		ErrHintExists) {
 		t.Fatalf("a proposed hint survives a restart (loaded from sage.query_hints): %v", err)
+	}
+}
+
+// tuning-03: agent hints skip no memory guard. Above 5% of host memory a
+// work_mem hint is refused; with host memory unknown it needs an operator.
+
+func hostTuner(maxMB int, hostBytes int64) *Tuner {
+	tu := New(nil, TunerConfig{WorkMemMaxMB: maxMB, CascadeCooldownCycles: 3},
+		&HintPlanAvailability{Available: true, HintTableReady: true}, noopLogFn)
+	tu.WithHostMemory(hostOf(hostBytes))
+	return tu
+}
+
+func TestCheckHint_RefusesWorkMemAboveFivePercentOfHost(t *testing.T) {
+	ctx := context.Background()
+	for _, maxMB := range []int{256, 1024} {
+		tu := hostTuner(maxMB, 4<<30)
+		_, err := tu.CheckHint(ctx, agentHint(`Set(work_mem "512MB")`))
+		if !errors.Is(err, ErrHintMemory) ||
+			!strings.Contains(err.Error(), "above 5% of host memory") {
+			t.Fatalf("max %d: err = %v, want a memory refusal", maxMB, err)
+		}
+		if err := tu.RecordHint(ctx, agentHint(`Set(work_mem "512MB")`)); !errors.Is(err,
+			ErrHintMemory) {
+			t.Fatalf("max %d: record err = %v", maxMB, err)
+		}
+		if len(tu.recentlyTuned) != 0 {
+			t.Fatalf("a refused hint cools nothing down: %v", tu.recentlyTuned)
+		}
+	}
+}
+
+func TestCheckHint_HostCapBoundary(t *testing.T) {
+	// 5% of 4 GiB is 214,748,364 bytes: 204 MB fits, 205 MB does not.
+	ctx := context.Background()
+	tu := hostTuner(1024, 4<<30)
+	f, err := tu.CheckHint(ctx, agentHint(`Set(work_mem "204MB") HashJoin(o c)`))
+	if err != nil {
+		t.Fatalf("204MB on a 4 GiB host: %v", err)
+	}
+	if _, gated := f.Detail[analyzer.DetailApprovalRequired]; gated {
+		t.Fatalf("a known host within the cap needs no approval: %v", f.Detail)
+	}
+	b, _ := f.Detail["work_mem_budget"].(map[string]any)
+	if b["hint_mb"] != 204 || b["ceiling_mb"] != 204 || b["host_memory_mib"] != int64(4096) {
+		t.Fatalf("budget detail = %v", f.Detail["work_mem_budget"])
+	}
+	if _, err := tu.CheckHint(ctx, agentHint(`Set(work_mem "205MB")`)); !errors.Is(err,
+		ErrHintMemory) {
+		t.Fatalf("205MB on a 4 GiB host: %v", err)
+	}
+}
+
+func TestCheckHint_UnknownHostMemoryNeedsApproval(t *testing.T) {
+	ctx := context.Background()
+	for name, tu := range map[string]*Tuner{"no source": hintTuner(true),
+		"source unknown": hostTuner(256, 0)} {
+		f, err := tu.CheckHint(ctx, agentHint(`Set(work_mem "512MB")`))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		why, _ := f.Detail[analyzer.DetailApprovalRequired].(string)
+		if !strings.Contains(why, "host memory is unknown") {
+			t.Fatalf("%s: approval_required = %q", name, why)
+		}
+		if f.Detail["hint_directive"] != `Set(work_mem "256MB")` {
+			t.Fatalf("%s: still clamped to tuner.work_mem_max_mb: %v", name,
+				f.Detail["hint_directive"])
+		}
+		g, err := tu.CheckHint(ctx, agentHint("IndexScan(orders orders_c_idx)"))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, gated := g.Detail[analyzer.DetailApprovalRequired]; gated {
+			t.Fatalf("%s: a hint without work_mem is not gated on memory: %v", name, g.Detail)
+		}
 	}
 }
