@@ -129,10 +129,14 @@ func (s *PostgresStore) ExpireStale(ctx context.Context, lease Lease,
 		if !CanTransition(state, StateExpired) {
 			return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, state, StateExpired)
 		}
-		if _, err := tx.Exec(ctx, `UPDATE sage.sre_investigations
+		tag, err := tx.Exec(ctx, `UPDATE sage.sre_investigations
 			SET summary = $6::jsonb WHERE `+leaseGuard,
-			append(leaseArgs(lease), string(raw))...); err != nil {
+			append(leaseArgs(lease), string(raw))...)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 0 { // the lease ran out after the row was locked
+			return ErrLeaseLost
 		}
 		inv, err = s.setState(ctx, tx, lease.Scope, lease.InvestigationID, StateExpired,
 			ReasonStaleEvidence, "system")
