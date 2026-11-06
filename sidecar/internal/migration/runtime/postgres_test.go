@@ -15,7 +15,9 @@ import (
 func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 	pool := migrationRuntimePool(t)
 	ctx := context.Background()
-	const table = "migration_rehearsal_clone_probe"
+	// Qualified as the planner emits it: executor DDL runs with search_path
+	// pinned to pg_catalog, pg_temp, so a bare name no longer resolves.
+	const table = "public.migration_rehearsal_clone_probe"
 	_, err := pool.Exec(ctx, "DROP TABLE IF EXISTS "+table+"; CREATE TABLE "+table+
 		" (id bigint NOT NULL)")
 	if err != nil {
