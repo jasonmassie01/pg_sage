@@ -69,21 +69,25 @@ func BreakGlassLogin(
 	return &u, nil
 }
 
-// CreateSessionWithDuration inserts a session that expires after d.
+// CreateSessionWithDuration inserts a session that expires after d and
+// returns its cookie value. Only the cookie's SHA-256 is stored.
 func CreateSessionWithDuration(
 	ctx context.Context, pool *pgxpool.Pool, userID int, d time.Duration,
 ) (string, error) {
 	if d <= 0 {
 		return "", fmt.Errorf("creating session: duration must be positive")
 	}
-	var sessionID string
-	err := pool.QueryRow(ctx,
-		"/* pg_sage auth_session v1 */ INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2) RETURNING id",
-		userID, time.Now().Add(d),
-	).Scan(&sessionID)
+	token, err := newSessionToken()
 	if err != nil {
 		return "", fmt.Errorf("creating session: %w", err)
 	}
-	return sessionID, nil
+	_, err = pool.Exec(ctx,
+		"/* pg_sage auth_session v2 */ INSERT INTO sage.sessions "+
+			"(user_id, expires_at, token_hash) VALUES ($1, $2, $3)",
+		userID, time.Now().Add(d), hashToken(token),
+	)
+	if err != nil {
+		return "", fmt.Errorf("creating session: %w", err)
+	}
+	return token, nil
 }

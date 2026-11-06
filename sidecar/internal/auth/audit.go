@@ -27,6 +27,13 @@ const (
 	AuditUserRoleChanged  = "user_role_changed"
 )
 
+// Session lifecycle audit events (apiauth-04). Detail may carry a count of
+// ended sessions, never a cookie or its hash.
+const (
+	AuditLogout          = "logout"
+	AuditSessionsRevoked = "sessions_revoked"
+)
+
 // AuthAuditEvent is one identity-change record. Detail must never carry
 // credentials, grant tokens or email addresses. SourceIP is the client
 // address as the API resolved it (trusted proxies honoured).

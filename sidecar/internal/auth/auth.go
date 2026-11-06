@@ -103,41 +103,54 @@ func Authenticate(
 	return &u, nil
 }
 
-// CreateSession inserts a session row, returns the UUID.
+// CreateSession inserts a session row and returns its cookie value.
 func CreateSession(
 	ctx context.Context, pool *pgxpool.Pool, userID int,
 ) (string, error) {
 	return CreateSessionWithDuration(ctx, pool, userID, SessionDuration)
 }
 
-// ValidateSession checks that a session exists and is not expired.
+// ValidateSession returns the user of an unexpired session, looked up by
+// the cookie's hash. It returns ErrSessionInvalid for an unknown, expired
+// or malformed cookie (a malformed one is never queried) and a wrapped
+// "validating session" error when the session store fails.
 func ValidateSession(
-	ctx context.Context, pool *pgxpool.Pool, sessionID string,
+	ctx context.Context, pool *pgxpool.Pool, token string,
 ) (*User, error) {
+	hash, ok := sessionTokenHash(token)
+	if !ok {
+		return nil, ErrSessionInvalid
+	}
 	var u User
 	err := pool.QueryRow(ctx,
-		"SELECT u.id, u.email, u.role, u.created_at, u.last_login "+
+		"/* pg_sage auth_validate_session v2 */ "+
+			"SELECT u.id, u.email, u.role, u.created_at, u.last_login "+
 			"FROM sage.sessions s "+
 			"JOIN sage.users u ON u.id = s.user_id "+
-			"WHERE s.id = $1 AND s.expires_at > now()",
-		sessionID,
+			"WHERE s.token_hash = $1 AND s.expires_at > now()",
+		hash,
 	).Scan(&u.ID, &u.Email, &u.Role,
 		&u.CreatedAt, &u.LastLogin)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("session invalid or expired")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSessionInvalid
 		}
 		return nil, fmt.Errorf("validating session: %w", err)
 	}
 	return &u, nil
 }
 
-// DeleteSession removes a session (logout).
+// DeleteSession removes the session a cookie names (logout). A malformed
+// cookie names no session, so there is nothing to delete.
 func DeleteSession(
-	ctx context.Context, pool *pgxpool.Pool, sessionID string,
+	ctx context.Context, pool *pgxpool.Pool, token string,
 ) error {
+	hash, ok := sessionTokenHash(token)
+	if !ok {
+		return nil
+	}
 	_, err := pool.Exec(ctx,
-		"DELETE FROM sage.sessions WHERE id = $1", sessionID,
+		"DELETE FROM sage.sessions WHERE token_hash = $1", hash,
 	)
 	if err != nil {
 		return fmt.Errorf("deleting session: %w", err)

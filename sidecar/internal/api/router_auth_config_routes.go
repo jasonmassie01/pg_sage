@@ -23,6 +23,8 @@ func registerAuthRoutes(
 		"POST /api/v1/auth/logout", logoutHandler(pool))
 	mux.HandleFunc(
 		"GET /api/v1/auth/me", meHandler())
+	mux.HandleFunc(
+		"DELETE /api/v1/auth/sessions", signOutOtherSessionsHandler(pool))
 
 	// OAuth routes (always registered; return disabled if not configured).
 	mux.HandleFunc(

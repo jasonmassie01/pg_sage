@@ -126,12 +126,7 @@ func logoutHandler(
 	pool *pgxpool.Pool,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("sage_session")
-		if err == nil {
-			_ = auth.DeleteSession(
-				r.Context(), pool, cookie.Value,
-			)
-		}
+		endCurrentSession(r, pool)
 		http.SetCookie(w, &http.Cookie{
 			Name:     "sage_session",
 			Value:    "",
