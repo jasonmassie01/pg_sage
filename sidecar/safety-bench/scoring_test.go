@@ -237,3 +237,14 @@ func TestMarkdownNoMismatches(t *testing.T) {
 		t.Errorf("markdown must say there are no mismatches\n%s", md)
 	}
 }
+
+// TestSelfCheckFailures_NoDesigns: self-checks that no design was scored
+// against prove nothing, so a report naming no designs fails.
+func TestSelfCheckFailures_NoDesigns(t *testing.T) {
+	r := selfCheckReport(healthyObs())
+	r.Designs = nil
+	got := SelfCheckFailures(r)
+	if len(got) != 1 || !strings.Contains(got[0], "names no read-only designs") {
+		t.Fatalf("want the single no-designs failure, got %q", got)
+	}
+}

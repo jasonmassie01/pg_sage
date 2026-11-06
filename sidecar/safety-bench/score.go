@@ -44,7 +44,8 @@ func (r Report) ExpectMismatches() []ExpectMismatch {
 // cases. Every design in r.Designs must hold every self-check with a
 // credited refusal (never other_error) and intact checksums; a design with
 // no attempt on a self-check, or a report with no self-checks at all, is a
-// failure. An empty result means the harness proved itself.
+// failure, and so are self-checks in a report that names no designs. An
+// empty result means the harness proved itself.
 func SelfCheckFailures(r Report) []string {
 	var out []string
 	seen := false
@@ -69,8 +70,11 @@ func SelfCheckFailures(r Report) []string {
 			}
 		}
 	}
-	if !seen {
+	switch {
+	case !seen:
 		out = append(out, "no self-check cases ran; the embedded fixtures are missing")
+	case len(r.Designs) == 0:
+		out = append(out, "the report names no read-only designs; nothing was self-checked")
 	}
 	return out
 }
