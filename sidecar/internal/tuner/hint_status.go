@@ -6,8 +6,13 @@ import "context"
 //
 //	proposed    the tuner recommended the hint; nothing is installed yet
 //	active      the hint is installed in hint_plan.hints (applied)
+//	dormant     installed, but its query has not run since the last
+//	            revalidation (or its queryid is absent); back to active
+//	            once calls advance again
 //	rolled_back the installed hint was removed again (rollback/operator)
-//	retired / broken  set by revalidation
+//	broken      set by revalidation when a referenced index is missing
+//	retired     set by the retire_query_hint action (cases); revalidation
+//	            no longer retires (tuning-01)
 //
 // The executor installs hints through the approval path; the tuner
 // reconciles the status with hint_plan.hints at the start of each cycle.
@@ -59,11 +64,11 @@ const hintAppliedSQL = `/* pg_sage */ UPDATE sage.query_hints q
                 WHERE h.query_id = q.queryid AND h.application_name = ''
                   AND h.hints = q.hint_text)`
 
-// hintRolledBackSQL marks an active hint rolled back once no hint is
-// installed for the query any more.
+// hintRolledBackSQL marks an active or dormant hint rolled back once no
+// hint is installed for the query any more.
 const hintRolledBackSQL = `/* pg_sage */ UPDATE sage.query_hints q
    SET status = 'rolled_back', rolled_back_at = now()
- WHERE q.status = 'active'
+ WHERE q.status IN ('active', 'dormant')
    AND NOT EXISTS (SELECT 1 FROM hint_plan.hints h
                     WHERE h.query_id = q.queryid AND h.application_name = '')`
 

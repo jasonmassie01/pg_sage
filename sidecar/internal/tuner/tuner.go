@@ -194,7 +194,7 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 	}
 	rows, err := t.pool.Query(ctx,
 		`/* pg_sage */ SELECT queryid FROM sage.query_hints
-		 WHERE status IN ('active', 'proposed')`,
+		 WHERE status IN ('active', 'dormant', 'proposed')`,
 	)
 	if err != nil {
 		t.logFn("WARN",

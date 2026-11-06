@@ -105,7 +105,7 @@ type Config struct {
 	// FleetLearning is fleet learning and leader election (fleet_learning.go).
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
-	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
+	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
@@ -444,10 +444,10 @@ type TunerConfig struct {
 	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold" doc:"Minimum actual-row count on a nested-loop inner that triggers the bad-nested-loop symptom. Smaller values increase sensitivity."`
 	ParallelMinTableRows   int64   `yaml:"parallel_min_table_rows" doc:"Threshold for suggesting parallel-enable hints on large sequential scans. Tables smaller than this are assumed not to benefit from parallelism."`
 	MinQueryCalls          int     `yaml:"min_query_calls" doc:"Require at least this many pg_stat_statements.calls before the tuner will act on a query. Filters out one-offs."`
-	VerifyAfterApply       bool    `yaml:"verify_after_apply" doc:"Run the daily hint revalidation loop. Removes hints that have become redundant, harmful, or broken. Requires pg_hint_plan." warning:"v0.8.5 activates a real background cycle here — upgrade note: if you want v0.8.4 inert behavior, set this to false before upgrading."`
+	VerifyAfterApply       bool    `yaml:"verify_after_apply" doc:"Run the daily hint revalidation loop: broken when a named index is gone, dormant while the query is idle, re-baselined after a stats reset. Never removes a working hint. Requires pg_hint_plan." warning:"v0.8.5 activates a real background cycle here — upgrade note: if you want v0.8.4 inert behavior, set this to false before upgrading."`
 
 	// v0.8.5 Feature 1 — Hint revalidation loop.
-	HintRetirementDays           int     `yaml:"hint_retirement_days" doc:"Hints older than this many days are retired unconditionally, regardless of current query behavior. Safety net against stale hint accumulation."`
+	HintRetirementDays           int     `yaml:"hint_retirement_days" doc:"Hints older than this many days are stamped due for re-verification (reverify_due); they stay installed. 0 disables the age rule. Default 14."`
 	RevalidationIntervalHours    int     `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
 	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio" doc:"Reserved; no effect. Revalidation does no hinted-vs-unhinted cost comparison (it uses age, missing objects, stale queryids, latency). Kept so existing configs load."`
 	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio" doc:"Reserved; currently has no effect. No hinted-vs-unhinted cost comparison is performed. Kept so existing config files still load."`

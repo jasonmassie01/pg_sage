@@ -177,8 +177,10 @@ tuner:
 
   # Hint revalidation loop.
   # Runs as a background cycle when verify_after_apply is true.
-  # Removes hints that have become redundant, harmful, or broken.
-  hint_retirement_days: 14              # Retire hints older than this unconditionally
+  # Marks hints broken when an index they name is gone, dormant while their
+  # query does not run, and survives pg_stat_statements resets. It never
+  # removes a working hint. See docs/hint-verification.md "Hint lifecycle".
+  hint_retirement_days: 14              # Mark hints due for re-verification after this (0 disables)
   revalidation_interval_hours: 24       # How often the loop runs (0 disables)
   # revalidation_keep_ratio / revalidation_rollback_ratio /
   # revalidation_explain_timeout_ms are accepted for compatibility but have

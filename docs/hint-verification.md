@@ -469,3 +469,52 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 | Hint Table | Transparent hint injection | `hint_plan.hints` INSERT | Bitmap &rarr; Index Scan |
 | Merge Join | Force join strategy | `MergeJoin(o l)` | Hash Join &rarr; Merge Join |
 | Combined Hints | Multiple symptoms | Combined hint string | Hash+Seq &rarr; Merge+Index |
+
+---
+
+## Hint lifecycle
+
+Every hint pg_sage records lives in `sage.query_hints`. Its `status` moves
+through the states below. The revalidation loop (`tuner.verify_after_apply`,
+every `tuner.revalidation_interval_hours`) reads `active` and `dormant` hints.
+It has no counterfactual yet (it does not EXPLAIN the query with and without
+the hint), so it never removes a hint for working or for being old.
+
+| Status | Meaning | Installed in `hint_plan.hints` |
+|--------|---------|--------------------------------|
+| `proposed` | The tuner recommended the hint; it waits for approval. | no |
+| `active` | The hint is installed and its query ran since the last revalidation. | yes |
+| `dormant` | The hint is installed, but its query has not run since the last revalidation, or its queryid is absent from `pg_stat_statements`. | yes |
+| `retired` | The query case's retire action retired the hint. Revalidation no longer retires. | removed through the `retire_query_hint` action |
+| `broken` | An index the hint names no longer exists. | removed through the `retire_query_hint` action |
+| `rolled_back` | The installed hint of an `active` or `dormant` row was removed (rollback or operator). | no |
+
+Transitions:
+
+| From | To | When |
+|------|----|------|
+| `proposed` | `active` | The executor installed exactly this hint text for the query (reconciled at the start of each tuner cycle). |
+| `active` | `dormant` | A revalidation pass sees no new calls since the last pass, or the queryid is absent from `pg_stat_statements` (an eviction, or a query that stopped running). |
+| `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
+| `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
+| `active`, `dormant` | `rolled_back` | No hint is installed for the query any more (reconciled at the start of each tuner cycle). |
+
+Two revalidation outcomes keep the status:
+
+- **Stats reset (`stats_reset`).** Each pass reads
+  `pg_stat_statements_info.stats_reset` (PostgreSQL 14+) and stores it in
+  `sage.query_hints.pgss_reset_at`. When the stored value is older, or the
+  summed calls went down (a `pg_stat_statements_reset()`, a crash, or an
+  entry eviction), the pass re-baselines `calls_at_last_check` and keeps the
+  hint as it was. A reset never marks a hint `broken` or `dormant`.
+- **Re-verification due (`age_reverify`).** Past
+  `tuner.hint_retirement_days` (default 14; `0` disables the rule) the pass
+  stamps `reverify_due` once. The hint stays installed; the counterfactual
+  check that will act on it is planned separately.
+
+Calls are summed over every `pg_stat_statements` row of the queryid in the
+current database (one row per role and toplevel flag), so two roles running
+the same statement cannot make the hint look idle. If `pg_stat_statements`
+or `pg_stat_statements_info` cannot be read, the pass counts an error and
+leaves the hint untouched (fail closed). Dormant hints count as covered:
+the tuner does not propose a hint again for their query.

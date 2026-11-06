@@ -162,8 +162,8 @@ func (p monitorPlan) judgeMetric(
 }
 
 // softDropMiss is why a dropped index must come back now ("" when it need
-// not): a targeted query regressed, or an active pg_sage hint names the
-// index (its plan directive now fails silently).
+// not): a targeted query regressed, or an installed (active or dormant)
+// pg_sage hint names the index (its plan directive now fails silently).
 func (p monitorPlan) softDropMiss(
 	ctx context.Context, pool *pgxpool.Pool, queries *verify.Comparison,
 ) string {
@@ -178,7 +178,8 @@ func (p monitorPlan) softDropMiss(
 	}
 	var named bool
 	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM sage.query_hints
-		WHERE status = 'active' AND strpos(hint_text, $1) > 0)`, p.index).Scan(&named)
+		WHERE status IN ('active', 'dormant') AND strpos(hint_text, $1) > 0)`,
+		p.index).Scan(&named)
 	if err == nil && named {
 		return "hint_reference"
 	}
@@ -189,7 +190,7 @@ func softDropReason(miss string, queries *verify.Comparison) string {
 	if miss == "query_regression" && queries != nil {
 		return "soft drop missed: " + queries.Reason
 	}
-	return "soft drop missed: an active pg_sage hint names the dropped index"
+	return "soft drop missed: an installed pg_sage hint names the dropped index"
 }
 
 // observedFrom is what the verdict observed: the class metric when there

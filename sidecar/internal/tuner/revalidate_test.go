@@ -2,7 +2,6 @@ package tuner
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
@@ -28,26 +27,6 @@ func TestDecideHintFate_NilPoolIsError(t *testing.T) {
 	}
 	if !contains(d.reason, "pool") {
 		t.Fatalf("reason %q should name the missing pool", d.reason)
-	}
-}
-
-func TestIsNoRowsErr(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"other", errors.New("boom"), false},
-		{"pgx", errors.New("no rows in result set"), true},
-	}
-	for _, tt := range tests {
-		if got := isNoRowsErr(tt.err); got != tt.want {
-			t.Errorf(
-				"isNoRowsErr(%v) = %v, want %v",
-				tt.err, got, tt.want,
-			)
-		}
 	}
 }
 

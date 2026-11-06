@@ -15,8 +15,8 @@ const HintRemovalCategory = "query_hint_retirement"
 // hintRemovalFindings reconciles installed pg_hint_plan rows against
 // durable metadata (C11). The revalidator only updates
 // sage.query_hints; PostgreSQL keeps applying the installed hint until the
-// row is deleted. For every query whose sage hints are all retired/broken
-// but whose hint_plan.hints row still exists, a finding carrying
+// row is deleted. For every query with a retired/broken sage hint and no
+// live (active or dormant) one, whose hint_plan.hints row still exists, a finding carrying
 // BuildDeleteSQL is emitted so removal runs through the executor's
 // retire_query_hint policy path (and is retried until the row is gone).
 // Hints pg_sage never recorded are left alone.
@@ -34,7 +34,8 @@ WHERE h.application_name = ''
                WHERE q.queryid = h.query_id
                  AND q.status IN ('retired', 'broken'))
   AND NOT EXISTS (SELECT 1 FROM sage.query_hints q
-                   WHERE q.queryid = h.query_id AND q.status = 'active')
+                   WHERE q.queryid = h.query_id
+                     AND q.status IN ('active', 'dormant'))
 ORDER BY h.query_id`)
 	if err != nil {
 		t.logFn("WARN", "tuner: reconcile installed hints: %v", err)
