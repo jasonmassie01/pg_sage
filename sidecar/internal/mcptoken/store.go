@@ -31,14 +31,16 @@ const tokenColumns = `id::text, name, kind, scopes, databases, owner_user_id, cr
 	created_at, expires_at, revoked_at, revoked_by, last_used_at, prefix,
 	COALESCE(principal_id, '')`
 
-func scanToken(row pgx.Row) (Token, error) {
+// scanToken reads tokenColumns, then any extra columns into extra.
+func scanToken(row pgx.Row, extra ...any) (Token, error) {
 	var tok Token
 	var kind string
 	var revokedBy *string
-	err := row.Scan(&tok.ID, &tok.Name, &kind, &tok.Scopes, &tok.Databases,
+	dest := append([]any{&tok.ID, &tok.Name, &kind, &tok.Scopes, &tok.Databases,
 		&tok.OwnerUserID, &tok.CreatedBy, &tok.CreatedAt, &tok.ExpiresAt,
-		&tok.RevokedAt, &revokedBy, &tok.LastUsedAt, &tok.Prefix, &tok.PrincipalID)
-	if err != nil {
+		&tok.RevokedAt, &revokedBy, &tok.LastUsedAt, &tok.Prefix, &tok.PrincipalID},
+		extra...)
+	if err := row.Scan(dest...); err != nil {
 		return Token{}, err
 	}
 	tok.Kind = Kind(kind)
@@ -113,23 +115,31 @@ func (s *Store) Create(ctx context.Context, req CreateRequest) (Token, error) {
 	return tok, nil
 }
 
-// List returns every token, newest first, without secrets or hashes.
+// List returns every token, newest first, without secrets or hashes. An
+// agent token carries its principal's status: Validate refuses a retired
+// agent's token although the token is neither revoked nor expired.
 func (s *Store) List(ctx context.Context) ([]Token, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+tokenColumns+`
-		FROM sage.mcp_tokens ORDER BY created_at DESC, id DESC`)
+	rows, err := s.pool.Query(ctx, `/* pg_sage mcp_token_list v2 */
+		SELECT `+tokenColumns+`, principal_status FROM (
+			SELECT t.*, COALESCE(p.status, '') AS principal_status
+			FROM sage.mcp_tokens t
+			LEFT JOIN sage.guard_principals p ON p.id = t.principal_id) t
+		ORDER BY created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("mcptoken: listing tokens: %w", err)
 	}
 	defer rows.Close()
 	tokens := []Token{}
 	for rows.Next() {
-		tok, err := scanToken(rows)
+		var principalStatus string
+		tok, err := scanToken(rows, &principalStatus)
 		if err != nil {
 			return nil, fmt.Errorf("mcptoken: reading token row: %w", err)
 		}
+		tok.PrincipalStatus = principalStatus
 		tokens = append(tokens, tok)
 	}
 	if err := rows.Err(); err != nil {
