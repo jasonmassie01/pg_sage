@@ -119,3 +119,40 @@ test.describe('Sidebar navigation', () => {
     expect(real).toHaveLength(0)
   })
 })
+
+// dashboard-03: a page whose payload has the wrong shape throws during
+// render. The page boundary keeps the header emergency stop and the
+// navigation mounted, and the next route renders normally.
+test.describe('Page render error', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+    // Registered last, so it wins over the catch-all: a string where the
+    // SLOs page expects a list.
+    await page.route('**/api/v1/sre/slos**', route =>
+      route.fulfill({ json: { slos: 'not-a-list' } }),
+    )
+  })
+
+  test('emergency stop stays visible and clickable', async ({ page }) => {
+    await page.goto('/#/slos')
+
+    await expect(page.getByTestId('page-error'))
+      .toContainText('This page failed to render')
+    await expect(page.getByTestId('sidebar-desktop')).toBeVisible()
+    const stop = page.getByTestId('header-emergency-stop')
+    await expect(stop).toBeVisible()
+    await stop.click()
+    await expect(page.getByTestId('header-emergency-stop-dialog')).toBeVisible()
+  })
+
+  test('navigating away renders the next page', async ({ page }) => {
+    await page.goto('/#/slos')
+    await expect(page.getByTestId('page-error')).toBeVisible()
+
+    await page.getByTestId('nav-actions').click()
+
+    await expect(page).toHaveURL(/#\/actions$/)
+    await expect(page.getByTestId('page-error')).toHaveCount(0)
+    await expect(page.locator('header h1')).toContainText('Actions')
+  })
+})
