@@ -457,8 +457,13 @@ func TestHealthcheckRejectsUntrustedNonLoopbackCertificate(t *testing.T) {
 		var d net.Dialer
 		return d.DialContext(ctx, network, srv.Listener.Addr().String())
 	}
-	if err := probeHealth(client, target, time.Second); err == nil {
+	err = probeHealth(client, target, time.Second)
+	if err == nil {
 		t.Fatal("probe accepted an untrusted certificate on a non-loopback target")
+	}
+	// The failure must be the certificate check, not a dial or timeout.
+	if !strings.Contains(err.Error(), "certificate") {
+		t.Fatalf("probe error %q does not come from certificate verification", err)
 	}
 }
 
