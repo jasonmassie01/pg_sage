@@ -350,7 +350,8 @@ func initMetaDBFleet(state *metaDBState) {
 		return
 	}
 
-	logInfo("meta-db", "found %d enabled databases", len(records))
+	logInfo("meta-db", "found %d enabled databases; fleet-learning boundaries: %s",
+		len(records), metaBoundarySummary(records))
 	names := make([]string, 0, len(records))
 	for _, record := range records {
 		names = append(names, record.Name)
@@ -587,6 +588,7 @@ func storeRecordToDBConfig(
 		User:               rec.Username,
 		SSLMode:            rec.SSLMode,
 		MaxConnections:     rec.MaxConnections,
+		Tags:               recordTags(rec.Tags),
 		TrustLevel:         rec.TrustLevel,
 		TrustLevelExplicit: true,
 		ExecutionMode:      resolveExecMode(rec),

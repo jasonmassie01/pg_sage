@@ -100,6 +100,34 @@ func (m *DatabaseManager) Instances() map[string]*DatabaseInstance {
 	return cp
 }
 
+// InstanceConfigs returns a copy of each instance's per-database config,
+// read under the manager lock: UpdateMetadata swaps Config in place, so
+// callers must not read inst.Config through the Instances() pointers.
+func (m *DatabaseManager) InstanceConfigs() map[string]config.DatabaseConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]config.DatabaseConfig, len(m.instances))
+	for name, inst := range m.instances {
+		if inst == nil {
+			continue
+		}
+		cfg := inst.Config
+		cfg.Tags = cloneTags(inst.Config.Tags)
+		out[name] = cfg
+	}
+	return out
+}
+
+// cloneTags copies a tag list so callers never share its backing array.
+func cloneTags(tags []string) []string {
+	if tags == nil {
+		return nil
+	}
+	out := make([]string, len(tags))
+	copy(out, tags)
+	return out
+}
+
 // Config returns the manager's config.
 func (m *DatabaseManager) Config() *config.Config {
 	return m.cfg
@@ -127,7 +155,7 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 			ID:         inst.DatabaseID,
 			DatabaseID: inst.DatabaseID,
 			Name:       inst.Name,
-			Tags:       inst.Config.Tags,
+			Tags:       cloneTags(inst.Config.Tags),
 			Status:     snap,
 		}
 		applyStopStatus(&ds, inst)

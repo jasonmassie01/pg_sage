@@ -83,19 +83,22 @@ func fleetLeaderAllows(job string) bool {
 }
 
 // fleetLearningSources lists the fleet's connected databases with their
-// sharing boundary.
+// sharing boundary. Tags are read through InstanceConfigs, under the
+// manager lock, because a meta-DB tag edit swaps Config in place.
 func fleetLearningSources(mgr *fleet.DatabaseManager) func() []fleetlearn.DatabaseSource {
 	return func() []fleetlearn.DatabaseSource {
 		if mgr == nil {
 			return nil
 		}
+		configs := mgr.InstanceConfigs()
 		var out []fleetlearn.DatabaseSource
 		for name, inst := range mgr.Instances() {
-			if inst == nil || inst.Pool == nil {
+			cfg, ok := configs[name]
+			if inst == nil || inst.Pool == nil || !ok {
 				continue
 			}
 			out = append(out, fleetlearn.DatabaseSource{Name: name, Pool: inst.Pool,
-				Boundary: fleetlearn.Boundary(inst.Config.Tags)})
+				Boundary: fleetlearn.Boundary(cfg.Tags)})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return out
