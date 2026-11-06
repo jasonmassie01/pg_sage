@@ -158,7 +158,9 @@ func withoutSuppressed(findings []Finding, res UpsertResult) []Finding {
 }
 
 // criticalNotifyCooldown bounds how often the same critical identity can
-// be re-paged when it flaps between resolved and re-opened.
+// be re-paged when it flaps between critical and a lower severity. A
+// resolve clears it (dispatchResolvedCritical), so a finding re-opened
+// after its page was resolved always pages again.
 const criticalNotifyCooldown = time.Hour
 
 // notifiableCritical returns the critical findings that were opened or

@@ -172,7 +172,9 @@ Monitors new findings and routes notifications to Slack, PagerDuty, or custom we
 opening a second one) and `incident_resolved`
 resolves it, so a PagerDuty channel must have rules for all three events; without an
 `incident_resolved` rule the page stays open. A recurrence is a new incident id and opens a
-new PagerDuty incident. A key longer than PagerDuty's 255-character limit is shortened to its head plus a hash, so
+new PagerDuty incident. The resolution of an incident last seen longer ago
+than `rca.stale_after_hours` sends no notification, so close its PagerDuty incident by hand. A
+key longer than PagerDuty's 255-character limit is shortened to its head plus a hash, so
 the trigger and the resolve still match. A critical finding pages with the key
 `finding_critical:<database>:<category>:<object>`. When the analyzer resolves the finding (it
 is no longer detected), it sends a resolve on that key as a `finding_critical` event, so the
