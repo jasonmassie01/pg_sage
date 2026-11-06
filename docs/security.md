@@ -148,6 +148,31 @@ What is sent to the LLM:
 
 What is **never** sent: row data, column values, passwords, connection strings, API keys, PII. Query text from `pg_stat_statements` contains parameterized placeholders (`$1`, `$2`), not literal values.
 
+### Model output is data
+
+The configuration advisor's prompts carry query text and table names that any
+database user can influence, so pg_sage treats every model response as data,
+never as instructions to itself:
+
+- A finding's `detail` keeps only a fixed set of model keys at the top level
+  (`rationale`, `current_settings`, `recommended_settings`, `requires_restart`,
+  `peak_active`, `bloat_pct`, `remediation_options`, `original_query`,
+  `suggested_rewrite`, `object_identifier`, `severity`, and `recommended_sql`
+  for query rewrites). Any other model key is kept under `detail.model`.
+- Reserved keys are dropped wherever they appear in the model's JSON, and each
+  drop is logged as a warning: `managed_change`, `what_if_verdict`, `drop_ddl`,
+  `index_replace`, `approval_required` and any key starting with `sage_`
+  (matched without regard to case). Only pg_sage's own gates write these keys.
+- The WAL, memory, vacuum and connection advisors may only propose
+  `ALTER SYSTEM SET/RESET` of a setting or `ALTER TABLE ... SET/RESET` of a
+  storage parameter. Any other SQL they return becomes advisory, with no SQL
+  and no action risk.
+- The managed-change worker (RDS, Aurora and Cloud SQL parameter changes)
+  proposes only intents found on `memory_tuning`, `vacuum_tuning`,
+  `wal_tuning` or `connection_tuning` findings, and only for settings on the
+  executor's allowlist. Anything else is refused and logged as
+  `managed change not proposed: ... refused: ...`.
+
 ---
 
 ## API Security
