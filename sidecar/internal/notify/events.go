@@ -68,11 +68,15 @@ func ApprovalNeededEvent(
 }
 
 // FindingCriticalEvent creates an event for a new critical finding.
-// Call from analyzer when a critical severity finding is detected.
+// Call from analyzer when a critical severity finding is detected. The
+// finding's identity (database, category, object) is the dedup key, so
+// the ResolvedEvent sent when it clears closes the same PagerDuty
+// incident however its title changed (alerting-01). With neither
+// category nor object the generic EventDedupKey applies.
 func FindingCriticalEvent(
-	title, detail, database string,
+	title, detail, database, category, object string,
 ) Event {
-	return Event{
+	evt := Event{
 		Type:     "finding_critical",
 		Severity: "critical",
 		Subject:  fmt.Sprintf("Critical finding: %s", title),
@@ -82,8 +86,15 @@ func FindingCriticalEvent(
 			"title":    title,
 			"detail":   detail,
 			"database": database,
+			"category": category,
+			"object":   object,
 		},
 	}
+	if category != "" || object != "" {
+		evt.DedupKey = fmt.Sprintf("finding_critical:%s:%s:%s",
+			database, category, object)
+	}
+	return evt
 }
 
 // QueryRewriteEvent creates an event when the tuner suggests a

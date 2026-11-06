@@ -204,7 +204,8 @@ func TestEventFactory_ApprovalNeededEvent(t *testing.T) {
 }
 
 func TestEventFactory_FindingCriticalEvent(t *testing.T) {
-	evt := FindingCriticalEvent("Sequence exhaustion", "orders_id_seq at 95%", "prod")
+	evt := FindingCriticalEvent("Sequence exhaustion", "orders_id_seq at 95%", "prod",
+		"sequence_exhaustion", "public.orders_id_seq")
 
 	if evt.Type != "finding_critical" {
 		t.Errorf("Type = %q, want 'finding_critical'", evt.Type)
@@ -504,7 +505,7 @@ func TestEventFactory_AllTypesAreValid(t *testing.T) {
 		ActionExecutedEvent("t", "s", "d"),
 		ActionFailedEvent("t", "s", "d", "e"),
 		ApprovalNeededEvent("t", "s", "d", "r"),
-		FindingCriticalEvent("t", "d", "db"),
+		FindingCriticalEvent("t", "d", "db", "c", "o"),
 	}
 
 	for _, evt := range events {
@@ -519,7 +520,7 @@ func TestEventFactory_AllSeveritiesAreValid(t *testing.T) {
 		ActionExecutedEvent("t", "s", "d"),
 		ActionFailedEvent("t", "s", "d", "e"),
 		ApprovalNeededEvent("t", "s", "d", "r"),
-		FindingCriticalEvent("t", "d", "db"),
+		FindingCriticalEvent("t", "d", "db", "c", "o"),
 	}
 
 	for _, evt := range events {

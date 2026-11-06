@@ -21,8 +21,8 @@ func (a *Analyzer) dispatchCriticalFindings(
 			continue
 		}
 		detail, _ := json.Marshal(f.Detail)
-		event := notify.FindingCriticalEvent(
-			f.Title, string(detail), a.databaseName)
+		event := notify.FindingCriticalEvent(f.Title, string(detail),
+			a.databaseName, f.Category, f.ObjectIdentifier)
 		if err := a.dispatcher.Dispatch(ctx, event); err != nil {
 			a.logFn("ERROR",
 				"critical finding dispatch: %v", err)
@@ -104,8 +104,40 @@ func (a *Analyzer) resolveCleared(
 		}
 	}
 	for cat, idents := range activeByCategory {
-		if err := ResolveCleared(ctx, a.pool, idents, cat); err != nil {
+		cleared, err := ResolveClearedFindings(ctx, a.pool, idents, cat)
+		// Findings resolved before an error still get their resolve.
+		a.dispatchResolvedCritical(ctx, cleared)
+		if err != nil {
 			a.logFn("ERROR", "analyzer: resolve cleared %s: %v", cat, err)
+		}
+	}
+}
+
+// dispatchResolvedCritical sends the PagerDuty resolve for each cleared
+// finding that is critical, or that this analyzer paged as critical
+// before it was de-escalated (alerting-01). The event is a
+// finding_critical on the page's key, so the rule that paged resolves.
+// Resolving resets the identity's page cooldown: a re-open must page
+// again, or PagerDuty would show an open critical finding as resolved.
+func (a *Analyzer) dispatchResolvedCritical(
+	ctx context.Context, cleared []ClearedFinding,
+) {
+	if a.dispatcher == nil {
+		return
+	}
+	for _, c := range cleared {
+		key := c.Category + "|" + c.ObjectIdentifier + "|critical"
+		_, paged := a.notifiedAt[key]
+		if c.Severity != "critical" && !paged {
+			continue
+		}
+		delete(a.notifiedAt, key)
+		event := notify.ResolvedEvent(notify.FindingCriticalEvent(c.Title,
+			"no longer detected", a.databaseName, c.Category,
+			c.ObjectIdentifier))
+		if err := a.dispatcher.Dispatch(ctx, event); err != nil {
+			a.logFn("ERROR", "critical finding resolve dispatch %s/%s: %v",
+				c.Category, c.ObjectIdentifier, err)
 		}
 	}
 }

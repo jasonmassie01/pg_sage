@@ -39,7 +39,7 @@ func TestApprovalNeededEvent(t *testing.T) {
 }
 
 func TestFindingCriticalEvent(t *testing.T) {
-	evt := FindingCriticalEvent("Disk full", "90% used", "prod")
+	evt := FindingCriticalEvent("Disk full", "90% used", "prod", "disk", "pg_data")
 	if evt.Type != "finding_critical" {
 		t.Errorf("Type = %q, want finding_critical", evt.Type)
 	}
