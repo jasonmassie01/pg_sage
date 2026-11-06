@@ -117,9 +117,12 @@ const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
 	RETURNING q.id`
 
 // pendingCreatesSQL lists pending index-create proposals for the coverage
-// check.
+// check. A restore card is not one: the index that covers it is often the
+// very reason the drop ran (a redundant index), and the regression says the
+// planner needs the dropped one back (executor-01).
 const pendingCreatesSQL = `/* pg_sage */ SELECT id, proposed_sql FROM sage.action_queue
 	WHERE status = 'pending' AND proposed_sql ~* '^\s*CREATE\s+(UNIQUE\s+)?INDEX\s'
+	  AND action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
 	ORDER BY id`
 
 // supersedeStaleApprovals closes the pending proposals whose reason is
