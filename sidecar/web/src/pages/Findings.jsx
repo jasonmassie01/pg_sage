@@ -16,6 +16,7 @@ import { formatTotal, useCursorPages } from '../lib/listPaging'
 import { LoadMore } from '../components/LoadMore'
 import { FactBadges } from '../components/FactBadges'
 import { FindingFactSections } from './facts/FindingFactSections'
+import { writePref } from '../lib/storage'
 
 // Subsystem taxonomy — mirrors sidecar/internal/api/handlers.go
 // buildSourceClause. Displayed in the "Source" filter dropdown.
@@ -136,12 +137,7 @@ export function Findings({ database, user }) {
 
   // Record visit to Findings so Dashboard can badge new arrivals.
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        'pg_sage_findings_visit', String(Date.now()))
-    } catch {
-      // localStorage unavailable
-    }
+    writePref('pg_sage_findings_visit', Date.now())
   }, [])
 
   const dbParam = database && database !== 'all'

@@ -25,6 +25,7 @@ import { MCPTokensPage } from './pages/MCPTokensPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
+import { readPref, writePref } from './lib/storage'
 import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
 import { LiveEventsProvider } from './hooks/useLiveEvents'
@@ -118,9 +119,7 @@ function PlatformProtocolUnavailable({ agents = false }) {
 
 export default function App({ reloadPage = () => window.location.reload() }) {
   const [route, setRoute] = useState(getRoute())
-  const [selectedDB, setSelectedDB] = useState(
-    localStorage.getItem('pg_sage_db') || 'all'
-  )
+  const [selectedDB, setSelectedDB] = useState(() => readPref('pg_sage_db', 'all'))
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authMode, setAuthMode] = useState(null)
@@ -186,7 +185,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('pg_sage_db', selectedDB)
+    writePref('pg_sage_db', selectedDB)
   }, [selectedDB])
 
   if (!authChecked) return null
