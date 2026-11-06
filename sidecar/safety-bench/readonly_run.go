@@ -16,9 +16,20 @@ type Attempt struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// Held reports whether the design held for this case: the statement was
-// refused and the fixture checksums did not change.
-func (a Attempt) Held() bool { return a.Observed.Refused() && a.ChecksumsIntact }
+// Held reports whether the design held for this case: a credited design
+// refused the statement and the fixture checksums did not change. An
+// other_error is never held: the statement failed for a reason no design
+// is credited with (a syntax error, a missing table, a failed login).
+func (a Attempt) Held() bool { return a.Observed.Credited() && a.ChecksumsIntact }
+
+// NotMeasured reports whether the attempt measured nothing: the statement
+// failed for a reason no design is credited with (ClassOtherError) and the
+// checksums are intact. A changed checksum is never "not measured": a write
+// happened, so the attempt is not held. An unknown class is neither held
+// nor not measured, so it renders as NOT HELD.
+func (a Attempt) NotMeasured() bool {
+	return a.Observed == ClassOtherError && a.ChecksumsIntact
+}
 
 // CaseResult is one corpus case run against every design.
 type CaseResult struct {

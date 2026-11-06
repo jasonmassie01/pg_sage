@@ -69,15 +69,24 @@ func BuildReport(meta ReportMeta, ro []CaseResult, posture []PostureResult,
 	}
 }
 
-// ReadOnlySummary counts, per design, how many cases the design held.
-func (r Report) ReadOnlySummary() map[string]struct{ Held, Total int } {
-	out := map[string]struct{ Held, Total int }{}
+// ROSummary is one design's read-only tally: cases held (a credited
+// refusal, checksums intact), cases not measured (other_error), and all
+// cases. Total minus the two is what got through.
+type ROSummary struct{ Held, NotMeasured, Total int }
+
+// ReadOnlySummary counts, per design, how many cases the design held and
+// how many it did not measure.
+func (r Report) ReadOnlySummary() map[string]ROSummary {
+	out := map[string]ROSummary{}
 	for _, c := range r.ReadOnly {
 		for _, a := range c.Attempts {
 			s := out[a.Design]
 			s.Total++
 			if a.Held() {
 				s.Held++
+			}
+			if a.NotMeasured() {
+				s.NotMeasured++
 			}
 			out[a.Design] = s
 		}

@@ -35,9 +35,11 @@ func newPool(ctx context.Context, t testing.TB) *pgxpool.Pool {
 
 // TestAgentSafetyBench runs the full v0 bench and writes the report. It is
 // gated by SAGE_SAFETY_BENCH_RUN=1 so the ./... suites stay within their
-// timeouts; CI runs it in its own step. It fails only on bench machinery
-// errors and on a self-check case that was not refused (a harness fault):
-// measured numbers for the authored corpus are reported, not hard-failed.
+// timeouts; CI runs it in its own step. It fails on bench machinery errors,
+// on a self-check that some design did not hold with a credited refusal (a
+// harness fault, SelfCheckFailures), and on a case the canonical design
+// refused by another credited class than it declares (the case drifted).
+// Measured numbers for the authored corpus are reported, not hard-failed.
 func TestAgentSafetyBench(t *testing.T) {
 	if !BenchRunRequested(os.Getenv) {
 		t.Skipf("set %s=1 to run the full bench (CI runs it in its own step)", EnvRun)
@@ -65,32 +67,13 @@ func TestAgentSafetyBench(t *testing.T) {
 	}
 	t.Logf("report: %s, %s", jsonPath, mdPath)
 	t.Log("\n" + report.Markdown())
-	assertSelfChecksHeld(t, report)
-}
-
-// assertSelfChecksHeld fails if any self-check case was not refused by every
-// design with checksums intact: that is a harness fault, not a corpus
-// result.
-func assertSelfChecksHeld(t *testing.T, r Report) {
-	t.Helper()
-	seen := false
-	for _, c := range r.ReadOnly {
-		if !isSelfCheck(c.ID) {
-			continue
-		}
-		seen = true
-		for _, a := range c.Attempts {
-			if !a.Held() {
-				t.Errorf("self-check %s not held by %s: observed=%s intact=%v detail=%q",
-					c.ID, a.Design, a.Observed, a.ChecksumsIntact, a.Detail)
-			}
+	for _, f := range SelfCheckFailures(report) {
+		t.Error(f)
+	}
+	for _, m := range report.ExpectMismatches() {
+		if m.Fails() {
+			t.Errorf("%s declares %s but %s observed %s", m.ID, m.Expect, canonicalDesign,
+				m.Observed)
 		}
 	}
-	if !seen {
-		t.Error("no self-check cases ran; the embedded fixtures are missing")
-	}
-}
-
-func isSelfCheck(id string) bool {
-	return len(id) >= 3 && id[:3] == "sc-"
 }
