@@ -2,6 +2,7 @@ package safetybench
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -94,10 +95,16 @@ func (explainGuardDesign) Name() string { return "explain_guard" }
 func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql string) error {
 	ex := explain.New(owner, d.cfg, d.logFn)
 	res, err := ex.Explain(ctx, explain.ExplainRequest{Query: sql})
-	if err != nil {
+	if errors.Is(err, explain.ErrExplainInvalidRequest) {
 		// The validator (and any invalid-request path) rejected the
 		// statement before execution.
 		return beforeExecutionError{reason: err.Error()}
+	}
+	if err != nil {
+		// The guard accepted the statement and the server then failed it
+		// (a missing relation, a cast error): classify scores the server
+		// error itself, so an uncredited failure is other_error, not held.
+		return err
 	}
 	// The statement parsed as a read statement. If ANALYZE was refused, the
 	// query was planned only and never executed its effect; the guard held.
