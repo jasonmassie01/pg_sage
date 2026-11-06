@@ -91,6 +91,8 @@ func regressedFinding(db string, spec auditchain.Spec, head int64,
 			"stopped, so nothing is skipped silently. Compare the SIEM's copy with the " +
 			"database, then re-anchor each sink with POST /api/v1/audit/siem/{sink}/" +
 			"reanchor (source, chain, from_seq): the links re-exported over positions " +
-			"the SIEM already holds are labelled \"fork\".",
+			"the SIEM already holds are labelled \"fork\". Links before from_seq are " +
+			"not re-sent: from_seq 1 is always safe, a higher one must be the first " +
+			"position whose hash differs from the SIEM's copy.",
 	}
 }

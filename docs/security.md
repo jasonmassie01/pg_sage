@@ -516,8 +516,14 @@ cursor still has that hash.
   re-exported events over positions the SIEM already holds carry
   `metadata.labels: ["fork"]`. The re-anchor runs on the export leader
   only (409 elsewhere), is recorded in `sage.auth_audit` as
-  `siem_reanchored`, and refuses a `from_seq` that would skip links never
-  exported. It is never automatic. The finding resolves at the next
+  `siem_reanchored`, and is never automatic. It refuses a `from_seq` past
+  the cursor, one onto the cursor's own position when another link now
+  holds it, and one whose preceding link is missing. It cannot tell, below
+  the cursor, which links the SIEM already has: links before `from_seq`
+  are not re-sent. `from_seq: 1` (the default) is always safe; a higher
+  value must be the first position where the database and the SIEM's copy
+  differ (compare their hashes), or the new links before it are never
+  exported. The finding resolves at the next
   verification once every cursor is anchored again. While export is off
   or failed to start, verification cannot check the cursors, so an open
   `audit_chain_regressed` finding stays open.

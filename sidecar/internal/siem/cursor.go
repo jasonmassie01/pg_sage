@@ -205,9 +205,10 @@ func (c *CursorStore) Reanchor(ctx context.Context, f Fence, sink, source, chain
 	return prev, err
 }
 
-// reanchorAllowed refuses a re-anchor that would skip links never
+// reanchorAllowed refuses the re-anchors that provably skip links never
 // exported: past the cursor, or at the cursor's own position when another
-// link now holds it.
+// link now holds it. Below the cursor it cannot tell which links the SIEM
+// holds; choosing that position is the admin's call (1 is always safe).
 func reanchorAllowed(prev Cursor, seq int64, hash string) error {
 	if seq > prev.Seq {
 		return fmt.Errorf("%w: position %d is past the cursor (%d): links %d-%d "+
