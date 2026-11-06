@@ -13,7 +13,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/databricks/databricks-sdk-go v0.191.1
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/pganalyze/pg_query_go/v6 v6.2.2
 	github.com/sigstore/sigstore-go v1.2.1
@@ -130,7 +130,7 @@ require (
 	google.golang.org/api v0.280.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
-	google.golang.org/grpc v1.83.1 // indirect
+	google.golang.org/grpc v1.83.2 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 )
