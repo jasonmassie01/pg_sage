@@ -99,8 +99,9 @@ So a confirmed `slot_consumer` fact binds:
 * dropping or advancing that slot (by name, as before).
 
 In fleet and meta-db mode, the databases one pg_sage process monitors are grouped by
-cluster (`pg_control_system().system_identifier`, or the host and port when that cannot be
-read). A slot fact confirmed on one database binds the slot work and WAL bounds proposed
+cluster (`pg_control_system().system_identifier`). A database whose identifier cannot be read
+is grouped with every database at the same host and port, so a failed read never splits one
+cluster in two. A slot fact confirmed on one database binds the slot work and WAL bounds proposed
 for every database on the same cluster, and the detail names the database that holds
 the fact (`fact #7 of database "orders": ...`). If a sibling's facts cannot be read, a
 slot-touching action fails closed (`facts_unavailable`). Other fact types stay with their

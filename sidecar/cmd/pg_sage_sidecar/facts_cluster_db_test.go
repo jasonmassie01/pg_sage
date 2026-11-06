@@ -137,9 +137,9 @@ func gateOf(pool *pgxpool.Pool, binder policy.FactBinder) *executor.Executor {
 func TestFactClusterSiblingSlotFactBlocksWALBoundOnRealCluster(t *testing.T) {
 	c := newClusterPair(t)
 	fact := confirmSlotFact(t, c)
-	keyA, keyB := factClusterKey(c.ctx, c.poolA), factClusterKey(c.ctx, c.poolB)
-	if keyA != keyB || !strings.HasPrefix(keyA, "sysid:") {
-		t.Fatalf("cluster keys %q and %q, want one system identifier", keyA, keyB)
+	keyA, keyB := factClusterIdentity(c.ctx, c.poolA), factClusterIdentity(c.ctx, c.poolB)
+	if keyA != keyB || keyA.sysid == "" {
+		t.Fatalf("cluster identities %+v and %+v, want one system identifier", keyA, keyB)
 	}
 	r := newFactClusterRegistry()
 	r.join(c.ctx, keyA, "facts_a", c.storeA)
@@ -179,8 +179,8 @@ func TestFactClusterUnboundIsNotBlockedOnRealCluster(t *testing.T) {
 	c := newClusterPair(t)
 	confirmSlotFact(t, c)
 	r := newFactClusterRegistry()
-	memberA := r.join(c.ctx, factClusterKey(c.ctx, c.poolA), "facts_a", c.storeA)
-	memberB := r.join(c.ctx, factClusterKey(c.ctx, c.poolB), "facts_b", c.storeB)
+	memberA := r.join(c.ctx, factClusterIdentity(c.ctx, c.poolA), "facts_a", c.storeA)
+	memberB := r.join(c.ctx, factClusterIdentity(c.ctx, c.poolB), "facts_b", c.storeB)
 	unbound := executor.CustodianProposal{Feature: "wal",
 		SQL:           "ALTER SYSTEM SET max_slot_wal_keep_size = -1",
 		TargetObjects: []string{"slot:" + c.physical}, ObservedAt: time.Now()}

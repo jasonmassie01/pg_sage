@@ -40,10 +40,10 @@ func siblingNames(dbs []facts.SiblingDatabase) []string {
 
 func TestFactClusterSiblingsShareOnlyTheClusterKey(t *testing.T) {
 	r := newFactClusterRegistry()
-	a, _ := r.register("sysid:1", "orders_a", clusterFacts{})
-	b, _ := r.register("sysid:1", "orders_b", clusterFacts{})
-	c, _ := r.register("sysid:2", "billing", clusterFacts{})
-	z, _ := r.register("sysid:1", "analytics", clusterFacts{})
+	a, _ := r.register(factClusterID{sysid: "1"}, "orders_a", clusterFacts{})
+	b, _ := r.register(factClusterID{sysid: "1"}, "orders_b", clusterFacts{})
+	c, _ := r.register(factClusterID{sysid: "2"}, "billing", clusterFacts{})
+	z, _ := r.register(factClusterID{sysid: "1"}, "analytics", clusterFacts{})
 	if got := siblingNames(r.siblings(b)); !reflect.DeepEqual(got,
 		[]string{"analytics", "orders_a"}) {
 		t.Fatalf("siblings of orders_b = %v, want analytics and orders_a (sorted)", got)
@@ -67,9 +67,9 @@ func TestFactClusterGenerationsOfOneDatabase(t *testing.T) {
 	r := newFactClusterRegistry()
 	oldGen := clusterFacts{list: []facts.Fact{slotFact(1, "old_*")}}
 	newGen := clusterFacts{list: []facts.Fact{slotFact(2, "cdc_*")}}
-	a1, _ := r.register("sysid:1", "orders_a", oldGen)
-	a2, _ := r.register("sysid:1", "orders_a", newGen)
-	b, _ := r.register("sysid:1", "orders_b", clusterFacts{})
+	a1, _ := r.register(factClusterID{sysid: "1"}, "orders_a", oldGen)
+	a2, _ := r.register(factClusterID{sysid: "1"}, "orders_a", newGen)
+	b, _ := r.register(factClusterID{sysid: "1"}, "orders_b", clusterFacts{})
 	if got := r.siblings(a2); len(got) != 1 || got[0].Database != "orders_b" {
 		t.Fatalf("siblings of the new generation = %v", siblingNames(got))
 	}
@@ -81,10 +81,37 @@ func TestFactClusterGenerationsOfOneDatabase(t *testing.T) {
 	_ = a1
 }
 
+// A runtime whose identity read failed (only its address is known) still
+// groups with every runtime at its address, including those whose
+// identifier is known; two known identifiers decide alone (review of
+// facts-02: the fallback must not split one cluster into two groups).
+func TestFactClusterUnknownIdentityGroupsByAddress(t *testing.T) {
+	r := newFactClusterRegistry()
+	const here, there = "addr:db1:5432", "addr:db2:5432"
+	known, _ := r.register(factClusterID{sysid: "1", addr: here}, "orders_a", clusterFacts{})
+	unknown, _ := r.register(factClusterID{addr: here}, "orders_b", clusterFacts{})
+	other, _ := r.register(factClusterID{sysid: "2", addr: here}, "billing", clusterFacts{})
+	far, _ := r.register(factClusterID{addr: there}, "remote", clusterFacts{})
+	cases := []struct {
+		m    *factClusterMember
+		want []string
+	}{
+		{known, []string{"orders_b"}},
+		{unknown, []string{"billing", "orders_a"}},
+		{other, []string{"orders_b"}},
+		{far, []string{}},
+	}
+	for _, c := range cases {
+		if got := siblingNames(r.siblings(c.m)); !reflect.DeepEqual(got, c.want) {
+			t.Fatalf("siblings of %s = %v, want %v", c.m.database, got, c.want)
+		}
+	}
+}
+
 func TestFactClusterUnregisterTransitions(t *testing.T) {
 	r := newFactClusterRegistry()
-	a, leaveA := r.register("sysid:1", "orders_a", clusterFacts{})
-	b, leaveB := r.register("sysid:1", "orders_b", clusterFacts{})
+	a, leaveA := r.register(factClusterID{sysid: "1"}, "orders_a", clusterFacts{})
+	b, leaveB := r.register(factClusterID{sysid: "1"}, "orders_b", clusterFacts{})
 	if len(r.siblings(a)) != 1 {
 		t.Fatal("orders_b is not a sibling while registered")
 	}
@@ -107,8 +134,8 @@ func TestFactClusterUnregisterTransitions(t *testing.T) {
 func TestFactClusterJoinLeavesWhenTheRuntimeStops(t *testing.T) {
 	r := newFactClusterRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
-	a := r.join(ctx, "sysid:1", "orders_a", clusterFacts{})
-	b := r.join(context.Background(), "sysid:1", "orders_b", clusterFacts{})
+	a := r.join(ctx, factClusterID{sysid: "1"}, "orders_a", clusterFacts{})
+	b := r.join(context.Background(), factClusterID{sysid: "1"}, "orders_b", clusterFacts{})
 	if len(r.siblings(b)) != 1 || len(r.siblings(a)) != 1 {
 		t.Fatal("joined runtimes are not siblings")
 	}
@@ -143,8 +170,8 @@ func TestFactClusterAddressKeyNormalizes(t *testing.T) {
 	}
 }
 
-// When the cluster identity cannot be read, the key falls back to the
-// pool's address, so the runtime still groups with its siblings there.
+// When the cluster identity cannot be read, only the pool's address is
+// known, so the runtime still groups with its siblings there.
 func TestFactClusterKeyFallsBackToTheAddress(t *testing.T) {
 	pool, err := pgxpool.New(context.Background(),
 		"postgres://u:p@127.0.0.1:1/db?sslmode=disable&connect_timeout=1")
@@ -154,11 +181,12 @@ func TestFactClusterKeyFallsBackToTheAddress(t *testing.T) {
 	defer pool.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if got := factClusterKey(ctx, pool); got != "addr:127.0.0.1:1" {
-		t.Fatalf("factClusterKey on an unreachable server = %q", got)
+	want := factClusterID{addr: "addr:127.0.0.1:1"}
+	if got := factClusterIdentity(ctx, pool); got != want {
+		t.Fatalf("factClusterIdentity on an unreachable server = %+v, want %+v", got, want)
 	}
-	if got := factClusterKey(ctx, nil); got != "" {
-		t.Fatalf("factClusterKey without a pool = %q, want empty", got)
+	if got := factClusterIdentity(ctx, nil); got != (factClusterID{}) {
+		t.Fatalf("factClusterIdentity without a pool = %+v, want zero", got)
 	}
 }
 
@@ -166,8 +194,9 @@ func TestFactClusterKeyFallsBackToTheAddress(t *testing.T) {
 // slot fact blocks this database's cluster-wide bound.
 func TestClusterFactBinderReadsSiblings(t *testing.T) {
 	r := newFactClusterRegistry()
-	r.register("sysid:9", "orders_a", clusterFacts{list: []facts.Fact{slotFact(4, "cdc_*")}})
-	b, _ := r.register("sysid:9", "orders_b", clusterFacts{})
+	r.register(factClusterID{sysid: "9"}, "orders_a",
+		clusterFacts{list: []facts.Fact{slotFact(4, "cdc_*")}})
+	b, _ := r.register(factClusterID{sysid: "9"}, "orders_b", clusterFacts{})
 	binder := newClusterFactBinder(nil, clusterFacts{}, r, b)
 	got, err := binder.Bind(context.Background(), policy.ActionRequest{
 		SQL:        "ALTER SYSTEM SET max_slot_wal_keep_size = '1MB'",
@@ -186,7 +215,7 @@ func TestClusterFactBinderReadsSiblings(t *testing.T) {
 // where cgo is available; here it checks the registry stays consistent.
 func TestFactClusterConcurrentJoinLeaveWhileBinding(t *testing.T) {
 	r := newFactClusterRegistry()
-	b, _ := r.register("sysid:1", "orders_b", clusterFacts{})
+	b, _ := r.register(factClusterID{sysid: "1"}, "orders_b", clusterFacts{})
 	binder := newClusterFactBinder(nil, clusterFacts{}, r, b)
 	req := policy.ActionRequest{SQL: "ALTER SYSTEM SET max_slot_wal_keep_size = '1MB'"}
 	var wg sync.WaitGroup
@@ -196,7 +225,8 @@ func TestFactClusterConcurrentJoinLeaveWhileBinding(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			for i := 0; i < 200; i++ {
-				_, leave := r.register("sysid:1", "orders_"+string(rune('c'+w)),
+				_, leave := r.register(factClusterID{sysid: "1"},
+					"orders_"+string(rune('c'+w)),
 					clusterFacts{list: []facts.Fact{slotFact(int64(w+1), "cdc_*")}})
 				leave()
 			}

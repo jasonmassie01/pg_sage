@@ -21,70 +21,80 @@ import (
 // slot work and WAL bounds proposed for its siblings. Databases monitored
 // by separate sidecar processes do not see each other's facts.
 
-// factClusterKeyTimeout bounds the one identity read at runtime start.
-const factClusterKeyTimeout = 5 * time.Second
+// factClusterIdentityTimeout bounds the one identity read at runtime start.
+const factClusterIdentityTimeout = 5 * time.Second
 
 // clusterIdentitySQL reads the cluster's system identifier, which every
 // database of one cluster shares (as internal/ha reads it).
 const clusterIdentitySQL = `/* pg_sage */ SELECT c.system_identifier::text
 FROM pg_catalog.pg_control_system() c`
 
-// factClusterMember is one database runtime in the registry.
-type factClusterMember struct {
-	key, database string
-	source        facts.ConfirmedSource
-	seq           uint64 // registration order: the newest generation wins
+// factClusterID names a runtime's cluster: the system identifier when it
+// could be read (sysid, empty otherwise) and always the pool's address.
+type factClusterID struct{ sysid, addr string }
+
+// sameCluster reports whether two runtimes may share a cluster. Two known
+// identifiers decide alone; when either is unknown the addresses decide, so
+// a runtime whose identity read failed still groups with its siblings at the
+// same address (fail closed: a proxy fronting several clusters may group
+// too much, never too little).
+func (a factClusterID) sameCluster(b factClusterID) bool {
+	if a.sysid != "" && b.sysid != "" {
+		return a.sysid == b.sysid
+	}
+	return a.addr == b.addr
 }
 
-// factClusterRegistry groups the process's runtimes by cluster key.
+// factClusterMember is one database runtime in the registry.
+type factClusterMember struct {
+	id       factClusterID
+	database string
+	source   facts.ConfirmedSource
+	seq      uint64 // registration order: the newest generation wins
+}
+
+// factClusterRegistry holds the process's runtimes and their clusters.
 type factClusterRegistry struct {
 	mu      sync.RWMutex
 	seq     uint64
-	members map[string]map[*factClusterMember]struct{}
+	members map[*factClusterMember]struct{}
 }
 
 func newFactClusterRegistry() *factClusterRegistry {
-	return &factClusterRegistry{members: map[string]map[*factClusterMember]struct{}{}}
+	return &factClusterRegistry{members: map[*factClusterMember]struct{}{}}
 }
 
 // processFactClusters is shared by every database runtime of the process.
 var processFactClusters = newFactClusterRegistry()
 
-// register adds a runtime under key; the returned leave removes it (and
-// is safe to call more than once).
-func (r *factClusterRegistry) register(key, database string,
+// register adds a runtime of cluster id; the returned leave removes it
+// (and is safe to call more than once).
+func (r *factClusterRegistry) register(id factClusterID, database string,
 	source facts.ConfirmedSource) (*factClusterMember, func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seq++
-	m := &factClusterMember{key: key, database: database, source: source, seq: r.seq}
-	if r.members[key] == nil {
-		r.members[key] = map[*factClusterMember]struct{}{}
-	}
-	r.members[key][m] = struct{}{}
+	m := &factClusterMember{id: id, database: database, source: source, seq: r.seq}
+	r.members[m] = struct{}{}
 	return m, func() { r.leave(m) }
 }
 
 func (r *factClusterRegistry) leave(m *factClusterMember) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	group := r.members[m.key]
-	delete(group, m)
-	if len(group) == 0 {
-		delete(r.members, m.key)
-	}
+	delete(r.members, m)
 }
 
 // join registers a runtime for the life of ctx: removing or replacing the
 // runtime cancels ctx, which leaves the cluster.
-func (r *factClusterRegistry) join(ctx context.Context, key, database string,
+func (r *factClusterRegistry) join(ctx context.Context, id factClusterID, database string,
 	source facts.ConfirmedSource) *factClusterMember {
-	m, leave := r.register(key, database, source)
+	m, leave := r.register(id, database, source)
 	context.AfterFunc(ctx, leave)
 	return m
 }
 
-// siblings are the other databases registered under m's key, one entry
+// siblings are the other databases registered on m's cluster, one entry
 // (the newest generation) per database name, sorted by name. m's own
 // database, in any generation, is not its sibling.
 func (r *factClusterRegistry) siblings(m *factClusterMember) []facts.SiblingDatabase {
@@ -93,12 +103,12 @@ func (r *factClusterRegistry) siblings(m *factClusterMember) []facts.SiblingData
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if _, ok := r.members[m.key][m]; !ok {
+	if _, ok := r.members[m]; !ok {
 		return nil
 	}
 	newest := map[string]*factClusterMember{}
-	for other := range r.members[m.key] {
-		if other.database == m.database {
+	for other := range r.members {
+		if other.database == m.database || !m.id.sameCluster(other.id) {
 			continue
 		}
 		if cur, ok := newest[other.database]; !ok || other.seq > cur.seq {
@@ -117,32 +127,31 @@ func (r *factClusterRegistry) siblings(m *factClusterMember) []facts.SiblingData
 func (r *factClusterRegistry) size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	n := 0
-	for _, group := range r.members {
-		n += len(group)
-	}
-	return n
+	return len(r.members)
 }
 
-// factClusterKey names the pool's cluster: its system identifier, or the
-// pool's normalized host:port when the identifier cannot be read (some
-// managed services restrict pg_control_system). Empty without a pool.
-func factClusterKey(ctx context.Context, pool *pgxpool.Pool) string {
+// factClusterIdentity names the pool's cluster: its system identifier
+// (empty when it cannot be read: some managed services restrict
+// pg_control_system, or the server was unreachable) and the pool's
+// normalized address. The zero ID without a pool.
+func factClusterIdentity(ctx context.Context, pool *pgxpool.Pool) factClusterID {
 	if pool == nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(ctx, factClusterKeyTimeout)
-	defer cancel()
-	var id string
-	err := pool.QueryRow(ctx, clusterIdentitySQL).Scan(&id)
-	if err == nil && strings.TrimSpace(id) != "" {
-		return "sysid:" + strings.TrimSpace(id)
+		return factClusterID{}
 	}
 	cc := pool.Config().ConnConfig
-	key := factClusterAddressKey(cc.Host, cc.Port)
+	id := factClusterID{addr: factClusterAddressKey(cc.Host, cc.Port)}
+	ctx, cancel := context.WithTimeout(ctx, factClusterIdentityTimeout)
+	defer cancel()
+	var sysid string
+	err := pool.QueryRow(ctx, clusterIdentitySQL).Scan(&sysid)
+	if sysid = strings.TrimSpace(sysid); err == nil && sysid != "" {
+		id.sysid = sysid
+		return id
+	}
 	logWarn("facts", "database %q: cluster identity unreadable (%v); slot facts are "+
-		"shared with databases at %s only", cc.Database, err, strings.TrimPrefix(key, "addr:"))
-	return key
+		"shared with every database at %s", cc.Database, err,
+		strings.TrimPrefix(id.addr, "addr:"))
+	return id
 }
 
 // factClusterAddressKey is the fallback key: lower-cased host and port
