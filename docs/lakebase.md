@@ -114,8 +114,19 @@ For a fleet with multiple endpoints, use `SAGE_LAKEBASE_ENDPOINTS` **instead**:
 export SAGE_LAKEBASE_ENDPOINTS='{"<host-a>":"projects/<a>/branches/<branch>/endpoints/<endpoint>","<host-b>":"projects/<b>/branches/<branch>/endpoints/<endpoint>"}'
 ```
 
+`sslmode=verify-full` is required, not just recommended, for every OAuth
+connection: the main host and every fallback host. pg_sage refuses
+`require` and `verify-ca` before it contacts Databricks, because neither binds
+the server certificate to the endpoint hostname, and an interceptor could
+capture the minted database credential. The refusal reads:
+`lakebase OAuth requires sslmode=verify-full (got an unverified TLS mode); set
+sslmode=verify-full in SAGE_DATABASE_URL or SAGE_PG_SSLMODE`. Lakebase
+hostnames verify against the system certificate roots, so no `sslrootcert` is
+needed.
+
 Every mapped hostname is checked against endpoint metadata before its pool
-receives a credential. Unmapped hosts retain ordinary PostgreSQL authentication.
+receives a credential. Unmapped hosts retain ordinary PostgreSQL authentication
+and their configured `sslmode`.
 Plaintext fallback connections are refused for OAuth pools. Lakebase's built-in
 PgBouncer pooler does not support OAuth; use the direct endpoint hostname. Native
 OAuth configuration rejects the pooled hosts returned by endpoint metadata.

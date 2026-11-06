@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import os
 import signal
@@ -142,6 +143,36 @@ class LauncherTests(unittest.TestCase):
         launcher.runtime_config(env)
         self.assertEqual(env["SAGE_PG_USER"], "custom-role")
         self.assertIn("explicit", env["SAGE_LAKEBASE_ENDPOINT"])
+
+    def test_injected_require_sslmode_is_raised_to_verify_full(self):
+        env = self.env() | {"PGSSLMODE": "require"}
+        with patch.object(launcher.sys, "stderr", new_callable=io.StringIO) as stderr:
+            launcher.runtime_config(env)
+        self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
+        lines = stderr.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("PGSSLMODE=require", lines[0])
+        self.assertIn("verify-full", lines[0])
+
+    def test_verify_full_sslmode_passes_unchanged_and_silently(self):
+        for change in ({"PGSSLMODE": "verify-full"}, {"SAGE_PG_SSLMODE": "verify-full"}, {}):
+            with self.subTest(change=change):
+                env = self.env() | change
+                with patch.object(launcher.sys, "stderr", new_callable=io.StringIO) as stderr:
+                    launcher.runtime_config(env)
+                self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
+                self.assertEqual(stderr.getvalue(), "")
+
+    def test_sslmode_below_verify_full_fails_before_launch(self):
+        # Only the platform-injected require is raised; an explicit operator
+        # setting is never rewritten, so SAGE_PG_SSLMODE=require is refused.
+        for change in ({"PGSSLMODE": "prefer"}, {"PGSSLMODE": "verify-ca"},
+                       {"PGSSLMODE": "disable"}, {"PGSSLMODE": "allow"},
+                       {"SAGE_PG_SSLMODE": "require"}, {"SAGE_PG_SSLMODE": "verify-ca"},
+                       {"PGSSLMODE": "require", "SAGE_PG_SSLMODE": "prefer"}):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(ValueError, "verify-full"):
+                    launcher.runtime_config(self.env() | change)
 
     def test_launch_supervises_native_server_and_keeps_credentials_in_environment(self):
         with tempfile.TemporaryDirectory() as temp:
