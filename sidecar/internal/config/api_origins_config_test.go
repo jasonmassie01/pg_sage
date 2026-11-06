@@ -146,3 +146,14 @@ func TestTrustedOrigins_RegistryLifecycleAndClone(t *testing.T) {
 
 // No concurrent-access test: validation and the env overlay are pure
 // functions of one Config value with no shared state.
+
+// A browser never sends an empty port, so "https://ui.example:" could never
+// match and is refused like any other malformed entry.
+func TestTrustedOrigins_EmptyPortRefused(t *testing.T) {
+	api := APIConfig{TrustedOrigins: []string{"https://ui.example:"}}
+	err := api.validateTrustedOrigins()
+	if err == nil || !strings.Contains(err.Error(), "port is empty") ||
+		!strings.Contains(err.Error(), "api.trusted_origins[0]") {
+		t.Fatalf("empty port: err = %v, want a named port-is-empty error", err)
+	}
+}

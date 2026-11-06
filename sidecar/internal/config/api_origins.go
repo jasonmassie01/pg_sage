@@ -36,6 +36,8 @@ func originProblem(origin string) string {
 		return "scheme must be http or https"
 	case u.Host == "" || u.Hostname() == "":
 		return "host is required"
+	case strings.HasSuffix(u.Host, ":"):
+		return "port is empty"
 	case u.User != nil:
 		return "user information is not allowed"
 	case u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" ||
