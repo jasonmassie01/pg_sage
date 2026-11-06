@@ -17,8 +17,8 @@ import (
 )
 
 // CHECK-01 and CHECK-02 (advisors-04): a model that plants managed_change
-// in bloat and rewrite output leaves no such key in sage.findings, and the
-// managed-change worker proposes nothing from those findings.
+// in bloat and rewrite output leaves no such key in sage.findings, so the
+// managed-change worker has nothing to propose from those findings.
 func TestInjectedManagedChange_NeverPersistedOrProposed_LivePG(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -26,13 +26,9 @@ func TestInjectedManagedChange_NeverPersistedOrProposed_LivePG(t *testing.T) {
 		t.Fatalf("bootstrap: %v", err)
 	}
 	clean := func() {
-		for _, stmt := range []string{
-			"DELETE FROM sage.managed_change_proposals",
-			"DELETE FROM sage.findings WHERE object_identifier LIKE 'adv04_%'",
-		} {
-			if _, err := pool.Exec(ctx, stmt); err != nil {
-				t.Fatalf("%s: %v", stmt, err)
-			}
+		if _, err := pool.Exec(ctx, `DELETE FROM sage.findings
+			WHERE object_identifier LIKE 'adv04_%'`); err != nil {
+			t.Fatalf("clean findings: %v", err)
 		}
 	}
 	clean()
@@ -65,28 +61,43 @@ func TestInjectedManagedChange_NeverPersistedOrProposed_LivePG(t *testing.T) {
 	if planted != 0 {
 		t.Fatalf("CHECK-01: %d persisted findings carry managed_change", planted)
 	}
-	assertWorkerProposesNothing(t, ctx, pool)
+	assertNoPersistedIntent(t, ctx, pool)
 }
 
-func assertWorkerProposesNothing(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+// assertNoPersistedIntent is CHECK-02's advisor half: no persisted
+// injected finding carries a managed_change the worker could read. It
+// reads the rows back rather than running a worker cycle, which would
+// propose and supersede other packages' rows in the shared test database;
+// managedparam's TestWorkerRefusesForeignCategoriesAndParameters covers
+// the worker's own category refusal.
+func assertNoPersistedIntent(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	w, err := managedparam.NewWorker(managedparam.WorkerOptions{Database: "postgres",
-		Provider: "rds", Pool: pool, Store: managedparam.NewStore(pool)})
+	rows, err := pool.Query(ctx, `SELECT object_identifier, detail FROM sage.findings
+		WHERE object_identifier LIKE 'adv04_%' AND status = 'open'`)
 	if err != nil {
-		t.Fatalf("NewWorker: %v", err)
-	}
-	res, err := w.Cycle(ctx)
-	if err != nil {
-		t.Fatalf("worker cycle: %v", err)
-	}
-	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.managed_change_proposals p
-		JOIN sage.findings f ON f.id = p.finding_id
-		WHERE f.object_identifier LIKE 'adv04_%'`).Scan(&n); err != nil {
 		t.Fatalf("CHECK-02 query: %v", err)
 	}
-	if n != 0 || res.Proposed != 0 {
-		t.Fatalf("CHECK-02: %d proposals from injected findings (cycle %+v)", n, res)
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var ident string
+		var detail map[string]any
+		if err := rows.Scan(&ident, &detail); err != nil {
+			t.Fatalf("CHECK-02 scan: %v", err)
+		}
+		n++
+		if in, ok := managedparam.IntentFromDetail(detail); ok {
+			t.Errorf("CHECK-02: %s carries a managed intent %+v", ident, in)
+		}
+		if _, ok := detail[analyzer.DetailApprovalRequired]; ok {
+			t.Errorf("CHECK-02: %s carries a model approval_required: %v", ident, detail)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("CHECK-02 rows: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("CHECK-02: read %d open injected findings, want 2", n)
 	}
 }
 
