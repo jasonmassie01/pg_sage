@@ -96,6 +96,7 @@ type Executor struct {
 	hostCPU            HostCPUReader
 	ioEvidence         IOEvidenceReader
 	retainedCleanupMu  sync.Mutex
+	recordFailures     recordFailureLog // rate-limits record-failure logs (policy-01)
 	resumeOnce         sync.Once
 	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
 	postDDLMu          sync.RWMutex
