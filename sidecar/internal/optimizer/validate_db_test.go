@@ -82,3 +82,34 @@ func TestCheckDuplicate_VectorAndVarcharOnRealPostgres(t *testing.T) {
 		}
 	}
 }
+
+// pg_get_indexdef quotes an operator class parameter (siglen='32'); the
+// model writes siglen=32. Both name the same index, and siglen=64 does not.
+func TestCheckDuplicate_OpclassParametersOnRealPostgres(t *testing.T) {
+	pool := connectTestDB(t)
+	defer pool.Close()
+	snap := opclassFixture(t, pool,
+		"ALTER TABLE opclass_probe.people ADD COLUMN t tsvector",
+		"CREATE INDEX people_t_sig ON opclass_probe.people "+
+			"USING gist (t tsvector_ops (siglen = 32))")
+	o := New(pool, &config.OptimizerConfig{}, 0, noopLog2)
+	tc := opclassDBContext(t, o, snap)
+	for _, c := range []struct {
+		keys string
+		dup  bool
+	}{
+		{"USING gist (t tsvector_ops(siglen=32))", true},
+		{"USING gist (t tsvector_ops(siglen='32'))", true},
+		{"USING gist (t tsvector_ops(siglen=64))", false},
+		{"USING gist (t)", false},
+	} {
+		ok, reason := o.validator.checkDuplicate(Recommendation{
+			DDL: "CREATE INDEX CONCURRENTLY c ON opclass_probe.people " + c.keys}, tc)
+		if ok == c.dup {
+			t.Errorf("%s: ok=%v (%s), want duplicate=%v", c.keys, ok, reason, c.dup)
+		}
+		if c.dup && !strings.Contains(reason, "people_t_sig") {
+			t.Errorf("%s: reason %q does not name people_t_sig", c.keys, reason)
+		}
+	}
+}

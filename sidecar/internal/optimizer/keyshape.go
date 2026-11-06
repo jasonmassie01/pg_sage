@@ -1,6 +1,10 @@
 package optimizer
 
-import "slices"
+import (
+	"regexp"
+	"slices"
+	"strings"
+)
 
 // keyBase is a key's column, or its expression without casts and
 // grouping parentheses, with no decoration.
@@ -36,7 +40,7 @@ func shapeKeys(keys []indexKey, method string, defaults map[string]KeyDefault) [
 			s += " collate " + d.collation
 		}
 		if d.opclass != "" {
-			s += " " + d.opclass
+			s += " " + opclassShape(d.opclass)
 		}
 		if ordered {
 			s += orderSuffix(d, invert)
@@ -44,6 +48,21 @@ func shapeKeys(keys []indexKey, method string, defaults map[string]KeyDefault) [
 		out[i] = s
 	}
 	return out
+}
+
+// quotedNumber is a quoted numeric literal in an operator class's
+// parameter list.
+var quotedNumber = regexp.MustCompile(`'(-?[0-9]+(?:\.[0-9]+)?)'`)
+
+// opclassShape is an operator class with its numeric parameter values
+// unquoted: pg_get_indexdef quotes every value (tsvector_ops
+// (siglen='32')) while a DDL may not (tsvector_ops(siglen=32)).
+func opclassShape(opclass string) string {
+	i := strings.IndexByte(opclass, '(')
+	if i < 0 {
+		return opclass
+	}
+	return opclass[:i] + quotedNumber.ReplaceAllString(opclass[i:], "$1")
 }
 
 // orderSuffix renders a key's ordering, reversed when invert is set: ""
