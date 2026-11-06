@@ -262,7 +262,8 @@ func (e *Executor) runAuthorizedFinding(
 // prepareAndRunFinding runs the finding's SQL. For a config change it
 // first captures the prior state and replaces the proposed rollback with
 // the one that restores it (G-P0-1); without a faithful rollback the
-// change does not run, and the attempt fails like any other.
+// change does not run, and the attempt fails like any other. A DROP
+// INDEX's re-create rollback is re-rendered under the pinned search_path.
 func (e *Executor) prepareAndRunFinding(
 	ctx context.Context, f *analyzer.Finding, beforeState map[string]any,
 	decision ActionPolicyDecision,
@@ -270,6 +271,9 @@ func (e *Executor) prepareAndRunFinding(
 	config, err := e.prepareConfigChange(ctx, f.RecommendedSQL)
 	if err != nil {
 		e.logFn("executor", "refused config change %q: %v", f.Title, err)
+		return nil, err
+	}
+	if f.RollbackSQL, err = e.pinDropRollback(ctx, f.RecommendedSQL, f.RollbackSQL); err != nil {
 		return nil, err
 	}
 	if config != nil {

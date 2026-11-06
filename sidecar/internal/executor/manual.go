@@ -40,10 +40,7 @@ func (e *Executor) ExecuteManual(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return 0, fmt.Errorf("SQL validation: %w", err)
 	}
-	if err := checkIndexRollback(sql, rollbackSQL); err != nil {
-		return 0, err
-	}
-	rollbackSQL, err := statisticsRollback(sql, rollbackSQL)
+	rollbackSQL, err := e.manualRollbackSQL(ctx, sql, rollbackSQL)
 	if err != nil {
 		return 0, err
 	}

@@ -60,7 +60,8 @@ func rollbackIndexTarget(ctx context.Context, pool *pgxpool.Pool,
 		target = pgx.Identifier{schema, table}.Sanitize()
 	}
 	var def string
-	err := pool.QueryRow(ctx, existingIndexDefSQL, target, name).Scan(&def)
+	// Rendered as the pinned rollback session sees it, like the rollback.
+	err := queryRowPinned(ctx, pool, existingIndexDefSQL, []any{target, name}, &def)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return rollbackTargetAbsent, "", nil

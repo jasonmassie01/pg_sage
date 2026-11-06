@@ -76,8 +76,12 @@ All data sources are read-only catalog views and statistics:
   CVE-2018-1058 class). Targets must be schema-qualified: an unqualified table fails with
   `relation "..." does not exist` and the action is recorded `failed`. Objects from an
   extension installed outside `pg_catalog`, such as `gin_trgm_ops` in `public`, must be
-  written with their schema (`public.gin_trgm_ops`). The session's settings are reset before
-  the connection returns to the pool; a connection whose reset fails is closed instead.
+  written with their schema (`public.gin_trgm_ops`). Before pg_sage drops an index, it
+  re-renders the index's re-create rollback under the same path, so an extension operator
+  class or a user type in a partial-index predicate comes back schema-qualified and the
+  rollback still runs; index replacement reads the old index the same way. The session's
+  settings are reset before the connection returns to the pool; a connection whose reset
+  fails is closed instead.
   Workload `EXPLAIN` and HypoPG what-if sessions keep the application's `search_path`.
 - **Never drops replication slots or changes sequence capacity autonomously.** WAL/replication playbooks are read-only diagnostics, and sequence-exhaustion remediation is generated as a reviewed forward-fix migration.
 - **Never runs maintenance during known IO saturation.** Bloat autopilot blocks autonomous `VACUUM` candidates when IO pressure evidence is present and emits script/review output instead.
