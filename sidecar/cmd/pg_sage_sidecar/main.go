@@ -266,8 +266,8 @@ func initProcessContext() {
 		logWarn("startup", "could not parse trust.ramp_start %q, using now()",
 			cfg.Trust.RampStart)
 	}
-	warnFastElevation(cfg, logWarn)
-	logTrustMeaning(cfg, logInfo, logWarn)
+	// The TRUST and FAST ELEVATION lines come from initializeConfigController,
+	// after persisted overrides, so they describe the effective values.
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		if err := initializeConfigController(pool); err != nil {
 			logError("startup", "config controller: %v", err)

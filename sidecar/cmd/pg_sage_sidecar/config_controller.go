@@ -32,8 +32,10 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		}
 		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
 	}
-	// After persisted overrides: the notice describes the effective window.
+	// After persisted overrides: the notices describe the effective values.
 	noticeWindowMeaningChange(cfg.Trust.MaintenanceWindow, logWarn)
+	warnFastElevation(cfg, logWarn)
+	logTrustMeaning(cfg, logInfo, logWarn)
 	noticeLLMSetup(cfg, logInfo)
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, newTrustPolicyOwner(),
