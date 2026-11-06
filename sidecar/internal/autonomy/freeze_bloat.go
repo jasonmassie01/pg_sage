@@ -30,6 +30,8 @@ type freezeRow struct {
 	bloatKnown   bool
 	bloatSource  string
 	confirmError string
+	// userCatalog is a user_catalog_table: a slot's catalog_xmin holds it.
+	userCatalog bool
 }
 
 func scanHorizonRow(row interface{ Scan(...any) error }) (freezeRow, error) {
@@ -39,7 +41,7 @@ func scanHorizonRow(row interface{ Scan(...any) error }) (freezeRow, error) {
 	s := &out.sample
 	if err := row.Scan(&s.Schema, &s.Table, &s.XIDAge, &s.XIDMaxAge,
 		&s.MultiXactAge, &s.MultiXactMaxAge, &out.deadRatio,
-		&out.oid, &pages, &out.heapBytes, &expected); err != nil {
+		&out.oid, &pages, &out.heapBytes, &expected, &out.userCatalog); err != nil {
 		return freezeRow{}, fmt.Errorf("scan freeze response: %w", err)
 	}
 	out.bloat, out.bloatKnown = freeze.EstimatedBloat(pages, expected)

@@ -188,7 +188,7 @@ func TestConfirmBloatErrorKeepsEstimate(t *testing.T) {
 		errors.New("ERROR: canceling statement due to statement timeout (SQLSTATE 57014)"))
 	rows := bloatRows(t, horizonValues("c1", 0, 11, 200, pagesPtr(40)))
 	custodian.confirmBloat(context.Background(), rows, true)
-	proposal, err := custodian.respond(rows[0], knownRates, nil, false)
+	proposal, _, err := custodian.respond(rows[0], knownRates, nil, false)
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestConfirmBloatMeasurementCanWithdrawThePlan(t *testing.T) {
 	custodian.confirm = recordingConfirm(&calls, 0.2, nil)
 	rows := bloatRows(t, horizonValues("c1", 0, 11, 200, pagesPtr(40)))
 	custodian.confirmBloat(context.Background(), rows, true)
-	proposal, err := custodian.respond(rows[0], knownRates, nil, false)
+	proposal, _, err := custodian.respond(rows[0], knownRates, nil, false)
 	if err != nil || len(calls) != 1 || proposal.Plan != "" || proposal.ResponseKind != "" {
 		t.Fatalf("measured 20%% bloat still planned: %#v (%v)", proposal, err)
 	}
@@ -232,11 +232,12 @@ func (r failingRow) Scan(...any) error { return r.err }
 // the per-cycle bloat confirmation (unit tests of the response ladder).
 func (c *PostgresFreezeCustodian) scanResponseRow(
 	row interface{ Scan(...any) error }, rates freezeRateSample,
-	blocker *freeze.XminBlocker, repack bool,
+	holders []freeze.XminBlocker, repack bool,
 ) (Proposal, error) {
 	scanned, err := scanHorizonRow(row)
 	if err != nil {
 		return Proposal{}, err
 	}
-	return c.respond(scanned, rates, blocker, repack)
+	proposal, _, err := c.respond(scanned, rates, holders, repack)
+	return proposal, err
 }

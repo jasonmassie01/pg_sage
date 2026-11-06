@@ -3,7 +3,6 @@ package freeze
 import (
 	"fmt"
 	"strings"
-	"time"
 )
 
 type ResponseKind string
@@ -17,22 +16,15 @@ const (
 	ResponseParkBloat        ResponseKind = "park_bloat"
 )
 
-type XminBlocker struct {
-	PID          int
-	XminAge      int64
-	User         string
-	State        string
-	Query        string
-	AppName      string
-	BackendStart time.Time
-	QueryStart   time.Time
-}
-
 type ResponseInput struct {
-	Schema         string
-	Table          string
-	Urgency        Urgency
-	Blocker        *XminBlocker
+	Schema  string
+	Table   string
+	Urgency Urgency
+	// XIDAge is the table's age(relfrozenxid); Holder is the oldest xmin
+	// holder that applies to the table (PinningCandidate). A red table
+	// attaches the holder only when it pins the table (Pins).
+	XIDAge         int64
+	Holder         *XminBlocker
 	DeadTupleRatio float64
 	// BloatRatio is the heap's bloat estimate (or its pgstattuple
 	// measurement, BloatSource); it counts only when BloatKnown. The
@@ -53,19 +45,18 @@ type Response struct {
 	Plan     string
 	Park     bool
 	Evidence map[string]any
+	// PinnedBy is the holder that pins a red table: it gets one holder
+	// proposal per scan (HolderResponse), whether or not the table is
+	// still frozen.
+	PinnedBy *XminBlocker
 }
 
 func PlanResponse(input ResponseInput) (Response, error) {
 	if err := validateResponseInput(input); err != nil {
 		return Response{}, err
 	}
-	if input.Blocker != nil {
-		return blockerResponse(*input.Blocker), nil
-	}
 	if input.Urgency == UrgencyRed {
-		return Response{Kind: ResponseVacuumFreeze,
-			SQL:      "VACUUM (FREEZE) " + quoteIdent(input.Schema) + "." + quoteIdent(input.Table),
-			Evidence: responseEvidence(input)}, nil
+		return freezeResponse(input), nil
 	}
 	if input.Urgency == UrgencyAmber && input.DeadTupleRatio >= 0.20 {
 		return Response{Kind: ResponseTuneAutovacuum,
@@ -90,8 +81,13 @@ func validateResponseInput(input ResponseInput) error {
 	if strings.TrimSpace(input.Schema) == "" || strings.TrimSpace(input.Table) == "" {
 		return fmt.Errorf("schema-qualified freeze target is required")
 	}
-	if input.Blocker != nil && input.Blocker.PID <= 0 {
-		return fmt.Errorf("xmin blocker PID must be positive")
+	if input.XIDAge < 0 {
+		return fmt.Errorf("table XID age %d must not be negative", input.XIDAge)
+	}
+	if input.Holder != nil {
+		if err := validateHolder(*input.Holder); err != nil {
+			return err
+		}
 	}
 	if input.DeadTupleRatio < 0 || input.DeadTupleRatio > 1 ||
 		input.BloatRatio < 0 || input.BloatRatio > 1 {
@@ -104,20 +100,28 @@ func validateResponseInput(input ResponseInput) error {
 	return nil
 }
 
-func blockerResponse(blocker XminBlocker) Response {
-	kind := ResponseCancelBlocker
-	function := "pg_cancel_backend"
-	if strings.EqualFold(strings.TrimSpace(blocker.State), "idle in transaction") {
-		kind = ResponseTerminateBlocker
-		function = "pg_terminate_backend"
+// freezeResponse freezes a red table unless its pinning holder is so old
+// that freezing cannot lower its urgency (at least FreezeStillHelpsShare
+// of the table age): VACUUM (FREEZE) still advances relfrozenxid up to the
+// holder's horizon.
+func freezeResponse(input ResponseInput) Response {
+	holder := input.Holder
+	if holder == nil || !Pins(holder.XminAge, input.XIDAge) {
+		return Response{Kind: ResponseVacuumFreeze, SQL: freezeSQL(input),
+			Evidence: responseEvidence(input)}
 	}
-	return Response{Kind: kind,
-		SQL: fmt.Sprintf("SELECT %s(%d)", function, blocker.PID),
-		Evidence: map[string]any{"pid": blocker.PID, "xmin_age": blocker.XminAge,
-			"user": blocker.User, "state": blocker.State, "query": blocker.Query,
-			"app_name":      blocker.AppName,
-			"backend_start": blocker.BackendStart.UTC().Format(time.RFC3339Nano),
-			"query_start":   blocker.QueryStart.UTC().Format(time.RFC3339Nano)}}
+	pinned := *holder
+	if float64(holder.XminAge) >= FreezeStillHelpsShare*float64(input.XIDAge) {
+		return Response{PinnedBy: &pinned}
+	}
+	evidence := responseEvidence(input)
+	evidence["xmin_holder"] = holderSummary(pinned)
+	return Response{Kind: ResponseVacuumFreeze, SQL: freezeSQL(input),
+		Evidence: evidence, PinnedBy: &pinned}
+}
+
+func freezeSQL(input ResponseInput) string {
+	return "VACUUM (FREEZE) " + quoteIdent(input.Schema) + "." + quoteIdent(input.Table)
 }
 
 func bloatResponse(input ResponseInput) Response {

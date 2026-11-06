@@ -127,12 +127,16 @@ var knownRates = freezeRateSample{xid: 1, mxid: 1, known: true}
 
 func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
-	blocker := &freeze.XminBlocker{PID: 42, XminAge: 900, User: "app"}
+	// vacuum-02: a red table at 160M with a 30-XID session is frozen; the
+	// session cannot pin it (before, the session was canceled instead).
+	holders := []freeze.XminBlocker{{Kind: freeze.HolderSession, PID: 42, XminAge: 30,
+		User: "app", State: "active"}}
 	red, err := custodian.scanResponseRow(adapterRow{values: []any{
-		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.1,
-	}}, knownRates, blocker, false)
-	if err != nil || red.Feature != "freeze_blocker" || red.Evidence["pid"] != 42 {
-		t.Fatalf("blocker proposal=%#v err=%v", red, err)
+		"public", "orders", int64(160_000_000), int64(200_000_000), int64(1), int64(100), 0.1,
+	}}, knownRates, holders, false)
+	if err != nil || red.Feature != "freeze" ||
+		red.SQL != `VACUUM (FREEZE) "public"."orders"` || red.Evidence["xmin_holder"] != nil {
+		t.Fatalf("red proposal with a young holder=%#v err=%v", red, err)
 	}
 	amber, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(60), int64(100), int64(1), int64(100), 0.25,

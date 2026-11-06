@@ -2,13 +2,11 @@ package autonomy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -29,6 +27,9 @@ type PostgresFreezeCustodian struct {
 	bloatMinBytes int64
 	confirmBounds catalogread.Timeouts
 	confirm       bloatConfirmer
+	// detail reads a pinning session's own state before it is signalled
+	// (readSessionDetail unless a test replaces it).
+	detail sessionDetailReader
 }
 
 // NewPostgresFreezeCustodian builds the custodian with the shipped bloat
@@ -44,6 +45,7 @@ func NewPostgresFreezeCustodian(
 		confirmBounds: catalogread.Default(),
 	}
 	c.confirm = c.pgstattupleApprox
+	c.detail = c.readSessionDetail
 	return c
 }
 
@@ -55,7 +57,7 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	if err != nil {
 		return nil, err
 	}
-	blocker, err := c.oldestXminBlocker(ctx)
+	holders, err := c.xminHolders(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,17 +70,7 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 		return nil, err
 	}
 	c.confirmBloat(ctx, horizons, ext.pgstattuple)
-	result := make([]Proposal, 0)
-	for _, row := range horizons {
-		proposal, err := c.respond(row, rates, blocker, ext.pgRepack)
-		if err != nil {
-			return nil, err
-		}
-		if proposal.SQL != "" || proposal.Plan != "" {
-			result = append(result, proposal)
-		}
-	}
-	return result, nil
+	return c.plan(ctx, horizons, rates, holders, ext.pgRepack)
 }
 
 // readHorizons reads every table's freeze horizon and catalog bloat
@@ -104,28 +96,29 @@ func (c *PostgresFreezeCustodian) readHorizons(ctx context.Context) ([]freezeRow
 }
 
 // respond answers one table's horizon: the freeze ladder, then a bloat
-// plan from the bloat estimate (never from the dead-tuple ratio).
+// plan from the bloat estimate (never from the dead-tuple ratio). A red
+// table also returns the holder that pins it, if any.
 func (c *PostgresFreezeCustodian) respond(
-	row freezeRow, rates freezeRateSample, blocker *freeze.XminBlocker, repack bool,
-) (Proposal, error) {
+	row freezeRow, rates freezeRateSample, holders []freeze.XminBlocker, repack bool,
+) (Proposal, *freeze.XminBlocker, error) {
 	sample := row.sample
 	sample.Database = c.database
 	sample.XIDsPerSecond, sample.MultiXactsPerSecond = rates.xid, rates.mxid
 	assessment, err := freeze.EvaluateHorizon(time.Now(), sample, c.threshold)
 	if err != nil {
-		return Proposal{}, fmt.Errorf("evaluate freeze response: %w", err)
+		return Proposal{}, nil, fmt.Errorf("evaluate freeze response: %w", err)
 	}
 	input := freeze.ResponseInput{Schema: sample.Schema, Table: sample.Table,
-		Urgency: assessment.Urgency, DeadTupleRatio: row.deadRatio,
+		Urgency: assessment.Urgency, XIDAge: sample.XIDAge, DeadTupleRatio: row.deadRatio,
 		BloatRatio: row.bloat, BloatKnown: row.bloatKnown, BloatSource: row.bloatSource,
 		SizeBytes: row.heapBytes, MinBloatBytes: c.bloatMinBytes,
 		PGRepackAvailable: repack}
 	if assessment.Urgency == freeze.UrgencyRed {
-		input.Blocker = blocker
+		input.Holder = freeze.PinningCandidate(holders, row.userCatalog)
 	}
 	response, err := freeze.PlanResponse(input)
 	if err != nil {
-		return Proposal{}, err
+		return Proposal{}, nil, err
 	}
 	if row.confirmError != "" && response.Evidence != nil {
 		response.Evidence["bloat_confirm_error"] = row.confirmError
@@ -136,7 +129,7 @@ func (c *PostgresFreezeCustodian) respond(
 		// is unknown: act on urgency, but claim no deadline override.
 		proposal.Deadline = nil
 	}
-	return proposal, nil
+	return proposal, response.PinnedBy, nil
 }
 
 func freezeResponseProposal(
@@ -145,8 +138,6 @@ func freezeResponseProposal(
 ) Proposal {
 	feature := "freeze"
 	switch response.Kind {
-	case freeze.ResponseCancelBlocker, freeze.ResponseTerminateBlocker:
-		feature = "freeze_blocker"
 	case freeze.ResponseTuneAutovacuum:
 		feature = "autovacuum_tuning"
 	case freeze.ResponsePlanRepack, freeze.ResponseParkBloat:
@@ -163,22 +154,6 @@ func freezeResponseProposal(
 		Plan: response.Plan, ResponseKind: string(response.Kind), Evidence: evidence,
 		TargetObjects: []string{sample.Schema + "." + sample.Table},
 		Deadline:      freezePolicyDeadline(deadline)}
-}
-
-func (c *PostgresFreezeCustodian) oldestXminBlocker(
-	ctx context.Context,
-) (*freeze.XminBlocker, error) {
-	var blocker freeze.XminBlocker
-	err := c.pool.QueryRow(ctx, oldestXminBlockerSQL).Scan(
-		&blocker.PID, &blocker.XminAge, &blocker.User, &blocker.State, &blocker.Query,
-		&blocker.AppName, &blocker.BackendStart, &blocker.QueryStart)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("diagnose xmin blocker: %w", err)
-	}
-	return &blocker, nil
 }
 
 // freezeExtensions are the optional extensions the custodian uses.
@@ -265,7 +240,8 @@ func (c *PostgresFreezeCustodian) transactionRates(ctx context.Context) (freezeR
 
 // freezeHorizonSQL reads the catalog only (measured.md M3): the heap size
 // is relpages, and the bloat estimate's pg_stats lookup runs only for heaps
-// at the size floor ($1), so a small table costs one catalog row.
+// at the size floor ($1), so a small table costs one catalog row. The last
+// column marks user catalog tables, which a slot's catalog_xmin holds.
 var freezeHorizonSQL = `/* pg_sage */
 SELECT n.nspname, c.relname, age(c.relfrozenxid)::bigint,
        current_setting('autovacuum_freeze_max_age')::bigint,
@@ -274,7 +250,10 @@ SELECT n.nspname, c.relname, age(c.relfrozenxid)::bigint,
        CASE WHEN t.live + t.dead = 0 THEN 0 ELSE t.dead::float8 / (t.live + t.dead) END,
        c.oid::bigint, c.relpages::bigint, h.heap_bytes,
        CASE WHEN h.heap_bytes >= $1 THEN ` + catalogread.HeapExpectedPagesSQL("c", "n") +
-	`::float8 END
+	`::float8 END,
+       EXISTS (SELECT 1 FROM pg_options_to_table(c.reloptions) o
+               WHERE o.option_name = 'user_catalog_table'
+                 AND lower(o.option_value) IN ('true', 'on', 'yes', '1'))
 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
 CROSS JOIN LATERAL (SELECT pg_stat_get_live_tuples(c.oid) AS live,
                            pg_stat_get_dead_tuples(c.oid) AS dead) t
@@ -282,18 +261,3 @@ CROSS JOIN LATERAL (SELECT c.relpages::bigint
                            * current_setting('block_size')::bigint AS heap_bytes) h
 WHERE c.relkind IN ('r','m')
 AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')`
-
-// oldestXminBlockerSQL only considers client sessions of the connected
-// database; walsenders, autovacuum, other databases, backup/dump tools and
-// pg_sage itself are never candidates for cancellation.
-const oldestXminBlockerSQL = `/* pg_sage */ SELECT pid, age(backend_xmin)::bigint,
-COALESCE(usename,''), COALESCE(state,''), LEFT(COALESCE(query,''),500),
-COALESCE(application_name,''), backend_start, COALESCE(query_start, backend_start)
-FROM pg_stat_activity
-WHERE backend_xmin IS NOT NULL AND pid<>pg_backend_pid()
-  AND datname = current_database() AND backend_type = 'client backend'
-  AND application_name NOT ILIKE '%pg_sage%'
-  AND application_name NOT ILIKE '%pg_dump%'
-  AND application_name NOT ILIKE '%pg_basebackup%'
-  AND application_name NOT ILIKE '%pg_restore%'
-ORDER BY age(backend_xmin) DESC LIMIT 1`

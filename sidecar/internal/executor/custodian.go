@@ -118,26 +118,44 @@ func custodianRequest(proposal CustodianProposal) policy.ActionRequest {
 	}
 	if contract, feature, ok := contractForCustodianResponse(proposal.ResponseKind); ok {
 		request.Contract, request.Feature = policyContract(contract), feature
+		request.Evidence["action_type"] = contract.ActionType
 	} else if contract, ok := contractForCustodianProposal(proposal.SQL); ok {
 		request.Contract = policyContract(contract)
 	}
 	return request
 }
 
-// bloatRemediationFeature is the change class of custodian bloat plans.
-const bloatRemediationFeature = "bloat_remediation"
+// Change classes of custodian plans: bloat plans, and escalations of the
+// xmin holders pg_sage never signals.
+const (
+	bloatRemediationFeature = "bloat_remediation"
+	freezeBlockerFeature    = "freeze_blocker"
+)
 
 // contractForCustodianResponse types a plan-only custodian response by its
-// kind, never by Evidence["plan"] (every Plan response carries one): the
-// bloat plans are high-risk plan_bloat_remediation decisions, which the
-// gate parks (a plan has no SQL to validate) and the ledger folds by
-// fingerprint.
+// kind, never by Evidence["plan"] (every Plan response carries one): bloat
+// plans are high-risk plan_bloat_remediation decisions and holder
+// escalations high-risk diagnose_freeze_blockers ones, which the gate
+// parks (a plan has no SQL to validate) and the ledger folds by
+// fingerprint. A session signal keeps the contract of its SQL.
 func contractForCustodianResponse(kind string) (ActionContract, string, bool) {
 	switch freeze.ResponseKind(kind) {
 	case freeze.ResponsePlanRepack, freeze.ResponseParkBloat:
 		return planBloatRemediationContract(), bloatRemediationFeature, true
+	case freeze.ResponseEscalateHolder:
+		return freezeHolderEscalationContract(), freezeBlockerFeature, true
 	}
 	return ActionContract{}, "", false
+}
+
+// freezeHolderEscalationContract is diagnose_freeze_blockers raised to a
+// high-risk, review-only plan: resolving a prepared transaction or a slot
+// is an operator's call. The incident diagnostic keeps its safe tier.
+func freezeHolderEscalationContract() ActionContract {
+	contract := diagnoseFreezeBlockersContract()
+	contract.BaseRiskTier = "high"
+	contract.Guardrails = []string{"direct execution disabled", "manual review required"}
+	return contract
 }
 func cloneCustodianEvidence(source map[string]any) map[string]any {
 	result := make(map[string]any, len(source))
@@ -283,20 +301,34 @@ func (e *Executor) verifyCustodianAction(
 	return "custodian_unknown", fmt.Errorf("no custodian post-check is available")
 }
 
+// verifyXminBlocker clears a holder once its PID is gone, its backend was
+// restarted (another backend_start) or it holds neither a snapshot nor an
+// XID: an idle writer holds back the horizon through its XID alone.
 func (e *Executor) verifyXminBlocker(
 	ctx context.Context, evidence map[string]any,
 ) (string, error) {
+	const criterion = "custodian_xmin_blocker"
 	pid, ok := evidence["pid"].(int)
 	if !ok || pid <= 0 {
-		return "custodian_xmin_blocker", fmt.Errorf("blocker PID evidence is missing")
+		return criterion, fmt.Errorf("blocker PID evidence is missing")
 	}
-	var cleared bool
-	err := e.pool.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_stat_activity
-		WHERE pid=$1 AND backend_xmin IS NOT NULL)`, pid).Scan(&cleared)
-	if err != nil || !cleared {
-		return "custodian_xmin_blocker", fmt.Errorf("xmin blocker remains active")
+	text, _ := evidence["backend_start"].(string)
+	start, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return criterion, fmt.Errorf("blocker pid %d backend_start evidence %q is unusable: %w",
+			pid, text, err)
 	}
-	return "custodian_xmin_blocker", nil
+	var holds bool
+	err = e.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+		WHERE pid = $1 AND backend_start = $2
+		  AND (backend_xmin IS NOT NULL OR backend_xid IS NOT NULL))`, pid, start).Scan(&holds)
+	if err != nil {
+		return criterion, fmt.Errorf("read xmin blocker pid %d: %w", pid, err)
+	}
+	if holds {
+		return criterion, fmt.Errorf("xmin blocker pid %d still holds a snapshot or an XID", pid)
+	}
+	return criterion, nil
 }
 
 func (e *Executor) verifyAutovacuumTuning(
