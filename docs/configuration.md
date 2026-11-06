@@ -500,6 +500,20 @@ with a Bonferroni-corrected significance and the call-weighted pool decides. A f
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
 
+Verification pauses while its evidence is unreadable. A failed read of the query history,
+the write history or the catalog (a lost connection, or the meta database down under
+`history.store: meta`) and a shutdown mid-check are not evidence that the change failed: the
+watch stays open with `sage.verification.verdict = extended` and `reason =
+observation_retry: <error>`, and it is checked again after 5, 15 and then every 60 minutes
+(`observation_failures` counts the failed attempts, and a successful check resets it). A
+failed write of the watch state also keeps the watch, unchanged, for the next check. Only a
+watch that reaches its hard deadline (execution time plus `verify.window_max_minutes`)
+without a successful check is reverted, with the reason `observation_unavailable`. A change
+whose watch could never be stored is reverted at once (`state_persist_failed`), and a check
+that reads the index as invalid still reverts it immediately. At startup, a watch that an
+earlier version closed after a transient read error or a shutdown (`observation_unavailable`
+or `context_canceled` with the hard deadline still ahead) is reopened and checked again.
+
 An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
 from the start. Its definition is kept, and the index is re-created as soon as a query on
 the table regresses or an active pg_sage hint names it (soft drop). VACUUM and ANALYZE are
