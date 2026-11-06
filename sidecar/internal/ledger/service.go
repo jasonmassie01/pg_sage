@@ -12,6 +12,9 @@ import (
 var (
 	ErrRepositoryUnavailable = errors.New("ledger repository unavailable")
 	ErrEvidenceConflict      = errors.New("evidence ID conflict")
+	// ErrInvalidRiskTier rejects a tier sage.decision's CHECK would refuse,
+	// before any SQL runs (policy-01).
+	ErrInvalidRiskTier = errors.New("invalid decision risk_tier")
 )
 
 type Repository interface {
@@ -97,6 +100,10 @@ func validateDecision(input DecisionInput) error {
 	if !validVerdict(input.Verdict) {
 		return fmt.Errorf("decision verdict %q is invalid", input.Verdict)
 	}
+	if !validRiskTier(input.RiskTier) {
+		return fmt.Errorf("%w %q: want read_only, safe, moderate or high",
+			ErrInvalidRiskTier, input.RiskTier)
+	}
 	if input.DeadlineKind != "" && input.DeadlineHardAt == nil {
 		return errors.New("decision deadline requires deadline_hard_at")
 	}
@@ -107,6 +114,16 @@ func validVerdict(verdict Verdict) bool {
 	switch verdict {
 	case VerdictExecute, VerdictQueueApproval, VerdictPark,
 		VerdictBlocked, VerdictObserveOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// validRiskTier mirrors sage.decision's CHECK on risk_tier.
+func validRiskTier(tier string) bool {
+	switch tier {
+	case "read_only", "safe", "moderate", "high":
 		return true
 	default:
 		return false
