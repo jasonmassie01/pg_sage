@@ -80,6 +80,7 @@ All data sources are read-only catalog views and statistics:
   PostgreSQL settings. Lakebase system settings are provider-managed, and
   `ALTER SYSTEM` procedures are withheld. Supported database-level settings
   require database ownership and parameter-specific validation.
+- **Never trusts a function outside `pg_catalog` or an allowlisted extension in an expression index.** Before recommending an index whose keys or predicate call a function, pg_sage checks every overload of that name in `pg_catalog` and every member function of an allowlisted extension (`btree_gin`, `btree_gist`, `citext`, `cube`, `earthdistance`, `fuzzystrmatch`, `hstore`, `intarray`, `ltree`, `pg_trgm`, `postgis`). A function another role planted in `public` (or beside an extension in its schema) is never counted: a name with no such overload is refused with `function_schema_not_allowed`, a name with any non-IMMUTABLE overload (such as `date_trunc`) is refused, and a failed catalog read refuses the index.
 - **Never phones home.** Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.
 
 ---

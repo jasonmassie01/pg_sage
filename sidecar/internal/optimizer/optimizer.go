@@ -39,8 +39,9 @@ type Optimizer struct {
 }
 
 // WithCatalogReadTimeouts bounds the context builder's catalog reads
-// (columns, pg_stats, collation) with the safety configuration's
-// statement and lock timeouts; the default is the shipped safety values.
+// (columns, pg_stats, collation) and the validator's volatility lookups
+// with the safety configuration's statement and lock timeouts; the
+// default is the shipped safety values.
 func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
@@ -74,6 +75,7 @@ func New(
 	for _, opt := range options {
 		opt(o)
 	}
+	o.validator.timeouts = o.catalogTimeouts
 	return o
 }
 

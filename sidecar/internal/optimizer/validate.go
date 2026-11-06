@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
@@ -16,6 +17,12 @@ type Validator struct {
 	pool  *pgxpool.Pool
 	cfg   *config.OptimizerConfig
 	logFn func(string, string, ...any)
+	// catalog runs the bounded volatility lookups (nil: no database).
+	catalog catalogread.Beginner
+	// timeouts bound each catalog lookup (the optimizer's catalog bounds).
+	timeouts catalogread.Timeouts
+	// extensions whose member functions an expression index may call.
+	extensions []string
 }
 
 // NewValidator creates a Validator.
@@ -24,7 +31,12 @@ func NewValidator(
 	cfg *config.OptimizerConfig,
 	logFn func(string, string, ...any),
 ) *Validator {
-	return &Validator{pool: pool, cfg: cfg, logFn: logFn}
+	v := &Validator{pool: pool, cfg: cfg, logFn: logFn,
+		timeouts: catalogread.Default(), extensions: expressionIndexExtensions}
+	if pool != nil {
+		v.catalog = pool
+	}
+	return v
 }
 
 // Validate runs all checks in order. Returns (accepted, reason).
@@ -224,34 +236,29 @@ func (v *Validator) checkBRINCorrelation(
 var funcNameRe = regexp.MustCompile(`\b([a-z_][a-z0-9_]*)\s*\(`)
 
 // checkExpressionVolatility rejects an index whose key expressions or
-// predicate call a function with no IMMUTABLE overload (PostgreSQL
-// refuses STABLE/VOLATILE functions in index expressions). Unknown names
-// (keywords such as IN, or a lookup error) are left to PostgreSQL.
+// predicate call a function that is not IMMUTABLE in every overload in
+// pg_catalog or an allowlisted extension (PostgreSQL refuses STABLE and
+// VOLATILE functions in index expressions). A name with no such overload
+// (a function planted in public, or none at all) is refused with
+// function_schema_not_allowed, and a failed lookup refuses the index.
+// ParseIndexDDL folds unquoted names to lower case, as PostgreSQL does.
 func (v *Validator) checkExpressionVolatility(
 	ctx context.Context,
 	rec Recommendation,
 ) (bool, string) {
 	spec, err := ParseIndexDDL(rec.DDL)
-	if err != nil || v.pool == nil {
+	if err != nil || v.catalog == nil {
 		return true, ""
 	}
 	seen := map[string]bool{}
 	for _, m := range funcNameRe.FindAllStringSubmatch(spec.Keys+" "+spec.Where, -1) {
 		fn := m[1]
-		if seen[fn] {
+		if seen[fn] || sqlCallKeywords[fn] {
 			continue
 		}
 		seen[fn] = true
-		var immutable *bool
-		err := v.pool.QueryRow(ctx,
-			"SELECT bool_or(provolatile = 'i') FROM pg_proc WHERE proname = $1",
-			fn).Scan(&immutable)
-		if err != nil {
-			v.logFn("optimizer", "volatility lookup for %s failed: %v", fn, err)
-			continue
-		}
-		if immutable != nil && !*immutable {
-			return false, "function " + fn + " is not IMMUTABLE"
+		if reason := v.functionVolatility(ctx, fn); reason != "" {
+			return false, reason
 		}
 	}
 	return true, ""
