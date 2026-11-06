@@ -180,7 +180,7 @@ func TestOptimizerWhatIfStillRuns(t *testing.T) {
 // not outlive the session's transaction on the pooled connection.
 func TestHypoPGSessionLockTimeoutIsLocal(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	session, err := openHypoPGSession(t.Context(), pool, 1500*time.Millisecond)
+	session, err := openHypoPGSession(t.Context(), pool, 700*time.Millisecond)
 	if err != nil {
 		t.Fatalf("open session: %v", err)
 	}
@@ -195,8 +195,8 @@ func TestHypoPGSessionLockTimeoutIsLocal(t *testing.T) {
 	if err := session.close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if inside != "1500ms" || statement != "5s" {
-		t.Fatalf("session timeouts = lock %s statement %s, want 1500ms and 5s",
+	if inside != "700ms" || statement != "5s" {
+		t.Fatalf("session timeouts = lock %s statement %s, want 700ms and 5s",
 			inside, statement)
 	}
 	var after string
@@ -206,21 +206,59 @@ func TestHypoPGSessionLockTimeoutIsLocal(t *testing.T) {
 	}
 }
 
-// A zero lock timeout must not mean "wait forever": the session falls
-// back to the shipped safety bound.
-func TestHypoPGSessionZeroLockTimeoutFailsClosed(t *testing.T) {
+// A zero lock timeout must not mean "wait forever", and one at or above
+// the 5 s statement timeout (the 30 s safety default) would never fire:
+// both take the 1 s cap, which stays below the statement timeout.
+func TestHypoPGSessionLockTimeoutIsCapped(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	session, err := openHypoPGSession(t.Context(), pool, 0)
-	if err != nil {
-		t.Fatalf("open session: %v", err)
+	for _, tt := range []struct {
+		in   time.Duration
+		want string
+	}{{0, "1s"}, {-time.Second, "1s"}, {999 * time.Microsecond, "1s"},
+		{time.Millisecond, "1ms"}, {time.Second, "1s"}, {time.Second + time.Millisecond, "1s"},
+		{catalogread.Default().Lock, "1s"}} {
+		session, err := openHypoPGSession(t.Context(), pool, tt.in)
+		if err != nil {
+			t.Fatalf("open session with lock timeout %s: %v", tt.in, err)
+		}
+		var got string
+		err = session.tx.QueryRow(t.Context(), "SHOW lock_timeout").Scan(&got)
+		if closeErr := session.close(); closeErr != nil {
+			t.Fatalf("close: %v", closeErr)
+		}
+		if err != nil || got != tt.want {
+			t.Fatalf("lock timeout %s: lock_timeout = %q (%v), want %s", tt.in, got, err,
+				tt.want)
+		}
 	}
-	defer func() { _ = session.close() }()
-	var got string
-	if err := session.tx.QueryRow(t.Context(), "SHOW lock_timeout").Scan(&got); err != nil {
-		t.Fatal(err)
+}
+
+// With the shipped safety settings (lock timeout 30 s, above the session's
+// 5 s statement timeout) a locked table ends the what-if at its first
+// statement with 55P03 within the 1 s cap; before the cap each statement
+// waited out the 5 s statement timeout in turn and counted as unplannable.
+func TestOptimizerWhatIfDefaultSafetyAbortsQuicklyOnLock(t *testing.T) {
+	pool := hypopgSessionPool(t)
+	lockItems(t)
+	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, 170000, noopLog2,
+		WithCatalogReadTimeouts(catalogread.Default()))
+	tc := TableContext{Schema: "hypopg_session_test", Table: "items",
+		Queries: manyHypoQueries(3)}
+	start := time.Now()
+	rec, rejected := o.enrichWithHypoPG(t.Context(), Recommendation{DDL: hypoCandidate}, tc)
+	elapsed := time.Since(start)
+	if rejected || rec.WhatIf != WhatIfUnverified || rec.Validated {
+		t.Fatalf("verdict = %s rejected %v validated %v, want unverified",
+			rec.WhatIf, rejected, rec.Validated)
 	}
-	want := fmt.Sprintf("%ds", catalogread.Default().Lock/time.Second)
-	if got != want {
-		t.Fatalf("lock_timeout = %s, want the default %s", got, want)
+	if !strings.Contains(rec.WhatIfReason, "lock timeout") ||
+		!strings.Contains(rec.WhatIfReason, "55P03") {
+		t.Fatalf("reason = %q, want a lock timeout (55P03)", rec.WhatIfReason)
 	}
+	if elapsed > 4*time.Second {
+		t.Fatalf("what-if behind the lock took %s, want under the 1 s cap plus overhead",
+			elapsed)
+	}
+	assertNoWaitingLocks(t)
+	assertHypoPGSessionClean(t, pool)
 }

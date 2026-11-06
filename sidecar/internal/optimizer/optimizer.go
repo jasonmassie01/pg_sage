@@ -30,7 +30,7 @@ type Optimizer struct {
 	memory    *rejectionMemory // nil: rejection memory off or no database
 	logFn     func(string, string, ...any)
 	// catalogTimeouts bound the context builder's catalog reads; their
-	// lock timeout also bounds the HypoPG what-if's lock waits.
+	// lock timeout also bounds the HypoPG what-if's lock waits (at most 1 s).
 	catalogTimeouts catalogread.Timeouts
 
 	// whatIfSkips counts candidates rejection memory skipped (MemoryStats).

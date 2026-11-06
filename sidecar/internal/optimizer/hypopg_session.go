@@ -11,13 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // hypopgStatementTimeout bounds each statement of a what-if session. The
 // catalog-read default (500 ms) is too short to plan in.
 const hypopgStatementTimeout = "5s"
+
+// maxHypoPGLockWait caps a what-if session's lock timeout below its
+// statement timeout. The safety lock timeout (30 s by default) bounds DDL;
+// left uncapped, the 5 s statement timeout would end every lock wait first
+// (57014, counted as one unplannable statement), so each of up to 25
+// statements would queue 5 s behind an ACCESS EXCLUSIVE lock in turn.
+const maxHypoPGLockWait = time.Second
 
 // sqlstateLockNotAvailable is lock_timeout's SQLSTATE.
 const sqlstateLockNotAvailable = "55P03"
@@ -58,12 +64,12 @@ func openHypoPGSession(ctx context.Context, pool *pgxpool.Pool, lockTimeout time
 
 // boundSession sets the transaction's LOCAL bounds: the statement timeout
 // and the lock timeout, so an EXPLAIN queued behind an ACCESS EXCLUSIVE
-// lock fails with 55P03 instead of holding the connection. A lock timeout
-// below 1 ms falls back to the shipped default: a what-if never waits
-// unbounded.
+// lock fails with 55P03 instead of holding the connection. The lock
+// timeout is the configured one, at most maxHypoPGLockWait; one below 1 ms
+// (unset) takes the cap: a what-if never waits unbounded.
 func boundSession(ctx context.Context, tx pgx.Tx, lockTimeout time.Duration) error {
-	if lockTimeout < time.Millisecond {
-		lockTimeout = catalogread.Default().Lock
+	if lockTimeout < time.Millisecond || lockTimeout > maxHypoPGLockWait {
+		lockTimeout = maxHypoPGLockWait
 	}
 	_, err := tx.Exec(ctx, `SELECT set_config('statement_timeout', $1, true),
 		set_config('lock_timeout', $2, true)`, hypopgStatementTimeout,
