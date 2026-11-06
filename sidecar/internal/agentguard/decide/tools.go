@@ -105,16 +105,23 @@ var (
 // ClassifyDDL classes a schema change (§5.2): any DROP or TRUNCATE is
 // destructive (pg_sage cannot tell a unique index from another here);
 // anything the migration classifier flags for its lock or rewrite is
-// locking; the rest is additive. No SQL is the worst case, destructive.
+// locking. Additive is earned, not the default (migration-04a): only SQL
+// whose every statement is on the migration package's additive allowlist
+// is additive; anything else, including text the scanner cannot
+// tokenize, is locking. No SQL is the worst case, destructive.
 func ClassifyDDL(sql string) Capability {
 	text := sqlString.ReplaceAllString(sqlComment.ReplaceAllString(sql, " "), "''")
-	if strings.TrimSpace(text) == "" || destructiveDDL.MatchString(text) {
+	if strings.Trim(text, " \t\r\n\f;") == "" || destructiveDDL.MatchString(text) {
 		return CapDDLDestructive
 	}
 	for _, c := range ddlClassifier.Classify(text, oldestSupportedPG) {
 		if c.RuleID != "ddl_missing_lock_timeout" {
 			return CapDDLLocking
 		}
+	}
+	unproven, err := migration.UnprovenStatements(sql)
+	if err != nil || len(unproven) > 0 {
+		return CapDDLLocking
 	}
 	return CapDDLAdditive
 }

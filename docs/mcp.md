@@ -137,6 +137,24 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 migrations (`owned`) or must be left alone by pg_sage's DDL (`exempt`). It is recorded as a
 proposed [binding fact](facts.md) and binds nothing until a person confirms it.
 
+### What counts as additive DDL
+
+`lint_migration` and the agent gate (`apply_migration`, `request_change`) share one rule:
+DDL is additive only when every statement is on a short allowlist, and anything else is
+not proven safe. The allowlist is `CREATE INDEX CONCURRENTLY`, `CREATE TABLE` (not `AS`,
+`PARTITION OF` or `INHERITS`), `CREATE [OR REPLACE] VIEW`, `CREATE SCHEMA`, `COMMENT ON`,
+`CREATE SEQUENCE`, and `ALTER TABLE ... ADD [COLUMN] name type` with a built-in type and at
+most a constant or stable default (`now()`, `current_timestamp`). `SET lock_timeout`,
+`SET statement_timeout`, `BEGIN` and `COMMIT` are allowed alongside. A statement containing
+`UNIQUE`, `REFERENCES`, `CHECK`, `EXCLUDE`, `PRIMARY KEY`, `LOGGED`, `ACCESS METHOD`,
+`NOT NULL`, `RENAME` or `TRIGGER` is never additive, and neither is SQL that ends inside an
+unterminated literal, quoted identifier or comment.
+
+* The agent gate classes such DDL `ddl_locking` (any `DROP` or `TRUNCATE` is still
+  `ddl_destructive` first), so it earns trust in the locking class, not the additive one.
+* `lint_migration` returns `review`, never `safe`, for a statement outside the allowlist
+  that no DDL safety rule recognized, and its `note` says how many there are.
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:
