@@ -120,7 +120,18 @@ func ClassifyDDL(sql string) Capability {
 		}
 	}
 	unproven, err := migration.UnprovenStatements(sql)
-	if err != nil || len(unproven) > 0 {
+	if err != nil {
+		return CapDDLLocking
+	}
+	// The regexes above strip comments before literals, so a literal that
+	// holds "--" or "/*" can hide a DROP from them; the scanner's
+	// statements cannot (migration-04a review).
+	for _, stmt := range unproven {
+		if destructiveDDL.MatchString(stmt) {
+			return CapDDLDestructive
+		}
+	}
+	if len(unproven) > 0 {
 		return CapDDLLocking
 	}
 	return CapDDLAdditive

@@ -280,6 +280,23 @@ func TestClassifyDDLDestructiveStillFirst(t *testing.T) {
 	)
 }
 
+// A literal holding "--" or "/*" fooled the comment regex into eating the
+// rest of the text, hiding a DROP or TRUNCATE from the destructive rule;
+// the scanner's statements must still class it destructive.
+func TestClassifyDDLDestructiveHiddenByLiteral(t *testing.T) {
+	requireClass(t, CapDDLDestructive,
+		"COMMENT ON TABLE app.t IS '-- note'; DROP TABLE app.t",
+		"COMMENT ON TABLE app.t IS '/*'; DROP TABLE app.t; COMMENT ON TABLE app.u IS '*/'",
+		"COMMENT ON TABLE app.t IS $$it's$$; DROP TABLE app.t; SELECT ''",
+		`CREATE TABLE app.t (a text DEFAULT E'x\''); TRUNCATE app.big; SELECT ''`,
+	)
+	// The redacted literal itself never counts: its text is gone.
+	requireClass(t, CapDDLAdditive,
+		"COMMENT ON TABLE app.t IS '-- drop this table later'",
+		"COMMENT ON TABLE app.t IS 'truncate /* nightly'",
+	)
+}
+
 // ClassifyDDL shares compiled patterns and the classifier across
 // requests; parallel callers must get the same answers.
 func TestClassifyDDLConcurrentCallers(t *testing.T) {
