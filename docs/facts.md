@@ -15,7 +15,7 @@ would not have done anyway.
 |---|---|---|---|
 | `owned_by_app_migrations` | index, table or schema | The application's schema migrations create and change it | Never creates, drops or alters it. The change becomes a **source-fix packet**: the migration pg_sage recommends, attached to the finding, for you or a coding agent to put in a PR. |
 | `test_fixture` | schema pattern | Schemas left by test runs, not workload | Removes them from findings and from the budgets, takes no action on them by itself, and offers one **cleanup batch** (a reviewed script you run once). pg_sage never drops schemas itself. |
-| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting. |
+| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting. |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
 
@@ -83,6 +83,30 @@ the gate fails closed (`facts_unavailable`).
 
 The optimizer, advisor and investigator prompts carry the confirmed facts as bounded context.
 Proposed facts are never presented to the model as true.
+
+### Slot facts are cluster facts
+
+Replication slots and `max_slot_wal_keep_size` belong to the whole cluster, not to one
+database, and PostgreSQL invalidates any slot that falls further behind than the bound.
+So a confirmed `slot_consumer` fact binds:
+
+* every `ALTER SYSTEM SET max_slot_wal_keep_size` with a finite value, `... TO DEFAULT`,
+  `ALTER SYSTEM RESET max_slot_wal_keep_size` and `ALTER SYSTEM RESET ALL`, whichever slot
+  (or `instance`) the proposal names. Only `-1` (unbounded) is exempt from this rule. This is
+  deliberately strict: a bound that is safe today invalidates the slot the next time its
+  consumer falls behind, and a managed provider's default may be finite. The WAL
+  custodian's bound is then blocked (`bound_by_fact`, route `alert`) instead of applied;
+* dropping or advancing that slot (by name, as before).
+
+In fleet and meta-db mode, the databases one pg_sage process monitors are grouped by
+cluster (`pg_control_system().system_identifier`, or the host and port when that cannot be
+read). A slot fact confirmed on one database binds the slot work and WAL bounds proposed
+for every database on the same cluster, and the detail names the database that holds
+the fact (`fact #7 of database "orders": ...`). If a sibling's facts cannot be read, a
+slot-touching action fails closed (`facts_unavailable`). Other fact types stay with their
+own database. Databases monitored by separate sidecar processes do not see each other's
+facts: confirm the slot fact on each of them, or monitor the cluster's databases from one
+process.
 
 ## Expiry and re-verification
 

@@ -35,13 +35,16 @@ type Pattern struct {
 }
 
 // ObjectRef is an object a request or finding touches. An index may carry
-// its table; KindRelation is a table or an index, unknown which.
+// its table; KindRelation is a table or an index, unknown which. A slot
+// ref with AllSlots set ("slot:*") touches every slot of the cluster (a
+// cluster-wide WAL bound) and has no name.
 type ObjectRef struct {
 	Kind        Kind
 	Schema      string
 	Name        string
 	TableSchema string
 	TableName   string
+	AllSlots    bool
 }
 
 type identPart struct {
@@ -117,7 +120,7 @@ func (p Pattern) String() string {
 func (p Pattern) Matches(ref ObjectRef) bool {
 	switch p.Kind {
 	case KindSlot:
-		return ref.Kind == KindSlot && globMatch(p.Name, ref.Name)
+		return ref.Kind == KindSlot && (ref.AllSlots || globMatch(p.Name, ref.Name))
 	case KindSchema:
 		if ref.Kind == KindSlot {
 			return false
@@ -147,6 +150,9 @@ func (p Pattern) relMatches(schema, name string) bool {
 
 // String is the reference's display form.
 func (r ObjectRef) String() string {
+	if r.Kind == KindSlot && r.AllSlots {
+		return "slot:*"
+	}
 	if r.Kind == KindSlot {
 		return "slot:" + r.Name
 	}
@@ -156,14 +162,17 @@ func (r ObjectRef) String() string {
 	return quoteIdent(r.Schema) + "." + quoteIdent(r.Name)
 }
 
-// ParseObjectRef reads a target object: "slot:<name>", or a relation
-// "schema.name" (optionally followed by "|..." as optimizer identifiers
-// are). Other forms ("pid:123") are errors.
+// ParseObjectRef reads a target object: "slot:<name>" ("slot:*" is every
+// slot), or a relation "schema.name" (optionally followed by "|..." as
+// optimizer identifiers are). Other forms ("pid:123") are errors.
 func ParseObjectRef(raw string) (ObjectRef, error) {
 	s := strings.TrimSpace(raw)
 	if name, ok := strings.CutPrefix(s, "slot:"); ok {
 		if name == "" {
 			return ObjectRef{}, fmt.Errorf("%w: empty slot target", ErrInvalidSubject)
+		}
+		if name == "*" {
+			return ObjectRef{Kind: KindSlot, AllSlots: true}, nil
 		}
 		return ObjectRef{Kind: KindSlot, Name: name}, nil
 	}

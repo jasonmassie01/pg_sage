@@ -67,8 +67,9 @@ func TestResolveRefsFromSQLAndTargets(t *testing.T) {
 			[]ObjectRef{{Kind: KindSlot, Name: "cdc_orders"}}},
 		{"SELECT pg_replication_slot_advance('cdc_orders', '0/16B3748')", nil,
 			[]ObjectRef{{Kind: KindSlot, Name: "cdc_orders"}}},
+		// A cluster-wide WAL bound touches every slot (facts-02), then its target.
 		{"ALTER SYSTEM SET max_slot_wal_keep_size = '2048MB'", []string{"slot:cdc_orders"},
-			[]ObjectRef{{Kind: KindSlot, Name: "cdc_orders"}}},
+			[]ObjectRef{{Kind: KindSlot, AllSlots: true}, {Kind: KindSlot, Name: "cdc_orders"}}},
 		{"", []string{"public.orders|btree(status)", "pid:42"},
 			[]ObjectRef{{Kind: KindRelation, Schema: "public", Name: "orders"}}},
 	}
