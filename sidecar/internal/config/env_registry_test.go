@@ -176,8 +176,7 @@ func TestConfigurationDocsEnvTableMatchesRegistry(t *testing.T) {
 	}
 	if got != EnvVarsMarkdown() {
 		t.Fatal("docs/configuration.md env table drifted from env_registry.go; " +
-			"regenerate with `go run ./cmd/gen_config_meta -env-only " +
-			"-env-docs ../docs/configuration.md`")
+			"regenerate with `go run ./cmd/gen_config_meta -env-only -env-docs ../docs/configuration.md`")
 	}
 }
 

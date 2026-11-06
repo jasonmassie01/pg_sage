@@ -81,7 +81,7 @@ func main() {
 // options are the generator's command-line settings.
 type options struct {
 	out, lifecycleOut, derivedOut, envDocs string
-	lifecycleOnly, envOnly, check, strict  bool
+	lifecycleOnly, envOnly, check, strict   bool
 }
 
 func parseOptions(args []string) (options, error) {
