@@ -19,7 +19,9 @@ import (
 
 const maxHTTPBody = 4 << 20
 
-// devOrigins are the dashboard's development origins (same as the API).
+// devOrigins are the dashboard's development origins. The API's
+// cross-origin check runs first and refuses their cross-port writes, so in
+// practice they admit only requests proxied by the Vite dev server.
 var devOrigins = map[string]bool{"http://localhost:5173": true,
 	"http://localhost:8080": true, "http://127.0.0.1:5173": true,
 	"http://127.0.0.1:8080": true}
