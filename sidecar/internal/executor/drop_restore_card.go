@@ -42,6 +42,14 @@ func restoreQueueActionID(action store.QueuedAction) (int64, bool) {
 	return id, true
 }
 
+// IsDropRestoreCard reports a soft-drop restore card. Nothing re-proposes
+// one, so a refused approval (during the stop) must leave it pending: it
+// becomes approvable once the stop is lifted.
+func IsDropRestoreCard(action store.QueuedAction) bool {
+	_, ok := restoreQueueActionID(action)
+	return ok
+}
+
 // holdDropRestore records a restore the emergency stop withholds. The
 // compare-and-set claims the action, so concurrent monitors queue one card.
 func (e *Executor) holdDropRestore(ctx context.Context, actionID int64, restoreSQL string) {
