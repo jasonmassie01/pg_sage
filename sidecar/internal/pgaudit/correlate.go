@@ -65,9 +65,8 @@ type event struct {
 // Ingest correlates entries and stores the records that belong to an agent
 // principal, or to one of pg_sage's own actions, and the records that only
 // claim an agent's application_name (unverified, attributed to no one).
-// pg_sage's other
-// statements (its collectors' reads) are dropped: they are pg_sage's own
-// monitoring, already visible in pg_stat_statements.
+// pg_sage's other statements (its collectors' reads) are dropped: they are
+// pg_sage's own monitoring, already visible in pg_stat_statements.
 func (c *Correlator) Ingest(ctx context.Context, entries []logwatch.LogEntry) (Stats, error) {
 	var st Stats
 	if len(entries) == 0 {
