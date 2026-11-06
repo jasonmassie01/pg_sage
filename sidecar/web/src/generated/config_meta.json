@@ -3158,7 +3158,7 @@
   "verify.write_impact_pct": {
     "type": "float64",
     "default": 20,
-    "doc": "Advisory write-time rise; never reverts.",
+    "doc": "Advisory write-time rise; no revert.",
     "class": "safety_critical"
   }
 }
