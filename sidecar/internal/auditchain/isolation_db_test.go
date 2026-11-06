@@ -218,3 +218,30 @@ func TestIsolationWarningPropagatesErrors(t *testing.T) {
 		t.Fatalf("err = %v, want it to name default_transaction_isolation", err)
 	}
 }
+
+// The guard is part of the function body that every bootstrap replaces:
+// a second bootstrap on the same database runs cleanly, keeps it, and
+// leaves an existing chain intact.
+func TestBootstrapTwiceKeepsTheIsolationGuard(t *testing.T) {
+	pool := freshDB(t, "chain_iso_twice")
+	insertAction(t, pool, "CREATE INDEX twice")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("second bootstrap: %v", err)
+	}
+	var body string
+	if err := pool.QueryRow(ctx, `SELECT prosrc FROM pg_proc
+		WHERE oid = 'sage.audit_chain_append(text,bigint,text,integer,text,text)'::regprocedure`).
+		Scan(&body); err != nil {
+		t.Fatalf("read audit_chain_append: %v", err)
+	}
+	if !strings.Contains(body, "current_setting('transaction_isolation')") ||
+		!strings.Contains(body, "55000") {
+		t.Fatalf("audit_chain_append lost the isolation guard:\n%s", body)
+	}
+	rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{})
+	if !rep.OK() || rep.Links != 1 {
+		t.Fatalf("after a second bootstrap: links=%d problems=%+v", rep.Links, rep.Problems)
+	}
+}
