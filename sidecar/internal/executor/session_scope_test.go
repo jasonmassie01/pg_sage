@@ -201,3 +201,49 @@ func TestSessionScopeTransactionLocalPinFailure(t *testing.T) {
 		t.Fatalf("error = %v, want the search_path setting failure", err)
 	}
 }
+
+// Error propagation: a failed timeout never runs the statement or pins the
+// path, names the setting, and the session is still reset and released.
+func TestSessionScopeFailedTimeoutSkipsRunAndPin(t *testing.T) {
+	for _, set := range pinnedTopLevelSet[:2] {
+		t.Run(set, func(t *testing.T) {
+			sess := &fakeSession{failOn: set}
+			ran := false
+			err := runTopLevelSession(context.Background(), sess, time.Minute,
+				ddlOpts{lockTimeoutMs: 5000}, func(pooledExecutor) error {
+					ran = true
+					return nil
+				})
+			setting := strings.Fields(set)[1]
+			if ran || !errors.Is(err, errFakeSession) ||
+				!strings.Contains(err.Error(), "setting "+setting) {
+				t.Fatalf("ran=%v error=%v, want no run and the %s failure", ran, err, setting)
+			}
+			if slices.Contains(sess.execs, pinnedTopLevelSet[2]) {
+				t.Fatalf("search_path pinned after a failed %s: %q", setting, sess.execs)
+			}
+			if got := sess.execs[len(sess.execs)-3:]; !slices.Equal(got, topLevelResets) ||
+				sess.released != 1 {
+				t.Fatalf("resets=%q released=%d, want all resets and one release",
+					got, sess.released)
+			}
+		})
+	}
+}
+
+func TestSessionScopeTransactionLocalTimeoutFailure(t *testing.T) {
+	for _, set := range []string{
+		"SET LOCAL statement_timeout = 60000", "SET LOCAL lock_timeout = '250ms'",
+	} {
+		sess := &fakeSession{failOn: set}
+		err := setLocalSessionScope(context.Background(), sess, time.Minute,
+			ddlOpts{lockTimeoutMs: 250})
+		setting := strings.Fields(set)[2]
+		if !errors.Is(err, errFakeSession) || !strings.Contains(err.Error(), "setting "+setting) {
+			t.Fatalf("%s: error = %v, want the %s failure", set, err, setting)
+		}
+		if last := sess.execs[len(sess.execs)-1]; last != set {
+			t.Fatalf("%s: statements continued after the failure: %q", set, sess.execs)
+		}
+	}
+}
