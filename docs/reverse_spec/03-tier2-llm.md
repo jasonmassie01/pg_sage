@@ -161,8 +161,11 @@ add SQL. A JSON-wrapped answer is unwrapped first. Then every fenced block and
 inline code span is checked: a statement (first token a SQL statement
 keyword, split with the quote-aware `llm.SplitStatements`) or code naming a
 changing command (`DROP`, `VACUUM`, `ALTER`, `SET`, ...) or a setting assignment
-(`work_mem = 256MB`, `-c fsync=off`) must match one of the
-payload's recommendations after comment, case and whitespace normalization.
+(`work_mem = 256MB`, `-c fsync=off`) or code running a client utility, shell
+command or admin function (`vacuumdb --full`, `pg_ctl restart`, `rm -rf`,
+`pg_terminate_backend(42)`; the bare name stays) must match one of the
+payload's recommendations after comment, case and whitespace normalization,
+and a comment added to it may name no changing command or tool.
 Anything else is replaced with `[SQL removed: not a pg_sage recommendation,
 see finding #<id>]` (the finding cited in the same paragraph, else "the Cases
 page"); fenced shell and config-file blocks (`bash`, `ini`, `yaml`, ...)

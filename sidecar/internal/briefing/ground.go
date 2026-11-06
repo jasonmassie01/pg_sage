@@ -44,6 +44,17 @@ var changingCommands = toSet("ALTER", "CHECKPOINT", "CLUSTER", "COPY", "CREATE",
 	"DELETE", "DROP", "GRANT", "INSERT", "LOCK", "MERGE", "REFRESH", "REINDEX",
 	"RESET", "REVOKE", "SET", "TRUNCATE", "UPDATE", "VACUUM")
 
+// toolCommands are client utilities, shell commands and admin functions
+// that change the server without naming a SQL command: `vacuumdb --full`
+// is VACUUM FULL by another name. Code running one is checked against the
+// recommendations; a tool named on its own is a name.
+var toolCommands = toSet("CLUSTERDB", "CREATEDB", "CREATEUSER", "DROPDB", "DROPUSER",
+	"KILL", "KILLALL", "PG_BASEBACKUP", "PG_CANCEL_BACKEND", "PG_CTL", "PG_CTLCLUSTER",
+	"PG_DROP_REPLICATION_SLOT", "PG_DROPCLUSTER", "PG_PROMOTE", "PG_RELOAD_CONF",
+	"PG_REPACK", "PG_RESETWAL", "PG_RESTORE", "PG_REWIND", "PG_STAT_RESET",
+	"PG_STAT_STATEMENTS_RESET", "PG_SWITCH_WAL", "PG_TERMINATE_BACKEND", "PG_UPGRADE",
+	"PKILL", "REINDEXDB", "RM", "SET_CONFIG", "SUDO", "SYSTEMCTL", "VACUUMDB")
+
 // commandLanguages tag fenced blocks of shell commands or configuration
 // files. pg_sage recommends neither (its recommendations are SQL), so such a
 // block is never grounded.
@@ -152,8 +163,8 @@ func rewriteStatements(body string, allowed map[string]bool, cite func() string)
 	var gone []string
 	for _, piece := range llm.SplitStatements(body) {
 		core := strings.TrimSpace(piece)
-		checked := isStatement(core) || hasChangingWord(core) || settingRE.MatchString(core)
-		if !checked || allowed[normalizeStatement(core)] {
+		vetted := allowed[normalizeStatement(core)] && !commentProposesChange(core)
+		if !needsGrounding(core) || vetted {
 			b.WriteString(piece)
 			continue
 		}
@@ -181,11 +192,45 @@ func isStatement(sql string) bool {
 	return rest != "" || standaloneCommands[word]
 }
 
-// hasChangingWord reports code that names a changing command anywhere, as
-// a whole word and even inside quotes: "Step 1: DROP TABLE x" or
+// needsGrounding reports code that proposes a statement, a change, a
+// setting or a tool command, so it must match a recommendation to stay.
+func needsGrounding(code string) bool {
+	return isStatement(code) || namesWord(code, changingCommands) ||
+		settingRE.MatchString(code) || runsTool(code)
+}
+
+// runsTool reports code that runs a tool command: it names one and is more
+// than a single identifier ("pg_terminate_backend(42)", not
+// "pg_terminate_backend").
+func runsTool(code string) bool {
+	bare := true
+	for i := 0; i < len(code); i++ {
+		bare = bare && isWordByte(code[i])
+	}
+	return !bare && namesWord(code, toolCommands)
+}
+
+// commentProposesChange reports a comment that names a changing command
+// or a tool. Matching ignores comments, so such a comment added to a vetted
+// statement would otherwise ride along with it unvetted.
+func commentProposesChange(code string) bool {
+	guarded := func(s string) int {
+		return countWords(s, changingCommands) + countWords(s, toolCommands)
+	}
+	return guarded(code) > guarded(llm.StripSQLComments(code))
+}
+
+// namesWord reports code that names one of words anywhere, as a whole
+// word and even inside quotes: "Step 1: DROP TABLE x" or
 // psql --command="VACUUM FULL t" do not start with a keyword but still
 // propose a change. Code only; prose is never checked.
-func hasChangingWord(code string) bool {
+func namesWord(code string, words map[string]bool) bool {
+	return countWords(code, words) > 0
+}
+
+// countWords counts the whole words of code that are in words.
+func countWords(code string, words map[string]bool) int {
+	n := 0
 	for i := 0; i < len(code); {
 		if !isWordByte(code[i]) {
 			i++
@@ -195,12 +240,12 @@ func hasChangingWord(code string) bool {
 		for end < len(code) && isWordByte(code[end]) {
 			end++
 		}
-		if changingCommands[strings.ToUpper(code[i:end])] {
-			return true
+		if words[strings.ToUpper(code[i:end])] {
+			n++
 		}
 		i = end
 	}
-	return false
+	return n
 }
 
 // isWordByte is an identifier byte; a non-ASCII byte continues the word,

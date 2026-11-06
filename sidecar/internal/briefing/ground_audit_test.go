@@ -100,3 +100,85 @@ func TestGroundKeepsComparisonsAndSettingNames(t *testing.T) {
 		}
 	}
 }
+
+// Review 2 (llm-08): client utilities and admin functions change the server
+// without naming a SQL command, so `vacuumdb --full` is VACUUM FULL by
+// another name. Each must lose its invented command.
+func TestGroundRemovesInventedToolCommands(t *testing.T) {
+	p := groundPayload(t, groundFindings)
+	cases := map[string]string{
+		"vacuumdb full":         "```\nvacuumdb --full -t orders shop\n```\n",
+		"reindexdb":             "Run `reindexdb -t orders shop` for finding #12.",
+		"terminate via psql":    "```\npsql -c 'select pg_terminate_backend(4242)'\n```\n",
+		"inline terminate":      "Use `pg_terminate_backend(4242)` on the blocker.",
+		"cancel backend":        "```\npg_cancel_backend(4242)\n```\n",
+		"pg_ctl restart":        "```\npg_ctl restart -D /var/lib/pgsql/data\n```\n",
+		"systemctl restart":     "```\nsudo systemctl restart postgresql\n```\n",
+		"delete WAL":            "```\nrm -rf /var/lib/pgsql/data/pg_wal/0000\n```\n",
+		"kill backend":          "```\nkill -9 4242\n```\n",
+		"pg_repack":             "```\npg_repack --table=orders shop\n```\n",
+		"drop replication slot": "`pg_drop_replication_slot('s1')` frees WAL.",
+		"reload configuration":  "```\npg_reload_conf()\n```\n",
+		"dropdb":                "```\ndropdb shop\n```\n",
+		"pg_resetwal":           "```\npg_resetwal -f /var/lib/pgsql/data\n```\n",
+		"set_config via psql": "```\npsql -c \"select set_config('work_mem', '1GB', " +
+			"false)\"\n```\n",
+		"pg_ctl in a shell span": "Then `pg_ctl -D data stop -m immediate`.",
+	}
+	for name, text := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, removed := groundOutput(text, p)
+			if len(removed) != 1 {
+				t.Fatalf("removed %q, want one command:\n%s", removed, got)
+			}
+			for _, word := range []string{"vacuumdb", "reindexdb", "terminate", "cancel",
+				"pg_ctl", "systemctl", "rm -rf", "kill", "pg_repack", "slot", "reload",
+				"dropdb", "resetwal", "set_config", "4242"} {
+				if strings.Contains(got, word) {
+					t.Fatalf("%s survives:\n%s", word, got)
+				}
+			}
+			if !strings.Contains(got, "removed: not a pg_sage recommendation") {
+				t.Fatalf("no removal marker:\n%s", got)
+			}
+		})
+	}
+}
+
+// A tool or function named on its own is a name, not a command.
+func TestGroundKeepsToolNames(t *testing.T) {
+	p := groundPayload(t, groundFindings)
+	for _, text := range []string{
+		"pg_sage never runs `vacuumdb` or `pg_repack` for you.",
+		"Blockers can be ended with `pg_terminate_backend` after review.",
+		"```\n| pid  | state  |\n| 4242 | active |\n```\n",
+	} {
+		if got, removed := groundOutput(text, p); got != text || len(removed) != 0 {
+			t.Errorf("tool name rewritten (%q):\n%s", removed, got)
+		}
+	}
+}
+
+// Review 2 (llm-08): a comment the LLM adds to a vetted statement is not
+// vetted. Normalization ignores comments, so a change proposed in one must
+// not ride along with the recommendation it is attached to.
+func TestGroundRemovesChangesHiddenInComments(t *testing.T) {
+	p := groundPayload(t, groundFindings)
+	for name, text := range map[string]string{
+		"line comment":  "```sql\n-- then DROP TABLE orders_old\n" + groundIndexSQL + ";\n```\n",
+		"block comment": "```sql\n" + groundIndexSQL + " /* and vacuumdb --full shop */;\n```\n",
+		"inline span":   "Run `/* after: TRUNCATE orders */ " + groundIndexSQL + "`.",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, removed := groundOutput(text, p)
+			if len(removed) != 1 {
+				t.Fatalf("removed %q, want one statement:\n%s", removed, got)
+			}
+			for _, word := range []string{"DROP", "vacuumdb", "TRUNCATE"} {
+				if strings.Contains(got, word) {
+					t.Fatalf("%s survives:\n%s", word, got)
+				}
+			}
+		})
+	}
+}
