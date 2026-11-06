@@ -901,6 +901,23 @@ whose age defines it; pg_sage never infers the column:
   re-checking the column identity in the same transaction, and requires standing
   policy consent to the `retention` change class.
 
+#### Structural schema invariants are advisory only
+
+The schema guard also detects structural pathologies: `everything_text` (a table
+of three or more columns, all text) and `type_tightening` (a text column named
+like a number, ending in `_id`, `_count` or `_number`). Fixing either needs an online column
+migration, which pg_sage cannot plan or run, so these invariants are never routed,
+never auto-applied and never counted as routed:
+
+- The ledger records each one once as a `recommendation` (verdict `observe_only`,
+  risk tier `moderate`) with the reason `requires an online column migration;
+  pg_sage has no automated path`. No config or policy changes this.
+- The decision proposes no SQL. For a type tightening, the evidence shows the
+  in-place statement as `rewrite_statement` with a `rewrite_note`: it rewrites the
+  whole table under `ACCESS EXCLUSIVE` and is shown for reference, not to run.
+- Table contract exemptions and the oscillation limit still park these
+  invariants, as they do every other.
+
 ### Load admission for autonomous index builds
 
 Autonomous `CREATE INDEX CONCURRENTLY` and custodian index proposals (for
