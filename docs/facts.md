@@ -81,9 +81,11 @@ on an object again, reject or expire the fact first (one click; it is recorded).
 diagnostics and pg_sage undoing its own change are never bound. If the facts cannot be read,
 the gate fails closed (`facts_unavailable`).
 
-Targets that name no relation never bind. A configuration, setting, database, instance or
-query finding has no object target, so a confirmed `test_*` fixture fact does not hold back
-an `ALTER SYSTEM` recommendation. An unqualified target relation (`orders`) is looked up in
+Targets that name no relation never bind. The target of a configuration, setting, database,
+instance or query finding (`instance`, a database name, a query id) is not matched against
+facts (only its SQL and any `slot:` target are), so a confirmed `test_*` fixture fact does
+not hold back an `ALTER SYSTEM` recommendation. The target still counts for change leases,
+budgets and the one-object rule of earned autonomy. An unqualified target relation (`orders`) is looked up in
 the catalog of the database the action runs on, whatever the `search_path`: it binds through
 every user schema that has a relation of that name (`test_a.orders` is a test fixture,
 `public.orders` is not), and a name no user schema has binds nothing. Relations the action's

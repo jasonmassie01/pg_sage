@@ -75,6 +75,9 @@ func (b *Binder) Bind(ctx context.Context, req policy.ActionRequest) (
 		r.ActionType = req.Contract.ActionType
 	}
 	sqlOnly, targets := sqlRefs(scanSQL(r.SQL)), targetRefs(r.Targets)
+	if req.TargetsNameNoRelation {
+		targets = slotTargets(targets)
+	}
 	siblings, err := b.siblingBindings(ctx, mergeRefs(sqlOnly, targets), r)
 	if err != nil {
 		return nil, err

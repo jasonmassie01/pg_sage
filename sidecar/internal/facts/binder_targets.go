@@ -44,6 +44,17 @@ func (b *Binder) qualifyTargets(ctx context.Context, sqlOnly, targets []ObjectRe
 	return mergeRefs(sqlOnly, out), nil
 }
 
+// slotTargets keeps the slot refs of targets that name no relation.
+func slotTargets(refs []ObjectRef) []ObjectRef {
+	var out []ObjectRef
+	for _, r := range refs {
+		if r.Kind == KindSlot {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func unqualifiedRelation(r ObjectRef) bool {
 	return r.Kind == KindRelation && r.Schema == ""
 }

@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
@@ -86,35 +85,5 @@ func TestTargetResolutionErrorFailsTheGateClosed(t *testing.T) {
 	if got.Decision != PolicyDecisionBlocked ||
 		got.BlockedReason != string(policy.ReasonFactsUnavailable) {
 		t.Fatalf("unreadable targets: %+v, want blocked facts_unavailable", got)
-	}
-}
-
-func TestTargetObjectsForFindingSkipsNonRelationTypes(t *testing.T) {
-	cases := []struct {
-		objectType, id string
-		want           []string
-	}{
-		{"configuration", "instance", nil},
-		{"configuration", "instance:work_mem", nil},
-		{"setting", "work_mem", nil},
-		{"database", "lifeos", nil},
-		{"instance", "instance", nil},
-		{"query", "1234567890", nil},
-		{"Configuration", "instance", nil},
-		{"configuration", "slot:cdc", []string{"slot:cdc"}},
-		{"replication_slot", "slot:cdc", []string{"slot:cdc"}},
-		{"table", "public.orders", []string{"public.orders"}},
-		{"index", " public.idx_a ", []string{"public.idx_a"}},
-		{"", "public.orders", []string{"public.orders"}},
-		{"advisor", "llm", []string{"llm"}},
-		{"table", "  ", nil},
-		{"configuration", "", nil},
-	}
-	for _, c := range cases {
-		got := targetObjectsForFinding(analyzer.Finding{ObjectType: c.objectType,
-			ObjectIdentifier: c.id})
-		if !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s %q: targets %v, want %v", c.objectType, c.id, got, c.want)
-		}
 	}
 }

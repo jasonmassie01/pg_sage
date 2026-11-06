@@ -55,8 +55,9 @@ func (e *Executor) evaluateRollbackPolicy(
 func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
 	request := policy.ActionRequest{
 		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
-		TargetObjs: targetObjectsForFinding(finding),
-		IsReplica:  isReplica,
+		TargetObjs:            targetObjectsForFinding(finding),
+		TargetsNameNoRelation: targetsNameNoRelation(finding),
+		IsReplica:             isReplica,
 	}
 	if contract, ok := contractForFinding(finding); ok {
 		request.Contract = policyContract(contract)
@@ -64,6 +65,7 @@ func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionReque
 	}
 	if gateSQL, targets, ok := replaceGateView(finding.RecommendedSQL); ok {
 		request.SQL, request.TargetObjs = gateSQL, targets
+		request.TargetsNameNoRelation = false
 	}
 	requireApproval(&request, finding)
 	return request
@@ -85,20 +87,20 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 }
 
 // nonRelationObjectTypes are finding object types whose identifier names
-// no relation ("instance", a database name, a query id): they are never
-// fact targets, so a schema-wide fact cannot catch them (facts-01).
+// no relation ("instance", a database name, a query id): a schema-wide
+// fact must not catch them (facts-01).
 var nonRelationObjectTypes = map[string]bool{"configuration": true, "setting": true,
 	"database": true, "instance": true, "query": true}
 
-// targetObjectsForFinding is the finding's object as a gate target. A
-// slot target ("slot:<name>") is kept whatever the object type.
+// targetsNameNoRelation reports a finding whose target the facts binder
+// matches only as a slot (policy.ActionRequest.TargetsNameNoRelation).
+func targetsNameNoRelation(finding analyzer.Finding) bool {
+	return nonRelationObjectTypes[strings.ToLower(strings.TrimSpace(finding.ObjectType))]
+}
+
 func targetObjectsForFinding(finding analyzer.Finding) []string {
 	target := strings.TrimSpace(finding.ObjectIdentifier)
 	if target == "" {
-		return nil
-	}
-	if !strings.HasPrefix(target, "slot:") &&
-		nonRelationObjectTypes[strings.ToLower(strings.TrimSpace(finding.ObjectType))] {
 		return nil
 	}
 	return []string{target}
