@@ -217,9 +217,7 @@ func newDatabaseRuntime(
 	}
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
-	rt.facts = newFactStore(spec.Pool)
-	rt.factCluster = processFactClusters.join(rt.ctx, factClusterIdentity(rt.ctx, spec.Pool),
-		spec.Name, rt.facts)
+	rt.initFacts()
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()

@@ -36,6 +36,15 @@ func newFactStore(pool *pgxpool.Pool) *facts.Store {
 	return facts.NewStore(pool).WithLog(logStructuredWrapper)
 }
 
+// initFacts opens the database's fact store and joins the process's
+// cluster registry for the life of the runtime, so its siblings' gates
+// see its slot facts (facts-02).
+func (rt *databaseRuntime) initFacts() {
+	rt.facts = newFactStore(rt.spec.Pool)
+	rt.factCluster = processFactClusters.join(rt.ctx,
+		factClusterIdentity(rt.ctx, rt.spec.Pool), rt.spec.Name, rt.facts)
+}
+
 // factBinder is the gate's typed view of the database's confirmed facts and
 // of the slot facts of its sibling databases on the same cluster.
 func (rt *databaseRuntime) factBinder() *facts.Binder {
