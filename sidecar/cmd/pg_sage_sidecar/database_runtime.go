@@ -175,7 +175,8 @@ func runtimePrerequisites(
 }
 
 // prepareMonitoredDatabase bootstraps the sage schema (which includes the
-// config migration) and checks prerequisites. A failed bootstrap always
+// config migration), warns on a non-read-committed isolation default
+// (audit-02) and checks prerequisites. A failed bootstrap always
 // refuses the database, because nothing can persist without the schema
 // (G5-B16); a failed check either refuses it or degrades it (G5-B13).
 func prepareMonitoredDatabase(
@@ -183,6 +184,9 @@ func prepareMonitoredDatabase(
 ) (*startup.CheckResult, error) {
 	if err := bootstrapManagedDatabaseSchema(ctx, pool); err != nil {
 		return nil, fmt.Errorf("bootstrap schema for %q: %w", name, err)
+	}
+	if pool != nil {
+		warnIsolationDefault(ctx, pool, name, logWarn)
 	}
 	checks, err := instanceChecksOrDegraded(ctx, pool)
 	// A missing pg_stat_statements degrades even a required database: the

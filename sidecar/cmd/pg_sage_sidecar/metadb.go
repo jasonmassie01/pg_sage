@@ -104,10 +104,10 @@ func initMetaDB(
 	)
 	defer cancel()
 
-	// Bootstrap sage.* schema on the meta database.
 	if err := schema.Bootstrap(ctx, metaPool); err != nil {
 		return nil, fmt.Errorf("bootstrapping meta-db schema: %w", err)
 	}
+	warnIsolationDefault(ctx, metaPool, "meta-db", logWarn)
 
 	// Run config schema migration (adds database_id, audit table).
 	if err := schema.MigrateConfigSchema(ctx, metaPool); err != nil {
