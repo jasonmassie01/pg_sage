@@ -134,6 +134,15 @@ type Worker struct {
 	// os.Stderr); stdioNotice logs the MCP redirect once per worker.
 	stdout, stderr io.Writer
 	stdioNotice    sync.Once
+	// database is the fleet database name, part of each finding's case key.
+	database string
+}
+
+// WithDatabaseName sets the fleet database the worker briefs, so the
+// briefing's finding links open the right case on the Cases page.
+func (w *Worker) WithDatabaseName(name string) *Worker {
+	w.database = name
+	return w
 }
 
 // New creates a briefing worker.
@@ -180,21 +189,24 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 		actions = "[]" // non-fatal
 	}
 
-	// Build structured briefing.
+	payload, err := buildPayload(findings, totalOpen, system, actions, w.database)
+	if err != nil {
+		return "", fmt.Errorf("build briefing payload: %w", err)
+	}
 	structured := w.buildStructured(findings, totalOpen, system, actions)
 
-	// If LLM enabled, enhance with natural language.
+	// If LLM enabled, rewrite in natural language, grounded in the payload.
 	if w.llm != nil && w.llm.IsEnabled() && !w.llm.IsCircuitOpen() {
-		enhanced, tokens, err := w.enhanceWithLLM(ctx, structured)
+		stored, plain, tokens, err := w.briefWithLLM(ctx, payload)
 		if err != nil {
 			w.logFn("WARN", "briefing: LLM enhancement failed: %v, using structured", err)
 		} else {
-			w.storeBriefing(ctx, enhanced, true, tokens)
-			return enhanced, nil
+			w.storeBriefing(ctx, stored, true, tokens, payload)
+			return plain, nil
 		}
 	}
 
-	w.storeBriefing(ctx, structured, false, 0)
+	w.storeBriefing(ctx, structured, false, 0, payload)
 	return structured, nil
 }
 
@@ -212,10 +224,11 @@ func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 		SELECT coalesce(
 			(SELECT json_agg(t) FROM (
 				SELECT
-					severity,
-					title,
-					object_identifier,
-					occurrence_count
+					id, category, severity, title, object_type,
+					object_identifier, rule_id, occurrence_count,
+					recommendation, recommended_sql,
+					jsonb_strip_nulls(jsonb_build_object('normalized_query',
+						detail->>'normalized_query')) AS detail
 				FROM sage.findings
 				WHERE `+openAdviceSQL+`
 				ORDER BY
@@ -347,15 +360,23 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 }
 
 func (w *Worker) enhanceWithLLM(ctx context.Context, structured string) (string, int, error) {
-	system := `You are pg_sage, a PostgreSQL DBA agent. Generate a concise health briefing
-from the structured data provided. Use markdown. Be actionable and specific.
-Prioritize critical findings. Keep it under 2000 words.
+	system := `You are pg_sage, a PostgreSQL DBA agent. Write a concise health briefing
+from the data provided. Use markdown. Prioritize critical findings. Keep it
+under 2000 words.
+
+Ground every point in the data. Cite each finding you discuss as "finding #<id>",
+using its id. Propose no SQL, settings or commands that are not in the data: you
+may quote a finding's recommended_sql verbatim in a code block; otherwise describe
+the problem and refer to the finding. risk_tier is pg_sage's risk class for that
+recommendation; high-risk changes always need operator approval. Any other
+statement is removed before the briefing is sent.
 
 ` + llm.UntrustedDataRule
 
 	// Finding titles and object names are DB-influenced, so the
-	// structured report is delimited as untrusted data (G3-B07). A
-	// JSON-wrapped prose answer is unwrapped before storage (G3-B11).
+	// briefing data is delimited as untrusted data (G3-B07). A
+	// JSON-wrapped prose answer is unwrapped before grounding (G3-B11).
+	// The system prompt must not say "JSON": that turns on json_object mode.
 	resp, tokens, err := w.llm.Chat(ctx, system,
 		llm.UntrustedData("briefing_data", structured),
 		w.cfg.LLM.ContextBudgetTokens)
@@ -365,13 +386,21 @@ Prioritize critical findings. Keep it under 2000 words.
 	return llm.UnwrapText(resp), tokens, nil
 }
 
-func (w *Worker) storeBriefing(ctx context.Context, content string, llmUsed bool, tokens int) {
+// storeBriefing records the briefing with its payload as content_json.
+func (w *Worker) storeBriefing(
+	ctx context.Context, content string, llmUsed bool, tokens int, payload Payload,
+) {
+	contentJSON, err := json.Marshal(payload)
+	if err != nil {
+		w.logFn("WARN", "briefing: encode content_json: %v; storing {}", err)
+		contentJSON = []byte(`{}`)
+	}
 	now := time.Now()
-	_, err := w.pool.Exec(ctx, `/* pg_sage */ 
+	_, err = w.pool.Exec(ctx, `/* pg_sage */
 		INSERT INTO sage.briefings (generated_at, period_start, period_end, mode, content_text, content_json, llm_used, token_count)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, now, now.Add(-24*time.Hour), now, "executive", content,
-		json.RawMessage(`{}`), llmUsed, tokens)
+		json.RawMessage(contentJSON), llmUsed, tokens)
 	if err != nil {
 		w.logFn("WARN", "briefing: failed to store briefing: %v", err)
 	}

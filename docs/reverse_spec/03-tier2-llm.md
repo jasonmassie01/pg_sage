@@ -132,28 +132,46 @@ loop.
 
 ## 2. Daily Health Briefings (`internal/briefing`)
 
-**Prompt job** (`briefing.go:343-348`): system =
-*"You are pg_sage, a PostgreSQL DBA agent. Generate a concise health briefing
-from the structured data provided. Use markdown… Prioritize critical findings.
-Keep it under 2000 words."* User message = the deterministically-built
-structured briefing text.
+**Prompt job** (`enhanceWithLLM`, `briefing.go`): system =
+*"You are pg_sage, a PostgreSQL DBA agent. Write a concise health briefing
+from the data provided. Use markdown. Prioritize critical findings. Keep it
+under 2000 words."* plus the grounding rule: cite each finding as
+`finding #<id>`, and propose no SQL, settings or commands that are not in the
+data. The user message is the briefing payload (below), fenced as untrusted
+data.
 
-**Inputs** (`Generate`, `briefing.go:167-200`):
-- Open findings (top 50 by severity then occurrence_count), `gatherFindings`
-  (`:202-234`).
+**Inputs** (`Generate`): built once into a `Payload` (`payload.go`):
+- Open findings (top 50 by severity then occurrence_count), `gatherFindings`.
+  Each carries its id, category, severity, title, object, occurrence count,
+  risk tier (`cases.RiskTierForSQL`, the case projector's classifier), the
+  recommendation text and `recommended_sql` redacted by `llm.SanitizeForLLM`.
+  The stored payload also carries each finding's case key
+  (`cases.IdentityKeyForFinding`); the LLM does not see it.
 - System overview JSON: db size, connections, active, cache hit ratio, uptime
-  hours, `gatherSystem` (`:236-253`).
-- Recent actions (last 24h) from `sage.action_log`, `gatherRecentActions`
-  (`:255-270`).
+  hours, `gatherSystem`.
+- Recent actions (last 24h) from `sage.action_log`, `gatherRecentActions`.
 
 **Flow**: always build the deterministic markdown briefing
-(`buildStructured`, `:272-341`). If `llm != nil && IsEnabled() && !IsCircuitOpen()`
-(`:188`), enhance with the LLM; on LLM error, fall back to the structured text.
+(`buildStructured`). If `llm != nil && IsEnabled() && !IsCircuitOpen()`, ask
+the LLM; on LLM error, fall back to the structured text.
 `maxTokens` = `cfg.LLM.ContextBudgetTokens`.
 
-**Output**: markdown string. Stored in `sage.briefings` (`storeBriefing`,
-`:351-361`) with `llm_used` and `token_count`. **Dispatched** to configured
-channels — `stdout` and/or `slack` webhook (`Dispatch`, `:367-399`).
+**Grounding** (llm-08, `ground.go`): the LLM rewrite cites findings and cannot
+add SQL. A JSON-wrapped answer is unwrapped first. Then every fenced block and
+inline code span is checked: a statement (first token a SQL statement
+keyword, split with the quote-aware `llm.SplitStatements`) or code naming a
+changing command (`DROP`, `VACUUM`, `ALTER`, `SET`, ...) must match one of the
+payload's recommendations after comment, case and whitespace normalization.
+Anything else is replaced with `[SQL removed: not a pg_sage recommendation,
+see finding #<id>]` (the finding cited in the same paragraph, else "the Cases
+page"); fenced shell blocks become `[command removed: ...]`. One WARN logs the
+count and a 12-character digest, never the SQL. Prose is never changed.
+
+**Output**: markdown string. Stored in `sage.briefings` (`storeBriefing`) with
+`llm_used`, `token_count` and the payload as `content_json`. In the stored
+text each cited `#<id>` links to `#/cases?case=<case key>`; the text
+**dispatched** to `stdout` and/or the `slack` webhook (`Dispatch`) keeps the
+plain `finding #<id>`, since there is no public dashboard URL.
 
 **Cadence** (`:115-156`): cron schedule `cfg.Briefing.Schedule` parsed into
 bitmask (`parseCron`, full 5-field cron with ranges/steps). `ShouldRun(now)`

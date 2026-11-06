@@ -125,8 +125,12 @@ Generated health briefings.
 |---|---|---|
 | `id` | serial | Primary key |
 | `generated_at` | timestamptz | When the briefing was generated |
-| `content` | text | Briefing text (structured or LLM-generated) |
-| `findings_snapshot` | jsonb | Findings state at generation time |
+| `period_start`, `period_end` | timestamptz | Window the briefing covers |
+| `mode` | text | Briefing mode (`executive`) |
+| `content_text` | text | Briefing text (structured or LLM-generated). In an LLM briefing, statements not among pg_sage's recommendations are replaced and each `#<id>` links to its case |
+| `content_json` | jsonb | The briefing payload: `findings` (id, case_key, category, severity, title, object_identifier, occurrence_count, risk_tier, recommendation, redacted recommended_sql), `total_open`, `system`, `actions` |
+| `llm_used` | boolean | Whether the LLM wrote `content_text` |
+| `token_count` | integer | LLM tokens used |
 
 ---
 

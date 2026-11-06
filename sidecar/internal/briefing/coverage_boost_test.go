@@ -393,7 +393,7 @@ func TestCoverage_StoreBriefing_InvalidTable_LivePG(t *testing.T) {
 	}
 
 	// Store without LLM — should succeed.
-	w.storeBriefing(ctx, "no-llm briefing test", false, 0)
+	w.storeBriefing(ctx, "no-llm briefing test", false, 0, Payload{})
 
 	// Verify the row was inserted.
 	var content string
@@ -428,7 +428,7 @@ func TestCoverage_StoreBriefing_WithLLMTokens_LivePG(t *testing.T) {
 	}
 
 	// Store with LLM used = true and token count.
-	w.storeBriefing(ctx, "llm-enhanced briefing content", true, 150)
+	w.storeBriefing(ctx, "llm-enhanced briefing content", true, 150, Payload{})
 
 	// Verify it was stored.
 	var content string
