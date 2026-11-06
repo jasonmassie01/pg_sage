@@ -119,8 +119,10 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 
 1. `top_queries`, `explain_query`, `whatif_index` and `lint_migration` let the agent see the
    problem and test a change without touching the database (EXPLAIN runs in a read-only
-   transaction; ANALYZE only when pg_sage proves the statement has no side effects; the
-   what-if index is hypothetical).
+   transaction; an agent gets plan-only EXPLAIN as its own database role, so a stdio client
+   needs `mcp.stdio_principal`; ANALYZE runs only for people with the `propose` scope, and
+   only when pg_sage proves the statement has no side effects; the what-if index is
+   hypothetical).
 2. `get_source_fix_packet` returns, for a finding: the problem, the evidence with numbers and
    where each number comes from, the migration to add (up and down), the queries and code it
    likely touches, and how pg_sage will verify it. Text that came from the database or a model
