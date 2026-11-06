@@ -28,7 +28,7 @@ func ruleUnusedIndexes(
 	unlogged := buildUnloggedSet(current)
 	fkRequirements := buildFKRequirements(current)
 	byTable := indexesByTable(current.Indexes)
-	standbyRisk := standbyUsageUnknown(current)
+	standbyRisk := StandbyUsageUnknown(current)
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
@@ -59,7 +59,7 @@ func ruleUnusedIndexes(
 		if !epoch.IsZero() {
 			f.Detail["stats_epoch"] = epoch.UTC().Format(time.RFC3339)
 		}
-		findings = append(findings, withStandbyGate(f, standbyRisk))
+		findings = append(findings, WithStandbyGate(f, standbyRisk))
 	}
 	return findings
 }

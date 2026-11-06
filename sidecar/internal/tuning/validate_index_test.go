@@ -211,25 +211,36 @@ func TestJudge_IndexDropOfARedundantIndex(t *testing.T) {
 	}
 }
 
-func TestJudge_IndexDropOfAnUnusedIndexNeedsLongStatistics(t *testing.T) {
+// indexes-03 (product decision, not a fix to a wrong test): tuning no
+// longer admits "never scanned" drops. The unused_index rule owns them; it
+// has the first-seen clock, the recently-created skip, the FK-only check
+// and the standby gate this validator lacked. A never-scanned, uncovered
+// index is refused whatever the statistics age, so an index built
+// yesterday under a 30-day epoch never reaches an approval card.
+func TestJudge_IndexDropOfANeverScannedIndexBelongsToTheUnusedRule(t *testing.T) {
 	h := newHarness(t)
-	if j := judgeOne(t, h, nil, dropProposal("public.orders_status_idx")); j.Verdict !=
-		VerdictAdmitted {
-		t.Fatalf("never scanned in 30 days of statistics: %+v", j)
-	}
-	cur := validationSnap()
-	cur.System.RelationStatsEpoch = cur.CollectedAt.Add(-24 * time.Hour)
-	v := h.agent.newValidator(cur, ClassifyWorkload(cur, nil, t0), nil, nil)
-	j := v.judge(context.Background(), ordersCase(), ordersEvidence(),
-		dropProposal("public.orders_status_idx"))
-	if j.Verdict != VerdictRejected || j.Reason != ReasonInvalid {
-		t.Fatalf("one day of statistics is not a business cycle: %+v", j)
-	}
-	cur.System.RelationStatsEpoch = time.Time{}
-	j = v.judge(context.Background(), ordersCase(), ordersEvidence(),
-		dropProposal("public.orders_status_idx"))
-	if j.Reason != ReasonInvalid {
-		t.Fatalf("an unknown statistics age refuses: %+v", j)
+	for name, epochAge := range map[string]time.Duration{
+		"30-day statistics epoch": 30 * 24 * time.Hour,
+		"one-day epoch":           24 * time.Hour,
+		"unknown epoch":           0,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cur := validationSnap()
+			cur.System.RelationStatsEpoch = time.Time{}
+			if epochAge > 0 {
+				cur.System.RelationStatsEpoch = cur.CollectedAt.Add(-epochAge)
+			}
+			v := h.agent.newValidator(cur, ClassifyWorkload(cur, nil, t0), nil, nil)
+			j := v.judge(context.Background(), ordersCase(), ordersEvidence(),
+				dropProposal("public.orders_status_idx"))
+			if j.Verdict != VerdictRejected || j.Reason != ReasonInvalid || j.Finding != nil {
+				t.Fatalf("a never-scanned, uncovered index is refused: %+v", j)
+			}
+			if !strings.Contains(j.Detail, "unused_index rule owns unused drops") ||
+				!strings.Contains(j.Detail, "orders_status_idx") {
+				t.Fatalf("the refusal names the unused_index rule: %q", j.Detail)
+			}
+		})
 	}
 }
 
