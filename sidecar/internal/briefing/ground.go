@@ -44,10 +44,17 @@ var changingCommands = toSet("ALTER", "CHECKPOINT", "CLUSTER", "COPY", "CREATE",
 	"DELETE", "DROP", "GRANT", "INSERT", "LOCK", "MERGE", "REFRESH", "REINDEX",
 	"RESET", "REVOKE", "SET", "TRUNCATE", "UPDATE", "VACUUM")
 
-// shellLanguages tag fenced blocks of commands. pg_sage recommends no
-// shell command, so such a block is never grounded.
-var shellLanguages = toSet("BASH", "BAT", "CMD", "CONSOLE", "POWERSHELL", "PS1",
-	"PWSH", "SH", "SHELL", "ZSH")
+// commandLanguages tag fenced blocks of shell commands or configuration
+// files. pg_sage recommends neither (its recommendations are SQL), so such a
+// block is never grounded.
+var commandLanguages = toSet("BASH", "BAT", "CMD", "CONSOLE", "POWERSHELL", "PS1",
+	"PWSH", "SH", "SHELL", "ZSH", "CFG", "CONF", "INI", "PROPERTIES", "TOML", "YAML",
+	"YML")
+
+// settingRE finds a setting assignment such as "work_mem = 256MB" or
+// "-c fsync=off": a name, then "=" that is not part of "==", "=>", ">=",
+// "<=" or "!=".
+var settingRE = regexp.MustCompile(`(^|[^\w.=<>!])[A-Za-z_]\w*(\.\w+)?[ \t]*=[ \t]*[^=>\s]`)
 
 // citationRE finds "#<id>" not inside a link label or an HTML entity.
 var citationRE = regexp.MustCompile(`(^|[^\w\[&#/])#([0-9]+)\b`)
@@ -122,7 +129,7 @@ func groundRegion(text string, r codeRegion, allowed map[string]bool,
 	cite := func() string { return citationFor(text, r, ids) }
 	open, closing := text[r.start:r.bodyStart], text[r.bodyEnd:r.end]
 	switch {
-	case r.fence && shellLanguages[strings.ToUpper(r.lang)] &&
+	case r.fence && commandLanguages[strings.ToUpper(r.lang)] &&
 		strings.TrimSpace(body) != "":
 		return open + fmt.Sprintf(removedCommandMarker, cite()) + "\n" + closing,
 			[]string{body}
@@ -145,7 +152,7 @@ func rewriteStatements(body string, allowed map[string]bool, cite func() string)
 	var gone []string
 	for _, piece := range llm.SplitStatements(body) {
 		core := strings.TrimSpace(piece)
-		checked := isStatement(core) || hasChangingWord(core)
+		checked := isStatement(core) || hasChangingWord(core) || settingRE.MatchString(core)
 		if !checked || allowed[normalizeStatement(core)] {
 			b.WriteString(piece)
 			continue

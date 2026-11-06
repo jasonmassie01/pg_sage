@@ -160,11 +160,13 @@ the LLM; on LLM error, fall back to the structured text.
 add SQL. A JSON-wrapped answer is unwrapped first. Then every fenced block and
 inline code span is checked: a statement (first token a SQL statement
 keyword, split with the quote-aware `llm.SplitStatements`) or code naming a
-changing command (`DROP`, `VACUUM`, `ALTER`, `SET`, ...) must match one of the
+changing command (`DROP`, `VACUUM`, `ALTER`, `SET`, ...) or a setting assignment
+(`work_mem = 256MB`, `-c fsync=off`) must match one of the
 payload's recommendations after comment, case and whitespace normalization.
 Anything else is replaced with `[SQL removed: not a pg_sage recommendation,
 see finding #<id>]` (the finding cited in the same paragraph, else "the Cases
-page"); fenced shell blocks become `[command removed: ...]`. One WARN logs the
+page"); fenced shell and config-file blocks (`bash`, `ini`, `yaml`, ...)
+become `[command removed: ...]`. One WARN logs the
 count and a 12-character digest, never the SQL. Prose is never changed.
 
 **Output**: markdown string. Stored in `sage.briefings` (`storeBriefing`) with
