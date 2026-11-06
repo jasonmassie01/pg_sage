@@ -36,9 +36,10 @@ func newFactStore(pool *pgxpool.Pool) *facts.Store {
 	return facts.NewStore(pool).WithLog(logStructuredWrapper)
 }
 
-// factBinder is the gate's typed view of the database's confirmed facts.
+// factBinder is the gate's typed view of the database's confirmed facts and
+// of the slot facts of its sibling databases on the same cluster.
 func (rt *databaseRuntime) factBinder() *facts.Binder {
-	return facts.NewBinder(rt.facts, facts.NewCatalogResolver(rt.spec.Pool), nil)
+	return newClusterFactBinder(rt.spec.Pool, rt.facts, processFactClusters, rt.factCluster)
 }
 
 // factFilter applies the confirmed facts to the analyzer's cycles.
