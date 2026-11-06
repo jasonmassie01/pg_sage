@@ -8,7 +8,8 @@ import (
 )
 
 // readRecords reads up to limit links of chain after position after, each
-// with the current content of its row (chain columns removed). Reading by
+// with the current content of its row (chain columns removed) and pg_sage's
+// role on the source (current_user, as the links record it). Reading by
 // the link table's primary key keeps every pass an index range scan.
 func readRecords(ctx context.Context, src Source, chain string, after int64,
 	limit int) ([]Record, error) {
@@ -18,7 +19,7 @@ func readRecords(ctx context.Context, src Source, chain string, after int64,
 			- 'chain_hash' FROM %s t WHERE t.id = l.row_id)`, spec.Table)
 	}
 	sql := fmt.Sprintf(`/* pg_sage siem v1 */ SELECT l.seq, l.row_id, l.op, l.v,
-		l.sealed_hash, l.state, l.prev_hash, l.hash, l.at, l.db_user, l.app, %s
+		l.sealed_hash, l.state, l.prev_hash, l.hash, l.at, l.db_user, l.app, %s, current_user
 		FROM sage.audit_chain_link l WHERE l.chain = $1 AND l.seq > $2
 		ORDER BY l.seq LIMIT $3`, rowExpr)
 	rows, err := src.DB.Query(ctx, sql, chain, after, limit)
@@ -31,7 +32,8 @@ func readRecords(ctx context.Context, src Source, chain string, after int64,
 		r := Record{Source: src.Name, Chain: chain}
 		l := &r.Link
 		if err := rows.Scan(&l.Seq, &l.RowID, &l.Op, &l.V, &l.SealedHash, &l.State,
-			&l.PrevHash, &l.Hash, &l.At, &l.DBUser, &l.App, &r.Row); err != nil {
+			&l.PrevHash, &l.Hash, &l.At, &l.DBUser, &l.App, &r.Row,
+			&r.OwnRole); err != nil {
 			return nil, fmt.Errorf("scan %s link of %s: %w", chain, src.Name, err)
 		}
 		out = append(out, r)
