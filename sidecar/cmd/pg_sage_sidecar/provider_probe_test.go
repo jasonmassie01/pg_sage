@@ -304,3 +304,11 @@ func (q *flakyProbeQuerier) QueryRow(ctx context.Context, sql string, args ...an
 	}
 	return q.next.QueryRow(ctx, sql, args...)
 }
+
+// A YAML fleet starts without a process pool: detectCloudEnv answers
+// unknown (fail closed) without probing.
+func TestDetectCloudEnvWithoutProcessPoolIsUnknown(t *testing.T) {
+	if got := detectCloudEnv(nil); got != providerUnknown {
+		t.Fatalf("detectCloudEnv(nil) = %q, want %q", got, providerUnknown)
+	}
+}

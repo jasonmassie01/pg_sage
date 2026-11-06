@@ -17,8 +17,12 @@ func detectCloudEnvironment() string {
 
 // detectCloudEnv probes a connection pool for managed service
 // indicators. Pass any per-database pool in fleet mode. A probe that keeps
-// erroring reads as unknown, never as self-managed.
+// erroring reads as unknown, never as self-managed. A YAML fleet has no
+// process pool, so nil is unknown without a probe-failure warning.
 func detectCloudEnv(p *pgxpool.Pool) string {
+	if p == nil {
+		return providerUnknown
+	}
 	provider, err := detectCloudEnvContext(context.Background(), p)
 	if err != nil {
 		logWarn("startup", "provider probe failed; provider %s: %v", provider, err)
