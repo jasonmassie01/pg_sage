@@ -141,7 +141,7 @@ func agentHintFinding(p HintProposal, hint string) analyzer.Finding {
 		Detail:           detail,
 		Recommendation:   p.Rationale,
 		RecommendedSQL:   BuildInsertSQL(p.QueryID, hint),
-		RollbackSQL:      BuildDeleteSQL(p.QueryID),
+		RollbackSQL:      BuildDeleteSQL(p.QueryID, hint),
 		ActionRisk:       "safe",
 	}
 }

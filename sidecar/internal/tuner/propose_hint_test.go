@@ -39,7 +39,7 @@ func TestCheckHint_BuildsTheFinding(t *testing.T) {
 	}
 	if f.Category != "query_tuning" || f.ObjectIdentifier != "queryid:4242" ||
 		f.RecommendedSQL != BuildInsertSQL(4242, "IndexScan(orders orders_c_idx)") ||
-		f.RollbackSQL != BuildDeleteSQL(4242) {
+		f.RollbackSQL != BuildDeleteSQL(4242, "IndexScan(orders orders_c_idx)") {
 		t.Fatalf("finding = %+v", f)
 	}
 	if f.Detail["hint_directive"] != "IndexScan(orders orders_c_idx)" ||

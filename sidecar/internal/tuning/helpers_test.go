@@ -307,7 +307,7 @@ func (h *fakeHints) CheckHint(_ context.Context, p tuner.HintProposal) (
 		ObjectType: "query", ObjectIdentifier: fmt.Sprintf("queryid:%d", p.QueryID),
 		Title: "Per-query tuning", Detail: detail, Recommendation: p.Rationale,
 		RecommendedSQL: tuner.BuildInsertSQL(p.QueryID, p.Hint),
-		RollbackSQL:    tuner.BuildDeleteSQL(p.QueryID), ActionRisk: "safe"}, nil
+		RollbackSQL:    tuner.BuildDeleteSQL(p.QueryID, p.Hint), ActionRisk: "safe"}, nil
 }
 
 func (h *fakeHints) RecordHint(_ context.Context, p tuner.HintProposal) error {

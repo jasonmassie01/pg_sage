@@ -174,6 +174,12 @@ func rollbackRegressedAction(
 			"emergency stop active; automatic rollback withheld")
 		return
 	}
+	rollbackSQL, err := scopeHintRollback(ctx, pool, actionID, rollbackSQL)
+	if err != nil {
+		logFn("rollback", "rollback refused for action %d: %v", actionID, err)
+		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", err.Error())
+		return
+	}
 	if cfg.Authorize == nil || !cfg.Authorize(ctx, rollbackSQL) {
 		logFn("rollback", "policy withheld rollback for action %d", actionID)
 		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",

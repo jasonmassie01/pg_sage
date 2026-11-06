@@ -497,7 +497,7 @@ Transitions:
 | `active` | `dormant` | A revalidation pass sees no new calls since the last pass, or the queryid is absent from `pg_stat_statements` (an eviction, or a query that stopped running). |
 | `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
 | `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
-| `active`, `dormant` | `rolled_back` | No hint is installed for the query any more (reconciled at the start of each tuner cycle). |
+| `active`, `dormant` | `rolled_back` | The row for the query no longer holds this hint's text: it was removed, or an operator replaced it with their own hint (reconciled at the start of each tuner cycle). |
 
 Two revalidation outcomes keep the status:
 
@@ -518,3 +518,30 @@ the same statement cannot make the hint look idle. If `pg_stat_statements`
 or `pg_stat_statements_info` cannot be read, the pass counts an error and
 leaves the hint untouched (fail closed). Dormant hints count as covered:
 the tuner does not propose a hint again for their query.
+
+## Rollback and removal touch only pg_sage's own hint
+
+pg_sage's apply INSERT is a no-op when a `hint_plan.hints` row already exists
+for the query (for example an operator's own hint). So every DELETE pg_sage
+builds for `hint_plan.hints` (an action's rollback, and the
+`query_hint_retirement` removal of a `retired` or `broken` hint) matches the
+query id, `application_name = ''` and the exact hint text pg_sage recorded:
+
+```sql
+DELETE FROM hint_plan.hints
+ WHERE query_id = 4242 AND application_name = ''
+   AND hints = $sageqh$HashJoin(o l)$sageqh$
+```
+
+Rolling back an action whose INSERT changed nothing deletes nothing, and the
+operator's row stays. The removal finding is emitted only while the installed
+row still holds the retired hint's text.
+
+Actions recorded by earlier releases carry a rollback DELETE without the
+hint-text predicate. At rollback time (manual or automatic) the executor
+rewrites it to the scoped form, using the text in `sage.query_hints` for that
+query: the text the action's own INSERT installed, or, when the INSERT cannot
+be read, the query's only recorded text. If no single recorded text matches,
+the rollback is refused with reason `hint_text_unknown` (manual: the API
+returns the error; automatic: the action ends `rollback_skipped`). Nothing is
+deleted; remove the row from `hint_plan.hints` by hand if it is pg_sage's.

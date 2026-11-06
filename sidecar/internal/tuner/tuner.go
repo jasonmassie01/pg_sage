@@ -445,7 +445,7 @@ func (t *Tuner) buildFinding(
 		f.RecommendedSQL = BuildInsertSQL(
 			c.QueryID, combinedHint,
 		)
-		f.RollbackSQL = BuildDeleteSQL(c.QueryID)
+		f.RollbackSQL = BuildDeleteSQL(c.QueryID, combinedHint)
 	}
 
 	// Persist to sage.query_hints for the dashboard query-hints page.

@@ -64,13 +64,15 @@ const hintAppliedSQL = `/* pg_sage */ UPDATE sage.query_hints q
                 WHERE h.query_id = q.queryid AND h.application_name = ''
                   AND h.hints = q.hint_text)`
 
-// hintRolledBackSQL marks an active or dormant hint rolled back once no
-// hint is installed for the query any more.
+// hintRolledBackSQL marks an active or dormant hint rolled back once its
+// own text is no longer installed for the query: a row an operator replaced
+// with their own hint no longer carries pg_sage's (tuning-02a).
 const hintRolledBackSQL = `/* pg_sage */ UPDATE sage.query_hints q
    SET status = 'rolled_back', rolled_back_at = now()
  WHERE q.status IN ('active', 'dormant')
    AND NOT EXISTS (SELECT 1 FROM hint_plan.hints h
-                    WHERE h.query_id = q.queryid AND h.application_name = '')`
+                    WHERE h.query_id = q.queryid AND h.application_name = ''
+                      AND h.hints = q.hint_text)`
 
 // reconcileHintStatuses moves query_hints rows to the state hint_plan.hints
 // shows. Without a ready hint table nothing can have been applied.

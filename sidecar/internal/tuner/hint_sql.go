@@ -33,15 +33,50 @@ func BuildInsertSQL(queryID int64, hint string) string {
 	)
 }
 
-// BuildDeleteSQL generates a DELETE for hint_plan.hints.
-// See BuildInsertSQL for the dollar-quoting safety rationale.
-func BuildDeleteSQL(queryID int64) string {
+// BuildDeleteSQL generates a DELETE for hint_plan.hints scoped to
+// pg_sage's own hint text (tuning-02a): the apply INSERT is a no-op when
+// any row exists for the query, so a rollback or removal must never delete
+// a row whose text pg_sage did not install, an operator's own included.
+// See BuildInsertSQL for the dollar-quoting safety rationale; NUL bytes are
+// stripped the same way so the DELETE matches the text the INSERT wrote.
+func BuildDeleteSQL(queryID int64, hint string) string {
+	hint = stripNULs(hint)
+	tag := chooseDollarTag(hint)
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
 			"WHERE query_id = %d "+
-			"AND application_name = ''",
-		queryID,
+			"AND application_name = '' "+
+			"AND hints = %s%s%s",
+		queryID, tag, hint, tag,
 	)
+}
+
+// InsertedHintText returns the hint text an INSERT built by BuildInsertSQL
+// installs for queryID, or false when sql is not such an INSERT.
+func InsertedHintText(sql string, queryID int64) (string, bool) {
+	prefix := fmt.Sprintf("INSERT INTO hint_plan.hints "+
+		"(query_id, application_name, hints) SELECT %d, '', ", queryID)
+	i := strings.Index(sql, prefix)
+	if i < 0 {
+		return "", false
+	}
+	rest := sql[i+len(prefix):]
+	if !strings.HasPrefix(rest, "$") {
+		return "", false
+	}
+	end := strings.IndexByte(rest[1:], '$')
+	if end < 0 {
+		return "", false
+	}
+	tag := rest[:end+2]
+	body := rest[len(tag):]
+	// chooseDollarTag guarantees the tag does not occur in the hint, so its
+	// first occurrence closes the literal.
+	stop := strings.Index(body, tag)
+	if stop < 0 {
+		return "", false
+	}
+	return body[:stop], true
 }
 
 // stripNULs removes NUL bytes, which PostgreSQL rejects in text

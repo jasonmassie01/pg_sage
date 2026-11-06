@@ -279,7 +279,7 @@ func TestRevalidate_FastHintSurvivesPasses(t *testing.T) {
 	if _, err := pool.Exec(ctx, BuildInsertSQL(qid, hint)); err != nil {
 		t.Fatalf("install hint: %v", err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), BuildDeleteSQL(qid)) })
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), BuildDeleteSQL(qid, hint)) })
 
 	for pass := 1; pass <= 3; pass++ {
 		runProbe(t, ctx, pool, revalPassesCols, 2)

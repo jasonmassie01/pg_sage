@@ -896,7 +896,7 @@ func TestFunctional_BuildInsertSQL_InjectionAttempt(t *testing.T) {
 }
 
 func TestFunctional_BuildDeleteSQL_Format(t *testing.T) {
-	sql := BuildDeleteSQL(12345)
+	sql := BuildDeleteSQL(12345, "HashJoin(a b)")
 	if !strings.Contains(sql, "DELETE FROM hint_plan.hints") {
 		t.Errorf("missing DELETE: %s", sql)
 	}

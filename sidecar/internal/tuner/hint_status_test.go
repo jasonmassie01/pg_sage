@@ -131,7 +131,7 @@ func TestReconcileHintStatuses_AppliedThenRolledBack(t *testing.T) {
 	if got := hintStatuses(t, pool); len(got) != 1 || got[0] != "active" {
 		t.Fatalf("installed hint = %v, want [active]", got)
 	}
-	if _, err := pool.Exec(ctx, BuildDeleteSQL(hintStatusQueryID)); err != nil {
+	if _, err := pool.Exec(ctx, BuildDeleteSQL(hintStatusQueryID, hint)); err != nil {
 		t.Fatalf("remove hint: %v", err)
 	}
 	tu.reconcileHintStatuses(ctx)
