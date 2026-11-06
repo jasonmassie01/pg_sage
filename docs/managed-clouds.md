@@ -39,7 +39,7 @@ the rollback and the command, for example:
 
 ```
 aws rds modify-db-parameter-group --region us-east-1 --db-parameter-group-name orders-pg16 \
-  --parameters "ParameterName=shared_buffers,ParameterValue=524288,ApplyMethod=pending-reboot"
+  --parameters '[{"ParameterName":"shared_buffers","ParameterValue":"524288","ApplyMethod":"pending-reboot"}]'
 aws rds reboot-db-instance --region us-east-1 --db-instance-identifier orders
 ```
 
@@ -47,6 +47,32 @@ pg_sage never applies these changes in this release. Approve one when you will r
 marks it applied once PostgreSQL runs the new value. A default parameter group (`default.*`)
 cannot be modified, and a Cloud SQL `--database-flags` command replaces the whole flag list:
 the proposal says so and carries the current flags.
+
+### Command and blocker rules
+
+The commands are written for a POSIX shell (bash, zsh, Cloud Shell). pg_sage validates every
+part before it builds one:
+
+- The parameter name, the proposed value and the group, region, project and instance names
+  must match strict patterns; anything else is refused and no proposal is made.
+- Values read back from the provider (the current Cloud SQL flags, the current RDS value used
+  by a rollback) are always single-quoted. They may hold letters, digits and
+  `. _ + - , / : @ | ~ % { } *`, up to 256 characters. A value with whitespace, a quote, a
+  backslash, `$`, `;`, a backtick or a control character, or a flag name that is not a valid
+  parameter name, gives a blocker naming the setting and a `#` comment line in place of the
+  command. Make that change in the console instead.
+- RDS and Aurora `--parameters` is always the JSON form, so list values such as
+  `pg_stat_statements,pg_hint_plan` stay one value.
+- A Cloud SQL flag value with a comma (for example `pgaudit.log=read,write`) switches the flag
+  list to gcloud's alternate delimiter syntax, `--database-flags='^@^pgaudit.log=read,write@work_mem=65536'`
+  (see `gcloud topic escaping`). The delimiter is the first of `@ : | ~` that no value
+  contains; when every one occurs, the proposal is blocked.
+- When the current Cloud SQL flags are unknown, both the command and the rollback are `#
+  fill in:` templates that name the `gcloud sql instances describe` call to run first.
+  `--clear-database-flags` appears only in the rollback of an instance known to have had no
+  flags.
+- A proposal with any blocker cannot be approved on the Actions page (the button says why); it
+  can still be rejected. Open proposals get rebuilt commands on the worker's next cycle.
 
 ## Identity and credentials
 

@@ -31,6 +31,13 @@ var (
 	// intentValuePattern bounds what may reach a CLI command line: no
 	// spaces, quotes, separators or shell metacharacters.
 	intentValuePattern = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,32}$`)
+	// providerValuePattern bounds a value read from a provider API (a
+	// current Cloud SQL flag or RDS parameter) that a command or rollback
+	// carries: printable ASCII without whitespace, quotes, backslash or the
+	// shell's expansion and control characters, at most 256 characters.
+	// Commas and the gcloud alternate delimiters (@ : | ~) are allowed
+	// because the builders escape them.
+	providerValuePattern = regexp.MustCompile(`^[A-Za-z0-9._+,/:@|~%{}*-]{0,256}$`)
 )
 
 // Intent is what a producer (the configuration advisor or the tuning
