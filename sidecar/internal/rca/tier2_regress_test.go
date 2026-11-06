@@ -269,6 +269,9 @@ func TestTier2_DedupBeforeCallingLLMAgain(t *testing.T) {
 func TestTier2_ChainStepsNotAttributedByIndex(t *testing.T) {
 	resp := validTier2Response()
 	resp.CausalChain = "A -> B -> C"
+	// No SQL: withheld model SQL adds its own chain note (security-05),
+	// which is not what this test counts.
+	resp.RecommendedSQL = nil
 	srv := newCapturingLLMServer(tier2JSON(t, resp))
 	defer srv.srv.Close()
 
