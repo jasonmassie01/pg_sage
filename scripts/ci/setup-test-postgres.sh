@@ -35,7 +35,8 @@ docker exec -e DEBIAN_FRONTEND=noninteractive "$container" sh -c \
    postgresql-${major}-hypopg postgresql-${major}-pg-hint-plan >/dev/null"
 psql_admin \
   -c "ALTER SYSTEM SET shared_preload_libraries = pg_stat_statements, pg_hint_plan" \
-  -c "ALTER SYSTEM SET wal_level = logical"
+  -c "ALTER SYSTEM SET wal_level = logical" \
+  -c "ALTER SYSTEM SET max_prepared_transactions = 10"
 restart_and_wait
 psql_admin -c "ALTER SYSTEM SET pg_stat_statements.max = 50000"
 restart_and_wait

@@ -73,6 +73,7 @@
 | `analyzer.slow_query_threshold_ms` | `restart` | `-` | `derivable` |
 | `analyzer.slow_slot_retained_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_dead_tuple_pct` | `restart` | `-` | `derivable` |
+| `analyzer.table_bloat_min_bytes` | `restart` | `-` | `derivable` |
 | `analyzer.table_bloat_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.unused_index_window_days` | `restart` | `-` | `derivable` |
 | `analyzer.work_mem_promotion_threshold` | `restart` | `-` | `derivable` |

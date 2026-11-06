@@ -33,6 +33,8 @@ func (r adapterRow) Scan(dest ...any) error {
 			*target = value.(int64)
 		case *float64:
 			*target = value.(float64)
+		case **float64:
+			*target = value.(*float64)
 		}
 	}
 	return nil
@@ -125,12 +127,16 @@ var knownRates = freezeRateSample{xid: 1, mxid: 1, known: true}
 
 func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
-	blocker := &freeze.XminBlocker{PID: 42, XminAge: 900, User: "app"}
+	// vacuum-02: a red table at 160M with a 30-XID session is frozen; the
+	// session cannot pin it (before, the session was canceled instead).
+	holders := []freeze.XminBlocker{{Kind: freeze.HolderSession, PID: 42, XminAge: 30,
+		User: "app", State: "active"}}
 	red, err := custodian.scanResponseRow(adapterRow{values: []any{
-		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.1,
-	}}, knownRates, blocker, false)
-	if err != nil || red.Feature != "freeze_blocker" || red.Evidence["pid"] != 42 {
-		t.Fatalf("blocker proposal=%#v err=%v", red, err)
+		"public", "orders", int64(160_000_000), int64(200_000_000), int64(1), int64(100), 0.1,
+	}}, knownRates, holders, false)
+	if err != nil || red.Feature != "freeze" ||
+		red.SQL != `VACUUM (FREEZE) "public"."orders"` || red.Evidence["xmin_holder"] != nil {
+		t.Fatalf("red proposal with a young holder=%#v err=%v", red, err)
 	}
 	amber, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(60), int64(100), int64(1), int64(100), 0.25,
@@ -138,10 +144,21 @@ func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
 	if err != nil || amber.Feature != "autovacuum_tuning" || amber.SQL == "" {
 		t.Fatalf("autovacuum proposal=%#v err=%v", amber, err)
 	}
-	bloat, err := custodian.scanResponseRow(adapterRow{values: []any{
+	// vacuum-04: a 0.6 dead-tuple ratio is not bloat (the analyzer's
+	// VACUUM owns it); only the catalog estimate on a table at the size
+	// floor plans a rebuild, typed by its response kind.
+	dead, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(1), int64(100), int64(1), int64(100), 0.6,
 	}}, knownRates, nil, true)
-	if err != nil || bloat.Plan == "" || bloat.SQL != "" {
+	if err != nil || dead.Plan != "" || dead.SQL != "" || dead.ResponseKind != "" {
+		t.Fatalf("dead-tuple ratio became a bloat plan=%#v err=%v", dead, err)
+	}
+	pages := int64(1)<<30/8192 + 1
+	bloat, err := custodian.scanResponseRow(horizonValues("orders", 0.6, 7, pages,
+		pagesPtr(float64(pages)/4)), knownRates, nil, true)
+	if err != nil || bloat.Plan == "" || bloat.SQL != "" ||
+		bloat.ResponseKind != string(freeze.ResponsePlanRepack) ||
+		bloat.Feature != "bloat_remediation" || bloat.Evidence["plan"] != bloat.Plan {
 		t.Fatalf("bloat proposal=%#v err=%v", bloat, err)
 	}
 	if strings.Contains(strings.ToUpper(bloat.Plan), "VACUUM FULL") {

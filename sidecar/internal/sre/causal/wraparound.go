@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -24,9 +25,10 @@ const (
 	// warning limit that counts as near.
 	WraparoundNearHorizon = 14 * 24 * time.Hour
 	// pinShare: a holder whose xmin age is at least this share of the
-	// table's XID age pins the table; under refuteShare it cannot.
-	pinShare    = 0.5
-	refuteShare = 0.1
+	// table's XID age pins the table; under refuteShare it cannot. The
+	// freeze custodian owns the shares, so both decide alike.
+	pinShare    = freeze.PinShare
+	refuteShare = freeze.RefuteShare
 	// An XID rate between samples at least xidSurgeRatio times its trend
 	// (and at least xidSurgeFloor per second) is a surge; within
 	// xidCalmRatio it is not.

@@ -32,7 +32,11 @@ func TestAutonomyRuntimeRouterPreservesStandingAuthority(t *testing.T) {
 		t.Fatalf("verified route bypassed standing gate: calls=%d err=%v", gate.calls, err)
 	}
 	proposal.SQL = ""
-	if err := router.Route(ctx, proposal); err != nil || gate.calls != 3 || gate.request.SQL != "" {
+	// vacuum-04: the recorder answers policy_unavailable, which the
+	// observation route now reports instead of swallowing.
+	err = router.Route(ctx, proposal)
+	if !errors.Is(err, errCustodianPolicyUnavailable) || gate.calls != 3 ||
+		gate.request.SQL != "" {
 		t.Fatalf("observation route did not record policy evaluation: calls=%d err=%v", gate.calls, err)
 	}
 }

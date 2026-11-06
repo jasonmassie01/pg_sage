@@ -419,6 +419,12 @@
     "doc": "Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding.",
     "class": "derivable"
   },
+  "analyzer.table_bloat_min_bytes": {
+    "type": "int64",
+    "default": 1073741824,
+    "doc": "Minimum heap size in bytes before the freeze custodian plans an online bloat rebuild from the catalog bloat estimate. 0 uses the default. Default: 1073741824 (1 GiB).",
+    "class": "derivable"
+  },
   "analyzer.table_bloat_min_rows": {
     "type": "int",
     "default": 1000,

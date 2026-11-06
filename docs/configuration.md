@@ -297,6 +297,7 @@ briefing:
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
+| `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
 | `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
 | `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
@@ -721,6 +722,38 @@ The default `unattended` policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
+
+#### Freeze custodian: what holds the xmin horizon
+
+A table is red when its remaining XID runway is under
+`custodian.freeze.red_buffer_pct` (default 25%) of `autovacuum_freeze_max_age`.
+Each scan reads the database's xmin-horizon holders once (at most 20, oldest
+first): client sessions by snapshot (`backend_xmin`) or by XID (`backend_xid`,
+so an idle-in-transaction writer is found), standbys' `hot_standby_feedback`,
+prepared transactions (named by the md5 of their gid), and replication slots
+by `xmin`, or by `catalog_xmin` for catalog tables (`user_catalog_table`) only.
+A backend running a lazy `VACUUM` is not a holder: it shows a `backend_xmin`,
+but that snapshot holds back no horizon.
+
+- A holder pins a red table when its age is at least half the table's XID age.
+  A younger holder is ignored and the table is frozen.
+- A pinned table is still frozen while the holder is younger than 0.9 of its
+  age: `VACUUM (FREEZE)` advances `relfrozenxid` up to the holder's horizon. At
+  0.9 or more, freezing cannot lower the urgency and no `VACUUM` runs.
+- Each pinning holder gets one `freeze_blocker` proposal per scan, listing every
+  table it pins. A client session is canceled (terminated when idle in a
+  transaction); like every backend signal, it always waits for an operator's
+  approval. Sessions of `pg_dump`, `pg_basebackup`, `pg_restore` and pg_sage are
+  never signalled.
+- A prepared transaction, a slot, a standby's feedback or a protected session
+  becomes a parked escalation plan at risk tier `high` (`diagnose_freeze_blockers`).
+  It names the holder. pg_sage never runs `ROLLBACK PREPARED` and never drops a slot.
+- A blocker counts as cleared once its PID is gone, its backend was restarted,
+  or it holds neither a snapshot nor an XID.
+
+Managed providers may hide slot detail. A holder whose age is unknown pins nothing,
+so it is never read as proof that no holder exists. There is no configuration
+for this logic.
 
 The standing policy document also carries three safety fields, all enforced:
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/ledger"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // executorProposalRouter hands custodian proposals to the executor. Every
@@ -36,7 +38,7 @@ func (r executorProposalRouter) Route(
 	ctx context.Context, proposal autonomy.Proposal,
 ) error {
 	candidate := executor.CustodianProposal{
-		Feature: proposal.Feature, SQL: proposal.SQL,
+		Feature: proposal.Feature, SQL: proposal.SQL, ResponseKind: proposal.ResponseKind,
 		TargetObjects: append([]string(nil), proposal.TargetObjects...),
 		Deadline:      proposal.Deadline,
 		Evidence:      proposal.Evidence,
@@ -45,10 +47,31 @@ func (r executorProposalRouter) Route(
 		ObservedAt: time.Now(),
 	}
 	if strings.TrimSpace(proposal.SQL) == "" {
-		r.executor.EvaluateCustodianProposal(ctx, candidate)
-		return nil
+		return observedPolicyError(candidate,
+			r.executor.EvaluateCustodianProposal(ctx, candidate))
 	}
 	return r.parked(proposal.TargetObjects, r.executor.SubmitCustodianProposal(ctx, candidate))
+}
+
+// errCustodianPolicyUnavailable: the standing gate could not evaluate (or
+// record) a plan-only proposal, so no decision exists for it.
+var errCustodianPolicyUnavailable = errors.New(
+	"custodian proposal not evaluated: standing policy unavailable")
+
+// observedPolicyError reports a plan-only evaluation that produced no
+// recorded decision (policy_unavailable, or no standing gate at all), so
+// the autonomy loop logs it instead of losing the proposal silently.
+func observedPolicyError(
+	candidate executor.CustodianProposal, decision executor.ActionPolicyDecision,
+) error {
+	if decision.Decision != executor.PolicyDecisionBlocked ||
+		(decision.BlockedReason != string(policy.ReasonPolicyUnavailable) &&
+			decision.BlockedReason != executor.StandingGateUnavailable) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s %s on %s: %s", errCustodianPolicyUnavailable,
+		candidate.Feature, candidate.ResponseKind,
+		strings.Join(candidate.TargetObjects, ","), decision.Detail)
 }
 
 func (r executorProposalRouter) RouteVerifiedIndex(
@@ -136,7 +159,7 @@ func newDatabaseAutonomy(
 	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{{
 		Database: database, Interval: autonomyInterval(cfg),
 		DDLDebounce: autonomyDDLDebounce(cfg),
-		Freeze: freezeWorker, WAL: walWorker, Schema: schemaGuard,
+		Freeze:      freezeWorker, WAL: walWorker, Schema: schemaGuard,
 		Router:  router,
 		Auditor: auditor, Reporter: autonomyLogReporter{},
 	}})

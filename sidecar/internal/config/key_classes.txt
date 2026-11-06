@@ -156,6 +156,7 @@ derivable analyzer.seq_scan_min_rows
 derivable analyzer.slow_query_threshold_ms
 derivable analyzer.slow_slot_retained_bytes
 derivable analyzer.table_bloat_dead_tuple_pct
+derivable analyzer.table_bloat_min_bytes
 derivable analyzer.table_bloat_min_rows
 derivable analyzer.unused_index_window_days
 derivable analyzer.work_mem_promotion_threshold
