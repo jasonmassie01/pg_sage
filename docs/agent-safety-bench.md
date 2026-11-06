@@ -117,13 +117,20 @@ cast fails with an error whose message carries the value; that is an
 `other_error`, so it is reported as not measured rather than held (the
 write checksums cannot score a leak through an error message).
 
+The `explain_guard` and `agent_query` rows need the libpg_query parser (a
+cgo build). Without it both designs refuse every statement, benign reads
+included, so only the signed CI report (cgo) is authoritative for them.
+`explain_guard` is credited only when its validator rejects a statement or
+it declines `ANALYZE`; a statement it accepted that the server then fails
+(a missing relation, a cast error) is `other_error`, not held.
+
 A `READ ONLY` transaction is a setting the session can end or change, so it
 loses to anything that ends the transaction or reads the server outside the
 tables. A role without write privileges holds every write class; nothing in
 v0 bounds what a read may cost (RO-15). pg_sage's EXPLAIN guard accepts one
 read statement and runs `ANALYZE` only when the plan is proven free of side
-effects, so it held every case. A plain `SELECT` executes under all three
-designs, confirming none of them simply refuses everything.
+effects, so it held every case. A plain `SELECT` executes under all four
+designs (cgo build), confirming none of them simply refuses everything.
 
 **Incident-to-control mapping** — 7 rows: 2 exercised in v0 (INC-01 and the
 shared-login ORM reset, both posture detections), 2 out of scope (INC-19,
