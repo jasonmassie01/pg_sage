@@ -3,6 +3,7 @@ package managedparam
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -78,5 +79,48 @@ func TestNormalizeProvider(t *testing.T) {
 		if Supported(in) != (want != "") {
 			t.Errorf("Supported(%q) = %t", in, Supported(in))
 		}
+	}
+}
+
+// No concurrent access tests: intentRefusal is a pure function.
+func TestIntentRefusal(t *testing.T) {
+	ok := func(param string) Intent { return Intent{Provider: "rds", Parameter: param} }
+	cases := []struct {
+		category, parameter string
+		refused             bool
+	}{
+		{"memory_tuning", "shared_buffers", false},
+		{"vacuum_tuning", "autovacuum_naptime", false},
+		{"wal_tuning", "max_wal_size", false},
+		{"connection_tuning", "max_connections", false},
+		{"query_rewrite", "work_mem", true},
+		{"bloat_remediation", "work_mem", true},
+		{"", "work_mem", true},
+		{"Memory_Tuning", "work_mem", true},
+		{"memory_tuning", "rds.force_ssl", true},
+		{"memory_tuning", "wal_level", true},
+		{"memory_tuning", "", true},
+	}
+	for _, tc := range cases {
+		why := intentRefusal(tc.category, ok(tc.parameter))
+		if (why != "") != tc.refused {
+			t.Errorf("%s/%s: refusal %q, want refused=%t", tc.category, tc.parameter,
+				why, tc.refused)
+		}
+		if tc.refused && !strings.Contains(why, tc.category) &&
+			!strings.Contains(why, tc.parameter) {
+			t.Errorf("%s/%s: refusal %q names neither", tc.category, tc.parameter, why)
+		}
+	}
+}
+
+func TestProducerCategoriesIsACopy(t *testing.T) {
+	a := ProducerCategories()
+	if len(a) != 4 {
+		t.Fatalf("producers = %v, want the four config categories", a)
+	}
+	a[0] = "query_rewrite"
+	if intentRefusal("query_rewrite", Intent{Parameter: "work_mem"}) == "" {
+		t.Fatal("mutating the returned slice changed the producer list")
 	}
 }
