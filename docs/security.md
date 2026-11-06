@@ -477,6 +477,52 @@ API requests are logged for audit purposes.
 
 Both tables are subject to retention policies (configurable via `retention.actions_days`).
 
+### Tamper-Evident Chains and SIEM Export
+
+Each audit table (`action_log`, `auth_audit`, `config_audit`,
+`guard_query_audit`, `guard_pgaudit_events`) is hash-chained: every write
+appends a link to `sage.audit_chain_link`, and every inserted row carries
+its own link. `GET /api/v1/audit/verify?database=<name>` (admin) checks a
+chain; the scheduled verification (`audit.verify_interval_hours`) raises a
+critical `audit_chain_broken` finding on `audit_trail:<chain>` when one
+fails. A full verification reports, among others, `gap`, `hash_mismatch`,
+`row_missing`, `unchained_row` and `orphan_row`: a row whose own link is no
+longer in the chain, which is what deleting the newest links, or every
+link of a chain, leaves behind.
+
+SIEM export (`audit.siem.sinks`) ships every link, with its hash, as an
+OCSF event. That copy is the defence against someone who rewrites a whole
+chain, and against a chain that goes back because the database was
+restored from a backup or PITR. Each sink keeps a cursor per source and
+chain on the control database: the position and hash of the last link it
+exported. Before each pass the exporter checks that the link at the
+cursor still has that hash.
+
+- **regressed**: the link is missing, or another link now holds its
+  position (new writes after a restore reuse the positions the SIEM
+  already has). Export of that chain to that sink stops; nothing is
+  skipped. `GET /api/v1/audit/siem` shows the sink with
+  `"status": "regressed"` and a `regressions` entry naming the source,
+  chain and position, and the scheduled verification raises a critical
+  `audit_chain_regressed` finding on `audit_trail:<chain>`. Other chains
+  and other sinks keep exporting. A cursor saved before pg_sage kept
+  hashes is checked for existence only, then gets its hash.
+- **reanchor**: after comparing the SIEM's copy with the database, an
+  admin resumes export with
+  `POST /api/v1/audit/siem/{sink}/reanchor` and a body
+  `{"source": "<database or control>", "chain": "<chain>", "from_seq": N}`
+  (`from_seq` defaults to 1, the whole chain). Export resumes at `N`; the
+  re-exported events over positions the SIEM already holds carry
+  `metadata.labels: ["fork"]`. The re-anchor runs on the export leader
+  only (409 elsewhere), is recorded in `sage.auth_audit` as
+  `siem_reanchored`, and refuses a `from_seq` that would skip links never
+  exported. It is never automatic. The finding resolves at the next
+  verification once every cursor is anchored again.
+
+A cursor that goes back because the control database itself was restored
+is not a regression: the link it names is still there, so export simply
+re-sends what follows (delivery is at least once).
+
 ---
 
 ## Production Checklist
