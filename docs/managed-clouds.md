@@ -57,18 +57,20 @@ part before it builds one:
   must match strict patterns; anything else is refused and no proposal is made.
 - Values read back from the provider (the current Cloud SQL flags, the current RDS value used
   by a rollback) are always single-quoted. They may hold letters, digits and
-  `. _ + - , / : @ | ~ % { } *`, up to 256 characters. A value with whitespace, a quote, a
-  backslash, `$`, `;`, a backtick or a control character, or a flag name that is not a valid
-  parameter name, gives a blocker naming the setting and a `#` comment line in place of the
-  command. Make that change in the console instead.
+  `. _ + - , / : @ | ~ % { } *`, up to 256 characters. Any other character (whitespace, a
+  quote, a backslash, `=`, `$`, `;`, a backtick, a control character and so on), or a flag
+  name that is not a valid parameter name, gives a blocker naming the setting. For Cloud SQL
+  both the command and the rollback become `#` comment lines, since each carries the whole
+  flag list; for RDS and Aurora only the rollback does. Make that change in the console
+  instead. A flag such as `log_line_prefix` with a space in its value blocks by design.
 - RDS and Aurora `--parameters` is always the JSON form, so list values such as
   `pg_stat_statements,pg_hint_plan` stay one value.
 - A Cloud SQL flag value with a comma (for example `pgaudit.log=read,write`) switches the flag
-  list to gcloud's alternate delimiter syntax, `--database-flags='^@^pgaudit.log=read,write@work_mem=65536'`
-  (see `gcloud topic escaping`). The delimiter is the first of `@ : | ~` that no value
-  contains; when every one occurs, the proposal is blocked.
-- When the current Cloud SQL flags are unknown, both the command and the rollback are `#
-  fill in:` templates that name the `gcloud sql instances describe` call to run first.
+  list to gcloud's alternate delimiter syntax (see `gcloud topic escaping`):
+  `--database-flags='^@^pgaudit.log=read,write@work_mem=65536'`. The delimiter is the first
+  of `@ : | ~` that no value contains; when every one occurs, the proposal is blocked.
+- When the current Cloud SQL flags are unknown, both the command and the rollback are
+  `# fill in:` templates that name the `gcloud sql instances describe` call to run first.
   `--clear-database-flags` appears only in the rollback of an instance known to have had no
   flags.
 - A proposal with any blocker cannot be approved on the Actions page (the button says why); it
