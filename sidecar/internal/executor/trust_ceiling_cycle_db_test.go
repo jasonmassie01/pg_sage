@@ -12,6 +12,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // config-01: RunCycle's apply path reads the live rollback cooldown. The
@@ -31,7 +32,11 @@ func TestTrustCeilingRaisedCooldownHoldsFindingInRunCycleOnPostgres(t *testing.T
 		logs = append(logs, fmt.Sprintf(msg, args...))
 	}
 	e := New(pool, cfg, time.Now().Add(-40*24*time.Hour), logFn)
-	withTestStandingGate(e)
+	// The gate is pinned to execute: the cooldown check runs after it, and
+	// the shared test database's ledger and budget must not stop the cycle
+	// first. The gate's ceiling refusals have their own tests.
+	e.WithEmergencyStopCheck(func(context.Context) bool { return false })
+	e.WithPolicyGate(typedTestGate{policy.Decision{Verdict: policy.VerdictExecute}})
 	raised := ceilingFromTrust(cfg.Trust)
 	raised.RollbackCooldownDays = 7
 	e.SetTrustCeiling(&raised)
