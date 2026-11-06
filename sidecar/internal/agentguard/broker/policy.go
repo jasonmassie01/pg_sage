@@ -127,11 +127,12 @@ func decideColumn(env envbind.Env, c classify.Class, unmasked bool) columnAction
 	return actDeny
 }
 
-// maskedRefRefusal refuses a statement that references a masked column
-// outside the bare output (a filter, a cast, a function argument), or a
-// name that is no column of the referenced relations (a whole-row
-// reference): either could reveal the masked value through a predicate or
-// an error message. known holds every column name of those relations.
+// maskedRefRefusal refuses a statement that references a masked (or
+// denied) column outside the bare output (a filter, a cast, a function
+// argument), or a name that is no column of the referenced relations (a
+// whole-row reference): either could reveal the withheld value through a
+// predicate or an error message. known holds every column name of those
+// relations.
 func maskedRefRefusal(masked, known map[string]bool, other []string) string {
 	if len(masked) == 0 {
 		return ""
@@ -147,7 +148,8 @@ func maskedRefRefusal(masked, known map[string]bool, other []string) string {
 	}
 	sort.Strings(bad)
 	return "the query uses " + strings.Join(bad, ", ") + " outside its output while a " +
-		"masked column is in scope; select masked columns only as plain output"
+		"masked or denied column is in scope; select masked columns only as plain " +
+		"output"
 }
 
 // blocked is a refusal result.
