@@ -36,6 +36,12 @@ pg_sage roles. Other local accounts require a reviewed identity migration;
 matching an email does not automatically link them. Visiting first does not
 grant administration.
 
+The binary fails closed on its own as well as through `launch.py`: when
+`DATABRICKS_APP_PORT` is set and `SAGE_AUTH_MODE` is not `databricks_app`
+(unset, `session` or anything else), pg_sage exits 1 at startup with an error
+naming `SAGE_AUTH_MODE=databricks_app`, and it never generates or prints a local
+admin password inside Apps. There is no override.
+
 An optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` audience gate restricts
 protected access to a comma-separated list of exact email domains. Matching is
 case-insensitive; subdomains need their own entry, and suffixes/wildcards are

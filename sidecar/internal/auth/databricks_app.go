@@ -13,9 +13,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/appmode"
 )
 
-const DatabricksAppMode = "databricks_app"
+const DatabricksAppMode = appmode.AuthMode
 
 // ErrDatabricksAppAudienceDenied distinguishes an audience refusal from an
 // unavailable account store, without querying or provisioning that identity.
@@ -33,9 +34,13 @@ type DatabricksAppConfig struct {
 	AllowedEmailDomains []string
 }
 
-// LoadDatabricksAppConfigFromEnv returns nil for ordinary session auth.
-// Selecting proxy identity outside the declared Apps runtime fails closed.
+// LoadDatabricksAppConfigFromEnv returns nil for ordinary session auth outside
+// Databricks Apps. Selecting proxy identity outside the declared Apps runtime,
+// or running inside it without App auth mode, fails closed.
 func LoadDatabricksAppConfigFromEnv(getenv func(string) string) (*DatabricksAppConfig, error) {
+	if err := appmode.Required(getenv); err != nil {
+		return nil, err
+	}
 	mode := getenv("SAGE_AUTH_MODE")
 	if mode == "" || mode == "session" {
 		return nil, nil

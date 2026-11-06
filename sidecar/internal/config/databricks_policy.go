@@ -5,11 +5,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/appmode"
 )
 
 // DatabricksAppMode is a process boundary, not a user-editable config key.
 func DatabricksAppMode() bool {
-	return os.Getenv("SAGE_AUTH_MODE") == "databricks_app" || os.Getenv("DATABRICKS_APP_PORT") != ""
+	return appmode.InApps(os.Getenv)
 }
 
 // ValidateDatabricksApp rejects routing/credential downgrades in snapshots,

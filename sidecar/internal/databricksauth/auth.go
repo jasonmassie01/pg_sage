@@ -14,6 +14,7 @@ import (
 	databricks "github.com/databricks/databricks-sdk-go"
 	sdkconfig "github.com/databricks/databricks-sdk-go/config"
 	"github.com/databricks/databricks-sdk-go/service/sql"
+	"github.com/pg-sage/sidecar/internal/appmode"
 )
 
 var workspaceOnce sync.Once
@@ -32,8 +33,9 @@ type AuthMetadata struct {
 	RestartRequiredForChanges bool   `json:"restart_required_for_changes"`
 }
 
+// AppMode reports whether the process runs inside Databricks Apps.
 func AppMode() bool {
-	return os.Getenv("SAGE_AUTH_MODE") == "databricks_app" || os.Getenv("DATABRICKS_APP_PORT") != ""
+	return appmode.InApps(os.Getenv)
 }
 
 func appSDKConfig(getenv func(string) string) (*sdkconfig.Config, error) {
