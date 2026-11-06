@@ -218,6 +218,28 @@ func TestFunctional_Validate_SortDirectionStripped(t *testing.T) {
 	}
 }
 
+// indexes-01: only a uniform reversal is a duplicate. (customer_id,
+// created_at DESC) orders differently from (customer_id, created_at) on
+// its second key, so a backward scan of either cannot serve the other.
+func TestFunctional_Validate_MixedOrderIsNotADuplicate(t *testing.T) {
+	v := fnNewTestValidator(fnTestOptimizerConfig())
+	tc := sampleTableContext()
+	tc.Indexes = append(tc.Indexes, IndexInfo{Name: "orders_customer_created",
+		Definition: "CREATE INDEX orders_customer_created ON public.orders " +
+			"USING btree (customer_id, created_at)", IsValid: true})
+	rec := Recommendation{IndexType: "btree", DDL: "CREATE INDEX CONCURRENTLY " +
+		"idx_customer_created_desc ON orders (customer_id, created_at DESC)"}
+	if ok, reason := v.checkDuplicate(rec, tc); !ok {
+		t.Fatalf("mixed order rejected: %s", reason)
+	}
+	rec.DDL = "CREATE INDEX CONCURRENTLY idx_customer_created_rev ON orders " +
+		"(customer_id DESC, created_at DESC)"
+	ok, reason := v.checkDuplicate(rec, tc)
+	if ok || !strings.Contains(reason, "duplicate") {
+		t.Fatalf("uniform reversal: ok=%v reason %q, want a duplicate", ok, reason)
+	}
+}
+
 func TestFunctional_Validate_WriteHeavyRejection(t *testing.T) {
 	cfg := fnTestOptimizerConfig()
 	cfg.WriteHeavyRatioPct = 70

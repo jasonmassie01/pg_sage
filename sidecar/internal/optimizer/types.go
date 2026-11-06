@@ -58,6 +58,10 @@ type TableContext struct {
 	PartitionChildren []string
 	NestedPartitions  bool
 	WriteRateKnown    bool // true when the table had recorded scan/write activity
+	// KeyDefaults are each column's default collation and operator classes
+	// (nil when the catalog was not read): the duplicate check drops an
+	// explicit default before comparing with pg_get_indexdef.
+	KeyDefaults map[string]KeyDefault
 }
 
 // ColumnInfo describes a table column.

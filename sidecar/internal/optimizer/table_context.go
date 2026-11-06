@@ -67,8 +67,9 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 	return tc
 }
 
-// readCatalog adds the table's columns, column statistics and the
-// database collation; without a database the context keeps none.
+// readCatalog adds the table's columns, their key defaults, column
+// statistics and the database collation; without a database the context
+// keeps none.
 func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries []QueryInfo) {
 	if o.pool == nil {
 		return
@@ -80,6 +81,12 @@ func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries [
 	}
 	tc.Collation = collation
 	tc.Columns = fetchColumns(ctx, reader, tc.Schema, tc.Table)
+	defaults, err := fetchKeyDefaults(ctx, reader, tc.Schema, tc.Table)
+	if err != nil {
+		o.logFn("optimizer", "%v; explicit default opclasses and collations will not "+
+			"match omitted ones", err)
+	}
+	tc.KeyDefaults = defaults
 	tc.ColStats = fetchColStats(ctx, reader, tc.Schema, tc.Table, queries)
 }
 

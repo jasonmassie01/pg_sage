@@ -65,12 +65,14 @@ func TestTableContext_SlowCatalogReadsDegrade(t *testing.T) {
 		t.Fatalf("context under slow reads = %+v (%v, %v), want the table without details",
 			got, ok, err)
 	}
-	if got.Columns != nil || got.ColStats != nil || got.Collation != "" {
+	if got.Columns != nil || got.ColStats != nil || got.Collation != "" ||
+		got.KeyDefaults != nil {
 		t.Fatalf("timed-out reads produced data: %+v", got)
 	}
-	if calls.Load() != 3 {
-		t.Fatalf("%d reads went through the bounded helper, want 3 (collation, "+
-			"columns, stats)", calls.Load())
+	// indexes-01 added the fourth read: the columns' key defaults.
+	if calls.Load() != 4 {
+		t.Fatalf("%d reads went through the bounded helper, want 4 (collation, "+
+			"columns, key defaults, stats)", calls.Load())
 	}
 	if el := time.Since(start); el > 3*time.Second {
 		t.Fatalf("context build under slow reads took %s", el)

@@ -104,15 +104,18 @@ func anyExists(refs []string, existing map[string]bool) bool {
 }
 
 // checkDuplicate rejects a recommendation whose shape — method, key
-// columns/expressions, INCLUDE set and predicate — equals a valid
-// existing index, or that a valid existing index covers (coveredBy).
+// columns/expressions with their opclass, collation and order, INCLUDE
+// set and predicate — equals a valid existing index, or that a valid
+// existing index covers (coveredBy). The table's column defaults
+// normalize both sides first: pg_get_indexdef omits a default opclass and
+// a collation equal to the column's, while the model may spell them out.
 // Invalid indexes (a failed CONCURRENTLY build) are not
 // duplicates of anything.
 func (v *Validator) checkDuplicate(
 	rec Recommendation,
 	tc TableContext,
 ) (bool, string) {
-	want, ok := shapeOf(rec.DDL)
+	want, ok := shapeOf(rec.DDL, tc.KeyDefaults)
 	if !ok {
 		return true, ""
 	}
@@ -120,10 +123,10 @@ func (v *Validator) checkDuplicate(
 		if !idx.IsValid {
 			continue
 		}
-		if have, ok := shapeOf(idx.Definition); ok && have == want {
+		if have, ok := shapeOf(idx.Definition, tc.KeyDefaults); ok && have == want {
 			return false, "duplicate of existing index " + idx.Name
 		}
-		if CoveredBy(rec.DDL, idx.Definition) {
+		if covers(idx.Definition, rec.DDL, false, tc.KeyDefaults) {
 			return false, "covered by existing index " + idx.Name
 		}
 	}
@@ -300,8 +303,10 @@ type indexShape struct {
 // shapeOf parses an index DDL or pg_get_indexdef definition into its
 // comparable shape: casts and grouping parentheses are dropped so the
 // catalog form "lower((email)::text)" equals "lower(email)" and
-// "WHERE (status = 'open'::text)" equals "WHERE status = 'open'".
-func shapeOf(ddl string) (indexShape, bool) {
+// "WHERE (status = 'open'::text)" equals "WHERE status = 'open'". Keys
+// keep their opclass, collation and (btree) order; defaults drop the
+// spellings that equal a column's defaults.
+func shapeOf(ddl string, defaults map[string]KeyDefault) (indexShape, bool) {
 	spec, err := ParseIndexDDL(ddl)
 	if err != nil {
 		return indexShape{}, false
@@ -310,21 +315,11 @@ func shapeOf(ddl string) (indexShape, bool) {
 	if !ok {
 		return indexShape{}, false
 	}
-	inc := keyShapes(include)
+	inc := keyBases(include)
 	sort.Strings(inc)
-	return indexShape{method: spec.Method, keys: strings.Join(keyShapes(keys), ","),
+	return indexShape{method: spec.Method,
+		keys:    strings.Join(shapeKeys(keys, spec.Method, defaults), ","),
 		include: strings.Join(inc, ","), where: canonicalShape(spec.Where)}, true
-}
-
-func keyShapes(keys []indexKey) []string {
-	out := make([]string, len(keys))
-	for i, k := range keys {
-		out[i] = k.column
-		if k.expr != "" {
-			out[i] = canonicalShape(k.expr)
-		}
-	}
-	return out
 }
 
 var castPattern = regexp.MustCompile(

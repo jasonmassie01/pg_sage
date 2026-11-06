@@ -61,21 +61,24 @@ func TestExtractColumnsFromDDL(t *testing.T) {
 
 // --- extractIndexName (in executor, tested via exported function) ---
 
+// indexes-01: stripKeyDecorations was removed; parseKey keeps the same
+// bare column and now also the ordering it used to discard.
 func TestStripSortDirection(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
+		decor keyDecor
 	}{
-		{"col1 DESC", "col1"},
-		{"col1 ASC NULLS FIRST", "col1"},
-		{"col1 NULLS LAST", "col1"},
-		{"col1", "col1"},
+		{"col1 DESC", "col1", keyDecor{order: "desc"}},
+		{"col1 ASC NULLS FIRST", "col1", keyDecor{order: "asc", nulls: "first"}},
+		{"col1 NULLS LAST", "col1", keyDecor{nulls: "last"}},
+		{"col1", "col1", keyDecor{}},
 	}
 	for _, tt := range tests {
-		got := stripKeyDecorations(tt.input)
-		if got != tt.want {
-			t.Errorf("stripKeyDecorations(%q) = %q, want %q",
-				tt.input, got, tt.want)
+		got, err := parseKey(normalizeFragment(tt.input))
+		if err != nil || got.column != tt.want || got.decor != tt.decor {
+			t.Errorf("parseKey(%q) = %+v %v, want column %q with %+v",
+				tt.input, got, err, tt.want, tt.decor)
 		}
 	}
 }

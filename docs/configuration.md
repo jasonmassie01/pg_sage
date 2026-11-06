@@ -609,6 +609,15 @@ Safeguards learned from dogfooding:
 - **Open findings are never resolved by absence.** A recommendation the agent did not
   examine this cycle stays open unchanged; only catalog evidence retires one (its table is
   gone, an existing index covers it, the index it would drop is gone).
+- **Coverage respects operator class, collation and order.** An index duplicates or covers
+  another only when each compared key has the same expression, operator class (with its
+  parameters) and collation; for btree the compared keys must also have the same ordering
+  or its uniform reversal, NULLS included. So `(email text_pattern_ops)` beside `(email)`,
+  an HNSW `vector_cosine_ops` index beside a `vector_l2_ops` one, a `jsonb_path_ops` GIN
+  beside a `jsonb_ops` one, or `(a, b DESC)` beside `(a, b)` is neither rejected as a
+  duplicate nor dropped or replaced as covered. A default operator class or collation
+  spelled out in a candidate (`(email text_ops)`, `COLLATE "default"`) still matches the
+  catalog definition that omits it.
 - **Daily budget survives restarts.** The agent charges its model tokens per database and
   UTC day to `sage.tuning_budget_day`, capped at the daily token budget of the client it
   uses (`llm.optimizer_llm.token_budget_daily` when the optimizer LLM is enabled and sets

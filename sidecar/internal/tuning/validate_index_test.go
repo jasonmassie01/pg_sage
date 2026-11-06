@@ -295,3 +295,41 @@ func TestJudge_OperatorRejectedSQLIsNotReproposed(t *testing.T) {
 }
 
 var _ = analyzer.DetailApprovalRequired
+
+// indexes-01: dropReason took an index as covered by any index on the
+// same keys, whatever their operator classes, so it admitted a
+// "covered_by" drop of an HNSW cosine index beside an l2 one, or of a
+// jsonb_ops GIN index beside a jsonb_path_ops one. Each serves operators
+// the other cannot.
+func TestJudge_IndexDropRefusesAnOpclassPairAsCovered(t *testing.T) {
+	h := newHarness(t)
+	cur := validationSnap()
+	for _, d := range []struct{ name, keys string }{
+		{"orders_emb_l2", "hnsw (embedding vector_l2_ops)"},
+		{"orders_emb_cos", "hnsw (embedding vector_cosine_ops)"},
+		{"orders_doc_ops", "gin (doc)"},
+		{"orders_doc_path", "gin (doc jsonb_path_ops)"},
+		{"orders_ref_pattern", "btree (ref text_pattern_ops)"},
+		{"orders_ref_plain", "btree (ref, status)"},
+	} {
+		cur.Indexes = append(cur.Indexes, index("public", "orders", d.name,
+			"CREATE INDEX "+d.name+" ON public.orders USING "+d.keys, 50))
+	}
+	v := h.agent.newValidator(cur, ClassifyWorkload(cur, nil, t0), nil, nil)
+	for _, name := range []string{"orders_emb_l2", "orders_emb_cos", "orders_doc_ops",
+		"orders_doc_path", "orders_ref_pattern"} {
+		j := v.judge(context.Background(), ordersCase(), ordersEvidence(),
+			dropProposal("public."+name))
+		if j.Verdict != VerdictRejected || j.Reason != ReasonInvalid || j.Finding != nil ||
+			!strings.Contains(j.Detail, "no other index covers it") {
+			t.Errorf("%s: judged = %+v, want a refusal: scanned and not covered", name, j)
+		}
+	}
+	// Control: the redundant plain index is still a covered_by drop.
+	j := v.judge(context.Background(), ordersCase(), ordersEvidence(),
+		dropProposal("public.orders_customer_idx"))
+	if j.Verdict != VerdictAdmitted || j.Finding == nil ||
+		j.Finding.Detail["covered_by"] != "orders_customer_status_idx" {
+		t.Fatalf("redundant index: judged = %+v", j)
+	}
+}
