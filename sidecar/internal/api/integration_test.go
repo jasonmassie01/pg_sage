@@ -62,7 +62,7 @@ func setupIntegrationRouter() (http.Handler, *fleet.DatabaseManager) {
 		},
 	})
 	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name: "staging",
+		Name:   "staging",
 		Config: config.DatabaseConfig{Name: "staging"},
 		Status: &fleet.InstanceStatus{
 			Connected: true,
@@ -254,7 +254,7 @@ func TestIntegration_MetricsPerDatabase(t *testing.T) {
 	}
 }
 
-func TestIntegration_CORSPreflight(t *testing.T) {
+func TestIntegration_NoCORSForDevOrigins(t *testing.T) {
 	r, _ := setupIntegrationRouter()
 	req := httptest.NewRequest(
 		"OPTIONS", "/api/v1/databases", nil)
@@ -262,12 +262,8 @@ func TestIntegration_CORSPreflight(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Errorf("OPTIONS status: %d", w.Code)
-	}
-	got := w.Header().Get("Access-Control-Allow-Origin")
-	if got != "http://localhost:8080" {
-		t.Errorf("CORS origin: got %q", got)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("CORS origin granted: %q", got)
 	}
 }
 

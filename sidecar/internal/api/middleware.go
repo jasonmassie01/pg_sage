@@ -7,57 +7,6 @@ import (
 	"time"
 )
 
-// corsMiddleware handles CORS for local dev mode only.
-// The dashboard is served from the same origin in production,
-// so CORS headers are only needed when the Vite dev server
-// runs on a different port. We restrict to localhost origins.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if isAllowedOrigin(origin) {
-			w.Header().Set(
-				"Access-Control-Allow-Origin", origin,
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Methods",
-				"GET, POST, PUT, DELETE, OPTIONS",
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Headers",
-				"Content-Type, Authorization",
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Credentials", "true",
-			)
-		}
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// isAllowedOrigin returns true for same-origin (empty) or
-// localhost origins used during development. Note: the session
-// cookie has Secure: true, but browsers treat localhost as a
-// "potentially trustworthy" origin (W3C Secure Contexts spec),
-// so Secure cookies are sent over http://localhost.
-func isAllowedOrigin(origin string) bool {
-	if origin == "" {
-		return false
-	}
-	switch origin {
-	case "http://localhost:5173",
-		"http://localhost:8080",
-		"http://127.0.0.1:5173",
-		"http://127.0.0.1:8080":
-		return true
-	}
-	return false
-}
-
 // maxBodyMiddleware wraps r.Body with a size limit for
 // non-GET/HEAD requests to prevent memory exhaustion.
 func maxBodyMiddleware(next http.Handler) http.Handler {
@@ -133,7 +82,9 @@ func timeoutMiddleware(
 }
 
 // requireJSONMiddleware rejects POST/PUT/PATCH requests
-// that do not send Content-Type: application/json.
+// that do not send Content-Type: application/json. The multipart CSV
+// import is exempt; the cross-origin check, not this one, is what keeps a
+// same-site HTML form from reaching it (apiauth-10).
 func requireJSONMiddleware(
 	next http.Handler,
 ) http.Handler {

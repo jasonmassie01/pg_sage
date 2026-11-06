@@ -522,22 +522,6 @@ func TestAPI_Resume_UnknownDatabase(t *testing.T) {
 
 // --- CORS ---
 
-func TestAPI_CORS_AllowedOrigin(t *testing.T) {
-	r := testRouter("db1")
-	req := httptest.NewRequest(
-		"OPTIONS", "/api/v1/databases", nil)
-	req.Header.Set("Origin", "http://localhost:8080")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	got := w.Header().Get("Access-Control-Allow-Origin")
-	if got != "http://localhost:8080" {
-		t.Errorf("CORS origin: got %q, want localhost:8080", got)
-	}
-	if w.Code != 200 {
-		t.Errorf("OPTIONS status: %d", w.Code)
-	}
-}
-
 func TestAPI_CORS_DisallowedOrigin(t *testing.T) {
 	r := testRouter("db1")
 	req := httptest.NewRequest(

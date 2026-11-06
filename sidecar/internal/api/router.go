@@ -173,10 +173,8 @@ func NewRouterFullRuntime(
 		// optional protocols. No second token system is mounted in this mode.
 		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
 	}
-	apiHandler := wrapAPIHandler(apiMux, middlewares, !rt.DatabricksAppAuth)
-	if rt.DatabricksAppAuth {
-		apiHandler = http.NewCrossOriginProtection().Handler(apiHandler)
-	}
+	apiHandler := wrapAPIHandler(apiMux, middlewares,
+		newCrossOriginProtection(cfg, rt.DatabricksAppAuth))
 
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
@@ -315,25 +313,25 @@ func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 // wrapAPIHandler stacks the caller middlewares onto the API mux, then the
 // fixed chain every API route gets.
 func wrapAPIHandler(
-	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler, localCORS ...bool,
+	apiMux *http.ServeMux, middlewares []func(http.Handler) http.Handler,
+	crossOrigin *http.CrossOriginProtection,
 ) http.Handler {
 	// Stack middlewares onto API routes only.
 	var apiHandler http.Handler = apiMux
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		apiHandler = middlewares[i](apiHandler)
 	}
-	// Always apply body size limit, CORS, security headers,
-	// JSON content-type validation, and a per-request deadline
-	// to API routes. timeoutMiddleware is applied outside the
-	// body/JSON middlewares so its context also covers body
-	// parsing.
+	// Always apply the cross-origin check, body size limit, security
+	// headers, JSON content-type validation, and a per-request deadline
+	// to API routes. timeoutMiddleware is applied outside the body/JSON
+	// middlewares so its context also covers body parsing. The
+	// cross-origin check runs before any of them (and before auth), and
+	// its refusal still carries the security headers.
 	apiHandler = requireJSONMiddleware(apiHandler)
 	apiHandler = maxBodyMiddleware(apiHandler)
 	apiHandler = timeoutMiddleware(apiHandler)
+	apiHandler = crossOrigin.Handler(apiHandler)
 	apiHandler = securityHeadersMiddleware(apiHandler)
-	if len(localCORS) == 0 || localCORS[0] {
-		apiHandler = corsMiddleware(apiHandler)
-	}
 	return apiHandler
 }
 
