@@ -254,3 +254,38 @@ func TestEveryReasonRecordsThroughUpsert(t *testing.T) {
 		}
 	}
 }
+
+// EnableStandingPolicyDocument (the fixed-document gate) wires the same
+// record-failure hook as the stored-policy gate: a refused record is
+// counted and logged, and the gate fails closed.
+func TestFixedDocumentGateReportsRecordFailures(t *testing.T) {
+	pool, ctx := requireDB(t)
+	logs := &capturedLog{}
+	database := fmt.Sprintf("p01_doc_%d", time.Now().UnixNano())
+	exec := New(pool, config.DefaultConfig(), time.Time{}, logs.logf)
+	exec.WithDatabaseName(database)
+	exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
+	target := fmt.Sprintf("public.p01_d_%d", time.Now().UnixNano())
+	finding := analyzer.Finding{ObjectIdentifier: target,
+		RecommendedSQL: "TRUNCATE " + target + "\x00"}
+
+	decision := exec.evaluateFindingPolicy(ctx, finding, false)
+	if decision.Decision != PolicyDecisionBlocked ||
+		decision.BlockedReason != "policy_unavailable" ||
+		!strings.Contains(decision.Detail, "could not record the ") {
+		t.Fatalf("decision = %#v, want policy_unavailable naming the lost decision", decision)
+	}
+	var failures int64
+	for _, c := range RecordFailureCounts() {
+		if c.Database == database {
+			failures += c.Count
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("record failures for %s = %d, want 1", database, failures)
+	}
+	if lines := logs.matching("could not record"); len(lines) != 1 {
+		t.Fatalf("record-failure log lines = %d, want 1: %v", len(lines), lines)
+	}
+}
