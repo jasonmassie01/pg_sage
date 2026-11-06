@@ -2,6 +2,7 @@ package selfmonitor
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"regexp"
 
@@ -14,8 +15,9 @@ import (
 // application_name pg_sage (pg_stat_activity) and every statement tagged
 // with StatementTag (pg_stat_statements). pg_sage does not hide from
 // pg_stat_statements: its cost is visible to the DBA, and its own readers
-// exclude it with StatementExclusionSQL and ActivityExclusionSQL. An
-// AfterNetConnect hook already set (a proxy handshake) runs first.
+// exclude it with StatementExclusionSQL and ActivityExclusionSQL. Every
+// session is pinned to READ COMMITTED (pinReadCommitted). An
+// AfterNetConnect or AfterConnect hook already set runs first.
 func ConfigurePool(cfg *pgxpool.Config) {
 	if cfg == nil {
 		return
@@ -48,6 +50,33 @@ func ConfigureConn(cfg *pgx.ConnConfig) {
 			return nil, errNilConn
 		}
 		return TagConn(conn), nil
+	}
+	pinReadCommitted(cfg)
+}
+
+// pinReadCommittedSQL makes every transaction of the session READ
+// COMMITTED, whatever the role or database default is: the audit chain's
+// head probe needs a new snapshot per statement (audit-02). It is a SET,
+// not a startup parameter, because PgBouncer refuses startup parameters
+// it does not know; PgBouncer pools per user and database, so it reaches
+// only pg_sage's own server connections.
+const pinReadCommittedSQL = "SET SESSION default_transaction_isolation = 'read committed'"
+
+// pinReadCommitted chains the pin after any AfterConnect hook already set,
+// so an earlier hook cannot undo it. A pin that fails fails the connection:
+// pg_sage never runs on a session it could not pin.
+func pinReadCommitted(cfg *pgx.ConnConfig) {
+	inner := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, pc *pgconn.PgConn) error {
+		if inner != nil {
+			if err := inner(ctx, pc); err != nil {
+				return err
+			}
+		}
+		if err := pc.Exec(ctx, pinReadCommittedSQL).Close(); err != nil {
+			return fmt.Errorf("pin default_transaction_isolation to read committed: %w", err)
+		}
+		return nil
 	}
 }
 
