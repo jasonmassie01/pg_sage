@@ -97,10 +97,22 @@ type Caller struct {
 	Agent      bool
 }
 
-// Request is one question, optionally continuing a conversation.
+// For is the caller as it may act on r: a read-only request drops the
+// right to propose, so the write tools are never offered for it.
+func (c Caller) For(r Request) Caller {
+	if r.ReadOnly {
+		c.MayPropose = false
+	}
+	return c
+}
+
+// Request is one question, optionally continuing a conversation. ReadOnly
+// makes this one question answer-only: no investigation, proposal or fact
+// whatever the caller's role (Explain a case sends it).
 type Request struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	Question       string `json:"question"`
+	ReadOnly       bool   `json:"read_only,omitempty"`
 }
 
 // Statement is one verified sentence of an answer with the evidence ids
@@ -153,6 +165,7 @@ type Answer struct {
 	Stop           string                   `json:"stop"`
 	Tokens         int                      `json:"tokens"`
 	Transcript     *agentloop.Transcript    `json:"transcript,omitempty"`
+	ReadOnly       bool                     `json:"read_only,omitempty"`
 	CreatedAt      time.Time                `json:"created_at"`
 }
 

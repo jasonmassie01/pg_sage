@@ -59,6 +59,14 @@ question:
 Viewers, and MCP tokens with only the `read` scope, can ask but are not offered either
 write. An agent token can ask and propose, never approve.
 
+A question sent with `"read_only": true` is answer-only for everyone: the write tools are
+not offered for it, so the model cannot open, queue or propose anything even when the
+caller may propose, and a model that tries is refused by the loop. The stored answer
+carries `"read_only": true` and the UI marks it "Answer only". **Explain a case** (Cases,
+then Ask Sage) sends every question with `read_only`. The flag applies to that one
+question; a later question in the same conversation without it is an ordinary question.
+Clients that omit it are unchanged.
+
 ## Budget
 
 Ask Sage has its own daily LLM token budget, separate from `llm.token_budget_daily` (which
@@ -87,7 +95,7 @@ All routes use the session; every signed-in role may ask.
 
 | Method | Path | |
 |---|---|---|
-| `POST` | `/api/v1/databases/{db}/ask` | `{"question": "...", "conversation_id": "..."}` → the answer |
+| `POST` | `/api/v1/databases/{db}/ask` | `{"question": "...", "conversation_id": "...", "read_only": true}` (both optional) → the answer |
 | `GET` | `/api/v1/databases/{db}/ask/conversations` | the caller's conversations, newest first |
 | `GET` | `/api/v1/databases/{db}/ask/conversations/{id}` | one conversation with its answers |
 | `GET` | `/api/v1/databases/{db}/ask/budget` | today's usage of the database and the caller |
@@ -97,5 +105,5 @@ conversation is also "not found"), `ask_disabled` and `ask_unavailable` (503).
 
 ## MCP
 
-`ask_sage` takes `database`, `question` and an optional `conversation_id`, and needs the
-`read` scope. See [MCP for Coding Agents](mcp.md).
+`ask_sage` takes `database`, `question`, an optional `conversation_id` and an optional
+`read_only` (answer only, whatever the token's scopes), and needs the `read` scope. See [MCP for Coding Agents](mcp.md).

@@ -16,11 +16,13 @@ const persistTimeout = 3 * time.Second
 // conversation (created when ConversationID is empty) unless the caller
 // cancelled. Invalid questions, a conversation the caller does not own
 // and a disabled Ask Sage are errors; everything the model or provider
-// does is a typed status of the answer.
+// does is a typed status of the answer. A read-only request is answered
+// without the write tools whoever asks.
 func (s *Service) Ask(ctx context.Context, c Caller, r Request) (Answer, error) {
 	if !s.d.Config.Enabled {
 		return Answer{}, ErrDisabled
 	}
+	c = c.For(r)
 	question, err := checkRequest(c, r)
 	if err != nil {
 		return Answer{}, err
@@ -44,6 +46,7 @@ func (s *Service) Ask(ctx context.Context, c Caller, r Request) (Answer, error) 
 		return Answer{}, err
 	}
 	a.ConversationID, a.Question, a.CreatedAt = r.ConversationID, question, s.d.Now().UTC()
+	a.ReadOnly = r.ReadOnly
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 	defer cancel()
 	return s.store.save(saveCtx, c.Actor, a)

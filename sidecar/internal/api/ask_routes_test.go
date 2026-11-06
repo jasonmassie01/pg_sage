@@ -191,3 +191,50 @@ func TestAskRoutes_DisabledIsServiceUnavailable(t *testing.T) {
 		t.Fatalf("disabled: %d %v", code, body)
 	}
 }
+
+// Explain a case (mcp-01): read_only is a known field. An operator's
+// read-only question is offered no write tool and the answer says so; an
+// unknown field or a non-boolean read_only is still rejected.
+func TestAskRoutes_ReadOnlyIsAcceptedAndOffersNoWriteTools(t *testing.T) {
+	a := newAskAPI(t, true)
+	code, body := a.do(t, operatorUser(), "POST", askPath,
+		`{"question":"Explain this case","read_only":true}`)
+	if code != http.StatusOK || body["read_only"] != true {
+		t.Fatalf("read-only operator ask: %d %v", code, body)
+	}
+	for _, tool := range []string{"propose_action", "open_investigation", "propose_fact"} {
+		if strings.Contains(a.model.lastBody(), tool) {
+			t.Fatalf("a read-only operator question was offered %s", tool)
+		}
+	}
+	if !strings.Contains(a.model.lastBody(), "get_finding") {
+		t.Fatal("the read tools were not offered")
+	}
+	for name, raw := range map[string]string{
+		"unknown field": `{"question":"x","read_only":true,"approve":true}`,
+		"string flag":   `{"question":"x","read_only":"yes"}`,
+	} {
+		code, body := a.do(t, operatorUser(), "POST", askPath, raw)
+		msg, _ := body["error"].(string)
+		if code != http.StatusBadRequest || body["code"] != "invalid_request" ||
+			!strings.Contains(msg, "read_only") {
+			t.Errorf("%s: %d %v, want 400 invalid_request naming read_only", name, code, body)
+		}
+	}
+}
+
+// Older clients that omit read_only keep today's behaviour: the answer
+// carries no read_only flag and an operator is offered the write tools.
+func TestAskRoutes_OmittedReadOnlyIsUnchanged(t *testing.T) {
+	a := newAskAPI(t, true)
+	code, body := a.do(t, operatorUser(), "POST", askPath, `{"question":"Propose the fix"}`)
+	if code != http.StatusOK {
+		t.Fatalf("operator ask: %d %v", code, body)
+	}
+	if _, present := body["read_only"]; present {
+		t.Fatalf("an ordinary answer carries read_only: %v", body)
+	}
+	if !strings.Contains(a.model.lastBody(), "propose_action") {
+		t.Fatal("an operator was not offered the propose tool")
+	}
+}
