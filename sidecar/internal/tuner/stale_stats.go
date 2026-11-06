@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
 // StaleStatsCache holds per-table staleness information computed
@@ -203,4 +204,62 @@ func annotateForStaleStats(
 		})
 	}
 	return out
+}
+
+// extractStaleStats splits a symptom list into the non-stale
+// tail (returned first) and one ANALYZE finding per distinct
+// stale table, deduping against t.staleStatsEmitted so the
+// same table never produces two findings in one cycle.
+func (t *Tuner) extractStaleStats(
+	symptoms []PlanSymptom,
+) ([]PlanSymptom, []analyzer.Finding) {
+	var kept []PlanSymptom
+	var findings []analyzer.Finding
+	for _, s := range symptoms {
+		if s.Kind != SymptomStaleStats {
+			kept = append(kept, s)
+			continue
+		}
+		schema := s.Schema
+		table := s.RelationName
+		if schema == "" {
+			schema = "public"
+		}
+		canonical := schema + "." + table
+		if t.staleStatsEmitted[canonical] {
+			continue
+		}
+		t.staleStatsEmitted[canonical] = true
+
+		sizeMB := int64(0)
+		if t.staleStats != nil {
+			sizeMB = t.staleStats.SizeMB(canonical)
+		}
+		findings = append(findings, analyzer.Finding{
+			Category:         "stale_statistics",
+			Severity:         "warning",
+			ObjectType:       "table",
+			ObjectIdentifier: canonical,
+			Title: fmt.Sprintf(
+				"Stale statistics on %s — ANALYZE recommended",
+				canonical,
+			),
+			Detail: map[string]any{
+				"canonical":  canonical,
+				"trigger":    "nested_loop_misestimate",
+				"size_mb":    sizeMB,
+				"schemaname": schema,
+				"tablename":  table,
+			},
+			Recommendation: fmt.Sprintf(
+				"Run ANALYZE on %s to refresh optimizer statistics",
+				canonical,
+			),
+			ActionRisk: "safe",
+			RecommendedSQL: fmt.Sprintf(
+				"ANALYZE %s", QuoteQualified(schema, table),
+			),
+		})
+	}
+	return kept, findings
 }
