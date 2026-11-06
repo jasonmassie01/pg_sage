@@ -45,6 +45,15 @@ monitored database                         pg_sage process                      
 - **Evidence** is stored as the typed probe result (`ok`, `empty`, `error`, `no_privilege`,
   `unsupported`) with its SHA-256 hash. A probe that fails is stored as a failure and shown as
   missing evidence. It is never read as "healthy".
+- **Evidence must be current.** A run that resumes (a restarted sidecar picking up an
+  orphaned investigation, or an operator resuming a paused one) keeps the steps it already
+  committed. If the newest stored evidence is more than 5 minutes old when the run resumes, it
+  runs no probe and no model turn and ends `expired` with failure code `stale_evidence`. No
+  diagnosis is shown for that evidence; the Cases panel says "Evidence too old to conclude".
+  To look again, an operator starts a new investigation of the case; pg_sage does not yet
+  start that new attempt by itself. Every conclusion records `evidence_newest_at` and
+  `evidence_age_s` in its summary, and the panel shows the age when it is more than a sample
+  interval. This works the same in single and fleet mode.
 
 ## Privileges
 
