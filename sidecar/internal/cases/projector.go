@@ -161,6 +161,17 @@ func migrationOutputModes(actionType string) []string {
 	return []string{"queue_for_approval", "generate_pr_or_script"}
 }
 
+// RiskTierForSQL is the risk tier the case projector gives a candidate
+// running sql: "safe", "moderate" or "high" (unclassified SQL fails closed
+// to "high"). Blank SQL has no tier.
+func RiskTierForSQL(sql string) string {
+	sql = strings.TrimSpace(sql)
+	if sql == "" {
+		return ""
+	}
+	return riskForActionType(actionTypeForSQL(sql))
+}
+
 func actionTypeForSQL(sql string) string {
 	upper := strings.ToUpper(strings.TrimSpace(sql))
 	switch {
