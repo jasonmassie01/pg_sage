@@ -92,3 +92,18 @@ func TestSessionAuthOutsideAppsUnchanged(t *testing.T) {
 		t.Fatalf("empty environment = %+v, %v; want nil, nil", cfg, err)
 	}
 }
+
+// An unknown mode outside Apps must keep its own error now that the port
+// check runs first; it must never fall back to session auth.
+func TestUnknownAuthModeOutsideAppsRejected(t *testing.T) {
+	cfg, err := LoadDatabricksAppConfigFromEnv(appRuntimeEnv(map[string]string{
+		"SAGE_AUTH_MODE": "proxy",
+	}))
+	if cfg != nil || err == nil {
+		t.Fatalf("unknown mode outside Apps = %+v, %v; want an error", cfg, err)
+	}
+	if errors.Is(err, appmode.ErrAppAuthRequired) ||
+		!strings.Contains(err.Error(), "SAGE_AUTH_MODE must be session or databricks_app") {
+		t.Fatalf("unknown mode outside Apps gave %v, want the mode error", err)
+	}
+}
