@@ -19,6 +19,9 @@ const (
 	rollbackTargetAbsent = iota
 	rollbackTargetSame
 	rollbackTargetDifferent
+	// rollbackTargetInvalid is an INVALID index of that name, the leftover
+	// of a failed CONCURRENTLY build: never a restore (executor-01).
+	rollbackTargetInvalid
 )
 
 var indexDefNoise = regexp.MustCompile(`(?i)\b(CONCURRENTLY|IF\s+NOT\s+EXISTS)\b`)
@@ -40,9 +43,10 @@ func normalizeIndexDef(sql string) string {
 }
 
 const existingIndexDefSQL = `/* pg_sage */
-SELECT pg_catalog.pg_get_indexdef(i.oid)
+SELECT pg_catalog.pg_get_indexdef(i.oid), COALESCE(x.indisvalid, true)
 FROM pg_catalog.pg_class i
 JOIN pg_catalog.pg_class t ON t.oid = pg_catalog.to_regclass($1)
+LEFT JOIN pg_catalog.pg_index x ON x.indexrelid = i.oid
 WHERE i.relkind IN ('i', 'I') AND i.relnamespace = t.relnamespace AND i.relname = $2`
 
 // rollbackIndexTarget reports whether the index a CREATE INDEX rollback
@@ -60,12 +64,15 @@ func rollbackIndexTarget(ctx context.Context, pool *pgxpool.Pool,
 		target = pgx.Identifier{schema, table}.Sanitize()
 	}
 	var def string
-	err := pool.QueryRow(ctx, existingIndexDefSQL, target, name).Scan(&def)
+	var valid bool
+	err := pool.QueryRow(ctx, existingIndexDefSQL, target, name).Scan(&def, &valid)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return rollbackTargetAbsent, "", nil
 	case err != nil:
 		return rollbackTargetAbsent, "", err
+	case !valid:
+		return rollbackTargetInvalid, def, nil
 	case sameIndexDefinition(def, rollbackSQL):
 		return rollbackTargetSame, def, nil
 	}
@@ -100,6 +107,10 @@ func restoredOutside(ctx context.Context, pool *pgxpool.Pool, actionID int64,
 		logFn("rollback", "action %d: %s", actionID, reason)
 		updateActionOutcome(ctx, pool, actionID, "rollback_failed", reason)
 		return true
+	case rollbackTargetInvalid:
+		logFn("rollback", "action %d: an INVALID index of that name exists (%s), left "+
+			"by a failed CONCURRENTLY build; it is not a restore: drop it with DROP INDEX "+
+			"CONCURRENTLY before rolling back again", actionID, def)
 	}
 	return false
 }
