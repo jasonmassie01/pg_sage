@@ -368,7 +368,7 @@ time); the startup log prints one `derived settings:` line per database.
 | `trust.tier3_safe` | `true` | Operator switch for unattended SAFE actions the ledger has earned; off caps them at approval. Live: turning it off stops the next unattended SAFE action |
 | `trust.tier3_moderate` | `false` | Operator switch for unattended MODERATE actions the ledger has earned; off caps them at approval. Live |
 | `trust.rollback_cooldown_days` | `7` | Days a rolled-back finding is not re-applied. Live; a negative value is rejected |
-| `trust.cascade_cooldown_cycles` | `3` | Collector cycles an object rests after an action before the next one. Live; a negative value is rejected |
+| `trust.cascade_cooldown_cycles` | `3` | Collector cycles an object rests after an action before the next one. Live for the executor's cascade guard; the tuner's re-tune cooldown for a query keeps its startup value until the database's runtime is rebuilt. A negative value is rejected |
 | `trust.ramp_start` | (auto) | When pg_sage began observing the database. Auto-persisted on first start; set to override |
 | `trust.ramp_safe_hours` | `192` | Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, `1`-`8760`. A floor, never a grant. Actions that cannot be rolled back always wait at least `192` |
 | `trust.ramp_moderate_hours` | `744` | Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3, 31 days, `1`-`8760`, at least `ramp_safe_hours`. A floor, never a grant. Actions that cannot be rolled back always wait at least `744` |
