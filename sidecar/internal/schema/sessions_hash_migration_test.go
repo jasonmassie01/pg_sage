@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -47,6 +48,39 @@ func TestSessionsTokenHashMigration(t *testing.T) {
 	requireTokenHashShape(t, ctx, pool)
 }
 
+// The documented downgrade step drops NOT NULL; an older sidecar then stores
+// unhashed sessions. Upgrading again deletes them and restores the shape.
+func TestSessionsTokenHashMigrationAfterDowngrade(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	uid := sessionsMigrationUser(t, ctx, pool, "sessions-downgrade@example.com")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.users WHERE id = $1", uid)
+	})
+	if _, err := pool.Exec(ctx,
+		`ALTER TABLE sage.sessions ALTER COLUMN token_hash DROP NOT NULL`); err != nil {
+		t.Fatalf("documented downgrade step: %v", err)
+	}
+	var legacy string
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.sessions (user_id, expires_at)
+		VALUES ($1, now() + interval '1 hour') RETURNING id::text`, uid).Scan(&legacy); err != nil {
+		t.Fatalf("inserting a session as the older sidecar would: %v", err)
+	}
+	keep := strings.Repeat("ef", 32)
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.sessions (user_id, expires_at, token_hash)
+		VALUES ($1, now() + interval '1 hour', $2)`, uid, keep); err != nil {
+		t.Fatalf("inserting a hashed session: %v", err)
+	}
+	bootstrapWithRetry(t, ctx, pool)
+	if n := sessionRows(t, ctx, pool, "id::text = $1", legacy); n != 0 {
+		t.Fatalf("unhashed session survived the re-upgrade (%d rows)", n)
+	}
+	if n := sessionRows(t, ctx, pool, "token_hash = $1", keep); n != 1 {
+		t.Fatalf("re-upgrade removed a hashed session (%d rows left)", n)
+	}
+	requireTokenHashShape(t, ctx, pool)
+}
+
 func TestSessionsTokenHashRejectsNullAndDuplicates(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
@@ -65,27 +99,58 @@ func TestSessionsTokenHashRejectsNullAndDuplicates(t *testing.T) {
 	requireSQLState(t, err, "23505", "a duplicate token hash")
 }
 
-// The migration runs under lock_timeout: a session-table lock held by
-// another backend makes it fail fast instead of stalling startup.
+// The first run of the migration is under lock_timeout: a session-table
+// lock held by another backend makes it fail fast instead of stalling
+// startup.
 func TestSessionsTokenHashMigrationHonoursLockTimeout(t *testing.T) {
 	pool, ctx := requireDB(t)
 	bootstrapWithRetry(t, ctx, pool)
-	holder, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin lock holder: %v", err)
+	t.Cleanup(func() { bootstrapWithRetry(t, context.Background(), pool) })
+	if _, err := pool.Exec(ctx, `ALTER TABLE sage.sessions DROP COLUMN token_hash`); err != nil {
+		t.Fatalf("simulating the pre-hash schema: %v", err)
 	}
+	holder := holdSessionsShareLock(t, ctx, pool)
 	defer func() { _ = holder.Rollback(context.Background()) }()
-	if _, err := holder.Exec(ctx, "LOCK TABLE sage.sessions IN SHARE MODE"); err != nil {
-		t.Fatalf("taking the share lock: %v", err)
-	}
 	start := time.Now()
 	qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	_, err = pool.Exec(qctx, ddlSessionsTokenHash)
+	_, err := pool.Exec(qctx, ddlSessionsTokenHash)
 	requireSQLState(t, err, "55P03", "the migration behind a held lock")
 	if waited := time.Since(start); waited > 15*time.Second {
 		t.Fatalf("migration waited %v for the lock, want it bounded by lock_timeout", waited)
 	}
+}
+
+// Once applied, a re-run (every restart) takes no lock on sage.sessions,
+// so a held lock neither delays nor fails startup.
+func TestSessionsTokenHashMigrationRerunTakesNoLock(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	holder := holdSessionsShareLock(t, ctx, pool)
+	defer func() { _ = holder.Rollback(context.Background()) }()
+	start := time.Now()
+	qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if _, err := pool.Exec(qctx, ddlSessionsTokenHash); err != nil {
+		t.Fatalf("re-run behind a held share lock: %v", err)
+	}
+	if waited := time.Since(start); waited > 3*time.Second {
+		t.Fatalf("re-run waited %v, want no lock wait", waited)
+	}
+	requireTokenHashShape(t, ctx, pool)
+}
+
+func holdSessionsShareLock(t *testing.T, ctx context.Context, pool *pgxpool.Pool) pgx.Tx {
+	t.Helper()
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin lock holder: %v", err)
+	}
+	if _, err := holder.Exec(ctx, "LOCK TABLE sage.sessions IN SHARE MODE"); err != nil {
+		_ = holder.Rollback(context.Background())
+		t.Fatalf("taking the share lock: %v", err)
+	}
+	return holder
 }
 
 func sessionsMigrationUser(

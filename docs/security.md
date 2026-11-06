@@ -186,6 +186,12 @@ sessions one hour); a malformed cookie is refused without a query.
 
 Upgrading to the release that introduced hashed sessions deletes every
 existing session once: every dashboard user signs in again after the upgrade.
+The upgrade makes `token_hash` NOT NULL, so an older sidecar sharing the
+database cannot create sessions (its logins, break-glass included, fail with
+a not-null error instead of storing a plaintext session). Before downgrading
+below that release, run
+`ALTER TABLE sage.sessions ALTER COLUMN token_hash DROP NOT NULL`; upgrading
+again deletes the unhashed sessions and restores the constraint.
 
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
