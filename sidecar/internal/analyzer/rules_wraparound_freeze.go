@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -19,6 +20,13 @@ const criticalFreezeXIDAge = 200_000_000
 // catastrophic Postgres failure mode. This is the auto-fireable half of
 // A6; dropping abandoned replication slots (the other wraparound cause)
 // stays manual because it is irreversible.
+//
+// Partitioned parents (relkind p) are never flagged: they have no storage
+// of their own, and a VACUUM of one recurses into every partition. Each
+// leaf is assessed on its own age. An unknown age (-1) is never flagged,
+// nor is 2147483647, the age PostgreSQL reports for a zero XID, which a
+// snapshot collected without relkind carries for a parent: no real table
+// reaches it, since PostgreSQL stops assigning XIDs well before.
 func ruleWraparoundFreeze(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -35,7 +43,8 @@ func ruleWraparoundFreeze(
 
 	var findings []Finding
 	for _, t := range current.Tables {
-		if t.XIDAge < threshold {
+		if t.Relkind == "p" || t.XIDAge < 0 || t.XIDAge >= math.MaxInt32 ||
+			t.XIDAge < threshold {
 			continue
 		}
 		severity := "warning"
@@ -54,6 +63,7 @@ func ruleWraparoundFreeze(
 				ident, t.XIDAge),
 			Detail: map[string]any{
 				"xid_age":      t.XIDAge,
+				"mxid_age":     t.MXIDAge,
 				"threshold":    threshold,
 				"critical_age": criticalFreezeXIDAge,
 			},
