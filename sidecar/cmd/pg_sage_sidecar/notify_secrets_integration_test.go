@@ -185,3 +185,84 @@ func TestNotificationSecretKeyDerivation(t *testing.T) {
 		t.Fatal("meta mode derived a key from a non-meta pool (would write sidecar rows)")
 	}
 }
+
+// alerting-03: an approval_needed rule created through the API without a
+// min_severity gets the default floor (warning), and a fact card still
+// reaches it and is recorded as one sent notification_log row.
+func TestFactCardDeliveredUnderDefaultApprovalRule(t *testing.T) {
+	state, _, userID := metaLifecycleFixture(t)
+	prepareMetaGlobals(t)
+	resetNotifyDispatchers(t)
+	oldMeta := globalMetaState
+	t.Cleanup(func() { globalMetaState = oldMeta })
+	globalMetaState = state
+	cfg.MetaDB = "postgres://fixture"
+	cfg.NotificationPolicy.AllowPrivateTargets = true
+	sink, hits := webhookSink(t)
+	ctx := context.Background()
+
+	router := wireRouter(WireParams{
+		Cfg: cfg, Pool: state.Pool, FleetMgr: fleetMgr, MetaState: state,
+	}).Handler
+	channelID := createDefaultApprovalRule(t, router, state.Pool, userID, sink.URL)
+
+	card := notify.FactProposedEvent(notify.FactCardRef{Database: "orders",
+		FactID: 41, FactHash: "fh", Title: "idx_orders_run is app-owned"},
+		"Evidence: recreated 8 times")
+	dispatcher := sharedNotifyDispatcher(notificationControlPool(state, nil))
+	if err := dispatcher.Dispatch(ctx, card); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("webhook deliveries = %d, want 1 fact card", got)
+	}
+	var sent int
+	if err := state.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.notification_log
+		  WHERE channel_id = $1 AND event = 'approval_needed'
+		    AND status = 'sent' AND subject = $2`,
+		channelID, card.Subject).Scan(&sent); err != nil {
+		t.Fatalf("read notification_log: %v", err)
+	}
+	if sent != 1 {
+		t.Fatalf("sent fact card log rows = %d, want 1", sent)
+	}
+}
+
+// createDefaultApprovalRule creates a Slack channel to sinkURL and an
+// approval_needed rule without min_severity through the API, checks the
+// stored default, and returns the channel id.
+func createDefaultApprovalRule(
+	t *testing.T, router http.Handler, pool *pgxpool.Pool, userID int, sinkURL string,
+) int {
+	t.Helper()
+	created := adminAPIRequest(t, router, pool, userID, http.MethodPost,
+		"/api/v1/notifications/channels", map[string]any{
+			"name": "facts-" + t.Name(), "type": "slack",
+			"config": map[string]string{"webhook_url": sinkURL + "/hook"},
+		})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create channel = %d: %s", created.Code, created.Body.String())
+	}
+	var channel struct{ ID int }
+	if err := json.NewDecoder(created.Body).Decode(&channel); err != nil {
+		t.Fatal(err)
+	}
+	rule := adminAPIRequest(t, router, pool, userID, http.MethodPost,
+		"/api/v1/notifications/rules", map[string]any{
+			"channel_id": channel.ID, "event": "approval_needed",
+		})
+	if rule.Code != http.StatusCreated {
+		t.Fatalf("create rule = %d: %s", rule.Code, rule.Body.String())
+	}
+	var minSeverity string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT min_severity FROM sage.notification_rules WHERE channel_id = $1`,
+		channel.ID).Scan(&minSeverity); err != nil {
+		t.Fatalf("read rule row: %v", err)
+	}
+	if minSeverity != "warning" {
+		t.Fatalf("API default min_severity = %q, want warning", minSeverity)
+	}
+	return channel.ID
+}
