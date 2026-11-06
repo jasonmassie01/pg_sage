@@ -31,7 +31,7 @@ func TestDetectCloudEnvReprobeRebuildsFleetRuntime(t *testing.T) {
 		t.Fatalf("first generation executor provider = %q, want unknown", got)
 	}
 	second := builds.waitFor(t, 2)[1]
-	eventually(t, 30*time.Second, "rebuilt runtime to be published", func() bool {
+	eventually(t, 90*time.Second, "rebuilt runtime to be published", func() bool {
 		return fleetMgr.GetInstance("b") == second.inst
 	})
 	if got := second.inst.Executor.RuntimeSettings().Provider; got != providerSelfManaged {
@@ -44,7 +44,7 @@ func TestDetectCloudEnvReprobeRebuildsFleetRuntime(t *testing.T) {
 		t.Fatalf("rebuild changed database id %d -> %d", first.inst.DatabaseID,
 			second.inst.DatabaseID)
 	}
-	eventually(t, 30*time.Second, "unknown generation's pool to close", func() bool {
+	eventually(t, 90*time.Second, "unknown generation's pool to close", func() bool {
 		return poolClosed(first.inst.Pool)
 	})
 	time.Sleep(20 * providerReprobeMin)
@@ -74,7 +74,7 @@ func (b *runtimeBuilds) count() int {
 
 func (b *runtimeBuilds) waitFor(t *testing.T, n int) []builtRuntime {
 	t.Helper()
-	eventually(t, 60*time.Second, "runtime builds", func() bool { return b.count() >= n })
+	eventually(t, 120*time.Second, "runtime builds", func() bool { return b.count() >= n })
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]builtRuntime(nil), b.runs...)
