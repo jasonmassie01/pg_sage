@@ -182,6 +182,11 @@ func probeHealth(client *http.Client, target healthcheckTarget, timeout time.Dur
 			(errors.As(err, &netErr) && netErr.Timeout()) {
 			return fmt.Errorf("GET %s: no answer within %s", target.url, timeout)
 		}
+		// url.Error repeats the method and URL this message already names.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return fmt.Errorf("GET %s: %w", target.url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
