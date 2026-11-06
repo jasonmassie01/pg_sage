@@ -105,7 +105,7 @@ type Config struct {
 	// FleetLearning is fleet learning and leader election (fleet_learning.go).
 	FleetLearning FleetLearningConfig `yaml:"fleet_learning"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
-	CloudTelemetry CloudTelemetryConfig `yaml:"cloud_telemetry"`
+	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
 	// Agents is agent posture (agents.go).
 	Agents AgentsConfig `yaml:"agents"`
@@ -823,6 +823,9 @@ func (c *Config) validateTrust() error {
 			"trust.level must be observation, advisory, or autonomous (got %q)",
 			c.Trust.Level,
 		)
+	}
+	if err := c.Trust.validateCeiling(); err != nil {
+		return err
 	}
 	return ValidateMaintenanceWindow(c.Trust.MaintenanceWindow)
 }

@@ -79,6 +79,7 @@ type Executor struct {
 	databaseID         *int
 	settingWait        time.Duration // bounds reloaded-setting post-checks (0 = default)
 	trustLevelOverride string
+	trustCeiling       *TrustCeiling   // live operator ceiling (config-01)
 	ddlSem             chan struct{}   // limits concurrent DDL ops
 	quiesced           atomic.Int32    // DDL slots a drain holds (Quiesce)
 	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE

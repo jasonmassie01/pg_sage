@@ -90,7 +90,7 @@ func (e *Executor) processFinding(
 		// park fell through to Apply and was evaluated twice per cycle).
 		return
 	}
-	if CheckHysteresis(ctx, e.pool, findingID, e.cfg.Trust.RollbackCooldownDays) {
+	if e.recentlyRolledBack(ctx, findingID) {
 		e.releaseBudget(ctx, decision.DecisionID)
 		e.logFn("executor", "skipping %q — rolled back recently (cooldown)", f.Title)
 		return

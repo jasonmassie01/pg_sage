@@ -7,15 +7,22 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
+// defaultCascadeCooldown applies when the cycles or interval are unset.
+const defaultCascadeCooldown = 5 * time.Minute
+
 // cascadeCooldown returns the cooldown duration for the cascade
-// guard, computed from config.
+// guard, computed from the live policy snapshot.
 func (e *Executor) cascadeCooldown() time.Duration {
-	cycles := e.cfg.Trust.CascadeCooldownCycles
-	interval := e.cfg.Collector.IntervalSeconds
+	cfg, _, _ := e.policySnapshot()
+	if cfg == nil {
+		return defaultCascadeCooldown
+	}
+	cycles := cfg.Trust.CascadeCooldownCycles
+	interval := cfg.Collector.IntervalSeconds
 	d := time.Duration(cycles) *
 		time.Duration(interval) * time.Second
 	if d == 0 {
-		d = 5 * time.Minute
+		d = defaultCascadeCooldown
 	}
 	return d
 }
