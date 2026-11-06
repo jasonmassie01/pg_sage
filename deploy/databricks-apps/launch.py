@@ -33,6 +33,26 @@ def unpack_binary(source: Path, destination: Path) -> Path:
     return executable
 
 
+def verified_sslmode(env: dict[str, str]) -> str:
+    """Lakebase OAuth tokens are sent only over verify-full TLS.
+
+    A platform-injected PGSSLMODE=require is raised to verify-full, which is
+    strictly stronger; any other weaker mode, or an explicit operator setting
+    below verify-full, fails before launch instead of being rewritten.
+    """
+    explicit = env.get("SAGE_PG_SSLMODE")
+    injected = env.get("PGSSLMODE")
+    mode = explicit or injected or "verify-full"
+    if not explicit and injected == "require":
+        print("[apps-launcher] PGSSLMODE=require raised to verify-full for Lakebase OAuth",
+              file=sys.stderr, flush=True)
+        mode = "verify-full"
+    if mode != "verify-full":
+        source = "SAGE_PG_SSLMODE" if explicit else "PGSSLMODE"
+        raise ValueError("Lakebase OAuth requires sslmode=verify-full; " + source + " is " + mode)
+    return mode
+
+
 def runtime_config(env: dict[str, str], base: dict | None = None) -> dict:
     if env.get("SAGE_AUTH_MODE") != "databricks_app":
         raise ValueError("Databricks Apps requires SAGE_AUTH_MODE=databricks_app")
@@ -63,13 +83,13 @@ def runtime_config(env: dict[str, str], base: dict | None = None) -> dict:
         env["SAGE_LAKEBASE_ENDPOINT"] = env.get("LAKEBASE_ENDPOINT") or env.get("ENDPOINT_NAME", "")
     if not env.get("SAGE_LAKEBASE_ENDPOINT"):
         raise ValueError("set SAGE_LAKEBASE_ENDPOINT to the Lakebase endpoint resource path")
-    for suffix in ("HOST", "PORT", "USER", "DATABASE", "SSLMODE"):
+    for suffix in ("HOST", "PORT", "USER", "DATABASE"):
         target = "SAGE_PG_" + suffix
         source = "PG" + suffix
         if not env.get(target) and env.get(source):
             env[target] = env[source]
     env.setdefault("SAGE_PG_PORT", "5432")
-    env.setdefault("SAGE_PG_SSLMODE", "verify-full")
+    env["SAGE_PG_SSLMODE"] = verified_sslmode(env)
     if not env.get("SAGE_PG_USER"):
         env["SAGE_PG_USER"] = env.get("DATABRICKS_CLIENT_ID", "")
     if not env.get("SAGE_DATABASE_URL") and not all(env.get("SAGE_PG_" + name) for name in ("HOST", "USER", "DATABASE")):

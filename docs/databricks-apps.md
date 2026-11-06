@@ -155,7 +155,12 @@ pg_sage database when that behavior is wanted. An App principal without
 native Gateway integration do not require granting that privilege.
 
 The launcher maps `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE` to
-pg_sage's existing connection settings. `PGUSER` defaults to the injected
+pg_sage's existing connection settings. Lakebase OAuth requires
+`sslmode=verify-full`: an injected `PGSSLMODE=require` is raised to
+`verify-full` (strictly stronger, logged once on stderr), an absent
+`PGSSLMODE` defaults to `verify-full`, and any other weaker mode, or an
+explicit `SAGE_PG_SSLMODE` below `verify-full`, stops the launcher before
+pg_sage starts. `PGUSER` defaults to the injected
 `DATABRICKS_CLIENT_ID`. `SAGE_LAKEBASE_ENDPOINT` is the full endpoint resource
 path (`projects/.../branches/.../endpoints/...`); `LAKEBASE_ENDPOINT` and
 `ENDPOINT_NAME` are accepted launcher aliases. Native Go unified authentication
