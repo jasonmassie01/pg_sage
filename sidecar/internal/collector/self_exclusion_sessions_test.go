@@ -59,7 +59,7 @@ func TestSystemStatsCountApplicationSessionsOnly(t *testing.T) {
 func TestLocksSnapshotLeavesOutPgSageSessions(t *testing.T) {
 	c, _ := sageCollector(t)
 	_, app, sage := selfload.Start(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
-	locks, err := c.collectLocks(context.Background())
+	locks, _, err := c.collectLocks(context.Background())
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}

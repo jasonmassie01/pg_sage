@@ -51,7 +51,7 @@ func TestCollectLocksAndActivity_ScopedToCurrentDatabase(t *testing.T) {
 	t.Cleanup(func() { _, _ = other.Exec(context.Background(), `ROLLBACK`) })
 
 	c := New(pool, testConfig(), 170000, noopLog)
-	locks, err := c.collectLocks(ctx)
+	locks, _, err := c.collectLocks(ctx)
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}

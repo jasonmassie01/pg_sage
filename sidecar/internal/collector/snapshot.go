@@ -25,6 +25,10 @@ type Snapshot struct {
 	// cycle, with why (dogfood lifeos-1). Such a category is unknown, not
 	// empty: rules that would read its absence as a fact do not run.
 	Unavailable map[string]string `json:"unavailable,omitempty"`
+	// LocksDropped is how many wait-graph rows the read saw past the
+	// lockRowCap it keeps: 0, or 1 when the graph was truncated (the read
+	// stops at the first row past the cap). Not persisted.
+	LocksDropped int `json:"-"`
 	// SequenceCoverage is how much of the sequence catalog this cycle
 	// read (not persisted).
 	SequenceCoverage *SequenceCoverage `json:"sequence_coverage,omitempty"`
@@ -151,12 +155,17 @@ type SystemStats struct {
 	RelationStatsEpoch time.Time `json:"relation_stats_epoch,omitzero"`
 }
 
-// LockInfo describes a single lock from pg_locks + pg_stat_activity.
+// LockInfo is one row of the lock wait graph (locksSQL): a waiting lock,
+// or a session row (the session's own virtualxid lock; locktype session
+// for a blocker holding a session-level lock outside a transaction) for a
+// blocker, an idle-in-transaction session or an oldest-xmin holder.
 type LockInfo struct {
-	LockType      string     `json:"locktype"`
-	Mode          string     `json:"mode"`
-	Granted       bool       `json:"granted"`
-	RelName       *string    `json:"relname"`
+	LockType string  `json:"locktype"`
+	Mode     string  `json:"mode"`
+	Granted  bool    `json:"granted"`
+	RelName  *string `json:"relname"`
+	// Query is the session's statement with its literals redacted, cut to
+	// lockQueryMaxBytes.
 	Query         *string    `json:"query"`
 	State         *string    `json:"state"`
 	WaitEventType *string    `json:"wait_event_type"`
@@ -164,6 +173,16 @@ type LockInfo struct {
 	PID           int        `json:"pid"`
 	BackendStart  *time.Time `json:"backend_start"`
 	QueryStart    *time.Time `json:"query_start"`
+	XactStart     *time.Time `json:"xact_start"`
+	// BackendXminAge is the age of the older of the session's backend_xmin
+	// and backend_xid: how far it holds back this database's xmin horizon.
+	// Nil when it holds neither.
+	BackendXminAge *int64 `json:"backend_xmin_age"`
+	// BlockedBy is pg_blocking_pids of a waiting lock (0 is a prepared
+	// transaction); nil on a session row.
+	BlockedBy []int `json:"blocked_by"`
+	// QueryID is pg_stat_activity.query_id; nil with compute_query_id off.
+	QueryID *int64 `json:"query_id"`
 }
 
 // SequenceStats tracks sequence usage and exhaustion risk.

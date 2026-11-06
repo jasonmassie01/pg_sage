@@ -1,8 +1,8 @@
 package collector
 
 import (
-	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"strings"
 	"sync"
 	"testing"
@@ -175,28 +175,29 @@ func TestPhase2_CollectLocks_WithActiveSession(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 
-	// Acquire an advisory lock on a dedicated connection and hold it
-	// while collectLocks runs on a different connection. We use
-	// pool.Acquire to pin a connection.
+	// Acquire an advisory lock on a dedicated connection and hold it, in
+	// an open transaction, while collectLocks runs on a different
+	// connection. We use pool.Acquire to pin a connection. (collection-01:
+	// the locks category is a wait graph; an idle-in-transaction session
+	// is one of its rows, a lone idle session holding a lock is not.)
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("acquire connection: %v", err)
 	}
 
 	_, err = conn.Exec(ctx,
-		`SELECT pg_advisory_lock(12345678)`)
+		`BEGIN; SELECT pg_advisory_xact_lock(12345678)`)
 	if err != nil {
 		conn.Release()
 		t.Fatalf("acquire advisory lock: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(),
-			`SELECT pg_advisory_unlock(12345678)`)
+		_, _ = conn.Exec(context.Background(), `ROLLBACK`)
 		conn.Release()
 	})
 
 	c := phase2Collector(t, pool)
-	locks, err := c.collectLocks(ctx)
+	locks, _, err := c.collectLocks(ctx)
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}
@@ -227,7 +228,7 @@ func TestPhase2_CollectLocks_CancelledContext(t *testing.T) {
 	cancel()
 
 	c := phase2Collector(t, pool)
-	_, err := c.collectLocks(ctx)
+	_, _, err := c.collectLocks(ctx)
 	if err == nil {
 		t.Error("collectLocks with cancelled context should error")
 	}

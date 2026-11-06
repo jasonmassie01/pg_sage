@@ -37,7 +37,7 @@ func (c *Collector) catalogSteps() []catalogStep {
 			return err
 		}},
 		{"locks", func(ctx context.Context, s *Snapshot) (err error) {
-			s.Locks, err = c.collectLocks(ctx)
+			s.Locks, s.LocksDropped, err = c.collectLocks(ctx)
 			return err
 		}},
 		{"sequences", func(ctx context.Context, s *Snapshot) (err error) {

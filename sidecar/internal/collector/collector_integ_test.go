@@ -282,7 +282,7 @@ func TestCollectLocks(t *testing.T) {
 	c := New(pool, cfg, 170000, noopLog)
 	ctx := context.Background()
 
-	locks, err := c.collectLocks(ctx)
+	locks, _, err := c.collectLocks(ctx)
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}
