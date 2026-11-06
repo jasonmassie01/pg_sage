@@ -402,7 +402,8 @@ func TestPostgresPortValidationAppliesOnlyToStandalone(t *testing.T) {
 	}
 	cfg.MetaDB = ""
 	err := cfg.validatePostgresPort()
-	if err == nil || !strings.Contains(err.Error(), "postgres.port must be from 1 to 65535, got 0") ||
+	const wantRange = "postgres.port must be from 1 to 65535, got 0"
+	if err == nil || !strings.Contains(err.Error(), wantRange) ||
 		!strings.Contains(err.Error(), "--meta-db") {
 		t.Fatalf("standalone port 0 error = %v, want a range error naming --meta-db", err)
 	}
