@@ -114,7 +114,7 @@ See the [docs/](docs/) directory for guides and reference:
 
 ## Building from Source
 
-Requires Go 1.25+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
+Requires Go 1.26+ and Node.js 22+. See [docs/installation.md](docs/installation.md) for details.
 
 A C compiler (gcc or clang) is also needed: with cgo the binary links
 libpg_query, which checks every executor statement against its PostgreSQL

@@ -6,8 +6,8 @@ v1 autonomous DBA workflow.
 ## Prerequisites
 
 - Docker or Docker Desktop
-- Go 1.24+
-- Node.js 20+ and npm
+- Go 1.26+
+- Node.js 22+ and npm
 - Ports `5433`, `5434`, `8080`, and `9187` available
 
 ## 1. Start Two PostgreSQL Targets

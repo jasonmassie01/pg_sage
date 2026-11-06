@@ -8,8 +8,8 @@ changing pg_sage setup.
 
 - Windows 11
 - Docker Desktop, or a local PostgreSQL 14-17 install
-- Go 1.24+
-- Node.js 20+ and npm
+- Go 1.26+
+- Node.js 22+ and npm
 - `psql` client
 
 ## 1. Start a Local Target

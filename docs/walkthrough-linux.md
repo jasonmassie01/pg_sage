@@ -7,8 +7,8 @@ autonomous DBA workflow in the web UI.
 ## Prerequisites
 
 - PostgreSQL 14-17, or Docker
-- Go 1.24+
-- Node.js 20+ and npm
+- Go 1.26+
+- Node.js 22+ and npm
 - `curl`
 
 ## 1. Start a Local Target
