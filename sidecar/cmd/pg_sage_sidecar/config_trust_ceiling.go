@@ -138,3 +138,39 @@ func publishTrustCeiling(ceiling executor.TrustCeiling) {
 	defer config.UnlockForHotReload()
 	ceiling.ApplyTo(&cfg.Trust)
 }
+
+// changedTrustCeiling is the desired ceiling when a config change moves it,
+// else nil: an unchanged ceiling is already on the process config that new
+// runtimes clone, including a stricter one a failed commit left behind.
+func changedTrustCeiling(active, desired *config.Config) *executor.TrustCeiling {
+	if active == nil || desired == nil {
+		return nil
+	}
+	next := executor.TrustCeilingFromConfig(desired.Trust)
+	if executor.TrustCeilingFromConfig(active.Trust) == next {
+		return nil
+	}
+	return &next
+}
+
+// seedCeilings puts a reload's new trust ceiling on the runtimes it built in
+// Prepare: their config clones predate the trust owner's publish, so they
+// would keep the old ceiling for good. Until the reload commits, a candidate
+// holds the stricter of its own and the new ceiling, so a raise that is not
+// applied yet never runs.
+func (p *preparedFleetReload) seedCeilings(committing bool) {
+	if p.ceiling == nil {
+		return
+	}
+	for _, candidate := range p.candidates {
+		inst := candidate.instance
+		if inst == nil || inst.Executor == nil {
+			continue // a failed placeholder has nothing to authorize
+		}
+		ceiling := *p.ceiling
+		if !committing {
+			ceiling = executor.StricterTrustCeiling(inst.Executor.TrustCeiling(), ceiling)
+		}
+		inst.Executor.SetTrustCeiling(&ceiling)
+	}
+}
