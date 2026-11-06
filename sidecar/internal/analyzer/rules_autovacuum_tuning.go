@@ -132,7 +132,8 @@ type autovacuumOptions struct {
 
 // parseAutovacuumOptions reads pg_class.reloptions entries such as
 // "autovacuum_vacuum_scale_factor=0.05". ok is false when an entry is
-// not name=value, the scale factor is not a finite number >= 0, or
+// not name=value, the scale factor is not a finite number >= 0 (PostgreSQL
+// allows whitespace around it, as parse_real does), or
 // autovacuum_enabled is not a PostgreSQL boolean.
 func parseAutovacuumOptions(reloptions []string) (autovacuumOptions, bool) {
 	var out autovacuumOptions
@@ -143,7 +144,7 @@ func parseAutovacuumOptions(reloptions []string) (autovacuumOptions, bool) {
 		}
 		switch name {
 		case "autovacuum_vacuum_scale_factor":
-			sf, err := strconv.ParseFloat(value, 64)
+			sf, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 			if err != nil || math.IsNaN(sf) || math.IsInf(sf, 0) || sf < 0 {
 				return autovacuumOptions{}, false
 			}

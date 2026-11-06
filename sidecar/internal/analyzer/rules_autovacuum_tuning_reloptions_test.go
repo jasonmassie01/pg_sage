@@ -248,3 +248,23 @@ func TestParsePGBool_MatchesPostgreSQL(t *testing.T) {
 		t.Errorf("autovacuum_enabled=of: opts %+v ok %v, want disabled", opts, ok)
 	}
 }
+
+// PostgreSQL's parse_real (strtod) accepts whitespace around a real
+// reloption and stores it verbatim: WITH (autovacuum_vacuum_scale_factor
+// = ' 0.01') is kept as "autovacuum_vacuum_scale_factor= 0.01" (PG 17).
+func TestRuleAutovacuumTuning_WhitespacePaddedScaleFactor(t *testing.T) {
+	tuned := avChurning([]string{"autovacuum_vacuum_scale_factor= 0.01"})
+	if got := avFindings(t, &collector.Snapshot{
+		Tables: []collector.TableStats{tuned}}); len(got) != 0 {
+		t.Fatalf("padded 0.01 re-recommended: %s", got[0].RecommendedSQL)
+	}
+	loose := avChurning([]string{"autovacuum_vacuum_scale_factor= 0.2 "})
+	got := avFindings(t, &collector.Snapshot{Tables: []collector.TableStats{loose}})
+	if len(got) != 1 {
+		t.Fatalf("padded 0.2: %d findings, want 1", len(got))
+	}
+	want := `ALTER TABLE "public"."events" SET (autovacuum_vacuum_scale_factor = 0.2);`
+	if got[0].RollbackSQL != want {
+		t.Errorf("RollbackSQL = %q, want %q", got[0].RollbackSQL, want)
+	}
+}
