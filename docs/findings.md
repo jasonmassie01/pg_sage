@@ -255,6 +255,42 @@ VACUUM FREEZE public.orders;
 
 ---
 
+### wraparound_freeze
+
+Detects tables whose own transaction age is past
+`analyzer.wraparound_freeze_xid_age` (default 150,000,000).
+
+**Severity:** warning from the threshold, critical from 200,000,000.
+
+**What it detects:** The older of `age(relfrozenxid)` of the table and of
+its TOAST table, so a TOAST relation near wraparound is not hidden behind a
+young heap. The detail also carries `mxid_age` (multixact age).
+
+Partitioned parents are never flagged: they have no storage of their own
+(`relfrozenxid` is 0, which PostgreSQL reports as age 2,147,483,647), and a
+VACUUM of a parent recurses into every partition. pg_sage records their age
+as unknown (`xid_age: -1`) and assesses each partition on its own.
+
+**Example output:**
+
+```
+Table public.events_2026_10 transaction age is 210000000 — freeze to avoid wraparound
+```
+
+**Recommended action:** Run VACUUM (FREEZE) on the table (safe tier; it can
+run unattended once the class has earned trust).
+
+```sql
+VACUUM (FREEZE) "public"."events_2026_10";
+```
+
+Whatever produced it, a VACUUM whose target is a partitioned table, names no
+single table, or whose target cannot be checked is queued for operator
+approval instead of running unattended. A finding whose table was dropped is
+skipped as stale.
+
+---
+
 ## System Health
 
 ### connection_leak
