@@ -142,3 +142,17 @@ func (b workMemBudget) annotate(f analyzer.Finding, hint string,
 	}
 	return f
 }
+
+// requestedWorkMemMB is the work_mem a hint asks for before the tuner's
+// 64 MB floor and clamp; ok is false without a valid Set(work_mem).
+func requestedWorkMemMB(hint string) (mb int, ok bool) {
+	for _, d := range splitHintDirectives(hint) {
+		m := setDirectiveRe.FindStringSubmatch(strings.TrimSpace(d))
+		if m == nil || !strings.EqualFold(m[1], "work_mem") {
+			continue
+		}
+		mb, err := parseWorkMemMB(strings.TrimSpace(m[2]))
+		return mb, err == nil
+	}
+	return 0, false
+}

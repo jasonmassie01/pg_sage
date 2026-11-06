@@ -112,8 +112,14 @@ func (t *Tuner) checkHint(p HintProposal) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidHint, err)
 	}
-	if err := t.workMemBudget().refuse(hint); err != nil {
-		return "", err
+	budget := t.workMemBudget()
+	if err := budget.refuse(hint); err != nil {
+		// The 64 MB floor of hint work_mem can lift a request within the cap
+		// above it on a small host: clamp that to the cap, refuse the rest.
+		if mb, ok := requestedWorkMemMB(p.Hint); !ok || mb > budget.CeilingMB {
+			return "", err
+		}
+		hint, _ = budget.capHint(hint)
 	}
 	return hint, nil
 }

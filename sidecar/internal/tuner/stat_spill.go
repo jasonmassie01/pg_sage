@@ -110,20 +110,57 @@ func (t *Tuner) observeSpills(ctx context.Context, cands []candidate) {
 	if read == nil {
 		read = t.readSpillSettings
 	}
-	users := make([]int64, 0, len(deltas))
-	for k := range deltas {
-		if !slices.Contains(users, k.UserID) {
-			users = append(users, k.UserID)
-		}
-	}
-	slices.Sort(users)
-	settings, err := read(ctx, users)
+	settings, err := read(ctx, spillUsers(deltas, cands))
 	if err != nil {
 		t.logFn("WARN", "tuner: stat_temp_spill sizing skipped this cycle, the roles' "+
 			"work_mem could not be read: %v", err)
 		return
 	}
 	t.spill.needs = sizeSpills(deltas, settings, t.workMemBudget().CeilingMB)
+	dropBelowPeers(t.spill.needs, cands, settings)
+}
+
+// spillUsers are the roles of the sized statements and every other role
+// seen running one of them this cycle, sorted.
+func spillUsers(deltas map[spillKey]spillDelta, cands []candidate) []int64 {
+	users := make([]int64, 0, len(deltas))
+	add := func(u int64) {
+		if !slices.Contains(users, u) {
+			users = append(users, u)
+		}
+	}
+	for k := range deltas {
+		add(k.UserID)
+	}
+	for _, c := range cands {
+		for k := range deltas {
+			if k.QueryID == c.QueryID {
+				add(c.UserID)
+				break
+			}
+		}
+	}
+	slices.Sort(users)
+	return users
+}
+
+// dropBelowPeers drops a hint that would lower another role's work_mem: a
+// pg_hint_plan hint applies to every role running the statement, so it may
+// not be below the work_mem of another role seen running it this cycle,
+// and a role whose work_mem is unknown blocks it (fail closed). Roles
+// outside this cycle's candidates are not seen.
+func dropBelowPeers(needs map[spillKey]spillSizing, cands []candidate, s spillSettings) {
+	for k, sz := range needs {
+		for _, c := range cands {
+			if c.QueryID != k.QueryID || c.UserID == k.UserID {
+				continue
+			}
+			if base, ok := s.WorkMemKB[c.UserID]; !ok || base > int64(sz.HintMB)*1024 {
+				delete(needs, k)
+				break
+			}
+		}
+	}
 }
 
 // sizeSpills sizes each delta whose role work_mem and block size are known.

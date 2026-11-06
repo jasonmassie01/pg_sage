@@ -294,6 +294,9 @@ between two tuner cycles, never from the totals:
    4 MB baseline the hint is `Set(work_mem "32MB")`. 100,000 calls of 1 MB each give no
    hint at 4 MB.
 5. No hint is emitted when the result, after the cap below, is not above the baseline.
+6. A hint applies to every role that runs the statement, so no hint is emitted when another
+   role seen running the same `queryid` in that cycle has a higher `work_mem`, or one the
+   tuner cannot read: the hint would lower that role's `work_mem`.
 
 The finding's `stat_spill_sizing` detail records each number in this arithmetic.
 
@@ -307,6 +310,8 @@ of every concurrent execution, multiplied by `hash_mem_multiplier`.
 - Deterministic hints above the cap are clamped to it. The finding's `work_mem_budget` detail
   records the requested size, the cap and the host memory used.
 - The tuning agent's hints above 5% of host memory are refused ("above 5% of host memory").
+  A request within the cap that the tuner's 64 MB minimum for hint work_mem would lift above
+  it (on a host under about 1.3 GB) is set to the cap instead.
   Its prompt cites the computed cap.
 - When host memory is unknown (no managed-cloud memory telemetry, for example on a
   self-managed host), only `tuner.work_mem_max_mb` applies. Every work_mem hint is then
