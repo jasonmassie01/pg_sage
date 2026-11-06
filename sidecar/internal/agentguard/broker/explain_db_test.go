@@ -167,3 +167,16 @@ func TestExplainConcurrentCalls(t *testing.T) {
 	}
 	require.Len(t, f.auditRows(t), 8)
 }
+
+func TestExplainParameterStaysOneLiteralUnderARoleDefault(t *testing.T) {
+	f := newFixture(t, envbind.EnvProd)
+	// With standard_conforming_strings off, a backslash escapes the quote
+	// that closes an EXECUTE argument, and the rest of the value is SQL.
+	exec(t, f.super, fmt.Sprintf("ALTER ROLE %s SET standard_conforming_strings = off",
+		ident(f.role)))
+	res := f.explain(t, "SELECT id FROM items WHERE name = $1", `x\') --`)
+	plan := requirePlan(t, res)
+	require.True(t, strings.Contains(string(res.PlanJSON), `) --`),
+		"the parameter was split into SQL: %v", plan)
+	requirePlan(t, f.explain(t, "SELECT id FROM items WHERE name = $1", `'; SELECT 1; --`))
+}
