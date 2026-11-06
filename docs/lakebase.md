@@ -120,9 +120,11 @@ connection: the main host and every fallback host. pg_sage refuses
 the server certificate to the endpoint hostname, and an interceptor could
 capture the minted database credential. The refusal reads:
 `lakebase OAuth requires sslmode=verify-full (got an unverified TLS mode); set
-sslmode=verify-full in SAGE_DATABASE_URL or SAGE_PG_SSLMODE`. Lakebase
-hostnames verify against the system certificate roots, so no `sslrootcert` is
-needed.
+sslmode=verify-full in SAGE_DATABASE_URL, SAGE_PG_SSLMODE or the fleet's
+databases[].sslmode`. In fleet mode each mapped database takes its TLS mode from
+its own `sslmode` key, which defaults to `prefer`, so set `sslmode: verify-full`
+on every database listed in `SAGE_LAKEBASE_ENDPOINTS`. Lakebase hostnames
+verify against the system certificate roots, so no `sslrootcert` is needed.
 
 Every mapped hostname is checked against endpoint metadata before its pool
 receives a credential. Unmapped hosts retain ordinary PostgreSQL authentication

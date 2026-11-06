@@ -149,7 +149,10 @@ func requireUnverifiedTLSError(t *testing.T, err error) {
 	if !errors.Is(err, ErrUnverifiedTLS) {
 		t.Fatalf("error = %v; want ErrUnverifiedTLS", err)
 	}
-	for _, want := range []string{"sslmode=verify-full", "SAGE_DATABASE_URL", "SAGE_PG_SSLMODE"} {
+	// Fleet databases take sslmode from YAML, not from the environment.
+	wants := []string{"sslmode=verify-full", "SAGE_DATABASE_URL", "SAGE_PG_SSLMODE",
+		"databases[].sslmode"}
+	for _, want := range wants {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not name %s", err, want)
 		}

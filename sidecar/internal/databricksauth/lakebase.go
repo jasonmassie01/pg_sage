@@ -22,8 +22,10 @@ var endpointName = regexp.MustCompile(`^projects/[a-z0-9-]+/branches/[a-z0-9-]+/
 // ErrUnverifiedTLS refuses a Lakebase OAuth connection whose TLS does not
 // verify the endpoint's certificate and hostname. sslmode=require and
 // verify-ca encrypt, but an interceptor could still capture the minted token.
+// Fleet databases take sslmode from YAML (default prefer), so it is named too.
 var ErrUnverifiedTLS = errors.New("lakebase OAuth requires sslmode=verify-full " +
-	"(got an unverified TLS mode); set sslmode=verify-full in SAGE_DATABASE_URL or SAGE_PG_SSLMODE")
+	"(got an unverified TLS mode); set sslmode=verify-full in SAGE_DATABASE_URL, " +
+	"SAGE_PG_SSLMODE or the fleet's databases[].sslmode")
 
 // NewPool is the OAuth-aware equivalent of pgxpool.New for CLI commands.
 func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
