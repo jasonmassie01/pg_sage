@@ -52,7 +52,7 @@ func (rt *databaseRuntime) startMonitoring() {
 			analyzer.NewLLMPlanNarrator(rt.generalLLM, logStructuredWrapper))
 	}
 	rt.start(func() { rt.analyzer.Run(rt.ctx) })
-	if alerts := newInstanceAlertManager(rt.spec.Pool); alerts != nil {
+	if alerts := newInstanceAlertManager(rt.spec.Pool, rt.spec.Name); alerts != nil {
 		rt.start(func() { alerts.Run(rt.ctx) })
 		rt.note("alerting")
 	}

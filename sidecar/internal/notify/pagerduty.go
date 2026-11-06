@@ -87,7 +87,7 @@ func buildPagerDutyPayload(
 	if prefix := ch.Config["dedup_key_prefix"]; prefix != "" {
 		dedupKey = prefix + ":" + dedupKey
 	}
-	dedupKey = boundPDDedupKey(dedupKey)
+	dedupKey = BoundPagerDutyDedupKey(dedupKey)
 	action := "trigger"
 	if evt.Resolve {
 		action = "resolve"
@@ -115,10 +115,10 @@ func buildPagerDutyPayload(
 // rejects a longer key, so the page would never be delivered.
 const pdMaxDedupKey = 255
 
-// boundPDDedupKey keeps key within pdMaxDedupKey. A longer key keeps its
+// BoundPagerDutyDedupKey keeps key within pdMaxDedupKey. A longer key keeps its
 // readable head, cut on a rune boundary, plus a hash of the whole key, so
 // the trigger and the resolve of one identity still share it.
-func boundPDDedupKey(key string) string {
+func BoundPagerDutyDedupKey(key string) string {
 	if len(key) <= pdMaxDedupKey {
 		return key
 	}

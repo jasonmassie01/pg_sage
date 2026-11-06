@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// No concurrent access tests: boundPDDedupKey is a pure function of its
+// No concurrent access tests: BoundPagerDutyDedupKey is a pure function of its
 // input and the payload builder shares no state.
 
 // PagerDuty rejects a dedup_key over 255 characters, so a critical
@@ -45,15 +45,15 @@ func TestPagerDutyLongKeysSharingHeadStayDistinct(t *testing.T) {
 // bounded.
 func TestBoundPDDedupKeyBoundary(t *testing.T) {
 	at := strings.Repeat("k", pdMaxDedupKey)
-	if got := boundPDDedupKey(at); got != at {
+	if got := BoundPagerDutyDedupKey(at); got != at {
 		t.Fatalf("255-char key changed: %q", got)
 	}
 	over := at + "z"
-	got := boundPDDedupKey(over)
+	got := BoundPagerDutyDedupKey(over)
 	if len(got) != pdMaxDedupKey || got == over[:pdMaxDedupKey] {
 		t.Fatalf("256-char key not bounded with a hash: len %d %q", len(got), got)
 	}
-	if boundPDDedupKey(over) != got {
+	if BoundPagerDutyDedupKey(over) != got {
 		t.Fatal("bounding is not deterministic")
 	}
 }
@@ -61,7 +61,7 @@ func TestBoundPDDedupKeyBoundary(t *testing.T) {
 // Nil/empty: an empty key stays empty (the generic key is computed
 // before bounding, so this only guards the helper).
 func TestBoundPDDedupKeyEmpty(t *testing.T) {
-	if got := boundPDDedupKey(""); got != "" {
+	if got := BoundPagerDutyDedupKey(""); got != "" {
 		t.Fatalf("empty key = %q", got)
 	}
 }
@@ -70,7 +70,7 @@ func TestBoundPDDedupKeyEmpty(t *testing.T) {
 // the JSON payload never carries a broken UTF-8 sequence.
 func TestBoundPDDedupKeyKeepsValidUTF8(t *testing.T) {
 	key := strings.Repeat("a", 240) + strings.Repeat("é", 40)
-	got := boundPDDedupKey(key)
+	got := BoundPagerDutyDedupKey(key)
 	if !utf8.ValidString(got) {
 		t.Fatalf("bounded key is not valid UTF-8: %q", got)
 	}
