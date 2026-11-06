@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -201,29 +202,48 @@ func TestFreezeHolderFiftyTablesOneDecisionNoFutileVacuum(t *testing.T) {
 // v02Settle consumes XIDs until this database's prepared transaction is
 // at least lo of every schema table's XID age, failing once one reaches
 // hi. Concurrent tests use XIDs of the same cluster, and their snapshots
-// can date a new table's relfrozenxid back, so the shares are measured.
+// can date a new table's relfrozenxid back by any amount, so the shares
+// are measured and each step burns what the measured gap still needs.
 func v02Settle(t *testing.T, pool *pgxpool.Pool, schema string, lo, hi float64) {
 	t.Helper()
-	for step := 0; step < 400; step++ {
-		var least, most float64
-		if err := pool.QueryRow(context.Background(), `SELECT min(h.age / age(c.relfrozenxid)),
-			max(h.age / age(c.relfrozenxid))
+	for step := 0; step < 20; step++ {
+		var holder, oldest, youngest float64
+		if err := pool.QueryRow(context.Background(), `SELECT h.age,
+			max(age(c.relfrozenxid))::float8, min(age(c.relfrozenxid))::float8
 			FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 			CROSS JOIN (SELECT max(age(transaction))::float8 AS age FROM pg_prepared_xacts
 			            WHERE gid LIKE 'vacuum02_e2e_%' AND database = current_database()) h
-			WHERE n.nspname = $1 AND c.relkind = 'r'`, schema).Scan(&least, &most); err != nil {
+			WHERE n.nspname = $1 AND c.relkind = 'r' GROUP BY h.age`, schema).
+			Scan(&holder, &oldest, &youngest); err != nil {
 			t.Fatalf("read the holder's shares: %v", err)
 		}
-		if most >= hi {
+		if holder >= hi*youngest {
 			t.Fatalf("fixture drifted: holder is %.2f of a %s table's age, want under %.2f",
-				most, schema, hi)
+				holder/youngest, schema, hi)
 		}
-		if least >= lo {
+		need, ceiling := v02BurnToShare(holder, oldest, lo), 2_000_000
+		if hi < 1 {
+			ceiling = v02BurnToShare(holder, youngest, hi) - 1
+		}
+		if need == 0 {
 			return
 		}
-		v02Burn(t, pool, 200)
+		if ceiling < need {
+			t.Fatalf("holder cannot reach %.2f of every %s table's age below %.2f: "+
+				"needs %d XIDs, at most %d fit", lo, schema, hi, need, ceiling)
+		}
+		v02Burn(t, pool, min(need+20, ceiling))
 	}
 	t.Fatalf("holder never reached %.2f of every %s table's age", lo, schema)
+}
+
+// v02BurnToShare is how many XIDs raise a holder at holderAge to share of
+// a table at tableAge (every XID ages both by one); 0 once it is there.
+func v02BurnToShare(holderAge, tableAge, share float64) int {
+	if share >= 1 || holderAge >= share*tableAge {
+		return 0
+	}
+	return int(math.Ceil((share*tableAge - holderAge) / (1 - share)))
 }
 
 func TestFreezeHolderYoungerThanTheTableStillFreezes(t *testing.T) {

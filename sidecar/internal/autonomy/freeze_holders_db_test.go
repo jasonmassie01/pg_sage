@@ -3,6 +3,7 @@ package autonomy
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -222,32 +223,55 @@ var (
 // settleShares consumes XIDs until the holder (holderSQL, an age, with
 // $2 = arg) is within its band of every table's XID age. Other packages'
 // tests use XIDs of the same cluster and their snapshots can date a new
-// table's relfrozenxid back, so the fixture is measured, not assumed;
-// each step moves the shares by a few hundredths.
+// table's relfrozenxid back by any amount, so the fixture is measured,
+// not assumed, and each step burns what the measured gap still needs.
 func settleShares(t *testing.T, pool *pgxpool.Pool, holderSQL string, arg any,
 	bands map[string]shareBand) {
 	t.Helper()
-	for step := 0; step < 400; step++ {
-		settled := true
+	for step := 0; step < 20; step++ {
+		need, ceiling := 0, maxSettleBurn
 		for table, band := range bands {
-			var share float64
+			var holder, age float64
 			if err := pool.QueryRow(context.Background(), `SELECT (`+holderSQL+
-				`)::float8 / age(relfrozenxid) FROM pg_class WHERE oid = $1::regclass`,
-				table, arg).Scan(&share); err != nil {
+				`)::float8, age(relfrozenxid)::float8 FROM pg_class WHERE oid = $1::regclass`,
+				table, arg).Scan(&holder, &age); err != nil {
 				t.Fatalf("read the holder's share of %s: %v", table, err)
 			}
-			if share >= band.hi {
+			if holder >= band.hi*age {
 				t.Fatalf("fixture drifted: holder is %.2f of %s's age, want under %.2f",
-					share, table, band.hi)
+					holder/age, table, band.hi)
 			}
-			settled = settled && share >= band.lo
+			need = max(need, burnToShare(holder, age, band.lo))
+			if band.hi < 1 {
+				ceiling = min(ceiling, burnToShare(holder, age, band.hi)-1)
+			}
 		}
-		if settled {
+		if need == 0 {
 			return
 		}
-		burnXIDs(t, pool, 200)
+		if ceiling < need {
+			t.Fatalf("holder cannot reach every band %v: needs %d XIDs, at most %d fit",
+				bands, need, ceiling)
+		}
+		burnXIDs(t, pool, min(need+settleMargin, ceiling))
 	}
 	t.Fatalf("holder never reached its share bands %v", bands)
+}
+
+// maxSettleBurn bounds one settle step; settleMargin rounds a step past
+// its band's edge.
+const (
+	maxSettleBurn = 2_000_000
+	settleMargin  = 20
+)
+
+// burnToShare is how many XIDs raise a holder at holderAge to share of a
+// table at tableAge (every XID ages both by one); 0 once it is there.
+func burnToShare(holderAge, tableAge, share float64) int {
+	if share >= 1 || holderAge >= share*tableAge {
+		return 0
+	}
+	return int(math.Ceil((share*tableAge - holderAge) / (1 - share)))
 }
 
 func TestFreezeHoldersEscalatePreparedTransactions(t *testing.T) {
