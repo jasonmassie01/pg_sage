@@ -528,8 +528,10 @@ it carries `unavailable` and no delta; a failed read of the write history is rec
 outcome reason says so and that it is advisory. The index is kept or reverted on its
 queries alone (`query_regression`, `no_gain`, `invalid_index`, `insufficient_samples`).
 At startup, an open `write_impact` revert from an earlier version whose drop has not run
-is reopened and checked again on its queries. A table-scoped write signal that can revert
-again is planned (executor-03b).
+is reopened and checked again on its queries; if that drop was withheld or failed, its
+action (`rollback_skipped` or `rollback_failed`) is watched again (`monitoring`) so the new
+verdict settles it, and an operator's rollback is left as it is. A table-scoped write signal
+that can revert again is planned (executor-03b).
 
 An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
 from the start. Its definition is kept, and the index is re-created as soon as a query on

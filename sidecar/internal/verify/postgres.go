@@ -272,22 +272,36 @@ func (s *PostgresStateStore) Claim(
 // open write_impact revert (from before the write signal became advisory,
 // executor-03) whose drop has not run is reopened too, whatever its
 // deadline: the queries decide it again. Its next evaluation (the claim
-// lease) is kept. It is idempotent.
+// lease) is kept. A reopened action that its withheld or failed revert left
+// rollback_skipped or rollback_failed is watched again (monitoring), so the
+// next verdict can settle it; an operator's rollback is never touched. It
+// is idempotent.
 func (s *PostgresStateStore) ReopenObservationRetries(ctx context.Context) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, errors.New("verify state pool is unavailable")
 	}
-	command, err := s.pool.Exec(ctx, `UPDATE sage.verification SET verdict='extended',
-		reason='observation_retry: reopened ' || reason || ' verdict', updated_at=now()
+	var reopened int64
+	err := s.pool.QueryRow(ctx, `WITH reopened AS (
+		UPDATE sage.verification SET verdict='extended',
+		  reason='observation_retry: reopened ' || reason || ' verdict', updated_at=now()
 		WHERE completed_at IS NULL AND (
 		  (verdict='unverifiable'
 		    AND reason IN ('observation_unavailable', 'context_canceled')
 		    AND hard_deadline_at > now())
-		  OR (verdict='revert' AND reason='write_impact'))`)
+		  OR (verdict='revert' AND reason='write_impact'))
+		RETURNING action_log_id
+	), watched AS (
+		UPDATE sage.action_log al SET outcome='monitoring', rollback_reason=NULL
+		FROM reopened r
+		WHERE al.id=r.action_log_id
+		  AND al.outcome IN ('rollback_skipped', 'rollback_failed')
+		RETURNING al.id
+	)
+	SELECT count(*) FROM reopened`).Scan(&reopened)
 	if err != nil {
 		return 0, fmt.Errorf("reopen transient or write-impact verifications: %w", err)
 	}
-	return command.RowsAffected(), nil
+	return reopened, nil
 }
 
 type stateScanner interface {
