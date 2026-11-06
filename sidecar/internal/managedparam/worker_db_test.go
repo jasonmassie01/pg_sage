@@ -253,3 +253,30 @@ func assertNoForeignProposals(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatalf("%d proposals come from non-producer categories", n)
 	}
 }
+
+// State transition: a proposal an older worker made from a model-planted
+// intent (here work_mem on a query_rewrite finding) is superseded on
+// the first cycle after the upgrade, so an operator can no longer approve
+// it (advisors-04).
+func TestWorkerSupersedesProposalFromRefusedIntent(t *testing.T) {
+	pool, ctx := testPool(t)
+	w := newTestWorker(t, pool, nil)
+	id := insertCategoryFinding(t, pool, "query_rewrite", "q:planted", map[string]any{
+		DetailKey: map[string]any{"provider": "rds", "parameter": "work_mem",
+			"value": "64MB", "reason": "planted"}})
+	old, created, err := w.store.Upsert(ctx, buildProposal(t, "work_mem", "64MB"), id)
+	if err != nil || !created || old.Status != StatusPending {
+		t.Fatalf("seed pre-upgrade proposal = %+v, %t, %v", old, created, err)
+	}
+	res, err := w.Cycle(ctx)
+	if err != nil {
+		t.Fatalf("Cycle: %v", err)
+	}
+	if res.Proposed != 0 || res.Superseded != 1 || len(res.BuildErrors) != 1 {
+		t.Fatalf("cycle = %+v, want the planted proposal superseded and refused", res)
+	}
+	got, err := w.store.Get(ctx, old.ID)
+	if err != nil || got.Status != StatusSuperseded {
+		t.Fatalf("pre-upgrade proposal = %+v, %v; want superseded", got, err)
+	}
+}
