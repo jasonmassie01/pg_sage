@@ -27,6 +27,7 @@ const (
 	KindStateEdited     = "state_edited"      // state differs from the row's last link
 	KindRowLinkMismatch = "row_link_mismatch" // the row's own chain columns disagree
 	KindUnchainedRow    = "unchained_row"     // a row written with the triggers bypassed
+	KindOrphanRow       = "orphan_row"        // a row's own link is no longer in the chain
 )
 
 // ErrNotInstalled means the chain's table has no chain (yet).
@@ -148,6 +149,11 @@ func (v *verifier) run(ctx context.Context, w Window) error {
 	if err := v.findUnchained(ctx, full); err != nil {
 		return err
 	}
+	if full {
+		if err := v.findOrphans(ctx); err != nil {
+			return err
+		}
+	}
 	if from == 1 {
 		return v.countLegacy(ctx)
 	}
@@ -183,16 +189,16 @@ func (v *verifier) start(ctx context.Context, from int64) error {
 		v.prev, v.prevKnown = Genesis, true
 		return nil
 	}
-	err := v.q.QueryRow(ctx, linkAtSQL, v.s.Chain, from-1).Scan(&v.prev)
-	if errors.Is(err, pgx.ErrNoRows) {
+	hash, found, err := LinkHashAt(ctx, v.q, v.s.Chain, from-1)
+	if err != nil {
+		return err
+	}
+	if !found {
 		v.rep.add(Problem{Kind: KindGap, Seq: from - 1,
 			Detail: "the link before the window is missing"})
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("read link %d: %w", from-1, err)
-	}
-	v.prevKnown = true
+	v.prev, v.prevKnown = hash, true
 	return nil
 }
 
