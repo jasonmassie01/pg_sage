@@ -831,9 +831,29 @@ jobs:
             assets/pgincidentbench-live.json.sigstore.json \
             assets/pgincidentbench-live.md
 
+  # ci-06: the image HEALTHCHECK must report a plain and a TLS deployment
+  # healthy (docker inspect); docker publishes nothing past a failure here.
+  container-health:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the GitHub container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Plain and TLS containers report healthy
+        timeout-minutes: 20
+        env:
+          PG_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
+        run: scripts/ci/container-healthcheck.sh
+
   docker:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, lint, bench-sign, security]
+    needs: [test, agent-servers, lint, bench-sign, security, container-health]
     # master pushes publish :edge and :sha-*; release tags publish the
     # semver tags and move :latest, so :latest is always a release.
     # A tag image needs verified signed bench reports; :edge is published
@@ -843,6 +863,7 @@ jobs:
       always() && github.event_name == 'push' &&
       needs.test.result == 'success' && needs.lint.result == 'success' &&
       needs.security.result == 'success' &&
+      needs.container-health.result == 'success' &&
       (github.ref == 'refs/heads/master' ||
        (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success'))
     permissions:

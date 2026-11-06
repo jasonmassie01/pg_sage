@@ -66,22 +66,6 @@ func TestWave5CIUsesDesignatedParallelDatabaseFixtures(t *testing.T) {
 	}
 }
 
-func TestWave5ContainerHealthcheckUsesPublicEndpoint(t *testing.T) {
-	sidecarRoot := wave5SidecarRoot(t)
-	body, err := os.ReadFile(filepath.Join(sidecarRoot, "Dockerfile"))
-	if err != nil {
-		t.Fatalf("read Dockerfile: %v", err)
-	}
-	dockerfile := string(body)
-	if !strings.Contains(dockerfile, "http://localhost:8080/health") {
-		t.Fatal("container healthcheck does not use the public health endpoint")
-	}
-	if strings.Contains(dockerfile, "HEALTHCHECK") &&
-		strings.Contains(dockerfile, "/api/v1/metrics") {
-		t.Fatal("container healthcheck uses the authenticated metrics endpoint")
-	}
-}
-
 func TestWave5ContainerBuildExcludesFrontendDependencies(t *testing.T) {
 	sidecarRoot := wave5SidecarRoot(t)
 	body, err := os.ReadFile(filepath.Join(sidecarRoot, ".dockerignore"))

@@ -26,7 +26,7 @@ RUN CGO_ENABLED=1 go build \
 
 # Alpine 3.24 pinned by digest; Dependabot (docker) proposes digest bumps.
 FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
-RUN apk add --no-cache ca-certificates tzdata curl \
+RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -g 1000 sage \
     && adduser -u 1000 -G sage -s /sbin/nologin -D sage
 COPY --from=builder /build/sage-sidecar /usr/local/bin/sage-sidecar
@@ -36,6 +36,10 @@ COPY --from=builder /build/sage-sidecar /usr/local/bin/sage-sidecar
 COPY release-bench/ /usr/share/pg_sage/bench/
 USER sage
 EXPOSE 8080 9187
+# ci-06: the sidecar probes its own /health, following api.listen_addr
+# (SAGE_CONFIG_PATH or ./config.yaml) and HTTPS when SAGE_TLS_CERT and
+# SAGE_TLS_KEY are set. A config passed as --config in the container
+# args is invisible here: use SAGE_CONFIG_PATH.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -sf http://localhost:8080/health || exit 1
+    CMD ["sage-sidecar", "healthcheck"]
 ENTRYPOINT ["sage-sidecar"]

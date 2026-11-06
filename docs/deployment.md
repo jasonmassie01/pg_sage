@@ -60,15 +60,40 @@ Read the one-time admin password from startup logs:
 docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 ```
 
-With a config file:
+With a config file, name it in `SAGE_CONFIG_PATH` rather than `--config`, so
+the image `HEALTHCHECK` reads the same `api.listen_addr`:
 
 ```bash
 docker run -d --name pg_sage \
   -v /path/to/config.yaml:/etc/pg_sage/config.yaml \
+  -e SAGE_CONFIG_PATH=/etc/pg_sage/config.yaml \
   -p 8080:8080 -p 9187:9187 \
-  ghcr.io/jasonmassie01/pg_sage:latest \
-  --config /etc/pg_sage/config.yaml
+  ghcr.io/jasonmassie01/pg_sage:latest
 ```
+
+### Container health check
+
+The image `HEALTHCHECK` runs `sage-sidecar healthcheck`, which sends
+`GET /health` to the API listener and exits 0 on `200`. It finds the address
+the way the sidecar does: `--addr`, then `api.listen_addr` from
+`SAGE_CONFIG_PATH` or `./config.yaml`, then `0.0.0.0:8080`. A wildcard host
+(`0.0.0.0`, `::` or empty) is probed on `127.0.0.1`. With `SAGE_TLS_CERT` and
+`SAGE_TLS_KEY` set it uses HTTPS, and skips certificate verification only for
+a loopback address. It sends no credential and checks liveness only; use
+`GET /ready` for readiness.
+
+Arguments after the image name (such as `--config`) are invisible to the
+health check. When the API listens on an address the check cannot read from
+those sources, override the check with it:
+
+```yaml
+healthcheck:
+  test: ["CMD", "sage-sidecar", "healthcheck", "--addr", "127.0.0.1:9443"]
+```
+
+`--timeout` (default `3s`) bounds the probe. On failure stderr names the URL
+and the status or error, and `docker inspect` shows it under
+`.State.Health.Log`.
 
 ---
 
@@ -255,7 +280,7 @@ Both endpoints are on the API port and need no session.
 
 | Endpoint | Answers | Use it for |
 |---|---|---|
-| `GET /health` | Always `200 {"status":"ok"}` while the process serves HTTP | Liveness and startup probes, Docker `HEALTHCHECK` |
+| `GET /health` | Always `200 {"status":"ok"}` while the process serves HTTP | Liveness and startup probes, the image `HEALTHCHECK` (`sage-sidecar healthcheck`) |
 | `GET /ready` | `200` when ready, `503` when not | Readiness probes, load balancer health checks |
 
 `/ready` is ready when the configuration is loaded, the control database
