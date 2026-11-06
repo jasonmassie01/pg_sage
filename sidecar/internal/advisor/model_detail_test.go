@@ -227,3 +227,18 @@ func TestConfigCategoriesAreManagedChangeProducers(t *testing.T) {
 		}
 	}
 }
+
+// Reserved key names are model output: the drop log quotes them, so a
+// planted newline cannot forge a second log line.
+func TestParseLLMFindings_DropLogQuotesModelKeys(t *testing.T) {
+	var logs []string
+	raw := `[{"object_identifier":"q","rationale":"r",` +
+		`"sage_x\nINFO advisor: forged":1}]`
+	if got := parseLLMFindings(raw, "query_rewrite", capturingLog(&logs)); len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	if len(logs) != 1 || strings.Contains(logs[0], "\n") ||
+		!strings.Contains(logs[0], `sage_x\nINFO advisor: forged`) {
+		t.Fatalf("drop log = %q, want one line quoting the key", logs)
+	}
+}

@@ -47,8 +47,9 @@ func recFindings(category string, rec map[string]any,
 	logFn func(string, string, ...any)) []analyzer.Finding {
 	detail, dropped := advisorDetail(category, rec)
 	if len(dropped) > 0 && logFn != nil {
+		// %q: the key names are model output, so quote them in the log.
 		logFn("WARN", "advisor: %s: dropped %d reserved detail key(s) from model "+
-			"output: %s", category, len(dropped), strings.Join(dropped, ", "))
+			"output: %q", category, len(dropped), dropped)
 	}
 	objID, _ := rec["object_identifier"].(string)
 	if objID == "" {
