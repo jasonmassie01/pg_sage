@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -169,5 +171,30 @@ func TestSecureCookie_ConcurrentTrustSwapIsSafe(t *testing.T) {
 	wg.Wait()
 	if secureCookie(protoRequest("10.0.0.5:4000", "https")) {
 		t.Fatal("trust left installed after the final nil swap")
+	}
+}
+
+// An operator behind a TLS proxy missing from api.trusted_proxies must be
+// told, once, why session cookies are not Secure.
+func TestSecureCookie_UntrustedProxyWarnsOnce(t *testing.T) {
+	trustPeer(t, "10.0.0.5")
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	untrustedProtoWarning = sync.Once{}
+	t.Cleanup(func() { untrustedProtoWarning = sync.Once{} })
+
+	for _, remote := range []string{"10.0.0.5:4000", "203.0.113.9:4000",
+		"198.51.100.7:4000"} {
+		_ = secureCookie(protoRequest(remote, "https"))
+	}
+	_ = secureCookie(protoRequest("203.0.113.9:4000", "http"))
+	out := logs.String()
+	if got := strings.Count(out, "level=WARN"); got != 1 {
+		t.Fatalf("warnings = %d, want exactly 1:\n%s", got, out)
+	}
+	if !strings.Contains(out, "api.trusted_proxies") || !strings.Contains(out, "peer=203.0.113.9") {
+		t.Fatalf("warning %q does not name the setting and the first untrusted peer", out)
 	}
 }

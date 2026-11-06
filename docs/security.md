@@ -428,7 +428,8 @@ listener serves HTTPS only (TLS 1.2 or newer); session cookies are then marked
 reverse proxy, Kubernetes Ingress, Cloud Run or load balancer. Behind such a
 proxy the password-login session cookie is `Secure` only when the proxy's
 address is in `api.trusted_proxies` (default: loopback) and it sends
-`X-Forwarded-Proto: https`; the header from any other peer is ignored. SSO and
+`X-Forwarded-Proto: https`; the header from any other peer is ignored, and
+the first such request logs a warning naming `api.trusted_proxies`. SSO and
 break-glass session cookies are always `Secure`.
 
 - Setting only one of the two is a startup error, so a typo can't silently
