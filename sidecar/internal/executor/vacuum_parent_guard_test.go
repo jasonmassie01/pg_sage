@@ -106,6 +106,7 @@ func TestVacuumTargetParsing(t *testing.T) {
 		{`VACUUM (FREEZE, ANALYZE) "public"."my.table"`, `"public"."my.table"`, true},
 		{"VACUUM ANALYZE public.t (a, b)", "public.t", true},
 		{"vacuum verbose public.t;", "public.t", true},
+		{"VACUUM (FREEZE) ONLY public.p;", "public.p", true},
 		{"VACUUM", "", false},
 		{"VACUUM (FREEZE) a, b", "", false},
 	} {

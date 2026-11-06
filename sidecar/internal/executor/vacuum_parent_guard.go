@@ -93,8 +93,9 @@ func isVacuumStatement(sql string) bool {
 }
 
 // singleVacuumTarget is the one relation a VACUUM names, as written (quoted
-// parts verbatim), past its option list, bare option keywords and any
-// column list; ok is false when it names none or several.
+// parts verbatim), past its option list, bare option keywords, ONLY
+// (PostgreSQL 18) and any column list; ok is false when it names none or
+// several.
 func singleVacuumTarget(sql string) (string, bool) {
 	rest := strings.TrimSpace(normalizeSQLText(sql))
 	rest = strings.TrimSpace(strings.TrimSuffix(rest, ";"))
@@ -112,7 +113,7 @@ func singleVacuumTarget(sql string) (string, bool) {
 	for {
 		word, after, _ := strings.Cut(rest, " ")
 		switch strings.ToUpper(word) {
-		case "FULL", "FREEZE", "VERBOSE", "ANALYZE":
+		case "FULL", "FREEZE", "VERBOSE", "ANALYZE", "ONLY":
 			rest = after
 			continue
 		}
