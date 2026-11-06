@@ -164,7 +164,21 @@ decides whether a specific database can execute, queue, or only observe.
 
 ### Alerting
 
-Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`.
+Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`, `incident_detected`, `incident_escalated`, `incident_resolved`.
+
+**PagerDuty lifecycle.** Each pg_sage incident is one PagerDuty incident with the
+`dedup_key` `incident:<database>:<incident id>`. `incident_detected` and
+`incident_escalated` trigger it (escalation updates its severity) and `incident_resolved`
+resolves it, so a PagerDuty channel must have rules for all three events; without an
+`incident_resolved` rule the page stays open. A recurrence is a new incident id and opens a
+new PagerDuty incident. A critical finding pages with the key
+`finding_critical:<database>:<category>:<object>`. When the analyzer resolves the finding (it
+is no longer detected), it sends a resolve on that key as a `finding_critical` event, so the
+rule that paged also closes the page; a re-opened finding pages again. Slack, Telegram and
+webhooks receive the resolves as ordinary messages ("Incident resolved: ...",
+"Resolved: Critical finding: ..."). The channel's `dedup_key_prefix`
+is still prepended to every key. PagerDuty incidents opened before v2.5.1 used other keys and
+do not auto-resolve: close them by hand once after the upgrade.
 
 ### AutoExplain Collector
 
