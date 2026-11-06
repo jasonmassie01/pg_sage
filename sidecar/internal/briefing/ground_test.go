@@ -50,7 +50,7 @@ func TestGroundKeepsRecommendationAndLinksCitation(t *testing.T) {
 		t.Fatalf("provided recommendation changed: removed=%q\n%s", removed, grounded)
 	}
 	stored := linkCitations(grounded, p)
-	link := "[#12](#/cases?case=" + url.QueryEscape(groundCaseKey()) + ")"
+	link := "[#12](#/cases?case=" + url.QueryEscape(groundCaseKey()) + "&database=prod)"
 	if !strings.Contains(stored, "Finding "+link+" is critical.") {
 		t.Fatalf("citation not linked to case %q:\n%s", groundCaseKey(), stored)
 	}

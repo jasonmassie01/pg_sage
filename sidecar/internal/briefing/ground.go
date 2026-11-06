@@ -291,11 +291,22 @@ func linkCitations(text string, p Payload) string {
 			continue
 		}
 		b.WriteString(text[last:hash])
-		fmt.Fprintf(&b, "[#%d](#/cases?case=%s)", id, url.QueryEscape(f.CaseKey))
+		fmt.Fprintf(&b, "[#%d](%s)", id, caseLink(f.CaseKey, p.database))
 		last = numEnd
 	}
 	b.WriteString(text[last:])
 	return b.String()
+}
+
+// caseLink is the dashboard route to a case. Like the dashboard's own case
+// links it names the database, so the link opens the case even when the
+// viewer has another database selected.
+func caseLink(key, database string) string {
+	link := "#/cases?case=" + url.QueryEscape(key)
+	if database != "" {
+		link += "&database=" + url.QueryEscape(database)
+	}
+	return link
 }
 
 func inRegion(regions []codeRegion, offset int) bool {

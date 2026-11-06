@@ -1,6 +1,7 @@
 package briefing
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -78,6 +79,32 @@ func TestGroundCitesOnlyKnownFindings(t *testing.T) {
 	}
 	if !strings.Contains(linked, "`#12`") || !strings.Contains(linked, "[#12](x)") {
 		t.Fatalf("code span or existing link rewritten:\n%s", linked)
+	}
+}
+
+// The dashboard opens a case in the database a link names; without it the
+// viewer's selected database is searched and another database's case is
+// "unavailable".
+func TestGroundCaseLinkNamesTheDatabase(t *testing.T) {
+	findings := `[{"id":3,"category":"bloat","severity":"info","title":"t",
+		"object_type":"table","object_identifier":"public.t","occurrence_count":1}]`
+	key := cases.IdentityKeyForFinding(cases.SourceFinding{DatabaseName: "a b&c",
+		Category: "bloat", ObjectType: "table", ObjectIdentifier: "public.t"})
+	p, err := buildPayload(findings, 1, `{}`, `[]`, "a b&c")
+	if err != nil {
+		t.Fatalf("buildPayload: %v", err)
+	}
+	want := "see [#3](#/cases?case=" + url.QueryEscape(key) + "&database=a+b%26c)"
+	if got := linkCitations("see #3", p); got != want {
+		t.Fatalf("link = %q, want %q", got, want)
+	}
+	p, err = buildPayload(findings, 1, `{}`, `[]`, "")
+	if err != nil {
+		t.Fatalf("buildPayload: %v", err)
+	}
+	if got := linkCitations("see #3", p); strings.Contains(got, "database=") ||
+		!strings.HasPrefix(got, "see [#3](#/cases?case=") {
+		t.Fatalf("link without a database = %q", got)
 	}
 }
 

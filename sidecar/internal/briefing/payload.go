@@ -17,6 +17,8 @@ type Payload struct {
 	TotalOpen int              `json:"total_open"`
 	System    map[string]any   `json:"system,omitempty"`
 	Actions   []map[string]any `json:"actions"`
+	// database is the fleet database the case links open on the Cases page.
+	database string
 }
 
 // FindingRef is one open finding as the briefing presents it.
@@ -66,7 +68,8 @@ func buildPayload(findings string, totalOpen int, system, actions, database stri
 	if err := json.Unmarshal([]byte(findings), &rows); err != nil {
 		return Payload{}, fmt.Errorf("decode briefing findings: %w", err)
 	}
-	p := Payload{Findings: make([]FindingRef, 0, len(rows)), TotalOpen: totalOpen}
+	p := Payload{Findings: make([]FindingRef, 0, len(rows)), TotalOpen: totalOpen,
+		database: database}
 	for _, r := range rows {
 		p.Findings = append(p.Findings, r.ref(database))
 	}

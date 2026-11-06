@@ -169,7 +169,7 @@ count and a 12-character digest, never the SQL. Prose is never changed.
 
 **Output**: markdown string. Stored in `sage.briefings` (`storeBriefing`) with
 `llm_used`, `token_count` and the payload as `content_json`. In the stored
-text each cited `#<id>` links to `#/cases?case=<case key>`; the text
+text each cited `#<id>` links to `#/cases?case=<case key>&database=<db>`; the text
 **dispatched** to `stdout` and/or the `slack` webhook (`Dispatch`) keeps the
 plain `finding #<id>`, since there is no public dashboard URL.
 
