@@ -198,7 +198,11 @@ func TestWatchMinimumGainBoundaryCountsAsSuccess(t *testing.T) {
 	}
 }
 
-func TestWatchRevertsOnWriteImpact(t *testing.T) {
+// executor-03 replaces TestWatchRevertsOnWriteImpact, which asserted the
+// behaviour this item removes: a database-wide write-time rise of 30% after
+// the build (10 -> 13 ms) reverted an index whose queries gained 30%. The
+// signal cannot be charged to the index, so it is advisory evidence only.
+func TestWatchDatabaseWriteSignalIsAdvisory(t *testing.T) {
 	source := newFakeObservationSource()
 	source.writeAfter = Measurement{Samples: 60, AverageLatency: 13 * time.Millisecond, Buckets: 12}
 	verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
@@ -207,9 +211,15 @@ func TestWatchRevertsOnWriteImpact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}
-	if !verdict.Revert || verdict.Reason != "write_impact" {
-		t.Fatalf("verdict = %#v, want write-impact revert", verdict)
+	if !verdict.Retain || verdict.Revert || verdict.Status != "success" ||
+		verdict.Reason != "" {
+		t.Fatalf("verdict = %#v, want the improving index retained", verdict)
 	}
+	signal := writeSignalOf(t, verdict)
+	if signal["exceeds_threshold"] != true || signal["decisive"] != false {
+		t.Fatalf("write_signal = %#v, want exceeds_threshold=true decisive=false", signal)
+	}
+	assertSignalFloat(t, signal, "delta_pct", 30)
 }
 
 func TestWatchWriteImpactBoundaryIsAllowed(t *testing.T) {
@@ -312,12 +322,14 @@ func TestWatchRevertsToSafeAtHardMaxWithoutSamples(t *testing.T) {
 // A failed read is not evidence that the index does not help: the watch
 // stays open (observation_retry) and is observed again after a backoff.
 func TestWatchObservationErrorsRetryInsteadOfReverting(t *testing.T) {
+	// A write-history read error no longer pauses the watch (executor-03):
+	// the write signal is advisory, so the queries decide and the error is
+	// recorded in write_signal.error (TestWriteMeasurementErrorLeavesVerdictToQueries).
 	tests := []struct {
 		name   string
 		mutate func(*fakeObservationSource)
 	}{
 		{name: "query", mutate: func(s *fakeObservationSource) { s.queryErr = errObservation }},
-		{name: "write", mutate: func(s *fakeObservationSource) { s.writeErr = errObservation }},
 		{name: "index", mutate: func(s *fakeObservationSource) { s.indexErr = errObservation }},
 	}
 	for _, test := range tests {

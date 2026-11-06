@@ -268,19 +268,24 @@ func (s *PostgresStateStore) Claim(
 // ReopenObservationRetries reopens watches that a transient error closed
 // before observation retries existed: an open unverifiable verdict with
 // reason observation_unavailable or context_canceled whose hard deadline is
-// still ahead becomes an extended watch the next resume observes again. Its
-// next evaluation (the claim lease) is kept. It is idempotent.
+// still ahead becomes an extended watch the next resume observes again. An
+// open write_impact revert (from before the write signal became advisory,
+// executor-03) whose drop has not run is reopened too, whatever its
+// deadline: the queries decide it again. Its next evaluation (the claim
+// lease) is kept. It is idempotent.
 func (s *PostgresStateStore) ReopenObservationRetries(ctx context.Context) (int64, error) {
 	if s == nil || s.pool == nil {
 		return 0, errors.New("verify state pool is unavailable")
 	}
 	command, err := s.pool.Exec(ctx, `UPDATE sage.verification SET verdict='extended',
 		reason='observation_retry: reopened ' || reason || ' verdict', updated_at=now()
-		WHERE completed_at IS NULL AND verdict='unverifiable'
-		  AND reason IN ('observation_unavailable', 'context_canceled')
-		  AND hard_deadline_at > now()`)
+		WHERE completed_at IS NULL AND (
+		  (verdict='unverifiable'
+		    AND reason IN ('observation_unavailable', 'context_canceled')
+		    AND hard_deadline_at > now())
+		  OR (verdict='revert' AND reason='write_impact'))`)
 	if err != nil {
-		return 0, fmt.Errorf("reopen transient unverifiable verifications: %w", err)
+		return 0, fmt.Errorf("reopen transient or write-impact verifications: %w", err)
 	}
 	return command.RowsAffected(), nil
 }
