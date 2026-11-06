@@ -1,4 +1,4 @@
-FROM node:20-alpine AS frontend
+FROM node:22-alpine AS frontend
 WORKDIR /app
 COPY web/package.json web/package-lock.json ./web/
 RUN cd web && npm ci
@@ -6,7 +6,8 @@ COPY web/ ./web/
 COPY internal/api/dist/ ./internal/api/dist/
 RUN cd web && npm run build
 
-FROM golang:1.25-alpine AS builder
+# The Go release is the toolchain line in go.mod (TestToolchainPinsAgree).
+FROM golang:1.27.3-alpine3.24 AS builder
 # build-base: cgo compiles libpg_query for parse-tree SQL validation.
 RUN apk add --no-cache git build-base
 WORKDIR /build
@@ -23,7 +24,8 @@ RUN CGO_ENABLED=1 go build \
     -o sage-sidecar ./cmd/pg_sage_sidecar/ \
     && ./sage-sidecar --version | grep -q "sql-ast: libpg_query"
 
-FROM alpine:3.20
+# Alpine 3.24 pinned by digest; Dependabot (docker) proposes digest bumps.
+FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
 RUN apk add --no-cache ca-certificates tzdata curl \
     && addgroup -g 1000 sage \
     && adduser -u 1000 -G sage -s /sbin/nologin -D sage

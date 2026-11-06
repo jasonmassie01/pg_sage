@@ -1,0 +1,29 @@
+# ci-01 (also security-04): weekly update PRs for every ecosystem that
+# ships. A Go toolchain bump must move sidecar/go.mod's toolchain line,
+# both Dockerfiles' golang stages and the goreleaser-cross tag in ci.yml
+# together; TestToolchainPinsAgree fails a PR that moves only one of them.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /sidecar
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: npm
+    directory: /sidecar/web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directories:
+      - /sidecar
+      - /deploy/databricks-apps
+    schedule:
+      interval: weekly
