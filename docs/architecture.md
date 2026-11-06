@@ -168,7 +168,8 @@ Monitors new findings and routes notifications to Slack, PagerDuty, or custom we
 
 **PagerDuty lifecycle.** Each pg_sage incident is one PagerDuty incident with the
 `dedup_key` `incident:<database>:<incident id>`. `incident_detected` and
-`incident_escalated` trigger it (escalation updates its severity) and `incident_resolved`
+`incident_escalated` trigger it (an escalation joins the open PagerDuty incident instead of
+opening a second one) and `incident_resolved`
 resolves it, so a PagerDuty channel must have rules for all three events; without an
 `incident_resolved` rule the page stays open. A recurrence is a new incident id and opens a
 new PagerDuty incident. A critical finding pages with the key
