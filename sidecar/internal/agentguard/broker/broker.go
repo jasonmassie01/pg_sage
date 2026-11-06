@@ -148,7 +148,7 @@ func (c *call) finish(ctx context.Context, res Result, err error) (Result, error
 		c.rec.EnvelopeHash = res.EnvelopeHash
 	}
 	if err := c.b.deps.Audit.Record(ctx, c.t, c.rec); err != nil {
-		c.b.deps.Log("ERROR", "agent_query by %s on %s returned nothing: %v",
+		c.b.deps.Log("ERROR", "%s by %s on %s returned nothing: %v", c.tool,
 			c.id.Principal.ID, c.t.Name, err)
 		if errors.Is(err, ErrUnavailable) {
 			return Result{}, err
