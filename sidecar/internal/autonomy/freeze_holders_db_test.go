@@ -2,6 +2,7 @@ package autonomy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -380,4 +381,65 @@ func TestFreezeHoldersQueryErrorAbortsTheScan(t *testing.T) {
 		!strings.Contains(err.Error(), "no_such_relation") || proposals != nil {
 		t.Fatalf("Scan = %#v, %v; want the holder query error", proposals, err)
 	}
+}
+
+// A backend running a lazy VACUUM shows a backend_xmin, but its snapshot
+// holds back no horizon (PROC_IN_VACUUM): it is never a holder, so an
+// operator's VACUUM is never proposed for cancellation.
+func TestXminHoldersSkipALazyVacuum(t *testing.T) {
+	pool := requireAutonomyDB(t)
+	holderSchema(t, pool)
+	ctx := context.Background()
+	bloatTestExec(t, pool, `CREATE TABLE hfx.slow WITH (autovacuum_enabled = false) AS
+		SELECT g AS id FROM generate_series(1, 200000) g; DELETE FROM hfx.slow WHERE id % 2 = 0`)
+	pid := slowVacuum(t, pool, "hfx.slow")
+
+	holders, err := NewPostgresFreezeCustodian(pool, "testdb", 25).xminHolders(ctx)
+
+	if err != nil {
+		t.Fatalf("xminHolders: %v", err)
+	}
+	if h := holderByPID(holders, pid); h != nil {
+		t.Fatalf("lazy VACUUM backend %d listed as a holder: %#v", pid, h)
+	}
+}
+
+// slowVacuum starts a cost-throttled VACUUM of table on its own
+// connection and returns its PID once pg_stat_progress_vacuum lists it
+// with a backend_xmin; cleanup cancels it.
+func slowVacuum(t *testing.T, pool *pgxpool.Pool, table string) int {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	pid := int(conn.Conn().PgConn().PID())
+	for _, sql := range []string{"SET vacuum_cost_delay = '100ms'", "SET vacuum_cost_limit = 1"} {
+		if _, err := conn.Exec(ctx, sql); err != nil {
+			conn.Release()
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { _, err := conn.Exec(ctx, "VACUUM "+table); done <- err }()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "SELECT pg_cancel_backend($1)", pid)
+		<-done
+		conn.Release()
+	})
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		var withXmin bool
+		err := pool.QueryRow(ctx, `SELECT a.backend_xmin IS NOT NULL FROM pg_stat_activity a
+			JOIN pg_stat_progress_vacuum v ON v.pid = a.pid WHERE a.pid = $1`, pid).Scan(&withXmin)
+		if err == nil && withXmin {
+			return pid
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("read VACUUM progress of pid %d: %v", pid, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("VACUUM of %s (pid %d) never showed progress with a backend_xmin", table, pid)
+	return 0
 }

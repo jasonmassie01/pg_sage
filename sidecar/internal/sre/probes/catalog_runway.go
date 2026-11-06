@@ -112,7 +112,10 @@ ORDER BY top.used DESC NULLS LAST, top.oid`
 // standbys' feedback through walsenders, its prepared transactions, and
 // replication slots (xmin, and catalog_xmin for the catalogs). Prepared
 // transactions are named by the hash of their gid. The probe's own
-// session is never listed. $1 is the row limit. It is exported for the
+// session is never listed, nor is a backend running a lazy VACUUM: it
+// shows a backend_xmin, but PROC_IN_VACUUM keeps that snapshot out of
+// every horizon (VACUUM FULL is not in pg_stat_progress_vacuum, and
+// holds). $1 is the row limit. It is exported for the
 // freeze custodian, which reads its holders (as XminHolder rows) once
 // per scan.
 const XminHorizonSQL = `/* pg_sage sre:xmin_horizon v1 */
@@ -130,6 +133,8 @@ WITH h AS (
     FROM pg_catalog.pg_stat_activity a
     WHERE (a.backend_xmin IS NOT NULL OR a.backend_xid IS NOT NULL)
       AND a.pid <> pg_catalog.pg_backend_pid()
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_progress_vacuum v
+                      WHERE v.pid = a.pid)
       AND ((a.backend_type = 'client backend'
             AND a.datname = pg_catalog.current_database())
            OR a.backend_type = 'walsender')

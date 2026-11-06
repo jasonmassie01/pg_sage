@@ -732,6 +732,8 @@ first): client sessions by snapshot (`backend_xmin`) or by XID (`backend_xid`,
 so an idle-in-transaction writer is found), standbys' `hot_standby_feedback`,
 prepared transactions (named by the md5 of their gid), and replication slots
 by `xmin`, or by `catalog_xmin` for catalog tables (`user_catalog_table`) only.
+A backend running a lazy `VACUUM` is not a holder: it shows a `backend_xmin`,
+but that snapshot holds back no horizon.
 
 - A holder pins a red table when its age is at least half the table's XID age.
   A younger holder is ignored and the table is frozen.
