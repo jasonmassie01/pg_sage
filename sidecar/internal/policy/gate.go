@@ -409,11 +409,20 @@ func (gate *authorizationGate) decision(
 	return decisionForRequest(req, blockedAs(verdict, reason))
 }
 
+// decisionForRequest stamps the request's risk tier and guardrails. A
+// request without a typed contract, or with a tier outside the four known
+// ones, is stamped high: unknown is treated as the highest tier (fail
+// closed, as unknown_classification is), and sage.decision accepts only
+// the known tiers (policy-01). The verdict is unchanged.
 func decisionForRequest(req ActionRequest, decision Decision) Decision {
 	if req.Contract == nil {
+		decision.RiskTier = RiskHigh
 		return decision
 	}
 	decision.RiskTier = req.Contract.RiskTier
+	if !knownRisk(decision.RiskTier) {
+		decision.RiskTier = RiskHigh
+	}
 	decision.Guardrails = append([]Guardrail(nil), req.Contract.Guardrails...)
 	return decision
 }
@@ -450,40 +459,6 @@ func (gate *authorizationGate) now() time.Time {
 		return gate.config.Now()
 	}
 	return time.Now()
-}
-
-func (gate *authorizationGate) finish(
-	ctx context.Context,
-	req ActionRequest,
-	decision Decision,
-) Decision {
-	recorded, _ := gate.record(ctx, req, decision) // a failed record is a blocked verdict
-	return recorded
-}
-
-// record stamps and records the decision. A failed record returns a
-// blocked policy_unavailable decision and the error.
-func (gate *authorizationGate) record(
-	ctx context.Context, req ActionRequest, decision Decision,
-) (Decision, error) {
-	decision = decisionForRequest(req, decision)
-	if gate.config.RecordDecisionDetailed != nil {
-		evidenceID, decisionID, err := gate.config.RecordDecisionDetailed(ctx, req, decision)
-		if err != nil {
-			return blocked(ReasonPolicyUnavailable, err.Error()), err
-		}
-		decision.EvidenceID, decision.DecisionID = evidenceID, decisionID
-		return decision, nil
-	}
-	if gate.config.RecordDecision == nil {
-		return decision, nil
-	}
-	evidenceID, err := gate.config.RecordDecision(ctx, req, decision)
-	if err != nil {
-		return blocked(ReasonPolicyUnavailable, err.Error()), err
-	}
-	decision.EvidenceID = evidenceID
-	return decision, nil
 }
 
 func errorDetail(err error) string {
