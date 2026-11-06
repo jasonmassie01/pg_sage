@@ -93,6 +93,18 @@ describe('App with blocked site storage: login screen', () => {
 
     expect(await screen.findByTestId('login-email')).toBeInTheDocument()
   })
+
+  // Firefox with dom.storage.enabled=false exposes window.localStorage as null.
+  it('renders the login screen when localStorage is null', async () => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { return null },
+    })
+    mockFetch({ signedIn: false })
+    render(<App />)
+
+    expect(await screen.findByTestId('login-email')).toBeInTheDocument()
+  })
 })
 
 describe('App with blocked site storage: signed in', () => {

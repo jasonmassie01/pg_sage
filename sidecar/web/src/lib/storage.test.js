@@ -9,6 +9,14 @@ import { readPref, writePref } from './storage'
 const securityError = () => new DOMException('storage blocked', 'SecurityError')
 const storageDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
 
+// Firefox with dom.storage.enabled=false exposes window.localStorage as null.
+function nullStorage() {
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    get() { return null },
+  })
+}
+
 function blockStorageAccessor(error) {
   Object.defineProperty(window, 'localStorage', {
     configurable: true,
@@ -60,6 +68,11 @@ describe('readPref', () => {
     expect(readPref('pg_sage_db', 'all')).toBe('all')
   })
 
+  it('returns the fallback when localStorage is null', () => {
+    nullStorage()
+    expect(readPref('pg_sage_db', 'all')).toBe('all')
+  })
+
   it('rethrows an error that is not a DOMException', () => {
     const bug = new TypeError('getItem is not a function')
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
@@ -95,6 +108,11 @@ describe('writePref', () => {
 
   it('reports failure when the localStorage accessor throws', () => {
     blockStorageAccessor(securityError())
+    expect(writePref('pg_sage_db', 'orders')).toBe(false)
+  })
+
+  it('reports failure when localStorage is null', () => {
+    nullStorage()
     expect(writePref('pg_sage_db', 'orders')).toBe(false)
   })
 
