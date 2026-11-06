@@ -106,4 +106,5 @@ conversation is also "not found"), `ask_disabled` and `ask_unavailable` (503).
 ## MCP
 
 `ask_sage` takes `database`, `question`, an optional `conversation_id` and an optional
-`read_only` (answer only, whatever the token's scopes), and needs the `read` scope. See [MCP for Coding Agents](mcp.md).
+`read_only` (answer only, whatever the token's scopes), and needs the `read` scope. See
+[MCP for Coding Agents](mcp.md).
