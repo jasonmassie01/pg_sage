@@ -48,6 +48,9 @@ type WatchState struct {
 	Completed        bool
 	Window           time.Duration
 	NextEvaluationAt time.Time
+	// ObservationFailures counts consecutive observations that could not
+	// read their evidence; a successful observation resets it.
+	ObservationFailures int
 }
 
 type Verdict struct {
@@ -64,7 +67,15 @@ type Verdict struct {
 	Outcome     string
 	ObservedPct *float64
 	Evidence    map[string]any
+	// ObservationFailures is the watch's consecutive failed observations
+	// after this evaluation (0 when it read its evidence).
+	ObservationFailures int
 }
+
+// ErrStateNotPersisted marks a Watch that returned before its durable state
+// existed. Only then is reverting the action the safe answer: once the watch
+// is stored, a later resume observes it again.
+var ErrStateNotPersisted = errors.New("verification state not persisted")
 
 // ResumeResult preserves the durable watch identity alongside its verdict.
 // Executors need this correlation to finalize or revert the correct action.

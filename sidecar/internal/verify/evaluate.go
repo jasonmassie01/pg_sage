@@ -2,7 +2,6 @@ package verify
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -23,12 +22,61 @@ func (e *Engine) evaluate(ctx context.Context, state WatchState) (Verdict, error
 	}
 	observed, err := e.observe(ctx, state)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return contextFailure(), err
-		}
-		return observationFailure(), err
+		// A failed read is not evidence about the index: the error is
+		// carried in the verdict, never returned for a caller to revert on.
+		return e.retryVerdict(ctx, state, err), nil
 	}
 	return e.decide(state, observed), nil
+}
+
+// observationRetryDelays is the backoff after the 1st, 2nd and 3rd or later
+// consecutive failed observation.
+var observationRetryDelays = []time.Duration{5 * time.Minute, 15 * time.Minute, time.Hour}
+
+func observationRetryDelay(failures int) time.Duration {
+	index := failures - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(observationRetryDelays) {
+		index = len(observationRetryDelays) - 1
+	}
+	return observationRetryDelays[index]
+}
+
+// retryVerdict keeps a watch whose evidence could not be read open
+// (observation_retry), next evaluated after a backoff that never passes the
+// hard deadline. At the deadline it reverts (observation_unavailable): the
+// change was never verified. A cancelled evaluation (shutdown) is not a
+// failed observation and never reverts.
+func (e *Engine) retryVerdict(ctx context.Context, state WatchState, cause error) Verdict {
+	now := e.options.Now()
+	failures := state.ObservationFailures
+	if ctx.Err() == nil {
+		failures++
+		deadline := state.ExecutedAt.Add(state.Criterion.HardMax)
+		if !now.Before(deadline) {
+			verdict := revertVerdict(state.Window, 0, "observation_unavailable")
+			verdict.Status = "unverifiable"
+			verdict.ObservationFailures = failures
+			return verdict
+		}
+		next := now.Add(observationRetryDelay(failures))
+		if next.After(deadline) {
+			next = deadline
+		}
+		return observationRetry(state.Window, cause, next, failures)
+	}
+	return observationRetry(state.Window, cause, now.Add(observationRetryDelay(1)), failures)
+}
+
+func observationRetry(
+	window time.Duration, cause error, next time.Time, failures int,
+) Verdict {
+	return Verdict{
+		Status: "extended", Reason: "observation_retry: " + cause.Error(), Window: window,
+		NextEvaluationAt: next, ObservationFailures: failures,
+	}
 }
 
 func (e *Engine) observe(ctx context.Context, state WatchState) (observations, error) {

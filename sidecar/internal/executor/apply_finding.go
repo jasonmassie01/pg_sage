@@ -19,6 +19,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		if err := e.resumeOrphanedMonitors(ctx); err != nil {
 			e.logFn("executor", "resume rollback monitors: %v", err)
 		}
+		e.reopenObservationRetries(ctx)
 	})
 	if e.indexVerification != nil {
 		if err := e.indexVerification.ResumeDue(ctx); err != nil {

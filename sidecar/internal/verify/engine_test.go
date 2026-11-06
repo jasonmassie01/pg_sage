@@ -309,7 +309,9 @@ func TestWatchRevertsToSafeAtHardMaxWithoutSamples(t *testing.T) {
 	}
 }
 
-func TestWatchObservationErrorsFailClosed(t *testing.T) {
+// A failed read is not evidence that the index does not help: the watch
+// stays open (observation_retry) and is observed again after a backoff.
+func TestWatchObservationErrorsRetryInsteadOfReverting(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*fakeObservationSource)
@@ -322,24 +324,39 @@ func TestWatchObservationErrorsFailClosed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			source := newFakeObservationSource()
 			test.mutate(source)
-			verdict, err := newTestEngine(t, source, newMemoryStateStore()).Watch(
-				context.Background(), successfulWatchRequest("error-"+test.name),
+			store := newMemoryStateStore()
+			request := successfulWatchRequest("error-" + test.name)
+			verdict, err := newTestEngine(t, source, store).Watch(
+				context.Background(), request,
 			)
-			if !errors.Is(err, errObservation) {
-				t.Fatalf("Watch error = %v, want observation error", err)
+			if err != nil {
+				t.Fatalf("Watch error = %v, want the read error carried in the verdict", err)
 			}
-			if !verdict.Revert || verdict.Status != "unverifiable" {
-				t.Fatalf("error verdict = %#v, want fail-closed revert", verdict)
+			assertObservationRetry(t, verdict, 1, testVerificationNow().Add(5*time.Minute))
+			if !strings.Contains(verdict.Reason, errObservation.Error()) {
+				t.Fatalf("retry reason %q does not carry the read error", verdict.Reason)
+			}
+			state, getErr := store.Get(context.Background(), request.ID)
+			if getErr != nil {
+				t.Fatalf("Get: %v", getErr)
+			}
+			if state.Completed || state.Status != "extended" || state.ObservationFailures != 1 ||
+				state.Reason != verdict.Reason {
+				t.Fatalf("stored retry state = %#v, want open extended watch with 1 failure",
+					state)
 			}
 		})
 	}
 }
 
-func TestWatchCancellationWhileReadingMetricsFailsClosed(t *testing.T) {
+// Shutdown after the durable watch exists keeps it: the next resume
+// observes again instead of dropping the index.
+func TestWatchCancellationAfterCreateKeepsWatch(t *testing.T) {
 	source := newFakeObservationSource()
 	source.queryStarted = make(chan struct{}, 1)
 	source.queryGate = make(chan struct{})
-	engine := newTestEngine(t, source, newMemoryStateStore())
+	store := newMemoryStateStore()
+	engine := newTestEngine(t, source, store)
 	ctx, cancel := context.WithCancel(context.Background())
 	type result struct {
 		verdict Verdict
@@ -353,11 +370,36 @@ func TestWatchCancellationWhileReadingMetricsFailsClosed(t *testing.T) {
 	<-source.queryStarted
 	cancel()
 	got := <-done
-	if !errors.Is(got.err, context.Canceled) {
-		t.Fatalf("Watch error = %v, want canceled", got.err)
+	if errors.Is(got.err, ErrStateNotPersisted) {
+		t.Fatalf("Watch error = %v: the watch was persisted before the read", got.err)
 	}
-	if !got.verdict.Revert || got.verdict.Reason != "context_canceled" {
-		t.Fatalf("canceled verdict = %#v", got.verdict)
+	if got.verdict.Revert || got.verdict.Retain || got.verdict.Status != "extended" ||
+		!strings.HasPrefix(got.verdict.Reason, "observation_retry: ") {
+		t.Fatalf("canceled verdict = %#v, want an open observation_retry", got.verdict)
+	}
+	state, err := store.Get(context.Background(), "cancel-read")
+	if err != nil || state.Completed || state.Status != "extended" {
+		t.Fatalf("stored state = %#v, %v; want open extended watch", state, err)
+	}
+	if state.ObservationFailures != 0 {
+		t.Fatalf("observation failures = %d: a shutdown is not a failed observation",
+			state.ObservationFailures)
+	}
+}
+
+func assertObservationRetry(t *testing.T, verdict Verdict, failures int, next time.Time) {
+	t.Helper()
+	if verdict.Revert || verdict.Retain || verdict.Status != "extended" {
+		t.Fatalf("verdict = %#v, want an open extended watch", verdict)
+	}
+	if !strings.HasPrefix(verdict.Reason, "observation_retry: ") {
+		t.Fatalf("reason = %q, want observation_retry: <error>", verdict.Reason)
+	}
+	if verdict.ObservationFailures != failures {
+		t.Fatalf("observation failures = %d, want %d", verdict.ObservationFailures, failures)
+	}
+	if !verdict.NextEvaluationAt.Equal(next) {
+		t.Fatalf("next evaluation = %s, want %s", verdict.NextEvaluationAt, next)
 	}
 }
 

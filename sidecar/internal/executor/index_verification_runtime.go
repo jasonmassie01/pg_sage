@@ -168,6 +168,27 @@ func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason str
 	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)
 }
 
+// reopenObservationRetries runs once at startup, before the first resume:
+// an index watch that a transient read error or a shutdown closed before
+// observation retries existed is observed again instead of replaying its
+// revert. One past its hard deadline still reverts.
+func (e *Executor) reopenObservationRetries(ctx context.Context) {
+	if e == nil || e.pool == nil || e.indexVerification == nil {
+		return
+	}
+	sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	reopened, err := verify.NewPostgresStateStore(e.pool, 1).ReopenObservationRetries(sweepCtx)
+	if err != nil {
+		e.logFn("executor", "reopen index verifications closed by a transient error: %v", err)
+		return
+	}
+	if reopened > 0 {
+		e.logFn("executor", "reopened %d index verification(s) closed by a transient "+
+			"error; they are observed again", reopened)
+	}
+}
+
 func (e *Executor) configureIndexVerification() {
 	if e == nil || e.pool == nil || e.cfg == nil {
 		return

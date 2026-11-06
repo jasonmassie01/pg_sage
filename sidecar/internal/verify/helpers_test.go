@@ -33,6 +33,7 @@ type fakeObservationSource struct {
 	loadErr      error
 	queryStarted chan struct{}
 	queryGate    chan struct{}
+	queryCalls   int
 }
 
 func newFakeObservationSource() *fakeObservationSource {
@@ -69,6 +70,7 @@ func (s *fakeObservationSource) QueryMeasurements(
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.queryCalls++
 	if s.queryErr != nil {
 		return nil, s.queryErr
 	}
@@ -213,6 +215,18 @@ func (s *memoryStateStore) Claim(
 	state.NextEvaluationAt = leaseUntil
 	s.states[listed.ID] = state
 	return state, true, nil
+}
+
+func (s *fakeObservationSource) setQueryErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queryErr = err
+}
+
+func (s *fakeObservationSource) queries() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.queryCalls
 }
 
 func testVerificationNow() time.Time {
