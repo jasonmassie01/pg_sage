@@ -339,13 +339,21 @@ func TestLocalProviderRefusesMonitoredDatabases(t *testing.T) {
 		"postgres://app@DB.PROD:5432/orders?sslmode=require",
 		"host=10.0.0.5 port=6432 dbname=billing user=someone",
 	} {
-		if _, err := NewLocalProvider(dsn, monitored); !errors.Is(err, ErrMonitoredDSN) {
+		if _, err := NewLocalProvider(dsn, monitored,
+			refusing(prodCluster())); !errors.Is(err, ErrMonitoredDSN) {
 			t.Errorf("%s: %v", dsn, err)
 		}
 	}
-	p, err := NewLocalProvider("postgres://u:p@127.0.0.1:5999/scratch", monitored)
+	p, err := NewLocalProvider("postgres://u:p@127.0.0.1:5999/scratch", monitored,
+		refusing(prodCluster()))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// benches-02: Create now verifies the target's cluster identity and
+	// marker before handing it out; here the target is a marked scratch
+	// cluster.
+	p.connect = func(context.Context, string) (targetConn, error) {
+		return scratchCluster(), nil
 	}
 	c, err := p.Create(context.Background(), clone.CloneSpec{IncludeData: true})
 	if err != nil || c.DSN != "postgres://u:p@127.0.0.1:5999/scratch" || c.ID != "local" {
@@ -354,10 +362,11 @@ func TestLocalProviderRefusesMonitoredDatabases(t *testing.T) {
 	if err := p.Destroy(context.Background(), c); err != nil {
 		t.Fatalf("destroy is a no-op for the local database: %v", err)
 	}
-	if _, err := NewLocalProvider("", monitored); !errors.Is(err, ErrNotConfigured) {
+	if _, err := NewLocalProvider("", monitored, refusing()); !errors.Is(err,
+		ErrNotConfigured) {
 		t.Fatalf("empty dsn: %v", err)
 	}
-	if _, err := NewLocalProvider("::nope::", monitored); err == nil {
+	if _, err := NewLocalProvider("::nope::", monitored, refusing()); err == nil {
 		t.Fatal("invalid dsn accepted")
 	}
 }

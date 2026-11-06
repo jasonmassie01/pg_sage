@@ -195,20 +195,41 @@ func (n autonomyNotifier) NotifyAutonomous(ctx context.Context, a earned.AutoExe
 		DedupKey: fmt.Sprintf("autonomy:%s:%d", a.Database, a.ActionLogID)})
 }
 
-// monitoredDSNs are every monitored database's connection strings, so a
-// local game-day database can never be one of them.
-func monitoredDSNs(extra ...*pgxpool.Pool) []string {
-	var out []string
-	pools := extra
-	if fleetMgr != nil {
-		pools = append(pools, fleetMgr.AllPools()...)
+// localTargetGuard is what a local game-day database is checked against:
+// dsns by name when the provider is built, pools by cluster identity at
+// each run.
+type localTargetGuard struct {
+	dsns  []string
+	pools gameday.RefusedFunc
+}
+
+// localTargetGuardFor refuses the database's own pool, the control
+// (metadata) pool and every fleet pool; the fleet is read at each run, so
+// a database added after start is refused too.
+func localTargetGuardFor(own, meta *pgxpool.Pool) localTargetGuard {
+	current := func() []*pgxpool.Pool {
+		pools := []*pgxpool.Pool{own, meta}
+		if fleetMgr != nil {
+			pools = append(pools, fleetMgr.AllPools()...)
+		}
+		return pools
 	}
-	for _, p := range pools {
+	var dsns []string
+	for _, p := range current() {
 		if p != nil {
-			out = append(out, p.Config().ConnString())
+			dsns = append(dsns, p.Config().ConnString())
 		}
 	}
-	return out
+	return localTargetGuard{dsns: dsns,
+		pools: func(context.Context) ([]gameday.Querier, error) {
+			var out []gameday.Querier
+			for _, p := range current() {
+				if p != nil {
+					out = append(out, p)
+				}
+			}
+			return out, nil
+		}}
 }
 
 func trimmedFamilies(in []string) []string {

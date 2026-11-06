@@ -2,6 +2,7 @@ package gameday
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,34 +12,81 @@ import (
 	"github.com/pg-sage/sidecar/internal/clone"
 )
 
+// TargetMarker is the database comment that marks a local game-day
+// target as disposable:
+//
+//	COMMENT ON DATABASE scratch IS 'pg_sage:gameday_target';
+const TargetMarker = "pg_sage:gameday_target"
+
+// probeTimeout bounds the target connection and each identity read.
+const probeTimeout = 5 * time.Second
+
+// RefusedFunc returns, when called, every database a local target must
+// not share a cluster with: the monitored databases (fleet members added
+// after start included) and the control (metadata) database.
+type RefusedFunc func(ctx context.Context) ([]Querier, error)
+
+// targetConn is the short-lived connection to the local target.
+type targetConn interface {
+	Querier
+	Close(ctx context.Context) error
+}
+
 // LocalProvider is the development fallback when no clone provider is
-// configured: a disposable database the operator names. It is never a
-// monitored database, and Destroy leaves it in place (the fault programs
-// clean up after themselves).
-type LocalProvider struct{ dsn string }
+// configured: a disposable database the operator names and marks, on a
+// cluster of its own (the fault programs act on the whole cluster).
+// Destroy leaves it in place (the fault programs clean up after
+// themselves).
+type LocalProvider struct {
+	dsn      string
+	endpoint string
+	database string
+	refused  RefusedFunc
+	connect  func(ctx context.Context, dsn string) (targetConn, error)
+}
 
 var _ clone.Provider = (*LocalProvider)(nil)
 
-// NewLocalProvider refuses a DSN that points at any monitored database
-// (same host, port and database name).
-func NewLocalProvider(dsn string, monitored []string) (*LocalProvider, error) {
+// NewLocalProvider refuses at boot a DSN that names a monitored database
+// (same host, port and database name); Create then compares cluster
+// identities against refused, which must not be nil.
+func NewLocalProvider(dsn string, monitored []string, refused RefusedFunc) (*LocalProvider,
+	error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, ErrNotConfigured
 	}
-	target, err := endpointOf(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("game day local_dsn: %w", err)
+	if refused == nil {
+		return nil, errors.New("game day local_dsn: no monitored databases to compare it with")
 	}
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, errors.New("game day local_dsn: not a PostgreSQL DSN")
+	}
+	target := endpointOfConfig(cfg)
 	for _, m := range monitored {
 		if e, err := endpointOf(m); err == nil && e == target {
 			return nil, fmt.Errorf("%w: %s", ErrMonitoredDSN, target)
 		}
 	}
-	return &LocalProvider{dsn: dsn}, nil
+	return &LocalProvider{dsn: dsn, endpoint: target, database: cfg.Database,
+		refused: refused, connect: connectTarget}, nil
 }
 
-// Create hands out the local database.
-func (p *LocalProvider) Create(context.Context, clone.CloneSpec) (clone.Clone, error) {
+// Create hands out the local database once it is proven disposable: on
+// none of the refused clusters, a primary without standbys, and marked.
+// Anything it cannot read refuses (fail closed).
+func (p *LocalProvider) Create(ctx context.Context, _ clone.CloneSpec) (clone.Clone, error) {
+	facts, err := p.readTarget(ctx)
+	if err != nil {
+		return clone.Clone{}, fmt.Errorf("%w: cannot verify %s: %w", ErrNotDisposable,
+			p.endpoint, err)
+	}
+	if err := p.checkRefused(ctx, facts.id); err != nil {
+		return clone.Clone{}, err
+	}
+	if err := p.checkDisposable(facts); err != nil {
+		return clone.Clone{}, err
+	}
 	return clone.Clone{DSN: p.dsn, ID: "local", CreatedFrom: time.Now().UTC()}, nil
 }
 
@@ -54,7 +102,11 @@ func endpointOf(dsn string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("not a PostgreSQL DSN")
 	}
-	return fmt.Sprintf("%s:%d/%s", strings.ToLower(cfg.Host), cfg.Port, cfg.Database), nil
+	return endpointOfConfig(cfg), nil
+}
+
+func endpointOfConfig(cfg *pgx.ConnConfig) string {
+	return fmt.Sprintf("%s:%d/%s", strings.ToLower(cfg.Host), cfg.Port, cfg.Database)
 }
 
 // Registry maps fleet database names to their game-day runners.

@@ -217,7 +217,8 @@ func TestShippedReportWithoutVerificationMaterialIsUnsigned(t *testing.T) {
 func TestLocalBenchProviderNeverTargetsAMonitoredDatabase(t *testing.T) {
 	monitored := "postgres://app:pw@db.prod:5432/orders"
 	control := "postgres://sage:pw@meta.internal:5432/sage_meta"
-	refused := []string{monitored, control}
+	refused := localTargetGuard{dsns: []string{monitored, control},
+		pools: func(context.Context) ([]gameday.Querier, error) { return nil, nil }}
 	none := config.CloneProviderConfig{Provider: "none"}
 	s := config.DefaultConfig().SRE.Autonomy
 	if p, name, err := localBenchProvider(s, none, refused); err != nil || p != nil ||
@@ -246,7 +247,11 @@ func TestLocalBenchProviderNeverTargetsAMonitoredDatabase(t *testing.T) {
 // marked "local run" and stamped with the running build.
 func TestLocalBenchRunCountsForTheFamilyItCovered(t *testing.T) {
 	asRelease(t)
-	dsn := testdb.SkipUnlessLive(t)
+	// benches-02: the fault programs are cluster-wide, so the target is a
+	// marked database on a second cluster, never one beside the control
+	// database.
+	dsn := testdb.CreateDatabaseOnSecondCluster(t, "local_bench")
+	markGameDayTarget(t, dsnPool(t, dsn), dsn)
 	pool := autonomyPool(t)
 	settings := config.DefaultConfig().SRE.Autonomy
 	svc, err := newAutonomyLedgers(true).ledgerFor(context.Background(), pool, "orders",
@@ -256,8 +261,7 @@ func TestLocalBenchRunCountsForTheFamilyItCovered(t *testing.T) {
 	}
 	settings.GameDays.LocalDSN = dsn
 	bench, err := newLocalBenchFor("orders", svc, settings,
-		config.CloneProviderConfig{Provider: "none"},
-		[]string{"postgres://app@db.prod:5432/orders"})
+		config.CloneProviderConfig{Provider: "none"}, localTargetGuardFor(nil, pool))
 	if err != nil || bench == nil {
 		t.Fatalf("local bench = %v (%v)", bench, err)
 	}

@@ -109,7 +109,7 @@ func evaluator(svc *earned.Service) func(context.Context) {
 // disposable target exists.
 func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutonomyConfig) {
 	provider, name, err := gameDayProvider(s.GameDays, rt.cfg.Clone,
-		monitoredDSNs(rt.spec.Pool))
+		localTargetGuardFor(rt.spec.Pool, svc.Store().Pool()))
 	if err != nil {
 		logError("autonomy", "db %q: game days off: %v", rt.spec.Name, err)
 		return
@@ -146,9 +146,10 @@ func gameDayTick(runner *gameday.Runner) func(context.Context) {
 }
 
 // gameDayProvider is the disposable target of game days: the configured
-// clone provider, else the local development database, else none (off).
+// clone provider, else the local development database (never on the
+// cluster of a database guard refuses), else none (off).
 func gameDayProvider(s config.SREGameDaysConfig, cloneCfg config.CloneProviderConfig,
-	monitored []string) (clone.Provider, string, error) {
+	guard localTargetGuard) (clone.Provider, string, error) {
 	if !s.Enabled {
 		return nil, "", nil
 	}
@@ -157,7 +158,7 @@ func gameDayProvider(s config.SREGameDaysConfig, cloneCfg config.CloneProviderCo
 		return p, cloneCfg.Provider, err
 	}
 	if s.LocalDSN != "" {
-		p, err := gameday.NewLocalProvider(s.LocalDSN, monitored)
+		p, err := gameday.NewLocalProvider(s.LocalDSN, guard.dsns, guard.pools)
 		if err != nil {
 			return nil, "", err
 		}

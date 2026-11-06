@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/gameday"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -273,7 +274,8 @@ func TestIngestBenchPathIngestsEachReportOnce(t *testing.T) {
 func TestGameDayProviderSelection(t *testing.T) {
 	settings := config.DefaultConfig().SRE.Autonomy.GameDays
 	cloneNone := config.CloneProviderConfig{Provider: "none"}
-	monitored := []string{"postgres://app@db.prod:5432/orders"}
+	monitored := localTargetGuard{dsns: []string{"postgres://app@db.prod:5432/orders"},
+		pools: func(context.Context) ([]gameday.Querier, error) { return nil, nil }}
 	if p, name, err := gameDayProvider(settings, cloneNone, monitored); err != nil ||
 		p != nil || name != "" {
 		t.Fatalf("disabled game days built a provider: %v %q %v", p, name, err)
@@ -287,7 +289,7 @@ func TestGameDayProviderSelection(t *testing.T) {
 		p == nil || name != "local" {
 		t.Fatalf("local fallback = %v %q %v", p, name, err)
 	}
-	settings.LocalDSN = monitored[0]
+	settings.LocalDSN = monitored.dsns[0]
 	if _, _, err := gameDayProvider(settings, cloneNone, monitored); err == nil {
 		t.Fatal("a monitored database was accepted as the game-day target")
 	}
