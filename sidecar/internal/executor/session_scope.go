@@ -14,32 +14,69 @@ type pooledExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
+// executorSearchPath is the search_path pg_sage's own DDL runs under. Only
+// pg_catalog and the session's temporary schema (searched last) resolve
+// unqualified names, so a function or operator another role planted in
+// public can never bind into pg_sage's DDL (the CVE-2018-1058 class).
+const executorSearchPath = "pg_catalog, pg_temp"
+
+// topLevelSessionSettings are the settings a top-level session changes and
+// resets, in order, before its connection returns to the pool.
+var topLevelSessionSettings = []string{"statement_timeout", "lock_timeout", "search_path"}
+
+// topLevelSession is one pooled connection an action runs on outside a
+// transaction: released when its settings reset cleanly, discarded if not.
+type topLevelSession interface {
+	pooledExecutor
+	Release()
+	discard()
+}
+
+type pooledSession struct{ *pgxpool.Conn }
+
+func (s pooledSession) discard() { discardPooledSession(s.Conn) }
+
 func withTopLevelSession(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	timeout time.Duration,
 	opts ddlOpts,
 	run func(pooledExecutor) error,
-) (retErr error) {
+) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquiring connection: %w", err)
 	}
+	return runTopLevelSession(ctx, pooledSession{conn}, timeout, opts, run)
+}
+
+// runTopLevelSession scopes the session for one action, runs it, and
+// returns the connection to the pool only when every setting was reset: a
+// connection still pinned or still timed out is closed instead.
+func runTopLevelSession(
+	ctx context.Context,
+	sess topLevelSession,
+	timeout time.Duration,
+	opts ddlOpts,
+	run func(pooledExecutor) error,
+) (retErr error) {
 	defer func() {
-		if cleanupErr := resetTopLevelSession(conn); cleanupErr != nil {
-			discardPooledSession(conn)
+		if cleanupErr := resetTopLevelSession(sess); cleanupErr != nil {
+			sess.discard()
 			retErr = errors.Join(retErr, cleanupErr)
 			return
 		}
-		conn.Release()
+		sess.Release()
 	}()
-	if err := setTopLevelTimeouts(ctx, conn, timeout, opts); err != nil {
+	if err := setTopLevelSession(ctx, sess, timeout, opts); err != nil {
 		return err
 	}
-	return run(conn)
+	return run(sess)
 }
 
-func setTopLevelTimeouts(
+// setTopLevelSession sets the session's statement and lock timeouts and
+// pins its search_path; SET LOCAL is unavailable outside a transaction.
+func setTopLevelSession(
 	ctx context.Context,
 	conn pooledExecutor,
 	timeout time.Duration,
@@ -51,25 +88,37 @@ func setTopLevelTimeouts(
 	)); err != nil {
 		return fmt.Errorf("setting statement_timeout: %w", err)
 	}
-	if opts.lockTimeoutMs == 0 {
-		return nil
+	if opts.lockTimeoutMs != 0 {
+		if _, err := conn.Exec(ctx, fmt.Sprintf(
+			"SET lock_timeout = '%dms'", opts.lockTimeoutMs,
+		)); err != nil {
+			return fmt.Errorf("setting lock_timeout: %w", err)
+		}
 	}
-	if _, err := conn.Exec(ctx, fmt.Sprintf(
-		"SET lock_timeout = '%dms'", opts.lockTimeoutMs,
-	)); err != nil {
-		return fmt.Errorf("setting lock_timeout: %w", err)
+	if _, err := conn.Exec(ctx, "SET search_path = "+executorSearchPath); err != nil {
+		return fmt.Errorf("setting search_path: %w", err)
 	}
 	return nil
 }
 
+// resetTopLevelSession resets every session setting; the first failure
+// stops it, and the caller then discards the connection.
 func resetTopLevelSession(conn pooledExecutor) error {
+	for _, setting := range topLevelSessionSettings {
+		if err := resetSessionSetting(conn, setting); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resetSessionSetting gives each RESET its own cleanup budget, so a slow
+// round trip on one cannot starve the next.
+func resetSessionSetting(conn pooledExecutor, setting string) error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := conn.Exec(cleanupCtx, "RESET statement_timeout"); err != nil {
-		return fmt.Errorf("resetting statement_timeout: %w", err)
-	}
-	if _, err := conn.Exec(cleanupCtx, "RESET lock_timeout"); err != nil {
-		return fmt.Errorf("resetting lock_timeout: %w", err)
+	if _, err := conn.Exec(cleanupCtx, "RESET "+setting); err != nil {
+		return fmt.Errorf("resetting %s: %w", setting, err)
 	}
 	return nil
 }

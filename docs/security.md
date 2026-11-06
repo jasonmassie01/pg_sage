@@ -70,6 +70,15 @@ All data sources are read-only catalog views and statistics:
 - **Never modifies user data.** Autonomous actions are limited to maintenance and schema operations such as `ANALYZE`, guarded index DDL, and approved incident actions. Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
 - **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
 - **Never ignores live DDL risk.** Active workload, pending locks, replica lag, large table size, and missing lock-timeout evidence keep DDL in reviewed PR/script mode.
+- **Never resolves its own DDL through `public`.** Every executor DDL session (transactional
+  and `CONCURRENTLY`) runs with `search_path = pg_catalog, pg_temp`, so a function or
+  operator another role plants in `public` cannot bind into an index pg_sage builds (the
+  CVE-2018-1058 class). Targets must be schema-qualified: an unqualified table fails with
+  `relation "..." does not exist` and the action is recorded `failed`. Objects from an
+  extension installed outside `pg_catalog`, such as `gin_trgm_ops` in `public`, must be
+  written with their schema (`public.gin_trgm_ops`). The session's settings are reset before
+  the connection returns to the pool; a connection whose reset fails is closed instead.
+  Workload `EXPLAIN` and HypoPG what-if sessions keep the application's `search_path`.
 - **Never drops replication slots or changes sequence capacity autonomously.** WAL/replication playbooks are read-only diagnostics, and sequence-exhaustion remediation is generated as a reviewed forward-fix migration.
 - **Never runs maintenance during known IO saturation.** Bloat autopilot blocks autonomous `VACUUM` candidates when IO pressure evidence is present and emits script/review output instead.
 - **Never rewrites application queries autonomously.** Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.
