@@ -134,7 +134,7 @@ func TestRuleAutovacuumTuning_MalformedReloptionsSkipTable(t *testing.T) {
 		{"autovacuum_vacuum_scale_factor=Inf"},
 		{"autovacuum_vacuum_scale_factor=-0.5"},
 		{"autovacuum_enabled=maybe"},
-		{"autovacuum_enabled=of"}, // PostgreSQL rejects "of" as ambiguous
+		{"autovacuum_enabled=o"}, // PostgreSQL rejects "o" as ambiguous
 		{""},
 	}
 	for _, opts := range cases {
@@ -171,7 +171,7 @@ func TestRuleAutovacuumTuning_NoReloptionsUsesDefault(t *testing.T) {
 // A DBA who turned autovacuum off for a table decided its maintenance;
 // the rule does not tune what is not running.
 func TestRuleAutovacuumTuning_AutovacuumDisabledSkipsTable(t *testing.T) {
-	for _, v := range []string{"false", "off", "OFF", "f", "no", "n", "0", "fal"} {
+	for _, v := range []string{"false", "off", "OFF", "of", "f", "no", "n", "0", "fal"} {
 		opts := []string{"autovacuum_enabled=" + v, "autovacuum_vacuum_scale_factor=0.2"}
 		snap := &collector.Snapshot{Tables: []collector.TableStats{avChurning(opts)}}
 		if got := avFindings(t, snap); len(got) != 0 {
@@ -221,3 +221,30 @@ func TestRuleAutovacuumTuning_PerTableReloptions(t *testing.T) {
 
 // No concurrent-access test: ruleAutovacuumTuning is a pure function of
 // its arguments and holds no shared state.
+
+// parsePGBool matches PostgreSQL's parse_bool, checked against PG 17:
+// ALTER TABLE ... SET (autovacuum_enabled = of) is stored as "of" and
+// means false, while "o" and " on" are rejected.
+func TestParsePGBool_MatchesPostgreSQL(t *testing.T) {
+	cases := []struct {
+		in        string
+		val, okay bool
+	}{
+		{"of", false, true}, {"OFF", false, true}, {"on", true, true},
+		{"t", true, true}, {"Tru", true, true}, {"y", true, true},
+		{"f", false, true}, {"n", false, true}, {"1", true, true}, {"0", false, true},
+		{"o", false, false}, {"offf", false, false}, {" on", false, false},
+		{"10", false, false}, {"", false, false}, {"truee", false, false},
+	}
+	for _, c := range cases {
+		val, okay := parsePGBool(c.in)
+		if val != c.val || okay != c.okay {
+			t.Errorf("parsePGBool(%q) = (%v, %v), want (%v, %v)",
+				c.in, val, okay, c.val, c.okay)
+		}
+	}
+	opts, ok := parseAutovacuumOptions([]string{"autovacuum_enabled=of"})
+	if !ok || !opts.disabled {
+		t.Errorf("autovacuum_enabled=of: opts %+v ok %v, want disabled", opts, ok)
+	}
+}

@@ -160,8 +160,8 @@ func parseAutovacuumOptions(reloptions []string) (autovacuumOptions, bool) {
 }
 
 // parsePGBool accepts what PostgreSQL's parse_bool accepts: any
-// case-insensitive prefix of true, false, yes or no; on; off (at least
-// "off"); 1 and 0.
+// case-insensitive prefix of true, false, yes or no; on; "of" or "off"
+// ("o" alone is ambiguous); 1 and 0.
 func parsePGBool(value string) (bool, bool) {
 	v := strings.ToLower(value)
 	switch {
@@ -169,7 +169,7 @@ func parsePGBool(value string) (bool, bool) {
 		return false, false
 	case v == "on" || v == "1":
 		return true, true
-	case v == "off" || v == "0":
+	case v == "of" || v == "off" || v == "0":
 		return false, true
 	case strings.HasPrefix("true", v) || strings.HasPrefix("yes", v):
 		return true, true
