@@ -260,7 +260,7 @@ func walkDocs(v reflect.Value, prefix string, out map[string]string) {
 		}
 		fv := v.Field(i)
 		ft := fv.Type()
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			if fv.IsNil() {
 				continue
 			}
@@ -310,7 +310,7 @@ func walkSecrets(
 		}
 		fv := v.Field(i)
 		ft := fv.Type()
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			if fv.IsNil() {
 				continue
 			}

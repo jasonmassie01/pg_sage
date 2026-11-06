@@ -350,7 +350,7 @@ var excludedExactKeys = map[string]bool{
 // fields tagged "-", and slice/map/pointer fields that aren't
 // structs.
 func structFieldPaths(t reflect.Type, prefix string) []string {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	var paths []string
@@ -374,7 +374,7 @@ func structFieldPaths(t reflect.Type, prefix string) []string {
 		}
 
 		ft := f.Type
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 
