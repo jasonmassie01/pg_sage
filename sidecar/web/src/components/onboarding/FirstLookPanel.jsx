@@ -94,6 +94,11 @@ function PostureSection({ report }) {
   )
 }
 
+// countOf is n with word, plural unless n is 1.
+function countOf(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
 // splitNote separates a check's note from the GRANT that fixes it, so the
 // SQL can be shown (and copied) on its own.
 function splitNote(note) {
@@ -131,7 +136,7 @@ function ChecksStrip({ database, checks }) {
   const degraded = checks.filter(c => c.status === 'degraded')
   const truncated = checks.filter(c => c.status !== 'degraded' && c.truncated)
   if (degraded.length === 0 && truncated.length === 0) return null
-  let summary = `${checks.length} checks`
+  let summary = countOf(checks.length, 'check')
   if (degraded.length > 0) summary += `, ${degraded.length} could not run`
   if (truncated.length > 0) summary += `, ${truncated.length} not shown in full`
   return (
@@ -152,9 +157,11 @@ function emptyText(checks) {
   if (degraded === 0) return 'No problems found in the catalog.'
   const ran = checks.length - degraded
   if (ran === 0) {
+    if (degraded === 1) return 'The one catalog check could not run, so nothing is known yet.'
     return `None of the ${degraded} catalog checks could run, so nothing is known yet.`
   }
-  return `No problems found in the ${ran} checks that ran; ${degraded} could not run.`
+  const that = ran === 1 ? 'check that ran' : 'checks that ran'
+  return `No problems found in the ${ran} ${that}; ${degraded} could not run.`
 }
 
 function Report({ entry }) {

@@ -118,4 +118,20 @@ describe('FirstLookPanel catalog checks', () => {
     const posture = screen.getByRole('region', { name: 'Agent posture' })
     expect(within(posture).getByText(/1 could not run/)).toBeInTheDocument()
   })
+
+  it('counts a single check in the singular', () => {
+    // Boundary: one check ran and one could not; then the only check could not.
+    respond(base({ checks: [{ rule: 'invalid_index', status: 'ok' },
+      { rule: 'sequence_runway', status: 'degraded', note: grant }] }))
+    const { unmount } = render(<FirstLookPanel database="app" />)
+    expect(screen.getByText(
+      'No problems found in the 1 check that ran; 1 could not run.')).toBeInTheDocument()
+    unmount()
+    respond(base({ checks: [{ rule: 'sequence_runway', status: 'degraded', note: grant }] }))
+    render(<FirstLookPanel database="app" />)
+    expect(screen.getByText(
+      'The one catalog check could not run, so nothing is known yet.')).toBeInTheDocument()
+    const strip = screen.getByRole('region', { name: 'Catalog checks' })
+    expect(within(strip).getByText('1 check, 1 could not run.')).toBeInTheDocument()
+  })
 })
