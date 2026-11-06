@@ -532,6 +532,34 @@ A cursor that goes back because the control database itself was restored
 is not a regression: the link it names is still there, so export simply
 re-sends what follows (delivery is at least once).
 
+#### Chained writes need READ COMMITTED
+
+A chain link is appended at commit, after a read of the chain's last
+link. That read must see links other transactions just committed, which
+only READ COMMITTED gives (a new snapshot per statement). Under
+REPEATABLE READ or SERIALIZABLE two writers would take the same
+position, and one would fail.
+
+- pg_sage pins every session it opens to READ COMMITTED (`SET SESSION
+  default_transaction_isolation = 'read committed'` when it connects), and
+  writes `sage.action_log` in explicit READ COMMITTED transactions. A
+  role or database default of another level therefore does not affect it.
+- A transaction writing a chained table at another level is refused at
+  commit with SQLSTATE `55000`, a message naming `transaction_isolation`
+  and a hint with the fix. Nothing is written. READ UNCOMMITTED is
+  accepted: PostgreSQL runs it as READ COMMITTED.
+- At startup pg_sage reads the default its sessions would have without the
+  pin (the role, the database and the server configuration) and logs one
+  `WARN [audit-chain]` per database when it is not READ COMMITTED. Behind
+  PgBouncer in transaction mode the pin is per server connection and can be
+  missing on some, so set the default for pg_sage's role:
+
+  ```sql
+  ALTER ROLE sage_agent IN DATABASE app SET default_transaction_isolation = 'read committed';
+  ```
+
+  PgBouncer in session mode and direct connections need nothing.
+
 #### Attribution trusts the role, not `application_name`
 
 Any session can set `application_name`, so pg_sage never trusts it alone.
