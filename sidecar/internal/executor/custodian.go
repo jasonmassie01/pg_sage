@@ -9,15 +9,23 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/runway"
 )
 
 var ErrCustodianProposalWithheld = errors.New("custodian proposal withheld by policy")
 
+// StandingGateUnavailable is the blocked reason of a custodian evaluation
+// without a standing policy gate.
+const StandingGateUnavailable = "standing policy gate is unavailable"
+
 type CustodianProposal struct {
-	Feature       string
-	SQL           string
+	Feature string
+	SQL     string
+	// ResponseKind is the custodian's response kind; it types plan-only
+	// proposals (contractForCustodianResponse).
+	ResponseKind  string
 	TargetObjects []string
 	IsReplica     bool
 	Deadline      *policy.DeadlineContext
@@ -90,7 +98,7 @@ func (e *Executor) EvaluateCustodianProposal(
 	if gate == nil {
 		return ActionPolicyDecision{
 			Decision: PolicyDecisionBlocked, RiskTier: "unknown",
-			BlockedReason: "standing policy gate is unavailable",
+			BlockedReason: StandingGateUnavailable,
 		}
 	}
 	return standingPolicyDecision(gate.Authorize(ctx, custodianRequest(proposal)))
@@ -108,10 +116,28 @@ func custodianRequest(proposal CustodianProposal) policy.ActionRequest {
 		IncidentFamily:     custodianIncidentFamily(proposal.Feature),
 		EvidenceObservedAt: proposal.ObservedAt,
 	}
-	if contract, ok := contractForCustodianProposal(proposal.SQL); ok {
+	if contract, feature, ok := contractForCustodianResponse(proposal.ResponseKind); ok {
+		request.Contract, request.Feature = policyContract(contract), feature
+	} else if contract, ok := contractForCustodianProposal(proposal.SQL); ok {
 		request.Contract = policyContract(contract)
 	}
 	return request
+}
+
+// bloatRemediationFeature is the change class of custodian bloat plans.
+const bloatRemediationFeature = "bloat_remediation"
+
+// contractForCustodianResponse types a plan-only custodian response by its
+// kind, never by Evidence["plan"] (every Plan response carries one): the
+// bloat plans are high-risk plan_bloat_remediation decisions, which the
+// gate parks (a plan has no SQL to validate) and the ledger folds by
+// fingerprint.
+func contractForCustodianResponse(kind string) (ActionContract, string, bool) {
+	switch freeze.ResponseKind(kind) {
+	case freeze.ResponsePlanRepack, freeze.ResponseParkBloat:
+		return planBloatRemediationContract(), bloatRemediationFeature, true
+	}
+	return ActionContract{}, "", false
 }
 func cloneCustodianEvidence(source map[string]any) map[string]any {
 	result := make(map[string]any, len(source))

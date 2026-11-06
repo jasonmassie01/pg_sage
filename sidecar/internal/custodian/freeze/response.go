@@ -29,12 +29,21 @@ type XminBlocker struct {
 }
 
 type ResponseInput struct {
-	Schema            string
-	Table             string
-	Urgency           Urgency
-	Blocker           *XminBlocker
-	DeadTupleRatio    float64
-	BloatRatio        float64
+	Schema         string
+	Table          string
+	Urgency        Urgency
+	Blocker        *XminBlocker
+	DeadTupleRatio float64
+	// BloatRatio is the heap's bloat estimate (or its pgstattuple
+	// measurement, BloatSource); it counts only when BloatKnown. The
+	// dead-tuple ratio is never bloat: the analyzer's VACUUM owns it.
+	BloatRatio  float64
+	BloatKnown  bool
+	BloatSource string
+	// SizeBytes is the heap size; a bloat plan needs at least
+	// MinBloatBytes, and a zero floor plans nothing (fail closed).
+	SizeBytes         int64
+	MinBloatBytes     int64
 	PGRepackAvailable bool
 }
 
@@ -64,10 +73,17 @@ func PlanResponse(input ResponseInput) (Response, error) {
 				" SET (autovacuum_vacuum_scale_factor = 0.02)",
 			Evidence: responseEvidence(input)}, nil
 	}
-	if input.BloatRatio >= 0.50 {
+	if bloatPlanned(input) {
 		return bloatResponse(input), nil
 	}
 	return Response{}, nil
+}
+
+// bloatPlanned reports a known bloat estimate of at least
+// BloatPlanThreshold on a heap of at least the configured floor.
+func bloatPlanned(input ResponseInput) bool {
+	return input.BloatKnown && input.BloatRatio >= BloatPlanThreshold &&
+		input.MinBloatBytes > 0 && input.SizeBytes >= input.MinBloatBytes
 }
 
 func validateResponseInput(input ResponseInput) error {
@@ -80,6 +96,10 @@ func validateResponseInput(input ResponseInput) error {
 	if input.DeadTupleRatio < 0 || input.DeadTupleRatio > 1 ||
 		input.BloatRatio < 0 || input.BloatRatio > 1 {
 		return fmt.Errorf("freeze ratios must be within zero and one")
+	}
+	if input.SizeBytes < 0 || input.MinBloatBytes < 0 {
+		return fmt.Errorf("heap size %d and bloat floor %d must not be negative",
+			input.SizeBytes, input.MinBloatBytes)
 	}
 	return nil
 }
@@ -114,6 +134,12 @@ func bloatResponse(input ResponseInput) Response {
 }
 
 func responseEvidence(input ResponseInput) map[string]any {
-	return map[string]any{"dead_tuple_ratio": input.DeadTupleRatio,
-		"bloat_ratio": input.BloatRatio, "pg_repack_available": input.PGRepackAvailable}
+	evidence := map[string]any{"dead_tuple_ratio": input.DeadTupleRatio,
+		"pg_repack_available": input.PGRepackAvailable, "heap_bytes": input.SizeBytes,
+		"bloat_min_bytes": input.MinBloatBytes, "bloat_threshold": BloatPlanThreshold}
+	if input.BloatKnown {
+		evidence["bloat_ratio"] = input.BloatRatio
+		evidence["bloat_source"] = input.BloatSource
+	}
+	return evidence
 }

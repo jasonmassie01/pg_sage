@@ -39,12 +39,14 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 		{
 			name: "online bloat plan",
 			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
+				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30,
 				PGRepackAvailable: true},
 			kind: ResponsePlanRepack, sql: "pg_repack", park: true,
 		},
 		{
 			name: "park bloat without online tool",
-			in:   ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6},
+			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
+				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30},
 			kind: ResponseParkBloat, park: true,
 		},
 	}
