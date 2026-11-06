@@ -29,19 +29,24 @@ type Options struct {
 	MaxBackoff time.Duration // longest wait after failures
 }
 
-// SinkStatus is a sink's delivery health.
+// SinkStatus is a sink's delivery health. Status is StatusOK,
+// StatusFailing or StatusRegressed (Regressions names the stopped chains).
 type SinkStatus struct {
-	Name                string    `json:"name"`
-	Delivered           int64     `json:"delivered"`
-	LastSuccess         time.Time `json:"last_success"`
-	LastError           string    `json:"last_error,omitempty"`
-	ConsecutiveFailures int       `json:"consecutive_failures"`
+	Name                string       `json:"name"`
+	Status              string       `json:"status"`
+	Delivered           int64        `json:"delivered"`
+	LastSuccess         time.Time    `json:"last_success"`
+	LastError           string       `json:"last_error,omitempty"`
+	ConsecutiveFailures int          `json:"consecutive_failures"`
+	Regressions         []Regression `json:"regressions,omitempty"`
 }
 
 type sinkState struct {
-	cfg    SinkConfig
-	mu     sync.Mutex
-	status SinkStatus
+	cfg       SinkConfig
+	turn      chan struct{} // held by a pass or a re-anchor
+	mu        sync.Mutex
+	status    SinkStatus
+	regressed map[string]Regression // by regressionKey
 }
 
 // Exporter ships every audit chain link to every sink.
@@ -72,8 +77,8 @@ func NewExporter(sources func() []Source, sinks []SinkConfig, cursors *CursorSto
 	}
 	e := &Exporter{sources: sources, cursors: cursors, opts: opts, allow: allow, logf: logf}
 	for _, s := range sinks {
-		e.sinks = append(e.sinks, &sinkState{cfg: s,
-			status: SinkStatus{Name: s.Sink.Name()}})
+		e.sinks = append(e.sinks, &sinkState{cfg: s, turn: make(chan struct{}, 1),
+			status: SinkStatus{Name: s.Sink.Name()}, regressed: map[string]Regression{}})
 	}
 	return e
 }
@@ -83,7 +88,7 @@ func (e *Exporter) Status() []SinkStatus {
 	out := make([]SinkStatus, 0, len(e.sinks))
 	for _, s := range e.sinks {
 		s.mu.Lock()
-		out = append(out, s.status)
+		out = append(out, s.statusLocked())
 		s.mu.Unlock()
 	}
 	return out
@@ -141,15 +146,21 @@ func (e *Exporter) backoff(s *sinkState) time.Duration {
 }
 
 // pass delivers everything new to one sink. A failure stops the pass with
-// the cursor on the last delivered batch.
+// the cursor on the last delivered batch; a regressed chain stops only
+// itself. A pass holds the sink's turn, so a re-anchor never interleaves.
 func (e *Exporter) pass(ctx context.Context, s *sinkState) error {
 	fence, ok := e.allow()
 	if !ok {
 		return nil
 	}
+	if err := s.acquire(ctx); err != nil {
+		return err
+	}
+	defer s.release()
 	if err := e.cursors.CheckFence(ctx, fence); err != nil {
 		return e.fail(s, err)
 	}
+	visited := map[string]bool{}
 	for _, src := range e.sources() {
 		chains, err := auditchain.Installed(ctx, src.DB)
 		if err != nil {
@@ -159,41 +170,52 @@ func (e *Exporter) pass(ctx context.Context, s *sinkState) error {
 			if !wants(s.cfg.Chains, chain) {
 				continue
 			}
+			visited[regressionKey(src.Name, chain)] = true
 			if err := e.drain(ctx, s, src, chain, fence); err != nil {
 				return e.fail(s, err)
 			}
 		}
 	}
+	s.keepRegressions(visited)
 	s.mu.Lock()
-	s.status.ConsecutiveFailures, s.status.LastError = 0, ""
+	s.status.ConsecutiveFailures, s.status.LastError = 0, s.regressionError()
 	s.mu.Unlock()
 	return nil
 }
 
-// drain sends one chain of one source to the sink, batch by batch.
+// drain sends one chain of one source to the sink, batch by batch, once
+// the link at the cursor is still the one it exported.
 func (e *Exporter) drain(ctx context.Context, s *sinkState, src Source, chain string,
 	fence Fence) error {
 	name := s.cfg.Sink.Name()
+	cur, err := e.cursors.LoadCursor(ctx, name, src.Name, chain)
+	if err != nil {
+		return err
+	}
+	if ok, err := e.anchored(ctx, s, src, cur, fence); err != nil || !ok {
+		return err
+	}
 	for {
-		after, err := e.cursors.Load(ctx, name, src.Name, chain)
-		if err != nil {
-			return err
-		}
-		recs, err := readRecords(ctx, src, chain, after, e.opts.BatchSize)
+		recs, err := readRecords(ctx, src, chain, cur.Seq, e.opts.BatchSize)
 		if err != nil || len(recs) == 0 {
 			return err
 		}
 		events := make([]Event, 0, len(recs))
 		for _, r := range recs {
+			if r.Link.Seq <= cur.ForkTo {
+				r.Labels = []string{forkLabel}
+			}
 			events = append(events, Map(r))
 		}
 		if err := s.cfg.Sink.Send(ctx, events); err != nil {
 			return err
 		}
-		last := recs[len(recs)-1].Link.Seq
-		if err := e.cursors.Save(ctx, fence, name, src.Name, chain, last); err != nil {
+		last := recs[len(recs)-1].Link
+		if err := e.cursors.Save(ctx, fence, name, src.Name, chain, last.Seq,
+			last.Hash); err != nil {
 			return err
 		}
+		cur.Seq = last.Seq
 		s.mu.Lock()
 		s.status.Delivered += int64(len(recs))
 		s.status.LastSuccess = time.Now().UTC()

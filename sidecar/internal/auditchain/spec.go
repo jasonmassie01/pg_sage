@@ -18,8 +18,16 @@
 // the SIEM exporter uses as its cursor.
 //
 // The chain proves integrity against anyone who edits rows without also
-// recomputing every later hash. Someone who can rewrite the whole chain is
-// caught by the off-box copy: the SIEM export carries each link's hash.
+// recomputing every later hash. A full verification also finds rows whose
+// own link is gone (links deleted from the tail, or the whole chain), which
+// the walk alone cannot see: it trusts the head it reads from the same
+// table. Someone who can rewrite the whole chain, rows included, or a
+// restore that takes the chain back, is caught by the off-box copy: the
+// SIEM export carries each link's hash, and before each pass the exporter
+// checks that the link at every sink's cursor still has the hash it
+// exported. A chain that went back stops for that sink as "regressed"
+// (never skipping the positions new links reuse) and raises
+// audit_chain_regressed until an admin re-anchors the cursor.
 package auditchain
 
 import (

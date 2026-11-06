@@ -295,23 +295,25 @@ func TestCursorStore(t *testing.T) {
 	pool := freshDB(t, "siem_cursor")
 	ctx := context.Background()
 	c := NewCursorStore(pool)
-	if seq, err := c.Load(ctx, "soc", "orders", "action_log"); err != nil || seq != 0 {
-		t.Fatalf("missing cursor = %d, %v", seq, err)
+	if cur, err := c.LoadCursor(ctx, "soc", "orders", "action_log"); err != nil ||
+		cur.Seq != 0 {
+		t.Fatalf("missing cursor = %d, %v", cur.Seq, err)
 	}
-	if err := c.Save(ctx, Fence{}, "soc", "orders", "action_log", 42); err != nil {
+	if err := c.Save(ctx, Fence{}, "soc", "orders", "action_log", 42, "h42"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if err := c.Save(ctx, Fence{}, "soc", "orders", "action_log", 43); err != nil {
+	if err := c.Save(ctx, Fence{}, "soc", "orders", "action_log", 43, "h43"); err != nil {
 		t.Fatalf("advance: %v", err)
 	}
-	if seq, err := c.Load(ctx, "soc", "orders", "action_log"); err != nil || seq != 43 {
-		t.Fatalf("cursor = %d, %v, want 43", seq, err)
+	if cur, err := c.LoadCursor(ctx, "soc", "orders", "action_log"); err != nil ||
+		cur.Seq != 43 {
+		t.Fatalf("cursor = %d, %v, want 43", cur.Seq, err)
 	}
 	if err := c.Save(ctx, Fence{Scope: "s", Holder: "h", Epoch: 1}, "soc", "orders",
-		"action_log", 99); !errors.Is(err, ErrFenced) {
+		"action_log", 99, "h99"); !errors.Is(err, ErrFenced) {
 		t.Fatalf("unleased save: err = %v", err)
 	}
-	if err := NewCursorStore(nil).Save(ctx, Fence{}, "a", "b", "c", 1); err == nil {
+	if err := NewCursorStore(nil).Save(ctx, Fence{}, "a", "b", "c", 1, "h1"); err == nil {
 		t.Fatalf("nil pool save succeeded")
 	}
 }

@@ -110,7 +110,10 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateStorage(ctx, conn); err != nil { // storage_migration.go
 				return err
 			}
-			return migrateAuditChain(ctx, conn) // audit_chain_migration.go
+			if err := migrateAuditChain(ctx, conn); err != nil { // audit_chain_migration.go
+				return err
+			}
+			return migrateSIEMCursorAnchor(ctx, conn) // audit_chain_migration.go (audit-01)
 		},
 	)
 }

@@ -72,6 +72,7 @@ type Record struct {
 	Chain  string
 	Link   auditchain.Link
 	Row    map[string]any
+	Labels []string // OCSF metadata.labels; "fork" on a re-export after a re-anchor
 }
 
 // mapping is what a chain-specific mapper decides about one record.
@@ -100,6 +101,9 @@ func Map(r Record) Event {
 		"actor": map[string]any{"app_name": r.Link.App,
 			"user": map[string]any{"name": r.Link.DBUser}},
 		"unmapped": map[string]any{"pg_sage": chainProof(r)},
+	}
+	if len(r.Labels) > 0 {
+		e["metadata"].(map[string]any)["labels"] = append([]string{}, r.Labels...)
 	}
 	for k, v := range m.extra {
 		e[k] = v
