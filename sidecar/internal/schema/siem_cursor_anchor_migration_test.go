@@ -30,6 +30,20 @@ func siemCursorColumns(t *testing.T, pool *pgxpool.Pool) map[string]string {
 	return out
 }
 
+// toPreUpgrade takes the cursor table back to before audit-01, with one
+// cursor saved then.
+func toPreUpgrade(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, sql := range []string{"DROP TRIGGER siem_cursor_hash_guard ON sage.siem_cursor",
+		"ALTER TABLE sage.siem_cursor DROP COLUMN hash, DROP COLUMN fork_to",
+		`INSERT INTO sage.siem_cursor (sink, source, chain, seq)
+		VALUES ('soc', 'orders', 'action_log', 42)`} {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+}
+
 func hashGuardTriggers(t *testing.T, pool *pgxpool.Pool) int {
 	t.Helper()
 	var n int
@@ -65,13 +79,7 @@ func TestSIEMCursorAnchorMigration(t *testing.T) {
 	if n := hashGuardTriggers(t, pool); n != 1 {
 		t.Fatalf("fresh database has %d hash guard triggers, want 1", n)
 	}
-	for _, sql := range []string{"DROP TRIGGER siem_cursor_hash_guard ON sage.siem_cursor",
-		"ALTER TABLE sage.siem_cursor DROP COLUMN hash, DROP COLUMN fork_to", `INSERT INTO sage.siem_cursor (sink, source, chain, seq)
-		VALUES ('soc', 'orders', 'action_log', 42)`} {
-		if _, err := pool.Exec(ctx, sql); err != nil {
-			t.Fatalf("%s: %v", sql, err)
-		}
-	}
+	toPreUpgrade(ctx, t, pool)
 	for run := 0; run < 2; run++ {
 		if err := Bootstrap(ctx, pool); err != nil {
 			t.Fatalf("upgrade bootstrap %d: %v", run, err)
