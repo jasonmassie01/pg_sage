@@ -8,6 +8,8 @@ import { ActionProposals } from './ActionProposal'
 import { RunbookResult } from './RunbookResult'
 import { SimilarIncidents } from './SimilarIncidents'
 import { InvestigationReview } from './InvestigationReview'
+import { EvidenceAge } from './EvidenceAge'
+import { isStaleExpiry, STALE_EVIDENCE_TEXT } from './staleEvidence'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -95,12 +97,15 @@ function InvestigationDetail({ database, id, user }) {
   const likely = [...byStatus('root_cause'), ...byStatus('contributing')]
   const summary = data.investigation?.summary || {}
   const cite = evidenceID => setOpenEvidence(evidenceID)
+  const noExplanation = isStaleExpiry(data.investigation) ? `${STALE_EVIDENCE_TEXT}.`
+    : summary.reason || 'No supported explanation.'
   return (
     <div className="mt-2 space-y-2" data-testid="investigation-detail">
       <Warnings data={data} />
+      <EvidenceAge investigation={data.investigation} />
       <FactList title="Observed" facts={summary.observed || []} onCite={cite} />
       <HypothesisSection title="Likely explanation" testid="investigation-likely"
-        hypotheses={likely} empty={summary.reason || 'No supported explanation.'}
+        hypotheses={likely} empty={noExplanation}
         onCite={cite} />
       <HypothesisSection title="Other explanations" testid="investigation-other"
         hypotheses={byStatus('unproven')} empty="None." onCite={cite} />
