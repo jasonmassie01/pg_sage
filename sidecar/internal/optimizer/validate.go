@@ -233,15 +233,15 @@ func (v *Validator) checkBRINCorrelation(
 	return true, ""
 }
 
-var funcNameRe = regexp.MustCompile(`\b([a-z_][a-z0-9_]*)\s*\(`)
-
 // checkExpressionVolatility rejects an index whose key expressions or
 // predicate call a function that is not IMMUTABLE in every overload in
 // pg_catalog or an allowlisted extension (PostgreSQL refuses STABLE and
 // VOLATILE functions in index expressions). A name with no such overload
-// (a function planted in public, or none at all) is refused with
-// function_schema_not_allowed, and a failed lookup refuses the index.
-// ParseIndexDDL folds unquoted names to lower case, as PostgreSQL does.
+// (a function planted in public, or none at all), a call qualified by a
+// schema that holds none, and a call the name match cannot see (a quoted
+// name, a comment) are refused with function_schema_not_allowed, and a
+// failed lookup refuses the index. ParseIndexDDL folds unquoted names to
+// lower case, as PostgreSQL does.
 func (v *Validator) checkExpressionVolatility(
 	ctx context.Context,
 	rec Recommendation,
@@ -250,14 +250,13 @@ func (v *Validator) checkExpressionVolatility(
 	if err != nil || v.catalog == nil {
 		return true, ""
 	}
-	seen := map[string]bool{}
-	for _, m := range funcNameRe.FindAllStringSubmatch(spec.Keys+" "+spec.Where, -1) {
-		fn := m[1]
-		if seen[fn] || sqlCallKeywords[fn] {
-			continue
-		}
-		seen[fn] = true
-		if reason := v.functionVolatility(ctx, fn); reason != "" {
+	frag := spec.Keys + " " + spec.Where
+	if unverifiableCallRe.MatchString(frag) {
+		return false, "function_schema_not_allowed: a quoted function or schema " +
+			"name, or a comment, in an index expression cannot be verified"
+	}
+	for _, c := range functionCalls(frag) {
+		if reason := v.functionVolatility(ctx, c); reason != "" {
 			return false, reason
 		}
 	}

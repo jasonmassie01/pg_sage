@@ -167,3 +167,66 @@ func TestVolatilityUnit_OptimizerPassesCatalogTimeouts(t *testing.T) {
 		t.Fatalf("validator timeouts = %+v, want %+v", o.validator.timeouts, custom)
 	}
 }
+
+// Invalid input (review): a quoted function name or schema, or a comment
+// between a name and its "(", hides the call from name extraction, so the
+// index is refused before any lookup. The literal case shows why quoted
+// names are refused rather than parsed: '"' || evil(x) || '"(' would read
+// as one quoted name "' || evil(x) || '" and hide evil().
+func TestVolatilityUnit_UnverifiableCallRefused(t *testing.T) {
+	v, fc := failingValidator(errors.New("must not be called"))
+	for _, keys := range []string{
+		`("lower"(email))`,
+		`("public".lower(email))`,
+		`(public."lower"(email))`,
+		`(lower/**/(email))`,
+		"(evil -- hidden\n(email))",
+		`(('a"' || evil(x) || '"('))`,
+	} {
+		ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{
+			DDL: "CREATE INDEX CONCURRENTLY i ON public.t (" + keys + ")"})
+		if ok || !strings.HasPrefix(reason, "function_schema_not_allowed") {
+			t.Errorf("%s: ok=%t reason=%q, want function_schema_not_allowed", keys, ok, reason)
+		}
+	}
+	if got := fc.begun.Load(); got != 0 {
+		t.Errorf("lookups = %d, want 0", got)
+	}
+}
+
+// Invalid input (review): a schema-qualified call and a non-ASCII name are
+// looked up (and refused here, where every read fails) instead of slipping
+// past the ASCII-only, unqualified name match.
+func TestVolatilityUnit_QualifiedAndUnicodeNamesLookedUp(t *testing.T) {
+	v, fc := failingValidator(errors.New("connection refused"))
+	for _, tc := range []struct{ keys, want string }{
+		{"((public.lower(email)))", "public.lower"},
+		{"((fé(email)))", "fé"},
+		{"((a$b(email)))", "a$b"},
+	} {
+		before := fc.begun.Load()
+		ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{
+			DDL: "CREATE INDEX CONCURRENTLY i ON public.t " + tc.keys})
+		if ok || !strings.Contains(reason, "lookup for "+tc.want+" failed") {
+			t.Errorf("%s: ok=%t reason=%q, want a failed lookup of %s",
+				tc.keys, ok, reason, tc.want)
+		}
+		if fc.begun.Load() != before+1 {
+			t.Errorf("%s: lookups = %d, want 1", tc.keys, fc.begun.Load()-before)
+		}
+	}
+}
+
+// Boundary (review): TRIM is grammar that PostgreSQL always binds to
+// pg_catalog.btrim/ltrim/rtrim (all IMMUTABLE), and FROM/FOR inside
+// TRIM/SUBSTRING are keywords; none is looked up.
+func TestVolatilityUnit_TrimFromForSkipped(t *testing.T) {
+	v, fc := failingValidator(errors.New("must not be called"))
+	ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{
+		DDL: "CREATE INDEX CONCURRENTLY i ON public.t ((trim(email)), " +
+			"(trim(both from (name)))) WHERE (a) is distinct from (b)"})
+	if !ok || reason != "" || fc.begun.Load() != 0 {
+		t.Fatalf("ok=%t reason=%q lookups=%d, want admitted with no lookup",
+			ok, reason, fc.begun.Load())
+	}
+}

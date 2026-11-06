@@ -293,3 +293,32 @@ func TestVolatility_LookupIsBounded(t *testing.T) {
 		t.Errorf("lock_timeout = %q, want the safety lock timeout %v", lock, want.Lock)
 	}
 }
+
+// Attack (review): a schema-qualified call to a planted function is not
+// rescued by pg_catalog's function of the same name; the qualified schema
+// is what is looked up.
+func TestVolatility_QualifiedPlantedCallRefused(t *testing.T) {
+	v, pool := volatilityValidator(t)
+	plantAsAttacker(t, pool, "public", "CREATE FUNCTION public.lower(varchar) "+
+		"RETURNS text IMMUTABLE LANGUAGE sql AS $$SELECT 'x'::text$$")
+	ok, reason := checkVol(v, context.Background(),
+		"CREATE INDEX CONCURRENTLY i ON public.t ((public.lower(email)))")
+	wantRefused(t, ok, reason, "function_schema_not_allowed", "public.lower")
+	ok, reason = checkVol(v, context.Background(),
+		"CREATE INDEX CONCURRENTLY i ON public.t ((pg_catalog.lower(email)))")
+	wantAdmitted(t, ok, reason)
+}
+
+// Boundary (review): an allowlisted extension's function called through
+// its own schema passes; the same name qualified by another schema does
+// not.
+func TestVolatility_QualifiedExtensionCall(t *testing.T) {
+	v, pool := volatilityValidator(t)
+	schema := extensionSchema(t, pool, "fuzzystrmatch")
+	ok, reason := checkVol(v, context.Background(),
+		"CREATE INDEX CONCURRENTLY i ON public.t (("+schema+".soundex(name)))")
+	wantAdmitted(t, ok, reason)
+	ok, reason = checkVol(v, context.Background(),
+		"CREATE INDEX CONCURRENTLY i ON public.t ((public.soundex(name)))")
+	wantRefused(t, ok, reason, "function_schema_not_allowed", "public.soundex")
+}
