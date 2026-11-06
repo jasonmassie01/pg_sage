@@ -171,7 +171,12 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 			overview.Databases[j].Status.HealthScore
 	})
 
-	// Build summary.
+	summarizeFleet(&overview)
+	return overview
+}
+
+// summarizeFleet fills the overview's totals from its database rows.
+func summarizeFleet(overview *FleetOverview) {
 	for _, db := range overview.Databases {
 		overview.Summary.TotalDatabases++
 		if db.Status.Connected && db.Status.Error == "" {
@@ -184,8 +189,6 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		overview.Summary.TotalActions += db.Status.ActionsTotal
 	}
 	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0
-
-	return overview
 }
 
 // computeHealthScore calculates 0-100 health for an instance.
