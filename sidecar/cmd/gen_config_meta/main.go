@@ -78,56 +78,91 @@ func main() {
 	}
 }
 
+// options are the generator's command-line settings.
+type options struct {
+	out, lifecycleOut, derivedOut, envDocs string
+	lifecycleOnly, envOnly, check, strict   bool
+}
+
+func parseOptions(args []string) (options, error) {
+	var o options
+	fs := flag.NewFlagSet("gen_config_meta", flag.ContinueOnError)
+	fs.StringVar(&o.out, "out", "web/src/generated/config_meta.json",
+		"output path for config_meta.json (relative to sidecar/ or absolute)")
+	fs.StringVar(&o.lifecycleOut, "lifecycle-out", "",
+		"optional output path for the generated field-lifecycle Markdown")
+	fs.BoolVar(&o.lifecycleOnly, "lifecycle-only", false,
+		"write only the lifecycle Markdown (requires -lifecycle-out)")
+	fs.StringVar(&o.derivedOut, "derived-out", "",
+		"optional output path for the generated derived-settings Markdown")
+	fs.StringVar(&o.envDocs, "env-docs", "",
+		"optional Markdown file whose env-vars section is regenerated in place "+
+			"(-check reads "+defaultEnvDocs+" when unset)")
+	fs.BoolVar(&o.envOnly, "env-only", false,
+		"regenerate only the env-vars section (requires -env-docs)")
+	fs.BoolVar(&o.check, "check", false,
+		"write nothing; fail if the env-vars section of the docs has drifted")
+	fs.BoolVar(&o.strict, "strict", false,
+		"fail if any yaml-tagged field lacks a doc tag (CHECK-T01)")
+	err := fs.Parse(args)
+	return o, err
+}
+
 // run parses args, walks config.DefaultConfig(), and writes the
 // output file. Returns an error instead of os.Exit so the happy and
 // failure paths are unit-testable.
 func run(args []string) error {
-	fs := flag.NewFlagSet("gen_config_meta", flag.ContinueOnError)
-	out := fs.String("out", "web/src/generated/config_meta.json",
-		"output path for config_meta.json (relative to sidecar/ or absolute)")
-	lifecycleOut := fs.String("lifecycle-out", "",
-		"optional output path for the generated field-lifecycle Markdown")
-	lifecycleOnly := fs.Bool("lifecycle-only", false,
-		"write only the lifecycle Markdown (requires -lifecycle-out)")
-	derivedOut := fs.String("derived-out", "",
-		"optional output path for the generated derived-settings Markdown")
-	strict := fs.Bool("strict", false,
-		"fail if any yaml-tagged field lacks a doc tag (CHECK-T01)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *lifecycleOnly {
-		if *lifecycleOut == "" {
-			return fmt.Errorf("-lifecycle-only requires -lifecycle-out")
-		}
-		return writeLifecycleReference(*lifecycleOut)
-	}
-
-	meta, err := Generate(config.DefaultConfig(), *strict)
+	o, err := parseOptions(args)
 	if err != nil {
 		return err
 	}
+	switch {
+	case o.check:
+		return checkEnvDocs(o.envDocs)
+	case o.envOnly:
+		if o.envDocs == "" {
+			return fmt.Errorf("-env-only requires -env-docs")
+		}
+		return writeEnvDocs(o.envDocs)
+	case o.lifecycleOnly:
+		if o.lifecycleOut == "" {
+			return fmt.Errorf("-lifecycle-only requires -lifecycle-out")
+		}
+		return writeLifecycleReference(o.lifecycleOut)
+	}
+	return generateAll(o)
+}
 
+// generateAll writes config_meta.json and every requested reference.
+func generateAll(o options) error {
+	meta, err := Generate(config.DefaultConfig(), o.strict)
+	if err != nil {
+		return err
+	}
 	// Sorted JSON for byte-stable output (CHECK-T03).
 	buf, err := marshalSorted(meta)
 	if err != nil {
 		return err
 	}
-
-	if err := os.MkdirAll(parentDir(*out), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", parentDir(*out), err)
+	if err := os.MkdirAll(parentDir(o.out), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", parentDir(o.out), err)
 	}
-	if err := os.WriteFile(*out, buf, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", *out, err)
+	if err := os.WriteFile(o.out, buf, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", o.out, err)
 	}
-	if err := writeLifecycleReference(*lifecycleOut); err != nil {
+	if err := writeLifecycleReference(o.lifecycleOut); err != nil {
 		return err
 	}
-	if err := writeDerivedReference(*derivedOut); err != nil {
+	if err := writeDerivedReference(o.derivedOut); err != nil {
 		return err
+	}
+	if o.envDocs != "" {
+		if err := writeEnvDocs(o.envDocs); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(os.Stderr,
-		"gen_config_meta: wrote %d fields to %s\n", len(meta), *out)
+		"gen_config_meta: wrote %d fields to %s\n", len(meta), o.out)
 	return nil
 }
 
