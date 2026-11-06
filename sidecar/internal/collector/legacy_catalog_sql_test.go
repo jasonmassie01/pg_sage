@@ -17,7 +17,9 @@ SELECT s.schemaname, s.relname,
        COALESCE(pg_table_size(c.oid), 0) AS table_bytes,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
        c.relpersistence::text,
-       age(c.relfrozenxid) AS xid_age, s.relid
+       age(c.relfrozenxid) AS xid_age,
+       c.reloptions, -- rules-02: not in v1.8.2; read beside the verbatim columns
+       s.relid
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.oid = s.relid
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
