@@ -91,6 +91,18 @@ Go to **Fleet** and add:
 
 Use **Test Connection** before saving each database.
 
+### Tenant boundary for fleet learning
+
+Fleet learning (look-alike databases and shared action priors) only compares
+databases inside one boundary. A database tagged `tenant=<name>` belongs to
+that tenant's boundary (the name is case-insensitive); untagged databases
+share one boundary. This applies to databases added here (stored in the meta
+database) exactly as to `databases[].tags` in YAML. A tag edit on a running
+database takes effect at the next reconcile pass without a restart, and the
+next fingerprint cycle regroups it. At startup pg_sage logs the count of
+databases per boundary, for example
+`fleet-learning boundaries: shared=1 tenant:acme=2`.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |
