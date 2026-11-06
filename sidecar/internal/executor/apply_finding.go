@@ -68,15 +68,13 @@ func (e *Executor) processFinding(
 		return
 	}
 	findingID := e.lookupFindingID(ctx, f)
-	// Anti-oscillation: an object that keeps reverting externally stops
-	// being re-applied.
-	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
-		e.exceedsOscillationLimit(ctx, f, findingID) ||
-		e.parkedWithhold(ctx, f, findingID) || e.skipCoveredCreate(ctx, f, findingID) {
+	if e.withheldBeforeGate(ctx, f, findingID) {
 		return
 	}
-	// The revision's evidence is immutable; the gate needs the current one.
-	f = e.currentGateEvidence(ctx, f, findingID, cand)
+	f, ok := e.gateFinding(ctx, f, findingID, cand)
+	if !ok {
+		return
+	}
 	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
 	e.recordShadow(ctx, findingRequest(f, isReplica), f, findingID, cand, decision)
 	switch decision.Decision {
@@ -101,6 +99,32 @@ func (e *Executor) processFinding(
 	if errors.Is(err, ErrDDLSlotUnavailable) {
 		e.logFn("executor", "DDL concurrency limit reached, skipping %s", f.RecommendedSQL)
 	}
+}
+
+// gateFinding is f as the gate, the shadow and the queue must all see it:
+// with its open finding's current evidence (the revision's is immutable),
+// and marked approval_required when its VACUUM targets a partitioned
+// parent (vacuum-01). ok is false for a stale VACUUM finding whose table
+// no longer exists.
+func (e *Executor) gateFinding(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+	cand *recommendation.Candidate,
+) (analyzer.Finding, bool) {
+	f = e.currentGateEvidence(ctx, f, findingID, cand)
+	f, stale := e.guardVacuumTarget(ctx, f)
+	return f, !stale
+}
+
+// withheldBeforeGate reports the read-only skips after the finding lookup:
+// an unknown finding, retries exhausted, anti-oscillation (an object that
+// keeps reverting externally stops being re-applied), a parked withhold,
+// or a CREATE INDEX an existing index already covers.
+func (e *Executor) withheldBeforeGate(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+) bool {
+	return findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
+		e.exceedsOscillationLimit(ctx, f, findingID) ||
+		e.parkedWithhold(ctx, f, findingID) || e.skipCoveredCreate(ctx, f, findingID)
 }
 
 // findingIntent routes a background finding through Apply. A denied change

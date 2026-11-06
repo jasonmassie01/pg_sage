@@ -2733,8 +2733,9 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.idx_rc_fail_nonexist_xyz",
 			Title:            "fail exec test",
-			RecommendedSQL:   "VACUUM public.rc_fail_nonexist_xyz",
-			ActionRisk:       "safe",
+			// ANALYZE: a VACUUM of a dropped table is skipped as stale (vacuum-01).
+			RecommendedSQL: "ANALYZE public.rc_fail_nonexist_xyz",
+			ActionRisk:     "safe",
 		},
 	})
 
@@ -2808,7 +2809,8 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.idx_rc_fail_disp_xyz",
 			Title:            "fail dispatch test",
-			RecommendedSQL: "VACUUM " +
+			// ANALYZE: a VACUUM of a dropped table is skipped as stale (vacuum-01).
+			RecommendedSQL: "ANALYZE " +
 				"public.idx_rc_fail_disp_xyz",
 			ActionRisk: "safe",
 		},
