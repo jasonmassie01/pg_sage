@@ -190,7 +190,9 @@ func cloudSQLCommands(p *Proposal, t Target, instance, project string) {
 	if err != nil {
 		p.CLI = "# no command: a current flag cannot be quoted safely (see the blockers)"
 		p.Rollback.CLI = "# no rollback command: see the blockers"
-		p.Rollback.Value = ""
+		if checkProviderValue(p.Parameter, p.Rollback.Value) != nil {
+			p.Rollback.Value = ""
+		}
 		p.Blockers = append(p.Blockers, err.Error()+": fix or remove that flag in the "+
 			"console, or make this change there")
 		return

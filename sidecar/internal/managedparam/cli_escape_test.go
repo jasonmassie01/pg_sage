@@ -411,3 +411,28 @@ func TestShellQuoteRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+// An unsafe flag withholds both Cloud SQL commands, but the changed
+// flag's own prior value is cleared from the rollback only when it is
+// the unsafe one (as on RDS).
+func TestCloudSQLBlockedRollbackKeepsSafePriorValue(t *testing.T) {
+	current := map[string]string{"log_line_prefix": "a b", "work_mem": "1024"}
+	p, err := Build(intent(t, "cloud-sql", "work_mem", "64MB"), flagTarget(current), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !notRunnable(p.CLI) || len(p.Blockers) != 1 || p.Rollback.Reset ||
+		p.Rollback.Value != "1024" {
+		t.Fatalf("safe prior must stay the rollback value: cli=%q rollback=%+v blockers=%v",
+			p.CLI, p.Rollback, p.Blockers)
+	}
+	current = map[string]string{"log_line_prefix": "a b", "work_mem": "1024"}
+	p, err = Build(intent(t, "cloud-sql", "log_line_prefix", "x"), flagTarget(current), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !notRunnable(p.Rollback.CLI) || p.Rollback.Value != "" || len(p.Blockers) != 1 {
+		t.Fatalf("an unsafe prior must not be the rollback value: %+v %v", p.Rollback,
+			p.Blockers)
+	}
+}
