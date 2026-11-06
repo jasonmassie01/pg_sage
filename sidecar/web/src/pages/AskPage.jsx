@@ -64,14 +64,16 @@ export function AskPage({ database, user, databases, databaseLoading,
 }
 
 function AskSession({ database, user, caseId }) {
-  const s = useAskSession(database)
+  // A case is explained, never acted on: every question while caseId is
+  // set is sent read_only, so the server offers no write tool for it.
+  const s = useAskSession(database, { readOnly: Boolean(caseId) })
   const context = useAPI(caseId ? `/api/v1/cases?database=${encodeURIComponent(database)}` : null, 0)
   const caseRow = context.data?.cases?.find(row => (row.case_id || row.id) === caseId && row.database_name === database)
   const contextID = caseRow?.case_id || caseRow?.id
   const source = caseRow ? `${caseRow.source_type} ${caseRow.source_ids?.join(', ') || contextID}` : ''
   const friendlyTitle = caseRow ? casePresentation(caseRow).title : ''
   const question = caseRow
-    ? `Do not create proposals, investigations, or actions; do not change anything. Explain this case using cited evidence: ${source.slice(0, 400)} in database ${database}. What was observed, why may it matter, what is unknown, and what next steps and restrictions apply? Case reference: ${contextID.slice(0, 400)}${contextID.length > 400 ? ' [shortened]' : ''}. Reported condition: ${caseRow.title?.slice(0, 600) || 'not supplied'}.`
+    ? `Explain this case using cited evidence: ${source.slice(0, 400)} in database ${database}. What was observed, why may it matter, what is unknown, and what next steps and restrictions apply? Case reference: ${contextID.slice(0, 400)}${contextID.length > 400 ? ' [shortened]' : ''}. Reported condition: ${caseRow.title?.slice(0, 600) || 'not supplied'}.`
     : ''
   if (s.disabled) return <DisabledNotice />
   return (
@@ -82,6 +84,7 @@ function AskSession({ database, user, caseId }) {
         {caseId && <aside data-testid="ask-case-context" className="rounded p-3 text-sm space-y-2" style={card}>
           <strong>Explain a case</strong>
           {caseRow ? <><p>{friendlyTitle}</p><p style={muted}>Case context: {database}. Questions are sent only when you press Ask. Review the prepared question before sending.</p>
+            <p data-testid="ask-case-read-only" style={muted}>Questions here are answer only: Ask Sage will not queue a proposal, open an investigation or propose a fact.</p>
             {friendlyTitle !== caseRow.title && <details><summary>Reported condition</summary><p className="break-all">{caseRow.title}</p></details>}
             <a className="underline" href={`#/cases?case=${encodeURIComponent(caseId)}&database=${encodeURIComponent(database)}`}>Back to this case</a></>
             : context.error ? <div role="alert"><ErrorBanner message="Case context could not be loaded. You can retry or return to Cases; evidence availability is unknown." onRetry={context.refetch} /></div>

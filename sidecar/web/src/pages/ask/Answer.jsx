@@ -27,6 +27,13 @@ export function Answer({ answer }) {
         <p data-testid="ask-question" className="flex-1 font-medium" style={strong}>
           {answer.question}
         </p>
+        {answer.read_only && (
+          <span data-testid="ask-read-only" className="rounded px-2 py-0.5 text-xs"
+            title="Asked read-only: nothing could be queued, opened or proposed"
+            style={{ ...muted, border: '1px solid var(--border)' }}>
+            Answer only
+          </span>
+        )}
         <StatusBadge status={answer.status} />
       </div>
       <StatusMessage answer={answer} />
