@@ -27,12 +27,14 @@ type secStep struct {
 	Run              string            `yaml:"run"`
 	WorkingDirectory string            `yaml:"working-directory"`
 	With             map[string]string `yaml:"with"`
+	ContinueOnError  string            `yaml:"continue-on-error"`
 }
 
 type secJob struct {
-	If          string            `yaml:"if"`
-	Permissions map[string]string `yaml:"permissions"`
-	Steps       []secStep         `yaml:"steps"`
+	If              string            `yaml:"if"`
+	Permissions     map[string]string `yaml:"permissions"`
+	Steps           []secStep         `yaml:"steps"`
+	ContinueOnError string            `yaml:"continue-on-error"`
 }
 
 type secWorkflow struct {
@@ -41,7 +43,11 @@ type secWorkflow struct {
 	RawJobs     map[string]yaml.Node `yaml:"-"`
 }
 
-var exactVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+var (
+	exactVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+	// softFail matches shell that turns a failing scanner into a pass.
+	softFail = regexp.MustCompile(`\|\|\s*(true|:|exit\s+0)(\s|;|\)|$)|set\s+\+e`)
+)
 
 func loadSecWorkflow(t *testing.T) secWorkflow {
 	t.Helper()
@@ -193,6 +199,47 @@ func TestSecurityJobScansImageOnMasterAndTags(t *testing.T) {
 	}
 	if len(built) == 1 && expr(built[0].If) != cond {
 		t.Errorf("image build if %q differs from the scan's %q", built[0].If, scan.If)
+	}
+}
+
+// The gate must stay a gate: continue-on-error on the job or a step, or a
+// run script that swallows a scanner's exit code, lets docker and release
+// see a "success" past a finding.
+func TestSecurityJobCannotSoftFail(t *testing.T) {
+	job := securityJob(t)
+	if job.ContinueOnError != "" {
+		t.Errorf("security job sets continue-on-error: %q", job.ContinueOnError)
+	}
+	for _, s := range job.Steps {
+		label := s.Name
+		if label == "" {
+			label = s.Uses
+		}
+		if s.ContinueOnError != "" {
+			t.Errorf("security step %q sets continue-on-error: %q", label, s.ContinueOnError)
+		}
+		if m := softFail.FindString(s.Run); m != "" {
+			t.Errorf("security step %q swallows a failure with %q", label, m)
+		}
+	}
+}
+
+func TestSoftFailMatchesSwallowedExitCodes(t *testing.T) {
+	cases := map[string]bool{
+		"govulncheck ./... || true":               true,
+		"govulncheck ./... ||true":                true,
+		"npm audit --audit-level=high || :":       true,
+		"govulncheck ./... || exit 0":             true,
+		"set +e\ngovulncheck ./...":               true,
+		"govulncheck ./...":                       false,
+		"npm audit --omit=dev --audit-level=high": false,
+		"test -f x || exit 1":                     false,
+		"":                                        false,
+	}
+	for script, want := range cases {
+		if got := softFail.MatchString(script); got != want {
+			t.Errorf("softFail.MatchString(%q) = %v, want %v", script, got, want)
+		}
 	}
 }
 
