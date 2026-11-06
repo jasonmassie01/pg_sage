@@ -41,9 +41,12 @@ func (v *postgresIndexVerifier) ResumeDue(
 	results, err := v.engine.ResumeDueResults(ctx)
 	resumed := make([]resumedIndexVerification, 0, len(results))
 	for _, result := range results {
+		// One action's missing rollback SQL must not withhold the others'
+		// verdicts: it is reported, and its claim lease retries it.
 		rollbackSQL, lookupErr := v.rollbackSQL(ctx, result.ActionID)
 		if lookupErr != nil {
-			return resumed, lookupErr
+			err = errors.Join(err, lookupErr)
+			continue
 		}
 		resumed = append(resumed, resumedIndexVerification{
 			ActionID: result.ActionID, RollbackSQL: rollbackSQL,

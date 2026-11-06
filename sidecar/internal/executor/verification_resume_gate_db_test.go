@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -142,5 +143,46 @@ func TestRunCycleSweepsBeforeFirstResume(t *testing.T) {
 	}
 	if v := verificationVerdict(t, f.exec.pool, f.id); v != "success" {
 		t.Fatalf("verdict = %q, want success (observed again)", v)
+	}
+}
+
+type resultEngine struct {
+	results []verify.ResumeResult
+	err     error
+}
+
+func (r *resultEngine) OKToApplyNow(context.Context) (verify.Admission, error) {
+	return verify.Admission{}, errors.New("not used")
+}
+
+func (r *resultEngine) Watch(context.Context, verify.WatchRequest) (verify.Verdict, error) {
+	return verify.Verdict{}, errors.New("not used")
+}
+
+func (r *resultEngine) ResumeDueResults(context.Context) ([]verify.ResumeResult, error) {
+	return r.results, r.err
+}
+
+// Error propagation: one action's failed rollback-SQL lookup is reported
+// with the engine's error, and the other actions' verdicts still resume.
+func TestIndexVerifierResumeContinuesPastAFailedLookup(t *testing.T) {
+	f, ctx := newCreateFixture(t)
+	engineErr := errors.New("claim failed for another watch")
+	missing := int64(-f.id)
+	verifier := &postgresIndexVerifier{exec: f.exec, engine: &resultEngine{
+		err: engineErr,
+		results: []verify.ResumeResult{
+			{ActionID: missing, Verdict: verify.Verdict{Revert: true, Status: "reverted"}},
+			{ActionID: f.id, Verdict: verify.Verdict{Retain: true, Status: "success"}},
+		},
+	}}
+	resumed, err := verifier.ResumeDue(ctx)
+	if !errors.Is(err, engineErr) ||
+		!strings.Contains(err.Error(), fmt.Sprintf("load rollback SQL for action %d", missing)) {
+		t.Fatalf("ResumeDue error = %v, want the engine and the lookup error", err)
+	}
+	if len(resumed) != 1 || resumed[0].ActionID != f.id || !resumed[0].Verdict.Retain ||
+		resumed[0].RollbackSQL != "DROP INDEX CONCURRENTLY IF EXISTS "+f.index {
+		t.Fatalf("resumed = %#v, want only action %d with its rollback SQL", resumed, f.id)
 	}
 }
