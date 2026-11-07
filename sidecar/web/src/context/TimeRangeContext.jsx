@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { readPref, writePref } from '../lib/storage'
 
 const RANGES = [
   { key: '1h',  label: 'Last 1h',  ms:         60 * 60 * 1000 },
@@ -12,13 +13,11 @@ const RANGES = [
 const TimeRangeContext = createContext(null)
 
 export function TimeRangeProvider({ children }) {
-  const [rangeKey, setRangeKey] = useState(() => {
-    return localStorage.getItem('pg_sage_range') || '24h'
-  })
+  const [rangeKey, setRangeKey] = useState(() => readPref('pg_sage_range', '24h'))
   const [nowTick, setNowTick] = useState(() => Date.now())
 
   useEffect(() => {
-    localStorage.setItem('pg_sage_range', rangeKey)
+    writePref('pg_sage_range', rangeKey)
   }, [rangeKey])
 
   useEffect(() => {

@@ -9,6 +9,7 @@ import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import { DerivedSettings } from './settings/DerivedSettings'
+import { readPref, writePref } from '../lib/storage'
 import {
   ShieldAlert, Save, RotateCcw, Check, X,
 } from 'lucide-react'
@@ -39,13 +40,8 @@ const ADVANCED_TABS = [
 const SIMPLE_TABS = ['General', 'Monitoring', 'AI & Alerts']
 
 function getInitialMode() {
-  try {
-    const stored = localStorage.getItem('pg_sage_settings_mode')
-    if (stored === 'advanced' || stored === 'simple') return stored
-  } catch {
-    // localStorage unavailable
-  }
-  return 'simple'
+  const stored = readPref('pg_sage_settings_mode', 'simple')
+  return stored === 'advanced' ? 'advanced' : 'simple'
 }
 
 export function SettingsPage({ database, databaseId }) {
@@ -91,9 +87,7 @@ export function SettingsPage({ database, databaseId }) {
   const toggleMode = () => {
     const next = mode === 'simple' ? 'advanced' : 'simple'
     setMode(next)
-    try { localStorage.setItem('pg_sage_settings_mode', next) } catch {
-      // localStorage unavailable
-    }
+    writePref('pg_sage_settings_mode', next)
   }
 
   const cfg = useMemo(() => data?.config || {}, [data?.config])

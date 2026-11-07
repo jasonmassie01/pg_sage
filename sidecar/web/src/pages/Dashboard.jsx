@@ -9,6 +9,7 @@ import { FleetHealthChart } from '../components/FleetHealthChart'
 import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
+import { readPref } from '../lib/storage'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
@@ -365,12 +366,8 @@ export function Dashboard({ database, onSelectDB, user }) {
   useLiveRefetch(['findings'], findings.refetch)
 
   const [lastVisitAt, setLastVisitAt] = useState(() => {
-    try {
-      const v = localStorage.getItem('pg_sage_findings_visit')
-      return v ? parseInt(v, 10) : 0
-    } catch {
-      return 0
-    }
+    const v = readPref('pg_sage_findings_visit', null)
+    return v ? parseInt(v, 10) : 0
   })
 
   useEffect(() => {

@@ -14,6 +14,7 @@ import { TrustBadge } from './TrustBadge'
 import { PostgresMeme } from './PostgresMeme'
 import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
+import { PageErrorBoundary } from './PageErrorBoundary'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
@@ -367,12 +368,16 @@ export function Layout({
           </div>
         </header>
         <div className="sage-content p-3 md:p-6">
-          <MonitoringContext database={selectedDB} fleetData={fleetData} error={fleetError} user={user} />
-          <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
-          <PendingActionsContext.Provider
-            value={{ refetch: refetchPending }}>
-            {children}
-          </PendingActionsContext.Provider>
+          {/* A page render error stays here; the header and nav survive. */}
+          <PageErrorBoundary resetKey={window.location.hash || '#/'}>
+            <MonitoringContext database={selectedDB} fleetData={fleetData}
+              error={fleetError} user={user} />
+            <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
+            <PendingActionsContext.Provider
+              value={{ refetch: refetchPending }}>
+              {children}
+            </PendingActionsContext.Provider>
+          </PageErrorBoundary>
         </div>
       </main>
     </div>
