@@ -89,6 +89,9 @@ type TableStats struct {
 	IndexBytes       int64      `json:"index_bytes"`
 	Relpersistence   string     `json:"relpersistence"`
 	XIDAge           int64      `json:"xid_age"`
+	// Reloptions is pg_class.reloptions ("name=value" storage parameters,
+	// nil when none are set), read with the stats on every cycle.
+	Reloptions []string `json:"reloptions"`
 }
 
 // IsUnlogged returns true if the table has relpersistence = 'u'.

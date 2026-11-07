@@ -107,7 +107,9 @@ SELECT attname::text FROM pg_attribute
 // cursor on every page (measured.md M1: 114 ms per 1,000-row page on
 // lifeos). Sizes are relpages estimates (heap + TOAST; summed index
 // pages): no relation is opened or stat()ed here; the collector measures
-// the top-N exactly afterwards.
+// the top-N exactly afterwards. reloptions rides on the same page: the
+// deterministic rules need each table's own storage parameters whether
+// or not the advisor's configuration snapshot runs (rules-02).
 const tableStatsSQL = sageTag + `
 SELECT n.nspname, c.relname,
        pg_stat_get_numscans(c.oid), pg_stat_get_tuples_returned(c.oid),
@@ -124,7 +126,7 @@ SELECT n.nspname, c.relname,
          * current_setting('block_size')::int8 AS table_bytes,
        COALESCE(ix.pages, 0) * current_setting('block_size')::int8 AS index_bytes,
        c.relpersistence::text,
-       age(c.relfrozenxid) AS xid_age, c.oid
+       age(c.relfrozenxid) AS xid_age, c.reloptions, c.oid
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_class t ON t.oid = c.reltoastrelid

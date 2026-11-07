@@ -77,30 +77,24 @@ func TestRegression_PerTableGUCsDoNotConflictAcrossTables(t *testing.T) {
 	}
 }
 
-func autovacuumSnap(reloptions string) *collector.Snapshot {
-	snap := &collector.Snapshot{Tables: []collector.TableStats{{
+// autovacuumSnap puts the reloptions on the table itself, where the
+// collector reads them with the table's stats (rules-02).
+func autovacuumSnap(reloptions ...string) *collector.Snapshot {
+	return &collector.Snapshot{Tables: []collector.TableStats{{
 		SchemaName: "public", RelName: "events",
 		NLiveTup: 2_000_000, NTupUpd: 3_000_000,
+		Reloptions: reloptions,
 	}}}
-	if reloptions != "" {
-		snap.ConfigData = &collector.ConfigSnapshot{
-			TableReloptions: []collector.TableReloption{{
-				SchemaName: "public", RelName: "events",
-				Reloptions: reloptions,
-			}},
-		}
-	}
-	return snap
 }
 
 // G2-B05: a table already tuned at or below the target is not re-flagged.
 func TestRegression_AutovacuumTuningHonorsReloptions(t *testing.T) {
 	cfg := phase2Config()
-	tuned := autovacuumSnap("{autovacuum_vacuum_scale_factor=0.05,fillfactor=90}")
+	tuned := autovacuumSnap("autovacuum_vacuum_scale_factor=0.05", "fillfactor=90")
 	if got := ruleAutovacuumTuning(tuned, nil, cfg, nil); len(got) != 0 {
 		t.Fatalf("already-tuned table flagged: %+v", got)
 	}
-	loose := autovacuumSnap("{autovacuum_vacuum_scale_factor=0.2}")
+	loose := autovacuumSnap("autovacuum_vacuum_scale_factor=0.2")
 	if got := ruleAutovacuumTuning(loose, nil, cfg, nil); len(got) != 1 {
 		t.Fatalf("loosely tuned table findings = %d, want 1", len(got))
 	}
