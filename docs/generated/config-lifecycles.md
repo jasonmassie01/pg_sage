@@ -276,12 +276,14 @@
 | `rca.llm_correlation_threshold` | `restart` | `-` | `derivable` |
 | `rca.lock_chain_interval_seconds` | `restart` | `-` | `derivable` |
 | `rca.narration_enabled` | `restart` | `-` | `operator_preference` |
+| `rca.prepared_xact_min_age_minutes` | `restart` | `-` | `safety_critical` |
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` | `derivable` |
 | `rca.resolution_cycles` | `restart` | `-` | `derivable` |
 | `rca.stale_after_hours` | `restart` | `-` | `derivable` |
 | `rca.vacuum_min_dead_tuples` | `restart` | `-` | `derivable` |
 | `rca.vacuum_min_table_mb` | `restart` | `-` | `derivable` |
 | `rca.wal_spike_multiplier` | `restart` | `-` | `derivable` |
+| `rca.xmin_holder_min_minutes` | `restart` | `-` | `safety_critical` |
 | `retention.actions_days` | `restart` | `-` | `operator_preference` |
 | `retention.auth_audit_days` | `restart` | `-` | `operator_preference` |
 | `retention.decisions_days` | `restart` | `-` | `operator_preference` |

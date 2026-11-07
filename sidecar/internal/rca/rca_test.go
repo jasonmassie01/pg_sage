@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // ---------------------------------------------------------------------------
@@ -971,6 +972,11 @@ func TestAnalyze_VacuumBlocked_XminHolder(t *testing.T) {
 				TableBytes: 64 << 20,
 			},
 		},
+		// rca-01: the holder read shows 1234 holding the oldest xmin for
+		// an hour. The test listed only its lock row, pinning blame on an
+		// idle session with no evidence it holds the horizon.
+		XminHolders: []probes.XminHolder{{Kind: probes.HolderSession, PID: 1234,
+			State: idleState, XminAge: 4000, XactAgeS: 3600}},
 		Locks: []collector.LockInfo{
 			{PID: 1234, State: &idleState},
 		},

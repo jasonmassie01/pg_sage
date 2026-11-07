@@ -80,7 +80,7 @@ var locksSQL = sageTag + `
 WITH d AS (SELECT oid FROM pg_database WHERE datname = current_database()),
 act AS MATERIALIZED (
   SELECT a.pid, a.query, a.state, a.wait_event_type, a.wait_event,
-         a.backend_start, a.query_start, a.xact_start, a.query_id,
+         a.backend_start, a.query_start, a.xact_start, a.state_change, a.query_id,
          a.backend_type = 'client backend' AS client,
          GREATEST(age(a.backend_xmin), age(a.backend_xid))::bigint AS xmin_age
     FROM pg_stat_activity a, d
@@ -118,7 +118,7 @@ graph AS (
 SELECT g.locktype, g.mode, g.granted, g.relname,
        a.query, a.state, a.wait_event_type, a.wait_event, g.pid,
        a.backend_start, a.query_start, a.xact_start, a.xmin_age, g.blocked_by,
-       a.query_id
+       a.query_id, a.state_change
   FROM graph g JOIN act a ON a.pid = g.pid
  ORDER BY CASE WHEN g.pid IN (SELECT pid FROM oldest) THEN 0
                WHEN g.pid IN (SELECT pid FROM blockers) THEN 1

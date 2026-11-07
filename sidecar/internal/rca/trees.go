@@ -32,7 +32,7 @@ func (e *Engine) runDecisionTrees(
 	}
 	if s, ok := sigMap["vacuum_blocked"]; ok {
 		incidents = append(incidents,
-			e.treeVacuumBlocked(s, curr))
+			e.treeVacuumBlocked(s, curr, e.vacuumRules(cfg)))
 	}
 	if s, ok := sigMap["replication_lag_increasing"]; ok {
 		incidents = append(incidents, e.simpleIncident(s,
@@ -186,75 +186,37 @@ func (e *Engine) treeCacheHitDrop(
 	)
 }
 
-// treeVacuumBlocked implements the vacuum_blocked decision tree.
+// treeVacuumBlocked implements the vacuum_blocked decision tree (rca-01).
 //
 //	vacuum_blocked fires:
-//	  -> any idle-in-tx session with old xmin?
-//	    -> YES: root cause = transaction holding oldest xmin
-//	    -> NO: orphaned prepared transactions?
+//	  -> oldest holder of this database's xmin horizon past its floor?
+//	     (a session open rca.xmin_holder_min_minutes, a prepared xact
+//	     rca.prepared_xact_min_age_minutes old, a standby's feedback, a
+//	     slot's xmin, or its catalog_xmin for a catalog table)
+//	    -> YES: root cause = that holder
+//	    -> NO: this database's prepared tx past its floor?
 //	      -> YES: root cause = prepared tx holding xmin
 //	      -> NO: root cause = autovacuum falling behind
 func (e *Engine) treeVacuumBlocked(
 	sig *Signal,
 	curr *collector.Snapshot,
+	rules vacuumRules,
 ) Incident {
-	ids := []string{"vacuum_blocked"}
-	now := curr.CollectedAt
-
-	// Branch 1: idle-in-transaction holding xmin.
-	for _, l := range curr.Locks {
-		if l.State != nil && *l.State == "idle in transaction" {
-			return buildIncident(now, sig.Severity, ids,
-				fmt.Sprintf("Idle-in-transaction PID %d holding oldest xmin, "+
-					"blocking autovacuum", l.PID),
-				[]ChainLink{
-					{Order: 1, Signal: "vacuum_blocked",
-						Description: "Session holding transaction open " +
-							"prevents dead-tuple cleanup",
-						Evidence: fmt.Sprintf(
-							"PID %d in state: idle in transaction",
-							l.PID),
-						Blocker: xminHolder(l)},
-				},
-				blockedTables(sig),
-				fmt.Sprintf(
-					"SELECT pg_terminate_backend(%d); "+
-						"-- idle-in-tx blocker", l.PID),
-				"high_risk",
-			)
-		}
+	// Branch 1: the oldest holder of the xmin horizon.
+	if inc, ok := e.holderIncident(sig, curr, rules); ok {
+		return inc
 	}
 
-	// Branch 2: orphaned prepared transactions holding xmin.
-	if len(curr.PreparedXacts) > 0 {
-		oldest := curr.PreparedXacts[0]
-		for _, pt := range curr.PreparedXacts[1:] {
-			if pt.XIDAge > oldest.XIDAge {
-				oldest = pt
-			}
-		}
-		return buildIncident(now, "critical", ids,
-			fmt.Sprintf("Orphaned prepared transaction %q "+
-				"holding xmin (age %d), blocking autovacuum",
-				oldest.GID, oldest.XIDAge),
-			[]ChainLink{
-				{Order: 1, Signal: "vacuum_blocked",
-					Description: "Prepared transaction holds xmin " +
-						"indefinitely -- invisible to pg_stat_activity",
-					Evidence: fmt.Sprintf(
-						"gid=%s owner=%s prepared=%s xid_age=%d",
-						oldest.GID, oldest.Owner,
-						oldest.Prepared.Format("2006-01-02 15:04:05"),
-						oldest.XIDAge)},
-			},
-			blockedTables(sig),
-			fmt.Sprintf("ROLLBACK PREPARED '%s';", oldest.GID),
-			"high_risk",
-		)
+	// Branch 2: a prepared transaction the holder read did not list.
+	if p, ok := agedPrepared(curr, rules.preparedFloor); ok {
+		inc := preparedIncident(sig, curr, p, p.XIDAge)
+		inc.liveEvidence = true
+		return inc
 	}
 
-	// Branch 3: no obvious blocker found.
-	return buildIncident(now, sig.Severity, ids,
+	// Branch 3: no obvious blocker found. Live evidence too: an open
+	// incident whose holder no longer qualifies drops its proposal.
+	inc := buildIncident(curr.CollectedAt, sig.Severity, []string{"vacuum_blocked"},
 		"Autovacuum falling behind -- dead tuple accumulation",
 		[]ChainLink{
 			{Order: 1, Signal: "vacuum_blocked",
@@ -265,6 +227,8 @@ func (e *Engine) treeVacuumBlocked(
 		},
 		blockedTables(sig), "", "safe",
 	)
+	inc.liveEvidence = true
+	return inc
 }
 
 // treeOrphanedPreparedTx handles orphaned prepared transactions.
@@ -284,7 +248,8 @@ func (e *Engine) treeOrphanedPreparedTx(
 
 	sql := "SELECT gid, prepared, owner, database, " +
 		"age(transaction) AS xid_age " +
-		"FROM pg_prepared_xacts ORDER BY prepared;"
+		"FROM pg_prepared_xacts WHERE database = current_database() " +
+		"ORDER BY prepared;"
 
 	return buildIncident(now, sig.Severity, ids,
 		fmt.Sprintf("Orphaned prepared transaction(s) holding xmin "+

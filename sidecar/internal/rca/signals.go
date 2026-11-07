@@ -290,26 +290,22 @@ func (e *Engine) detectWALSpike(
 	}
 }
 
-// detectOrphanedPreparedTx fires when pg_prepared_xacts contains any
-// transactions. Prepared transactions (2PC) survive connection drops
-// and server restarts, hold xmin and locks indefinitely, and are
-// invisible to pg_stat_activity.
+// detectOrphanedPreparedTx fires when this database has a prepared
+// transaction at least rca.prepared_xact_min_age_minutes old (rca-01:
+// two-phase commit prepares and commits transactions in normal
+// operation). Prepared transactions survive connection drops and server
+// restarts, hold xmin and locks indefinitely, and are invisible to
+// pg_stat_activity. count is every prepared transaction listed; the
+// oldest is the oldest (by XID age) past the floor.
 func (e *Engine) detectOrphanedPreparedTx(
 	curr *collector.Snapshot,
 ) *Signal {
-	if len(curr.PreparedXacts) == 0 {
+	oldest, ok := agedPrepared(curr, e.cfg.PreparedXactFloor())
+	if !ok {
 		return nil
 	}
-	var oldestGID string
-	var maxAge int64
-	for _, pt := range curr.PreparedXacts {
-		if pt.XIDAge > maxAge {
-			maxAge = pt.XIDAge
-			oldestGID = pt.GID
-		}
-	}
 	sev := "warning"
-	if maxAge > 100_000_000 {
+	if oldest.XIDAge > 100_000_000 {
 		sev = "critical"
 	}
 	return &Signal{
@@ -318,8 +314,8 @@ func (e *Engine) detectOrphanedPreparedTx(
 		Severity: sev,
 		Metrics: map[string]any{
 			"count":       len(curr.PreparedXacts),
-			"oldest_gid":  oldestGID,
-			"max_xid_age": maxAge,
+			"oldest_gid":  oldest.GID,
+			"max_xid_age": oldest.XIDAge,
 		},
 	}
 }

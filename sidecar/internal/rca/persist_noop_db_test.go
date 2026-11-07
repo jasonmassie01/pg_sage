@@ -177,3 +177,35 @@ func uniqueText(n, seed int) string {
 	}
 	return sb.String()
 }
+
+// rca-01: an open vacuum_blocked incident whose holder crosses the
+// terminate minutes is refreshed with the terminate, and the stored row's
+// recommended_sql and action_risk follow its root cause (the update used
+// to keep the first detection's).
+func TestPersist_RefreshedRootCauseRefreshesRecommendedSQL(t *testing.T) {
+	pool, ctx := lifecycleDB(t)
+	eng, db := lifecycleEngine(t, pool)
+	start := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	eng.backendLookup = (&fakeBackends{live: map[int]*time.Time{4242: &start}}).lookup
+	for i, idle := range []time.Duration{time.Minute, 6 * time.Minute} {
+		snap := vacuumSnapshot(4242, start)
+		since := snap.CollectedAt.Add(-idle)
+		snap.Locks[0].StateChange = &since
+		eng.AnalyzeContext(ctx, snap, nil, testConfig(), nil)
+		if err := eng.PersistIncidents(ctx, pool); err != nil {
+			t.Fatalf("persist cycle %d: %v", i, err)
+		}
+	}
+	var n int
+	var sql, risk, root string
+	if err := pool.QueryRow(ctx, `SELECT count(*) OVER (), recommended_sql,
+		COALESCE(action_risk, ''), root_cause FROM sage.incidents
+		WHERE database_name = $1`, db).Scan(&n, &sql, &risk, &root); err != nil {
+		t.Fatalf("read incident: %v", err)
+	}
+	if n != 1 || sql != "SELECT pg_terminate_backend(4242); -- idle-in-tx xmin holder" ||
+		risk != "high_risk" || !strings.Contains(root, "PID 4242") {
+		t.Fatalf("%d rows, sql %q, risk %q, root %q; want one row refreshed to the "+
+			"terminate at high_risk", n, sql, risk, root)
+	}
+}

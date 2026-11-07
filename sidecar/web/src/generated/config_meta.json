@@ -1823,6 +1823,12 @@
     "doc": "Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true.",
     "class": "operator_preference"
   },
+  "rca.prepared_xact_min_age_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minutes a prepared transaction of this database must be old before it opens orphaned_prepared_tx or is named the vacuum_blocked holder. 1-10080. Default: 30.",
+    "class": "safety_critical"
+  },
   "rca.replication_lag_threshold_seconds": {
     "type": "int",
     "default": 30,
@@ -1858,6 +1864,12 @@
     "default": 2,
     "doc": "WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0.",
     "class": "derivable"
+  },
+  "rca.xmin_holder_min_minutes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5.",
+    "class": "safety_critical"
   },
   "retention.actions_days": {
     "type": "int",

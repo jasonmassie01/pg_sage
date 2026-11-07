@@ -221,6 +221,11 @@ var excludedExactKeys = map[string]bool{
 	"rca.vacuum_min_dead_tuples": true,
 	"rca.vacuum_min_table_mb":    true,
 
+	// rca-01: the vacuum_blocked holder floors are validated at load
+	// (1-max) and gate blame and proposals, so they are YAML-only.
+	"rca.xmin_holder_min_minutes":       true,
+	"rca.prepared_xact_min_age_minutes": true,
+
 	// Sage SRE M2: read once when a database runtime is built (restart
 	// lifecycle) and validated at load, so they are YAML-only.
 	"sre.automatic_start":          true,

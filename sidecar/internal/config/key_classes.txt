@@ -215,12 +215,14 @@ derivable rca.escalation_cycles
 derivable rca.llm_correlation_threshold
 derivable rca.lock_chain_interval_seconds
 operator_preference rca.narration_enabled
+safety_critical rca.prepared_xact_min_age_minutes
 derivable rca.replication_lag_threshold_seconds
 derivable rca.resolution_cycles
 derivable rca.stale_after_hours
 derivable rca.vacuum_min_dead_tuples
 derivable rca.vacuum_min_table_mb
 derivable rca.wal_spike_multiplier
+safety_critical rca.xmin_holder_min_minutes
 operator_preference schema_lint.disabled_rules
 operator_preference schema_lint.enabled
 operator_preference schema_lint.exclude_schemas

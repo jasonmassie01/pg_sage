@@ -52,7 +52,7 @@ func scanLocks(rows pgx.Rows) ([]LockInfo, error) {
 			&lk.LockType, &lk.Mode, &lk.Granted, &lk.RelName,
 			&lk.Query, &lk.State, &lk.WaitEventType, &lk.WaitEvent, &lk.PID,
 			&lk.BackendStart, &lk.QueryStart, &lk.XactStart, &lk.BackendXminAge,
-			&lk.BlockedBy, &lk.QueryID,
+			&lk.BlockedBy, &lk.QueryID, &lk.StateChange,
 		); err != nil {
 			return nil, err
 		}
