@@ -148,6 +148,7 @@ func buildDatabaseRuntime(
 	rt.startSelfConfig()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
+	rt.startProviderReprobe()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))
 	runtimeBuilt(rt)
@@ -222,8 +223,7 @@ func newDatabaseRuntime(
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
 	rt.initFacts()
-	rt.provider = detectCloudEnv(spec.Pool)
-	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
+	rt.provider = rt.detectProvider(parent)
 	rt.cfg = rt.runtimeConfig()
 	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter, rt.sreReadPolicy())
 	rt.deriveSettingsAtStartup()

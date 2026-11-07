@@ -9,6 +9,23 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 | Amazon Aurora PostgreSQL | CloudWatch (as RDS; `AuroraReplicaLagMaximum`), Performance Insights | DB parameter group of the writer |
 | Google Cloud SQL for PostgreSQL | Cloud Monitoring (CPU, memory quota/usage, disk quota/usage, disk ops, backends, replica lag) | Database flags |
 
+## Provider detection
+
+pg_sage names the provider of each database from its host name or, failing that, from SQL
+probes (`aurora_version()` and the `rds.*`, `alloydb.*`, `cloudsql.*` and `azure.*`
+settings). Each probe has its own 2 second timeout. "Function does not exist" or an unset
+setting means "not this provider"; no match means `self-managed`.
+
+A probe that fails (a timeout, a dropped connection, a permission error) makes the provider
+`unknown`, never `self-managed`. At startup the probes retry after 1, 2 and 4 seconds. An
+`unknown` provider matches no action's provider list, so provider-gated actions such as
+`ALTER SYSTEM` stay blocked, and readiness shows `provider unknown`. The runtime then
+re-probes with backoff from 1 minute to 30 minutes. When a probe succeeds, pg_sage logs the
+change and rebuilds that database's runtime (YAML fleet and meta-db databases). In
+standalone mode, and for the control database of a YAML fleet, it cannot rebuild one
+runtime, so readiness shows `provider re-probe found <provider>; restart pg_sage to apply`
+until you restart.
+
 ## What the telemetry is used for
 
 Telemetry is evidence only. It never raises a trust level or grants an action: every action
@@ -39,7 +56,7 @@ the rollback and the command, for example:
 
 ```
 aws rds modify-db-parameter-group --region us-east-1 --db-parameter-group-name orders-pg16 \
-  --parameters "ParameterName=shared_buffers,ParameterValue=524288,ApplyMethod=pending-reboot"
+  --parameters '[{"ParameterName":"shared_buffers","ParameterValue":"524288","ApplyMethod":"pending-reboot"}]'
 aws rds reboot-db-instance --region us-east-1 --db-instance-identifier orders
 ```
 
@@ -47,6 +64,54 @@ pg_sage never applies these changes in this release. Approve one when you will r
 marks it applied once PostgreSQL runs the new value. A default parameter group (`default.*`)
 cannot be modified, and a Cloud SQL `--database-flags` command replaces the whole flag list:
 the proposal says so and carries the current flags.
+
+### Command and blocker rules
+
+The commands are written for a POSIX shell (bash, zsh, Cloud Shell). pg_sage validates every
+part before it builds one:
+
+- The parameter name, the proposed value and the group, region, project and instance names
+  must match strict patterns; anything else is refused and no proposal is made.
+- Values read back from the provider (the current Cloud SQL flags, the current RDS value used
+  by a rollback) are always single-quoted. They may hold letters, digits and
+  `. _ + - , / : @ | ~ % { } *`, up to 256 characters. Any other character (whitespace, a
+  quote, a backslash, `=`, `$`, `;`, a backtick, a control character and so on), or a flag
+  name that is not a valid parameter name, gives a blocker naming the setting. For Cloud SQL
+  both the command and the rollback become `#` comment lines, since each carries the whole
+  flag list; for RDS and Aurora only the rollback does. Make that change in the console
+  instead. A flag such as `log_line_prefix` with a space in its value blocks by design.
+- RDS and Aurora `--parameters` is always the JSON form, so list values such as
+  `pg_stat_statements,pg_hint_plan` stay one value.
+- A Cloud SQL flag value with a comma (for example `pgaudit.log=read,write`) switches the flag
+  list to gcloud's alternate delimiter syntax (see `gcloud topic escaping`):
+  `--database-flags='^@^pgaudit.log=read,write@work_mem=65536'`. The delimiter is the first
+  of `@ : | ~` that no value contains; when every one occurs, the proposal is blocked.
+- When the current Cloud SQL flags are unknown, both the command and the rollback are
+  `# fill in:` templates that name the `gcloud sql instances describe` call to run first.
+  `--clear-database-flags` appears only in the rollback of an instance known to have had no
+  flags.
+- A proposal with any blocker cannot be approved on the Actions page (the button says why); it
+  can still be rejected. Open proposals get rebuilt commands on the worker's next cycle.
+
+### Proposal identity, outages and rejections
+
+A proposal is identified by its provider, parameter and value. The parameter group or
+instance it targets is refreshed on every cycle but is not part of its identity, so an
+approval, its note and a rejection all survive a change of target and a failed lookup:
+
+- When looking up the instance fails (a throttled `DescribeDBInstances`, an expired token),
+  open proposals keep the target last resolved, with a note naming the error and when that
+  target was resolved. If nothing was resolved since pg_sage started, a new proposal carries
+  placeholders, but a stored proposal with a real command is never overwritten with
+  placeholders. No proposal is superseded in a cycle whose lookup failed, and drift is not
+  reported from a stale target.
+- A rejected change is not proposed again for 7 days, whatever the target lookup returns.
+- A proposal is superseded when its finding is gone or a newer value for the same parameter
+  is proposed.
+
+Upgrading from v2.5.1 or earlier recomputes the stored identities once; open proposals keep
+their ids, status and decisions. Duplicates left by earlier outages (the same change open
+twice under different targets) collapse to one, keeping the approved one, else the newest.
 
 ## Maintenance privileges (VACUUM and autovacuum settings)
 

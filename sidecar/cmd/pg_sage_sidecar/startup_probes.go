@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -15,43 +16,35 @@ func detectCloudEnvironment() string {
 }
 
 // detectCloudEnv probes a connection pool for managed service
-// indicators. Pass any per-database pool in fleet mode.
+// indicators. Pass any per-database pool in fleet mode. A probe that keeps
+// erroring reads as unknown, never as self-managed. A YAML fleet has no
+// process pool, so nil is unknown without a probe-failure warning.
 func detectCloudEnv(p *pgxpool.Pool) string {
 	if p == nil {
-		return "unknown"
+		return providerUnknown
+	}
+	provider, err := detectCloudEnvContext(context.Background(), p)
+	if err != nil {
+		logWarn("startup", "provider probe failed; provider %s: %v", provider, err)
+	}
+	return provider
+}
+
+// detectRuntimeProvider is the provider detection a database runtime uses;
+// tests replace it to simulate an outage.
+var detectRuntimeProvider = detectCloudEnvContext
+
+// detectCloudEnvContext names the provider from the host, or else from the
+// SQL probes, retried with backoff at startup. It returns unknown with the
+// last error when the probes never succeeded.
+func detectCloudEnvContext(ctx context.Context, p *pgxpool.Pool) (string, error) {
+	if p == nil {
+		return providerUnknown, errors.New("provider probe: no connection pool")
 	}
 	if provider := hostedProviderFromHost(p.Config().ConnConfig.Host); provider != "" {
-		return provider
+		return provider, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var s string
-	if p.QueryRow(ctx, "SELECT aurora_version()").Scan(&s) == nil {
-		return "aurora"
-	}
-	var ps *string
-	if p.QueryRow(ctx,
-		"SELECT current_setting('rds.extensions', true)",
-	).Scan(&ps) == nil && ps != nil {
-		return "rds"
-	}
-	if p.QueryRow(ctx,
-		"SELECT current_setting('alloydb.iam_authentication', true)",
-	).Scan(&ps) == nil && ps != nil {
-		return "alloydb"
-	}
-	if p.QueryRow(ctx,
-		"SELECT current_setting('cloudsql.iam_authentication', true)",
-	).Scan(&ps) == nil && ps != nil {
-		return "cloud-sql"
-	}
-	if p.QueryRow(ctx,
-		"SELECT current_setting('azure.extensions', true)",
-	).Scan(&ps) == nil && ps != nil {
-		return "azure"
-	}
-	return "self-managed"
+	return newProviderDetector(p).detect(ctx)
 }
 
 func poolHealthCheck() {

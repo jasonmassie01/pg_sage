@@ -156,8 +156,24 @@ func rebootFor(parameter string, gp GroupParam, known bool) bool {
 	return pgconf.RequiresRestart(parameter)
 }
 
+// fingerprintVersion prefixes the fingerprint identity: the provider,
+// parameter and value of the change. The target is not part of it: the
+// proposals table lives in the monitored database's own sage schema, so
+// the database is implicit, and the provider resource a transient
+// resolution failure replaces with placeholders is a refreshable
+// attribute. The schema migration ddlManagedChangeFingerprintV2 computes
+// the same value in SQL.
+const fingerprintVersion = "v2:"
+
 func fingerprint(p Proposal) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{p.Provider, p.Target, p.Parameter,
-		p.Value}, "|")))
-	return hex.EncodeToString(sum[:])[:16]
+	sum := sha256.Sum256([]byte(strings.Join([]string{p.Provider, p.Parameter, p.Value},
+		"|")))
+	return fingerprintVersion + hex.EncodeToString(sum[:])[:16]
+}
+
+// placeholderTarget reports that p was built without a resolved provider
+// resource: its target is empty or carries a <placeholder>, which no
+// validated group, project or instance name can contain.
+func (p Proposal) placeholderTarget() bool {
+	return p.Target == "" || strings.Contains(p.Target, "<")
 }

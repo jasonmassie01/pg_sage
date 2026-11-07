@@ -45,8 +45,8 @@ func TestBuildRDSStaticParameter(t *testing.T) {
 		t.Fatalf("proposal = %+v", p)
 	}
 	wantCLI := `aws rds modify-db-parameter-group --region us-east-1 ` +
-		`--db-parameter-group-name orders-pg16 --parameters ` +
-		`"ParameterName=shared_buffers,ParameterValue=524288,ApplyMethod=pending-reboot"` +
+		`--db-parameter-group-name orders-pg16 --parameters '[{"ParameterName":` +
+		`"shared_buffers","ParameterValue":"524288","ApplyMethod":"pending-reboot"}]'` +
 		"\n" + `aws rds reboot-db-instance --region us-east-1 --db-instance-identifier orders`
 	if p.CLI != wantCLI {
 		t.Fatalf("CLI =\n%s\nwant\n%s", p.CLI, wantCLI)
@@ -54,7 +54,7 @@ func TestBuildRDSStaticParameter(t *testing.T) {
 	if !p.Rollback.Reset || !strings.HasPrefix(p.Rollback.CLI,
 		"aws rds reset-db-parameter-group --region us-east-1 --db-parameter-group-name "+
 			"orders-pg16 --parameters "+
-			"\"ParameterName=shared_buffers,ApplyMethod=pending-reboot\"") {
+			`'[{"ParameterName":"shared_buffers","ApplyMethod":"pending-reboot"}]'`) {
 		t.Fatalf("engine-default rollback must reset: %+v", p.Rollback)
 	}
 	if !strings.Contains(p.ConsoleURL, "region=us-east-1") ||
@@ -62,7 +62,9 @@ func TestBuildRDSStaticParameter(t *testing.T) {
 		t.Fatalf("console = %q", p.ConsoleURL)
 	}
 	assertApprovalOnly(t, p)
-	if len(p.Fingerprint) != 16 || len(p.Blockers) != 0 {
+	// clouds-02: "v2:" plus 16 hex digits (was 16 hex digits).
+	if len(p.Fingerprint) != 19 || !strings.HasPrefix(p.Fingerprint, "v2:") ||
+		len(p.Blockers) != 0 {
 		t.Fatalf("fingerprint=%q blockers=%v", p.Fingerprint, p.Blockers)
 	}
 }
@@ -86,7 +88,7 @@ func TestBuildRDSDynamicParameterRollsBackToPriorValue(t *testing.T) {
 		t.Fatalf("dynamic proposal = %+v", p)
 	}
 	if p.Rollback.Reset || p.Rollback.Value != "4096" || !strings.Contains(p.Rollback.CLI,
-		"ParameterName=work_mem,ParameterValue=4096,ApplyMethod=immediate") {
+		`{"ParameterName":"work_mem","ParameterValue":"4096","ApplyMethod":"immediate"}`) {
 		t.Fatalf("user-set rollback must restore 4096: %+v", p.Rollback)
 	}
 	assertApprovalOnly(t, p)
@@ -153,7 +155,7 @@ func TestBuildCloudSQLFlagKeepsExistingFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCLI := "gcloud sql instances patch main --project=proj-1 --database-flags=" +
-		"log_min_duration_statement=500,shared_buffers=524288,work_mem=65536"
+		"'log_min_duration_statement=500,shared_buffers=524288,work_mem=65536'"
 	if p.Mechanism != MechanismDatabaseFlag || p.CLI != wantCLI || p.Target != "proj-1:main" ||
 		!p.RebootRequired {
 		t.Fatalf("cloud sql proposal CLI=%q %+v", p.CLI, p)
@@ -162,7 +164,7 @@ func TestBuildCloudSQLFlagKeepsExistingFlags(t *testing.T) {
 		t.Fatalf("notes must warn about the automatic restart: %v", p.Notes)
 	}
 	wantRollback := "gcloud sql instances patch main --project=proj-1 --database-flags=" +
-		"log_min_duration_statement=500,work_mem=65536"
+		"'log_min_duration_statement=500,work_mem=65536'"
 	if p.Rollback.CLI != wantRollback || !p.Rollback.Reset {
 		t.Fatalf("rollback = %+v", p.Rollback)
 	}

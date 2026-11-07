@@ -445,7 +445,9 @@ func migrationStatements() []string {
 		ddlQueryHintsLifecycle, // tuning-01
 		ddlVerificationObservationRetry,
 		ddlEmergencyStopFunction,
-		ddlEmergencyStopSeed)
+		ddlEmergencyStopSeed,
+		// clouds-02: after the table (ddlManagedChangeProposals).
+		ddlManagedChangeFingerprintV2)
 }
 
 // ---------------------------------------------------------------------------
