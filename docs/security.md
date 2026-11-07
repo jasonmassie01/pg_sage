@@ -439,7 +439,8 @@ removes it (`DROP INDEX CONCURRENTLY IF EXISTS ...`).
 Stop from the web UI emergency stop button, or the authenticated REST API:
 
 ```bash
-curl -b cookies.txt -H 'Content-Type: application/json'   -X POST http://localhost:8080/api/v1/emergency-stop --data '{}'
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/emergency-stop --data '{}'
 ```
 
 When the dashboard and API are unreachable, stop from SQL. The function
@@ -458,7 +459,8 @@ yourself with `pg_cancel_backend` on the pg_sage sessions in
 Resume with the web UI resume button, the authenticated REST API:
 
 ```bash
-curl -b cookies.txt -H 'Content-Type: application/json'   -X POST http://localhost:8080/api/v1/resume --data '{}'
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/resume --data '{}'
 ```
 
 or from SQL:
