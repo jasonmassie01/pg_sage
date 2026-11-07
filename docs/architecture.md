@@ -121,7 +121,11 @@ including lock/rewrite classification plus live table-size, activity, pending
 lock, replica-lag, and lock-timeout checks. It also attaches generated
 migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
 metadata. These artifacts are shown in Cases and Actions so teams can review
-schema work through their normal change-control process.
+schema work through their normal change-control process. A model-written
+script replaces the deterministic one only after pg_sage validates it;
+otherwise it is shown as labelled, unvalidated model text, and RCA Tier 2
+diagnostic SQL is kept only once proven read-only (see
+[Model-authored SQL](security.md#model-authored-sql)).
 
 Incident playbooks follow the same typed-action model. Read-only diagnostics
 can inspect blocker graphs, runaway queries, connection pressure,

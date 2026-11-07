@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -83,12 +84,17 @@ func (a *Advisor) buildLLMIncident(
 				resp.RequiresRewrite, resp.EstDurationSec),
 		},
 	}
-	if resp.SafeAlternative != "" {
+	recommended := a.validatedAlternative(resp.SafeAlternative, sql)
+	switch {
+	case recommended.SQL != "":
 		chain = append(chain, rca.ChainLink{
 			Order:       3,
 			Signal:      "safe_alternative",
-			Description: resp.SafeAlternative,
+			Description: recommended.SQL,
 		})
+	case recommended.ModelText != "":
+		chain = append(chain, unvalidatedLink(3, recommended.ModelText,
+			recommended.Reason))
 	}
 
 	return &rca.Incident{
@@ -98,11 +104,26 @@ func (a *Advisor) buildLLMIncident(
 		RootCause:      fmt.Sprintf("LLM-detected risky DDL: %s", resp.Explanation),
 		CausalChain:    chain,
 		SignalIDs:      []string{"llm_ddl_fallback"},
-		RecommendedSQL: resp.SafeAlternative,
+		RecommendedSQL: recommended.SQL,
 		ActionRisk:     fmt.Sprintf("risk_score=%.2f", resp.RiskScore),
 		Confidence:     resp.RiskScore,
 		DatabaseName:   a.dbName,
 	}
+}
+
+// validatedAlternative keeps the model's safe_alternative only when it
+// validates against the one table the original statement names; there
+// is no deterministic alternative to fall back to (security-05).
+func (a *Advisor) validatedAlternative(alt, original string) ScriptResult {
+	alt = strings.TrimSpace(alt)
+	if alt == "" {
+		return ScriptResult{}
+	}
+	if err := validateModelDDL(alt, statementTarget(original)); err != nil {
+		a.logFn("warn", "migration: LLM safe_alternative not validated: %v", err)
+		return ScriptResult{ModelText: alt, Reason: err.Error()}
+	}
+	return ScriptResult{SQL: alt}
 }
 
 // buildDDLSystemPrompt returns the system message for DDL analysis.
@@ -118,14 +139,16 @@ func buildDDLSystemPrompt() string {
 		"if already safe), " +
 		"explanation (one sentence explaining the risk), " +
 		"estimated_duration_seconds (rough estimate for a 1M row table). " +
-		"No markdown fences. No extra text."
+		"No markdown fences. No extra text.\n\n" + llm.UntrustedDataRule
 }
 
-// buildDDLUserPrompt formats the DDL statement for the LLM.
+// buildDDLUserPrompt formats the DDL statement for the LLM; the observed
+// statement is untrusted, so it is fenced as data.
 func buildDDLUserPrompt(sql string, pgVersion int, dbName string) string {
 	return fmt.Sprintf(
 		"PostgreSQL version: %s\nDatabase: %s\nDDL statement:\n%s",
-		formatPGVersion(pgVersion), dbName, sanitizeDDL(sql),
+		formatPGVersion(pgVersion), dbName,
+		llm.UntrustedData("ddl", sanitizeDDL(sql)),
 	)
 }
 

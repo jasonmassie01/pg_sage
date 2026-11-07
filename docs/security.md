@@ -187,6 +187,37 @@ never as instructions to itself:
   executor's allowlist. Anything else is refused and logged as
   `managed change not proposed: ... refused: ...`.
 
+Database-derived text in a prompt (query text, log lines, object names,
+observed DDL, table schemas) is wrapped in a labelled `<data>` block, and the
+system prompt tells the model to treat it as data, never as instructions. A
+test walks every model call site in the sidecar and fails when one sends a
+system prompt without that rule.
+
+#### Model-authored SQL
+
+SQL written by the model is never shown as pg_sage's recommendation until
+pg_sage has checked it. None of it runs through the executor.
+
+- **RCA Tier 2** asks for one read-only diagnostic statement. It is kept only
+  when pg_sage proves it read-only against the monitored database's catalog:
+  a single `SELECT` that calls no volatile or `SECURITY DEFINER` function,
+  takes no row locks and writes nothing. The check reads only the catalog,
+  inside a `READ ONLY` transaction with a 2s `statement_timeout` and a 500ms
+  `lock_timeout`. Otherwise the incident has no recommended SQL and its causal
+  chain says "model SQL withheld" and why. The incident itself is still raised.
+- **Migration advisor** scripts and the LLM DDL fallback's `safe_alternative`
+  are kept only when every statement is `ALTER TABLE` (column, default,
+  constraint and statistics changes), a column or constraint rename, `CREATE
+  [UNIQUE] INDEX [CONCURRENTLY]`, `UPDATE`, `ANALYZE`, `SET`/`RESET` of
+  `lock_timeout` or `statement_timeout`, `BEGIN` or `COMMIT`, and every table
+  it names is the table under review. Administrative functions (`pg_*`,
+  `set_config`, `dblink*`, `lo_*`) are refused. Otherwise the recommendation
+  falls back to pg_sage's deterministic safe alternative (none for the DDL
+  fallback), and the model's text appears in the causal chain as
+  `model_text_unvalidated`, labelled "Model text, not validated by pg_sage".
+- Both checks use the PostgreSQL parser that release binaries and images are
+  built with. A build without cgo has no parser, so it withholds all model SQL.
+
 ---
 
 ## API Security

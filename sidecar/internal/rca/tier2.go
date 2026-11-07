@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -43,12 +45,14 @@ const tier2LowConfidence = 0.7
 
 // tier2Request is a Tier 2 call planned under e.mu and executed without
 // it. candidates are the signals Tier 1 did not explain (the identity of
-// the resulting incident); context is every signal of the cycle.
+// the resulting incident); context is every signal of the cycle. store
+// proves the model's SQL read-only; nil withholds it.
 type tier2Request struct {
 	client     *llm.Client
 	candidates []*Signal
 	context    []*Signal
 	database   string
+	store      *pgxpool.Pool
 }
 
 // planTier2 decides whether Tier 2 should run. It fires when at least
@@ -86,7 +90,7 @@ func (e *Engine) planTier2(
 	}
 	return &tier2Request{
 		client: e.llmClient, candidates: candidates,
-		context: signals, database: e.databaseName,
+		context: signals, database: e.databaseName, store: e.store,
 	}, nil
 }
 
@@ -132,7 +136,8 @@ func signalIDs(signals []*Signal) []string {
 }
 
 // runTier2 performs the LLM call outside the engine lock, bounded by the
-// caller context (G3-B17). Returns nil on any error.
+// caller context (G3-B17). Returns nil on any error. The model's SQL is
+// kept only once proven read-only (security-05).
 func (e *Engine) runTier2(ctx context.Context, req *tier2Request) []Incident {
 	if err := ctx.Err(); err != nil {
 		e.logFn("warn", "rca: tier2 skipped: %v", err)
@@ -153,6 +158,7 @@ func (e *Engine) runTier2(ctx context.Context, req *tier2Request) []Incident {
 		return nil
 	}
 	inc.DatabaseName = req.database
+	vetTier2SQL(ctx, req.store, &inc, e.logFn)
 	return []Incident{inc}
 }
 
@@ -169,19 +175,25 @@ func buildTier2SystemPrompt() string {
 		"\"description\"), recommended_sql (array with at most one " +
 		"read-only diagnostic SQL statement, may be empty), " +
 		"action_risk (\"low\", \"medium\", or \"high\"). " +
-		"No markdown fences. No extra text."
+		"No markdown fences. No extra text.\n\n" + llm.UntrustedDataRule
 }
 
 // buildTier2UserPrompt formats signals for the LLM, redacting free text
-// that may carry data values or identities.
+// that may carry data values or identities. Signal text (log lines, query
+// identifiers) is untrusted, so the list is fenced as data.
 func buildTier2UserPrompt(candidates, all []*Signal) string {
+	return fmt.Sprintf("%d uncovered signals fired among %d "+
+		"co-occurring signals:\n\n", len(candidates), len(all)) +
+		llm.UntrustedData("rca_signals", tier2SignalList(candidates, all))
+}
+
+// tier2SignalList renders one line per signal, marking the unexplained.
+func tier2SignalList(candidates, all []*Signal) string {
 	unexplained := make(map[string]bool, len(candidates))
 	for _, s := range candidates {
 		unexplained[s.ID] = true
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d uncovered signals fired among %d "+
-		"co-occurring signals:\n\n", len(candidates), len(all))
 	for i, s := range all {
 		status := "explained"
 		if unexplained[s.ID] {

@@ -136,8 +136,8 @@ func (a *Advisor) assessHighest(
 }
 
 // buildIncident converts a DDLRisk into an rca.Incident. When a
-// ScriptGenerator is available, it enhances RecommendedSQL with an
-// LLM-generated migration script.
+// ScriptGenerator is available, a validated LLM migration script replaces
+// RecommendedSQL; an unvalidated one is shown only as labelled model text.
 func (a *Advisor) buildIncident(
 	ctx context.Context, risk *DDLRisk,
 ) *rca.Incident {
@@ -164,8 +164,13 @@ func (a *Advisor) buildIncident(
 	}
 
 	if a.scriptGen != nil {
-		if script, err := a.scriptGen.Generate(ctx, risk); err == nil && script != "" {
-			incident.RecommendedSQL = script
+		script := a.scriptGen.GenerateScript(ctx, risk)
+		if script.SQL != "" {
+			incident.RecommendedSQL = script.SQL
+		}
+		if script.ModelText != "" {
+			incident.CausalChain = append(incident.CausalChain, unvalidatedLink(
+				len(incident.CausalChain)+1, script.ModelText, script.Reason))
 		}
 	}
 
