@@ -727,6 +727,17 @@ to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 
 A table is red when its remaining XID runway is under
 `custodian.freeze.red_buffer_pct` (default 25%) of `autovacuum_freeze_max_age`.
+Urgency is measured against that freeze maximum; the hard deadline is not. The
+hard deadline is when the table's XID (or multixact) age reaches the server's
+wraparound warn limit, 2^31 - 1 - 40,000,000, at the measured consumption rate
+(capped at 100 years). A table past the warn limit is red with its deadline one
+second ahead, so a table past `autovacuum_freeze_max_age` still has a deadline
+ahead and the xid deadline override and the budget bypass apply to it. The
+deadline is the earlier of the XID and multixact ones; the policy kind is always
+`xid` (the `deadline_overrides` key), and the decision evidence names the
+counter that set it (`deadline_threat`: `xid` or `multixact`) and the server's
+`vacuum_failsafe_age` (PostgreSQL 14+, when the server reports it). Until two
+scans have measured the rate, the custodian claims no deadline.
 Each scan reads the database's xmin-horizon holders once (at most 20, oldest
 first): client sessions by snapshot (`backend_xmin`) or by XID (`backend_xid`,
 so an idle-in-transaction writer is found), standbys' `hot_standby_feedback`,
@@ -847,7 +858,8 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
 - **Emergency mitigations bypass the kind budgets.** A wraparound `VACUUM`
   while the XID runway is critical, a space-freeing `VACUUM`, unused-index
   drop or `REINDEX` while the disk runway is critical (urgency critical with
-  the hard deadline still ahead, as the custodian computed it), and the
+  the hard deadline still ahead; for XID it is the wraparound warn limit, see
+  the freeze custodian above), and the
   revert or rollback of a change pg_sage made itself are never parked by a
   kind budget and are charged to none (`evidence.budget_kind = bypass`).
   They are recorded with the reason `budget bypass: <why>` and still pass

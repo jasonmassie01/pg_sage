@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,7 +131,20 @@ func (c *PostgresFreezeCustodian) respond(
 		// is unknown: act on urgency, but claim no deadline override.
 		proposal.Deadline = nil
 	}
+	if proposal.Deadline != nil {
+		deadlineEvidence(proposal.Evidence, assessment.Deadline, rates.failsafeAge)
+	}
 	return proposal, response.PinnedBy, nil
+}
+
+// deadlineEvidence records which counter set the policy deadline (its
+// Kind stays xid, the key of deadline_overrides) and the server's
+// vacuum_failsafe_age when it is known (PG14+).
+func deadlineEvidence(evidence map[string]any, deadline freeze.Deadline, failsafeAge int64) {
+	evidence["deadline_threat"] = string(deadline.Threat)
+	if failsafeAge > 0 {
+		evidence["vacuum_failsafe_age"] = failsafeAge
+	}
 }
 
 func freezeResponseProposal(
@@ -193,6 +208,9 @@ type freezeCounters struct {
 type freezeRateSample struct {
 	xid, mxid float64
 	known     bool
+	// failsafeAge is vacuum_failsafe_age (PG14+), 0 when the server does
+	// not report it; deadline evidence only, read with the counters.
+	failsafeAge int64
 }
 
 const minimumFreezeRate = 0.001
@@ -215,13 +233,16 @@ func freezeRates(prev, cur freezeCounters) (float64, float64, bool) {
 
 func (c *PostgresFreezeCustodian) transactionRates(ctx context.Context) (freezeRateSample, error) {
 	var cur freezeCounters
+	var failsafe *string
 	if err := c.pool.QueryRow(ctx, `/* pg_sage */ SELECT
 		pg_snapshot_xmax(pg_current_snapshot())::text::bigint,
-		mxid_age(datminmxid)::bigint
+		mxid_age(datminmxid)::bigint,
+		current_setting('vacuum_failsafe_age', true)
 		FROM pg_database WHERE datname=current_database()`).
-		Scan(&cur.nextXID, &cur.mxidAge); err != nil {
+		Scan(&cur.nextXID, &cur.mxidAge, &failsafe); err != nil {
 		return freezeRateSample{}, fmt.Errorf("read transaction counters: %w", err)
 	}
+	failsafeAge := parseFailsafeAge(failsafe)
 	cur.at = time.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -233,9 +254,25 @@ func (c *PostgresFreezeCustodian) transactionRates(ctx context.Context) (freezeR
 		mxid = c.lastMxidRate
 	}
 	if !known {
-		return freezeRateSample{xid: minimumFreezeRate, mxid: minimumFreezeRate}, nil
+		return freezeRateSample{xid: minimumFreezeRate, mxid: minimumFreezeRate,
+			failsafeAge: failsafeAge}, nil
 	}
-	return freezeRateSample{xid: xid, mxid: math.Max(mxid, minimumFreezeRate), known: true}, nil
+	return freezeRateSample{xid: xid, mxid: math.Max(mxid, minimumFreezeRate), known: true,
+		failsafeAge: failsafeAge}, nil
+}
+
+// parseFailsafeAge reads vacuum_failsafe_age best-effort: a missing
+// setting (PG13 and older, or hidden by a managed provider) or an
+// unparsable or non-positive value is unknown (0).
+func parseFailsafeAge(setting *string) int64 {
+	if setting == nil {
+		return 0
+	}
+	age, err := strconv.ParseInt(strings.TrimSpace(*setting), 10, 64)
+	if err != nil || age <= 0 {
+		return 0
+	}
+	return age
 }
 
 // freezeHorizonSQL reads the catalog only (measured.md M3): the heap size
