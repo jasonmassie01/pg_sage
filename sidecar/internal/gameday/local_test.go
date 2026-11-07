@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/clone"
 )
 
@@ -67,13 +68,13 @@ func TestLocalProviderAcceptsAMarkedDatabaseOnAnotherCluster(t *testing.T) {
 	}
 }
 
-// Aliases of the monitored cluster (another host spelling, a multi-host
-// DSN, a pooler port, a sibling database) all reach one identity.
+// Aliases of the monitored cluster (another host spelling, a pooler
+// port, a sibling database) all reach one identity. A multi-host DSN is
+// refused at boot (TestLocalProviderRefusesAMultiServerTarget).
 func TestLocalProviderRefusesAliasesOfTheMonitoredCluster(t *testing.T) {
 	for _, dsn := range []string{
 		"postgres://app:pw@localhost:5432/orders",
 		"postgres://app:pw@LOCALHOST:5432/orders",
-		"postgres://app:pw@db1.internal:5432,127.0.0.1:5432/orders",
 		"postgres://app:pw@127.0.0.1:6432/orders",
 		"postgres://app:pw@127.0.0.1:5432/scratch",
 	} {
@@ -90,6 +91,37 @@ func TestLocalProviderRefusesAliasesOfTheMonitoredCluster(t *testing.T) {
 		}
 		if target.closed != 1 {
 			t.Errorf("%s: target connection closed %d times", dsn, target.closed)
+		}
+	}
+}
+
+// Create verifies the one server it reaches; a DSN that can fail over to
+// another server could run the fault programs where nothing was checked.
+func TestLocalProviderRefusesAMultiServerTarget(t *testing.T) {
+	for dsn, other := range map[string]string{
+		"postgres://app:pw@db1.internal:5432,127.0.0.1:5432/orders":   "127.0.0.1:5432",
+		"host=scratch.internal,prod.internal port=5999 dbname=scratch": "prod.internal:5999",
+		"postgres://u:pw@scratch.internal:5999,scratch.internal:5432/s": "scratch.internal:5432",
+	} {
+		p, err := NewLocalProvider(dsn, nil, refusing(prodCluster()))
+		if !errors.Is(err, ErrNotDisposable) || p != nil {
+			t.Errorf("%s: built %t, err = %v, want ErrNotDisposable", dsn, p != nil, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), other) || strings.Contains(err.Error(), "pw") {
+			t.Errorf("%s: the refusal should name %s and no password: %v", dsn, other, err)
+		}
+	}
+	// sslmode=prefer adds a fallback to the same server; another spelling
+	// of one host name is the same server too.
+	for _, dsn := range []string{scratchDSN + "?sslmode=prefer",
+		"postgres://u:p@SCRATCH.internal:5999,scratch.internal:5999/scratch"} {
+		cfg, err := pgx.ParseConfig(dsn)
+		if err != nil || len(cfg.Fallbacks) == 0 {
+			t.Fatalf("%s: want a parsed DSN with fallbacks: %v", dsn, err)
+		}
+		if _, err := fakeLocal(t, dsn, scratchCluster(), refusing(prodCluster())); err != nil {
+			t.Errorf("%s: a single server was refused: %v", dsn, err)
 		}
 	}
 }

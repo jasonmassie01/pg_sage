@@ -68,8 +68,26 @@ func NewLocalProvider(dsn string, monitored []string, refused RefusedFunc) (*Loc
 			return nil, fmt.Errorf("%w: %s", ErrMonitoredDSN, target)
 		}
 	}
+	if other := otherServer(cfg); other != "" {
+		return nil, fmt.Errorf("%w: local_dsn names more than one server (%s:%d and %s); "+
+			"Create verifies one, so name the one disposable server", ErrNotDisposable,
+			strings.ToLower(cfg.Host), cfg.Port, other)
+	}
 	return &LocalProvider{dsn: dsn, endpoint: target, database: cfg.Database,
 		refused: refused, connect: connectTarget}, nil
+}
+
+// otherServer is a fallback server of cfg other than its first ("" when
+// every fallback is the first server again, as sslmode=prefer makes one).
+// Create verifies one server, so the fault programs must never fail over
+// to another.
+func otherServer(cfg *pgx.ConnConfig) string {
+	for _, fb := range cfg.Fallbacks {
+		if !strings.EqualFold(fb.Host, cfg.Host) || fb.Port != cfg.Port {
+			return fmt.Sprintf("%s:%d", strings.ToLower(fb.Host), fb.Port)
+		}
+	}
+	return ""
 }
 
 // Create hands out the local database once it is proven disposable: on

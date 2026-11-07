@@ -1397,6 +1397,8 @@ every game day and local bench run pg_sage opens one short, read-only connection
   `pg_database` catalog and `pg_postmaster_start_time()`. A sibling database, another host
   name for the same server, a PgBouncer port or a standby all count as the same cluster;
 - it is a standby (`pg_is_in_recovery()`) or streams to standbys (`pg_stat_replication`);
+- it names more than one server (a multi-host DSN), since only the server it reaches is
+  checked;
 - it is not marked disposable. Mark it with
   `COMMENT ON DATABASE scratch IS 'pg_sage:gameday_target';`;
 - any of these checks cannot be read (fail closed).
