@@ -52,7 +52,8 @@ const postInit = body => ({
 
 // useAsk posts a question into the current conversation. busyRef guards
 // against a second submit before React re-renders the disabled button.
-function useAsk(database, conv, onAnswer) {
+// readOnly sends read_only: the server then offers no write tool.
+function useAsk(database, conv, onAnswer, readOnly) {
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const ask = useCallback(async question => {
@@ -61,6 +62,7 @@ function useAsk(database, conv, onAnswer) {
     setBusy(true)
     conv.clearErrors()
     const body = conv.id ? { question, conversation_id: conv.id } : { question }
+    if (readOnly) body.read_only = true
     try {
       const r = await requestJSON(askURL(database), postInit(body))
       if (!r.ok) {
@@ -77,7 +79,7 @@ function useAsk(database, conv, onAnswer) {
       busyRef.current = false
       setBusy(false)
     }
-  }, [database, conv, onAnswer])
+  }, [database, conv, onAnswer, readOnly])
   return { busy, ask }
 }
 
@@ -119,7 +121,9 @@ function useConversation(database, onDisabled) {
   [thread, id, error, netError, fail, clearErrors, load, reset])
 }
 
-export function useAskSession(database) {
+// useAskSession is one database's session. With { readOnly: true } every
+// question is sent answer-only (Explain a case).
+export function useAskSession(database, { readOnly = false } = {}) {
   const [disabled, setDisabled] = useState(false)
   const [tick, setTick] = useState(0)
   const markDisabled = useCallback(() => setDisabled(true), [])
@@ -130,7 +134,7 @@ export function useAskSession(database) {
     if (answer?.conversation_id) setId(answer.conversation_id)
     setTick(n => n + 1)
   }, [setThread, setId])
-  const { busy, ask } = useAsk(database, conv, onAnswer)
+  const { busy, ask } = useAsk(database, conv, onAnswer, readOnly)
   const budget = useAskResource(budgetURL(database), tick, markDisabled)
   const conversations = useAskResource(conversationsURL(database), tick, markDisabled)
   return {

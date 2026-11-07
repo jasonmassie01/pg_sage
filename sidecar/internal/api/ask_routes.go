@@ -70,8 +70,8 @@ func (h askHandlers) ask(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAskBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		sreErrorCode(w, "body must be {\"question\": string, \"conversation_id\"?: string}",
-			"invalid_request", http.StatusBadRequest)
+		sreErrorCode(w, "body must be {\"question\": string, \"conversation_id\"?: string, "+
+			"\"read_only\"?: boolean}", "invalid_request", http.StatusBadRequest)
 		return
 	}
 	answer, err := svc.Ask(r.Context(), askCaller(r), req)

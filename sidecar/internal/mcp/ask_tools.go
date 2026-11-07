@@ -12,13 +12,15 @@ import (
 // Ask Sage over MCP (roadmap phase 3). ask_sage needs the read scope; the
 // run may open an investigation or queue a finding for a person's
 // approval only when the principal holds the propose scope. There is no
-// approve path: an agent token can ask and propose, never approve.
+// approve path: an agent token can ask and propose, never approve. A
+// read_only question drops the propose right for that question.
 
 // AskRequest are the typed arguments of ask_sage.
 type AskRequest struct {
 	Database       string `json:"database,omitempty"`
 	Question       string `json:"question"`
 	ConversationID string `json:"conversation_id,omitempty"`
+	ReadOnly       bool   `json:"read_only,omitempty"`
 }
 
 // AskBackend answers ask_sage for the resolved database.
@@ -36,11 +38,14 @@ func askTools() []Tool {
 		"the catalog, configuration); every statement cites that evidence and what it " +
 		"could not verify is said. With the propose scope it may open an investigation, " +
 		"queue one of pg_sage's findings for a person's approval or propose a fact a " +
-		"person confirms; it never executes, approves or confirms",
+		"person confirms; it never executes, approves or confirms. read_only: true makes the " +
+		"question answer-only (no investigation, proposal or fact) whatever the scope",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"database":{"type":` +
 			`"string","description":"fleet database name"},"question":{"type":"string",` +
 			`"minLength":1,"maxLength":2000},"conversation_id":{"type":"string",` +
-			`"description":"continue a conversation (its id from an earlier answer)"}},` +
+			`"description":"continue a conversation (its id from an earlier answer)"},` +
+			`"read_only":{"type":"boolean","description":"answer only: open, queue and ` +
+			`propose nothing for this question"}},` +
 			`"required":["question"],"additionalProperties":false}`)}}
 }
 
@@ -69,8 +74,9 @@ func (s *Server) callAskTool(ctx context.Context, _ string, raw json.RawMessage)
 	if database == "" {
 		database = req.Database
 	}
-	answer, err := backend.AskSage(ctx, database, askCaller(ctx),
-		ask.Request{Question: req.Question, ConversationID: req.ConversationID})
+	r := ask.Request{Question: req.Question, ConversationID: req.ConversationID,
+		ReadOnly: req.ReadOnly}
+	answer, err := backend.AskSage(ctx, database, askCaller(ctx).For(r), r)
 	if err != nil {
 		return nil, askFailure(err)
 	}
