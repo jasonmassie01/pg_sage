@@ -38,9 +38,10 @@ type Optimizer struct {
 }
 
 // WithCatalogReadTimeouts bounds the context builder's catalog reads
-// (columns, pg_stats, collation) with the safety configuration's
-// statement and lock timeouts, and the HypoPG what-if's lock waits with
-// the lock timeout; the default is the shipped safety values.
+// (columns, pg_stats, collation) and the validator's volatility lookups
+// with the safety configuration's statement and lock timeouts, and the
+// HypoPG what-if's lock waits with the lock timeout; the default is the
+// shipped safety values.
 func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
@@ -73,6 +74,7 @@ func New(
 		opt(o)
 	}
 	o.hypopg.lockTimeout = o.catalogTimeouts.Lock
+	o.validator.timeouts = o.catalogTimeouts
 	return o
 }
 

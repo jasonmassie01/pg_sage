@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -251,12 +252,14 @@ func TestPhase2_CheckExpressionVolatility_UnknownFunc(
 	rec := Recommendation{
 		DDL: "CREATE INDEX CONCURRENTLY idx ON t (nonexistent_fn_xyz(col))",
 	}
-	ok, _ := v.checkExpressionVolatility(
+	ok, reason := v.checkExpressionVolatility(
 		context.Background(), rec,
 	)
-	// Unknown function -> query returns no rows -> allow
-	if !ok {
-		t.Error("unknown function should be allowed (can't check)")
+	// security-01b: a name with no function in pg_catalog or an
+	// allowlisted extension is refused, not left to PostgreSQL.
+	if ok || !strings.HasPrefix(reason, "function_schema_not_allowed") {
+		t.Errorf("unknown function: ok=%t reason=%q, want function_schema_not_allowed",
+			ok, reason)
 	}
 }
 
