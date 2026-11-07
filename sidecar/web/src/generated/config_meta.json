@@ -2319,7 +2319,7 @@
   "sre.autonomy.game_days.local_dsn": {
     "type": "string",
     "default": null,
-    "doc": "Fallback when clone.provider is none: a disposable PostgreSQL database for game days and local bench runs. Never a monitored or the metadata database (refused).",
+    "doc": "Fallback when clone.provider is none: a database for game days and local bench runs, on its own cluster and marked by COMMENT ON DATABASE \u003cdb\u003e IS 'pg_sage:gameday_target'.",
     "secret": true,
     "class": "safety_critical"
   },

@@ -86,8 +86,10 @@ func selectGameDayScenarios(opts GameDayOptions) ([]Scenario, error) {
 // RunGameDay runs the selected fault programs once against the
 // disposable database dsn with the deterministic investigator (no model
 // tokens are spent on clones) and returns the PGIncidentBench JSON
-// report. Never point it at a monitored database: the fault programs
-// create blocking sessions, WAL and replication slots.
+// report. Never point it at a monitored database's cluster: the fault
+// programs act on the whole cluster (ALTER SYSTEM, CHECKPOINT, WAL,
+// replication slots, XID burn). The sidecar's local game-day provider
+// (internal/gameday) refuses such targets.
 func RunGameDay(ctx context.Context, dsn string, opts GameDayOptions,
 	now time.Time) ([]byte, error) {
 	if strings.TrimSpace(dsn) == "" {

@@ -12,6 +12,15 @@ The bench is an ordinary Go test. It needs a disposable PostgreSQL server
 (14 to 18) named by `SAGE_TEST_DATABASE_URL`. Without one, the bench test
 skips. The unit tests for scoring, gates and the report still run.
 
+The fault programs act on the whole server, not one database: `ALTER SYSTEM
+SET max_wal_size`, CHECKPOINT storms, a physical replication slot, XID burn
+and a pinned xmin horizon. Never point the bench at a server that holds data
+you care about. The sidecar's game days and local bench runs
+(`sre.autonomy.game_days.local_dsn`) enforce this: they refuse a target on the
+cluster of a monitored or the metadata database, a standby, a primary with
+standbys, and a database without the marker
+`COMMENT ON DATABASE <db> IS 'pg_sage:gameday_target'`.
+
 ```sh
 cd sidecar
 SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' \
