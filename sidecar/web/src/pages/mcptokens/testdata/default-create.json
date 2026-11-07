@@ -1,0 +1,12 @@
+{
+  "name": "contract-default-form",
+  "kind": "operator",
+  "scopes": [
+    "read"
+  ],
+  "databases": [
+    "*"
+  ],
+  "expires_in_days": 30,
+  "owner_user_id": 1
+}

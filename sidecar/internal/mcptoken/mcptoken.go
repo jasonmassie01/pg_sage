@@ -78,21 +78,24 @@ type CreateRequest struct {
 
 // Token is a stored token. Secret is set only in Create's return value.
 type Token struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Kind        Kind       `json:"kind"`
-	Scopes      []string   `json:"scopes"`
-	Databases   []string   `json:"databases"` // ["*"] when all
-	OwnerUserID *int       `json:"owner_user_id,omitempty"`
-	PrincipalID string     `json:"principal_id,omitempty"`
-	CreatedBy   string     `json:"created_by"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
-	RevokedBy   string     `json:"revoked_by,omitempty"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	Prefix      string     `json:"prefix"`
-	Secret      string     `json:"token,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Kind        Kind     `json:"kind"`
+	Scopes      []string `json:"scopes"`
+	Databases   []string `json:"databases"` // ["*"] when all
+	OwnerUserID *int     `json:"owner_user_id,omitempty"`
+	PrincipalID string   `json:"principal_id,omitempty"`
+	// PrincipalStatus is the agent principal's status (active, frozen,
+	// retired); set only by List, and only on agent tokens.
+	PrincipalStatus string     `json:"principal_status,omitempty"`
+	CreatedBy       string     `json:"created_by"`
+	CreatedAt       time.Time  `json:"created_at"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	RevokedBy       string     `json:"revoked_by,omitempty"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
+	Prefix          string     `json:"prefix"`
+	Secret          string     `json:"token,omitempty"`
 }
 
 // Grant is what a validated token may do right now.

@@ -18,8 +18,11 @@ authentication: every MCP request needs an MCP token. A dashboard session cookie
 authenticates MCP (a browser would send it cross-site); without a token the endpoint answers
 401 with `"code": "mcp_token_required"`. There is no anonymous MCP.
 
-1. An admin creates a token for the agent once: **MCP tokens** in the dashboard (or
-   `POST /api/v1/mcp/tokens`, below). The token is shown once.
+1. An admin registers the agent once and mints its token: **Agents** in the dashboard (create
+   the agent, then **Tokens** on it), or `POST /api/v1/agents` and
+   `POST /api/v1/agents/{id}/tokens` (below). The token is shown once. Every agent token acts
+   for its agent, so freezing, killing or retiring the agent reaches its tokens too. The
+   **MCP tokens** page issues operator tokens only: a person's own token, acting for its owner.
 
 2. Add pg_sage to Claude Code:
 
@@ -51,22 +54,33 @@ never approve. `mcp.enabled: false` turns MCP off.
 
 | Field | Meaning |
 |---|---|
-| `kind` | `agent` for a coding agent; `operator` for a person's own token (bound to an operator or admin user, `owner_user_id`) |
+| `kind` | `agent` for a coding agent, minted for its agent at `POST /api/v1/agents/{id}/tokens` (the **Agents** page); `operator` for a person's own token, bound to an operator or admin user (`owner_user_id`), created at `POST /api/v1/mcp/tokens` (the **MCP tokens** page), which refuses `agent` |
 | `scopes` | `read` (always), `propose`, and `approve` (operator tokens only; an agent token can never hold it) |
 | `databases` | the fleet databases the token may name, or `["*"]` for all |
 | `expires_in_days` | 1 to 90 |
 
 Only the SHA-256 of a token is stored; the plaintext is returned once when it is created.
 An operator token follows its owner: if the owner is demoted to viewer it can only read, and
-it stops working when the owner is deleted. Every call is recorded with the actor
-`mcp:token:<id>`.
+it stops working when the owner is deleted. An agent token follows its agent: the list's
+`principal_status` is the agent's status, and a retired agent's token stops working (the
+**MCP tokens** page shows it as `agent retired`, and a frozen agent's as `agent frozen`).
+Every call is recorded with the actor `mcp:token:<id>`.
 
 ```bash
-# admin session cookie in $SAGE_COOKIE
+# admin session cookie in $SAGE_COOKIE; sponsor_user_id is the accountable person
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"name":"claude-code-checkout","sponsor_user_id":5,"profile":"readonly-analyst"}'
+# the response's "id" (agp_...) names the agent: mint its token
+curl -s -X POST https://pg-sage.example.com:8080/api/v1/agents/<agent id>/tokens \
+  -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
+  -d '{"name":"claude-code checkout repo","scopes":["read","propose"],
+       "databases":["orders"],"expires_in_days":30}'
+# a person's own operator token, acting for user 5
 curl -s -X POST https://pg-sage.example.com:8080/api/v1/mcp/tokens \
   -H 'Content-Type: application/json' -b "sage_session=$SAGE_COOKIE" \
-  -d '{"name":"claude-code checkout repo","kind":"agent","scopes":["read","propose"],
-       "databases":["orders"],"expires_in_days":30}'
+  -d '{"name":"oncall laptop","kind":"operator","scopes":["read","propose"],
+       "databases":["orders"],"expires_in_days":30,"owner_user_id":5}'
 curl -s https://pg-sage.example.com:8080/api/v1/mcp/tokens -b "sage_session=$SAGE_COOKIE"
 curl -s -X DELETE https://pg-sage.example.com:8080/api/v1/mcp/tokens/<id> \
   -b "sage_session=$SAGE_COOKIE"
