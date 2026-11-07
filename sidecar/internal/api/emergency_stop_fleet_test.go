@@ -23,19 +23,33 @@ type fleetStopSummary struct {
 	FleetStoppedAt        *time.Time `json:"fleet_stopped_at"`
 }
 
+// fleetSummary reads the summary from GET /api/v1/databases ("summary")
+// and checks GET /api/v1/metrics ("fleet") reports the same latch.
 func fleetSummary(t *testing.T, r http.Handler) fleetStopSummary {
 	t.Helper()
-	w := get(t, r, "/api/v1/databases")
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /databases: %d %s", w.Code, w.Body.String())
+	var overview struct {
+		Summary fleetStopSummary `json:"summary"`
 	}
-	var body struct {
+	var metrics struct {
 		Fleet fleetStopSummary `json:"fleet"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
+	for path, into := range map[string]any{
+		"/api/v1/databases": &overview, "/api/v1/metrics": &metrics,
+	} {
+		w := get(t, r, path)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d %s", path, w.Code, w.Body.String())
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), into); err != nil {
+			t.Fatalf("decode %s: %v", path, err)
+		}
 	}
-	return body.Fleet
+	if overview.Summary.FleetStopped != metrics.Fleet.FleetStopped ||
+		overview.Summary.EmergencyStoppedCount != metrics.Fleet.EmergencyStoppedCount {
+		t.Fatalf("databases summary %+v disagrees with metrics fleet %+v",
+			overview.Summary, metrics.Fleet)
+	}
+	return overview.Summary
 }
 
 func addLateDatabase(mgr *fleet.DatabaseManager) {

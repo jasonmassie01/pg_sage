@@ -24,7 +24,9 @@ func useDurableFlags(mgr *DatabaseManager) *durableFlags {
 		state:   map[string]executor.EmergencyStopState{},
 		readErr: map[string]error{},
 	}
-	mgr.readStop = func(_ context.Context, inst *DatabaseInstance) (executor.EmergencyStopState, error) {
+	mgr.readStop = func(
+		_ context.Context, inst *DatabaseInstance,
+	) (executor.EmergencyStopState, error) {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		if err := d.readErr[inst.Name]; err != nil {
@@ -91,7 +93,8 @@ func TestReconcileLatchesSQLStopWithinOneTick(t *testing.T) {
 	flags := useDurableFlags(h.mgr)
 	cancels := countCancels(h.mgr)
 	at := time.Date(2026, 11, 6, 3, 0, 0, 0, time.UTC)
-	flags.set("alpha", executor.EmergencyStopState{Stopped: true, UpdatedBy: "dba", UpdatedAt: at}, nil)
+	flags.set("alpha",
+		executor.EmergencyStopState{Stopped: true, UpdatedBy: "dba", UpdatedAt: at}, nil)
 
 	h.mgr.ReconcileStops(context.Background())
 
@@ -150,7 +153,7 @@ func TestReconcileDoesNotReleasePendingAPIStop(t *testing.T) {
 	// took the transition lock to write the flag: the durable flag still
 	// reads the old 'false'.
 	h.mgr.mu.Lock()
-	inst.Stopped, inst.StoppedBy, inst.StoppedAt = true, "op@example.com", time.Now()
+	latchLocked(inst, "op@example.com", time.Now())
 	inst.stopsPending++
 	h.mgr.mu.Unlock()
 
@@ -166,7 +169,9 @@ func TestReconcileQueuedBehindAPIStopKeepsIt(t *testing.T) {
 	flags := useDurableFlags(h.mgr)
 	writing := make(chan struct{})
 	release := make(chan struct{})
-	h.mgr.persistStop = func(_ context.Context, inst *DatabaseInstance, stopped bool, actor string) error {
+	h.mgr.persistStop = func(
+		_ context.Context, inst *DatabaseInstance, stopped bool, actor string,
+	) error {
 		close(writing)
 		<-release
 		flags.set(inst.Name, executor.EmergencyStopState{Stopped: stopped, UpdatedBy: actor}, nil)
@@ -193,7 +198,17 @@ func TestReconcileQueuedBehindAPIStopKeepsIt(t *testing.T) {
 // read of the old 'false'.
 func TestReconcileKeepsUnsavedStopAndRetries(t *testing.T) {
 	h := newStopHarness(t, []string{"alpha"}, "alpha")
-	useDurableFlags(h.mgr)
+	flags := useDurableFlags(h.mgr)
+	harnessPersist := h.mgr.persistStop
+	h.mgr.persistStop = func(
+		ctx context.Context, inst *DatabaseInstance, stopped bool, actor string,
+	) error {
+		if err := harnessPersist(ctx, inst, stopped, actor); err != nil {
+			return err
+		}
+		flags.set(inst.Name, executor.EmergencyStopState{Stopped: stopped, UpdatedBy: actor}, nil)
+		return nil
+	}
 	if _, err := h.mgr.EmergencyStopStrict("alpha", "op@example.com"); err == nil {
 		t.Fatal("expected alpha's persist to fail")
 	}

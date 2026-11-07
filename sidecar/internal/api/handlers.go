@@ -931,7 +931,7 @@ func emergencyStopHandler(
 		if !ok {
 			return
 		}
-		stopped, err := mgr.EmergencyStopStrict(database, authenticatedActor(r))
+		result, err := mgr.EmergencyStopDetailed(database, authenticatedActor(r))
 		if err != nil {
 			if errors.Is(err, fleet.ErrDatabaseNotFound) {
 				jsonError(w, "database not found",
@@ -943,7 +943,9 @@ func emergencyStopHandler(
 			return
 		}
 		jsonResponse(w, map[string]any{
-			"stopped": stopped, "status": "stopped",
+			"stopped": result.Changed, "status": "stopped",
+			"cancelled_actions": result.Cancelled,
+			"cancel_failures":   result.CancelFailures,
 		})
 	}
 }
@@ -961,6 +963,10 @@ func resumeHandler(
 			if errors.Is(err, fleet.ErrDatabaseNotFound) {
 				jsonError(w, "database not found",
 					http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, fleet.ErrFleetStopped) {
+				jsonError(w, fleet.ErrFleetStopped.Error(), http.StatusConflict)
 				return
 			}
 			jsonError(w, "failed to persist emergency stop",

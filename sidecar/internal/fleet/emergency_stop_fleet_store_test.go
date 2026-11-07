@@ -228,7 +228,9 @@ func TestFleetStopScopeClearFailureKeepsDatabaseStopped(t *testing.T) {
 func TestFleetStopScopeRestoresFleetLatchFromMember(t *testing.T) {
 	at := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
 	h := newStopHarness(t, nil)
-	h.mgr.readStop = func(_ context.Context, inst *DatabaseInstance) (executor.EmergencyStopState, error) {
+	h.mgr.readStop = func(
+		_ context.Context, inst *DatabaseInstance,
+	) (executor.EmergencyStopState, error) {
 		if inst.Name == "alpha" {
 			return executor.EmergencyStopState{Stopped: true, UpdatedBy: "op@example.com",
 				UpdatedAt: at}, nil

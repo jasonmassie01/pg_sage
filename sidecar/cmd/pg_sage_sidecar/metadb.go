@@ -334,6 +334,9 @@ func logRetry(
 // Starts a background goroutine to reconnect failed databases.
 func initMetaDBFleet(state *metaDBState) {
 	fleetMgr = fleet.NewManager(cfg)
+	// fleet-09: the fleet-wide stop lives in the meta database; restore it
+	// before any database registers.
+	fleetMgr.UseFleetStopStore(fleet.NewPGFleetStopStore(state.Pool))
 	initializeAnalyzeSemaphore()
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()

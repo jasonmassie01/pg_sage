@@ -69,7 +69,8 @@ func TestFleetStopSurvivesRestartOnPostgres(t *testing.T) {
 	if _, err := rebuilt.ResumeStrict("", "admin@example.com"); err != nil {
 		t.Fatalf("resume all: %v", err)
 	}
-	for name, pool := range map[string]*pgxpool.Pool{"first": first, "added": added, "third": third} {
+	pools := map[string]*pgxpool.Pool{"first": first, "added": added, "third": third}
+	for name, pool := range pools {
 		if value, by := configValue(t, pool, "emergency_stop"); value != "false" ||
 			by != "admin@example.com" {
 			t.Fatalf("%s: emergency_stop = %q by %q, want false by admin", name, value, by)
@@ -116,7 +117,8 @@ func TestPGFleetStopStoreRoundTripWithAudit(t *testing.T) {
 		t.Fatalf("write stop: %v", err)
 	}
 	state, err = store.ReadFleetStop(ctx)
-	if err != nil || !state.Stopped || state.UpdatedBy != "op@example.com" || state.UpdatedAt.IsZero() {
+	if err != nil || !state.Stopped || state.UpdatedBy != "op@example.com" ||
+		state.UpdatedAt.IsZero() {
 		t.Fatalf("after stop: state=%+v err=%v, want stopped by op@example.com", state, err)
 	}
 	if err := store.WriteFleetStop(ctx, false, "admin@example.com"); err != nil {

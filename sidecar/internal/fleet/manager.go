@@ -38,6 +38,16 @@ type DatabaseManager struct {
 	// transitionMu orders persisted emergency-stop transitions so that
 	// concurrent stops and resumes end with memory matching sage.config.
 	transitionMu sync.Mutex
+	// fleetStop is the fleet-wide stop latch (fleet-09), guarded by mu;
+	// fleetStore keeps it in the meta database (nil outside meta mode).
+	fleetStop  fleetStopState
+	fleetStore FleetStopStore
+	// readScope and persistScope read and write a member's
+	// emergency_stop_scope row; cancelInFlight halts a stopped database's
+	// running actions. nil uses the defaults; tests inject here.
+	readScope      func(context.Context, *DatabaseInstance) (bool, error)
+	persistScope   func(context.Context, *DatabaseInstance, bool, string) error
+	cancelInFlight func(*DatabaseInstance) ([]int64, error)
 }
 
 // NewManager creates a fleet manager from config.
@@ -60,22 +70,21 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 // "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
 	var retired *DatabaseInstance
-	inherited := false
+	var pending []*DatabaseInstance
 	m.restorePersistedStop(inst)
 	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		retired = m.instances[inst.Name]
-		inherited = inheritEmergencyStop(retired, inst)
+		inherited := inheritEmergencyStop(retired, inst)
 		if m.primaryName == "" && inst.Pool != nil {
 			m.primaryName = inst.Name
 		}
 		m.instances[inst.Name] = inst
+		pending = m.applyFleetLatchLocked(inst, inherited)
 		return nil
 	})
-	if inherited {
-		m.persistInheritedStop(inst)
-	}
+	m.persistInheritedStops(pending)
 	if retired != nil && retired != inst {
 		go func() { _ = cleanupRejectedCandidate(retired) }()
 	}
@@ -165,6 +174,8 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		}
 	}
 
+	applyFleetStopStatus(&overview.Summary, m.fleetStop)
+
 	// Sort by health score ascending (worst first).
 	sort.Slice(overview.Databases, func(i, j int) bool {
 		return overview.Databases[i].Status.HealthScore <
@@ -188,7 +199,8 @@ func summarizeFleet(overview *FleetOverview) {
 		overview.Summary.TotalCritical += db.Status.FindingsCritical
 		overview.Summary.TotalActions += db.Status.ActionsTotal
 	}
-	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0
+	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0 ||
+		overview.Summary.FleetStopped
 }
 
 // computeHealthScore calculates 0-100 health for an instance.
@@ -292,7 +304,8 @@ func (m *DatabaseManager) EmergencyStop(name string) int {
 }
 
 func (m *DatabaseManager) EmergencyStopStrict(name, actor string) (int, error) {
-	return m.setEmergencyStopped(name, true, actor)
+	result, err := m.setEmergencyStopped(name, true, actor)
+	return result.Changed, err
 }
 
 // Resume resumes a specific database or all if name is empty.
@@ -301,8 +314,11 @@ func (m *DatabaseManager) Resume(name string) int {
 	return resumed
 }
 
+// ResumeStrict resumes one database, or all when name is empty. A
+// per-database resume while a stop of all holds returns ErrFleetStopped.
 func (m *DatabaseManager) ResumeStrict(name, actor string) (int, error) {
-	return m.setEmergencyStopped(name, false, actor)
+	result, err := m.setEmergencyStopped(name, false, actor)
+	return result.Changed, err
 }
 
 // PoolForDatabase returns the connection pool for a named

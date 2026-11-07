@@ -20,6 +20,12 @@ type FleetSummary struct {
 	EmergencyStopped bool `json:"emergency_stopped"`
 	// EmergencyStoppedCount is the number of databases currently stopped.
 	EmergencyStoppedCount int `json:"emergency_stopped_count"`
+	// FleetStopped reports the fleet-wide stop (a stop of all databases):
+	// while it holds, every database added is stopped too, and only a
+	// resume of all lifts it. FleetStoppedBy/At attribute it.
+	FleetStopped   bool       `json:"fleet_stopped"`
+	FleetStoppedBy string     `json:"fleet_stopped_by,omitempty"`
+	FleetStoppedAt *time.Time `json:"fleet_stopped_at,omitempty"`
 }
 
 // DatabaseStatus pairs a database name with its status.
