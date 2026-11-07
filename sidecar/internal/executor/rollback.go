@@ -35,6 +35,9 @@ type RollbackMonitorConfig struct {
 	// restore, executor-01).
 	HoldForStop func(ctx context.Context, actionID int64, rollbackSQL string)
 	Acquire     func(context.Context) (func(), error)
+	// Track registers the rollback as in-flight work the emergency stop
+	// cancels; a latched stop refuses it.
+	Track func(ctx context.Context, label string) (context.Context, func(), error)
 
 	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
 	applyConfig  func(context.Context, string) configApplyOutcome
@@ -253,6 +256,14 @@ func withheldRollback(
 func executeRollbackSQL(
 	ctx context.Context, pool *pgxpool.Pool, rollbackSQL string, cfg RollbackMonitorConfig,
 ) (string, error) {
+	if cfg.Track != nil {
+		tracked, done, err := cfg.Track(ctx, rollbackSQL)
+		if err != nil {
+			return "", err
+		}
+		defer done()
+		ctx = tracked
+	}
 	if cfg.Acquire != nil {
 		release, err := cfg.Acquire(ctx)
 		if err != nil {

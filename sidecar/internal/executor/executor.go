@@ -97,6 +97,7 @@ type Executor struct {
 	ioEvidence         IOEvidenceReader
 	retainedCleanupMu  sync.Mutex
 	resumeOnce         sync.Once
+	inflight           inflightRegistry        // running work the emergency stop cancels
 	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
@@ -305,11 +306,15 @@ func (e *Executor) ExecutionMode() string {
 	return e.execMode
 }
 
-// SetExecutorEnabled applies the per-database executor hard gate.
+// SetExecutorEnabled applies the per-database executor hard gate. Enabling
+// also releases the latch CancelInFlight set, so work may start again.
 func (e *Executor) SetExecutorEnabled(enabled bool) {
 	e.policyMu.Lock()
 	e.executorDisabled = !enabled
 	e.policyMu.Unlock()
+	if enabled {
+		e.inflight.release()
+	}
 }
 
 // ExecutorEnabled reports whether mutation and queueing are enabled.

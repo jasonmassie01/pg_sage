@@ -16,16 +16,9 @@ import (
 func (e *Executor) dropFailedCreateIndexRemnant(
 	ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption,
 ) error {
-	schemaName, tableName, cols, ok := parseCreateIndexTarget(sql)
-	name := createIndexIdentifier(sql)
-	if name == "" && ok {
-		name = defaultIndexName(tableName, cols)
-	}
-	if !ok || name == "" {
+	schemaName, name, ok := createIndexName(sql)
+	if !ok {
 		return nil
-	}
-	if schemaName == "" {
-		schemaName = "public"
 	}
 	qualified := pgx.Identifier{schemaName, name}.Sanitize()
 	var invalid bool
@@ -41,6 +34,24 @@ func (e *Executor) dropFailedCreateIndexRemnant(
 	e.logFn("executor", "dropping invalid remnant %s before re-creating it", qualified)
 	return ExecConcurrently(ctx, e.pool,
 		"DROP INDEX CONCURRENTLY IF EXISTS "+qualified, timeout, opts...)
+}
+
+// createIndexName is the schema (public when unqualified) and name of the
+// index a CREATE INDEX statement creates, PostgreSQL's generated name for an
+// unnamed one; ok is false when the statement does not tell.
+func createIndexName(sql string) (string, string, bool) {
+	schemaName, tableName, cols, ok := parseCreateIndexTarget(sql)
+	name := createIndexIdentifier(sql)
+	if name == "" && ok {
+		name = defaultIndexName(tableName, cols)
+	}
+	if !ok || name == "" {
+		return "", "", false
+	}
+	if schemaName == "" {
+		schemaName = "public"
+	}
+	return schemaName, name, true
 }
 
 // defaultIndexName mirrors PostgreSQL's generated name for an unnamed
