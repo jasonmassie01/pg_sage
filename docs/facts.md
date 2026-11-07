@@ -133,16 +133,24 @@ managed providers too), against the database the finding names:
 psql "$DATABASE_URL" -f cleanup.sql
 ```
 
-Never wrap it in `BEGIN` or run it with `psql -1`: each schema is dropped by its own `DO`
-block in its own transaction, so a few hundred schemas never exhaust the shared lock table
-(`max_locks_per_transaction`). The script sets `lock_timeout = '5s'`, and each block first
-re-reads the schema's activity (scans and row writes over its tables, the same counters the
-fixture detector reads) and checks `pg_locks`. A schema is skipped with a `NOTICE` when its
-activity differs from the baseline taken when the batch was built (it was used, or the
-statistics were reset), when another session holds a lock on one of its relations, or when
-the drop waits past the lock timeout. A failing block does not stop the next one (psql's
-default `ON_ERROR_STOP` is off). Skipped schemas come back in a later batch once they are
-quiet again.
+Never wrap it in `BEGIN` or run it with `psql -1`, and do not paste it into a tool that
+sends the whole script as one query (that runs as one implicit transaction): each schema is
+dropped by its own `DO` block in its own transaction, so a few hundred schemas never exhaust
+the shared lock table (`max_locks_per_transaction`). The script sets `lock_timeout = '5s'`,
+and each block first re-reads the schema's activity (scans and row writes over its tables,
+the same counters the fixture detector reads) and checks `pg_locks`. A schema is skipped
+with a `NOTICE` when its activity differs from the baseline taken when the batch was built
+(it was used, or the statistics were reset), when another session holds a lock on one of
+its relations, or when the drop waits past the lock timeout. A failing block does not stop
+the next one (psql's default `ON_ERROR_STOP` is off).
+
+The baselines are re-read every analyzer cycle, so the guard covers activity since the
+batch's `generated_at`, not before it: a schema that is used now and then but was idle in
+that window is dropped. Review the `schemas` list before you run the batch, run it soon
+after it was generated, and narrow the fact's pattern if it names a schema you keep.
+Statistics reach `pg_stat_all_tables` a few seconds after a transaction ends, so a write
+that commits just before the run can be missed; an open transaction is caught by the lock
+check. Skipped schemas come back in the next batch with fresh baselines.
 
 Building a batch costs one bounded, read-only catalog aggregate per analyzer cycle while a
 fixture fact has matching schemas; nothing is stored. If that read fails, the batch is
