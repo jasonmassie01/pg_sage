@@ -13,6 +13,7 @@ import (
 // Commit validates that every observed generation is still current, then
 // publishes the whole plan in one lifecycle reservation.
 func (p *preparedFleetReload) Commit(ctx context.Context) error {
+	p.seedCeilings(true)
 	steps := p.steps()
 	err := p.mgr.WithLifecycle(ctx, func(op *fleet.LifecycleMutation) error {
 		if err := p.validate(op); err != nil {

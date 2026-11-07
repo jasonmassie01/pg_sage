@@ -38,8 +38,12 @@ later, from the **"Grant more"** step.
 With Docker, in one line:
 
 ```bash
-docker run -d --name pg_sage -p 8080:8080 -p 9187:9187 -e SAGE_PROMETHEUS_PORT=9187 -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb" ghcr.io/jasonmassie01/pg_sage:latest
+docker run -d --name pg_sage -p 8080:8080 -p 9187:9187 -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb" ghcr.io/jasonmassie01/pg_sage:latest --prom-addr 0.0.0.0:9187
 ```
+
+Prometheus metrics listen on `127.0.0.1:9187` unless `--prom-addr` (or
+`prometheus.listen_addr`) says otherwise; the endpoint has no authentication, so drop
+`-p 9187:9187` and `--prom-addr` when nothing outside the container scrapes it.
 
 Or with the binary:
 

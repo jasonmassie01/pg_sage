@@ -134,9 +134,12 @@ func (ct CloudTelemetryConfig) validateIdentity(mode string) error {
 	return nil
 }
 
-func overlayCloudTelemetryEnv(cfg *Config) {
-	if v, ok := envBool("SAGE_CLOUD_TELEMETRY_ENABLED"); ok {
-		cfg.CloudTelemetry.Enabled = &v
+func overlayCloudTelemetryEnv(o *envOverlay, cfg *Config) {
+	enabled, ok, err := lookupEnv("SAGE_CLOUD_TELEMETRY_ENABLED", parseEnvBool)
+	if err != nil {
+		o.errs = append(o.errs, err.Error())
+	} else if ok {
+		cfg.CloudTelemetry.Enabled = &enabled
 	}
 	for env, field := range map[string]*string{
 		"SAGE_AWS_REGION":                 &cfg.CloudTelemetry.AWS.Region,

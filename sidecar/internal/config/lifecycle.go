@@ -99,7 +99,7 @@ func classifyField(path string) (ConfigLifecycle, string) {
 	if owner := reconfigurationOwner(path); owner != "" {
 		return LifecycleReconfigure, owner
 	}
-	if path == "trust.level" {
+	if path == "trust.level" || liveTrustCeilingFields[path] {
 		return LifecycleLivePolicy, "trust_policy"
 	}
 	// A field is restart-bound until a concrete runtime consumer proves it can

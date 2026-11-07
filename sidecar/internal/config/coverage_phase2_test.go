@@ -229,102 +229,6 @@ func TestPhase2_EnvOr_EmptyString(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// envInt (50% coverage)
-// ---------------------------------------------------------------------------
-
-func TestPhase2_EnvInt_Valid(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVINT_VALID", "42")
-	got := envInt("SAGE_TEST_ENVINT_VALID")
-	if got != 42 {
-		t.Errorf("envInt = %d, want 42", got)
-	}
-}
-
-func TestPhase2_EnvInt_Unset(t *testing.T) {
-	os.Unsetenv("SAGE_TEST_ENVINT_UNSET")
-	got := envInt("SAGE_TEST_ENVINT_UNSET")
-	if got != 0 {
-		t.Errorf("envInt unset = %d, want 0", got)
-	}
-}
-
-func TestPhase2_EnvInt_Invalid(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVINT_BAD", "notanumber")
-	got := envInt("SAGE_TEST_ENVINT_BAD")
-	if got != 0 {
-		t.Errorf("envInt invalid = %d, want 0", got)
-	}
-}
-
-func TestPhase2_EnvInt_Negative(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVINT_NEG", "-5")
-	got := envInt("SAGE_TEST_ENVINT_NEG")
-	if got != -5 {
-		t.Errorf("envInt negative = %d, want -5", got)
-	}
-}
-
-func TestPhase2_EnvInt_EmptyString(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVINT_EMPTY", "")
-	got := envInt("SAGE_TEST_ENVINT_EMPTY")
-	if got != 0 {
-		t.Errorf("envInt empty = %d, want 0", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// envFloat (0% coverage)
-// ---------------------------------------------------------------------------
-
-func TestPhase2_EnvFloat_Valid(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVFLOAT_VALID", "3.14")
-	got := envFloat("SAGE_TEST_ENVFLOAT_VALID")
-	if got != 3.14 {
-		t.Errorf("envFloat = %f, want 3.14", got)
-	}
-}
-
-func TestPhase2_EnvFloat_Unset(t *testing.T) {
-	os.Unsetenv("SAGE_TEST_ENVFLOAT_UNSET")
-	got := envFloat("SAGE_TEST_ENVFLOAT_UNSET")
-	if got != 0 {
-		t.Errorf("envFloat unset = %f, want 0", got)
-	}
-}
-
-func TestPhase2_EnvFloat_Invalid(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVFLOAT_BAD", "notafloat")
-	got := envFloat("SAGE_TEST_ENVFLOAT_BAD")
-	if got != 0 {
-		t.Errorf("envFloat invalid = %f, want 0", got)
-	}
-}
-
-func TestPhase2_EnvFloat_Integer(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVFLOAT_INT", "42")
-	got := envFloat("SAGE_TEST_ENVFLOAT_INT")
-	if got != 42.0 {
-		t.Errorf("envFloat integer = %f, want 42.0", got)
-	}
-}
-
-func TestPhase2_EnvFloat_Negative(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVFLOAT_NEG", "-2.5")
-	got := envFloat("SAGE_TEST_ENVFLOAT_NEG")
-	if got != -2.5 {
-		t.Errorf("envFloat negative = %f, want -2.5", got)
-	}
-}
-
-func TestPhase2_EnvFloat_EmptyString(t *testing.T) {
-	t.Setenv("SAGE_TEST_ENVFLOAT_EMPTY", "")
-	got := envFloat("SAGE_TEST_ENVFLOAT_EMPTY")
-	if got != 0 {
-		t.Errorf("envFloat empty = %f, want 0", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // HotReloadable (0% coverage)
 // ---------------------------------------------------------------------------
 
@@ -497,9 +401,10 @@ func TestPhase2_OverlayEnv_PrometheusPort(t *testing.T) {
 	cfg := newDefaults()
 	t.Setenv("SAGE_PROMETHEUS_PORT", "9999")
 	overlayEnv(cfg)
-	if cfg.Prometheus.ListenAddr != "0.0.0.0:9999" {
+	// config-08: the port keeps the default loopback host.
+	if cfg.Prometheus.ListenAddr != "127.0.0.1:9999" {
 		t.Errorf("ListenAddr = %q, want %q",
-			cfg.Prometheus.ListenAddr, "0.0.0.0:9999")
+			cfg.Prometheus.ListenAddr, "127.0.0.1:9999")
 	}
 }
 

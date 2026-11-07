@@ -81,7 +81,8 @@ func (e *Executor) standingRuntimeState(
 }
 
 // policySnapshot copies the live config under the hot-reload read lock so
-// authorization never reads a half-applied config change.
+// authorization never reads a half-applied config change. The live trust
+// level and trust ceiling overlay the copy; every ceiling reader uses it.
 func (e *Executor) policySnapshot() (*config.Config, string, bool) {
 	e.policyMu.RLock()
 	defer e.policyMu.RUnlock()
@@ -93,6 +94,9 @@ func (e *Executor) policySnapshot() (*config.Config, string, bool) {
 	config.RUnlockForHotReload()
 	if e.trustLevelOverride != "" {
 		cfgCopy.Trust.Level = e.trustLevelOverride
+	}
+	if e.trustCeiling != nil {
+		e.trustCeiling.ApplyTo(&cfgCopy.Trust)
 	}
 	return &cfgCopy, e.execMode, !e.executorDisabled
 }
