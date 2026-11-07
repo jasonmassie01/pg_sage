@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS sage.config_audit (
     old_value   TEXT,
     new_value   TEXT NOT NULL,
     database_id INT,
-    changed_by  INT REFERENCES sage.users(id),
+    changed_by  INT,
     changed_at  TIMESTAMPTZ DEFAULT now()
 );
 -- changed_by_actor names non-user actors and fleet-wide operators whose
@@ -45,6 +45,25 @@ func migrateConfigSchema(ctx context.Context, db bootstrapDB) error {
 	if err := ensureConfigAudit(ctx, db); err != nil {
 		return fmt.Errorf("config_audit: %w", err)
 	}
+	if err := migrateConfigUserKeys(ctx, db); err != nil {
+		return fmt.Errorf("config user keys: %w", err)
+	}
+	return nil
+}
+
+// migrateConfigUserKeys lets a user who changed config be deleted
+// (apiauth-01): the audit trail keeps the id without a key, and
+// sage.config forgets its updater. Add and validate run in separate
+// transactions so validation does not hold the add's lock.
+func migrateConfigUserKeys(ctx context.Context, db bootstrapDB) error {
+	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if _, err := db.Exec(qctx, ddlConfigUserKeys); err != nil {
+		return fmt.Errorf("reshaping config user foreign keys: %w", err)
+	}
+	if _, err := db.Exec(qctx, ddlConfigUserKeyValidate); err != nil {
+		return fmt.Errorf("validating sage.config updater foreign key: %w", err)
+	}
 	return nil
 }
 
@@ -72,7 +91,7 @@ func addConfigColumns(
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				ADD COLUMN updated_by_user_id INT
-				REFERENCES sage.users(id);
+				REFERENCES sage.users(id) ON DELETE SET NULL;
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$;
@@ -128,3 +147,73 @@ func ensureConfigAudit(
 	}
 	return nil
 }
+
+// ddlConfigUserKeys reshapes the two config foreign keys to sage.users so
+// deleting a user who once changed config succeeds (apiauth-01).
+// sage.config_audit.changed_by is sealed in the audit chain, so it keeps a
+// plain id with no key (as sage.auth_audit does): an ON DELETE action
+// would rewrite a sealed column. Keys are found by column, not by name.
+// sage.config is not chained: its updater key becomes ON DELETE SET NULL,
+// added NOT VALID here and validated by ddlConfigUserKeyValidate in its own
+// transaction. Each step checks the catalog first, so a re-run takes no
+// lock.
+const ddlConfigUserKeys = `
+SET LOCAL lock_timeout = '5s';
+DO $config_user_keys$
+DECLARE
+    c record;
+BEGIN
+    FOR c IN
+        SELECT con.conrelid::regclass AS rel, con.conname
+          FROM pg_constraint con
+          JOIN pg_attribute a ON a.attrelid = con.conrelid
+           AND a.attnum = ANY (con.conkey)
+         WHERE con.contype = 'f'
+           AND ((con.conrelid = 'sage.config_audit'::regclass
+                 AND a.attname = 'changed_by')
+             OR (con.conrelid = 'sage.config'::regclass
+                 AND a.attname = 'updated_by_user_id'
+                 AND con.confdeltype <> 'n'))
+    LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', c.rel, c.conname);
+    END LOOP;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint con
+          JOIN pg_attribute a ON a.attrelid = con.conrelid
+           AND a.attnum = ANY (con.conkey)
+         WHERE con.conrelid = 'sage.config'::regclass AND con.contype = 'f'
+           AND a.attname = 'updated_by_user_id'
+    ) THEN
+        UPDATE sage.config cfg SET updated_by_user_id = NULL
+         WHERE cfg.updated_by_user_id IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM sage.users u
+                            WHERE u.id = cfg.updated_by_user_id);
+        ALTER TABLE sage.config ADD CONSTRAINT config_updated_by_user_id_fkey
+            FOREIGN KEY (updated_by_user_id) REFERENCES sage.users(id)
+            ON DELETE SET NULL NOT VALID;
+    END IF;
+END
+$config_user_keys$;
+`
+
+// ddlConfigUserKeyValidate validates the key ddlConfigUserKeys added NOT
+// VALID; it reads sage.config without blocking its writers.
+const ddlConfigUserKeyValidate = `
+SET LOCAL lock_timeout = '5s';
+DO $config_user_key_validate$
+DECLARE
+    c record;
+BEGIN
+    FOR c IN
+        SELECT con.conname
+          FROM pg_constraint con
+          JOIN pg_attribute a ON a.attrelid = con.conrelid
+           AND a.attnum = ANY (con.conkey)
+         WHERE con.conrelid = 'sage.config'::regclass AND con.contype = 'f'
+           AND a.attname = 'updated_by_user_id' AND NOT con.convalidated
+    LOOP
+        EXECUTE format('ALTER TABLE sage.config VALIDATE CONSTRAINT %I', c.conname);
+    END LOOP;
+END
+$config_user_key_validate$;
+`

@@ -436,7 +436,8 @@ func migrationStatements() []string {
 		ddlGuardKill, ddlGuardQueryAudit, ddlGuardGrants, ddlGuardOps,
 		// E2: after the core principal tables, which the bindings reference.
 		ddlGuardPGAuditEvents, ddlGuardIdentityBindings, ddlSIEMCursor,
-		ddlSessionsTokenHash) // apiauth-04: hashed session cookies
+		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
+		ddlUsersDisabledAt)   // apiauth-01: user deactivation
 }
 
 // ---------------------------------------------------------------------------
