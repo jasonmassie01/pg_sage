@@ -66,7 +66,22 @@ function Attribution({ db }) {
   )
 }
 
-function badgeContent(scope, summaryStopped) {
+// fleet-09: a stop of all is a fleet latch; every database added while it
+// holds is stopped too, so the badge names the latch, not a count.
+function FleetAttribution({ fleetStop }) {
+  return (
+    <>
+      Fleet stopped by {fleetStop.fleet_stopped_by || 'unknown'}
+      {fleetStop.fleet_stopped_at && <>{' at '}<StoppedAt
+        at={fleetStop.fleet_stopped_at} /></>}
+    </>
+  )
+}
+
+function badgeContent(scope, summaryStopped, fleetStop) {
+  if (fleetStop?.fleet_stopped === true) {
+    return <FleetAttribution fleetStop={fleetStop} />
+  }
   const own = scope.all ? scope.fleetStopped : scope.stopped
   if (own.length === 1) {
     return <>{own[0].name} STOPPED<Attribution db={own[0]} /></>
@@ -82,8 +97,8 @@ function badgeContent(scope, summaryStopped) {
   return summaryStopped ? <>EMERGENCY STOP ACTIVE</> : null
 }
 
-function EmergencyStopBadge({ scope, summaryStopped }) {
-  const content = badgeContent(scope, summaryStopped)
+function EmergencyStopBadge({ scope, summaryStopped, fleetStop }) {
+  const content = badgeContent(scope, summaryStopped, fleetStop)
   if (!content) return null
   return (
     <span
@@ -223,7 +238,7 @@ function useControlRequest(scope, setArmed, onChanged) {
 
 export function EmergencyStopControl({
   databases = [], selectedDB, onChanged, canControl = true,
-  summaryStopped = false,
+  summaryStopped = false, fleetStop = null,
 }) {
   const scope = stopScope(databases, selectedDB)
   const { armed, setArmed, cancel, triggers } = useArming()
@@ -234,7 +249,8 @@ export function EmergencyStopControl({
   return (
     <div className="relative flex items-center gap-1.5"
       data-testid="header-emergency-controls">
-      <EmergencyStopBadge scope={scope} summaryStopped={summaryStopped} />
+      <EmergencyStopBadge scope={scope} summaryStopped={summaryStopped}
+        fleetStop={fleetStop} />
       {showControls && (
         <ControlButton testId="header-emergency-stop"
           label={`Stop ${stopTarget}`}
