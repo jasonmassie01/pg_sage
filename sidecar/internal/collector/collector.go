@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +28,9 @@ type Collector struct {
 	blkTime      *blockTimeExprs
 	logFn        func(string, string, ...any)
 	snapWriter   *snapstore.Writer
+	// period is the ticker's period in nanoseconds (0 before Run); only
+	// the Run goroutine resets the ticker, Interval reads it.
+	period atomic.Int64
 	// queries writes sage.query_store samples of moved queries only;
 	// partitions creates the day partitions the writes land in.
 	queries    *querystore.Recorder
@@ -117,9 +121,10 @@ func (c *Collector) CollectsConfigSnapshots() bool {
 
 // Run starts the collection loop, blocking until ctx is cancelled.
 func (c *Collector) Run(ctx context.Context) {
-	interval := c.cfg.Collector.Interval()
+	interval := c.configuredInterval()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	c.period.Store(int64(interval))
 
 	c.logFn("INFO", "collector started, interval=%s", interval)
 
@@ -143,21 +148,20 @@ func (c *Collector) Run(ctx context.Context) {
 	}
 }
 
-func (c *Collector) cycle(ctx context.Context, ticker *time.Ticker) {
+func (c *Collector) cycle(ctx context.Context, ticker intervalResetter) {
 	if c.breaker.ShouldSkip(ctx, timedCatalogQuerier{collector: c}) {
 		if c.breaker.IsDormant() {
 			c.logFn("WARN", "circuit breaker dormant, using dormant interval")
-			ticker.Reset(c.cfg.Safety.DormantInterval())
+			c.usePeriod(ticker, c.cfg.Safety.DormantInterval())
 		} else {
 			c.logFn("WARN", "circuit breaker skip, db load too high")
 		}
 		return
 	}
 
-	// Restore normal interval if we were dormant.
-	if c.breaker.IsDormant() {
-		ticker.Reset(c.cfg.Collector.Interval())
-	}
+	// Between cycles: follow a changed collector.interval_seconds, and
+	// restore the normal interval if we were dormant.
+	c.syncInterval(ticker)
 
 	snap, err := c.collect(ctx)
 	if err != nil {
