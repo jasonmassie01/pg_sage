@@ -113,7 +113,10 @@ Key-value configuration store used by the sidecar at runtime.
 | `value` | text | Configuration value |
 | `updated_at` | timestamptz | Last update timestamp |
 
-The `emergency_stop` key is checked every cycle. Set to `true` to halt all autonomous activity.
+The `emergency_stop` key is checked at every authorization. Set it with
+`SELECT sage.emergency_stop(true, '<actor>')` (and `false` to resume), which
+upserts the row and writes a `sage.config_audit` entry; see
+[Emergency Stop](security.md#emergency-stop).
 
 ---
 
