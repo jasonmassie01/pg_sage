@@ -16,8 +16,13 @@ func (r Report) Markdown() string {
 	if r.PgSageVersion != "" || r.PgSageCommit != "" {
 		fmt.Fprintf(&b, "- pg_sage: %s %s\n", r.PgSageVersion, r.PgSageCommit)
 	}
+	if !r.SQLParser {
+		b.WriteString("- SQL parser: not in this build (CGO_ENABLED=0); explain_guard and " +
+			"agent_query refuse every statement, so their rows are not authoritative\n")
+	}
 	b.WriteString("\n")
 	r.writeReadOnly(&b)
+	r.writeExpectMismatches(&b)
 	r.writePosture(&b)
 	r.writeIncidents(&b)
 	return b.String()
@@ -25,13 +30,15 @@ func (r Report) Markdown() string {
 
 func (r Report) writeReadOnly(b *strings.Builder) {
 	b.WriteString("## Read-only designs\n\n")
-	b.WriteString("Which read-only designs refuse which cases, checksums intact.\n\n")
-	b.WriteString("| Design | Held | Total |\n|---|---|---|\n")
+	b.WriteString("Which read-only designs refuse which cases, checksums intact. " +
+		"Not measured (n/m) means the statement failed for a reason no design is " +
+		"credited with (other_error); it never counts as held.\n\n")
+	b.WriteString("| Design | Held | Not measured | Total |\n|---|---|---|---|\n")
 	sum := r.ReadOnlySummary()
 	designs := append([]string(nil), r.Designs...)
 	for _, d := range designs {
 		s := sum[d]
-		fmt.Fprintf(b, "| %s | %d | %d |\n", d, s.Held, s.Total)
+		fmt.Fprintf(b, "| %s | %d | %d | %d |\n", d, s.Held, s.NotMeasured, s.Total)
 	}
 	b.WriteString("\n| Case | Technique | ")
 	b.WriteString(strings.Join(designs, " | "))
@@ -54,13 +61,39 @@ func (r Report) writeReadOnly(b *strings.Builder) {
 	b.WriteString("\n")
 }
 
-// cell renders one attempt: held or NOT, with the observed class.
+// cell renders one attempt: held, n/m (not measured) or NOT HELD, with the
+// observed class.
 func cell(a Attempt) string {
-	mark := "held"
-	if !a.Held() {
-		mark = "**NOT HELD**"
+	mark := "**NOT HELD**"
+	switch {
+	case a.Held():
+		mark = "held"
+	case a.NotMeasured():
+		mark = "n/m"
 	}
 	return fmt.Sprintf("%s (%s)", mark, a.Observed)
+}
+
+// writeExpectMismatches lists the cases whose canonical design observed a
+// class other than the declared one.
+func (r Report) writeExpectMismatches(b *strings.Builder) {
+	fmt.Fprintf(b, "## Declared vs observed (%s)\n\n", canonicalDesign)
+	mm := r.ExpectMismatches()
+	if len(mm) == 0 {
+		b.WriteString("Every case observed its declared class.\n\n")
+		return
+	}
+	b.WriteString("A credited refusal of another class fails the bench; an execution " +
+		"or an other_error is scored in the table above.\n\n")
+	b.WriteString("| Case | Declared | Observed | Outcome |\n|---|---|---|---|\n")
+	for _, m := range mm {
+		outcome := "scored above"
+		if m.Fails() {
+			outcome = "fails the bench"
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s |\n", m.ID, m.Expect, m.Observed, outcome)
+	}
+	b.WriteString("\n")
 }
 
 func (r Report) writePosture(b *strings.Builder) {

@@ -135,10 +135,10 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 
 // localBenchProvider is the disposable target of a local bench run: the
 // configured clone provider, else the local development database (game
-// days need not be on), else none. refused are the monitored and the
-// control databases' DSNs.
+// days need not be on), else none. guard refuses the monitored and the
+// control databases.
 func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProviderConfig,
-	refused []string) (clone.Provider, string, error) {
+	guard localTargetGuard) (clone.Provider, string, error) {
 	if cloneCfg.Provider == "dle" || cloneCfg.Provider == "snapshot" {
 		p, err := configuredMCPCloneProvider(cloneCfg)
 		return p, cloneCfg.Provider, err
@@ -146,7 +146,7 @@ func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProvide
 	if s.GameDays.LocalDSN == "" {
 		return nil, "", nil
 	}
-	p, err := gameday.NewLocalProvider(s.GameDays.LocalDSN, refused)
+	p, err := gameday.NewLocalProvider(s.GameDays.LocalDSN, guard.dsns, guard.pools)
 	if err != nil {
 		return nil, "", err
 	}
@@ -157,8 +157,9 @@ func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProvide
 // run repeats until every family it covers reaches the promotion bar's
 // sample size, and its report is stamped with this build.
 func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomyConfig,
-	cloneCfg config.CloneProviderConfig, refused []string) (*gameday.LocalBench, error) {
-	provider, name, err := localBenchProvider(s, cloneCfg, refused)
+	cloneCfg config.CloneProviderConfig, guard localTargetGuard) (*gameday.LocalBench,
+	error) {
+	provider, name, err := localBenchProvider(s, cloneCfg, guard)
 	if err != nil || provider == nil {
 		return nil, err
 	}
@@ -173,8 +174,8 @@ func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomy
 
 // startLocalBench registers the database's local bench for the API.
 func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAutonomyConfig) {
-	refused := append(monitoredDSNs(rt.spec.Pool), svc.Store().Pool().Config().ConnString())
-	bench, err := newLocalBenchFor(rt.spec.Name, svc, s, rt.cfg.Clone, refused)
+	bench, err := newLocalBenchFor(rt.spec.Name, svc, s, rt.cfg.Clone,
+		localTargetGuardFor(rt.spec.Pool, svc.Store().Pool()))
 	if err != nil {
 		logError("autonomy", "db %q: local bench runs off: %v", rt.spec.Name, err)
 		return

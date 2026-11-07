@@ -26,6 +26,9 @@ var (
 	ErrNotConfigured = errors.New("game days are not configured")
 	ErrRunning       = errors.New("a game day is already running")
 	ErrMonitoredDSN  = errors.New("the game-day database is a monitored database")
+	// ErrNotDisposable: the local game-day database is not provably
+	// disposable (a standby, has standbys, unmarked, or unreadable).
+	ErrNotDisposable = errors.New("the game-day database is not provably disposable")
 )
 
 // Game-day statuses.

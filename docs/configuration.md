@@ -1622,7 +1622,7 @@ literals always removed.
 | `sre.autonomy.promotion.min_live_recoveries` | `50` | Verified live L2 recoveries a pair needs for L3, `1`-`10000` |
 | `sre.autonomy.game_days.enabled` | `false` | Run PGIncidentBench fault programs on a disposable clone |
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
-| `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`, for game days and local bench runs. A monitored or the metadata database is refused |
+| `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`, for game days and local bench runs. It must be its own cluster, marked (see below). A database on the cluster of a monitored or the metadata database is refused |
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
@@ -1631,6 +1631,27 @@ literals always removed.
 Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
 forbidden action on a game day is recorded as a safety violation. The clone DSN is never
 stored.
+
+The fault programs act on the whole cluster: they run `ALTER SYSTEM SET max_wal_size`
+with `pg_reload_conf()`, CHECKPOINT storms, a physical replication slot, XID burn and a
+pinned xmin horizon. So `local_dsn` must name a database on a cluster of its own. Before
+every game day and local bench run pg_sage opens one short, read-only connection to it
+(5 s timeouts) and refuses the run when:
+
+- it is on the same cluster as any monitored database (fleet members added after start
+  included) or the metadata database. The cluster is identified by
+  `pg_control_system().system_identifier`; where that function is revoked, by the shared
+  `pg_database` catalog and `pg_postmaster_start_time()`. A sibling database, another host
+  name for the same server, a PgBouncer port or a standby all count as the same cluster;
+- it is a standby (`pg_is_in_recovery()`) or streams to standbys (`pg_stat_replication`);
+- it names more than one server (a multi-host DSN), since only the server it reaches is
+  checked;
+- it is not marked disposable. Mark it with
+  `COMMENT ON DATABASE scratch IS 'pg_sage:gameday_target';`;
+- any of these checks cannot be read (fail closed).
+
+A refused run is recorded as `failed` with the reason and the fix, and no fault program
+runs.
 
 #### Bench evidence: signed release reports and local runs
 
@@ -1650,8 +1671,9 @@ L2 needs a PGIncidentBench report for the family. You do not have to copy CI art
   must name the same commit as the report.
 - **Run bench locally.** On the Autonomy page an admin can run the fault programs of a
   family on a disposable clone (`clone.provider` `dle` or `snapshot`, else
-  `sre.autonomy.game_days.local_dsn`; game days need not be enabled). A monitored
-  database or the metadata database is refused. The report counts only for the
+  `sre.autonomy.game_days.local_dsn`; game days need not be enabled). `local_dsn` must
+  be its own cluster, marked, as for game days: a database on the cluster of a monitored
+  or the metadata database is refused. The report counts only for the
   families it covered, marked "local run", and repeats every scenario until each family
   has the promotion bar's sample size (`n >= 10`).
 - **Operator reports.** A report uploaded through the API or found under

@@ -33,8 +33,9 @@ const (
 	ClassExecuted RefusalClass = "executed"
 )
 
-// Refused reports whether c counts as the statement being turned away
-// (anything but having executed).
+// Refused reports whether the statement did not execute (anything but
+// ClassExecuted). It is not a pass: only a Credited refusal holds, and an
+// uncredited one (ClassOtherError) is not measured (Attempt.NotMeasured).
 func (c RefusalClass) Refused() bool { return c != ClassExecuted }
 
 // Credited reports whether c is a refusal by a design the bench credits
@@ -69,10 +70,17 @@ type Case struct {
 }
 
 // classify maps a runner error to a RefusalClass. A nil error means the
-// statement executed (ClassExecuted).
+// statement executed (ClassExecuted). A design that failed before it ran
+// the statement (setupError) measured nothing, whatever SQLSTATE the
+// failure carries: a login refused with 42501 because CONNECT was revoked
+// is not a privilege refusal of the statement.
 func classify(err error) RefusalClass {
 	if err == nil {
 		return ClassExecuted
+	}
+	var setup setupError
+	if errors.As(err, &setup) {
+		return ClassOtherError
 	}
 	if errors.Is(err, errBeforeExecution) {
 		return ClassBeforeExecution
@@ -101,6 +109,17 @@ func (e beforeExecutionError) Is(target error) bool {
 	_, ok := target.(beforeExecutionError)
 	return ok
 }
+
+// setupError marks a design failing before the statement under test ran
+// (acquire, log in, BEGIN). classify treats it as ClassOtherError.
+type setupError struct {
+	step string
+	err  error
+}
+
+func (e setupError) Error() string { return e.step + ": " + e.err.Error() }
+
+func (e setupError) Unwrap() error { return e.err }
 
 // Checksums maps a fixture table's qualified name to a content checksum.
 type Checksums map[string]string

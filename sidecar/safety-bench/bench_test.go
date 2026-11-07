@@ -3,10 +3,12 @@ package safetybench
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -35,9 +37,11 @@ func newPool(ctx context.Context, t testing.TB) *pgxpool.Pool {
 
 // TestAgentSafetyBench runs the full v0 bench and writes the report. It is
 // gated by SAGE_SAFETY_BENCH_RUN=1 so the ./... suites stay within their
-// timeouts; CI runs it in its own step. It fails only on bench machinery
-// errors and on a self-check case that was not refused (a harness fault):
-// measured numbers for the authored corpus are reported, not hard-failed.
+// timeouts; CI runs it in its own step. It fails on bench machinery errors,
+// on a self-check that some design did not hold with a credited refusal (a
+// harness fault, SelfCheckFailures), on a case the canonical design refused
+// by another credited class than it declares (the case drifted), and on any
+// cell that differs from testdata/baseline.json (checkBaseline).
 func TestAgentSafetyBench(t *testing.T) {
 	if !BenchRunRequested(os.Getenv) {
 		t.Skipf("set %s=1 to run the full bench (CI runs it in its own step)", EnvRun)
@@ -58,6 +62,10 @@ func TestAgentSafetyBench(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bench run: %v", err)
 	}
+	if report.SQLParser != sqlast.Available() {
+		t.Errorf("report sql_parser = %v, want %v (this build)", report.SQLParser,
+			sqlast.Available())
+	}
 	dir := ReportDir(os.Getenv(EnvReportDir), t.TempDir())
 	jsonPath, mdPath, err := WriteReport(dir, report)
 	if err != nil {
@@ -65,32 +73,41 @@ func TestAgentSafetyBench(t *testing.T) {
 	}
 	t.Logf("report: %s, %s", jsonPath, mdPath)
 	t.Log("\n" + report.Markdown())
-	assertSelfChecksHeld(t, report)
+	for _, f := range SelfCheckFailures(report) {
+		t.Error(f)
+	}
+	for _, m := range report.ExpectMismatches() {
+		if m.Fails() {
+			t.Errorf("%s declares %s but %s observed %s", m.ID, m.Expect, canonicalDesign,
+				m.Observed)
+		}
+	}
+	checkBaseline(t, report, jsonPath)
 }
 
-// assertSelfChecksHeld fails if any self-check case was not refused by every
-// design with checksums intact: that is a harness fault, not a corpus
-// result.
-func assertSelfChecksHeld(t *testing.T, r Report) {
+// checkBaseline compares every cell with the committed baseline: a
+// regression fails naming the design and case, and so does an improvement
+// (regenerate the baseline so the published numbers stay true).
+func checkBaseline(t *testing.T, report Report, jsonPath string) {
 	t.Helper()
-	seen := false
-	for _, c := range r.ReadOnly {
-		if !isSelfCheck(c.ID) {
-			continue
-		}
-		seen = true
-		for _, a := range c.Attempts {
-			if !a.Held() {
-				t.Errorf("self-check %s not held by %s: observed=%s intact=%v detail=%q",
-					c.ID, a.Design, a.Observed, a.ChecksumsIntact, a.Detail)
-			}
-		}
+	if !report.SQLParser && ParserRequired(os.Getenv) {
+		t.Fatalf("CI build lacks the libpg_query parser (CGO_ENABLED=0): the explain_guard "+
+			"and agent_query cells cannot be compared with %s; build with cgo", BaselineFile)
 	}
-	if !seen {
-		t.Error("no self-check cases ran; the embedded fixtures are missing")
+	b, err := LoadBaseline(BaselineFile)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func isSelfCheck(id string) bool {
-	return len(id) >= 3 && id[:3] == "sc-"
+	diff, err := DiffBaseline(report, b)
+	if err != nil {
+		t.Fatalf("compare with %s: %v", BaselineFile, err)
+	}
+	if len(diff.NotCompared) > 0 {
+		t.Logf("%d cells not compared with %s: this build lacks the libpg_query parser "+
+			"(CGO_ENABLED=0), so explain_guard and agent_query refuse every statement: %s",
+			len(diff.NotCompared), BaselineFile, strings.Join(diff.NotCompared, ", "))
+	}
+	for _, line := range diff.Failures() {
+		t.Errorf("%s (report %s)", line, jsonPath)
+	}
 }

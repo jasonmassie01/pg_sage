@@ -2,6 +2,7 @@ package safetybench
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"testing/fstest"
 
@@ -25,6 +26,12 @@ func TestClassify(t *testing.T) {
 			beforeExecutionError{reason: "nope"}), ClassBeforeExecution},
 		{"other pg error", &pgconn.PgError{Code: "42601"}, ClassOtherError},
 		{"plain error", errors.New("boom"), ClassOtherError},
+		// A design that cannot even reach the server measured nothing, even
+		// when the login failure carries 42501 (CONNECT revoked).
+		{"setup privilege error", fmt.Errorf("design: %w", setupError{step: "log in as x",
+			err: &pgconn.PgError{Code: "42501"}}), ClassOtherError},
+		{"setup read-only error", setupError{step: "begin",
+			err: &pgconn.PgError{Code: "25006"}}, ClassOtherError},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,6 +69,12 @@ func TestAttemptHeld(t *testing.T) {
 		{ClassPrivilege, false, false},
 		{ClassExecuted, true, false},
 		{ClassBeforeExecution, true, true},
+		// other_error did not execute but no credited design refused it: it is
+		// not measured, never held.
+		{ClassOtherError, true, false},
+		{ClassOtherError, false, false},
+		{ClassReadOnly, true, true},
+		{ClassReadOnly, false, false},
 	}
 	for _, tc := range cases {
 		a := Attempt{Observed: tc.obs, ChecksumsIntact: tc.intact}

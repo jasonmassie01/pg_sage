@@ -237,11 +237,15 @@ func TestLocalBenchTargetRefusesTheMonitoredDatabase(t *testing.T) {
 		"postgres://other:pw@DB.PROD:5432/orders?sslmode=require",
 		"postgres://sage:pw@meta.internal:5432/sage_meta",
 	} {
-		if _, err := NewLocalProvider(dsn, monitored); !errors.Is(err, ErrMonitoredDSN) {
+		if _, err := NewLocalProvider(dsn, monitored,
+			refusing(prodCluster())); !errors.Is(err, ErrMonitoredDSN) {
 			t.Errorf("%s: err = %v, want ErrMonitoredDSN", dsn, err)
 		}
 	}
-	if _, err := NewLocalProvider("postgres://u:pw@db.prod:5432/scratch", monitored); err != nil {
+	// The boot-time check is by name only; Create compares cluster
+	// identities (benches-02, local_test.go).
+	if _, err := NewLocalProvider("postgres://u:pw@db.prod:5432/scratch", monitored,
+		refusing(prodCluster())); err != nil {
 		t.Fatalf("a disposable database on the same server was refused: %v", err)
 	}
 }

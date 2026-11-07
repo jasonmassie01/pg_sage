@@ -2,7 +2,7 @@ package safetybench
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,11 +32,11 @@ func (readOnlyTxnDesign) Name() string { return "read_only_txn" }
 func (readOnlyTxnDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql string) error {
 	conn, err := owner.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("acquire: %w", err)
+		return setupError{step: "acquire", err: err}
 	}
 	defer conn.Release()
 	if _, err := conn.Exec(ctx, "BEGIN READ ONLY"); err != nil {
-		return fmt.Errorf("begin read only: %w", err)
+		return setupError{step: "begin read only", err: err}
 	}
 	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
 	_, execErr := conn.Exec(ctx, sql)
@@ -59,12 +59,12 @@ func (d privRoleDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql st
 	cfg.User, cfg.Password = d.roleName, readOnlyPassword
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("log in as %s: %w", d.roleName, err)
+		return setupError{step: "log in as " + d.roleName, err: err}
 	}
 	defer func() { _ = conn.Close(context.Background()) }()
 	// Roll back whatever a refused statement left open.
 	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return setupError{step: "begin", err: err}
 	}
 	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
 	_, execErr := conn.Exec(ctx, sql)
@@ -95,10 +95,16 @@ func (explainGuardDesign) Name() string { return "explain_guard" }
 func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql string) error {
 	ex := explain.New(owner, d.cfg, d.logFn)
 	res, err := ex.Explain(ctx, explain.ExplainRequest{Query: sql})
-	if err != nil {
+	if errors.Is(err, explain.ErrExplainInvalidRequest) {
 		// The validator (and any invalid-request path) rejected the
 		// statement before execution.
 		return beforeExecutionError{reason: err.Error()}
+	}
+	if err != nil {
+		// The guard accepted the statement and the server then failed it
+		// (a missing relation, a cast error): classify scores the server
+		// error itself, so an uncredited failure is other_error, not held.
+		return err
 	}
 	// The statement parsed as a read statement. If ANALYZE was refused, the
 	// query was planned only and never executed its effect; the guard held.

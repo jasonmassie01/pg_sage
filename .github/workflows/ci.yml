@@ -216,8 +216,13 @@ jobs:
           path: pgincidentbench/
           if-no-files-found: warn
 
-      # AgentSafetyBench v0 (G0-08): runs on PG17 here. Only bench machinery
-      # errors fail the step; the measured numbers are reported, not gated.
+      # AgentSafetyBench v0 (G0-08): runs on PG17 here. It fails on bench
+      # machinery errors, on self-checks, and on any cell that differs from
+      # sidecar/safety-bench/testdata/baseline.json: a regression names the
+      # design and case, and an improvement asks for the baseline to be
+      # regenerated (go run ./safety-bench/cmd/baseline) so the published
+      # numbers stay true. The EXPLAIN guard's hard gate,
+      # TestExplainGuardHoldsTheReadOnlyCorpus, runs with the test suites.
       - name: AgentSafetyBench
         id: safety-bench
         if: ${{ !cancelled() }}
@@ -343,8 +348,10 @@ jobs:
           exit $status
 
       # AgentSafetyBench v0 on the rest of the supported range. These reports
-      # are uploaded unsigned (PG17's is the signed, shipped one). Only bench
-      # machinery errors fail the step.
+      # are uploaded unsigned (PG17's is the signed, shipped one). Every cell
+      # is compared with sidecar/safety-bench/testdata/baseline.json (with its
+      # pg_overrides for this major), so a regression on one major fails the
+      # step, and through this job the release and the tag image.
       - name: AgentSafetyBench
         id: safety-bench
         if: ${{ !cancelled() }}
@@ -782,17 +789,19 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, lint, bench-sign]
+    needs: [test, agent-servers, lint, bench-sign, integration-matrix]
     # master pushes publish :edge and :sha-*; release tags publish the
     # semver tags and move :latest, so :latest is always a release.
     # A tag image needs verified signed bench reports; :edge is published
     # without them when bench-sign fails or is skipped (the sidecar starts
-    # cleanly with no shipped reports).
+    # cleanly with no shipped reports). A tag image also needs the
+    # integration matrix (PG14, 15, 16, 18); :edge does not wait on it.
     if: >-
       always() && github.event_name == 'push' &&
       needs.test.result == 'success' && needs.lint.result == 'success' &&
       (github.ref == 'refs/heads/master' ||
-       (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success'))
+       (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success')) &&
+      (github.ref == 'refs/heads/master' || needs.integration-matrix.result == 'success')
     permissions:
       packages: write
     steps:
@@ -845,7 +854,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, bench-sign, safety-bench-sign]
+    needs: [test, agent-servers, bench-sign, safety-bench-sign, integration-matrix]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
