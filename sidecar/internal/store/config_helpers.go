@@ -311,6 +311,10 @@ func upsertOverride(
 	ctx context.Context, tx pgx.Tx,
 	key, value string, databaseID int, userID int,
 ) error {
+	var updatedBy *int // 0 is a system change: no user to name
+	if userID > 0 {
+		updatedBy = &userID
+	}
 	if databaseID == 0 {
 		_, err := tx.Exec(ctx,
 			`/* pg_sage */ INSERT INTO sage.config
@@ -319,7 +323,7 @@ func upsertOverride(
 			 ON CONFLICT (key, COALESCE(database_id, 0))
 			 DO UPDATE SET value = $2, updated_at = now(),
 				updated_by_user_id = $3`,
-			key, value, userID)
+			key, value, updatedBy)
 		return err
 	}
 	_, err := tx.Exec(ctx,
@@ -329,7 +333,7 @@ func upsertOverride(
 		 ON CONFLICT (key, COALESCE(database_id, 0))
 		 DO UPDATE SET value = $2, updated_at = now(),
 			updated_by_user_id = $4`,
-		key, value, databaseID, userID)
+		key, value, databaseID, updatedBy)
 	return err
 }
 
@@ -347,10 +351,15 @@ func insertAudit(
 	if userID > 0 {
 		chBy = &userID
 	}
+	// changed_by_actor snapshots the caller's email (apiauth-01): it is
+	// sealed with the row, so the trail names the person after their
+	// account is deleted. An id with no users row here (fleet mode keeps
+	// users on the auth database) leaves it NULL.
 	_, err := tx.Exec(ctx,
 		`/* pg_sage */ INSERT INTO sage.config_audit
-			(key, old_value, new_value, database_id, changed_by)
-		 VALUES ($1, $2, $3, $4, $5)`,
+			(key, old_value, new_value, database_id, changed_by, changed_by_actor)
+		 VALUES ($1, $2, $3, $4, $5::int,
+			(SELECT u.email FROM sage.users u WHERE u.id = $5::int))`,
 		key, nullIfEmpty(oldValue), newValue, dbID, chBy)
 	return err
 }
