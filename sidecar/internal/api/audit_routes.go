@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
@@ -28,6 +29,9 @@ type AuditDeps struct {
 	Control *pgxpool.Pool
 	// SIEMStatus reports the sinks' health; nil when export is off.
 	SIEMStatus func() []siem.SinkStatus
+	// SIEMReanchor moves a sink's cursor back after a chain regressed
+	// (siem.Exporter.Reanchor); nil when export is off.
+	SIEMReanchor func(context.Context, siem.ReanchorRequest) (siem.ReanchorResult, error)
 	// EvidenceKey signs evidence manifests; nil leaves packs hashed only.
 	EvidenceKey ed25519.PrivateKey
 }
@@ -40,6 +44,8 @@ func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
 	mux.Handle("GET /api/v1/audit/verify", adminOnly(auditVerifyHandler(deps)))
 	mux.Handle("GET /api/v1/audit/evidence", adminOnly(auditEvidenceHandler(deps)))
 	mux.Handle("GET /api/v1/audit/siem", adminOnly(auditSIEMHandler(deps)))
+	mux.Handle("POST /api/v1/audit/siem/{sink}/reanchor",
+		adminOnly(auditSIEMReanchorHandler(deps)))
 }
 
 // fleetAuditPool resolves audit sources: "control" is the control pool,

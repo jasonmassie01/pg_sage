@@ -523,6 +523,119 @@ API requests are logged for audit purposes.
 
 Both tables are subject to retention policies (configurable via `retention.actions_days`).
 
+### Tamper-Evident Chains and SIEM Export
+
+Each audit table (`action_log`, `auth_audit`, `config_audit`,
+`guard_query_audit`, `guard_pgaudit_events`) is hash-chained: every write
+appends a link to `sage.audit_chain_link`, and every inserted row carries
+its own link. `GET /api/v1/audit/verify?database=<name>` (admin) checks a
+chain; the scheduled verification (`audit.verify_interval_hours`) raises a
+critical `audit_chain_broken` finding on `audit_trail:<chain>` when one
+fails. A full verification reports, among others, `gap`, `hash_mismatch`,
+`row_missing`, `unchained_row` and `orphan_row`: a row whose own link is no
+longer in the chain, which is what deleting the newest links, or every
+link of a chain, leaves behind.
+
+SIEM export (`audit.siem.sinks`) ships every link, with its hash, as an
+OCSF event. That copy is the defence against someone who rewrites a whole
+chain, and against a chain that goes back because the database was
+restored from a backup or PITR. Each sink keeps a cursor per source and
+chain on the control database: the position and hash of the last link it
+exported. Before each pass the exporter checks that the link at the
+cursor still has that hash.
+
+- **regressed**: the link is missing, or another link now holds its
+  position (new writes after a restore reuse the positions the SIEM
+  already has). Export of that chain to that sink stops; nothing is
+  skipped. `GET /api/v1/audit/siem` shows the sink with
+  `"status": "regressed"` and a `regressions` entry naming the source,
+  chain and position, and the scheduled verification raises a critical
+  `audit_chain_regressed` finding on `audit_trail:<chain>`. Other chains
+  and other sinks keep exporting. A cursor saved before pg_sage kept
+  hashes, or moved by an older sidecar during a rolling upgrade, is
+  checked for existence only, then gets its hash.
+- **reanchor**: after comparing the SIEM's copy with the database, an
+  admin resumes export with
+  `POST /api/v1/audit/siem/{sink}/reanchor` and a body
+  `{"source": "<database or control>", "chain": "<chain>", "from_seq": N}`
+  (`from_seq` defaults to 1, the whole chain). Export resumes at `N`; the
+  re-exported events over positions the SIEM already holds carry
+  `metadata.labels: ["fork"]`. The re-anchor runs on the export leader
+  only (409 elsewhere), is recorded in `sage.auth_audit` as
+  `siem_reanchored`, and is never automatic. It refuses a `from_seq` past
+  the cursor, one onto the cursor's own position when another link now
+  holds it, and one whose preceding link is missing. It cannot tell, below
+  the cursor, which links the SIEM already has: links before `from_seq`
+  are not re-sent. `from_seq: 1` (the default) is always safe; a higher
+  value must be the first position where the database and the SIEM's copy
+  differ (compare their hashes), or the new links before it are never
+  exported. The finding resolves at the next
+  verification once every cursor is anchored again. While export is off
+  or failed to start, verification cannot check the cursors, so an open
+  `audit_chain_regressed` finding stays open.
+
+A cursor that goes back because the control database itself was restored
+is not a regression: the link it names is still there, so export simply
+re-sends what follows (delivery is at least once).
+
+#### Chained writes need READ COMMITTED
+
+A chain link is appended at commit, after a read of the chain's last
+link. That read must see links other transactions just committed, which
+only READ COMMITTED gives (a new snapshot per statement). Under
+REPEATABLE READ or SERIALIZABLE two writers would take the same
+position, and one would fail.
+
+- pg_sage pins every session it opens to READ COMMITTED (`SET SESSION
+  default_transaction_isolation = 'read committed'` when it connects), and
+  writes `sage.action_log` in explicit READ COMMITTED transactions. A
+  role or database default of another level therefore does not affect it.
+- A transaction writing a chained table at another level is refused at
+  commit with SQLSTATE `55000`, a message naming `transaction_isolation`
+  and a hint with the fix. Nothing is written. READ UNCOMMITTED is
+  accepted: PostgreSQL runs it as READ COMMITTED.
+- At startup pg_sage reads the default its sessions would have without the
+  pin (the role, the database and the server configuration) and logs one
+  `WARN [audit-chain]` per database when it is not READ COMMITTED. Behind
+  PgBouncer in transaction mode the pin is per server connection and can be
+  missing on some, so set the default for pg_sage's role:
+
+  ```sql
+  ALTER ROLE sage_agent IN DATABASE app SET default_transaction_isolation = 'read committed';
+  ```
+
+  PgBouncer in session mode and direct connections need nothing.
+  Poolers that pin a client to one server connection after any `SET`
+  (Amazon RDS Proxy among them) pin pg_sage's connections for this
+  reason; that costs multiplexing, not correctness.
+
+#### Attribution trusts the role, not `application_name`
+
+Any session can set `application_name`, so pg_sage never trusts it alone.
+The database role a session logged in as decides.
+
+- **pgaudit records** (`audit.pgaudit.correlate`) are kept in
+  `sage.guard_pgaudit_events` with `correlated_by`:
+  - `application_name`: `pg_sage agent:<principal>[:<action>]` from an
+    agent role (`sage_agent_…` or `sage_agentb_…`). The record names that
+    principal and action.
+  - `role`: any other session of an agent role.
+  - `statement`: `application_name = pg_sage` from pg_sage's own login
+    role (`session_user` of its connection), linked to the action whose
+    SQL it ran; pg_sage's other statements are not kept. The same name
+    from any other role is not pg_sage's and is not kept either.
+  - `application_name_unverified`: an agent's application name from a
+    role that is not an agent role. The record is kept for forensics, with
+    the claimed name in `application`, but `principal_id` and `action_id`
+    are NULL, so it never joins an action's evidence.
+- **SIEM severity of audit-row deletes**: a delete is Informational only
+  when the link's `db_user` is pg_sage's role on that database
+  (`current_user` of the exporter's connection) and its application name
+  starts with `pg_sage`. Any other role's delete is Medium, whatever
+  application name it set; a truncate is always High. On managed
+  providers pg_sage's role is the configured user, including IAM and
+  OAuth users.
+
 ---
 
 ## Production Checklist

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,9 @@ type Stats struct {
 type Correlator struct {
 	pool     *pgxpool.Pool
 	database string
+
+	mu      sync.Mutex
+	ownRole string // pg_sage's login role on pool, read once
 }
 
 // NewCorrelator returns a correlator writing to pool for database.
@@ -59,11 +63,19 @@ type event struct {
 }
 
 // Ingest correlates entries and stores the records that belong to an agent
-// principal, or to one of pg_sage's own actions. pg_sage's other
-// statements (its collectors' reads) are dropped: they are pg_sage's own
-// monitoring, already visible in pg_stat_statements.
+// principal, or to one of pg_sage's own actions, and the records that only
+// claim an agent's application_name (unverified, attributed to no one).
+// pg_sage's other statements (its collectors' reads) are dropped: they are
+// pg_sage's own monitoring, already visible in pg_stat_statements.
 func (c *Correlator) Ingest(ctx context.Context, entries []logwatch.LogEntry) (Stats, error) {
 	var st Stats
+	if len(entries) == 0 {
+		return st, nil
+	}
+	own, err := c.role(ctx)
+	if err != nil {
+		return st, err
+	}
 	var rows []event
 	for _, e := range entries {
 		rec, ok := Parse(e.Message)
@@ -71,7 +83,7 @@ func (c *Correlator) Ingest(ctx context.Context, entries []logwatch.LogEntry) (S
 			st.NotAudit++
 			continue
 		}
-		a, ok := Attribute(e)
+		a, ok := Attribute(e, own)
 		if ok && a.By == ByPGSage {
 			id, err := c.actionFor(ctx, rec.Statement, e.Timestamp)
 			if err != nil {
@@ -93,6 +105,23 @@ func (c *Correlator) Ingest(ctx context.Context, entries []logwatch.LogEntry) (S
 	}
 	st.Stored = len(rows)
 	return st, nil
+}
+
+// role is pg_sage's login role on its pool: the user pgaudit logs for
+// pg_sage's sessions. It is read once; a failed read is retried next time.
+func (c *Correlator) role(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ownRole != "" {
+		return c.ownRole, nil
+	}
+	var role string
+	if err := c.pool.QueryRow(ctx, `/* pg_sage pgaudit v1 */ SELECT session_user`).
+		Scan(&role); err != nil {
+		return "", fmt.Errorf("pgaudit: read own role (session_user): %w", err)
+	}
+	c.ownRole = role
+	return role, nil
 }
 
 func (c *Correlator) row(e logwatch.LogEntry, rec Record, a Attribution) event {

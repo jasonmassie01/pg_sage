@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"sort"
 	"sync/atomic"
@@ -34,10 +35,16 @@ func startAuditJobs(ctx context.Context, control *pgxpool.Pool,
 }
 
 // auditSources lists every database whose audit is chained: each fleet
-// database, and the control database unless it is one of them.
+// database, and the control database unless it is one of them. Each
+// carries the running exporter's cursors, so verification sees a chain
+// that went back behind its SIEM export.
 func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []auditjob.Source {
 	return func() []auditjob.Source {
 		var out []auditjob.Source
+		var cursors auditjob.CursorReader
+		if e := auditExport.Load(); e != nil {
+			cursors = e
+		}
 		seen := map[*pgxpool.Pool]bool{}
 		if mgr != nil {
 			instances := mgr.Instances()
@@ -49,12 +56,14 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 			for _, name := range names {
 				if inst := instances[name]; inst != nil && inst.Pool != nil && !seen[inst.Pool] {
 					seen[inst.Pool] = true
-					out = append(out, auditjob.Source{Name: name, Pool: inst.Pool})
+					out = append(out, auditjob.Source{Name: name, Pool: inst.Pool,
+						Cursors: cursors})
 				}
 			}
 		}
 		if control != nil && !seen[control] {
-			out = append(out, auditjob.Source{Name: "control", Pool: control})
+			out = append(out, auditjob.Source{Name: "control", Pool: control,
+				Cursors: cursors})
 		}
 		return out
 	}
@@ -179,6 +188,28 @@ func siemStatusFunc(c *config.Config) func() []siem.SinkStatus {
 			return e.Status()
 		}
 		return nil
+	}
+}
+
+// errSIEMNotRunning answers a re-anchor while export is configured but
+// did not start (see the startup log).
+var errSIEMNotRunning = errors.New("SIEM export is configured but not running; " +
+	"see the audit startup log")
+
+// siemReanchorFunc re-anchors on the running exporter; nil when no sink is
+// configured.
+func siemReanchorFunc(c *config.Config) func(context.Context, siem.ReanchorRequest) (
+	siem.ReanchorResult, error) {
+	if c == nil || len(c.Audit.SIEM.Sinks) == 0 {
+		return nil
+	}
+	return func(ctx context.Context, req siem.ReanchorRequest) (siem.ReanchorResult,
+		error) {
+		e := auditExport.Load()
+		if e == nil {
+			return siem.ReanchorResult{}, errSIEMNotRunning
+		}
+		return e.Reanchor(ctx, req)
 	}
 }
 

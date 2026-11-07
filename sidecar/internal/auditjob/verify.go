@@ -23,10 +23,14 @@ const maxDetailProblems = 10
 type Source struct {
 	Name string
 	Pool *pgxpool.Pool
+	// Cursors reads the SIEM export cursors of this source's chains; nil
+	// when export is off, which leaves open regressions as they are.
+	Cursors CursorReader
 }
 
 // Run verifies every chain installed on src in full, raises a finding per
-// failing table and resolves the findings of tables that verify again.
+// failing table and resolves the findings of tables that verify again. It
+// then checks each chain against its SIEM cursors (regression.go).
 func Run(ctx context.Context, src Source) ([]auditchain.Report, error) {
 	if src.Pool == nil {
 		return nil, fmt.Errorf("auditjob: %s: no database", src.Name)
@@ -54,20 +58,24 @@ func Run(ctx context.Context, src Source) ([]auditchain.Report, error) {
 	if len(chains) == 0 {
 		return reports, nil
 	}
-	return reports, record(ctx, src.Pool, findings)
+	if err := record(ctx, src.Pool, findings, FindingCategory); err != nil {
+		return reports, err
+	}
+	return reports, checkRegressions(ctx, src, chains)
 }
 
-// record upserts the failing tables' findings and resolves the rest.
-func record(ctx context.Context, pool *pgxpool.Pool, findings []analyzer.Finding) error {
+// record upserts one category's failing findings and resolves the rest.
+func record(ctx context.Context, pool *pgxpool.Pool, findings []analyzer.Finding,
+	category string) error {
 	if err := analyzer.UpsertFindings(ctx, pool, findings); err != nil {
-		return fmt.Errorf("auditjob: raise findings: %w", err)
+		return fmt.Errorf("auditjob: raise %s findings: %w", category, err)
 	}
 	active := map[string]bool{}
 	for _, f := range findings {
 		active[f.ObjectIdentifier] = true
 	}
-	if err := analyzer.ResolveCleared(ctx, pool, active, FindingCategory); err != nil {
-		return fmt.Errorf("auditjob: resolve findings: %w", err)
+	if err := analyzer.ResolveCleared(ctx, pool, active, category); err != nil {
+		return fmt.Errorf("auditjob: resolve %s findings: %w", category, err)
 	}
 	return nil
 }
