@@ -2,7 +2,9 @@ package databricksauth
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -16,6 +18,14 @@ import (
 )
 
 var endpointName = regexp.MustCompile(`^projects/[a-z0-9-]+/branches/[a-z0-9-]+/endpoints/[a-z0-9-]+$`)
+
+// ErrUnverifiedTLS refuses a Lakebase OAuth connection whose TLS does not
+// verify the endpoint's certificate and hostname. sslmode=require and
+// verify-ca encrypt, but an interceptor could still capture the minted token.
+// Fleet databases take sslmode from YAML (default prefer), so it is named too.
+var ErrUnverifiedTLS = errors.New("lakebase OAuth requires sslmode=verify-full " +
+	"(got an unverified TLS mode); set sslmode=verify-full in SAGE_DATABASE_URL, " +
+	"SAGE_PG_SSLMODE or the fleet's databases[].sslmode")
 
 // NewPool is the OAuth-aware equivalent of pgxpool.New for CLI commands.
 func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
@@ -71,6 +81,11 @@ func ConfigurePool(ctx context.Context, cfg *pgxpool.Config) error {
 	}
 	if !endpointName.MatchString(endpoint) {
 		return fmt.Errorf("lakebase endpoint must be projects/<id>/branches/<id>/endpoints/<id>")
+	}
+	// Refuse before contacting Databricks: no credential is minted for a
+	// connection that could not keep it private.
+	if err := requireVerifiedTLS(cfg.ConnConfig); err != nil {
+		return err
 	}
 	w, err := workspace()
 	if err != nil {
@@ -135,18 +150,40 @@ func configurePool(cfg *pgxpool.Config, allowed []string, mint mintCredential) e
 }
 
 func validateConnection(conn *pgx.ConnConfig, allowed []string) error {
-	if conn.TLSConfig == nil {
-		return fmt.Errorf("lakebase OAuth requires sslmode=require or verify-full")
+	if err := requireVerifiedTLS(conn); err != nil {
+		return err
 	}
 	for _, fallback := range conn.Fallbacks {
-		if fallback.TLSConfig == nil || !allowedHost(fallback.Host, allowed) {
-			return fmt.Errorf("lakebase OAuth does not allow plaintext or unverified fallback hosts")
+		if !allowedHost(fallback.Host, allowed) {
+			return fmt.Errorf(
+				"lakebase OAuth fallback host does not match the configured Lakebase endpoint")
 		}
 	}
 	if !allowedHost(conn.Host, allowed) {
 		return fmt.Errorf("postgres host does not match the configured Lakebase endpoint")
 	}
 	return nil
+}
+
+// requireVerifiedTLS accepts only pgx's verify-full shape on the main host and
+// on every fallback host.
+func requireVerifiedTLS(conn *pgx.ConnConfig) error {
+	if !verifiedTLS(conn.TLSConfig, conn.Host) {
+		return ErrUnverifiedTLS
+	}
+	for _, fallback := range conn.Fallbacks {
+		if !verifiedTLS(fallback.TLSConfig, fallback.Host) {
+			return ErrUnverifiedTLS
+		}
+	}
+	return nil
+}
+
+// verifiedTLS reports whether c verifies the certificate chain and binds it to
+// host. pgx sets InsecureSkipVerify for require and verify-ca (verify-ca checks
+// the chain in a callback but ignores the hostname), so only verify-full passes.
+func verifiedTLS(c *tls.Config, host string) bool {
+	return c != nil && !c.InsecureSkipVerify && strings.EqualFold(c.ServerName, host)
 }
 
 func allowedHost(host string, allowed []string) bool {

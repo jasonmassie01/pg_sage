@@ -36,6 +36,12 @@ pg_sage roles. Other local accounts require a reviewed identity migration;
 matching an email does not automatically link them. Visiting first does not
 grant administration.
 
+The binary fails closed on its own as well as through `launch.py`: when
+`DATABRICKS_APP_PORT` is set and `SAGE_AUTH_MODE` is not `databricks_app`
+(unset, `session` or anything else), pg_sage exits 1 at startup with an error
+naming `SAGE_AUTH_MODE=databricks_app`, and it never generates or prints a local
+admin password inside Apps. There is no override.
+
 An optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` audience gate restricts
 protected access to a comma-separated list of exact email domains. Matching is
 case-insensitive; subdomains need their own entry, and suffixes/wildcards are
@@ -155,7 +161,13 @@ pg_sage database when that behavior is wanted. An App principal without
 native Gateway integration do not require granting that privilege.
 
 The launcher maps `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE` to
-pg_sage's existing connection settings. `PGUSER` defaults to the injected
+pg_sage's existing connection settings. Lakebase OAuth requires
+`sslmode=verify-full`: an injected `PGSSLMODE=require` is raised to
+`verify-full` (strictly stronger, logged once on stderr), an absent
+`PGSSLMODE` defaults to `verify-full`, and any other weaker mode, or an
+explicit `SAGE_PG_SSLMODE` below `verify-full`, stops the launcher before
+pg_sage starts. pg_sage itself sees `PGSSLMODE=verify-full`, so a
+`SAGE_DATABASE_URL` without `sslmode` also verifies the endpoint. `PGUSER` defaults to the injected
 `DATABRICKS_CLIENT_ID`. `SAGE_LAKEBASE_ENDPOINT` is the full endpoint resource
 path (`projects/.../branches/.../endpoints/...`); `LAKEBASE_ENDPOINT` and
 `ENDPOINT_NAME` are accepted launcher aliases. Native Go unified authentication

@@ -6,6 +6,8 @@ import (
 	"net/mail"
 	"os"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/appmode"
 )
 
 type bootstrapAdminCredentials struct {
@@ -21,6 +23,13 @@ func loadBootstrapAdminCredentials() (bootstrapAdminCredentials, error) {
 	password := os.Getenv("SAGE_BOOTSTRAP_ADMIN_PASSWORD")
 	file := os.Getenv("SAGE_BOOTSTRAP_ADMIN_PASSWORD_FILE")
 	if email == "" && password == "" && file == "" {
+		// A generated password is printed to stderr, which Apps keeps in its
+		// logs; the App auth loader refuses this first, so this is a backstop.
+		if appmode.InApps(os.Getenv) {
+			return bootstrapAdminCredentials{}, fmt.Errorf(
+				"refusing to generate and print an admin password inside Databricks Apps; "+
+					"start pg_sage with %s=%s", appmode.AuthModeEnv, appmode.AuthMode)
+		}
 		password, err := generateRandomPassword(adminPassLen)
 		return bootstrapAdminCredentials{email: adminEmail, password: password}, err
 	}
