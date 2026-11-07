@@ -65,7 +65,7 @@ All data sources are read-only catalog views and statistics:
 
 ## What pg_sage Never Does
 
-- **Never reads table row data.** All analysis uses aggregate statistics and catalog metadata.
+- **Never reads table row data.** All analysis uses aggregate statistics and catalog metadata. EXPLAIN runs for operators (REST and MCP need the operator role or the `propose` scope, and honour `explain.enabled`); agents get plan-only EXPLAIN under their own database role through agent governance, so a plan never describes a table the agent cannot read.
 - **Never accesses credentials or secrets.** Does not read `pg_authid.rolpassword` or password hashes.
 - **Never modifies user data.** Autonomous actions are limited to maintenance and schema operations such as `ANALYZE`, guarded index DDL, and approved incident actions. Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
 - **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.

@@ -38,9 +38,13 @@ func ToolReferenceMarkdown(tools []Tool) string {
 		scope, _ := RequiredScope(tool.Name, nil)
 		fmt.Fprintf(&b, "### `%s`\n\n%s.\n\nScope: `%s`", tool.Name,
 			strings.TrimSuffix(tool.Description, "."), scope)
-		if tool.Name == "request_change" {
+		switch tool.Name {
+		case "request_change":
 			b.WriteString(" (`approve` when the intent kind is `declare_table_contract` " +
 				"or `register_consumer`)")
+		case explainQueryTool:
+			b.WriteString(" (operator) for people; `read` for agents, plan-only, under the " +
+				"agent's role")
 		}
 		b.WriteString("\n\n")
 		writeArguments(&b, tool.InputSchema)

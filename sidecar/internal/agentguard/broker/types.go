@@ -6,8 +6,10 @@
 // statement touches), screened, parsed to exactly one SELECT, proven
 // side-effect free against the catalog, run read-only under the broker's
 // own timeouts and row and byte bounds, masked or refused per column
-// class, and recorded in sage.guard_query_audit. It also serves the
-// principal's attribution view (G1-10) and agent_whoami.
+// class, and recorded in sage.guard_query_audit. An agent's explain_query
+// takes the same path and returns a plan-only EXPLAIN instead of rows
+// (security-02). It also serves the principal's attribution view (G1-10)
+// and agent_whoami.
 package broker
 
 import (
@@ -25,14 +27,16 @@ import (
 // The read path's vocabulary lives in readapi so transports need not
 // import the broker; these aliases keep the broker's own names.
 type (
-	Request       = readapi.Request
-	Column        = readapi.Column
-	Result        = readapi.Result
-	WhoAmI        = readapi.WhoAmI
-	PrincipalView = readapi.PrincipalView
-	SponsorView   = readapi.SponsorView
-	DatabaseView  = readapi.DatabaseView
-	GrantView     = readapi.GrantView
+	Request        = readapi.Request
+	Column         = readapi.Column
+	Result         = readapi.Result
+	ExplainRequest = readapi.ExplainRequest
+	ExplainResult  = readapi.ExplainResult
+	WhoAmI         = readapi.WhoAmI
+	PrincipalView  = readapi.PrincipalView
+	SponsorView    = readapi.SponsorView
+	DatabaseView   = readapi.DatabaseView
+	GrantView      = readapi.GrantView
 )
 
 // Errors (see readapi).

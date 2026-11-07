@@ -40,19 +40,42 @@ func knownTool(name string) bool {
 	return knownToolNames[name]
 }
 
-// RequiredScope is the scope a tools/call needs; false for an unknown
-// tool. request_change takes the scope of the intent it carries.
+// RequiredScope is the scope a tools/call needs from a person (or an
+// unbound caller); false for an unknown tool. request_change takes the
+// scope of the intent it carries. RequiredScopeFor is the scope for a
+// given principal.
 func RequiredScope(tool string, arguments json.RawMessage) (Scope, bool) {
+	return RequiredScopeFor(Principal{}, tool, arguments)
+}
+
+// RequiredScopeFor is the scope p needs for a tools/call. explain_query is
+// the one tool whose scope depends on the caller (security-02): people
+// need propose, REST's operator minimum for EXPLAIN, plan-only and ANALYZE
+// alike; agents need read, and their EXPLAIN is plan-only under their own
+// database role.
+func RequiredScopeFor(p Principal, tool string, arguments json.RawMessage) (Scope, bool) {
 	if !knownTool(tool) {
 		return "", false
 	}
 	switch {
 	case approveScopeTools[tool], tool == "request_change" && approveScopeTools[intentKind(arguments)]:
 		return ScopeApprove, true
-	case proposeScopeTools[tool]:
+	case tool == explainQueryTool && p.Kind == KindAgent:
+		return ScopeRead, true
+	case proposeScopeTools[tool], tool == explainQueryTool:
 		return ScopePropose, true
 	}
 	return ScopeRead, true
+}
+
+// explainQueryTool is EXPLAIN over MCP; see RequiredScopeFor.
+const explainQueryTool = "explain_query"
+
+// scopeFor is the scope the request's principal needs for a call.
+func scopeFor(ctx context.Context, tool string, arguments json.RawMessage) Scope {
+	p, _ := PrincipalFromContext(ctx)
+	scope, _ := RequiredScopeFor(p, tool, arguments)
+	return scope
 }
 
 func intentKind(arguments json.RawMessage) string {
@@ -81,7 +104,7 @@ func mayCall(ctx context.Context, scope Scope) bool {
 // a distinguishable code: an agent asking for a person's decision is
 // told so (-32005); anyone else lacking a scope gets -32001.
 func authorizeTool(ctx context.Context, tool string, arguments json.RawMessage) *rpcError {
-	scope, _ := RequiredScope(tool, arguments)
+	scope := scopeFor(ctx, tool, arguments)
 	if mayCall(ctx, scope) {
 		return nil
 	}

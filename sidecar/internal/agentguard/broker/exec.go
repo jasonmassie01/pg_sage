@@ -53,7 +53,7 @@ func (c *call) connectFailure(p agentguard.Principal, err error) (Result, error)
 	if pgErr, ok := asPgError(err); ok && strings.HasPrefix(pgErr.Code, "28") {
 		c.b.pools.drop(p.ID, c.t.Name)
 	}
-	c.b.deps.Log("WARN", "agent_query: broker login of %s on %s failed: %v", p.ID,
+	c.b.deps.Log("WARN", "%s: broker login of %s on %s failed: %v", c.tool, p.ID,
 		c.t.Name, err)
 	return Result{}, fmt.Errorf("%w: the broker login failed", ErrUnavailable)
 }
@@ -79,15 +79,24 @@ func (c *call) begin(ctx context.Context, pg *pgconn.PgConn) error {
 	return nil
 }
 
-// rollback ends the transaction; a connection that cannot is closed so it
-// never returns to the pool mid-transaction.
+// rollback ends the transaction, then releases an explain's prepared
+// statement (it outlives the transaction); a connection that cannot is
+// closed so it never returns to the pool mid-transaction or still holding
+// the statement.
 func (c *call) rollback(conn *pgxpool.Conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.b.cfg.LockTimeout+
 		c.b.cfg.StatementTimeout)
 	defer cancel()
 	pg := conn.Conn().PgConn()
-	if _, err := pg.ExecParams(ctx, "ROLLBACK", nil, nil, nil, nil).Close(); err != nil {
-		closeBroken(conn)
+	stmts := []string{"ROLLBACK"}
+	if c.prepared {
+		stmts = append(stmts, "DEALLOCATE "+explainStatementName)
+	}
+	for _, s := range stmts {
+		if _, err := pg.ExecParams(ctx, s, nil, nil, nil, nil).Close(); err != nil {
+			closeBroken(conn)
+			return
+		}
 	}
 }
 
@@ -97,12 +106,13 @@ func closeBroken(conn *pgxpool.Conn) {
 	_ = conn.Conn().Close(ctx)
 }
 
-// inTransaction proves, describes, plans the output, then runs the cursor.
+// inTransaction proves, describes, plans the output, then runs the cursor
+// (or, for an explain, plans the statement without running it).
 func (c *call) inTransaction(ctx context.Context, conn *pgxpool.Conn,
 	read sqlast.BrokeredRead, rels []relation, env envbind.Env) (Result, error) {
 	refusal, err := explain.ProveRead(ctx, conn, read.Canonical, nil, c.b.proof)
 	if err != nil {
-		c.b.deps.Log("WARN", "agent_query: catalog proof failed for %s: %v", c.id.Principal.ID,
+		c.b.deps.Log("WARN", "%s: catalog proof failed for %s: %v", c.tool, c.id.Principal.ID,
 			err)
 		return blocked(ReasonNotProven, "the statement could not be verified against the "+
 			"catalog", "retry; if it persists, an operator checks pg_sage's logs"), nil
@@ -119,6 +129,9 @@ func (c *call) inTransaction(ctx context.Context, conn *pgxpool.Conn,
 	plan, refused, err := c.plan(ctx, desc.Fields, rels, read, env)
 	if err != nil || refused.Verdict != "" {
 		return refused, err
+	}
+	if c.explain {
+		return c.explainPlan(ctx, pg, read)
 	}
 	return c.fetch(ctx, pg, read.Canonical, plan)
 }
@@ -231,7 +244,7 @@ func (c *call) dbFailure(err error) (Result, error) {
 	if strings.HasPrefix(pgErr.Code, "22") {
 		message = "(withheld: a data exception can quote column values)"
 	}
-	c.b.deps.Log("INFO", "agent_query by %s on %s failed: SQLSTATE %s: %s",
+	c.b.deps.Log("INFO", "%s by %s on %s failed: SQLSTATE %s: %s", c.tool,
 		c.id.Principal.ID, c.t.Name, pgErr.Code, message)
 	f := sanitize(pgErr, c.b.cfg.StatementTimeout)
 	return Result{Verdict: VerdictExecute, Status: StatusFailed, SQLState: f.SQLState,

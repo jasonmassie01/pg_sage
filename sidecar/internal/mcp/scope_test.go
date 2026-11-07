@@ -41,7 +41,7 @@ func TestEveryToolHasARequiredScope(t *testing.T) {
 		switch {
 		case approve[tool.Name]:
 			require.Equal(t, ScopeApprove, scope, tool.Name)
-		case propose[tool.Name]:
+		case propose[tool.Name], tool.Name == "explain_query": // people (security-02)
 			require.Equal(t, ScopePropose, scope, tool.Name)
 		default:
 			require.Equal(t, ScopeRead, scope, tool.Name)
