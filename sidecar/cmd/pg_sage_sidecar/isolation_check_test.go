@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/startup"
 )
 
 // No concurrent access tests: the check runs once per database at startup.
@@ -78,5 +82,31 @@ func TestWarnIsolationDefault_ReportsAFailedRead(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0], "permission denied") ||
 		!strings.Contains(got[0], `db "prod"`) {
 		t.Fatalf("warnings = %v, want one naming the database and the read error", got)
+	}
+}
+
+// Startup wiring: preparing a monitored database runs the self-check on
+// its pool, and an unreadable default is a WARN, not silence. The check
+// only warns, so the database is still prepared (the chain's guard is
+// what fails closed, at write time).
+func TestPrepareMonitoredDatabaseRunsTheIsolationCheck(t *testing.T) {
+	stubPreparation(t, &startup.CheckResult{PGVersionNum: 160004}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, "postgres://u@127.0.0.1:1/db?connect_timeout=2")
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+	var checks *startup.CheckResult
+	out := captureStderr(t, func() {
+		checks, err = prepareMonitoredDatabase(ctx, pool, "orders", true)
+	})
+	if err != nil || checks == nil || checks.PGVersionNum != 160004 {
+		t.Fatalf("prepare = %+v, %v; want the stubbed checks and no error", checks, err)
+	}
+	want := `[WARN] [audit-chain] db "orders": could not check the isolation default`
+	if strings.Count(out, want) != 1 {
+		t.Fatalf("stderr %q must hold exactly one %q", out, want)
 	}
 }
