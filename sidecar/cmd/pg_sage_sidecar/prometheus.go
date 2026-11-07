@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -45,6 +46,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "pg_sage_info{version=%q,mode=%q} 1\n\n", version, cfg.Mode)
 
 	writeModeMetric(&b, cfg.Mode)
+	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 
 	writeConnectionMetric(&b, ctx)

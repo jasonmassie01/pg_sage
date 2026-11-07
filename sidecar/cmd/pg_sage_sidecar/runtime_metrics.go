@@ -28,6 +28,15 @@ func writeModeMetric(b *strings.Builder, mode string) {
 	fmt.Fprintf(b, "pg_sage_mode %d\n\n", modeGaugeValue(mode))
 }
 
+// writeLoginLimiterMetric exposes how many logins were refused because a
+// login limiter was full of locked keys, a sign of credential spraying.
+func writeLoginLimiterMetric(b *strings.Builder, saturated uint64) {
+	b.WriteString("# HELP pg_sage_login_limiter_saturated_total Login attempts " +
+		"refused because the login limiter was full of locked keys\n" +
+		"# TYPE pg_sage_login_limiter_saturated_total counter\n")
+	fmt.Fprintf(b, "pg_sage_login_limiter_saturated_total %d\n\n", saturated)
+}
+
 // writeFleetBudgetMetrics exposes per-database fleet LLM budget spend so
 // operators can see why LLM features stopped for one database (G3-B14,
 // G5-D18). A nil budget (feature disabled) writes nothing.

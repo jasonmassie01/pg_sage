@@ -29,8 +29,8 @@ func loginHandler(
 		if !ok {
 			return
 		}
-		if !loginRateLimitDisabled &&
-			!loginLimiter.reserve(req.Email) {
+		budgetKey := ClientLimiterKey(requestClientIP(r))
+		if !reserveLoginAttempt(budgetKey, req.Email) {
 			auditPasswordFailure(r, pool, req.Email, "rate_limited")
 			jsonError(w, "too many login attempts, "+
 				"try again later",
@@ -42,13 +42,18 @@ func loginHandler(
 			r.Context(), pool, req.Email, req.Password,
 		)
 		if err != nil {
+			if !errors.Is(err, auth.ErrInvalidCredentials) {
+				// The client still sees 401; the operator needs the cause.
+				slog.Warn("login refused: authentication could not complete",
+					"error", err)
+			}
 			auditPasswordFailure(r, pool, req.Email, "invalid_credentials")
 			jsonError(w, "invalid credentials",
 				http.StatusUnauthorized)
 			return
 		}
 
-		loginLimiter.reset(req.Email)
+		loginSucceeded(budgetKey, req.Email)
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
 			Event: auth.AuditLoginSucceeded, ActorUserID: user.ID,
 			TargetUserID: user.ID, Detail: map[string]any{"method": "password"},
@@ -63,6 +68,33 @@ func loginHandler(
 			"role":  user.Role,
 		})
 	}
+}
+
+// reserveLoginAttempt spends one slot of the client's failed-login budget
+// and one of the email's attempts. A refusal by the email limiter refunds
+// the budget slot: that request never reached a password check.
+func reserveLoginAttempt(budgetKey, email string) bool {
+	if loginRateLimitDisabled {
+		return true
+	}
+	if !loginFailureBudget.reserve(budgetKey) {
+		return false
+	}
+	if !loginLimiter.reserve(email) {
+		loginFailureBudget.refund(budgetKey)
+		return false
+	}
+	return true
+}
+
+// loginSucceeded refunds this request's budget slot (the client's earlier
+// failures stay counted) and clears the email's attempts.
+func loginSucceeded(budgetKey, email string) {
+	if loginRateLimitDisabled {
+		return
+	}
+	loginFailureBudget.refund(budgetKey)
+	loginLimiter.reset(email)
 }
 
 // setLoginSession creates a session and sets its cookie (Secure when the
