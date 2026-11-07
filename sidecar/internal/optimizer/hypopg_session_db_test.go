@@ -123,19 +123,22 @@ func TestHypoPGLockWaitEndsWithLockTimeout(t *testing.T) {
 	assertHypoPGSessionClean(t, pool)
 }
 
-// assertNoWaitingLocks: no backend other than the locker's is waiting on
-// a relation lock (CHECK-02).
+// assertNoWaitingLocks: no backend still waits on the fixture table the
+// locker holds (CHECK-02). It looks only at that table: the test server is
+// shared with other packages, whose own lock tests wait on their tables.
 func assertNoWaitingLocks(t *testing.T) {
 	t.Helper()
 	admin := connectTestDB(t)
 	defer admin.Close()
 	var n int
 	if err := admin.QueryRow(t.Context(), `SELECT count(*) FROM pg_locks
-		WHERE NOT granted AND locktype = 'relation'`).Scan(&n); err != nil {
+		WHERE NOT granted AND locktype = 'relation'
+		  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		  AND relation = to_regclass('hypopg_session_test.items')`).Scan(&n); err != nil {
 		t.Fatalf("read pg_locks: %v", err)
 	}
 	if n != 0 {
-		t.Fatalf("%d backends still wait on a relation lock", n)
+		t.Fatalf("%d backends still wait on the locked fixture table", n)
 	}
 }
 
