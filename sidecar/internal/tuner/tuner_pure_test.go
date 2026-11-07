@@ -192,7 +192,7 @@ func TestBuildInsertSQL_UsesQueryIDNotQueryText(t *testing.T) {
 }
 
 func TestBuildDeleteSQL_UsesQueryID(t *testing.T) {
-	sql := BuildDeleteSQL(17)
+	sql := BuildDeleteSQL(17, "HashJoin(a b)")
 	if !strings.Contains(sql, "query_id = 17") {
 		t.Errorf("query id missing from delete: %s", sql)
 	}
@@ -219,7 +219,7 @@ func TestBuildInsertSQL_AvoidsDuplicateHintRows(t *testing.T) {
 }
 
 func TestBuildDeleteSQL(t *testing.T) {
-	sql := BuildDeleteSQL(12345)
+	sql := BuildDeleteSQL(12345, "HashJoin(a b)")
 	if sql == "" {
 		t.Fatal("BuildDeleteSQL returned empty string")
 	}

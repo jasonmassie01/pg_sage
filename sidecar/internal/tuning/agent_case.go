@@ -122,7 +122,7 @@ func (a *Agent) calibration(ctx context.Context) Calibration {
 func (a *Agent) runCase(ctx context.Context, cy *cycle, c Case) ([]Judged, bool) {
 	pk := a.packetFor(ctx, c, cy.cur, cy.w, cy.confirmed, cy.v.flight.ddl)
 	tb := a.newToolbox(c, cy.cur, cy.prev, cy.w, cy.tools)
-	conv := Conversation{System: systemPrompt, User: pk.Text + a.prefetch(ctx, tb, c),
+	conv := Conversation{System: a.systemPrompt(), User: pk.Text + a.prefetch(ctx, tb, c),
 		Tools: a.toolSpecs(), Exec: tb.exec, MaxTurns: a.settings.Tuning.MaxTurnsPerCase,
 		MaxTokens: a.settings.MaxOutputTokens, Budget: cy.budget}
 	tr, err := a.deps.Loop.Run(ctx, a.deps.Model, conv)

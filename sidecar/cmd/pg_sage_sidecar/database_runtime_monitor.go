@@ -167,6 +167,7 @@ func (rt *databaseRuntime) newTuner() *tuner.Tuner {
 	}
 	tunerCfg := tunerConfig(cfg)
 	result := tuner.New(rt.spec.Pool, tunerCfg, hintPlan, logStructuredWrapper)
+	result.WithHostMemory(rt.hostMemory)
 	rt.start(func() {
 		result.StartRevalidationLoop(rt.ctx, tunerCfg.RevalidationIntervalHours)
 	})

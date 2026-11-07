@@ -2,73 +2,31 @@ package tuner
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 )
 
-func TestDecideHintFate_AgeCutoff(t *testing.T) {
-	// Tuner with nil pool — the age-cutoff branch returns before
-	// any DB access, so this path is safe to exercise without one.
-	tuner := &Tuner{
-		logFn: func(string, string, ...any) {},
-	}
-	h := hintRow{
-		ID:        1,
-		QueryID:   42,
-		Status:    "active",
-		CreatedAt: time.Now().Add(-10 * 24 * time.Hour),
-	}
-	// Cutoff of 7 days — 10-day-old hint should retire.
-	decision := tuner.decideHintFate(
-		context.Background(), h, 7*24*time.Hour,
-	)
-	if decision.action != hintActionRetired {
-		t.Errorf("action = %v, want retired", decision.action)
-	}
-	if decision.reason == "" {
-		t.Error("reason should be non-empty")
-	}
-}
-
-func TestDecideHintFate_AgeCutoffDisabled(t *testing.T) {
-	// retentionCutoff == 0 disables the age check. Tuner with
-	// nil pool will then fall into fetchQueryStats which panics
-	// on pool dereference — so we just verify the first branch
-	// is skipped by checking that time.Since > 0 is not enough.
+// Without a pool there are no statistics to read: the decision is an
+// error and the hint keeps its status (tuning-01). The age rule no longer
+// short-circuits before the statistics read, because age only marks a hint
+// due for re-verification (TestDecideFromObservation_AgeMarksReverifyDue).
+func TestDecideHintFate_NilPoolIsError(t *testing.T) {
 	tuner := &Tuner{logFn: func(string, string, ...any) {}}
 	h := hintRow{
 		ID:        1,
 		QueryID:   42,
+		Status:    "active",
 		CreatedAt: time.Now().Add(-100 * 24 * time.Hour),
 	}
-	// Protect against the panic so we only assert the age check
-	// was not triggered.
-	defer func() {
-		_ = recover()
-	}()
-	_ = tuner.decideHintFate(
-		context.Background(), h, 0,
-	)
-}
-
-func TestIsNoRowsErr(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"other", errors.New("boom"), false},
-		{"pgx", errors.New("no rows in result set"), true},
+	d := tuner.decideHintFate(context.Background(), h, 7*24*time.Hour)
+	if d.action != hintActionError {
+		t.Fatalf("action = %v, want hintActionError", d.action)
 	}
-	for _, tt := range tests {
-		if got := isNoRowsErr(tt.err); got != tt.want {
-			t.Errorf(
-				"isNoRowsErr(%v) = %v, want %v",
-				tt.err, got, tt.want,
-			)
-		}
+	if d.nextStatus(h) != "active" {
+		t.Fatalf("next status = %q, want active (unchanged)", d.nextStatus(h))
+	}
+	if !contains(d.reason, "pool") {
+		t.Fatalf("reason %q should name the missing pool", d.reason)
 	}
 }
 
@@ -107,8 +65,8 @@ func TestStartRevalidationLoop_Disabled(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Integration tests for Revalidate() against a real Postgres.
 // These exercise the DB-dependent paths in decideHintFate that the pure
-// unit tests above cannot reach: dead queryid, stagnant calls, observational
-// success, keep, plus loadHintsForRevalidation / update helpers.
+// unit tests cannot reach: an absent queryid, no new calls, a fast hinted
+// query, plus loadHintsForRevalidation and the recordRevalidation write.
 //
 // They use requireTunerDB which skips when Postgres is unreachable.
 // ---------------------------------------------------------------------------
@@ -187,8 +145,9 @@ FROM sage.query_hints WHERE id = $1`, hintID,
 	return status, rb != nil, ve != nil
 }
 
-// TestDecideHintFate_DeadQueryID — Check 2: queryid that is not present
-// in pg_stat_statements must resolve to hintActionBroken.
+// TestDecideHintFate_DeadQueryID — a queryid that is not present in
+// pg_stat_statements (an eviction, or a query that stopped running) is
+// dormant: the hint stays installed. It used to be marked broken (tuning-01).
 func TestDecideHintFate_DeadQueryID(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
 	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
@@ -202,11 +161,14 @@ func TestDecideHintFate_DeadQueryID(t *testing.T) {
 		CreatedAt: time.Now().Add(-1 * time.Hour),
 	}
 	d := tuner.decideHintFate(ctx, h, 30*24*time.Hour)
-	if d.action != hintActionBroken {
-		t.Errorf("action = %v, want hintActionBroken", d.action)
+	if d.action != hintActionDormant {
+		t.Errorf("action = %v, want hintActionDormant", d.action)
 	}
-	if d.reason == "" {
-		t.Error("reason should explain why broken")
+	if !contains(d.reason, "absent") {
+		t.Errorf("reason %q should say the queryid is absent", d.reason)
+	}
+	if d.checkpoint != nil {
+		t.Errorf("checkpoint = %d, want unchanged (nil)", *d.checkpoint)
 	}
 }
 
@@ -289,108 +251,6 @@ UPDATE sage.query_hints SET status = 'retired' WHERE id = $1`, retired)
 	}
 }
 
-// TestUpdateHintStatus_Broken — writes broken + rolled_back_at.
-func TestUpdateHintStatus_Broken(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
-	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
-
-	cleanRevalHints(t, ctx, tuner)
-	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
-
-	id := seedRevalHint(t, ctx, tuner, revalTestQIDBase+20, 1, nil)
-	tuner.updateHintStatus(ctx, id, "broken", "test reason")
-
-	status, rolledBack, verified := readHintStatus(t, ctx, tuner, id)
-	if status != "broken" {
-		t.Errorf("status = %q, want broken", status)
-	}
-	if !rolledBack {
-		t.Error("rolled_back_at should be set when status=broken")
-	}
-	if verified {
-		t.Error("verified_at should NOT be set when status=broken")
-	}
-}
-
-// TestUpdateHintStatus_Retired — writes retired + verified_at.
-func TestUpdateHintStatus_Retired(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
-	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
-
-	cleanRevalHints(t, ctx, tuner)
-	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
-
-	id := seedRevalHint(t, ctx, tuner, revalTestQIDBase+21, 1, nil)
-	tuner.updateHintStatus(ctx, id, "retired", "test reason")
-
-	status, rolledBack, verified := readHintStatus(t, ctx, tuner, id)
-	if status != "retired" {
-		t.Errorf("status = %q, want retired", status)
-	}
-	if rolledBack {
-		t.Error("rolled_back_at should NOT be set when status=retired")
-	}
-	if !verified {
-		t.Error("verified_at should be set when status=retired")
-	}
-}
-
-// TestUpdateRevalidationTimestamp_WritesCheckpoint — happy path, calls>0.
-func TestUpdateRevalidationTimestamp_WritesCheckpoint(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
-	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
-
-	cleanRevalHints(t, ctx, tuner)
-	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
-
-	id := seedRevalHint(t, ctx, tuner, revalTestQIDBase+22, 1, nil)
-	tuner.updateRevalidationTimestamp(ctx, id, 123)
-
-	var checkpoint *int64
-	var revAt *time.Time
-	err := pool.QueryRow(ctx, `
-SELECT calls_at_last_check, last_revalidated_at
-FROM sage.query_hints WHERE id = $1`, id).Scan(&checkpoint, &revAt)
-	if err != nil {
-		t.Fatalf("read hint: %v", err)
-	}
-	if checkpoint == nil || *checkpoint != 123 {
-		t.Errorf("calls_at_last_check = %v, want 123", checkpoint)
-	}
-	if revAt == nil {
-		t.Error("last_revalidated_at should be set")
-	}
-}
-
-// TestUpdateRevalidationTimestamp_ZeroCallsNoop — calls<=0 is a signal
-// that the status update already touched the timestamps, and this helper
-// must be a no-op (not bump anything).
-func TestUpdateRevalidationTimestamp_ZeroCallsNoop(t *testing.T) {
-	pool, ctx := requireTunerDB(t)
-	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
-
-	cleanRevalHints(t, ctx, tuner)
-	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
-
-	id := seedRevalHint(t, ctx, tuner, revalTestQIDBase+23, 1, nil)
-	// Pre-mark the row with a known checkpoint so we can assert no change.
-	_, _ = pool.Exec(ctx, `
-UPDATE sage.query_hints SET calls_at_last_check = 999 WHERE id = $1`, id)
-
-	tuner.updateRevalidationTimestamp(ctx, id, 0)
-
-	var checkpoint *int64
-	err := pool.QueryRow(ctx, `
-SELECT calls_at_last_check FROM sage.query_hints WHERE id = $1`, id,
-	).Scan(&checkpoint)
-	if err != nil {
-		t.Fatalf("read hint: %v", err)
-	}
-	if checkpoint == nil || *checkpoint != 999 {
-		t.Errorf("calls_at_last_check = %v, want 999 (unchanged)", checkpoint)
-	}
-}
-
 // TestRevalidate_EndToEnd — seeds a mix of hints, runs Revalidate(),
 // verifies the report and final row statuses.
 func TestRevalidate_EndToEnd(t *testing.T) {
@@ -402,9 +262,9 @@ func TestRevalidate_EndToEnd(t *testing.T) {
 	cleanRevalHints(t, ctx, tuner)
 	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
 
-	// Aged hint — should retire via Check 1.
+	// Aged hint: kept and stamped due for re-verification (age_reverify).
 	agedID := seedRevalHint(t, ctx, tuner, revalTestQIDBase+30, 14, nil)
-	// Dead queryid — should go broken via Check 2.
+	// Dead queryid: dormant, still installed.
 	deadID := seedRevalHint(t, ctx, tuner, revalTestQIDBase+31, 1, nil)
 
 	// Record baseline counts BEFORE running Revalidate so we can assert
@@ -417,20 +277,31 @@ func TestRevalidate_EndToEnd(t *testing.T) {
 	if rpt.Checked < 2 {
 		t.Errorf("Checked = %d, want >= 2", rpt.Checked)
 	}
-	// Aged hint must be retired.
-	agedStatus, _, _ := readHintStatus(t, ctx, tuner, agedID)
-	if agedStatus != "retired" {
-		t.Errorf("aged hint status = %q, want retired", agedStatus)
+	// The aged hint's queryid is absent too, so it is dormant, and due.
+	agedStatus, _, verified := readHintStatus(t, ctx, tuner, agedID)
+	if agedStatus != "dormant" || verified {
+		t.Errorf("aged hint status = %q verified=%v, want dormant, unverified",
+			agedStatus, verified)
 	}
-	// Dead queryid hint must be broken.
-	deadStatus, _, _ := readHintStatus(t, ctx, tuner, deadID)
-	if deadStatus != "broken" {
-		t.Errorf("dead queryid hint status = %q, want broken", deadStatus)
+	if !hintReverifyDue(t, ctx, pool, agedID) {
+		t.Error("aged hint should be stamped reverify_due")
+	}
+	if hintReverifyDue(t, ctx, pool, deadID) {
+		t.Error("one-day-old hint must not be due for re-verification")
+	}
+	deadStatus, rolledBack, _ := readHintStatus(t, ctx, tuner, deadID)
+	if deadStatus != "dormant" || rolledBack {
+		t.Errorf("dead queryid hint status = %q rolled_back=%v, want dormant",
+			deadStatus, rolledBack)
+	}
+	if rpt.Dormant < 2 || rpt.ReverifyDue < 1 {
+		t.Errorf("report = %+v, want >=2 dormant and >=1 reverify due", rpt)
 	}
 }
 
-// TestRevalidate_LifecycleMarkers verifies the public revalidation pass moves
-// active rows to retired/broken and writes the corresponding lifecycle markers.
+// TestRevalidate_LifecycleMarkers verifies the public revalidation pass: a
+// missing referenced index is broken (with rolled_back_at), and an aged hint
+// is no longer retired but kept and stamped reverify_due (tuning-01).
 func TestRevalidate_LifecycleMarkers(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
 	tuner := New(pool, TunerConfig{
@@ -440,7 +311,7 @@ func TestRevalidate_LifecycleMarkers(t *testing.T) {
 	cleanRevalHints(t, ctx, tuner)
 	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
 
-	retiredID := seedRevalHint(
+	agedID := seedRevalHint(
 		t, ctx, tuner, revalTestQIDBase+40, 14, nil,
 	)
 	brokenID := seedRevalHintWithText(
@@ -449,10 +320,10 @@ func TestRevalidate_LifecycleMarkers(t *testing.T) {
 	)
 
 	status, rolledBack, verified := readHintStatus(
-		t, ctx, tuner, retiredID,
+		t, ctx, tuner, agedID,
 	)
 	if status != "active" || rolledBack || verified {
-		t.Fatalf("retired fixture precondition: status=%q "+
+		t.Fatalf("aged fixture precondition: status=%q "+
 			"rolled_back=%v verified=%v",
 			status, rolledBack, verified)
 	}
@@ -467,22 +338,22 @@ func TestRevalidate_LifecycleMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Revalidate: %v", err)
 	}
-	if rpt.Retired < 1 {
-		t.Errorf("Retired = %d, want at least 1", rpt.Retired)
+	if rpt.ReverifyDue < 1 {
+		t.Errorf("ReverifyDue = %d, want at least 1", rpt.ReverifyDue)
 	}
 	if rpt.Broken < 1 {
 		t.Errorf("Broken = %d, want at least 1", rpt.Broken)
 	}
 
-	status, rolledBack, verified = readHintStatus(t, ctx, tuner, retiredID)
-	if status != "retired" {
-		t.Errorf("retired hint status = %q, want retired", status)
+	status, rolledBack, verified = readHintStatus(t, ctx, tuner, agedID)
+	if status == "retired" || status == "broken" {
+		t.Errorf("aged hint status = %q, want it kept installed", status)
 	}
-	if rolledBack {
-		t.Error("retired hint rolled_back_at should remain NULL")
+	if rolledBack || verified {
+		t.Errorf("aged hint rolled_back=%v verified=%v, want neither", rolledBack, verified)
 	}
-	if !verified {
-		t.Error("retired hint verified_at should be set")
+	if !hintReverifyDue(t, ctx, pool, agedID) {
+		t.Error("aged hint should be stamped reverify_due")
 	}
 
 	status, rolledBack, verified = readHintStatus(t, ctx, tuner, brokenID)

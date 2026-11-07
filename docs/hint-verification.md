@@ -270,6 +270,53 @@ The hint is accepted by pg_hint_plan (confirmed via `pg_hint_plan.debug_print`).
 
 **Verdict:** `external merge Disk: 22MB` &rarr; `quicksort Memory: 125MB`. Temp I/O eliminated entirely (0 temp reads/writes).
 
+### How the tuner sizes a stat-based spill hint
+
+When no captured plan shows the sort or hash that spills, the tuner sizes the hint from
+`pg_stat_statements`. Its counters are cumulative, so the tuner sizes from the interval
+between two tuner cycles, never from the totals:
+
+1. Each cycle it keeps a baseline of `calls` and `temp_blks_written` for each statement and
+   role (`queryid`, `userid`). The first sighting of a statement only records the baseline,
+   so no `stat_temp_spill` finding appears on the first cycle after startup. A fall in either
+   counter (`pg_stat_statements_reset()`) starts a new baseline and gives no finding.
+2. The per-call spill is `Δtemp_blks_written × block_size / Δcalls`. `block_size` is read from
+   the server each cycle.
+3. The baseline `work_mem` is the one the statement's role runs with: its role-in-database
+   setting, then its role setting, then the database setting, then the `ALTER ROLE ALL`
+   setting (`pg_db_role_setting`), then the server default (`pg_settings.reset_val`).
+   pg_sage's own session value is not used. When pg_sage's own login role has a `work_mem`
+   setting, or pg_sage passes one as a connection option, the server default is hidden
+   from it: a role with no setting of its own then has no known baseline and gets no
+   stat-spill hint. A per-call spill at or below the baseline gives no hint.
+4. The hint doubles the baseline until it is at least twice the per-call spill. There is no
+   64 MB floor. Example: 1,000 calls that wrote 2,048 blocks each spill 16 MB per call; at a
+   4 MB baseline the hint is `Set(work_mem "32MB")`. 100,000 calls of 1 MB each give no
+   hint at 4 MB.
+5. No hint is emitted when the result, after the cap below, is not above the baseline.
+6. A hint applies to every role that runs the statement, so no hint is emitted when another
+   role seen running the same `queryid` in that cycle has a higher `work_mem`, or one the
+   tuner cannot read: the hint would lower that role's `work_mem`.
+
+The finding's `stat_spill_sizing` detail records each number in this arithmetic.
+
+### The per-query work_mem cap
+
+Every work_mem hint, from the deterministic rules or from the tuning agent, is capped at
+**min(`tuner.work_mem_max_mb`, 5% of host memory)**. This is the same 5% rule the config
+advisor applies to `ALTER SYSTEM SET work_mem`. One hint applies to every sort or hash node
+of every concurrent execution, multiplied by `hash_mem_multiplier`.
+
+- Deterministic hints above the cap are clamped to it. The finding's `work_mem_budget` detail
+  records the requested size, the cap and the host memory used.
+- The tuning agent's hints above 5% of host memory are refused ("above 5% of host memory").
+  A request within the cap that the tuner's 64 MB minimum for hint work_mem would lift above
+  it (on a host under about 1.3 GB) is set to the cap instead.
+  Its prompt cites the computed cap.
+- When host memory is unknown (no managed-cloud memory telemetry, for example on a
+  self-managed host), only `tuner.work_mem_max_mb` applies. Every work_mem hint is then
+  marked `approval_required`, so it waits for an operator.
+
 ---
 
 ## 9. Missing FK Index &rarr; CREATE INDEX
@@ -422,3 +469,79 @@ pg_sage's `CombineHints()` merges multiple prescriptions into a single hint stri
 | Hint Table | Transparent hint injection | `hint_plan.hints` INSERT | Bitmap &rarr; Index Scan |
 | Merge Join | Force join strategy | `MergeJoin(o l)` | Hash Join &rarr; Merge Join |
 | Combined Hints | Multiple symptoms | Combined hint string | Hash+Seq &rarr; Merge+Index |
+
+---
+
+## Hint lifecycle
+
+Every hint pg_sage records lives in `sage.query_hints`. Its `status` moves
+through the states below. The revalidation loop (`tuner.verify_after_apply`,
+every `tuner.revalidation_interval_hours`) reads `active` and `dormant` hints.
+It has no counterfactual yet (it does not EXPLAIN the query with and without
+the hint), so it never removes a hint for working or for being old.
+
+| Status | Meaning | Installed in `hint_plan.hints` |
+|--------|---------|--------------------------------|
+| `proposed` | The tuner recommended the hint; it waits for approval. | no |
+| `active` | The hint is installed and its query ran since the last revalidation. | yes |
+| `dormant` | The hint is installed, but its query has not run since the last revalidation, or its queryid is absent from `pg_stat_statements`. | yes |
+| `retired` | The query case's retire action retired the hint. Revalidation no longer retires. | removed through the `retire_query_hint` action |
+| `broken` | An index the hint names no longer exists. | removed through the `retire_query_hint` action |
+| `rolled_back` | The installed hint of an `active` or `dormant` row was removed (rollback or operator). | no |
+
+Transitions:
+
+| From | To | When |
+|------|----|------|
+| `proposed` | `active` | The executor installed exactly this hint text for the query (reconciled at the start of each tuner cycle). |
+| `active` | `dormant` | A revalidation pass sees no new calls since the last pass, or the queryid is absent from `pg_stat_statements` (an eviction, or a query that stopped running). |
+| `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
+| `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
+| `active`, `dormant` | `rolled_back` | The row for the query no longer holds this hint's text: it was removed, or an operator replaced it with their own hint (reconciled at the start of each tuner cycle). |
+
+Two revalidation outcomes keep the status:
+
+- **Stats reset (`stats_reset`).** Each pass reads
+  `pg_stat_statements_info.stats_reset` (PostgreSQL 14+) and stores it in
+  `sage.query_hints.pgss_reset_at`. When the stored value is older, or the
+  summed calls went down (a `pg_stat_statements_reset()`, a crash, or an
+  entry eviction), the pass re-baselines `calls_at_last_check` and keeps the
+  hint as it was. A reset never marks a hint `broken` or `dormant`.
+- **Re-verification due (`age_reverify`).** Past
+  `tuner.hint_retirement_days` (default 14; `0` disables the rule) the pass
+  stamps `reverify_due` once. The hint stays installed; the counterfactual
+  check that will act on it is planned separately.
+
+Calls are summed over every `pg_stat_statements` row of the queryid in the
+current database (one row per role and toplevel flag), so two roles running
+the same statement cannot make the hint look idle. If `pg_stat_statements`
+or `pg_stat_statements_info` cannot be read, the pass counts an error and
+leaves the hint untouched (fail closed). Dormant hints count as covered:
+the tuner does not propose a hint again for their query.
+
+## Rollback and removal touch only pg_sage's own hint
+
+pg_sage's apply INSERT is a no-op when a `hint_plan.hints` row already exists
+for the query (for example an operator's own hint). So every DELETE pg_sage
+builds for `hint_plan.hints` (an action's rollback, and the
+`query_hint_retirement` removal of a `retired` or `broken` hint) matches the
+query id, `application_name = ''` and the exact hint text pg_sage recorded:
+
+```sql
+DELETE FROM hint_plan.hints
+ WHERE query_id = 4242 AND application_name = ''
+   AND hints = $sageqh$HashJoin(o l)$sageqh$
+```
+
+Rolling back an action whose INSERT changed nothing deletes nothing, and the
+operator's row stays. The removal finding is emitted only while the installed
+row still holds the retired hint's text.
+
+Actions recorded by earlier releases carry a rollback DELETE without the
+hint-text predicate. At rollback time (manual or automatic) the executor
+rewrites it to the scoped form, using the text in `sage.query_hints` for that
+query: the text the action's own INSERT installed, or, when the INSERT cannot
+be read, the query's only recorded text. If no single recorded text matches,
+the rollback is refused with reason `hint_text_unknown` (manual: the API
+returns the error; automatic: the action ends `rollback_skipped`). Nothing is
+deleted; remove the row from `hint_plan.hints` by hand if it is pg_sage's.

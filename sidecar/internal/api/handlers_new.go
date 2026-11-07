@@ -68,6 +68,13 @@ func forecastsHandler(
 	}
 }
 
+// queryHintStatuses are the sage.query_hints statuses the status filter
+// accepts (docs/hint-verification.md "Hint lifecycle").
+var queryHintStatuses = map[string]bool{
+	"proposed": true, "active": true, "dormant": true, "retired": true,
+	"broken": true, "rolled_back": true,
+}
+
 func queryHintsHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
@@ -77,8 +84,7 @@ func queryHintsHandler(
 			return
 		}
 		status := r.URL.Query().Get("status")
-		if status != "" && status != "active" &&
-			status != "retired" && status != "broken" {
+		if status != "" && !queryHintStatuses[status] {
 			jsonError(w, "invalid status", http.StatusBadRequest)
 			return
 		}

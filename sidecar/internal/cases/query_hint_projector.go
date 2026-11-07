@@ -105,10 +105,12 @@ func queryHintWhyNow(h SourceQueryHint) string {
 	switch h.Status {
 	case "active":
 		return "hint is active and needs verification"
+	case "dormant":
+		return "hint is installed but its query has not run since the last revalidation"
 	case "broken":
 		return "hint broke and needs cleanup or replacement"
 	case "retired":
-		return "hint retired after revalidation"
+		return "hint retired by the retire_query_hint action"
 	default:
 		return "query tuning experiment needs review"
 	}

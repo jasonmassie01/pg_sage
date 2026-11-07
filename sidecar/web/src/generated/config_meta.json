@@ -2951,7 +2951,7 @@
   "tuner.hint_retirement_days": {
     "type": "int",
     "default": 14,
-    "doc": "Hints older than this many days are retired unconditionally, regardless of current query behavior. Safety net against stale hint accumulation.",
+    "doc": "Hints older than this many days are stamped due for re-verification (reverify_due); they stay installed. 0 disables the age rule. Default 14.",
     "class": "derivable"
   },
   "tuner.llm_enabled": {
@@ -3035,7 +3035,7 @@
   "tuner.verify_after_apply": {
     "type": "bool",
     "default": true,
-    "doc": "Run the daily hint revalidation loop. Removes hints that have become redundant, harmful, or broken. Requires pg_hint_plan.",
+    "doc": "Run the daily hint revalidation loop: broken when a named index is gone, dormant while the query is idle, re-baselined after a stats reset. Never removes a working hint. Requires pg_hint_plan.",
     "warning": "v0.8.5 activates a real background cycle here — upgrade note: if you want v0.8.4 inert behavior, set this to false before upgrading.",
     "class": "safety_critical"
   },

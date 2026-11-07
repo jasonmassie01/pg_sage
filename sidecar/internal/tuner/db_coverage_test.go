@@ -129,7 +129,7 @@ func TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema(t *testing.T) {
 		t.Fatalf("hint mismatch: got %q", hints)
 	}
 
-	deleteSQL := BuildDeleteSQL(queryID)
+	deleteSQL := BuildDeleteSQL(queryID, "IndexScan(t idx_t_id)")
 	if _, err := pool.Exec(ctx, deleteSQL); err != nil {
 		t.Fatalf("execute generated delete SQL: %v\nSQL: %s", err, deleteSQL)
 	}

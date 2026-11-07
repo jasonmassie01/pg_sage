@@ -262,6 +262,9 @@ func (e *Executor) RollbackAction(
 	if err != nil {
 		return err
 	}
+	if rollbackSQL, err = scopeHintRollback(ctx, e.pool, actionID, rollbackSQL); err != nil {
+		return fmt.Errorf("rollback refused: %w", err)
+	}
 	release, err := e.acquireDDLSlot(ctx)
 	if err != nil {
 		return err
