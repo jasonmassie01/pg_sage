@@ -91,6 +91,19 @@ Go to **Fleet** and add:
 
 Use **Test Connection** before saving each database.
 
+### Tenant boundary for fleet learning
+
+Fleet learning (look-alike databases and shared action priors) only compares
+databases inside one boundary. A database tagged `tenant=<name>` belongs to
+that tenant's boundary (the name is case-insensitive); untagged databases
+share one boundary. This applies to databases added here (stored in the meta
+database) exactly as to `databases[].tags` in YAML. A tag edit on a running
+database needs no restart: an edit saved here applies at once, a change
+written to `sage.databases` by other means applies at the next reconcile
+pass, and the next fingerprint cycle regroups the database. At startup
+pg_sage logs the count of databases per boundary, for example
+`fleet-learning boundaries: shared=1 tenant:acme=2`.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |
@@ -102,6 +115,11 @@ Use **Test Connection** before saving each database.
 | Settings | Emergency controls and Shadow Mode report |
 
 The old `#/findings` route remains a compatibility alias for **Cases**.
+
+**Stop all** in the header is a fleet-wide stop. A database you add while it
+holds starts stopped, and only **Resume all** lifts it. Resuming a single
+database returns `409 fleet-wide stop is active: resume all first`. See
+[Fleet-wide stop](security.md#fleet-wide-stop).
 
 ## 6. API Checks
 

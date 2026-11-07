@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -50,15 +51,28 @@ func classifyMetaRecord(
 	if plan.connStr, err = state.Store.GetConnectionString(ctx, id); err != nil {
 		return plan, err
 	}
+	plan.kind = metaChangeKind(plan.rec, current, plan.connStr)
+	return plan, nil
+}
+
+// metaChangeKind classifies a record against its running generation: added,
+// rebuilt, updated (applied in place) or "" (unchanged). A tag edit is an
+// in-place update whether or not the runtime has an executor, so the next
+// fleet-learning cycle sees the new tenant boundary.
+func metaChangeKind(
+	rec store.DatabaseRecord, current *fleet.DatabaseInstance, connStr string,
+) string {
 	switch {
 	case current == nil:
-		plan.kind = "added"
-	case metaNeedsRebuild(plan.rec, current, plan.connStr):
-		plan.kind = "rebuilt"
-	case metaPolicyChanged(plan.rec, current):
-		plan.kind = "updated"
+		return "added"
+	case metaNeedsRebuild(rec, current, connStr):
+		return "rebuilt"
+	case metaPolicyChanged(rec, current):
+		return "updated"
+	case !config.SameTags(recordTags(rec.Tags), current.Config.Tags):
+		return "updated"
 	}
-	return plan, nil
+	return ""
 }
 
 // metaNeedsRebuild compares the record with the running generation. A
@@ -181,16 +195,26 @@ func (p *metaPlan) candidateError() error {
 	return fmt.Errorf("%w: db %q: %w", errMetaRuntimeCandidate, p.rec.Name, p.buildErr)
 }
 
-// applyMetaPolicy adopts a record's trust level and execution mode in
+// applyMetaPolicy adopts a record's tags, trust level and execution mode in
 // place. sage.databases is the durable policy; the settings API writes it
-// and applies it under the same lifecycle reservation.
+// and applies it under the same lifecycle reservation. A runtime without an
+// executor takes the config (tags included) and has no policy to apply.
 func applyMetaPolicy(
 	op *fleet.LifecycleMutation, rec store.DatabaseRecord, current *fleet.DatabaseInstance,
 ) error {
-	previous := current.Executor.TrustLevel()
 	if err := op.UpdateMetadata(current, storeRecordToDBConfig(rec)); err != nil {
 		return err
 	}
+	if current.Executor == nil {
+		return nil
+	}
+	return applyMetaExecutorPolicy(rec, current)
+}
+
+// applyMetaExecutorPolicy moves the executor to the record's trust level and
+// execution mode, logging any raise in trust.
+func applyMetaExecutorPolicy(rec store.DatabaseRecord, current *fleet.DatabaseInstance) error {
+	previous := current.Executor.TrustLevel()
 	if rec.TrustLevel != "" {
 		if err := current.Executor.SetTrustLevel(rec.TrustLevel); err != nil {
 			return fmt.Errorf("db %q: %w", rec.Name, err)

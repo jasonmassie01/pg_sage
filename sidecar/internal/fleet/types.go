@@ -52,6 +52,12 @@ type DatabaseInstance struct {
 	// stopsPending counts stops latched in memory whose durable flag is
 	// not yet written; an overlapping resume must not release them.
 	stopsPending int
+	// stopUnsaved marks a latched stop whose durable flag could not be
+	// written: the reconcile retries the write and never releases it.
+	// restoredFleet marks a runtime restored with emergency_stop_scope
+	// 'fleet'. Both are guarded by the manager lock.
+	stopUnsaved   bool
+	restoredFleet bool
 	// Cancel stops the per-instance goroutines (collector, analyzer,
 	// orchestrator). Set by bootstrap code; called by RemoveInstance.
 	// EmergencyStop does not call Cancel because monitoring should
@@ -261,18 +267,21 @@ func (m *DatabaseManager) ReplaceInstanceIfCurrent(
 	return awaitInstanceTeardown(ctx, old)
 }
 
+// commitReplacement publishes candidate in old's place and returns the
+// runtimes whose durable stop must now be written (an inherited stop, or
+// the fleet latch).
 func (m *DatabaseManager) commitReplacement(
 	oldName string,
 	old, candidate *DatabaseInstance,
-) (bool, error) {
+) ([]*DatabaseInstance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if current := m.instances[oldName]; current != old {
-		return false, ErrInstanceConflict
+		return nil, ErrInstanceConflict
 	}
 	if candidate.Name != oldName {
 		if m.instances[candidate.Name] != nil {
-			return false, replacementConflict(candidate.Name)
+			return nil, replacementConflict(candidate.Name)
 		}
 		delete(m.instances, oldName)
 	}
@@ -284,7 +293,7 @@ func (m *DatabaseManager) commitReplacement(
 			m.primaryName = m.firstConnectedNameLocked()
 		}
 	}
-	return inherited, nil
+	return m.applyFleetLatchLocked(candidate, inherited), nil
 }
 
 func replacementConflict(name string) error {

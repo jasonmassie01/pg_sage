@@ -47,6 +47,9 @@ func afterDelay(ctx context.Context, d time.Duration, fn func()) {
 // fleetLearningScope names the fleet a control database serves: every
 // sidecar of the same fleet computes the same scope, different fleets
 // different ones. YAML fleets hash their database names (never stored).
+// It is computed once, at startup, where each elector takes its lease; a
+// later call would read a config a reload may have changed, so fenced jobs
+// take the scope from the elector's Fence token instead.
 func fleetLearningScope(c *config.Config) string {
 	switch {
 	case c == nil:
@@ -83,19 +86,22 @@ func fleetLeaderAllows(job string) bool {
 }
 
 // fleetLearningSources lists the fleet's connected databases with their
-// sharing boundary.
+// sharing boundary. Tags are read through InstanceConfigs, under the
+// manager lock, because a meta-DB tag edit swaps Config in place.
 func fleetLearningSources(mgr *fleet.DatabaseManager) func() []fleetlearn.DatabaseSource {
 	return func() []fleetlearn.DatabaseSource {
 		if mgr == nil {
 			return nil
 		}
+		configs := mgr.InstanceConfigs()
 		var out []fleetlearn.DatabaseSource
 		for name, inst := range mgr.Instances() {
-			if inst == nil || inst.Pool == nil {
+			cfg, ok := configs[name]
+			if inst == nil || inst.Pool == nil || !ok {
 				continue
 			}
 			out = append(out, fleetlearn.DatabaseSource{Name: name, Pool: inst.Pool,
-				Boundary: fleetlearn.Boundary(inst.Config.Tags)})
+				Boundary: fleetlearn.Boundary(cfg.Tags)})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return out
@@ -149,11 +155,11 @@ func runFleetLearningCycle(ctx context.Context) {
 	}
 	fence := fleetlearn.Fence{}
 	if fleetLeader != nil {
-		holder, epoch, ok := fleetLeader.Fence()
+		tok, ok := fleetLeader.Fence()
 		if !ok {
 			return
 		}
-		fence = fleetlearn.Fence{Holder: holder, Epoch: epoch}
+		fence = fleetlearn.Fence{Holder: tok.Holder, Epoch: tok.Epoch}
 	}
 	res, err := svc.RunCycle(ctx, fence)
 	if errors.Is(err, fleetlearn.ErrFenced) {

@@ -465,10 +465,13 @@ SELECT sage.emergency_stop(true, 'dba-on-call');
 ```
 
 Every authorization reads the flag, so no new work starts once it is set. The
-SQL stop does not reach the running process directly: statements already
-running are cancelled when the sidecar picks the flag up, or cancel them
-yourself with `pg_cancel_backend` on the pg_sage sessions in
-`pg_stat_activity`.
+SQL stop does not reach the running process directly: the sidecar re-reads
+every database's flag every 10 seconds, then shows the database as stopped
+and cancels the statements it is running. To cancel sooner, use
+`pg_cancel_backend` on the pg_sage sessions in `pg_stat_activity`. The same
+re-read releases a database resumed from SQL. It never releases a stop that
+the sidecar could not save (it retries the write instead), and it never
+releases a database held by a fleet-wide stop (see below).
 
 Resume with the web UI resume button, the authenticated REST API:
 
@@ -494,9 +497,44 @@ DO UPDATE SET value = EXCLUDED.value, updated_at = now(),
               updated_by = EXCLUDED.updated_by;
 ```
 
-A plain `UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop'`
-changes nothing on a database whose stop was never set through the UI or API:
-there is no row to update.
+From v2.5.1, bootstrap seeds `emergency_stop = 'false'` (`updated_by =
+'bootstrap'`), so a plain
+`UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop'` stops
+the database. Like the upsert above, it writes no `sage.config_audit` row:
+prefer `sage.emergency_stop()`. On a schema older than v2.5.1 that was never
+stopped through the UI or API, the plain `UPDATE` matches no row and changes
+nothing.
+
+The stop response lists, per database, the `sage.action_log` ids of the
+running actions it cancelled (`cancelled_actions`) and any cancel it could
+not confirm (`cancel_failures`). A cancel failure does not undo the stop.
+
+### Fleet-wide stop
+
+**Stop all** (the API call without `?database=`) is a fleet-wide latch, not
+only a stop of the databases that exist when you press it:
+
+- Every database added while it holds is stopped too, whether it is added in
+  the UI, by CSV import, by the meta-database reconcile or by a config
+  reload. The overview reports the latch as `fleet_stopped`,
+  `fleet_stopped_by` and `fleet_stopped_at` in the `summary` of
+  `GET /api/v1/databases`, and the header badge reads "Fleet stopped by ...".
+- Only **Resume all** lifts it. Resuming one database while it holds returns
+  `409 fleet-wide stop is active: resume all first`, and a per-database
+  `sage.emergency_stop(false, ...)` is overwritten with a stop at the next
+  re-read.
+- If **Resume all** cannot clear the flag of every database, the databases
+  it cleared run, the others stay stopped, and the latch stays on: new
+  databases still come up stopped. Run **Resume all** again.
+- It survives a restart. In meta-database mode the latch is the meta
+  database's `sage.config` row `fleet_emergency_stop`. If that row cannot be
+  read at startup, the whole fleet starts stopped (by `system`). A YAML fleet
+  has no control database, so each stopped database also carries
+  `emergency_stop_scope = 'fleet'`. At startup, a database whose
+  `emergency_stop` is `'true'` with that scope re-latches the whole fleet.
+
+A stop of one database is unchanged: it stops that database only, and a
+per-database resume lifts it.
 
 ---
 

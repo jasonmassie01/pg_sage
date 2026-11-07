@@ -145,19 +145,18 @@ func startAgentGovernance(ctx context.Context, fleetControl *pgxpool.Pool,
 		"scan started")
 }
 
-// governanceLeader decides and fences the governance jobs.
+// governanceLeader decides and fences the governance jobs; the fence's
+// scope is the elector's own lease scope.
 type governanceLeader struct {
 	elector *leader.Elector
-	scope   string
 }
 
 func agentGovernanceLeader(ctx context.Context, control,
 	fleetControl *pgxpool.Pool) governanceLeader {
-	scope := fleetLearningScope(cfg)
 	if control == fleetControl || cfg.FleetLearning.LeaderLeaseSeconds <= 0 {
-		return governanceLeader{elector: fleetLeader, scope: scope}
+		return governanceLeader{elector: fleetLeader}
 	}
-	scope = "agents:" + scope
+	scope := "agents:" + fleetLearningScope(cfg)
 	e := leader.NewElector(leader.NewPostgresStore(control), scope, leader.HolderID(),
 		cfg.FleetLearning.LeaderLease(), leader.WithLogger(logStructuredWrapper))
 	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -166,7 +165,7 @@ func agentGovernanceLeader(ctx context.Context, control,
 	}
 	cancel()
 	go e.Run(ctx)
-	return governanceLeader{elector: e, scope: scope}
+	return governanceLeader{elector: e}
 }
 
 // fence returns the lease to write under; ok is false on a follower.
@@ -174,11 +173,11 @@ func (g governanceLeader) fence(job string) (envbind.Fence, bool) {
 	if g.elector == nil {
 		return envbind.Fence{}, fleetLeaderAllows(job)
 	}
-	holder, epoch, ok := g.elector.Fence()
+	tok, ok := g.elector.Fence()
 	if !ok {
 		return envbind.Fence{}, false
 	}
-	return envbind.Fence{Scope: g.scope, Holder: holder, Epoch: epoch}, true
+	return envbind.Fence{Scope: tok.Scope, Holder: tok.Holder, Epoch: tok.Epoch}, true
 }
 
 func governedDatabases(ctx context.Context, svc *envbind.Service,

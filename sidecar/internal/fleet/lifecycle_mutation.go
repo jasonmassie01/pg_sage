@@ -56,13 +56,11 @@ func (op *LifecycleMutation) PublishReplacement(
 ) error {
 	m := op.manager
 	m.restorePersistedStop(candidate)
-	inherited, err := m.commitReplacement(oldName, old, candidate)
+	pending, err := m.commitReplacement(oldName, old, candidate)
 	if err != nil {
 		return err
 	}
-	if inherited {
-		m.persistInheritedStop(candidate)
-	}
+	m.persistInheritedStops(pending)
 	return nil
 }
 
@@ -89,14 +87,17 @@ func (op *LifecycleMutation) PublishRegistration(
 	m := op.manager
 	m.restorePersistedStop(inst)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.instances[inst.Name] != nil {
+		m.mu.Unlock()
 		return replacementConflict(inst.Name)
 	}
 	if m.primaryName == "" && inst.Pool != nil {
 		m.primaryName = inst.Name
 	}
 	m.instances[inst.Name] = inst
+	pending := m.applyFleetLatchLocked(inst, false)
+	m.mu.Unlock()
+	m.persistInheritedStops(pending)
 	return nil
 }
 

@@ -353,6 +353,7 @@ export function Layout({
               selectedDB={selectedDB}
               canControl={canReviewActions}
               summaryStopped={emergencyStopped}
+              fleetStop={fleetData?.summary}
               onChanged={onFleetChanged || refetchFleetOwn}
             />
             {trustLevel && <TrustBadge level={trustLevel} />}

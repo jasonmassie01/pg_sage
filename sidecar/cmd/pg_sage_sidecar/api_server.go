@@ -17,6 +17,9 @@ func initFleetAndAPI() {
 	if fleetMgr == nil {
 		fleetMgr = fleet.NewManager(cfg)
 	}
+	// fleet-09: follow stops and resumes made in SQL (sage.emergency_stop)
+	// and retry stops that could not be saved.
+	go fleetMgr.RunStopReconcile(shutdownCtx, fleet.StopReconcileInterval)
 
 	// Every mode's init registered its database runtimes.
 	startMCPRuntime()

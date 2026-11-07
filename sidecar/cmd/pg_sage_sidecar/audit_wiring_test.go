@@ -5,12 +5,16 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/evidence"
+	"github.com/pg-sage/sidecar/internal/leader"
+	"github.com/pg-sage/sidecar/internal/siem"
 )
 
 // Sinks are built from configuration; a token comes from its environment
@@ -97,5 +101,78 @@ func TestSIEMStatusFunc(t *testing.T) {
 	auditExport.Store(nil)
 	if got := f(); len(got) != 0 {
 		t.Fatalf("status before the exporter starts = %v", got)
+	}
+}
+
+// preserveAuditFenceGlobals restores cfg and fleetLeader after a test.
+func preserveAuditFenceGlobals(t *testing.T) {
+	t.Helper()
+	oldCfg, oldLeader := cfg, fleetLeader
+	t.Cleanup(func() { cfg, fleetLeader = oldCfg, oldLeader })
+}
+
+func yamlFleetConfig(names ...string) *config.Config {
+	c := &config.Config{Mode: "fleet"}
+	for _, n := range names {
+		c.Databases = append(c.Databases, config.DatabaseConfig{Name: n})
+	}
+	return c
+}
+
+// The SIEM fence is the lease the elector holds: a reload that changes
+// the YAML fleet's database list, published while export passes run,
+// never moves the fence to a scope with no lease row (fleet-02).
+func TestAuditLeaderFenceKeepsTheLeaseScopeAcrossPublish(t *testing.T) {
+	preserveAuditFenceGlobals(t)
+	cfg = yamlFleetConfig("a", "b")
+	scope := fleetLearningScope(cfg)
+	fleetLeader = leader.NewElector(stubLease{held: true}, scope, "me", time.Minute)
+	if err := fleetLeader.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	want := siem.Fence{Scope: scope, Holder: "me", Epoch: 1}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 300; i++ {
+			next := yamlFleetConfig("a", "b", "c"+strings.Repeat("x", i%7))
+			fleetDatabaseSettings{active: next}.publish()
+		}
+	}()
+	for i := 0; i < 300; i++ {
+		if got, ok := auditLeaderFence(); !ok || got != want {
+			t.Errorf("pass %d: fence = %+v,%v, want %+v", i, got, ok, want)
+			break
+		}
+	}
+	wg.Wait()
+	if got, ok := auditLeaderFence(); !ok || got != want {
+		t.Fatalf("after the reload: fence = %+v,%v, want %+v (lease scope)", got, ok, want)
+	}
+	if fleetLearningScope(cfg) == scope {
+		t.Fatal("fixture: the published fleet must hash to another scope")
+	}
+}
+
+// Without election export runs unfenced; a follower does not export.
+func TestAuditLeaderFenceDisabledAndFollower(t *testing.T) {
+	preserveAuditFenceGlobals(t)
+	cfg = yamlFleetConfig("a")
+	fleetLeader = nil
+	if f, ok := auditLeaderFence(); !ok || f != (siem.Fence{}) {
+		t.Fatalf("election disabled: fence = %+v,%v, want unfenced pass", f, ok)
+	}
+	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
+	_ = fleetLeader.Tick(context.Background())
+	if f, ok := auditLeaderFence(); ok || f != (siem.Fence{}) {
+		t.Fatalf("follower: fence = %+v,%v, want no pass", f, ok)
+	}
+	cfg = nil
+	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
+	_ = fleetLeader.Tick(context.Background())
+	want := siem.Fence{Scope: "s", Holder: "me", Epoch: 1}
+	if f, ok := auditLeaderFence(); !ok || f != want {
+		t.Fatalf("nil config: fence = %+v,%v, want %+v", f, ok, want)
 	}
 }

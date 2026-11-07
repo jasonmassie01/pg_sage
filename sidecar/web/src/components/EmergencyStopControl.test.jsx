@@ -204,3 +204,52 @@ describe('header emergency stop: resume', () => {
       .toHaveAttribute('datetime', STOPPED_AT)
   })
 })
+
+describe('header emergency stop: fleet-wide stop (fleet-09)', () => {
+  const fleetStop = {
+    emergency_stopped: true, fleet_stopped: true,
+    fleet_stopped_by: 'lead@example.com', fleet_stopped_at: STOPPED_AT,
+  }
+
+  it('names the fleet stop and who pressed it', () => {
+    renderControl({
+      databases: [stopped('orders_db'), stopped('late_db', 'lead@example.com')],
+      selectedDB: 'all', summaryStopped: true, fleetStop,
+    })
+    const badge = screen.getByTestId('emergency-stop-badge')
+    expect(badge).toHaveTextContent('Fleet stopped by lead@example.com')
+    expect(badge.querySelector('time'))
+      .toHaveAttribute('datetime', STOPPED_AT)
+  })
+
+  it('shows the fleet stop on a single selected database too', () => {
+    renderControl({ databases: [stopped('orders_db')], fleetStop })
+    expect(screen.getByTestId('emergency-stop-badge'))
+      .toHaveTextContent('Fleet stopped by lead@example.com')
+  })
+
+  it('keeps the per-database badge when no fleet stop holds', () => {
+    renderControl({
+      databases: [stopped('orders_db')],
+      fleetStop: { emergency_stopped: true, fleet_stopped: false },
+    })
+    const badge = screen.getByTestId('emergency-stop-badge')
+    expect(badge).not.toHaveTextContent('Fleet stopped')
+    expect(badge).toHaveTextContent('orders_db STOPPED')
+  })
+
+  it('reports the 409 when one database is resumed during a fleet stop',
+    async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false, status: 409,
+        json: async () => ({
+          error: 'fleet-wide stop is active: resume all first',
+        }),
+      })
+      renderControl({ databases: [stopped('orders_db')], fleetStop })
+      fireEvent.click(screen.getByTestId('header-emergency-resume'))
+      fireEvent.click(screen.getByTestId('header-emergency-resume-confirm'))
+      expect(await screen.findByRole('alert'))
+        .toHaveTextContent('fleet-wide stop is active: resume all first')
+    })
+})

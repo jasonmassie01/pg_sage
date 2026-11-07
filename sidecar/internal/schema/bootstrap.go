@@ -444,7 +444,8 @@ func migrationStatements() []string {
 		ddlGuardPGAuditEvents, ddlGuardIdentityBindings, ddlSIEMCursor,
 		ddlQueryHintsLifecycle, // tuning-01
 		ddlVerificationObservationRetry,
-		ddlEmergencyStopFunction)
+		ddlEmergencyStopFunction,
+		ddlEmergencyStopSeed)
 }
 
 // ---------------------------------------------------------------------------

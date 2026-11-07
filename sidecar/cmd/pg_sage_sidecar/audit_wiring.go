@@ -129,7 +129,10 @@ func buildSIEMSinks(cfgs []config.AuditSIEMSink) ([]siem.SinkConfig, error) {
 	return out, nil
 }
 
-// auditLeaderFence lets the leader export, fenced by its lease epoch.
+// auditLeaderFence lets the leader export, fenced by the lease it holds.
+// The scope comes from the elector, never from cfg: a YAML reload changes
+// cfg.Databases, and with it the scope fleetLearningScope would compute,
+// but not the lease row the elector renews (fleet-02).
 func auditLeaderFence() (siem.Fence, bool) {
 	if !fleetLeaderAllows("SIEM export") {
 		return siem.Fence{}, false
@@ -137,11 +140,11 @@ func auditLeaderFence() (siem.Fence, bool) {
 	if fleetLeader == nil {
 		return siem.Fence{}, true
 	}
-	holder, epoch, ok := fleetLeader.Fence()
+	tok, ok := fleetLeader.Fence()
 	if !ok {
 		return siem.Fence{}, false
 	}
-	return siem.Fence{Scope: fleetLearningScope(cfg), Holder: holder, Epoch: epoch}, true
+	return siem.Fence{Scope: tok.Scope, Holder: tok.Holder, Epoch: tok.Epoch}, true
 }
 
 func startChainVerification(ctx context.Context, sources func() []auditjob.Source) {
