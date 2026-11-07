@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -142,13 +143,23 @@ func legacyIndexes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[ui
 
 // sameXIDAge copies want's xid age into got when got is at most a few
 // thousand transactions older: age(relfrozenxid) moves with every
-// transaction anywhere in the cluster between the two reads.
+// transaction anywhere in the cluster between the two reads. The legacy
+// view reads age(relfrozenxid) of the heap only, which is 2147483647 for
+// a partitioned parent (relfrozenxid 0); the rewrite reads it as unknown,
+// -1 (vacuum-01). The rewrite's relkind and mxid_age have no legacy
+// column: they are asserted by TestCollectTables_PartitionedParentAgesUnknown
+// and copied here.
 func sameXIDAge(t *testing.T, key string, got *TableStats, want TableStats) {
 	t.Helper()
-	if d := got.XIDAge - want.XIDAge; d < 0 || d > 5000 {
+	if got.Relkind == "p" {
+		if want.XIDAge != math.MaxInt32 || got.XIDAge != -1 || got.MXIDAge != -1 {
+			t.Errorf("%s partitioned parent xid_age %d mxid_age %d (legacy %d), "+
+				"want -1/-1 (legacy 2147483647)", key, got.XIDAge, got.MXIDAge, want.XIDAge)
+		}
+	} else if d := got.XIDAge - want.XIDAge; d < 0 || d > 5000 {
 		t.Errorf("%s xid_age %d, legacy %d", key, got.XIDAge, want.XIDAge)
 	}
-	got.XIDAge = want.XIDAge
+	got.XIDAge, got.Relkind, got.MXIDAge = want.XIDAge, want.Relkind, want.MXIDAge
 }
 
 func asJSON(t *testing.T, v any) string {

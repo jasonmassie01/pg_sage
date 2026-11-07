@@ -107,7 +107,10 @@ SELECT attname::text FROM pg_attribute
 // cursor on every page (measured.md M1: 114 ms per 1,000-row page on
 // lifeos). Sizes are relpages estimates (heap + TOAST; summed index
 // pages): no relation is opened or stat()ed here; the collector measures
-// the top-N exactly afterwards.
+// the top-N exactly afterwards. xid_age is the older of the heap's and its
+// TOAST table's age(relfrozenxid); xid_age and mxid_age skip a zero
+// (non-normal) XID, whose age() is 2147483647, and are -1 when unknown:
+// a partitioned parent has no storage, so both of its horizons are 0.
 const tableStatsSQL = sageTag + `
 SELECT n.nspname, c.relname,
        pg_stat_get_numscans(c.oid), pg_stat_get_tuples_returned(c.oid),
@@ -123,8 +126,14 @@ SELECT n.nspname, c.relname,
        (c.relpages::int8 + COALESCE(t.relpages, 0)::int8)
          * current_setting('block_size')::int8 AS table_bytes,
        COALESCE(ix.pages, 0) * current_setting('block_size')::int8 AS index_bytes,
-       c.relpersistence::text,
-       age(c.relfrozenxid) AS xid_age, c.oid
+       c.relpersistence::text, c.relkind::text,
+       COALESCE(GREATEST(
+         CASE WHEN c.relfrozenxid <> '0'::xid THEN age(c.relfrozenxid) END,
+         CASE WHEN t.relfrozenxid <> '0'::xid THEN age(t.relfrozenxid) END),
+         -1)::int8 AS xid_age,
+       COALESCE(CASE WHEN c.relminmxid <> '0'::xid THEN mxid_age(c.relminmxid) END,
+         -1)::int8 AS mxid_age,
+       c.oid
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_class t ON t.oid = c.reltoastrelid

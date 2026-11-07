@@ -56,7 +56,7 @@ All findings include Category, Severity, ObjectType, RecommendedSQL (if applicab
 |----------|--------|---------|-----------|-----------|--------------|
 | autovacuum_tuning | rules_autovacuum.go | Write-heavy table | safe | ALTER TABLE SET scale_factor | YES (8d) |
 | table_bloat | rules_vacuum.go:42 | Dead >10% | safe | VACUUM | YES (8d) |
-| wraparound_freeze | rules_wraparound.go | XIDAge >150M | safe | VACUUM (FREEZE) | YES (8d) |
+| wraparound_freeze | rules_wraparound_freeze.go | XIDAge >=150M (older of heap and TOAST; leaves only, never a partitioned parent) | safe | VACUUM (FREEZE) | YES (8d); a VACUUM of a partitioned parent from any producer is queued for approval |
 | xid_wraparound | rules_vacuum.go:113 | DB age >threshold | moderate | Diagnostic query | NO |
 
 ### Statistics (1 category)

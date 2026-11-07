@@ -92,7 +92,15 @@ type TableStats struct {
 	TableBytes       int64      `json:"table_bytes"`
 	IndexBytes       int64      `json:"index_bytes"`
 	Relpersistence   string     `json:"relpersistence"`
-	XIDAge           int64      `json:"xid_age"`
+	// Relkind is pg_class.relkind: r (table), m (materialized view) or p
+	// (partitioned parent, which has no storage of its own).
+	Relkind string `json:"relkind,omitempty"`
+	// XIDAge is the older of age(relfrozenxid) of the relation and of its
+	// TOAST table. MXIDAge is mxid_age(relminmxid). Both are -1 when
+	// unknown: a partitioned parent's relfrozenxid and relminmxid are 0,
+	// whose age PostgreSQL reports as 2147483647.
+	XIDAge  int64 `json:"xid_age"`
+	MXIDAge int64 `json:"mxid_age"`
 }
 
 // IsUnlogged returns true if the table has relpersistence = 'u'.
