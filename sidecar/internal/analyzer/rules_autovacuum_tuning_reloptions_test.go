@@ -265,7 +265,9 @@ func TestRuleAutovacuumTuning_WhitespacePaddedScaleFactor(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("padded 0.2: %d findings, want 1", len(got))
 	}
-	want := `ALTER TABLE "public"."events" SET (autovacuum_vacuum_scale_factor = 0.2);`
+	// vacuum-07: the padded text is restored verbatim (quoted), so the
+	// rollback leaves pg_class.reloptions exactly as it found it.
+	want := `ALTER TABLE "public"."events" SET (autovacuum_vacuum_scale_factor = ' 0.2 ');`
 	if got[0].RollbackSQL != want {
 		t.Errorf("RollbackSQL = %q, want %q", got[0].RollbackSQL, want)
 	}

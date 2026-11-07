@@ -125,8 +125,8 @@ func targetScaleFactor(liveRows int64) float64 {
 }
 
 // autovacuumOptions is what the rule needs from a table's reloptions.
-// scaleFactorText is the stored value without surrounding whitespace, so
-// a rollback restores the DBA's text ("0.10", not "0.1").
+// scaleFactorText is the stored value exactly as pg_class holds it, so a
+// rollback restores the DBA's text ("0.10", not "0.1"; " 0.10" quoted).
 type autovacuumOptions struct {
 	scaleFactor     float64
 	scaleFactorText string
@@ -162,12 +162,11 @@ func parseAutovacuumOptions(reloptions []string) (autovacuumOptions, bool) {
 		}
 		switch name {
 		case "autovacuum_vacuum_scale_factor":
-			text := strings.TrimSpace(value)
-			sf, err := strconv.ParseFloat(text, 64)
+			sf, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
 			if err != nil || math.IsNaN(sf) || math.IsInf(sf, 0) || sf < 0 {
 				return autovacuumOptions{}, false
 			}
-			out.scaleFactor, out.scaleFactorText, out.hasScaleFactor = sf, text, true
+			out.scaleFactor, out.scaleFactorText, out.hasScaleFactor = sf, value, true
 		case "autovacuum_enabled":
 			enabled, valid := parsePGBool(value)
 			if !valid {

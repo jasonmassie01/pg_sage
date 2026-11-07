@@ -29,12 +29,15 @@ func avRollback(t *testing.T, opts []string) string {
 func TestAutovacuumRollbackKeepsStoredText(t *testing.T) {
 	const prefix = `ALTER TABLE "public"."events" SET (autovacuum_vacuum_scale_factor = `
 	cases := map[string]string{
-		"0.10":  "0.10",
-		"0.2":   "0.2",
-		"1e-1":  "1e-1",
-		".5":    ".5",
-		"1":     "1",
-		"0.10 ": "0.10",
+		"0.10": "0.10",
+		"0.2":  "0.2",
+		"1e-1": "1e-1",
+		".5":   ".5",
+		"1":    "1",
+		// Whitespace PostgreSQL accepted inside a quoted value is kept:
+		// a bare rendering would drop it and change the stored text.
+		"0.10 ": "'0.10 '",
+		" 0.10": "' 0.10'",
 		// Parseable but not a plain decimal (strtod accepts hex): quoted,
 		// so PostgreSQL stores it verbatim and validates it on apply.
 		"0x1p-1": "'0x1p-1'",
@@ -95,10 +98,14 @@ func TestAutovacuumRollbackRestoresReloptionsOnRealPostgres(t *testing.T) {
 		CREATE TABLE vacuum07_rb.tuned (id int)
 		  WITH (autovacuum_vacuum_scale_factor = 0.10, fillfactor = 90);
 		CREATE TABLE vacuum07_rb.untuned (id int) WITH (fillfactor = 90);
+		CREATE TABLE vacuum07_rb.spaced (id int)
+		  WITH (autovacuum_vacuum_scale_factor = ' 0.10 ');
+		CREATE TABLE vacuum07_rb.hexed (id int)
+		  WITH (autovacuum_vacuum_scale_factor = '0x1p-1');
 		CREATE TABLE vacuum07_rb.bare (id int)`); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	for _, table := range []string{"tuned", "untuned", "bare"} {
+	for _, table := range []string{"tuned", "untuned", "spaced", "hexed", "bare"} {
 		before := readReloptions(t, ctx, pool, table)
 		stats := avChurning(before)
 		stats.SchemaName, stats.RelName = "vacuum07_rb", table
