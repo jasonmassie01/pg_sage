@@ -15,7 +15,8 @@ func (e *Executor) rollbackMonitorConfig(
 	authorize func(context.Context, string) bool,
 ) RollbackMonitorConfig {
 	cfg, _, _ := e.policySnapshot()
-	result := RollbackMonitorConfig{Authorize: authorize, Acquire: e.acquireDDLSlot}
+	result := RollbackMonitorConfig{Authorize: authorize, Acquire: e.acquireDDLSlot,
+		Track: e.trackRun}
 	if cfg != nil {
 		result.ThresholdPct = cfg.Trust.RollbackThresholdPct
 		result.WindowMinutes = cfg.Trust.RollbackWindowMinutes
@@ -39,19 +40,40 @@ func (e *Executor) manualRollbackAuthorizer() func(context.Context, string) bool
 	}
 }
 
-// standingRollbackAuthorizer authorizes an automatic rollback through the
-// standing gate, like the forward action.
+// standingRollbackAuthorizer is the yes/no view of standingRollbackDecider.
 func (e *Executor) standingRollbackAuthorizer(
 	finding analyzer.Finding,
 ) func(context.Context, string) bool {
+	decide := e.standingRollbackDecider(finding)
 	return func(ctx context.Context, rollbackSQL string) bool {
+		return decide(ctx, rollbackSQL).Allowed
+	}
+}
+
+// standingRollbackDecider authorizes an automatic rollback through the
+// standing gate, like the forward action. A rollback no action contract
+// classifies is withheld as such, before the gate, so the operator reads
+// it apart from a policy refusal.
+func (e *Executor) standingRollbackDecider(
+	finding analyzer.Finding,
+) func(context.Context, string) RollbackVerdict {
+	return func(ctx context.Context, rollbackSQL string) RollbackVerdict {
+		if _, ok := rollbackContractFor(finding.RecommendedSQL, rollbackSQL); !ok {
+			return RollbackVerdict{Reason: rollbackNoContract + ": no action contract " +
+				"classifies the rollback SQL; automatic rollback withheld (the operator " +
+				"rollback remains)"}
+		}
 		candidate := finding
 		candidate.RecommendedSQL = rollbackSQL
 		decision := e.evaluateRollbackPolicy(ctx, candidate)
 		// A rollback restores the prior state and never counted toward a
 		// budget: its authorization holds no slot.
 		e.releaseBudget(ctx, decision.DecisionID)
-		return decision.Decision == PolicyDecisionExecute
+		if decision.Decision == PolicyDecisionExecute {
+			return RollbackVerdict{Allowed: true}
+		}
+		return RollbackVerdict{Reason: fmt.Sprintf("%s (%s: %s)", standingWithheld,
+			decision.Decision, decision.BlockedReason)}
 	}
 }
 
@@ -128,11 +150,15 @@ func (e *Executor) resumeMonitor(
 	ctx context.Context, actionID, decisionID int64, rollbackSQL, sql string,
 	executedAt time.Time,
 ) {
-	authorize := e.manualRollbackAuthorizer()
-	if decisionID > 0 {
-		authorize = e.standingRollbackAuthorizer(analyzer.Finding{RecommendedSQL: rollbackSQL})
+	cfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	switch {
+	case decisionID > 0 && isDropActionSQL(sql):
+		// Rows written before executor-01 hold the raw definition.
+		rollbackSQL = restoreSQLForDrop(rollbackSQL)
+		e.withDropRestore(&cfg, actionID)
+	case decisionID > 0:
+		cfg.Decide = e.standingRollbackDecider(analyzer.Finding{RecommendedSQL: sql})
 	}
-	cfg := e.rollbackMonitorConfig(authorize)
 	_, capW, _ := monitorWindows(verificationClass(sql), cfg)
 	if verificationExpired(executedAt, capW, time.Now()) {
 		expireMonitor(ctx, e.pool, actionID, executedAt, capW, e.logFn)

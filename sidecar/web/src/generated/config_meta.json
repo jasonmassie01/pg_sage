@@ -3164,7 +3164,7 @@
   "verify.write_impact_pct": {
     "type": "float64",
     "default": 20,
-    "doc": "Maximum write-latency increase.",
+    "doc": "Advisory write-time rise; no revert.",
     "class": "safety_critical"
   }
 }

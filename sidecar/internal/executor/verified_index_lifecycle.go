@@ -94,8 +94,14 @@ func (l *verifiedIndexLifecycle) WatchApplied(
 	}
 	request := watchRequest(action, actionID, l.now())
 	verdict, err := l.verifier.Watch(ctx, request)
-	if err != nil {
+	if errors.Is(err, verify.ErrStateNotPersisted) {
+		// No durable watch exists, so nothing would ever verify the index.
 		return l.revertUnverifiable(ctx, action, actionID, err)
+	}
+	if err != nil {
+		// The durable watch exists: a later resume decides on evidence.
+		return fmt.Errorf("verify applied index action %d (index kept, watch stays open): %w",
+			actionID, err)
 	}
 	return l.finalize(ctx, actionID, action.RollbackSQL, verdict)
 }
@@ -139,7 +145,7 @@ func (l *verifiedIndexLifecycle) revertUnverifiable(
 	ctx context.Context, action verifiedIndexAction, actionID int64, cause error,
 ) error {
 	verdict := verify.Verdict{
-		Revert: true, Status: "unverifiable", Reason: "observation_unavailable",
+		Revert: true, Status: "unverifiable", Reason: "state_persist_failed",
 	}
 	if err := l.actions.Revert(ctx, actionID, action.RollbackSQL, verdict); err != nil {
 		return errors.Join(cause, err)

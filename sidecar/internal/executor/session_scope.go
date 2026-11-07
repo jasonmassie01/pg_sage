@@ -17,6 +17,7 @@ type pooledExecutor interface {
 func withTopLevelSession(
 	ctx context.Context,
 	pool *pgxpool.Pool,
+	sql string,
 	timeout time.Duration,
 	opts ddlOpts,
 	run func(pooledExecutor) error,
@@ -33,6 +34,13 @@ func withTopLevelSession(
 		}
 		conn.Release()
 	}()
+	// Deferred after the cleanup, so it runs first: the session is reset
+	// only once a stop's cancel request has been delivered.
+	unwatch, err := watchStatement(ctx, conn.Conn().PgConn(), sql)
+	if err != nil {
+		return err
+	}
+	defer unwatch()
 	if err := setTopLevelTimeouts(ctx, conn, timeout, opts); err != nil {
 		return err
 	}

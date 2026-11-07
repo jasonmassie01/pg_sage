@@ -427,31 +427,63 @@ The `llm.token_budget_daily` setting (default: 500,000) caps total LLM tokens pe
 
 ## Emergency Stop
 
-Halt all autonomous activity immediately by setting the emergency stop flag in `sage.config`:
+The emergency stop halts all autonomous and operator-approved activity: no new
+action, rollback or approved queue item starts, and statements pg_sage is
+already running (a `CREATE INDEX CONCURRENTLY`, a `VACUUM`, an `ALTER` waiting
+on its lock, a rollback) are cancelled with PostgreSQL's protocol cancel
+request, which needs no extra grant on any provider. Each cancelled action's
+`sage.action_log` row ends `failed` with a reason starting `emergency stop`.
+pg_sage runs no DDL during a stop, so a cancelled `CREATE INDEX CONCURRENTLY`
+can leave an INVALID index: its row names the index and the statement that
+removes it (`DROP INDEX CONCURRENTLY IF EXISTS ...`).
 
-```sql
-UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop';
-```
-
-Or use the web UI emergency stop button, or the authenticated REST API:
+Stop from the web UI emergency stop button, or the authenticated REST API:
 
 ```bash
 curl -b cookies.txt -H 'Content-Type: application/json' \
   -X POST http://localhost:8080/api/v1/emergency-stop --data '{}'
 ```
 
-Resume with:
+When the dashboard and API are unreachable, stop from SQL. The function
+records the change in `sage.config_audit` under the actor you name:
 
 ```sql
-UPDATE sage.config SET value = 'false' WHERE key = 'emergency_stop';
+SELECT sage.emergency_stop(true, 'dba-on-call');
 ```
 
-Or use the web UI resume button, or the authenticated REST API:
+Every authorization reads the flag, so no new work starts once it is set. The
+SQL stop does not reach the running process directly: statements already
+running are cancelled when the sidecar picks the flag up, or cancel them
+yourself with `pg_cancel_backend` on the pg_sage sessions in
+`pg_stat_activity`.
+
+Resume with the web UI resume button, the authenticated REST API:
 
 ```bash
 curl -b cookies.txt -H 'Content-Type: application/json' \
   -X POST http://localhost:8080/api/v1/resume --data '{}'
 ```
+
+or from SQL:
+
+```sql
+SELECT sage.emergency_stop(false, 'dba-on-call');
+```
+
+On a schema older than v2.5.1, where `sage.emergency_stop()` does not exist,
+upsert the flag directly (this writes no audit row):
+
+```sql
+INSERT INTO sage.config (key, value, updated_by)
+VALUES ('emergency_stop', 'true', 'dba-on-call')
+ON CONFLICT (key, COALESCE(database_id, 0))
+DO UPDATE SET value = EXCLUDED.value, updated_at = now(),
+              updated_by = EXCLUDED.updated_by;
+```
+
+A plain `UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop'`
+changes nothing on a database whose stop was never set through the UI or API:
+there is no row to update.
 
 ---
 

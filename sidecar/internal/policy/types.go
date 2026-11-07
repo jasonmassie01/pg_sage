@@ -65,6 +65,9 @@ const (
 	// ReasonNarrowingDuringStop executes a narrowing contract while a hard
 	// stop (emergency stop, disabled executor, replica) blocks the rest.
 	ReasonNarrowingDuringStop Reason = "narrowing_during_stop"
+	// ReasonDropRestore executes the soft-drop restore of an index pg_sage
+	// dropped itself, past a trust downgrade (executor-01).
+	ReasonDropRestore Reason = "drop_restore_bypass"
 )
 
 // RollbackClass states how an action is undone. It mirrors the executor

@@ -65,9 +65,14 @@ func statisticsRollback(sql, rollbackSQL string) (string, error) {
 	return rollbackSQL, nil
 }
 
-// prepareFindingRollback gives a statistics finding its rollback before it
-// is queued or run.
+// prepareFindingRollback gives a statistics finding its rollback, and a
+// drop its CONCURRENTLY restore, before it is queued or run: action_log
+// then stores the restore the monitor and the operator rollback both run.
 func prepareFindingRollback(f *analyzer.Finding) error {
+	if isDropActionSQL(f.RecommendedSQL) {
+		f.RollbackSQL = storedRollbackSQL(f.RecommendedSQL, f.RollbackSQL)
+		return nil
+	}
 	rollback, err := statisticsRollback(f.RecommendedSQL, f.RollbackSQL)
 	if err != nil {
 		return err
