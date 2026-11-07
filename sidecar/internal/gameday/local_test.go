@@ -99,8 +99,8 @@ func TestLocalProviderRefusesAliasesOfTheMonitoredCluster(t *testing.T) {
 // another server could run the fault programs where nothing was checked.
 func TestLocalProviderRefusesAMultiServerTarget(t *testing.T) {
 	for dsn, other := range map[string]string{
-		"postgres://app:pw@db1.internal:5432,127.0.0.1:5432/orders":   "127.0.0.1:5432",
-		"host=scratch.internal,prod.internal port=5999 dbname=scratch": "prod.internal:5999",
+		"postgres://app:pw@db1.internal:5432,127.0.0.1:5432/orders":     "127.0.0.1:5432",
+		"host=scratch.internal,prod.internal port=5999 dbname=scratch":  "prod.internal:5999",
 		"postgres://u:pw@scratch.internal:5999,scratch.internal:5432/s": "scratch.internal:5432",
 	} {
 		p, err := NewLocalProvider(dsn, nil, refusing(prodCluster()))
