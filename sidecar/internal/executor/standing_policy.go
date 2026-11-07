@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -73,6 +74,7 @@ func (e *Executor) newStandingPolicyGate(
 		Facts:        executorFacts{e},
 		Verification: e.VerificationWaits(),
 		Agents:       executorAgents{e},
+		RecordFailed: e.reportRecordFailure,
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
 			if err != nil {
@@ -106,6 +108,9 @@ func ledgerInput(
 	stampBudgetEvidence(evidence, request, decision)
 	stampVerificationEvidence(evidence, decision)
 	autonomyEvidence(evidence, request)
+	if request.Contract == nil {
+		evidence["contract"] = "none" // recorded at tier high (policy-01)
+	}
 	input := ledger.DecisionInput{
 		DatabaseID: databaseID, Feature: request.Feature, Intent: ledgerIntent(request),
 		Evidence:    evidence,
@@ -126,9 +131,26 @@ func ledgerInput(
 	// A withheld verdict repeats every cycle the candidate stays withheld:
 	// repeats update one row. An execute verdict backs its own action.
 	if input.Verdict != ledger.VerdictExecute {
+		nameUnclassified(&input)
 		input.Fingerprint = ledger.DecisionFingerprint(input)
 	}
 	return input
+}
+
+// unclassifiedFeature is the ledger feature (and intent) of a withheld
+// decision on a statement that maps to no change class, TRUNCATE for one:
+// sage.decision requires both, so such a park never reached the ledger
+// (policy-01). An execute verdict is never given one: it keeps failing
+// validation, closed.
+const unclassifiedFeature = "unclassified"
+
+func nameUnclassified(input *ledger.DecisionInput) {
+	if strings.TrimSpace(input.Feature) == "" {
+		input.Feature = unclassifiedFeature
+	}
+	if strings.TrimSpace(input.Intent) == "" {
+		input.Intent = unclassifiedFeature
+	}
 }
 
 // ledgerIntent separates operator-approved decisions, which the gate's
@@ -188,6 +210,7 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 		) (string, int64, error) {
 			return e.recordStandingDecision(ctx, 1, req, decision)
 		}
+		config.RecordFailed = e.reportRecordFailure
 	}
 	e.WithPolicyGate(policy.NewGate(config))
 }

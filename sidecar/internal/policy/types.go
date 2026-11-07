@@ -306,6 +306,10 @@ type GateConfig struct {
 	// A4); nil means agent governance is off and such requests are capped
 	// at L2 (approval).
 	Agents AgentDecider
+	// RecordFailed, when set, hears every decision the gate could not
+	// record, with the error; the gate then answers blocked
+	// policy_unavailable (fail closed). The executor counts and logs it.
+	RecordFailed func(context.Context, ActionRequest, Decision, error)
 }
 
 var (

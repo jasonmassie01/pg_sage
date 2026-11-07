@@ -882,6 +882,21 @@ and the catalog, never from evidence or an LLM.
   `pg_sage_verification_wait_releases_total{database,cause}` the waits that
   ended without a verdict (`operator_override`, `hard_deadline`,
   `drop_first_window`).
+- **Contract-less candidates record as high.** A candidate with no typed
+  contract (pg_sage cannot classify or validate its SQL) parks with
+  `no_typed_contract` and records at risk tier `high`, with
+  `evidence.contract = none`; so does any decision whose contract names an
+  unknown tier. A statement that maps to no change class (`TRUNCATE`, for
+  one) records under the feature `unclassified`. No verdict changes: such a
+  candidate never runs unattended.
+- **Record failures.** A decision the gate cannot record in `sage.decision`
+  is answered `blocked policy_unavailable` (fail closed); its detail names the
+  verdict and reason it meant to record (for example
+  `could not record the parked/no_typed_contract decision: ...`).
+  `pg_sage_policy_record_failures_total{database,reason}` counts every such
+  failure by the decision's reason, and the sidecar logs each failing
+  decision at most once an hour. Any series above zero means the ledger is
+  missing decisions.
 
 #### Retention contracts
 

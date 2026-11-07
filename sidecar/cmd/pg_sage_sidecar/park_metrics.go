@@ -29,3 +29,18 @@ func writeParkMetrics(b *strings.Builder, parks []executor.ParkCount,
 	}
 	b.WriteString("\n")
 }
+
+// writeRecordFailureMetrics emits the standing-gate decisions that could
+// not be recorded in sage.decision, by the decision's reason. Each one was
+// answered policy_unavailable (fail closed); any series above zero means
+// the ledger is missing decisions (policy-01).
+func writeRecordFailureMetrics(b *strings.Builder, failures []executor.RecordFailureCount) {
+	b.WriteString("# HELP pg_sage_policy_record_failures_total Policy gate decisions that " +
+		"could not be recorded in the decision ledger, by decision reason\n" +
+		"# TYPE pg_sage_policy_record_failures_total counter\n")
+	for _, f := range failures {
+		fmt.Fprintf(b, "pg_sage_policy_record_failures_total{database=%q,reason=%q} %d\n",
+			f.Database, f.Reason, f.Count)
+	}
+	b.WriteString("\n")
+}
