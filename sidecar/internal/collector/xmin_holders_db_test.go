@@ -48,10 +48,16 @@ func TestCollect_XminHoldersAndStateChange(t *testing.T) {
 		h.State != "idle in transaction" {
 		t.Fatalf("holder = %+v, want its xmin age, a transaction over 1 s old, its start", h)
 	}
+	// Server clocks only (the test host's clock may be skewed from the
+	// server's): idle time = transaction age - (state_change - xact_start).
 	rows := rowsOf(snap.Locks, holder)
-	if len(rows) != 1 || rows[0].StateChange == nil ||
-		snap.CollectedAt.Sub(*rows[0].StateChange) < time.Second {
-		t.Fatalf("lock rows %+v, want state_change over 1 s before the snapshot", rows)
+	if len(rows) != 1 || rows[0].StateChange == nil || rows[0].XactStart == nil {
+		t.Fatalf("lock rows %+v, want one row with state_change and xact_start", rows)
+	}
+	sc, xs := *rows[0].StateChange, *rows[0].XactStart
+	idle := time.Duration(h.XactAgeS*float64(time.Second)) - sc.Sub(xs)
+	if sc.Before(xs) || idle < time.Second {
+		t.Fatalf("state_change %s, xact_start %s, idle %s: want idle over 1 s", sc, xs, idle)
 	}
 }
 
