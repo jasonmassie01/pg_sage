@@ -45,7 +45,8 @@ func (rt *databaseRuntime) startExecution() {
 	rt.start(func() {
 		store.StartActionExpiry(rt.ctx, rt.actions, logStructuredWrapper)
 	})
-	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper)
+	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
+		WithDatabaseName(rt.spec.Name)
 	deps := fleetCycleDeps{
 		name: rt.spec.Name, pool: rt.spec.Pool, exec: rt.executor,
 		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).

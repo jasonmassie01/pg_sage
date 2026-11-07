@@ -256,3 +256,37 @@ func skipBlockComment(text string, start int) int {
 	}
 	return i // unterminated comment: skip to end
 }
+
+// SplitStatements splits SQL text at top-level semicolons with the quote
+// rules of SanitizeForLLM: a ';' inside a literal, quoted identifier,
+// dollar-quoted body or comment does not end a statement. Each piece keeps
+// its terminating ';' and the whitespace around it, so joining the pieces
+// gives back the input. Empty text has no pieces.
+func SplitStatements(text string) []string {
+	var out []string
+	start, i := 0, 0
+	for i < len(text) {
+		if end, ok := quotedTokenEnd(text, i, true); ok {
+			i = end
+			continue
+		}
+		switch {
+		case strings.HasPrefix(text[i:], "/*"):
+			i = skipBlockComment(text, i)
+		case strings.HasPrefix(text[i:], "--"):
+			for i < len(text) && text[i] != '\n' {
+				i++
+			}
+		case text[i] == ';':
+			i++
+			out = append(out, text[start:i])
+			start = i
+		default:
+			i++
+		}
+	}
+	if start < len(text) {
+		out = append(out, text[start:])
+	}
+	return out
+}

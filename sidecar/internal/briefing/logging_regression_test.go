@@ -43,7 +43,7 @@ func TestWarningPersistenceFailurePreservesCause(t *testing.T) {
 	worker := &Worker{pool: pool, logFn: logs.logFn}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	worker.storeBriefing(ctx, "must-not-persist-canceled-briefing", false, 0)
+	worker.storeBriefing(ctx, "must-not-persist-canceled-briefing", false, 0, Payload{})
 	message := requireRenderedWarning(t, logs.messages, "failed to store briefing:")
 	if !strings.Contains(message, "context canceled") {
 		t.Fatalf("persistence cause lost: %q", message)
