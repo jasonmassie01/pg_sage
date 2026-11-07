@@ -224,3 +224,33 @@ func TestWorkersWithFlappingResolverKeepOneOpenProposal(t *testing.T) {
 		t.Fatalf("open=%d superseded=%d total=%d, want 2, 0, 2", open, superseded, total)
 	}
 }
+
+// State transition: a finding that goes away during a resolver outage
+// keeps its proposal until a cycle resolves the target again; a failed
+// cycle supersedes nothing and reports no drift from the stale target.
+func TestWorkerOutageDefersSupersede(t *testing.T) {
+	pool, ctx := testPool(t)
+	r := &fakeResolver{target: rdsTarget()}
+	w := newFastWorker(t, pool, r)
+	id := insertIntentFinding(t, pool, "instance:work_mem", intent(t, "rds", "work_mem", "96MB"))
+	mustCycle(t, w)
+	rec := onlyRecord(t, w.store)
+	if _, err := pool.Exec(ctx, `UPDATE sage.findings SET status = 'resolved'
+		WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	r.set(Target{}, errThrottled)
+	if res := mustCycle(t, w); res.Superseded != 0 || res.Drift != nil {
+		t.Fatalf("outage cycle = %+v, want nothing superseded and no drift", res)
+	}
+	if got := onlyRecord(t, w.store); got.ID != rec.ID || got.Status != StatusPending {
+		t.Fatalf("during the outage = %+v, want record %d still pending", got, rec.ID)
+	}
+	r.set(rdsTarget(), nil)
+	if res := mustCycle(t, w); res.Superseded != 1 {
+		t.Fatalf("resolving cycle = %+v, want the orphaned proposal superseded", res)
+	}
+	if got := onlyRecord(t, w.store); got.Status != StatusSuperseded {
+		t.Fatalf("after the outage = %+v, want superseded", got)
+	}
+}

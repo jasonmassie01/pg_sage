@@ -142,9 +142,9 @@ func TestFingerprintMigrationMatchesBuild(t *testing.T) {
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.managed_change_proposals
 		(fingerprint, provider, mechanism, target, parameter, value, reboot_required,
 		 proposal, status, decided_by, decided_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'rejected', 1, now()) RETURNING id`, legacy.Fingerprint,
-		p.Provider, p.Mechanism, p.Target, p.Parameter, p.Value, p.RebootRequired,
-		raw).Scan(&id); err != nil {
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'rejected', 1, now()) RETURNING id`,
+		legacy.Fingerprint, p.Provider, p.Mechanism, p.Target, p.Parameter, p.Value,
+		p.RebootRequired, raw).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	if err := schema.Bootstrap(ctx, pool); err != nil {
