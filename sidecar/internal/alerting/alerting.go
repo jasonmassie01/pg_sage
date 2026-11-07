@@ -218,6 +218,10 @@ func (m *Manager) dispatchGroup(
 	}
 }
 
+// DatabaseName is the monitored database this Manager stamps on every
+// alert; empty for an unnamed standalone instance.
+func (m *Manager) DatabaseName() string { return m.mcfg.DatabaseName }
+
 func (m *Manager) newAlert(sev string, findings ...AlertFinding) Alert {
 	return Alert{
 		Findings:  findings,

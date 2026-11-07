@@ -68,7 +68,8 @@ func TestDispatcher_ReadsRulesFromInjectedStore(t *testing.T) {
 	d := NewDispatcherWithStore(store, func(string, string, ...any) {})
 	d.RegisterSender(sender)
 	err := d.Dispatch(context.Background(),
-		FindingCriticalEvent("xid wraparound", "d", "billing"))
+		FindingCriticalEvent("xid wraparound", "d", "billing",
+			"xid_wraparound", "current_database"))
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -270,8 +271,10 @@ func TestRedactURLs_InFreeText(t *testing.T) {
 
 func TestPagerDuty_DedupKeyPerFindingAndResolve(t *testing.T) {
 	ch := Channel{Config: map[string]string{}}
-	a := FindingCriticalEvent("XID wraparound on orders", "d", "db1")
-	b := FindingCriticalEvent("Replication slot inactive: s1", "d", "db1")
+	a := FindingCriticalEvent("XID wraparound on orders", "d", "db1",
+		"xid_wraparound", "orders")
+	b := FindingCriticalEvent("Replication slot inactive: s1", "d", "db1",
+		"replication_slot_inactive", "s1")
 	keyA := pdDedupKey(t, ch, a)
 	keyB := pdDedupKey(t, ch, b)
 	if keyA == keyB {

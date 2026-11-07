@@ -73,6 +73,10 @@ func (d *Dispatcher) processRule(
 	ctx context.Context, rule Rule, event Event,
 ) error {
 	if !SeverityMeetsMin(event.Severity, rule.MinSeverity) {
+		// A debug line, not a log row: filtered events recur every cycle
+		// and would flood notification_log (alerting-03).
+		d.logFn("DEBUG", "rule %d skipped %s event: severity %s below min_severity %s",
+			rule.ID, event.Type, event.Severity, rule.MinSeverity)
 		return nil
 	}
 

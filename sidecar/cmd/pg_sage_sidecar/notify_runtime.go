@@ -87,8 +87,10 @@ func notificationTargetPolicy() notify.TargetPolicy {
 
 // newInstanceAlertManager builds the alerting manager for one monitored
 // database, or nil when alerting is disabled. Fleet and meta instances were
-// silently never alerted (G7-B09).
-func newInstanceAlertManager(pool *pgxpool.Pool) *alerting.Manager {
+// silently never alerted (G7-B09). name is stamped on every alert, so
+// payloads say which database they concern and PagerDuty keys stay apart
+// across a fleet (alerting-02).
+func newInstanceAlertManager(pool *pgxpool.Pool, name string) *alerting.Manager {
 	if pool == nil || !cfg.Alerting.Enabled {
 		return nil
 	}
@@ -99,5 +101,6 @@ func newInstanceAlertManager(pool *pgxpool.Pool) *alerting.Manager {
 		QuietHoursStart:      cfg.Alerting.QuietHoursStart,
 		QuietHoursEnd:        cfg.Alerting.QuietHoursEnd,
 		Timezone:             cfg.Alerting.Timezone,
+		DatabaseName:         name,
 	}, routes, logStructuredWrapper)
 }

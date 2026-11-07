@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,13 +82,71 @@ func ResolveCleared(
 	activeIdentifiers map[string]bool,
 	category string,
 ) error {
+	_, err := ResolveClearedFindings(ctx, pool, activeIdentifiers, category)
+	return err
+}
+
+// ClearedFinding identifies a finding that ResolveClearedFindings moved
+// from open to resolved, with the severity and title it had then.
+type ClearedFinding struct {
+	Category         string
+	ObjectIdentifier string
+	Severity         string
+	Title            string
+}
+
+// ResolveClearedFindings is ResolveCleared returning the findings it
+// resolved, so the analyzer can resolve their pages (alerting-01). Each
+// row is resolved only while still open, so concurrent resolvers report
+// a finding once. On error the findings resolved before it are returned.
+func ResolveClearedFindings(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	activeIdentifiers map[string]bool,
+	category string,
+) ([]ClearedFinding, error) {
+	ids, err := clearedFindingIDs(ctx, pool, activeIdentifiers, category)
+	if err != nil {
+		return nil, fmt.Errorf("list open %s findings: %w", category, err)
+	}
+	var cleared []ClearedFinding
+	for _, id := range ids {
+		var c ClearedFinding
+		err := pool.QueryRow(ctx,
+			`/* pg_sage */ UPDATE sage.findings
+			 SET status = 'resolved', resolved_at = now()
+			 WHERE id = $1 AND status = 'open'
+			 RETURNING category, COALESCE(object_identifier, ''),
+			           severity, title`,
+			id,
+		).Scan(&c.Category, &c.ObjectIdentifier, &c.Severity, &c.Title)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue // resolved concurrently by another caller
+		}
+		if err != nil {
+			return cleared, fmt.Errorf("resolve %s finding %s: %w",
+				category, id, err)
+		}
+		cleared = append(cleared, c)
+	}
+	return cleared, nil
+}
+
+// clearedFindingIDs lists the open findings of category whose identity
+// is not in activeIdentifiers.
+func clearedFindingIDs(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	activeIdentifiers map[string]bool,
+	category string,
+) ([]string, error) {
 	rows, err := pool.Query(ctx,
 		`/* pg_sage */ SELECT id, object_identifier FROM sage.findings
 		 WHERE category = $1 AND status = 'open'`,
 		category,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -94,26 +154,11 @@ func ResolveCleared(
 	for rows.Next() {
 		var id, ident string
 		if err := rows.Scan(&id, &ident); err != nil {
-			return err
+			return nil, err
 		}
 		if !activeIdentifiers[ident] {
 			toResolve = append(toResolve, id)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, id := range toResolve {
-		_, err := pool.Exec(ctx,
-			`/* pg_sage */ UPDATE sage.findings
-			 SET status = 'resolved', resolved_at = now()
-			 WHERE id = $1`,
-			id,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return toResolve, rows.Err()
 }

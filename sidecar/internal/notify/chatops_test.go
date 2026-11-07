@@ -148,7 +148,7 @@ func TestTelegramSendsApprovalKeyboard(t *testing.T) {
 			t.Fatalf("keyboard %s lacks %q", raw, want)
 		}
 	}
-	other := FindingCriticalEvent("t", "d", "orders")
+	other := FindingCriticalEvent("t", "d", "orders", "c", "o")
 	if err := s.Send(context.Background(), ch, other); err != nil {
 		t.Fatalf("send: %v", err)
 	}
