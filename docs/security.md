@@ -332,6 +332,36 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 Rows never contain passwords, tokens or email addresses; a failed password
 login names the targeted account by id when it exists.
 
+### Login Throttling
+
+Password login (`POST /api/v1/auth/login`) has two limits, both over a
+sliding 15-minute window and both answered with `429`:
+
+- **Per email**: 5 attempts. A successful login clears the count.
+- **Per client**: 20 failed logins across all emails, so one client cannot
+  spray many accounts. Only failures count, and a successful login does not
+  clear the earlier ones.
+
+A client is its address; an IPv6 address counts as its whole /64, since one
+customer usually holds that block. The same keying applies to break-glass
+attempts and the general API rate limit. An unknown email, an SSO-only
+account and a wrong password are refused alike (`401`) and in the same time,
+so responses do not reveal which accounts exist. A database error during
+login is also a `401` to the client and is logged with its cause.
+
+The per-email limiter tracks at most 10,000 emails. When it is full it drops
+the least-used entry, never a locked one; if every entry is locked, logins for
+new emails are refused until entries expire, and
+`pg_sage_login_limiter_saturated_total` counts each refusal. A rising value
+means credential spraying.
+
+**Behind an ingress or load balancer**, list its addresses in
+`api.trusted_proxies`. Otherwise `X-Forwarded-For` is ignored, every user
+shares the proxy's address, and 20 failed logins by anyone lock password
+login for everyone for up to 15 minutes. The first request whose
+`X-Forwarded-For` is ignored logs a warning naming `api.trusted_proxies`.
+SSO and break-glass are not subject to the per-client failure limit.
+
 ### Break-glass Admin
 
 A local admin for when the IdP is down. It is off unless configured:
@@ -361,7 +391,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
   broadcast as a critical `security_break_glass` notification to **every
   enabled notification channel**, regardless of notification rules. Configure
   at least one channel. Failed attempts are audited and rate-limited per
-  client address (5 per 15 minutes).
+  client address, an IPv6 address counting as its /64 (5 per 15 minutes).
 - After use, review what the session did and rotate the password.
 
 ### Secrets at Rest
@@ -457,7 +487,7 @@ either way.
 ### Request Limits
 
 - **Body size**: Maximum 1 MB per request.
-- **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per IP).
+- **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per client address; an IPv6 client counts as its /64). Password login has its own limits ([Login Throttling](#login-throttling)).
 - **Request timeout**: 30 seconds per API request.
 - **Pool exhaustion protection**: When the connection pool is exhausted, database-backed methods return `503`.
 

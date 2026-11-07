@@ -711,7 +711,11 @@ Entries are exact, lowercase origins with no path and no default port
 (`https://sage.example.com`, not `https://sage.example.com/` or
 `https://sage.example.com:443`). Put the proxy's address in
 `api.trusted_proxies` too: the session cookie is marked `Secure` from the
-proxy's `X-Forwarded-Proto: https` only when the proxy is trusted.
+proxy's `X-Forwarded-Proto: https` only when the proxy is trusted, and rate
+limits and the failed-login budget follow `X-Forwarded-For` only from a
+trusted proxy. Without it every user shares the proxy's address and its
+[login throttling](security.md#login-throttling) budget; pg_sage logs one
+warning naming `api.trusted_proxies` when it ignores the header.
 
 #### Profiling the sidecar
 
