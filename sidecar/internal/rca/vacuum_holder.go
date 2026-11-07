@@ -82,10 +82,12 @@ type xminCandidate struct {
 }
 
 // xminCandidates lists the holders oldest first: the collector's holder
-// read, or (when it is missing) the lock graph's sessions with an xmin.
+// read, or (only when that read is missing: nil) the lock graph's
+// sessions with an xmin. An empty read means no holder; the lock graph
+// would still list a lazy VACUUM's snapshot, which holds nothing back.
 func xminCandidates(curr *collector.Snapshot) []xminCandidate {
 	var out []xminCandidate
-	if len(curr.XminHolders) > 0 {
+	if curr.XminHolders != nil {
 		for _, h := range curr.XminHolders {
 			out = append(out, xminCandidate{holder: h, lock: lockRowOf(curr, h), complete: true})
 		}
@@ -96,10 +98,31 @@ func xminCandidates(curr *collector.Snapshot) []xminCandidate {
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].holder.XminAge > out[j].holder.XminAge
-	})
+	sort.SliceStable(out, func(i, j int) bool { return holderBefore(out[i], out[j]) })
 	return out
+}
+
+// holderBefore orders holders by xmin age, oldest first. On a tie (a
+// snapshot pinned at another holder's XID has that XID's age) the XID's
+// owner comes first: a prepared transaction, then the session whose
+// transaction began first. Otherwise the reader of an idle writer's XID
+// could be named (and terminated) while the writer still holds it.
+func holderBefore(a, b xminCandidate) bool {
+	if a.holder.XminAge != b.holder.XminAge {
+		return a.holder.XminAge > b.holder.XminAge
+	}
+	ra, rb := tieRank(a.holder.Kind), tieRank(b.holder.Kind)
+	if ra != rb {
+		return ra < rb
+	}
+	return a.holder.XactAgeS > b.holder.XactAgeS
+}
+
+func tieRank(kind string) int {
+	if kind == probes.HolderPreparedXact {
+		return 0
+	}
+	return 1
 }
 
 // lockCandidate rebuilds a session holder from a lock-graph session row.
