@@ -126,8 +126,9 @@ func CreateSession(
 
 // ValidateSession returns the enabled user of an unexpired session, looked
 // up by the cookie's hash. It returns ErrSessionInvalid for an unknown,
-// expired or malformed cookie, or a deactivated user (a malformed one is never queried) and a wrapped
-// "validating session" error when the session store fails.
+// expired or malformed cookie, or a deactivated user (a malformed one is
+// never queried) and a wrapped "validating session" error when the
+// session store fails.
 func ValidateSession(
 	ctx context.Context, pool *pgxpool.Pool, token string,
 ) (*User, error) {

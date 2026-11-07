@@ -77,7 +77,17 @@ func TestSetUserDisabled_StateTransitions(t *testing.T) {
 		t.Fatal("operator MCP token still live after deactivation")
 	}
 
-	res, err = SetUserDisabled(ctx, pool, target, false)
+	requireReEnabled(t, pool, target, cookie, tokenHash, id)
+}
+
+// requireReEnabled re-enables target and checks sign-in works again while
+// the old session and the revoked token stay dead.
+func requireReEnabled(
+	t *testing.T, pool *pgxpool.Pool, target int, cookie, tokenHash string, id Identity,
+) {
+	t.Helper()
+	ctx := context.Background()
+	res, err := SetUserDisabled(ctx, pool, target, false)
 	if err != nil || !res.Changed || res.SessionsEnded != 0 || res.TokensRevoked != 0 {
 		t.Fatalf("SetUserDisabled(false) = (%+v, %v), want changed only", res, err)
 	}
