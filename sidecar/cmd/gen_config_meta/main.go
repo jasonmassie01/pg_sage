@@ -224,7 +224,7 @@ func walkStruct(
 		fieldType := fv.Type()
 
 		// Unwrap pointer. nil pointer → skip recursion, emit as type only.
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			if fv.IsNil() {
 				continue
 			}

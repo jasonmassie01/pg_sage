@@ -134,7 +134,7 @@ help and validation warnings, including the tested model-resource schema limit.
 
 ## Install and operate
 
-For a local build, use Go 1.25+, Node.js 20+ and a C compiler. Install frontend
+For a local build, use Go 1.26+, Node.js 22+ and a C compiler. Install frontend
 dependencies, then build with the repository helper:
 
 ```bash

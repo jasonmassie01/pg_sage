@@ -1,7 +1,7 @@
 # pg_sage
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791.svg)](https://www.postgresql.org)
 
 **Agentic Postgres DBA.** No extension required.
@@ -114,7 +114,7 @@ See the [docs/](docs/) directory for guides and reference:
 
 ## Building from Source
 
-Requires Go 1.25+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
+Requires Go 1.26+ and Node.js 22+. See [docs/installation.md](docs/installation.md) for details.
 
 A C compiler (gcc or clang) is also needed: with cgo the binary links
 libpg_query, which checks every executor statement against its PostgreSQL

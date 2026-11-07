@@ -137,9 +137,12 @@ func main() {
 	shutdownProcess(sig, promServer)
 }
 
-// runSubcommandAndExit handles the vector-lab, bench and history subcommands and --version,
-// which exit without starting the sidecar.
+// runSubcommandAndExit handles the vector-lab, bench, history and healthcheck
+// subcommands and --version, which exit without starting the sidecar.
 func runSubcommandAndExit() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "vector-lab" {
 		os.Exit(runVectorLab())
 	}
@@ -156,8 +159,7 @@ func runSubcommandAndExit() {
 			os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Printf("pg_sage %s (commit: %s, built: %s, sql-ast: %s)\n",
-			version, commit, date, sqlASTStatus())
+		fmt.Println(versionLine())
 		os.Exit(0)
 	}
 }

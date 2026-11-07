@@ -10,8 +10,8 @@ Shadow Mode.
 | Tool | Why |
 |---|---|
 | Docker or a local PostgreSQL 14+ | Target database |
-| Go 1.24+ | Build the sidecar from source |
-| Node.js 20+ and npm | Build the embedded React UI |
+| Go 1.26+ | Build the sidecar from source |
+| Node.js 22+ and npm | Build the embedded React UI |
 | curl | API smoke checks |
 
 ## 1. Start PostgreSQL

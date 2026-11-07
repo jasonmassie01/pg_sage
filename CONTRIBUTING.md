@@ -69,6 +69,14 @@ tests. The production browser uses its own storage.
 
 Use `-count=1` for Go tests so cached results do not hide failures.
 
+The Go release that builds every shipped artifact is the `toolchain` line in
+`sidecar/go.mod`. To move to a new Go release, change it together with the
+`golang:` stages in `sidecar/Dockerfile` and `deploy/databricks-apps/Dockerfile`
+and the `goreleaser-cross` tag in `.github/workflows/ci.yml`;
+`TestToolchainPinsAgree` (`internal/startup`) fails when they disagree. The
+`security` CI job (govulncheck, npm audit, Trivy) must pass before an image or
+release is published.
+
 Databricks Apps packaging (from the repository root, Python standard library only):
 
 ```bash
