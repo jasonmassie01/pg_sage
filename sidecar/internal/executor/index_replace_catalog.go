@@ -35,7 +35,9 @@ const oldIndexSQL = `/* pg_sage */ SELECT i.indexrelid::bigint,
 // readOldIndex reads the old index; a missing one is an identity change.
 func (e *Executor) readOldIndex(ctx context.Context, p IndexReplace) (oldIndexInfo, error) {
 	var o oldIndexInfo
-	err := e.pool.QueryRow(ctx, oldIndexSQL, p.OldIndex, p.Table).Scan(&o.OID,
+	// Pinned like the undo's re-create, so a definition it could not
+	// resolve never matches the plan's recreate text.
+	err := queryRowPinned(ctx, e.pool, oldIndexSQL, []any{p.OldIndex, p.Table}, &o.OID,
 		&o.Definition, &o.Constrained, &o.OnTable, &o.Partial, &o.Lead)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return o, fmt.Errorf("%w: %s no longer exists", ErrReplaceIdentityChanged, p.OldIndex)

@@ -40,8 +40,9 @@ func wrapDDLError(err error) error {
 
 // ExecConcurrently executes a SQL statement that requires
 // CONCURRENTLY semantics (e.g., CREATE INDEX CONCURRENTLY).
-// It acquires a raw connection from the pool, sets timeouts,
-// executes outside a transaction, and returns the connection.
+// It acquires a raw connection from the pool, sets timeouts, pins
+// search_path (pg_catalog, pg_temp), executes outside a transaction,
+// and returns the connection with every setting reset.
 func ExecConcurrently(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -66,7 +67,8 @@ func ExecConcurrently(
 }
 
 // ExecInTransaction executes a SQL statement within a transaction
-// for atomicity. Sets statement_timeout and lock_timeout.
+// for atomicity. Sets statement_timeout and lock_timeout and pins
+// search_path (pg_catalog, pg_temp), so targets must be schema-qualified.
 func ExecInTransaction(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -81,8 +83,9 @@ func ExecInTransaction(
 }
 
 // execStatementsInTransaction runs already validated statements in one
-// transaction under statement_timeout and lock_timeout: all or none. An
-// emergency stop cancels them while they run.
+// transaction under statement_timeout and lock_timeout, with search_path
+// pinned to pg_catalog: all or none. An emergency stop cancels them while
+// they run.
 func execStatementsInTransaction(
 	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
 	statements ...string,
@@ -104,13 +107,13 @@ func execTransaction(
 		defer cancel()
 		_ = tx.Rollback(rollbackCtx)
 	}()
-	// Deferred after the rollback, so it runs first (see withTopLevelSession).
+	// Deferred after the rollback, so it runs first (see runTopLevelSession).
 	unwatch, err := watchStatement(ctx, tx.Conn().PgConn(), strings.Join(statements, "; "))
 	if err != nil {
 		return err
 	}
 	defer unwatch()
-	if err := setLocalTimeouts(ctx, tx, timeout, o); err != nil {
+	if err := setLocalSessionScope(ctx, tx, timeout, o); err != nil {
 		return err
 	}
 	if o.before != nil {
@@ -136,19 +139,25 @@ func execTransaction(
 	return nil
 }
 
-// setLocalTimeouts bounds the transaction's statements by statement_timeout
-// and, when set, lock_timeout.
-func setLocalTimeouts(ctx context.Context, tx pgx.Tx, timeout time.Duration, o ddlOpts) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf(
-		"SET LOCAL statement_timeout = %d", int(timeout.Milliseconds())))
-	if err != nil {
+// setLocalSessionScope sets the transaction's statement and lock timeouts
+// and pins its search_path; every setting ends with the transaction.
+func setLocalSessionScope(
+	ctx context.Context, tx pooledExecutor, timeout time.Duration, o ddlOpts,
+) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d", timeout.Milliseconds(),
+	)); err != nil {
 		return fmt.Errorf("setting statement_timeout: %w", err)
 	}
 	if o.lockTimeoutMs > 0 {
-		_, err = tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", o.lockTimeoutMs))
-		if err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(
+			"SET LOCAL lock_timeout = '%dms'", o.lockTimeoutMs,
+		)); err != nil {
 			return fmt.Errorf("setting lock_timeout: %w", err)
 		}
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL search_path = "+executorSearchPath); err != nil {
+		return fmt.Errorf("setting search_path: %w", err)
 	}
 	return nil
 }
