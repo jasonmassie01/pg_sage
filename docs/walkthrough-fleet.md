@@ -116,6 +116,11 @@ pg_sage logs the count of databases per boundary, for example
 
 The old `#/findings` route remains a compatibility alias for **Cases**.
 
+**Stop all** in the header is a fleet-wide stop. A database you add while it
+holds starts stopped, and only **Resume all** lifts it. Resuming a single
+database returns `409 fleet-wide stop is active: resume all first`. See
+[Fleet-wide stop](security.md#fleet-wide-stop).
+
 ## 6. API Checks
 
 ```bash

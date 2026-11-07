@@ -116,7 +116,11 @@ Key-value configuration store used by the sidecar at runtime.
 The `emergency_stop` key is checked at every authorization. Set it with
 `SELECT sage.emergency_stop(true, '<actor>')` (and `false` to resume), which
 upserts the row and writes a `sage.config_audit` entry; see
-[Emergency Stop](security.md#emergency-stop).
+[Emergency Stop](security.md#emergency-stop). Bootstrap seeds it as
+`'false'` (`updated_by = 'bootstrap'`). `emergency_stop_scope` (`fleet` or
+`database`) records whether a stop of all databases set the flag, and in
+meta-database mode the meta database's `fleet_emergency_stop` holds the
+fleet-wide stop; see [Fleet-wide stop](security.md#fleet-wide-stop).
 
 ---
 
