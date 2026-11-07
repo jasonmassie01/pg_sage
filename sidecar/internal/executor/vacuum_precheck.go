@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,11 @@ const (
 	reasonCapabilityMissing    = "capability_missing"
 	reasonCapabilityUnverified = "capability_unverified"
 )
+
+// ErrMaintenancePrivilegeMissing marks a withhold because the connected role
+// lacks the privilege to VACUUM or ALTER TABLE the table (capability_missing):
+// an operator fixes it with a grant, so the manual-action API answers 409.
+var ErrMaintenancePrivilegeMissing = errors.New("connected role lacks the maintenance privilege")
 
 // maintainMinVersion is the first server_version_num with the MAINTAIN
 // privilege and the pg_maintain role; naming MAINTAIN on an older server
@@ -149,7 +155,8 @@ func (e *Executor) admitMaintenance(
 		return e.withholdMaintenance(ctx, decision, reasonCapabilityUnverified,
 			err.Error(), err)
 	case !p.Allowed:
-		return e.withholdMaintenance(ctx, decision, reasonCapabilityMissing, p.Detail, nil)
+		return e.withholdMaintenance(ctx, decision, reasonCapabilityMissing, p.Detail,
+			ErrMaintenancePrivilegeMissing)
 	}
 	return nil
 }

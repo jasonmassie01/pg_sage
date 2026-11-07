@@ -295,3 +295,30 @@ func TestVacuumSkipped(t *testing.T) {
 		}
 	}
 }
+
+// An operator's VACUUM withheld for a missing privilege is answered 409 with
+// the grant that fixes it; a precheck that could not be read stays 500.
+func TestManualExecuteStatusForMaintenancePrivilege(t *testing.T) {
+	e := &Executor{logFn: nopLog}
+	detail := "grant MAINTAIN: GRANT MAINTAIN ON TABLE public.t TO app_role"
+	missing := e.withholdMaintenance(context.Background(),
+		ActionPolicyDecision{Decision: PolicyDecisionExecute}, reasonCapabilityMissing, detail,
+		ErrMaintenancePrivilegeMissing)
+	var withheld *WithheldError
+	if !errors.As(missing, &withheld) || !errors.Is(missing, ErrActionWithheld) {
+		t.Fatalf("missing = %v, want a *WithheldError", missing)
+	}
+	if status := ManualExecuteStatus(missing); status != 409 {
+		t.Fatalf("status for a missing privilege = %d, want 409", status)
+	}
+	if !strings.Contains(missing.Error(), detail) {
+		t.Fatalf("message %q does not name the grant", missing.Error())
+	}
+	unverified := e.admitMaintenance(context.Background(), "VACUUM public.t",
+		ActionPolicyDecision{Decision: PolicyDecisionExecute})
+	if errors.Is(unverified, ErrMaintenancePrivilegeMissing) ||
+		ManualExecuteStatus(unverified) != 500 {
+		t.Fatalf("unverified = %v (status %d), want 500 without the missing marker",
+			unverified, ManualExecuteStatus(unverified))
+	}
+}

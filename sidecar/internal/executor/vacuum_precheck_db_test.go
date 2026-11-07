@@ -298,6 +298,9 @@ func TestApplyWithholdsNonOwnerVacuum(t *testing.T) {
 		t.Fatalf("executed=%v err=%v, want withheld with %s", executed, err,
 			reasonCapabilityMissing)
 	}
+	if !errors.Is(err, ErrMaintenancePrivilegeMissing) || ManualExecuteStatus(err) != 409 {
+		t.Fatalf("err = %v, want ErrMaintenancePrivilegeMissing (409)", err)
+	}
 	verdict, reason, detail := vpDecisionRow(t, ctx, admin, decisionID)
 	if verdict != "blocked" || reason != reasonCapabilityMissing || detail == "" {
 		t.Fatalf("decision = %s/%s/%q, want blocked capability_missing with a remedy",
