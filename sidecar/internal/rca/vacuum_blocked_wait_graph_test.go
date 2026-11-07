@@ -49,7 +49,7 @@ func TestTreeVacuumBlocked_NamesIdleHolderFromWaitGraphRows(t *testing.T) {
 		},
 	} {
 		inc := newTestEngine().treeVacuumBlocked(vacuumSignal(now),
-			&collector.Snapshot{CollectedAt: now, Locks: locks})
+			&collector.Snapshot{CollectedAt: now, Locks: locks}, testVacuumRules())
 		if !strings.Contains(inc.RootCause, "PID 11") {
 			t.Errorf("%s: root cause %q, want the idle-in-transaction PID 11",
 				name, inc.RootCause)
@@ -78,7 +78,12 @@ func TestTreeVacuumBlocked_NamesIdleHolderFromLiveCollector(t *testing.T) {
 	}
 	holder := liveIdleHolder(t, ctx, pool, dsn)
 	snap := firstSnapshot(t, pool)
-	inc := newTestEngine().treeVacuumBlocked(vacuumSignal(snap.CollectedAt), snap)
+	// rca-01: a holder is named only past rca.xmin_holder_min_minutes;
+	// this session is seconds old, so the test states a zero floor. It
+	// used the tree's old rule, which named any idle session at once.
+	rules := testVacuumRules()
+	rules.holderFloor = 0
+	inc := newTestEngine().treeVacuumBlocked(vacuumSignal(snap.CollectedAt), snap, rules)
 	if !strings.Contains(inc.RootCause, fmt.Sprintf("PID %d", holder)) {
 		t.Fatalf("root cause %q, want the idle-in-transaction PID %d (locks %+v)",
 			inc.RootCause, holder, snap.Locks)

@@ -306,6 +306,8 @@ briefing:
 | `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 | `rca.vacuum_min_dead_tuples` | `1000` | Fewest dead tuples a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` ("Autovacuum falling behind") incident. Ratios on tables below either floor are ignored, so a table with a handful of rows never opens, nor escalates, an incident. `1`-`1000000000` |
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
+| `rca.xmin_holder_min_minutes` | `5` | Minutes a session's transaction must be open before the `vacuum_blocked` incident names it as the holder of the oldest xmin. Younger sessions are never named, so a briefly idle session opens no incident. A holder idle in transaction for at least `analyzer.lock_chain.idle_in_tx_terminate_minutes` gets `pg_terminate_backend` proposed for approval; an active one gets a diagnostic. `1`-`1440` |
+| `rca.prepared_xact_min_age_minutes` | `30` | Minutes a prepared transaction of this database must be old before it opens the `orphaned_prepared_tx` incident or is named as the `vacuum_blocked` holder (with `ROLLBACK PREPARED` of its quoted GID proposed for approval). Other databases' prepared transactions are never blamed. `1`-`10080` |
 
 ### Derived settings (self-configuration)
 

@@ -245,9 +245,12 @@ SELECT c.relname AS child_table,
 
 // pg_prepared_xacts: two-phase commit transactions that survive
 // connection drops and server restarts. They hold xmin and locks
-// indefinitely and are invisible to pg_stat_activity.
+// indefinitely and are invisible to pg_stat_activity. Only this
+// database's (rca-01): another database's prepared transaction does not
+// hold back this database's vacuum, and is not this snapshot's to blame.
 const preparedXactsSQL = sageTag + `
 SELECT gid, prepared, owner, database,
        age(transaction) AS xid_age
   FROM pg_prepared_xacts
+ WHERE database = current_database()
  ORDER BY prepared`

@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"time"
-
-	"github.com/pg-sage/sidecar/internal/collector"
 )
 
 // Resolutions the engine records for incidents it stopped seeing
@@ -165,15 +163,4 @@ func lastSeen(inc *Incident) time.Time {
 		return inc.DetectedAt
 	}
 	return inc.LastDetectedAt
-}
-
-// xminHolder is the structured identity of the idle-in-transaction
-// session a vacuum_blocked incident names, so the incident can resolve
-// when that session ends.
-func xminHolder(l collector.LockInfo) *BlockerIdentity {
-	b := &BlockerIdentity{PID: l.PID, State: "idle in transaction"}
-	if l.BackendStart != nil {
-		b.BackendStart = *l.BackendStart
-	}
-	return b
 }

@@ -109,7 +109,7 @@ func (e *Engine) merge(inc *Incident, countOccurrence bool) {
 
 // refreshOpen applies a new detection to an open incident: last seen
 // only moves forward, severity only rises, and live evidence replaces the
-// chain and root cause.
+// chain, root cause and recommended action.
 func refreshOpen(existing, inc *Incident) {
 	if inc.DetectedAt.After(existing.LastDetectedAt) {
 		existing.LastDetectedAt = inc.DetectedAt
@@ -120,6 +120,10 @@ func refreshOpen(existing, inc *Incident) {
 	if inc.liveEvidence && len(inc.CausalChain) > 0 {
 		existing.CausalChain = inc.CausalChain
 		existing.RootCause = inc.RootCause
+		// The proposal follows the root cause it answers (rca-01).
+		existing.RecommendedSQL = inc.RecommendedSQL
+		existing.RollbackSQL = inc.RollbackSQL
+		existing.ActionRisk = inc.ActionRisk
 	}
 }
 

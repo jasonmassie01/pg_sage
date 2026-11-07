@@ -260,7 +260,7 @@ func TestScanLocks_AllNullableColumnsNull(t *testing.T) {
 	rows, err := pool.Query(context.Background(), `SELECT 'session'::text, ''::text,
 		true, NULL::name, NULL::text, NULL::text, NULL::text, NULL::text, 7,
 		NULL::timestamptz, NULL::timestamptz, NULL::timestamptz, NULL::bigint,
-		NULL::int[], NULL::bigint`)
+		NULL::int[], NULL::bigint, NULL::timestamptz`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestScanLocks_AllNullableColumnsNull(t *testing.T) {
 	l := locks[0]
 	if l.PID != 7 || l.LockType != "session" || l.Query != nil || l.RelName != nil ||
 		l.QueryID != nil || l.BackendXminAge != nil || l.BlockedBy != nil ||
-		l.XactStart != nil {
+		l.XactStart != nil || l.StateChange != nil {
 		t.Fatalf("scanned %+v, want NULLs kept as nil", l)
 	}
 }

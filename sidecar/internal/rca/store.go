@@ -49,7 +49,10 @@ UPDATE sage.incidents SET
     database_name     = COALESCE(NULLIF(database_name, ''), $9),
     resolved_at       = $10,
     resolved_by       = NULLIF($11, ''),
-    resolution_reason = NULLIF($12, '')
+    resolution_reason = NULLIF($12, ''),
+    recommended_sql   = $13,
+    rollback_sql      = $14,
+    action_risk       = $15
 WHERE id = $1 AND resolved_at IS NULL`
 
 const readResolutionSQL = `/* pg_sage */
@@ -197,6 +200,7 @@ func updateIncident(
 		chain, inc.OccurrenceCount,
 		inc.EscalatedAt, identityKey(inc), inc.DatabaseName,
 		inc.ResolvedAt, inc.ResolvedBy, inc.ResolutionReason,
+		inc.RecommendedSQL, inc.RollbackSQL, nilIfEmpty(inc.ActionRisk),
 	)
 	if err != nil {
 		return res, fmt.Errorf("update: %w", err)

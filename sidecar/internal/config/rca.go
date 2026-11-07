@@ -38,6 +38,9 @@ func (r *RCAConfig) validate() error {
 	if err := r.validateVacuumFloor(); err != nil {
 		return err
 	}
+	if err := r.validateHolderFloor(); err != nil {
+		return err
+	}
 	s := r.LockChainIntervalSeconds
 	if s == 0 {
 		return nil

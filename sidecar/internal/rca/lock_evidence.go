@@ -29,6 +29,14 @@ type BlockerIdentity struct {
 	ChainDepth     int       `json:"chain_depth"`
 	LockedRelation string    `json:"locked_relation,omitempty"`
 	LockMode       string    `json:"lock_mode,omitempty"`
+	// XminAge, XactStart, HolderKind and HolderName describe an xmin
+	// horizon holder (rca-01): its snapshot or XID age, when its
+	// transaction began (prepared, for a prepared transaction), its kind
+	// (probes.Holder*), and the slot name or prepared gid's md5.
+	XminAge    int64     `json:"xmin_age,omitempty"`
+	XactStart  time.Time `json:"xact_start,omitzero"`
+	HolderKind string    `json:"holder_kind,omitempty"`
+	HolderName string    `json:"holder_name,omitempty"`
 }
 
 // blockersFromFindings extracts root-blocker identities from lock_chain

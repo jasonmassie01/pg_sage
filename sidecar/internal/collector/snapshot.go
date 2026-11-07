@@ -1,6 +1,10 @@
 package collector
 
-import "time"
+import (
+	"time"
+
+	"github.com/pg-sage/sidecar/internal/sre/probes"
+)
 
 // Snapshot holds all stats collected in a single cycle.
 type Snapshot struct {
@@ -16,8 +20,12 @@ type Snapshot struct {
 	IO            []IOStats             `json:"io,omitempty"`
 	Partitions    []PartitionInfo       `json:"partitions,omitempty"`
 	PreparedXacts []PreparedTransaction `json:"prepared_xacts,omitempty"`
-	ConfigData    *ConfigSnapshot       `json:"config_data,omitempty"`
-	StatsReset    bool                  `json:"stats_reset,omitempty"`
+	// XminHolders are the holders of this database's xmin horizon
+	// (probes.XminHorizonSQL: sessions, standbys' feedback, prepared
+	// transactions, slots), oldest first. Not persisted.
+	XminHolders []probes.XminHolder `json:"-"`
+	ConfigData  *ConfigSnapshot     `json:"config_data,omitempty"`
+	StatsReset  bool                `json:"stats_reset,omitempty"`
 	// StatsEpoch is the pg_stat_statements statistics epoch the query
 	// counters belong to; zero when it could not be read.
 	StatsEpoch time.Time `json:"stats_epoch,omitzero"`
@@ -174,6 +182,9 @@ type LockInfo struct {
 	BackendStart  *time.Time `json:"backend_start"`
 	QueryStart    *time.Time `json:"query_start"`
 	XactStart     *time.Time `json:"xact_start"`
+	// StateChange is when the session entered its state: how long an
+	// idle-in-transaction session has been idle.
+	StateChange *time.Time `json:"state_change"`
 	// BackendXminAge is the age of the older of the session's backend_xmin
 	// and backend_xid: how far it holds back this database's xmin horizon.
 	// Nil when it holds neither.

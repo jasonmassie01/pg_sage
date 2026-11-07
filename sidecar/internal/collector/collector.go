@@ -255,6 +255,7 @@ func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot) {
 	if snap.PreparedXacts, err = c.collectPreparedXacts(ctx); err != nil {
 		c.logFn("WARN", "prepared xacts collection failed: %v", err)
 	}
+	c.collectXminHoldersInto(ctx, snap)
 	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
 		c.logFn("WARN", "partition collection failed: %v", err)
 	}
