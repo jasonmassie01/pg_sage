@@ -134,18 +134,28 @@ func (e *Elector) IsLeader() bool {
 	return e.leaderLocked()
 }
 
-// Fence is the holder and epoch writes must still hold; ok is false when
-// this sidecar is not the leader (or election is disabled).
-func (e *Elector) Fence() (string, int64, bool) {
+// Token is the lease a fenced write must still hold: the scope the lease
+// row is stored under, its holder and its epoch.
+type Token struct {
+	Scope  string
+	Holder string
+	Epoch  int64
+}
+
+// Fence is the lease this elector holds, scope included, so writers fence
+// on the row the elector renews and never on a scope recomputed from
+// config. ok is false, with the zero Token, when this sidecar is not the
+// leader (or election is disabled).
+func (e *Elector) Fence() (Token, bool) {
 	if e == nil {
-		return "", 0, false
+		return Token{}, false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.leaderLocked() {
-		return "", 0, false
+		return Token{}, false
 	}
-	return e.holder, e.epoch, true
+	return Token{Scope: e.scope, Holder: e.holder, Epoch: e.epoch}, true
 }
 
 // Release gives the lease up so a successor takes over at once.

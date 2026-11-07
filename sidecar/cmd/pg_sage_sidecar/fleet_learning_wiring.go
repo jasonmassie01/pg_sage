@@ -47,6 +47,9 @@ func afterDelay(ctx context.Context, d time.Duration, fn func()) {
 // fleetLearningScope names the fleet a control database serves: every
 // sidecar of the same fleet computes the same scope, different fleets
 // different ones. YAML fleets hash their database names (never stored).
+// It is computed once, at startup, where each elector takes its lease; a
+// later call would read a config a reload may have changed, so fenced jobs
+// take the scope from the elector's Fence token instead.
 func fleetLearningScope(c *config.Config) string {
 	switch {
 	case c == nil:
@@ -152,11 +155,11 @@ func runFleetLearningCycle(ctx context.Context) {
 	}
 	fence := fleetlearn.Fence{}
 	if fleetLeader != nil {
-		holder, epoch, ok := fleetLeader.Fence()
+		tok, ok := fleetLeader.Fence()
 		if !ok {
 			return
 		}
-		fence = fleetlearn.Fence{Holder: holder, Epoch: epoch}
+		fence = fleetlearn.Fence{Holder: tok.Holder, Epoch: tok.Epoch}
 	}
 	res, err := svc.RunCycle(ctx, fence)
 	if errors.Is(err, fleetlearn.ErrFenced) {

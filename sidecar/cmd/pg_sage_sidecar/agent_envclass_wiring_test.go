@@ -101,7 +101,7 @@ func TestGovernanceLeaderFence(t *testing.T) {
 	old := fleetLeader
 	fleetLeader = nil
 	t.Cleanup(func() { fleetLeader = old })
-	f, ok := governanceLeader{scope: "s"}.fence("test job")
+	f, ok := governanceLeader{}.fence("test job")
 	if !ok || f.Holder != "" {
 		t.Fatalf("no election: run unfenced: %+v %v", f, ok)
 	}

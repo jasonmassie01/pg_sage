@@ -269,8 +269,8 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	require.NoError(t, b.Tick(ctx))
 	require.True(t, a.IsLeader() && !b.IsLeader(), "A leads first")
 	fenceOf := func(e *leader.Elector) (Fence, bool) {
-		holder, epoch, ok := e.Fence()
-		return Fence{Control: f.super, Scope: scope, Holder: holder, Epoch: epoch}, ok
+		tok, ok := e.Fence()
+		return Fence{Control: f.super, Scope: scope, Holder: tok.Holder, Epoch: tok.Epoch}, ok
 	}
 	staleA, ok := fenceOf(a)
 	require.True(t, ok)
