@@ -190,8 +190,9 @@ All under `/api/v1/`. **Auth = session cookie unless noted.** "Role" = extra
 |---|---|---|
 | GET | `/users` | List users (no hashes) |
 | POST | `/users` | Create user (201) |
-| DELETE | `/users/{id}` | Delete user (blocks self/last-admin) |
-| PUT | `/users/{id}/role` | Change role (blocks self/last-admin demote) |
+| DELETE | `/users/{id}` | Delete user (blocks self/last enabled admin; FK refusal is 409) |
+| PUT | `/users/{id}/role` | Change role (blocks self/last enabled admin demote) |
+| PUT | `/users/{id}/status` | `{"disabled": bool}`: deactivate (ends sessions, revokes operator MCP tokens) or re-enable; blocks self/last enabled admin |
 
 ### 4.6 Config store (`registerConfigRoutes`, `router.go:369`) — all **admin**
 

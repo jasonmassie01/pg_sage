@@ -196,6 +196,41 @@ again deletes the unhashed sessions and restores the constraint.
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
 
+### User Offboarding
+
+Deactivate a user rather than deleting them: **Deactivate** on the Users page,
+or
+
+```bash
+curl -b cookies.txt -H 'Content-Type: application/json'   -X PUT http://localhost:8080/api/v1/users/42/status --data '{"disabled":true}'
+```
+
+Deactivation (admin only) takes effect at once and in one transaction:
+
+- every session of the user ends, so an open dashboard returns to the login
+  screen on its next request;
+- the user's operator MCP tokens are revoked (`revoked_by` is
+  `pg_sage: owner deactivated`);
+- password login answers 401 (the same as a wrong password), SSO and
+  Databricks Apps sign-in answer 403, an unused SSO link grant is refused, and
+  a chat identity mapped to the user can no longer approve.
+
+`{"disabled":false}` (**Reactivate**) restores sign-in only: ended sessions and
+revoked tokens stay dead, so the user signs in again and an admin issues new
+tokens. The last enabled admin cannot be deactivated (`403`), and an admin
+cannot deactivate themselves. A deactivated admin does not count toward the
+last-admin rule, so the last *enabled* admin also cannot be demoted or
+deleted. Signing in with break-glass re-enables the break-glass account.
+Both actions are audited as `user_disabled` and `user_enabled`.
+
+Deleting (`DELETE /api/v1/users/{id}`) stays available. A user who changed
+configuration can be deleted: `sage.config_audit.changed_by` keeps their id
+without a foreign key (it is sealed in the audit chain and never rewritten)
+and every config change also records the caller's email in
+`changed_by_actor`, so the trail still names them. `sage.config` forgets its
+updater (`ON DELETE SET NULL`). If another table still references the user,
+delete answers `409` naming that table; deactivate the user instead.
+
 ### Databricks Apps Authentication
 
 Apps mode requires `SAGE_AUTH_MODE=databricks_app`, the injected platform runtime
@@ -324,13 +359,17 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `login_succeeded` / `login_failed` | Password and SSO sign-ins (`detail.method`, `detail.reason`) |
 | `break_glass_login` / `break_glass_login_failed` | Every break-glass attempt |
 | `user_created`, `user_deleted` | Admin user administration |
+| `user_disabled`, `user_enabled` | Deactivation and reactivation (`detail.sessions_ended`, `detail.mcp_tokens_revoked`) |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
 | `logout` | A user signed out |
 | `sessions_revoked` | "Sign out everywhere else" (`detail.count`, `detail.scope`) |
 
 Rows never contain passwords, tokens or email addresses; a failed password
-login names the targeted account by id when it exists.
+login names the targeted account by id when it exists. (`sage.config_audit`
+is different: from this release each config change records the caller's
+email in `changed_by_actor`, so the change history survives deleting the
+account.)
 
 ### Login Throttling
 
@@ -581,6 +620,7 @@ Both tables are subject to retention policies (configurable via `retention.actio
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
 8. **Select the deployment's authentication model.** For standalone, capture and rotate the initial admin password, then use named users or OAuth for operators.
    With SSO, set `oauth.role_mapping`, and configure a break-glass admin plus a notification channel.
+   Offboard people by deactivating their account (see [User Offboarding](#user-offboarding)).
    In Databricks Apps, use platform access controls, the explicit administrator
    identity and reviewed pg_sage roles; there is no local password or break-glass fallback.
 9. **Set `encryption_key`** (or `SAGE_ENCRYPTION_KEY_FILE`) -- API-set secrets are then encrypted at rest.
