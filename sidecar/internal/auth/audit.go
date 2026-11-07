@@ -25,6 +25,11 @@ const (
 	AuditUserCreated      = "user_created"
 	AuditUserDeleted      = "user_deleted"
 	AuditUserRoleChanged  = "user_role_changed"
+	// AuditUserDisabled and AuditUserEnabled record deactivation and
+	// reactivation (apiauth-01); Detail carries the counts of sessions
+	// ended and MCP tokens revoked.
+	AuditUserDisabled = "user_disabled"
+	AuditUserEnabled  = "user_enabled"
 )
 
 // Session lifecycle audit events (apiauth-04). Detail may carry a count of

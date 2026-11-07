@@ -50,20 +50,27 @@ func FindOrCreateOAuthUser(
 	return createOAuthUser(ctx, pool, id, provider, defaultRole)
 }
 
+// userByOAuthIdentity returns the user bound to issuer+subject:
+// pgx.ErrNoRows when none is, ErrUserDisabled when that user is
+// deactivated.
 func userByOAuthIdentity(
 	ctx context.Context, pool *pgxpool.Pool, id Identity,
 ) (*User, error) {
 	var u User
+	var disabled bool
 	err := pool.QueryRow(ctx,
-		"SELECT id, email, role, created_at, last_login "+
+		"SELECT id, email, role, created_at, last_login, disabled_at IS NOT NULL "+
 			"FROM sage.users WHERE oauth_issuer = $1 AND oauth_subject = $2",
 		id.Issuer, id.Subject,
-	).Scan(&u.ID, &u.Email, &u.Role, &u.CreatedAt, &u.LastLogin)
+	).Scan(&u.ID, &u.Email, &u.Role, &u.CreatedAt, &u.LastLogin, &disabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 	if err != nil {
 		return nil, fmt.Errorf("querying oauth identity: %w", err)
+	}
+	if disabled {
+		return nil, ErrUserDisabled
 	}
 	return &u, nil
 }
