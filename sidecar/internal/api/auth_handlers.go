@@ -214,6 +214,8 @@ func listUsersHandler(
 			SSOLinked     bool       `json:"sso_linked"`
 			SSOIssuer     string     `json:"sso_issuer"`
 			PasswordLogin bool       `json:"password_login"`
+			Disabled      bool       `json:"disabled"`
+			DisabledAt    *time.Time `json:"disabled_at"`
 		}
 		resp := make([]userResp, len(users))
 		for i, u := range users {
@@ -222,6 +224,7 @@ func listUsersHandler(
 				CreatedAt: u.CreatedAt, LastLogin: u.LastLogin,
 				SSOLinked: u.SSOIssuer != "", SSOIssuer: u.SSOIssuer,
 				PasswordLogin: u.PasswordLogin,
+				Disabled:      u.DisabledAt != nil, DisabledAt: u.DisabledAt,
 			}
 		}
 		jsonResponse(w, map[string]any{"users": resp})
@@ -323,17 +326,7 @@ func deleteUserHandler(
 		if err := auth.DeleteUserPreservingAdmin(
 			r.Context(), pool, id,
 		); err != nil {
-			switch {
-			case errors.Is(err, auth.ErrLastAdmin):
-				jsonError(w,
-					"cannot delete the last admin",
-					http.StatusForbidden)
-			case errors.Is(err, auth.ErrUserNotFound):
-				jsonError(w, "user not found",
-					http.StatusNotFound)
-			default:
-				internalError(w, r, "delete user", err)
-			}
+			writeDeleteUserError(w, r, err)
 			return
 		}
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{

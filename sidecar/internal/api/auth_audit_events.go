@@ -72,6 +72,8 @@ func loginFailureReason(err error) string {
 		return "link_required"
 	case errors.Is(err, auth.ErrOAuthUnmapped):
 		return "not_authorized"
+	case errors.Is(err, auth.ErrUserDisabled):
+		return "user_disabled"
 	default:
 		return "exchange_failed"
 	}

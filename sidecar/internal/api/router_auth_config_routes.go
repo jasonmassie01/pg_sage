@@ -67,6 +67,10 @@ func registerUserRoutes(
 	roleH := adminOnly(http.HandlerFunc(
 		updateUserRoleHandler(pool)))
 	mux.Handle("PUT /api/v1/users/{id}/role", roleH)
+
+	statusH := adminOnly(http.HandlerFunc(
+		setUserStatusHandler(pool)))
+	mux.Handle("PUT /api/v1/users/{id}/status", statusH)
 }
 
 func registerConfigRoutesRuntime(

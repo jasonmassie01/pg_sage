@@ -60,6 +60,15 @@ func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.Us
 				})
 				return
 			}
+			if errors.Is(err, auth.ErrUserDisabled) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				jsonResponse(w, map[string]string{
+					"error": "This pg_sage account is deactivated. Ask an app administrator to reactivate it.",
+					"code":  "databricks_app_user_disabled",
+				})
+				return
+			}
 			if errors.Is(err, auth.ErrOAuthEmailUnverified) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)

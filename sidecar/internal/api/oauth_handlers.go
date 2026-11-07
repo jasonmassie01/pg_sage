@@ -233,6 +233,10 @@ func writeOAuthUserError(
 	case errors.Is(err, auth.ErrOAuthEmailUnverified):
 		callbackFailure(w, r, link, ssoErrUnverified, http.StatusUnauthorized,
 			"email not verified by identity provider")
+	case errors.Is(err, auth.ErrUserDisabled):
+		slog.Warn("oauth login refused: account is deactivated")
+		callbackFailure(w, r, link, ssoErrUserDisabled, http.StatusForbidden,
+			"this account is deactivated; ask an administrator to reactivate it")
 	case errors.Is(err, auth.ErrOAuthUnmapped):
 		slog.Warn("oauth login refused: no IdP group maps to a pg_sage role")
 		callbackFailure(w, r, link, ssoErrNotAuthorized, http.StatusForbidden,
@@ -261,6 +265,7 @@ const (
 	ssoErrLinkConflict  = "link_conflict"
 	ssoErrUnverified    = "unverified"
 	ssoErrNotAuthorized = "not_authorized"
+	ssoErrUserDisabled  = "user_disabled"
 	ssoErrFailed        = "failed"
 )
 
