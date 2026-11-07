@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -39,10 +40,12 @@ func protectedApplication(app string) bool {
 	return false
 }
 
-// xminHolders reads every holder of this database's xmin horizon, once
-// per scan. A failed read aborts the scan.
-func (c *PostgresFreezeCustodian) xminHolders(ctx context.Context) ([]freeze.XminBlocker, error) {
-	rows, err := c.pool.Query(ctx, xminHoldersSQL, xminHolderLimit)
+// xminHolders reads every holder of this database's xmin horizon through
+// q, once per scan. A failed read aborts the scan.
+func (c *PostgresFreezeCustodian) xminHolders(
+	ctx context.Context, q catalogread.Querier,
+) ([]freeze.XminBlocker, error) {
+	rows, err := q.Query(ctx, xminHoldersSQL, xminHolderLimit)
 	if err != nil {
 		return nil, fmt.Errorf("read xmin holders: %w", err)
 	}

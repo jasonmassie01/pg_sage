@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -59,15 +60,11 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	if err != nil {
 		return nil, err
 	}
-	holders, err := c.xminHolders(ctx)
-	if err != nil {
-		return nil, err
-	}
 	ext, err := c.extensions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	horizons, err := c.readHorizons(ctx)
+	holders, horizons, err := c.readAges(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -75,10 +72,40 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	return c.plan(ctx, horizons, rates, holders, ext.pgRepack)
 }
 
+// readAges reads the xmin holders and the table horizons in one read-only
+// transaction. age() measures from a reference XID that stays fixed for a
+// transaction, so every holder's age and every table's age share one
+// reference: XIDs the cluster consumes between the two reads cannot make a
+// holder look younger than the tables it pins (and a futile freeze look
+// useful).
+func (c *PostgresFreezeCustodian) readAges(
+	ctx context.Context,
+) ([]freeze.XminBlocker, []freezeRow, error) {
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, nil, fmt.Errorf("begin freeze age read: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }() // read-only
+	holders, err := c.xminHolders(ctx, tx)
+	if err != nil {
+		return nil, nil, err
+	}
+	horizons, err := c.readHorizons(ctx, tx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("end freeze age read: %w", err)
+	}
+	return holders, horizons, nil
+}
+
 // readHorizons reads every table's freeze horizon and catalog bloat
 // estimate (the estimate only for heaps at the size floor).
-func (c *PostgresFreezeCustodian) readHorizons(ctx context.Context) ([]freezeRow, error) {
-	rows, err := c.pool.Query(ctx, freezeHorizonSQL, c.bloatMinBytes)
+func (c *PostgresFreezeCustodian) readHorizons(
+	ctx context.Context, q catalogread.Querier,
+) ([]freezeRow, error) {
+	rows, err := q.Query(ctx, freezeHorizonSQL, c.bloatMinBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read freeze horizons: %w", err)
 	}

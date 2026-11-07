@@ -394,7 +394,7 @@ func TestXminHoldersSkipALazyVacuum(t *testing.T) {
 		SELECT g AS id FROM generate_series(1, 200000) g; DELETE FROM hfx.slow WHERE id % 2 = 0`)
 	pid := slowVacuum(t, pool, "hfx.slow")
 
-	holders, err := NewPostgresFreezeCustodian(pool, "testdb", 25).xminHolders(ctx)
+	holders, err := NewPostgresFreezeCustodian(pool, "testdb", 25).xminHolders(ctx, pool)
 
 	if err != nil {
 		t.Fatalf("xminHolders: %v", err)
