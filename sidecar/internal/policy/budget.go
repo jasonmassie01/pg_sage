@@ -203,7 +203,8 @@ const BudgetBypass BudgetKind = "bypass"
 //   - a VACUUM (wraparound freeze) when the XID runway is critical;
 //   - a space-freeing action (VACUUM, unused index drop, REINDEX) when the
 //     disk runway is critical;
-//   - the revert or rollback of a change pg_sage made itself.
+//   - the revert or rollback of a change pg_sage made itself (including the
+//     restore of an index it dropped).
 //
 // Critical means urgency critical with a hard deadline still ahead. Every
 // other gate check still applies, and so does the shared rows bound.
@@ -215,6 +216,8 @@ func BudgetBypassFor(req ActionRequest, now time.Time) string {
 	switch {
 	case action == "revert_created_index":
 		return "revert of an index pg_sage created"
+	case action == ActionRestoreDroppedIndex:
+		return "restore of an index pg_sage dropped"
 	case req.Rollback:
 		return "rollback of pg_sage's own change"
 	}

@@ -88,9 +88,10 @@ func (e *WithheldError) Unwrap() error { return ErrActionWithheld }
 // Apply is the one execution pipeline: authorize → lease → DDL slot →
 // re-authorize → execute and record under a mandatory deadline → verify.
 // The re-authorization follows every wait, so an emergency stop or policy
-// change made while the action waited stops it. It returns the action_log
-// id; a policy refusal is a *WithheldError.
-func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error) {
+// change made while the action waited stops it; from the re-authorization
+// on, the run is in-flight work that CancelInFlight cancels. It returns the
+// action_log id; a policy refusal is a *WithheldError.
+func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (actionID int64, err error) {
 	// The gate's execute decisions hold their budget slot until the change
 	// they authorized returns; its action_log row then carries the usage.
 	var held []int64
@@ -111,6 +112,11 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	defer release()
 	runCtx, cancelRun := context.WithTimeout(ctx, e.applyTimeout())
 	defer cancelRun()
+	runCtx, run, err := e.inflight.begin(runCtx, intent.Request.SQL)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { e.inflight.end(run, actionID) }()
 	// The re-authorization runs under this action's own change lease, which
 	// the earned-autonomy ledger must not count as a concurrent writer.
 	intent.Request.LeaseHeld = leased
@@ -119,7 +125,10 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	if err != nil {
 		return 0, err
 	}
-	actionID, err := e.executeHeld(runCtx, intent, final)
+	if cause := run.stopCause(); cause != nil {
+		return 0, &StoppedError{Cause: cause}
+	}
+	actionID, err = e.executeHeld(runCtx, intent, final)
 	if err != nil || intent.Verify == nil {
 		return actionID, err
 	}

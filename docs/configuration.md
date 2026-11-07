@@ -500,11 +500,78 @@ with a Bonferroni-corrected significance and the call-weighted pool decides. A f
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
 
+Verification pauses while its evidence is unreadable. A failed read of the query history
+or the catalog (a lost connection, or the meta database down under
+`history.store: meta`) and a shutdown mid-check are not evidence that the change failed: the
+watch stays open with `sage.verification.verdict = extended` and `reason =
+observation_retry: <error>`, and it is checked again after 5, 15 and then every 60 minutes
+(`observation_failures` counts the failed attempts, and a successful check resets it). A
+failed write of the watch state also keeps the watch, unchanged, for the next check. Only a
+watch that reaches its hard deadline (execution time plus `verify.window_max_minutes`)
+without a successful check is reverted, with the reason `observation_unavailable`. A change
+whose watch could never be stored is reverted at once (`state_persist_failed`), and a check
+that reads the index as invalid still reverts it immediately. At startup, a watch that an
+earlier version closed after a transient read error or a shutdown (`observation_unavailable`
+or `context_canceled` with the hard deadline still ahead) is reopened and checked again;
+until that sweep succeeds, no index watch is resumed, so none of those changes is reverted.
+
+Write cost is advisory evidence for now, never a revert reason. The only write signal is
+database-wide (`pg_stat_database.blk_write_time` from the system snapshots, non-zero only
+with `track_io_timing`), so it cannot be charged to one index: an index built in a night
+window would otherwise be dropped by the daytime write load that follows, whatever it
+costs. Each index verdict records it as `write_signal` in the verdict evidence
+(`sage.action_outcome.evidence`): `scope: database`, `metric: blk_write_time`,
+`before_ms`, `after_ms`, `delta_pct`, `threshold_pct`, `exceeds_threshold` (a rise above
+`verify.write_impact_pct`) and `decisive: false`. With no baseline (`track_io_timing` off)
+it carries `unavailable` and no delta; a failed read of the write history is recorded in
+`write_signal.error` and does not pause the watch. When the rise exceeds the threshold, the
+outcome reason says so and that it is advisory. The index is kept or reverted on its
+queries alone (`query_regression`, `no_gain`, `invalid_index`, `insufficient_samples`).
+At startup, an open `write_impact` revert from an earlier version whose drop has not run
+is reopened and checked again on its queries; if that drop was withheld or failed, its
+action (`rollback_skipped` or `rollback_failed`) is watched again (`monitoring`) so the new
+verdict settles it, and an operator's rollback is left as it is. A table-scoped write signal
+that can revert again is planned (executor-03b).
+
 An index drop is watched for its business cycle, `verify.drop_window_hours`, and checked
 from the start. Its definition is kept, and the index is re-created as soon as a query on
 the table regresses or an active pg_sage hint names it (soft drop). VACUUM and ANALYZE are
 checked right after they run (dead tuples, rows modified since analyze, relfrozenxid age
 for VACUUM FREEZE).
+
+The soft-drop restore runs under its own typed contract:
+
+| Action contract | Risk | Rollback class | Change class | Approval | What it runs |
+|---|---|---|---|---|---|
+| `restore_dropped_index` | SAFE | reversible | `index` | none | `CREATE [UNIQUE] INDEX CONCURRENTLY` of the definition recorded with the drop |
+
+- **Same SQL everywhere.** When a drop runs, the definition the rule recorded is stored once,
+  in its `CONCURRENTLY` form, as the action's `rollback_sql`; the monitor and the operator's
+  rollback button run that statement. A restore that differs from it byte for byte, or
+  re-creates another index or table, is refused with the reason `rollback_sql_mismatch`
+  and never reaches the gate. Rows written before v2.5.1 keep the raw definition; it is
+  normalized when their monitor resumes.
+- **Survives trust downgrades.** The restore was a condition of the autonomy the drop ran
+  under, and it only re-creates what existed. Lowering trust after the drop
+  (`trust.level: observation`, `execution_mode: approval` or `manual`,
+  `trust.tier3_safe: false`, a ramp reset) does not strand it: the decision is
+  `execute` with the reason `drop_restore_bypass`, its detail names the downgrade it
+  passed, and it bypasses the kind budgets. The executor-disabled switch, a replica, the
+  provider list, the standing policy's change classes, approval classes and refusal set,
+  degraded SQL validation and the lock ceiling still bind. No other rollback gains this
+  bypass.
+- **The emergency stop still stops it, visibly.** A restore due during an emergency stop runs
+  no DDL: the action is recorded as `rollback_withheld` (reason `emergency_stop: ...`) and
+  one approval card, "Restore the index dropped by action N", is queued. The card is not
+  approvable during the stop; after the stop is lifted, approving it runs the recorded
+  restore through the operator rollback. It is superseded if the action is rolled back
+  another way, and expires like any queue item (7 days); the action's rollback stays
+  available after that.
+- **Reasons apart.** A rollback that no action contract classifies is withheld as
+  `no_rollback_contract: ...`, distinct from a policy refusal (`standing policy withheld
+  automatic rollback (<verdict>: <reason>)`). At startup the executor checks that every
+  reversible forward contract's rollback classifies to a contract and logs each one that
+  does not at ERROR.
 
 Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
 `/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
@@ -516,6 +583,7 @@ outcome ledger (`sage.action_outcome`).
 | `trust.rollback_threshold_pct` | `10` | Regression bar on a target's call-weighted mean |
 | `verify.min_samples` | `30` | Calls each window needs |
 | `verify.min_gain_pct` | `20` | Gain bar for `improved` |
+| `verify.write_impact_pct` | `20` | Advisory: rise in database-wide write time reported as `write_signal.exceeds_threshold`. It does not revert an index until a table-scoped signal replaces it (executor-03b) |
 | `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
 | `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
 

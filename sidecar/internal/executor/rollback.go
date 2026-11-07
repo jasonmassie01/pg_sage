@@ -27,11 +27,42 @@ type RollbackMonitorConfig struct {
 	LockTimeoutMs    int
 	CloudEnvironment string
 	Authorize        func(context.Context, string) bool
-	Acquire          func(context.Context) (func(), error)
+	// Decide, when set, replaces Authorize and names why a rollback is
+	// withheld (no contract, a policy refusal, an SQL mismatch).
+	Decide func(context.Context, string) RollbackVerdict
+	// HoldForStop, when set, records a rollback the emergency stop withholds
+	// as a visible approval card instead of skipping it (the soft-drop
+	// restore, executor-01).
+	HoldForStop func(ctx context.Context, actionID int64, rollbackSQL string)
+	Acquire     func(context.Context) (func(), error)
+	// Track registers the rollback as in-flight work the emergency stop
+	// cancels; a latched stop refuses it.
+	Track func(ctx context.Context, label string) (context.Context, func(), error)
 
 	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
 	applyConfig  func(context.Context, string) configApplyOutcome
 	observe      queryObserver
+}
+
+// RollbackVerdict is an authorizer's answer for one automatic rollback.
+type RollbackVerdict struct {
+	Allowed bool
+	// Reason is why the rollback was withheld, recorded as rollback_reason.
+	Reason string
+}
+
+// standingWithheld is the reason of a refusal by a yes/no authorizer.
+const standingWithheld = "standing policy withheld automatic rollback"
+
+// verdict asks Decide, or else Authorize; neither withholds the rollback.
+func (c RollbackMonitorConfig) verdict(ctx context.Context, sql string) RollbackVerdict {
+	if c.Decide != nil {
+		return c.Decide(ctx, sql)
+	}
+	if c.Authorize != nil && c.Authorize(ctx, sql) {
+		return RollbackVerdict{Allowed: true}
+	}
+	return RollbackVerdict{Reason: standingWithheld}
 }
 
 // queryObserver reads the targeted queries' measurements over a window.
@@ -167,17 +198,7 @@ func rollbackRegressedAction(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
 	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
 ) {
-	if CheckEmergencyStop(ctx, pool) {
-		logFn("rollback", "emergency stop active — skipping auto-rollback for "+
-			"action %d (manual rollback required)", actionID)
-		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
-			"emergency stop active; automatic rollback withheld")
-		return
-	}
-	if cfg.Authorize == nil || !cfg.Authorize(ctx, rollbackSQL) {
-		logFn("rollback", "policy withheld rollback for action %d", actionID)
-		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
-			"standing policy withheld automatic rollback")
+	if withheldRollback(ctx, pool, actionID, rollbackSQL, cfg, logFn) {
 		return
 	}
 	if !setMonitoredOutcome(ctx, pool, actionID, "rolling_back", "regression detected") {
@@ -203,19 +224,43 @@ func rollbackRegressedAction(
 	_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }
 
+// withheldRollback records a rollback the emergency stop or the authorizer
+// holds back and reports whether it was held. The stop is checked first.
+func withheldRollback(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
+	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
+) bool {
+	if CheckEmergencyStop(ctx, pool) {
+		if cfg.HoldForStop != nil {
+			cfg.HoldForStop(ctx, actionID, rollbackSQL)
+			return true
+		}
+		logFn("rollback", "emergency stop active — skipping auto-rollback for "+
+			"action %d (manual rollback required)", actionID)
+		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
+			"emergency stop active; automatic rollback withheld")
+		return true
+	}
+	verdict := cfg.verdict(ctx, rollbackSQL)
+	if verdict.Allowed {
+		return false
+	}
+	logFn("rollback", "rollback of action %d withheld: %s", actionID, verdict.Reason)
+	setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", verdict.Reason)
+	return true
+}
+
 // executeRollbackSQL runs rollback DDL concurrently where possible, under a
 // lock timeout and the shared DDL slot, and reloads config after a GUC
 // rollback so the reverted value is actually live.
 func executeRollbackSQL(
 	ctx context.Context, pool *pgxpool.Pool, rollbackSQL string, cfg RollbackMonitorConfig,
 ) (string, error) {
-	if cfg.Acquire != nil {
-		release, err := cfg.Acquire(ctx)
-		if err != nil {
-			return "", err
-		}
-		defer release()
+	ctx, release, err := cfg.enterRollback(ctx, rollbackSQL)
+	if err != nil {
+		return "", err
 	}
+	defer release()
 	sql := concurrentIndexRollbackSQL(rollbackSQL)
 	timeout := cfg.StatementTimeout
 	if timeout <= 0 {
@@ -249,6 +294,30 @@ func executeRollbackSQL(
 		reason += "; " + note
 	}
 	return reason, nil
+}
+
+// enterRollback registers the rollback as in-flight work the emergency stop
+// cancels, then takes the shared DDL slot; release undoes both.
+func (c RollbackMonitorConfig) enterRollback(
+	ctx context.Context, rollbackSQL string,
+) (context.Context, func(), error) {
+	done := func() {}
+	if c.Track != nil {
+		tracked, untrack, err := c.Track(ctx, rollbackSQL)
+		if err != nil {
+			return ctx, nil, err
+		}
+		ctx, done = tracked, untrack
+	}
+	if c.Acquire == nil {
+		return ctx, done, nil
+	}
+	releaseSlot, err := c.Acquire(ctx)
+	if err != nil {
+		done()
+		return ctx, nil, err
+	}
+	return ctx, func() { releaseSlot(); done() }, nil
 }
 
 func (c RollbackMonitorConfig) exec(

@@ -55,13 +55,14 @@ func ExecConcurrently(
 
 	o := applyDDLOpts(opts)
 
-	return withTopLevelSession(ctx, pool, timeout, o, func(conn pooledExecutor) error {
+	err := withTopLevelSession(ctx, pool, sql, timeout, o, func(conn pooledExecutor) error {
 		_, execErr := conn.Exec(ctx, sql)
 		if execErr != nil {
 			return wrapDDLError(execErr)
 		}
 		return nil
 	})
+	return stoppedStatement(ctx, sql, err)
 }
 
 // ExecInTransaction executes a SQL statement within a transaction
@@ -80,10 +81,19 @@ func ExecInTransaction(
 }
 
 // execStatementsInTransaction runs already validated statements in one
-// transaction under statement_timeout and lock_timeout: all or none.
+// transaction under statement_timeout and lock_timeout: all or none. An
+// emergency stop cancels them while they run.
 func execStatementsInTransaction(
 	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
 	statements ...string,
+) error {
+	err := execTransaction(ctx, pool, timeout, o, statements)
+	return stoppedStatement(ctx, strings.Join(statements, "; "), err)
+}
+
+func execTransaction(
+	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
+	statements []string,
 ) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -94,27 +104,15 @@ func execStatementsInTransaction(
 		defer cancel()
 		_ = tx.Rollback(rollbackCtx)
 	}()
-
-	timeoutMs := int(timeout.Milliseconds())
-	_, err = tx.Exec(ctx,
-		fmt.Sprintf(
-			"SET LOCAL statement_timeout = %d", timeoutMs,
-		),
-	)
+	// Deferred after the rollback, so it runs first (see withTopLevelSession).
+	unwatch, err := watchStatement(ctx, tx.Conn().PgConn(), strings.Join(statements, "; "))
 	if err != nil {
-		return fmt.Errorf("setting statement_timeout: %w", err)
+		return err
 	}
-
-	if o.lockTimeoutMs > 0 {
-		_, err = tx.Exec(ctx, fmt.Sprintf(
-			"SET LOCAL lock_timeout = '%dms'",
-			o.lockTimeoutMs,
-		))
-		if err != nil {
-			return fmt.Errorf("setting lock_timeout: %w", err)
-		}
+	defer unwatch()
+	if err := setLocalTimeouts(ctx, tx, timeout, o); err != nil {
+		return err
 	}
-
 	if o.before != nil {
 		if err := o.before(ctx, tx); err != nil {
 			return err
@@ -135,6 +133,23 @@ func execStatementsInTransaction(
 		return fmt.Errorf("committing transaction: %w", err)
 	}
 
+	return nil
+}
+
+// setLocalTimeouts bounds the transaction's statements by statement_timeout
+// and, when set, lock_timeout.
+func setLocalTimeouts(ctx context.Context, tx pgx.Tx, timeout time.Duration, o ddlOpts) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d", int(timeout.Milliseconds())))
+	if err != nil {
+		return fmt.Errorf("setting statement_timeout: %w", err)
+	}
+	if o.lockTimeoutMs > 0 {
+		_, err = tx.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", o.lockTimeoutMs))
+		if err != nil {
+			return fmt.Errorf("setting lock_timeout: %w", err)
+		}
+	}
 	return nil
 }
 

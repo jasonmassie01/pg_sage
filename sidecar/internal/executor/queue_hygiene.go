@@ -88,12 +88,14 @@ func (e *Executor) skipCoveredCreate(
 }
 
 // supersedeGoneSQL closes pending proposals whose finding is no longer
-// open, and those an equivalent newer pending proposal replaces (same
+// open (a restore card outlives its drop's finding by design: see
+// supersedeSettledRestoresSQL), and those an equivalent newer pending proposal replaces (same
 // identity key, or the same SQL).
 const supersedeGoneSQL = `/* pg_sage */ UPDATE sage.action_queue q
 	SET status = 'superseded',
 	    reason = 'superseded: finding ' || q.finding_id || ' is no longer open'
 	WHERE q.status = 'pending' AND q.finding_id IS NOT NULL
+	  AND q.action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
 	  AND NOT EXISTS (SELECT 1 FROM sage.findings f
 	                  WHERE f.id = q.finding_id AND f.status = 'open'
 	                    AND f.resolved_at IS NULL)
@@ -115,9 +117,12 @@ const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
 	RETURNING q.id`
 
 // pendingCreatesSQL lists pending index-create proposals for the coverage
-// check.
+// check. A restore card is not one: the index that covers it is often the
+// very reason the drop ran (a redundant index), and the regression says the
+// planner needs the dropped one back (executor-01).
 const pendingCreatesSQL = `/* pg_sage */ SELECT id, proposed_sql FROM sage.action_queue
 	WHERE status = 'pending' AND proposed_sql ~* '^\s*CREATE\s+(UNIQUE\s+)?INDEX\s'
+	  AND action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
 	ORDER BY id`
 
 // supersedeStaleApprovals closes the pending proposals whose reason is
@@ -128,7 +133,8 @@ func (e *Executor) supersedeStaleApprovals(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	total := 0
-	for _, stmt := range []string{supersedeGoneSQL, supersedeNewerSQL} {
+	for _, stmt := range []string{supersedeGoneSQL, supersedeNewerSQL,
+		supersedeSettledRestoresSQL} {
 		rows, err := e.pool.Query(ctx, stmt)
 		if err != nil {
 			return total, fmt.Errorf("supersede stale proposals: %w", err)

@@ -186,9 +186,11 @@ func (s *PostgresStateStore) Update(ctx context.Context, state WatchState) error
 	command, err := s.pool.Exec(ctx, `UPDATE sage.verification SET
 		criterion=$2, baseline=$3, next_evaluation_at=$4, verdict=$5,
 		reason=$6, updated_at=now(),
-		completed_at=CASE WHEN $7 THEN now() ELSE NULL END
+		completed_at=CASE WHEN $7 THEN now() ELSE NULL END,
+		observation_failures=$8
 		WHERE action_log_id=$1`, state.ActionID, criterion, baseline,
-		state.NextEvaluationAt, status, state.Reason, state.Completed)
+		state.NextEvaluationAt, status, state.Reason, state.Completed,
+		state.ObservationFailures)
 	if err != nil {
 		return err
 	}
@@ -204,7 +206,7 @@ func (s *PostgresStateStore) Get(ctx context.Context, id string) (WatchState, er
 	}
 	return s.scanState(s.pool.QueryRow(ctx, `SELECT action_log_id, criterion,
 		baseline, verdict, COALESCE(reason, ''), completed_at IS NOT NULL,
-		next_evaluation_at FROM sage.verification
+		next_evaluation_at, observation_failures FROM sage.verification
 		WHERE baseline->>'watch_id'=$1`, id))
 }
 
@@ -216,7 +218,7 @@ func (s *PostgresStateStore) ListDue(
 	}
 	rows, err := s.pool.Query(ctx, `SELECT action_log_id, criterion,
 		baseline, verdict, COALESCE(reason, ''), completed_at IS NOT NULL,
-		next_evaluation_at FROM sage.verification
+		next_evaluation_at, observation_failures FROM sage.verification
 		WHERE completed_at IS NULL
 		  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
 		  AND next_evaluation_at <= $1
@@ -252,7 +254,7 @@ func (s *PostgresStateStore) Claim(
 		  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
 		  AND next_evaluation_at <= $2
 		RETURNING action_log_id, criterion, baseline, verdict, COALESCE(reason, ''),
-			completed_at IS NOT NULL, next_evaluation_at`,
+			completed_at IS NOT NULL, next_evaluation_at, observation_failures`,
 		listed.ActionID, now, leaseUntil))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WatchState{}, false, nil
@@ -263,6 +265,45 @@ func (s *PostgresStateStore) Claim(
 	return state, true, nil
 }
 
+// ReopenObservationRetries reopens watches that a transient error closed
+// before observation retries existed: an open unverifiable verdict with
+// reason observation_unavailable or context_canceled whose hard deadline is
+// still ahead becomes an extended watch the next resume observes again. An
+// open write_impact revert (from before the write signal became advisory,
+// executor-03) whose drop has not run is reopened too, whatever its
+// deadline: the queries decide it again. Its next evaluation (the claim
+// lease) is kept. A reopened action that its withheld or failed revert left
+// rollback_skipped or rollback_failed is watched again (monitoring), so the
+// next verdict can settle it; an operator's rollback is never touched. It
+// is idempotent.
+func (s *PostgresStateStore) ReopenObservationRetries(ctx context.Context) (int64, error) {
+	if s == nil || s.pool == nil {
+		return 0, errors.New("verify state pool is unavailable")
+	}
+	var reopened int64
+	err := s.pool.QueryRow(ctx, `WITH reopened AS (
+		UPDATE sage.verification SET verdict='extended',
+		  reason='observation_retry: reopened ' || reason || ' verdict', updated_at=now()
+		WHERE completed_at IS NULL AND (
+		  (verdict='unverifiable'
+		    AND reason IN ('observation_unavailable', 'context_canceled')
+		    AND hard_deadline_at > now())
+		  OR (verdict='revert' AND reason='write_impact'))
+		RETURNING action_log_id
+	), watched AS (
+		UPDATE sage.action_log al SET outcome='monitoring', rollback_reason=NULL
+		FROM reopened r
+		WHERE al.id=r.action_log_id
+		  AND al.outcome IN ('rollback_skipped', 'rollback_failed')
+		RETURNING al.id
+	)
+	SELECT count(*) FROM reopened`).Scan(&reopened)
+	if err != nil {
+		return 0, fmt.Errorf("reopen transient or write-impact verifications: %w", err)
+	}
+	return reopened, nil
+}
+
 type stateScanner interface {
 	Scan(...any) error
 }
@@ -271,7 +312,7 @@ func (s *PostgresStateStore) scanState(row stateScanner) (WatchState, error) {
 	var state WatchState
 	var criterionJSON, baselineJSON []byte
 	err := row.Scan(&state.ActionID, &criterionJSON, &baselineJSON, &state.Status,
-		&state.Reason, &state.Completed, &state.NextEvaluationAt)
+		&state.Reason, &state.Completed, &state.NextEvaluationAt, &state.ObservationFailures)
 	if err != nil {
 		return WatchState{}, err
 	}

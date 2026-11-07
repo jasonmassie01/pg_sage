@@ -41,9 +41,12 @@ func (v *postgresIndexVerifier) ResumeDue(
 	results, err := v.engine.ResumeDueResults(ctx)
 	resumed := make([]resumedIndexVerification, 0, len(results))
 	for _, result := range results {
+		// One action's missing rollback SQL must not withhold the others'
+		// verdicts: it is reported, and its claim lease retries it.
 		rollbackSQL, lookupErr := v.rollbackSQL(ctx, result.ActionID)
 		if lookupErr != nil {
-			return resumed, lookupErr
+			err = errors.Join(err, lookupErr)
+			continue
 		}
 		resumed = append(resumed, resumedIndexVerification{
 			ActionID: result.ActionID, RollbackSQL: rollbackSQL,
@@ -166,6 +169,43 @@ func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason str
 		"revert refused: "+reason)
 	e.completeVerificationRevert(ctx, actionID)
 	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)
+}
+
+// resumeIndexVerification resumes due index watches, but only after the
+// startup sweep has succeeded: before it, a pre-fix transient unverifiable
+// row would replay its revert and drop an index nothing has disproved.
+func (e *Executor) resumeIndexVerification(ctx context.Context) {
+	if err := e.reopenObservationRetries(ctx); err != nil {
+		e.logFn("executor", "index verification resume withheld (indexes kept), "+
+			"retried next cycle: %v", err)
+		return
+	}
+	if err := e.indexVerification.ResumeDue(ctx); err != nil {
+		e.logFn("executor", "resume index verification: %v", err)
+	}
+}
+
+// reopenObservationRetries runs at startup, before the first resume, and
+// again each cycle until it succeeds: an index watch that a transient read
+// error or a shutdown closed before observation retries existed is observed
+// again instead of replaying its revert. One past its hard deadline still
+// reverts.
+func (e *Executor) reopenObservationRetries(ctx context.Context) error {
+	if e == nil || e.pool == nil || e.indexVerification == nil || e.retriesReopened.Load() {
+		return nil
+	}
+	sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	reopened, err := verify.NewPostgresStateStore(e.pool, 1).ReopenObservationRetries(sweepCtx)
+	if err != nil {
+		return fmt.Errorf("reopen index verifications closed by a transient error: %w", err)
+	}
+	e.retriesReopened.Store(true)
+	if reopened > 0 {
+		e.logFn("executor", "reopened %d index verification(s) closed by a transient "+
+			"error; they are observed again", reopened)
+	}
+	return nil
 }
 
 func (e *Executor) configureIndexVerification() {

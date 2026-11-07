@@ -21,9 +21,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		}
 	})
 	if e.indexVerification != nil {
-		if err := e.indexVerification.ResumeDue(ctx); err != nil {
-			e.logFn("executor", "resume index verification: %v", err)
-		}
+		e.resumeIndexVerification(ctx)
 	}
 	if !isReplica {
 		if err := e.ResumeIndexReplaces(ctx); err != nil {
@@ -375,7 +373,7 @@ func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actio
 		e.verifyImmediate(ctx, actionID)
 		return
 	}
-	monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))
+	monitorCfg := e.findingMonitorConfig(f, actionID)
 	e.startRollbackMonitor(func() {
 		MonitorAndRollback(
 			context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,

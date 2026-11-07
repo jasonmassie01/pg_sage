@@ -54,6 +54,7 @@ func TestPostgresStateEncodingRoundTripsWatchIdentity(t *testing.T) {
 		},
 		Status: "extended", Reason: "insufficient_samples",
 		Window: 30 * time.Minute, NextEvaluationAt: now.Add(30 * time.Minute),
+		ObservationFailures: 2,
 	}
 	criterion, baseline, err := marshalState(want)
 	if err != nil {
@@ -62,6 +63,7 @@ func TestPostgresStateEncodingRoundTripsWatchIdentity(t *testing.T) {
 	scanner := &fakeStateScanner{
 		actionID: want.ActionID, criterion: criterion, baseline: baseline,
 		status: want.Status, reason: want.Reason, due: want.NextEvaluationAt,
+		failures: want.ObservationFailures,
 	}
 	got, err := (&PostgresStateStore{}).scanState(scanner)
 	if err != nil {
@@ -164,6 +166,7 @@ type fakeStateScanner struct {
 	reason    string
 	completed bool
 	due       time.Time
+	failures  int
 	err       error
 }
 
@@ -238,7 +241,7 @@ func (s *fakeStateScanner) Scan(dest ...any) error {
 	if s.err != nil {
 		return s.err
 	}
-	if len(dest) != 7 {
+	if len(dest) != 8 {
 		return errors.New("unexpected scan destination count")
 	}
 	*(dest[0].(*int64)) = s.actionID
@@ -248,5 +251,6 @@ func (s *fakeStateScanner) Scan(dest ...any) error {
 	*(dest[4].(*string)) = s.reason
 	*(dest[5].(*bool)) = s.completed
 	*(dest[6].(*time.Time)) = s.due
+	*(dest[7].(*int)) = s.failures
 	return nil
 }
