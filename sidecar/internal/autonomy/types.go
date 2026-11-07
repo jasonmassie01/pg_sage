@@ -35,10 +35,6 @@ type VerifiedIndexRouter interface {
 	RouteVerifiedIndex(context.Context, Proposal, string, []int64) error
 }
 
-type StructuralRehearsalRouter interface {
-	RouteStructuralRehearsal(context.Context, Proposal) error
-}
-
 type SelfAuditor interface {
 	SelfAudit(context.Context) (ledger.AuditResult, error)
 }

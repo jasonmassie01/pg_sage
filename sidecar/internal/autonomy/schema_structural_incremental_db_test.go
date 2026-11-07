@@ -109,9 +109,8 @@ func structuralAnswer(t *testing.T, d postgresSchemaDetector) []string {
 	out := []string{}
 	for _, item := range items {
 		out = append(out, invariantRow(item))
-		if item.Kind == schemaguard.InvariantTypeTightening && item.ProposedSQL !=
-			typeTighteningProposal(item.Schema, item.Table, item.Subject) {
-			t.Errorf("%s: proposal %q", invariantRow(item), item.ProposedSQL)
+		if item.ProposedSQL != "" {
+			t.Errorf("%s: proposes %q, want no SQL", invariantRow(item), item.ProposedSQL)
 		}
 	}
 	return out

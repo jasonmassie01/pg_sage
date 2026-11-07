@@ -36,7 +36,7 @@ func TestPlanRetentionParksWhenColumnNotDeclared(t *testing.T) {
 			t.Fatalf("park reason %q lacks %q", decision.Reason, want)
 		}
 	}
-	if shouldRoute(decision) {
+	if ShouldRoute(decision) {
 		t.Fatalf("undeclared retention column was routed: %#v", decision)
 	}
 }

@@ -139,6 +139,48 @@ pg_sage serves both protocol eras on stdio and Streamable HTTP:
 migrations (`owned`) or must be left alone by pg_sage's DDL (`exempt`). It is recorded as a
 proposed [binding fact](facts.md) and binds nothing until a person confirms it.
 
+### What counts as additive DDL
+
+`lint_migration` and the agent gate (`apply_migration`, `request_change`) share one rule:
+DDL is additive only when every statement is on a short allowlist, and anything else is
+not proven safe. The allowlist is `CREATE INDEX CONCURRENTLY`, `CREATE TABLE` (not `AS`,
+`PARTITION OF` or `INHERITS`), `CREATE [OR REPLACE] VIEW`, `CREATE SCHEMA`, `COMMENT ON`,
+`CREATE SEQUENCE`, and `ALTER TABLE ... ADD [COLUMN] name type` with a built-in type and at
+most a constant or stable default (`now()`, `current_timestamp`). `SET lock_timeout`,
+`SET statement_timeout`, `BEGIN` and `COMMIT` are allowed alongside. A statement containing
+`UNIQUE`, `REFERENCES`, `CHECK`, `EXCLUDE`, `PRIMARY KEY`, `LOGGED`, `ACCESS METHOD`,
+`NOT NULL`, `RENAME` or `TRIGGER` is never additive, and neither is SQL that ends inside an
+unterminated literal, quoted identifier or comment.
+
+* The agent gate classes such DDL `ddl_locking` (any `DROP` or `TRUNCATE` is still
+  `ddl_destructive` first), so it earns trust in the locking class, not the additive one.
+* `lint_migration` returns `review`, never `safe`, for a statement outside the allowlist
+  that no DDL safety rule recognized, and its `note` says how many there are.
+
+### What `apply_migration` can plan
+
+`apply_migration` rewrites exactly one `ALTER TABLE` clause on the named table. It plans two
+forms:
+
+* `ALTER TABLE t ADD CONSTRAINT name UNIQUE (col [, ...])`, optionally followed by
+  `[NOT] DEFERRABLE` and `INITIALLY DEFERRED | INITIALLY IMMEDIATE`. The expand step is
+  `CREATE UNIQUE INDEX CONCURRENTLY "name_idx"`; the contract step is
+  `ADD CONSTRAINT "name" UNIQUE USING INDEX "name_idx"` with the same timing clauses, so a
+  deferrable request stays deferrable. PostgreSQL renames the index to the constraint name
+  when it attaches.
+* `ALTER TABLE t ALTER COLUMN col SET NOT NULL`, planned as a `NOT VALID` check named
+  `<table>_<col>_nn`, validated, then `SET NOT NULL` and the check dropped.
+
+Names resolve the way PostgreSQL resolves them: a bare `Email` is the column `email`, a quoted
+`"Email"` keeps its case, and every name in the plan is quoted exactly once. Bare names must
+be ASCII; quote any other name. The planner refuses, with
+`unsupported option "..."; plan it by hand`, anything it cannot carry into the plan:
+`INCLUDE (...)`, `WITH (...)`, `USING INDEX TABLESPACE`, `NULLS [NOT] DISTINCT`, comments
+and any other trailing text. It also refuses an empty or repeated column list, contradictory
+timing such as `NOT DEFERRABLE INITIALLY DEFERRED`, and any constraint, index, column or
+proof name longer than 63 bytes, which PostgreSQL would otherwise truncate. Plan those
+migrations by hand.
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:

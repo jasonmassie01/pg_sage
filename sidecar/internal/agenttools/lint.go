@@ -66,7 +66,8 @@ func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult,
 	}
 	assessor := migration.NewRiskAssessor(t.pool, t.opts.Log)
 	res := LintResult{Statements: []LintItem{}}
-	for _, c := range migration.NewRegexClassifier().Classify(req.SQL, version) {
+	classified := migration.NewRegexClassifier().Classify(req.SQL, version)
+	for _, c := range classified {
 		risk, err := assessor.Assess(ctx, c)
 		if err != nil {
 			return LintResult{}, fmt.Errorf("assess %s: %w", c.RuleID, err)
@@ -78,7 +79,57 @@ func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult,
 		res.Note = "No DDL safety rule recognized these statements: nothing is known to " +
 			"lock or rewrite a table. Unrecognized DDL is not proven safe."
 	}
-	return res, nil
+	return reviewUnproven(res, classified, req.SQL), nil
+}
+
+// reviewUnproven raises a safe verdict to review when a statement is
+// outside the additive allowlist and no DDL safety rule recognized it, or
+// when the text cannot be tokenized (migration-04a): safe must mean the
+// statements are known. ddl_missing_lock_timeout is advice about the
+// batch, not a recognition of the statement's hazard. It never lowers a
+// verdict or changes the score.
+func reviewUnproven(
+	res LintResult, classified []migration.DDLClassification, sql string,
+) LintResult {
+	unproven, err := migration.UnprovenStatements(sql)
+	if err != nil { // migration.ErrUntokenizable
+		return raiseToReview(res, "The SQL could not be tokenized: it ends inside a "+
+			"literal, quoted identifier, dollar-quoted body or comment, which can hide "+
+			"statements. Review it.")
+	}
+	recognized := make(map[string]bool, len(classified))
+	for _, c := range classified {
+		if c.RuleID != "ddl_missing_lock_timeout" {
+			recognized[c.Statement] = true
+		}
+	}
+	n := 0
+	for _, stmt := range unproven {
+		if !recognized[stmt] {
+			n++
+		}
+	}
+	switch n {
+	case 0:
+		return res
+	case 1:
+		return raiseToReview(res, "1 statement is outside the additive allowlist and "+
+			"matches no DDL safety rule: unrecognized DDL is not proven safe. Review it.")
+	}
+	return raiseToReview(res, fmt.Sprintf("%d statements are outside the additive "+
+		"allowlist and match no DDL safety rule: unrecognized DDL is not proven safe. "+
+		"Review them.", n))
+}
+
+func raiseToReview(res LintResult, note string) LintResult {
+	if res.Verdict == "safe" {
+		res.Verdict = "review"
+	}
+	if res.Note != "" {
+		note = res.Note + " " + note
+	}
+	res.Note = note
+	return res
 }
 
 func (t *Tools) lintVersion(ctx context.Context, requested int) (int, error) {

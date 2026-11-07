@@ -54,11 +54,12 @@ func TestCustodianStructuralChangeNeverAutoApplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	if len(fixture.router.items) != 1 || len(fixture.records.items) != 1 {
+	if len(fixture.router.items) != 0 || len(fixture.records.items) != 1 {
 		t.Fatalf("routes=%#v records=%#v", fixture.router.items, fixture.records.items)
 	}
 	decision := fixture.records.items[0].Decision
-	if decision.Disposition != DispositionRecommend || !decision.RequiresRehearsal {
+	if decision.Disposition != DispositionRecommend || decision.AutoApply ||
+		decision.Route != RouteRecommendation {
 		t.Fatalf("decision=%#v", decision)
 	}
 }

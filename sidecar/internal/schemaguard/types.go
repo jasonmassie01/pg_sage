@@ -4,24 +4,21 @@ import "time"
 
 type InvariantKind string
 
+// Every kind has a detector (a non-test producer); a kind without one is
+// not declared (see producer_guard_test.go).
 const (
-	InvariantMissingFKIndex    InvariantKind = "missing_fk_index"
-	InvariantUnboundedAppend   InvariantKind = "unbounded_append"
-	InvariantMissingConstraint InvariantKind = "missing_constraint"
-	InvariantEverythingText    InvariantKind = "everything_text"
-	InvariantTypeTightening    InvariantKind = "type_tightening"
-	InvariantRandomUUIDPK      InvariantKind = "random_uuid_pk"
-	InvariantNoPrimaryKey      InvariantKind = "no_primary_key"
-	InvariantRedundantIndex    InvariantKind = "redundant_index"
+	InvariantMissingFKIndex  InvariantKind = "missing_fk_index"
+	InvariantUnboundedAppend InvariantKind = "unbounded_append"
+	InvariantEverythingText  InvariantKind = "everything_text"
+	InvariantTypeTightening  InvariantKind = "type_tightening"
 )
 
 type RemediationClass string
 
 const (
-	RemediationVerifiedIndex  RemediationClass = "verified_index"
-	RemediationRetention      RemediationClass = "retention"
-	RemediationRecommendation RemediationClass = "recommendation"
-	RemediationStructural     RemediationClass = "structural"
+	RemediationVerifiedIndex RemediationClass = "verified_index"
+	RemediationRetention     RemediationClass = "retention"
+	RemediationStructural    RemediationClass = "structural"
 )
 
 type Classification struct {
@@ -42,12 +39,18 @@ const (
 
 type Route string
 
+// RouteRecommendation is advisory only: the decision is recorded for the
+// operator and never sent to a router.
 const (
 	RouteVerifyIndex    Route = "verify_index"
 	RouteRetention      Route = "retention"
-	RouteCloneRehearsal Route = "clone_rehearsal"
 	RouteRecommendation Route = "recommendation"
 )
+
+// StructuralReason is the recorded reason of every structural invariant:
+// fixing one needs an online column migration, which pg_sage cannot run.
+const StructuralReason = "requires an online column migration; " +
+	"pg_sage has no automated path"
 
 // Invariant is one detected schema condition. For unbounded-append tables,
 // RetentionColumn is the owner-declared column, set only when it exists, is
@@ -90,10 +93,9 @@ type TableContract struct {
 	Exemptions         []InvariantKind
 }
 type Policy struct {
-	AllowFKIndexApply          bool
-	AllowRetentionApply        bool
-	AllowRedundantIndexCleanup bool
-	OscillationLimit           int
+	AllowFKIndexApply   bool
+	AllowRetentionApply bool
+	OscillationLimit    int
 }
 type History struct{ SuccessfulRetentionDryRuns, ExternalReversions int }
 
