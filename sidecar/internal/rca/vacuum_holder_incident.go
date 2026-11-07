@@ -62,9 +62,11 @@ func sessionHolderIncident(sig *Signal, curr *collector.Snapshot, c xminCandidat
 	if known {
 		evidence += ", in this state " + idleFor.String()
 	}
-	// Cases offers cancel and terminate for an "Idle-in-transaction PID"
-	// root cause, so that text is kept for a holder this tree would
-	// terminate; any other holder reads as a session in its state.
+	// The "Idle-in-transaction PID" wording, which routes the case to the
+	// idle-in-transaction playbook, is kept for a holder this tree would
+	// terminate; any other holder reads as a session in its state. Cases
+	// builds no signal from the text (playbooks-01), so the terminate stays
+	// this incident's recommended SQL.
 	root := fmt.Sprintf("Session PID %d (%s) holding oldest xmin (age %d), "+
 		"blocking autovacuum", h.PID, state, age)
 	sql, risk := sessionDiagnosticSQL(h.PID), "safe"

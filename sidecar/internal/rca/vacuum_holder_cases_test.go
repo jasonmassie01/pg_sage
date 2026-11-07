@@ -1,6 +1,7 @@
 package rca
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -9,9 +10,10 @@ import (
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
-// rca-01 review: Cases builds cancel and terminate candidates from a
-// vacuum_blocked root cause reading "Idle-in-transaction PID", so the
-// tree's terminate guard holds only if that text follows it.
+// rca-01 review: Cases routes a vacuum_blocked root cause reading
+// "Idle-in-transaction PID" to the idle-in-transaction playbook, so that
+// text must follow the tree's terminate guard; since playbooks-01 the
+// playbook's signals come only from structured blocker identities.
 
 // No concurrent access test: the projection is a pure function of one
 // incident.
@@ -60,14 +62,21 @@ func TestVacuumBlockedHolder_CasesOfferNoSignalTheTreeWithheld(t *testing.T) {
 	}
 }
 
-// The holder the tree terminates still reaches Cases as a terminate of
-// the same pid.
-func TestVacuumBlockedHolder_CasesTerminateTheTreesHolder(t *testing.T) {
+// The holder the tree terminates keeps that terminate as the incident's
+// recommended SQL, but Cases builds no signal from it: since playbooks-01 a
+// backend signal comes only from a structured lock_contention blocker
+// identity, never from incident text, so the idle-in-transaction playbook
+// offers only its blocked cancel and no terminate candidate.
+func TestVacuumBlockedHolder_CasesOfferNoTextSignalForTheTreesTerminate(t *testing.T) {
 	idleTx := "idle in transaction"
 	inc := blockedHolder(t, []probes.XminHolder{sessionAt(911, 800, time.Hour, idleTx)},
 		sessionLock(911, time.Hour, time.Hour, idleTx))
+	if !strings.HasPrefix(inc.RecommendedSQL, "SELECT pg_terminate_backend(911);") {
+		t.Fatalf("recommended SQL = %q, want the tree's terminate of 911", inc.RecommendedSQL)
+	}
 	got := backendActions(inc)
-	if got["terminate_backend"] != "SELECT pg_terminate_backend(911)" {
-		t.Fatalf("cases candidates %v for %q, want the terminate of 911", got, inc.RootCause)
+	if len(got) != 1 || got["cancel_backend"] != "" {
+		t.Fatalf("cases candidates %v for %q, want only the blocked cancel (no SQL)",
+			got, inc.RootCause)
 	}
 }
