@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
 import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
+import { DisabledBadge, UserStatusButton } from './users/UserStatusControls'
+import { deleteUser, setUserDisabled } from './users/userAdminApi'
 
 export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const platformManaged = authMode === 'databricks_app'
@@ -58,13 +60,24 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   }
 
   async function handleDelete(id, userEmail) {
-    if (!confirm(`Delete user ${userEmail}?`)) return
+    if (!confirm(`Delete user ${userEmail}? Deactivating keeps their history ` +
+      'attributable and can be undone.')) return
+    setError(null)
     try {
-      const res = await fetch(`/api/v1/users/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      if (!res.ok) throw new Error('Failed to delete user')
+      await deleteUser(id)
+      fetchUsers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleStatus(user) {
+    const disable = !user.disabled
+    if (disable && !confirm(`Deactivate ${user.email}? They are signed out ` +
+      'everywhere and their MCP tokens are revoked.')) return
+    setError(null)
+    try {
+      await setUserDisabled(user.id, disable)
       fetchUsers()
     } catch (err) {
       setError(err.message)
@@ -117,7 +130,8 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
     border: '1px solid var(--border)',
     color: 'var(--text-primary)',
   }
-  const adminCount = users.filter(u => u.role === 'admin').length
+  // Only enabled admins count: a deactivated admin holds no admin power.
+  const adminCount = users.filter(u => u.role === 'admin' && !u.disabled).length
 
   return (
     <div>
@@ -234,7 +248,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
             {users.map(u => {
               const isCurrentUser = currentUser?.id === u.id
               const isLastAdmin =
-                u.role === 'admin' && adminCount <= 1
+                u.role === 'admin' && !u.disabled && adminCount <= 1
               const roleLocked = isCurrentUser || isLastAdmin
               const lockTitle = isCurrentUser
                 ? 'You cannot change your own admin role'
@@ -249,6 +263,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-primary)' }}>
                   {u.email}
+                  <DisabledBadge user={u} />
                 </td>
                 <td className="px-4 py-2">
                   <select value={u.role}
@@ -283,6 +298,12 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                     : 'Never'}
                 </td>
                 {!platformManaged && <td className="px-4 py-2 text-right">
+                  <UserStatusButton user={u}
+                    locked={!u.disabled && (isCurrentUser || isLastAdmin)}
+                    lockTitle={isCurrentUser
+                      ? 'You cannot deactivate your own account'
+                      : 'At least one enabled admin must remain'}
+                    onToggle={handleStatus} />
                   <button
                     onClick={() => handleDelete(u.id, u.email)}
                     disabled={isCurrentUser || isLastAdmin}
