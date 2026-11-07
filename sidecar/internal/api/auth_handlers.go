@@ -29,8 +29,8 @@ func loginHandler(
 		if !ok {
 			return
 		}
-		if !loginRateLimitDisabled &&
-			!loginLimiter.reserve(req.Email) {
+		budgetKey := ClientLimiterKey(requestClientIP(r))
+		if !reserveLoginAttempt(budgetKey, req.Email) {
 			auditPasswordFailure(r, pool, req.Email, "rate_limited")
 			jsonError(w, "too many login attempts, "+
 				"try again later",
@@ -42,13 +42,18 @@ func loginHandler(
 			r.Context(), pool, req.Email, req.Password,
 		)
 		if err != nil {
+			if !errors.Is(err, auth.ErrInvalidCredentials) {
+				// The client still sees 401; the operator needs the cause.
+				slog.Warn("login refused: authentication could not complete",
+					"error", err)
+			}
 			auditPasswordFailure(r, pool, req.Email, "invalid_credentials")
 			jsonError(w, "invalid credentials",
 				http.StatusUnauthorized)
 			return
 		}
 
-		loginLimiter.reset(req.Email)
+		loginSucceeded(budgetKey, req.Email)
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
 			Event: auth.AuditLoginSucceeded, ActorUserID: user.ID,
 			TargetUserID: user.ID, Detail: map[string]any{"method": "password"},
@@ -65,8 +70,36 @@ func loginHandler(
 	}
 }
 
-// setLoginSession creates a session and sets its cookie (Secure only when
-// the request arrived over TLS); it reports false after a 500.
+// reserveLoginAttempt spends one slot of the client's failed-login budget
+// and one of the email's attempts. A refusal by the email limiter refunds
+// the budget slot: that request never reached a password check.
+func reserveLoginAttempt(budgetKey, email string) bool {
+	if loginRateLimitDisabled {
+		return true
+	}
+	if !loginFailureBudget.reserve(budgetKey) {
+		return false
+	}
+	if !loginLimiter.reserve(email) {
+		loginFailureBudget.refund(budgetKey)
+		return false
+	}
+	return true
+}
+
+// loginSucceeded refunds this request's budget slot (the client's earlier
+// failures stay counted) and clears the email's attempts.
+func loginSucceeded(budgetKey, email string) {
+	if loginRateLimitDisabled {
+		return
+	}
+	loginFailureBudget.refund(budgetKey)
+	loginLimiter.reset(email)
+}
+
+// setLoginSession creates a session and sets its cookie (Secure when the
+// request arrived over TLS or through a trusted TLS proxy); it reports
+// false after a 500.
 func setLoginSession(
 	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
 ) bool {
@@ -80,7 +113,7 @@ func setLoginSession(
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   secureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(auth.SessionDuration.Seconds()),
 	})
@@ -126,31 +159,20 @@ func logoutHandler(
 	pool *pgxpool.Pool,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("sage_session")
-		if err == nil {
-			_ = auth.DeleteSession(
-				r.Context(), pool, cookie.Value,
-			)
-		}
+		endCurrentSession(r, pool)
 		http.SetCookie(w, &http.Cookie{
 			Name:     "sage_session",
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   isSecureRequest(r),
+			Secure:   secureCookie(r),
+			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
 		jsonResponse(w, map[string]string{
 			"status": "logged out",
 		})
 	}
-}
-
-func isSecureRequest(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 func meHandler() http.HandlerFunc {
@@ -192,6 +214,8 @@ func listUsersHandler(
 			SSOLinked     bool       `json:"sso_linked"`
 			SSOIssuer     string     `json:"sso_issuer"`
 			PasswordLogin bool       `json:"password_login"`
+			Disabled      bool       `json:"disabled"`
+			DisabledAt    *time.Time `json:"disabled_at"`
 		}
 		resp := make([]userResp, len(users))
 		for i, u := range users {
@@ -200,6 +224,7 @@ func listUsersHandler(
 				CreatedAt: u.CreatedAt, LastLogin: u.LastLogin,
 				SSOLinked: u.SSOIssuer != "", SSOIssuer: u.SSOIssuer,
 				PasswordLogin: u.PasswordLogin,
+				Disabled:      u.DisabledAt != nil, DisabledAt: u.DisabledAt,
 			}
 		}
 		jsonResponse(w, map[string]any{"users": resp})
@@ -301,17 +326,7 @@ func deleteUserHandler(
 		if err := auth.DeleteUserPreservingAdmin(
 			r.Context(), pool, id,
 		); err != nil {
-			switch {
-			case errors.Is(err, auth.ErrLastAdmin):
-				jsonError(w,
-					"cannot delete the last admin",
-					http.StatusForbidden)
-			case errors.Is(err, auth.ErrUserNotFound):
-				jsonError(w, "user not found",
-					http.StatusNotFound)
-			default:
-				internalError(w, r, "delete user", err)
-			}
+			writeDeleteUserError(w, r, err)
 			return
 		}
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{

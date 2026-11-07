@@ -238,8 +238,68 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
+The `sage_session` cookie is 32 random bytes (base64url). pg_sage stores only
+its SHA-256 in `sage.sessions.token_hash`, so reading the `sage` schema (a role
+with `pg_read_all_data`, a logical dump, a restored backup) or a server log
+that records bind parameters does not yield a usable session. The row `id` is
+not a secret and does not authenticate. Sessions last 24 hours (break-glass
+sessions one hour); a malformed cookie is refused without a query.
+
+- `POST /api/v1/auth/logout` ends the current session and records `logout`.
+- `DELETE /api/v1/auth/sessions` ("sign out everywhere else") ends every other
+  session of the signed-in user, keeps the one that sent it, answers
+  `{"revoked": N}` and records `sessions_revoked` with the count.
+- Unlinking a user's SSO identity, and the Databricks admin bootstrap, end all
+  of that user's sessions.
+- If the session store cannot be read the API answers 503, not 401, so a
+  database blip does not look like an expired session.
+
+Upgrading to the release that introduced hashed sessions deletes every
+existing session once: every dashboard user signs in again after the upgrade.
+The upgrade makes `token_hash` NOT NULL, so an older sidecar sharing the
+database cannot create sessions (its logins, break-glass included, fail with
+a not-null error instead of storing a plaintext session). Before downgrading
+below that release, run
+`ALTER TABLE sage.sessions ALTER COLUMN token_hash DROP NOT NULL`; upgrading
+again deletes the unhashed sessions and restores the constraint.
+
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
+
+### User Offboarding
+
+Deactivate a user rather than deleting them: **Deactivate** on the Users page,
+or
+
+```bash
+curl -b cookies.txt -H 'Content-Type: application/json'   -X PUT http://localhost:8080/api/v1/users/42/status --data '{"disabled":true}'
+```
+
+Deactivation (admin only) takes effect at once and in one transaction:
+
+- every session of the user ends, so an open dashboard returns to the login
+  screen on its next request;
+- the user's operator MCP tokens are revoked (`revoked_by` is
+  `pg_sage: owner deactivated`);
+- password login answers 401 (the same as a wrong password), SSO and
+  Databricks Apps sign-in answer 403, an unused SSO link grant is refused, and
+  a chat identity mapped to the user can no longer approve.
+
+`{"disabled":false}` (**Reactivate**) restores sign-in only: ended sessions and
+revoked tokens stay dead, so the user signs in again and an admin issues new
+tokens. The last enabled admin cannot be deactivated (`403`), and an admin
+cannot deactivate themselves. A deactivated admin does not count toward the
+last-admin rule, so the last *enabled* admin also cannot be demoted or
+deleted. Signing in with break-glass re-enables the break-glass account.
+Both actions are audited as `user_disabled` and `user_enabled`.
+
+Deleting (`DELETE /api/v1/users/{id}`) stays available. A user who changed
+configuration can be deleted: `sage.config_audit.changed_by` keeps their id
+without a foreign key (it is sealed in the audit chain and never rewritten)
+and every config change also records the caller's email in
+`changed_by_actor`, so the trail still names them. `sage.config` forgets its
+updater (`ON DELETE SET NULL`). If another table still references the user,
+delete answers `409` naming that table; deactivate the user instead.
 
 ### Databricks Apps Authentication
 
@@ -369,11 +429,47 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `login_succeeded` / `login_failed` | Password and SSO sign-ins (`detail.method`, `detail.reason`) |
 | `break_glass_login` / `break_glass_login_failed` | Every break-glass attempt |
 | `user_created`, `user_deleted` | Admin user administration |
+| `user_disabled`, `user_enabled` | Deactivation and reactivation (`detail.sessions_ended`, `detail.mcp_tokens_revoked`) |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
+| `logout` | A user signed out |
+| `sessions_revoked` | "Sign out everywhere else" (`detail.count`, `detail.scope`) |
 
 Rows never contain passwords, tokens or email addresses; a failed password
-login names the targeted account by id when it exists.
+login names the targeted account by id when it exists. (`sage.config_audit`
+is different: from this release each config change records the caller's
+email in `changed_by_actor`, so the change history survives deleting the
+account.)
+
+### Login Throttling
+
+Password login (`POST /api/v1/auth/login`) has two limits, both over a
+sliding 15-minute window and both answered with `429`:
+
+- **Per email**: 5 attempts. A successful login clears the count.
+- **Per client**: 20 failed logins across all emails, so one client cannot
+  spray many accounts. Only failures count, and a successful login does not
+  clear the earlier ones.
+
+A client is its address; an IPv6 address counts as its whole /64, since one
+customer usually holds that block. The same keying applies to break-glass
+attempts and the general API rate limit. An unknown email, an SSO-only
+account and a wrong password are refused alike (`401`) and in the same time,
+so responses do not reveal which accounts exist. A database error during
+login is also a `401` to the client and is logged with its cause.
+
+The per-email limiter tracks at most 10,000 emails. When it is full it drops
+the least-used entry, never a locked one; if every entry is locked, logins for
+new emails are refused until entries expire, and
+`pg_sage_login_limiter_saturated_total` counts each refusal. A rising value
+means credential spraying.
+
+**Behind an ingress or load balancer**, list its addresses in
+`api.trusted_proxies`. Otherwise `X-Forwarded-For` is ignored, every user
+shares the proxy's address, and 20 failed logins by anyone lock password
+login for everyone for up to 15 minutes. The first request whose
+`X-Forwarded-For` is ignored logs a warning naming `api.trusted_proxies`.
+SSO and break-glass are not subject to the per-client failure limit.
 
 ### Break-glass Admin
 
@@ -404,7 +500,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
   broadcast as a critical `security_break_glass` notification to **every
   enabled notification channel**, regardless of notification rules. Configure
   at least one channel. Failed attempts are audited and rate-limited per
-  client address (5 per 15 minutes).
+  client address, an IPv6 address counting as its /64 (5 per 15 minutes).
 - After use, review what the session did and rotate the password.
 
 ### Secrets at Rest
@@ -434,12 +530,46 @@ ciphertext.
   notification channel secrets are still sealed with `encryption_key` alone
   and must be re-entered after a rotation.
 
+### CSRF and Cross-Origin Requests
+
+The session cookie is `HttpOnly` and `SameSite=Lax`, so another website cannot
+send it on a write. `SameSite` does not separate *sites* from *origins*: a page
+on a sibling subdomain or on another port of the same host is same-site and
+would get the cookie. Every `/api/v1/*` route therefore also runs Go's
+cross-origin protection (`http.CrossOriginProtection`), ahead of
+authentication:
+
+- `GET`, `HEAD` and `OPTIONS` always pass; they change nothing.
+- A browser write passes when it sends `Sec-Fetch-Site: same-origin` (or
+  `none`, a user-typed request). `same-site` and `cross-site` writes get 403,
+  including the multipart CSV import (`POST /api/v1/databases/managed/import`),
+  which an HTML form could otherwise submit.
+- A browser that sends no `Sec-Fetch-Site` (older than 2023) is checked by its
+  `Origin` header against the request's `Host`.
+- A request with neither header is not from a browser (curl, SDKs, MCP
+  clients, ChatOps callbacks) and passes to authentication unchanged.
+- `api.trusted_origins` (`SAGE_API_TRUSTED_ORIGINS`, comma-separated) lists
+  exact origins, `scheme://host[:port]`, whose cross-origin writes are
+  accepted: a separately hosted UI, or a reverse proxy that rewrites `Host`
+  for browsers that send no `Sec-Fetch-Site`. It is empty by default, ignored
+  in Databricks App mode, and a malformed entry stops startup with the entry
+  named. Every listed origin can submit writes with a signed-in user's
+  cookie, so list only origins you control.
+
+The API sends no CORS headers: the dashboard is served from the API's own
+origin, and the Vite dev server proxies `/api` to the sidecar.
+
 ### TLS
 
 Set `SAGE_TLS_CERT` and `SAGE_TLS_KEY` to PEM files and the API and dashboard
 listener serves HTTPS only (TLS 1.2 or newer); session cookies are then marked
 `Secure`. Without them it serves plain HTTP, for use behind a TLS-terminating
-reverse proxy, Kubernetes Ingress, Cloud Run or load balancer.
+reverse proxy, Kubernetes Ingress, Cloud Run or load balancer. Behind such a
+proxy the password-login session cookie is `Secure` only when the proxy's
+address is in `api.trusted_proxies` (default: loopback) and it sends
+`X-Forwarded-Proto: https`; the header from any other peer is ignored, and
+the first such request logs a warning naming `api.trusted_proxies`. SSO and
+break-glass session cookies are always `Secure`.
 
 - Setting only one of the two is a startup error, so a typo can't silently
   downgrade to HTTP.
@@ -466,7 +596,7 @@ either way.
 ### Request Limits
 
 - **Body size**: Maximum 1 MB per request.
-- **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per IP).
+- **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per client address; an IPv6 client counts as its /64). Password login has its own limits ([Login Throttling](#login-throttling)).
 - **Request timeout**: 30 seconds per API request.
 - **Pool exhaustion protection**: When the connection pool is exhausted, database-backed methods return `503`.
 
@@ -735,7 +865,7 @@ The database role a session logged in as decides.
 ## Production Checklist
 
 1. **Protect the dashboard/API listener** -- use a private network, reverse proxy, or identity-aware edge.
-2. **Use TLS** -- set `SAGE_TLS_CERT`/`SAGE_TLS_KEY` or terminate TLS at the edge; do not expose plain HTTP directly to the internet.
+2. **Use TLS** -- set `SAGE_TLS_CERT`/`SAGE_TLS_KEY` or terminate TLS at the edge; do not expose plain HTTP directly to the internet. Behind a TLS proxy, list it in `api.trusted_proxies` so session cookies are `Secure`.
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.
@@ -743,6 +873,7 @@ The database role a session logged in as decides.
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
 8. **Select the deployment's authentication model.** For standalone, capture and rotate the initial admin password, then use named users or OAuth for operators.
    With SSO, set `oauth.role_mapping`, and configure a break-glass admin plus a notification channel.
+   Offboard people by deactivating their account (see [User Offboarding](#user-offboarding)).
    In Databricks Apps, use platform access controls, the explicit administrator
    identity and reviewed pg_sage roles; there is no local password or break-glass fallback.
 9. **Set `encryption_key`** (or `SAGE_ENCRYPTION_KEY_FILE`) -- API-set secrets are then encrypted at rest.

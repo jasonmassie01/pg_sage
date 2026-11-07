@@ -153,6 +153,8 @@ func wireRouter(p WireParams) WireResult {
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
 	// Auth audit retains the client address independently of App identity buckets.
 	api.SetClientIPResolver(clientIP)
+	// X-Forwarded-Proto marks a session cookie Secure only from a trusted proxy.
+	api.SetForwardedProtoTrust(fromTrustedProxy)
 	router := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,
 		p.LLMMgr, &api.RuntimeDeps{

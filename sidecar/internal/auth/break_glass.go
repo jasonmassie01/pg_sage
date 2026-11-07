@@ -38,7 +38,8 @@ var (
 
 // BreakGlassLogin checks password against the configured hash and returns
 // the break-glass admin, creating the account or restoring its admin role
-// as needed. The caller audits and alerts on every attempt.
+// and enabled status as needed: it is the lockout recovery path. The caller
+// audits and alerts on every attempt.
 func BreakGlassLogin(
 	ctx context.Context, pool *pgxpool.Pool,
 	cfg config.BreakGlassConfig, password string,
@@ -54,7 +55,8 @@ func BreakGlassLogin(
 		`/* pg_sage auth_break_glass v1 */
 		INSERT INTO sage.users (email, password, role, oauth_provider, last_login)
 		VALUES ($1, NULL, 'admin', $2, now())
-		ON CONFLICT (email) DO UPDATE SET role = 'admin', last_login = now()
+		ON CONFLICT (email) DO UPDATE SET role = 'admin', last_login = now(),
+		    disabled_at = NULL
 		 WHERE sage.users.password IS NULL AND sage.users.oauth_issuer IS NULL
 		   AND sage.users.oauth_provider = $2
 		RETURNING id, created_at, last_login`,
@@ -69,21 +71,25 @@ func BreakGlassLogin(
 	return &u, nil
 }
 
-// CreateSessionWithDuration inserts a session that expires after d.
+// CreateSessionWithDuration inserts a session that expires after d and
+// returns its cookie value. Only the cookie's SHA-256 is stored.
 func CreateSessionWithDuration(
 	ctx context.Context, pool *pgxpool.Pool, userID int, d time.Duration,
 ) (string, error) {
 	if d <= 0 {
 		return "", fmt.Errorf("creating session: duration must be positive")
 	}
-	var sessionID string
-	err := pool.QueryRow(ctx,
-		"/* pg_sage auth_session v1 */ INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2) RETURNING id",
-		userID, time.Now().Add(d),
-	).Scan(&sessionID)
+	token, err := newSessionToken()
 	if err != nil {
 		return "", fmt.Errorf("creating session: %w", err)
 	}
-	return sessionID, nil
+	_, err = pool.Exec(ctx,
+		"/* pg_sage auth_session v2 */ INSERT INTO sage.sessions "+
+			"(user_id, expires_at, token_hash) VALUES ($1, $2, $3)",
+		userID, time.Now().Add(d), hashToken(token),
+	)
+	if err != nil {
+		return "", fmt.Errorf("creating session: %w", err)
+	}
+	return token, nil
 }

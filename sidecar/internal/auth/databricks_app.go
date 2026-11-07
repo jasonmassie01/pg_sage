@@ -208,7 +208,7 @@ func BootstrapDatabricksAppAdmin(ctx context.Context, pool *pgxpool.Pool, c Data
 	if err != nil {
 		return fmt.Errorf("bind Databricks admin: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM sage.sessions WHERE user_id = $1", userID); err != nil {
+	if _, err := EndUserSessions(ctx, tx, userID, ""); err != nil {
 		return fmt.Errorf("revoke previous admin sessions: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

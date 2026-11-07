@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,9 +21,19 @@ var ErrInvalidRole = errors.New("invalid role")
 // client error rather than a 500.
 var ErrUserNotFound = errors.New("user not found")
 
+// ErrInvalidCredentials is returned by Authenticate for an unknown email,
+// an account without a password, or a wrong password. Callers must not
+// tell these apart in a response.
+var ErrInvalidCredentials = errors.New("invalid credentials")
+
 // ErrLastAdmin is returned when a user mutation would leave the
-// system without any admin account.
+// system without any enabled admin account.
 var ErrLastAdmin = errors.New("cannot remove the last admin")
+
+// ErrUserDisabled is returned when a deactivated account tries to sign in
+// through SSO. Handlers surface it as 403. Password sign-in never reveals
+// it (ErrInvalidCredentials).
+var ErrUserDisabled = errors.New("user account is deactivated")
 
 // HashPassword returns a bcrypt hash of the password at BcryptCost.
 func HashPassword(password string) (string, error) {
@@ -80,18 +91,21 @@ func Authenticate(
 	var hash *string
 	err := pool.QueryRow(ctx,
 		"SELECT id, email, password, role, created_at, last_login "+
-			"FROM sage.users WHERE email = $1",
+			"FROM sage.users WHERE email = $1 AND disabled_at IS NULL",
 		email,
 	).Scan(&u.ID, &u.Email, &hash, &u.Role,
 		&u.CreatedAt, &u.LastLogin)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && hash == nil) {
+		// No password to check (unknown, SSO-only or deactivated): pay the
+		// same bcrypt cost anyway, so the response time does not reveal
+		// which emails have accounts.
+		return nil, equalizeRefusalTiming(password)
+	}
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("invalid credentials")
-		}
 		return nil, fmt.Errorf("querying user: %w", err)
 	}
-	if hash == nil || !CheckPassword(*hash, password) {
-		return nil, fmt.Errorf("invalid credentials")
+	if !CheckPassword(*hash, password) {
+		return nil, ErrInvalidCredentials
 	}
 	_, err = pool.Exec(ctx,
 		"UPDATE sage.users SET last_login = now() WHERE id = $1",
@@ -103,41 +117,56 @@ func Authenticate(
 	return &u, nil
 }
 
-// CreateSession inserts a session row, returns the UUID.
+// CreateSession inserts a session row and returns its cookie value.
 func CreateSession(
 	ctx context.Context, pool *pgxpool.Pool, userID int,
 ) (string, error) {
 	return CreateSessionWithDuration(ctx, pool, userID, SessionDuration)
 }
 
-// ValidateSession checks that a session exists and is not expired.
+// ValidateSession returns the enabled user of an unexpired session, looked
+// up by the cookie's hash. It returns ErrSessionInvalid for an unknown,
+// expired or malformed cookie, or a deactivated user (a malformed one is
+// never queried) and a wrapped "validating session" error when the
+// session store fails.
 func ValidateSession(
-	ctx context.Context, pool *pgxpool.Pool, sessionID string,
+	ctx context.Context, pool *pgxpool.Pool, token string,
 ) (*User, error) {
+	hash, ok := sessionTokenHash(token)
+	if !ok {
+		return nil, ErrSessionInvalid
+	}
 	var u User
 	err := pool.QueryRow(ctx,
-		"SELECT u.id, u.email, u.role, u.created_at, u.last_login "+
+		"/* pg_sage auth_validate_session v2 */ "+
+			"SELECT u.id, u.email, u.role, u.created_at, u.last_login "+
 			"FROM sage.sessions s "+
 			"JOIN sage.users u ON u.id = s.user_id "+
-			"WHERE s.id = $1 AND s.expires_at > now()",
-		sessionID,
+			"WHERE s.token_hash = $1 AND s.expires_at > now() "+
+			"AND u.disabled_at IS NULL",
+		hash,
 	).Scan(&u.ID, &u.Email, &u.Role,
 		&u.CreatedAt, &u.LastLogin)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("session invalid or expired")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSessionInvalid
 		}
 		return nil, fmt.Errorf("validating session: %w", err)
 	}
 	return &u, nil
 }
 
-// DeleteSession removes a session (logout).
+// DeleteSession removes the session a cookie names (logout). A malformed
+// cookie names no session, so there is nothing to delete.
 func DeleteSession(
-	ctx context.Context, pool *pgxpool.Pool, sessionID string,
+	ctx context.Context, pool *pgxpool.Pool, token string,
 ) error {
+	hash, ok := sessionTokenHash(token)
+	if !ok {
+		return nil
+	}
 	_, err := pool.Exec(ctx,
-		"DELETE FROM sage.sessions WHERE id = $1", sessionID,
+		"DELETE FROM sage.sessions WHERE token_hash = $1", hash,
 	)
 	if err != nil {
 		return fmt.Errorf("deleting session: %w", err)
@@ -166,6 +195,7 @@ type ListedUser struct {
 	User
 	SSOIssuer     string
 	PasswordLogin bool
+	DisabledAt    *time.Time
 }
 
 // ListUsers returns all users without password hashes, reporting whether
@@ -175,7 +205,7 @@ func ListUsers(
 ) ([]ListedUser, error) {
 	rows, err := pool.Query(ctx,
 		"SELECT id, email, role, created_at, last_login, "+
-			"COALESCE(oauth_issuer, ''), password IS NOT NULL "+
+			"COALESCE(oauth_issuer, ''), password IS NOT NULL, disabled_at "+
 			"FROM sage.users ORDER BY id",
 	)
 	if err != nil {
@@ -189,7 +219,7 @@ func ListUsers(
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.Role,
 			&u.CreatedAt, &u.LastLogin,
-			&u.SSOIssuer, &u.PasswordLogin,
+			&u.SSOIssuer, &u.PasswordLogin, &u.DisabledAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}
@@ -217,18 +247,11 @@ func DeleteUserPreservingAdmin(
 		return fmt.Errorf("locking users: %w", err)
 	}
 
-	var role string
-	err = tx.QueryRow(ctx,
-		"SELECT role FROM sage.users WHERE id = $1",
-		userID,
-	).Scan(&role)
+	role, enabled, err := userRoleTx(ctx, tx, userID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrUserNotFound
-		}
-		return fmt.Errorf("getting user role: %w", err)
+		return err
 	}
-	if role == RoleAdmin {
+	if role == RoleAdmin && enabled {
 		count, err := countAdminsTx(ctx, tx)
 		if err != nil {
 			return err
@@ -266,18 +289,11 @@ func UpdateUserRolePreservingAdmin(
 		return fmt.Errorf("locking users: %w", err)
 	}
 
-	var currentRole string
-	err = tx.QueryRow(ctx,
-		"SELECT role FROM sage.users WHERE id = $1",
-		userID,
-	).Scan(&currentRole)
+	currentRole, enabled, err := userRoleTx(ctx, tx, userID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrUserNotFound
-		}
-		return fmt.Errorf("getting user role: %w", err)
+		return err
 	}
-	if currentRole == RoleAdmin && role != RoleAdmin {
+	if currentRole == RoleAdmin && enabled && role != RoleAdmin {
 		count, err := countAdminsTx(ctx, tx)
 		if err != nil {
 			return err
@@ -298,10 +314,29 @@ func UpdateUserRolePreservingAdmin(
 	return nil
 }
 
+// userRoleTx reads a user's role and whether the account is enabled.
+func userRoleTx(ctx context.Context, tx pgx.Tx, userID int) (string, bool, error) {
+	var role string
+	var enabled bool
+	err := tx.QueryRow(ctx,
+		"SELECT role, disabled_at IS NULL FROM sage.users WHERE id = $1",
+		userID,
+	).Scan(&role, &enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, ErrUserNotFound
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("getting user role: %w", err)
+	}
+	return role, enabled, nil
+}
+
+// countAdminsTx counts enabled admins: a deactivated admin holds no power,
+// so it never satisfies the last-admin rule.
 func countAdminsTx(ctx context.Context, tx pgx.Tx) (int, error) {
 	var count int
 	err := tx.QueryRow(ctx,
-		"SELECT count(*) FROM sage.users WHERE role = $1",
+		"SELECT count(*) FROM sage.users WHERE role = $1 AND disabled_at IS NULL",
 		RoleAdmin,
 	).Scan(&count)
 	if err != nil {

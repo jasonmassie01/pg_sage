@@ -198,6 +198,7 @@ func overlayAgentNativeEnv(o *envOverlay, cfg *Config) {
 	o.setStrings([]envString{{"SAGE_MCP_TRANSPORT", &cfg.MCP.Transport}})
 	overlayAzureEnv(cfg)
 	overlayCloudTelemetryEnv(o, cfg)
+	overlayAPIOriginsEnv(cfg)
 }
 
 // RateLimit returns the configured rate limit: SAGE_RATE_LIMIT when it is

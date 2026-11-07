@@ -53,6 +53,9 @@ var envRegistry = []EnvVar{
 		"1 to 65535; keeps the host of `prometheus.listen_addr` (default `127.0.0.1`)"},
 	{Name: "SAGE_RATE_LIMIT", Default: envCode(DefaultRateLimit), Doc: "Max requests per " +
 		"minute per IP on the REST API; zero or negative means the default"},
+	{Name: "SAGE_API_TRUSTED_ORIGINS", Default: envNone, Doc: "Comma-separated " +
+		"`api.trusted_origins`: browser origins allowed to send cross-origin API writes " +
+		"([CSRF](security.md#csrf-and-cross-origin-requests))"},
 	{Name: "SAGE_API_KEY", Default: envNone, File: true, Doc: "Legacy config field; the " +
 		"current web/API path uses session login cookies"},
 	{Name: "SAGE_TLS_CERT", Default: envNone, Doc: "PEM certificate (chain) file; with " +

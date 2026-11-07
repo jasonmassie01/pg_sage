@@ -32,6 +32,7 @@ safety_critical postgres.sslmode
 safety_critical postgres.user
 safety_critical api.listen_addr
 safety_critical api.trusted_proxies
+safety_critical api.trusted_origins
 safety_critical prometheus.listen_addr
 safety_critical oauth.client_id
 safety_critical oauth.client_secret

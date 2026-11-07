@@ -42,31 +42,10 @@ func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.Us
 				return
 			}
 			user, err := resolve(r.Context(), email)
-			if errors.Is(err, auth.ErrDatabricksAppAudienceDenied) {
+			if msg, code, ok := databricksAppRefusal(err); ok {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
-				jsonResponse(w, map[string]string{
-					"error": "This app is restricted to the configured organization. Sign in with an allowed organization account.",
-					"code":  "databricks_app_audience_denied",
-				})
-				return
-			}
-			if errors.Is(err, auth.ErrOAuthLinkRequired) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				jsonResponse(w, map[string]string{
-					"error": "This Databricks identity requires a reviewed account link. Contact an app administrator.",
-					"code":  "databricks_app_account_link_required",
-				})
-				return
-			}
-			if errors.Is(err, auth.ErrOAuthEmailUnverified) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				jsonResponse(w, map[string]string{
-					"error": "This Databricks identity could not be verified. Contact an app administrator.",
-					"code":  "databricks_app_identity_rejected",
-				})
+				jsonResponse(w, map[string]string{"error": msg, "code": code})
 				return
 			}
 			if err != nil || user == nil {
@@ -88,6 +67,26 @@ func databricksAppAuthMiddleware(resolve func(context.Context, string) (*auth.Us
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// databricksAppRefusal maps a resolver error that rejects the identity to
+// its 403 message and code; ok is false for any other error.
+func databricksAppRefusal(err error) (msg, code string, ok bool) {
+	switch {
+	case errors.Is(err, auth.ErrDatabricksAppAudienceDenied):
+		return "This app is restricted to the configured organization. " +
+			"Sign in with an allowed organization account.", "databricks_app_audience_denied", true
+	case errors.Is(err, auth.ErrOAuthLinkRequired):
+		return "This Databricks identity requires a reviewed account link. " +
+			"Contact an app administrator.", "databricks_app_account_link_required", true
+	case errors.Is(err, auth.ErrUserDisabled):
+		return "This pg_sage account is deactivated. " +
+			"Ask an app administrator to reactivate it.", "databricks_app_user_disabled", true
+	case errors.Is(err, auth.ErrOAuthEmailUnverified):
+		return "This Databricks identity could not be verified. " +
+			"Contact an app administrator.", "databricks_app_identity_rejected", true
+	}
+	return "", "", false
 }
 
 func databricksAppProtocolGuard(next http.Handler) http.Handler {

@@ -700,6 +700,9 @@ func (c *Config) validate() error {
 	if err := c.validateTLS(); err != nil {
 		return err
 	}
+	if err := c.API.validateTrustedOrigins(); err != nil {
+		return err
+	}
 	if err := c.validateAgentNative(); err != nil {
 		return err
 	}

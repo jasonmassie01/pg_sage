@@ -108,8 +108,9 @@ func unreachable(key string) string {
 		"once one is connected"
 }
 
-// needApprover checks the approving user still exists as an operator or
-// admin; ok is false with the skip outcome otherwise.
+// needApprover checks the approving user still exists as an enabled
+// operator or admin (a deactivated account approves nothing, apiauth-01);
+// ok is false with the skip outcome otherwise.
 func (r *Runner) needApprover(ctx context.Context, o Outcome, approver *int,
 	who string) (string, Outcome, bool) {
 	if approver == nil {
@@ -121,15 +122,15 @@ func (r *Runner) needApprover(ctx context.Context, o Outcome, approver *int,
 	var active bool
 	err := r.control.QueryRow(ctx, `/* pg_sage agent_upkeep_approver_active v1 */
 		SELECT EXISTS (SELECT 1 FROM sage.users WHERE id = $1
-		AND role IN ('admin', 'operator'))`, *approver).Scan(&active)
+		AND role IN ('admin', 'operator') AND disabled_at IS NULL)`, *approver).Scan(&active)
 	if err != nil {
 		o.Reason, o.Detail = ReasonError, "reading the approving user: "+err.Error()
 		return bucketFailed, o, false
 	}
 	if !active {
 		o.Reason = ReasonApproverInactive
-		o.Detail = fmt.Sprintf("user %d, who %s, is no longer an operator or admin", *approver,
-			who)
+		o.Detail = fmt.Sprintf("user %d, who %s, is no longer an enabled operator or admin",
+			*approver, who)
 		return bucketSkipped, o, false
 	}
 	return "", o, true

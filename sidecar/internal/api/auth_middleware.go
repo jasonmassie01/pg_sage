@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -44,9 +46,18 @@ func SessionAuthMiddleware(
 			user, err := auth.ValidateSession(
 				r.Context(), pool, cookie.Value,
 			)
-			if err != nil {
+			if errors.Is(err, auth.ErrSessionInvalid) {
 				jsonError(w, "session invalid or expired",
 					http.StatusUnauthorized)
+				return
+			}
+			if err != nil {
+				// Fail closed, but do not bounce a signed-in user to
+				// the login page because the session store blinked.
+				slog.Error("session validation failed",
+					"path", r.URL.Path, "error", err)
+				jsonError(w, "session store unavailable",
+					http.StatusServiceUnavailable)
 				return
 			}
 

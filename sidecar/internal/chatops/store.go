@@ -129,13 +129,14 @@ func (s *Store) List(ctx context.Context) ([]Identity, error) {
 }
 
 // Resolve returns the pg_sage account a chat user is mapped to, with its
-// current role.
+// current role. A deactivated account is ErrUnmapped: it cannot approve.
 func (s *Store) Resolve(ctx context.Context, provider, teamID,
 	externalUserID string) (auth.User, error) {
 	var u auth.User
 	err := s.pool.QueryRow(ctx, `SELECT u.id, u.email, u.role, u.created_at
 		FROM sage.chatops_identities c JOIN sage.users u ON u.id = c.user_id
-		WHERE c.provider = $1 AND c.team_id = $2 AND c.external_user_id = $3`,
+		WHERE c.provider = $1 AND c.team_id = $2 AND c.external_user_id = $3
+		  AND u.disabled_at IS NULL`,
 		provider, teamID, externalUserID).Scan(&u.ID, &u.Email, &u.Role, &u.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.User{}, ErrUnmapped

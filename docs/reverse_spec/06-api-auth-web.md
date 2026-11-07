@@ -72,7 +72,10 @@ request travels in:
 
 - **Roles** (`types.go:21-35`): `admin`, `operator`, `viewer`. `ValidRoles` map +
   `IsValidRole`.
-- **Session** stored in `sage.sessions` (UUID PK, `user_id`, `expires_at`).
+- **Session** stored in `sage.sessions` (UUID PK, `user_id`, `expires_at`,
+  `token_hash`). The cookie is 32 random bytes (base64url); only its SHA-256
+  is stored and looked up (`session_token.go`, apiauth-04). `EndUserSessions`
+  is the one place that ends a user's sessions.
   `SessionDuration = 24h`, `BcryptCost = 12` (`types.go:26-27`).
   - `CreateSession` (`auth.go:108`), `ValidateSession` joins sessions→users,
     checks `expires_at > now()` (`auth.go:124`), `DeleteSession` (logout),
@@ -174,7 +177,8 @@ All under `/api/v1/`. **Auth = session cookie unless noted.** "Role" = extra
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/auth/login` | public | Email/password login → `sage_session` |
-| POST | `/auth/logout` | session | Delete session, clear cookie |
+| POST | `/auth/logout` | session | Delete session, clear cookie, audit `logout` |
+| DELETE | `/auth/sessions` | session | End the user's other sessions, audit `sessions_revoked` |
 | GET | `/auth/me` | session | Current user `{id,email,role}` |
 | GET | `/auth/oauth/config` | public | `{enabled, provider}` |
 | GET | `/auth/oauth/authorize` | public | Returns `{url}` + sets `oauth_state` cookie |
@@ -186,8 +190,9 @@ All under `/api/v1/`. **Auth = session cookie unless noted.** "Role" = extra
 |---|---|---|
 | GET | `/users` | List users (no hashes) |
 | POST | `/users` | Create user (201) |
-| DELETE | `/users/{id}` | Delete user (blocks self/last-admin) |
-| PUT | `/users/{id}/role` | Change role (blocks self/last-admin demote) |
+| DELETE | `/users/{id}` | Delete user (blocks self/last enabled admin; FK refusal is 409) |
+| PUT | `/users/{id}/role` | Change role (blocks self/last enabled admin demote) |
+| PUT | `/users/{id}/status` | `{"disabled": bool}`: deactivate (ends sessions, revokes operator MCP tokens) or re-enable; blocks self/last enabled admin |
 
 ### 4.6 Config store (`registerConfigRoutes`, `router.go:369`) — all **admin**
 
@@ -288,6 +293,7 @@ families emitted:
 |---|---|---|---|
 | `pg_sage_info` | gauge | `version`,`mode` | build (`main.go:1785-1787`) |
 | `pg_sage_mode` | gauge | — | 0=meta/1=standalone/2=fleet |
+| `pg_sage_login_limiter_saturated_total` | counter | — | logins refused because a login limiter was full of locked keys |
 | `pg_sage_connection_up` | gauge | — | pool ping |
 | `pg_sage_findings_total` | gauge | `severity` | `sage.findings` open by severity |
 | `pg_sage_circuit_breaker_state` | gauge | `breaker` (db/llm) | breaker state |

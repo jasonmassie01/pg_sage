@@ -3,9 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -51,7 +49,7 @@ func IssueLinkGrant(
 			"(user_id, token_hash, created_by, expires_at) "+
 			"VALUES ($1, $2, $3, now() + make_interval(secs => $4)) "+
 			"RETURNING expires_at",
-		userID, hashGrant(token), issuedBy, LinkGrantTTL.Seconds(),
+		userID, hashToken(token), issuedBy, LinkGrantTTL.Seconds(),
 	).Scan(&expires)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("storing link grant: %w", err)
@@ -80,7 +78,8 @@ func lockUnlinkedUser(ctx context.Context, tx pgx.Tx, userID int) error {
 }
 
 // RedeemLinkGrant consumes a grant and returns the user it was issued for.
-// A single conditional UPDATE makes redemption exactly-once.
+// A single conditional UPDATE makes redemption exactly-once. A grant of a
+// deactivated user is invalid and stays unused.
 func RedeemLinkGrant(
 	ctx context.Context, pool *pgxpool.Pool, token string,
 ) (int, error) {
@@ -89,9 +88,11 @@ func RedeemLinkGrant(
 	}
 	var userID int
 	err := pool.QueryRow(ctx,
-		"UPDATE sage.user_oidc_link_grants SET used_at = now() "+
-			"WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() "+
-			"RETURNING user_id", hashGrant(token)).Scan(&userID)
+		"UPDATE sage.user_oidc_link_grants g SET used_at = now() "+
+			"FROM sage.users u "+
+			"WHERE g.token_hash = $1 AND g.used_at IS NULL AND g.expires_at > now() "+
+			"AND u.id = g.user_id AND u.disabled_at IS NULL "+
+			"RETURNING g.user_id", hashToken(token)).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrLinkGrantInvalid
 	}
@@ -107,9 +108,4 @@ func newGrantToken() (string, error) {
 		return "", fmt.Errorf("generating link grant: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-func hashGrant(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
 }

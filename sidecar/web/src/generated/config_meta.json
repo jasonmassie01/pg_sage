@@ -469,6 +469,13 @@
     "doc": "Address the REST API and dashboard HTTP server binds to (host:port). Use :8080 to listen on all interfaces.",
     "class": "safety_critical"
   },
+  "api.trusted_origins": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Browser origins (scheme://host[:port]) allowed to send cross-origin writes to the API. Empty by default: only same-origin browser writes and non-browser clients are accepted.",
+    "warning": "Every listed origin can submit authenticated writes with a signed-in user's cookie; list only origins you control.",
+    "class": "safety_critical"
+  },
   "api.trusted_proxies": {
     "type": "[]string",
     "default": null,

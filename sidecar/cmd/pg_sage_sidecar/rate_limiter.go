@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -90,7 +91,13 @@ func (rl *RateLimiter) evictExpired(now time.Time) {
 }
 
 func rateLimitMiddleware(rl *RateLimiter, next http.Handler) http.Handler {
-	return rateLimitMiddlewareWithKey(rl, clientIP, next)
+	return rateLimitMiddlewareWithKey(rl, clientLimiterKey, next)
+}
+
+// clientLimiterKey is the client's rate-limit bucket: its address, with an
+// IPv6 address masked to its /64.
+func clientLimiterKey(r *http.Request) string {
+	return api.ClientLimiterKey(clientIP(r))
 }
 
 // App identity headers are trusted only with the explicit, startup-validated
@@ -100,11 +107,11 @@ func databricksAppRateLimitMiddleware(rl *RateLimiter, cfg auth.DatabricksAppCon
 	return rateLimitMiddlewareWithKey(rl, func(r *http.Request) string {
 		values := r.Header.Values("X-Forwarded-Email")
 		if cfg.Workspace == "" || len(values) != 1 {
-			return clientIP(r)
+			return clientLimiterKey(r)
 		}
 		email, err := auth.DatabricksAppEmail(values[0])
 		if err != nil || cfg.CheckEmailAudience(email) != nil {
-			return clientIP(r)
+			return clientLimiterKey(r)
 		}
 		// Retain no raw email in the limiter's keys. The separator prevents
 		// ambiguous concatenation; workspace scope keeps issuers separate.
@@ -205,6 +212,16 @@ func isTrustedProxy(host string) bool {
 	return false
 }
 
+// fromTrustedProxy reports whether the request's immediate peer is a
+// configured trusted proxy (api.trusted_proxies).
+func fromTrustedProxy(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	return isTrustedProxy(host)
+}
+
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -219,14 +236,33 @@ func clientIP(r *http.Request) string {
 	// Only trust X-Forwarded-For when the immediate peer is in the
 	// configured trusted-proxies list. Spoofed XFF from a direct
 	// attacker is ignored, preserving per-IP rate limits.
+	xff := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
 	if !isTrustedProxy(remote) {
+		if xff != "" {
+			warnUntrustedForwardedFor(remote)
+		}
 		return remote
 	}
-	xff := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
 	if xff == "" {
 		return remote
 	}
 	return forwardedClientIP(xff, remote)
+}
+
+// untrustedXFFWarning makes the untrusted X-Forwarded-For warning fire once
+// per process, so a client sending the header cannot flood the log.
+var untrustedXFFWarning sync.Once
+
+// warnUntrustedForwardedFor tells the operator, once, that a proxy outside
+// api.trusted_proxies is forwarding clients: every client behind it then
+// shares the proxy's rate-limit and failed-login buckets. The header itself
+// is client-controlled and never logged.
+func warnUntrustedForwardedFor(peer string) {
+	untrustedXFFWarning.Do(func() {
+		logWarn("api", "X-Forwarded-For from %s ignored: that peer is not in "+
+			"api.trusted_proxies, so all clients behind it share one rate-limit and "+
+			"failed-login budget; list your ingress or load balancer there", peer)
+	})
 }
 
 // forwardedClientIP walks the proxy chain from the server back toward the

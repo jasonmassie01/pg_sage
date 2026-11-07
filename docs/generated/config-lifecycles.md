@@ -81,6 +81,7 @@
 | `analyzer.xid_wraparound_critical` | `restart` | `-` | `derivable` |
 | `analyzer.xid_wraparound_warning` | `restart` | `-` | `derivable` |
 | `api.listen_addr` | `restart` | `-` | `safety_critical` |
+| `api.trusted_origins` | `restart` | `-` | `safety_critical` |
 | `api.trusted_proxies` | `restart` | `-` | `safety_critical` |
 | `ask.daily_tokens_per_database` | `restart` | `-` | `derivable` |
 | `ask.daily_tokens_per_user` | `restart` | `-` | `operator_preference` |

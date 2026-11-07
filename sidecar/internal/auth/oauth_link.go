@@ -91,9 +91,8 @@ func UnlinkOAuthIdentity(
 	if tag.RowsAffected() == 0 {
 		return unlinkMissReason(ctx, tx, userID)
 	}
-	if _, err := tx.Exec(ctx,
-		"DELETE FROM sage.sessions WHERE user_id = $1", userID); err != nil {
-		return fmt.Errorf("ending sessions on unlink: %w", err)
+	if _, err := EndUserSessions(ctx, tx, userID, ""); err != nil {
+		return fmt.Errorf("unlinking oauth identity: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit unlink: %w", err)

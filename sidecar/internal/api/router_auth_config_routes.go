@@ -23,6 +23,8 @@ func registerAuthRoutes(
 		"POST /api/v1/auth/logout", logoutHandler(pool))
 	mux.HandleFunc(
 		"GET /api/v1/auth/me", meHandler())
+	mux.HandleFunc(
+		"DELETE /api/v1/auth/sessions", signOutOtherSessionsHandler(pool))
 
 	// OAuth routes (always registered; return disabled if not configured).
 	mux.HandleFunc(
@@ -65,6 +67,10 @@ func registerUserRoutes(
 	roleH := adminOnly(http.HandlerFunc(
 		updateUserRoleHandler(pool)))
 	mux.Handle("PUT /api/v1/users/{id}/role", roleH)
+
+	statusH := adminOnly(http.HandlerFunc(
+		setUserStatusHandler(pool)))
+	mux.Handle("PUT /api/v1/users/{id}/status", statusH)
 }
 
 func registerConfigRoutesRuntime(
