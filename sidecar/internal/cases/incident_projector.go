@@ -2,7 +2,6 @@ package cases
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +14,10 @@ type IncidentChainLink struct {
 	Signal      string
 	Description string
 	Evidence    string
+	// Blocker is the structured root-blocker identity RCA records on
+	// lock_contention links; nil on every other link and on rows written
+	// before it was recorded.
+	Blocker *IncidentBlocker
 }
 
 type SourceIncident struct {
@@ -125,9 +128,12 @@ func actionCandidatesForIncident(i SourceIncident) []ActionCandidate {
 	return nil
 }
 
+// idleTxnPlaybookCandidates is the lock / idle-in-transaction playbook:
+// the blocker diagnostic plus backend signals built only from structured
+// blocker identity (lockBlockerCandidates). Idle-tx saturation and
+// vacuum_blocked incidents carry none, so their cancel stays blocked.
 func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
 	expires := incidentExpiry(i, 15*time.Minute)
-	pid, ok := extractSinglePID(i)
 	candidates := []ActionCandidate{
 		{
 			ActionType:       "diagnose_lock_blockers",
@@ -139,25 +145,23 @@ func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
 			RollbackClass:    "not_applicable",
 			VerificationPlan: []string{"refresh lock graph"},
 		},
-		cancelBackendCandidate(pid, ok, expires, i.Confidence),
 	}
-	if ok && severeLockIncident(i) {
-		candidates = append(candidates,
-			terminateBackendCandidate(pid, expires, i.Confidence))
-	}
-	return candidates
+	return append(candidates, lockBlockerCandidates(i, expires)...)
 }
 
+// runawayQueryPlaybookCandidates diagnoses active queries. Runaway
+// incidents carry no structured backend identity, so the cancel is blocked
+// (the executor's runaway tracker owns identity-checked cancels).
 func runawayQueryPlaybookCandidates(i SourceIncident) []ActionCandidate {
 	expires := incidentExpiry(i, 15*time.Minute)
-	pid, ok := extractSinglePID(i)
 	return []ActionCandidate{
 		diagnosticIncidentCandidate(
 			i, "diagnose_runaway_query",
-			diagnoseRunawayQuerySQL(pid, ok),
+			diagnoseRunawayQuerySQL(),
 			[]string{"confirm query age, wait state, and temp spill evidence"},
 		),
-		cancelBackendCandidate(pid, ok, expires, i.Confidence),
+		blockedSignalCandidate("cancel_backend", noBackendIdentityReason, expires,
+			i.Confidence),
 	}
 }
 
@@ -231,46 +235,6 @@ func autovacuumIncidentCandidates(i SourceIncident) []ActionCandidate {
 	return candidates
 }
 
-func cancelBackendCandidate(
-	pid int,
-	ok bool,
-	expires time.Time,
-	confidence float64,
-) ActionCandidate {
-	c := ActionCandidate{
-		ActionType:       "cancel_backend",
-		RiskTier:         "moderate",
-		Confidence:       confidence,
-		ExpiresAt:        &expires,
-		OutputModes:      []string{"queue_for_approval", "script"},
-		RollbackClass:    "not_reversible",
-		VerificationPlan: []string{"verify blocker PID no longer blocks waiters"},
-	}
-	if !ok {
-		c.BlockedReason = "blocker PID unavailable"
-		return c
-	}
-	c.ProposedSQL = fmt.Sprintf("SELECT pg_cancel_backend(%d)", pid)
-	return c
-}
-
-func terminateBackendCandidate(
-	pid int,
-	expires time.Time,
-	confidence float64,
-) ActionCandidate {
-	return ActionCandidate{
-		ActionType:       "terminate_backend",
-		RiskTier:         "high",
-		Confidence:       confidence,
-		ProposedSQL:      fmt.Sprintf("SELECT pg_terminate_backend(%d)", pid),
-		ExpiresAt:        &expires,
-		OutputModes:      []string{"queue_for_approval", "script"},
-		RollbackClass:    "not_reversible",
-		VerificationPlan: []string{"verify blocker PID is gone"},
-	}
-}
-
 func incidentWhyNow(i SourceIncident) string {
 	if i.Severity == SeverityCritical {
 		return "critical incident requires immediate review"
@@ -295,30 +259,6 @@ func incidentIdentityKey(i SourceIncident) string {
 	}
 	return fmt.Sprintf("incident:%s:%s:%s", i.DatabaseName, signal, i.ID)
 }
-
-func extractSinglePID(i SourceIncident) (int, bool) {
-	text := strings.Join(incidentSearchParts(i), "\n")
-	matches := pidPattern.FindAllStringSubmatch(text, -1)
-	seen := map[string]bool{}
-	var pidText string
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		seen[match[1]] = true
-		pidText = match[1]
-	}
-	if len(seen) != 1 {
-		return 0, false
-	}
-	var pid int
-	if _, err := fmt.Sscanf(pidText, "%d", &pid); err != nil || pid <= 0 {
-		return 0, false
-	}
-	return pid, true
-}
-
-var pidPattern = regexp.MustCompile(`(?i)\bpid\D+([1-9][0-9]*)\b`)
 
 func idleTxnOrLockIncident(i SourceIncident) bool {
 	signals := signalSet(i.SignalIDs)
@@ -389,14 +329,6 @@ func sequenceExhaustionIncident(i SourceIncident) bool {
 		strings.ToLower(strings.Join(incidentSearchParts(i), " ")),
 		"exhaust",
 	)
-}
-
-func severeLockIncident(i SourceIncident) bool {
-	text := strings.ToLower(strings.Join(incidentSearchParts(i), " "))
-	return i.Severity == SeverityCritical ||
-		strings.Contains(text, "vacuum") ||
-		strings.Contains(text, "xid") ||
-		strings.Contains(text, "connection")
 }
 
 func incidentPrimaryObject(i SourceIncident, fallback string) string {
@@ -487,11 +419,7 @@ WHERE NOT blocked_locks.granted
   AND blocker_locks.granted`
 }
 
-func diagnoseRunawayQuerySQL(pid int, ok bool) string {
-	where := "WHERE state = 'active'"
-	if ok {
-		where = fmt.Sprintf("WHERE pid = %d", pid)
-	}
+func diagnoseRunawayQuerySQL() string {
 	return `SELECT pid,
        usename,
        application_name,
@@ -504,7 +432,7 @@ func diagnoseRunawayQuerySQL(pid int, ok bool) string {
 FROM pg_stat_activity
 LEFT JOIN pg_stat_database
   ON pg_stat_database.datname = pg_stat_activity.datname
-` + where + `
+WHERE state = 'active'
 ORDER BY query_age DESC
 LIMIT 20`
 }

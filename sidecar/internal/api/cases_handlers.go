@@ -595,27 +595,6 @@ func sourceQueryHintFromMap(row map[string]any) cases.SourceQueryHint {
 	}
 }
 
-func incidentChainFromAny(v any) []cases.IncidentChainLink {
-	items, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]cases.IncidentChainLink, 0, len(items))
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		out = append(out, cases.IncidentChainLink{
-			Order:       int(floatValue(m["order"])),
-			Signal:      stringValue(m["signal"]),
-			Description: stringValue(m["description"]),
-			Evidence:    stringValue(m["evidence"]),
-		})
-	}
-	return out
-}
-
 func stringSliceFromAny(v any) []string {
 	switch items := v.(type) {
 	case []string:
