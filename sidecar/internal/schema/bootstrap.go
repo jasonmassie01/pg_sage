@@ -437,7 +437,8 @@ func migrationStatements() []string {
 		// E2: after the core principal tables, which the bindings reference.
 		ddlGuardPGAuditEvents, ddlGuardIdentityBindings, ddlSIEMCursor,
 		ddlVerificationObservationRetry,
-		ddlEmergencyStopFunction)
+		ddlEmergencyStopFunction,
+		ddlEmergencyStopSeed)
 }
 
 // ---------------------------------------------------------------------------
