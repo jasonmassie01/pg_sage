@@ -20,6 +20,11 @@ var ErrInvalidRole = errors.New("invalid role")
 // client error rather than a 500.
 var ErrUserNotFound = errors.New("user not found")
 
+// ErrInvalidCredentials is returned by Authenticate for an unknown email,
+// an account without a password, or a wrong password. Callers must not
+// tell these apart in a response.
+var ErrInvalidCredentials = errors.New("invalid credentials")
+
 // ErrLastAdmin is returned when a user mutation would leave the
 // system without any admin account.
 var ErrLastAdmin = errors.New("cannot remove the last admin")
@@ -84,14 +89,16 @@ func Authenticate(
 		email,
 	).Scan(&u.ID, &u.Email, &hash, &u.Role,
 		&u.CreatedAt, &u.LastLogin)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && hash == nil) {
+		// No password to check: pay the same bcrypt cost anyway, so the
+		// response time does not reveal which emails have accounts.
+		return nil, equalizeRefusalTiming(password)
+	}
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("invalid credentials")
-		}
 		return nil, fmt.Errorf("querying user: %w", err)
 	}
-	if hash == nil || !CheckPassword(*hash, password) {
-		return nil, fmt.Errorf("invalid credentials")
+	if !CheckPassword(*hash, password) {
+		return nil, ErrInvalidCredentials
 	}
 	_, err = pool.Exec(ctx,
 		"UPDATE sage.users SET last_login = now() WHERE id = $1",
