@@ -121,11 +121,18 @@ func validateFixtureDatabaseName(database string) error {
 	return nil
 }
 
+// fixtureDatabaseTimeout bounds one fixture create or drop. DROP DATABASE,
+// and CREATE DATABASE with the FILE_COPY strategy (the only one before
+// PG15), wait for immediate checkpoints, and those queue behind each other
+// when many test packages create and drop databases at once, so a busy
+// shared server can keep one waiting well past the time the DDL needs.
+const fixtureDatabaseTimeout = 2 * time.Minute
+
 func createFixture(baseDSN, database string) (string, error) {
 	if err := validateFixtureDatabaseName(database); err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureDatabaseTimeout)
 	defer cancel()
 	admin, err := pgx.Connect(ctx, baseDSN)
 	if err != nil {
@@ -173,17 +180,11 @@ func installFixtureExtensions(ctx context.Context, dsn string) error {
 	return nil
 }
 
-// fixtureDropTimeout bounds one fixture drop. DROP DATABASE waits for an
-// immediate checkpoint, and those queue behind each other when many test
-// packages drop their databases at once, so a drop on a busy shared server
-// can wait well past the time the drop itself needs.
-const fixtureDropTimeout = 2 * time.Minute
-
 func dropFixture(baseDSN, database string) error {
 	if err := validateFixtureDatabaseName(database); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), fixtureDropTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureDatabaseTimeout)
 	defer cancel()
 	admin, err := pgx.Connect(ctx, baseDSN)
 	if err != nil {
