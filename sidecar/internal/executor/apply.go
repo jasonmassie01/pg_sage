@@ -151,9 +151,11 @@ func (e *Executor) authorizeIntent(
 	return decision, nil
 }
 
-// prepareIntent runs the admission check, takes the typed-target lease
-// (parking, refusing or queueing on a conflict per serialize_mode) and a
-// DDL slot, and returns their release and whether a lease is held.
+// prepareIntent runs the admission checks (the intent's own, then the
+// maintenance-privilege precheck of a VACUUM or autovacuum ALTER TABLE),
+// takes the typed-target lease (parking, refusing or queueing on a
+// conflict per serialize_mode) and a DDL slot, and returns their release
+// and whether a lease is held.
 func (e *Executor) prepareIntent(
 	ctx context.Context, intent ActionIntent, first ActionPolicyDecision,
 ) (func(), bool, error) {
@@ -161,6 +163,9 @@ func (e *Executor) prepareIntent(
 		if err := intent.Admit(ctx, first.DecisionID); err != nil {
 			return nil, false, err
 		}
+	}
+	if err := e.admitMaintenance(ctx, intentStatement(intent), first); err != nil {
+		return nil, false, err
 	}
 	releaseLease, leased, err := e.intentLease(ctx, intent, first)
 	if err != nil {
@@ -172,6 +177,15 @@ func (e *Executor) prepareIntent(
 		return nil, false, err
 	}
 	return func() { releaseSlot(); releaseLease() }, leased, nil
+}
+
+// intentStatement is the SQL an intent runs: the gate request's, or the
+// operator lease's for kinds that authorize themselves.
+func intentStatement(intent ActionIntent) string {
+	if intent.Request.SQL == "" && intent.TargetLease != nil {
+		return intent.TargetLease.Intent
+	}
+	return intent.Request.SQL
 }
 
 func (e *Executor) intentSlot(ctx context.Context, intent ActionIntent) (func(), error) {

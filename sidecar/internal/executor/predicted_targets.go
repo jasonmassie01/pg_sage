@@ -127,6 +127,9 @@ func (e *Executor) maintenanceBaseline(
 	}
 	p.Baseline = &value
 	before["maintenance_table"] = table
+	if p.Class == verify.ClassVacuum {
+		e.vacuumCountBaseline(ctx, table, before)
+	}
 }
 
 // freezeBaseline measures the targets before the action: the window is
