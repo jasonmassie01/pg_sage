@@ -11,7 +11,6 @@ const (
 	ResponseCancelBlocker    ResponseKind = "cancel_xmin_blocker"
 	ResponseTerminateBlocker ResponseKind = "terminate_xmin_blocker"
 	ResponseVacuumFreeze     ResponseKind = "vacuum_freeze"
-	ResponseTuneAutovacuum   ResponseKind = "tune_autovacuum"
 	ResponsePlanRepack       ResponseKind = "plan_pg_repack"
 	ResponseParkBloat        ResponseKind = "park_bloat"
 )
@@ -51,18 +50,17 @@ type Response struct {
 	PinnedBy *XminBlocker
 }
 
+// PlanResponse answers one table: a red table is frozen (or its pinning
+// holder named), and a known bloat estimate is planned. Amber gets nothing
+// from the custodian: autovacuum tuning belongs to the analyzer alone,
+// which reads the table's reloptions and restores them on rollback
+// (vacuum-07).
 func PlanResponse(input ResponseInput) (Response, error) {
 	if err := validateResponseInput(input); err != nil {
 		return Response{}, err
 	}
 	if input.Urgency == UrgencyRed {
 		return freezeResponse(input), nil
-	}
-	if input.Urgency == UrgencyAmber && input.DeadTupleRatio >= 0.20 {
-		return Response{Kind: ResponseTuneAutovacuum,
-			SQL: "ALTER TABLE " + quoteIdent(input.Schema) + "." + quoteIdent(input.Table) +
-				" SET (autovacuum_vacuum_scale_factor = 0.02)",
-			Evidence: responseEvidence(input)}, nil
 	}
 	if bloatPlanned(input) {
 		return bloatResponse(input), nil

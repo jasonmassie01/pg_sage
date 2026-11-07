@@ -283,9 +283,6 @@ func (e *Executor) verifyCustodianAction(
 		}
 		return "custodian_freeze", nil
 	}
-	if proposal.Feature == "autovacuum_tuning" && len(proposal.TargetObjects) == 1 {
-		return e.verifyAutovacuumTuning(ctx, proposal.TargetObjects[0])
-	}
 	if isAlterSystem(proposal.SQL) {
 		return "custodian_wal", e.verifyWALBound(ctx, proposal.SQL)
 	}
@@ -329,19 +326,6 @@ func (e *Executor) verifyXminBlocker(
 		return criterion, fmt.Errorf("xmin blocker pid %d still holds a snapshot or an XID", pid)
 	}
 	return criterion, nil
-}
-
-func (e *Executor) verifyAutovacuumTuning(
-	ctx context.Context, target string,
-) (string, error) {
-	var effective bool
-	err := e.pool.QueryRow(ctx, `SELECT COALESCE(reloptions,'{}') @>
-		ARRAY['autovacuum_vacuum_scale_factor=0.02']
-		FROM pg_class WHERE oid=to_regclass($1)`, target).Scan(&effective)
-	if err != nil || !effective {
-		return "custodian_autovacuum", fmt.Errorf("autovacuum tuning is not effective")
-	}
-	return "custodian_autovacuum", nil
 }
 
 func (e *Executor) freezeAge(ctx context.Context, target string) (int64, error) {

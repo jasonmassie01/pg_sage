@@ -125,7 +125,7 @@ func TestFreezeAdapterRowsAndThresholdDefaults(t *testing.T) {
 
 var knownRates = freezeRateSample{xid: 1, mxid: 1, known: true}
 
-func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
+func TestFreezeAdapterBuildsBlockerAndBloatResponses(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
 	// vacuum-02: a red table at 160M with a 30-XID session is frozen; the
 	// session cannot pin it (before, the session was canceled instead).
@@ -141,8 +141,10 @@ func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
 	amber, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(60), int64(100), int64(1), int64(100), 0.25,
 	}}, knownRates, nil, false)
-	if err != nil || amber.Feature != "autovacuum_tuning" || amber.SQL == "" {
-		t.Fatalf("autovacuum proposal=%#v err=%v", amber, err)
+	// vacuum-07: the custodian no longer tunes autovacuum; an amber table
+	// with a 0.25 dead-tuple ratio gets nothing (the analyzer owns tuning).
+	if err != nil || amber.SQL != "" || amber.Plan != "" || amber.ResponseKind != "" {
+		t.Fatalf("amber custodian proposal=%#v err=%v, want none", amber, err)
 	}
 	// vacuum-04: a 0.6 dead-tuple ratio is not bloat (the analyzer's
 	// VACUUM owns it); only the catalog estimate on a table at the size

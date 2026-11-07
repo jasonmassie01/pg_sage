@@ -85,7 +85,9 @@ func TestPlanResponseIgnoresHoldersBelowRed(t *testing.T) {
 	input := redInput(1000, session(3, 990))
 	input.Urgency, input.DeadTupleRatio = UrgencyAmber, 0.3
 	response, err := PlanResponse(input)
-	if err != nil || response.Kind != ResponseTuneAutovacuum || response.PinnedBy != nil {
+	// vacuum-07: an amber table gets no custodian response at all (the
+	// analyzer owns autovacuum tuning), and still no holder.
+	if err != nil || response.Kind != "" || response.SQL != "" || response.PinnedBy != nil {
 		t.Fatalf("amber response = %#v, %v", response, err)
 	}
 }

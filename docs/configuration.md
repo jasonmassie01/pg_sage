@@ -1314,7 +1314,9 @@ and the standing policy stay the outer bound: the ledger can only restrict them.
 **Carried-over autonomy.** The ledger gates new autonomy and keeps what pg_sage already
 had. When a database's ledger is first set up, four pairs are seeded at the level that
 database's trust and execution settings already let run unattended:
-- the custodian freeze and autovacuum tuning (`wraparound_runway`);
+- the custodian freeze and autovacuum tuning (`wraparound_runway`). The freeze custodian no
+  longer tunes autovacuum, so no action uses the autovacuum tuning pair today: the analyzer's
+  `autovacuum_tuning` finding is self-initiated and earns trust in the `tuning` family;
 - the WAL bound (`wal_retention`);
 - load-admitted index creation (`plan_regression`).
 

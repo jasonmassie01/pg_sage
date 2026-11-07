@@ -29,12 +29,6 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 			kind: ResponseVacuumFreeze, sql: `VACUUM (FREEZE) "public"."orders"`,
 		},
 		{
-			name: "safe autovacuum tuning",
-			in: ResponseInput{Schema: "public", Table: "orders", Urgency: UrgencyAmber,
-				DeadTupleRatio: 0.25},
-			kind: ResponseTuneAutovacuum, sql: "autovacuum_vacuum_scale_factor = 0.02",
-		},
-		{
 			name: "online bloat plan",
 			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
 				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30,

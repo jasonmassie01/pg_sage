@@ -47,7 +47,7 @@ func (e *Executor) autonomyLimiter() policy.AutonomyLimiter {
 // bounds to WAL retention. Other custodian work has no family.
 func custodianIncidentFamily(feature string) string {
 	switch feature {
-	case "freeze", "freeze_blocker", "autovacuum_tuning":
+	case "freeze", "freeze_blocker":
 		return string(earned.FamilyWraparound)
 	case "wal":
 		return string(earned.FamilyWAL)

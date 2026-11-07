@@ -153,8 +153,6 @@ func freezeResponseProposal(
 ) Proposal {
 	feature := "freeze"
 	switch response.Kind {
-	case freeze.ResponseTuneAutovacuum:
-		feature = "autovacuum_tuning"
 	case freeze.ResponsePlanRepack, freeze.ResponseParkBloat:
 		feature = "bloat_remediation"
 	}
