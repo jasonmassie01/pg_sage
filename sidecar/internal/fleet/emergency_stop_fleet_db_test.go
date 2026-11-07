@@ -172,3 +172,30 @@ func TestDocumentedUpdateStopsExecutorsOnPostgres(t *testing.T) {
 		t.Fatal("the documented UPDATE must stop every executor")
 	}
 }
+
+// CHECK-06 (first half): an SQL stop shows in the overview after one
+// reconcile tick, attributed to the actor named in SQL.
+func TestReconcileShowsSQLStopOnPostgres(t *testing.T) {
+	pool := isolatedStopDB(t)
+	mgr := NewManager(&config.Config{Mode: "fleet"})
+	inst := restartedInstance("orders", pool)
+	mgr.RegisterInstance(inst)
+	assertRunning(t, mgr, inst)
+	if _, err := pool.Exec(context.Background(),
+		`SELECT sage.emergency_stop(true, 'dba-on-call')`); err != nil {
+		t.Fatalf("sql stop: %v", err)
+	}
+
+	mgr.ReconcileStops(context.Background())
+
+	assertLatchedBy(t, mgr, inst, "dba-on-call")
+	if got := mgr.FleetStatus().Summary.EmergencyStoppedCount; got != 1 {
+		t.Fatalf("stopped count = %d, want 1", got)
+	}
+	if _, err := pool.Exec(context.Background(),
+		`SELECT sage.emergency_stop(false, 'dba-on-call')`); err != nil {
+		t.Fatalf("sql resume: %v", err)
+	}
+	mgr.ReconcileStops(context.Background())
+	assertRunning(t, mgr, inst)
+}
