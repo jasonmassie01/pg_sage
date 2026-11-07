@@ -1,6 +1,7 @@
 package freeze
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +53,10 @@ func TestEvaluateHorizonBuildsDeterministicDeadlineFromConsumptionRate(t *testin
 	if err != nil {
 		t.Fatalf("EvaluateHorizon: %v", err)
 	}
-	wantHardAt := now.Add(5 * time.Second)
+	// The deadline is the runway to the wraparound warn limit at the rate
+	// (vacuum-03), not to the freeze maximum: ceil((W-150)/10) seconds.
+	wantHardAt := now.Add(time.Duration(math.Ceil(float64(WraparoundWarnAge-150)/10)) *
+		time.Second)
 	if assessment.Deadline.Kind != DeadlineXID ||
 		assessment.Deadline.Threat != ThreatXID ||
 		assessment.Deadline.Urgency != UrgencyRed ||
@@ -81,7 +85,8 @@ func TestEvaluateHorizonUsesEarlierMultiXactDeadline(t *testing.T) {
 	}
 	if assessment.Deadline.Kind != DeadlineXID ||
 		assessment.Deadline.Threat != ThreatMultiXact ||
-		!assessment.Deadline.HardAt.Equal(now.Add(2*time.Second)) {
+		!assessment.Deadline.HardAt.Equal(now.Add(time.Duration(math.Ceil(
+			float64(WraparoundWarnAge-180)/10))*time.Second)) {
 		t.Fatalf("MultiXact deadline = %#v", assessment.Deadline)
 	}
 	if assessment.Proposal.Intent != IntentVacuumFreeze ||

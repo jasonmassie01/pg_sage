@@ -40,14 +40,15 @@ func validateSample(sample HorizonSample, thresholds Thresholds) error {
 	if sample.XIDMaxAge <= 0 {
 		return fmt.Errorf("xid maximum must be positive")
 	}
-	if sample.XIDsPerSecond <= 0 {
-		return fmt.Errorf("xid rate must be positive")
+	if !usableRate(sample.XIDsPerSecond) {
+		return fmt.Errorf("xid rate must be positive and finite, got %v", sample.XIDsPerSecond)
 	}
 	if sample.MultiXactMaxAge <= 0 {
 		return fmt.Errorf("multixact maximum must be positive")
 	}
-	if sample.MultiXactsPerSecond <= 0 {
-		return fmt.Errorf("multixact rate must be positive")
+	if !usableRate(sample.MultiXactsPerSecond) {
+		return fmt.Errorf("multixact rate must be positive and finite, got %v",
+			sample.MultiXactsPerSecond)
 	}
 	if thresholds.RedBufferPct <= 0 || thresholds.AmberBufferPct <= thresholds.RedBufferPct ||
 		thresholds.AmberBufferPct > 100 {
@@ -56,15 +57,28 @@ func validateSample(sample HorizonSample, thresholds Thresholds) error {
 	return nil
 }
 
+// usableRate rejects zero, negative, NaN and infinite consumption rates.
+func usableRate(rate float64) bool { return rate > 0 && !math.IsInf(rate, 1) }
+
+// maxDeadlineSeconds caps a deadline at 100 years, far inside
+// time.Duration's ~292-year range.
+const maxDeadlineSeconds = 100 * 365.25 * 24 * 60 * 60
+
+// horizon judges one counter. Urgency (and Distance) are relative to the
+// freeze maximum; the hard deadline is when the age reaches
+// WraparoundWarnAge at the rate. At or past that limit the server is
+// already warning: the deadline is one second ahead and the urgency red.
 func horizon(now time.Time, age, maximum int64, rate float64, thresholds Thresholds) Horizon {
 	distance := maximum - age
-	seconds := float64(distance) / rate
-	if seconds < 0 {
-		seconds = 0
+	result := Horizon{Distance: distance, Urgency: urgency(distance, maximum, thresholds)}
+	warnDistance := WraparoundWarnAge - age
+	if warnDistance <= 0 {
+		result.HardAt, result.Urgency = now.Add(time.Second), UrgencyRed
+		return result
 	}
-	return Horizon{Distance: distance,
-		HardAt:  now.Add(time.Duration(math.Ceil(seconds) * float64(time.Second))),
-		Urgency: urgency(distance, maximum, thresholds)}
+	seconds := math.Min(math.Ceil(float64(warnDistance)/rate), maxDeadlineSeconds)
+	result.HardAt = now.Add(time.Duration(seconds) * time.Second)
+	return result
 }
 
 func urgency(distance, maximum int64, thresholds Thresholds) Urgency {
