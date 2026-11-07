@@ -38,11 +38,13 @@ type Request struct {
 	Now              time.Time
 }
 
-// Binding is one confirmed fact that binds a request.
+// Binding is one confirmed fact that binds a request. Database names the
+// sibling database the fact belongs to; empty is the request's own.
 type Binding struct {
-	Fact   Fact
-	Object string
-	Route  Route
+	Fact     Fact
+	Object   string
+	Route    Route
+	Database string
 }
 
 // ddlActions change an object's definition; exemptActions undo pg_sage's

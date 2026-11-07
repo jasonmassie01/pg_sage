@@ -210,3 +210,37 @@ func TestLikePatternEscapesMetacharacters(t *testing.T) {
 		}
 	}
 }
+
+// facts-02: "slot:*" is the all-slots ref of a cluster-wide WAL bound.
+// Every slot pattern matches it; no table, index or schema pattern does.
+func TestPatternAllSlotsRefMatchesOnlySlotPatterns(t *testing.T) {
+	all, err := ParseObjectRef("slot:*")
+	if err != nil || all.String() != "slot:*" || all.Kind != KindSlot {
+		t.Fatalf("ParseObjectRef(slot:*) = %+v (%s), %v", all, all.String(), err)
+	}
+	cases := []struct {
+		kind  Kind
+		raw   string
+		match bool
+	}{
+		{KindSlot, "cdc_*", true}, {KindSlot, "debezium_orders", true},
+		{KindSlot, "a", true},
+		{KindSchema, "app", false}, {KindSchema, "test_*", false},
+		{KindTable, "public.orders", false}, {KindTable, "app.*", false},
+		{KindIndex, "public.idx_*", false},
+	}
+	for _, c := range cases {
+		p, err := ParsePattern(c.kind, c.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := p.Matches(all); got != c.match {
+			t.Fatalf("%s %q matches slot:* = %v, want %v", c.kind, c.raw, got, c.match)
+		}
+	}
+	// A named slot ref is still matched by name only.
+	named := ObjectRef{Kind: KindSlot, Name: "old_replica"}
+	if p, _ := ParsePattern(KindSlot, "cdc_*"); p.Matches(named) {
+		t.Fatal("cdc_* matched slot old_replica")
+	}
+}

@@ -36,14 +36,26 @@ func newFactStore(pool *pgxpool.Pool) *facts.Store {
 	return facts.NewStore(pool).WithLog(logStructuredWrapper)
 }
 
-// factBinder is the gate's typed view of the database's confirmed facts.
-func (rt *databaseRuntime) factBinder() *facts.Binder {
-	return facts.NewBinder(rt.facts, facts.NewCatalogResolver(rt.spec.Pool), nil)
+// initFacts opens the database's fact store and joins the process's
+// cluster registry for the life of the runtime, so its siblings' gates
+// see its slot facts (facts-02).
+func (rt *databaseRuntime) initFacts() {
+	rt.facts = newFactStore(rt.spec.Pool)
+	rt.factCluster = processFactClusters.join(rt.ctx,
+		factClusterIdentity(rt.ctx, rt.spec.Pool), rt.spec.Name, rt.facts)
 }
 
-// factFilter applies the confirmed facts to the analyzer's cycles.
+// factBinder is the gate's typed view of the database's confirmed facts and
+// of the slot facts of its sibling databases on the same cluster.
+func (rt *databaseRuntime) factBinder() *facts.Binder {
+	return newClusterFactBinder(rt.spec.Pool, rt.facts, processFactClusters, rt.factCluster)
+}
+
+// factFilter applies the confirmed facts to the analyzer's cycles; its
+// cleanup batches embed activity baselines read from the database.
 func (rt *databaseRuntime) factFilter() *facts.FindingFilter {
-	return facts.NewFindingFilter(rt.facts, logStructuredWrapper)
+	return facts.NewFindingFilter(rt.facts, logStructuredWrapper).
+		WithActivity(facts.NewActivityReader(rt.spec.Pool))
 }
 
 // startFacts runs the database's facts worker on the instance worker group.

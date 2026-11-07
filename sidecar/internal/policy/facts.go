@@ -36,6 +36,9 @@ type FactBinding struct {
 	Object      string
 	ConfirmedBy string
 	ConfirmedAt time.Time
+	// Database names the sibling database of the same cluster the fact
+	// belongs to (a slot fact binds cluster-wide); empty is the request's.
+	Database string
 }
 
 // FactBinder answers which confirmed facts bind a request. An error means
@@ -70,6 +73,10 @@ func FactDetail(bindings []FactBinding) string {
 	parts := make([]string, 0, len(bindings))
 	for _, b := range bindings {
 		part := fmt.Sprintf("fact #%d: %s", b.FactID, b.Summary)
+		if b.Database != "" {
+			part = fmt.Sprintf("fact #%d of database %q: %s", b.FactID, b.Database,
+				b.Summary)
+		}
 		if b.ConfirmedBy != "" {
 			part += fmt.Sprintf(" (confirmed by %s on %s)", b.ConfirmedBy,
 				b.ConfirmedAt.UTC().Format("2006-01-02"))

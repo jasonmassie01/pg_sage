@@ -145,6 +145,11 @@ type ActionRequest struct {
 	Deadline        *DeadlineContext
 	Evidence        map[string]any
 	IsReplica       bool
+	// TargetsNameNoRelation marks targets that name a setting, the
+	// instance, a database or a query, not a relation: the facts binder
+	// matches only their slot targets ("slot:<name>"). Every other check
+	// (leases, budgets, the one-object L3 rule) still sees TargetObjs.
+	TargetsNameNoRelation bool
 	// ExplainFamily asks Explain for an action family's readiness, where no
 	// concrete SQL exists. Authorize ignores it and always validates SQL.
 	ExplainFamily bool

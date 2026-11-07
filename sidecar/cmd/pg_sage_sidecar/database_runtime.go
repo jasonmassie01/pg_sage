@@ -105,8 +105,10 @@ type databaseRuntime struct {
 	brief         *briefing.Worker
 	features      []string
 	inst          *fleet.DatabaseInstance
-	// facts is the database's fact store (roadmap 2.3).
-	facts *facts.Store
+	// facts is the database's fact store (roadmap 2.3); factCluster is its
+	// place among the process's databases of the same cluster (facts-02).
+	facts       *facts.Store
+	factCluster *factClusterMember
 	// cloud is managed-cloud host telemetry and cloudResolver the managed
 	// change target (nil when the provider has none).
 	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
@@ -215,7 +217,7 @@ func newDatabaseRuntime(
 	}
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
-	rt.facts = newFactStore(spec.Pool)
+	rt.initFacts()
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()

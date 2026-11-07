@@ -31,13 +31,9 @@ func LooksLikeTestSchema(schema string) bool {
 
 const testSchemasSQL = `/* pg_sage */
 SELECT n.nspname::text,
-       COALESCE(sum(COALESCE(s.seq_scan, 0) + COALESCE(s.idx_scan, 0) +
-                    COALESCE(s.n_tup_ins, 0) + COALESCE(s.n_tup_upd, 0) +
-                    COALESCE(s.n_tup_del, 0)), 0)::bigint,
+       ` + schemaActivityExpr + `,
        count(c.oid)::int
-FROM pg_catalog.pg_namespace n
-LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND c.relkind IN ('r', 'p')
-LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid
+` + schemaActivityFrom + `
 WHERE n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema', 'sage')
   AND n.nspname ~* $1
 GROUP BY n.nspname

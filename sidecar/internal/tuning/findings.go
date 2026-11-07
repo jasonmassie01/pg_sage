@@ -19,7 +19,8 @@ func (v *validator) finish(c Case, ev evidenceSet, j Judged) Judged {
 		return reject(j.Proposal, ReasonOperatorRejected, "an operator rejected %s",
 			f.RecommendedSQL)
 	}
-	out, _ := facts.ApplyFindings(v.confirmed, []analyzer.Finding{f}, nil, v.a.now())
+	out, _ := facts.ApplyFindings(v.confirmed, []analyzer.Finding{f}, nil, nil,
+		v.a.now())
 	if len(out) == 0 {
 		return reject(j.Proposal, ReasonNotWorkload, "a confirmed fact marks %s a test "+
 			"fixture", f.ObjectIdentifier)
