@@ -2,6 +2,7 @@ package sre
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -99,6 +100,46 @@ func (s *PostgresStore) OperatorTransition(ctx context.Context, scope Scope, id 
 			return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, state, to)
 		}
 		inv, err = s.setState(ctx, tx, scope, id, to, "", actor)
+		return err
+	})
+	return inv, err
+}
+
+// ExpireStale ends a leased run whose stored evidence is too old to
+// conclude on (sre-02): in one transaction, fenced on the lease, it
+// writes the summary (reason and evidence age) and moves the run to
+// expired with failure code stale_evidence, recorded as the system's
+// transition on the event chain. No hypotheses are written: expired is
+// not a conclusion. A lost lease is ErrLeaseLost and changes nothing.
+func (s *PostgresStore) ExpireStale(ctx context.Context, lease Lease,
+	sum Summary) (Investigation, error) {
+	if err := lease.validate(); err != nil {
+		return Investigation{}, err
+	}
+	raw, err := json.Marshal(sum)
+	if err != nil {
+		return Investigation{}, fmt.Errorf("%w: stale summary: %v", ErrInvalidRequest, err)
+	}
+	var inv Investigation
+	err = s.inTx(ctx, "expire_stale", func(tx pgx.Tx) error {
+		state, _, err := s.lockLeased(ctx, tx, lease)
+		if err != nil {
+			return err
+		}
+		if !CanTransition(state, StateExpired) {
+			return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, state, StateExpired)
+		}
+		tag, err := tx.Exec(ctx, `UPDATE sage.sre_investigations
+			SET summary = $6::jsonb WHERE `+leaseGuard,
+			append(leaseArgs(lease), string(raw))...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 { // the lease ran out after the row was locked
+			return ErrLeaseLost
+		}
+		inv, err = s.setState(ctx, tx, lease.Scope, lease.InvestigationID, StateExpired,
+			ReasonStaleEvidence, "system")
 		return err
 	})
 	return inv, err

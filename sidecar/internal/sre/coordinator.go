@@ -56,6 +56,7 @@ type CoordinatorStore interface {
 	Heartbeat(ctx context.Context, lease Lease) (Lease, error)
 	CommitStep(ctx context.Context, lease Lease, step StepResult) (Investigation, error)
 	Conclude(ctx context.Context, lease Lease, c Conclusion) (Investigation, error)
+	ExpireStale(ctx context.Context, lease Lease, s Summary) (Investigation, error)
 	Evidence(ctx context.Context, scope Scope, id UUID) ([]Evidence, error)
 	Pending(ctx context.Context, scope Scope, limit int) ([]UUID, error)
 	Purge(ctx context.Context, scope Scope, p RetentionPolicy) (PurgeResult, error)
@@ -181,6 +182,7 @@ type Coordinator struct {
 	queue      chan UUID
 	durability *Durability
 	sleep      func(ctx context.Context, d time.Duration) error
+	now        func() time.Time
 	model      *llm.Client
 	notices    *OnceLog
 	signals    []probes.ID
@@ -241,7 +243,7 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		triggers: d.Triggers, signals: signalIDs(d.Signals),
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
-		sleep: wait, model: d.Model, notices: notices, advisor: d.Advisor,
+		sleep: wait, now: time.Now, model: d.Model, notices: notices, advisor: d.Advisor,
 		authority: d.RootAuthority, investigator: d.Investigator, invStore: invStore}, nil
 }
 

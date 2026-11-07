@@ -56,6 +56,13 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 		return c.fail(ctx, lease, "no_probe_plan",
 			fmt.Sprintf("no probe plan for trigger %q", inv.TriggerKind))
 	}
+	prior, err := c.store.Evidence(ctx, lease.Scope, inv.ID)
+	if err != nil {
+		return err
+	}
+	if age := ageOfEvidence(prior, c.now()); age.stale() {
+		return c.expireStale(ctx, lease, age)
+	}
 	if lease, err = c.collect(ctx, lease, inv, plan); err != nil {
 		return err
 	}
@@ -76,21 +83,29 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
+	proposals := c.advise(ctx, inv, d)
+	age, err := c.concludedAge(ctx, lease)
+	if err != nil {
+		return err
+	}
 	return c.conclude(ctx, lease, d, model, attachments{runbook: run,
-		proposals: c.advise(ctx, inv, d)})
+		proposals: proposals, evidence: age})
 }
 
 // attachments are what a conclusion carries beside the diagnosis and
-// the model output: the signed runbook that ran (M6 runbooks) and the
-// custodian proposals of a runway diagnosis (M6 runways).
+// the model output: the signed runbook that ran (M6 runbooks), the
+// custodian proposals of a runway diagnosis (M6 runways) and the age of
+// the evidence the diagnosis rests on (sre-02).
 type attachments struct {
 	runbook   *RunbookRun
 	proposals []ActionProposal
+	evidence  evidenceAge
 }
 
 // apply sets the attachments on a summary.
 func (a attachments) apply(s *Summary) {
 	s.Runbook, s.Proposals = a.runbook, a.proposals
+	a.evidence.apply(s)
 }
 
 // conclude persists the diagnosis with the runbook run, the custodian

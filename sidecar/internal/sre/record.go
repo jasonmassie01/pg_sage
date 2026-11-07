@@ -95,6 +95,11 @@ type Summary struct {
 	// similar past incidents the model turn was offered as context.
 	Runbook *RunbookRun `json:"runbook,omitempty"`
 	Memory  *MemoryRef  `json:"memory,omitempty"`
+	// EvidenceNewestAt and EvidenceAgeS (sre-02) are when the newest dated
+	// evidence the diagnosis rests on was observed and how old it was when
+	// the run ended; unset when the run had no dated evidence.
+	EvidenceNewestAt *time.Time `json:"evidence_newest_at,omitempty"`
+	EvidenceAgeS     int64      `json:"evidence_age_s,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root
