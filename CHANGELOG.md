@@ -1,5 +1,394 @@
 # Changelog
 
+## [Unreleased]
+
+These changes are planned as two releases: v2.5.1 (tranche T0a, the safety fixes) and v2.5.2
+(tranche T0b).
+
+### v2.5.1 (tranche T0a, safety)
+
+#### Security
+
+- **DDL search_path.** pg_sage's own DDL now runs with `search_path = pg_catalog, pg_temp`,
+  both transactional and `CONCURRENTLY`, so a function another role plants in `public` can no
+  longer bind into indexes pg_sage builds (the CVE-2018-1058 class). Unqualified targets, and
+  extension operator classes installed outside `pg_catalog` such as a bare `gin_trgm_ops`, now
+  fail and the action is recorded as `failed` (security-01a).
+- **Expression indexes.** The optimizer no longer recommends an expression index that calls a
+  function outside pg_catalog or an allowlisted extension (refused with
+  `function_schema_not_allowed`). It also refuses indexes on functions with any non-IMMUTABLE
+  overload, and refuses when the volatility catalog read fails. A function planted in `public`
+  can no longer make an index admissible (security-01b).
+- **MCP `explain_query`** now needs the propose scope (operator/admin) for people, as REST
+  does, and honours `explain.enabled`. Agents get plan-only EXPLAIN under their own database
+  role through agent governance. agent_query and agent EXPLAIN now refuse a denied column (prod
+  PII, or a secret anywhere) used outside the plain output (security-02).
+- **Lock snapshots.** The `locks` snapshot is now a bounded lock wait graph of at most 200
+  rows: waiters with `blocked_by`, plus blockers, idle-in-transaction sessions and the 5
+  oldest-xmin sessions. It gains `xact_start`, `backend_xmin_age` and `query_id`, and its
+  statement text has string and dollar-quoted literals redacted and is cut to 256 bytes before
+  it is stored. Older `locks` rows, which held raw statement text, are deleted once at startup
+  in batches under `lock_timeout` (collection-01).
+- **Managed-parameter commands.** Proposals now quote values read back from Cloud SQL and RDS
+  before putting them in a command: gcloud `--database-flags` is single-quoted (with `^DELIM^`
+  syntax when a value has a comma) and RDS `--parameters` is quoted JSON. An unsafe value gives
+  a blocker and a comment line in place of the command. When pg_sage does not know the current
+  flags, it prints a fill-in template instead of a command that would clear every other flag.
+  The dashboard's Approve button stays disabled while a proposal has blockers (clouds-01).
+- **Databricks/Lakebase.** OAuth database credentials are now sent only over
+  `sslmode=verify-full`, on the main host and every fallback; `require` and `verify-ca` are
+  refused before pg_sage contacts Databricks. The Apps launcher raises a platform-injected
+  `PGSSLMODE=require` to `verify-full` and refuses any other mode below it (databricks-02).
+
+#### Fixed
+
+- **Partitioned tables.** Partitioned parent tables no longer show a transaction age of
+  2,147,483,647 or get an automatic VACUUM (FREEZE) of their whole partition tree. Their age is
+  now recorded as unknown (-1) and each partition is checked on its own. The age used is now
+  the older of the table's and its TOAST table's, and multixact age is shown in the finding.
+  Any VACUUM aimed at a partitioned table, from any producer, now waits for operator approval;
+  one whose table was dropped is skipped as stale (vacuum-01).
+- **Contractless candidates.** Candidates with no typed contract (for example TRUNCATE) now
+  park in sage.decision at risk tier high with `evidence.contract=none`, instead of failing the
+  `decision_risk_tier_check` CHECK every cycle and logging an ERROR to PostgreSQL. A decision
+  that cannot be recorded still fails closed (`policy_unavailable`), but its detail now names
+  the intended verdict and reason. The new
+  `pg_sage_policy_record_failures_total{database,reason}` counts these failures, and the
+  sidecar logs each one at most once an hour (policy-01).
+- **Freeze custodian holders.** A red table is now frozen unless an xmin holder actually pins
+  it (at least half the table's XID age), and the freeze still runs while that holder is
+  younger than 0.9 of the table age. Every holder kind is found: idle writers by backend_xid,
+  prepared transactions, slots (catalog_xmin only for catalog tables) and standby feedback.
+  Each pinning holder gets one freeze_blocker proposal per scan, listing all the tables it
+  pins. A session holder is a cancel or terminate that still needs approval. Every other holder
+  kind, and pg_dump/basebackup/restore/pg_sage sessions, becomes a parked high-risk plan that
+  names the holder. A blocker counts as cleared only when its PID is gone, its backend
+  restarted, or it holds neither a snapshot nor an XID (vacuum-02).
+- **Bloat rebuilds.** The freeze custodian now plans a bloat rebuild only from a catalog bloat
+  estimate of at least 50% on a heap of at least `analyzer.table_bloat_min_bytes` (new, default
+  1 GiB), and no longer plans one from dead tuples alone. When `pgstattuple` is installed it
+  confirms at most 3 candidates per cycle. Each plan is recorded once as a parked, high-risk
+  `bloat_remediation` decision; before, the ledger rejected it with a `risk_tier` CHECK error
+  every cycle (vacuum-04).
+- **Index EXPLAINs.** The index optimizer no longer runs an EXPLAIN for every statement of a
+  table it analyzes. These plans were never used, and on PG16+ they could wait forever behind
+  an ACCESS EXCLUSIVE lock. The HypoPG what-if now plans at most 25 statements per candidate
+  (the proposal's target statements first, then the hottest), under `safety.lock_timeout_ms`. A
+  lock timeout leaves the candidate unverified. `llm.optimizer.plan_source` is deprecated and
+  ignored, with one startup warning (indexes-05).
+- **Index equivalence.** Index advisor and tuning now compare operator class, collation and
+  sort order when they decide whether one index duplicates or covers another. A
+  text_pattern_ops, COLLATE-specific, mixed-order, jsonb_path_ops or HNSW cosine index is no
+  longer rejected as a duplicate of a plain index, and is no longer dropped or replaced as
+  "covered" by one. Explicitly spelled defaults (text_ops, COLLATE "default") are still
+  recognised as duplicates (indexes-01).
+- **work_mem hints.** Stat-based work_mem hints are now sized from the per-call spill between
+  tuner cycles, against the work_mem the statement's own role runs with. There is no 64 MB
+  floor. Every work_mem hint, from rules or the tuning agent, is capped at
+  min(`tuner.work_mem_max_mb`, 5% of host memory). Without host memory telemetry, work_mem
+  hints need operator approval (tuning-03).
+- **Hint revalidation** no longer retires a hint because its query got fast or old, nor marks
+  hints broken after `pg_stat_statements_reset()` or an idle period: idle hints become
+  `dormant` (still installed), resets re-baseline via `pg_stat_statements_info.stats_reset`,
+  calls are summed across roles, and hints past `tuner.hint_retirement_days` are stamped
+  `reverify_due` instead of removed (tuning-01).
+- **Hint rollbacks.** Rolling back a query-hint action, or removing a retired hint, now deletes
+  only the `hint_plan.hints` row whose text matches pg_sage's own hint, so an operator's hint
+  for the same query survives. Rollbacks of actions recorded by earlier releases are rewritten
+  to the same scoped form at rollback time, or refused with `hint_text_unknown` when pg_sage
+  has no single recorded hint text for the query (tuning-02a).
+- **Dropped-index restore.** A regressed autonomous index drop is now restored automatically.
+  It is re-created with `CREATE INDEX CONCURRENTLY` from the recorded definition, under the new
+  safe `restore_dropped_index` contract. This holds even after trust is lowered (observation,
+  approval or manual mode, `tier3_safe` off, ramp reset); the decision reason is
+  `drop_restore_bypass`. During an emergency stop the restore is recorded as
+  `rollback_withheld` and one approval card is queued, which can be approved once the stop is
+  lifted. A failed restore build is now reported as `rollback_failed`, no longer as
+  `already_restored` (executor-01).
+- **Index verification reads.** A transient read error while verifying an autonomously created
+  index (lost connection, a metadata-database outage under `history.store: meta`, or a shutdown
+  mid-check) no longer drops the index. The watch stays open as `observation_retry` and is
+  checked again after 5, 15, then 60 minutes; only reaching the hard deadline without a
+  successful check reverts it (`observation_unavailable`). Watches closed by this bug in
+  earlier versions are reopened at startup (executor-02).
+- **Index verification writes.** Index verification no longer reverts an index on a
+  database-wide write-time rise: write regressions after an index build are now logged as
+  advisory evidence (`write_signal`), not reverted, until executor-03b adds a table-scoped
+  write signal. A failed write-history read no longer pauses the watch, and at startup a
+  pending `write_impact` revert from an earlier version is reopened and decided on its queries
+  (executor-03).
+- **Cases playbooks.** The lock and idle-in-transaction playbooks no longer suggest
+  pg_cancel_backend/pg_terminate_backend for a PID scraped from incident text (for example
+  "LIMIT 20"). A signal is offered only for a lock_contention incident with exactly one
+  structured root blocker, as an operator-run script. The script re-checks pid, backend_start,
+  query_start, the query hash, the state, the current database and the protected-session
+  filter. Terminate is offered only for critical incidents or idle-in-transaction blockers, and
+  the Cases page shows the identity the script is pinned to (playbooks-01).
+- **RCA xmin holders.** RCA's vacuum_blocked incident now names the real oldest holder of the
+  database's xmin horizon: a session open past `rca.xmin_holder_min_minutes` (default 5), a
+  prepared transaction past `rca.prepared_xact_min_age_minutes` (default 30), a standby, or a
+  slot. It proposes `pg_terminate_backend` only for a holder idle in transaction past
+  `lock_chain.idle_in_tx_terminate_minutes`; every other holder gets a read-only diagnostic.
+  Other databases' prepared transactions are never blamed, a prepared transaction's GID is
+  quoted in `ROLLBACK PREPARED`, and an open incident's recommended SQL follows its refreshed
+  root cause (rca-01).
+- **CDC slot facts.** Confirmed CDC slot facts now block every finite `max_slot_wal_keep_size`
+  bound and RESET, whichever slot it names, and bind sibling databases of the same cluster
+  monitored by one process (facts-02).
+- **PagerDuty incidents.** An incident's detected, escalated and resolved events now share one
+  dedup key (`incident:<db>:<id>`), and a resolved incident now closes its page. Critical
+  findings are keyed by database, category and object, and are resolved when the finding
+  clears. Channels need a rule for incident_resolved, and pages opened before the upgrade must
+  be closed by hand once (alerting-01).
+- **Audit chain.** The chain verifier now reports `orphan_row` when tail links or a whole chain
+  were deleted; SIEM export stops a chain that went back behind its cursor (`regressed`)
+  instead of silently skipping reused positions and raises a critical `audit_chain_regressed`
+  finding; admins resume with `POST /api/v1/audit/siem/{sink}/reanchor`, and re-exported events
+  are labelled `fork` (audit-01).
+- **Dashboard errors.** A page that fails to render now shows an inline error with Retry, and
+  the header, navigation and emergency stop stay usable. Blocked site storage no longer
+  white-screens the login screen (dashboard-03).
+- **Fleet tags.** Meta-DB fleets now carry database tags, so `tenant=<x>` tags split
+  fleet-learning look-alikes and priors per tenant, and tag edits apply without a restart
+  (fleet-01).
+- **Provider probes.** A failed provider probe (timeout, dropped connection, permission error)
+  now reads as `unknown`, never `self-managed`. Provider-gated actions such as `ALTER SYSTEM`
+  wait until a re-probe succeeds. Each probe now has its own 2 s timeout and is retried after
+  1, 2 and 4 s at startup. After that, pg_sage re-probes every 1 to 30 minutes and rebuilds
+  that database's runtime once the provider is known. In standalone mode, and for the control
+  database of a YAML fleet, readiness instead asks for a restart (clouds-05a).
+- **Walkthroughs.** The try-it and Linux/Windows walkthrough pages' role SQL now matches the
+  quickstart's read-only block, which creates the `sage` schema, so pg_sage bootstraps on the
+  stock postgres image they start instead of refusing the database; the pages' connection
+  strings now use the same password, and they cover Getting started and First look
+  (firstlook-02).
+
+#### Changed
+
+- **Emergency stop** now cancels the statements pg_sage is already running (CIC, VACUUM, ALTER
+  waiting on a lock, rollbacks) with a PostgreSQL cancel request; cancelled actions end
+  `failed` with reason "emergency stop", and a cancelled CIC names the INVALID index and its
+  `DROP INDEX CONCURRENTLY IF EXISTS` cleanup. The new `SELECT sage.emergency_stop(true|false,
+  '<actor>')` SQL function sets the stop with an audit row when the dashboard is down (the old
+  documented `UPDATE` was a no-op on databases never stopped through the API) (executor-06).
+- **Fleet-wide stop.** "Stop all" is now a fleet-wide latch. Databases added while it holds (UI
+  add, CSV import, meta-DB reconcile, config reload) start stopped. Only "Resume all" lifts it:
+  resuming one database returns 409 "fleet-wide stop is active: resume all first". The latch
+  survives restarts: in meta mode as `fleet_emergency_stop`, in YAML fleets as
+  `emergency_stop_scope`. Every stop now cancels running actions and lists them in the
+  response. The sidecar re-reads every database's emergency_stop every 10 s, so a stop or
+  resume made in SQL shows within one tick. Bootstrap seeds `emergency_stop='false'`, so the
+  documented UPDATE works. The overview reports `fleet_stopped`, `fleet_stopped_by` and
+  `fleet_stopped_at` (fleet-09).
+- **Live trust ceilings.** Changing `trust.tier3_safe`, `tier3_moderate`, `maintenance_window`,
+  `rollback_threshold_pct`, `rollback_window_minutes`, `rollback_cooldown_days` or
+  `cascade_cooldown_cycles` now reaches every executor on the next cycle without a restart. A
+  failed change keeps the stricter ceiling, and invalid rollback and cascade bounds are
+  rejected (config-01).
+- **Agent DDL classes.** Unrecognized agent DDL is now classed as locking, not additive, so
+  agents that relied on it earn trust in the locking class. lint_migration returns review
+  instead of safe for unrecognized statements, and a DROP or TRUNCATE hidden behind a literal
+  is classed as destructive (migration-04a).
+- **Game-day targets.** Game days and local bench runs now refuse a
+  `sre.autonomy.game_days.local_dsn` on the cluster of any monitored database (fleet members
+  added after start included) or of the metadata database, including sibling databases, host
+  aliases, pooler ports and standbys. They also refuse a standby, a primary that streams to
+  standbys, and a database without the marker `COMMENT ON DATABASE <db> IS
+  'pg_sage:gameday_target'`, and they refuse whenever these checks cannot be read. Existing
+  local_dsn setups must add the marker and use a cluster of their own (benches-02).
+- **AgentSafetyBench scoring.** other_error is no longer counted as held. It is reported as
+  "not measured" (n/m), and the harness self-checks now require a credited refusal from every
+  design, so a design that cannot log in fails the bench instead of passing it (benches-04).
+- **AgentSafetyBench gates.** AgentSafetyBench now fails CI when any (design, case) result
+  changes from the committed baseline (`safety-bench/testdata/baseline.json`, regenerate with
+  `go run ./safety-bench/cmd/baseline`), the EXPLAIN guard has its own hard gate, and release
+  tags and versioned images now wait for the PG14/15/16/18 integration matrix (`:edge` is
+  unchanged) (benches-05).
+
+### v2.5.2 (tranche T0b)
+
+#### Security
+
+- **Session cookies.** Dashboard session cookies are now random 256-bit tokens, and
+  sage.sessions stores only their SHA-256, so read access to the sage schema, a dump or a
+  bind-parameter log no longer exposes live sessions. Logout is audited. The new `DELETE
+  /api/v1/auth/sessions` signs out all other sessions. A session-store outage now answers 503
+  instead of 401. Every dashboard user signs in once after the upgrade (apiauth-04).
+- **Cross-origin writes.** The API now refuses cross-origin and same-site browser writes on
+  every /api/v1 route (Go cross-origin protection), including the multipart database import;
+  list a separately hosted UI or a Host-rewriting proxy's public origin in the new
+  `api.trusted_origins` / `SAGE_API_TRUSTED_ORIGINS`. The localhost dev CORS allowlist is
+  removed, and behind a proxy session cookies are marked Secure from `X-Forwarded-Proto` only
+  when the proxy is in `api.trusted_proxies` (apiauth-10).
+- **Login hardening.** Unknown emails, SSO-only accounts and wrong passwords are now refused in
+  the same time; a full login limiter never evicts a locked account and instead refuses new
+  emails while every entry is locked (counted by the new
+  `pg_sage_login_limiter_saturated_total`); each client address gets 20 failed logins per 15
+  minutes across all emails; IPv6 clients are rate-limited per /64; and an `X-Forwarded-For`
+  from a peer outside `api.trusted_proxies` now logs a one-time warning (apiauth-06).
+- **pgaudit attribution.** pgaudit records are now attributed to an agent or to pg_sage only
+  when the database role matches. An agent's application_name set by any other role is stored
+  as `application_name_unverified`, with no principal and no action. In the SIEM export, a
+  delete of an audit row is Informational only when pg_sage's own role made it; any other
+  role's delete is Medium, whatever application_name it set (audit-04).
+- **Advisor output.** Advisor model output is now treated as data. Reserved detail keys
+  (managed_change, what_if_verdict, drop_ddl, index_replace, approval_required, sage_*) are
+  dropped. Config advisors may only propose setting changes. The managed-change worker proposes
+  only from config producer categories and allowlisted settings (advisors-04).
+- **Model SQL.** RCA Tier 2 now keeps model-suggested SQL only when it is proven read-only;
+  otherwise the SQL is withheld with a note. Migration-advisor model scripts are now checked to
+  touch only the target table with allowed DDL; a script that fails the check is shown as
+  "Model text, not validated by pg_sage" and never replaces the deterministic safe alternative.
+  Every LLM prompt site now fences database content (security-05).
+- **Answer-only questions.** Explain a case is now enforced as answer-only: Ask Sage and the
+  MCP ask_sage tool accept `read_only`, and a read-only question is never offered
+  propose_action, open_investigation or propose_fact. The answer is stored with read_only and
+  shows an "Answer only" badge. Before this, the restriction was only prompt text (mcp-01).
+- **Databricks Apps.** pg_sage now exits at startup when `DATABRICKS_APP_PORT` is set but
+  `SAGE_AUTH_MODE` is not `databricks_app`. It never falls back to local password auth there
+  and never prints a generated admin password to App logs, even when started without launch.py.
+  There is no override (databricks-08).
+
+#### Fixed
+
+- **First look.** First look no longer reads "No problems found" when checks could not run: the
+  checklist says "First look partial: N of M checks could not run" (and is not done when none
+  ran), the panel lists degraded and truncated catalog checks with the GRANT that fixes each,
+  /api/v1/onboarding first_look gains checks/degraded/truncated, and the model summary covers
+  degraded-only first looks (firstlook-01).
+- **Wraparound deadline.** A table past autovacuum_freeze_max_age, the most urgent freeze case,
+  now has a wraparound hard deadline ahead, so the xid deadline override and the budget bypass
+  apply to it. The deadline is now the server's wraparound warn limit (2^31-1-40M), capped at
+  100 years, and no longer overflows to a far-past date at low multixact rates. Freeze decision
+  evidence now names the deadline_threat (xid or multixact) and the server's
+  vacuum_failsafe_age (PG14+) (vacuum-03).
+- **Autovacuum tuning.** The freeze custodian no longer sets `autovacuum_vacuum_scale_factor =
+  0.02` on freeze-amber tables. That setting was re-applied every cycle with no rollback and
+  undid the analyzer's 0.01 on large tables. The analyzer's `autovacuum_tuning` finding is now
+  the only autovacuum tuner, and its rollback restores a table's prior scale factor exactly as
+  stored (0.10 stays 0.10) (vacuum-07).
+- **Per-table autovacuum rule.** autovacuum_tuning now reads each table's own reloptions from
+  the tables collection, so it works without an LLM. It never loosens a DBA's explicit
+  autovacuum_vacuum_scale_factor, skips tables with autovacuum_enabled=false or reloptions it
+  cannot parse, stops re-firing after its own change, and its rollback restores the table's
+  previous explicit value (rules-02).
+- **Schema-wide facts.** A confirmed test-fixture fact (or any schema-wide fact) no longer
+  blocks configuration, database or query recommendations such as ALTER SYSTEM. Targets that
+  name no relation never bind, and unqualified target tables are matched through the schemas
+  that actually have them (facts-01).
+- **App-managed index facts.** The app-managed index detector now names indexes as the catalog
+  does (EF Core's `public."IX_Orders_CustomerId"` instead of `public.ix_orders_customerid`), so
+  confirmed facts bind pg_sage's drops; the analyzer's app_managed_index suppression now also
+  matches pg_sage's own quoted drops, and an index name with a space no longer breaks the
+  drop-history read on PG14/15. Stale lower-cased facts stop being re-proposed and expire
+  through the normal existence check; list them with `SELECT id, subject, status FROM
+  sage.facts WHERE fact_type = 'owned_by_app_migrations' AND proposed_by =
+  'detector:app_managed_index' AND status IN ('proposed','confirmed') AND
+  pg_catalog.to_regclass(subject) IS NULL;` (facts-03).
+- **Fixture cleanup.** Test-fixture cleanup batches now drop each schema in its own guarded
+  transaction: the script runs in psql autocommit with lock_timeout 5s, and before each drop it
+  re-checks the schema's activity against a baseline taken when the batch was built and checks
+  for locks held by other sessions, skipping the schema with a NOTICE when either check fails.
+  A few hundred fixture schemas no longer fail with "out of shared memory", and a schema
+  matched by a family pattern that later became busy is no longer dropped (facts-06).
+- **Online-migration planner.** `apply_migration` now resolves identifiers the way PostgreSQL
+  does. Quoted names are kept verbatim, bare names are folded to lower case, and each name is
+  quoted exactly once. `[NOT] DEFERRABLE` / `INITIALLY DEFERRED|IMMEDIATE` are carried into the
+  attach step. `INCLUDE`, `WITH`, `USING INDEX TABLESPACE`, `NULLS [NOT] DISTINCT`, trailing
+  text, and names over 63 bytes are refused with "unsupported option ...; plan it by hand"
+  instead of being silently dropped or truncated (migration-02).
+- **Fleet alerts.** Fleet alerts from the alerting manager now name their database in Slack,
+  PagerDuty and webhook payloads, and the PagerDuty dedup_key becomes
+  `<database>:<category>:<object>`. Identical schemas sharing a routing key no longer merge
+  into one incident, and one database's resolve no longer closes another's page. Alerts open at
+  upgrade re-page once under the new key, so close the old PagerDuty incidents by hand
+  (alerting-02).
+- **Fact cards** (proposed binding facts) now go out at warning severity, so they reach
+  approval_needed notification rules created with the default min_severity instead of being
+  silently dropped; rules that filter an event by severity now leave a DEBUG log line
+  (alerting-03).
+- **Audit isolation.** pg_sage now pins its sessions to READ COMMITTED and writes action_log in
+  explicit READ COMMITTED transactions. Under a repeatable read or serializable role or
+  database default, concurrent actions no longer fail with 23505 and drop out of the audit. A
+  chained write at another isolation level is refused with SQLSTATE 55000 and a fix hint. At
+  startup pg_sage logs one WARN per database whose default is not read committed (audit-02).
+- **SIEM export after reloads.** SIEM audit export keeps running after a YAML fleet reload
+  adds, removes or renames a database. Before this fix every export pass failed with "leader
+  lease lost" until the sidecar restarted (fleet-02).
+- **Managed-cloud outages.** A failed RDS/Aurora/Cloud SQL target lookup (throttling, expired
+  token) no longer supersedes approved proposals or brings rejected ones back before the 7-day
+  cooldown ends. Proposals are now identified by provider, parameter and value, and keep the
+  last resolved target during an outage. On upgrade the stored identities are recomputed once:
+  open proposals keep their ids, status and decisions, and duplicates left by earlier outages
+  collapse to one (clouds-02).
+- **Collector interval.** A collector interval promoted live by self-config now takes effect on
+  the next cycle, logged as "collector: interval changed 60s -> 120s". Before, the collector
+  kept its startup cadence, so the ledger, the Derived settings page and the self-cost figures
+  reported an interval the process was not running (footprint-01).
+- **OAuth agents.** MCP agents that sign in with OAuth now carry their sponsor, task_id and
+  on-behalf-of subject into the policy gate. Their widening proposals record the sponsor, and
+  the sponsor can no longer be one of the two approvers. Pending OAuth-agent proposals made
+  before this fix have proposed_sponsor_id NULL and should be re-proposed or their approvers
+  checked by hand (agentgov-02).
+- **MCP Tokens page.** The page no longer offers an agent token that the server always refused.
+  It now issues operator tokens with a required owner, links to the Agents page for
+  coding-agent tokens, and shows Principal, Owner and the agent's retired or frozen status in
+  the list. docs/mcp.md now mints agent tokens through `POST /api/v1/agents/{id}/tokens`
+  (agentgov-01).
+
+#### Changed
+
+- **Tuning-agent index drops** now cover only indexes another valid index covers, and are
+  marked for approval when the database has standbys or its replication state cannot be read.
+  Drops of never-scanned indexes come only from the `unused_index` rule, which has a first-seen
+  clock and skips recently created and FK-only indexes (indexes-03).
+- **Maintenance privileges.** VACUUM and autovacuum ALTER TABLE actions now check the connected
+  role's privilege first (owner, superuser, database owner, or MAINTAIN/pg_maintain on
+  PostgreSQL 17+; ALTER TABLE needs the owner). A role that lacks it is withheld with
+  `capability_missing` and told which grant fixes it. A bloat VACUUM deferred for I/O
+  saturation no longer carries SQL, and a VACUUM the server skipped is recorded as failed
+  instead of neutral (vacuum-06).
+- **Schema guard.** everything_text and type_tightening invariants are now recorded once as
+  advisory recommendations ("requires an online column migration; pg_sage has no automated
+  path"). They are no longer counted as routed and no longer propose the table-rewriting ALTER
+  COLUMN ... TYPE, which now appears only as labelled reference evidence. Each structural
+  invariant writes one new ledger row after upgrade (migration-09).
+- **Environment variables.** A `SAGE_*` value that is set but cannot be parsed (for example
+  `SAGE_PG_PORT=abc` or `SAGE_MCP_ENABLED=no`) now stops startup with one error naming every
+  such variable; `0` and `false` now apply instead of being ignored; `SAGE_PROMETHEUS_PORT`
+  keeps the configured metrics host (default `127.0.0.1`) instead of rebinding to `0.0.0.0`, so
+  containers that publish metrics must pass `--prom-addr 0.0.0.0:9187`; `docs/configuration.md`
+  now lists every environment variable the sidecar reads, generated from a registry. Check your
+  `SAGE_*` values before upgrading (config-08).
+- **Sage SRE evidence age.** An investigation resumed on evidence more than 5 minutes old now
+  ends expired (`stale_evidence`) instead of concluding on it, and every conclusion records and
+  shows the age of its evidence (sre-02).
+- **Briefing grounding.** The LLM rewrite now cites findings by id and links them to their
+  case. Any SQL, setting change or command that is not a pg_sage recommendation is removed
+  before the briefing is stored or sent. `sage.briefings.content_json` now stores the grounded
+  payload (llm-08).
+- **Toolchain and CI.** Release binaries and images now build on Go 1.27.3 (go.mod toolchain
+  line), Alpine 3.24 (digest-pinned) and Node.js 22 LTS. A new CI security job runs
+  govulncheck, npm audit and a Trivy image scan, and must pass before the image or a release is
+  published. The default CI token is read-only, Dependabot watches Go, npm, Actions and Docker,
+  `--version` now reports the Go release, and building from source needs Go 1.26+ and Node.js
+  22+ (ci-01).
+- **Container HEALTHCHECK.** The check now runs `sage-sidecar healthcheck`. It follows
+  `api.listen_addr` (from `SAGE_CONFIG_PATH` or `./config.yaml`) and switches to HTTPS when
+  `SAGE_TLS_CERT`/`SAGE_TLS_KEY` are set, so TLS deployments and non-default ports no longer
+  read as unhealthy. `curl` is gone from the image. If you pass a config file with `--config`
+  in the container args, name it in `SAGE_CONFIG_PATH` instead, or override the check with
+  `--addr` (ci-06).
+
+#### Added
+
+- **User deactivation.** Admins can now deactivate a user (Users page, or `PUT
+  /api/v1/users/{id}/status`). Deactivation is the recommended way to offboard someone: it ends
+  their sessions, revokes their operator MCP tokens, and blocks their password, SSO, link-grant
+  and chat sign-ins until reactivated. A user who changed configuration can now be deleted,
+  where before the delete failed with a 500. Each config change also records the caller's email
+  in `sage.config_audit.changed_by_actor` (apiauth-01).
+
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
 pg_sage runs on Databricks. It connects to Lakebase with Databricks OAuth, runs as a Databricks
