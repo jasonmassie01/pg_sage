@@ -163,6 +163,14 @@ func TestFreezeHoldersOneProposalForFiftyRedTablesLive(t *testing.T) {
 	tables := holderTables(t, pool, "f", 50, "")
 	pid := holdSnapshot(t, pool, "orders_api")
 	burnXIDs(t, pool, burnForRed(t, pool))
+	// A writer another package holds in this database while a table is
+	// created dates its relfrozenxid back; the holder must still pin all 50.
+	bands := map[string]shareBand{}
+	for _, table := range tables {
+		bands[table] = pinsAll
+	}
+	settleShares(t, pool, "SELECT age(backend_xmin) FROM pg_stat_activity WHERE pid = $2",
+		pid, bands)
 
 	blockers := fixtureProposals(holderScan(t, pool), "freeze_blocker")
 
