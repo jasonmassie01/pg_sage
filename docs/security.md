@@ -559,6 +559,9 @@ position, and one would fail.
   ```
 
   PgBouncer in session mode and direct connections need nothing.
+  Poolers that pin a client to one server connection after any `SET`
+  (Amazon RDS Proxy among them) pin pg_sage's connections for this
+  reason; that costs multiplexing, not correctness.
 
 #### Attribution trusts the role, not `application_name`
 
