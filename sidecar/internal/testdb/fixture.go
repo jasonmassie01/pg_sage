@@ -173,11 +173,17 @@ func installFixtureExtensions(ctx context.Context, dsn string) error {
 	return nil
 }
 
+// fixtureDropTimeout bounds one fixture drop. DROP DATABASE waits for an
+// immediate checkpoint, and those queue behind each other when many test
+// packages drop their databases at once, so a drop on a busy shared server
+// can wait well past the time the drop itself needs.
+const fixtureDropTimeout = 2 * time.Minute
+
 func dropFixture(baseDSN, database string) error {
 	if err := validateFixtureDatabaseName(database); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureDropTimeout)
 	defer cancel()
 	admin, err := pgx.Connect(ctx, baseDSN)
 	if err != nil {
