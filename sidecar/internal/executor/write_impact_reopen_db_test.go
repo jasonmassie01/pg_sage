@@ -26,6 +26,14 @@ func TestReopenedWriteImpactRevertSettlesAsKept(t *testing.T) {
 			if err := f.exec.reopenObservationRetries(ctx); err != nil {
 				t.Fatalf("reopen sweep: %v", err)
 			}
+			// Earlier tests in this package leave open watches with no
+			// action (production never writes one); ListDue cannot scan
+			// them, so they are moved out of this resume.
+			if _, err := pool.Exec(ctx, `UPDATE sage.verification
+				SET next_evaluation_at=now()+interval '1 day'
+				WHERE completed_at IS NULL AND action_log_id IS NULL`); err != nil {
+				t.Fatalf("defer actionless watches: %v", err)
+			}
 			if err := f.exec.indexVerification.ResumeDue(ctx); err != nil {
 				t.Logf("ResumeDue reported other watches: %v", err)
 			}
