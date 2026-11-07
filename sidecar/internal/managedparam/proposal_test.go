@@ -62,7 +62,9 @@ func TestBuildRDSStaticParameter(t *testing.T) {
 		t.Fatalf("console = %q", p.ConsoleURL)
 	}
 	assertApprovalOnly(t, p)
-	if len(p.Fingerprint) != 16 || len(p.Blockers) != 0 {
+	// clouds-02: "v2:" plus 16 hex digits (was 16 hex digits).
+	if len(p.Fingerprint) != 19 || !strings.HasPrefix(p.Fingerprint, "v2:") ||
+		len(p.Blockers) != 0 {
 		t.Fatalf("fingerprint=%q blockers=%v", p.Fingerprint, p.Blockers)
 	}
 }

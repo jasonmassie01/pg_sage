@@ -50,7 +50,9 @@ type Worker struct {
 	store    *Store
 	provider string
 
-	mu        sync.Mutex
+	mu sync.Mutex
+	// target is the last successfully resolved target and targetAt when
+	// (zero: never); targetErr is the latest attempt's error, if it failed.
 	target    Target
 	targetAt  time.Time
 	targetErr string
@@ -90,7 +92,10 @@ type findingIntent struct {
 }
 
 // Cycle runs one pass. Target resolution failures are reported in the
-// result, never as a failed cycle: proposals then carry placeholders.
+// result, never as a failed cycle: proposals are then built against the
+// last resolved target (with a note), or placeholders when there is none,
+// and no proposal is superseded, because an outage says nothing about
+// which changes are still wanted.
 func (w *Worker) Cycle(ctx context.Context) (CycleResult, error) {
 	var res CycleResult
 	if err := ctx.Err(); err != nil {
@@ -100,28 +105,33 @@ func (w *Worker) Cycle(ctx context.Context) (CycleResult, error) {
 	if err != nil {
 		return res, err
 	}
-	target := w.resolve(ctx, &res)
+	target, note := w.resolve(ctx, &res)
 	settings, err := w.readSettings(ctx, settingNames(intents, target))
 	if err != nil {
 		return res, err
 	}
 	keep := map[string]bool{}
 	for _, fi := range intents {
-		if err := w.propose(ctx, fi, target, settings, keep, &res); err != nil {
+		if err := w.propose(ctx, fi, target, note, settings, keep, &res); err != nil {
 			return res, err
 		}
 	}
-	if res.Superseded, err = w.store.SupersedeExcept(ctx, keep); err != nil {
-		return res, err
+	resolverFailed := w.opts.Resolver != nil && res.TargetError != ""
+	if !resolverFailed {
+		if res.Superseded, err = w.store.SupersedeExcept(ctx, keep); err != nil {
+			return res, err
+		}
 	}
-	res.Drift = DetectDrift(target, settingList(settings))
+	if res.TargetError == "" { // drift only against a target resolved now
+		res.Drift = DetectDrift(target, settingList(settings))
+	}
 	w.mu.Lock()
 	w.drift = res.Drift
 	w.mu.Unlock()
 	return res, nil
 }
 
-func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target,
+func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target, note string,
 	settings map[string]collector.PGSetting, keep map[string]bool, res *CycleResult) error {
 	if NormalizeProvider(fi.intent.Provider) != w.provider {
 		res.Skipped++
@@ -137,6 +147,9 @@ func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target,
 		res.BuildErrors = append(res.BuildErrors, fmt.Sprintf("finding %d: %v",
 			fi.findingID, err))
 		return nil
+	}
+	if note != "" {
+		p.Notes = append(p.Notes, note)
 	}
 	keep[p.Fingerprint] = true
 	live := running != nil && !running.PendingRestart && sameValue(p.Value, running.Setting)
@@ -164,34 +177,40 @@ func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target,
 	return nil
 }
 
-// resolve returns the cached or freshly resolved target; on failure an
-// unresolved target that says why.
-func (w *Worker) resolve(ctx context.Context, res *CycleResult) Target {
+// resolve returns the target to build proposals against: the cached or
+// freshly resolved one. When the resolver fails it returns the last
+// resolved target with a note naming the error, or, when nothing was ever
+// resolved, an unresolved target that says why.
+func (w *Worker) resolve(ctx context.Context, res *CycleResult) (Target, string) {
 	unresolved := Target{Provider: w.provider}
 	if w.opts.Resolver == nil {
 		unresolved.Unresolved = "cloud telemetry is not configured"
 		res.TargetError = unresolved.Unresolved
-		return unresolved
+		return unresolved, ""
 	}
 	w.mu.Lock()
 	cached, at, cachedErr := w.target, w.targetAt, w.targetErr
 	w.mu.Unlock()
 	if !at.IsZero() && w.opts.Now().Sub(at) < w.opts.TargetTTL && cachedErr == "" {
-		return cached
+		return cached, ""
 	}
 	t, err := w.opts.Resolver.Target(ctx)
-	if err != nil {
-		unresolved.Unresolved = err.Error()
-		res.TargetError = unresolved.Unresolved
-		w.mu.Lock()
-		w.target, w.targetAt, w.targetErr = unresolved, w.opts.Now(), res.TargetError
-		w.mu.Unlock()
-		return unresolved
-	}
 	w.mu.Lock()
-	w.target, w.targetAt, w.targetErr = t, w.opts.Now(), ""
-	w.mu.Unlock()
-	return t
+	defer w.mu.Unlock()
+	if err == nil {
+		w.target, w.targetAt, w.targetErr = t, w.opts.Now(), ""
+		return t, ""
+	}
+	res.TargetError = err.Error()
+	w.targetErr = res.TargetError
+	if w.targetAt.IsZero() {
+		unresolved.Unresolved = res.TargetError
+		return unresolved, ""
+	}
+	return w.target, fmt.Sprintf("Resolving the provider resource failed (%s): this "+
+		"proposal uses the target last resolved at %s. Check that it is still the "+
+		"instance's before running the command.", res.TargetError,
+		w.targetAt.UTC().Format(time.RFC3339))
 }
 
 func (w *Worker) readIntents(ctx context.Context) ([]findingIntent, error) {
