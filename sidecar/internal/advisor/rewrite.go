@@ -100,10 +100,13 @@ func analyzeQueryRewrites(
 		return nil, err
 	}
 
-	parsed := parseLLMFindings(resp, "query_rewrite", logFn)
-	// Filter out CREATE INDEX suggestions — those belong in the
-	// optimizer, not query_rewrite. Check both suggested_rewrite
-	// and recommended_sql in the detail map.
+	return rewriteFindings(parseLLMFindings(resp, "query_rewrite", logFn)), nil
+}
+
+// rewriteFindings keeps the parsed rewrite suggestions as advisory
+// findings. CREATE INDEX suggestions are dropped: those belong in the
+// optimizer, not query_rewrite.
+func rewriteFindings(parsed []analyzer.Finding) []analyzer.Finding {
 	var findings []analyzer.Finding
 	for _, f := range parsed {
 		if isCreateIndexRewrite(f) {
@@ -118,7 +121,7 @@ func analyzeQueryRewrites(
 		f.ActionRisk = ""
 		findings = append(findings, f)
 	}
-	return findings, nil
+	return findings
 }
 
 // rewriteCandidate is a statement offered to the rewrite advisor, with
@@ -200,17 +203,15 @@ func openRewriteQueryIDs(
 	return ids
 }
 
-// isCreateIndexRewrite returns true if the finding's suggested
-// rewrite or recommended_sql is a CREATE INDEX statement. These
-// overlap with optimizer recommendations and should be filtered.
+// isCreateIndexRewrite returns true if the finding's SQL, or the
+// suggested_rewrite or recommended_sql in its detail, is a CREATE INDEX
+// statement. These overlap with optimizer recommendations and should be
+// filtered; reading RecommendedSQL keeps the filter independent of the
+// detail layout.
 func isCreateIndexRewrite(f analyzer.Finding) bool {
-	if f.Detail == nil {
-		return false
-	}
-	for _, key := range []string{
-		"suggested_rewrite", "recommended_sql",
-	} {
-		val, _ := f.Detail[key].(string)
+	suggested, _ := f.Detail["suggested_rewrite"].(string)
+	recommended, _ := f.Detail["recommended_sql"].(string)
+	for _, val := range []string{f.RecommendedSQL, suggested, recommended} {
 		if val == "" {
 			continue
 		}

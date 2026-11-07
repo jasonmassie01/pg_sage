@@ -179,15 +179,18 @@ func TestParseLLMFindings_ObjectTypeAlwaysConfiguration(t *testing.T) {
 	}
 }
 
+// Model keys outside the detail allowlist are kept, as data, under
+// detail.model (advisors-04).
 func TestParseLLMFindings_DetailPreserved(t *testing.T) {
 	raw := `[{"object_identifier":"x","extra_field":"extra_val"}]`
 	findings := parseLLMFindings(raw, "test", noopLog)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
-	val, ok := findings[0].Detail["extra_field"]
+	model, _ := findings[0].Detail[modelDetailKey].(map[string]any)
+	val, ok := model["extra_field"]
 	if !ok {
-		t.Fatal("expected 'extra_field' in Detail")
+		t.Fatal("expected 'extra_field' in Detail.model")
 	}
 	strVal, ok := val.(string)
 	if !ok || strVal != "extra_val" {

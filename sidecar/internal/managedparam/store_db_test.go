@@ -40,7 +40,7 @@ func testPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	ctx := context.Background()
 	clean := func() {
 		for _, stmt := range []string{"DELETE FROM sage.managed_change_proposals",
-			"DELETE FROM sage.findings WHERE category LIKE 'mp_test%'"} {
+			"DELETE FROM sage.findings WHERE category LIKE 'mp_test%' OR detail ? 'mp_test'"} {
 			if _, err := sharedDB.Exec(ctx, stmt); err != nil {
 				t.Fatalf("%s: %v", stmt, err)
 			}

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 // Resolver resolves the provider resource behind the database (its
@@ -101,10 +103,12 @@ func (w *Worker) Cycle(ctx context.Context) (CycleResult, error) {
 	if err := ctx.Err(); err != nil {
 		return res, err
 	}
-	intents, err := w.readIntents(ctx)
+	intents, refused, err := w.readIntents(ctx)
 	if err != nil {
 		return res, err
 	}
+	res.Skipped += len(refused)
+	res.BuildErrors = append(res.BuildErrors, refused...)
 	target, note := w.resolve(ctx, &res)
 	settings, err := w.readSettings(ctx, settingNames(intents, target))
 	if err != nil {
@@ -213,29 +217,64 @@ func (w *Worker) resolve(ctx context.Context, res *CycleResult) (Target, string)
 		w.targetAt.UTC().Format(time.RFC3339))
 }
 
-func (w *Worker) readIntents(ctx context.Context) ([]findingIntent, error) {
-	rows, err := w.opts.Pool.Query(ctx, `/* pg_sage */ SELECT id, detail->'managed_change'
+// producerCategories are the finding categories whose managed intents
+// pg_sage itself writes, after its configuration gates: the advisor's
+// config sub-advisors and the tuning agent (memory_tuning,
+// vacuum_tuning). Any other category's managed_change is not trusted.
+var producerCategories = []string{"connection_tuning", "memory_tuning", "vacuum_tuning",
+	"wal_tuning"}
+
+// ProducerCategories returns a copy of the categories whose findings may
+// carry a managed intent the worker proposes.
+func ProducerCategories() []string { return append([]string(nil), producerCategories...) }
+
+// intentRefusal says why the worker refuses a finding's intent ("" when
+// it may propose it): the finding must come from a producer category and
+// the parameter must be one the executor allowlists.
+func intentRefusal(category string, in Intent) string {
+	if !slices.Contains(producerCategories, category) {
+		return fmt.Sprintf("category %q does not produce managed changes", category)
+	}
+	if !pgconf.ExecutableGUC(in.Parameter) {
+		return fmt.Sprintf("parameter %q is not on the executor's allowlist", in.Parameter)
+	}
+	return ""
+}
+
+// readIntents returns the open findings' valid intents and a message for
+// each one refused by intentRefusal.
+func (w *Worker) readIntents(ctx context.Context) ([]findingIntent, []string, error) {
+	rows, err := w.opts.Pool.Query(ctx, `/* pg_sage */ SELECT id, category,
+		detail->'managed_change'
 		FROM sage.findings
 		WHERE status = 'open' AND detail ? 'managed_change'
 		ORDER BY id`)
 	if err != nil {
-		return nil, fmt.Errorf("read managed change findings: %w", err)
+		return nil, nil, fmt.Errorf("read managed change findings: %w", err)
 	}
 	defer rows.Close()
 	var out []findingIntent
+	var refused []string
 	for rows.Next() {
 		var id int64
+		var category string
 		var raw []byte
-		if err := rows.Scan(&id, &raw); err != nil {
-			return nil, fmt.Errorf("scan managed change finding: %w", err)
+		if err := rows.Scan(&id, &category, &raw); err != nil {
+			return nil, nil, fmt.Errorf("scan managed change finding: %w", err)
 		}
 		var m map[string]any
 		if json.Unmarshal(raw, &m) != nil {
 			continue
 		}
-		if in, ok := IntentFromDetail(map[string]any{DetailKey: m}); ok {
-			out = append(out, findingIntent{findingID: id, intent: in})
+		in, ok := IntentFromDetail(map[string]any{DetailKey: m})
+		if !ok {
+			continue
 		}
+		if why := intentRefusal(category, in); why != "" {
+			refused = append(refused, fmt.Sprintf("finding %d: refused: %s", id, why))
+			continue
+		}
+		out = append(out, findingIntent{findingID: id, intent: in})
 	}
-	return out, rows.Err()
+	return out, refused, rows.Err()
 }
