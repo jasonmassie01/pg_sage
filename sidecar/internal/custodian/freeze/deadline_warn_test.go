@@ -116,13 +116,20 @@ func TestHorizonClampsBothDeadlinesAndKeepsXIDOnATie(t *testing.T) {
 }
 
 // At and past WraparoundWarnAge the server is already warning: the
-// deadline is one second ahead (still ahead, so the override can fire)
-// and the urgency is red whatever the freeze maximum says. One XID short
-// of it, the deadline is the runway at the measured rate.
+// urgency is red whatever the freeze maximum says, and the deadline is
+// the runway to WraparoundStopAge (where the server stops assigning
+// XIDs) at the measured rate. A one-second deadline would lapse while the
+// scan's earlier proposals run, refusing the override for every later
+// table. At or past the stop limit the deadline is one second ahead. One
+// XID short of the warn limit, the deadline is the warn-limit runway.
 func TestHorizonAtOrPastWraparoundWarnAgeIsRedAndImminent(t *testing.T) {
 	// A maximum above the warn limit and 1%/2% buffers make the urgency
 	// from the freeze maximum alone amber at the warn limit.
 	thresholds := Thresholds{RedBufferPct: 1, AmberBufferPct: 2}
+	stopRunway := func(age int64) time.Time {
+		return warnNow.Add(time.Duration(math.Ceil(float64(WraparoundStopAge-age)/0.5)) *
+			time.Second)
+	}
 	tests := []struct {
 		name    string
 		age     int64
@@ -131,8 +138,13 @@ func TestHorizonAtOrPastWraparoundWarnAgeIsRedAndImminent(t *testing.T) {
 	}{
 		{"one short of the warn limit", WraparoundWarnAge - 1, UrgencyAmber,
 			warnNow.Add(2 * time.Second)},
-		{"at the warn limit", WraparoundWarnAge, UrgencyRed, warnNow.Add(time.Second)},
+		{"at the warn limit", WraparoundWarnAge, UrgencyRed, stopRunway(WraparoundWarnAge)},
 		{"past the warn limit", WraparoundWarnAge + 10_000_000, UrgencyRed,
+			warnNow.Add(54_000_000 * time.Second)},
+		{"one short of the stop limit", WraparoundStopAge - 1, UrgencyRed,
+			warnNow.Add(2 * time.Second)},
+		{"at the stop limit", WraparoundStopAge, UrgencyRed, warnNow.Add(time.Second)},
+		{"past the stop limit", WraparoundStopAge + 1_000_000, UrgencyRed,
 			warnNow.Add(time.Second)},
 	}
 	for _, test := range tests {
@@ -150,6 +162,13 @@ func TestHorizonAtOrPastWraparoundWarnAgeIsRedAndImminent(t *testing.T) {
 					assessment.Deadline.HardAt, test.hardAt)
 			}
 		})
+	}
+}
+
+func TestWraparoundStopAgeIsTheServerStopLimit(t *testing.T) {
+	if WraparoundStopAge != 2_144_483_647 || WraparoundStopAge <= WraparoundWarnAge {
+		t.Fatalf("WraparoundStopAge = %d, want 2^31-1-3M, above the warn limit",
+			WraparoundStopAge)
 	}
 }
 

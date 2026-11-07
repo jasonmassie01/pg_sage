@@ -730,9 +730,12 @@ A table is red when its remaining XID runway is under
 Urgency is measured against that freeze maximum; the hard deadline is not. The
 hard deadline is when the table's XID (or multixact) age reaches the server's
 wraparound warn limit, 2^31 - 1 - 40,000,000, at the measured consumption rate
-(capped at 100 years). A table past the warn limit is red with its deadline one
-second ahead, so a table past `autovacuum_freeze_max_age` still has a deadline
-ahead and the xid deadline override and the budget bypass apply to it. The
+(capped at 100 years), so a table past `autovacuum_freeze_max_age` still has a
+deadline ahead and the xid deadline override and the budget bypass apply to it.
+A table at or past the warn limit is red, and its deadline is when its age
+reaches the server's stop limit, 2^31 - 1 - 3,000,000 (where PostgreSQL stops
+assigning XIDs), so the deadline stays ahead while the scan's earlier proposals
+run; at or past the stop limit it is one second ahead. The
 deadline is the earlier of the XID and multixact ones; the policy kind is always
 `xid` (the `deadline_overrides` key), and the decision evidence names the
 counter that set it (`deadline_threat`: `xid` or `multixact`) and the server's

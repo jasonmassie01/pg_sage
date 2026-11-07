@@ -55,3 +55,30 @@ func TestPastFreezeMaximumDeadlineBypassesTheBudget(t *testing.T) {
 		t.Fatalf("BudgetBypassFor = %q, want %q", got, want)
 	}
 }
+
+// Past the wraparound warn limit the custodian's proposals are routed one
+// after another, each behind the previous table's VACUUM: the deadline a
+// scan computed must still be ahead when a later table reaches the gate,
+// so the override and the bypass still fire an hour after the scan.
+func TestPastWarnLimitDeadlineOutlivesTheScan(t *testing.T) {
+	scanned := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	assessment, err := freeze.EvaluateHorizon(scanned, freeze.HorizonSample{
+		Database: "orders", Schema: "public", Table: "events",
+		XIDAge: freeze.WraparoundWarnAge + 1, XIDMaxAge: 200_000_000, XIDsPerSecond: 50,
+		MultiXactAge: 5, MultiXactMaxAge: 400_000_000, MultiXactsPerSecond: 0.001,
+	}, freeze.BufferThresholds(25))
+	if err != nil {
+		t.Fatalf("EvaluateHorizon: %v", err)
+	}
+	deadline := &DeadlineContext{Kind: DeadlineXID, Urgency: UrgencyCritical,
+		HardAt: assessment.Deadline.HardAt}
+	gated := scanned.Add(time.Hour)
+	allowed := Document{DeadlineOverrides: map[DeadlineKind]bool{DeadlineXID: true}}
+	if !validDeadlineOverride(allowed, deadline, gated) {
+		t.Fatalf("override refused an hour after the scan; HardAt = %s", deadline.HardAt)
+	}
+	if got := BudgetBypassFor(freezeRequest(deadline), gated); !strings.HasPrefix(got,
+		"xid runway critical") {
+		t.Fatalf("BudgetBypassFor an hour after the scan = %q, want xid runway critical", got)
+	}
+}

@@ -67,18 +67,28 @@ const maxDeadlineSeconds = 100 * 365.25 * 24 * 60 * 60
 // horizon judges one counter. Urgency (and Distance) are relative to the
 // freeze maximum; the hard deadline is when the age reaches
 // WraparoundWarnAge at the rate. At or past that limit the server is
-// already warning: the deadline is one second ahead and the urgency red.
+// already warning: the urgency is red and the deadline is when the age
+// reaches WraparoundStopAge, so it stays ahead while the scan's other
+// proposals run first.
 func horizon(now time.Time, age, maximum int64, rate float64, thresholds Thresholds) Horizon {
 	distance := maximum - age
 	result := Horizon{Distance: distance, Urgency: urgency(distance, maximum, thresholds)}
-	warnDistance := WraparoundWarnAge - age
-	if warnDistance <= 0 {
-		result.HardAt, result.Urgency = now.Add(time.Second), UrgencyRed
-		return result
+	limit := int64(WraparoundWarnAge)
+	if age >= WraparoundWarnAge {
+		limit, result.Urgency = WraparoundStopAge, UrgencyRed
 	}
-	seconds := math.Min(math.Ceil(float64(warnDistance)/rate), maxDeadlineSeconds)
-	result.HardAt = now.Add(time.Duration(seconds) * time.Second)
+	result.HardAt = runwayDeadline(now, limit-age, rate)
 	return result
+}
+
+// runwayDeadline is when distance more IDs are consumed at rate, capped at
+// 100 years; with no distance left it is one second ahead.
+func runwayDeadline(now time.Time, distance int64, rate float64) time.Time {
+	if distance <= 0 {
+		return now.Add(time.Second)
+	}
+	seconds := math.Min(math.Ceil(float64(distance)/rate), maxDeadlineSeconds)
+	return now.Add(time.Duration(seconds) * time.Second)
 }
 
 func urgency(distance, maximum int64, thresholds Thresholds) Urgency {
