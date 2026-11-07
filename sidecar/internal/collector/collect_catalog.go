@@ -24,28 +24,3 @@ func (c *Collector) collectForeignKeys(ctx context.Context) ([]ForeignKey, error
 	}
 	return result, rows.Err()
 }
-
-func (c *Collector) collectLocks(ctx context.Context) ([]LockInfo, error) {
-	rows, err := c.catalogQuery(ctx, locksSQL)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []LockInfo
-	for rows.Next() {
-		var lk LockInfo
-		if err := rows.Scan(
-			&lk.LockType, &lk.Mode, &lk.Granted,
-			&lk.RelName,
-			&lk.Query, &lk.State,
-			&lk.WaitEventType, &lk.WaitEvent,
-			&lk.PID,
-			&lk.BackendStart, &lk.QueryStart,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, lk)
-	}
-	return result, rows.Err()
-}

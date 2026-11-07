@@ -54,27 +54,77 @@ var systemStatsSQL17 = systemStatsSQLBase + `
     FROM pg_stat_checkpointer) AS total_checkpoints,
   pg_is_in_recovery() AS is_replica`
 
-// locksSQL is scoped to the current database (G1-B17): relation locks
-// must belong to this database (pg_class OIDs are per-database, so a
-// foreign lock would resolve to the wrong relname), and database-less
-// locks (transactionid, virtualxid) only count for local backends.
-// pg_sage's own sessions' locks are left out (a lock without a session,
-// a prepared transaction's, stays).
+// locksSQL is the lock wait graph of the current database (collection-01),
+// bounded: pg_locks holds every lock of every session (thousands of
+// AccessShareLocks on a busy OLTP server, most of all in a lock storm),
+// and pg_blocking_pids takes every lock-manager partition lock, so it is
+// called for at most 200 waiters. The rows are
+//
+//   - waiting locks (oldest wait first, at most 200), each with the pids
+//     that block it, and
+//   - one session row per blocker, idle-in-transaction client session and
+//     the 5 client sessions holding back the xmin horizon most (age of
+//     backend_xmin or backend_xid): the session's own virtualxid lock, or
+//     locktype session for a blocker outside a transaction (a
+//     session-level advisory lock).
+//
+// Ordered oldest xmin holders, blockers, waiters, then the other
+// idle-in-transaction sessions, so a truncated graph keeps its roots;
+// LIMIT 201 detects truncation (collectLocks keeps 200). The scope is
+// G1-B17's: relation locks of this database (pg_class OIDs are
+// per-database) and database-less locks of local backends. pg_sage's own
+// sessions are left out (pid <> pg_backend_pid() and
+// ActivityExclusionSQL); a pid of theirs can still appear in blocked_by.
+// waitstart and query_id are PG 14+.
 var locksSQL = sageTag + `
-SELECT l.locktype, l.mode, l.granted,
-       c.relname,
-       a.query, a.state,
-       a.wait_event_type, a.wait_event,
-       l.pid,
-       a.backend_start, a.query_start
-  FROM pg_locks l
- CROSS JOIN (SELECT oid FROM pg_database WHERE datname = current_database()) d
-  LEFT JOIN pg_stat_activity a ON a.pid = l.pid
-  LEFT JOIN pg_class c ON c.oid = l.relation AND l.database = d.oid
- WHERE l.pid <> pg_backend_pid()
-   AND (l.database = d.oid OR (l.database IS NULL AND a.datid = d.oid))
-   AND ` + selfmonitor.ActivityExclusionSQL("a") + `
- ORDER BY l.granted, l.pid`
+WITH d AS (SELECT oid FROM pg_database WHERE datname = current_database()),
+act AS MATERIALIZED (
+  SELECT a.pid, a.query, a.state, a.wait_event_type, a.wait_event,
+         a.backend_start, a.query_start, a.xact_start, a.query_id,
+         a.backend_type = 'client backend' AS client,
+         GREATEST(age(a.backend_xmin), age(a.backend_xid))::bigint AS xmin_age
+    FROM pg_stat_activity a, d
+   WHERE a.datid = d.oid AND a.pid <> pg_backend_pid()
+     AND ` + selfmonitor.ActivityExclusionSQL("a") + `),
+lk AS MATERIALIZED (
+  SELECT l.locktype, l.mode, l.granted, l.relation, l.database, l.pid, l.waitstart
+    FROM pg_locks l
+   WHERE NOT l.granted OR (l.locktype = 'virtualxid' AND l.mode = 'ExclusiveLock')),
+waiting AS MATERIALIZED (
+  SELECT l.locktype, l.mode, l.relation, l.database, l.pid, l.waitstart
+    FROM lk l JOIN act a ON a.pid = l.pid, d
+   WHERE NOT l.granted AND (l.database = d.oid OR l.database IS NULL)
+   ORDER BY l.waitstart NULLS LAST, l.pid
+   LIMIT 200),
+waiters AS MATERIALIZED (
+  SELECT w.*, pg_blocking_pids(w.pid) AS blocked_by FROM waiting w),
+blockers AS (SELECT DISTINCT b.pid FROM waiters w, unnest(w.blocked_by) AS b(pid)),
+oldest AS (
+  SELECT pid FROM act WHERE client AND xmin_age IS NOT NULL
+   ORDER BY xmin_age DESC, pid LIMIT 5),
+graph AS (
+  SELECT w.locktype, w.mode, false AS granted, c.relname, w.pid, w.blocked_by,
+         w.waitstart
+    FROM waiters w
+    LEFT JOIN pg_class c ON c.oid = w.relation AND w.database = (SELECT oid FROM d)
+  UNION ALL
+  SELECT COALESCE(v.locktype, 'session'), COALESCE(v.mode, ''), true, NULL, a.pid,
+         NULL, NULL
+    FROM act a
+    LEFT JOIN lk v ON v.pid = a.pid AND v.granted
+   WHERE a.pid NOT IN (SELECT pid FROM waiting)
+     AND (a.pid IN (SELECT pid FROM blockers) OR a.pid IN (SELECT pid FROM oldest)
+          OR (a.client AND a.state LIKE 'idle in transaction%')))
+SELECT g.locktype, g.mode, g.granted, g.relname,
+       a.query, a.state, a.wait_event_type, a.wait_event, g.pid,
+       a.backend_start, a.query_start, a.xact_start, a.xmin_age, g.blocked_by,
+       a.query_id
+  FROM graph g JOIN act a ON a.pid = g.pid
+ ORDER BY CASE WHEN g.pid IN (SELECT pid FROM oldest) THEN 0
+               WHEN g.pid IN (SELECT pid FROM blockers) THEN 1
+               WHEN NOT g.granted THEN 2 ELSE 3 END,
+          a.xmin_age DESC NULLS LAST, g.waitstart NULLS LAST, g.pid
+ LIMIT 201`
 
 // loadRatioSQL is the server's active client sessions over
 // max_connections (the circuit breaker protects the server, so it is

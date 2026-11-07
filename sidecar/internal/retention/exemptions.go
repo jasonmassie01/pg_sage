@@ -38,6 +38,7 @@ var coreExemptions = map[string]string{
 	"config":             "current configuration, not a time-series",
 	"config_audit":       "security audit trail of configuration changes",
 	"crypto_meta":        "key metadata, not a time-series",
+	"data_cleanup":       "one row per one-shot cleanup of pg_sage's own data",
 	"databases":          "fleet registry, not a time-series",
 	"first_look": "bounded by its writer: firstlook.Store.Save keeps the newest 10 " +
 		"reports per database",

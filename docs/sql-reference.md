@@ -30,6 +30,22 @@ SELECT collected_at, sage.snapshot_data(data, base_id) AS data
  LIMIT 1;
 ```
 
+The `locks` category is the lock wait graph of the database, stored in full every cycle
+and bounded at 200 elements (oldest xmin holders, then blockers, then waiters, then other
+idle-in-transaction sessions). Each element is either a waiting lock, with `blocked_by`
+(`pg_blocking_pids`, at most 200 waiters are asked), or a session row for a blocker, an
+idle-in-transaction session or one of the 5 sessions holding back the xmin horizon most
+(`locktype` `virtualxid`, or `session` for a blocker holding a session-level lock outside a
+transaction). Elements carry `xact_start`, `backend_xmin_age` (age of the older of
+`backend_xmin` and `backend_xid`) and `query_id` (NULL with `compute_query_id = off`). The
+`query` text has its string and dollar-quoted literals replaced by `'?'` and `$?$` and is cut
+to 256 bytes; numeric literals are kept. pg_sage's own sessions are left out. Locks rows
+written by versions before 2.5.1 (every lock of every session, raw statement text) are
+deleted once at startup in batches of up to 10,000 (a batch cut by its `statement_timeout`
+is retried at a tenth of its size), under `lock_timeout`, within a 5 s budget that never runs
+past half of the startup deadline; the rest resumes on the next start. `sage.data_cleanup`
+records the cleanup.
+
 ---
 
 ### `sage.findings`

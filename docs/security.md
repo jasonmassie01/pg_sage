@@ -146,7 +146,7 @@ What is sent to the LLM:
 | Aggregate metrics | `mean_exec_time=450ms, calls=12000, n_dead_tup=50000` |
 | Finding summaries | `Unused index: idx_orders_legacy (0 scans in 30d)` |
 
-What is **never** sent: row data, column values, passwords, connection strings, API keys, PII. Query text from `pg_stat_statements` contains parameterized placeholders (`$1`, `$2`), not literal values.
+What is **never** sent: row data, column values, passwords, connection strings, API keys, PII. Query text from `pg_stat_statements` contains parameterized placeholders (`$1`, `$2`), not literal values. Live session text pg_sage stores (the `locks` snapshot, served by `/api/v1/snapshots/latest?metric=locks`) has its string and dollar-quoted literals redacted before it is written and is cut to 256 bytes.
 
 ---
 

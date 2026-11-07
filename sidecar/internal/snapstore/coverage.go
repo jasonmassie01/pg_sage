@@ -6,8 +6,9 @@ package snapstore
 var fullCategories = map[string]string{
 	"system": "one small object whose every member moves each cycle, read raw " +
 		"(not through snapshot_data) by the forecaster and the verifier",
-	"locks": "volatile rows with no stable identity (a pid is not unique); usually " +
-		"empty or tiny",
+	"locks": "volatile rows with no stable identity (a pid is not unique); a wait " +
+		"graph bounded at 200 rows with redacted statement text, empty without waiters " +
+		"or open transactions",
 	"replication": "a few replicas and slots whose LSNs move every cycle; a delta " +
 		"would carry almost the whole document",
 }
