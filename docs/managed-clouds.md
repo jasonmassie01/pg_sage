@@ -93,6 +93,26 @@ part before it builds one:
 - A proposal with any blocker cannot be approved on the Actions page (the button says why); it
   can still be rejected. Open proposals get rebuilt commands on the worker's next cycle.
 
+### Proposal identity, outages and rejections
+
+A proposal is identified by its provider, parameter and value. The parameter group or
+instance it targets is refreshed on every cycle but is not part of its identity, so an
+approval, its note and a rejection all survive a change of target and a failed lookup:
+
+- When looking up the instance fails (a throttled `DescribeDBInstances`, an expired token),
+  open proposals keep the target last resolved, with a note naming the error and when that
+  target was resolved. If nothing was resolved since pg_sage started, a new proposal carries
+  placeholders, but a stored proposal with a real command is never overwritten with
+  placeholders. No proposal is superseded in a cycle whose lookup failed, and drift is not
+  reported from a stale target.
+- A rejected change is not proposed again for 7 days, whatever the target lookup returns.
+- A proposal is superseded when its finding is gone or a newer value for the same parameter
+  is proposed.
+
+Upgrading from v2.5.1 or earlier recomputes the stored identities once; open proposals keep
+their ids, status and decisions. Duplicates left by earlier outages (the same change open
+twice under different targets) collapse to one, keeping the approved one, else the newest.
+
 ## Identity and credentials
 
 The resource is named by the connection host: an RDS instance endpoint, an Aurora cluster
