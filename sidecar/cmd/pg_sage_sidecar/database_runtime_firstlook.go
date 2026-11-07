@@ -278,8 +278,10 @@ func (f *firstLookRun) proposeFacts(ctx context.Context, props []facts.Proposal)
 }
 
 // summarize asks the model for a summary; the findings stand without it.
+// The summarizer decides whether there is anything to summarize (findings or
+// checks that could not run); an empty summary is not saved.
 func (f *firstLookRun) summarize(ctx context.Context, report firstlook.Report) {
-	if f.summarizer == nil || len(report.Items) == 0 {
+	if f.summarizer == nil {
 		return
 	}
 	sctx, cancel := context.WithTimeout(ctx, firstLookSummaryTimeout)
@@ -287,6 +289,9 @@ func (f *firstLookRun) summarize(ctx context.Context, report firstlook.Report) {
 	summary, err := f.summarizer.Summarize(sctx, report)
 	if err != nil {
 		f.logf("WARN", "first look of %q: model summary skipped: %v", f.name, err)
+		return
+	}
+	if summary == "" {
 		return
 	}
 	if err := firstlook.NewStore(f.pool).SetSummary(ctx, report.ID, summary,
