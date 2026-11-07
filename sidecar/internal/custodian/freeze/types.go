@@ -24,6 +24,16 @@ type DeadlineKind string
 
 const DeadlineXID DeadlineKind = "xid"
 
+// WraparoundWarnAge is the XID (and multixact) age at which PostgreSQL
+// starts warning: 2^31 - 1 - 40,000,000. It is the hard deadline of a
+// freeze horizon (urgency stays relative to the freeze maximum).
+const WraparoundWarnAge = 2147483647 - 40000000
+
+// WraparoundStopAge is the age at which the server stops assigning XIDs
+// (and multixacts): 2^31 - 1 - 3,000,000 (PostgreSQL 14+). It is the hard
+// deadline of a horizon already past WraparoundWarnAge.
+const WraparoundStopAge = 2147483647 - 3000000
+
 type Intent string
 
 const IntentVacuumFreeze Intent = "vacuum_freeze"

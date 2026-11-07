@@ -166,6 +166,7 @@ type AnalyzerConfig struct {
 	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Minimum bloat percentage (0-100) an index must exhibit before it becomes a REINDEX candidate."`
 	TableBloatDeadTuplePct       int     `yaml:"table_bloat_dead_tuple_pct" doc:"Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding."`
 	TableBloatMinRows            int     `yaml:"table_bloat_min_rows" doc:"Minimum row count before a table is considered for bloat analysis. Tiny tables are noisy and not worth reporting."`
+	TableBloatMinBytes           int64   `yaml:"table_bloat_min_bytes" doc:"Minimum heap size in bytes before the freeze custodian plans an online bloat rebuild from the catalog bloat estimate. 0 uses the default. Default: 1073741824 (1 GiB)."`
 	AutovacuumTuneMinRows        int     `yaml:"autovacuum_tune_min_rows" doc:"Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000."`
 	AnalyzeStaleMinRows          int     `yaml:"analyze_stale_min_rows" doc:"Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000."`
 	AnalyzeStaleDays             int     `yaml:"analyze_stale_days" doc:"A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7."`
@@ -707,6 +708,9 @@ func (c *Config) validate() error {
 	if err := c.Analyzer.validateSchemaGuard(); err != nil {
 		return err
 	}
+	if err := c.Analyzer.validateTableBloat(); err != nil {
+		return err
+	}
 	if err := c.RCA.validate(); err != nil {
 		return err
 	}
@@ -851,6 +855,7 @@ func newDefaults() *Config {
 			IndexBloatThresholdPct:       DefaultIndexBloatThresholdPct,
 			TableBloatDeadTuplePct:       DefaultTableBloatDeadTuplePct,
 			TableBloatMinRows:            DefaultTableBloatMinRows,
+			TableBloatMinBytes:           DefaultTableBloatMinBytes,
 			AutovacuumTuneMinRows:        DefaultAutovacuumTuneMinRows,
 			AnalyzeStaleMinRows:          DefaultAnalyzeStaleMinRows,
 			AnalyzeStaleDays:             DefaultAnalyzeStaleDays,

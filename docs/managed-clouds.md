@@ -48,6 +48,39 @@ marks it applied once PostgreSQL runs the new value. A default parameter group (
 cannot be modified, and a Cloud SQL `--database-flags` command replaces the whole flag list:
 the proposal says so and carries the current flags.
 
+## Maintenance privileges (VACUUM and autovacuum settings)
+
+On managed services pg_sage usually connects as a role that does not own the application's
+tables. PostgreSQL then skips a `VACUUM` with only a WARNING, and refuses `ALTER TABLE ... SET`.
+Before either action pg_sage reads the catalog once and withholds the action when the role
+cannot run it. The decision is recorded as `blocked` with reason `capability_missing`, and its
+evidence (`maintenance_privilege.detail`) names the grant that fixes it:
+
+| Action | Allowed for |
+|---|---|
+| `VACUUM` (`vacuum_table`) | the table owner (or a member of the owning role), a superuser, or the database owner; on PostgreSQL 17+ also `MAINTAIN` on the table or membership of `pg_maintain` |
+| `ALTER TABLE ... SET (autovacuum_*)` (`set_table_autovacuum`) | the table owner or a superuser only (`MAINTAIN` does not cover `ALTER TABLE`) |
+
+On PostgreSQL 17 and later, grant pg_sage's role one of these:
+
+```sql
+GRANT MAINTAIN ON TABLE app.orders TO sage_agent;  -- one table
+GRANT pg_maintain TO sage_agent;                  -- every table in the database
+```
+
+PostgreSQL 14 to 16 have no `MAINTAIN` privilege: VACUUM needs ownership, the database owner or
+a superuser. Providers grant `pg_maintain` differently (for example through their admin role);
+pg_sage checks membership, so any route that makes the role a member counts. Autovacuum
+settings always need the owner: run them as the owner, or leave them as proposals.
+
+A failed privilege read withholds the action with reason `capability_unverified`; it never runs
+unchecked. A statement naming more than one table (or none, as a database-wide `VACUUM`) is
+withheld with `capability_missing`, because only one table can be checked: run one statement
+per table.
+If a VACUUM still returns without running (its `vacuum_count` did not advance and
+the role lacks the privilege), the action is recorded as `failed` with "VACUUM skipped (no
+privilege)", not as a neutral result.
+
 ## Identity and credentials
 
 The resource is named by the connection host: an RDS instance endpoint, an Aurora cluster

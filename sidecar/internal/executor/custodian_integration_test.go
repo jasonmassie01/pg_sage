@@ -55,7 +55,9 @@ func TestCustodianSyntheticActionExecutesAndTriggersSchemaGuard(t *testing.T) {
 	if findingID != nil {
 		t.Fatalf("synthetic finding_id = %v, want NULL", *findingID)
 	}
-	if criterionKind != "custodian_autovacuum" || verdict != "success" {
+	// vacuum-07: the literal 0.02 post-check is gone; a custodian ALTER
+	// TABLE gets the schema target post-check.
+	if criterionKind != "custodian_schema" || verdict != "success" {
 		t.Fatalf("custodian verification = %q/%q", criterionKind, verdict)
 	}
 }

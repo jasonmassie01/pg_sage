@@ -31,20 +31,16 @@ SELECT n.nspname, c.relname, c.relpages, c.reltuples::bigint,
   LEFT JOIN pg_stat_user_tables s
     ON s.schemaname = n.nspname AND s.relname = c.relname
   CROSS JOIN LATERAL (
-      SELECT GREATEST(1, ceil(
-          c.reltuples * COALESCE(
-              (SELECT avg(avg_width) FROM pg_stats
-                WHERE schemaname = n.nspname AND tablename = c.relname),
-              24) / current_setting('block_size')::int
-      ))::bigint AS expected_pages
+      SELECT %s::bigint AS expected_pages
   ) ep
  WHERE c.relkind = 'r'
    AND n.nspname NOT IN (%s)
    AND c.reltuples >= $1
    AND c.relpages > 0
+   AND ep.expected_pages > 0
    AND ((c.relpages - ep.expected_pages)::float / c.relpages) > 0.3
  ORDER BY bloat_pct DESC
- LIMIT 200`, excludeList)
+ LIMIT 200`, catalogread.HeapExpectedPagesSQL("c", "n"), excludeList)
 
 	rows, err := db.Query(ctx, query, opts.MinTableRows)
 	if err != nil {

@@ -101,6 +101,9 @@ type TableStats struct {
 	// whose age PostgreSQL reports as 2147483647.
 	XIDAge  int64 `json:"xid_age"`
 	MXIDAge int64 `json:"mxid_age"`
+	// Reloptions is pg_class.reloptions ("name=value" storage parameters,
+	// nil when none are set), read with the stats on every cycle.
+	Reloptions []string `json:"reloptions"`
 }
 
 // IsUnlogged returns true if the table has relpersistence = 'u'.

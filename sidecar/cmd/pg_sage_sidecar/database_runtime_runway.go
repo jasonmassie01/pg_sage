@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/autonomy"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/runway"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -20,7 +21,8 @@ import (
 func newFreezeCustodian(pool *pgxpool.Pool, cfg *config.Config,
 	database string) *autonomy.PostgresFreezeCustodian {
 	return autonomy.NewPostgresFreezeCustodian(pool, database,
-		cfg.Custodian.Freeze.RedBufferPct)
+		cfg.Custodian.Freeze.RedBufferPct).
+		WithBloatBounds(cfg.Analyzer.BloatPlanMinBytes(), catalogread.FromSafety(cfg.Safety))
 }
 
 // newWALCustodian is the database's WAL custodian. Drop stays disabled

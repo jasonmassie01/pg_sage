@@ -111,6 +111,9 @@ SELECT attname::text FROM pg_attribute
 // TOAST table's age(relfrozenxid); xid_age and mxid_age skip a zero
 // (non-normal) XID, whose age() is 2147483647, and are -1 when unknown:
 // a partitioned parent has no storage, so both of its horizons are 0.
+// reloptions rides on the same page: the deterministic rules need each
+// table's own storage parameters whether or not the advisor's
+// configuration snapshot runs (rules-02).
 const tableStatsSQL = sageTag + `
 SELECT n.nspname, c.relname,
        pg_stat_get_numscans(c.oid), pg_stat_get_tuples_returned(c.oid),
@@ -133,7 +136,7 @@ SELECT n.nspname, c.relname,
          -1)::int8 AS xid_age,
        COALESCE(CASE WHEN c.relminmxid <> '0'::xid THEN mxid_age(c.relminmxid) END,
          -1)::int8 AS mxid_age,
-       c.oid
+       c.reloptions, c.oid
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_class t ON t.oid = c.reltoastrelid

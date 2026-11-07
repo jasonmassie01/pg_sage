@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -31,9 +32,8 @@ const (
 )
 
 // WraparoundWarnAge is the XID (and multixact) age at which PostgreSQL
-// starts warning: 2^31 - 1 - 40,000,000. It is the runway's limit; the
-// server stops assigning XIDs 3,000,000 before 2^31.
-const WraparoundWarnAge = 2147483647 - 40000000
+// starts warning (freeze.WraparoundWarnAge). It is the runway's limit.
+const WraparoundWarnAge = freeze.WraparoundWarnAge
 
 // Overdue freezing (product defaults): a table this far past its
 // effective freeze maximum should have been frozen by anti-wraparound

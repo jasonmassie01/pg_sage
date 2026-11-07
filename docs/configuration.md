@@ -297,6 +297,7 @@ briefing:
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
+| `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
 | `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
 | `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
@@ -732,6 +733,52 @@ overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 
+#### Freeze custodian: what holds the xmin horizon
+
+A table is red when its remaining XID runway is under
+`custodian.freeze.red_buffer_pct` (default 25%) of `autovacuum_freeze_max_age`.
+Urgency is measured against that freeze maximum; the hard deadline is not. The
+hard deadline is when the table's XID (or multixact) age reaches the server's
+wraparound warn limit, 2^31 - 1 - 40,000,000, at the measured consumption rate
+(capped at 100 years), so a table past `autovacuum_freeze_max_age` still has a
+deadline ahead and the xid deadline override and the budget bypass apply to it.
+A table at or past the warn limit is red, and its deadline is when its age
+reaches the server's stop limit, 2^31 - 1 - 3,000,000 (where PostgreSQL stops
+assigning XIDs), so the deadline stays ahead while the scan's earlier proposals
+run; at or past the stop limit it is one second ahead. The
+deadline is the earlier of the XID and multixact ones; the policy kind is always
+`xid` (the `deadline_overrides` key), and the decision evidence names the
+counter that set it (`deadline_threat`: `xid` or `multixact`) and the server's
+`vacuum_failsafe_age` (PostgreSQL 14+, when the server reports it). Until two
+scans have measured the rate, the custodian claims no deadline.
+Each scan reads the database's xmin-horizon holders once (at most 20, oldest
+first): client sessions by snapshot (`backend_xmin`) or by XID (`backend_xid`,
+so an idle-in-transaction writer is found), standbys' `hot_standby_feedback`,
+prepared transactions (named by the md5 of their gid), and replication slots
+by `xmin`, or by `catalog_xmin` for catalog tables (`user_catalog_table`) only.
+A backend running a lazy `VACUUM` is not a holder: it shows a `backend_xmin`,
+but that snapshot holds back no horizon.
+
+- A holder pins a red table when its age is at least half the table's XID age.
+  A younger holder is ignored and the table is frozen.
+- A pinned table is still frozen while the holder is younger than 0.9 of its
+  age: `VACUUM (FREEZE)` advances `relfrozenxid` up to the holder's horizon. At
+  0.9 or more, freezing cannot lower the urgency and no `VACUUM` runs.
+- Each pinning holder gets one `freeze_blocker` proposal per scan, listing every
+  table it pins. A client session is canceled (terminated when idle in a
+  transaction); like every backend signal, it always waits for an operator's
+  approval. Sessions of `pg_dump`, `pg_basebackup`, `pg_restore` and pg_sage are
+  never signalled.
+- A prepared transaction, a slot, a standby's feedback or a protected session
+  becomes a parked escalation plan at risk tier `high` (`diagnose_freeze_blockers`).
+  It names the holder. pg_sage never runs `ROLLBACK PREPARED` and never drops a slot.
+- A blocker counts as cleared once its PID is gone, its backend was restarted,
+  or it holds neither a snapshot nor an XID.
+
+Managed providers may hide slot detail. A holder whose age is unknown pins nothing,
+so it is never read as proof that no holder exists. There is no configuration
+for this logic.
+
 The standing policy document also carries three safety fields, all enforced:
 
 - `refusal_set`: actions pg_sage never runs on its own. A refused action is
@@ -824,7 +871,8 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
 - **Emergency mitigations bypass the kind budgets.** A wraparound `VACUUM`
   while the XID runway is critical, a space-freeing `VACUUM`, unused-index
   drop or `REINDEX` while the disk runway is critical (urgency critical with
-  the hard deadline still ahead, as the custodian computed it), and the
+  the hard deadline still ahead; for XID it is the wraparound warn limit, see
+  the freeze custodian above), and the
   revert or rollback of a change pg_sage made itself are never parked by a
   kind budget and are charged to none (`evidence.budget_kind = bypass`).
   They are recorded with the reason `budget bypass: <why>` and still pass
@@ -1291,7 +1339,9 @@ and the standing policy stay the outer bound: the ledger can only restrict them.
 **Carried-over autonomy.** The ledger gates new autonomy and keeps what pg_sage already
 had. When a database's ledger is first set up, four pairs are seeded at the level that
 database's trust and execution settings already let run unattended:
-- the custodian freeze and autovacuum tuning (`wraparound_runway`);
+- the custodian freeze and autovacuum tuning (`wraparound_runway`). The freeze custodian no
+  longer tunes autovacuum, so no action uses the autovacuum tuning pair today: the analyzer's
+  `autovacuum_tuning` finding is self-initiated and earns trust in the `tuning` family;
 - the WAL bound (`wal_retention`);
 - load-admitted index creation (`plan_regression`).
 

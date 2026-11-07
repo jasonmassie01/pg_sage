@@ -25,8 +25,10 @@ func TestCustodianRequestCarriesTheIncidentFamily(t *testing.T) {
 	observed := time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC)
 	cases := map[string]string{
 		"freeze": "wraparound_runway", "freeze_blocker": "wraparound_runway",
-		"autovacuum_tuning": "wraparound_runway", "wal": "wal_retention",
-		"schema_guard": "", "fk_index": "",
+		"wal": "wal_retention", "schema_guard": "", "fk_index": "",
+		// vacuum-07: the custodian no longer tunes autovacuum; the
+		// analyzer's tuning is self-initiated (trust family tuning).
+		"autovacuum_tuning": "",
 	}
 	for feature, family := range cases {
 		req := custodianRequest(CustodianProposal{Feature: feature,

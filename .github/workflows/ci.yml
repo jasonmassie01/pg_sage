@@ -468,6 +468,23 @@ jobs:
           version: v2.11.4
           args: --timeout 5m
 
+  # vacuum-03: float-to-Duration overflow differs by architecture (amd64
+  # wraps to MinInt64, arm64 saturates), so the freeze deadline and the
+  # policy checks that consume it also run on arm64. Unit tests only.
+  test-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Freeze deadline and policy tests (arm64)
+        working-directory: sidecar
+        run: go test -count=1 ./internal/custodian/freeze/... ./internal/policy/...
+
   # Roadmap 1.1: sign this commit's PGIncidentBench reports keyless
   # (Sigstore, GitHub OIDC; no key to keep) for the image and the release.
   # Verified twice before anything ships them: by cosign and by pg_sage's

@@ -106,7 +106,8 @@ func legacyTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[str
 			&ts.NTupHotUpd, &ts.NLiveTup, &ts.NDeadTup, &ts.LastVacuum,
 			&ts.LastAutovacuum, &ts.LastAnalyze, &ts.LastAutoanalyze, &ts.VacuumCount,
 			&ts.AutovacuumCount, &ts.AnalyzeCount, &ts.AutoanalyzeCount, &ts.TotalBytes,
-			&ts.TableBytes, &ts.IndexBytes, &ts.Relpersistence, &ts.XIDAge, &relid); err != nil {
+			&ts.TableBytes, &ts.IndexBytes, &ts.Relpersistence, &ts.XIDAge, &ts.Reloptions,
+			&relid); err != nil {
 			t.Fatalf("legacy tables scan: %v", err)
 		}
 		out[ts.SchemaName+"."+ts.RelName] = ts

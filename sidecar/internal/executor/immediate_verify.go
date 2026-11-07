@@ -27,11 +27,15 @@ func (e *Executor) verifyImmediate(ctx context.Context, actionID int64) {
 	if actionID <= 0 || e.pool == nil {
 		return
 	}
-	o, table, err := loadImmediate(ctx, e.pool, actionID)
+	o, state, err := loadImmediate(ctx, e.pool, actionID)
 	if err != nil {
 		e.logFn("verify", "verify action %d: %v", actionID, err)
 		return
 	}
+	if e.settleSkippedVacuum(ctx, o, state) {
+		return
+	}
+	table := state.Table
 	switch {
 	case o.Class != verify.ClassVacuum && o.Class != verify.ClassAnalyze:
 		o.Verdict = verify.OutcomeUnverifiable
@@ -52,9 +56,18 @@ func (e *Executor) verifyImmediate(ctx context.Context, actionID int64) {
 	settleOutcome(ctx, e.pool, o, e.logFn)
 }
 
+// immediateState is what an immediately verified action's before_state
+// carries: its prediction, the table it maintains and, for a VACUUM, the
+// table's vacuum_count before it ran.
+type immediateState struct {
+	Predicted   *verify.Prediction `json:"predicted_effect"`
+	Table       string             `json:"maintenance_table"`
+	VacuumCount *float64           `json:"vacuum_count_before"`
+}
+
 func loadImmediate(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64,
-) (verify.Outcome, string, error) {
+) (verify.Outcome, immediateState, error) {
 	var sql string
 	var raw []byte
 	var executedAt time.Time
@@ -62,14 +75,11 @@ func loadImmediate(
 		COALESCE(before_state, '{}'::jsonb) FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&sql, &executedAt, &raw)
 	if err != nil {
-		return verify.Outcome{}, "", fmt.Errorf("load action: %w", err)
+		return verify.Outcome{}, immediateState{}, fmt.Errorf("load action: %w", err)
 	}
-	var state struct {
-		Predicted *verify.Prediction `json:"predicted_effect"`
-		Table     string             `json:"maintenance_table"`
-	}
+	var state immediateState
 	if err := json.Unmarshal(raw, &state); err != nil {
-		return verify.Outcome{}, "", fmt.Errorf("decode before_state: %w", err)
+		return verify.Outcome{}, immediateState{}, fmt.Errorf("decode before_state: %w", err)
 	}
 	class := verificationClass(sql)
 	o := verify.Outcome{ActionLogID: actionID, Class: class, WindowStart: &executedAt,
@@ -77,7 +87,7 @@ func loadImmediate(
 	if state.Predicted != nil {
 		o.Predicted = *state.Predicted
 	}
-	return o, state.Table, nil
+	return o, state, nil
 }
 
 // settledMaintenanceMetric reads the metric after the action, waiting up
@@ -111,6 +121,8 @@ var maintenanceMetricSQL = map[string]string{
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
 	verify.MetricFrozenXIDAge: `/* pg_sage */ SELECT age(relfrozenxid)::float8
 		FROM pg_class WHERE oid = to_regclass($1)`,
+	metricVacuumCount: `/* pg_sage */ SELECT COALESCE(vacuum_count, 0)::float8
+		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
 }
 
 // readMaintenanceMetric reads a table's dead tuples (VACUUM), rows

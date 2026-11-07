@@ -233,6 +233,28 @@ VACUUM (VERBOSE) public.events;
 
 ---
 
+### autovacuum_tuning
+
+Recommends a per-table `autovacuum_vacuum_scale_factor` for large, write-heavy tables.
+
+**Severity:** warning (SAFE-tier action)
+
+**What it detects:** Tables with at least `analyzer.autovacuum_tune_min_rows` live rows (default 1,000,000) whose lifetime updates plus deletes exceed their live rows. The target scale factor is 0.05, 0.02 from 10M rows, and 0.01 from 50M rows.
+
+**Respects per-table tuning:** The rule reads each table's own `pg_class.reloptions`, collected with the table statistics every cycle, so it works the same with or without an LLM. It never recommends a value above an explicit per-table setting: a table already at or below the target is left alone, including after pg_sage applies its own setting. A table with `autovacuum_enabled = false`, or with reloptions the rule cannot parse, is skipped.
+
+**Recommended action:**
+
+```sql
+ALTER TABLE public.events SET (autovacuum_vacuum_scale_factor = 0.05);
+```
+
+The rollback is `RESET (autovacuum_vacuum_scale_factor)`, or `SET` back to the table's explicit prior value, as stored (`0.10` stays `0.10`), when it had one.
+
+This rule is pg_sage's only autovacuum tuner. The freeze custodian does not tune autovacuum: a table nearing its freeze maximum (amber) gets no custodian action, and a red one is frozen.
+
+---
+
 ### xid_wraparound
 
 Detects tables approaching XID wraparound threshold.
