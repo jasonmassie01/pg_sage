@@ -18,28 +18,8 @@ func TestInFlightParallelApplyAndStop(t *testing.T) {
 	e := inflightExecutor()
 	const runs = 20
 	var executed atomic.Int32
-	type result struct {
-		blocking bool
-		err      error
-	}
-	results := make(chan result, runs)
 	var wg sync.WaitGroup
-	for i := 0; i < runs; i++ {
-		blocking := i%2 == 0
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			intent := blockingIntent(newFakeStatement(), int64(100+i), &executed)
-			if !blocking {
-				intent.Execute = func(context.Context, ActionPolicyDecision) (int64, error) {
-					executed.Add(1)
-					return int64(100 + i), nil
-				}
-			}
-			_, err := e.Apply(context.Background(), intent)
-			results <- result{blocking: blocking, err: err}
-		}()
-	}
+	results := startParallelRuns(e, runs, &executed, &wg)
 	waitWatched(t, e, runs/4)
 	ids, err := e.CancelInFlight("emergency stop")
 	if err != nil {
@@ -71,6 +51,36 @@ func TestInFlightParallelApplyAndStop(t *testing.T) {
 		late.Load() != 0 {
 		t.Fatalf("Apply after stop: err=%v executed=%d, want refused", err, late.Load())
 	}
+}
+
+type parallelResult struct {
+	blocking bool
+	err      error
+}
+
+// startParallelRuns starts n Apply calls: even ones block in a statement
+// until a stop cancels it, odd ones finish on their own.
+func startParallelRuns(
+	e *Executor, n int, executed *atomic.Int32, wg *sync.WaitGroup,
+) chan parallelResult {
+	results := make(chan parallelResult, n)
+	for i := 0; i < n; i++ {
+		blocking := i%2 == 0
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			intent := blockingIntent(newFakeStatement(), int64(100+i), executed)
+			if !blocking {
+				intent.Execute = func(context.Context, ActionPolicyDecision) (int64, error) {
+					executed.Add(1)
+					return int64(100 + i), nil
+				}
+			}
+			_, err := e.Apply(context.Background(), intent)
+			results <- parallelResult{blocking: blocking, err: err}
+		}()
+	}
+	return results
 }
 
 func waitDone(t *testing.T, wg *sync.WaitGroup) {

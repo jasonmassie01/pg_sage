@@ -256,21 +256,11 @@ func withheldRollback(
 func executeRollbackSQL(
 	ctx context.Context, pool *pgxpool.Pool, rollbackSQL string, cfg RollbackMonitorConfig,
 ) (string, error) {
-	if cfg.Track != nil {
-		tracked, done, err := cfg.Track(ctx, rollbackSQL)
-		if err != nil {
-			return "", err
-		}
-		defer done()
-		ctx = tracked
+	ctx, release, err := cfg.enterRollback(ctx, rollbackSQL)
+	if err != nil {
+		return "", err
 	}
-	if cfg.Acquire != nil {
-		release, err := cfg.Acquire(ctx)
-		if err != nil {
-			return "", err
-		}
-		defer release()
-	}
+	defer release()
 	sql := concurrentIndexRollbackSQL(rollbackSQL)
 	timeout := cfg.StatementTimeout
 	if timeout <= 0 {
@@ -304,6 +294,30 @@ func executeRollbackSQL(
 		reason += "; " + note
 	}
 	return reason, nil
+}
+
+// enterRollback registers the rollback as in-flight work the emergency stop
+// cancels, then takes the shared DDL slot; release undoes both.
+func (c RollbackMonitorConfig) enterRollback(
+	ctx context.Context, rollbackSQL string,
+) (context.Context, func(), error) {
+	done := func() {}
+	if c.Track != nil {
+		tracked, untrack, err := c.Track(ctx, rollbackSQL)
+		if err != nil {
+			return ctx, nil, err
+		}
+		ctx, done = tracked, untrack
+	}
+	if c.Acquire == nil {
+		return ctx, done, nil
+	}
+	releaseSlot, err := c.Acquire(ctx)
+	if err != nil {
+		done()
+		return ctx, nil, err
+	}
+	return ctx, func() { releaseSlot(); done() }, nil
 }
 
 func (c RollbackMonitorConfig) exec(

@@ -297,3 +297,108 @@ func TestCancelInFlightReportsFailedCancelPerRun(t *testing.T) {
 	_ = broken.CancelRequest(context.Background()) // let the goroutine exit
 	<-done
 }
+
+// pausedIntent blocks in Execute, between statements, until finish closes,
+// then reports a successful row id.
+func pausedIntent(inExecute, finish chan struct{}, id int64) ActionIntent {
+	return ActionIntent{
+		Authorize: allowExecute, SlotHeld: true,
+		Execute: func(context.Context, ActionPolicyDecision) (int64, error) {
+			close(inExecute)
+			<-finish
+			return id, nil
+		},
+	}
+}
+
+// Boundary: a run the stop finds between statements that then finishes on
+// its own recorded a successful row; listing it as cancelled would tell the
+// operator a change that happened did not.
+func TestCancelInFlightDoesNotListRunThatFinishedOnItsOwn(t *testing.T) {
+	e := inflightExecutor()
+	inExecute, finish := make(chan struct{}), make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := e.Apply(context.Background(), pausedIntent(inExecute, finish, 42))
+		errCh <- err
+	}()
+	<-inExecute
+	time.AfterFunc(100*time.Millisecond, func() { close(finish) })
+	ids, err := e.CancelInFlight("emergency stop")
+	if err != nil || len(ids) != 0 {
+		t.Fatalf("CancelInFlight = (%v, %v), want no cancelled ids and no error", ids, err)
+	}
+	if applyErr := <-errCh; applyErr != nil {
+		t.Fatalf("Apply = %v, want the run's own success", applyErr)
+	}
+}
+
+// Error propagation: a run still busy before its first statement is named
+// in the failure even though it has no statement or label yet.
+func TestCancelInFlightNamesRunWithoutStatement(t *testing.T) {
+	e := inflightExecutor()
+	e.inflight.wait = 100 * time.Millisecond
+	inExecute, finish := make(chan struct{}), make(chan struct{})
+	defer close(finish)
+	go func() { _, _ = e.Apply(context.Background(), pausedIntent(inExecute, finish, 1)) }()
+	<-inExecute
+	ids, err := e.CancelInFlight("emergency stop")
+	var failed *InFlightCancelError
+	if !errors.As(err, &failed) || len(failed.Failures) != 1 || len(ids) != 0 {
+		t.Fatalf("CancelInFlight = (%v, %v), want one failure and no ids", ids, err)
+	}
+	if got := failed.Failures[0].Label; got != "action (no statement started yet)" {
+		t.Fatalf("failure label = %q, want the placeholder for an unnamed run", got)
+	}
+}
+
+// droppedCancel is a running statement whose first cancel request reaches
+// the backend between two statements, where PostgreSQL drops it; only a
+// repeated cancel ends it.
+type droppedCancel struct {
+	calls     atomic.Int32
+	cancelled chan struct{}
+	once      sync.Once
+}
+
+func (d *droppedCancel) CancelRequest(context.Context) error {
+	if d.calls.Add(1) > 1 {
+		d.once.Do(func() { close(d.cancelled) })
+	}
+	return nil
+}
+
+// Boundary: a cancel PostgreSQL dropped is sent again, so the statement
+// still ends within the stop's wait and its row is listed as cancelled.
+func TestCancelInFlightResendsDroppedCancel(t *testing.T) {
+	e := inflightExecutor()
+	stmt := &droppedCancel{cancelled: make(chan struct{})}
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := e.Apply(context.Background(), ActionIntent{
+			Authorize: allowExecute, SlotHeld: true,
+			Execute: func(ctx context.Context, _ ActionPolicyDecision) (int64, error) {
+				unwatch, err := watchStatement(ctx, stmt, "VACUUM public.orders")
+				if err != nil {
+					return 0, err
+				}
+				defer unwatch()
+				<-stmt.cancelled
+				return 31, stoppedStatement(ctx, "VACUUM public.orders",
+					errors.New("canceling statement due to user request (SQLSTATE 57014)"))
+			},
+		})
+		errCh <- err
+	}()
+	waitWatched(t, e, 1)
+	ids, err := e.CancelInFlight("emergency stop")
+	if err != nil || len(ids) != 1 || ids[0] != 31 {
+		t.Fatalf("CancelInFlight = (%v, %v), want [31] after a repeated cancel", ids, err)
+	}
+	if n := stmt.calls.Load(); n < 2 {
+		t.Fatalf("cancel requests = %d, want the dropped one resent", n)
+	}
+	if applyErr := <-errCh; !errors.Is(applyErr, ErrEmergencyStop) {
+		t.Fatalf("Apply = %v, want ErrEmergencyStop", applyErr)
+	}
+}

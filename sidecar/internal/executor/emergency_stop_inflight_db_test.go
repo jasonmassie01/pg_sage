@@ -62,6 +62,18 @@ func cicSessions(t *testing.T, ctx context.Context, pool *pgxpool.Pool, waiting 
 	return n
 }
 
+func createStopCICTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS public.`+stopCICTable+`;
+		CREATE TABLE public.`+stopCICTable+` (id int);
+		INSERT INTO public.`+stopCICTable+` SELECT generate_series(1, 1000)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS public.`+stopCICTable)
+	})
+}
+
 // cicIntent runs a CIC finding through Apply on the finding path's own
 // statement runner and action recorder.
 func cicIntent(e *Executor, f analyzer.Finding) ActionIntent {
@@ -80,14 +92,7 @@ func cicIntent(e *Executor, f analyzer.Finding) ActionIntent {
 // no pg_sage DDL session is left running.
 func TestEmergencyStopCancelsRunningCICOnPostgres(t *testing.T) {
 	pool, ctx := requireDB(t)
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS public.`+stopCICTable+`;
-		CREATE TABLE public.`+stopCICTable+` (id int);
-		INSERT INTO public.`+stopCICTable+` SELECT generate_series(1, 1000)`); err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS public.`+stopCICTable)
-	})
+	createStopCICTable(t, ctx, pool)
 	holdOldSnapshot(t, ctx, pool)
 	e := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	f := analyzer.Finding{Category: "missing_index", Title: "executor-06 stop CIC",

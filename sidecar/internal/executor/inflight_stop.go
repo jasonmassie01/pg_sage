@@ -12,6 +12,12 @@ import (
 // record their outcome, so the stop itself answers within two seconds.
 const defaultInFlightWait = 1500 * time.Millisecond
 
+// recancelInterval paces the stop's repeated cancel requests. PostgreSQL
+// drops a cancel that reaches a backend between two statements (after the
+// session's SET, before the DDL), so a statement still watched afterwards
+// gets the cancel again.
+const recancelInterval = 200 * time.Millisecond
+
 // StoppedError is a statement an emergency stop refused to start or
 // cancelled while it ran. pg_sage runs no DDL during a stop, so a cancelled
 // CREATE INDEX CONCURRENTLY names the INVALID index it may leave and the
@@ -90,7 +96,8 @@ func (e *InFlightCancelError) Unwrap() []error {
 // the executor, so no run starts until SetExecutorEnabled(true), cancels the
 // statement every Apply run and rollback is executing, and waits briefly
 // for them to record their outcome. It returns the action_log ids the
-// cancelled runs recorded (rows end failed with reason "emergency stop") and
+// cancelled runs recorded (rows end failed with reason "emergency stop"; a
+// run that finished on its own while the stop waited is not listed) and
 // an *InFlightCancelError naming each run whose cancel failed or which was
 // still running. Operator-approved runs are cancelled too: a stop halts
 // everything.
@@ -101,12 +108,14 @@ func (e *Executor) CancelInFlight(reason string) ([]int64, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
-	stopped := e.inflight.stopAll(ctx, emergencyStopCause(reason))
+	cause := emergencyStopCause(reason)
+	stopped := e.inflight.stopAll(ctx, cause)
+	recancelUntilEnded(ctx, cause, stopped)
 	ids := []int64{}
 	var failures []InFlightFailure
 	for run, cancelErr := range stopped {
 		if runEnded(ctx, run) {
-			if id := run.result(); id > 0 {
+			if id := run.cancelledID(); id > 0 {
 				ids = append(ids, id)
 			}
 		} else {
@@ -122,6 +131,37 @@ func (e *Executor) CancelInFlight(reason string) ([]int64, error) {
 		return ids, &InFlightCancelError{Failures: failures}
 	}
 	return ids, nil
+}
+
+// recancelUntilEnded resends the cancel requests of the runs that have not
+// ended until they all have or ctx is done. Only statements a run is still
+// executing are watched, and a stopped run starts no new one, so a repeated
+// cancel never reaches unrelated work. The first attempt's errors are the
+// ones reported.
+func recancelUntilEnded(ctx context.Context, cause error, runs map[*inflightRun]error) {
+	ticker := time.NewTicker(recancelInterval)
+	defer ticker.Stop()
+	for {
+		var pending []*inflightRun
+		for run := range runs {
+			select {
+			case <-run.done:
+			default:
+				pending = append(pending, run)
+			}
+		}
+		if len(pending) == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		for _, run := range pending {
+			_ = run.stop(ctx, cause)
+		}
+	}
 }
 
 // runEnded waits for run to end until ctx is done; a run that ended by

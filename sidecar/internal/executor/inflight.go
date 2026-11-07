@@ -31,6 +31,7 @@ type inflightRun struct {
 	cause    error // set once by the stop
 	stmts    map[statementCanceler]struct{}
 	running  string // the statement last started, for the stop's report
+	halted   bool   // the stop refused or failed one of its statements
 	actionID int64
 	ended    bool
 }
@@ -172,7 +173,34 @@ func (run *inflightRun) describe() string {
 	if run.running != "" {
 		return run.running
 	}
-	return run.label
+	if run.label != "" {
+		return run.label
+	}
+	return "action (no statement started yet)"
+}
+
+// halt marks a stopped run as halted by the stop: one of its statements
+// failed after the stop's cancel. It returns the stop's cause, nil when the
+// run was not stopped.
+func (run *inflightRun) halt() error {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.cause != nil {
+		run.halted = true
+	}
+	return run.cause
+}
+
+// cancelledID is the action_log id the run recorded when the stop halted
+// it; a run that finished on its own during the stop has none.
+func (run *inflightRun) cancelledID() int64 {
+	run.mu.Lock()
+	halted := run.halted
+	run.mu.Unlock()
+	if !halted {
+		return 0
+	}
+	return run.result()
 }
 
 func (run *inflightRun) result() int64 {
@@ -199,6 +227,7 @@ func watchStatement(
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	if run.cause != nil {
+		run.halted = true
 		return nil, &StoppedError{Cause: run.cause}
 	}
 	run.stmts[conn] = struct{}{}
@@ -227,7 +256,7 @@ func stoppedStatement(ctx context.Context, sql string, err error) error {
 	if run == nil {
 		return err
 	}
-	if cause := run.stopCause(); cause != nil {
+	if cause := run.halt(); cause != nil {
 		return &StoppedError{Cause: cause, SQL: sql, Err: err}
 	}
 	return err
