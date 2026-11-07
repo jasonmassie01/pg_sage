@@ -14,7 +14,7 @@ would not have done anyway.
 | Type | Subject | What it means | What pg_sage does |
 |---|---|---|---|
 | `owned_by_app_migrations` | index, table or schema | The application's schema migrations create and change it | Never creates, drops or alters it. The change becomes a **source-fix packet**: the migration pg_sage recommends, attached to the finding, for you or a coding agent to put in a PR. |
-| `test_fixture` | schema pattern | Schemas left by test runs, not workload | Removes them from findings and from the budgets, takes no action on them by itself, and offers one **cleanup batch** (a reviewed script you run once). pg_sage never drops schemas itself. |
+| `test_fixture` | schema pattern | Schemas left by test runs, not workload | Removes them from findings and from the budgets, takes no action on them by itself, and offers one **cleanup batch** (a reviewed script you run; see [The cleanup batch](#the-cleanup-batch)). pg_sage never drops schemas itself. A family pattern such as `test_*` also covers schemas created after you confirm it; the batch re-checks each schema's activity and locks before dropping it. |
 | `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting. |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
@@ -121,6 +121,32 @@ slot-touching action fails closed (`facts_unavailable`). Other fact types stay w
 own database. Databases monitored by separate sidecar processes do not see each other's
 facts: confirm the slot fact on each of them, or monitor the cluster's databases from one
 process.
+
+## The cleanup batch
+
+Each confirmed `test_fixture` fact with matching schemas gets one `test_fixture_cleanup`
+finding whose `cleanup_sql` drops at most 500 schemas (a comment says how many more follow
+in the next batch). Run it with `psql` in autocommit mode, as the owner of the schemas (on
+managed providers too), against the database the finding names:
+
+```
+psql "$DATABASE_URL" -f cleanup.sql
+```
+
+Never wrap it in `BEGIN` or run it with `psql -1`: each schema is dropped by its own `DO`
+block in its own transaction, so a few hundred schemas never exhaust the shared lock table
+(`max_locks_per_transaction`). The script sets `lock_timeout = '5s'`, and each block first
+re-reads the schema's activity (scans and row writes over its tables, the same counters the
+fixture detector reads) and checks `pg_locks`. A schema is skipped with a `NOTICE` when its
+activity differs from the baseline taken when the batch was built (it was used, or the
+statistics were reset), when another session holds a lock on one of its relations, or when
+the drop waits past the lock timeout. A failing block does not stop the next one (psql's
+default `ON_ERROR_STOP` is off). Skipped schemas come back in a later batch once they are
+quiet again.
+
+Building a batch costs one bounded, read-only catalog aggregate per analyzer cycle while a
+fixture fact has matching schemas; nothing is stored. If that read fails, the batch is
+withheld for the cycle (logged) and the earlier batch stays open.
 
 ## Expiry and re-verification
 

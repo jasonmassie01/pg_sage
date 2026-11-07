@@ -51,9 +51,11 @@ func (rt *databaseRuntime) factBinder() *facts.Binder {
 	return newClusterFactBinder(rt.spec.Pool, rt.facts, processFactClusters, rt.factCluster)
 }
 
-// factFilter applies the confirmed facts to the analyzer's cycles.
+// factFilter applies the confirmed facts to the analyzer's cycles; its
+// cleanup batches embed activity baselines read from the database.
 func (rt *databaseRuntime) factFilter() *facts.FindingFilter {
-	return facts.NewFindingFilter(rt.facts, logStructuredWrapper)
+	return facts.NewFindingFilter(rt.facts, logStructuredWrapper).
+		WithActivity(facts.NewActivityReader(rt.spec.Pool))
 }
 
 // startFacts runs the database's facts worker on the instance worker group.

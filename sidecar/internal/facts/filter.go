@@ -2,24 +2,13 @@ package facts
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 )
-
-// CategoryTestFixtureCleanup is one confirmed test-fixture fact's cleanup
-// batch: the matching schemas and the script that drops them, for an
-// operator to review and run once. pg_sage never drops a schema itself.
-const CategoryTestFixtureCleanup = "test_fixture_cleanup"
-
-// maxCleanupSchemas bounds one cleanup batch.
-const maxCleanupSchemas = 500
 
 // FilterSnapshot removes the tables and indexes of schemas a confirmed
 // test-fixture fact covers from snap, so no rule, model or budget spends
@@ -89,10 +78,10 @@ func matchesAny(patterns []Pattern, schema string) bool {
 // ApplyFindings applies the confirmed facts to a cycle's findings: findings
 // on test fixtures are dropped, executable changes a fact binds are
 // redirected (their SQL becomes a source-fix packet), and each test-fixture
-// fact with matching schemas (excluded) gets one cleanup finding. It
-// returns the categories it evaluated.
+// fact with matching schemas (excluded) that have a baseline in activity
+// gets one cleanup finding. It returns the categories it evaluated.
 func ApplyFindings(facts []Fact, findings []analyzer.Finding, excluded []string,
-	now time.Time) ([]analyzer.Finding, []string) {
+	activity map[string]int64, now time.Time) ([]analyzer.Finding, []string) {
 	patterns := fixturePatterns(facts, now)
 	out := make([]analyzer.Finding, 0, len(findings)+len(patterns))
 	for _, f := range findings {
@@ -105,7 +94,7 @@ func ApplyFindings(facts []Fact, findings []analyzer.Finding, excluded []string,
 		if fact.Type != TypeTestFixture || !fact.binds(now) {
 			continue
 		}
-		if c, ok := cleanupFinding(fact, excluded); ok {
+		if c, ok := cleanupFinding(fact, excluded, activity, now); ok {
 			out = append(out, c)
 		}
 	}
@@ -170,66 +159,30 @@ func withTableHint(refs []ObjectRef, f analyzer.Finding) []ObjectRef {
 	return refs
 }
 
-func cleanupFinding(fact Fact, excluded []string) (analyzer.Finding, bool) {
-	p, err := ParsePattern(fact.Kind, fact.Subject)
-	if err != nil {
-		return analyzer.Finding{}, false
-	}
-	var schemas []string
-	for _, s := range excluded {
-		if globMatch(p.Schema, s) {
-			schemas = append(schemas, s)
-		}
-	}
-	if len(schemas) == 0 {
-		return analyzer.Finding{}, false
-	}
-	return analyzer.Finding{
-		Category: CategoryTestFixtureCleanup, Severity: "info", ObjectType: "schema",
-		ObjectIdentifier: fact.Subject,
-		Title: fmt.Sprintf("%d test-fixture schemas match %s (fact #%d): cleanup batch "+
-			"ready", len(schemas), fact.Subject, fact.ID),
-		Detail: map[string]any{"fact_id": fact.ID, "pattern": fact.Subject,
-			"schemas": schemas, "schema_count": len(schemas),
-			"cleanup_sql": cleanupSQL(schemas), "provenance": fact.Provenance()},
-		Recommendation: "These schemas are confirmed test fixtures (" + fact.Provenance() +
-			"): pg_sage excludes them from findings and budgets. Review the batch and " +
-			"run it once to drop them; pg_sage never drops schemas itself.",
-	}, true
-}
-
-// cleanupSQL is one transaction dropping the schemas (at most
-// maxCleanupSchemas; the rest wait for the next batch).
-func cleanupSQL(schemas []string) string {
-	var b strings.Builder
-	b.WriteString("BEGIN;\n")
-	for i, s := range schemas {
-		if i == maxCleanupSchemas {
-			fmt.Fprintf(&b, "-- %d more schemas follow in the next batch\n",
-				len(schemas)-maxCleanupSchemas)
-			break
-		}
-		fmt.Fprintf(&b, "DROP SCHEMA IF EXISTS %s CASCADE;\n", pgx.Identifier{s}.Sanitize())
-	}
-	b.WriteString("COMMIT;\n")
-	return b.String()
-}
-
 // FindingFilter applies a database's confirmed facts to the analyzer
 // (analyzer.FactFilter).
 type FindingFilter struct {
-	source ConfirmedSource
-	logFn  func(string, string, ...any)
-	now    func() time.Time
+	source   ConfirmedSource
+	activity ActivityReader
+	logFn    func(string, string, ...any)
+	now      func() time.Time
 }
 
 // NewFindingFilter filters with the facts from source; logFn may be nil.
+// Without WithActivity it offers no cleanup batch.
 func NewFindingFilter(source ConfirmedSource, logFn func(string, string, ...any),
 ) *FindingFilter {
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
 	}
 	return &FindingFilter{source: source, logFn: logFn, now: time.Now}
+}
+
+// WithActivity reads the fixture schemas' activity baselines a cleanup
+// batch embeds (read only while a fixture fact has matching schemas).
+func (f *FindingFilter) WithActivity(r ActivityReader) *FindingFilter {
+	f.activity = r
+	return f
 }
 
 // ExcludeSnapshot removes confirmed test fixtures from every snapshot and
@@ -254,7 +207,9 @@ func (f *FindingFilter) ExcludeSnapshot(ctx context.Context,
 
 // ApplyFindings applies the confirmed facts to the findings. Without facts
 // the findings pass unchanged and nothing is evaluated (so no earlier
-// cleanup finding resolves on a read error).
+// cleanup finding resolves on a read error). Without activity baselines
+// there is no cleanup batch: on a read error the earlier batch stays open
+// (its blocks re-check every schema), with no reader it resolves.
 func (f *FindingFilter) ApplyFindings(ctx context.Context, findings []analyzer.Finding,
 	excluded []string) ([]analyzer.Finding, []string) {
 	facts, err := f.source.Confirmed(ctx)
@@ -262,5 +217,31 @@ func (f *FindingFilter) ApplyFindings(ctx context.Context, findings []analyzer.F
 		f.logFn("WARN", "facts: findings left unfiltered: %v", err)
 		return findings, nil
 	}
-	return ApplyFindings(facts, findings, excluded, f.now())
+	activity, ok := f.baselines(ctx, excluded)
+	out, evaluated := ApplyFindings(facts, findings, excluded, activity, f.now())
+	if !ok {
+		evaluated = nil
+	}
+	return out, evaluated
+}
+
+// baselines reads the excluded schemas' activity; ok is false on a read
+// error.
+func (f *FindingFilter) baselines(ctx context.Context, excluded []string) (map[string]int64,
+	bool) {
+	if len(excluded) == 0 {
+		return nil, true
+	}
+	if f.activity == nil {
+		f.logFn("WARN", "facts: no schema activity reader; cleanup batch withheld for "+
+			"%d test-fixture schemas", len(excluded))
+		return nil, true
+	}
+	activity, err := f.activity.SchemaActivity(ctx, excluded)
+	if err != nil {
+		f.logFn("WARN", "facts: cleanup batch withheld this cycle (%d test-fixture "+
+			"schemas): %v", len(excluded), err)
+		return nil, false
+	}
+	return activity, true
 }
