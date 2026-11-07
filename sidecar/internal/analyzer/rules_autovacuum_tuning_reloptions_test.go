@@ -112,7 +112,9 @@ func TestRuleAutovacuumTuning_RollbackRestoresExplicitSetting(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("findings = %d, want 1", len(got))
 	}
-	want := `ALTER TABLE "public"."events" SET (autovacuum_vacuum_scale_factor = 0.1);`
+	// vacuum-07: the stored text is restored verbatim (0.10, not 0.1), so
+	// pg_class.reloptions after the rollback equals the array before.
+	want := `ALTER TABLE "public"."events" SET (autovacuum_vacuum_scale_factor = 0.10);`
 	if got[0].RollbackSQL != want {
 		t.Errorf("RollbackSQL = %q, want %q", got[0].RollbackSQL, want)
 	}

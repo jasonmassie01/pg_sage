@@ -249,7 +249,9 @@ Recommends a per-table `autovacuum_vacuum_scale_factor` for large, write-heavy t
 ALTER TABLE public.events SET (autovacuum_vacuum_scale_factor = 0.05);
 ```
 
-The rollback is `RESET (autovacuum_vacuum_scale_factor)`, or `SET` back to the table's explicit prior value when it had one.
+The rollback is `RESET (autovacuum_vacuum_scale_factor)`, or `SET` back to the table's explicit prior value, as stored (`0.10` stays `0.10`), when it had one.
+
+This rule is pg_sage's only autovacuum tuner. The freeze custodian does not tune autovacuum: a table nearing its freeze maximum (amber) gets no custodian action, and a red one is frozen.
 
 ---
 

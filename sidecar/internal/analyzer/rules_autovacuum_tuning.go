@@ -3,6 +3,7 @@ package analyzer
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -84,7 +85,7 @@ func autovacuumTuningFinding(
 	if opts.hasScaleFactor {
 		detail["current_scale_factor"] = opts.scaleFactor
 		rollback = fmt.Sprintf("ALTER TABLE %s SET (autovacuum_vacuum_scale_factor = %s);",
-			q, strconv.FormatFloat(opts.scaleFactor, 'f', -1, 64))
+			q, autovacuumReloptionLiteral(opts.scaleFactorText))
 	}
 	return Finding{
 		Category:         "autovacuum_tuning",
@@ -124,10 +125,27 @@ func targetScaleFactor(liveRows int64) float64 {
 }
 
 // autovacuumOptions is what the rule needs from a table's reloptions.
+// scaleFactorText is the stored value without surrounding whitespace, so
+// a rollback restores the DBA's text ("0.10", not "0.1").
 type autovacuumOptions struct {
-	scaleFactor    float64
-	hasScaleFactor bool
-	disabled       bool
+	scaleFactor     float64
+	scaleFactorText string
+	hasScaleFactor  bool
+	disabled        bool
+}
+
+// plainDecimal is a numeric literal PostgreSQL's lexer keeps as written
+// when it becomes a reloption (an integer or float constant, no sign).
+var plainDecimal = regexp.MustCompile(`^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$`)
+
+// autovacuumReloptionLiteral renders a stored scale factor for ALTER TABLE
+// SET: bare when it is a plain decimal, otherwise as a string literal,
+// which PostgreSQL stores verbatim after validating it.
+func autovacuumReloptionLiteral(value string) string {
+	if plainDecimal.MatchString(value) {
+		return value
+	}
+	return sanitize.QuoteLiteral(value)
 }
 
 // parseAutovacuumOptions reads pg_class.reloptions entries such as
@@ -144,11 +162,12 @@ func parseAutovacuumOptions(reloptions []string) (autovacuumOptions, bool) {
 		}
 		switch name {
 		case "autovacuum_vacuum_scale_factor":
-			sf, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+			text := strings.TrimSpace(value)
+			sf, err := strconv.ParseFloat(text, 64)
 			if err != nil || math.IsNaN(sf) || math.IsInf(sf, 0) || sf < 0 {
 				return autovacuumOptions{}, false
 			}
-			out.scaleFactor, out.hasScaleFactor = sf, true
+			out.scaleFactor, out.scaleFactorText, out.hasScaleFactor = sf, text, true
 		case "autovacuum_enabled":
 			enabled, valid := parsePGBool(value)
 			if !valid {
