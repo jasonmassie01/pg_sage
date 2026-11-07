@@ -36,6 +36,7 @@ type hintRollbackFixture struct {
 func newHintRollbackFixture(t *testing.T) *hintRollbackFixture {
 	t.Helper()
 	pool, ctx := requireDB(t)
+	requireQueryIDHintLayout(t, pool)
 	for _, s := range []string{
 		`CREATE SCHEMA IF NOT EXISTS hint_plan`,
 		`CREATE TABLE IF NOT EXISTS hint_plan.hints (id serial PRIMARY KEY,
@@ -61,6 +62,26 @@ func newHintRollbackFixture(t *testing.T) *hintRollbackFixture {
 			fmt.Sprintf("%%SELECT %d, ''%%", fx.qid))
 	})
 	return fx
+}
+
+// requireQueryIDHintLayout skips on a server whose installed pg_hint_plan
+// predates 1.7 (PG14-16): its hint_plan.hints keys hints by
+// norm_query_string, the tuner treats that table as not ready, and so no
+// hint action, legacy or current, can exist there to roll back.
+func requireQueryIDHintLayout(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var exists, hasQueryID bool
+	err := pool.QueryRow(context.Background(), `SELECT
+		to_regclass('hint_plan.hints') IS NOT NULL,
+		EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+			WHERE attrelid = to_regclass('hint_plan.hints')
+			  AND attname = 'query_id' AND NOT attisdropped)`).Scan(&exists, &hasQueryID)
+	if err != nil {
+		t.Fatalf("inspect hint_plan.hints: %v", err)
+	}
+	if exists && !hasQueryID {
+		t.Skip("pg_hint_plan < 1.7: hint_plan.hints has no query_id column")
+	}
 }
 
 func (fx *hintRollbackFixture) install(t *testing.T, hint string) {
