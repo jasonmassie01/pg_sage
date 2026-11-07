@@ -397,3 +397,51 @@ func TestVerifyImmediatePrivilegedUnreportedVacuumNotFailed(t *testing.T) {
 		t.Fatalf("outcome = %+v, want neutral (dead tuples did not move)", got)
 	}
 }
+
+// Review: a statement naming several tables is withheld even for a
+// superuser (only one table can be checked), and a quoted name holding a
+// space is checked whole, so a non-owner is refused rather than let through
+// as "not found".
+func TestApplyPrecheckReadsTheWholeTarget(t *testing.T) {
+	admin, ctx := requireDB(t)
+	first := vpTable(t, ctx, admin, "vp_multi_a")
+	second := vpTable(t, ctx, admin, "vp_multi_b")
+	e := New(admin, config.DefaultConfig(), time.Time{}, nopLog)
+	executed, err := vpApply(ctx, e, "VACUUM "+first+", "+second,
+		vpDecision(t, ctx, admin, first))
+	var withheld *WithheldError
+	if executed || !errors.As(err, &withheld) ||
+		withheld.Decision.BlockedReason != reasonCapabilityMissing {
+		t.Fatalf("two tables: executed=%v err=%v, want withheld", executed, err)
+	}
+	if _, err := admin.Exec(ctx, `DROP TABLE IF EXISTS public."vp spaced"; `+
+		`CREATE TABLE public."vp spaced" (a int)`); err != nil {
+		t.Fatalf("create spaced table: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), `DROP TABLE IF EXISTS public."vp spaced"`)
+	})
+	spaced := `"public"."vp spaced"`
+	pool, role := grantsRoleNamed(t, testDSN(), vpRoleName("spaced"))
+	vpGrantSage(t, ctx, admin, role)
+	executed, err = vpApply(ctx, New(pool, config.DefaultConfig(), time.Time{}, nopLog),
+		"VACUUM "+spaced, vpDecision(t, ctx, admin, "public.vp spaced"))
+	if executed || !errors.As(err, &withheld) ||
+		withheld.Decision.BlockedReason != reasonCapabilityMissing {
+		t.Fatalf("spaced name: executed=%v err=%v, want withheld", executed, err)
+	}
+	ownerPassesPrecheck(t, ctx, e, spaced)
+}
+
+// ownerPassesPrecheck runs VACUUM table through Apply as e's role (the
+// owner): with no standing gate the re-authorization refuses it, which
+// proves the precheck before it admitted the statement.
+func ownerPassesPrecheck(t *testing.T, ctx context.Context, e *Executor, table string) {
+	t.Helper()
+	_, err := vpApply(ctx, e, "VACUUM "+table, 0)
+	var withheld *WithheldError
+	if !errors.As(err, &withheld) || !withheld.Reauthorized ||
+		withheld.Decision.BlockedReason == reasonCapabilityMissing {
+		t.Fatalf("owner VACUUM %s = %v, want admitted by the precheck", table, err)
+	}
+}

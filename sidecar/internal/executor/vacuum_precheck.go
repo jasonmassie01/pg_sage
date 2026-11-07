@@ -63,8 +63,9 @@ func readMaintenancePrivilege(
 ) (maintenancePrivilege, error) {
 	table = strings.TrimSpace(table)
 	if table == "" {
-		return maintenancePrivilege{Detail: "the statement names no table whose " +
-			"maintenance privilege can be checked"}, nil
+		return maintenancePrivilege{Detail: "the statement must name exactly one " +
+			"table for its maintenance privilege to be checked: run one statement " +
+			"per table"}, nil
 	}
 	var p maintenancePrivilege
 	var owner, super, dbOwner bool
@@ -119,14 +120,6 @@ func maintenanceActionType(sql string) string {
 	switch actionType := actionTypeForProposalSQL(sql); actionType {
 	case "vacuum_table", "set_table_autovacuum":
 		return actionType
-	}
-	return ""
-}
-
-// maintenanceTable is the one table a prechecked statement names.
-func maintenanceTable(sql string) string {
-	if targets := operatorLeaseTargets(sql); len(targets) == 1 {
-		return targets[0]
 	}
 	return ""
 }

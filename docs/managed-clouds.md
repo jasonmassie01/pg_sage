@@ -74,7 +74,10 @@ pg_sage checks membership, so any route that makes the role a member counts. Aut
 settings always need the owner: run them as the owner, or leave them as proposals.
 
 A failed privilege read withholds the action with reason `capability_unverified`; it never runs
-unchecked. If a VACUUM still returns without running (its `vacuum_count` did not advance and
+unchecked. A statement naming more than one table (or none, as a database-wide `VACUUM`) is
+withheld with `capability_missing`, because only one table can be checked: run one statement
+per table.
+If a VACUUM still returns without running (its `vacuum_count` did not advance and
 the role lacks the privilege), the action is recorded as `failed` with "VACUUM skipped (no
 privilege)", not as a neutral result.
 
