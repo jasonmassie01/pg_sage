@@ -138,11 +138,15 @@ type autovacuumOptions struct {
 // when it becomes a reloption (an integer or float constant, no sign).
 var plainDecimal = regexp.MustCompile(`^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$`)
 
+// zeroPaddedInteger is an integer constant PostgreSQL would store without
+// its leading zeros (a bare 007 becomes "7"), so it must stay quoted.
+var zeroPaddedInteger = regexp.MustCompile(`^0[0-9]+$`)
+
 // autovacuumReloptionLiteral renders a stored scale factor for ALTER TABLE
 // SET: bare when it is a plain decimal, otherwise as a string literal,
 // which PostgreSQL stores verbatim after validating it.
 func autovacuumReloptionLiteral(value string) string {
-	if plainDecimal.MatchString(value) {
+	if plainDecimal.MatchString(value) && !zeroPaddedInteger.MatchString(value) {
 		return value
 	}
 	return sanitize.QuoteLiteral(value)

@@ -75,7 +75,7 @@ func TestAutovacuumReloptionLiteralBoundaries(t *testing.T) {
 	cases := map[string]string{
 		"0": "0", "0.": "0.", "00.010": "00.010", "1E+2": "1E+2",
 		"+0.1": "'+0.1'", "1e": "'1e'", "Infinity": "'Infinity'", "1_0": "'1_0'",
-		"it's": "'it''s'",
+		"it's": "'it''s'", "10": "10", "007": "'007'", "007.5": "007.5", "00e1": "00e1",
 	}
 	for value, want := range cases {
 		if got := autovacuumReloptionLiteral(value); got != want {
@@ -102,10 +102,12 @@ func TestAutovacuumRollbackRestoresReloptionsOnRealPostgres(t *testing.T) {
 		  WITH (autovacuum_vacuum_scale_factor = ' 0.10 ');
 		CREATE TABLE vacuum07_rb.hexed (id int)
 		  WITH (autovacuum_vacuum_scale_factor = '0x1p-1');
+		CREATE TABLE vacuum07_rb.padded (id int)
+		  WITH (autovacuum_vacuum_scale_factor = '007');
 		CREATE TABLE vacuum07_rb.bare (id int)`); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
-	for _, table := range []string{"tuned", "untuned", "spaced", "hexed", "bare"} {
+	for _, table := range []string{"tuned", "untuned", "spaced", "hexed", "padded", "bare"} {
 		before := readReloptions(t, ctx, pool, table)
 		stats := avChurning(before)
 		stats.SchemaName, stats.RelName = "vacuum07_rb", table
