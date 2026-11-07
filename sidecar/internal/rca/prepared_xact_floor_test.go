@@ -130,3 +130,20 @@ func TestDetectOrphanedPreparedTx_AgeFloor(t *testing.T) {
 		}
 	}
 }
+
+// Invalid input: a GID with a backslash is quoted so that it reads the
+// same with standard_conforming_strings off (an escape string), and a
+// quote after the backslash cannot end the literal.
+func TestPreparedXact_BackslashGIDIsAnEscapeString(t *testing.T) {
+	gid := `x\'; DROP TABLE orders; --`
+	snap := holderSnapshot([]probes.XminHolder{preparedHolder(gid, 70000, 2*time.Hour)})
+	snap.PreparedXacts = []collector.PreparedTransaction{preparedXact(gid, 70000, 2*time.Hour)}
+	inc := newTestEngine().treeVacuumBlocked(holderSignal(), snap, testVacuumRules())
+	want := `ROLLBACK PREPARED E'x\\''; DROP TABLE orders; --';`
+	if inc.RecommendedSQL != want {
+		t.Fatalf("sql = %q, want %q", inc.RecommendedSQL, want)
+	}
+	if got := gidLiteral("plain'gid"); got != "'plain''gid'" || strings.HasPrefix(got, "E") {
+		t.Fatalf("gidLiteral(plain'gid) = %q, want a standard literal", got)
+	}
+}

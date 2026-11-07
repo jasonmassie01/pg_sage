@@ -159,8 +159,18 @@ func preparedIncident(sig *Signal, curr *collector.Snapshot,
 		holderLink("Prepared transaction holds xmin indefinitely -- invisible to "+
 			"pg_stat_activity", fmt.Sprintf("gid=%q owner=%s prepared=%s xid_age=%d",
 			p.GID, p.Owner, p.Prepared.Format("2006-01-02 15:04:05"), age), b),
-		blockedTables(sig), "ROLLBACK PREPARED "+sanitize.QuoteLiteral(p.GID)+";",
-		"high_risk")
+		blockedTables(sig), "ROLLBACK PREPARED "+gidLiteral(p.GID)+";", "high_risk")
+}
+
+// gidLiteral quotes a prepared transaction's GID as a string literal. A
+// GID with a backslash becomes an escape string with the backslashes
+// doubled (as quote_literal does), so the literal reads the same, and a
+// quote cannot end it, whatever standard_conforming_strings is.
+func gidLiteral(gid string) string {
+	if !strings.Contains(gid, `\`) {
+		return sanitize.QuoteLiteral(gid)
+	}
+	return "E" + sanitize.QuoteLiteral(strings.ReplaceAll(gid, `\`, `\\`))
 }
 
 // standbyHolderIncident names a standby's hot_standby_feedback through its
