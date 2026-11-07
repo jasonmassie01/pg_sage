@@ -482,8 +482,11 @@ func TestTreeVacuumBlocked_Branch2_NotBranch1(t *testing.T) {
 		t.Errorf("Should have hit Branch 1 (idle-in-tx), not Branch 2. "+
 			"RootCause = %q", inc.RootCause)
 	}
-	if !strings.Contains(inc.RootCause, "Idle-in-transaction") {
-		t.Errorf("Expected Branch 1 root cause mentioning idle-in-transaction, "+
+	// rca-01 review: "Idle-in-transaction PID" is the text Cases offers a
+	// terminate for, kept for a holder the tree would terminate. This one
+	// has no idle time (no state_change), so it is named by its state.
+	if !strings.Contains(inc.RootCause, "PID 9999 (idle in transaction)") {
+		t.Errorf("Expected Branch 1 root cause naming idle-in-transaction PID 9999, "+
 			"got %q", inc.RootCause)
 	}
 }
