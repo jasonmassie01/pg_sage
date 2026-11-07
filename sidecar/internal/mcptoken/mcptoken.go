@@ -53,7 +53,7 @@ var (
 	ErrInvalid         = errors.New("mcptoken: invalid token request")
 	ErrApproveForAgent = errors.New("mcptoken: approve scope is only for operator tokens")
 	ErrOwnerRequired   = errors.New(
-		"mcptoken: an operator token needs an operator or admin owner")
+		"mcptoken: an operator token needs an enabled operator or admin owner")
 	// ErrPrincipalRequired: from G1 an agent token is minted for an agent
 	// principal (POST /api/v1/agents/{id}/tokens), never on its own.
 	ErrPrincipalRequired = errors.New(
