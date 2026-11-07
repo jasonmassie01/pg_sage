@@ -12,9 +12,10 @@ import (
 // TableContext builds the context of one table ("schema.table", quoted
 // where needed) from the snapshot: its workload statements, indexes,
 // write activity and partitions, plus bounded single-table catalog reads
-// (columns, statistics of the queried columns, collation) and the plans of
-// its own statements. ok is false when the snapshot does not hold the
-// table or the table belongs to a system or pg_sage schema.
+// (columns, statistics of the queried columns, collation). It runs no
+// EXPLAIN: the HypoPG what-if plans statements, bounded, when a candidate
+// is measured. ok is false when the snapshot does not hold the table or
+// the table belongs to a system or pg_sage schema.
 func (o *Optimizer) TableContext(
 	ctx context.Context, snap *collector.Snapshot, table string,
 ) (TableContext, bool, error) {
@@ -35,7 +36,6 @@ func (o *Optimizer) TableContext(
 	}
 	tc := baseContext(snap, ts, queries, isParent)
 	o.readCatalog(ctx, &tc, queries)
-	tc.Plans, tc.PlanSource = o.capturePlans(ctx, snap, queries)
 	tc.Queries = GroupByFingerprint(tc.Queries)
 	tc.JoinPairs = DetectJoinPairs(tc.Queries)
 	return tc, true, nil
@@ -55,7 +55,6 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 		Queries:        queries,
 		Relpersistence: ts.Relpersistence,
 		IsPartitioned:  isParent,
-		PlanSource:     "none",
 	}
 	if isParent {
 		tc.PartitionChildren, tc.NestedPartitions = partitionChildren(snap,
@@ -68,8 +67,9 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 	return tc
 }
 
-// readCatalog adds the table's columns, column statistics and the
-// database collation; without a database the context keeps none.
+// readCatalog adds the table's columns, their key defaults, column
+// statistics and the database collation; without a database the context
+// keeps none.
 func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries []QueryInfo) {
 	if o.pool == nil {
 		return
@@ -81,30 +81,13 @@ func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries [
 	}
 	tc.Collation = collation
 	tc.Columns = fetchColumns(ctx, reader, tc.Schema, tc.Table)
+	defaults, err := fetchKeyDefaults(ctx, reader, tc.Schema, tc.Table)
+	if err != nil {
+		o.logFn("optimizer", "%v; explicit default opclasses and collations will not "+
+			"match omitted ones", err)
+	}
+	tc.KeyDefaults = defaults
 	tc.ColStats = fetchColStats(ctx, reader, tc.Schema, tc.Table, queries)
-}
-
-// capturePlans captures plans for the table's own statements only.
-func (o *Optimizer) capturePlans(ctx context.Context, snap *collector.Snapshot,
-	queries []QueryInfo) ([]PlanSummary, string) {
-	if o.pool == nil || len(queries) == 0 {
-		return nil, "none"
-	}
-	want := make(map[int64]bool, len(queries))
-	for _, q := range queries {
-		want[q.QueryID] = true
-	}
-	var stats []collector.QueryStats
-	for _, q := range applicationQueries(snap.Queries) {
-		if want[q.QueryID] {
-			stats = append(stats, q)
-		}
-	}
-	plans, source := o.planner.CapturePlans(ctx, stats)
-	if len(plans) == 0 {
-		return nil, "query_text_only"
-	}
-	return plans, source
 }
 
 // findTable is the snapshot's row for "schema.table"; an unqualified name

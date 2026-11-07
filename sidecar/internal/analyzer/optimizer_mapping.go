@@ -8,14 +8,15 @@ import (
 )
 
 // OptimizerRecommendationFinding maps one admitted index candidate to a
-// finding; planSource is where the evidence plans came from. Identity is
+// finding. Its evidence is the HypoPG what-if (addWhatIfDetail); it carries
+// no plan_source since the optimizer stopped capturing plans
+// (indexes-05). Identity is
 // "schema.table|<normalized index definition>" with the fixed optimizer
 // category, so several candidates for one table
 // persist independently and the optimizer's open-finding lookup matches
 // exactly what is emitted (C05, C06, G2-B19, G3-B13). The table is kept
 // separately in Detail["table"]; use OptimizerFindingTable to read it.
-func OptimizerRecommendationFinding(rec optimizer.Recommendation, planSource string,
-) Finding {
+func OptimizerRecommendationFinding(rec optimizer.Recommendation) Finding {
 	indexCategory := rec.IndexCategory
 	if indexCategory == "" {
 		indexCategory = rec.Category
@@ -33,7 +34,6 @@ func OptimizerRecommendationFinding(rec optimizer.Recommendation, planSource str
 		"index_category":            indexCategory,
 		"estimated_improvement_pct": rec.EstimatedImprovementPct,
 		"hypopg_validated":          rec.Validated,
-		"plan_source":               planSource,
 		"affected_queries":          rec.AffectedQueries,
 		"queryids":                  rec.AffectedQueryIDs,
 	}

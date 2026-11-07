@@ -113,10 +113,6 @@ func workloadHints(tc optimizer.TableContext) []string {
 		out = append(out, fmt.Sprintf("join %s with %s on %s", jp.Left, jp.Right,
 			llm.SanitizeForLLM(jp.Condition)))
 	}
-	for _, ic := range optimizer.DetectIncludeCandidates(tc.Plans, 1000) {
-		out = append(out, fmt.Sprintf("queryid %d: %d heap fetches after an index scan "+
-			"(an INCLUDE column may help)", ic.QueryID, ic.HeapFetches))
-	}
 	for _, pc := range optimizer.DetectPartialCandidates(tc.Queries, tc.ColStats) {
 		out = append(out, fmt.Sprintf("%.0f%% of statements filter %s on one value "+
 			"matching %.1f%% of rows (a partial index may help)", pc.QueryPct*100,

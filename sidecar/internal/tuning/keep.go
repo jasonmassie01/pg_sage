@@ -2,8 +2,10 @@ package tuning
 
 import (
 	"context"
+	"maps"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
@@ -12,14 +14,19 @@ import (
 // (budget, case cap, model error, no case) stays exactly as it was. Only
 // deterministic catalog evidence drops one here: its table is gone, the
 // index it would create exists or is covered, the index it would drop is
-// gone. It also returns the live cases an open finding already answers;
-// they are not asked again while it is open.
-func (a *Agent) keepOpen(ctx context.Context, open []analyzer.Finding,
-	cases []Case) ([]analyzer.Finding, map[string]bool) {
+// gone. An open index drop also keeps what binds every tuning drop
+// (keepDrop). It also returns the live cases an open finding already
+// answers; they are not asked again while it is open.
+func (a *Agent) keepOpen(ctx context.Context, cur *collector.Snapshot,
+	open []analyzer.Finding, cases []Case) ([]analyzer.Finding, map[string]bool) {
 	stale := a.staleFindings(ctx, open)
 	kept := make([]analyzer.Finding, 0, len(open))
 	for i, f := range open {
-		if why, ok := stale[i]; ok {
+		why, ok := stale[i]
+		if !ok {
+			f, why = keepDrop(f, cur)
+		}
+		if why != "" {
 			a.logFn("INFO", "tuning: open finding %s %s resolves: %s", f.Category,
 				f.ObjectIdentifier, why)
 			continue
@@ -27,6 +34,24 @@ func (a *Agent) keepOpen(ctx context.Context, open []analyzer.Finding,
 		kept = append(kept, f)
 	}
 	return kept, busyCases(kept, cases)
+}
+
+// keepDrop applies indexes-03 to an open tuning index drop: one no other
+// index covers (a never-scanned drop stored before it) resolves, with why,
+// and a covered_by drop carries this cycle's standby gate, once.
+func keepDrop(f analyzer.Finding, cur *collector.Snapshot) (analyzer.Finding, string) {
+	if f.Category != CategoryIndexDrop {
+		return f, ""
+	}
+	if by, _ := f.Detail["covered_by"].(string); by == "" {
+		return f, "no other index covers it; the unused_index rule owns unused drops " +
+			"(first-seen clock, FK and standby guards)"
+	}
+	if f.Detail["replica_index_usage"] == "unknown" {
+		return f, ""
+	}
+	f.Detail = maps.Clone(f.Detail)
+	return analyzer.WithStandbyGate(f, analyzer.StandbyUsageUnknown(cur)), ""
 }
 
 // busyCases are the live cases an open finding answers: the agent's own

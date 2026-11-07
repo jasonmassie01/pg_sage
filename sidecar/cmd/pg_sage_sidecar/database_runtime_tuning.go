@@ -7,29 +7,21 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/tuning"
-	"time"
 )
 
 // newTuningAgent builds the database's tuning agent (roadmap 2.2) when
 // tuning is enabled and its (possibly dedicated) LLM client is usable; the
 // result is a true nil otherwise. hints is the query tuner the agent's
 // hints go through (nil: no hints).
-func (rt *databaseRuntime) newTuningAgent(autoExplain bool, hints *tuner.Tuner) *tuning.Agent {
+func (rt *databaseRuntime) newTuningAgent(hints *tuner.Tuner) *tuning.Agent {
 	if !rt.tuningActive() {
 		return nil
 	}
 	primary, fallback := tuningModels(rt.llmManager)
 	timeouts := catalogread.FromSafety(cfg.Safety)
-	options := []func(*optimizer.Optimizer){optimizer.WithCatalogReadTimeouts(timeouts)}
-	if rt.provider == "lakebase" && rt.cfg.LakebaseObservability.Enabled && rt.cfg.LakebaseObservability.AllowPayload {
-		options = append(options, optimizer.WithLakebasePlanScope(rt.currentLakebaseScope, time.Duration(rt.cfg.LakebaseObservability.RetentionHours)*time.Hour))
-	}
-	if autoExplain {
-		options = append(options, optimizer.WithAutoExplain())
-	}
 	deps := tuning.Deps{Model: primary,
 		Indexes: optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer, rt.pgVersion(),
-			logStructuredWrapper, options...),
+			logStructuredWrapper, optimizer.WithCatalogReadTimeouts(timeouts)),
 		Store: tuning.NewPostgresStore(rt.spec.Pool, rt.pgVersion(), timeouts)}
 	if fallback != nil {
 		deps.Fallback = fallback

@@ -3,65 +3,6 @@ package optimizer
 import "testing"
 
 // ---------------------------------------------------------------------------
-// DetectIncludeCandidates
-// ---------------------------------------------------------------------------
-
-func TestDetectIncludeCandidates_IndexScanHighHeap(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Index Scan", HeapFetches: 2000},
-	}
-	got := DetectIncludeCandidates(plans, 1000)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(got))
-	}
-	if got[0].QueryID != 1 {
-		t.Fatalf("expected QueryID=1, got %d", got[0].QueryID)
-	}
-	if got[0].HeapFetches != 2000 {
-		t.Fatalf("expected HeapFetches=2000, got %d", got[0].HeapFetches)
-	}
-}
-
-func TestDetectIncludeCandidates_SeqScanIgnored(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Seq Scan", HeapFetches: 5000},
-	}
-	got := DetectIncludeCandidates(plans, 1000)
-	if len(got) != 0 {
-		t.Fatalf("expected 0 candidates for Seq Scan, got %d", len(got))
-	}
-}
-
-func TestDetectIncludeCandidates_BelowThreshold(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Index Scan", HeapFetches: 500},
-	}
-	got := DetectIncludeCandidates(plans, 1000)
-	if len(got) != 0 {
-		t.Fatalf("expected 0 candidates when HeapFetches < threshold, got %d", len(got))
-	}
-}
-
-func TestDetectIncludeCandidates_EmptyPlans(t *testing.T) {
-	got := DetectIncludeCandidates(nil, 1000)
-	if len(got) != 0 {
-		t.Fatalf("expected 0 candidates for nil plans, got %d", len(got))
-	}
-}
-
-func TestDetectIncludeCandidates_IndexOnlyScanIgnored(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Index Only Scan", HeapFetches: 3000},
-	}
-	got := DetectIncludeCandidates(plans, 1000)
-	if len(got) != 0 {
-		t.Fatalf(
-			"expected 0 candidates for Index Only Scan, got %d", len(got),
-		)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // DetectPartialCandidates
 // ---------------------------------------------------------------------------
 

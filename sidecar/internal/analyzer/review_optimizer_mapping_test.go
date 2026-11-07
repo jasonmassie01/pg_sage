@@ -18,10 +18,10 @@ func mappingRec(ddl, category string) optimizer.Recommendation {
 // category is the fixed optimizer category, not the LLM's label.
 func TestOptimizerFinding_IdentityPerIndexDefinition(t *testing.T) {
 	a := OptimizerRecommendationFinding(mappingRec(
-		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"), "")
+		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"))
 	b := OptimizerRecommendationFinding(mappingRec(
 		"CREATE INDEX CONCURRENTLY idx_b ON public.orders (created_at) INCLUDE (id)",
-		"covering_index"), "")
+		"covering_index"))
 	if a.ObjectIdentifier == b.ObjectIdentifier {
 		t.Fatalf("two candidates share identity %q", a.ObjectIdentifier)
 	}
@@ -47,10 +47,10 @@ func TestOptimizerFinding_IdentityPerIndexDefinition(t *testing.T) {
 // the open finding is updated, not duplicated.
 func TestOptimizerFinding_IdentityStableAcrossCosmeticChanges(t *testing.T) {
 	a := OptimizerRecommendationFinding(mappingRec(
-		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"), "")
+		"CREATE INDEX CONCURRENTLY idx_a ON public.orders (status)", "missing_index"))
 	b := OptimizerRecommendationFinding(mappingRec(
 		"create index concurrently IDX_other on public.orders using BTREE ( Status );",
-		"partial_index"), "")
+		"partial_index"))
 	if a.ObjectIdentifier != b.ObjectIdentifier {
 		t.Errorf("identity changed: %q vs %q", a.ObjectIdentifier, b.ObjectIdentifier)
 	}

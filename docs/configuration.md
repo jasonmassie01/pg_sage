@@ -557,9 +557,10 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.auth` | `api_key` | `databricks` authenticates each request using the official SDK and restricts credentials to the configured workspace HTTPS origin |
 | `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
 | `llm.token_budget_daily` | `500000` | Maximum tokens per day across general LLM features; `0` means no cap |
-| `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of redundant or long-unused indexes |
+| `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of indexes another valid index covers, each marked for approval when the database has standbys (primary statistics miss replica reads). Never-scanned indexes are proposed only by the `unused_index` rule, with its first-seen clock and its recently-created, FK-only and standby guards |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new index proposals per table per cycle |
+| `llm.optimizer.plan_source` | `auto` | Deprecated and ignored since v2.5.1: the optimizer no longer captures plans for the tuning agent (nothing read them). A config that sets it still loads and prints one startup warning; remove the key, which a later release retires. The HypoPG what-if plans at most 25 SELECT statements per candidate (writes take no slot; the hottest by total time, always including the proposal's or the case's target statements) under `safety.lock_timeout_ms` capped at 1 s (below its 5 s statement timeout), and a lock timeout leaves the candidate unverified |
 | `llm.optimizer.rejection_memory.enabled` | `true` | Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the tuning agent's case packet lists the shapes already measured. Applies to the agent's candidates and what-if tool calls, never to deterministic findings. Rows live in `sage.optimizer_rejection` and age out with `retention.findings_days` (YAML only) |
 | `llm.optimizer.rejection_memory.max_age_days` | `7` | Days a rejection stays valid; then the idea may be measured again (1-90) |
 | `llm.optimizer.rejection_memory.call_volume_ratio` | `2` | A target query whose call count changed by at least this factor (up or down) is a material workload change (>1-1000) |
@@ -608,6 +609,15 @@ Safeguards learned from dogfooding:
 - **Open findings are never resolved by absence.** A recommendation the agent did not
   examine this cycle stays open unchanged; only catalog evidence retires one (its table is
   gone, an existing index covers it, the index it would drop is gone).
+- **Coverage respects operator class, collation and order.** An index duplicates or covers
+  another only when each compared key has the same expression, operator class (with its
+  parameters) and collation; for btree the compared keys must also have the same ordering
+  or its uniform reversal, NULLS included. So `(email text_pattern_ops)` beside `(email)`,
+  an HNSW `vector_cosine_ops` index beside a `vector_l2_ops` one, a `jsonb_path_ops` GIN
+  beside a `jsonb_ops` one, or `(a, b DESC)` beside `(a, b)` is neither rejected as a
+  duplicate nor dropped or replaced as covered. A default operator class or collation
+  spelled out in a candidate (`(email text_ops)`, `COLLATE "default"`) still matches the
+  catalog definition that omits it.
 - **Daily budget survives restarts.** The agent charges its model tokens per database and
   UTC day to `sage.tuning_budget_day`, capped at the daily token budget of the client it
   uses (`llm.optimizer_llm.token_budget_daily` when the optimizer LLM is enabled and sets

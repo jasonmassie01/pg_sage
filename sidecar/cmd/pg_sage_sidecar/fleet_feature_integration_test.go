@@ -28,7 +28,7 @@ func TestFleetLLMFeatureOwnersHonorIndependentEnableFlags(t *testing.T) {
 		cfg.LLM.OptimizerLLM.Enabled = enabled
 		cfg.LLM.OptimizerLLM.FallbackToGeneral = enabled
 		rt := featureTestRuntime(t, state.Pool, version, true)
-		opt, adv, tuner := rt.newTuningAgent(false, nil), rt.newAdvisor(), rt.newTuner()
+		opt, adv, tuner := rt.newTuningAgent(nil), rt.newAdvisor(), rt.newTuner()
 		if (opt != nil) != enabled || (adv != nil) != enabled || (tuner != nil) != enabled {
 			t.Fatalf("enabled=%v feature owners do not match flags", enabled)
 		}
@@ -40,7 +40,7 @@ func TestFleetLLMFeatureOwnersHonorIndependentEnableFlags(t *testing.T) {
 	// interfaces; the rule-based tuner still runs, as it always has in
 	// standalone and YAML fleet (meta-db dropped it: G5-I07).
 	rt := featureTestRuntime(t, state.Pool, version, false)
-	opt, adv, tuner := rt.newTuningAgent(false, nil), rt.newAdvisor(), rt.newTuner()
+	opt, adv, tuner := rt.newTuningAgent(nil), rt.newAdvisor(), rt.newTuner()
 	if opt != nil || adv != nil || rt.llmOn {
 		t.Fatal("unavailable LLM left a live or typed-nil feature interface")
 	}

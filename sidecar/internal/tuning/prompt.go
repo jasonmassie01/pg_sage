@@ -34,8 +34,8 @@ var systemPrompt = strings.Join([]string{
 		"keys) becomes a replacement: pg_sage builds it and drops the old one in one " +
 		"approved action, so say which index it replaces in the rationale.",
 	"7. An index costs every insert and non-HOT update; check write_cost on " +
-		"write-heavy tables. Drop only indexes that are never used or covered by " +
-		"another index, never unique or primary keys.",
+		"write-heavy tables. Drop only an index another valid index covers, never " +
+		"unique or primary keys; never-scanned indexes are left to the unused-index rule.",
 	"8. work_mem applies per sort or hash node per connection: keep max_connections " +
 		"x work_mem x hash_mem_multiplier within memory, and never above 256MB " +
 		"without saying why. Never set an autovacuum scale factor to 0.",

@@ -18,7 +18,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.collector = rt.newCollector()
 	rt.start(func() { rt.collector.Run(rt.ctx) })
 	rt.note("collector")
-	explain := rt.startAutoExplain()
+	rt.startAutoExplain()
 	// Interfaces stay true nils when a feature is off (no typed nils).
 	var queryTuner analyzer.QueryTuner
 	var tuningAgent analyzer.TuningProducer
@@ -26,7 +26,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	if qt != nil {
 		queryTuner = qt
 	}
-	if agent := rt.newTuningAgent(explain, qt); agent != nil {
+	if agent := rt.newTuningAgent(qt); agent != nil {
 		tuningAgent = agent
 	}
 	rt.analyzer = analyzer.New(
@@ -82,10 +82,10 @@ func (rt *databaseRuntime) advisorActive() bool {
 
 // startAutoExplain starts the plan collector when auto_explain is enabled.
 // It runs even without the extension: plain EXPLAIN still captures plans
-// for non-parameterized queries. It reports whether the extension is there.
-func (rt *databaseRuntime) startAutoExplain() bool {
+// for non-parameterized queries.
+func (rt *databaseRuntime) startAutoExplain() {
 	if !cfg.AutoExplain.Enabled {
-		return false
+		return
 	}
 	avail, err := autoexplain.Detect(rt.ctx, rt.spec.Pool)
 	if err != nil {
@@ -111,7 +111,6 @@ func (rt *databaseRuntime) startAutoExplain() bool {
 	)
 	rt.start(func() { plans.Run(rt.ctx) })
 	rt.note("auto_explain")
-	return avail.Available
 }
 
 // newAdvisor builds the config advisor. It targets the PostgreSQL database

@@ -46,6 +46,47 @@ func stripRetiredKeys(raw string) (string, []string, error) {
 	return string(stripped), warnings, nil
 }
 
+// ignoredOptimizerKeys are llm.optimizer keys that still decode but have no
+// reader; indexes-11 retires them (stripRetiredKeys).
+var ignoredOptimizerKeys = map[string]string{
+	"plan_source": "llm.optimizer.plan_source is no longer used and is ignored: the " +
+		"optimizer captures no plans (the HypoPG what-if plans candidates, bounded); " +
+		"remove it from the config file",
+}
+
+// ignoredKeyWarnings returns one warning per ignored key raw sets.
+func ignoredKeyWarnings(raw string) ([]string, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &document); err != nil {
+		return nil, fmt.Errorf("check ignored config keys: %w", err)
+	}
+	optimizer := childValue(mappingValue(&document, "llm"), "optimizer")
+	if optimizer == nil || optimizer.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	var warnings []string
+	for i := 0; i+1 < len(optimizer.Content); i += 2 {
+		if warning, ignored := ignoredOptimizerKeys[optimizer.Content[i].Value]; ignored {
+			warnings = append(warnings, "WARNING: "+warning)
+		}
+	}
+	return warnings, nil
+}
+
+// childValue returns the value node of key in mapping (nil when absent or
+// when mapping is not a mapping).
+func childValue(mapping *yaml.Node, key string) *yaml.Node {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
 // mappingValue returns the value node of key in the document's root mapping.
 func mappingValue(document *yaml.Node, key string) *yaml.Node {
 	if len(document.Content) == 0 || document.Content[0].Kind != yaml.MappingNode {

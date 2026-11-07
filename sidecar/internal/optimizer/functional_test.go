@@ -218,6 +218,28 @@ func TestFunctional_Validate_SortDirectionStripped(t *testing.T) {
 	}
 }
 
+// indexes-01: only a uniform reversal is a duplicate. (customer_id,
+// created_at DESC) orders differently from (customer_id, created_at) on
+// its second key, so a backward scan of either cannot serve the other.
+func TestFunctional_Validate_MixedOrderIsNotADuplicate(t *testing.T) {
+	v := fnNewTestValidator(fnTestOptimizerConfig())
+	tc := sampleTableContext()
+	tc.Indexes = append(tc.Indexes, IndexInfo{Name: "orders_customer_created",
+		Definition: "CREATE INDEX orders_customer_created ON public.orders " +
+			"USING btree (customer_id, created_at)", IsValid: true})
+	rec := Recommendation{IndexType: "btree", DDL: "CREATE INDEX CONCURRENTLY " +
+		"idx_customer_created_desc ON orders (customer_id, created_at DESC)"}
+	if ok, reason := v.checkDuplicate(rec, tc); !ok {
+		t.Fatalf("mixed order rejected: %s", reason)
+	}
+	rec.DDL = "CREATE INDEX CONCURRENTLY idx_customer_created_rev ON orders " +
+		"(customer_id DESC, created_at DESC)"
+	ok, reason := v.checkDuplicate(rec, tc)
+	if ok || !strings.Contains(reason, "duplicate") {
+		t.Fatalf("uniform reversal: ok=%v reason %q, want a duplicate", ok, reason)
+	}
+}
+
 func TestFunctional_Validate_WriteHeavyRejection(t *testing.T) {
 	cfg := fnTestOptimizerConfig()
 	cfg.WriteHeavyRatioPct = 70
@@ -479,26 +501,6 @@ func TestFunctional_Validate_ExpressionNilPool(t *testing.T) {
 // ----------------------------------------------------------------
 // Section 5: Detection Heuristics (15.6)
 // ----------------------------------------------------------------
-
-func TestFunctional_DetectIncludeCandidates(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Index Scan", HeapFetches: 5000},
-		{QueryID: 2, ScanType: "Index Scan", HeapFetches: 100},
-		{QueryID: 3, ScanType: "Seq Scan", HeapFetches: 9999},
-	}
-	candidates := DetectIncludeCandidates(plans, 1000)
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1", len(candidates))
-	}
-	if candidates[0].QueryID != 1 {
-		t.Errorf("QueryID = %d, want 1", candidates[0].QueryID)
-	}
-	if candidates[0].HeapFetches != 5000 {
-		t.Errorf(
-			"HeapFetches = %d, want 5000", candidates[0].HeapFetches,
-		)
-	}
-}
 
 func TestFunctional_DetectPartialCandidates(t *testing.T) {
 	queries := []QueryInfo{
@@ -1083,8 +1085,6 @@ func TestFunctional_Context_ParseFloatArray(t *testing.T) {
 // ----------------------------------------------------------------
 
 // --- 16.1 filterPlansForTable ---
-
-// --- 16.2 WithAutoExplain ---
 
 // --- 16.3 lookupSelectivity ---
 

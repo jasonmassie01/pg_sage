@@ -27,6 +27,8 @@ func (tb *toolbox) indexOnCaseTable(ddl string) (string, string, error) {
 
 // whatIf: measure an index with HypoPG through the optimizer's admission
 // (validator and rejection memory included), at most maxWhatIfPerCase.
+// The case's statements are the affected queryids, so the what-if's
+// 25-statement sample always plans them.
 func (tb *toolbox) whatIf(ctx context.Context, args toolArgs) toolResult {
 	ddl, table, err := tb.indexOnCaseTable(args.DDL)
 	if err != nil {
@@ -41,7 +43,7 @@ func (tb *toolbox) whatIf(ctx context.Context, args toolArgs) toolResult {
 	}
 	tb.whatIfs++
 	adm := tb.a.deps.Indexes.Admit(ctx, optimizer.Recommendation{DDL: ddl,
-		Category: optimizer.OptimizerCategory}, tc)
+		Category: optimizer.OptimizerCategory, AffectedQueryIDs: caseStatementIDs(tb.c)}, tc)
 	verdict := map[optimizer.AdmissionOutcome]string{optimizer.AdmitInvalid: "invalid",
 		optimizer.AdmitMeasured: "already_measured",
 		optimizer.AdmitRejected: "rejected"}[adm.Outcome]

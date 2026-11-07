@@ -156,17 +156,12 @@ func checkOptimizer(t *testing.T, f fixture) {
 		Query: "SELECT id FROM " + f.namespace + ".items WHERE category = $1"}
 	snap := &collector.Snapshot{Queries: []collector.QueryStats{query},
 		Tables: []collector.TableStats{{SchemaName: f.namespace, RelName: "items", NLiveTup: 1900}}}
-	planner := optimizer.NewPlanCapture(f.pool, version, false, "generic_plan",
+	// indexes-05: the context runs no EXPLAIN (the plan capture was removed).
+	o := optimizer.New(f.pool, &config.DefaultConfig().LLM.Optimizer, version,
 		func(string, string, ...any) {})
-
-	contexts, source, err := optimizer.BuildTableContexts(ctx, f.pool, snap, planner, 1)
+	tc, ok, err := o.TableContext(ctx, snap, f.namespace+".items")
 	checkError(t, "build real optimizer context", err)
-	if len(contexts) != 1 || contexts[0].Schema != f.namespace ||
-		len(contexts[0].Columns) != 2 || len(contexts[0].Queries) != 1 {
+	if !ok || tc.Schema != f.namespace || len(tc.Columns) != 2 || len(tc.Queries) != 1 {
 		t.Fatal("optimizer omitted synthetic table, columns, or query evidence")
 	}
-	if version >= 160000 && (source != "generic_plan" || len(contexts[0].Plans) != 1) {
-		t.Fatal("PostgreSQL 16+ generic plan evidence missing")
-	}
-	t.Logf("optimizer plan source=%s", source)
 }

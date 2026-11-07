@@ -204,8 +204,17 @@ func (v *validator) targets(c Case, p Proposal) []int64 {
 	if len(out) > 0 {
 		return out
 	}
+	return caseStatementIDs(c)
+}
+
+// caseStatementIDs are the case's statement queryids, once each (0, an
+// unknown queryid, left out).
+func caseStatementIDs(c Case) []int64 {
+	var out []int64
 	for _, s := range c.Statements {
-		out = append(out, s.QueryID)
+		if s.QueryID != 0 && !slices.Contains(out, s.QueryID) {
+			out = append(out, s.QueryID)
+		}
 	}
 	return out
 }
