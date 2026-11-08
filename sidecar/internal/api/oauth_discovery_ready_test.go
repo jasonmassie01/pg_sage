@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -198,4 +200,37 @@ func TestOAuthNotReady_SignedInLinkGets503(t *testing.T) {
 	w := httptest.NewRecorder()
 	oauthAuthorizeRouter(provider, pool)(w, req)
 	assertSSONotReady(t, "signed-in authorize link", w)
+}
+
+// A misconfiguration found at startup is logged at ERROR exactly once: the
+// router must not add a second ERROR on top of the provider's own log.
+func TestNewRouterOAuthProvider_StartupMisconfigLoggedOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	SetShutdownContext(ctx)
+	t.Cleanup(func() { SetShutdownContext(context.Background()) })
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	idp := fakeidp.New(t, "cid")
+	idp.SetDiscovery(map[string]any{"issuer": "https://other-issuer.invalid"})
+	cfg := config.DefaultConfig()
+	cfg.OAuth = discoveryOAuthConfig(idp)
+	provider := newRouterOAuthProvider(cfg)
+	cancel()
+	if provider == nil {
+		t.Fatal("a misconfigured IdP must still build the provider")
+	}
+	if ready, reason := provider.Ready(); ready || reason != auth.ReasonMisconfigured {
+		t.Fatalf("Ready() = %v, %q; want false, misconfigured", ready, reason)
+	}
+	out := logs.String()
+	if got := strings.Count(out, `"level":"ERROR"`); got != 1 {
+		t.Fatalf("startup ERROR logs = %d, want exactly 1:\n%s", got, out)
+	}
+	if !strings.Contains(out, "issuer") {
+		t.Fatalf("the ERROR log does not name the issuer mismatch:\n%s", out)
+	}
 }

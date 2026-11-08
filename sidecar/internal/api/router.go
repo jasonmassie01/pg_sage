@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -302,11 +301,10 @@ func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 		return nil
 	}
 	oauthProvider := auth.NewOAuthProvider(&cfg.OAuth)
-	if err := oauthProvider.Discover(context.Background()); err != nil {
-		_, reason := oauthProvider.Ready()
-		slog.Error("oauth discovery failed at startup; SSO stays unavailable "+
-			"until a retry succeeds", "error", err, "reason", reason)
-	}
+	// Discover logs its own failure (WARN for an outage, one ERROR for a
+	// misconfiguration) and StartDiscovery retries, so the error needs no
+	// handling here.
+	_ = oauthProvider.Discover(context.Background())
 	routerSSOProvider.Store(oauthProvider)
 	ctx := shutdownContext()
 	go oauthProvider.StartDiscovery(ctx)
