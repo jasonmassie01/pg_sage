@@ -92,7 +92,8 @@ func detectorsMeasured(ids []string, posture []PostureResult) bool {
 
 // IncidentMapping returns the §11 incident-to-control mapping with v0
 // scoring. The rows match spec §11 exactly; the Why text is the
-// spec's reason, condensed.
+// spec's reason, condensed, and for a future row what the bench measures
+// today and what it does not.
 func IncidentMapping() []IncidentExpectation {
 	return []IncidentExpectation{
 		{ID: "INC-01", Title: "Lovable RLS exposure", Expected: DispDetected,
