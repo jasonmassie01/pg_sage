@@ -389,6 +389,20 @@ briefing:
 | `rca.xmin_holder_min_minutes` | `5` | Minutes a session's transaction must be open before the `vacuum_blocked` incident names it as the holder of the oldest xmin. Younger sessions are never named, so a briefly idle session opens no incident. A holder idle in transaction for at least `analyzer.lock_chain.idle_in_tx_terminate_minutes` gets `pg_terminate_backend` proposed for approval; an active one gets a diagnostic. `1`-`1440` |
 | `rca.prepared_xact_min_age_minutes` | `30` | Minutes a prepared transaction of this database must be old before it opens the `orphaned_prepared_tx` incident or is named as the `vacuum_blocked` holder (with `ROLLBACK PREPARED` of its quoted GID proposed for approval). Other databases' prepared transactions are never blamed. `1`-`10080` |
 
+**How pg_sage measures its own cost.** Once per analyzer cycle pg_sage reads the sage
+tables' sizes and statistics in one bounded, read-only statement (`safety.query_timeout_ms`,
+`safety.lock_timeout_ms`; a sage table locked by a migration fails the reading instead of
+stalling the cycle). The same reading feeds `sage_footprint`, `sage_self_cost` and the
+`self_budget.storage_mb` check. Its statements' counters come from `pg_stat_statements(false)`,
+without the query texts: the texts are read only when entries pg_sage has not classified yet
+appear, when an entry is re-created, or after `pg_stat_statements_reset()` (each database keeps a
+cache of up to 2,000 classified entries). pg_stat_statements 1.8 (no `toplevel` column) is
+measured without the top-level split. Older versions, which some managed providers keep after a
+major upgrade, report the statement figures (`pg_sage_self_db_time_ms_per_cycle`,
+`pg_sage_self_statements_per_cycle`, `pg_sage_self_blocks_per_cycle`) as unknown while the sage
+schema counters are still measured, and pg_sage logs once per database: run
+`ALTER EXTENSION pg_stat_statements UPDATE` in that database.
+
 ### Derived settings (self-configuration)
 
 Every configuration key has a self-config class (shown in

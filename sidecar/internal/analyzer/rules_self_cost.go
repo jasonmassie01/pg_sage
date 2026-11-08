@@ -16,9 +16,11 @@ const categorySelfCost = "sage_self_cost"
 
 // checkSelfCost measures pg_sage's own cost once per analyzer cycle,
 // normalized to one collector cycle, keeps it for /metrics, and raises a
-// finding above the budget. The first cycle after a start has no window
-// and a failed reading proves nothing: both leave the category unknown,
-// so an open finding stays open. A disabled budget (0) still measures and
+// finding above the budget. Every read is bounded (the catalog reader) and
+// the sage schema's reading is the cycle's one (sageSchemaReading). The
+// first cycle after a start has no window and a failed reading proves
+// nothing: both leave the category unknown, so an open finding stays open;
+// failed statements alone leave the schema counters measured. A disabled budget (0) still measures and
 // resolves the finding. The same reading feeds the declared self-budget
 // (checkSelfBudget).
 func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
@@ -27,12 +29,17 @@ func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 		a.evalFail(categorySelfBudget)
 		return nil
 	}
-	reading, err := selfcost.Read(ctx, a.pool)
+	sc, err := a.sageSchemaReading(ctx)
 	if err != nil {
 		a.evalFail(categorySelfCost)
 		a.evalFail(categorySelfBudget)
 		a.logFn("WARN", "analyzer: measure pg_sage's own cost: %v", err)
 		return nil
+	}
+	reading := a.selfStatements.Sample(ctx, a.catalog(), sc)
+	if reading.StatementsErr != nil {
+		a.logFn("WARN", "analyzer: measure pg_sage's own statements: %v",
+			reading.StatementsErr)
 	}
 	cost := a.selfCost.Observe(reading, a.collectorInterval())
 	return append(a.checkSelfCostBudget(cost), a.checkSelfBudget(ctx, cost)...)
