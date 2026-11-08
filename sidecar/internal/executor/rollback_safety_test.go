@@ -141,7 +141,7 @@ func TestMonitorWithoutAuthorizerWithholdsRollback(t *testing.T) {
 }
 
 // policy-05: the approved/manual monitor's authorizer is the standing
-// gate's rollback decision (manualRollbackAuthorizer is gone). It still
+// gate's rollback decision (the unrecorded authorizer is gone). It still
 // refuses a disabled executor and observation trust, and names why.
 func TestRollbackDeciderHonorsExecutorAndTrust(t *testing.T) {
 	cfg := wave1PolicyConfig("advisory")

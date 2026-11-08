@@ -12,8 +12,8 @@ import (
 )
 
 // policy-05 CHECK-04: the second, unrecorded rollback rule set is gone.
-// No production file under internal/ names it.
-func TestManualRollbackAuthorizerHasNoProductionReference(t *testing.T) {
+// No production file under internal/ names manualRollback(Authorizer).
+func TestUnrecordedRollbackAuthorizerHasNoProductionReference(t *testing.T) {
 	var refs []string
 	err := filepath.Walk("..", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -36,7 +36,7 @@ func TestManualRollbackAuthorizerHasNoProductionReference(t *testing.T) {
 		t.Fatalf("walk internal/: %v", err)
 	}
 	if len(refs) != 0 {
-		t.Fatalf("manualRollbackAuthorizer is still referenced by %v", refs)
+		t.Fatalf("the unrecorded rollback authorizer is still referenced by %v", refs)
 	}
 }
 
