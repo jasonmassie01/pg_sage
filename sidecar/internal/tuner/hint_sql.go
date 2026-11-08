@@ -20,7 +20,7 @@ import (
 // unique tag for each call to eliminate that case and strip NUL
 // bytes as extra defense-in-depth.
 //
-// One hint per statement (tuning-02): the INSERT has no WHERE NOT EXISTS
+// One hint per statement (tuning-02): the INSERT has no NOT EXISTS
 // guard. Over an existing row for the query, pg_hint_plan 1.7's unique
 // index on (query_id, application_name) raises 23505, so the action fails
 // loudly instead of succeeding as a no-op whose rollback could later
