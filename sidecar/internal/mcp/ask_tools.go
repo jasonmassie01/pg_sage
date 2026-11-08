@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/ask"
@@ -91,8 +92,11 @@ func askFailure(err error) *rpcError {
 		return failure(codeNotFound, "not found")
 	case errors.Is(err, ask.ErrDisabled):
 		return failure(codeUnavailable, "Ask Sage is disabled (ask.enabled: false)")
+	case errors.Is(err, ask.ErrUnavailable):
+		return failure(codeUnavailable, "Ask Sage is temporarily unavailable; retry later")
 	}
-	return failure(codeInternal, "Ask Sage is unavailable")
+	slog.Error("ask_sage failed", "error", err)
+	return failure(codeInternal, "internal error")
 }
 
 // AskSage serves ask_sage through ProductionDependencies.Ask.

@@ -265,10 +265,12 @@ func parseLedgerFilter(raw json.RawMessage) (ledgerFilter, error) {
 		return result, nil
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return ledgerFilter{}, fmt.Errorf("decode MCP ledger filter: %w", err)
+		return ledgerFilter{}, fmt.Errorf("%w: decode MCP ledger filter: %v",
+			ErrIntentInvalid, err)
 	}
 	if result.Limit <= 0 || result.Limit > 1000 {
-		return ledgerFilter{}, errors.New("MCP ledger limit must be within 1-1000")
+		return ledgerFilter{}, fmt.Errorf("%w: MCP ledger limit must be within 1-1000",
+			ErrIntentInvalid)
 	}
 	return result, nil
 }

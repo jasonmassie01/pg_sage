@@ -107,12 +107,16 @@ A tool call the agent can correct comes back as a tool result with `isError: tru
 | -32003 | `database_not_permitted` | the token may not use that database |
 | -32006 | `database_required` | several databases are monitored and none was named |
 | -32007 | `unknown_database` | no monitored database has that name |
-| -32602 | `invalid_arguments` | the arguments do not match the tool's schema |
+| -32602 | `invalid_arguments` | the arguments do not match the tool's schema (see below) |
 | -32004 | `not_found` | no such finding, investigation, fact... |
 | -32009 | `conflict` | the object is not in a state that allows this |
-| -32010 | `unavailable` | e.g. HypoPG or pg_stat_statements is not installed |
+| -32010 | `unavailable` | retry later: e.g. target database unavailable, no HypoPG |
 
-An unknown tool, malformed params or an unsupported protocol version are JSON-RPC errors.
+Every tool rejects an argument its schema does not list, or one of the wrong type, with
+-32602 (a misspelled `databse_id` is an error, not ignored); so is an intent pg_sage cannot
+plan, such as an unsupported `request_change` kind. Any other failure is -32603
+`internal_error`; its detail is logged by pg_sage, never returned. An unknown tool,
+malformed params or an unsupported protocol version are JSON-RPC errors.
 
 ## Protocol
 

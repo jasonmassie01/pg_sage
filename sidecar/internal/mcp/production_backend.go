@@ -3,13 +3,14 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-var ErrProductionDependencyUnavailable = errors.New("MCP production dependency unavailable")
+// ErrProductionDependencyUnavailable is a missing production dependency;
+// it is an ErrIntentUnavailable, so intent tools report it as -32010.
+var ErrProductionDependencyUnavailable = fmt.Errorf("MCP production %w", ErrIntentUnavailable)
 
 type IntentPlanner interface {
 	Plan(context.Context, string, json.RawMessage) (policy.ActionRequest, error)
@@ -186,10 +187,12 @@ func (backend *ProductionBackend) proposeMaintenancePolicy(
 		Patch      json.RawMessage `json:"patch"`
 	}
 	if err := json.Unmarshal(arguments, &input); err != nil {
-		return PolicyProposalResult{}, fmt.Errorf("decode maintenance policy: %w", err)
+		return PolicyProposalResult{}, fmt.Errorf("%w: decode maintenance policy: %v",
+			ErrIntentInvalid, err)
 	}
 	if emptyJSON(input.Patch) {
-		return PolicyProposalResult{}, errors.New("maintenance policy patch is required")
+		return PolicyProposalResult{}, fmt.Errorf("%w: maintenance policy patch is required",
+			ErrIntentInvalid)
 	}
 	return backend.dependencies.Policy.ProposePolicyChangeDryRun(
 		ctx,
