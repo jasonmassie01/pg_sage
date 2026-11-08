@@ -88,15 +88,15 @@ func incidentPlaybookCandidates(i SourceIncident, p incidentPlaybook) []ActionCa
 		return runawayQueryPlaybookCandidates(i)
 	case playbookConnections:
 		return []ActionCandidate{diagnosticIncidentCandidate(
-			i, "diagnose_connection_exhaustion", diagnoseConnectionExhaustionSQL(),
+			i, "diagnose_connection_exhaustion",
 			[]string{"identify connection pressure by role, app, and state"})}
 	case playbookStandby:
 		return []ActionCandidate{diagnosticIncidentCandidate(
-			i, "diagnose_standby_conflicts", diagnoseStandbyConflictsSQL(),
+			i, "diagnose_standby_conflicts",
 			[]string{"verify standby conflict type and replay pressure"})}
 	case playbookWAL:
 		return []ActionCandidate{diagnosticIncidentCandidate(
-			i, "diagnose_wal_replication", diagnoseWALReplicationSQL(),
+			i, "diagnose_wal_replication",
 			[]string{"verify WAL retention, slot status, and replay lag"})}
 	case playbookVacuumBlocked:
 		if hasStructuredHolder(i) {
@@ -104,7 +104,7 @@ func incidentPlaybookCandidates(i SourceIncident, p incidentPlaybook) []ActionCa
 		}
 		return autovacuumIncidentCandidates(i)
 	case playbookVacuumPressure:
-		return []ActionCandidate{vacuumPressureDiagnostic(i, "")}
+		return []ActionCandidate{vacuumPressureDiagnostic(i)}
 	case playbookFreeze:
 		return []ActionCandidate{freezeBlockersIncidentCandidate(i)}
 	default:
@@ -126,11 +126,12 @@ func hasStructuredHolder(i SourceIncident) bool {
 
 func freezeBlockersIncidentCandidate(i SourceIncident) ActionCandidate {
 	return diagnosticIncidentCandidate(i, "diagnose_freeze_blockers",
-		diagnoseFreezeBlockersSQL(), verificationPlanForAction("diagnose_freeze_blockers"))
+		verificationPlanForAction("diagnose_freeze_blockers"))
 }
 
-func vacuumPressureDiagnostic(i SourceIncident, table string) ActionCandidate {
+// vacuumPressureDiagnostic reads the database's dead-tuple leaders, xmin
+// holders and running vacuums; the affected table is in the case evidence.
+func vacuumPressureDiagnostic(i SourceIncident) ActionCandidate {
 	return diagnosticIncidentCandidate(i, "diagnose_vacuum_pressure",
-		diagnoseVacuumPressureSQL(table),
 		[]string{"identify blockers, dead tuples, and oldest xmin holders"})
 }

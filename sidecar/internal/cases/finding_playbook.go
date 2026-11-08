@@ -24,14 +24,13 @@ func findingPlaybookCandidates(f SourceFinding) ([]ActionCandidate, bool) {
 		// Read-only: an inactive slot's pg_drop_replication_slot SQL is
 		// never proposed; dropping a slot loses its consumer's position.
 		return []ActionCandidate{findingDiagnosticCandidate(f,
-			"diagnose_wal_replication", diagnoseWALReplicationSQL(),
+			"diagnose_wal_replication",
 			[]string{"verify WAL retention, slot status, and replay lag"})}, true
 	case "runaway_query":
 		expires := evidenceTime(f).Add(15 * time.Minute)
 		return []ActionCandidate{
 			findingDiagnosticCandidate(f, "diagnose_runaway_query",
-				diagnoseRunawayQuerySQL(),
-				[]string{"confirm query age, wait state, and temp spill evidence"}),
+				runawayVerificationPlan()),
 			blockedSignalCandidate("cancel_backend", runawayPolicyOwnsSignalReason,
 				expires, findingDiagnosticConfidence),
 		}, true
@@ -44,14 +43,16 @@ func findingPlaybookCandidates(f SourceFinding) ([]ActionCandidate, bool) {
 // derived from a deterministic analyzer or executor measurement.
 const findingDiagnosticConfidence = 0.80
 
-func findingDiagnosticCandidate(f SourceFinding, actionType, sql string,
+// findingDiagnosticCandidate proposes the action's probe script
+// (diagnosticSQL).
+func findingDiagnosticCandidate(f SourceFinding, actionType string,
 	verification []string) ActionCandidate {
 	expires := evidenceTime(f).Add(15 * time.Minute)
 	return ActionCandidate{
 		ActionType:       actionType,
 		RiskTier:         "safe",
 		Confidence:       findingDiagnosticConfidence,
-		ProposedSQL:      sql,
+		ProposedSQL:      diagnosticSQL(actionType),
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"execute", "script"},
 		RollbackClass:    "not_applicable",

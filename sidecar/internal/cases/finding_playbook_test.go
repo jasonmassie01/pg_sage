@@ -87,7 +87,8 @@ func TestInactiveSlotFindingOffersReadOnlyDiagnostic(t *testing.T) {
 
 	assertActionTypes(t, "inactive slot", got, "diagnose_wal_replication")
 	c := got.ActionCandidates[0]
-	assertCandidate(t, c, "diagnose_wal_replication", "safe", diagnoseWALReplicationSQL())
+	assertCandidate(t, c, "diagnose_wal_replication", "safe",
+		diagnosticSQL("diagnose_wal_replication"))
 	for _, candidate := range got.ActionCandidates {
 		if strings.Contains(strings.ToLower(candidate.ProposedSQL), "pg_drop_replication_slot") {
 			t.Fatalf("%s proposes a slot drop", candidate.ActionType)
@@ -107,7 +108,7 @@ func TestReplicationLagFindingOffersWALDiagnostic(t *testing.T) {
 
 	assertActionTypes(t, "replication lag", got, "diagnose_wal_replication")
 	assertCandidate(t, got.ActionCandidates[0], "diagnose_wal_replication", "safe",
-		diagnoseWALReplicationSQL())
+		diagnosticSQL("diagnose_wal_replication"))
 }
 
 // The executor's runaway finding carries a bare-PID cancel; the case shows
@@ -124,7 +125,7 @@ func TestRunawayQueryFindingOffersDiagnosticAndBlockedCancel(t *testing.T) {
 
 	assertActionTypes(t, "runaway", got, "diagnose_runaway_query", "cancel_backend")
 	assertCandidate(t, got.ActionCandidates[0], "diagnose_runaway_query", "safe",
-		diagnoseRunawayQuerySQL())
+		diagnosticSQL("diagnose_runaway_query"))
 	assertBlockedSignal(t, got.ActionCandidates[1], runawayPolicyOwnsSignalReason)
 	assertNoBarePIDSignal(t, got)
 }

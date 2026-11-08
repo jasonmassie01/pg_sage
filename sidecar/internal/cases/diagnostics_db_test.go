@@ -214,7 +214,8 @@ func TestDiagnosticsListNoSessionOfAnotherDatabase(t *testing.T) {
 		}
 	}
 	inB := runDiagnostic(t, diagConnect(t, dsn, fleetDatabase), "diagnose_lock_blockers")
-	if rows := inB[probes.LockGraph]; len(rows) != 1 || !foreign[mustInt(t, rows[0], "waiter_pid")] {
+	rows := inB[probes.LockGraph]
+	if len(rows) != 1 || !foreign[mustInt(t, rows[0], "waiter_pid")] {
 		t.Fatalf("database B's lock diagnostic = %v, want its one waiter", rows)
 	}
 }

@@ -93,9 +93,17 @@ func TestPersistedReplicationLagIncidentProjectsWALDiagnostic(t *testing.T) {
 	if c.RiskTier != "safe" || c.ProposedSQL == "" || c.BlockedReason != "" {
 		t.Fatalf("WAL diagnostic = %+v", c)
 	}
-	var plan string
-	if err := pool.QueryRow(ctx, "EXPLAIN "+c.ProposedSQL).Scan(&plan); err != nil {
-		t.Fatalf("WAL diagnostic SQL does not plan on PostgreSQL: %v", err)
+	// The diagnostic is a script of probe statements (playbooks-04): each
+	// one must plan.
+	stmts := strings.Split(strings.TrimSuffix(c.ProposedSQL, ";"), ";\n\n")
+	if len(stmts) != 2 {
+		t.Fatalf("WAL diagnostic has %d statements, want slots and lag", len(stmts))
+	}
+	for _, stmt := range stmts {
+		var plan string
+		if err := pool.QueryRow(ctx, "EXPLAIN "+stmt).Scan(&plan); err != nil {
+			t.Fatalf("WAL diagnostic SQL does not plan on PostgreSQL: %v\n%s", err, stmt)
+		}
 	}
 }
 

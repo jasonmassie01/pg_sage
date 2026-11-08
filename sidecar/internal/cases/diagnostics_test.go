@@ -80,7 +80,8 @@ func TestDiagnosticSQLOfUnknownActionIsEmpty(t *testing.T) {
 // without a structured holder) and every finding playbook.
 func everyDiagnosticCandidate() []ActionCandidate {
 	var out []ActionCandidate
-	for _, signal := range signalid.All() {
+	for _, info := range signalid.All() {
+		signal := info.ID
 		plain := rcaShapedIncident(signal, "incident", "public.orders")
 		holder := rcaShapedIncident(signal, "incident", "public.orders")
 		holder.CausalChain[0].Blocker = &IncidentBlocker{State: "inactive"}
@@ -94,6 +95,8 @@ func everyDiagnosticCandidate() []ActionCandidate {
 			ObservedAt: evidenceAnchor})
 		out = append(out, got.ActionCandidates...)
 	}
+	lock := rcaShapedIncident(signalid.LockContention, "pid 7 blocked by pid 9")
+	out = append(out, ProjectIncident(lock).ActionCandidates...)
 	f := SourceFinding{ObjectIdentifier: "public.orders", ObservedAt: evidenceAnchor}
 	return append(out, freezeDiagnosticCandidate(f), blockedVacuumCandidate(f))
 }
@@ -154,7 +157,8 @@ func TestVacuumPressureDiagnosticTakesNoObjectText(t *testing.T) {
 	if c.ProposedSQL != diagnosticSQL("diagnose_vacuum_pressure") {
 		t.Fatalf("vacuum pressure SQL depends on the object: %s", c.ProposedSQL)
 	}
-	if strings.Contains(c.ProposedSQL, "DROP TABLE") || strings.Contains(c.ProposedSQL, "::regclass") {
+	if strings.Contains(c.ProposedSQL, "DROP TABLE") ||
+		strings.Contains(c.ProposedSQL, "::regclass") {
 		t.Fatalf("object text reached the diagnostic SQL: %s", c.ProposedSQL)
 	}
 }

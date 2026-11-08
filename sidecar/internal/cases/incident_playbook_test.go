@@ -48,7 +48,8 @@ func TestWALSignalsOfferReadOnlyWALDiagnostic(t *testing.T) {
 
 		assertActionTypes(t, signal, got, "diagnose_wal_replication")
 		c := got.ActionCandidates[0]
-		assertCandidate(t, c, "diagnose_wal_replication", "safe", diagnoseWALReplicationSQL())
+		assertCandidate(t, c, "diagnose_wal_replication", "safe",
+			diagnosticSQL("diagnose_wal_replication"))
 		if c.BlockedReason != "" || c.RollbackClass != "not_applicable" {
 			t.Fatalf("%s: diagnostic blocked=%q rollback=%q", signal, c.BlockedReason,
 				c.RollbackClass)
@@ -65,7 +66,7 @@ func TestStandbyConflictLogOffersStandbyDiagnostic(t *testing.T) {
 
 	assertActionTypes(t, "standby", got, "diagnose_standby_conflicts")
 	assertCandidate(t, got.ActionCandidates[0], "diagnose_standby_conflicts", "safe",
-		diagnoseStandbyConflictsSQL())
+		diagnosticSQL("diagnose_standby_conflicts"))
 }
 
 func TestRunawayLogSignalsOfferRunawayPlaybook(t *testing.T) {
@@ -74,7 +75,7 @@ func TestRunawayLogSignalsOfferRunawayPlaybook(t *testing.T) {
 
 		assertActionTypes(t, signal, got, "diagnose_runaway_query", "cancel_backend")
 		assertCandidate(t, got.ActionCandidates[0], "diagnose_runaway_query", "safe",
-			diagnoseRunawayQuerySQL())
+			diagnosticSQL("diagnose_runaway_query"))
 		assertBlockedSignal(t, got.ActionCandidates[1], noBackendIdentityReason)
 		assertNoBarePIDSignal(t, got)
 	}
@@ -86,7 +87,7 @@ func TestConnectionSignalsOfferConnectionDiagnostic(t *testing.T) {
 
 		assertActionTypes(t, signal, got, "diagnose_connection_exhaustion")
 		assertCandidate(t, got.ActionCandidates[0], "diagnose_connection_exhaustion",
-			"safe", diagnoseConnectionExhaustionSQL())
+			"safe", diagnosticSQL("diagnose_connection_exhaustion"))
 	}
 }
 
@@ -112,7 +113,7 @@ func TestVacuumBlockedFallingBehindOffersVacuumPressure(t *testing.T) {
 
 	assertActionTypes(t, "falling behind", got, "diagnose_vacuum_pressure", "vacuum_table")
 	assertCandidate(t, got.ActionCandidates[0], "diagnose_vacuum_pressure", "safe",
-		diagnoseVacuumPressureSQL("public.orders"))
+		diagnosticSQL("diagnose_vacuum_pressure"))
 	assertCandidate(t, got.ActionCandidates[1], "vacuum_table", "safe",
 		`VACUUM "public"."orders";`)
 }
@@ -130,7 +131,7 @@ func TestVacuumBlockedHolderOffersFreezeBlockers(t *testing.T) {
 
 	assertActionTypes(t, "holder", got, "diagnose_freeze_blockers")
 	assertCandidate(t, got.ActionCandidates[0], "diagnose_freeze_blockers", "safe",
-		diagnoseFreezeBlockersSQL())
+		diagnosticSQL("diagnose_freeze_blockers"))
 }
 
 // The log tree's affected object is the database, not a table: the
@@ -140,7 +141,8 @@ func TestAutovacuumCancelOffersDiagnosticOnly(t *testing.T) {
 		"Autovacuum task cancelled due to lock conflict", "appdb"))
 
 	assertActionTypes(t, "autovacuum cancel", got, "diagnose_vacuum_pressure")
-	if sql := got.ActionCandidates[0].ProposedSQL; sql != diagnoseVacuumPressureSQL("") {
+	sql := got.ActionCandidates[0].ProposedSQL
+	if sql != diagnosticSQL("diagnose_vacuum_pressure") {
 		t.Fatalf("cancel diagnostic is scoped to the database name: %s", sql)
 	}
 }
@@ -152,7 +154,8 @@ func TestFreezeSignalsOfferFreezeDiagnostic(t *testing.T) {
 
 		assertActionTypes(t, signal, got, "diagnose_freeze_blockers")
 		c := got.ActionCandidates[0]
-		assertCandidate(t, c, "diagnose_freeze_blockers", "safe", diagnoseFreezeBlockersSQL())
+		assertCandidate(t, c, "diagnose_freeze_blockers", "safe",
+			diagnosticSQL("diagnose_freeze_blockers"))
 		if !reflect.DeepEqual(c.VerificationPlan,
 			verificationPlanForAction("diagnose_freeze_blockers")) {
 			t.Fatalf("%s: verification plan = %v", signal, c.VerificationPlan)

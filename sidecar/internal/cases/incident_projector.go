@@ -113,7 +113,7 @@ func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
 			ActionType:       "diagnose_lock_blockers",
 			RiskTier:         "safe",
 			Confidence:       i.Confidence,
-			ProposedSQL:      diagnoseLockBlockersSQL(),
+			ProposedSQL:      diagnosticSQL("diagnose_lock_blockers"),
 			ExpiresAt:        &expires,
 			OutputModes:      []string{"execute", "script"},
 			RollbackClass:    "not_applicable",
@@ -129,20 +129,18 @@ func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
 func runawayQueryPlaybookCandidates(i SourceIncident) []ActionCandidate {
 	expires := incidentExpiry(i, 15*time.Minute)
 	return []ActionCandidate{
-		diagnosticIncidentCandidate(
-			i, "diagnose_runaway_query",
-			diagnoseRunawayQuerySQL(),
-			[]string{"confirm query age, wait state, and temp spill evidence"},
-		),
+		diagnosticIncidentCandidate(i, "diagnose_runaway_query",
+			runawayVerificationPlan()),
 		blockedSignalCandidate("cancel_backend", noBackendIdentityReason, expires,
 			i.Confidence),
 	}
 }
 
+// diagnosticIncidentCandidate proposes the action's probe script
+// (diagnosticSQL).
 func diagnosticIncidentCandidate(
 	i SourceIncident,
 	actionType string,
-	sql string,
 	verification []string,
 ) ActionCandidate {
 	expires := incidentExpiry(i, 15*time.Minute)
@@ -150,7 +148,7 @@ func diagnosticIncidentCandidate(
 		ActionType:       actionType,
 		RiskTier:         "safe",
 		Confidence:       i.Confidence,
-		ProposedSQL:      sql,
+		ProposedSQL:      diagnosticSQL(actionType),
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"execute", "script"},
 		RollbackClass:    "not_applicable",
@@ -160,7 +158,7 @@ func diagnosticIncidentCandidate(
 
 func autovacuumIncidentCandidates(i SourceIncident) []ActionCandidate {
 	object := incidentPrimaryObject(i, "")
-	candidates := []ActionCandidate{vacuumPressureDiagnostic(i, object)}
+	candidates := []ActionCandidate{vacuumPressureDiagnostic(i)}
 	if object != "" {
 		expires := incidentExpiry(i, 24*time.Hour)
 		candidates = append(candidates, ActionCandidate{
@@ -278,95 +276,4 @@ func incidentTitle(i SourceIncident) string {
 		return title
 	}
 	return title[:137] + "..."
-}
-
-func diagnoseLockBlockersSQL() string {
-	return `SELECT blocked.pid AS blocked_pid,
-       blocker.pid AS blocker_pid,
-       blocked.query AS blocked_query,
-       blocker.query AS blocker_query,
-       blocker.state AS blocker_state
-FROM pg_stat_activity blocked
-JOIN pg_locks blocked_locks
-  ON blocked_locks.pid = blocked.pid
-JOIN pg_locks blocker_locks
-  ON blocker_locks.locktype = blocked_locks.locktype
- AND blocker_locks.database IS NOT DISTINCT FROM blocked_locks.database
- AND blocker_locks.relation IS NOT DISTINCT FROM blocked_locks.relation
- AND blocker_locks.page IS NOT DISTINCT FROM blocked_locks.page
- AND blocker_locks.tuple IS NOT DISTINCT FROM blocked_locks.tuple
- AND blocker_locks.transactionid IS NOT DISTINCT FROM blocked_locks.transactionid
- AND blocker_locks.classid IS NOT DISTINCT FROM blocked_locks.classid
- AND blocker_locks.objid IS NOT DISTINCT FROM blocked_locks.objid
- AND blocker_locks.objsubid IS NOT DISTINCT FROM blocked_locks.objsubid
- AND blocker_locks.pid != blocked_locks.pid
-JOIN pg_stat_activity blocker
-  ON blocker.pid = blocker_locks.pid
-WHERE NOT blocked_locks.granted
-  AND blocker_locks.granted`
-}
-
-func diagnoseRunawayQuerySQL() string {
-	return `SELECT pid,
-       usename,
-       application_name,
-       state,
-       wait_event_type,
-       wait_event,
-       now() - query_start AS query_age,
-       temp_bytes,
-       left(query, 1000) AS query
-FROM pg_stat_activity
-LEFT JOIN pg_stat_database
-  ON pg_stat_database.datname = pg_stat_activity.datname
-WHERE state = 'active'
-ORDER BY query_age DESC
-LIMIT 20`
-}
-
-func diagnoseConnectionExhaustionSQL() string {
-	return `WITH limits AS (
-  SELECT setting::int AS max_connections
-  FROM pg_settings
-  WHERE name = 'max_connections'
-)
-SELECT state,
-       usename,
-       application_name,
-       count(*) AS connections,
-       round(100.0 * count(*) / limits.max_connections, 2) AS pct_of_limit
-FROM pg_stat_activity, limits
-GROUP BY state, usename, application_name, limits.max_connections
-ORDER BY connections DESC`
-}
-
-func diagnoseWALReplicationSQL() string {
-	return `SELECT 'replication' AS source,
-       application_name,
-       state,
-       sync_state,
-       replay_lag,
-       write_lag,
-       flush_lag
-FROM pg_stat_replication
-UNION ALL
-SELECT 'slot' AS source,
-       slot_name AS application_name,
-       active::text AS state,
-       slot_type AS sync_state,
-       NULL AS replay_lag,
-       NULL AS write_lag,
-       NULL AS flush_lag
-FROM pg_replication_slots`
-}
-
-func diagnoseStandbyConflictsSQL() string {
-	return `SELECT datname,
-       confl_tablespace,
-       confl_lock,
-       confl_snapshot,
-       confl_bufferpin,
-       confl_deadlock
-FROM pg_stat_database_conflicts
-ORDER BY confl_lock + confl_snapshot + confl_bufferpin + confl_deadlock DESC`
 }

@@ -108,7 +108,8 @@ func TestRunawayQueryIncidentAddsCancelPlaybook(t *testing.T) {
 	}
 	assertCandidate(t, got.ActionCandidates[0],
 		"diagnose_runaway_query", "safe", "")
-	if !strings.Contains(got.ActionCandidates[0].ProposedSQL, "WHERE state = 'active'") ||
+	if !strings.HasPrefix(got.ActionCandidates[0].ProposedSQL,
+		"/* pg_sage sre:long_transactions ") ||
 		strings.Contains(got.ActionCandidates[0].ProposedSQL, "pid = 222") {
 		t.Fatalf("runaway diagnostic must not pin a prose PID: %s",
 			got.ActionCandidates[0].ProposedSQL)
@@ -321,7 +322,7 @@ func TestIdleTxSaturationIncidentYieldsNoSignalSQL(t *testing.T) {
 		}
 		assertCandidate(t, got.ActionCandidates[0],
 			"diagnose_lock_blockers", "safe", "")
-		if got.ActionCandidates[0].ProposedSQL != diagnoseLockBlockersSQL() {
+		if got.ActionCandidates[0].ProposedSQL != diagnosticSQL("diagnose_lock_blockers") {
 			t.Fatalf("%s: diagnostic SQL changed", severity)
 		}
 		assertBlockedSignal(t, got.ActionCandidates[1],
