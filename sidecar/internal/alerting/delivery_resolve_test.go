@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -69,5 +71,32 @@ func TestResolveTargets_GroupsChannelsByFinding(t *testing.T) {
 	}
 	if empty := groupResolveRows(nil); len(empty) != 0 {
 		t.Errorf("no rows gave %d targets, want 0", len(empty))
+	}
+}
+
+// TestSendResolutions_QueryErrorLoggedAndNothingSent: when the pending
+// resolve query fails, the cycle logs it at ERROR with context and sends
+// no resolve (error propagation; no database needed: the pool is lazy and
+// its address refuses connections).
+func TestSendResolutions_QueryErrorLoggedAndNothingSent(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(),
+		"postgres://nobody@127.0.0.1:1/none?connect_timeout=1&sslmode=disable")
+	if err != nil {
+		t.Fatalf("build lazy pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	slack := &resolveChannel{name: "slack"}
+	logs := &logRecorder{}
+	m := New(pool, ManagerConfig{}, map[string][]Channel{"critical": {slack}}, logs.log)
+
+	m.sendResolutions(context.Background())
+	if !logs.has("ERROR", "query pending resolve notifications: execute resolve pending query") {
+		t.Errorf("query failure not logged at ERROR with context: %v", logs.lines)
+	}
+	slack.mu.Lock()
+	sent := len(slack.resolves)
+	slack.mu.Unlock()
+	if sent != 0 {
+		t.Errorf("resolves sent after a failed query: %d findings", sent)
 	}
 }

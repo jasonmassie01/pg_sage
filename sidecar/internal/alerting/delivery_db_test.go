@@ -212,15 +212,22 @@ func TestResolve_AttemptCapIsFivePerChannel(t *testing.T) {
 	pool := alertTestPool(t)
 	slack := &resolveChannel{name: "slack"}
 	pd := &resolveChannel{name: "pagerduty", failResolves: -1}
-	fx := newSentFixture(t, pool, noop, slack, pd)
+	logs := &logRecorder{}
+	fx := newSentFixture(t, pool, logs.log, slack, pd)
 
 	fx.evaluate(t, 4)
 	if got := pd.resolveAttempts(fx.finding); got != 4 {
 		t.Fatalf("pagerduty attempts after 4 cycles = %d, want 4", got)
 	}
+	if !logs.has("ERROR", "attempt 4 of 5, retrying next cycle") {
+		t.Errorf("4th failure not logged as a retry: %v", logs.lines)
+	}
 	fx.evaluate(t, 1)
 	if got := pd.resolveAttempts(fx.finding); got != 5 {
 		t.Fatalf("channel with 4 resolve_error rows not retried: attempts = %d", got)
+	}
+	if !logs.has("ERROR", "attempt 5 of 5, giving up; close the alert in pagerduty") {
+		t.Errorf("5th failure not logged as giving up: %v", logs.lines)
 	}
 	fx.evaluate(t, 3)
 	if got := pd.resolveAttempts(fx.finding); got != 5 {
