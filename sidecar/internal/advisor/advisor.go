@@ -153,9 +153,6 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	}
 
 	a.logFn("INFO", "advisor: starting configuration review")
-	cloudEnv, dbName := a.platform(), a.database()
-	ctx = a.reviewContext(ctx)
-
 	snap := a.coll.LatestSnapshot()
 	prev := a.coll.PreviousSnapshot()
 	if snap == nil || snap.ConfigData == nil {
@@ -163,9 +160,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 		return nil, nil
 	}
 
-	all, budgetErrors := a.runSubAdvisors(ctx, snap, prev)
-	all = GateConfigFindingsHost(all, a.hostMemory(), cloudEnv, dbName,
-		snap.ConfigData.PGSettings)
+	all, budgetErrors := a.review(ctx, snap, prev)
 
 	a.mu.Lock()
 	a.lastRunAt = time.Now()

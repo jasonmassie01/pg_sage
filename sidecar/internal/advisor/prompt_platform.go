@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
 )
 
 // promptEnv is what every sub-advisor prompt states about the database it
@@ -45,6 +48,17 @@ func (a *Advisor) database() string {
 func (a *Advisor) reviewContext(ctx context.Context) context.Context {
 	env := promptEnv{platform: a.platform(), pgMajor: a.pgMajor}
 	return context.WithValue(a.factsContext(ctx), promptEnvKey{}, env)
+}
+
+// review runs the sub-advisors on one snapshot pair with this review's
+// prompt environment, then gates their findings for the same platform
+// and database; it returns how many sub-advisors hit the token budget.
+func (a *Advisor) review(ctx context.Context, snap, prev *collector.Snapshot) (
+	[]analyzer.Finding, int) {
+	cloudEnv, dbName := a.platform(), a.database()
+	all, budgetErrors := a.runSubAdvisors(a.reviewContext(ctx), snap, prev)
+	return GateConfigFindingsHost(all, a.hostMemory(), cloudEnv, dbName,
+		snap.ConfigData.PGSettings), budgetErrors
 }
 
 // promptEnvFrom is the review's environment; without one the platform is

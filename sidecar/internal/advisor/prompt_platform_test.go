@@ -25,13 +25,11 @@ func walOnlyConfig(cfgEnv string) *config.Config {
 	return cfg
 }
 
-// reviewOnce runs the enabled sub-advisors the way Analyze does and returns
-// the prompts they sent.
+// reviewOnce runs Analyze's review step and returns the prompts it sent.
 func reviewOnce(t *testing.T, a *Advisor, capture func() []capturedPrompt,
 	snap, prev *collector.Snapshot) []capturedPrompt {
 	t.Helper()
-	ctx := a.reviewContext(context.Background())
-	if _, budget := a.runSubAdvisors(ctx, snap, prev); budget != 0 {
+	if _, budget := a.review(context.Background(), snap, prev); budget != 0 {
 		t.Fatalf("budget errors = %d", budget)
 	}
 	return capture()
@@ -160,8 +158,7 @@ func TestPromptPlatform_ParallelAdvisorsNameTheirOwn(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < rounds; i++ {
 				snap, prev := walSnapshots()
-				ctx := r.a.reviewContext(context.Background())
-				r.a.runSubAdvisors(ctx, snap, prev)
+				r.a.review(context.Background(), snap, prev)
 			}
 		}(r)
 	}
@@ -234,5 +231,40 @@ func TestPromptPlatform_GateStillWithholdsRestrictedSetting(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Recommendation, "rds") {
 		t.Errorf("withheld finding does not name the platform: %q", got[0].Recommendation)
+	}
+}
+
+// The review that names rds in the prompt gates the answer for rds too: a
+// restricted proposal is withheld there and stays executable self-managed.
+func TestReview_PromptAndGateShareThePlatform(t *testing.T) {
+	cases := []struct {
+		env, note string
+		withheld  bool
+	}{
+		{"rds", "rds (managed service)", true},
+		{"self-managed", "Platform: self-managed", false},
+	}
+	for _, c := range cases {
+		t.Run(c.env, func(t *testing.T) {
+			mgr, capture := capturingManager(t, walAdvice)
+			a := New(nil, walOnlyConfig(""), nil, mgr, noopLog)
+			a.WithCloudEnv(c.env)
+			snap, prev := walSnapshots()
+			got, budget := a.review(context.Background(), snap, prev)
+			p := onlyPrompt(t, capture())
+			if budget != 0 || !strings.Contains(p.system, c.note) {
+				t.Fatalf("budget=%d; system prompt lacks %q:\n%s", budget, c.note, p.system)
+			}
+			if len(got) != 1 {
+				t.Fatalf("findings = %+v, want one", got)
+			}
+			const sql = "ALTER SYSTEM SET max_wal_size = '4GB'"
+			if c.withheld && (got[0].RecommendedSQL != "" || got[0].Severity != "info") {
+				t.Errorf("rds kept restricted SQL: %+v", got[0])
+			}
+			if !c.withheld && got[0].RecommendedSQL != sql {
+				t.Errorf("self-managed SQL = %q, want %q", got[0].RecommendedSQL, sql)
+			}
+		})
 	}
 }
