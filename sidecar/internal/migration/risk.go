@@ -15,6 +15,7 @@ type RiskAssessor struct {
 	logFn        func(string, string, ...any)
 	rowThreshold int64
 	timeouts     catalogread.Timeouts // bounds each live-metric read
+	repack       *repackCache         // nil without a pool: never named
 }
 
 // NewRiskAssessor creates a RiskAssessor backed by the given pool.
@@ -22,10 +23,14 @@ func NewRiskAssessor(
 	pool *pgxpool.Pool,
 	logFn func(string, string, ...any),
 ) *RiskAssessor {
-	return &RiskAssessor{
+	ra := &RiskAssessor{
 		pool: pool, logFn: logFn, rowThreshold: defaultDDLRowThreshold,
 		timeouts: catalogread.Default(),
 	}
+	if pool != nil {
+		ra.repack = newRepackCache(ra.probeRepack)
+	}
+	return ra
 }
 
 // SetCatalogReadTimeouts bounds the live-metric reads (table stats,
@@ -52,7 +57,7 @@ func (ra *RiskAssessor) Assess(
 		RequiresRewrite: c.RequiresRewrite,
 		TableName:       c.TableName,
 		SchemaName:      c.SchemaName,
-		SafeAlternative: c.SafeAlternative,
+		SafeAlternative: ra.safeAlternative(ctx, c),
 		Description:     c.Description,
 	}
 

@@ -97,7 +97,7 @@ func maintenanceRules() []ruleDefinition {
 			ID: "ddl_vacuum_full", LockLevel: "ACCESS EXCLUSIVE",
 			RequiresRewrite: true,
 			Description:     "VACUUM FULL rewrites the table and blocks all access",
-			SafeAltTemplate: "Use pg_repack or regular VACUUM instead",
+			SafeAltTemplate: "Use regular VACUUM instead",
 		},
 		{
 			ID: "ddl_refresh_not_concurrent", LockLevel: "ACCESS EXCLUSIVE",
@@ -109,7 +109,7 @@ func maintenanceRules() []ruleDefinition {
 			ID: "ddl_cluster", LockLevel: "ACCESS EXCLUSIVE",
 			RequiresRewrite: true,
 			Description:     "CLUSTER rewrites the table and blocks all access",
-			SafeAltTemplate: "Schedule during maintenance window or use pg_repack",
+			SafeAltTemplate: "Schedule during maintenance window",
 		},
 		{
 			ID: "ddl_set_tablespace", LockLevel: "ACCESS EXCLUSIVE",
