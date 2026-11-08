@@ -270,3 +270,15 @@ func TestDriftingHeldReasonAddsOneRow(t *testing.T) {
 		t.Fatalf("state %+v", st)
 	}
 }
+
+// A shadow kept by hysteresis may sit one step past bounds that narrowed
+// during its soak: the promoted value is clamped into the bounds.
+func TestShadowPromotionIsClampedToTheBounds(t *testing.T) {
+	in := p90Input(false, nil)
+	in.Proposal.Bounds.Max = 100
+	in.Proposal.Value = 100
+	res := Step(in)
+	if res.Next.Active == nil || *res.Next.Active != 100 || kinds(res.Events) != "promoted" {
+		t.Fatalf("shadow promoted outside the bounds: %+v", res)
+	}
+}
