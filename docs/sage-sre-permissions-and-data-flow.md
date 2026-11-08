@@ -64,7 +64,8 @@ monitored database                         pg_sage process                      
   nothing more starts by itself. Every expiry is a `system` transition on the event chain with
   `reason` `queue_expired` or `stale_evidence`. A concluded, inconclusive, failed or stopped run
   is never re-run automatically, and an operator's `idempotency_key` always returns the same
-  run. Exports carry `attempt`.
+  run. The investigation exports (JSON and Markdown) and a contested run's replay export
+  carry `attempt`; the replay case document itself is unchanged.
 
 ## Privileges
 
