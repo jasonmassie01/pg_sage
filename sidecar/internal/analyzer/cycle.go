@@ -63,6 +63,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 
 	// Deduplicate conflicting findings across advisors.
 	all = DeduplicateFindings(all, computeIOUtilPct(current), a.logFn)
+	all = annotateReloptionOverrides(all, current)
 	// A bounded query list cannot prove absent queries stopped spilling.
 	// Temp spills clear only on a new, observed, zero-spill execution.
 	a.finishTempSpillCycle(ctx, current, previous, all)
