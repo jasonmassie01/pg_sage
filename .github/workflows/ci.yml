@@ -79,6 +79,13 @@ jobs:
         working-directory: sidecar
         run: go vet ./...
 
+      # ci-04: compile every tagged suite (go vet builds test files and runs
+      # nothing), so a live suite cannot rot unbuilt. Keep this list in step
+      # with internal/testsupport/buildtags, which fails on a missing tag.
+      - name: Go vet (tagged suites, compile only)
+        working-directory: sidecar
+        run: go vet -tags=integration,e2e,perfgate,providerlive,cloudlive,convertscale ./...
+
       - name: Databricks Apps packaging tests
         run: python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
 

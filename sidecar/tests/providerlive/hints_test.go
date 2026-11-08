@@ -73,8 +73,8 @@ func verifyInactiveHintCapability(t *testing.T, ctx context.Context,
 	if mayPreload {
 		t.Fatal("hint activation remains possible; do not skip execution probe")
 	}
-	caps := fleet.CollectProviderCapabilities(ctx, f.pool, nil,
-		f.provider, "manual", false, time.Now())
+	// A nil explainer fails closed; only the extension evidence is checked.
+	caps := fleet.CollectProviderCapabilities(ctx, f.pool, f.provider, nil)
 	if caps.Extensions["pg_hint_plan"] != "installed_not_loaded" {
 		t.Fatal("product misreported installed but inactive hint module")
 	}
