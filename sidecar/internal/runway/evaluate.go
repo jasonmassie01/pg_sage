@@ -12,9 +12,11 @@ import (
 )
 
 // EvalInput is what one tick evaluates: the measured trends (and where
-// their row cap cut them) and the current tables, slots and sequences,
-// each with whether it could be read.
+// their row cap cut them), the current XID reading (nil when unreadable:
+// the wraparound trends are then held, not projected) and the current
+// tables, slots and sequences, each with whether it could be read.
 type EvalInput struct {
+	XID             *probes.XIDRunway
 	Trends          []probes.RunwayTrend
 	TrendsOK        bool
 	TrendsTruncated bool
@@ -89,9 +91,7 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 	var horizon, critical time.Duration
 	switch tr.Kind {
 	case probes.RunwayXID, probes.RunwayMXID:
-		r = Runway{Category: CategoryWraparound, ObjectType: "database", Identifier: tr.Kind,
-			Kind: sre.TriggerWraparound, Subject: tr.Kind}
-		horizon, critical = opts.WraparoundHorizon, opts.WraparoundCritical
+		return ageRunway(tr, in, opts)
 	case probes.RunwayDiskUsed, probes.RunwayWALSlot:
 		if !(tr.R2 >= levelMinR2) {
 			return Runway{}, false
@@ -109,17 +109,26 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 	default:
 		return Runway{}, false
 	}
+	if !project(&r, tr, horizon, critical) {
+		return Runway{}, false
+	}
+	r.Detail = trendDetail(tr, horizon)
+	r.Title, r.Recommendation = trendWords(r, tr)
+	return r, true
+}
+
+// project sets r's projection and severity when tr reaches its limit
+// inside horizon (critical inside critical); false when it does not.
+func project(r *Runway, tr probes.RunwayTrend, horizon, critical time.Duration) bool {
 	secs := tr.SecondsToLimit()
 	if math.IsNaN(secs) || !within(secs, horizon) {
-		return Runway{}, false
+		return false
 	}
 	r.SecondsToLimit, r.Severity = secs, SeverityWarning
 	if within(secs, critical) {
 		r.Severity = SeverityCritical
 	}
-	r.Detail = trendDetail(tr, horizon)
-	r.Title, r.Recommendation = trendWords(r, tr)
-	return r, true
+	return true
 }
 
 func walRunway(tr probes.RunwayTrend) Runway {
@@ -158,15 +167,14 @@ func finiteOrNil(v float64) any {
 	return round2(v)
 }
 
+// trendWords titles a disk, slot or sequence runway (ageWords titles the
+// wraparound ones).
 func trendWords(r Runway, tr probes.RunwayTrend) (string, string) {
 	when := (time.Duration(r.SecondsToLimit) * time.Second).Round(time.Minute)
-	what := map[string]string{probes.RunwayXID: "The XID age",
-		probes.RunwayMXID: "The multixact age", probes.RunwayDiskUsed: "Disk usage",
+	what := map[string]string{probes.RunwayDiskUsed: "Disk usage",
 		probes.RunwayWALSlot:  fmt.Sprintf("WAL retained by slot %s", tr.Subject),
 		probes.RunwaySequence: fmt.Sprintf("Sequence %s", tr.Subject)}[tr.Kind]
-	limit := map[string]string{probes.RunwayXID: "the wraparound warning limit",
-		probes.RunwayMXID:     "the wraparound warning limit",
-		probes.RunwayDiskUsed: "the declared disk capacity",
+	limit := map[string]string{probes.RunwayDiskUsed: "the declared disk capacity",
 		probes.RunwayWALSlot:  "its configured WAL maximum",
 		probes.RunwaySequence: "its binding limit"}[tr.Kind]
 	title := fmt.Sprintf("%s reaches %s in about %s", what, limit, when)

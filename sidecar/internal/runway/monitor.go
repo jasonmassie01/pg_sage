@@ -113,7 +113,7 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 	} else {
 		m.noteTruncation(set)
 	}
-	in := EvalInput{Trends: set.Trends, TrendsOK: err == nil,
+	in := EvalInput{XID: snap.XID, Trends: set.Trends, TrendsOK: err == nil,
 		TrendsTruncated: set.Truncated, TrendsLastKind: set.LastKind, Tables: snap.Tables,
 		TablesOK: snap.TablesOK, Slots: snap.Slots, SlotsOK: snap.SlotsOK,
 		Sequences: snap.Sequences, SequencesOK: snap.SequencesOK}

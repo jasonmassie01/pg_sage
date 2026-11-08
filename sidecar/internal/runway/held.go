@@ -42,7 +42,8 @@ func (in EvalInput) trendsComplete(cat string) bool {
 // tick could not measure, with the reason. Resolving treats them as
 // active: an unmeasured series keeps its finding open.
 //   - The cluster series (xid, mxid, disk) are held when unmeasured, or
-//     when they have no row in a complete read.
+//     when they have no row in a complete read; a measured xid or mxid
+//     series also when its freeze gate is unknown (no XID reading).
 //   - A slot or sequence is held only while the current reading still
 //     lists it, so a dropped one (or a sequence below the top N) may
 //     resolve. While that reading is unreadable, every unmeasured row is
@@ -68,15 +69,7 @@ func Holds(in EvalInput, opts Options) map[string]map[string]string {
 		}
 		held[cat][ident] = reason
 	}
-	cluster := []struct{ kind, cat, ident string }{
-		{probes.RunwayXID, CategoryWraparound, "xid"},
-		{probes.RunwayMXID, CategoryWraparound, "mxid"},
-		{probes.RunwayDiskUsed, CategoryWAL, "disk"}}
-	for _, c := range cluster {
-		if r := in.reason(rows, c.kind, probes.SubjectCluster); r != "" {
-			hold(c.cat, c.ident, r)
-		}
-	}
+	in.holdCluster(rows, opts, hold)
 	slots := in.OpenSlots
 	if in.SlotsOK {
 		slots = nil
@@ -97,6 +90,29 @@ func Holds(in EvalInput, opts Options) map[string]map[string]string {
 		hold(CategorySequence, n, r)
 	})
 	return held
+}
+
+// holdCluster holds the cluster series (xid, mxid, disk) that are
+// unmeasured, or have no row in a complete read, and a measured xid or
+// mxid series whose freeze gate is unknown (forecast-01: whether
+// freezing bounds its runway is unknown, so it is neither projected nor
+// cleared).
+func (in EvalInput) holdCluster(rows map[string]map[string]bool, opts Options,
+	hold func(cat, ident, reason string)) {
+	cluster := []struct{ kind, cat, ident string }{
+		{probes.RunwayXID, CategoryWraparound, "xid"},
+		{probes.RunwayMXID, CategoryWraparound, "mxid"},
+		{probes.RunwayDiskUsed, CategoryWAL, "disk"}}
+	for _, c := range cluster {
+		r := in.reason(rows, c.kind, probes.SubjectCluster)
+		if _, gated := wraparoundGate(c.kind, in.XID, opts.WraparoundGateMargin); r == "" &&
+			c.cat == CategoryWraparound && rows[c.kind][probes.SubjectCluster] && !gated {
+			r = HoldFreezeGateUnknown
+		}
+		if r != "" {
+			hold(c.cat, c.ident, r)
+		}
+	}
 }
 
 // reason is why the series (kind, subject) is held, "" when it is not:

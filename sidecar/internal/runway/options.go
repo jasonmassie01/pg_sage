@@ -74,6 +74,11 @@ type Options struct {
 	DiskCritical       time.Duration
 	SequenceHorizon    time.Duration
 	SequenceCritical   time.Duration
+	// WraparoundGateMargin lowers the wraparound gate below the effective
+	// freeze maximum by this share (0-MaxWraparoundGateMargin, default 0;
+	// no configuration key): an xid or mxid trend is projected only at or
+	// past freeze maximum x (1 - margin).
+	WraparoundGateMargin float64
 	// DiskCapacityBytes is the operator's declared capacity (0: unknown).
 	DiskCapacityBytes float64
 	// WALRetainedLimitBytes is a slot's limit while max_slot_wal_keep_size
@@ -102,6 +107,10 @@ func (o Options) validate() error {
 	if o.SequenceInterval < 0 || (o.SequenceInterval > 0 && o.SequenceInterval < o.Interval) {
 		return fmt.Errorf("runway monitor sequence interval %s must be 0 (every tick) or "+
 			"at least the interval %s", o.SequenceInterval, o.Interval)
+	}
+	if !(o.WraparoundGateMargin >= 0 && o.WraparoundGateMargin <= MaxWraparoundGateMargin) {
+		return fmt.Errorf("runway monitor wraparound gate margin %v must be 0-%v",
+			o.WraparoundGateMargin, MaxWraparoundGateMargin)
 	}
 	if o.SizeInterval < 0 || (o.SizeInterval > 0 && o.SizeInterval < o.Interval) {
 		return fmt.Errorf("runway monitor size interval %s must be 0 (every tick) or "+

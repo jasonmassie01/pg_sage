@@ -102,8 +102,8 @@ func TestGate_XIDPastFreezeMaxWarns(t *testing.T) {
 	if !strings.Contains(r.Recommendation, "autovacuum_freeze_max_age") {
 		t.Errorf("recommendation does not name the setting: %q", r.Recommendation)
 	}
-	if len(held[CategoryWraparound]) != 0 {
-		t.Errorf("a projected series was held: %v", held)
+	if r := heldReason(held, CategoryWraparound, "xid"); r != "" {
+		t.Errorf("a projected series was held (%q)", r)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestGate_FreezeResolvesAnXIDWarning(t *testing.T) {
 	}
 	rs, evaluated, held := evalAge(xidReading(1.5e8, 2e8),
 		ageTrend(probes.RunwayXID, 1.5e8, 2000, -15000), opts)
-	if len(rs) != 0 || len(held[CategoryWraparound]) != 0 ||
+	if len(rs) != 0 || heldReason(held, CategoryWraparound, "xid") != "" ||
 		!hasCategory(evaluated, CategoryWraparound) {
 		t.Fatalf("after the freeze: runways %+v held %v evaluated %v", rs, held, evaluated)
 	}

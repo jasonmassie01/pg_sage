@@ -137,9 +137,14 @@ func TestMonitorTick_LowAgeBurnOpensNoWraparoundFinding(t *testing.T) {
 	m := newTestMonitor(t, pool, unsampledXID(liveRunner(pool), nil), nil)
 	m.opts.MinSpan = time.Second
 	res := mustTick(t, ctx, m)
-	if n := countCategory(t, ctx, pool, CategoryWraparound); n != 0 || len(res.Runways) != 0 {
-		t.Fatalf("a low-age burn opened %d wraparound findings (runways %+v)", n,
-			res.Runways)
+	var wrap []Runway // other tests' series (sequences) may project too
+	for _, r := range res.Runways {
+		if r.Category == CategoryWraparound {
+			wrap = append(wrap, r)
+		}
+	}
+	if n := countCategory(t, ctx, pool, CategoryWraparound); n != 0 || len(wrap) != 0 {
+		t.Fatalf("a low-age burn opened %d wraparound findings (runways %+v)", n, wrap)
 	}
 	past := newTestMonitor(t, pool, unsampledXID(liveRunner(pool),
 		map[string]any{"freeze_max_age": int64(1000)}), nil)

@@ -1472,7 +1472,7 @@ each series and projects when the series reaches its limit:
 
 | Runway | Limit | Finding (category) | Investigation |
 |---|---|---|---|
-| XID or multixact age | the wraparound warning limit (2^31 - 1 - 40,000,000) | `forecast_wraparound_runway` (`xid`, `mxid`) | wraparound runway |
+| XID or multixact age, only at or past the cluster's `autovacuum_freeze_max_age` (`autovacuum_multixact_freeze_max_age`) | the wraparound warning limit (2^31 - 1 - 40,000,000) | `forecast_wraparound_runway` (`xid`, `mxid`) | wraparound runway |
 | A table 1.25 times past its freeze maximum | its effective `autovacuum_freeze_max_age` (the table's own setting when lower) | `forecast_wraparound_runway` (the table) | wraparound runway |
 | Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it; `0`, the default, means undeclared: nothing auto-detects capacity, so there is no disk runway and no disk-full credit) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
 | WAL a slot retains | `max_slot_wal_keep_size` when it is set, else the WAL custodian's 10 GiB ceiling | `forecast_wal_runway` (`slot:<name>`) | disk/WAL runway |
@@ -1494,6 +1494,21 @@ finding of a dropped slot or sequence (or one that fell out of the top sequences
 While the slots cannot be read, an open slot finding without samples is held too.
 When the trends read reaches its row cap, the categories it may have cut are not resolved
 until it fits again (logged once). A standby samples nothing (it is read-only).
+
+Anti-wraparound autovacuum freezes a table once its age passes `autovacuum_freeze_max_age`,
+which resets the age, so below that setting the XID runway is bounded by freezing however
+fast transactions consume XIDs: a busy, healthy cluster opens no wraparound finding. The
+XID (multixact) trend is projected only once the cluster's oldest age is at or past
+`autovacuum_freeze_max_age` (`autovacuum_multixact_freeze_max_age`), read with
+`current_setting` (postmaster-level on PostgreSQL 14-18; managed providers expose it the same
+way). Past it, the projection uses the net age slope (the age's own trend, freezing included)
+when it is known and rising, else the consumption rate; the finding's detail records
+`freeze_max_age`, `age`, `gate`, `projection_basis` (`net_age_slope` or `consumption_rate`),
+`age_rate_per_s` and `consumption_rate_per_s`. Below the setting, a stuck xmin holder is the
+xmin-horizon probe's and the overdue-table rule's (a table 1.25 times past its maximum). When
+the cluster's age or freeze maximum cannot be read, the XID finding is held, marked stale with
+`stale_reason` `freeze_gate_unknown`. On upgrade, an open XID or multixact finding on a
+cluster below the setting resolves on its first measured tick.
 
 A pre-incident investigation explains what drives the runway. Wraparound: a session,
 prepared transaction or replication slot holding the xmin horizon, busy, disabled or
