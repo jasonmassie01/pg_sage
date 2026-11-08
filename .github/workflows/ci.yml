@@ -152,9 +152,17 @@ jobs:
           SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
           PG_SAGE_PERF_SCALE: ${{ github.event_name == 'schedule' && 'large' || 'small' }}
           PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
+        shell: bash
         run: |
+          status=0
           go test ./cmd/pg_sage_sidecar -tags=perfgate \
-            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 1800s -v
+            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 1800s -json \
+            > ../perfgate.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../perfgate.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'cmd/pg_sage_sidecar TestPerfGate' \
+            -require 'cmd/pg_sage_sidecar TestPerfGateFirstLook' < ../perfgate.json || status=1
+          exit $status
 
       - name: Upload performance gate report
         if: ${{ !cancelled() }}
@@ -180,11 +188,14 @@ jobs:
           # A release report must meet the promotion bar's n >= 10 per
           # family (the smallest family has 3 scored scenarios).
           SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
             > ../bench-core.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-core.json || status=1
           exit $status
 
       - name: PGIncidentBench (M6 reactive families)
@@ -198,11 +209,14 @@ jobs:
           # A release report must meet the promotion bar's n >= 10 per
           # family (the smallest family has 3 scored scenarios).
           SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
             > ../bench-reactive.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-reactive.json || status=1
           exit $status
 
       - name: PGIncidentBench (M6 runway families)
@@ -216,11 +230,14 @@ jobs:
           # A release report must meet the promotion bar's n >= 10 per
           # family (the smallest family has 3 scored scenarios).
           SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
             > ../bench-runway.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-runway.json || status=1
           exit $status
 
       # PGIncidentBench writes its JSON result and Markdown summary here.
@@ -247,11 +264,14 @@ jobs:
         env:
           SAGE_SAFETY_BENCH_RUN: "1"
           SAGE_SAFETY_BENCH_REPORT_DIR: ${{ github.workspace }}/agentsafetybench
+        shell: bash
         run: |
           status=0
           go test ./safety-bench -run '^TestAgentSafetyBench$' -count=1 -timeout 600s \
             -json > ../safety-bench.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../safety-bench.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'safety-bench TestAgentSafetyBench' < ../safety-bench.json || status=1
           exit $status
 
       # The PG17 report is signed by safety-bench-sign and shipped; the other
@@ -264,11 +284,16 @@ jobs:
           path: agentsafetybench/
           if-no-files-found: warn
 
-      # Fails on any skipped test not justified in sidecar/.skip-allowlist.
+      # Fails on any skipped test not justified in sidecar/.skip-allowlist for
+      # PostgreSQL 17, and unless the alerting and notify database tests passed
+      # (alerting-12). shell: bash adds pipefail, so a missing -json file fails.
       - name: Skip budget
         if: ${{ !cancelled() }}
         working-directory: sidecar
-        run: cat ../unit.json ../integration.json ../e2e.json | go run ./cmd/skipbudget
+        shell: bash
+        run: |
+          cat ../unit.json ../integration.json ../e2e.json | go run ./cmd/skipbudget -pg 17 \
+            -require 'internal/alerting TestEvaluate_.*' -require 'internal/notify .*'
 
   # PostgreSQL 17 runs in the test job above; this covers the rest of the
   # supported range with the race detector and integration tags.
@@ -331,11 +356,14 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
             > ../bench-core.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-core.json || status=1
           exit $status
 
       - name: PGIncidentBench (M6 reactive families)
@@ -345,11 +373,14 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
             > ../bench-reactive.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-reactive.json || status=1
           exit $status
 
       - name: PGIncidentBench (M6 runway families)
@@ -359,11 +390,14 @@ jobs:
         env:
           SAGE_BENCH_RUN: "1"
           SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
             > ../bench-runway.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-runway.json || status=1
           exit $status
 
       # AgentSafetyBench v0 on the rest of the supported range. These reports
@@ -379,11 +413,14 @@ jobs:
         env:
           SAGE_SAFETY_BENCH_RUN: "1"
           SAGE_SAFETY_BENCH_REPORT_DIR: ${{ github.workspace }}/agentsafetybench
+        shell: bash
         run: |
           status=0
           go test ./safety-bench -run '^TestAgentSafetyBench$' -count=1 -timeout 600s \
             -json > ../safety-bench.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../safety-bench.json
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} -stale=off \
+            -require 'safety-bench TestAgentSafetyBench' < ../safety-bench.json || status=1
           exit $status
 
       - name: Upload AgentSafetyBench report (PG${{ matrix.pg }})
@@ -397,7 +434,10 @@ jobs:
       - name: Skip budget
         if: ${{ !cancelled() }}
         working-directory: sidecar
-        run: go run ./cmd/skipbudget < ../integration.json
+        shell: bash
+        run: |
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} \
+            -require 'internal/alerting TestEvaluate_.*' -require 'internal/notify .*' < ../integration.json
 
   # Agent governance tests that need servers of their own, so they skip in
   # the shared suites (listed in sidecar/.skip-allowlist) and none may skip
@@ -463,11 +503,18 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../agent-audit.json
           exit $status
 
+      # -require: a renamed test would make -run select nothing and pass.
       - name: Skip budget (no test may skip on its own servers)
         if: ${{ !cancelled() }}
         working-directory: sidecar
+        shell: bash
         run: |
-          cat ../kill.json ../agent-audit.json | go run ./cmd/skipbudget
+          cat ../kill.json ../agent-audit.json | go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'internal/agentguard TestKill_.*' \
+            -require 'internal/agentguard TestUnfreeze_.*' \
+            -require 'internal/agentguard TestRelease_.*' \
+            -require 'internal/pgaudit TestRealPGAuditCorrelation' \
+            -require 'internal/agentguard/broker TestActivityReportsDeallocAndFallsBack'
           if cat ../kill.json ../agent-audit.json |
             jq -e 'select(.Action=="skip" and .Test != null)' >/dev/null; then
             echo "a test skipped on its dedicated server" >&2
