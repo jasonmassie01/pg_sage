@@ -44,7 +44,9 @@ must leave ordinary explain, index advice and vector workflows usable. [Neon ext
 Neon and Supabase have no ordinary PostgreSQL superuser access. Portable maintenance actions on
 owned objects retain pg_sage's approvals, trust ramps, replica checks, maintenance windows and
 resource admission. User-context GUCs can use database/session/role scope. Recommendations use
-the collected pg_settings.context before generating ALTER DATABASE SQL. Unknown or instance scopes
+the collected pg_settings.context before generating ALTER DATABASE SQL (superuser-context
+settings only when the role holds SET on them). The executor captures the prior database setting
+and rolls back to it, so no caller-supplied rollback is needed. Unknown or instance scopes
 remain advisory; pg_sage does not send ALTER SYSTEM to these services. [Neon compatibility][neon-compat],
 [Supabase configuration][supa-config]
 
