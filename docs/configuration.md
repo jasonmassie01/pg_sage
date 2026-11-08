@@ -1694,7 +1694,9 @@ L2 needs a PGIncidentBench report for the family. You do not have to copy CI art
   They are also release assets (`pgincidentbench-<shard>.json` with
   `.json.sigstore.json`). The sidecar ingests them at startup and hourly, verifying the
   signature offline against the Sigstore trusted root embedded in the binary, so an
-  air-gapped install has them too.
+  air-gapped install has them too. The signer must be the `ci.yml` workflow of the
+  jasonmassie01/pg_sage repository, pinned by its immutable GitHub repository and owner
+  IDs, so a repository registered later under the same name cannot sign accepted reports.
 - **Bound to the build.** A report names the pg_sage version and commit it scored. A
   report for another build is refused, and stored reports of an older build stop
   counting after an upgrade (until the new release's report is ingested). A signature

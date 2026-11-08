@@ -592,6 +592,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # benches-10: sign only in the repository the sidecar pins by ID
+      # (ReleaseIdentity in sidecar/internal/benchsig/benchsig.go). A
+      # repository registered later under this name has other IDs, and a
+      # certificate from it would be refused by every shipped sidecar.
+      - name: Refuse to sign outside the pinned repository
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+        run: |
+          set -euo pipefail
+          if [ "$REPO_ID" != "1185895123" ] || [ "$OWNER_ID" != "143746527" ]; then
+            echo "::error::$GITHUB_REPOSITORY has repository ID $REPO_ID, owner ID $OWNER_ID."
+            echo "::error::Sidecars trust signatures only from 1185895123/143746527; change"
+            echo "::error::benchsig.ReleaseIdentity and this check together in a release."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -662,6 +679,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # benches-10: sign only in the repository the sidecar pins by ID
+      # (ReleaseIdentity in sidecar/internal/benchsig/benchsig.go). A
+      # repository registered later under this name has other IDs, and a
+      # certificate from it would be refused by every shipped sidecar.
+      - name: Refuse to sign outside the pinned repository
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+        run: |
+          set -euo pipefail
+          if [ "$REPO_ID" != "1185895123" ] || [ "$OWNER_ID" != "143746527" ]; then
+            echo "::error::$GITHUB_REPOSITORY has repository ID $REPO_ID, owner ID $OWNER_ID."
+            echo "::error::Sidecars trust signatures only from 1185895123/143746527; change"
+            echo "::error::benchsig.ReleaseIdentity and this check together in a release."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
