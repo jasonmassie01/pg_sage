@@ -83,6 +83,13 @@ func (c *ConfigController) RegisterOwner(owner ReconfigurationOwner) error {
 	return nil
 }
 
+// OwnerNames returns the registered owners in registration order, as a copy.
+func (c *ConfigController) OwnerNames() []string {
+	c.applyMu.Lock()
+	defer c.applyMu.Unlock()
+	return append([]string{}, c.ownerOrder...)
+}
+
 // NewConfigController publishes generation one from a detached initial config.
 func NewConfigController(
 	initial *Config, store RevisionStore, owners ...ReconfigurationOwner,

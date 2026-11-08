@@ -246,7 +246,7 @@ func TestLifecycleReferenceShowsTheSelfConfigClass(t *testing.T) {
 		t.Fatal("lifecycle reference has no self-config class column")
 	}
 	if !strings.Contains(doc,
-		"| `collector.interval_seconds` | `reconfigure` | `collector` | `derivable` |") {
+		"| `collector.interval_seconds` | `restart` | `-` | `derivable` |") {
 		t.Fatal("collector.interval_seconds row does not carry its class")
 	}
 	if !strings.Contains(doc, "| `trust.level` | `live_policy` | `trust_policy` | "+

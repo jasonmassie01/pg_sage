@@ -202,20 +202,21 @@ func (o failingCommitOwner) Prepare(
 
 type failingCommit struct{}
 
-func (failingCommit) Commit(context.Context) error   { return errors.New("collector refused") }
+func (failingCommit) Commit(context.Context) error   { return errors.New("llm refused") }
 func (failingCommit) Rollback(context.Context) error { return nil }
 func (failingCommit) Drain(context.Context) error    { return nil }
 
 func TestFleetReloadRollsBackWhenALaterOwnerFails(t *testing.T) {
 	env := newFleetReloadEnv(t, "ctl", "b")
-	if err := configController.RegisterOwner(failingCommitOwner{name: "collector"}); err != nil {
+	failing := failingCommitOwner{name: config.LLMOwner}
+	if err := configController.RegisterOwner(failing); err != nil {
 		t.Fatal(err)
 	}
 	extra := testdbExtra(t, env, "c")
 	oldB := fleetMgr.GetInstance("b")
 	err := env.reload(func(c *config.Config) {
 		c.Databases = append(withoutDatabase(c.Databases, "b"), extra)
-		c.Collector.IntervalSeconds = 1800
+		c.LLM.Model = "model-b"
 	})
 	if err != nil {
 		t.Fatalf("reload with a failing owner: %v", err)

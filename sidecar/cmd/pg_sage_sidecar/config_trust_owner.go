@@ -55,7 +55,7 @@ func persistMetaTrustLevel(
 	return err
 }
 
-func (o *trustPolicyOwner) Name() string { return "trust_policy" }
+func (o *trustPolicyOwner) Name() string { return config.TrustPolicyOwner }
 
 func (o *trustPolicyOwner) Prepare(
 	_ context.Context, active, desired config.ConfigSnapshot,

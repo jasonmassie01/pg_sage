@@ -37,8 +37,12 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	warnFastElevation(cfg, logWarn)
 	logTrustMeaning(cfg, logInfo, logWarn)
 	noticeLLMSetup(cfg, logInfo)
+	var owners []config.ReconfigurationOwner
+	if modeRegistersOwner(config.TrustPolicyOwner) {
+		owners = append(owners, newTrustPolicyOwner())
+	}
 	configController = config.NewConfigControllerAtGeneration(
-		cfg, generation, nil, newTrustPolicyOwner(),
+		cfg, generation, nil, owners...,
 	)
 	return nil
 }

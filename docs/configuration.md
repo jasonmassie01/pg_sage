@@ -14,6 +14,17 @@ snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
 `live_policy` field whose owner does not run in the current mode is treated
 as `restart`. In-flight work keeps its original snapshot.
 
+**Three owners rebuild in place.** The sidecar registers `trust_policy` and
+`llm` (the LLM connection: `llm.enabled`, `llm.endpoint`, `llm.api_key`,
+`llm.model`, `llm.auth` and its timeouts) in every mode, and `fleet_databases`
+(`databases` and `defaults.*`) in YAML fleet mode. Every other field,
+including `alerting.*`, `briefing.*` and the collector, analyzer, tuner,
+`schema_lint` and `auto_explain` intervals, is `restart`: a change made from
+Settings, the API or the YAML file is saved and reported as pending restart.
+A derived `collector.interval_seconds` is the exception on the derivation side:
+the collector re-reads it every cycle, so a promoted value applies live (see
+[derived settings](generated/derived-settings.md)).
+
 **Trust ceilings are live.** `trust.level`, `trust.tier3_safe`,
 `trust.tier3_moderate`, `trust.maintenance_window`, `trust.rollback_threshold_pct`,
 `trust.rollback_window_minutes`, `trust.rollback_cooldown_days` and

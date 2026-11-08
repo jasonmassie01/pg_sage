@@ -136,9 +136,29 @@ func (e *Engine) step(in Input, states map[string]State, now time.Time) []keySte
 	return steps
 }
 
+// cycleReaders are derived keys whose reader re-reads the per-database
+// runtime config every cycle. The engine writes promoted values into that
+// config, not through the config controller, so only these keys apply live;
+// every other key waits for a restart whatever its field lifecycle (an
+// operator edit of collector.interval_seconds also waits: no production
+// owner rebuilds the collector, config-07). Each entry needs a reader test
+// (docs_test.go).
+var cycleReaders = map[string]bool{
+	"collector.interval_seconds": true,
+}
+
+// isRestart reports whether a promoted value of key waits for a restart.
 func isRestart(key string) bool {
-	f, ok := config.LookupFieldLifecycle(key)
-	return !ok || f.Lifecycle == config.LifecycleRestart
+	return !cycleReaders[key]
+}
+
+// DerivedLifecycle is how a promoted value of key takes effect: "live" when
+// its reader follows the runtime config, otherwise "restart".
+func DerivedLifecycle(key string) string {
+	if isRestart(key) {
+		return "restart"
+	}
+	return "live"
 }
 
 // guardValidity holds every derived value that would make a valid runtime

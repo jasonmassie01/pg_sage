@@ -1,10 +1,13 @@
 package main
 
+import "github.com/pg-sage/sidecar/internal/config"
+
 // registerLLMConfigOwner binds the client registry to the active LLM config,
 // tracks the shared client, and registers the registry as the single "llm"
 // reconfiguration owner so every client follows live llm.* changes.
 func registerLLMConfigOwner() {
-	if configController == nil || llmClient == nil {
+	if configController == nil || llmClient == nil ||
+		!modeRegistersOwner(config.LLMOwner) {
 		return
 	}
 	llmClients.bind(configController.Active().Config.LLM)
