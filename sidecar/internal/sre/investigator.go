@@ -82,7 +82,7 @@ func (s *investigatorSession) loopConfig(ctx context.Context, d causal.Diagnosis
 			MaxCost:   s.plan.probeBudget(s.c.store.Limits(), cur.ProbeCount),
 			Wall:      wall,
 			MaxTokens: int(s.plan.MaxTokens), StepTokens: s.plan.StepTokens,
-			StepTimeout: s.c.cfg.ModelTimeout}}, nil, nil
+			StepTimeout: s.c.cfg.ModelTimeout, ReasoningPerCall: s.reasoning()}}, nil, nil
 }
 
 // seedEvidence is the stored evidence the model may cite from its first

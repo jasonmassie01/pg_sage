@@ -196,6 +196,14 @@ tokens, plus 16k reasoning tokens for thinking models; the daily allocation is
 `llm.token_budget_daily`. The release report of each milestone records measured token use
 for a live model.
 
+The tool-calling investigator reserves every call against its plan's token cap: the request
+estimate, the step's answer cap and, for thinking models, 2,048 reasoning tokens. Its loop
+counts the same reasoning allowance when it decides whether two more calls fit, so near the
+cap it asks only for the conclusion while that call still fits. If the cap still refuses a
+call that offered more than the conclusion (a resumed run finds earlier runs' tokens held),
+the call is retried once as conclusion-only, its answer capped at what remains (at least 256
+tokens). A refusal by a daily allocation is never retried.
+
 ## Who can do what
 
 | Role | Can |

@@ -118,8 +118,7 @@ func (s *PostgresStore) checkInvestigatorBudgets(ctx context.Context, tx pgx.Tx,
 	total := req.Input + req.Output + req.Reasoning
 	switch {
 	case held+total > capTokens:
-		return fmt.Errorf("%w: investigator tokens %d held of %d", ErrBudgetExhausted, held,
-			capTokens)
+		return &capRefusal{Held: held, Cap: capTokens}
 	case h.dbDay+total > s.limits.DatabaseDailyTokens:
 		return fmt.Errorf("%w: database daily allocation %d of %d held",
 			ErrBudgetExhausted, h.dbDay, s.limits.DatabaseDailyTokens)
@@ -129,6 +128,17 @@ func (s *PostgresStore) checkInvestigatorBudgets(ctx context.Context, tx pgx.Tx,
 	}
 	return nil
 }
+
+// capRefusal is a reservation the investigation's own token cap refused,
+// as opposed to a daily allocation: Held of Cap tokens are held.
+type capRefusal struct{ Held, Cap int64 }
+
+func (e *capRefusal) Error() string {
+	return fmt.Sprintf("%v: investigator tokens %d held of %d", ErrBudgetExhausted, e.Held,
+		e.Cap)
+}
+
+func (e *capRefusal) Unwrap() error { return ErrBudgetExhausted }
 
 func insertInvestigatorReservation(ctx context.Context, tx pgx.Tx, lease Lease,
 	req TokenRequest) (Reservation, error) {

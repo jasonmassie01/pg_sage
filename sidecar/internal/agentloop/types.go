@@ -99,15 +99,18 @@ func Abort(err error) error {
 // only conclude); MaxCalls counts tool calls asked for; MaxCost sums the
 // cost of tools that ran; MaxTokens counts reported (else estimated)
 // tokens; StepTokens is each call's completion cap and StepTimeout its
-// time cap within Wall.
+// time cap within Wall. ReasoningPerCall is the reasoning allowance a
+// thinking model's call reserves beyond StepTokens (0 for other models);
+// every token check counts it, as the caller's reservation does.
 type Budget struct {
-	MaxSteps    int
-	MaxCalls    int
-	MaxCost     int
-	Wall        time.Duration
-	MaxTokens   int
-	StepTokens  int
-	StepTimeout time.Duration
+	MaxSteps         int
+	MaxCalls         int
+	MaxCost          int
+	Wall             time.Duration
+	MaxTokens        int
+	StepTokens       int
+	StepTimeout      time.Duration
+	ReasoningPerCall int
 }
 
 // Final is the tool the model concludes with. Its arguments must be a
