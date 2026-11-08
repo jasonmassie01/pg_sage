@@ -14,6 +14,11 @@ import (
 
 var positionalParam = regexp.MustCompile(`\$[0-9]`)
 
+// hasLimit reports a LIMIT of exactly n rows (LIMIT 500 is not LIMIT 50).
+func hasLimit(sql string, n int) bool {
+	return regexp.MustCompile(fmt.Sprintf(`LIMIT %d\b`, n)).MatchString(sql)
+}
+
 func TestDisplaySQL_LockGraphIsBoundedAndIdentified(t *testing.T) {
 	got, err := DisplaySQL(LockGraph)
 	if err != nil {
@@ -43,7 +48,7 @@ func TestDisplaySQL_InlinesTheSpecCap(t *testing.T) {
 		if err != nil {
 			t.Fatalf("DisplaySQL(%s): %v", id, err)
 		}
-		if !strings.Contains(got, fmt.Sprintf("LIMIT %d", rows)) {
+		if !hasLimit(got, rows) {
 			t.Errorf("%s display SQL lacks LIMIT %d", id, rows)
 		}
 		if strings.Contains(got, "LIMIT $1") {
@@ -119,7 +124,7 @@ func TestDisplaySQL_EveryRenderableProbe(t *testing.T) {
 		if positionalParam.MatchString(got) {
 			t.Errorf("%s display SQL keeps a positional parameter", id)
 		}
-		if !strings.Contains(got, fmt.Sprintf("LIMIT %d", spec.MaxRows)) {
+		if !hasLimit(got, spec.MaxRows) {
 			t.Errorf("%s display SQL lacks LIMIT %d", id, spec.MaxRows)
 		}
 	}
