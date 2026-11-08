@@ -41,7 +41,7 @@ func TestCheckAllowsListedSkipAndReportsUnlisted(t *testing.T) {
 		event("skip", "internal/api", "TestBroken", "") +
 		event("pass", "internal/api", "TestFine", "")
 
-	report, err := Check(strings.NewReader(input), rules)
+	report, err := Check(strings.NewReader(input), rules, Options{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestCheckAllowsListedSkipAndReportsUnlisted(t *testing.T) {
 func TestCheckIgnoresPackageSkipsAndNonJSON(t *testing.T) {
 	input := "# github.com/pg-sage/sidecar/x\nnot json at all\n" +
 		event("skip", "internal/empty", "", "?   \tpkg\t[no test files]\n")
-	report, err := Check(strings.NewReader(input), nil)
+	report, err := Check(strings.NewReader(input), nil, Options{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestCheckIgnoresPackageSkipsAndNonJSON(t *testing.T) {
 }
 
 func TestCheckEmptyInput(t *testing.T) {
-	report, err := Check(strings.NewReader(""), nil)
+	report, err := Check(strings.NewReader(""), nil, Options{})
 	if err != nil || report.Skipped != 0 || len(report.Violations) != 0 {
 		t.Fatalf("empty input: report=%+v err=%v", report, err)
 	}
@@ -82,7 +82,7 @@ func TestCheckMatchesSubtestsAndAnchorsNames(t *testing.T) {
 	input := event("skip", "internal/livecloud", "TestLive/aws", "") +
 		event("skip", "internal/livecloud", "TestLiveExtra", "") +
 		event("skip", "internal/livecloudx", "TestLive", "")
-	report, err := Check(strings.NewReader(input), rules)
+	report, err := Check(strings.NewReader(input), rules, Options{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -97,12 +97,12 @@ func TestCheckMatchesSubtestsAndAnchorsNames(t *testing.T) {
 
 func TestParseRulesRejectsBadLines(t *testing.T) {
 	for name, text := range map[string]string{
-		"no reason":     "internal/rca TestX\n",
-		"empty reason":  "internal/rca TestX #   \n",
-		"one field":     "internal/rca # reason\n",
-		"bad test re":   "internal/rca Test( # reason\n",
-		"bad pkg re":    "internal/[ TestX # reason\n",
-		"three fields":  "internal/rca TestX extra # reason\n",
+		"no reason":    "internal/rca TestX\n",
+		"empty reason": "internal/rca TestX #   \n",
+		"one field":    "internal/rca # reason\n",
+		"bad test re":  "internal/rca Test( # reason\n",
+		"bad pkg re":   "internal/[ TestX # reason\n",
+		"three fields": "internal/rca TestX extra # reason\n",
 	} {
 		if _, err := ParseRules(strings.NewReader(text)); err == nil {
 			t.Errorf("%s: ParseRules accepted %q", name, text)
@@ -141,7 +141,7 @@ func TestCheckKeepsReasonPrintedAfterSkipLine(t *testing.T) {
 	input := event("output", "internal/x", "TestA", "--- SKIP: TestA (0.00s)\n") +
 		event("skip", "internal/x", "TestA", "") +
 		event("output", "internal/x", "TestA", "    a_test.go:9: needs pg_hint_plan\n")
-	report, err := Check(strings.NewReader(input), nil)
+	report, err := Check(strings.NewReader(input), nil, Options{})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
