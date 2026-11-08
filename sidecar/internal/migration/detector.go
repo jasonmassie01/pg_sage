@@ -19,7 +19,7 @@ type Detector struct {
 	logFn        func(string, string, ...any)
 	knownQueries map[int]string // pid -> last seen query
 	findingSink  FindingSink
-	stale        *staleResolver
+	stale        *StaleResolver
 }
 
 // NewDetector creates a Detector for activity-based DDL detection.
@@ -38,13 +38,21 @@ func NewDetector(
 	}
 }
 
+// WithFindingSink persists detected migration findings.
 func (d *Detector) WithFindingSink(sink FindingSink) *Detector {
 	d.findingSink = sink
-	if sink != nil {
-		d.stale = newStaleResolver(d.pool, d.logFn)
-	}
 	return d
 }
+
+// WithStaleResolver gives the detector the database's shared resolver of
+// stale findings; the log detector gets the same one.
+func (d *Detector) WithStaleResolver(r *StaleResolver) *Detector {
+	d.stale = r
+	return d
+}
+
+// StaleResolver is the resolver the detector runs (nil when none).
+func (d *Detector) StaleResolver() *StaleResolver { return d.stale }
 
 // ddlActivitySQL finds DDL running in THIS database (pg_stat_activity is
 // cluster-wide, G7-B17), excluding pg_sage's own backends (G7-B27).

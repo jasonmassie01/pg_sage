@@ -27,20 +27,23 @@ func countResolvers(t *testing.T) *int {
 	return &n
 }
 
-func testMigrationAdvisor() *migration.Advisor {
-	cfg := &config.MigrationConfig{Enabled: true, ActivityPolling: true, LogDetection: true}
-	return migration.NewAdvisor(nil, cfg, 170000, "orders",
+func testMigrationAdvisor(mcfg *config.MigrationConfig) *migration.Advisor {
+	return migration.NewAdvisor(nil, mcfg, 170000, "orders",
 		func(string, string, ...any) {}, nil)
 }
+
+// wiringPool is a pool value the wiring can hold; nothing connects to it.
+var wiringPool = &pgxpool.Pool{}
 
 // State (migration-12): with activity polling and log detection both on,
 // one database gets exactly one stale-finding resolver, shared by both
 // detectors, so the resolve UPDATE runs once per interval, not twice.
 func TestMigrationDetectorsShareOneResolver(t *testing.T) {
 	n := countResolvers(t)
-	findings := store.NewMigrationSafetyFindingStore(nil)
+	findings := store.NewMigrationSafetyFindingStore(wiringPool)
+	mcfg := &config.MigrationConfig{Enabled: true, ActivityPolling: true, LogDetection: true}
 	detector, logDetector := newMigrationDetectors(
-		nil, testMigrationAdvisor(), findings, true, true)
+		wiringPool, testMigrationAdvisor(mcfg), findings, mcfg, true)
 	if detector == nil || logDetector == nil {
 		t.Fatalf("detector=%v logDetector=%v, want both", detector, logDetector)
 	}
@@ -69,9 +72,11 @@ func TestMigrationDetectorsResolverPerEnabledSet(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := countResolvers(t)
-			findings := store.NewMigrationSafetyFindingStore(nil)
+			findings := store.NewMigrationSafetyFindingStore(wiringPool)
+			mcfg := &config.MigrationConfig{Enabled: true, ActivityPolling: tc.activity,
+				LogDetection: tc.logs}
 			detector, logDetector := newMigrationDetectors(
-				nil, testMigrationAdvisor(), findings, tc.activity, tc.logs)
+				wiringPool, testMigrationAdvisor(mcfg), findings, mcfg, tc.logs)
 			if (detector != nil) != tc.wantDet || (logDetector != nil) != tc.wantLog {
 				t.Fatalf("detector=%v logDetector=%v, want %v/%v",
 					detector != nil, logDetector != nil, tc.wantDet, tc.wantLog)

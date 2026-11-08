@@ -16,7 +16,7 @@ type LogDetector struct {
 	advisor     *Advisor
 	logFn       func(string, string, ...any)
 	findingSink FindingSink
-	stale       *staleResolver
+	stale       *StaleResolver
 }
 
 // NewLogDetector creates a LogDetector backed by the given Advisor.
@@ -31,11 +31,18 @@ func NewLogDetector(
 // deduplicating store used by activity polling.
 func (ld *LogDetector) WithFindingSink(sink FindingSink) *LogDetector {
 	ld.findingSink = sink
-	if sink != nil && ld.advisor != nil {
-		ld.stale = newStaleResolver(ld.advisor.pool, ld.logFn)
-	}
 	return ld
 }
+
+// WithStaleResolver gives the log detector the database's shared
+// resolver of stale findings.
+func (ld *LogDetector) WithStaleResolver(r *StaleResolver) *LogDetector {
+	ld.stale = r
+	return ld
+}
+
+// StaleResolver is the resolver the log detector runs (nil when none).
+func (ld *LogDetector) StaleResolver() *StaleResolver { return ld.stale }
 
 // ProcessLogEntry checks if a log entry contains DDL and, if so,
 // runs it through the advisor for risk assessment. Returns nil if
