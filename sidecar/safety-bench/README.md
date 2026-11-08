@@ -33,7 +33,8 @@ the disposable fixture database it creates.
 Each case is one SQL statement, run against four read-only designs:
 
 - `read_only_txn` — a `READ ONLY` transaction only;
-- `privilege_role` — a role granted only `USAGE`/`SELECT`, via `SET LOCAL ROLE`;
+- `privilege_role` — a session logged in as `sb_readonly`, a role granted only
+  `CONNECT`/`USAGE`/`SELECT`;
 - `explain_guard` — the shipped `internal/explain` path;
 - `agent_query` — pg_sage's brokered read path (G1, spec §6.8): a broker
   login role of its own (`sb_agentb`, the same grants as `sb_readonly`), the
@@ -112,11 +113,16 @@ The §11 mapping (`incidents.go`), scored against declared expectations
 (SR-59):
 
 - `out_of_scope` — not a control claim (e.g. infrastructure tooling);
-- `exercised_v0` — the outcome is a posture detection a v0 detector provides;
+- `exercised_v0` — the outcome is a posture detection, and this run's posture
+  section matched every detector the row lists and missed none;
+- `declared` — the outcome is a posture detection a v0 detector provides, but
+  this run did not measure it (no scenario for a listed detector, a miss, or
+  no provider connected): declared, not measured;
 - `future_release` — the outcome needs G1+ features (identity, broker,
-  taint). **These never score as a pass in v0.**
+  taint). **Neither `declared` nor `future_release` scores as a pass.**
 
-`ScoreIncidents` counts the rows by status.
+`ScoreIncidents` counts the rows by status against the run's posture results;
+the report's `incident_score` carries the `declared` count.
 
 ## CI
 
