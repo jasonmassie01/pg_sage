@@ -255,3 +255,25 @@ func rowsWith(rows []diagRow, col string, want any) []diagRow {
 	}
 	return out
 }
+
+// The connection diagnostic counts every slot a normal role cannot use:
+// superuser_reserved_connections plus, on PG16+, reserved_connections.
+func TestConnectionDiagnosticCountsReservedSlots(t *testing.T) {
+	conn := diagConnect(t, guardedDSN(t), "")
+	var want int64
+	if err := conn.QueryRow(context.Background(), `SELECT
+		current_setting('superuser_reserved_connections')::int8
+		+ COALESCE(current_setting('reserved_connections', true)::int8, 0)`).
+		Scan(&want); err != nil {
+		t.Fatalf("read the reserved slots: %v", err)
+	}
+	rows := runDiagnostic(t, conn, "diagnose_connection_exhaustion")[probes.ConnectionSaturation]
+	if len(rows) == 0 {
+		t.Fatal("connection diagnostic returned no rows")
+	}
+	for _, row := range rows {
+		if got := mustInt(t, row, "reserved_connections"); got != want {
+			t.Fatalf("reserved_connections = %d, want %d", got, want)
+		}
+	}
+}

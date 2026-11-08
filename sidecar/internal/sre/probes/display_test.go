@@ -154,25 +154,30 @@ func TestDisplaySQL_ConcurrentCallersAgree(t *testing.T) {
 }
 
 // connection_saturation v4 (playbooks-04): from PostgreSQL 16 the slots
-// a normal role cannot use include reserved_connections.
+// a normal role cannot use include reserved_connections. Every version's
+// variant reads it as an optional setting, so the case diagnostic, which
+// displays the lowest variant, counts it on PG16+ too.
 func TestConnectionSaturation_V4CountsReservedConnectionsFrom16(t *testing.T) {
 	spec, ok := Catalog().Spec(ConnectionSaturation)
 	if !ok || spec.Version != "v4" {
 		t.Fatalf("connection_saturation spec = %+v, want v4", spec)
 	}
-	reserved := "current_setting('reserved_connections')"
-	for version, want := range map[int]bool{140000: false, 150000: false,
-		160000: true, 170000: true, 180000: true} {
+	reserved := "current_setting('reserved_connections', true)"
+	for _, version := range []int{140000, 150000, 160000, 170000, 180000} {
 		v, ok := spec.VariantFor(version)
 		if !ok {
 			t.Fatalf("no connection_saturation variant for %d", version)
 		}
-		if got := strings.Contains(v.SQL, reserved); got != want {
-			t.Errorf("version %d variant reads reserved_connections = %v, want %v",
-				version, got, want)
+		if !strings.Contains(v.SQL, reserved) {
+			t.Errorf("version %d variant does not read %s", version, reserved)
 		}
 		if !strings.HasPrefix(v.SQL, "/* pg_sage sre:connection_saturation v4 */") {
 			t.Errorf("version %d variant identity comment: %.60s", version, v.SQL)
 		}
+	}
+	display, err := DisplaySQL(ConnectionSaturation)
+	if err != nil || !strings.Contains(display, reserved) {
+		t.Fatalf("connection_saturation display SQL ignores reserved_connections "+
+			"(err %v): %s", err, display)
 	}
 }
