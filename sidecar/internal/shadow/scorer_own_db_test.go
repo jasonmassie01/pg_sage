@@ -97,9 +97,13 @@ func TestScorerOwnIndexBeyondTheFactWindowIsNotExternal(t *testing.T) {
 	runOnce(t, newScorer(pool, fastOptions()))
 	assertNotApplied(t, s, d.ID)
 	unscoredAtHorizon(t, pool, s, d.ID)
+	// Acceptance CHECK-03: no counted external score has a pg_sage index
+	// create after its decision.
 	var external int
 	if err := pool.QueryRow(context.Background(), `SELECT count(*)
-		FROM sage.shadow_decision WHERE score_source = 'external' AND counted`).
+		FROM sage.shadow_decision d JOIN sage.action_log l
+		  ON l.executed_at >= d.recorded_at AND l.action_type = 'create_index'
+		WHERE d.score_source = 'external' AND d.counted`).
 		Scan(&external); err != nil || external != 0 {
 		t.Fatalf("counted external scores = %d (%v), want 0", external, err)
 	}
