@@ -8,6 +8,16 @@ import (
 
 // SQL constants for each collection category.
 
+// notTempRel is the catalog reads' predicate that leaves out temporary
+// relations (collection-03): other sessions' and pg_sage's own. No other
+// session can vacuum, analyze or index them, and they vanish with their
+// session, so they are not the application's objects. Unlogged relations
+// ('u') are, and stay. Every relation read carries it, so the reads
+// cannot drift apart.
+func notTempRel(alias string) string {
+	return alias + ".relpersistence <> 't'"
+}
+
 // sageTag marks every collector query so pg_sage's own catalog reads
 // (pg_stat_activity, pg_stat_user_tables, pg_replication_slots, …) are
 // recognized and excluded by the self-monitoring filter. These queries
@@ -114,7 +124,7 @@ SELECT attname::text FROM pg_attribute
 // reloptions rides on the same page: the deterministic rules need each
 // table's own storage parameters whether or not the advisor's
 // configuration snapshot runs (rules-02).
-const tableStatsSQL = sageTag + `
+var tableStatsSQL = sageTag + `
 SELECT n.nspname, c.relname,
        pg_stat_get_numscans(c.oid), pg_stat_get_tuples_returned(c.oid),
        COALESCE(ix.idx_scan, 0),
@@ -151,6 +161,7 @@ SELECT n.nspname, c.relname,
    AND c.relkind IN ('r', 'm', 'p')
    AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
    AND n.nspname !~ '^pg_toast'
+   AND ` + notTempRel("c") + `
  ORDER BY c.oid
  LIMIT $2`
 
@@ -159,7 +170,7 @@ SELECT n.nspname, c.relname,
 // 35k definitions re-derived every minute). Sizes are relpages estimates;
 // def_version identifies the catalog rows a cached definition was read
 // from (index row and file, table row, schema row).
-const indexStatsSQL = sageTag + `
+var indexStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(s.idx_scan, 0), COALESCE(s.idx_tup_read, 0),
        COALESCE(s.idx_tup_fetch, 0),
@@ -178,11 +189,12 @@ SELECT s.schemaname, s.relname, s.indexrelname,
   JOIN pg_namespace n ON n.oid = tc.relnamespace
   JOIN pg_am am ON am.oid = ic.relam
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ` + notTempRel("ic") + ` AND ` + notTempRel("tc") + `
    AND s.indexrelid > $1
  ORDER BY s.indexrelid
  LIMIT $2`
 
-const foreignKeysSQL = sageTag + `
+var foreignKeysSQL = sageTag + `
 SELECT cl.relname AS table_name,
        cl2.relname AS referenced_table,
        a.attname AS fk_column,
@@ -195,6 +207,7 @@ SELECT cl.relname AS table_name,
        AND a.attnum = ANY(con.conkey)
  WHERE con.contype = 'f'
    AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ` + notTempRel("cl") + ` AND ` + notTempRel("cl2") + `
  ORDER BY cl.relname, con.conname`
 
 // cacheHitRatioExpr is the buffer cache hit ratio as a FRACTION in
@@ -242,7 +255,7 @@ SELECT backend_type, object, context,
  LIMIT 100`
 
 // Partition inheritance: maps child tables to their parent.
-const partitionInheritanceSQL = sageTag + `
+var partitionInheritanceSQL = sageTag + `
 SELECT c.relname AS child_table,
        n.nspname AS child_schema,
        p.relname AS parent_table,
@@ -253,6 +266,7 @@ SELECT c.relname AS child_table,
   JOIN pg_class p ON p.oid = i.inhparent
   JOIN pg_namespace pn ON pn.oid = p.relnamespace
  WHERE n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ` + notTempRel("c") + ` AND ` + notTempRel("p") + `
  ORDER BY parent_schema, parent_table, child_schema, child_table`
 
 // pg_prepared_xacts: two-phase commit transactions that survive

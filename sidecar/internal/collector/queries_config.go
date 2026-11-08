@@ -26,13 +26,14 @@ const configSettingsSQL = `/* pg_sage */
 		      'hash_mem_multiplier')`
 
 // configReloptionsSQL lists the tables with per-table storage options
-// (autovacuum overrides).
-const configReloptionsSQL = `/* pg_sage */
+// (autovacuum overrides), temporary tables left out (collection-03).
+var configReloptionsSQL = `/* pg_sage */
 		SELECT n.nspname, c.relname, c.reloptions::text
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname NOT IN ('pg_catalog','information_schema','sage','google_ml')
 		  AND c.relkind = 'r'
+		  AND ` + notTempRel("c") + `
 		  AND c.reloptions IS NOT NULL`
 
 // walPositionSQL reads the WAL position on a primary and on a standby,

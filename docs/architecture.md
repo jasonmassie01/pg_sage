@@ -60,6 +60,10 @@ cycle. Only the `system` category, the snapshot's spine, fails the whole snapsho
 pg_sage does not collect (`io` below PostgreSQL 16, `config_data` without an advisor) is not
 collected, which is different from unavailable.
 
+The `tables`, `indexes`, `foreign_keys`, `partitions` and reloptions reads leave out temporary
+relations (`relpersistence = 't'`: other sessions' and pg_sage's own), which no other session
+can vacuum, analyze or index; unlogged tables are still collected.
+
 The catalog categories and the extras (`io`, `prepared_xacts`, `partitions`, `config_data`)
 share one retry budget per cycle: a read that hit a statement or lock timeout is read once
 more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
