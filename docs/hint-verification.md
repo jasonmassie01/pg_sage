@@ -522,15 +522,53 @@ current database (one row per role and toplevel flag), so two roles running
 the same statement cannot make the hint look idle. If `pg_stat_statements`
 or `pg_stat_statements_info` cannot be read, the pass counts an error and
 leaves the hint untouched (fail closed). Dormant hints count as covered:
-the tuner does not propose a hint again for their query.
+the tuner does not propose a hint again for their query (see
+[One hint per statement](#one-hint-per-statement)).
+
+## One hint per statement
+
+pg_sage proposes at most one hint per statement, and it checks this against
+the database on every proposal, not only against its in-memory cooldown
+(which now only spaces out repeat proposals for `trust.cascade_cooldown_cycles`
+cycles). Before the tuner or the tuning agent proposes a hint for a queryid
+it reads `sage.query_hints` and `hint_plan.hints` for it:
+
+| What it finds | Deterministic tuner pass | Tuning agent hint |
+|---------------|--------------------------|-------------------|
+| Nothing | proposes the hint | proposes the hint |
+| An open `proposed` row, nothing installed | refreshes that proposal in place (never a second row) | refused as a duplicate |
+| pg_sage's own hint installed, or an `active` / `dormant` row | proposes nothing | refused as a duplicate |
+| A `hint_plan.hints` row whose text no pg_sage record carries (an operator's own hint, for any `application_name`) | an informational finding, "operator hint present", with no SQL | refused (`ErrForeignHint`), rejected as a duplicate |
+
+If that read fails, nothing is proposed (fail closed): the tuner pass reports
+the error and the agent's hint is refused.
+
+The apply SQL is a plain insert:
+
+```sql
+INSERT INTO hint_plan.hints (query_id, application_name, hints)
+VALUES (4242, '', $sageqh$HashJoin(o l)$sageqh$)
+```
+
+If a row for the query appeared between the proposal and its approval,
+pg_hint_plan 1.7's unique index on `(query_id, application_name)` rejects the
+insert (SQLSTATE 23505). The action ends `failed`, no rollback is monitored,
+and the existing row is untouched. pg_sage treats the hint table as ready
+only when it has that unique index (valid, without a predicate, on
+`query_id` and `application_name`); without it, as with pg_hint_plan below
+1.7 (the PG14-16 builds), hint findings stay advisory and carry no SQL. In
+fleet mode the check runs per database. Replacing an installed hint is not
+something pg_sage does; change or remove an operator hint by hand.
 
 ## Rollback and removal touch only pg_sage's own hint
 
-pg_sage's apply INSERT is a no-op when a `hint_plan.hints` row already exists
-for the query (for example an operator's own hint). So every DELETE pg_sage
-builds for `hint_plan.hints` (an action's rollback, and the
-`query_hint_retirement` removal of a `retired` or `broken` hint) matches the
-query id, `application_name = ''` and the exact hint text pg_sage recorded:
+Releases before the one-hint check used an apply INSERT that was a silent
+no-op when a `hint_plan.hints` row already existed for the query (for example
+an operator's own hint), and actions they recorded may still be rolled back.
+So every DELETE pg_sage builds for `hint_plan.hints` (an action's rollback,
+and the `query_hint_retirement` removal of a `retired` or `broken` hint)
+matches the query id, `application_name = ''` and the exact hint text pg_sage
+recorded:
 
 ```sql
 DELETE FROM hint_plan.hints
@@ -538,12 +576,15 @@ DELETE FROM hint_plan.hints
    AND hints = $sageqh$HashJoin(o l)$sageqh$
 ```
 
-Rolling back an action whose INSERT changed nothing deletes nothing, and the
+Rolling back an older action whose INSERT changed nothing deletes nothing, and the
 operator's row stays. The removal finding is emitted only while the installed
 row still holds the retired hint's text.
 
-Actions recorded by earlier releases carry a rollback DELETE without the
-hint-text predicate. At rollback time (manual or automatic) the executor
+Actions recorded by earlier releases keep the SQL they were recorded with.
+Their apply INSERT may carry the old `INSERT ... SELECT ... WHERE NOT EXISTS`
+form; pg_sage still reads the hint text from it. Their rollback DELETE may
+lack the hint-text predicate, so rolling such an action back now deletes only
+a row whose text matches pg_sage's own. At rollback time (manual or automatic) the executor
 rewrites it to the scoped form, using the text in `sage.query_hints` for that
 query: the text the action's own INSERT installed, or, when the INSERT cannot
 be read, the query's only recorded text. If no single recorded text matches,
