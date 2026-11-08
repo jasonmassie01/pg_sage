@@ -3,56 +3,15 @@ package tuning
 import (
 	"errors"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Identifiers: catalog names are folded like PostgreSQL folds them, and
-// rendered quoted only when they must be (upper case, special characters
-// or a reserved word), so "public.orders" and `"Sales"."Orders"` are the
-// canonical forms of the tables the agent names.
-
-// reservedWords are PostgreSQL's reserved key words: an identifier spelled
-// like one must be quoted.
-var reservedWords = map[string]bool{
-	"all": true, "analyse": true, "analyze": true, "and": true, "any": true,
-	"array": true, "as": true, "asc": true, "asymmetric": true, "both": true,
-	"case": true, "cast": true, "check": true, "collate": true, "column": true,
-	"constraint": true, "create": true, "current_catalog": true,
-	"current_date": true, "current_role": true, "current_time": true,
-	"current_timestamp": true, "current_user": true, "default": true,
-	"deferrable": true, "desc": true, "distinct": true, "do": true, "else": true,
-	"end": true, "except": true, "false": true, "fetch": true, "for": true,
-	"foreign": true, "from": true, "grant": true, "group": true, "having": true,
-	"in": true, "initially": true, "intersect": true, "into": true,
-	"lateral": true, "leading": true, "limit": true, "localtime": true,
-	"localtimestamp": true, "not": true, "null": true, "offset": true, "on": true,
-	"only": true, "or": true, "order": true, "placing": true, "primary": true,
-	"references": true, "returning": true, "select": true, "session_user": true,
-	"some": true, "symmetric": true, "system_user": true, "table": true,
-	"then": true, "to": true, "trailing": true, "true": true, "union": true,
-	"unique": true, "user": true, "using": true, "variadic": true, "when": true,
-	"where": true, "window": true, "with": true,
-}
-
-// quoteIdent renders a catalog name: bare when PostgreSQL would read it
-// back unchanged, otherwise double-quoted.
-func quoteIdent(name string) string {
-	bare := name != "" && !reservedWords[name] && (name[0] < '0' || name[0] > '9')
-	for _, r := range name {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
-			bare = false
-			break
-		}
-	}
-	if bare {
-		return name
-	}
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-// qualified is the canonical "schema.name" of a catalog object.
-func qualified(schema, name string) string {
-	return quoteIdent(schema) + "." + quoteIdent(name)
-}
+// rendered by sqlident, quoted only when they must be (upper case, special
+// characters or a key word that the server's quote_ident quotes), so
+// "public.orders" and `"Sales"."Orders"` are the canonical forms of the
+// tables the agent names.
 
 var errBadIdent = errors.New("not an identifier")
 
@@ -142,5 +101,5 @@ func canonicalRef(ref string) string {
 	if !ok {
 		return ""
 	}
-	return qualified(schema, name)
+	return sqlident.Qualified(schema, name)
 }

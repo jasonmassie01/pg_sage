@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -103,7 +104,7 @@ func splitFacts(all []facts.Fact) (confirmed, rejectedFixtures []facts.Fact) {
 // classifyTable is a table's class (sage, test or app) and its routes.
 func classifyTable(schema, rel string, confirmed, rejectedFixtures []facts.Fact,
 	now time.Time) TableInfo {
-	name := qualified(schema, rel)
+	name := sqlident.Qualified(schema, rel)
 	info := TableInfo{Name: name, Class: ClassApp}
 	if schema == "sage" {
 		info.Class, info.Reason = ClassSage, "pg_sage's own schema"
