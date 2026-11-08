@@ -46,6 +46,9 @@ var fenceCensus = map[string]fenceSite{
 		prompt: "internal/facts/model.go"},
 	"internal/firstlook/summary.go:Summarizer.Summarize": {
 		prompt: "internal/firstlook/summary.go"},
+	"internal/llm/client.go:Client.Chat": {
+		exempt: "compatibility wrapper: it forwards its caller's system prompt to " +
+			"ChatResult, and every caller is a site of its own in this table"},
 	"internal/llm/manager.go:Manager.ChatForPurpose": {
 		exempt: "forwarding wrapper: it sends the system prompt its caller built, " +
 			"and every caller is a site of its own in this table"},
@@ -71,7 +74,9 @@ var fenceCensus = map[string]fenceSite{
 		prompt: "internal/tuning/prompt.go"},
 }
 
-var modelCallNames = map[string]bool{"Chat": true, "ChatWithTools": true, "ChatForPurpose": true}
+var modelCallNames = map[string]bool{
+	"Chat": true, "ChatResult": true, "ChatWithTools": true, "ChatForPurpose": true,
+}
 
 const sidecarRoot = "../.."
 
@@ -105,8 +110,9 @@ func TestFenceCensus(t *testing.T) {
 	}
 }
 
-// modelCallSites lists every x.Chat / x.ChatWithTools / x.ChatForPurpose
-// call in the non-test files under internal/ and cmd/ as file:func.
+// modelCallSites lists every x.Chat / x.ChatResult / x.ChatWithTools /
+// x.ChatForPurpose call in the non-test files under internal/ and cmd/ as
+// file:func.
 func modelCallSites(t *testing.T) []string {
 	t.Helper()
 	set := map[string]bool{}

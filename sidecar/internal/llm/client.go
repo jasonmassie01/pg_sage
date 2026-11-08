@@ -142,59 +142,17 @@ func (c *Client) IsCircuitOpen() bool {
 	return true
 }
 
-// Chat sends a chat completion request. A blank completion returns
-// ErrEmptyResponse (tokens are still charged); it is not counted as a
-// provider failure by the circuit breaker.
+// Chat sends a chat completion request and returns the content and the
+// tokens charged. It is ChatResult without the truncation signal; see
+// there for empty and truncated answers.
 func (c *Client) Chat(
 	ctx context.Context,
 	system string,
 	user string,
 	maxTokens int,
 ) (string, int, error) {
-	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
-	defer finish()
-	if err := c.checkAvailable(cfg); err != nil {
-		return "", 0, err
-	}
-	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
-	throttleKey := requestThrottleKey(cfg, system, user)
-	if err := c.acquireThrottle(throttleKey, cfg.CooldownSeconds); err != nil {
-		return "", 0, err
-	}
-	throttleSuccess := false
-	defer func() { c.releaseThrottle(throttleKey, throttleSuccess) }()
-	external := externalReservation(system, user, maxTokens)
-	reservation, err := c.reserveBudget(cfg, maxTokens, external)
-	if err != nil {
-		return "", 0, err
-	}
-	reconciled := false
-	defer func() {
-		if !reconciled {
-			c.releaseBudget(reservation)
-		}
-	}()
-
-	chatResp, err := c.sendChat(ctx, requestCtx, cfg, system, user, maxTokens)
-	if err != nil {
-		return "", 0, err
-	}
-	if !c.generationCurrent(generation) {
-		return "", 0, fmt.Errorf("LLM disabled or reconfigured during request")
-	}
-
-	c.recordSuccess()
-	content := chatResp.Choices[0].Message.Content
-	tokens := usageTokens(chatResp, system, user)
-	c.reconcileBudget(reservation, tokens)
-	reconciled = true
-	if strings.TrimSpace(content) == "" {
-		return "", tokens, fmt.Errorf("%w (finish_reason=%s)",
-			ErrEmptyResponse, chatResp.Choices[0].FinishReason)
-	}
-	throttleSuccess = true
-	return c.repairIfTruncated(content, chatResp.Choices[0].FinishReason, tokens),
-		tokens, nil
+	r, err := c.ChatResult(ctx, system, user, maxTokens)
+	return r.Content, r.Tokens, err
 }
 
 func (c *Client) checkAvailable(cfg config.LLMConfig) error {
@@ -332,16 +290,6 @@ func chatEndpoint(endpoint string) string {
 	endpoint = strings.TrimSuffix(endpoint, "/chat/completions")
 	endpoint = strings.TrimSuffix(endpoint, "/chat")
 	return endpoint + "/chat/completions"
-}
-
-func (c *Client) repairIfTruncated(content, reason string, tokens int) string {
-	if reason != "length" && reason != "max_tokens" {
-		return content
-	}
-	c.logFn("llm",
-		"response truncated (finish_reason=%s, tokens=%d), "+
-			"attempting JSON repair", reason, tokens)
-	return RepairTruncatedJSON(content)
 }
 
 func shouldRecordProviderFailure(
