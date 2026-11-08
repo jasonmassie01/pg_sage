@@ -20,9 +20,9 @@ const categorySelfCost = "sage_self_cost"
 // the sage schema's reading is the cycle's one (sageSchemaReading). The
 // first cycle after a start has no window and a failed reading proves
 // nothing: both leave the category unknown, so an open finding stays open;
-// failed statements alone leave the schema counters measured. A disabled budget (0) still measures and
-// resolves the finding. The same reading feeds the declared self-budget
-// (checkSelfBudget).
+// failed statements alone leave the schema counters measured. A disabled
+// budget (0) still measures and resolves the finding. The same reading
+// feeds the declared self-budget (checkSelfBudget).
 func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 	if a.pool == nil {
 		a.evalFail(categorySelfCost) // no database to measure: unknown
