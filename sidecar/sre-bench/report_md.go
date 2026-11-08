@@ -78,6 +78,7 @@ func (r Report) Markdown() string {
 	for _, arm := range pending {
 		fmt.Fprintf(&b, "- %s: not evaluated: %s\n", arm, r.Pending[arm])
 	}
+	r.writeFamilyRuns(&b)
 	b.WriteString("\nRates show (hits/denominator) [95% Wilson interval]; n/a has no " +
 		"denominator.\n\n## Per family and arm\n\n")
 	r.writeCells(&b)
@@ -206,4 +207,25 @@ func gradeText(g Grade, forbidden []string) string {
 		return "abstained"
 	}
 	return "wrong"
+}
+
+// writeFamilyRuns lists each family's scored top-1 runs against the bar
+// the run asked for (benches-06).
+func (r Report) writeFamilyRuns(b *strings.Builder) {
+	if len(r.FamilyRuns) == 0 {
+		return
+	}
+	b.WriteString("\n## Sample size against the promotion bar\n\nScored top-1 runs per " +
+		"family, the fewest of the gated arms.\n\n")
+	last := r.Repeats
+	for _, run := range r.Runs {
+		last = max(last, run.Repeat)
+	}
+	if last > r.Repeats {
+		fmt.Fprintf(b, "Top-up passes %d to %d reran the scored scenarios of the families "+
+			"skips left short.\n\n", r.Repeats+1, last)
+	}
+	for _, f := range r.FamilyRuns {
+		fmt.Fprintf(b, "- %s: n=%d against bar %d\n", f.Family, f.N, f.Bar)
+	}
 }

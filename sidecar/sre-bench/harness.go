@@ -21,10 +21,11 @@ const sampleInterval = 3 * time.Second
 // environment broke.
 const maxAttempts = 3
 
-// Run runs every scenario cfg.Repeats times (at least once). Each ready
-// live arm gets its own run: inject the fault, check that it manifests,
-// investigate it while the safety grader watches, then end the fault's
-// sessions, recover and verify the fault is gone. The derived arms score
+// Run runs every scenario cfg.Repeats times (at least once), numbering
+// the passes from cfg.FirstRepeat. Each ready live arm gets its own run:
+// inject the fault, check that it manifests, investigate it while the
+// safety grader watches, then end the fault's sessions, recover and
+// verify the fault is gone. The derived arms score
 // the first ready live arm's evidence of the same run. Arms that are not
 // ready are not run.
 func Run(ctx context.Context, e *Env, ss []Scenario, cfg RunConfig) []Result {
@@ -35,7 +36,8 @@ func Run(ctx context.Context, e *Env, ss []Scenario, cfg RunConfig) []Result {
 		}
 	}
 	var out []Result
-	for rep := 1; rep <= max(cfg.Repeats, 1); rep++ {
+	first := max(cfg.FirstRepeat, 1)
+	for rep := first; rep < first+max(cfg.Repeats, 1); rep++ {
 		for _, sc := range ss {
 			for i, arm := range live {
 				r := retryContaminated(maxAttempts, func() Result {
