@@ -21,9 +21,11 @@ import (
 type Reading struct {
 	At       time.Time
 	Database string
-	// StatementsKnown is false when pg_stat_statements is not installed or
-	// not preloaded: DBTimeMs, Calls and Blocks are then zero, not measured.
+	// StatementsKnown is false when pg_stat_statements is not installed,
+	// not preloaded, older than 1.8 or failed to read (StatementsErr):
+	// DBTimeMs, Calls and Blocks are then zero, not measured.
 	StatementsKnown bool
+	StatementsErr   error
 	DBTimeMs        float64 // execution + planning time of pg_sage statements
 	Calls           int64
 	Blocks          int64 // shared blocks hit + read
@@ -76,69 +78,37 @@ type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// statementsSQL sums this database's pg_sage-tagged statements.
-const statementsSQL = `/* pg_sage */ SELECT userid, queryid, toplevel,
-  (total_exec_time + total_plan_time)::float8, calls,
-  (shared_blks_hit + shared_blks_read)::int8, left(query, 2000)
-FROM pg_stat_statements
-WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND queryid IS NOT NULL AND strpos(query, '/* pg_sage') > 0`
-
-// schemaSQL sums the sage relations' statistics counters and sizes. It
-// reads pg_class once per measurement (one analyzer cycle).
-const schemaSQL = `/* pg_sage */ SELECT current_database(),
-  COALESCE(sum(pg_stat_get_tuples_returned(c.oid) + pg_stat_get_tuples_fetched(c.oid)
-    + COALESCE((SELECT sum(pg_stat_get_tuples_fetched(i.indexrelid))
-                  FROM pg_index i WHERE i.indrelid = c.oid), 0)), 0)::int8,
-  COALESCE(sum(pg_stat_get_tuples_inserted(c.oid) + pg_stat_get_tuples_updated(c.oid)
-    + pg_stat_get_tuples_deleted(c.oid)), 0)::int8,
-  COALESCE(sum(pg_total_relation_size(c.oid)), 0)::int8
-FROM pg_class c
-WHERE c.relnamespace = to_regnamespace('sage') AND c.relkind IN ('r', 'm')`
-
-// Read samples pg_sage's cumulative counters. A missing pg_stat_statements
-// leaves the statement figures unknown; any other failure is an error.
+// Read samples pg_sage's cumulative counters once, without a key cache
+// (every sample reads the tagged texts): one schema read and one sample of
+// the statements. A failed schema read is an error; the statements' state
+// is in the reading (Sample).
 func Read(ctx context.Context, q Querier) (Reading, error) {
-	var r Reading
-	err := q.QueryRow(ctx, schemaSQL).Scan(&r.Database, &r.RowsRead, &r.RowsWritten,
-		&r.SchemaBytes)
+	sc, err := ReadSchema(ctx, q)
 	if err != nil {
-		return Reading{}, fmt.Errorf("read sage schema counters: %w", err)
+		return Reading{}, err
 	}
-	r.Statements, err = readStatements(ctx, q)
-	switch {
-	case err == nil:
-		r.StatementsKnown = true
-	case !statementsUnavailable(err):
-		return Reading{}, fmt.Errorf("read pg_sage statements: %w", err)
-	}
-	for _, s := range r.Statements {
-		r.DBTimeMs += s.TimeMs
-		r.Calls += s.Calls
-		r.Blocks += s.Blocks
-	}
-	r.At = time.Now()
-	return r, nil
+	return NewSampler(nil).Sample(ctx, q, sc), nil
 }
 
-func readStatements(ctx context.Context, q Querier) (map[StatementKey]StatementCounters,
-	error) {
-	rows, err := q.Query(ctx, statementsSQL)
+// Sample combines the cycle's schema reading with a sample of pg_sage's
+// statements. A statement failure leaves the schema counters: the reading
+// then has its statements unknown and the failure in StatementsErr; a
+// missing or outdated pg_stat_statements is unknown with no error.
+func (s *Sampler) Sample(ctx context.Context, q Querier, sc Schema) Reading {
+	r := Reading{Database: sc.Database, RowsRead: sc.RowsRead,
+		RowsWritten: sc.RowsWritten, SchemaBytes: sc.Bytes}
+	stmts, known, err := s.Statements(ctx, q)
 	if err != nil {
-		return nil, err
+		r.StatementsErr = fmt.Errorf("read pg_sage statements: %w", err)
 	}
-	defer rows.Close()
-	out := map[StatementKey]StatementCounters{}
-	for rows.Next() {
-		var k StatementKey
-		var s StatementCounters
-		if err := rows.Scan(&k.UserID, &k.QueryID, &k.TopLevel, &s.TimeMs, &s.Calls,
-			&s.Blocks, &s.Text); err != nil {
-			return nil, err
-		}
-		out[k] = s
+	r.Statements, r.StatementsKnown = stmts, known
+	for _, st := range r.Statements {
+		r.DBTimeMs += st.TimeMs
+		r.Calls += st.Calls
+		r.Blocks += st.Blocks
 	}
-	return out, rows.Err()
+	r.At = time.Now()
+	return r
 }
 
 // statementDelta is pg_sage's work between two readings, entry by entry:
