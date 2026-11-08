@@ -279,7 +279,8 @@ probes.
 An edit to the `pg-sage-config` ConfigMap hot-reloads without a restart. The
 kubelet publishes it after its sync delay, about 60 s plus its ConfigMap cache
 TTL, by swapping the volume's `..data` symlink. The sidecar watches the mount
-directory, waits 300 ms for the swap to settle, and reloads only when the file
+directory, waits 300 ms for the swap to settle (at most 2 s while other files
+in that directory keep changing), and reloads only when the file
 behind `config.yaml` has changed (its resolved path, size, mtime or content).
 The log then shows `[config-watcher] reloaded: [...]`. A candidate that fails
 validation is logged and the previous config stays active; fix the file, or

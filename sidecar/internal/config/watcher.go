@@ -118,10 +118,9 @@ func (w *Watcher) Done() <-chan struct{} {
 }
 
 func (w *Watcher) run(watcher *fsnotify.Watcher) {
-	debounce := time.NewTimer(reloadDebounce)
-	debounce.Stop()
+	debounce := newDebouncer()
 	defer func() {
-		debounce.Stop()
+		debounce.stop()
 		_ = watcher.Close()
 		w.lifecycleMu.Lock()
 		w.state = watcherStopped
@@ -136,13 +135,14 @@ func (w *Watcher) run(watcher *fsnotify.Watcher) {
 			}
 			// Any event in the directory is only a hint: a ConfigMap swap
 			// renames ..data and never names config.yaml itself.
-			debounce.Reset(reloadDebounce)
+			debounce.arm(time.Now())
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
 			log.Printf("[WARN] [config-watcher] error: %v", err)
-		case <-debounce.C:
+		case <-debounce.timer.C:
+			debounce.fired()
 			if w.stopRequested() {
 				return
 			}

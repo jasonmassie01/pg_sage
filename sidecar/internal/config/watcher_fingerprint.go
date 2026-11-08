@@ -7,12 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 )
-
-// reloadDebounce coalesces a burst of directory events (an editor's
-// truncate-then-write, the kubelet's ..data swap) into one reload.
-const reloadDebounce = 300 * time.Millisecond
 
 // fileFingerprint identifies the config file a reload would read. The
 // resolved path follows the ConfigMap ..data symlink; mtime is included so
