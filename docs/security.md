@@ -257,8 +257,22 @@ sessions one hour); a malformed cookie is refused without a query.
   `{"revoked": N}` and records `sessions_revoked` with the count.
 - Unlinking a user's SSO identity, and the Databricks admin bootstrap, end all
   of that user's sessions.
-- If the session store cannot be read the API answers 503, not 401, so a
-  database blip does not look like an expired session.
+- If the session store cannot be read (no database pool, a refused or dropped
+  connection, a failover, a saturated pool) the API answers `503` with
+  `Retry-After: 5` and
+  `{"error":"session store unavailable","code":"auth_store_unavailable"}`,
+  not `401`, so a database blip does not look like an expired session. The
+  dashboard keeps the user signed in, shows "Session store unavailable,
+  retrying" and clears it on the next successful request; a reload during
+  the outage shows a retry screen instead of the login page. API clients
+  should retry on this code and re-authenticate only on `401`. The cause is
+  logged at ERROR at most once every 30 seconds, with a count of the
+  suppressed repeats. The SSO link flow (`authorize?intent=link`) answers the
+  same way. In standalone mode the session store is the monitored database;
+  in fleet and meta modes it is the control database.
+- `401` still means the session is over: no cookie, an unknown or expired
+  session, a deactivated user, or a cookie that cannot be a session (that one
+  is `401` even during an outage, because it is refused without a query).
 
 Upgrading to the release that introduced hashed sessions deletes every
 existing session once: every dashboard user signs in again after the upgrade.
