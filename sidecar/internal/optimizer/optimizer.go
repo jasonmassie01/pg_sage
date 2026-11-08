@@ -158,7 +158,7 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 // MeasuredRejections lists the newest shapes rejection memory already
 // measured and rejected on tc's workload, for the agent's case packet.
 func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []string {
-	return o.memory.view(ctx, tc).promptLines()
+	return o.memory.view(ctx, tc).promptLines(o.cfg.HypoPGMinImprovePct)
 }
 
 // enrichWithHypoPG measures the recommendation with hypothetical indexes

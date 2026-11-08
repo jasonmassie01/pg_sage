@@ -69,3 +69,30 @@ func TestAdmit_LoweredMinimumRemeasuresARememberedRejection(t *testing.T) {
 		}
 	}
 }
+
+// The agent's case packet follows the same rule: a rejection the current
+// minimum would admit is not listed, so the agent may propose it again.
+func TestTableMemory_PromptLinesHonourTheCurrentMinimum(t *testing.T) {
+	for _, c := range []struct {
+		minPct float64
+		lines  int
+	}{{8.0, 0}, {7, 0}, {8.1, 1}, {10, 1}} {
+		v := testMemory(newMemStore(rejectionAt(t, 8)), nil).
+			view(context.Background(), memTable())
+		if got := v.promptLines(c.minPct); len(got) != c.lines {
+			t.Errorf("minimum %.1f: %d prompt lines %q, want %d", c.minPct, len(got),
+				got, c.lines)
+		}
+	}
+}
+
+func TestMeasuredRejections_LoweredMinimumDropsTheShape(t *testing.T) {
+	o, _, _ := admissionOptimizer(newMemStore(rejectionAt(t, 8)), WhatIfResult{})
+	if got := o.MeasuredRejections(context.Background(), memTable()); len(got) != 1 {
+		t.Fatalf("at the 10%% minimum: %q, want the 8%% rejection listed", got)
+	}
+	o.cfg.HypoPGMinImprovePct = 8
+	if got := o.MeasuredRejections(context.Background(), memTable()); len(got) != 0 {
+		t.Fatalf("at an 8%% minimum: %q, want no lines (it would be admitted)", got)
+	}
+}

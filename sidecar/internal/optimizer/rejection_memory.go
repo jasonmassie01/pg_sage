@@ -255,15 +255,21 @@ func (v *tableMemory) suppress(rec Recommendation, minPct float64) (rejection, b
 }
 
 // promptLines lists the newest rejected shapes for the tuning agent's case
-// packet, bounded in count and length.
-func (v *tableMemory) promptLines() []string {
+// packet, bounded in count and length. Like suppress, it leaves out a
+// rejection the current minimum improvement minPct would admit, so a
+// lowered minimum does not steer the agent away from re-proposing it.
+func (v *tableMemory) promptLines(minPct float64) []string {
 	if v == nil || v.mem == nil || len(v.live) == 0 {
 		return nil
 	}
-	n := min(len(v.live), v.mem.settings.PromptMax)
-	lines := make([]string, 0, n)
-	for _, r := range v.live[:n] {
-		lines = append(lines, promptLine(r))
+	var lines []string
+	for _, r := range v.live {
+		if len(lines) >= v.mem.settings.PromptMax {
+			break
+		}
+		if r.ImprovementPct < minPct {
+			lines = append(lines, promptLine(r))
+		}
 	}
 	return lines
 }

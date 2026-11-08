@@ -326,7 +326,7 @@ func TestTableMemory_MaterialChangeLiftsSuppression(t *testing.T) {
 	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}, 10); ok {
 		t.Fatal("a rejection measured on a different workload must not suppress")
 	}
-	if lines := v.promptLines(); len(lines) != 0 {
+	if lines := v.promptLines(10); len(lines) != 0 {
 		t.Fatalf("a stale rejection must not be fed to the model: %q", lines)
 	}
 	expired := storedRejection(t, lifeosDDL("a", "id"), 8*24*time.Hour)
@@ -356,7 +356,7 @@ func TestTableMemory_NilMemoryIsInert(t *testing.T) {
 	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("a", "id")}, 10); ok {
 		t.Fatal("a nil memory suppressed a candidate")
 	}
-	if lines := v.promptLines(); lines != nil {
+	if lines := v.promptLines(10); lines != nil {
 		t.Fatalf("nil memory prompt lines = %q", lines)
 	}
 	if _, ok := m.remember(context.Background(), memTable(),
@@ -388,7 +388,7 @@ func TestTableMemory_PromptLinesBoundedAndNewestFirst(t *testing.T) {
 		rows = append(rows, r)
 	}
 	lines := testMemory(newMemStore(rows...), nil).view(context.Background(),
-		memTable()).promptLines()
+		memTable()).promptLines(10)
 	if len(lines) != 5 {
 		t.Fatalf("got %d prompt lines, want the default bound of 5", len(lines))
 	}
@@ -404,7 +404,7 @@ func TestTableMemory_PromptLineLengthBounded(t *testing.T) {
 	long := "CREATE INDEX i ON public.ai_claims (x) WHERE " +
 		strings.Repeat("a_very_long_column_name = 1 AND ", 40) + "z = 2"
 	lines := testMemory(newMemStore(storedRejection(t, long, time.Minute)), nil).
-		view(context.Background(), memTable()).promptLines()
+		view(context.Background(), memTable()).promptLines(10)
 	if len(lines) != 1 || len(lines[0]) > maxRejectionPromptLine {
 		t.Fatalf("prompt line is %d chars, want at most %d", len(lines[0]),
 			maxRejectionPromptLine)
