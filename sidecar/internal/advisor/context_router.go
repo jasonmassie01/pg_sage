@@ -30,7 +30,7 @@ func routeManagedSetting(f analyzer.Finding, platform, database string,
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	name := extractSettingName(sql)
 	if name == "" {
-		return f
+		return unparsedSetting(f, platform, sql)
 	}
 	setting, collected := known[name]
 	switch {
@@ -63,6 +63,19 @@ func routeManagedSetting(f analyzer.Finding, platform, database string,
 			name, platform), "no database to scope it to")
 	}
 	return databaseScoped(f, platform, sql, name, setting.Context, database)
+}
+
+// unparsedSetting leaves SQL that is not ALTER SYSTEM alone. An ALTER SYSTEM
+// the parser cannot read names no setting to route, and no managed provider
+// accepts ALTER SYSTEM, so it loses its SQL (fail closed).
+func unparsedSetting(f analyzer.Finding, platform, sql string) analyzer.Finding {
+	if !strings.HasPrefix(strings.ToUpper(sql), "ALTER SYSTEM") {
+		return f
+	}
+	f.RecommendedSQL, f.RollbackSQL, f.Severity = "", "", "info"
+	f.Recommendation += fmt.Sprintf(" (Note: %s does not accept ALTER SYSTEM, and pg_sage "+
+		"could not read which setting this statement changes; review it manually.)", platform)
+	return f
 }
 
 // databaseScoped rewrites ALTER SYSTEM SET/RESET into ALTER DATABASE. The

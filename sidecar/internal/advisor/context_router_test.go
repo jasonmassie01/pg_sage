@@ -295,3 +295,30 @@ func TestGateConfigNeverRewritesMaxWALSizeToAlterDatabase(t *testing.T) {
 		}
 	}
 }
+
+// An ALTER SYSTEM the parser cannot read names no setting to route, and
+// every managed provider refuses ALTER SYSTEM: it must not stay executable.
+func TestContextRouterUnparsableAlterSystemIsAdvisory(t *testing.T) {
+	settings := []collector.PGSetting{{Name: "work_mem", Context: "user"}}
+	for _, platform := range managedPlatforms {
+		for _, sql := range []string{"ALTER SYSTEM RESET ALL", "alter system set work_mem",
+			"ALTER SYSTEM"} {
+			got := TransformForCloud([]analyzer.Finding{{Severity: "warning",
+				RecommendedSQL: sql, RollbackSQL: "ALTER SYSTEM RESET work_mem"}},
+				platform, "db", settings)[0]
+			if got.RecommendedSQL != "" || got.RollbackSQL != "" || got.Severity != "info" {
+				t.Fatalf("%s %q: sql=%q rollback=%q severity=%s", platform, sql,
+					got.RecommendedSQL, got.RollbackSQL, got.Severity)
+			}
+			if !strings.Contains(got.Recommendation, "ALTER SYSTEM") {
+				t.Fatalf("%s %q: note does not explain the refusal: %q", platform, sql,
+					got.Recommendation)
+			}
+		}
+	}
+	other := analyzer.Finding{RecommendedSQL: "VACUUM (ANALYZE) public.t"}
+	if got := TransformForCloud([]analyzer.Finding{other}, "rds", "db", settings)[0]; !reflect.
+		DeepEqual(got, other) {
+		t.Fatalf("non-setting SQL changed: %+v", got)
+	}
+}
