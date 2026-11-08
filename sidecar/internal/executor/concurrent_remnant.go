@@ -247,8 +247,22 @@ func withCleanup(err error, c *remnantCleanup) error {
 }
 
 // recordRemnantCleanup stores the cleanup in an action row's before_state.
+// A retried statement records its latest cleanup, except that a cleanup
+// which left a remnant behind is never replaced by a later one that did
+// not (the retry then fails on the remnant's name, with nothing to drop).
 func recordRemnantCleanup(state map[string]any, c *remnantCleanup) {
-	if state != nil && c != nil {
-		state[remnantCleanupKey] = c
+	if state == nil || c == nil {
+		return
 	}
+	if prev, ok := state[remnantCleanupKey].(*remnantCleanup); ok &&
+		prev.leftRemnant() && !c.leftRemnant() {
+		return
+	}
+	state[remnantCleanupKey] = c
+}
+
+// leftRemnant reports a cleanup that may have left the statement's own
+// INVALID index behind.
+func (c *remnantCleanup) leftRemnant() bool {
+	return c.Outcome == remnantCleanupFailed || c.Outcome == remnantUnbound
 }
