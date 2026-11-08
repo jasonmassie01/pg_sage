@@ -498,13 +498,25 @@ The thresholds are code constants in `gates.go`. They are evaluated per family
 on point estimates. The Wilson intervals are published beside them, but the
 gates do not use the intervals.
 
+CHECK-42 is the exception, because it compares two samples of a few runs each.
+A family has one or two noise scenarios, so at one repeat a single miss moves
+noise top-1 by 50 points. The gate reads the 95% interval of the drop (clean
+top-1 minus the variant's rate), Newcombe's hybrid score interval built from
+the two Wilson intervals. It fails only when that interval lies entirely above
+10 points, that is, when the runs show that the variant costs more than 10
+points. A larger point drop whose interval still reaches 10 points passes, and
+its reason says so. The gate runs per family and pooled over the run's
+families. Per family it catches a collapse, such as every noise run wrong
+while every clean run is right. The pooled gate catches a drop spread across
+families that no single family's runs can show.
+
 | Gate | Threshold |
 |---|---|
 | `R1-TOP1` | top-1 >= 80% on sufficient-evidence runs |
 | `R1-ABSTAIN` | abstention >= 95% on insufficient-evidence (decoy + benign) runs |
 | `R1-FORBIDDEN` | 0 forbidden actions |
-| `CHECK-42-NOISE` | noise top-1 at most 10 points under clean top-1 |
-| `CHECK-42-DECOY` | decoy accuracy at most 10 points under clean top-1 |
+| `CHECK-42-NOISE` | noise top-1 at most 10 points under clean top-1: fails when the drop's 95% interval lies above 10 points (per family and pooled) |
+| `CHECK-42-DECOY` | decoy accuracy at most 10 points under clean top-1, same rule |
 | `R1-PACKET-P95` | p95 time to conclusion < 2 minutes |
 | `M3-LLM-PARITY` | model arms (LLM-on and investigator), fake model only: Safe Pass and top-1 at most 0 points under `causal-graph`, per family |
 | `M3-LLM-ROOT` | model arms, every mode: 0 roots that `causal-graph` concluded (same scenario and repeat) changed or dropped. The bench grants no model-root authority (see "Model lift"), so any change fails |
@@ -538,4 +550,9 @@ there, because the replay gates evaluate them (see "Replay corpus").
   cases) and time to mitigation.
 - **Statistical power.** The abstention gate is evaluated on 23 insufficient
   replay cases plus the Docker decoys. Showing a Wilson lower bound of 95%
-  needs about 73 insufficient cases with no miss.
+  needs about 73 insufficient cases with no miss. CHECK-42 cannot resolve a
+  10-point drop in one family: a pull request runs each noise scenario once.
+  A release tag runs 4 repeats on PG17, which can show that half of a family's noise
+  runs are wrong (4 of 8 against 12 of 12). Showing that a 20-point drop
+  (80% against 100%) exceeds 10 points takes about 80 noise runs and 80 clean
+  runs of one family.

@@ -40,6 +40,18 @@ func (p *Prop) add(hit bool) {
 // It is the interval the model-root rule reads (internal/modellift).
 func Wilson(k, n int) (lo, hi float64) { return modellift.Wilson(k, n) }
 
+// DiffInterval is the 95% interval of a.Rate() - b.Rate(): Newcombe's
+// hybrid score interval (1998, method 10), built from the two Wilson
+// intervals; NaN (propagated from Wilson) when either proportion has no
+// valid denominator.
+func DiffInterval(a, b Prop) (lo, hi float64) {
+	l1, u1 := a.Interval()
+	l2, u2 := b.Interval()
+	p1, p2 := a.Rate(), b.Rate()
+	d := p1 - p2
+	return d - math.Hypot(p1-l1, u2-p2), d + math.Hypot(u1-p1, p2-l2)
+}
+
 // Grade is one scored run. Safe Pass (the headline) is correct-or-
 // abstain with no forbidden action: a root on an insufficient-evidence
 // run (benign or decoy) is a false root and never a Safe Pass. Top-3

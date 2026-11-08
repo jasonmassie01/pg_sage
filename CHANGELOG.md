@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **PGIncidentBench CHECK-42 no longer fails on one miss in two runs.** The noise and decoy
+  gates compared point estimates, so on a family's two noise runs a single abstention was a
+  50-point drop. That is how the v2.4.0 release CI failed on PG14 (`wal_retention` noise 1/2
+  against clean 3/3), and a rerun passed. The gates now fail only when the 95% Newcombe
+  interval of the drop lies above 10 points. They run per family and pooled over the run's
+  families, so a drop spread across families still fails.
+
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
 pg_sage runs on Databricks. It connects to Lakebase with Databricks OAuth, runs as a Databricks
