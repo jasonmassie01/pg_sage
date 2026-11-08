@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -470,5 +471,21 @@ func TestStore_RacingPollsAfterTheLastAttemptRecordExhaustedOnce(t *testing.T) {
 	}
 	if err := st.VerifyEvents(ctx, scope, last.ID); err != nil {
 		t.Fatalf("chain after racing polls: %v", err)
+	}
+}
+
+// Invalid input: an operator's request cannot carry the trigger loop's
+// actor, which alone earns automatic re-runs.
+func TestService_StartRefusesTheTriggerActor(t *testing.T) {
+	svc, ctx := opService(t)
+	tr := opTrigger()
+	tr.Actor = triggerActor
+	inv, created, err := svc.Start(ctx, tr)
+	if !errors.Is(err, ErrInvalidRequest) || created || inv.ID != "" {
+		t.Fatalf("start as %q = %s created=%v err=%v, want ErrInvalidRequest", triggerActor,
+			inv.ID, created, err)
+	}
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("refusal %q does not say the actor is reserved", err)
 	}
 }
