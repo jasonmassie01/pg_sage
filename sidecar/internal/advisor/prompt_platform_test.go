@@ -29,8 +29,8 @@ func walOnlyConfig(cfgEnv string) *config.Config {
 func reviewOnce(t *testing.T, a *Advisor, capture func() []capturedPrompt,
 	snap, prev *collector.Snapshot) []capturedPrompt {
 	t.Helper()
-	if _, budget := a.review(context.Background(), snap, prev); budget != 0 {
-		t.Fatalf("budget errors = %d", budget)
+	if r := a.review(context.Background(), snap, prev); r.budgetErrors != 0 {
+		t.Fatalf("budget errors = %d", r.budgetErrors)
 	}
 	return capture()
 }
@@ -132,6 +132,9 @@ func TestPromptPlatform_FallsBackToConfigThenSelfManaged(t *testing.T) {
 // platform and version even when they review at the same time.
 func TestPromptPlatform_ParallelAdvisorsNameTheirOwn(t *testing.T) {
 	shared := walOnlyConfig("self-managed")
+	// Back-to-back reviews: with interval 0 each round is due again
+	// (review honours the per-sub-advisor schedule, advisors-02).
+	shared.Advisor.IntervalSeconds = 0
 	type run struct {
 		a       *Advisor
 		capture func() []capturedPrompt
@@ -250,7 +253,8 @@ func TestReview_PromptAndGateShareThePlatform(t *testing.T) {
 			a := New(nil, walOnlyConfig(""), nil, mgr, noopLog)
 			a.WithCloudEnv(c.env)
 			snap, prev := walSnapshots()
-			got, budget := a.review(context.Background(), snap, prev)
+			r := a.review(context.Background(), snap, prev)
+			got, budget := r.findings, r.budgetErrors
 			p := onlyPrompt(t, capture())
 			if budget != 0 || !strings.Contains(p.system, c.note) {
 				t.Fatalf("budget=%d; system prompt lacks %q:\n%s", budget, c.note, p.system)

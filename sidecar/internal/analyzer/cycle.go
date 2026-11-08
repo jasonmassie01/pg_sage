@@ -206,6 +206,11 @@ func (a *Analyzer) runAdvisorAndForecaster(ctx context.Context) []Finding {
 			a.logFn("WARN", "analyzer: advisor: %v", err)
 		} else {
 			out = append(out, advFindings...)
+			// The advisor re-checks its open findings deterministically
+			// (advisors-02): the categories it fully read may resolve.
+			if r, ok := a.advisor.(EvaluatedCategoryReporter); ok {
+				a.eval.evaluated(r.LastEvaluatedCategories()...)
+			}
 		}
 	}
 	if a.forecaster != nil {

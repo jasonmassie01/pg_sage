@@ -56,7 +56,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	before = mgr.General.TokensUsedToday()
 
 	if rwFindings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Errorf("rewrite error: %v", err)
 	} else {

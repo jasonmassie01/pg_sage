@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 )
 
@@ -52,13 +51,13 @@ func (a *Advisor) reviewContext(ctx context.Context) context.Context {
 
 // review runs the sub-advisors on one snapshot pair with this review's
 // prompt environment, then gates their findings for the same platform
-// and database; it returns how many sub-advisors hit the token budget.
-func (a *Advisor) review(ctx context.Context, snap, prev *collector.Snapshot) (
-	[]analyzer.Finding, int) {
+// and database.
+func (a *Advisor) review(ctx context.Context, snap, prev *collector.Snapshot) subRun {
 	cloudEnv, dbName := a.platform(), a.database()
-	all, budgetErrors := a.runSubAdvisors(a.reviewContext(ctx), snap, prev)
-	return GateConfigFindingsHost(all, a.hostMemory(), cloudEnv, dbName,
-		snap.ConfigData.PGSettings), budgetErrors
+	r := a.runSubAdvisors(a.reviewContext(ctx), snap, prev)
+	r.findings = GateConfigFindingsHost(r.findings, a.hostMemory(), cloudEnv, dbName,
+		snap.ConfigData.PGSettings)
+	return r
 }
 
 // promptEnvFrom is the review's environment; without one the platform is

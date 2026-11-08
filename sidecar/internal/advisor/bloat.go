@@ -51,17 +51,15 @@ func analyzeBloat(
 		return nil, nil
 	}
 
-	// Find bloated tables.
+	// Find bloated tables; a table with an open finding is left out.
+	gate := openGateFrom(ctx)
 	var bloatContexts []string
 	for _, t := range snap.Tables {
+		if !qualifiesForBloat(t) || gate.hasTable(t) {
+			continue
+		}
 		total := t.NLiveTup + t.NDeadTup
-		if total < 1000 {
-			continue
-		}
 		ratio := float64(t.NDeadTup) / float64(max(total, 1))
-		if ratio < 0.10 { // Only look at 10%+ bloat for remediation
-			continue
-		}
 
 		sizeMB := float64(t.TableBytes) / (1024 * 1024)
 		indexSizeMB := float64(t.IndexBytes) / (1024 * 1024)

@@ -47,9 +47,14 @@ func analyzeWAL(
 		return nil, nil
 	}
 
-	// Build WAL settings context.
+	// Build WAL settings context; settings with an open finding are left
+	// out (advisors-02).
+	gate := openGateFrom(ctx)
 	var walSettings []string
 	for _, s := range snap.ConfigData.PGSettings {
+		if gate.hasGUC("wal_tuning", s.Name) {
+			continue
+		}
 		switch s.Name {
 		case "max_wal_size", "min_wal_size",
 			"checkpoint_completion_target",
@@ -92,11 +97,11 @@ func analyzeWAL(
 			"Current settings:\n%s\n\n"+
 			"Observed metrics:\n"+
 			"  Total checkpoints: %d (delta since last: %d)\n"+
-			"  WAL position: %s%s",
+			"  WAL position: %s%s%s",
 		strings.Join(walSettings, "\n"),
 		totalCP, cpDelta,
 		snap.ConfigData.WALPosition,
-		unloggedNote,
+		unloggedNote, gucNote(gate, "wal_tuning"),
 	)
 
 	grounding := promptGrounding(ctx, walGUCs...)
