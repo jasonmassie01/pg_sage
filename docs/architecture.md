@@ -129,7 +129,15 @@ diagnostic SQL is kept only once proven read-only (see
 
 Incident playbooks follow the same typed-action model. Read-only diagnostics
 can inspect blocker graphs, runaway queries, connection pressure,
-WAL/replication state, standby conflicts, and vacuum pressure. Backend
+WAL/replication state, standby conflicts, vacuum pressure, and freeze
+blockers. The playbook is chosen from the incident's signal ids through one
+table that records a decision, "none" included, for every signal RCA, the log
+classifier and the SRE detector emit; the root-cause wording never selects
+one. Analyzer and executor findings route the same way: replication lag and
+inactive slots get the read-only WAL diagnostic (never a slot drop), a
+sequence near its limit gets the reviewed migration script, and a runaway
+query gets the diagnostic while its cancel stays with the executor's runaway
+policy. Backend
 cancel/terminate candidates come only from the structured blocker identity
 RCA records on a lock_contention incident (pid, backend_start, query_start
 and a hash of the first 200 characters of the query), never from a PID in
