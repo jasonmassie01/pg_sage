@@ -22,9 +22,11 @@ them off.
 ### Global ceiling and policy cap
 
 `llm.global_token_budget_daily` caps the sum of every client's spend (Ask Sage keeps
-its own budget). The default `0` derives it: `llm.fleet_token_budget_daily` when that
-is set, else the sum of every client's `token_budget_daily`, and unlimited when any
-client is unlimited. The derived value is today's effective total, so the default
+its own budget). The default `0` derives it as the sum of every client's
+`token_budget_daily`; in fleet mode with `llm.fleet_token_budget_daily` set, that fleet
+total stands in for the per-database clients it scopes, and the shared client keeps its
+own budget on top. Any unlimited counted client makes it unlimited. The derived value
+is today's effective total, so the default
 spends exactly what it did before; set the key to make one true process-wide cap. It
 is hot-reloadable, the startup log names the ceiling and how it was derived, and
 `GET /api/v1/llm/status` reports it as `global{ceiling, used, reserved, source,

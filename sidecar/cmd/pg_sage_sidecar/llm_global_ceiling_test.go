@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -56,12 +57,39 @@ func TestGlobalCeiling_UnlimitedClientMakesItUnlimited(t *testing.T) {
 	}
 }
 
-func TestGlobalCeiling_FleetBudgetAndExplicitKeyWin(t *testing.T) {
+// fleet_token_budget_daily is inert without a running fleet budget (a
+// standalone sidecar), so it must not lower the derived ceiling there.
+func TestGlobalCeiling_InertFleetKeyChangesNothing(t *testing.T) {
 	llmTestGlobals(t)
 	newFleetDBLLMClients("orders", true)
 	reconfigureRegistry(func(l *config.LLMConfig) { l.FleetTokenBudgetDaily = 300000 })
-	if s := llmClients.GlobalBudget(); s.Ceiling != 300000 || s.Source != globalSourceFleet {
-		t.Fatalf("global = %+v, want the fleet budget 300000", s)
+	if s := llmClients.GlobalBudget(); s.Source != globalSourceDerived ||
+		s.Ceiling != int64(3*config.DefaultLLMTokenBudget) {
+		t.Fatalf("global = %+v, want derived 3 x default with no fleet budget", s)
+	}
+}
+
+// An active fleet budget bounds the per-database clients by its total;
+// the shared client keeps its own budget on top, so the derived ceiling
+// is still today's effective total. The explicit key wins over both.
+func TestGlobalCeiling_FleetBudgetAndExplicitKeyWin(t *testing.T) {
+	llmTestGlobals(t)
+	cfg.LLM.FleetTokenBudgetDaily = 300000
+	fleetLLMBudget = fleet.NewBudget(300000, []string{"orders"})
+	reconfigureRegistry(func(l *config.LLMConfig) { l.FleetTokenBudgetDaily = 300000 })
+	newFleetDBLLMClients("orders", true)
+	newFleetDBLLMClients("billing", true)
+	want := int64(300000 + config.DefaultLLMTokenBudget)
+	if s := llmClients.GlobalBudget(); s.Ceiling != want || s.Source != globalSourceFleet {
+		t.Fatalf("global = %+v, want fleet 300000 + shared %d", s,
+			config.DefaultLLMTokenBudget)
+	}
+	// An unlimited shared client still makes the derived ceiling unlimited.
+	reconfigureRegistry(func(l *config.LLMConfig) {
+		l.FleetTokenBudgetDaily, l.TokenBudgetDaily = 300000, 0
+	})
+	if s := llmClients.GlobalBudget(); s.Ceiling != 0 {
+		t.Fatalf("global = %+v, want unlimited with an unlimited shared client", s)
 	}
 	// llm.global_token_budget_daily is hot-reloadable through the controller.
 	applyLLMChange(t, func(l *config.LLMConfig) {
@@ -70,12 +98,13 @@ func TestGlobalCeiling_FleetBudgetAndExplicitKeyWin(t *testing.T) {
 	if s := llmClients.GlobalBudget(); s.Ceiling != 1234 || s.Source != globalSourceConfigured {
 		t.Fatalf("global = %+v, want the configured 1234", s)
 	}
+	fleetLLMBudget = nil
 	reconfigureRegistry(func(l *config.LLMConfig) {
 		l.GlobalTokenBudgetDaily, l.FleetTokenBudgetDaily = 0, 0
 	})
 	if s := llmClients.GlobalBudget(); s.Source != globalSourceDerived ||
-		s.Ceiling != int64(3*config.DefaultLLMTokenBudget) {
-		t.Fatalf("global = %+v, want derived 3 x default after clearing", s)
+		s.Ceiling != int64(5*config.DefaultLLMTokenBudget) {
+		t.Fatalf("global = %+v, want derived 5 x default after clearing", s)
 	}
 }
 
