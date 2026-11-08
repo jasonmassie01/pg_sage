@@ -369,9 +369,12 @@ given EXPLAIN(ANALYZE) JSON + SQL, return `{summary, slow_because[],
 recommendations[]}`.
 
 **Flow** (`explain.go:103-165`): validate (reject DDL, `query_id` lookup not
-implemented — `:112-116`), cache lookup (`sage.explain_results`, keyed by FNV
-hash + db, with TTL), run `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` (or plain
-EXPLAIN for parameterized queries via PREPARE/EXECUTE) in a **read-only
+implemented — `:112-116`), cache lookup (`sage.explain_results`, keyed by an
+FNV hash of the exact statement body, mode and length-prefixed params, plus
+db, with TTL; literals, comments and hints are never normalised away), run
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` (or plain EXPLAIN for parameterized
+queries via PREPARE/EXECUTE; `$N` inside literals, dollar quotes and comments
+is not a parameter) in a **read-only
 rolled-back transaction** with `statement_timeout`. Build deterministic node
 breakdown, then `enhanceWithLLM` (`explain_llm.go:28-56`) overlays the LLM
 summary/slow_because/recommendations (`llm.ParseJSON(.., JSONAuto, ..)`).

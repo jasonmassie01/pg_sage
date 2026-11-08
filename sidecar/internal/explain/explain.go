@@ -10,8 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
-	"regexp"
 	"strings"
 	"time"
 
@@ -164,13 +162,16 @@ func (ex *Explainer) Explain(
 func (ex *Explainer) execute(
 	ctx context.Context, req ExplainRequest,
 ) (*ExplainResult, error) {
-	hasParams := hasParamPlaceholder(req.Query)
+	nParams, err := paramPlaceholders(req.Query)
+	if err != nil {
+		return nil, err
+	}
+	hasParams := nParams > 0
 	var planJSON json.RawMessage
 	var analyzed bool
 	var refused string
-	var err error
 	if hasParams {
-		planJSON, err = ex.runExplainParameterized(ctx, req.Query, req.Params)
+		planJSON, err = ex.runExplainParameterized(ctx, req.Query, req.Params, nParams)
 	} else {
 		planJSON, analyzed, refused, err = ex.runExplain(ctx, req.Query, !req.PlanOnly)
 	}
@@ -213,7 +214,7 @@ func (ex *Explainer) runExplain(
 
 const explainStmtName = "_sage_explain"
 
-// runExplainParameterized handles queries with $N placeholders
+// runExplainParameterized handles queries with nParams $N placeholders
 // (typically from pg_stat_statements). PG cannot EXPLAIN these
 // directly. We use PREPARE + EXPLAIN EXECUTE with NULL values to
 // get the plan. If the caller provided explicit params, those are
@@ -224,9 +225,9 @@ const explainStmtName = "_sage_explain"
 // "SELECT $1; COMMIT; DELETE ..." cannot leave the READ ONLY
 // transaction (G6-B01).
 func (ex *Explainer) runExplainParameterized(
-	ctx context.Context, query string, params []string,
+	ctx context.Context, query string, params []string, nParams int,
 ) (json.RawMessage, error) {
-	paramList, err := explainParamList(query, params)
+	paramList, err := explainParamList(nParams, params)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +245,7 @@ func (ex *Explainer) runExplainParameterized(
 	}
 	// Without a value for every parameter the custom plan folds "x = NULL"
 	// to a constant-false Result; the generic plan is the query's real one.
-	if hasUnboundParam(query, params) {
+	if hasUnboundParam(nParams, params) {
 		if _, err = conn.Exec(ctx, "SET LOCAL plan_cache_mode = force_generic_plan"); err != nil {
 			return nil, fmt.Errorf("set plan_cache_mode: %w", err)
 		}
@@ -269,11 +270,11 @@ func (ex *Explainer) runExplainParameterized(
 	return collectPlanJSON(ctx, conn, explainExec)
 }
 
-// explainParamList renders EXECUTE arguments: provided params as
+// explainParamList renders the n EXECUTE arguments: provided params as
 // escaped SQL literals, NULL otherwise. EXECUTE arguments are SQL
 // expressions, so user input must never be interpolated raw.
-func explainParamList(query string, params []string) (string, error) {
-	values := make([]string, countParamPlaceholders(query))
+func explainParamList(n int, params []string) (string, error) {
+	values := make([]string, n)
 	for i := range values {
 		values[i] = "NULL"
 		if i < len(params) && params[i] != "" {
@@ -287,33 +288,15 @@ func explainParamList(query string, params []string) (string, error) {
 	return strings.Join(values, ", "), nil
 }
 
-// hasUnboundParam reports a placeholder without a value (planned as NULL).
-func hasUnboundParam(query string, params []string) bool {
-	n := countParamPlaceholders(query)
+// hasUnboundParam reports one of n placeholders without a value (planned
+// as NULL).
+func hasUnboundParam(n int, params []string) bool {
 	for i := 0; i < n; i++ {
 		if i >= len(params) || params[i] == "" {
 			return true
 		}
 	}
 	return false
-}
-
-// countParamPlaceholders returns the highest $N placeholder number
-// found in the query (e.g. "$3" means 3 parameters).
-func countParamPlaceholders(query string) int {
-	matches := paramNumRe.FindAllStringSubmatch(query, -1)
-	max := 0
-	for _, m := range matches {
-		if len(m) > 1 {
-			var n int
-			if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil {
-				if n > max {
-					max = n
-				}
-			}
-		}
-	}
-	return max
 }
 
 // prepareConn opens a read-only transaction with statement_timeout.
@@ -429,35 +412,6 @@ func buildResult(
 }
 
 // ---------- helpers ----------
-
-var paramRe = regexp.MustCompile(`\$\d`)
-var paramNumRe = regexp.MustCompile(`\$(\d+)`)
-
-// hasParamPlaceholder returns true if the query contains $1-style placeholders.
-func hasParamPlaceholder(query string) bool {
-	return paramRe.MatchString(query)
-}
-
-// queryHash computes an FNV-64a hash of the normalised query and params.
-func queryHash(query string, params []string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(normalizeQuery(query)))
-	for _, p := range params {
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(p))
-	}
-	return int64(h.Sum64())
-}
-
-var wsRe = regexp.MustCompile(`\s+`)
-var commentRe = regexp.MustCompile(`(?s)/\*.*?\*/|--[^\n]*`)
-
-// normalizeQuery strips comments and collapses whitespace.
-func normalizeQuery(query string) string {
-	q := commentRe.ReplaceAllString(query, " ")
-	q = wsRe.ReplaceAllString(q, " ")
-	return strings.TrimSpace(q)
-}
 
 // databaseName extracts the database name from the pool config.
 func (ex *Explainer) databaseName() string {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -86,16 +87,32 @@ func (ex *Explainer) saveCache(
 	return nil
 }
 
-// cacheKey is the explain_results key: the query hash mixed with the mode,
-// so a plan-only result never answers an ANALYZE request or vice versa.
-func cacheKey(query string, params []string, planOnly bool) int64 {
+// cacheKeyVersion tags the key layout, so rows written under an older
+// layout never match and simply expire.
+const cacheKeyVersion = "v2"
+
+// cacheKey is the explain_results key for the exact statement body that
+// explainBody returned. Literals, comments and planner hints all change the
+// plan, so none of them is normalised away. The mode separates plan-only
+// from ANALYZE results, and every field is length-prefixed so a parameter
+// can never stand in for body bytes or for another parameter.
+func cacheKey(body string, params []string, planOnly bool) int64 {
 	h := fnv.New64a()
 	mode := "analyze"
 	if planOnly {
 		mode = "plan_only"
 	}
-	_, _ = h.Write([]byte(mode))
-	_, _ = h.Write([]byte{0})
-	_, _ = fmt.Fprint(h, queryHash(query, params))
+	writeKeyField(h, cacheKeyVersion)
+	writeKeyField(h, mode)
+	writeKeyField(h, body)
+	_, _ = fmt.Fprintf(h, "%d;", len(params))
+	for _, p := range params {
+		writeKeyField(h, p)
+	}
 	return int64(h.Sum64())
+}
+
+// writeKeyField writes s as "<len>:<s>"; an fnv hash never fails to write.
+func writeKeyField(w io.Writer, s string) {
+	_, _ = fmt.Fprintf(w, "%d:%s", len(s), s)
 }
