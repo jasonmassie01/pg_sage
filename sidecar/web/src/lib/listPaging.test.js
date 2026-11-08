@@ -73,7 +73,7 @@ describe('useCursorPages', () => {
     })
     const { result } = pages()
     await act(async () => { await result.current.loadMore() })
-    expect(result.current.error).toBe('500 Internal Server Error')
+    expect(result.current.error).toBe('boom (500)')
     expect(result.current.rows).toEqual([{ id: 1 }])
     expect(result.current.hasMore).toBe(true)
     expect(result.current.loading).toBe(false)
@@ -82,11 +82,11 @@ describe('useCursorPages', () => {
     expect(result.current.rows).toEqual([{ id: 1 }, { id: 2 }])
   })
 
-  it('reports a status with no reason phrase without a trailing space', async () => {
+  it('reports a status with no reason phrase', async () => {
     stubFetch({ [next]: { status: 502 } })
     const { result } = pages()
     await act(async () => { await result.current.loadMore() })
-    expect(result.current.error).toBe('502')
+    expect(result.current.error).toBe('Request failed (502)')
   })
 
   it('reports a network failure', async () => {
@@ -142,5 +142,36 @@ describe('useCursorPages', () => {
     })
     expect(result.current.rows).toEqual([{ id: 1 }, { id: 2 }])
     expect(result.current.loading).toBe(false)
+  })
+})
+
+// dashboard-05: a failed next page shows the server message, and an
+// expired session reads as one.
+describe('useCursorPages error messages', () => {
+  const url = '/api/v1/actions'
+  const next = '/api/v1/actions?cursor=c1'
+  const first = { actions: [{ id: 1 }], next_cursor: 'c1' }
+  const pages = () => renderHook(() => useCursorPages(first, url, 'actions'))
+
+  it('shows the server message for a 404', async () => {
+    stubFetch({ [next]: { status: 404, json: { error: 'cursor expired' } } })
+    const { result } = pages()
+    await act(async () => { await result.current.loadMore() })
+    expect(result.current.error).toBe('cursor expired (404)')
+    expect(result.current.rows).toEqual([{ id: 1 }])
+  })
+
+  it('names the status line for an HTML error page', async () => {
+    stubFetch({ [next]: { status: 504, statusText: 'Gateway Timeout', text: '<html/>' } })
+    const { result } = pages()
+    await act(async () => { await result.current.loadMore() })
+    expect(result.current.error).toBe('Request failed (504 Gateway Timeout)')
+  })
+
+  it('reports an expired session on 401', async () => {
+    stubFetch({ [next]: { status: 401 } })
+    const { result } = pages()
+    await act(async () => { await result.current.loadMore() })
+    expect(result.current.error).toBe('session expired')
   })
 })

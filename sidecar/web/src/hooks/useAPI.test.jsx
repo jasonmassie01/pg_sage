@@ -106,7 +106,7 @@ describe('useAPI with stubFetch', () => {
     const { result } = renderHook(() => useAPI('/api/v1/actions', 0))
     await waitFor(() => expect(result.current.data).toEqual({ n: 1 }))
     await act(async () => { await result.current.refetch() })
-    expect(result.current.error).toBe('503 Service Unavailable')
+    expect(result.current.error).toBe('Request failed (503 Service Unavailable)')
     expect(result.current.data).toEqual({ n: 1 })
   })
 
@@ -187,14 +187,15 @@ describe('useAPI updatedAt', () => {
     const stamped = result.current.updatedAt
     expect(typeof stamped).toBe('number')
     await act(async () => { await result.current.refetch() })
-    expect(result.current.error).toBe('502 Bad Gateway')
+    expect(result.current.error).toBe('Request failed (502 Bad Gateway)')
     expect(result.current.updatedAt).toBe(stamped)
   })
 
   it('stays null when the first response fails', async () => {
     stubFetch({ '/api/v1/databases': { status: 500, statusText: 'Internal Server Error' } })
     const { result } = renderHook(() => useAPI('/api/v1/databases', 0))
-    await waitFor(() => expect(result.current.error).toBe('500 Internal Server Error'))
+    await waitFor(() => expect(result.current.error)
+      .toBe('Request failed (500 Internal Server Error)'))
     expect(result.current.updatedAt).toBeNull()
   })
 
@@ -225,7 +226,8 @@ describe('useAPI updatedAt', () => {
     expect(result.current.updatedAt).not.toBeNull()
     rerender({ url: '/api/v1/actions?database=b' })
     expect(result.current.updatedAt).toBeNull()
-    await waitFor(() => expect(result.current.error).toBe('503 Service Unavailable'))
+    await waitFor(() => expect(result.current.error)
+      .toBe('Request failed (503 Service Unavailable)'))
     expect(result.current.updatedAt).toBeNull()
   })
 
@@ -245,5 +247,80 @@ describe('withTimeRange', () => {
   it('passes a missing base or range through', () => {
     expect(withTimeRange(null, range)).toBeNull()
     expect(withTimeRange('/x', null)).toBe('/x')
+  })
+})
+
+// dashboard-05: the operator sees the server's {"error": msg}, not a bare
+// status, and callers can branch on the status through errorStatus.
+describe('useAPI error messages', () => {
+  it('shows the server message with its status', async () => {
+    stubFetch({ '/api/v1/databases/x': { status: 404, json: { error: 'database not found' } } })
+    const { result } = renderHook(() => useAPI('/api/v1/databases/x', 0))
+    await waitFor(() => expect(result.current.error).toBe('database not found (404)'))
+    expect(result.current.errorStatus).toBe(404)
+    expect(result.current.data).toBeNull()
+    expect(result.current.loading).toBe(false)
+  })
+
+  it('names the status line for an HTML error page', async () => {
+    stubFetch({ '/api/v1/actions': { status: 502, statusText: 'Bad Gateway', text: '<html/>' } })
+    const { result } = renderHook(() => useAPI('/api/v1/actions', 0))
+    await waitFor(() => expect(result.current.error).toBe('Request failed (502 Bad Gateway)'))
+    expect(result.current.errorStatus).toBe(502)
+  })
+
+  it('names the bare status when HTTP/2 sends no reason phrase', async () => {
+    stubFetch({ '/api/v1/actions': { status: 500 } })
+    const { result } = renderHook(() => useAPI('/api/v1/actions', 0))
+    await waitFor(() => expect(result.current.error).toBe('Request failed (500)'))
+    expect(result.current.errorStatus).toBe(500)
+  })
+
+  it('has a null errorStatus for a network failure', async () => {
+    stubFetch({ '/api/v1/actions': () => Promise.reject(new TypeError('Failed to fetch')) })
+    const { result } = renderHook(() => useAPI('/api/v1/actions', 0))
+    await waitFor(() => expect(result.current.error).toBe('Failed to fetch'))
+    expect(result.current.errorStatus).toBeNull()
+  })
+
+  it('keeps 401 as an expired session with its status', async () => {
+    stubFetch({ '/api/v1/actions': { status: 401, json: { error: 'unauthorized' } } })
+    const { result } = renderHook(() => useAPI('/api/v1/actions', 0))
+    await waitFor(() => expect(result.current.error).toBe('session expired'))
+    expect(result.current.errorStatus).toBe(401)
+  })
+
+  it('clears error and errorStatus on the next success', async () => {
+    stubFetch({
+      '/api/v1/actions': [
+        { status: 404, json: { error: 'gone' } },
+        { json: { n: 2 } },
+      ],
+    })
+    const { result } = renderHook(() => useAPI('/api/v1/actions', 0))
+    await waitFor(() => expect(result.current.errorStatus).toBe(404))
+    await act(async () => { await result.current.refetch() })
+    expect(result.current.data).toEqual({ n: 2 })
+    expect(result.current.error).toBeNull()
+    expect(result.current.errorStatus).toBeNull()
+  })
+
+  it('does not show one resource\'s errorStatus for another', async () => {
+    stubFetch({
+      '/api/v1/actions?database=a': { status: 404, json: { error: 'no a' } },
+      '/api/v1/actions?database=b': () => new Promise(() => {}),
+    })
+    const { result, rerender } = renderHook(({ url }) => useAPI(url, 0), {
+      initialProps: { url: '/api/v1/actions?database=a' },
+    })
+    await waitFor(() => expect(result.current.errorStatus).toBe(404))
+    rerender({ url: '/api/v1/actions?database=b' })
+    expect(result.current.error).toBeNull()
+    expect(result.current.errorStatus).toBeNull()
+  })
+
+  it('has a null errorStatus for a null url', () => {
+    const { result } = renderHook(() => useAPI(null, 0))
+    expect(result.current.errorStatus).toBeNull()
   })
 })

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { apiGet } from './api'
 
 // The findings and actions lists (perf v1.8.3) report `total` capped at
 // 1000 with `total_capped`, and page with an opaque `next_cursor`.
@@ -37,9 +38,7 @@ export function useCursorPages(firstPage, url, key) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(withCursor(url, cursor))
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText || ''}`.trim())
-      const page = await res.json()
+      const page = await apiGet(withCursor(url, cursor))
       setExtra(prev => ({
         base: firstPage,
         rows: [...(prev.base === firstPage ? prev.rows : []), ...(page?.[key] || [])],

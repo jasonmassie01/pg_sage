@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { apiGet } from '../lib/api'
 
 // resourceKey identifies what a URL fetches, ignoring the from/to time
 // window. Moving the window (the 30 s time-range tick) refreshes the
@@ -18,15 +19,17 @@ export function resourceKey(url) {
 // new time window keeps the current data until the refresh lands.
 // In-flight requests are aborted on url change and unmount. updatedAt is
 // the time (ms) of the resource's last successful response, or null.
+// error is the message the operator reads (the server's own {error} when it
+// sent one); errorStatus is the HTTP status, or null for a network failure.
 export function useAPI(url, interval = 30000) {
   const key = resourceKey(url)
-  const [state, setState] = useState({ key: null, data: null, error: null, updatedAt: null })
+  const [state, setState] = useState(EMPTY)
   const [inFlight, setInFlight] = useState(false)
   const abortRef = useRef(null)
 
   const fetchData = useCallback(async () => {
     if (!url) {
-      setState({ key: null, data: null, error: null, updatedAt: null })
+      setState(EMPTY)
       setInFlight(false)
       return
     }
@@ -36,16 +39,13 @@ export function useAPI(url, interval = 30000) {
     abortRef.current = ctrl
     setInFlight(true)
     try {
-      const res = await fetch(url, { signal: ctrl.signal })
       // 401s are turned into sage:auth-expired by the global fetch
       // interceptor (lib/authExpiry.js).
-      if (res.status === 401) throw new Error('session expired')
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-      const json = await res.json()
-      setState({ key: requestKey, data: json, error: null, updatedAt: Date.now() })
+      const json = await apiGet(url, { signal: ctrl.signal })
+      setState({ ...EMPTY, key: requestKey, data: json, updatedAt: Date.now() })
     } catch (err) {
       if (err.name === 'AbortError') return
-      setState(prev => failedState(prev, requestKey, err.message))
+      setState(prev => failedState(prev, requestKey, err))
     } finally {
       if (abortRef.current === ctrl) {
         setInFlight(false)
@@ -66,14 +66,17 @@ export function useAPI(url, interval = 30000) {
   return { ...visibleState(state, key, url, inFlight), refetch: fetchData }
 }
 
+const EMPTY = { key: null, data: null, error: null, errorStatus: null, updatedAt: null }
+
 // failedState keeps the resource's last good data and its time when a
 // refresh of the same resource fails; a different resource starts empty.
-function failedState(prev, key, message) {
+function failedState(prev, key, err) {
   const same = prev.key === key
   return {
     key,
     data: same ? prev.data : null,
-    error: message,
+    error: err.message,
+    errorStatus: Number.isInteger(err.status) ? err.status : null,
     updatedAt: same ? prev.updatedAt : null,
   }
 }
@@ -83,10 +86,11 @@ function visibleState(state, key, url, inFlight) {
   const current = state.key === key
   const data = current ? state.data : null
   const error = current ? state.error : null
+  const errorStatus = current ? state.errorStatus : null
   const updatedAt = current ? state.updatedAt : null
   const loading = Boolean(url) &&
     (!current || (data === null && error === null && inFlight))
-  return { data, loading, error, updatedAt }
+  return { data, loading, error, errorStatus, updatedAt }
 }
 
 // withTimeRange returns `base` with ?from/&to query params appended
