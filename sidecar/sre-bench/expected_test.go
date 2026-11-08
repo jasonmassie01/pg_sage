@@ -191,6 +191,44 @@ func TestLostGatesIgnoresStructuralGates(t *testing.T) {
 	}
 }
 
+// A family whose only sufficient-evidence scenario was skipped loses its
+// top-1 gate even though a decoy still scored: the decoy feeds other gates,
+// not R1-TOP1.
+func TestLostGatesFlagsTop1WhenEveryPositiveWasSkipped(t *testing.T) {
+	pos := positives(sre.TriggerPlan, 1)
+	decoy := Scenario{ID: "plan-decoy", Family: sre.TriggerPlan, Class: ClassDecoy}
+	arms := []string{ArmCausalGraph}
+	results := runAll(append(pos, decoy), arms, 1, 2,
+		map[string]string{pos[0].ID: "pg_stat_statements not loaded"})
+	lost := LostGates(EvaluateGates(Summarize(results, arms), ArmCausalGraph), results, arms)
+	got := map[string]bool{}
+	for _, g := range lost {
+		if g.Family != string(sre.TriggerPlan) || g.Arm != ArmCausalGraph {
+			t.Fatalf("lost gate %+v, want plan_regression on %s", g, ArmCausalGraph)
+		}
+		got[g.ID] = true
+	}
+	if !got[GateTop1] || !got[GateDecoy] || len(got) != 2 {
+		t.Fatalf("lost = %v, want exactly R1-TOP1 and CHECK-42-DECOY", lost)
+	}
+}
+
+// The fake model's §12 gates are not evaluated by design, so they are not
+// lost even when every run of the family was skipped.
+func TestLostGatesIgnoresFakeModelGatesWhenEveryRunSkipped(t *testing.T) {
+	pos := positives(sre.TriggerPlan, 2)
+	arms := []string{ArmLLM}
+	skipped := runAll(pos, arms, 1, 1, map[string]string{pos[0].ID: "x", pos[1].ID: "y"})
+	fake := ModelArmGates(Summarize(skipped, arms), skipped, ArmLLM, LLMFake)
+	if lost := LostGates(fake, skipped, arms); len(lost) != 0 {
+		t.Fatalf("fake-model gates flagged: %v", lost)
+	}
+	live := EvaluateGates(Summarize(skipped, arms), ArmLLM)
+	if lost := LostGates(live, skipped, arms); len(lost) == 0 {
+		t.Fatal("a live-model arm whose every run was skipped lost no gate")
+	}
+}
+
 // CI's release bar equals the earned-autonomy promotion bar: the shipped
 // report must carry n >= MinTop1N per family.
 func TestCIReleaseMinRunsMatchesThePromotionBar(t *testing.T) {
