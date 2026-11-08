@@ -50,9 +50,10 @@ named and needs operator approval (measure HNSW and IVFFlat with `pg_sage
 vector-lab`); so does a candidate whose table has such an index in flight, since
 its baseline cannot be modelled. When some workload statements cannot be
 planned, the verdict is unverified and the reason and approval card name the
-planned improvement and the unplanned queryids (`what_if_measured`, `what_if_unplanned_queryids`). Lowering
-`optimizer.hypopg_min_improvement_pct` re-measures remembered rejections the
-new minimum would admit and stops listing them to the tuning agent as rejected.
+planned improvement and the unplanned queryids (`what_if_measured`,
+`what_if_unplanned_queryids`). Lowering `optimizer.hypopg_min_improvement_pct`
+re-measures remembered rejections the new minimum would admit and stops listing
+them to the tuning agent as rejected.
 
 Provider readiness is adapter-driven for Lakebase, self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
