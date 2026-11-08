@@ -345,8 +345,11 @@ scrape_configs:
 
 | Metric | Alert Condition | Description |
 |---|---|---|
-| `pg_sage_findings_total{severity="critical"}` | > 0 | Critical findings need attention |
-| `pg_sage_connection_up` | == 0 | Database unreachable |
+| `pg_sage_findings_open{database,severity="critical"}` | > 0 | Critical findings need attention |
+| `pg_sage_database_up{database}` | == 0 for 5m | A monitored database is unreachable or its status refresh fails |
+| `time() - pg_sage_collector_last_success_timestamp_seconds{database}` | > 3 x collector interval | A database's collector has stalled |
+| `pg_sage_emergency_stopped{database}` | == 1 | The database's emergency stop holds |
+| `pg_sage_connection_up` | == 0 | The sidecar cannot reach its control database |
 | `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
@@ -380,6 +383,40 @@ every other database keeps its series, and the scrape itself stays fast.
   metadata database, refreshed on the same cadence.
 - A database that failed to connect or prepare has no refresher; it keeps reporting
   `pg_sage_value_metrics_up 0` and `pg_sage_metrics_refresh_success{source="value"} 0`.
+
+### Per-database health
+
+Since v2.6.0 the same per-database families render in standalone, fleet and meta mode,
+from the sidecar's in-memory status of each monitored database (no query at scrape time).
+In meta mode no sample describes the metadata database: every series names a monitored
+database from `sage.databases`.
+
+| Metric | Meaning |
+|---|---|
+| `pg_sage_database_up{database}` | 1 if the database is connected and its last status refresh succeeded |
+| `pg_sage_collector_last_success_timestamp_seconds{database}` | Unix time of the last collector snapshot; absent until the first one |
+| `pg_sage_analyzer_last_success_timestamp_seconds{database}` | Unix time of the last findings refresh after analysis; absent until the first one |
+| `pg_sage_findings_open{database,severity}` | Open findings (`critical`, `warning`, `info`); the last known counts stay while the database is down |
+| `pg_sage_database_health_score{database}` | 0-100, the dashboard's health score (0 while down or in error) |
+| `pg_sage_emergency_stopped{database}` | 1 while the database's own or the fleet-wide emergency stop holds |
+| `pg_sage_trust_level{database,level}` | One-hot effective trust level (`observation`, `advisory`, `autonomous`); no samples before the database starts |
+| `pg_sage_database_size_bytes{database}` | Size from the collector's last snapshot; absent until measured (gained the `database` label in v2.6.0) |
+
+`pg_sage_connection_up` now means the sidecar's control database: the monitored database in
+standalone, the metadata database in meta mode, and any database in YAML fleet mode. Alert on
+`pg_sage_database_up` for monitored databases. The fleet summary (`pg_sage_fleet_*`) and the
+LLM gauges render in every mode whenever their data exists.
+
+These families are deprecated and keep emitting in v2.6.0; they are removed in v2.7.0:
+
+| Deprecated (removed in v2.7.0) | Use instead |
+|---|---|
+| `pg_sage_findings_total{severity}` | `pg_sage_findings_open{database,severity}` |
+| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds{database}` |
+| `pg_sage_fleet_instance_findings{database}` | `pg_sage_findings_open{database,severity}` (sum by database) |
+| `pg_sage_fleet_instance_health{database}` | `pg_sage_database_health_score{database}` |
+| `pg_sage_connections_total{state}` | postgres_exporter (`pg_stat_activity_count`) |
+| `pg_sage_cache_hit_ratio` | postgres_exporter (`pg_stat_database_blks_hit` / `blks_read`) |
 
 ### Grafana Dashboard
 
