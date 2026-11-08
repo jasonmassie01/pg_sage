@@ -127,6 +127,11 @@ All tests run against PostgreSQL 17 with pg_hint_plan 1.7.1 on a local Docker co
 ## 4. Bad Nested Loop &rarr; `HashJoin(alias)`
 
 **Symptom:** Planner picks Nested Loop with inaccurate row estimate, causing excessive iterations.
+The tuner flags it only when the row estimate is off by more than 10x (on the join or its outer
+side) **and** the inner side read at least `tuner.nested_loop_row_threshold` rows in total
+(`Actual Rows` x `Actual Loops`, default 10,000). A small nested loop with a bad estimate is cheap
+either way and gets no hint (or, on a stale table, no ANALYZE). The rule needs a plan with actual
+row counts (auto_explain with `log_analyze`); a plain EXPLAIN plan never triggers it.
 
 **Hint:** `/*+ HashJoin(c o) */`
 
