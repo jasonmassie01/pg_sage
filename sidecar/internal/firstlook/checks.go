@@ -22,16 +22,24 @@ func (p *pass) indexChecks(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.evalIndexes(idx, fks, truncated), nil
+	keysErr := readUniqueKeys(ctx, tx, idx)
+	out := p.evalIndexes(idx, fks, readIndexBuilds(ctx, tx), truncated)
+	if keysErr != nil { // out[0] is the invalid-index rule
+		out[0].note = strings.TrimSpace(out[0].note + " No duplicate-key query for " +
+			"invalid unique indexes: " + keysErr.Error())
+	}
+	return out, nil
 }
 
-// evalIndexes evaluates the index rules; truncated means the index read
-// stopped at its row limit, so every rule saw only part of the indexes.
-func (p *pass) evalIndexes(idx []Index, fks []ForeignKey, truncated bool) []outcome {
+// evalIndexes evaluates the index rules; builds are the index builds in
+// progress, and truncated means the index read stopped at its row limit,
+// so every rule saw only part of the indexes.
+func (p *pass) evalIndexes(idx []Index, fks []ForeignKey, builds IndexBuilds,
+	truncated bool) []outcome {
 	th := p.opts.Thresholds
 	dups, flagged := DuplicateIndexes(idx)
 	out := []outcome{
-		p.add(RuleInvalidIndex, InvalidIndexes(idx)),
+		p.add(RuleInvalidIndex, InvalidIndexes(idx, builds)),
 		p.add(RuleDuplicateIndex, dups),
 		p.add(RuleNeverScannedIndex, NeverScannedIndexes(idx, flagged, p.window,
 			p.opts.Now())),

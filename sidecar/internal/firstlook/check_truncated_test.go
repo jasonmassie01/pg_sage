@@ -28,11 +28,13 @@ func capPass(maxItems int) *pass {
 
 func TestAddTruncatedOnlyPastTheCap(t *testing.T) {
 	p := capPass(3)
-	at := checkFor(p.add(RuleInvalidIndex, InvalidIndexes(invalidIndexes(3))), "")
+	at := checkFor(p.add(RuleInvalidIndex,
+		InvalidIndexes(invalidIndexes(3), IndexBuilds{})), "")
 	if at.Truncated || at.Note != "" || at.Status != CheckFinding {
 		t.Fatalf("at the cap: check = %+v, want a finding that is not truncated", at)
 	}
-	over := checkFor(p.add(RuleInvalidIndex, InvalidIndexes(invalidIndexes(4))), "")
+	over := checkFor(p.add(RuleInvalidIndex,
+		InvalidIndexes(invalidIndexes(4), IndexBuilds{})), "")
 	if !over.Truncated || over.Note != "1 more not shown" || over.Status != CheckFinding {
 		t.Fatalf("cap plus one: check = %+v, want truncated with 1 more not shown", over)
 	}
@@ -43,7 +45,8 @@ func TestAddTruncatedOnlyPastTheCap(t *testing.T) {
 
 func TestAddFiftyMoreNotShown(t *testing.T) {
 	p := capPass(50)
-	c := checkFor(p.add(RuleInvalidIndex, InvalidIndexes(invalidIndexes(100))), "")
+	c := checkFor(p.add(RuleInvalidIndex,
+		InvalidIndexes(invalidIndexes(100), IndexBuilds{})), "")
 	if !c.Truncated || c.Note != "50 more not shown" {
 		t.Fatalf("check = %+v, want truncated with 50 more not shown", c)
 	}
@@ -68,7 +71,7 @@ func TestEvalIndexesMarksEveryRuleTruncatedWhenTheReadWasCut(t *testing.T) {
 	p := capPass(50)
 	p.window = StatsWindow{Known: true, Since: time.Now().Add(-90 * 24 * time.Hour)}
 	for _, cut := range []bool{false, true} {
-		for _, o := range p.evalIndexes(invalidIndexes(1), nil, cut) {
+		for _, o := range p.evalIndexes(invalidIndexes(1), nil, IndexBuilds{}, cut) {
 			c := checkFor(o, "")
 			if c.Truncated != cut {
 				t.Fatalf("read cut=%v: check %+v", cut, c)

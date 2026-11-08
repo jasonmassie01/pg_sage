@@ -29,6 +29,12 @@ type Index struct {
 	Expressions      string // pg_get_expr(indexprs), "" when none
 	SizeBytes        int64
 	Scans            int64
+	// KeyNames are the key columns' names, "" for an expression; read only
+	// for invalid unique indexes (readUniqueKeys), nil when not read.
+	KeyNames []string
+	// NullsNotDistinct: a unique index whose NULL keys count as equal
+	// (PostgreSQL 15+); read with KeyNames.
+	NullsNotDistinct bool
 }
 
 // ForeignKey is one foreign key constraint (pg_constraint contype 'f').
@@ -60,30 +66,6 @@ func (x Index) keys() []int16 {
 }
 
 func (x Index) hasInclude() bool { return len(x.keys()) < len(x.Columns) }
-
-// InvalidIndexes reports indexes a failed concurrent build left invalid:
-// they cost writes and serve no reads.
-func InvalidIndexes(idx []Index) []Item {
-	var out []Item
-	for _, x := range idx {
-		if x.Valid {
-			continue
-		}
-		name := ident(x.Schema) + "." + ident(x.Name)
-		out = append(out, Item{Rule: RuleInvalidIndex, Severity: SeverityWarning,
-			Object: x.object(), Title: "Invalid index " + x.object(),
-			Detail: fmt.Sprintf("Index %s on %s is invalid (%s): a failed CREATE INDEX "+
-				"CONCURRENTLY or REINDEX left it behind. It is maintained on every write "+
-				"but never used for reads.", x.object(), qualified(x.Schema, x.Table),
-				sizeText(x.SizeBytes)),
-			Recommendation: "Rebuild it if it is needed, otherwise drop it.",
-			SuggestedSQL:   "REINDEX INDEX CONCURRENTLY " + name + ";",
-			Evidence: []Evidence{{Source: "pg_index",
-				Ref:    "pg_index.indisvalid = false (indexrelid " + x.object() + ")",
-				Detail: fmt.Sprintf("indisready=%t", x.Ready)}}})
-	}
-	return out
-}
 
 // shapeKey identifies what an index stores and in which order.
 func shapeKey(x Index) string {
