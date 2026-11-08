@@ -38,8 +38,12 @@ func keepOpen(active map[string]map[string]bool, held map[string]map[string]stri
 }
 
 // markStale marks the held open findings stale and logs each finding
-// that becomes stale, or stops being held, once.
+// that becomes stale, or stops being held, once. Nil holds (unreadable
+// trends: nothing was measured or resolved) leave the marks alone.
 func (m *Monitor) markStale(ctx context.Context, held map[string]map[string]string) error {
+	if held == nil {
+		return nil
+	}
 	m.staleMu.Lock()
 	defer m.staleMu.Unlock()
 	m.releaseUnheld(held)

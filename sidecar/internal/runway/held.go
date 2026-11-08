@@ -48,12 +48,12 @@ func (in EvalInput) trendsComplete(cat string) bool {
 //     resolve. While that reading is unreadable, every unmeasured row is
 //     held: the object may still exist.
 //
-// Unreadable trends hold nothing; nothing is evaluated then either.
+// Unreadable trends hold nothing (nil); nothing is evaluated then either.
 func Holds(in EvalInput, opts Options) map[string]map[string]string {
-	held := map[string]map[string]string{}
 	if !in.TrendsOK {
-		return held
+		return nil
 	}
+	held := map[string]map[string]string{}
 	rows := map[string]map[string]bool{} // kind -> subject -> measured
 	for _, tr := range in.Trends {
 		if rows[tr.Kind] == nil {
