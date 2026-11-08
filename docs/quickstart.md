@@ -74,7 +74,11 @@ The landing page opens with **"Getting started"**, a checklist with live status:
 Below it, **"First look"** lists what a DBA would flag on day one. Each finding cites the
 catalog evidence it rests on, for example `pg_index.indisvalid = false`:
 
-- invalid indexes left by a failed concurrent build;
+- invalid indexes left by a failed concurrent build. An index still being built (seen in
+  `pg_stat_progress_create_index`) is shown as information with no SQL. A `_ccnew` or
+  `_ccold` copy left by a failed `REINDEX CONCURRENTLY` gets `DROP INDEX CONCURRENTLY`.
+  A failed unique index gets a read-only query for its duplicate keys, to clean up
+  before any rebuild;
 - duplicate indexes, and redundant ones whose columns lead another index;
 - indexes never scanned. The caveat states the statistics window: since the last reset or
   the server start. Scans on replicas are not counted;

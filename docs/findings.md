@@ -85,6 +85,20 @@ DROP INDEX CONCURRENTLY public.idx_orders_status_ccnew;
 CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status);
 ```
 
+**First look.** The first look reads `pg_stat_progress_create_index` before it judges an
+invalid index:
+
+| Case | Severity | Suggested SQL |
+|---|---|---|
+| A build is in progress (the index, or its table when `index_relid = 0` or the build is `REINDEX CONCURRENTLY`) | info | none |
+| `_ccnew`/`_ccnewN` copy left by a failed `REINDEX CONCURRENTLY` | warning | `DROP INDEX CONCURRENTLY`, then re-run the reindex of the original |
+| `_ccold`/`_ccoldN` copy left by a failed `REINDEX CONCURRENTLY` | warning | `DROP INDEX CONCURRENTLY` |
+| Unique index | warning | `SELECT ... GROUP BY <keys> HAVING count(*) > 1 LIMIT 20` when every key is a plain column; none for expression keys. Rebuild only after removing the duplicates |
+| Any other | warning | `REINDEX INDEX CONCURRENTLY` |
+
+If the progress view cannot be read, or hides other roles' builds (the role lacks
+`pg_read_all_stats`), the items carry a caveat. The check itself is not degraded.
+
 ---
 
 ### missing_fk_index
