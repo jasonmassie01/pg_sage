@@ -252,9 +252,9 @@ func TestScorerOwnActionReadErrorMarksNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(limited.Close)
-	ext, err := newScorer(limited, fastOptions()).external(ctx,
+	ext, own, err := newScorer(limited, fastOptions()).external(ctx,
 		pendingDecision{Decision: get(t, s, d.ID)})
-	if err == nil || ext != nil ||
+	if err == nil || ext != nil || own ||
 		!strings.Contains(err.Error(), "shadow: read own index actions") ||
 		!strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("external = %+v, %v; want the own-actions read error", ext, err)

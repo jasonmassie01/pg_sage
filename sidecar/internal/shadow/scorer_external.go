@@ -19,25 +19,36 @@ import (
 
 // external is the verification of d's change applied outside pg_sage;
 // nil when the class cannot be checked in the catalog or nothing changed.
-func (s *Scorer) external(ctx context.Context, p pendingDecision) (*verifiedFact, error) {
+// own is true when the change is in the catalog but pg_sage made it (or
+// may have): no other source may score it then, not even the what-if of
+// an index that already exists, and the horizon leaves it unscored. A
+// change already marked applied is asked again on every pass: pg_sage's
+// action may be logged just after its index became valid, and a mark may
+// predate this check (an upgrade).
+func (s *Scorer) external(ctx context.Context, p pendingDecision) (*verifiedFact, bool,
+	error) {
 	if p.Class != "index_create" && p.Class != "index_drop" {
-		return nil, nil
+		return nil, false, nil
 	}
-	if p.AppliedDetectedAt == nil || p.AppliedAfter == nil {
+	marked := p.AppliedDetectedAt != nil && p.AppliedAfter != nil
+	if !marked {
 		applied, err := s.appliedOutside(ctx, p.Decision)
 		if err != nil || !applied {
-			return nil, err
+			return nil, false, err
 		}
-		own, err := s.madeByPgSage(ctx, p.Decision) // scorer_own.go
-		if err != nil || own {
-			return nil, err
-		}
-		if err := s.markApplied(ctx, p.ID); err != nil {
-			return nil, err
-		}
-		return &verifiedFact{Reason: "the after window has just started"}, nil
 	}
-	return s.verifyApplied(ctx, p)
+	own, err := s.madeByPgSage(ctx, p.Decision) // scorer_own.go
+	if err != nil || own {
+		return nil, own, err
+	}
+	if !marked {
+		if err := s.markApplied(ctx, p.ID); err != nil {
+			return nil, false, err
+		}
+		return &verifiedFact{Reason: "the after window has just started"}, false, nil
+	}
+	f, err := s.verifyApplied(ctx, p)
+	return f, false, err
 }
 
 // appliedOutside checks the catalog for d's change.

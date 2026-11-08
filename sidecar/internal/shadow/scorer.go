@@ -89,15 +89,16 @@ func (s *Scorer) RunOnce(ctx context.Context) (Result, error) {
 }
 
 // evidence gathers every source for p; the costlier ones (catalog and
-// verification reads, what-if) only when no cheaper one decided.
+// verification reads, what-if) only when no cheaper one decided. A change
+// pg_sage made itself, found in the catalog, is no evidence of any source.
 func (s *Scorer) evidence(ctx context.Context, p pendingDecision, queue []queueRow,
 	actions []actionRow, w *whatIf) (facts, error) {
 	ev := facts{queue: matchQueue(queue, p.Decision), action: matchAction(actions, p.Decision)}
 	if ev.queue != nil || ev.action != nil {
 		return ev, nil
 	}
-	ext, err := s.external(ctx, p)
-	if err != nil || ext != nil {
+	ext, own, err := s.external(ctx, p)
+	if err != nil || ext != nil || own {
 		ev.external = ext
 		return ev, err
 	}
