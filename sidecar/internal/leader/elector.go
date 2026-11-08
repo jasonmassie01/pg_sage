@@ -65,11 +65,14 @@ type Elector struct {
 
 	mu          sync.Mutex
 	held        bool
+	wasLeader   bool
 	epoch       int64
 	deadline    time.Time
 	current     string
 	lastErr     string
 	transitions int
+	created     time.Time
+	lastRenew   time.Time
 }
 
 // NewElector returns an elector for scope as holder; ttl <= 0 is DefaultTTL.
@@ -83,41 +86,65 @@ func NewElector(store Store, scope, holder string, ttl time.Duration,
 	for _, o := range opts {
 		o(e)
 	}
+	e.created = e.now()
 	return e
 }
 
 // TTL is the lease duration.
 func (e *Elector) TTL() time.Duration { return e.ttl }
 
-// Tick acquires or renews the lease once.
+// Tick acquires or renews the lease once. The store call is bounded by
+// ttl/3 (pool acquire and every query), so a half-open connection or an
+// exhausted pool costs one renewal interval, not the TCP timeout.
 func (e *Elector) Tick(ctx context.Context) error {
 	if e.store == nil || e.scope == "" || e.holder == "" {
 		return errors.New("leader: elector needs a store, a scope and a holder")
 	}
 	start := e.now()
-	lease, held, err := e.store.Acquire(ctx, e.scope, e.holder, e.ttl)
+	tctx, cancel := context.WithTimeout(ctx, e.ttl/3)
+	lease, held, err := e.store.Acquire(tctx, e.scope, e.holder, e.ttl)
+	cancel()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err != nil {
 		e.lastErr = err.Error()
+		e.noteLapseLocked(err)
 		return fmt.Errorf("leader: renew lease of %s: %w", e.scope, err)
 	}
+	e.noteLapseLocked(errRenewedLate)
 	e.lastErr = ""
+	e.lastRenew = start
 	e.current = lease.Holder
-	was := e.leaderLocked()
 	if held {
 		e.held, e.epoch = true, lease.Epoch
 		e.deadline = start.Add(e.ttl - e.ttl/SafetyDivisor)
 	} else {
 		e.held = false
 	}
-	if now := e.leaderLocked(); now != was {
+	if now := e.leaderLocked(); now != e.wasLeader {
+		e.wasLeader = now
 		e.transitions++
 		e.log("INFO", "leader: %s %s for %s (epoch %d, holder %s)", e.holder,
 			map[bool]string{true: "became leader", false: "is a follower"}[now],
 			e.scope, lease.Epoch, lease.Holder)
 	}
 	return nil
+}
+
+// errRenewedLate is the lapse cause when a renewal answered, but only
+// after the local deadline had already passed.
+var errRenewedLate = errors.New("renewal answered after the local deadline")
+
+// noteLapseLocked counts and logs, once, the moment a sidecar that last
+// saw itself as leader finds its local deadline passed.
+func (e *Elector) noteLapseLocked(cause error) {
+	if !e.wasLeader || e.leaderLocked() {
+		return
+	}
+	e.wasLeader = false
+	e.transitions++
+	e.log("WARN", "leader: lease of %s lapsed, renewal overdue by %s: %v", e.scope,
+		e.now().Sub(e.deadline), cause)
 }
 
 func (e *Elector) leaderLocked() bool {
@@ -161,7 +188,7 @@ func (e *Elector) Fence() (Token, bool) {
 // Release gives the lease up so a successor takes over at once.
 func (e *Elector) Release(ctx context.Context) error {
 	e.mu.Lock()
-	e.held = false
+	e.held, e.wasLeader = false, false
 	e.mu.Unlock()
 	if e.store == nil {
 		return nil
@@ -205,6 +232,7 @@ type Status struct {
 	LeaseTTL    string    `json:"lease_ttl,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
 	Transitions int       `json:"transitions"`
+	LastRenew   time.Time `json:"last_renew,omitempty"`
 }
 
 // Status reports the elector's state; a nil elector is disabled.
@@ -216,11 +244,27 @@ func (e *Elector) Status() Status {
 	defer e.mu.Unlock()
 	s := Status{Enabled: true, Scope: e.scope, Self: e.holder, Holder: e.current,
 		Leader: e.leaderLocked(), LeaseTTL: e.ttl.String(), LastError: e.lastErr,
-		Transitions: e.transitions}
+		Transitions: e.transitions, LastRenew: e.lastRenew}
 	if s.Leader {
 		s.Epoch, s.Deadline = e.epoch, e.deadline
 	}
 	return s
+}
+
+// LastRenewAge is the time since the last successful round trip to the
+// lease store (renewal or follower read), or since the elector was
+// created when none has succeeded yet; zero for a nil elector.
+func (e *Elector) LastRenewAge() time.Duration {
+	if e == nil {
+		return 0
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	since := e.lastRenew
+	if since.IsZero() {
+		since = e.created
+	}
+	return e.now().Sub(since)
 }
 
 // HolderID is a unique holder identity: host, process and a random suffix.

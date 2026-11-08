@@ -2,6 +2,7 @@ package leader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -196,6 +197,75 @@ func TestPostgresStore_ErrorsNameTheOperation(t *testing.T) {
 	if err == nil || !containsAll(err.Error(), "acquire", "lease") {
 		t.Fatalf("cancelled acquire err = %v", err)
 	}
+}
+
+// TestPostgresStore_BlockedRenewalTimesOutAtTickBound holds the lease row
+// lock in another transaction (pg_sleep keeps it busy): the elector's
+// renewal must give up within ttl/3 with context.DeadlineExceeded, leave no
+// waiting backend behind, and renew once the lock is gone.
+func TestPostgresStore_BlockedRenewalTimesOutAtTickBound(t *testing.T) {
+	ctx := context.Background()
+	pool := dbPool(t)
+	st := NewPostgresStore(pool)
+	scope := uniqueScope(t)
+	ttl := 900 * time.Millisecond
+	e := NewElector(st, scope, "A", ttl)
+	if err := e.Tick(ctx); err != nil || !e.IsLeader() {
+		t.Fatalf("first tick err=%v leader=%v", err, e.IsLeader())
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM sage.fleet_leader_lease
+		WHERE scope = $1 FOR UPDATE`, scope); err != nil {
+		t.Fatalf("lock lease row: %v", err)
+	}
+	sleepDone := make(chan error, 1)
+	go func() { _, err := tx.Exec(ctx, `SELECT pg_sleep(1.5)`); sleepDone <- err }()
+	start := time.Now()
+	err = e.Tick(ctx)
+	took := time.Since(start)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked renewal err = %v, want context.DeadlineExceeded", err)
+	}
+	if bound := ttl/3 + 250*time.Millisecond; took > bound {
+		t.Fatalf("blocked renewal took %v, want within %v", took, bound)
+	}
+	if n := waitingRenewals(t, pool, scope); n != 0 {
+		t.Fatalf("%d renewal backends still waiting on the row lock", n)
+	}
+	if err := <-sleepDone; err != nil {
+		t.Fatalf("pg_sleep holder: %v", err)
+	}
+	_ = tx.Rollback(ctx)
+	if err := e.Tick(ctx); err != nil {
+		t.Fatalf("renewal after the lock cleared: %v", err)
+	}
+	if s := e.Status(); !s.Leader || s.LastError != "" {
+		t.Fatalf("status after recovery = %+v, want leader with no error", s)
+	}
+}
+
+// waitingRenewals counts lease UPSERTs on scope still waiting on a lock,
+// polling briefly because cancellation reaches the server asynchronously.
+func waitingRenewals(t *testing.T, pool *pgxpool.Pool, scope string) int {
+	t.Helper()
+	var n int
+	for i := 0; i < 40; i++ {
+		err := pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_stat_activity
+			WHERE wait_event_type = 'Lock' AND query LIKE '%fleet_leader_lease AS l%'
+			AND pid <> pg_backend_pid()`).Scan(&n)
+		if err != nil {
+			t.Fatalf("read pg_stat_activity for %s: %v", scope, err)
+		}
+		if n == 0 {
+			return 0
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return n
 }
 
 func containsAll(s string, parts ...string) bool {
