@@ -377,13 +377,22 @@ statement is removed before the briefing is sent.
 	// briefing data is delimited as untrusted data (G3-B07). A
 	// JSON-wrapped prose answer is unwrapped before grounding (G3-B11).
 	// The system prompt must not say "JSON": that turns on json_object mode.
-	resp, tokens, err := w.llm.Chat(ctx, system,
+	// An answer cut at the token limit is kept and marked as cut (llm-07).
+	resp, err := w.llm.ChatResult(ctx, system,
 		llm.UntrustedData("briefing_data", structured),
 		w.cfg.LLM.ContextBudgetTokens)
 	if err != nil {
-		return "", tokens, err
+		return "", resp.Tokens, err
 	}
-	return llm.UnwrapText(resp), tokens, nil
+	text := llm.UnwrapText(resp.Content)
+	if resp.Truncated {
+		w.logFn("WARN", "briefing: LLM answer cut at the model's token limit "+
+			"(finish_reason=%s, tokens=%d); stored with a truncation note; "+
+			"raise llm.context_budget_tokens for complete briefings",
+			resp.FinishReason, resp.Tokens)
+		text = withTruncationNote(text)
+	}
+	return text, resp.Tokens, nil
 }
 
 // storeBriefing records the briefing with its payload as content_json.
