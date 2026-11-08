@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // indexChecks reads the indexes and foreign keys once and evaluates the
@@ -100,7 +101,7 @@ func unreadableNote(seqs []Sequence, n int) string {
 			break
 		}
 		grants = append(grants, fmt.Sprintf("GRANT SELECT ON ALL SEQUENCES IN SCHEMA %s "+
-			"TO <pg_sage role>;", ident(s)))
+			"TO <pg_sage role>;", sqlident.Ident(s)))
 	}
 	return fmt.Sprintf("%d sequences are not readable by the pg_sage role, so their "+
 		"runway is unknown: %s", n, strings.Join(grants, " "))

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Index is one user index as the catalog describes it (pg_index, pg_class,
@@ -139,7 +141,7 @@ func duplicateItem(dup, keep Index) Item {
 			sizeText(dup.SizeBytes), keep.object(), qualified(dup.Schema, dup.Table)),
 		Recommendation: "Drop the duplicate after checking no query hint or constraint " +
 			"names it.",
-		SuggestedSQL: "DROP INDEX CONCURRENTLY " + ident(dup.Schema) + "." + ident(dup.Name) +
+		SuggestedSQL: "DROP INDEX CONCURRENTLY " + sqlident.Ident(dup.Schema) + "." + sqlident.Ident(dup.Name) +
 			";",
 		Evidence: []Evidence{{Source: "pg_index",
 			Ref: "pg_index.indkey, indclass, indcollation (indexrelid " + dup.object() + ")",
@@ -167,8 +169,8 @@ func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
 				Detail: fmt.Sprintf("The columns of %s (%s) lead %s, which serves the "+
 					"same lookups.", a.object(), sizeText(a.SizeBytes), b.object()),
 				Recommendation: "Drop it unless a query relies on its smaller size.",
-				SuggestedSQL: "DROP INDEX CONCURRENTLY " + ident(a.Schema) + "." +
-					ident(a.Name) + ";",
+				SuggestedSQL: "DROP INDEX CONCURRENTLY " + sqlident.Ident(a.Schema) + "." +
+					sqlident.Ident(a.Name) + ";",
 				Evidence: []Evidence{{Source: "pg_index",
 					Ref: "pg_index.indkey (indexrelid " + a.object() + ")",
 					Detail: fmt.Sprintf("indkey=%v is a prefix of %s indkey=%v",
@@ -262,7 +264,7 @@ func UnindexedForeignKeys(fks []ForeignKey, idx []Index, minRows float64) []Item
 		cols := strings.Join(fk.ColumnNames, ", ")
 		quoted := make([]string, len(fk.ColumnNames))
 		for i, c := range fk.ColumnNames {
-			quoted[i] = ident(c)
+			quoted[i] = sqlident.Ident(c)
 		}
 		out = append(out, Item{Rule: RuleUnindexedFK, Severity: SeverityWarning,
 			Object: table + "." + fk.Name,
@@ -272,7 +274,7 @@ func UnindexedForeignKeys(fks []ForeignKey, idx []Index, minRows float64) []Item
 				table, rowsText(fk.TableRows)),
 			Recommendation: "Create an index on the referencing columns.",
 			SuggestedSQL: fmt.Sprintf("CREATE INDEX CONCURRENTLY ON %s.%s (%s);",
-				ident(fk.Schema), ident(fk.Table), strings.Join(quoted, ", ")),
+				sqlident.Ident(fk.Schema), sqlident.Ident(fk.Table), strings.Join(quoted, ", ")),
 			Evidence: []Evidence{{Source: "pg_constraint",
 				Ref: "pg_constraint.conkey (conname " + fk.Name + ", contype f)",
 				Detail: fmt.Sprintf("conkey=%v; no pg_index on %s leads with them",

@@ -3,6 +3,8 @@ package firstlook
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Capability names.
@@ -40,6 +42,7 @@ type Extensions struct {
 	HypoPGAvailable         bool
 	AutoExplainLoaded       bool
 	PreloadLibraries        *string
+	SessionPreloadLibraries *string
 }
 
 // ExtensionCapabilities reports each extension with its enablement steps
@@ -80,7 +83,7 @@ func queryTextItem(role string) Item {
 		Detail: "pg_stat_statements shows <insufficient privilege> for other roles' " +
 			"queries, so query findings cannot name the statement.",
 		Recommendation: "Grant pg_read_all_stats (pg_monitor includes it).",
-		SuggestedSQL:   "GRANT pg_read_all_stats TO " + ident(role) + ";",
+		SuggestedSQL:   "GRANT pg_read_all_stats TO " + sqlident.Role(role) + ";",
 		Evidence: []Evidence{{Source: "pg_stat_statements",
 			Ref: "pg_stat_statements.query = '<insufficient privilege>'"}}}
 }
@@ -164,6 +167,15 @@ func withLibrary(preload *string, lib string) string {
 	return strings.Join(append(libs, lib), ",")
 }
 
+// sessionLibraries is session_preload_libraries with auto_explain added;
+// a list that already names it is kept exactly as it is.
+func sessionLibraries(list *string) string {
+	if list != nil && preloads(*list, "auto_explain") {
+		return *list
+	}
+	return withLibrary(list, "auto_explain")
+}
+
 func hypoPG(e Extensions, provider string) Capability {
 	c := Capability{Name: CapHypoPG, Status: CapabilityOK,
 		Detail: "Index recommendations are checked with hypothetical indexes."}
@@ -220,7 +232,8 @@ func autoExplain(e Extensions, provider string) Capability {
 			"settings if your plan offers it (auto_explain.log_min_duration)."}
 	default:
 		c.Steps = []string{"As a superuser: ALTER SYSTEM SET session_preload_libraries " +
-			"= 'auto_explain';", "ALTER SYSTEM SET auto_explain.log_min_duration = " +
+			"= '" + sessionLibraries(e.SessionPreloadLibraries) + "';",
+			"ALTER SYSTEM SET auto_explain.log_min_duration = " +
 			"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
 	}
 	return c

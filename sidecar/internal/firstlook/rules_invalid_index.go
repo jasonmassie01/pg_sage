@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // leftoverSuffix matches the copies a failed or cancelled REINDEX
@@ -98,7 +100,7 @@ func buildingItem(x Index, bd IndexBuild) Item {
 func reindexSQL(name string) string { return "REINDEX INDEX CONCURRENTLY " + name + ";" }
 
 func failedItem(x Index, idx []Index) Item {
-	name := ident(x.Schema) + "." + ident(x.Name)
+	name := sqlident.Ident(x.Schema) + "." + sqlident.Ident(x.Name)
 	it := Item{Rule: RuleInvalidIndex, Severity: SeverityWarning, Object: x.object(),
 		Title: "Invalid index " + x.object(), Evidence: []Evidence{invalidEvidence(x)}}
 	// on reads "<index> on <table> is invalid (<size>)", today's wording.
@@ -144,7 +146,7 @@ func leftoverText(it *Item, x Index, idx []Index, on, name string) {
 		if m[1] == "new" && o.OID != x.OID && o.TableOID == x.TableOID &&
 			o.Schema == x.Schema && o.Name == base {
 			it.Recommendation += " To finish the rebuild, re-run " +
-				reindexSQL(ident(o.Schema)+"."+ident(o.Name))
+				reindexSQL(sqlident.Ident(o.Schema)+"."+sqlident.Ident(o.Name))
 			break
 		}
 	}
@@ -166,7 +168,7 @@ func duplicateKeysSQL(x Index) string {
 		if n == "" || keys[i] == 0 {
 			return ""
 		}
-		cols[i] = ident(n)
+		cols[i] = sqlident.Ident(n)
 		if !x.NullsNotDistinct {
 			where = append(where, cols[i]+" IS NOT NULL")
 		}
@@ -175,8 +177,8 @@ func duplicateKeysSQL(x Index) string {
 		where = append(where, "("+x.Predicate+")")
 	}
 	list := strings.Join(cols, ", ")
-	q := "SELECT " + list + ", count(*) AS copies FROM " + ident(x.Schema) + "." +
-		ident(x.Table)
+	q := "SELECT " + list + ", count(*) AS copies FROM " + sqlident.Ident(x.Schema) + "." +
+		sqlident.Ident(x.Table)
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}

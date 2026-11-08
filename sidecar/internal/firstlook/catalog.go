@@ -262,6 +262,7 @@ const extensionsSQL = tag + `SELECT current_user::text,
   EXISTS (SELECT 1 FROM pg_catalog.pg_settings WHERE name LIKE 'auto\_explain.%'),
   EXISTS (SELECT 1 FROM pg_catalog.pg_settings WHERE name = 'pg_stat_statements.max'),
   (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'shared_preload_libraries'),
+  (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'session_preload_libraries'),
   ` + rolegrants.QueryTextVisibleSQL
 
 func readExtensions(ctx context.Context, tx pgx.Tx) (Extensions, error) {
@@ -269,7 +270,7 @@ func readExtensions(ctx context.Context, tx pgx.Tx) (Extensions, error) {
 	var gucs, readStats bool
 	if err := tx.QueryRow(ctx, extensionsSQL).Scan(&e.Role, &e.StatStatementsInstalled,
 		&e.HypoPGInstalled, &e.HypoPGAvailable, &e.AutoExplainLoaded, &gucs,
-		&e.PreloadLibraries, &readStats); err != nil {
+		&e.PreloadLibraries, &e.SessionPreloadLibraries, &readStats); err != nil {
 		return e, fmt.Errorf("read extensions: %w", err)
 	}
 	loaded := gucs
