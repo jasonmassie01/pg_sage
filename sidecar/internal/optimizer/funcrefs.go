@@ -46,7 +46,7 @@ var operatorWords = map[string]bool{
 	"else": true, "case": true, "distinct": true, "from": true, "to": true,
 	"escape": true, "symmetric": true, "for": true, "placing": true, "both": true,
 	"leading": true, "trailing": true, "using": true, "collate": true, "at": true,
-	"zone": true, "overlaps": true,
+	"zone": true, "overlaps": true, "variadic": true, "asymmetric": true, "default": true,
 }
 
 // castTypeWords continue a multi-word type name after "::" or AS.
@@ -63,23 +63,32 @@ var castTypeWords = map[string]bool{
 // standard string literal (whose meaning depends on
 // standard_conforming_strings), is an error, never a guess.
 func IndexFunctionCalls(ddl string) ([]FuncRef, error) {
+	refs, _, err := scanIndexExpressions(ddl)
+	return refs, err
+}
+
+// scanIndexExpressions reads a CREATE INDEX's key list and predicate for
+// IndexFunctionCalls and IndexObjectRefs.
+func scanIndexExpressions(ddl string) ([]FuncRef, []ObjectRef, error) {
 	s := &ddlScanner{src: strings.TrimRight(ddl, "; \t\r\n")}
 	var spec IndexSpec
 	if _, err := s.indexHeader(&spec); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := s.parseBody(&spec); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	refs, err := scanCalls(s.src, s.keysAt, s.keysEnd)
-	if err != nil || spec.Where == "" {
-		return refs, err
+	cs := &callScanner{src: s.src, pos: s.keysAt, end: s.keysEnd, keys: true}
+	if err := cs.scan(); err != nil {
+		return nil, nil, err
 	}
-	where, err := scanCalls(s.src, s.whereAt, len(s.src))
-	if err != nil {
-		return nil, err
+	if spec.Where != "" {
+		cs.pos, cs.end, cs.keys, cs.depth, cs.operand = s.whereAt, len(s.src), false, 0, false
+		if err := cs.scan(); err != nil {
+			return nil, nil, err
+		}
 	}
-	return append(refs, where...), nil
+	return cs.refs, cs.objects, nil
 }
 
 // callScanner walks src[pos:end] token by token.
@@ -88,17 +97,23 @@ type callScanner struct {
 	pos, end int
 	// operand is set when the last token ended an operand.
 	operand bool
+	// keys is set while the key list is read, and depth counts the open
+	// parentheses and brackets: only a top-level key element is followed
+	// by an operator class, the one qualified name before "(" that is not
+	// a call.
+	keys    bool
+	depth   int
 	refs    []FuncRef
+	objects []ObjectRef
 }
 
-func scanCalls(src string, start, end int) ([]FuncRef, error) {
-	cs := &callScanner{src: src, pos: start, end: end}
+func (cs *callScanner) scan() error {
 	for cs.pos < cs.end {
 		if err := cs.step(); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return cs.refs, nil
+	return nil
 }
 
 func unreadable(what string) error {
@@ -133,8 +148,13 @@ func (cs *callScanner) step() error {
 	case c == ':' && cs.peek(1) == ':':
 		cs.pos += 2
 		return cs.castType()
+	case c == '(' || c == '[':
+		cs.pos++
+		cs.depth++
+		cs.operand = false
 	case c == ')' || c == ']':
 		cs.pos++
+		cs.depth--
 		cs.operand = true
 	default:
 		cs.pos++
@@ -199,20 +219,28 @@ func (cs *callScanner) name() error {
 			return cs.literal(last.text == "e")
 		}
 	}
-	operand := cs.operand
 	after := cs.pos
 	cs.skipSpace()
-	isCall := cs.pos < cs.end && cs.src[cs.pos] == '(' && !operand &&
-		!(single && sqlCallKeywords[last.text])
+	next := byte(0)
+	if cs.pos < cs.end {
+		next = cs.src[cs.pos]
+	}
+	if single && last.text == "operator" && next == '(' {
+		return cs.operator()
+	}
 	cs.pos = after
 	switch {
-	case isCall:
+	case cs.isCall(parts, next):
 		ref := FuncRef{Name: last.text, Start: start}
 		if len(parts) > 1 {
 			ref.Schema = parts[len(parts)-2].text
 		}
 		cs.refs = append(cs.refs, ref)
 		cs.operand = false
+	case len(parts) > 1 && next == '\'':
+		// s.t 'v': a typed literal.
+		cs.addObject(ObjectType, parts[:len(parts)-1], last.text)
+		cs.operand = true
 	case single && last.text == "as":
 		return cs.castType()
 	case single && (operatorWords[last.text] || sqlCallKeywords[last.text]):
@@ -221,6 +249,23 @@ func (cs *callScanner) name() error {
 		cs.operand = true
 	}
 	return nil
+}
+
+// isCall reports whether the name just read, followed by next, is a call.
+// After an operand a bare name before "(" is an infix keyword (email LIKE
+// ('a%')); a qualified one is a call unless it is a top-level key
+// element's operator class (col public.gist_trgm_ops(siglen=32)), so a
+// keyword the scanner does not know never hides a qualified call.
+func (cs *callScanner) isCall(parts []namePart, next byte) bool {
+	last := parts[len(parts)-1]
+	single := len(parts) == 1 && !last.quoted
+	if next != '(' || (single && sqlCallKeywords[last.text]) {
+		return false
+	}
+	if !cs.operand {
+		return true
+	}
+	return len(parts) > 1 && (!cs.keys || cs.depth > 0)
 }
 
 // dottedName reads name [. name ...]; unquoted parts are ASCII-folded, as
@@ -294,8 +339,12 @@ func (cs *callScanner) castType() error {
 	if cs.pos >= cs.end || (cs.src[cs.pos] != '"' && !isNameStart(cs.src[cs.pos])) {
 		return unreadable("a cast without a type name")
 	}
-	if _, err := cs.dottedName(); err != nil {
+	parts, err := cs.dottedName()
+	if err != nil {
 		return err
+	}
+	if len(parts) > 1 {
+		cs.addObject(ObjectType, parts[:len(parts)-1], parts[len(parts)-1].text)
 	}
 	for {
 		cs.skipSpace()
