@@ -33,11 +33,9 @@ type PlanSymptom struct {
 // Prescription maps a symptom to a pg_hint_plan directive or
 // (for SymptomStaleStats) an ANALYZE target identifier.
 type Prescription struct {
-	Symptom          SymptomKind
-	HintDirective    string
-	Rationale        string
-	SuggestedRewrite string
-	RewriteRationale string
+	Symptom       SymptomKind
+	HintDirective string
+	Rationale     string
 	// AnalyzeTarget is the canonical "schema.table" identifier
 	// for SymptomStaleStats. Empty for all other symptoms.
 	AnalyzeTarget string

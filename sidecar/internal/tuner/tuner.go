@@ -317,9 +317,7 @@ func (t *Tuner) processCandidate(
 	combined, budgetDetail := budget.capHint(combined)
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
-	rewrite, rewriteRationale := extractRewrite(prescriptions)
-	finding := t.buildFinding(ctx, c, symptoms, combined,
-		title, rationale, rewrite, rewriteRationale)
+	finding := t.buildFinding(ctx, c, symptoms, combined, title, rationale)
 	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
 	return append(staleFindings, finding)
 }
@@ -355,19 +353,26 @@ func (t *Tuner) scanPlanForQuery(
 	if planJSON == "" {
 		return nil
 	}
-	symptoms, err := ScanPlan([]byte(planJSON),
-		WithCatalogFacts(t.cycleFacts(ctx, []byte(planJSON)), t.cfg.ParallelMinTableRows))
+	symptoms, err := t.scanPlan(ctx, []byte(planJSON))
 	if err != nil {
 		t.logFn("tuner", "scan plan for queryid %d: %v",
 			queryID, err)
 		return nil
 	}
-	// Route bad_nested_loop to stale_stats symptoms when any
-	// relation in the plan has stale statistics.
-	symptoms = annotateForStaleStats(
-		[]byte(planJSON), symptoms, t.staleStats,
-	)
 	return symptoms
+}
+
+// scanPlan scans one cached plan with this tuner's thresholds, then routes
+// bad_nested_loop to stale_stats symptoms when any relation in the plan has
+// stale statistics.
+func (t *Tuner) scanPlan(ctx context.Context, planJSON []byte) ([]PlanSymptom, error) {
+	symptoms, err := ScanPlan(planJSON,
+		WithCatalogFacts(t.cycleFacts(ctx, planJSON), t.cfg.ParallelMinTableRows),
+		WithNestedLoopMinRows(t.cfg.NestedLoopRowThreshold))
+	if err != nil {
+		return nil, err
+	}
+	return annotateForStaleStats(planJSON, symptoms, t.staleStats), nil
 }
 
 func (t *Tuner) fetchPlanJSON(
@@ -413,7 +418,6 @@ func (t *Tuner) buildFinding(
 	c candidate,
 	symptoms []PlanSymptom,
 	combinedHint, title, rationale string,
-	suggestedRewrite, rewriteRationale string,
 ) analyzer.Finding {
 	names := symptomNames(symptoms)
 	detail := map[string]any{
@@ -421,10 +425,6 @@ func (t *Tuner) buildFinding(
 		"query":          c.Query,
 		"symptoms":       names,
 		"hint_directive": combinedHint,
-	}
-	if suggestedRewrite != "" {
-		detail["suggested_rewrite"] = suggestedRewrite
-		detail["rewrite_rationale"] = rewriteRationale
 	}
 	f := analyzer.Finding{
 		Category:         "query_tuning",
@@ -437,7 +437,7 @@ func (t *Tuner) buildFinding(
 		ActionRisk:       "safe",
 	}
 	// An empty hint is never installed or recorded (Phase 0 item 11): the
-	// finding stays informational (e.g. a sort-limit or rewrite advice).
+	// finding stays informational (e.g. sort-limit advice).
 	if strings.TrimSpace(combinedHint) == "" {
 		return f
 	}
@@ -449,8 +449,7 @@ func (t *Tuner) buildFinding(
 	}
 
 	// Persist to sage.query_hints for the dashboard query-hints page.
-	t.upsertQueryHint(ctx, c.QueryID, combinedHint,
-		strings.Join(names, ", "), suggestedRewrite, rewriteRationale)
+	t.upsertQueryHint(ctx, c.QueryID, combinedHint, strings.Join(names, ", "))
 
 	return f
 }

@@ -74,7 +74,7 @@ func (t *Tuner) RecordHint(ctx context.Context, p HintProposal) error {
 	if err := t.coolingErr(ctx, p.QueryID); err != nil {
 		return err
 	}
-	t.upsertQueryHint(ctx, p.QueryID, hint, agentSymptom, "", "")
+	t.upsertQueryHint(ctx, p.QueryID, hint, agentSymptom)
 	t.recordTuned(p.QueryID)
 	return nil
 }

@@ -8,7 +8,9 @@ func TestScanPlanAcceptsPG18FractionalActualRows(t *testing.T) {
 	plan := []byte(`[{"Plan":{"Node Type":"Nested Loop","Plan Rows":2,
 		"Actual Rows":50.50,"Actual Loops":1,"Plans":[
 		{"Node Type":"Seq Scan","Relation Name":"orders","Plan Rows":2,
-		 "Actual Rows":0.50,"Actual Loops":101}]}}]`)
+		 "Actual Rows":0.50,"Actual Loops":101},
+		{"Node Type":"Index Scan","Relation Name":"items","Plan Rows":1,
+		 "Actual Rows":99.50,"Actual Loops":101}]}}]`)
 	symptoms, err := ScanPlan(plan)
 	if err != nil {
 		t.Fatalf("ScanPlan: %v", err)

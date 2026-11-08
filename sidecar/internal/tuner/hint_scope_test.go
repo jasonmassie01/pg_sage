@@ -88,7 +88,7 @@ func TestHintScope_BuildFindingRollbackMatchesInsert(t *testing.T) {
 	tu := &Tuner{hintPlan: &HintPlanAvailability{Available: true, HintTableReady: true}}
 	c := candidate{QueryID: 777, Query: "SELECT 1", MeanExecTime: 150, Calls: 100}
 	hint := "IndexScan(orders orders_pkey)"
-	f := tu.buildFinding(context.Background(), c, nil, hint, "t", "r", "", "")
+	f := tu.buildFinding(context.Background(), c, nil, hint, "t", "r")
 	if f.RollbackSQL != BuildDeleteSQL(777, hint) {
 		t.Fatalf("RollbackSQL = %q, want the delete scoped to %q", f.RollbackSQL, hint)
 	}

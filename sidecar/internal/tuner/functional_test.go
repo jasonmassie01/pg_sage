@@ -347,6 +347,11 @@ func TestFunctional_ScanPlan_MultipleSymptoms(t *testing.T) {
 			"Plan Rows": 50000,
 			"Sort Space Used": 32768,
 			"Sort Space Type": "Disk"
+		}, {
+			"Node Type": "Index Scan",
+			"Plan Rows": 1,
+			"Actual Rows": 20,
+			"Actual Loops": 5000
 		}]
 	}}]`
 
@@ -1147,7 +1152,9 @@ func TestFunctional_E2E_MultiSymptomPipeline(t *testing.T) {
 				"Relation Name": "orders",
 				"Schema": "public",
 				"Alias": "o",
-				"Filter": "(customer_id = c.id)"
+				"Filter": "(customer_id = c.id)",
+				"Actual Rows": 20,
+				"Actual Loops": 5000
 			}
 		]
 	}}]`
@@ -1685,7 +1692,7 @@ func TestFunctional_Coverage_BuildFinding_WithHintPlan(t *testing.T) {
 		{Kind: SymptomSeqScanWithIndex, RelationName: "orders"},
 	}
 	f := tu.buildFinding(context.Background(), c, symptoms, "IndexScan(orders)",
-		"test title", "test rationale", "", "")
+		"test title", "test rationale")
 
 	if f.Category != "query_tuning" {
 		t.Errorf("Category = %q, want query_tuning", f.Category)
@@ -1751,7 +1758,7 @@ func TestFunctional_Coverage_BuildFinding_NoHintPlan(t *testing.T) {
 	c := candidate{QueryID: 99, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomHighPlanTime}}
 	f := tu.buildFinding(context.Background(), c, symptoms, "Set(plan_cache_mode ...)",
-		"title", "rationale", "", "")
+		"title", "rationale")
 
 	if f.RecommendedSQL != "" {
 		t.Errorf("expected empty RecommendedSQL, got %q",
@@ -1775,7 +1782,7 @@ func TestFunctional_Coverage_BuildFinding_AvailableButNotReady(
 	c := candidate{QueryID: 50, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomDiskSort}}
 	f := tu.buildFinding(context.Background(), c, symptoms, "Set(work_mem \"64MB\")",
-		"title", "rationale", "", "")
+		"title", "rationale")
 	if f.RecommendedSQL != "" {
 		t.Error("expected empty RecommendedSQL when table not ready")
 	}
@@ -1788,7 +1795,7 @@ func TestFunctional_Coverage_BuildFinding_NilHintPlan(t *testing.T) {
 	c := candidate{QueryID: 1, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomHighPlanTime}}
 	f := tu.buildFinding(context.Background(), c, symptoms,
-		"hint", "title", "rationale", "", "")
+		"hint", "title", "rationale")
 	if f.RecommendedSQL != "" {
 		t.Error("expected empty RecommendedSQL with nil hintPlan")
 	}
@@ -1815,7 +1822,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 	}
 	f := tu.buildFinding(context.Background(), c, symptoms,
 		`Set(work_mem "128MB") IndexScan(t)`,
-		"multi title", "multi rationale", "", "")
+		"multi title", "multi rationale")
 
 	syms, ok := f.Detail["symptoms"].([]string)
 	if !ok {
@@ -1833,7 +1840,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 func TestFunctional_Coverage_BadNestedLoop_NotNestedLoop(t *testing.T) {
 	n := planNode{NodeType: "Hash Join", PlanRows: 10,
 		ActualRows: ptr(float64(200))}
-	s := checkBadNestedLoop(n, 0)
+	s := checkBadNestedLoop(n, 0, nil)
 	if s != nil {
 		t.Error("expected nil for non-Nested Loop node")
 	}
@@ -1842,7 +1849,7 @@ func TestFunctional_Coverage_BadNestedLoop_NotNestedLoop(t *testing.T) {
 func TestFunctional_Coverage_BadNestedLoop_NilActualRows(t *testing.T) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
 		ActualRows: nil}
-	s := checkBadNestedLoop(n, 0)
+	s := checkBadNestedLoop(n, 0, nil)
 	if s != nil {
 		t.Error("expected nil when ActualRows is nil")
 	}
@@ -1851,7 +1858,7 @@ func TestFunctional_Coverage_BadNestedLoop_NilActualRows(t *testing.T) {
 func TestFunctional_Coverage_BadNestedLoop_ZeroPlanRows(t *testing.T) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: 0,
 		ActualRows: ptr(float64(1000))}
-	s := checkBadNestedLoop(n, 0)
+	s := checkBadNestedLoop(n, 0, nil)
 	if s != nil {
 		t.Error("expected nil when PlanRows <= 0")
 	}
@@ -1862,7 +1869,7 @@ func TestFunctional_Coverage_BadNestedLoop_NegativePlanRows(
 ) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: -1,
 		ActualRows: ptr(float64(100))}
-	s := checkBadNestedLoop(n, 0)
+	s := checkBadNestedLoop(n, 0, nil)
 	if s != nil {
 		t.Error("expected nil when PlanRows is negative")
 	}
@@ -1874,7 +1881,7 @@ func TestFunctional_Coverage_BadNestedLoop_WithinThreshold(
 	// actual(100) <= plan(10)*10=100 → no symptom
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
 		ActualRows: ptr(float64(100))}
-	s := checkBadNestedLoop(n, 0)
+	s := checkBadNestedLoop(n, 0, nil)
 	if s != nil {
 		t.Error("expected nil when actual rows exactly at 10x")
 	}
@@ -1883,10 +1890,14 @@ func TestFunctional_Coverage_BadNestedLoop_WithinThreshold(
 func TestFunctional_Coverage_BadNestedLoop_JustOverThreshold(
 	t *testing.T,
 ) {
-	// actual(101) > plan(10)*10=100 → symptom
+	// actual(101) > plan(10)*10=100 → symptom, given an inner side that
+	// read the default 10,000-row threshold (tuning-09).
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
-		ActualRows: ptr(float64(101))}
-	s := checkBadNestedLoop(n, 2)
+		ActualRows: ptr(float64(101)),
+		Plans: []planNode{{NodeType: "Seq Scan", Alias: "a"},
+			{NodeType: "Index Scan", Alias: "b", ActualRows: ptr(float64(100)),
+				ActualLoops: ptr(int64(101))}}}
+	s := checkBadNestedLoop(n, 2, nil)
 	if s == nil {
 		t.Fatal("expected symptom when actual > 10x plan rows")
 	}
@@ -1908,10 +1919,10 @@ func TestFunctional_Coverage_BadNestedLoop_ChildAliases(
 		PlanRows:   1,
 		ActualRows: ptr(float64(100)),
 		Plans: []planNode{{NodeType: "Seq Scan", Alias: "a"},
-			{NodeType: "Index Scan", Alias: "b"},
+			{NodeType: "Index Scan", Alias: "b", ActualRows: ptr(float64(10_000))},
 			{NodeType: "Index Scan", Alias: "s", ParentRelationship: "SubPlan"}},
 	}
-	s := checkBadNestedLoop(n, 0)
+	s := checkBadNestedLoop(n, 0, nil)
 	if s == nil {
 		t.Fatal("expected symptom")
 	}
@@ -2442,66 +2453,6 @@ func TestFunctional_Coverage_Tune_NilPool(t *testing.T) {
 func noopLog(string, string, ...any) {}
 
 // ---------------------------------------------------------------------------
-// Query Rewrite: extractRewrite
-// ---------------------------------------------------------------------------
-
-func TestExtractRewrite(t *testing.T) {
-	// No rewrites
-	rx1 := []Prescription{
-		{Symptom: "disk_sort", HintDirective: "Set(work_mem \"64MB\")", Rationale: "spill"},
-	}
-	rewrite, rationale := extractRewrite(rx1)
-	if rewrite != "" {
-		t.Errorf("expected empty rewrite, got %q", rewrite)
-	}
-	if rationale != "" {
-		t.Errorf("expected empty rationale, got %q", rationale)
-	}
-
-	// With rewrite on second prescription
-	rx2 := []Prescription{
-		{Symptom: "disk_sort", HintDirective: "Set(work_mem \"64MB\")", Rationale: "spill"},
-		{
-			Symptom: "llm_recommended", HintDirective: "HashJoin(t1 t2)",
-			Rationale: "better join", SuggestedRewrite: "SELECT ... FROM t1 JOIN t2 USING(id)",
-			RewriteRationale: "replace correlated subquery",
-		},
-	}
-	rewrite, rationale = extractRewrite(rx2)
-	if rewrite != "SELECT ... FROM t1 JOIN t2 USING(id)" {
-		t.Errorf("rewrite = %q, want SELECT ... FROM t1 JOIN t2 USING(id)", rewrite)
-	}
-	if rationale != "replace correlated subquery" {
-		t.Errorf("rationale = %q, want 'replace correlated subquery'", rationale)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Query Rewrite: buildFinding with rewrite
-// ---------------------------------------------------------------------------
-
-func TestBuildFindingWithRewrite(t *testing.T) {
-	tu := New(nil, TunerConfig{}, nil, noopLog)
-	c := candidate{QueryID: 42, Query: "SELECT * FROM orders WHERE id IN (SELECT order_id FROM items)"}
-	symptoms := []PlanSymptom{{Kind: SymptomSeqScanWithIndex, RelationName: "orders"}}
-
-	rewrite := "SELECT o.* FROM orders o JOIN items i ON o.id = i.order_id"
-	rewriteRationale := "replace IN subquery with JOIN"
-
-	f := tu.buildFinding(context.Background(), c, symptoms, "IndexScan(orders)",
-		"test title", "test rationale", rewrite, rewriteRationale)
-
-	got, ok := f.Detail["suggested_rewrite"].(string)
-	if !ok || got != rewrite {
-		t.Errorf("Detail[suggested_rewrite] = %q, want %q", got, rewrite)
-	}
-	gotRat, ok := f.Detail["rewrite_rationale"].(string)
-	if !ok || gotRat != rewriteRationale {
-		t.Errorf("Detail[rewrite_rationale] = %q, want %q", gotRat, rewriteRationale)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Query Rewrite: buildFinding without rewrite
 // ---------------------------------------------------------------------------
 
@@ -2511,7 +2462,7 @@ func TestBuildFindingWithoutRewrite(t *testing.T) {
 	symptoms := []PlanSymptom{{Kind: SymptomDiskSort}}
 
 	f := tu.buildFinding(context.Background(), c, symptoms, "Set(work_mem \"64MB\")",
-		"title", "rationale", "", "")
+		"title", "rationale")
 
 	if _, exists := f.Detail["suggested_rewrite"]; exists {
 		t.Error("Detail should not contain suggested_rewrite when empty")

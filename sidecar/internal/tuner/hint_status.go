@@ -18,11 +18,11 @@ import "context"
 // reconciles the status with hint_plan.hints at the start of each cycle.
 
 // upsertQueryHint records a proposed hint for the dashboard query-hints
-// page: it updates the query's open proposal, or inserts one.
+// page: it updates the query's open proposal, or inserts one. The tuner
+// prescribes no query rewrites, so suggested_rewrite and rewrite_rationale
+// are written empty (the columns stay for the case query actions).
 func (t *Tuner) upsertQueryHint(
-	ctx context.Context,
-	queryID int64, hintText, symptom,
-	suggestedRewrite, rewriteRationale string,
+	ctx context.Context, queryID int64, hintText, symptom string,
 ) {
 	if t.pool == nil {
 		return
@@ -30,10 +30,9 @@ func (t *Tuner) upsertQueryHint(
 	tag, err := t.pool.Exec(ctx,
 		`/* pg_sage */ UPDATE sage.query_hints
 		 SET hint_text = $2, symptom = $3,
-		     suggested_rewrite = $4, rewrite_rationale = $5
+		     suggested_rewrite = '', rewrite_rationale = ''
 		 WHERE queryid = $1 AND status = 'proposed'`,
 		queryID, hintText, symptom,
-		suggestedRewrite, rewriteRationale,
 	)
 	if err != nil {
 		t.logFn("WARN", "tuner: update proposed query_hint %d: %v", queryID, err)
@@ -46,9 +45,8 @@ func (t *Tuner) upsertQueryHint(
 		`/* pg_sage */ INSERT INTO sage.query_hints
 			(queryid, hint_text, symptom,
 			 suggested_rewrite, rewrite_rationale, status)
-		 VALUES ($1, $2, $3, $4, $5, 'proposed')`,
+		 VALUES ($1, $2, $3, '', '', 'proposed')`,
 		queryID, hintText, symptom,
-		suggestedRewrite, rewriteRationale,
 	)
 	if err != nil {
 		t.logFn("WARN", "tuner: insert proposed query_hint %d: %v", queryID, err)
