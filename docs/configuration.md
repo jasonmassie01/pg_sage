@@ -1461,6 +1461,16 @@ and the decision goes through the same approval as the browser, attributed to th
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
 secrets.
 
+*Snooze and follow-ups.* Snoozing a card keeps the action pending; autonomy does not take it
+over while the snooze runs. When the snooze ends, pg_sage sends the card again, once per
+snooze. If that re-send fails, the other ended snoozes are still sent, and the failed one is
+retried 5 minutes later; the warning log names each queue item that failed. A re-sent card
+replaces the older cards of the same action in the same channel (closed as `superseded`), so
+the verification verdict is posted once per channel, as a reply to the message the decision
+was made from. A card whose action has no verdict yet is checked again after an eighth of its
+age (at least 1 minute, at most 1 hour), so cards still waiting do not hold up newer ones; a
+card with no verdict after 14 days is closed.
+
 #### Runways and pre-incident investigations
 
 A runway is the time left before a hard limit. Every `sre.runways.interval_seconds`, pg_sage
