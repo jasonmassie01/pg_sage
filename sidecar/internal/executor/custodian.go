@@ -369,11 +369,11 @@ func (e *Executor) executeCustodianSQL(
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	timeout := e.ddlTimeout()
+	timeout := e.ddlTimeoutFor(sql)
 	lockOpt := e.lockOption(sql, decision)
 	var err error
 	if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-		err = ExecConcurrently(ctx, e.pool, sql, timeout, lockOpt)
+		err = e.execConcurrentDDL(ctx, sql, nil, lockOpt)
 	} else {
 		err = ExecInTransaction(ctx, e.pool, sql, timeout, lockOpt)
 	}

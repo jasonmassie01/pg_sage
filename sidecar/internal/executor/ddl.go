@@ -63,6 +63,7 @@ func ExecConcurrently(
 	o := applyDDLOpts(opts)
 
 	err = withTopLevelSession(ctx, pool, run[0], timeout, o, func(conn pooledExecutor) error {
+		reportBackendPID(conn, o)
 		_, execErr := conn.Exec(ctx, run[0])
 		if execErr != nil {
 			return wrapDDLError(execErr)
@@ -179,6 +180,9 @@ type ddlOpts struct {
 	lockTimeoutMs int
 	before        func(context.Context, pgx.Tx) error
 	after         func(context.Context, pgx.Tx) error
+	// onBackendPID receives the server process of a top-level statement
+	// just before it runs (the remnant tracker watches that build).
+	onBackendPID func(uint32)
 }
 
 func applyDDLOpts(opts []DDLOption) ddlOpts {
@@ -187,6 +191,22 @@ func applyDDLOpts(opts []DDLOption) ddlOpts {
 		fn(&o)
 	}
 	return o
+}
+
+// withBackendPID reports the backend a top-level statement runs on.
+func withBackendPID(fn func(uint32)) DDLOption {
+	return func(o *ddlOpts) {
+		o.onBackendPID = fn
+	}
+}
+
+func reportBackendPID(conn pooledExecutor, o ddlOpts) {
+	if o.onBackendPID == nil {
+		return
+	}
+	if ps, ok := conn.(pooledSession); ok {
+		o.onBackendPID(ps.Conn.Conn().PgConn().PID())
+	}
 }
 
 // WithLockTimeout sets lock_timeout for DDL execution.

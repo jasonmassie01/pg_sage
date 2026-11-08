@@ -453,6 +453,42 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
 
+### Executor statement timeouts and failed builds
+
+| Parameter | Default | Description |
+|---|---|---|
+| `safety.ddl_timeout_seconds` | `300` | `statement_timeout` of every executor statement without a class timeout below (ALTER TABLE, a non-concurrent CREATE INDEX or REINDEX, `VACUUM FULL`, drops). `0` uses the default |
+| `safety.index_build_timeout_seconds` | `14400` | `statement_timeout` of a `CREATE INDEX CONCURRENTLY` (also an index replacement's build), `60`-`86400`. `0` uses the default |
+| `safety.reindex_timeout_seconds` | `14400` | `statement_timeout` of a `REINDEX ... CONCURRENTLY`, `60`-`86400`. `0` uses the default |
+| `safety.vacuum_timeout_seconds` | `14400` | `statement_timeout` of a `VACUUM` that is not `VACUUM FULL`, `60`-`86400`. `0` uses the default |
+| `safety.lock_timeout_ms` | `30000` | `lock_timeout` of every executor statement; it bounds each lock wait of a long build, whatever its class timeout |
+
+No class timeout is ever unlimited. The recommendation claim, the change lease and the
+budget hold last at least twice the longest class timeout, so a four-hour build never outlives
+the claim that covers it.
+
+A failed `CREATE INDEX CONCURRENTLY` or `REINDEX ... CONCURRENTLY` leaves an INVALID index
+that writes still maintain and that holds disk. pg_sage drops it at once, on every path
+(autonomous, operator, index replacement, restore), but only when it is provably the failed
+statement's own object:
+
+- A build's OID is read from `pg_stat_progress_create_index` while the build runs. A short
+  transaction holding `ROW EXCLUSIVE` on the table (it blocks no reader or writer) keeps the
+  build in its first wait until the OID is read, at most half of `lock_timeout_ms`.
+- A failed `REINDEX ... CONCURRENTLY` drops only the `<name>_ccnew[N]` or `<name>_ccold[N]`
+  indexes it added; an older index of that shape is never touched.
+- Just before each `DROP INDEX CONCURRENTLY IF EXISTS`, pg_sage re-checks, under an advisory
+  lock on the OID, that the name still has that OID, is still INVALID, is on the same table and
+  is not being built by anyone. A VALID index is never dropped.
+
+The outcome is recorded as `remnant_cleanup` in the action's `before_state` and in the
+failure's error text: `dropped`, `nothing_to_drop`, `oid_mismatch`, `valid_kept`,
+`in_progress_elsewhere`, `unbound` (no OID was captured), `skipped_stopped` (an emergency stop
+ended the run) or `remnant_cleanup_failed` (the drop itself failed, for example on
+`lock_timeout`). Anything not dropped is left to the `invalid_index` finding. An operator-approved
+CREATE INDEX over an INVALID index of the same name is refused with the command that clears it.
+A build withheld because its index name exists is parked until that name is gone, then retried.
+
 ### One trust system
 
 Every action class pg_sage runs on its own initiative has one level per database in the

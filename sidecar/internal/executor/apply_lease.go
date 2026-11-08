@@ -122,7 +122,7 @@ func (e *Executor) acquireTargetLease(
 		return func() {}, false, nil
 	}
 	manager := policy.NewPostgresLeaseManager(e.pool, nil, decision.DecisionID,
-		e.ddlTimeout()+time.Minute)
+		e.maxDDLTimeout()+time.Minute)
 	var leaseID policy.LeaseID
 	if decision.SerializeMode == policy.SerializeQueue {
 		leaseID, err = e.leaseQueue().Acquire(ctx, policy.QueuedLeaseRequest{

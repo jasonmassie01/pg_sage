@@ -49,7 +49,7 @@ func (e *Executor) ExecuteManual(
 		return 0, err
 	}
 	defer release()
-	runCtx, cancel := e.detachedDDLContext(ctx)
+	runCtx, cancel := e.detachedDDLContext(ctx, sql)
 	defer cancel()
 	if err := e.checkLakebaseDatabaseSetting(runCtx, sql); err != nil {
 		return 0, err
@@ -79,9 +79,11 @@ func (e *Executor) ExecuteManual(
 }
 
 // detachedDDLContext outlives the caller (an HTTP request) but never the
-// execution deadline.
-func (e *Executor) detachedDDLContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), e.applyTimeout())
+// execution deadline of sql's timeout class.
+func (e *Executor) detachedDDLContext(
+	ctx context.Context, sql string,
+) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), e.applyTimeoutFor(sql))
 }
 
 // manualRun carries one operator-approved action from execution to its
@@ -139,7 +141,8 @@ func (r *manualRun) run(
 		return 0, err
 	}
 	e.predictAction(ctx, r.sql, detailMap(r.detail), beforeState)
-	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
+	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision,
+		beforeState)
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID, r.claim)
 	if execErr != nil {
@@ -168,15 +171,15 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 	return nil
 }
 
-// prepareManualCreateIndex removes a failed remnant of this exact index and
-// short-circuits when a valid index already covers the columns.
+// prepareManualCreateIndex refuses a build over an INVALID index of the
+// same name and short-circuits when a valid index already covers the
+// columns.
 func (e *Executor) prepareManualCreateIndex(
 	ctx context.Context, findingID int, sql, rollbackSQL string,
 	beforeState map[string]any, approvedBy *int, decisionID int64,
 ) (bool, int64, error) {
-	ddlTimeout, lockOpt := e.manualDDLOptions()
-	if err := e.dropFailedCreateIndexRemnant(ctx, sql, ddlTimeout, lockOpt); err != nil {
-		return true, 0, fmt.Errorf("dropping invalid index remnant: %w", err)
+	if err := e.refuseUnboundRemnant(ctx, sql); err != nil {
+		return true, 0, err
 	}
 	covering, err := e.coveringIndex(ctx, sql)
 	exists := covering != ""
@@ -197,15 +200,12 @@ func (e *Executor) prepareManualCreateIndex(
 	return true, actionID, nil
 }
 
-func (e *Executor) manualDDLOptions() (time.Duration, DDLOption) {
-	return e.ddlTimeout(), WithLockTimeout(e.cfg.Safety.LockTimeout())
-}
-
 // runManualSQL runs an operator-approved statement under the decision's
 // lock timeout (the policy lock ceiling caps in-transaction statements).
 func (e *Executor) runManualSQL(
 	ctx context.Context, findingID int, sql string,
 	findingDetail json.RawMessage, approvedBy *int, decision ActionPolicyDecision,
+	beforeState map[string]any,
 ) error {
 	if _, _, isSignal := parseBackendSignal(sql); isSignal {
 		return e.executeApprovedBackendSignal(ctx, sql, findingDetail, approvedBy)
@@ -214,12 +214,12 @@ func (e *Executor) runManualSQL(
 		return e.executeManualAnalyze(ctx, findingID, sql, e.lockTimeoutMS(sql, decision))
 	}
 	if categorizeAction(sql) == "create_statistics" {
-		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeout(), e.lockOption(sql, decision))
+		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeoutFor(sql), e.lockOption(sql, decision))
 	}
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	return e.execManualSQLWithRetry(ctx, sql, e.ddlTimeout(), e.lockOption(sql, decision))
+	return e.execManualSQLWithRetry(ctx, sql, beforeState, e.lockOption(sql, decision))
 }
 
 // finishManualAction starts the verification monitor (which re-authorizes
@@ -267,7 +267,7 @@ func (e *Executor) RollbackAction(
 		return err
 	}
 	defer release()
-	runCtx, cancel := e.detachedDDLContext(ctx)
+	runCtx, cancel := e.detachedDDLContext(ctx, "")
 	defer cancel()
 	if err := e.manualMutationBlock(runCtx); err != nil {
 		return err
@@ -444,10 +444,13 @@ func (e *Executor) manualAnalyzeFinding(
 	}, nil
 }
 
+// execManualSQLWithRetry runs an approved statement; a CREATE INDEX that
+// times out on a lock is retried, each failed build cleaned up by the
+// remnant handler, whose last cleanup is recorded in beforeState.
 func (e *Executor) execManualSQLWithRetry(
 	ctx context.Context,
 	sql string,
-	ddlTimeout time.Duration,
+	beforeState map[string]any,
 	lockOpt DDLOption,
 ) error {
 	isCreateIndex := categorizeAction(sql) == "create_index"
@@ -458,18 +461,13 @@ func (e *Executor) execManualSQLWithRetry(
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
-			if err := e.dropFailedCreateIndexRemnant(
-				ctx, sql, ddlTimeout, lockOpt,
-			); err != nil {
-				return err
-			}
 			time.Sleep(time.Duration(i) * 500 * time.Millisecond)
 		}
 		var err error
 		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-			err = ExecConcurrently(ctx, e.pool, sql, ddlTimeout, lockOpt)
+			err = e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 		} else {
-			err = ExecInTransaction(ctx, e.pool, sql, ddlTimeout, lockOpt)
+			err = ExecInTransaction(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)
 		}
 		if err == nil {
 			return nil

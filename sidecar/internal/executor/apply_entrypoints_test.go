@@ -65,12 +65,15 @@ func assertRefusedUnderDeadline(t *testing.T, g *reauthGate, want int, budget ti
 	}
 }
 
-// applyBudget is the longest execution deadline Apply may set for cfg.
+// applyBudget is the longest execution deadline Apply may set for cfg:
+// the longest statement-timeout class (executor-05) plus the grace.
 func applyBudget(cfg *config.Config) time.Duration {
 	timeout := cfg.Safety.DDLTimeout()
 	if timeout <= 0 {
 		timeout = time.Duration(config.DefaultDDLTimeoutSeconds) * time.Second
 	}
+	timeout = max(timeout, cfg.Safety.IndexBuildTimeout(), cfg.Safety.ReindexTimeout(),
+		cfg.Safety.VacuumTimeout())
 	return timeout + 2*time.Minute
 }
 

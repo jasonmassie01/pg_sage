@@ -84,12 +84,12 @@ func (e *Executor) undoSteps(ctx context.Context, rec *indexReplaceRecord, keepN
 		return err
 	}
 	if !c.OldValid {
-		if err := e.dropInvalidIndex(ctx, rec.Plan.OldIndex); err != nil {
+		if _, err := e.dropBoundRemnant(ctx, rec.Plan.OldIndex, rec.OldOID,
+			rec.Plan.Table); err != nil {
 			return fmt.Errorf("drop the invalid remnant of %s: %w", rec.Plan.OldIndex, err)
 		}
 		sql := rec.Plan.RecreateSQL
-		if err := ExecConcurrently(ctx, e.pool, sql, e.ddlTimeout(),
-			e.lockOption(sql, decision)); err != nil {
+		if err := e.execConcurrentDDL(ctx, sql, nil, e.lockOption(sql, decision)); err != nil {
 			return fmt.Errorf("re-create %s: %w", rec.Plan.OldIndex, err)
 		}
 	}

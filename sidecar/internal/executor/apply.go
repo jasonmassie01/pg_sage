@@ -98,7 +98,8 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (actionID int
 	if intent.Authorize == nil {
 		defer func() { e.releaseBudget(ctx, held...) }()
 	}
-	waitCtx, cancelWait := context.WithTimeout(ctx, e.applyTimeout())
+	stageTimeout := e.applyTimeoutFor(intentStatement(intent))
+	waitCtx, cancelWait := context.WithTimeout(ctx, stageTimeout)
 	defer cancelWait()
 	first, err := e.authorizeIntent(waitCtx, intent, false)
 	held = append(held, first.DecisionID)
@@ -110,7 +111,7 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (actionID int
 		return 0, err
 	}
 	defer release()
-	runCtx, cancelRun := context.WithTimeout(ctx, e.applyTimeout())
+	runCtx, cancelRun := context.WithTimeout(ctx, stageTimeout)
 	defer cancelRun()
 	runCtx, run, err := e.inflight.begin(runCtx, intent.Request.SQL)
 	if err != nil {
@@ -229,12 +230,6 @@ func (e *Executor) ddlTimeout() time.Duration {
 		return cfg.Safety.DDLTimeout()
 	}
 	return time.Duration(config.DefaultDDLTimeoutSeconds) * time.Second
-}
-
-// applyTimeout bounds each stage of Apply: the statement timeout plus a
-// grace period for the server-side timeout to report first.
-func (e *Executor) applyTimeout() time.Duration {
-	return e.ddlTimeout() + applyGrace
 }
 
 // lockOption is the lock_timeout for one statement under an authorized
