@@ -34,6 +34,11 @@ Each element: {"object_identifier":"schema.table","severity":"info",` +
 	`"rationale":"...","recommended_sql":null,"bloat_pct":N,` +
 	`"remediation_options":[...]}`
 
+// bloatGUCs are the autovacuum GUCs behind the bloat advisor's first
+// remedy (autovacuum tuning).
+var bloatGUCs = []string{"autovacuum_vacuum_scale_factor", "autovacuum_vacuum_threshold",
+	"autovacuum_vacuum_cost_limit", "autovacuum_vacuum_cost_delay", "autovacuum_max_workers"}
+
 func analyzeBloat(
 	ctx context.Context,
 	mgr *llm.Manager,
@@ -118,20 +123,17 @@ func analyzeBloat(
 		}
 	}
 
-	platform := detectPlatform(snap.ConfigData.PGSettings)
-
 	prompt := fmt.Sprintf(
 		"BLOAT REMEDIATION CONTEXT:\n\n"+
 			"pg_repack available: %v\n"+
-			"Platform: %s\n"+
 			"Database size: %d bytes\n\n%s",
 		hasRepack,
-		platform,
 		snap.System.DBSizeBytes,
 		strings.Join(bloatContexts, "\n\n"),
 	)
 
-	resp, err := chatAdvisor(ctx, mgr, "bloat", bloatSystemPrompt, "", prompt)
+	grounding := promptGrounding(ctx, bloatGUCs...)
+	resp, err := chatAdvisor(ctx, mgr, "bloat", bloatSystemPrompt, grounding, prompt)
 	if err != nil {
 		return nil, err
 	}

@@ -932,28 +932,6 @@ func TestBloatFinding_AllFieldsForced(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// detectPlatform additional cases (wal.go)
-// ---------------------------------------------------------------------------
-
-func TestDetectPlatform_NilSettings_Direct(t *testing.T) {
-	got := detectPlatform(nil)
-	if got != "self-managed" {
-		t.Fatalf("expected 'self-managed', got %q", got)
-	}
-}
-
-func TestDetectPlatform_NoMatch(t *testing.T) {
-	settings := []collector.PGSetting{
-		{Name: "work_mem", Setting: "4MB", Source: "configuration file"},
-		{Name: "wal_level", Setting: "replica", Source: "default"},
-	}
-	got := detectPlatform(settings)
-	if got != "self-managed" {
-		t.Fatalf("expected 'self-managed', got %q", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // countUnloggedTables additional cases (wal.go)
 // ---------------------------------------------------------------------------
 
@@ -1818,37 +1796,6 @@ func TestAnalyzeWAL_WithUnloggedTables(t *testing.T) {
 			{RelName: "cache1", Relpersistence: "u"},
 			{RelName: "cache2", Relpersistence: "u"},
 			{RelName: "orders", Relpersistence: "p"},
-		},
-		System: collector.SystemStats{TotalCheckpoints: 50},
-	}
-
-	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(findings) != 0 {
-		t.Fatalf("expected 0, got %d", len(findings))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// WAL detectPlatform integration (wal.go)
-// ---------------------------------------------------------------------------
-
-func TestAnalyzeWAL_CloudSQLPlatform(t *testing.T) {
-	llmResp := `[]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "max_wal_size", Setting: "1", Unit: "GB",
-					Source: "cloud-sql"},
-			},
 		},
 		System: collector.SystemStats{TotalCheckpoints: 50},
 	}

@@ -12,11 +12,10 @@ import (
 // the documented region, and ValidateGUCValue gates the result.
 
 // DocContext returns the documentation prior for the named GUCs, to be
-// embedded in an LLM prompt. Unknown GUCs are skipped.
-func DocContext(pgVersion int, gucs ...string) string {
+// embedded in an LLM prompt, with the version notes that hold on pgMajor
+// (0: unknown, none). Unknown GUCs are skipped; none known gives "".
+func DocContext(pgMajor int, gucs ...string) string {
 	var b strings.Builder
-	b.WriteString("PostgreSQL parameter documentation (authoritative — base your " +
-		"recommendation on this):\n")
 	for _, g := range gucs {
 		doc, ok := pgconf.Docs[g]
 		if !ok {
@@ -27,12 +26,16 @@ func DocContext(pgVersion int, gucs ...string) string {
 		if doc.BaseUnit != "" {
 			fmt.Fprintf(&b, "A value without a unit is in %s. ", doc.BaseUnit)
 		}
-		if doc.VersionNote != "" {
-			fmt.Fprintf(&b, "Version note: %s ", doc.VersionNote)
+		for _, note := range doc.NotesFor(pgMajor) {
+			fmt.Fprintf(&b, "Version note (PG%d): %s ", pgMajor, note)
 		}
 		b.WriteString("\n")
 	}
-	return b.String()
+	if b.Len() == 0 {
+		return ""
+	}
+	return "PostgreSQL parameter documentation (authoritative — base your " +
+		"recommendation on this):\n" + b.String()
 }
 
 // ValidateGUCValue reports whether a proposed value is within the

@@ -25,6 +25,8 @@ type Advisor struct {
 	// back to cfg.CloudEnvironment / cfg.Postgres.Database.
 	cloudEnv string
 	dbName   string
+	// pgMajor is the reviewed server's major version (0: unknown).
+	pgMajor int
 
 	// hostMemoryBytes is operator-supplied host RAM. PostgreSQL exposes
 	// no RAM figure; without it shared_buffers changes stay advisory.
@@ -151,7 +153,8 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	}
 
 	a.logFn("INFO", "advisor: starting configuration review")
-	ctx = a.factsContext(ctx)
+	cloudEnv, dbName := a.platform(), a.database()
+	ctx = a.reviewContext(ctx)
 
 	snap := a.coll.LatestSnapshot()
 	prev := a.coll.PreviousSnapshot()
@@ -161,14 +164,6 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	}
 
 	all, budgetErrors := a.runSubAdvisors(ctx, snap, prev)
-	cloudEnv := a.cloudEnv
-	if cloudEnv == "" {
-		cloudEnv = a.cfg.CloudEnvironment
-	}
-	dbName := a.dbName
-	if dbName == "" {
-		dbName = a.cfg.Postgres.Database
-	}
 	all = GateConfigFindingsHost(all, a.hostMemory(), cloudEnv, dbName,
 		snap.ConfigData.PGSettings)
 

@@ -123,6 +123,7 @@ func (rt *databaseRuntime) newAdvisor() analyzer.ConfigAdvisor {
 		rt.spec.Pool, cfg, rt.collector, rt.llmManager, logStructuredWrapper,
 	)
 	result.WithCloudEnv(rt.provider)
+	result.WithPGVersion(rt.pgVersion())
 	result.WithHostMemorySource(rt.hostMemory)
 	result.WithDatabaseName(rt.spec.Config.Database)
 	result.WithFacts(rt.facts)

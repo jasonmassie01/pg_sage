@@ -31,6 +31,10 @@ Each element: {"object_identifier":"instance","severity":"info",` +
 	`"current_settings":{...},"recommended_settings":{...},` +
 	`"requires_restart":false}`
 
+// walGUCs are the documented GUCs the WAL advisor tunes.
+var walGUCs = []string{"max_wal_size", "min_wal_size", "checkpoint_timeout",
+	"checkpoint_completion_target", "wal_buffers"}
+
 func analyzeWAL(
 	ctx context.Context,
 	mgr *llm.Manager,
@@ -71,9 +75,6 @@ func analyzeWAL(
 	}
 	cpDelta := totalCP - prevCP
 
-	// Detect platform.
-	platform := detectPlatform(snap.ConfigData.PGSettings)
-
 	// Count unlogged tables so the LLM knows some tables don't generate WAL.
 	unloggedNote := ""
 	unloggedCount := countUnloggedTables(snap)
@@ -91,16 +92,15 @@ func analyzeWAL(
 			"Current settings:\n%s\n\n"+
 			"Observed metrics:\n"+
 			"  Total checkpoints: %d (delta since last: %d)\n"+
-			"  WAL position: %s\n\n"+
-			"Platform: %s%s",
+			"  WAL position: %s%s",
 		strings.Join(walSettings, "\n"),
 		totalCP, cpDelta,
 		snap.ConfigData.WALPosition,
-		platform,
 		unloggedNote,
 	)
 
-	resp, err := chatAdvisor(ctx, mgr, "wal", walSystemPrompt, "", prompt)
+	grounding := promptGrounding(ctx, walGUCs...)
+	resp, err := chatAdvisor(ctx, mgr, "wal", walSystemPrompt, grounding, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -117,15 +117,4 @@ func countUnloggedTables(snap *collector.Snapshot) int {
 		}
 	}
 	return count
-}
-
-// detectPlatform infers managed service from pg_settings.
-func detectPlatform(settings []collector.PGSetting) string {
-	for _, s := range settings {
-		if s.Source == "cloud-sql" ||
-			strings.Contains(s.Source, "cloudsql") {
-			return "cloud-sql"
-		}
-	}
-	return "self-managed"
 }

@@ -62,3 +62,42 @@ func TestValidateConfigSQL(t *testing.T) {
 		}
 	}
 }
+
+// advisors-06: no documented GUC means no documentation block at all.
+func TestDocContext_NoKnownGUCIsEmpty(t *testing.T) {
+	for _, gucs := range [][]string{nil, {}, {"wal_level", "no_such_guc"}} {
+		if got := DocContext(17, gucs...); got != "" {
+			t.Errorf("DocContext(17, %v) = %q, want empty", gucs, got)
+		}
+	}
+}
+
+// Version notes appear only on the majors they are verified for.
+func TestDocContext_VersionNotesFollowTheMajor(t *testing.T) {
+	cases := []struct {
+		guc, note string
+		on, off   []int
+	}{
+		{"effective_io_concurrency", "raised the default to 16", []int{18, 19},
+			[]int{0, 14, 17}},
+		{"autovacuum_max_workers", "autovacuum_worker_slots", []int{18}, []int{0, 17}},
+		{"max_wal_size", "pg_stat_checkpointer", []int{17, 18}, []int{0, 14, 16}},
+	}
+	for _, c := range cases {
+		for _, major := range c.on {
+			got := DocContext(major, c.guc)
+			if !strings.Contains(got, c.note) || !strings.Contains(got, "Version note") {
+				t.Errorf("PG%d %s lacks note %q:\n%s", major, c.guc, c.note, got)
+			}
+		}
+		for _, major := range c.off {
+			got := DocContext(major, c.guc)
+			if strings.Contains(got, c.note) || strings.Contains(got, "Version note") {
+				t.Errorf("PG%d %s carries a note it must not:\n%s", major, c.guc, got)
+			}
+			if !strings.Contains(got, c.guc+":") {
+				t.Errorf("PG%d %s lost its doc entry:\n%s", major, c.guc, got)
+			}
+		}
+	}
+}

@@ -76,7 +76,6 @@ func analyzeConnections(
 	churnPerMin := float64(snap.ConfigData.ConnectionChurn) / 5.0
 
 	sys := snap.System
-	platform := detectPlatform(snap.ConfigData.PGSettings)
 
 	prompt := fmt.Sprintf(
 		"CONNECTION CONTEXT:\n\n"+
@@ -85,18 +84,18 @@ func analyzeConnections(
 			"Active backends: %d\n"+
 			"Total backends: %d\n"+
 			"Max connections: %d\n"+
-			"Connection churn: %.1f/min (new connections)\n\n"+
-			"Platform: %s",
+			"Connection churn: %.1f/min (new connections)",
 		strings.Join(connSettings, "\n"),
 		strings.Join(stateLines, "\n"),
 		sys.ActiveBackends,
 		sys.TotalBackends,
 		sys.MaxConnections,
 		churnPerMin,
-		platform,
 	)
 
-	resp, err := chatAdvisor(ctx, mgr, "connection", connectionSystemPrompt, "", prompt)
+	grounding := promptGrounding(ctx, "max_connections")
+	resp, err := chatAdvisor(ctx, mgr, "connection", connectionSystemPrompt, grounding,
+		prompt)
 	if err != nil {
 		return nil, err
 	}
