@@ -6,7 +6,8 @@ import "fmt"
 // cluster-wide where the limit is (max_connections, WAL, slots) and are
 // labeled with whether they belong to the current database.
 
-const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v3 */
+// connectionSaturationSQL's %s is the slots a normal role cannot use.
+const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v4 */
 WITH c AS (
     SELECT a.datname = pg_catalog.current_database() AS in_current_database,
            pg_catalog.left(COALESCE(a.application_name, ''), 64) AS application_name,
@@ -20,8 +21,7 @@ SELECT c.in_current_database, c.application_name, c.client_addr, c.state,
        count(*)::int8 AS backends,
        count(*) FILTER (WHERE c.waiting)::int8 AS waiting_on_lock,
        pg_catalog.current_setting('max_connections')::int8 AS max_connections,
-       pg_catalog.current_setting('superuser_reserved_connections')::int8
-           AS reserved_connections,
+       %s AS reserved_connections,
        t.total AS total_client_backends,
        ` + serverIdentityColumns + `
 FROM c CROSS JOIN t
@@ -105,13 +105,24 @@ SELECT c.num_timed::int8 AS timed_checkpoints,
 FROM pg_catalog.pg_stat_checkpointer c CROSS JOIN pg_catalog.pg_stat_wal w
 LIMIT $1`
 
-// connectionSaturationSpec is v3: M2 added the server start time and the
-// follow-ups the full server identity, so a restart or a failover between
-// two samples invalidates their comparison (CHECK-07).
+// reservedSlots14 and reservedSlots16 are the connection slots a normal
+// role cannot use; PostgreSQL 16 added reserved_connections (for roles
+// with pg_use_reserved_connections) on top of the superuser slots.
+const (
+	reservedSlots14 = `pg_catalog.current_setting('superuser_reserved_connections')::int8`
+	reservedSlots16 = `(pg_catalog.current_setting('superuser_reserved_connections')::int8
+           + pg_catalog.current_setting('reserved_connections')::int8)`
+)
+
+// connectionSaturationSpec is v4: v3 carried the full server identity, so
+// a restart or a failover between two samples invalidates their
+// comparison (CHECK-07); v4 counts reserved_connections from PG16
+// (playbooks-04).
 func connectionSaturationSpec() Spec {
 	s := needsStats(spec(ConnectionSaturation, FamilyConnections, ArgsNone,
-		Variant{MinVersion: 140000, SQL: connectionSaturationSQL}))
-	s.Version = "v3"
+		Variant{MinVersion: 140000, SQL: fmt.Sprintf(connectionSaturationSQL, reservedSlots14)},
+		Variant{MinVersion: 160000, SQL: fmt.Sprintf(connectionSaturationSQL, reservedSlots16)}))
+	s.Version = "v4"
 	return s
 }
 

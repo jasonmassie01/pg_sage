@@ -56,8 +56,8 @@ func TestCatalog_ConnectionSaturationCarriesTheIdentity(t *testing.T) {
 	if err != nil || len(gs) == 0 {
 		t.Fatalf("connection_saturation = %+v (%v)", res, err)
 	}
-	if res.Version != "v3" {
-		t.Fatalf("connection_saturation version = %s, want v3", res.Version)
+	if res.Version != "v4" {
+		t.Fatalf("connection_saturation version = %s, want v4", res.Version)
 	}
 	for _, g := range gs {
 		want.check(t, ConnectionSaturation, g.Identity)

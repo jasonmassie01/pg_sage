@@ -66,7 +66,7 @@ The probes read these sources:
 | `lock_graph`, `lock_chains` | `pg_stat_activity`, `pg_locks`, `pg_blocking_pids()`, `pg_class` | `pg_read_all_stats` (through `pg_monitor`) to see other roles' sessions |
 | `long_transactions`, `backend_identity` | `pg_stat_activity` | `pg_read_all_stats` |
 | `prepared_xacts` | `pg_prepared_xacts` | none beyond `CONNECT` |
-| `connection_saturation` | `pg_stat_activity`, `max_connections`, `superuser_reserved_connections`, `pg_postmaster_start_time()` | `pg_read_all_stats` for other roles' states |
+| `connection_saturation` | `pg_stat_activity`, `max_connections`, `superuser_reserved_connections` (plus `reserved_connections` on PG16+), `pg_postmaster_start_time()` | `pg_read_all_stats` for other roles' states |
 | `replication_slots` | `pg_replication_slots` | none beyond `CONNECT` |
 | `replication_lag` | `pg_stat_replication` | `pg_read_all_stats` for lag columns |
 | `wal_checkpoint` | `pg_stat_wal`, `pg_stat_bgwriter` (PG14-16) or `pg_stat_checkpointer` (PG17+), `pg_settings` | `pg_read_all_settings` (through `pg_monitor`) |
