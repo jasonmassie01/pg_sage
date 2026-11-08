@@ -67,6 +67,36 @@ func TestRecordRemnantCleanupIsNilSafe(t *testing.T) {
 	}
 }
 
+// A retry that fails on the name a failed cleanup left keeps that failure
+// on record; a retry that cleaned up its own remnant replaces it.
+func TestRecordRemnantCleanupKeepsALeftRemnant(t *testing.T) {
+	state := map[string]any{}
+	failed := &remnantCleanup{Outcome: remnantCleanupFailed}
+	recordRemnantCleanup(state, failed)
+	recordRemnantCleanup(state, &remnantCleanup{Outcome: remnantNothingToDrop})
+	if state[remnantCleanupKey] != failed {
+		t.Fatalf("state = %+v, want the earlier cleanup failure kept", state[remnantCleanupKey])
+	}
+	unbound := &remnantCleanup{Outcome: remnantUnbound}
+	recordRemnantCleanup(state, unbound)
+	if state[remnantCleanupKey] != unbound {
+		t.Fatalf("state = %+v, want the later unbound cleanup", state[remnantCleanupKey])
+	}
+	dropped := &remnantCleanup{Outcome: remnantDropped}
+	recordRemnantCleanup(state, dropped)
+	if state[remnantCleanupKey] != unbound {
+		t.Fatalf("state = %+v, want unbound kept over a later drop", state[remnantCleanupKey])
+	}
+	clean := map[string]any{}
+	first := &remnantCleanup{Outcome: remnantDropped}
+	recordRemnantCleanup(clean, first)
+	later := &remnantCleanup{Outcome: remnantNothingToDrop}
+	recordRemnantCleanup(clean, later)
+	if clean[remnantCleanupKey] != later {
+		t.Fatalf("state = %+v, want the latest cleanup", clean[remnantCleanupKey])
+	}
+}
+
 func TestSkippedCleanupAfterAnEmergencyStop(t *testing.T) {
 	stopped := &StoppedError{Cause: errors.New("emergency stop")}
 	if c := skippedCleanup(stopped); c == nil || c.Outcome != remnantSkippedStopped {
@@ -124,7 +154,8 @@ func TestGateHoldStaysBelowTheLockTimeout(t *testing.T) {
 	cases := map[int]time.Duration{
 		0:      gateHoldDefault,
 		-1:     gateHoldDefault,
-		10:     gateHoldMin,
+		10:     5 * time.Millisecond,
+		1:      500 * time.Microsecond,
 		1000:   500 * time.Millisecond,
 		30000:  gateHoldMax,
 		600000: gateHoldMax,
