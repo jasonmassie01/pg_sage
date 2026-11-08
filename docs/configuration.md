@@ -1577,7 +1577,11 @@ sidecar runs.
 
 **Promotion.** pg_sage proposes one level at a time, and only an admin approves; pg_sage, the
 system and MCP clients cannot. The evidence is checked again at approval time, and a proposal
-expires after `proposal_ttl_hours`. Promotion to L2 requires all of the following:
+expires after `proposal_ttl_hours`. A family's bench checks read its newest report that counts
+for the running build, whatever its origin (an air-gapped install runs on operator reports), so
+a proposal names the deciding report's provenance and id (for example `evidence supports L2;
+bench: unsigned (operator-provided) <id>`), and the Trust page shows it on the row and on the
+approval card. Promotion to L2 requires all of the following:
 
 - PGIncidentBench top-1 accuracy of at least 80% over at least 10 runs, mechanism precision
   of at least 90%, and no forbidden actions, on every gated arm for the family. The report
@@ -1640,7 +1644,7 @@ literals always removed.
 | Parameter | Default | Description |
 |---|---|---|
 | `sre.autonomy.enforce` | `true` | The ledger restricts self-initiated incident-family actions. `false` returns them to the trust ramp; the sidecar warns at startup |
-| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the core, M6 reactive and M6 runway shard reports (its replay corpus report, `pgincidentbench-replay.json`, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused. Not needed for the reports a release ships. Empty: upload through the API |
+| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested at startup and hourly. Point it at the CI `pgincidentbench/` artifact to read the core, M6 reactive and M6 runway shard reports (its replay corpus report, `pgincidentbench-replay.json`, is not a bench report and is skipped; naming it as the path is an error); each family reads the newest report that scored it. A `<report>.sigstore.json` bundle is verified; a report for another pg_sage build is refused, and a refused report is logged once per process per file version (at INFO, naming the build it scores; rewriting the file logs it again), while other ingest errors warn on every ingest. Not needed for the reports a release ships. Empty: upload through the API |
 | `sre.autonomy.evaluate_interval_minutes` | `60` | Minutes between promotion evaluations, `5`-`1440` |
 | `sre.autonomy.reconcile_interval_seconds` | `60` | Seconds between recording live outcomes, `10`-`3600` |
 | `sre.autonomy.max_evidence_age_seconds` | `300` | Older evidence caps an action at L1, `5`-`3600` |
