@@ -7,9 +7,11 @@ behavior (or no-op) when the LLM is disabled or its circuit breaker is open.
 
 Common pattern across all features:
 
-- All LLM calls go through `llm.Client.Chat(ctx, system, user, maxTokens)`.
+- All LLM calls go through `llm.Client.Chat(ctx, system, user, maxTokens)`,
+  or `ChatResult`, which also reports whether the answer was cut at the token
+  limit.
 - All JSON responses are parsed via `llm.ParseJSON(raw, shape, &out)`, which
-  strips fences/prose and repairs truncated arrays.
+  strips fences/prose and repairs truncated objects and arrays.
 - LLM output never reaches the executor directly. It is converted to an
   `analyzer.Finding` (or an `rca.Incident`), persisted, and only then gated by
   the Tier 3 trust/risk system. The LLM picks rationale/SQL; risk tier and
@@ -61,9 +63,13 @@ OpenAI-compatible chat client. One struct `Client` per logical model.
 
 **Response handling** (`client.go:170-204`):
 - Response body capped at **1 MB** (`io.LimitReader`).
-- On `finish_reason == "length" | "max_tokens"`, content is run through
-  `RepairTruncatedJSON` before returning (`client.go:197-202`).
-- Returns `(content, totalTokens, err)`.
+- On `finish_reason == "length" | "max_tokens"` the answer is truncated: it
+  is logged, and run through `RepairTruncatedJSON` only when it is JSON (the
+  system prompt asks for JSON, or the answer starts with `{` or `[`).
+  Truncated prose is returned byte-identical (llm-07, `client_result.go`).
+- `Chat` returns `(content, totalTokens, err)`. `ChatResult` returns a
+  `Response{Content, Tokens, FinishReason, Truncated, Repaired}`; prose
+  callers use `Truncated` to tell the reader the answer is cut.
 
 ### 1.2 Manager (`internal/llm/manager.go`)
 
@@ -103,14 +109,21 @@ be tracked separately.
   used everywhere:
   - empty / `[]` / `{}` short-circuit to zero value, return nil (callers treat
     "nothing recommended" as empty).
-  - First `json.Unmarshal`; on failure retries with `RepairTruncatedJSON`;
-    error reports both attempts + first 200 chars of response.
+  - First `json.Unmarshal`; on failure retries with `RepairTruncatedJSON`
+    (then reshaped for the requested shape, so an array caller still gets a
+    salvaged `{"items":[...]}` wrapper's array); error reports both attempts
+    + first 200 chars of response.
 
 ### 1.5 Truncated-JSON repair (`internal/llm/repair.go`)
 
-`RepairTruncatedJSON` (`repair.go:24-76`): for an array cut mid-object (thinking
-model exhausted budget), finds the last complete top-level `}` (string/escape
-aware) and appends `]`. No-op if both `[` and `]` already present.
+`RepairTruncatedJSON` (`repair.go`): one string- and escape-aware scan from the
+first `{` or `[` (thinking model exhausted budget). It cuts after the last
+completed value and appends the closers still open, so
+`{"findings":[{"x":1},{"x":2` becomes `{"findings":[{"x":1}]}`. A scalar or
+string counts only once a `,` or closer follows it (a cut number or a key
+without its value is dropped), and an object that is an array element is kept
+whole or not at all. Valid JSON, input with nothing salvageable, and anything
+that would not repair to valid JSON are returned unchanged, byte for byte.
 
 ### 1.6 Pre-LLM sanitization (`internal/llm/sanitize.go`)
 
@@ -154,7 +167,9 @@ data.
 **Flow**: always build the deterministic markdown briefing
 (`buildStructured`). If `llm != nil && IsEnabled() && !IsCircuitOpen()`, ask
 the LLM; on LLM error, fall back to the structured text.
-`maxTokens` = `cfg.LLM.ContextBudgetTokens`.
+`maxTokens` = `cfg.LLM.ContextBudgetTokens`. An answer cut at that limit is
+kept as written, gets "_(cut at the model's token limit)_" appended (a fenced
+block left open is closed first) and logs a WARN (llm-07).
 
 **Grounding** (llm-08, `ground.go`): the LLM rewrite cites findings and cannot
 add SQL. A JSON-wrapped answer is unwrapped first. Then every fenced block and
