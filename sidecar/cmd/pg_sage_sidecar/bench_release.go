@@ -69,9 +69,9 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 		if err != nil {
 			logWarn("autonomy", "ingest bench reports: %v", err)
 		}
-		benchReplayNotices.note(res.Skipped, func(format string, args ...any) {
-			logInfo("autonomy", format, args...)
-		})
+		info := func(format string, args ...any) { logInfo("autonomy", format, args...) }
+		benchIngestNotices.note(res.Skipped, info)
+		benchIngestNotices.noteRefused(res.Refused, info)
 		if res.Added > 0 {
 			logInfo("autonomy", "ingested %d new PGIncidentBench reports (%d signed) for %s",
 				res.Added, res.Signed, svc.Build())
@@ -82,30 +82,49 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 	}
 }
 
-// replayNotices remembers the replay-corpus reports already logged as
-// skipped, so the hourly ingest tells each one once per process.
-type replayNotices struct {
+// benchNotices remembers the ingest notices already logged, keyed, so
+// the hourly ingest of every database tells each one once per process.
+type benchNotices struct {
 	mu   sync.Mutex
 	told map[string]bool
 }
 
-// benchReplayNotices is shared by every database's ledger.
-var benchReplayNotices replayNotices
+// benchIngestNotices is shared by every database's ledger.
+var benchIngestNotices benchNotices
 
-// note logs each skipped replay report not logged before.
-func (n *replayNotices) note(skipped []string, logf func(string, ...any)) {
+// first reports whether key is new, and remembers it.
+func (n *benchNotices) first(key string) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if n.told[key] {
+		return false
+	}
+	if n.told == nil {
+		n.told = map[string]bool{}
+	}
+	n.told[key] = true
+	return true
+}
+
+// note logs each skipped replay report not logged before.
+func (n *benchNotices) note(skipped []string, logf func(string, ...any)) {
 	for _, path := range skipped {
-		if n.told[path] {
-			continue
+		if n.first("replay:" + path) {
+			logf("skipping %s: a PGIncidentBench replay-corpus report, not a bench report",
+				path)
 		}
-		if n.told == nil {
-			n.told = map[string]bool{}
+	}
+}
+
+// noteRefused logs each refused report version (path and content hash)
+// not logged before: a rewritten file is told again.
+func (n *benchNotices) noteRefused(refused []benchingest.Refused,
+	logf func(string, ...any)) {
+	for _, r := range refused {
+		if n.first("refused:" + r.Path + "@" + r.SHA256) {
+			logf("bench report %s (sha256 %.12s) does not count: %s; it is logged once "+
+				"until the file changes", r.Path, r.SHA256, r.Reason)
 		}
-		n.told[path] = true
-		logf("skipping %s: a PGIncidentBench replay-corpus report, not a bench report",
-			path)
 	}
 }
 
@@ -126,6 +145,7 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 		total.Files, total.Added = total.Files+res.Files, total.Added+res.Added
 		total.Signed += res.Signed
 		total.Skipped = append(total.Skipped, res.Skipped...)
+		total.Refused = append(total.Refused, res.Refused...)
 		if err != nil {
 			errs = append(errs, err)
 		}

@@ -20,7 +20,7 @@ import (
 // INFO, naming the build it scores; a rewritten file (a new hash) logs
 // again. Other ingest errors still WARN on every tick.
 
-var oldBuild = earned.Build{Version: "1.8.4",
+var staleBuild = earned.Build{Version: "1.8.4",
 	Commit: "dddddddddddddddddddddddddddddddddddddddd"}
 
 func TestRefusalNoticesLogEachFileVersionOnce(t *testing.T) {
@@ -71,30 +71,6 @@ func TestRefusalNoticesConcurrentTicksLogOnce(t *testing.T) {
 	}
 }
 
-// captureStderr runs fn with the process log (stderr) going to a file
-// and returns what was logged.
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	f, err := os.CreateTemp(t.TempDir(), "stderr")
-	if err != nil {
-		t.Fatal(err)
-	}
-	old := os.Stderr
-	os.Stderr = f
-	func() {
-		defer func() { os.Stderr = old }()
-		fn()
-	}()
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(f.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(raw)
-}
-
 // matching are the lines of out containing every one of parts.
 func matching(out string, parts ...string) []string {
 	var lines []string
@@ -121,7 +97,7 @@ func TestBenchIngesterLogsAStaleReportOncePerProcess(t *testing.T) {
 	ledgers := newAutonomyLedgers(true)
 	s := config.DefaultConfig().SRE.Autonomy
 	s.BenchResultsPath = t.TempDir()
-	stale := writeShippedReport(t, s.BenchResultsPath, "core", time.Now().UTC(), oldBuild,
+	stale := writeShippedReport(t, s.BenchResultsPath, "core", time.Now().UTC(), staleBuild,
 		"wal_retention", false)
 	var ticks []func(context.Context)
 	for _, db := range []string{"stale_a", "stale_b"} {
@@ -142,7 +118,7 @@ func TestBenchIngesterLogsAStaleReportOncePerProcess(t *testing.T) {
 		t.Fatalf("two ticks of two databases logged:\n%s\nwant one INFO refusal", out)
 	}
 	writeShippedReport(t, s.BenchResultsPath, "core", time.Now().UTC().Add(-time.Minute),
-		oldBuild, "wal_retention", false)
+		staleBuild, "wal_retention", false)
 	broken := filepath.Join(s.BenchResultsPath, "broken.json")
 	if err := os.WriteFile(broken, []byte(`{"schema": `), 0o600); err != nil {
 		t.Fatal(err)
