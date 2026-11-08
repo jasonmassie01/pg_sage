@@ -132,9 +132,17 @@ func formatHealthAge(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
 }
 
-// collectorIntervalLocked is the instance's collector interval: its own
-// override, else the global one. Caller holds m.mu.
+// collectorIntervalLocked is the period the instance's collector runs at.
+// A started collector reports its ticker period, which follows hot reloads
+// of its own config and the dormant interval; the manager's config can
+// disagree with it. Before the ticker starts it falls back to the
+// instance override, else the global interval. Caller holds m.mu.
 func (m *DatabaseManager) collectorIntervalLocked(inst *DatabaseInstance) time.Duration {
+	if inst.Collector != nil {
+		if period := inst.Collector.Interval(); period > 0 {
+			return period
+		}
+	}
 	secs := inst.Config.CollectorIntervalSeconds
 	if secs <= 0 && m.cfg != nil {
 		secs = m.cfg.Collector.IntervalSeconds

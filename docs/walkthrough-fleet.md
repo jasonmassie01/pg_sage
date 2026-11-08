@@ -137,8 +137,11 @@ reasons are in `status.health_score` and `status.health_reasons` of
 | No collector sample for more than 3 collector intervals | capped at 25 | `collector stale 42m` |
 | Emergency stop active | none | `emergency stopped by alice` |
 
-The interval is the database's `collector_interval_seconds`, else the
-global `collector.interval_seconds`. A database that has never been sampled
+The interval is the one the database's collector runs at: its
+`collector.interval_seconds` after any reload or self-config promotion, or
+the circuit breaker's dormant interval while it is dormant. Before the
+collector starts, the database's `collector_interval_seconds` is used, else
+the global `collector.interval_seconds`. A database that has never been sampled
 counts as stale only once it has been registered for more than 3
 intervals, so a new database is not penalised while its first sample runs.
 The score never goes below 0.
