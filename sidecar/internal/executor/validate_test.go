@@ -7,8 +7,8 @@ import (
 
 func TestValidateSQL_AllowedStatements(t *testing.T) {
 	allowed := []string{
-		"CREATE INDEX CONCURRENTLY idx ON t(id)",
-		"CREATE UNIQUE INDEX CONCURRENTLY idx ON t(id)",
+		"CREATE INDEX CONCURRENTLY idx ON public.t(id)",
+		"CREATE UNIQUE INDEX CONCURRENTLY idx ON public.t(id)",
 		"DROP INDEX CONCURRENTLY IF EXISTS public.idx",
 		"DROP INDEX public.idx",
 		"REINDEX INDEX CONCURRENTLY idx",
@@ -20,8 +20,8 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 		"ALTER SYSTEM RESET work_mem",
 		"SELECT pg_terminate_backend(12345)",
 		"SELECT pg_cancel_backend(12345)",
-		"  CREATE INDEX idx ON t(id)  ",
-		"create index concurrently idx on t(id)",
+		"  CREATE INDEX idx ON public.t(id)  ",
+		"create index concurrently idx on public.t(id)",
 	}
 	for _, sql := range allowed {
 		if err := ValidateExecutorSQL(sql); err != nil {
@@ -104,7 +104,7 @@ func TestValidateSQL_RejectsProtectedSchemas(t *testing.T) {
 
 func TestValidateSQL_MultiStatement(t *testing.T) {
 	cases := []string{
-		"CREATE INDEX idx ON t(id); DROP TABLE users",
+		"CREATE INDEX idx ON public.t(id); DROP TABLE users",
 		"VACUUM; DELETE FROM users",
 		"SELECT 1; SELECT 2",
 	}
@@ -125,7 +125,7 @@ func TestValidateSQL_MultiStatement(t *testing.T) {
 
 func TestValidateSQL_CaseInsensitive(t *testing.T) {
 	cases := []string{
-		"create index concurrently idx on t(id)",
+		"create index concurrently idx on public.t(id)",
 		"Vacuum Analyze public.t",
 		"ALTER system SET work_mem = '64MB'",
 		"REINDEX index idx",
@@ -153,7 +153,7 @@ func TestValidateSQL_EmptyString(t *testing.T) {
 
 func TestValidateSQL_TrailingSemicolon(t *testing.T) {
 	// Trailing semicolon with only whitespace after = OK.
-	sql := "CREATE INDEX idx ON t(id);"
+	sql := "CREATE INDEX idx ON public.t(id);"
 	if err := ValidateExecutorSQL(sql); err != nil {
 		t.Errorf("trailing semicolon should be ok: %v", err)
 	}

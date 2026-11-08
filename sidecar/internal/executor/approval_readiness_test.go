@@ -20,7 +20,7 @@ func TestApprovalReadinessBlocksModerateOutsideMaintenanceWindow(t *testing.T) {
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
 		Status:      "pending",
-		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		ExpiresAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
 	}
 	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
@@ -51,7 +51,7 @@ func TestApprovalReadinessAllowsModerateInsideMaintenanceWindow(t *testing.T) {
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
 		Status:      "pending",
-		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		ExpiresAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
 	}
 	now := time.Date(2026, 4, 28, 2, 15, 0, 0, time.UTC)

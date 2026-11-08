@@ -71,7 +71,7 @@ func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
 		Status:      "pending",
-		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		RollbackSQL: "DROP INDEX CONCURRENTLY idx_orders_customer",
 	}
 
@@ -125,7 +125,7 @@ func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
 		Status:      "pending",
-		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
 	}
 
@@ -186,7 +186,7 @@ func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) 
 	actionStore := store.NewActionStore(pool)
 	actionID, err := actionStore.ProposeWithMetadata(
 		ctx, nil, findingID,
-		"CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		"CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		"DROP INDEX CONCURRENTLY idx_orders_customer",
 		"moderate",
 		store.ActionProposalMetadata{

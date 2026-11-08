@@ -106,7 +106,8 @@ func TestCheckIndexFunctions_LookupError(t *testing.T) {
 	f := &fakeFunctionLookup{err: errors.New("connection refused")}
 	err := checkIndexFunctions(context.Background(), f.lookup, indexSQL("((lower(a)))"))
 	if err == nil || errors.Is(err, ErrFunctionSchemaNotAllowed) ||
-		!strings.Contains(err.Error(), "lower") || !strings.Contains(err.Error(), "connection refused") {
+		!strings.Contains(err.Error(), "lower") ||
+		!strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("err = %v, want the lookup error naming lower", err)
 	}
 }
@@ -157,9 +158,9 @@ func TestCheckIndexFunctions_Concurrent(t *testing.T) {
 // ValidateExecutorSQL with distinguishable reasons.
 func TestValidateExecutorSQL_IndexTargetsAndFunctionSchemas(t *testing.T) {
 	for sql, want := range map[string]string{
-		"CREATE INDEX CONCURRENTLY i ON t (a)":      "CREATE INDEX target must be schema-qualified",
-		"CREATE UNIQUE INDEX i ON t (a)":            "CREATE UNIQUE INDEX target must be schema-qualified",
-		indexSQL("((sage.f(a)))"):                   `function sage.f is in protected schema "sage"`,
+		"CREATE INDEX CONCURRENTLY i ON t (a)":      "INDEX target must be schema-qualified",
+		"CREATE UNIQUE INDEX i ON t (a)":            "UNIQUE INDEX target must be",
+		indexSQL("((sage.f(a)))"):                   `sage.f is in protected schema "sage"`,
 		indexSQL("((information_schema._pg_x(a)))"): "protected schema",
 		indexSQL("(a) WHERE google_ml.predict(a)"):  "protected schema",
 	} {

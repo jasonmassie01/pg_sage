@@ -296,7 +296,8 @@ func TestOneChange_IndexNameResolvesToItsTable(t *testing.T) {
 	requireParkedOn(t, authorizeFinding(t, exec, ctx, analyze), byIndex)
 }
 
-// Quoted and unqualified spellings name the same table.
+// Quoted and partly quoted spellings name the same table. (An unqualified
+// CREATE INDEX target is refused at validation since security-01.)
 func TestOneChange_SpellingsOfOneTableMatch(t *testing.T) {
 	pool, ctx := isolatedSageDB(t)
 	lifeosTables(t, pool, ctx)
@@ -307,7 +308,7 @@ func TestOneChange_SpellingsOfOneTableMatch(t *testing.T) {
 		"monitoring", time.Minute)
 	second := memoriesIndexFinding("idx_memories_quoted", lifeos6411Where)
 	second.RecommendedSQL = strings.Replace(second.RecommendedSQL, "public.memories",
-		"memories", 1)
+		`public."memories"`, 1)
 	requireParkedOn(t, authorizeFinding(t, exec, ctx, second), first)
 }
 

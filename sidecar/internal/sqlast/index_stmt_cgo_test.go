@@ -16,14 +16,14 @@ import (
 // before the build (executor.checkIndexFunctions).
 func TestCheckIndexStmtRefusals(t *testing.T) {
 	for sql, want := range map[string]string{
-		"CREATE INDEX CONCURRENTLY i ON t (a)":                          "schema-qualified",
-		"CREATE UNIQUE INDEX i ON ONLY t (a)":                           "schema-qualified",
-		"CREATE INDEX i ON public.t ((sage.f(a)))":                      `protected schema "sage"`,
-		"CREATE INDEX i ON public.t ((SAGE.f(a)))":                      `protected schema "sage"`,
-		`CREATE INDEX i ON public.t (("sage".f(a)))`:                    `protected schema "sage"`,
+		"CREATE INDEX CONCURRENTLY i ON t (a)":                         "schema-qualified",
+		"CREATE UNIQUE INDEX i ON ONLY t (a)":                          "schema-qualified",
+		"CREATE INDEX i ON public.t ((sage.f(a)))":                     `protected schema "sage"`,
+		"CREATE INDEX i ON public.t ((SAGE.f(a)))":                     `protected schema "sage"`,
+		`CREATE INDEX i ON public.t (("sage".f(a)))`:                   `protected schema "sage"`,
 		"CREATE INDEX i ON public.t (a) WHERE information_schema.x(a)": "protected schema",
-		"CREATE INDEX i ON public.t ((lower(pg_toast.f(a))))":           "protected schema",
-		"CREATE INDEX i ON public.t ((db.pg_toast.f(a)))":               "protected schema",
+		"CREATE INDEX i ON public.t ((lower(pg_toast.f(a))))":          "protected schema",
+		"CREATE INDEX i ON public.t ((db.pg_toast.f(a)))":              "protected schema",
 	} {
 		err := Check(sql, testRules)
 		if err == nil || !strings.Contains(err.Error(), want) {

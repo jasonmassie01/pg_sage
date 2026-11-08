@@ -65,7 +65,7 @@ func TestExecuteManual_RejectsMultiStatement(t *testing.T) {
 		execMode:      "auto",
 	}
 
-	sql := "CREATE INDEX idx ON t (c); DROP TABLE t"
+	sql := "CREATE INDEX idx ON public.t (c); DROP TABLE t"
 	_, err := e.ExecuteManual(t.Context(), 1, sql, "", nil)
 	if err == nil {
 		t.Fatal("expected error for multi-statement SQL, got nil")
@@ -98,7 +98,8 @@ func TestExecuteManual_AcceptsValidSQL_ButNeedsDB(t *testing.T) {
 		}
 	}()
 
-	_, _ = e.ExecuteManual(t.Context(), 1, "CREATE INDEX idx ON t (c)", "DROP INDEX idx", nil)
+	_, _ = e.ExecuteManual(t.Context(), 1, "CREATE INDEX idx ON public.t (c)",
+		"DROP INDEX idx", nil)
 	// If we reach here without panic, that's fine too — emergency stop
 	// query on nil pool may panic or the test captures the recovery.
 }
@@ -277,7 +278,7 @@ func TestIsSelfReferentialDrop(t *testing.T) {
 		},
 		{
 			name:      "empty drop is not self-referential",
-			createSQL: "CREATE INDEX CONCURRENTLY idx_a ON t (c)",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_a ON public.t (c)",
 			dropDDL:   "",
 			want:      false,
 		},
@@ -616,7 +617,7 @@ func TestCategorizeAction_CaseInsensitive(t *testing.T) {
 		sql  string
 		want string
 	}{
-		{"create index concurrently idx on t (c)", "create_index"},
+		{"create index concurrently idx on public.t (c)", "create_index"},
 		{"drop index idx", "drop_index"},
 		{"Vacuum Full t", "vacuum"},
 		{"ANALYZE t", "analyze"},
@@ -645,8 +646,8 @@ func TestValidateExecutorSQL_AllowedPrefixes(t *testing.T) {
 		sql     string
 		wantErr bool
 	}{
-		{"CREATE INDEX idx ON t (c)", false},
-		{"CREATE UNIQUE INDEX idx ON t (c)", false},
+		{"CREATE INDEX idx ON public.t (c)", false},
+		{"CREATE UNIQUE INDEX idx ON public.t (c)", false},
 		{"DROP INDEX public.idx", false},
 		{"REINDEX TABLE t", false},
 		{"VACUUM t", false},

@@ -79,8 +79,28 @@ func TestFunctionSchemaCatalogAndExtension(t *testing.T) {
 		"public.sp_attack_t ((pg_catalog.lower(email)))", time.Minute); err != nil {
 		t.Fatalf("pg_catalog.lower: %v", err)
 	}
+	schema := fuzzystrmatchSchema(t, ctx, pool)
+	sql := "CREATE INDEX CONCURRENTLY sp_fn_ext ON public.sp_attack_t ((" +
+		schema + ".soundex(email)))"
+	if err := ExecConcurrently(ctx, pool, sql, time.Minute); err != nil {
+		t.Fatalf("extension function: %v", err)
+	}
+	plantBesideExtension(t, ctx, pool, schema)
+	err := ExecConcurrently(ctx, pool, strings.Replace(sql, "sp_fn_ext ", "sp_fn_ext2 ", 1),
+		time.Minute)
+	if !errors.Is(err, ErrFunctionSchemaNotAllowed) {
+		t.Fatalf("planted overload beside the extension: err = %v, want refused", err)
+	}
+	if fnIndexBuilt(t, ctx, pool, "public.sp_fn_ext2") {
+		t.Fatal("index built over the planted overload")
+	}
+}
+
+// fuzzystrmatchSchema installs fuzzystrmatch into a fresh schema, dropped
+// after the test.
+func fuzzystrmatchSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
 	schema := fmt.Sprintf("sp_fn_ext_%d", os.Getpid())
-	role := fmt.Sprintf("sage_sp_attacker_%d", os.Getpid())
 	for _, sql := range []string{
 		"DROP SCHEMA IF EXISTS " + schema + " CASCADE",
 		"CREATE SCHEMA " + schema,
@@ -93,11 +113,15 @@ func TestFunctionSchemaCatalogAndExtension(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
 	})
-	sql := "CREATE INDEX CONCURRENTLY sp_fn_ext ON public.sp_attack_t ((" +
-		schema + ".soundex(email)))"
-	if err := ExecConcurrently(ctx, pool, sql, time.Minute); err != nil {
-		t.Fatalf("extension function: %v", err)
-	}
+	return schema
+}
+
+// plantBesideExtension creates schema.soundex(varchar) as plantLowerAttack's
+// attacker role, an overload beside fuzzystrmatch's own soundex(text).
+func plantBesideExtension(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	schema string) {
+	t.Helper()
+	role := fmt.Sprintf("sage_sp_attacker_%d", os.Getpid())
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -113,13 +137,5 @@ func TestFunctionSchemaCatalogAndExtension(t *testing.T) {
 		if _, err := conn.Exec(ctx, s); err != nil {
 			t.Fatalf("%s: %v", s, err)
 		}
-	}
-	err = ExecConcurrently(ctx, pool, strings.Replace(sql, "sp_fn_ext ", "sp_fn_ext2 ", 1),
-		time.Minute)
-	if !errors.Is(err, ErrFunctionSchemaNotAllowed) {
-		t.Fatalf("planted overload beside the extension: err = %v, want refused", err)
-	}
-	if fnIndexBuilt(t, ctx, pool, "public.sp_fn_ext2") {
-		t.Fatal("index built over the planted overload")
 	}
 }
