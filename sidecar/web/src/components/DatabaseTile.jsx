@@ -24,6 +24,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const blocker = (caps.blockers || [])[0]
   const ready = caps.ready_for_auto_safe
   const readiness = ready === true ? 'ready' : ready === false ? 'blocked' : 'unknown'
+  const reasons = Array.isArray(s.health_reasons) ? s.health_reasons : []
 
   return (
     <button
@@ -53,6 +54,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
             Health
           </div>
           <div className="text-2xl font-bold"
+            title={reasons.length > 0 ? reasons.join('; ') : undefined}
             style={{ color: healthColor(s.health_score) }}>
             {s.health_score ?? '—'}
           </div>
@@ -99,6 +101,14 @@ export function DatabaseTile({ db, selected, onSelect }) {
           )}
         </div>
       </div>
+      {reasons.length > 0 && (
+        <ul data-testid="health-reasons" className="text-xs mb-2"
+          style={{ color: 'var(--text-secondary)' }}>
+          {reasons.map(reason => (
+            <li key={reason} className="truncate">{reason}</li>
+          ))}
+        </ul>
+      )}
       {trust && (
         <div className="flex items-center justify-between">
           <span className="text-[10px] uppercase tracking-wider"
