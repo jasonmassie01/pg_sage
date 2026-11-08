@@ -161,7 +161,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   }, [authAttempt])
 
   const { data: fleetData, loading: fleetLoading, error: fleetError,
-    refetch: refetchFleet } = useAPI(
+    refetch: refetchFleet, updatedAt: fleetUpdatedAt } = useAPI(
     user ? '/api/v1/databases' : null, 30000
   )
 
@@ -377,6 +377,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
             onSelectDB={selectDatabase} user={user} authMode={authMode}
             fleetError={inventoryError}
             fleetData={fleetData ? { ...fleetData, databases } : fleetData}
+            fleetUpdatedAt={fleetUpdatedAt}
             onFleetChanged={refetchFleet}
             onLogout={platformManaged ? undefined : handleLogout}
             pageTitle={pageState.title}>

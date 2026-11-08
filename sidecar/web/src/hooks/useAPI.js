@@ -16,16 +16,17 @@ export function resourceKey(url) {
 // useAPI polls `url` at `interval` ms. Data is keyed by resource, so a
 // different database never renders the previous database's data, and a
 // new time window keeps the current data until the refresh lands.
-// In-flight requests are aborted on url change and unmount.
+// In-flight requests are aborted on url change and unmount. updatedAt is
+// the time (ms) of the resource's last successful response, or null.
 export function useAPI(url, interval = 30000) {
   const key = resourceKey(url)
-  const [state, setState] = useState({ key: null, data: null, error: null })
+  const [state, setState] = useState({ key: null, data: null, error: null, updatedAt: null })
   const [inFlight, setInFlight] = useState(false)
   const abortRef = useRef(null)
 
   const fetchData = useCallback(async () => {
     if (!url) {
-      setState({ key: null, data: null, error: null })
+      setState({ key: null, data: null, error: null, updatedAt: null })
       setInFlight(false)
       return
     }
@@ -41,14 +42,10 @@ export function useAPI(url, interval = 30000) {
       if (res.status === 401) throw new Error('session expired')
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
       const json = await res.json()
-      setState({ key: requestKey, data: json, error: null })
+      setState({ key: requestKey, data: json, error: null, updatedAt: Date.now() })
     } catch (err) {
       if (err.name === 'AbortError') return
-      setState(prev => ({
-        key: requestKey,
-        data: prev.key === requestKey ? prev.data : null,
-        error: err.message,
-      }))
+      setState(prev => failedState(prev, requestKey, err.message))
     } finally {
       if (abortRef.current === ctrl) {
         setInFlight(false)
@@ -66,12 +63,30 @@ export function useAPI(url, interval = 30000) {
     }
   }, [fetchData, interval, url])
 
+  return { ...visibleState(state, key, url, inFlight), refetch: fetchData }
+}
+
+// failedState keeps the resource's last good data and its time when a
+// refresh of the same resource fails; a different resource starts empty.
+function failedState(prev, key, message) {
+  const same = prev.key === key
+  return {
+    key,
+    data: same ? prev.data : null,
+    error: message,
+    updatedAt: same ? prev.updatedAt : null,
+  }
+}
+
+// visibleState shows only state that belongs to the current resource.
+function visibleState(state, key, url, inFlight) {
   const current = state.key === key
   const data = current ? state.data : null
   const error = current ? state.error : null
+  const updatedAt = current ? state.updatedAt : null
   const loading = Boolean(url) &&
     (!current || (data === null && error === null && inFlight))
-  return { data, loading, error, refetch: fetchData }
+  return { data, loading, error, updatedAt }
 }
 
 // withTimeRange returns `base` with ?from/&to query params appended

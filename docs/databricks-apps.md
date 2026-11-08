@@ -86,6 +86,9 @@ ordinary API server timeouts are unchanged. This avoids running an indefinite
 SSE response into the server's absolute write timeout or the Apps proxy's
 long-request limit. Pages also retain their normal polling; reconnecting a
 stream does not prove complete event delivery or continuous source telemetry.
+If the Apps proxy refuses a reconnect (a 502 or 504 during a restart), the
+dashboard opens a new stream with backoff and its header shows "Polling" or
+"Offline" with the age of the data until the stream is live again.
 
 This mode is restricted to the Apps runtime and requires its injected port and
 `DATABRICKS_HOST` (a bare hostname is normalized to HTTPS). Missing platform

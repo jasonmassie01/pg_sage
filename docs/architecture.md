@@ -172,6 +172,18 @@ includes case projection, shadow report, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
+**Data freshness.** The header shows how current the page is. "Live" means the
+`/api/v1/events` stream is open and pages refresh as changes are pushed.
+"Polling, updated 40 s ago" means the stream is not live yet, or dropped; pages
+keep their normal 30-second polling and the age is that of the last good fleet
+poll. "Offline, data from 14:02" means three reconnects in a row failed; the
+data on screen is from that time. Each tab keeps one stream for every database,
+also in fleet mode. The server ends each stream after 45 seconds and the browser
+reconnects on its own. When a reconnect is refused (for example a proxy 502 or
+504 while the sidecar restarts) the browser gives up, so the dashboard opens a
+new stream after 3 s, doubling up to 60 s with 20% jitter, and goes back to
+"Live" when it connects, without a page reload.
+
 Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
 Aurora. Adapters describe extension enablement paths, log access, managed
 service limitations, and supported action families before policy evaluation

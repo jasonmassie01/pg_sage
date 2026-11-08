@@ -161,6 +161,80 @@ describe('useAPI with stubFetch', () => {
   })
 })
 
+// dashboard-04: updatedAt is the time of the last successful response, so
+// the header can say how old the data on screen is.
+describe('useAPI updatedAt', () => {
+  it('is null before the first response and stamped by a success', async () => {
+    stubFetch({ '/api/v1/databases': { json: { databases: [] } } })
+    const before = Date.now()
+    const { result } = renderHook(() => useAPI('/api/v1/databases', 0))
+    expect(result.current.updatedAt).toBeNull()
+    await waitFor(() => expect(result.current.data).toEqual({ databases: [] }))
+    expect(typeof result.current.updatedAt).toBe('number')
+    expect(result.current.updatedAt).toBeGreaterThanOrEqual(before)
+    expect(result.current.updatedAt).toBeLessThanOrEqual(Date.now())
+  })
+
+  it('keeps the last success time when a refresh fails', async () => {
+    stubFetch({
+      '/api/v1/databases': [
+        { json: { n: 1 } },
+        { status: 502, statusText: 'Bad Gateway', text: 'proxy' },
+      ],
+    })
+    const { result } = renderHook(() => useAPI('/api/v1/databases', 0))
+    await waitFor(() => expect(result.current.data).toEqual({ n: 1 }))
+    const stamped = result.current.updatedAt
+    expect(typeof stamped).toBe('number')
+    await act(async () => { await result.current.refetch() })
+    expect(result.current.error).toBe('502 Bad Gateway')
+    expect(result.current.updatedAt).toBe(stamped)
+  })
+
+  it('stays null when the first response fails', async () => {
+    stubFetch({ '/api/v1/databases': { status: 500, statusText: 'Internal Server Error' } })
+    const { result } = renderHook(() => useAPI('/api/v1/databases', 0))
+    await waitFor(() => expect(result.current.error).toBe('500 Internal Server Error'))
+    expect(result.current.updatedAt).toBeNull()
+  })
+
+  it('moves forward on each successful poll', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-11-08T14:00:00Z'))
+      stubFetch({ '/api/v1/databases': { json: { ok: true } } })
+      const { result } = renderHook(() => useAPI('/api/v1/databases', 30000))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(result.current.updatedAt).toBe(Date.parse('2026-11-08T14:00:00Z'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000) })
+      expect(result.current.updatedAt).toBe(Date.parse('2026-11-08T14:00:30Z'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not carry the time of one resource over to another', async () => {
+    stubFetch({
+      '/api/v1/actions?database=a': { json: { db: 'a' } },
+      '/api/v1/actions?database=b': { status: 503, statusText: 'Service Unavailable' },
+    })
+    const { result, rerender } = renderHook(({ url }) => useAPI(url, 0), {
+      initialProps: { url: '/api/v1/actions?database=a' },
+    })
+    await waitFor(() => expect(result.current.data).toEqual({ db: 'a' }))
+    expect(result.current.updatedAt).not.toBeNull()
+    rerender({ url: '/api/v1/actions?database=b' })
+    expect(result.current.updatedAt).toBeNull()
+    await waitFor(() => expect(result.current.error).toBe('503 Service Unavailable'))
+    expect(result.current.updatedAt).toBeNull()
+  })
+
+  it('is null for a null url', () => {
+    const { result } = renderHook(() => useAPI(null, 0))
+    expect(result.current.updatedAt).toBeNull()
+  })
+})
+
 describe('withTimeRange', () => {
   const range = { fromISO: '2026-11-08T10:00:00Z', toISO: '2026-11-08T11:00:00+01:00' }
   it('appends an encoded window with the right separator', () => {
