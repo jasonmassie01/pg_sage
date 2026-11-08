@@ -47,6 +47,11 @@ type Client struct {
 	// allocation in fleet mode), enforced in addition to the daily
 	// budget. Set once before concurrent use via SetBudget; nil disables.
 	budget Budgeter
+	// ceiling is an optional stricter daily cap (SetCeiling) and global
+	// the optional process-wide budget (SetGlobalBudget); both are atomic
+	// because wiring may set them while other runtimes already call Chat.
+	ceiling atomic.Pointer[ceilingFunc]
+	global  atomic.Pointer[Budget]
 
 	throttleMu sync.Mutex
 	activeKeys map[string]struct{}
@@ -447,26 +452,29 @@ func (c *Client) TokenBudgetDaily() int {
 	return cfg.TokenBudgetDaily
 }
 
-// IsBudgetExhausted returns true if the daily token budget has
-// been reached. Returns false when no budget is configured.
+// IsBudgetExhausted returns true if the effective daily token budget
+// (EffectiveTokenBudgetDaily) has been reached. Returns false when no
+// budget applies.
 func (c *Client) IsBudgetExhausted() bool {
 	cfg, _ := c.configSnapshot()
-	if cfg.TokenBudgetDaily <= 0 {
+	capacity := c.dailyLimit(cfg)
+	if !capacity.limited {
 		return false
 	}
+	used := c.tokensUsedToday.Load()
 	if budgetDay(time.Now()) != c.budgetResetDay.Load() {
-		return false
+		used = 0
 	}
-	return int(c.tokensUsedToday.Load()) >= cfg.TokenBudgetDaily
+	return used >= capacity.limit
 }
 
 // ResetBudget zeroes the daily token counter, allowing LLM calls
 // to resume immediately instead of waiting for the next calendar day.
+// Holds of calls in flight stay, so their settle cannot go negative.
 func (c *Client) ResetBudget() {
 	c.budgetMu.Lock()
 	defer c.budgetMu.Unlock()
 	c.tokensUsedToday.Store(0)
-	c.reservedTokens = 0
 	c.budgetResetDay.Store(budgetDay(time.Now()))
 }
 

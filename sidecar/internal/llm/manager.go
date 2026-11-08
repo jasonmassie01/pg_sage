@@ -113,7 +113,7 @@ func clientStatus(c *Client) ClientStatus {
 		Model:              c.Model(),
 		Enabled:            c.IsEnabled(),
 		TokensUsed:         c.TokensUsedToday(),
-		TokenBudget:        c.TokenBudgetDaily(),
+		TokenBudget:        c.EffectiveTokenBudgetDaily(),
 		Exhausted:          c.IsBudgetExhausted(),
 		CircuitOpen:        c.IsCircuitOpen(),
 		ResetTimestamp:     tomorrow.Format(time.RFC3339),

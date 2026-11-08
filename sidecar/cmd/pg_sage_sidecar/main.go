@@ -98,6 +98,12 @@ type dbBudget struct {
 func (d dbBudget) CanSpend(tokens int) bool { return d.b.CanSpend(d.db, tokens) }
 func (d dbBudget) Spend(tokens int)         { d.b.Spend(d.db, tokens) }
 
+// Hold and Settle make the database's share reset-aware (llm.HoldBudgeter).
+func (d dbBudget) Hold(tokens int) (uint64, bool) { return d.b.Hold(d.db, tokens) }
+func (d dbBudget) Settle(held, actual int, epoch uint64) {
+	d.b.Settle(d.db, held, actual, epoch)
+}
+
 func main() {
 	runSubcommandAndExit()
 	// Catch SIGINT/SIGTERM before anything starts: a signal during startup
