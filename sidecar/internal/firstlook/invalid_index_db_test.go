@@ -178,6 +178,32 @@ func TestInvalidIndexLiveBuildIsInfo(t *testing.T) {
 	}
 }
 
+// A live REINDEX CONCURRENTLY reports the original in index_relid while its
+// _ccnew copy is the invalid index: the copy is a build in progress, not a
+// leftover to drop.
+func TestInvalidIndexLiveReindexCopyIsInfo(t *testing.T) {
+	pool, ctx := livePool(t)
+	s, q := liveBuildSchema(t, ctx, pool)
+	release := holdSnapshot(t, ctx, pool, q+".t")
+	_, res := startBuild(t, ctx, pool, "REINDEX INDEX CONCURRENTLY "+q+".t_a")
+	r, err := Run(ctx, pool, testOptions("app"))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	it := findItem(r, RuleInvalidIndex, s+".t_a_ccnew")
+	if it == nil {
+		t.Fatalf("no invalid-index item for the live _ccnew copy in %+v", r.Items)
+	}
+	if it.Severity != SeverityInfo || it.SuggestedSQL != "" ||
+		!strings.Contains(it.Title, "in progress") {
+		t.Fatalf("live reindex copy reported as %+v, want info with no SQL", *it)
+	}
+	release()
+	if err := <-res; err != nil {
+		t.Fatalf("reindex after release: %v", err)
+	}
+}
+
 // A cancelled REINDEX CONCURRENTLY leaves a _ccnew copy: the first look
 // suggests dropping it, and the suggestion works.
 func TestInvalidIndexCancelledReindexLeftoverGetsDrop(t *testing.T) {
