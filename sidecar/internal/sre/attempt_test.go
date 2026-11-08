@@ -98,3 +98,33 @@ func TestWriteAttempt(t *testing.T) {
 		}
 	}
 }
+
+// Replay exports carry the contested run's attempt beside the case; the
+// versioned case document itself is unchanged. A run read without the
+// attempt column (zero) is the first attempt.
+func TestBuildReplayCase_CarriesTheAttempt(t *testing.T) {
+	for _, c := range []struct{ stored, want int }{{3, 3}, {MaxAttempts, MaxAttempts},
+		{1, 1}, {0, 1}} {
+		inv, ev := contestedIdle(t)
+		inv.Attempt = c.stored
+		exp, err := BuildReplayCase(inv, ev, refuted("ddl_lock_queue"),
+			ReplayExportOptions{salt: fixedSalt})
+		if err != nil || exp.Attempt != c.want {
+			t.Fatalf("attempt %d: export attempt = %d (%v), want %d", c.stored,
+				exp.Attempt, err, c.want)
+		}
+		var top, doc map[string]any
+		if err := json.Unmarshal(mustJSON(t, exp), &top); err != nil {
+			t.Fatalf("decode export: %v", err)
+		}
+		if top["attempt"] != float64(c.want) {
+			t.Fatalf("attempt %d: export JSON attempt = %v", c.stored, top["attempt"])
+		}
+		if err := json.Unmarshal(mustJSON(t, exp.Case), &doc); err != nil {
+			t.Fatalf("decode case: %v", err)
+		}
+		if _, ok := doc["attempt"]; ok {
+			t.Fatalf("the versioned case document gained an attempt: %v", doc)
+		}
+	}
+}
