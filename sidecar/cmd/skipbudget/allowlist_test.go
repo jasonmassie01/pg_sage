@@ -162,7 +162,8 @@ func TestWorkflowSelectiveStepsRequireTheirTests(t *testing.T) {
 }
 
 // alerting-12: the alerting and notify database tests must pass in CI, not
-// merely avoid skipping.
+// merely avoid skipping. The specs name database-backed tests: a bare
+// 'internal/notify .*' is met by any pure unit test even if every DB test is gone.
 func TestWorkflowSuiteSkipBudgetsRequireAlertingAndNotify(t *testing.T) {
 	steps := 0
 	for _, step := range workflowSteps(t) {
@@ -170,7 +171,8 @@ func TestWorkflowSuiteSkipBudgetsRequireAlertingAndNotify(t *testing.T) {
 			continue
 		}
 		steps++
-		for _, spec := range []string{"internal/alerting TestEvaluate_", "internal/notify "} {
+		for _, spec := range []string{"internal/alerting TestEvaluate_",
+			"internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_"} {
 			if !strings.Contains(step, "-require '"+spec) {
 				t.Errorf("a suite skip budget step does not -require %q", spec)
 			}

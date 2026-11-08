@@ -293,7 +293,8 @@ jobs:
         shell: bash
         run: |
           cat ../unit.json ../integration.json ../e2e.json | go run ./cmd/skipbudget -pg 17 \
-            -require 'internal/alerting TestEvaluate_.*' -require 'internal/notify .*'
+            -require 'internal/alerting TestEvaluate_.*' \
+            -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*'
 
   # PostgreSQL 17 runs in the test job above; this covers the rest of the
   # supported range with the race detector and integration tags.
@@ -437,7 +438,9 @@ jobs:
         shell: bash
         run: |
           go run ./cmd/skipbudget -pg ${{ matrix.pg }} \
-            -require 'internal/alerting TestEvaluate_.*' -require 'internal/notify .*' < ../integration.json
+            -require 'internal/alerting TestEvaluate_.*' \
+            -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*' \
+            < ../integration.json
 
   # Agent governance tests that need servers of their own, so they skip in
   # the shared suites (listed in sidecar/.skip-allowlist) and none may skip
