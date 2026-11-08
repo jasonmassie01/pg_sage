@@ -50,10 +50,21 @@ monitored database                         pg_sage process                      
   committed. If the newest stored evidence is more than 5 minutes old when the run resumes, it
   runs no probe and no model turn and ends `expired` with failure code `stale_evidence`. No
   diagnosis is shown for that evidence; the Cases panel says "Evidence too old to conclude".
-  To look again, an operator starts a new investigation of the case; pg_sage does not yet
-  start that new attempt by itself. Every conclusion records `evidence_newest_at` and
+  While the incident or finding is still open, the next trigger poll starts a new attempt that
+  collects fresh evidence (see "Attempts" below). Every conclusion records `evidence_newest_at` and
   `evidence_age_s` in its summary, and the panel shows the age when it is more than a sample
   interval. This works the same in single and fleet mode.
+- **Attempts.** A run of an automatic trigger (an incident, a plan-regression finding, a
+  detector episode, an SLO burn, a runway alert) that ends `expired` with failure code
+  `queue_expired` (it waited more than 10 minutes unclaimed, for example during a backlog or a
+  sidecar outage) or `stale_evidence` is followed, on the trigger's next poll while it is still
+  open, by attempt n+1. The new run records `attempt` and `supersedes` (the expired run's id);
+  the expired run shows `superseded_by` and the Cases panel links the two. At most 5 attempts
+  run per trigger; after the fifth expires, an `attempts_exhausted` event is recorded once and
+  nothing more starts by itself. Every expiry is a `system` transition on the event chain with
+  `reason` `queue_expired` or `stale_evidence`. A concluded, inconclusive, failed or stopped run
+  is never re-run automatically, and an operator's `idempotency_key` always returns the same
+  run. Exports carry `attempt`.
 
 ## Privileges
 
@@ -209,7 +220,7 @@ tokens). A refusal by a daily allocation is never retried.
 | Role | Can |
 |---|---|
 | viewer | list and read investigations, evidence and the event timeline (Cases panel, API, MCP read tools) |
-| operator, admin | the above, plus export, pin and unpin, start an investigation of a case (`POST .../investigations` with `case_id`, `kind`, `subject`, `idempotency_key`), stop it (`POST .../{id}/stop`, a resumable pause) and resume it (`POST .../{id}/resume`); stop and resume need the version you saw (`If-Match` or JSON `version`) |
+| operator, admin | the above, plus export, pin and unpin, start an investigation of a case (`POST .../investigations` with `case_id`, `kind`, `subject`, `idempotency_key`), stop it (`POST .../{id}/stop`, a resumable pause that never expires) and resume it (`POST .../{id}/resume`); stop and resume need the version you saw (`If-Match` or JSON `version`) |
 
 Each change is recorded, with the user, in the investigation's append-only event chain. No
 role can make an investigation execute anything: R1 has no actions.

@@ -1368,6 +1368,14 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.detectors.lwlock_polls` | `3` | Consecutive trigger polls the waiters must hold before an episode opens, `1`-`100` |
 | `sre.detectors.cooldown_minutes` | `30` | Minutes after an episode starts before a new episode of the same family can open, `1`-`1440` |
 
+Stop (in the Cases panel, or `POST .../{id}/stop`) pauses an investigation: it keeps its
+evidence, steps and used budget, never expires while paused, and continues from where it
+stopped on Resume. A queued investigation that is not claimed within 10 minutes (a backlog or
+a sidecar outage) ends `expired` with `queue_expired`. While its incident or finding is still
+open, the next trigger poll starts a new attempt, up to 5 per trigger; the same holds for a
+resumed run that ends `expired` on `stale_evidence`. Investigations started by an operator are
+not re-run automatically.
+
 Pinned investigations (Pin in the Cases panel, or `POST .../pin`) and running ones are never
 deleted. Where the data lives: the `sage.sre_*` tables are in the meta database when one is
 configured and in the monitored database otherwise; triggers are read from the monitored
