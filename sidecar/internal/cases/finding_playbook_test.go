@@ -137,3 +137,37 @@ func TestNeighbourFindingCategoriesUnchanged(t *testing.T) {
 	})
 	assertActionTypes(t, "slow slot", got)
 }
+
+// The review script's queries name only real catalog columns: a sequence
+// relation has no max_value, and pg_get_serial_sequence with empty names errors.
+// rca/playbook_bridge_db_test.go runs them on PostgreSQL.
+func TestSequenceScriptQueriesTheCatalogForLimits(t *testing.T) {
+	script := ProjectFinding(sequenceFinding("public.orders_id_seq")).
+		ActionCandidates[0].ScriptOutput
+	all := script.MigrationSQL + "\n" + strings.Join(script.VerificationSQL, "\n")
+	for _, bad := range []string{"pg_get_serial_sequence('', '')",
+		`max_value FROM "public"`} {
+		if strings.Contains(all, bad) {
+			t.Fatalf("script contains %q:\n%s", bad, all)
+		}
+	}
+	limit := `FROM pg_catalog.pg_sequence WHERE seqrelid = ` +
+		`'"public"."orders_id_seq"'::regclass;`
+	if !strings.Contains(script.MigrationSQL, limit) ||
+		!strings.Contains(script.VerificationSQL[1], limit) {
+		t.Fatalf("limit query missing:\n%s\n%v", script.MigrationSQL, script.VerificationSQL)
+	}
+	if !strings.Contains(script.MigrationSQL,
+		`d.objid = '"public"."orders_id_seq"'::regclass`) {
+		t.Fatalf("owning-column query not scoped to the sequence:\n%s", script.MigrationSQL)
+	}
+}
+
+// Invalid input: a quote in the name cannot leave the regclass literal.
+func TestSequenceScriptEscapesQuoteInRegclassLiteral(t *testing.T) {
+	script := ProjectFinding(sequenceFinding(`public.it's_seq`)).
+		ActionCandidates[0].ScriptOutput
+	if !strings.Contains(script.MigrationSQL, `'"public"."it''s_seq"'::regclass`) {
+		t.Fatalf("quote not doubled in regclass literal:\n%s", script.MigrationSQL)
+	}
+}

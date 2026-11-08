@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,5 +96,51 @@ func TestPersistedReplicationLagIncidentProjectsWALDiagnostic(t *testing.T) {
 	var plan string
 	if err := pool.QueryRow(ctx, "EXPLAIN "+c.ProposedSQL).Scan(&plan); err != nil {
 		t.Fatalf("WAL diagnostic SQL does not plan on PostgreSQL: %v", err)
+	}
+}
+
+// Integration (playbooks-02): the sequence review script the case offers
+// for an analyzer sequence_exhaustion finding runs on PostgreSQL and names
+// the owning column.
+func TestSequenceFindingScriptRunsOnPostgres(t *testing.T) {
+	pool := requireDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS public.pb02_orders`,
+		`CREATE TABLE public.pb02_orders (id serial PRIMARY KEY, note text)`,
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS public.pb02_orders`)
+	})
+	got := cases.ProjectFinding(cases.SourceFinding{ID: "f-seq",
+		Category: "sequence_exhaustion", ObjectType: "sequence",
+		ObjectIdentifier: "public.pb02_orders_id_seq", ObservedAt: time.Now()})
+	if len(got.ActionCandidates) != 1 || got.ActionCandidates[0].ScriptOutput == nil {
+		t.Fatalf("sequence finding candidates = %+v", got.ActionCandidates)
+	}
+	script := got.ActionCandidates[0].ScriptOutput
+	if _, err := pool.Exec(ctx, script.MigrationSQL); err != nil {
+		t.Fatalf("migration script fails on PostgreSQL: %v\n%s", err, script.MigrationSQL)
+	}
+	for _, sql := range script.VerificationSQL {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("verification SQL fails: %v\n%s", err, sql)
+		}
+	}
+	owner := strings.SplitN(script.MigrationSQL, ";\n", 2)[0]
+	owner = owner[strings.Index(owner, "SELECT"):]
+	var table, column, colType string
+	owner = "SELECT owning_table::text, owning_column::text, column_type FROM (" +
+		strings.TrimSuffix(strings.TrimSpace(owner), ";") + ") q"
+	if err := pool.QueryRow(ctx, owner).Scan(&table, &column, &colType); err != nil {
+		t.Fatalf("owning-column query: %v\n%s", err, owner)
+	}
+	if table != "pb02_orders" || column != "id" || colType != "integer" {
+		t.Fatalf("owner = %s.%s %s, want pb02_orders.id integer", table, column, colType)
 	}
 }
