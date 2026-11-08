@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 func TestProjectIncidentCreatesHighUrgencyCase(t *testing.T) {
@@ -52,7 +54,7 @@ func TestIdleTxnIncidentAddsPlaybookCandidates(t *testing.T) {
 func TestIdleTxnPlaybookBlocksPidActionsWithoutSinglePID(t *testing.T) {
 	incident := testIncident("prod")
 	incident.RootCause = "Idle transactions are elevated"
-	incident.SignalIDs = []string{"idle_in_tx_elevated", "connections_high"}
+	incident.SignalIDs = []string{signalid.IdleInTxElevated, signalid.ConnectionsHigh}
 	incident.CausalChain = nil
 
 	got := ProjectIncident(incident)
@@ -70,8 +72,8 @@ func TestNonActionableIncidentHasNoCandidates(t *testing.T) {
 		DatabaseName: "prod",
 		Severity:     SeverityWarning,
 		RootCause:    "WAL archive command failed",
-		SignalIDs:    []string{"wal_archive_failed"},
-		Source:       "logwatch",
+		SignalIDs:    []string{signalid.LogArchiveFailed},
+		Source:       "log_deterministic",
 		Confidence:   0.8,
 	}
 
@@ -89,12 +91,12 @@ func TestRunawayQueryIncidentAddsCancelPlaybook(t *testing.T) {
 		DatabaseName: "prod",
 		Severity:     SeverityWarning,
 		RootCause:    "Query PID 222 ran for 45 minutes and is spilling to disk",
-		SignalIDs:    []string{"runaway_query"},
+		SignalIDs:    []string{signalid.LogSlowQuery},
 		Source:       "rca",
 		Confidence:   0.86,
 		CausalChain: []IncidentChainLink{{
 			Order:    1,
-			Signal:   "runaway_query",
+			Signal:   signalid.LogSlowQuery,
 			Evidence: "pid 222 query_age=45m temp_bytes=8GB",
 		}},
 	}
@@ -122,7 +124,7 @@ func TestConnectionExhaustionIncidentAddsPoolPlaybook(t *testing.T) {
 		DatabaseName: "prod",
 		Severity:     SeverityCritical,
 		RootCause:    "Connections are at 96 percent of max_connections",
-		SignalIDs:    []string{"connections_high"},
+		SignalIDs:    []string{signalid.ConnectionsHigh},
 		Source:       "rca",
 		Confidence:   0.9,
 	}
@@ -146,7 +148,7 @@ func TestWalReplicationIncidentAddsReadOnlyPlaybook(t *testing.T) {
 		DatabaseName: "prod",
 		Severity:     SeverityCritical,
 		RootCause:    "Replica lag and inactive replication slot are retaining WAL",
-		SignalIDs:    []string{"replication_lag", "wal_growth", "inactive_slot"},
+		SignalIDs:    []string{signalid.ReplicationLagIncreasing},
 		Source:       "rca",
 		Confidence:   0.88,
 	}
@@ -163,44 +165,13 @@ func TestWalReplicationIncidentAddsReadOnlyPlaybook(t *testing.T) {
 	}
 }
 
-func TestSequenceExhaustionIncidentAddsMigrationScript(t *testing.T) {
-	incident := SourceIncident{
-		ID:              "inc-seq",
-		DatabaseName:    "prod",
-		Severity:        SeverityCritical,
-		RootCause:       "public.orders_id_seq is 91 percent exhausted",
-		SignalIDs:       []string{"sequence_exhaustion"},
-		AffectedObjects: []string{"public.orders_id_seq"},
-		Source:          "schema_lint",
-		Confidence:      0.93,
-	}
-
-	got := ProjectIncident(incident)
-
-	if len(got.ActionCandidates) != 1 {
-		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
-	}
-	action := got.ActionCandidates[0]
-	assertCandidate(t, action, "prepare_sequence_capacity_migration", "high", "")
-	if action.ScriptOutput == nil {
-		t.Fatal("expected sequence migration script output")
-	}
-	if action.RollbackClass != "forward_fix_only" {
-		t.Fatalf("RollbackClass = %q, want forward_fix_only",
-			action.RollbackClass)
-	}
-	if len(action.ScriptOutput.VerificationSQL) == 0 {
-		t.Fatal("expected verification SQL for sequence migration")
-	}
-}
-
 func TestAutovacuumFallingBehindIncidentAddsMaintenancePlaybook(t *testing.T) {
 	incident := SourceIncident{
 		ID:              "inc-av",
 		DatabaseName:    "prod",
 		Severity:        SeverityWarning,
-		RootCause:       "Autovacuum is falling behind on public.orders",
-		SignalIDs:       []string{"autovacuum_falling_behind"},
+		RootCause:       "Autovacuum falling behind -- dead tuple accumulation",
+		SignalIDs:       []string{signalid.VacuumBlocked},
 		AffectedObjects: []string{"public.orders"},
 		Source:          "rca",
 		Confidence:      0.84,
@@ -223,7 +194,7 @@ func TestStandbyConflictIncidentAddsReplicaConflictPlaybook(t *testing.T) {
 		DatabaseName: "replica",
 		Severity:     SeverityWarning,
 		RootCause:    "Standby conflict cancelled queries during replay",
-		SignalIDs:    []string{"standby_conflict"},
+		SignalIDs:    []string{signalid.LogReplicationConflict},
 		Source:       "rca",
 		Confidence:   0.79,
 	}
@@ -270,7 +241,7 @@ func testIncident(database string) SourceIncident {
 		DatabaseName:    database,
 		Severity:        SeverityWarning,
 		RootCause:       "Idle-in-transaction PID 12345 is blocking vacuum",
-		SignalIDs:       []string{"vacuum_blocked"},
+		SignalIDs:       []string{signalid.VacuumBlocked},
 		AffectedObjects: []string{"public.orders"},
 		RecommendedSQL:  "SELECT pg_terminate_backend(12345)",
 		ActionRisk:      "high_risk",
@@ -281,7 +252,7 @@ func testIncident(database string) SourceIncident {
 		LastDetectedAt:  time.Now().UTC(),
 		CausalChain: []IncidentChainLink{{
 			Order:       1,
-			Signal:      "vacuum_blocked",
+			Signal:      signalid.VacuumBlocked,
 			Description: "vacuum blocked by idle transaction",
 			Evidence:    "blocker pid 12345",
 		}},
@@ -317,15 +288,15 @@ func idleTxSaturationIncident(severity Severity) SourceIncident {
 		Severity:     severity,
 		RootCause:    "Idle-in-transaction sessions saturating connection pool",
 		CausalChain: []IncidentChainLink{
-			{Order: 1, Signal: "idle_in_tx_elevated",
+			{Order: 1, Signal: signalid.IdleInTxElevated,
 				Description: "Sessions stuck in idle-in-transaction state",
 				Evidence:    "37 idle-in-tx sessions"},
-			{Order: 2, Signal: "connections_high",
+			{Order: 2, Signal: signalid.ConnectionsHigh,
 				Description: "Connection slots exhausted by idle sessions",
 				Evidence:    "96/100 connections used"},
 		},
 		AffectedObjects: []string{"pg_stat_activity"},
-		SignalIDs:       []string{"connections_high", "idle_in_tx_elevated"},
+		SignalIDs:       []string{signalid.ConnectionsHigh, signalid.IdleInTxElevated},
 		RecommendedSQL: "SELECT pid, state, query, now()-state_change AS duration " +
 			"FROM pg_stat_activity " +
 			"WHERE state = 'idle in transaction' " +
@@ -364,7 +335,7 @@ func TestProsePIDYieldsNoSignalSQL(t *testing.T) {
 	runaway := SourceIncident{
 		ID: "inc-prose", DatabaseName: "prod", Severity: SeverityCritical,
 		RootCause: "Runaway query: pid unknown for 30 minutes",
-		SignalIDs: []string{"runaway_query"}, Source: "rca", Confidence: 0.8,
+		SignalIDs: []string{signalid.LogSlowQuery}, Source: "rca", Confidence: 0.8,
 	}
 	lock := idleTxSaturationIncident(SeverityCritical)
 	lock.RootCause = "Blocker pid unknown for 30 minutes on a connection"

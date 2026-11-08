@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/backendguard"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 var (
@@ -28,14 +29,14 @@ func activeBlocker() IncidentBlocker {
 // link per root blocker carrying its identity.
 func lockIncident(severity Severity, blockers ...IncidentBlocker) SourceIncident {
 	chain := []IncidentChainLink{{
-		Order: 1, Signal: "lock_contention",
+		Order: 1, Signal: signalid.LockContention,
 		Description: "Lock chain contention detected",
 		Evidence:    fmt.Sprintf("%d lock chains, 3 total blocked", len(blockers)),
 	}}
 	for k := range blockers {
 		b := blockers[k]
 		chain = append(chain, IncidentChainLink{
-			Order: k + 2, Signal: "lock_contention",
+			Order: k + 2, Signal: signalid.LockContention,
 			Description: fmt.Sprintf("Root blocker pid %d (%s) blocks 3 sessions",
 				b.PID, b.State),
 			Evidence: fmt.Sprintf("pid=%d query_sha=%s", b.PID, b.QuerySHA),
@@ -45,7 +46,7 @@ func lockIncident(severity Severity, blockers ...IncidentBlocker) SourceIncident
 	return SourceIncident{
 		ID: "inc-lock", DatabaseName: "prod", Severity: severity,
 		RootCause:   "Lock chain: root blocker pid 4242 (active) blocks 3 sessions",
-		CausalChain: chain, SignalIDs: []string{"lock_contention"},
+		CausalChain: chain, SignalIDs: []string{signalid.LockContention},
 		ActionRisk: "safe", Source: "deterministic", Confidence: 0.85,
 		LastDetectedAt: blockerQueryStart.Add(time.Minute),
 	}
@@ -264,7 +265,7 @@ func TestLockLinkWithoutBlockerIsBlocked(t *testing.T) {
 func TestBlockerOnNonLockLinkIsIgnored(t *testing.T) {
 	incident := lockIncident(SeverityCritical, activeBlocker())
 	for k := range incident.CausalChain {
-		incident.CausalChain[k].Signal = "vacuum_blocked"
+		incident.CausalChain[k].Signal = signalid.VacuumBlocked
 	}
 
 	got := ProjectIncident(incident)
@@ -315,7 +316,7 @@ func TestNoIncidentCandidateUsesBarePIDSignal(t *testing.T) {
 	idle := activeBlocker()
 	idle.State = "idle in transaction"
 	runaway := SourceIncident{ID: "r", DatabaseName: "prod", Severity: SeverityCritical,
-		RootCause: "Query PID 222 ran for 45 minutes", SignalIDs: []string{"runaway_query"}}
+		RootCause: "Query PID 222 ran for 45 minutes", SignalIDs: []string{signalid.LogSlowQuery}}
 	for _, incident := range []SourceIncident{
 		testIncident("prod"), idleTxSaturationIncident(SeverityCritical), runaway,
 		lockIncident(SeverityCritical, activeBlocker()),

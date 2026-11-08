@@ -66,6 +66,9 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	if f.Category == "migration_safety" {
 		return migrationSafetyCandidates(f)
 	}
+	if candidates, ok := findingPlaybookCandidates(f); ok {
+		return candidates
+	}
 	if candidate, ok := vacuumAutopilotCandidate(f); ok {
 		return []ActionCandidate{candidate}
 	}
