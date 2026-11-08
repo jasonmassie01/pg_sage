@@ -29,6 +29,7 @@ type FileWatcher struct {
 	classifier *Classifier
 	entryMu    sync.Mutex
 	entries    map[string]*entryBuffer
+	drops      dropCounters
 }
 
 // NewFileWatcher creates a FileWatcher from the given config.
@@ -81,13 +82,35 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 
 // Drain reads all new lines from the tailer, parses and classifies
 // each one, and returns the resulting signals. It also resets the
-// classifier cycle counter and cleans expired dedup entries.
+// classifier cycle counter and cleans expired dedup entries. When lines
+// were lost since the last drain (queue overflow or the per-cycle cap) it
+// counts them and appends a log_watcher_overloaded signal (rca-06).
 func (fw *FileWatcher) Drain() []*rca.Signal {
 	if fw.tailer == nil || fw.classifier == nil {
 		return nil
 	}
 	lines := fw.tailer.ReadLines()
+	queueDropped := fw.tailer.TakeDropped()
+	signals := fw.classifyLines(lines)
+	capped := fw.classifier.ResetCycle()
+	fw.classifier.CleanExpiredDedup()
+	fw.drops.add(queueDropped, capped)
+	if sig := overloadSignal(queueDropped, capped, time.Now()); sig != nil {
+		fw.log("warn", "log watcher overloaded: dropped %d log lines "+
+			"(%d queue overflow, %d over logwatch.max_lines_per_cycle); "+
+			"critical lines were kept", queueDropped+capped, queueDropped, capped)
+		signals = append(signals, sig)
+	}
+	return signals
+}
 
+// DroppedLines reports the lines this watcher lost since it started.
+func (fw *FileWatcher) DroppedLines() DropCounts {
+	return fw.drops.snapshot()
+}
+
+// classifyLines parses, publishes and classifies one drain's records.
+func (fw *FileWatcher) classifyLines(lines [][]byte) []*rca.Signal {
 	var signals []*rca.Signal
 	parseErrors := 0
 	var firstErr error
@@ -109,9 +132,6 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 		fw.log("warn", "%d log record(s) failed to parse this cycle; first error: %v",
 			parseErrors, firstErr)
 	}
-
-	fw.classifier.ResetCycle()
-	fw.classifier.CleanExpiredDedup()
 	return signals
 }
 

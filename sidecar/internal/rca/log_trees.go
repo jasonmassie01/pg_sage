@@ -18,7 +18,36 @@ func (e *Engine) runLogDecisionTrees(signals []*Signal) []Incident {
 	incidents = append(incidents, e.logTreesCriticalP0(sigMap)...)
 	incidents = append(incidents, e.logTreesWarningP1(sigMap)...)
 	incidents = append(incidents, logTreesWraparound(sigMap)...)
+	if s, ok := sigMap[SignalLogWatcherOverloaded]; ok {
+		incidents = append(incidents, logTreeWatcherOverloaded(s))
+	}
 	return incidents
+}
+
+// logTreeWatcherOverloaded reports log lines the watcher lost (rca-06):
+// log-based detection may have missed events, though critical lines are
+// kept first. It proposes no SQL.
+func logTreeWatcherOverloaded(s *Signal) Incident {
+	rootCause := fmt.Sprintf("Log watcher overloaded: %d log lines dropped "+
+		"before classification; log-based incident detection may have "+
+		"missed events", intMetric(s, "dropped_lines"))
+	evidence := fmt.Sprintf("queue_overflow=%d classifier_cap=%d",
+		intMetric(s, "queue_overflow_lines"),
+		intMetric(s, "classifier_cap_lines"))
+	return buildLogIncident(s.FiredAt, "warning", []string{s.ID}, rootCause,
+		[]ChainLink{
+			{Order: 1, Signal: s.ID, Description: rootCause,
+				Evidence: evidence},
+			{Order: 2, Signal: s.ID,
+				Description: "Reduce log volume (log_min_messages, " +
+					"log_statement, log_min_duration_statement) or raise " +
+					"logwatch.max_lines_per_cycle",
+				Evidence: "PANIC, FATAL and resource, shutdown, system " +
+					"and corruption errors are never the lines dropped " +
+					"first"},
+		},
+		nil, "", "safe",
+	)
 }
 
 // logTreesCriticalP0 handles the P0 critical log signals.

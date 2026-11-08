@@ -103,7 +103,9 @@ type Classifier struct {
 
 	dedupBuf       map[string]*dedupEntry
 	linesThisCycle int
-	mu             sync.Mutex
+	// cappedThisCycle counts lines skipped by maxLinesPerCycle (rca-06).
+	cappedThisCycle int
+	mu              sync.Mutex
 }
 
 // NewClassifier creates a Classifier from the given config.
@@ -135,12 +137,15 @@ func NewClassifier(
 }
 
 // Classify evaluates a single LogEntry and returns a Signal if it matches
-// a known pattern, or nil if no match / dedup suppresses it.
+// a known pattern, or nil if no match / dedup suppresses it. The per-cycle
+// line cap never skips a critical line (isCriticalLog).
 func (c *Classifier) Classify(entry LogEntry) *rca.Signal {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.maxLinesPerCycle > 0 && c.linesThisCycle >= c.maxLinesPerCycle {
+	if c.maxLinesPerCycle > 0 && c.linesThisCycle >= c.maxLinesPerCycle &&
+		!isCriticalLog(entry.ErrorLevel, entry.SQLState) {
+		c.cappedThisCycle++
 		return nil
 	}
 	c.linesThisCycle++
@@ -166,11 +171,14 @@ func (c *Classifier) Classify(entry LogEntry) *rca.Signal {
 	return sig
 }
 
-// ResetCycle resets the per-cycle line counter. Called by Drain().
-func (c *Classifier) ResetCycle() {
+// ResetCycle resets the per-cycle line counter and returns how many lines
+// the cap skipped this cycle. Called by Drain().
+func (c *Classifier) ResetCycle() int {
 	c.mu.Lock()
-	c.linesThisCycle = 0
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	capped := c.cappedThisCycle
+	c.linesThisCycle, c.cappedThisCycle = 0, 0
+	return capped
 }
 
 // CleanExpiredDedup removes dedup entries older than dedupWindow.
