@@ -121,6 +121,35 @@ holds starts stopped, and only **Resume all** lifts it. Resuming a single
 database returns `409 fleet-wide stop is active: resume all first`. See
 [Fleet-wide stop](security.md#fleet-wide-stop).
 
+### Health score
+
+Each database tile shows a health score from 0 to 100 and the reasons
+behind it (hover the score, or read the list under it). The same score and
+reasons are in `status.health_score` and `status.health_reasons` of
+`GET /api/v1/databases` and `GET /api/v1/metrics?database=<name>`.
+
+| Condition | Effect on the score | Reason shown |
+|---|---|---|
+| Not connected | 0 | `disconnected: <error>` |
+| Connected with an error | 0 | `error: <error>` |
+| Each critical finding | minus 25 | `2 critical findings` |
+| Each warning | minus 5 | `5 warnings` |
+| No collector sample for more than 3 collector intervals | capped at 25 | `collector stale 42m` |
+| Emergency stop active | none | `emergency stopped by alice` |
+
+The interval is the database's `collector_interval_seconds`, else the
+global `collector.interval_seconds`. A database that has never been sampled
+counts as stale only once it has been registered for more than 3
+intervals, so a new database is not penalised while its first sample runs.
+The score never goes below 0.
+
+A database counts as **healthy** (`summary.healthy` and the
+`pg_sage_fleet_healthy` gauge) when it is connected, has no error and
+scores at least 50; every other database counts as degraded. Databases are
+listed worst first, and by name among equal scores, so the tiles and the
+`pg_sage_fleet_instance_health` series keep a stable order. The rule is the
+same in every mode and on every provider.
+
 ## 6. API Checks
 
 ```bash
