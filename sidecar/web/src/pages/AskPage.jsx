@@ -27,7 +27,7 @@ export function AskPage({ database, user, databases, databaseLoading,
             Loading the database inventory…
           </p>
         ) : databaseError ? (
-          <div role="alert" data-testid="ask-databases-error">
+          <div data-testid="ask-databases-error">
             <ErrorBanner message={`Unable to load database inventory: ${databaseError.message || databaseError}`}
               onRetry={onRetryDatabase} />
           </div>
@@ -87,7 +87,7 @@ function AskSession({ database, user, caseId }) {
             <p data-testid="ask-case-read-only" style={muted}>Questions here are answer only: Ask Sage will not queue a proposal, open an investigation or propose a fact.</p>
             {friendlyTitle !== caseRow.title && <details><summary>Reported condition</summary><p className="break-all">{caseRow.title}</p></details>}
             <a className="underline" href={`#/cases?case=${encodeURIComponent(caseId)}&database=${encodeURIComponent(database)}`}>Back to this case</a></>
-            : context.error ? <div role="alert"><ErrorBanner message="Case context could not be loaded. You can retry or return to Cases; evidence availability is unknown." onRetry={context.refetch} /></div>
+            : context.error ? <ErrorBanner message="Case context could not be loaded. You can retry or return to Cases; evidence availability is unknown." onRetry={context.refetch} />
               : <p style={muted}>{context.loading ? 'Loading case context…' : 'This case could not be found in the selected database. Return to Cases to select a current case; you can still ask a general question.'}</p>}
           {!caseRow && <a className="underline" href="#/cases">Back to Cases</a>}
         </aside>}

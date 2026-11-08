@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { cardStyle, ErrorBanner } from './shared'
+import { ErrorBanner } from '../../components/ErrorBanner'
+import { cardStyle } from './shared'
 
 export function LogTab() {
   const [entries, setEntries] = useState([])
@@ -26,7 +27,7 @@ export function LogTab() {
 
   return (
     <div>
-      {error && <ErrorBanner msg={error} />}
+      {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
       {!entries.length ? (
         <div className="text-sm p-4"
           style={{ color: 'var(--text-secondary)' }}>
