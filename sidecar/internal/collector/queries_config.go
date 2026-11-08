@@ -4,11 +4,10 @@ import (
 	"context"
 )
 
-func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSnapshot, error) {
-	cs := &ConfigSnapshot{}
-
-	// pg_settings for advisor features
-	rows, err := pool.Query(ctx, `/* pg_sage */ 
+// configSettingsSQL reads the pg_settings rows the advisors reason about,
+// with each row's context: the managed-cloud rewrite routes on it, so every
+// GUC the advisor may change must be listed here.
+const configSettingsSQL = `/* pg_sage */ 
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false), context
 		FROM pg_settings
@@ -24,7 +23,13 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 		      'temp_buffers','max_connections','superuser_reserved_connections',
 		      'idle_in_transaction_session_timeout','statement_timeout',
 		      'tcp_keepalives_idle','tcp_keepalives_interval',
-		      'hash_mem_multiplier')`)
+		      'hash_mem_multiplier')`
+
+func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSnapshot, error) {
+	cs := &ConfigSnapshot{}
+
+	// pg_settings for advisor features
+	rows, err := pool.Query(ctx, configSettingsSQL)
 	if err != nil {
 		return cs, err
 	}
@@ -37,6 +42,9 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 		cs.PGSettings = append(cs.PGSettings, s)
 	}
 	rows.Close()
+	// Fail closed: on error no superuser-context row is settable, and the
+	// error is reported once the rest of the snapshot is collected.
+	privErr := markSetPrivileges(ctx, pool, cs.PGSettings)
 
 	// Table reloptions (autovacuum overrides)
 	rows2, err := pool.Query(ctx, `/* pg_sage */ 
@@ -99,5 +107,5 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 		cs.ConnectionChurn = churn
 	}
 
-	return cs, nil
+	return cs, privErr
 }

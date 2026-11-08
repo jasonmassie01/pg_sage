@@ -288,6 +288,7 @@ type PGSetting struct {
 	Unit           string `json:"unit"`
 	Source         string `json:"source"`
 	PendingRestart bool   `json:"pending_restart"`
+	SetPrivilege   bool   `json:"set_privilege,omitempty"`
 }
 
 // TableReloption holds per-table reloptions (autovacuum overrides).

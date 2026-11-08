@@ -63,7 +63,7 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		if databaseName(stmt) != currentDatabase {
 			return nil, fmt.Errorf("%w: ALTER DATABASE must target the connected database %s", ErrConfigPrior, currentDatabase)
 		}
-		if err := e.checkLakebaseDatabaseSetting(ctx, sql); err != nil {
+		if err := e.checkManagedDatabaseSetting(ctx, sql); err != nil {
 			return nil, err
 		}
 		if !stmt.Reset && strings.EqualFold(stmt.Value, "DEFAULT") {

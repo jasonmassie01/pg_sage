@@ -68,6 +68,31 @@ func promptEnvFrom(ctx context.Context) promptEnv {
 	return env
 }
 
+// restrictedSettings are the settings each provider's prompt tells the
+// model never to recommend. Only the prompt reads it: whether a proposal
+// can run as ALTER DATABASE is decided by the setting's pg_settings
+// context (TransformForCloud), which also covers providers listed here.
+var restrictedSettings = map[string]map[string]bool{
+	"cloud-sql": {
+		"wal_level": true, "full_page_writes": true,
+		"shared_buffers": true, "checkpoint_timeout": true,
+	},
+	"alloydb": {
+		"wal_level": true, "full_page_writes": true,
+		"shared_buffers": true, "checkpoint_timeout": true,
+	},
+	"aurora": {
+		"wal_level": true, "full_page_writes": true,
+		"max_wal_size": true, "min_wal_size": true,
+		"checkpoint_timeout": true,
+	},
+	"rds": {
+		"wal_level": true, "full_page_writes": true,
+		"max_wal_size": true, "min_wal_size": true,
+		"checkpoint_timeout": true,
+	},
+}
+
 // platformSettingsSurface is where each managed provider changes
 // instance-level parameters.
 var platformSettingsSurface = map[string]string{
