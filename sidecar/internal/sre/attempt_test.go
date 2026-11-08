@@ -77,3 +77,24 @@ func TestInvestigationJSON_Attempt(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteAttempt(t *testing.T) {
+	cases := []struct {
+		inv  Investigation
+		want string
+	}{
+		{Investigation{}, ""},
+		{Investigation{Attempt: 1}, ""},
+		{Investigation{Attempt: 1, SupersededBy: "b"}, "- Attempt: 1 (superseded by b)\n"},
+		{Investigation{Attempt: 2, Supersedes: "a"}, "- Attempt: 2 (supersedes a)\n"},
+		{Investigation{Attempt: 3, Supersedes: "b", SupersededBy: "d"},
+			"- Attempt: 3 (supersedes b, superseded by d)\n"},
+	}
+	for _, c := range cases {
+		var b strings.Builder
+		writeAttempt(&b, c.inv)
+		if b.String() != c.want {
+			t.Errorf("writeAttempt(%+v) = %q, want %q", c.inv, b.String(), c.want)
+		}
+	}
+}
