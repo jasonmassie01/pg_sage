@@ -340,3 +340,27 @@ func TestDescribeTable_ConcurrentPartitionedReads(t *testing.T) {
 		}
 	}
 }
+
+// A partition past the cap is never opened, so DDL holding it does not
+// block or fail the describe; listing the leaves must not lock them all
+// (pg_partition_tree would hold AccessShareLock on every leaf until commit).
+func TestDescribeTable_LockedPartitionPastCapDoesNotBlock(t *testing.T) {
+	f := newFixture(t)
+	s := f.service(f.deps(nil))
+	f.partitioned("ask_wide", 3, 5)
+	f.exec(`ANALYZE public.ask_wide`)
+	setPartitionCap(t, 2)
+	setDescribeTimeouts(t, 2*time.Second, 200*time.Millisecond)
+	f.lockTable("ask_wide_p3")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := runToolCtx(ctx, t, s, "describe_table", `{"table":"public.ask_wide"}`)
+	if err != nil {
+		t.Fatalf("describe blocked by a lock on an uncovered partition: %v", err)
+	}
+	for _, want := range []string{"3 partitions", "first 2 of 3 partitions", "about 10 rows"} {
+		if !strings.Contains(out.Text, want) {
+			t.Errorf("text lacks %q:\n%s", want, out.Text)
+		}
+	}
+}

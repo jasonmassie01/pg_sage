@@ -57,9 +57,16 @@ const tableShapeSQL = `/* pg_sage */ SELECT c.oid, n.nspname, c.relname,
 	LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
 	WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p', 'm')`
 
-const leafStatsSQL = `/* pg_sage */ WITH leaves AS (
-	  SELECT t.relid, row_number() OVER (ORDER BY t.relid) AS n
-	  FROM pg_partition_tree($1::oid::regclass) t WHERE t.isleaf),
+// leafStatsSQL walks pg_inherits rather than calling pg_partition_tree,
+// which holds AccessShareLock on every partition until commit: on a table
+// with thousands of partitions that could exhaust the shared lock table.
+// Only pg_total_relation_size opens a leaf, and it releases its lock.
+const leafStatsSQL = `/* pg_sage */ WITH RECURSIVE tree AS (
+	  SELECT $1::oid AS relid
+	  UNION ALL SELECT i.inhrelid FROM pg_inherits i JOIN tree t ON i.inhparent = t.relid),
+	leaves AS (
+	  SELECT c.oid AS relid, row_number() OVER (ORDER BY c.oid) AS n
+	  FROM tree t JOIN pg_class c ON c.oid = t.relid WHERE c.relkind <> 'p'),
 	covered AS (
 	  SELECT c.oid, c.reltuples, GREATEST(s.last_vacuum, s.last_autovacuum) AS vac,
 	         GREATEST(s.last_analyze, s.last_autoanalyze) AS ana

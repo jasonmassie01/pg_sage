@@ -35,7 +35,8 @@ short explanations of pg_sage concepts.
 1 s lock timeout; a table locked by DDL returns an error naming the table, never "does not
 exist". For a partitioned table it reports the partition count and the partition key, sums
 sizes and row estimates over the partitions (over the first 2,000 by oid, and it says so
-when there are more) and gives the partitions' oldest and newest vacuum and analyze times,
+when there are more; partitions past those are counted from the catalog and never
+opened, so DDL on them does not hold up the read) and gives the partitions' oldest and newest vacuum and analyze times,
 instead of the parent's own empty numbers. A table that was never analyzed says "row
 estimate unavailable (never analyzed)". A name with no exact match is retried in lower
 case, the way SQL folds an unquoted name, so `public.Orders` finds `orders`.
