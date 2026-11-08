@@ -21,11 +21,15 @@ type latestLink struct {
 	state string
 }
 
-// checkRows compares every row the window names with its links.
+// checkRows compares every row the window names with its links. A row
+// with a link of another payload version is not checked: the current
+// spec's expressions do not describe it (that link is a problem itself).
 func (v *verifier) checkRows(ctx context.Context) error {
 	ids := make([]int64, 0, len(v.rows))
 	for id := range v.rows {
-		ids = append(ids, id)
+		if !v.unknown[id] {
+			ids = append(ids, id)
+		}
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	truncates, err := v.truncateSeqs(ctx)

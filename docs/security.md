@@ -764,7 +764,17 @@ critical `audit_chain_broken` finding on `audit_trail:<chain>` when one
 fails. A full verification reports, among others, `gap`, `hash_mismatch`,
 `row_missing`, `unchained_row` and `orphan_row`: a row whose own link is no
 longer in the chain, which is what deleting the newest links, or every
-link of a chain, leaves behind.
+link of a chain, leaves behind. `unknown_version` is a link whose payload
+version (`v`) is not the one this pg_sage hashes rows with; its row is not
+checked with the wrong rules, so the finding stands until the link is
+explained (a link rewritten to another version, or a trail written by a
+different pg_sage release).
+
+The canonical text a link hashes is pinned by golden hashes in CI on
+PostgreSQL 14-18 and under non-default `TimeZone`, `DateStyle`,
+`extra_float_digits`, `IntervalStyle` and `bytea_output`, and the types of
+the hashed columns are pinned per payload version: a change to either
+needs a new payload version, never a silent rehash of the trail.
 
 SIEM export (`audit.siem.sinks`) ships every link, with its hash, as an
 OCSF event. That copy is the defence against someone who rewrites a whole

@@ -28,6 +28,7 @@ const (
 	KindRowLinkMismatch = "row_link_mismatch" // the row's own chain columns disagree
 	KindUnchainedRow    = "unchained_row"     // a row written with the triggers bypassed
 	KindOrphanRow       = "orphan_row"        // a row's own link is no longer in the chain
+	KindUnknownVersion  = "unknown_version"   // a link's payload version is not the spec's
 )
 
 // ErrNotInstalled means the chain's table has no chain (yet).
@@ -89,6 +90,7 @@ type verifier struct {
 	prev      string
 	prevKnown bool
 	rows      map[int64]*rowLinks
+	unknown   map[int64]bool // rows with a link of another payload version
 	legacy    int64
 }
 
@@ -107,7 +109,7 @@ func Verify(ctx context.Context, q Querier, s Spec, w Window) (Report, error) {
 		return Report{}, fmt.Errorf("auditchain: %s: invalid window %d-%d", s.Chain,
 			w.FromSeq, w.ToSeq)
 	}
-	v := &verifier{q: q, s: s, rows: map[int64]*rowLinks{},
+	v := &verifier{q: q, s: s, rows: map[int64]*rowLinks{}, unknown: map[int64]bool{},
 		rep: Report{Chain: s.Chain, VerifiedAt: time.Now().UTC()}}
 	if err := v.run(ctx, w); err != nil {
 		return Report{}, fmt.Errorf("auditchain: verify %s: %w", s.Chain, err)
@@ -219,6 +221,13 @@ func (v *verifier) checkLink(l *Link, expected int64) int64 {
 			Detail: "the link's content was changed after it was written"})
 	}
 	v.prev, v.prevKnown = l.Hash, true
+	if l.Op != "T" && l.V != v.s.Version {
+		v.rep.add(Problem{Kind: KindUnknownVersion, Seq: l.Seq, RowID: l.RowID,
+			Detail: fmt.Sprintf("the link has payload version %d; the %s spec is version "+
+				"%d, so its row is not checked", l.V, v.s.Chain, v.s.Version)})
+		v.unknown[l.RowID] = true
+		return l.Seq + 1
+	}
 	v.track(l)
 	return l.Seq + 1
 }
