@@ -35,7 +35,7 @@ func readSnapshot(
 // the rest of the ledger. The window bounds are an index range in the
 // generic plan too ($1 IS NULL OR ... was not). $3 and $4 start this
 // month and this week.
-const realizedSQL = `SELECT al.action_type,
+const realizedSQL = `/* pg_sage */ SELECT al.action_type,
 	date_trunc('day', al.executed_at)::date::text,
 	sum(al.toil_minutes_saved)::float8,
 	COALESCE(sum(al.toil_minutes_saved) FILTER (WHERE al.executed_at >= $3), 0)::float8,

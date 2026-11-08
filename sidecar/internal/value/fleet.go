@@ -162,13 +162,15 @@ func dedupeReads(reads []sourceRead) []SourceResult {
 	return out
 }
 
+const physicalIdentitySQL = `/* pg_sage */ SELECT system_identifier::text || '/' ||
+	current_database() FROM pg_control_system()`
+
 // physicalIdentity names the database cluster and database behind a pool.
 // When the role may not read pg_control_system(), the connection target
 // (host:port/dbname) is used instead. Connection failures are returned.
 func physicalIdentity(ctx context.Context, pool *pgxpool.Pool) (string, error) {
 	var identity string
-	err := pool.QueryRow(ctx, `SELECT system_identifier::text || '/' ||
-		current_database() FROM pg_control_system()`).Scan(&identity)
+	err := pool.QueryRow(ctx, physicalIdentitySQL).Scan(&identity)
 	if err == nil {
 		return identity, nil
 	}

@@ -46,6 +46,7 @@ func TestValueMetaModeReadsTargetLedger(t *testing.T) {
 	seedFleetCredit(t, ctx, state.Pool, nil, "meta_sentinel", 999)
 	pool = state.Pool
 
+	refreshRegisteredMetrics(t)
 	metrics := scrapeMetrics(t)
 	wantSeries := `pg_sage_toil_minutes_saved{database="managed-a",feature="analyze_table"} 15`
 	if !strings.Contains(metrics, wantSeries) || strings.Contains(metrics, "meta_sentinel") {
@@ -80,6 +81,7 @@ func TestValueMetricsFleetModeEmitsPerDatabase(t *testing.T) {
 	pools["c"] = nil
 	installValueFleet(pools)
 
+	refreshRegisteredMetrics(t)
 	metrics := scrapeMetrics(t)
 	for _, want := range []string{
 		`pg_sage_toil_minutes_saved{database="a",feature="analyze_table"} 15`,
@@ -134,7 +136,7 @@ func TestFleetMCPGetValueEmptyFleetIsZero(t *testing.T) {
 
 func TestValueMetricsEmptyFleetEmitsHeadersOnly(t *testing.T) {
 	var b strings.Builder
-	writeValueMetrics(&b, context.Background(), nil)
+	writeValueMetrics(&b, nil)
 	out := b.String()
 	if !strings.Contains(out, "# TYPE pg_sage_value_metrics_up gauge") ||
 		strings.Contains(out, "pg_sage_value_metrics_up{") ||
@@ -201,6 +203,7 @@ func preserveValueGlobals(t *testing.T) {
 	t.Helper()
 	oldCfg, oldPool, oldMgr := cfg, pool, fleetMgr
 	t.Cleanup(func() { cfg, pool, fleetMgr = oldCfg, oldPool, oldMgr })
+	withMetricsRegistry(t)
 }
 
 func installValueFleet(pools map[string]*pgxpool.Pool) {
@@ -213,6 +216,9 @@ func installValueFleet(pools map[string]*pgxpool.Pool) {
 			Name: name, Pool: p, Config: config.DatabaseConfig{Name: name},
 			Status: &fleet.InstanceStatus{Connected: p != nil, LastSeen: time.Now()},
 		})
+		// What each database runtime's start hook registers.
+		processMetrics.register(newMetricsRefresher(name, fixedInterval(time.Hour),
+			valueMetricsSource(name, p)))
 	}
 }
 

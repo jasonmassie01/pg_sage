@@ -94,6 +94,8 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.findings WHERE id = $1`,
 			findingID)
 	})
+	withMetricsRegistry(t)
+	registerStandaloneMetrics(t, "standalone", pool) // the runtime's refresher
 	rec := httptest.NewRecorder()
 	handleMetrics(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := rec.Body.String()
