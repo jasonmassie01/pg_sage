@@ -1,6 +1,8 @@
 package explain
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"testing"
 )
 
@@ -109,5 +111,16 @@ func TestCacheKey_ExactBody(t *testing.T) {
 	// Invalid UTF-8 is hashed byte for byte and must not panic.
 	if cacheKey("SELECT '\xff'", nil, false) == cacheKey("SELECT '\xfe'", nil, false) {
 		t.Error("distinct invalid UTF-8 bodies share a key")
+	}
+}
+
+// Callers choose the body and params, so the key must come from a
+// collision-resistant hash: with FNV a caller could craft a statement
+// whose key matches another statement and plant a plan for it.
+func TestCacheKey_IsSHA256OfTheLayout(t *testing.T) {
+	sum := sha256.Sum256([]byte("2:v27:analyze9:SELECT $11;1:7"))
+	want := int64(binary.BigEndian.Uint64(sum[:8]))
+	if got := cacheKey("SELECT $1", []string{"7"}, false); got != want {
+		t.Fatalf("cacheKey = %d, want the SHA-256 prefix %d", got, want)
 	}
 }
