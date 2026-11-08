@@ -25,15 +25,21 @@ type Store struct {
 	grace  time.Duration
 	now    func() time.Time
 	logFn  func(string, string, ...any)
+
+	// afterConfirmedRead, when set (tests only), runs after Confirmed has
+	// read the rows and before it caches them.
+	afterConfirmedRead func()
 }
 
 // sharedState is the per-pool cache of confirmed facts and the absences
-// re-verification has seen, shared by every Store on the pool.
+// re-verification has seen, shared by every Store on the pool. gen counts
+// invalidations: a read that started before one is never cached.
 type sharedState struct {
 	mu       sync.Mutex
 	cached   []Fact
 	cachedAt time.Time
 	valid    bool
+	gen      uint64
 	missing  map[int64]time.Time
 }
 
@@ -282,7 +288,8 @@ func collectFacts(rows pgx.Rows) ([]Fact, error) {
 }
 
 // Confirmed returns the confirmed, unexpired facts in id order, cached for
-// at most confirmedTTL.
+// at most confirmedTTL. A read that a decision or expiry in this process
+// overtook is returned but not cached, so the next call sees the change.
 func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 	st := s.shared
 	st.mu.Lock()
@@ -291,6 +298,7 @@ func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 		st.mu.Unlock()
 		return out, nil
 	}
+	gen := st.gen
 	st.mu.Unlock()
 	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
 		FROM sage.facts WHERE `+ownTypes+` AND status = 'confirmed'
@@ -302,15 +310,21 @@ func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.afterConfirmedRead != nil {
+		s.afterConfirmedRead()
+	}
 	st.mu.Lock()
-	st.cached, st.cachedAt, st.valid = facts, s.now(), true
+	if st.gen == gen {
+		st.cached, st.cachedAt, st.valid = facts, s.now(), true
+	}
 	st.mu.Unlock()
 	return append([]Fact(nil), facts...), nil
 }
 
-// invalidate drops the cached confirmed facts.
+// invalidate drops the cached confirmed facts and any read in flight.
 func (s *Store) invalidate() {
 	s.shared.mu.Lock()
 	s.shared.valid = false
+	s.shared.gen++
 	s.shared.mu.Unlock()
 }
