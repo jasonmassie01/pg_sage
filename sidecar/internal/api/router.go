@@ -291,22 +291,26 @@ func registerControlPoolRoutes(
 	registerDecommissionRoutes(apiMux, pool)
 }
 
-// newRouterOAuthProvider discovers the configured OAuth provider and starts
-// its CSRF-state cleaner; nil when OAuth is disabled or discovery fails.
+// newRouterOAuthProvider builds the configured OAuth provider, tries
+// discovery once so a healthy IdP is ready at startup, and keeps
+// discovery and the CSRF-state cleaner running on the shutdown context.
+// It is nil only when OAuth is disabled: a failed discovery leaves SSO
+// enabled but not ready until a retry succeeds.
 func newRouterOAuthProvider(cfg *config.Config) *auth.OAuthProvider {
 	if !cfg.OAuth.Enabled {
+		routerSSOProvider.Store(nil)
 		return nil
 	}
 	oauthProvider := auth.NewOAuthProvider(&cfg.OAuth)
-	if err := oauthProvider.Discover(
-		context.Background(),
-	); err != nil {
-		slog.Error("oauth discovery failed",
-			"error", err)
-		return nil
+	if err := oauthProvider.Discover(context.Background()); err != nil {
+		_, reason := oauthProvider.Ready()
+		slog.Error("oauth discovery failed at startup; SSO stays unavailable "+
+			"until a retry succeeds", "error", err, "reason", reason)
 	}
-	go oauthProvider.StartStateCleaner(
-		shutdownContext())
+	routerSSOProvider.Store(oauthProvider)
+	ctx := shutdownContext()
+	go oauthProvider.StartDiscovery(ctx)
+	go oauthProvider.StartStateCleaner(ctx)
 	return oauthProvider
 }
 

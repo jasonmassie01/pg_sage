@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -101,4 +102,25 @@ func optimizerGaugeValue() int {
 		return 0
 	}
 	return 1
+}
+
+// writeSSODiscoveryMetrics exposes whether SSO discovery has succeeded and
+// how many attempts failed (apiauth-07), so an IdP outage that keeps SSO
+// unavailable pages someone. OAuth disabled writes nothing.
+func writeSSODiscoveryMetrics(b *strings.Builder, st api.SSODiscoveryStatus) {
+	if !st.Enabled {
+		return
+	}
+	ready := 0
+	if st.Ready {
+		ready = 1
+	}
+	b.WriteString("# HELP pg_sage_sso_discovery_ready 1 when OIDC discovery has " +
+		"succeeded and SSO sign-in can start\n" +
+		"# TYPE pg_sage_sso_discovery_ready gauge\n")
+	fmt.Fprintf(b, "pg_sage_sso_discovery_ready %d\n\n", ready)
+	b.WriteString("# HELP pg_sage_sso_discovery_failures_total OIDC discovery " +
+		"attempts that failed since start\n" +
+		"# TYPE pg_sage_sso_discovery_failures_total counter\n")
+	fmt.Fprintf(b, "pg_sage_sso_discovery_failures_total %d\n\n", st.Failures)
 }

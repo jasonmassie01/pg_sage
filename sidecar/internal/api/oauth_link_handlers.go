@@ -47,7 +47,7 @@ func oauthAuthorizeRouter(
 			return
 		}
 		// The authorize route is public for login, so the link branch
-		// resolves the session itself.
+		// resolves the session itself, before saying anything about SSO.
 		user, err := sessionUser(r, pool)
 		if errors.Is(err, auth.ErrSessionInvalid) {
 			jsonError(w, "authentication required", http.StatusUnauthorized)
@@ -55,6 +55,9 @@ func oauthAuthorizeRouter(
 		}
 		if err != nil {
 			writeSessionStoreUnavailable(w, r, err)
+			return
+		}
+		if ssoNotReady(w, provider) {
 			return
 		}
 		startLinkRoundTrip(w, r, provider, user.ID, auth.LinkViaSession)
@@ -93,6 +96,11 @@ func oauthLinkGrantHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		if provider == nil {
 			jsonError(w, "OAuth not configured", http.StatusNotFound)
+			return
+		}
+		// Before redeeming: a single-use grant must not be spent on a
+		// round trip that cannot start.
+		if ssoNotReady(w, provider) {
 			return
 		}
 		var req struct {

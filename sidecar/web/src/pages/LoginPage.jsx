@@ -9,6 +9,9 @@ const providerLabels = {
   oidc: 'SSO',
 }
 
+// How often the login page re-reads SSO readiness while it is not ready.
+const SSO_READY_POLL_MS = 30000
+
 export function LoginPage({ onLogin }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -29,6 +32,21 @@ export function LoginPage({ onLogin }) {
       .then(data => setOauthConfig(data))
       .catch(() => setOauthConfig(null))
   }, [])
+
+  // SSO that is enabled but not ready (the identity provider could not be
+  // reached) recovers on the server without a restart: ask again until it
+  // is ready so the button comes back without a reload (apiauth-07).
+  const ssoNotReady = oauthConfig?.enabled && oauthConfig.ready === false
+  useEffect(() => {
+    if (!ssoNotReady) return undefined
+    const timer = setInterval(() => {
+      fetch('/api/v1/auth/oauth/config')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => { if (data) setOauthConfig(data) })
+        .catch(() => { /* keep the last answer; the next tick asks again */ })
+    }, SSO_READY_POLL_MS)
+    return () => clearInterval(timer)
+  }, [ssoNotReady])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -191,17 +209,20 @@ export function LoginPage({ onLogin }) {
             <button
               onClick={handleOAuthLogin}
               data-testid="oauth-login"
-              disabled={oauthLoading}
+              disabled={oauthLoading || ssoNotReady}
+              title={ssoNotReady ? oauthConfig.reason : undefined}
               className="w-full py-2 rounded text-sm font-medium"
               style={{
                 background: 'transparent',
                 color: 'var(--text-primary)',
                 border: '1px solid var(--border)',
-                opacity: oauthLoading ? 0.6 : 1,
+                opacity: oauthLoading || ssoNotReady ? 0.6 : 1,
               }}>
-              {oauthLoading
-                ? 'Redirecting...'
-                : `Sign in with ${providerLabel}`}
+              {ssoNotReady
+                ? 'SSO temporarily unavailable'
+                : oauthLoading
+                  ? 'Redirecting...'
+                  : `Sign in with ${providerLabel}`}
             </button>
           </>
         )}

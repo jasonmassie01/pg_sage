@@ -47,6 +47,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	writeModeMetric(&b, cfg.Mode)
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
+	writeSSODiscoveryMetrics(&b, api.CurrentSSODiscoveryStatus())
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 
 	writeConnectionMetric(&b, ctx)
