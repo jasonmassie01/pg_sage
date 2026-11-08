@@ -295,8 +295,8 @@ func TestParseCatalog_IdentityIsRawJSON(t *testing.T) {
 // Every delta category pairs its elements by one to three fields, and the
 // set of delta categories is the catalog lists.
 func TestKeyFields_EveryCatalogCategory(t *testing.T) {
-	want := []string{"foreign_keys", "indexes", "io", "partitions", "queries", "sequences",
-		"tables"}
+	want := []string{"foreign_keys", "indexes", "io", "partitions", "prepared_xacts",
+		"queries", "sequences", "tables"}
 	var got []string
 	for cat, fields := range keyFields {
 		got = append(got, cat)
@@ -371,5 +371,48 @@ func TestParseDocument_Categories(t *testing.T) {
 	obj, _, _ := parseDocument("config_data", []byte(`{}`), nil)
 	if _, err := encodeDelta(obj, list); !errors.Is(err, errNotEncodable) {
 		t.Fatalf("mixed shapes: err = %v, want errNotEncodable", err)
+	}
+}
+
+// prepared is one pg_prepared_xacts element as the collector writes it.
+func prepared(gid string, age int) string {
+	return fmt.Sprintf(`{"gid":%q,"prepared":"2026-11-08T10:00:00Z","owner":"app",`+
+		`"database":"shop","xid_age":%d}`, gid, age)
+}
+
+// collection-05: prepared_xacts is persisted and change-only, paired by
+// gid: a committed transaction is a removal by base index, the one still
+// prepared is not repeated, and an empty list is a real "none".
+func TestKeyFields_PreparedXactsPairByGID(t *testing.T) {
+	if got := keyFields["prepared_xacts"]; !reflect.DeepEqual(got, []string{"gid"}) {
+		t.Fatalf("prepared_xacts key fields = %v, want [gid]", got)
+	}
+	if delta, reason := Coverage("prepared_xacts"); !delta || reason != "" {
+		t.Fatalf("prepared_xacts coverage delta=%v reason=%q, want change-only", delta, reason)
+	}
+	parse := func(doc []byte) *catalog {
+		c, ok, err := parseDocument("prepared_xacts", doc, nil)
+		if err != nil || !ok {
+			t.Fatalf("parse %s: ok=%v err=%v", doc, ok, err)
+		}
+		return c
+	}
+	raw, err := encodeDelta(parse(list(prepared("g1", 100), prepared("g2", 40))),
+		parse(list(prepared("g2", 40))))
+	if err != nil {
+		t.Fatalf("encodeDelta: %v", err)
+	}
+	var d deltaDoc
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatalf("delta %s: %v", raw, err)
+	}
+	if d.N != 1 || !reflect.DeepEqual(d.D, []int{0}) || len(d.A) != 0 || len(d.I) != 0 {
+		t.Fatalf("delta = %s, want g1 removed and g2 kept unrepeated", raw)
+	}
+	empty, err := encodeDelta(parse(list(prepared("g1", 100))), parse(list()))
+	var e deltaDoc
+	if err != nil || json.Unmarshal(empty, &e) != nil || e.N != 0 ||
+		!reflect.DeepEqual(e.D, []int{0}) {
+		t.Fatalf("delta to no prepared xacts = %s (%v), want g1 removed, none left", empty, err)
 	}
 }

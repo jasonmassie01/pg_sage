@@ -219,14 +219,9 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 		if step.name == "system" {
 			return nil, fmt.Errorf("collect system: %w", err)
 		}
-		if snap.Unavailable == nil {
-			snap.Unavailable = map[string]string{}
-		}
-		snap.Unavailable[step.name] = err.Error()
-		c.logFn("WARN", "collector: %s unavailable this cycle (snapshot kept "+
-			"without it): %v", step.name, err)
+		c.markUnavailable(snap, step.name, err)
 	}
-	c.collectExtras(ctx, snap)
+	c.collectExtras(ctx, snap, &retries)
 	// Collect pg_stat_statements.max for capacity monitoring.
 	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
 	snap.System.StatStatements = c.collectStatStatementsUsage(ctx,
@@ -238,8 +233,9 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 
 // collectExtras reads the non-fatal categories: a single replication-slot
 // quirk (an unreserved slot, a hot standby) must not abort the snapshot,
-// which would silently halt all stats collection (H1/H2).
-func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot) {
+// which would silently halt all stats collection (H1/H2). The extra steps
+// spend the same cycle retry budget as the catalog steps.
+func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot, retries *int) {
 	var err error
 	if snap.Replication, err = c.collectReplication(ctx); err != nil {
 		c.logFn("WARN", "replication collection failed: %v", err)
@@ -249,26 +245,24 @@ func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot) {
 		}
 		snap.Unavailable["replication"] = err.Error()
 	}
-	if c.pgVersionNum >= 160000 { // pg_stat_io
-		if snap.IO, err = c.collectIO(ctx); err != nil {
-			c.logFn("WARN", "pg_stat_io collection failed: %v", err)
-		}
-	}
-	// Prepared transactions (2PC) — invisible to pg_stat_activity,
-	// hold xmin and locks indefinitely.
-	if snap.PreparedXacts, err = c.collectPreparedXacts(ctx); err != nil {
-		c.logFn("WARN", "prepared xacts collection failed: %v", err)
-	}
 	c.collectXminHoldersInto(ctx, snap)
-	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
-		c.logFn("WARN", "partition collection failed: %v", err)
-	}
-	if c.CollectsConfigSnapshots() { // config data for advisor features
-		querier := timedCatalogQuerier{collector: c}
-		if snap.ConfigData, err = collectConfigSnapshot(ctx, querier); err != nil {
-			c.logFn("WARN", "config snapshot collection failed: %v", err)
+	for _, step := range c.extraSteps() {
+		if err := c.runStep(ctx, step, snap, retries); err != nil {
+			step.reset(snap)
+			c.markUnavailable(snap, step.name, err)
 		}
 	}
+}
+
+// markUnavailable records that category could not be read this cycle: it
+// is unknown, not empty, and the snapshot is kept without it.
+func (c *Collector) markUnavailable(snap *Snapshot, category string, err error) {
+	if snap.Unavailable == nil {
+		snap.Unavailable = map[string]string{}
+	}
+	snap.Unavailable[category] = err.Error()
+	c.logFn("WARN", "collector: %s unavailable this cycle (snapshot kept "+
+		"without it): %v", category, err)
 }
 
 // markStatsReset flags snap when pg_stat_statements was reset since the

@@ -129,7 +129,9 @@ func (c *Collector) collectPreparedXacts(
 	}
 	defer rows.Close()
 
-	var result []PreparedTransaction
+	// Non-nil: no prepared transaction persists as [], which differs from
+	// the missing row an unknown leaves.
+	result := []PreparedTransaction{}
 	for rows.Next() {
 		var pt PreparedTransaction
 		if err := rows.Scan(
