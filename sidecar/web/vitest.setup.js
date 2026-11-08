@@ -1,13 +1,25 @@
 // vitest.setup.js — test environment bootstrap for Vitest.
 //
 // Loads @testing-library/jest-dom custom matchers (toBeInTheDocument,
-// toHaveAttribute, ...). Run once before the test suite.
+// toHaveAttribute, ...) and the FakeEventSource. Run once before the
+// test suite.
 //
 // jsdom does not implement ResizeObserver or DOMRect, both of which
 // Radix uses internally for positioning. Polyfill with no-op stubs so
 // the tooltip can render in tests without exercising layout math.
 
 import '@testing-library/jest-dom/vitest'
+import { afterEach } from 'vitest'
+import { FakeEventSource } from './src/test/fakeEventSource'
+
+// jsdom has no EventSource. Install the fake for every test so the real
+// LiveEventsProvider can run, and forget its instances (and any stub a
+// test left in its place) after each test.
+globalThis.EventSource = FakeEventSource
+afterEach(() => {
+  FakeEventSource.reset()
+  globalThis.EventSource = FakeEventSource
+})
 
 class NoopResizeObserver {
   observe() {}
