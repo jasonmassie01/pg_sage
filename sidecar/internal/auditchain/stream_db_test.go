@@ -2,6 +2,7 @@ package auditchain_test
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/auditchain"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // rowHistoryMarker is the whole-chain per-row history query the full and
@@ -156,3 +158,28 @@ func TestWritersDuringVerificationCauseNoFalseProblems(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// The full pass's row-link batches walk the (chain, row_id, seq) index and
+// look rows up by id: neither the link table nor the audited table is
+// scanned whole per batch.
+func TestRowPassUsesIndexes(t *testing.T) {
+	pool := freshDB(t, "chain_stream_plan")
+	exec(t, pool, `INSERT INTO sage.audit_chain_link (chain, seq, row_id, op, v,
+		sealed_hash, state, prev_hash, hash)
+		SELECT 'action_log', g, g, 'I', 1, '', '', '', '' FROM generate_series(1, 20000) g`)
+	exec(t, pool, `INSERT INTO sage.action_log (action_type, sql_executed)
+		SELECT 'vacuum', 'VACUUM p' || g FROM generate_series(1, 5000) g`)
+	exec(t, pool, "ANALYZE sage.audit_chain_link")
+	exec(t, pool, "ANALYZE sage.action_log")
+	plan, err := testdb.Explain(context.Background(), pool, "",
+		auditchain.RowPassSQLForTest(auditchain.ActionLog), "action_log",
+		int64(math.MinInt64), int64(math.MinInt64), 2000)
+	if err != nil {
+		t.Fatalf("explain the row pass: %v", err)
+	}
+	for _, rel := range []string{"audit_chain_link", "action_log"} {
+		if n := plan.SeqScans(rel); n != 0 {
+			t.Fatalf("the row pass scans %s whole:\n%v", rel, plan)
+		}
+	}
+}
