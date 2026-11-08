@@ -122,7 +122,7 @@ func checkStatementsFunctions(ctx context.Context, lookup functionLookup,
 
 // checkIndexCallSchemas is the static half (no database): a CREATE INDEX
 // call may name pg_catalog but no other protected schema (sage,
-// google_ml, ...). An expression the scanner cannot read is left to
+// google_ml, ...), and neither may a type or operator it names. An expression the scanner cannot read is left to
 // checkIndexFunctions, which refuses it before the build.
 func checkIndexCallSchemas(sql, prefix string) error {
 	if prefix != "CREATE INDEX" && prefix != "CREATE UNIQUE INDEX" {
@@ -136,6 +136,15 @@ func checkIndexCallSchemas(sql, prefix string) error {
 		if r.Schema != "pg_catalog" && isProtectedExecutorSchema(r.Schema) {
 			return fmt.Errorf("%w: function %s is in protected schema %q",
 				ErrDisallowedSQL, r, r.Schema)
+		}
+	}
+	objects, err := optimizer.IndexObjectRefs(sql)
+	if err != nil {
+		return nil
+	}
+	for _, r := range objects {
+		if isProtectedExecutorSchema(r.Schema) {
+			return fmt.Errorf("%w: %s is in protected schema %q", ErrDisallowedSQL, r, r.Schema)
 		}
 	}
 	return nil

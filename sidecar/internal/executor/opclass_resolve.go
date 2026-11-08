@@ -162,7 +162,8 @@ func qualifyStatementsOpclasses(ctx context.Context, lookup opclassLookup,
 
 // pinnedStatements returns the statements as they run in a pinned DDL
 // session, after refusing any whose index expressions would bind a
-// function another role could have planted (checkIndexFunctions); a
+// function, type or operator another role could have planted
+// (checkIndexFunctions, checkIndexObjects); a
 // statement whose text the qualification changed is validated again
 // before it runs.
 func pinnedStatements(ctx context.Context, pool *pgxpool.Pool, statements ...string,
@@ -172,6 +173,9 @@ func pinnedStatements(ctx context.Context, pool *pgxpool.Pool, statements ...str
 		return nil, err
 	}
 	if err := checkStatementsFunctions(ctx, poolFunctionLookup(pool), run); err != nil {
+		return nil, err
+	}
+	if err := checkStatementsObjects(ctx, poolObjectLookup(pool), run); err != nil {
 		return nil, err
 	}
 	for i := range run {

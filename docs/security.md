@@ -85,7 +85,15 @@ All data sources are read-only catalog views and statistics:
   extension installed in that schema. A call qualified by `sage`, `google_ml`,
   `information_schema` or another protected schema is refused without a catalog read. The
   check runs before the build because a planted function would already have run, as the
-  table owner, during it. Operator classes are the one
+  table owner, during it. A type or operator named with a schema other than `pg_catalog`
+  (`email::public.d`, `CAST(x AS public.d)`, `public.d 'v'`, `OPERATOR(public.===)`) binds
+  that schema the same way, so it is checked too: a type must be an extension's member, or
+  an enum or domain (down its whole domain chain) whose `CHECK` constraints and casts call
+  only `pg_catalog` and extension functions, and an operator must be an extension's member
+  or run a `pg_catalog` function. A domain whose `CHECK` calls a planted function is
+  refused with `function_schema_not_allowed`; the application's own enum
+  (`'open'::public.state`, as `pg_get_indexdef` prints it under the pin) still restores.
+  Operator classes are the one
   exception, because creating one takes a superuser or a trusted extension, so another role
   cannot plant one. A bare operator class in a `CREATE INDEX` (`gin_trgm_ops`,
   `vector_l2_ops`) runs with its schema named: pg_catalog's class when there is one, else
