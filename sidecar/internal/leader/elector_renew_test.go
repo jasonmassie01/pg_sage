@@ -314,3 +314,50 @@ func TestElector_ConcurrentStatusDuringBlockedTicks(t *testing.T) {
 		t.Fatalf("status after blocked ticks = %+v, want follower with a timeout", s)
 	}
 }
+
+func TestElector_LateRenewalThatReacquiresCountsLapse(t *testing.T) {
+	// The renewal answers, still as holder, but only after the local
+	// deadline: leadership was off for a while, so the lapse is counted and
+	// warned before the sidecar becomes leader again.
+	c := newClock()
+	st := newMemStore(c.Now)
+	sink := &logSink{}
+	e := NewElector(st, "fleet", "A", 30*time.Second, WithClock(c.Now),
+		WithLogger(sink.log))
+	_ = e.Tick(context.Background())
+	base := e.Status().Transitions
+	c.Advance(25 * time.Second) // deadline is 24s, the lease 30s: still A's row
+	if err := e.Tick(context.Background()); err != nil || !e.IsLeader() {
+		t.Fatalf("late renewal err=%v leader=%v, want leader again", err, e.IsLeader())
+	}
+	if got := e.Status().Transitions; got != base+2 {
+		t.Fatalf("transitions = %d, want %d (lapse, then leader again)", got, base+2)
+	}
+	want := "WARN leader: lease of fleet lapsed, renewal overdue by 1s: " +
+		"renewal answered after the local deadline"
+	if n := sink.count(want); n != 1 || sink.count("WARN") != 1 {
+		t.Fatalf("log %q, want exactly one %q", sink.lines, want)
+	}
+	if n := sink.count("INFO leader: A became leader"); n != 2 {
+		t.Fatalf("became-leader lines = %d (log %q), want 2", n, sink.lines)
+	}
+}
+
+func TestElector_SilentLapseToFollowerWarnsNotInfo(t *testing.T) {
+	c := newClock()
+	st := newMemStore(c.Now)
+	sink := &logSink{}
+	a := NewElector(st, "fleet", "A", 30*time.Second, WithClock(c.Now),
+		WithLogger(sink.log))
+	b := NewElector(st, "fleet", "B", 30*time.Second, WithClock(c.Now))
+	_ = a.Tick(context.Background())
+	c.Advance(31 * time.Second)
+	_ = b.Tick(context.Background())
+	_ = a.Tick(context.Background())
+	if n := sink.count("WARN leader: lease of fleet lapsed"); n != 1 {
+		t.Fatalf("lapse WARN lines = %d (log %q), want 1", n, sink.lines)
+	}
+	if n := sink.count("INFO leader: A is a follower"); n != 0 {
+		t.Fatalf("a lapse already counted was logged again as a move: %q", sink.lines)
+	}
+}
