@@ -253,3 +253,35 @@ func TestInvestigatorModel_RetryOffersOnlyTheFinal(t *testing.T) {
 			err, m.calls())
 	}
 }
+
+// A daily allocation that refuses the full call but would admit the
+// final-only retry: only the investigation's own cap may be retried, so
+// no provider call is made and the daily allocation is named.
+func TestInvestigatorModel_DailyRefusalIsNotRetriedWhenTheRetryWouldFit(t *testing.T) {
+	full := int64(agentloop.EstimateTokens(capMsgs, fullSpecs(), 0)) + 1024 +
+		maxInvestigatorReasoning
+	l := budgetLimits()
+	l.DatabaseDailyTokens = full - 1
+	st, _, ctx := liveStore(t, l)
+	m := newFakeModel(t, submitFixed(invFinal{Outcome: "agree"}))
+	c, _ := investigatorCoordinator(t, ctx, st, idleChainRunner(),
+		namedModel(m.srv.URL, thinkingModelName, 1_000_000), invOptions{})
+	lease := claimed(t, st, "pid 9104")
+	inv, err := st.Get(ctx, lease.Scope, lease.InvestigationID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	s := &investigatorSession{c: c, plan: DefaultInvestigatorPlans()[PlanNarrow],
+		lease: lease, inv: inv}
+	_, err = investigatorModel{s: s}.ChatWithTools(t.Context(), capMsgs, fullSpecs(),
+		stepOpts(""))
+	if !errors.Is(err, llm.ErrBudgetExhausted) ||
+		!strings.Contains(err.Error(), "database daily allocation") {
+		t.Fatalf("daily refusal = %v, want the database daily allocation's budget stop",
+			err)
+	}
+	if m.calls() != 0 || len(reservations(t, st.pool, inv)) != 0 {
+		t.Fatalf("%d provider calls after a daily refusal; it must not be retried",
+			m.calls())
+	}
+}
