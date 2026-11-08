@@ -91,19 +91,29 @@ func createdPayload(req StartRequest, inv Investigation) map[string]any {
 }
 
 // recordExhausted records, once, that the key's last attempt expired and
-// no further attempt starts. The row lock orders racing polls.
+// no further attempt starts. Once recorded, a poll only reads. Otherwise
+// it takes the row lock and checks again in a new statement: in READ
+// COMMITTED only a statement started after the lock was granted sees a
+// racing poll's committed event.
 func (s *PostgresStore) recordExhausted(ctx context.Context, tx pgx.Tx,
 	last Investigation) error {
-	var recorded bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_events e
-		    WHERE e.deployment_id = i.deployment_id AND e.database_id = i.database_id
-		      AND e.investigation_id = i.id AND e.event_type = $4)
-		FROM sage.sre_investigations i
-		WHERE i.deployment_id = $1 AND i.database_id = $2 AND i.id = $3
-		FOR UPDATE OF i`, string(last.Scope.DeploymentID), string(last.Scope.DatabaseID),
-		string(last.ID), EventAttemptsExhausted).Scan(&recorded)
-	if err != nil || recorded {
-		return err
+	args := []any{string(last.Scope.DeploymentID), string(last.Scope.DatabaseID),
+		string(last.ID)}
+	for _, lock := range []bool{false, true} {
+		if lock {
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM sage.sre_investigations
+				WHERE deployment_id = $1 AND database_id = $2 AND id = $3
+				FOR UPDATE`, args...); err != nil {
+				return err
+			}
+		}
+		var recorded bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_events
+			WHERE deployment_id = $1 AND database_id = $2 AND investigation_id = $3
+			  AND event_type = $4)`, append(args, EventAttemptsExhausted)...).
+			Scan(&recorded); err != nil || recorded {
+			return err
+		}
 	}
 	return appendEvent(ctx, tx, last.Scope, last.ID, EventAttemptsExhausted, "system",
 		map[string]any{"attempt": last.Attempt, "max_attempts": MaxAttempts,

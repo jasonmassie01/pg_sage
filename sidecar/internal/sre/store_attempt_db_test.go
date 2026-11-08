@@ -369,3 +369,106 @@ func TestStore_EveryQueueExpiryHasItsEvent(t *testing.T) {
 		t.Fatalf("queue_expired rows = %d, events = %d; want 2 and 2", rows, events)
 	}
 }
+
+// exhaust runs a key through MaxAttempts attempts and returns the last
+// one, past its queue expiry and still queued.
+func exhaust(t *testing.T, ctx context.Context, st *PostgresStore, pool *pgxpool.Pool,
+	scope Scope, subject string) Investigation {
+	t.Helper()
+	cur, _, err := st.Create(ctx, keyedStart(scope, subject))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for cur.Attempt < MaxAttempts {
+		setQueueExpiry(t, ctx, pool, cur, -time.Millisecond)
+		if cur, _, err = st.Create(ctx, keyedStart(scope, subject)); err != nil {
+			t.Fatalf("attempt after %d: %v", cur.Attempt, err)
+		}
+	}
+	setQueueExpiry(t, ctx, pool, cur, -time.Millisecond)
+	return cur
+}
+
+// holdRow locks an investigation row in its own transaction until the
+// returned release runs, so racing polls queue on the row lock.
+func holdRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	inv Investigation) func() {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM sage.sre_investigations
+		WHERE deployment_id = $1 AND database_id = $2 AND id = $3 FOR UPDATE`,
+		string(inv.Scope.DeploymentID), string(inv.Scope.DatabaseID),
+		string(inv.ID)); err != nil {
+		t.Fatalf("lock %s: %v", inv.ID, err)
+	}
+	return func() {
+		if err := tx.Commit(ctx); err != nil {
+			t.Errorf("release %s: %v", inv.ID, err)
+		}
+	}
+}
+
+// waitForLockWaiters waits until n sessions wait on a lock.
+func waitForLockWaiters(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+		var waiting int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND wait_event_type = 'Lock'`).
+			Scan(&waiting); err != nil {
+			t.Fatalf("count lock waiters: %v", err)
+		}
+		if waiting >= n {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("fewer than %d sessions waited on the row lock", n)
+}
+
+// Concurrent access: polls that queue on the last attempt's row lock
+// after it expired at claim (no poll saw it yet) record
+// attempts_exhausted exactly once (each re-reads under the lock) and
+// start nothing.
+func TestStore_RacingPollsAfterTheLastAttemptRecordExhaustedOnce(t *testing.T) {
+	st, pool, ctx := liveStore(t, DefaultLimits())
+	scope := testScope(t, ctx, st)
+	last := exhaust(t, ctx, st, pool, scope, "att-12")
+	if _, err := st.Claim(ctx, scope, last.ID, NewUUID()); !errors.Is(err, ErrTerminal) {
+		t.Fatalf("claim of the expired last attempt = %v, want ErrTerminal", err)
+	}
+	const n = 2 // with the holder and the waiter count, within the 4-connection pool floor
+	release := holdRow(t, ctx, pool, last)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			got, created, err := st.Create(ctx, keyedStart(scope, "att-12"))
+			if err != nil || created || got.ID != last.ID {
+				t.Errorf("poll %d = %s created=%v err=%v, want the last attempt %s", i,
+					got.ID, created, err, last.ID)
+			}
+		}(i)
+	}
+	waitForLockWaiters(t, ctx, pool, n)
+	release()
+	wg.Wait()
+	events, _ := eventsOf(t, ctx, st, last)
+	exhausted := 0
+	for _, e := range events {
+		if e.Type == EventAttemptsExhausted {
+			exhausted++
+		}
+	}
+	if exhausted != 1 || countKeyRows(t, ctx, pool, scope, "incident:att-12") != MaxAttempts {
+		t.Fatalf("attempts_exhausted events = %d (want 1), rows = %d (want %d)", exhausted,
+			countKeyRows(t, ctx, pool, scope, "incident:att-12"), MaxAttempts)
+	}
+	if err := st.VerifyEvents(ctx, scope, last.ID); err != nil {
+		t.Fatalf("chain after racing polls: %v", err)
+	}
+}
