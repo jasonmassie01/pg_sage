@@ -28,7 +28,10 @@ var (
 func (ss *session) catalogTools() []agentloop.Tool {
 	return []agentloop.Tool{
 		tool("describe_table", "Describe one table: size, estimated rows, columns, "+
-			"indexes, its comment and vacuum/analyze times.", `"table":{"type":"string",`+
+			"indexes, its comment and vacuum/analyze times. A partitioned table reports "+
+			"its partition count and key, sizes and rows summed over its partitions and "+
+			"their oldest and newest vacuum/analyze times. A name with no exact match is "+
+			"retried in lower case, as SQL folds unquoted names.", `"table":{"type":"string",`+
 			`"description":"schema-qualified name, e.g. public.orders","maxLength":130}`,
 			[]string{"table"}, ss.describeTable),
 		tool("explain", "Explain one pg_sage configuration key (what it does, its current "+
@@ -64,39 +67,6 @@ func (ss *session) describeTable(ctx context.Context, raw json.RawMessage) (
 		return agentloop.Output{}, fmt.Errorf("describe %s: %w", a.Table, err)
 	}
 	return ss.cite(id, "ok", text), nil
-}
-
-func (ss *session) tableText(ctx context.Context, schema, name string) (string, error) {
-	var size, rows int64
-	var comment, columns, indexes, vacuum, analyze string
-	var ncols int
-	err := ss.s.d.Pool.QueryRow(ctx, `/* pg_sage */ SELECT pg_total_relation_size(c.oid),
-		c.reltuples::bigint, COALESCE(obj_description(c.oid, 'pg_class'), ''),
-		(SELECT count(*) FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0
-		   AND NOT a.attisdropped),
-		COALESCE((SELECT string_agg(a.attname || ' ' || format_type(a.atttypid,
-		   a.atttypmod), ', ' ORDER BY a.attnum) FROM pg_attribute a
-		   WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped), ''),
-		COALESCE((SELECT string_agg(pg_get_indexdef(i.indexrelid), '; ' ORDER BY
-		   i.indexrelid) FROM pg_index i WHERE i.indrelid = c.oid), ''),
-		COALESCE(GREATEST(s.last_vacuum, s.last_autovacuum)::text, 'never'),
-		COALESCE(GREATEST(s.last_analyze, s.last_autoanalyze)::text, 'never')
-		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-		WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p', 'm')`,
-		schema, name).Scan(&size, &rows, &comment, &ncols, &columns, &indexes, &vacuum,
-		&analyze)
-	if err != nil {
-		return "", err
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "table %s.%s: %d bytes total, about %d rows, %d columns\n", schema,
-		name, size, max(rows, 0), ncols)
-	optional(&b, "comment", oneLine(comment))
-	fmt.Fprintf(&b, "columns: %s\n", clip(columns, 1500))
-	optional(&b, "indexes", clip(indexes, 1500))
-	fmt.Fprintf(&b, "last vacuum %s, last analyze %s", vacuum, analyze)
-	return b.String(), nil
 }
 
 // explain answers exactly one of a configuration key or a concept.

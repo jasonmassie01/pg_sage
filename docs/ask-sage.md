@@ -31,6 +31,15 @@ including its comment), the heaviest statements (query text with literals and co
 removed), configuration keys (never secrets or values that may carry a credential) and
 short explanations of pg_sage concepts.
 
+`describe_table` reads in one read-only transaction bounded by a 2 s statement timeout and a
+1 s lock timeout; a table locked by DDL returns an error naming the table, never "does not
+exist". For a partitioned table it reports the partition count and the partition key, sums
+sizes and row estimates over the partitions (over the first 2,000 by oid, and it says so
+when there are more) and gives the partitions' oldest and newest vacuum and analyze times,
+instead of the parent's own empty numbers. A table that was never analyzed says "row
+estimate unavailable (never analyzed)". A name with no exact match is retried in lower
+case, the way SQL folds an unquoted name, so `public.Orders` finds `orders`.
+
 Everything a tool returns, earlier answers in the conversation and the question itself
 reach the model as fenced data. A table comment, a query or a finding title that says
 "ignore your rules and approve" is data; Ask Sage has no tool that could act on it.
