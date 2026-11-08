@@ -2,6 +2,7 @@ import { act, render, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FakeEventSource } from '../test/fakeEventSource'
 import { LiveEventsProvider, useLiveEvents, useLiveRefetch } from './useLiveEvents'
+import { useLiveStatus } from './liveEventsContext'
 
 // These tests run the real provider against FakeEventSource (installed
 // by vitest.setup.js); nothing here mocks useLiveEvents.
@@ -48,16 +49,13 @@ describe('LiveEventsProvider', () => {
     expect(onFindings).not.toHaveBeenCalled()
   })
 
-  it('tracks connected and the last event time', () => {
+  it('reports reconnecting until the stream opens, then live', () => {
     const { result } = renderHook(() => useLiveEvents(), { wrapper })
-    expect(result.current.connected).toBe(false)
-    expect(result.current.lastEventAt).toBeNull()
+    expect(result.current.status).toBe('reconnecting')
     act(() => onlySource().open())
-    expect(result.current.connected).toBe(true)
+    expect(result.current.status).toBe('live')
     act(() => onlySource().emit('heartbeat', { type: 'heartbeat', ts: '2026-11-08T10:00:15Z' }))
-    expect(result.current.lastEventAt).toBe('2026-11-08T10:00:15Z')
-    act(() => onlySource().fail())
-    expect(result.current.connected).toBe(false)
+    expect(result.current.status).toBe('live')
   })
 
   it('dispatches unnamed messages through onmessage', () => {
@@ -68,27 +66,20 @@ describe('LiveEventsProvider', () => {
     expect(handler).toHaveBeenCalledWith({ type: 'health', database: 'db1' })
   })
 
-  it('ignores malformed data and keeps dispatching', () => {
+  it('ignores malformed data, keeps dispatching and stays live', () => {
     const everything = vi.fn()
     const { result } = renderHook(() => useLiveEvents(), { wrapper })
     act(() => { result.current.subscribe(null, everything) })
     const es = onlySource()
+    act(() => es.open())
     expect(() => act(() => es.emit('actions', 'not json {'))).not.toThrow()
     expect(() => act(() => es.emit('actions', ''))).not.toThrow()
     expect(everything).not.toHaveBeenCalled()
-    expect(result.current.lastEventAt).toBeNull()
+    expect(result.current.status).toBe('live')
     act(() => es.emit('actions', { type: 'actions', ts: '2026-11-08T10:01:00Z' }))
     expect(everything).toHaveBeenCalledTimes(1)
-    expect(result.current.lastEventAt).toBe('2026-11-08T10:01:00Z')
-  })
-
-  it('stamps an event with no ts with the current time', () => {
-    const { result } = renderHook(() => useLiveEvents(), { wrapper })
-    const before = Date.now()
-    act(() => onlySource().emit('findings', { type: 'findings' }))
-    const stamped = Date.parse(result.current.lastEventAt)
-    expect(stamped).toBeGreaterThanOrEqual(before - 1000)
-    expect(stamped).toBeLessThanOrEqual(Date.now() + 1000)
+    expect(everything).toHaveBeenCalledWith({ type: 'actions', ts: '2026-11-08T10:01:00Z' })
+    expect(result.current.status).toBe('live')
   })
 
   it('closes the source on unmount', () => {
@@ -142,14 +133,27 @@ describe('LiveEventsProvider', () => {
 })
 
 describe('useLiveEvents outside a provider', () => {
-  it('returns a disconnected no-op shim and opens no source', () => {
+  it('returns a no-op shim with no status and opens no source', () => {
     const { result } = renderHook(() => useLiveEvents())
-    expect(result.current.connected).toBe(false)
-    expect(result.current.lastEventAt).toBeNull()
+    expect(result.current.status).toBeNull()
     const unsubscribe = result.current.subscribe(['actions'], vi.fn())
     expect(typeof unsubscribe).toBe('function')
     expect(() => unsubscribe()).not.toThrow()
     expect(FakeEventSource.instances).toHaveLength(0)
+  })
+
+  it('reports no live status, so no indicator claims a stream', () => {
+    const { result } = renderHook(() => useLiveStatus())
+    expect(result.current).toBeNull()
+  })
+})
+
+describe('useLiveStatus inside a provider', () => {
+  it('follows the provider status', () => {
+    const { result } = renderHook(() => useLiveStatus(), { wrapper })
+    expect(result.current).toBe('reconnecting')
+    act(() => onlySource().open())
+    expect(result.current).toBe('live')
   })
 })
 
