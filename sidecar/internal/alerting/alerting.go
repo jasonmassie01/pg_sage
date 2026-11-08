@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -175,14 +176,9 @@ func (m *Manager) scanFindings(
 
 	var results []AlertFinding
 	for rows.Next() {
-		var f AlertFinding
-		if err := rows.Scan(
-			&f.ID, &f.Category, &f.Severity, &f.Title,
-			&f.ObjectType, &f.ObjectIdentifier,
-			&f.OccurrenceCount, &f.Recommendation,
-			&f.FirstSeen, &f.LastSeen,
-		); err != nil {
-			return nil, fmt.Errorf("scan finding row: %w", err)
+		f, err := scanFindingRow(rows)
+		if err != nil {
+			return nil, err
 		}
 		results = append(results, f)
 	}
@@ -190,6 +186,21 @@ func (m *Manager) scanFindings(
 		return nil, fmt.Errorf("iterate findings rows: %w", err)
 	}
 	return results, nil
+}
+
+// scanFindingRow scans the findingColumns of the current row, then extra.
+func scanFindingRow(rows pgx.Rows, extra ...any) (AlertFinding, error) {
+	var f AlertFinding
+	dest := append([]any{
+		&f.ID, &f.Category, &f.Severity, &f.Title,
+		&f.ObjectType, &f.ObjectIdentifier,
+		&f.OccurrenceCount, &f.Recommendation,
+		&f.FirstSeen, &f.LastSeen,
+	}, extra...)
+	if err := rows.Scan(dest...); err != nil {
+		return AlertFinding{}, fmt.Errorf("scan finding row: %w", err)
+	}
+	return f, nil
 }
 
 func (m *Manager) dispatchGroup(
