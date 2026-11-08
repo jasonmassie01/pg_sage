@@ -1840,6 +1840,51 @@ and age out with `snapshots_days`; nothing is rewritten.
 > configuration fields including `safety`, `alerting`, `auto_explain`,
 > `forecaster`, `tuner`, `advisor`, and `api` sections.
 
+### Audit chain verification
+
+| Parameter | Default | Description |
+|---|---|---|
+| `audit.verify_interval_hours` | `24` | Hours between scheduled verifications of the audit hash chains, on the fleet leader, per database. `0` disables them. 0-168. |
+| `audit.full_verify_interval_hours` | `168` | Hours between full verifications of each chain. The scheduled runs in between are incremental. `0` verifies every chain in full every time. 0-8760. |
+
+Each clean verification stores a checkpoint in `sage.audit_chain_checkpoint`
+of the monitored database: the position and hash of the head it reached.
+The table keeps the newest 100 checkpoints per chain, plus the newest full
+one. It needs no superuser and behaves the same on PostgreSQL 14-18 and on
+managed providers.
+
+- **incremental**: verifies only the links after the newest checkpoint, and
+  the rows they name, in one read-only snapshot. It first checks that the
+  checkpointed link still carries its hash. An edit of a row that was
+  written before the checkpoint, and not changed since, is found by the
+  next full pass, not by this one.
+- **full**: verifies every link from the first, and every chained row, in
+  bounded memory (an ordered pass over the link index, 2000 links at a
+  time). It runs when no checkpoint exists, when the interval has passed,
+  or on demand.
+- **window**: `from_seq`/`to_seq` on the API verifies an explicit range.
+
+`GET /api/v1/audit/verify?database=<name>` (admin) verifies since each
+chain's newest checkpoint, or in full when a chain has none. Add
+`full=true` to verify the whole chain. Both run under a 5 minute timeout
+and answer `504` when they exceed it; verify a large chain in
+`from_seq`/`to_seq` windows then.
+
+`checkpoint_mismatch` is the problem kind for a checkpointed link that is
+gone, rewritten, or past the chain's head. Incremental and full passes
+both report it. A restore of the database takes the checkpoints back with
+the chain, so it never causes one. The `audit_chain_broken` finding stays
+open until the chain verifies against its checkpoint again. Investigate
+first: compare the chain with the SIEM's copy (`audit.siem.sinks`). After
+that, delete the chain's rows from `sage.audit_chain_checkpoint` to
+re-baseline it. The next full pass then stores a new checkpoint.
+
+If a chain cannot be verified at all (a statement timeout, a lock held on
+the audit table, a lost connection), it raises an
+`audit_chain_verification_failed` warning on `audit_trail:<chain>`. Its
+open `audit_chain_broken` finding stays open. The other chains are still
+verified.
+
 ### Postgres-specialist contract
 
 `specialist.*` configures the versioned investigation contract other agents

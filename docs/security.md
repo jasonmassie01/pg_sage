@@ -770,6 +770,16 @@ checked with the wrong rules, so the finding stands until the link is
 explained (a link rewritten to another version, or a trail written by a
 different pg_sage release).
 
+Scheduled verification is incremental between full passes
+(`audit.full_verify_interval_hours`, weekly by default). Each clean pass
+stores a checkpoint (`sage.audit_chain_checkpoint`). The next pass checks
+that the checkpointed link still carries its hash, then verifies only the
+links after it. A rewritten, deleted or cut-off checkpoint link is a
+`checkpoint_mismatch`. An edit of an older row is found by the next full
+pass. A chain that cannot be verified raises an
+`audit_chain_verification_failed` warning, and its open findings stay
+open. See [Audit chain verification](configuration.md#audit-chain-verification).
+
 The canonical text a link hashes is pinned by golden hashes in CI on
 PostgreSQL 14-18 and under non-default `TimeZone`, `DateStyle`,
 `extra_float_digits`, `IntervalStyle` and `bytea_output`, and the types of
