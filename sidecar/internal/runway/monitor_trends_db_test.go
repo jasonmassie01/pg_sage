@@ -43,8 +43,7 @@ func (f *probeFailer) RunBackground(ctx context.Context, id probes.ID,
 // its stale marks (and their logging) alone that tick.
 func TestHolds_UnreadableTrendsReturnNil(t *testing.T) {
 	in := EvalInput{TrendsOK: false, SlotsOK: true, Slots: []probes.Slot{{Name: "cdc"}}}
-	if h := Holds(in,
-		testOptions()); h != nil {
+	if h := Holds(in, testOptions()); h != nil {
 		t.Fatalf("unreadable trends held %v, want nil", h)
 	}
 }

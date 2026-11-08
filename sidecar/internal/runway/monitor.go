@@ -117,7 +117,11 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 		TrendsTruncated: set.Truncated, TrendsLastKind: set.LastKind, Tables: snap.Tables,
 		TablesOK: snap.TablesOK, Slots: snap.Slots, SlotsOK: snap.SlotsOK,
 		Sequences: snap.Sequences, SequencesOK: snap.SequencesOK}
+	openErr := m.fillOpenSlots(ctx, &in, res.Standby)
 	runways, evaluated := Evaluate(in, m.opts)
+	if openErr != nil { // fail closed: a slot without samples may still exist
+		problems, evaluated = append(problems, openErr), without(evaluated, CategoryWAL)
+	}
 	res.Runways = runways
 	if !res.Standby {
 		res.Started, res.Resolved, err = m.report(ctx, runways, evaluated,

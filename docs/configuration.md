@@ -1491,6 +1491,7 @@ and gains `detail.stale = true`, `detail.stale_reason` (`unmeasured` or `no_samp
 `detail.stale_since`; the next measured projection replaces the detail and clears them. A
 replication slot or sequence is held only while the current reading still lists it, so the
 finding of a dropped slot or sequence (or one that fell out of the top sequences) resolves.
+While the slots cannot be read, an open slot finding without samples is held too.
 When the trends read reaches its row cap, the categories it may have cut are not resolved
 until it fits again (logged once). A standby samples nothing (it is read-only).
 

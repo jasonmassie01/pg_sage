@@ -23,8 +23,11 @@ type EvalInput struct {
 	TablesOK        bool
 	Slots           []probes.Slot
 	SlotsOK         bool
-	Sequences       []probes.SequenceRunway
-	SequencesOK     bool
+	// OpenSlots names the slots with an open finding, read only while
+	// the slots are unreadable (such a slot may still exist).
+	OpenSlots   []string
+	Sequences   []probes.SequenceRunway
+	SequencesOK bool
 }
 
 // Runway is one runway that crossed its horizon: the forecast finding it

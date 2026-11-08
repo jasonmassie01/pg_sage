@@ -2,11 +2,49 @@ package runway
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
+
+// openSlotsSQL lists the slots with an open WAL forecast finding.
+const openSlotsSQL = `/* pg_sage */ SELECT substr(object_identifier, 6)
+	FROM sage.findings
+	WHERE category = $1 AND status = 'open' AND object_identifier LIKE 'slot:%'
+	ORDER BY 1`
+
+// fillOpenSlots reads, while the slots are unreadable, the slots with an
+// open finding, so Holds keeps those without samples open. Otherwise (or
+// on a standby, which writes nothing) it reads nothing.
+func (m *Monitor) fillOpenSlots(ctx context.Context, in *EvalInput, standby bool) error {
+	if standby || !in.TrendsOK || in.SlotsOK {
+		return nil
+	}
+	rows, err := m.pool.Query(ctx, openSlotsSQL, CategoryWAL)
+	if err != nil {
+		return fmt.Errorf("list the open slot findings (slots unreadable): %w", err)
+	}
+	in.OpenSlots, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("list the open slot findings (slots unreadable): %w", err)
+	}
+	return nil
+}
+
+// without is cats less cat.
+func without(cats []string, cat string) []string {
+	out := make([]string, 0, len(cats))
+	for _, c := range cats {
+		if c != cat {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 // markStaleSQL marks the held open findings stale in one statement. It
 // writes only a finding not already stale for that reason, keeps the

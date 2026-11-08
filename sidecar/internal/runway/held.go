@@ -46,7 +46,8 @@ func (in EvalInput) trendsComplete(cat string) bool {
 //   - A slot or sequence is held only while the current reading still
 //     lists it, so a dropped one (or a sequence below the top N) may
 //     resolve. While that reading is unreadable, every unmeasured row is
-//     held: the object may still exist.
+//     held, and so is every open slot finding without samples: the
+//     object may still exist.
 //
 // Unreadable trends hold nothing (nil); nothing is evaluated then either.
 func Holds(in EvalInput, opts Options) map[string]map[string]string {
@@ -76,10 +77,14 @@ func Holds(in EvalInput, opts Options) map[string]map[string]string {
 			hold(c.cat, c.ident, r)
 		}
 	}
-	var slots, seqs []string
-	for _, s := range in.Slots {
-		slots = append(slots, s.Name)
+	slots := in.OpenSlots
+	if in.SlotsOK {
+		slots = nil
+		for _, s := range in.Slots {
+			slots = append(slots, s.Name)
+		}
 	}
+	var seqs []string
 	for _, s := range in.Sequences {
 		if !s.Cycle { // a cycling sequence never runs out
 			seqs = append(seqs, s.Sequence)
@@ -108,7 +113,7 @@ func (in EvalInput) reason(rows map[string]map[string]bool, kind, subject string
 }
 
 // holdObjects holds the listed objects of kind that are not measured
-// when their reading is readable, else every unmeasured row of kind.
+// and, when their reading is unreadable, every unmeasured row of kind.
 func (in EvalInput) holdObjects(rows map[string]map[string]bool, kind string,
 	listed []string, readOK bool, hold func(name, reason string)) {
 	if !readOK {
@@ -117,7 +122,6 @@ func (in EvalInput) holdObjects(rows map[string]map[string]bool, kind string,
 				hold(subject, HoldUnmeasured)
 			}
 		}
-		return
 	}
 	for _, name := range listed {
 		if r := in.reason(rows, kind, name); r != "" {
