@@ -108,6 +108,7 @@ func ledgerInput(
 	stampBudgetEvidence(evidence, request, decision)
 	stampVerificationEvidence(evidence, decision)
 	autonomyEvidence(evidence, request)
+	stampRollbackEvidence(evidence, request, decision)
 	if request.Contract == nil {
 		evidence["contract"] = "none" // recorded at tier high (policy-01)
 	}

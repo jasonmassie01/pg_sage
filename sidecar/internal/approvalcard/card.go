@@ -176,13 +176,15 @@ type Reason struct {
 
 // Inputs is everything a card is assembled from.
 type Inputs struct {
-	Database   string
-	Action     store.QueuedAction
-	Finding    *FindingRow
-	Revision   *RevisionRow
-	Decision   *DecisionRow
-	Rejection  *RejectionRow
-	Snooze     *SnoozeRow
+	Database  string
+	Action    store.QueuedAction
+	Finding   *FindingRow
+	Revision  *RevisionRow
+	Decision  *DecisionRow
+	Rejection *RejectionRow
+	Snooze    *SnoozeRow
+	// Revert is the action a revert item reverts (nil for any other item).
+	Revert     *RevertRow
 	Contract   *executor.ActionContract
 	TrustLevel string
 	// Trust is the ledger row of the action's class (nil: no ledger, or

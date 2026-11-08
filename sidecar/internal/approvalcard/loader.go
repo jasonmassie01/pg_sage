@@ -99,6 +99,9 @@ func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trust
 	if in.Snooze, err = l.snooze(ctx, a.ID); err != nil {
 		return Card{}, err
 	}
+	if in.Revert, err = l.revert(ctx, a); err != nil {
+		return Card{}, err
+	}
 	l.readWaits(ctx, &in)
 	c := Assemble(in)
 	if c.ShadowHistory, err = l.shadowHistory(ctx, a); err != nil {

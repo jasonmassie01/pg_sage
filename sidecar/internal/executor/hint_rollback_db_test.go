@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
@@ -54,6 +55,9 @@ func newHintRollbackFixture(t *testing.T) *hintRollbackFixture {
 	fx.exec.cfg.Trust.Level = "advisory"
 	fx.exec.SetExecutorEnabled(true)
 	fx.exec.emergencyStopFn = func(context.Context) bool { return false }
+	// The operator rollback is a standing-gate decision (policy-05); production
+	// always installs the gate.
+	fx.exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	t.Cleanup(func() {
 		c := context.Background()
 		_, _ = pool.Exec(c, `DELETE FROM hint_plan.hints WHERE query_id = $1`, fx.qid)

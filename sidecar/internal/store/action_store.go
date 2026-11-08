@@ -49,6 +49,9 @@ type QueuedAction struct {
 	ProposedBy  string
 	// PrincipalID is the agent whose request queued the item, or "".
 	PrincipalID string
+	// RevertsActionID is the action a "Revert action N" item reverts: an
+	// automatic rollback the policy withheld (policy-05). nil otherwise.
+	RevertsActionID *int64
 }
 
 type ActionProposalMetadata struct {
@@ -71,6 +74,8 @@ type ActionProposalMetadata struct {
 	// PrincipalID is the agent whose request queued the item ("" for
 	// pg_sage's own and people's); its approved run is that agent's.
 	PrincipalID string
+	// RevertsActionID names the action a revert item reverts (0: none).
+	RevertsActionID int64
 }
 
 // ActionStore handles CRUD for sage.action_queue.
@@ -116,11 +121,12 @@ func (s *ActionStore) ProposeWithMetadata(
 		     identity_key, policy_decision, guardrails,
 		     verification_status, shadow_toil_minutes, expires_at,
 		     recommendation_id, recommendation_revision, content_hash,
-		     proposed_via, proposed_by, principal_id)
+		     proposed_via, proposed_by, principal_id, reverts_action_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
 		         $9::jsonb, COALESCE($10, 'not_started'),
 		         $11, COALESCE($12, now() + INTERVAL '7 days'),
-		         NULLIF($13::bigint, 0), NULLIF($14::int, 0), $15, $16, $17, $18)
+		         NULLIF($13::bigint, 0), NULLIF($14::int, 0), $15, $16, $17, $18,
+		         NULLIF($19::bigint, 0))
 		 RETURNING id`,
 		databaseID, findingID, sql,
 		NilIfEmpty(rollbackSQL), risk,
@@ -129,7 +135,7 @@ func (s *ActionStore) ProposeWithMetadata(
 		NilIfEmpty(meta.VerificationStatus), meta.ShadowToilMinutes,
 		meta.ExpiresAt, meta.RecommendationID, meta.RecommendationRevision,
 		NilIfEmpty(meta.ContentHash), NilIfEmpty(meta.ProposedVia),
-		NilIfEmpty(meta.ProposedBy), NilIfEmpty(meta.PrincipalID),
+		NilIfEmpty(meta.ProposedBy), NilIfEmpty(meta.PrincipalID), meta.RevertsActionID,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("proposing action: %w", err)
@@ -280,17 +286,19 @@ const queuedActionColumns = `q.id, q.database_id, q.finding_id,
  COALESCE(q.shadow_toil_minutes, 0), q.action_log_id,
  q.recommendation_id, q.recommendation_revision, COALESCE(q.content_hash, ''),
  COALESCE(q.proposed_via, ''), COALESCE(q.proposed_by, ''),
- COALESCE(q.principal_id, '')`
+ COALESCE(q.principal_id, ''), q.reverts_action_id`
 
+// listPendingBaseSQL lists pending items of open findings. A revert item
+// (reverts_action_id) is listed whatever its finding's state: the finding
+// was acted on by the action it reverts (policy-05).
 const listPendingBaseSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
  FROM sage.action_queue q
- JOIN sage.findings f ON f.id = q.finding_id
+ LEFT JOIN sage.findings f ON f.id = q.finding_id
 WHERE q.status = 'pending'
    AND q.expires_at > now()
    AND (q.cooldown_until IS NULL OR q.cooldown_until <= now())
-   AND f.status = 'open'
-   AND f.acted_on_at IS NULL
-   AND f.resolved_at IS NULL`
+   AND (q.reverts_action_id IS NOT NULL
+        OR (f.status = 'open' AND f.acted_on_at IS NULL AND f.resolved_at IS NULL))`
 
 const queuedActionSelectSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
  FROM sage.action_queue q`

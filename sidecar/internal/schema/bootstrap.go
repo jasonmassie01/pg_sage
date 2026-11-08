@@ -448,9 +448,10 @@ func migrationStatements() []string {
 		ddlEmergencyStopSeed,
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash,     // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt,       // apiauth-01: user deactivation
-		ddlApprovalCardNextCheck) // policy-06: follow-up queue order
+		ddlSessionsTokenHash,        // apiauth-04: hashed session cookies
+		ddlUsersDisabledAt,          // apiauth-01: user deactivation
+		ddlApprovalCardNextCheck,    // policy-06: follow-up queue order
+		ddlActionQueueRevertsAction) // policy-05: withheld reverts reach a person
 }
 
 // ---------------------------------------------------------------------------

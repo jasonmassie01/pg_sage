@@ -103,9 +103,11 @@ func approvalBlocked(ctx context.Context, as *store.ActionStore, exec *executor.
 		reason = "action is not eligible for approval"
 	}
 	status := readinessOutcomeStatus(readiness)
-	// A blocked restore card stays pending: nothing would queue it again, and it
-	// becomes approvable once the emergency stop is lifted (executor-01).
-	keep := status == "blocked" && executor.IsDropRestoreCard(action)
+	// A blocked restore or revert card stays pending: nothing would queue it
+	// again, and it becomes approvable once the stop is lifted (executor-01,
+	// policy-05).
+	keep := status == "blocked" &&
+		(executor.IsDropRestoreCard(action) || executor.IsRevertCard(action))
 	if as != nil && action.Status == "pending" && !keep {
 		_ = as.MarkReadinessOutcome(ctx, action.ID, status, reason)
 	}

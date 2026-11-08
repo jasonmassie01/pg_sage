@@ -51,6 +51,9 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 	if actionID, ok := restoreQueueActionID(action); ok {
 		return e.runApprovedDropRestore(ctx, action, actionID)
 	}
+	if IsRevertCard(action) {
+		return e.runApprovedRevert(ctx, action)
+	}
 	ctx = withQueuedPrincipal(ctx, action)
 	slot := &e.approvedRunner
 	slot.mu.RLock()
