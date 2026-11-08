@@ -4,6 +4,21 @@ pg_sage detects issues across 16+ categories using deterministic rules (Tier 1) 
 
 Severities: **critical** > **warning** > **info**
 
+**When a snapshot category could not be read.** A category the collector could not read in a
+cycle is unknown, not empty (see the snapshot's `unavailable` map). The rules and features
+that depend on it stay quiet for that cycle instead of reading the absence as a fact:
+
+| Category unavailable | What stays quiet |
+|---|---|
+| `indexes`, `foreign_keys` | index-health rules (unused, duplicate, invalid, missing FK index) |
+| `tables` | table rules (bloat, autovacuum tuning, wraparound) |
+| `replication` | unused-index drops (a standby may use the index) |
+| `prepared_xacts` | the RCA `orphaned_prepared_tx` signal; an open orphaned 2PC incident is held open, not counted as cleared |
+| `partitions` | index recommendations (the tuning agent gets no table context, since any table might be a partitioned parent or a partition) |
+| `config_data` | the advisor's config features and the RCA idle-in-transaction signal |
+
+The next cycle that reads the category resumes them.
+
 !!! tip "See also: [Hint Verification](hint-verification.md)"
     EXPLAIN before-and-after output for every optimization pg_sage applies, proving each hint and index change produces the intended plan improvement.
 

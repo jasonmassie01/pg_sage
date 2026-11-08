@@ -49,6 +49,28 @@ pg_sage sidecar (single Go binary)
 
 Gathers snapshots every 60s (configurable) from 10+ catalog views. Stores raw data in `sage.snapshots` as JSONB. Uses a circuit breaker to back off during database crises.
 
+Each snapshot holds one row per category: `queries`, `tables`, `indexes`, `foreign_keys`,
+`system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
+`prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`) and
+`config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
+when an advisor will consume it). A category that could not be read in a cycle is
+**unknown, not empty**: it is listed in the snapshot's `unavailable` map with the error, no
+row is written for it, and rules that would read its absence as a fact stay quiet for that
+cycle. Only the `system` category, the snapshot's spine, fails the whole snapshot. A category
+pg_sage does not collect (`io` below PostgreSQL 16, `config_data` without an advisor) is not
+collected, which is different from unavailable.
+
+The catalog categories and the extras (`io`, `prepared_xacts`, `partitions`, `config_data`)
+share one retry budget per cycle: a read that hit a statement or lock timeout is read once
+more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
+its sub-reads (`pg_settings`, `reloptions`, `connection_states`, `wal_position`, `extensions`,
+`connection_churn`) fails or returns a row that does not scan, the whole category is
+unavailable and the reason names the sub-read. On a hot standby the WAL position is the last
+WAL received (or replayed), since `pg_current_wal_lsn()` fails there.
+
+`prepared_xacts` is stored as changes on a keyframe, paired by `gid`; a database with no
+prepared transaction stores `[]`, which differs from the missing row of an unknown cycle.
+
 ### Analyzer (Tier 1 -- Rules Engine)
 
 25+ deterministic rules across 6 categories. No LLM required:
