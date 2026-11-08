@@ -431,8 +431,10 @@ promoted value at the next start and show it as pending restart.
 Noisy evidence does not restart the soak. Each pass derives a candidate, rounded up to the
 rule's step; a candidate within one step of the shadow, on the same side of the value in
 force, keeps the soak and its samples, and only a move of two or more steps (or to the
-other side) starts a new one. A derived value in force is not re-derived for a one-step
-move. The cost-sized keys (collector interval, catalog read timeout, sequence sampling)
+other side) starts a new one. Every key starts at its default, so a candidate back at the
+default keeps a one-step shadow's soak too; the soak drops that shadow when the 90th
+percentile of its derivations is the default again. A derived value in force is not
+re-derived for a one-step move. The cost-sized keys (collector interval, catalog read timeout, sequence sampling)
 promote the 90th percentile of the soak's derivations, so one cheap pass does not set the
 cadence. The temp-file threshold's soak samples the reactive detector's busiest window
 since the previous pass, so real bursts are judged instead of an hourly average. A hold is

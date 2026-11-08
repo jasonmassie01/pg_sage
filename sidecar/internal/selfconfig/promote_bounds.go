@@ -51,3 +51,32 @@ func (s *stepper) clampActive() {
 		"derived value %g is clamped to %g", b.Min, b.Max, note, old, v))
 	s.next.Active = ptr(v)
 }
+
+// boundaryNoise: with the default in force, a candidate back at it while
+// the shadow is one step away is jitter at the first step boundary (every
+// key starts there), so it keeps the soak; the soak clears the shadow when
+// its derivations support the default (soakSupports). It needs this pass's
+// raw derivation and the soak's, else nothing could ever clear it.
+func (s *stepper) boundaryNoise(shadow, current float64) bool {
+	return s.next.Active == nil && s.withinStep(shadow, current) &&
+		s.in.Proposal.Raw != nil && len(s.next.Derivations) > 0
+}
+
+// soakSupports: the soak's derivations at their 90th percentile derive
+// the value in force, so the shadow is dropped instead of judged. Only
+// boundary noise keeps such a soak; the defaults are each key's minimum,
+// so a shadow kept this way is above the value in force.
+func (s *stepper) soakSupports(current float64) bool {
+	p, ok := percentile90(s.next.Derivations)
+	return ok && equal(s.candidateOf(p), current)
+}
+
+// candidateOf is v as a candidate: rounded up to the step and clamped to
+// the bounds (when known).
+func (s *stepper) candidateOf(v float64) float64 {
+	v = roundUp(v, s.in.Rule.Step)
+	if validBounds(s.next.Bounds) {
+		v = Clamp(v, s.next.Bounds)
+	}
+	return v
+}

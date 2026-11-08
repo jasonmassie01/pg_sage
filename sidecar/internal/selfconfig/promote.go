@@ -127,10 +127,14 @@ func (s *stepper) current() float64 {
 // candidate within one step of the shadow, on the same side of the value
 // in force, is noise and keeps the soak; two or more steps or a change of
 // side restart it. A candidate within one step of a derived value in force
-// starts no shadow (the promoted value already absorbed that noise).
+// starts no shadow (the promoted value already absorbed that noise). At
+// the default, a return to it is noise for a one-step shadow (see
+// boundaryNoise).
 func (s *stepper) candidate() {
 	cand, current, shadow := s.in.Proposal.Value, s.current(), s.next.Shadow
 	switch {
+	case equal(cand, current) && shadow != nil && s.boundaryNoise(*shadow, current):
+		s.soak(current, *shadow)
 	case equal(cand, current):
 		s.clear(current, "the evidence supports the value in force again")
 	case shadow != nil && s.keepsShadow(cand, *shadow, current):
@@ -174,6 +178,10 @@ func (s *stepper) soak(current, shadow float64) {
 	if s.in.Now.Sub(s.next.ShadowSince) < s.in.Soak {
 		return
 	}
+	if s.soakSupports(current) {
+		s.clear(current, "over the soak the evidence supports the value in force")
+		return
+	}
 	target := s.promotion(shadow)
 	v := s.in.Rule.Judge(current, target, s.next.Samples, s.in.Cfg)
 	if v.Outcome == OutcomeNotWorse {
@@ -196,14 +204,10 @@ func (s *stepper) soak(current, shadow float64) {
 // cost-like rule the p90 of the soak's derivations rounded up to the step
 // (one cheap pass does not set the cadence); clamped to the bounds.
 func (s *stepper) promotion(shadow float64) float64 {
-	v := shadow
 	if p, ok := percentile90(s.next.Derivations); ok && s.in.Rule.PromoteP90 {
-		v = roundUp(p, s.in.Rule.Step)
+		return s.candidateOf(p)
 	}
-	if validBounds(s.next.Bounds) {
-		v = Clamp(v, s.next.Bounds)
-	}
-	return v
+	return s.candidateOf(shadow)
 }
 
 // appendCapped appends *v (nil: nothing), keeping the newest MaxSoakSamples.
