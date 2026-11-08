@@ -185,3 +185,55 @@ func TestWithLibraryKeepsTheListAndAvoidsDuplicates(t *testing.T) {
 		t.Errorf("unknown list = %q", got)
 	}
 }
+
+// The self-managed auto_explain step adds auto_explain to the current
+// session_preload_libraries instead of replacing it, which would silently
+// unload the operator's other session libraries.
+func TestAutoExplainKeepsSessionPreloadLibraries(t *testing.T) {
+	cases := []struct {
+		name string
+		list *string
+		want string
+	}{
+		{"other library kept", strp("pg_hint_plan"), "'pg_hint_plan,auto_explain'"},
+		{"unreadable setting", nil, "'<existing libraries>,auto_explain'"},
+		{"already listed, unchanged", strp("auto_explain,pg_hint_plan"),
+			"'auto_explain,pg_hint_plan'"},
+		{"empty list", strp(""), "'auto_explain'"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := allReady()
+			e.AutoExplainLoaded = false
+			e.SessionPreloadLibraries = c.list
+			caps, _ := ExtensionCapabilities(e, "self-managed")
+			a := capability(caps, CapAutoExplain)
+			if a.Status != CapabilityNotLoaded || len(a.Steps) != 3 {
+				t.Fatalf("auto_explain = %+v, want three not_loaded steps", a)
+			}
+			want := "As a superuser: ALTER SYSTEM SET session_preload_libraries = " +
+				c.want + ";"
+			if a.Steps[0] != want {
+				t.Fatalf("first step = %q, want %q", a.Steps[0], want)
+			}
+			if !strings.Contains(a.Steps[2], "pg_reload_conf") {
+				t.Fatalf("reload step = %q", a.Steps[2])
+			}
+		})
+	}
+}
+
+// Managed providers keep their own auto_explain steps; the session list
+// only shapes the self-managed ALTER SYSTEM step.
+func TestAutoExplainManagedStepsIgnoreSessionList(t *testing.T) {
+	e := allReady()
+	e.AutoExplainLoaded = false
+	e.SessionPreloadLibraries = strp("pg_hint_plan")
+	for _, p := range []string{"rds", "cloud-sql", "neon"} {
+		caps, _ := ExtensionCapabilities(e, p)
+		steps := strings.Join(capability(caps, CapAutoExplain).Steps, "\n")
+		if strings.Contains(steps, "session_preload_libraries") || steps == "" {
+			t.Fatalf("provider %s steps = %q", p, steps)
+		}
+	}
+}
