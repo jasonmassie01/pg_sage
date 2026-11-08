@@ -17,8 +17,9 @@ const maxDuplicateKeys = 20
 // IndexBuild is one row of pg_stat_progress_create_index in this database.
 type IndexBuild struct {
 	// TableOID is relid. IndexOID is index_relid: 0 while a CREATE INDEX
-	// that is not concurrent builds, and for REINDEX CONCURRENTLY the
-	// original index, not the _ccnew copies it is building.
+	// that is not concurrent builds. REINDEX CONCURRENTLY names the original
+	// while it waits for writers and the invalid _ccnew copy later, so a
+	// match on its table counts as live.
 	TableOID, IndexOID uint32
 	Command, Phase     string
 }

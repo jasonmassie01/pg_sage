@@ -111,6 +111,13 @@ func holdSnapshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 func startBuild(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	ddl string) (int32, <-chan error) {
 	t.Helper()
+	return startBuildAt(t, ctx, pool, ddl, "waiting for old snapshots")
+}
+
+// startBuildAt is startBuild for a build that waits in the given phase.
+func startBuildAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	ddl, wait string) (int32, <-chan error) {
+	t.Helper()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("acquire build connection: %v", err)
@@ -130,12 +137,12 @@ func startBuild(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		var phase string
 		err := pool.QueryRow(ctx, "SELECT phase FROM pg_stat_progress_create_index "+
 			"WHERE pid = $1", pid).Scan(&phase)
-		if err == nil && phase == "waiting for old snapshots" {
+		if err == nil && phase == wait {
 			return pid, res
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("%s never waited on old snapshots", ddl)
+	t.Fatalf("%s never reached phase %q", ddl, wait)
 	return 0, nil
 }
 
@@ -178,14 +185,51 @@ func TestInvalidIndexLiveBuildIsInfo(t *testing.T) {
 	}
 }
 
-// A live REINDEX CONCURRENTLY reports the original in index_relid while its
-// _ccnew copy is the invalid index: the copy is a build in progress, not a
-// leftover to drop.
+// holdWriter opens a transaction that has written to table, so a
+// concurrent build waits for writers before it builds; release ends it.
+func holdWriter(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	table string) func() {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin writer: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO "+table+" VALUES (0, 0)"); err != nil {
+		t.Fatalf("writer insert: %v", err)
+	}
+	done := false
+	release := func() {
+		if !done {
+			done = true
+			_ = tx.Rollback(context.Background())
+		}
+	}
+	t.Cleanup(release)
+	return release
+}
+
+// The invalid _ccnew copy of a live REINDEX CONCURRENTLY is a build in
+// progress, not a leftover to drop. While it waits for writers, index_relid
+// names the original; while it waits on old snapshots, the copy.
 func TestInvalidIndexLiveReindexCopyIsInfo(t *testing.T) {
+	cases := []struct {
+		phase string
+		hold  func(*testing.T, context.Context, *pgxpool.Pool, string) func()
+	}{
+		{"waiting for writers before build", holdWriter},
+		{"waiting for old snapshots", holdSnapshot},
+	}
+	for _, c := range cases {
+		t.Run(c.phase, func(t *testing.T) { liveReindexCopyIsInfo(t, c.phase, c.hold) })
+	}
+}
+
+func liveReindexCopyIsInfo(t *testing.T, phase string,
+	hold func(*testing.T, context.Context, *pgxpool.Pool, string) func()) {
 	pool, ctx := livePool(t)
 	s, q := liveBuildSchema(t, ctx, pool)
-	release := holdSnapshot(t, ctx, pool, q+".t")
-	_, res := startBuild(t, ctx, pool, "REINDEX INDEX CONCURRENTLY "+q+".t_a")
+	release := hold(t, ctx, pool, q+".t")
+	_, res := startBuildAt(t, ctx, pool, "REINDEX INDEX CONCURRENTLY "+q+".t_a", phase)
 	r, err := Run(ctx, pool, testOptions("app"))
 	if err != nil {
 		t.Fatalf("run: %v", err)
