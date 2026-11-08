@@ -25,7 +25,7 @@ func retiredWarning(key string) string {
 	return "tuner." + key + " is no longer used and is ignored; remove it"
 }
 
-func TestRetiredRevalidationKeepRatioLoadsWithOneWarning(t *testing.T) {
+func TestRetiredKeepRatioKeyLoadsWithOneWarning(t *testing.T) {
 	cfg, warnings, err := loadWithWarnings(t,
 		"tuner:\n  revalidation_keep_ratio: 1.2\n  hint_retirement_days: 9\n")
 	if err != nil {
