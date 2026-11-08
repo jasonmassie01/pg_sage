@@ -235,8 +235,10 @@ type tableMemory struct {
 }
 
 // suppress reports the remembered rejection of the same idea as rec, if
-// any. A nil view or an unparseable candidate never matches.
-func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
+// any, that the current minimum improvement minPct would still reject: a
+// minimum lowered to (or below) the remembered improvement re-measures. A
+// nil view or an unparseable candidate never matches.
+func (v *tableMemory) suppress(rec Recommendation, minPct float64) (rejection, bool) {
 	if v == nil || len(v.live) == 0 {
 		return rejection{}, false
 	}
@@ -245,7 +247,7 @@ func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
 		return rejection{}, false
 	}
 	for _, r := range v.live {
-		if r.Shape.sameIdea(shape) {
+		if r.ImprovementPct < minPct && r.Shape.sameIdea(shape) {
 			return r, true
 		}
 	}

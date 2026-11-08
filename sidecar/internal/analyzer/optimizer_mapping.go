@@ -71,6 +71,14 @@ func addWhatIfDetail(f *Finding, rec optimizer.Recommendation) {
 	if rec.WhatIfReason != "" {
 		f.Detail["what_if_reason"] = rec.WhatIfReason
 	}
+	// A partial measurement's evidence (indexes-06): how many statements
+	// were planned, and which could not be.
+	if rec.WhatIfMeasured > 0 || len(rec.WhatIfUnplannedQueryIDs) > 0 {
+		f.Detail["what_if_measured"] = rec.WhatIfMeasured
+	}
+	if len(rec.WhatIfUnplannedQueryIDs) > 0 {
+		f.Detail["what_if_unplanned_queryids"] = rec.WhatIfUnplannedQueryIDs
+	}
 }
 
 // advisePartitionPlan makes an index on a partitioned table advisory:

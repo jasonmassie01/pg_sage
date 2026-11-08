@@ -131,6 +131,11 @@ type Predicted struct {
 	QueryIDs           []int64  `json:"query_ids,omitempty"`
 	WhatIfVerdict      string   `json:"what_if_verdict,omitempty"`
 	WhatIfReason       string   `json:"what_if_reason,omitempty"`
+	// WhatIfMeasured and WhatIfUnplannedQueryIDs are a what-if's coverage:
+	// the statements planned with and without the index, and those it
+	// could not plan (a partial measurement stays unverified).
+	WhatIfMeasured          *int    `json:"what_if_measured,omitempty"`
+	WhatIfUnplannedQueryIDs []int64 `json:"what_if_unplanned_queryids,omitempty"`
 	// Method is how the effect was predicted: "hypopg" (what-if verified)
 	// or "llm_estimate".
 	Method string `json:"method,omitempty"`

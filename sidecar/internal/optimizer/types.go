@@ -23,6 +23,10 @@ type Recommendation struct {
 	// WhatIfReason says why a recommendation is unverified.
 	WhatIf       string `json:"what_if_verdict,omitempty"`
 	WhatIfReason string `json:"what_if_reason,omitempty"`
+	// WhatIfMeasured counts the statements the what-if planned with and
+	// without the index; WhatIfUnplannedQueryIDs are those it could not.
+	WhatIfMeasured          int     `json:"what_if_measured,omitempty"`
+	WhatIfUnplannedQueryIDs []int64 `json:"what_if_unplanned_queryids,omitempty"`
 	// PartitionedParent marks an index on a partitioned table: it is
 	// advisory, and PartitionPlan holds the ON ONLY / per-partition /
 	// ATTACH statements (nil for multi-level partitioning).

@@ -41,6 +41,18 @@ metadata action, recommend `CREATE STATISTICS`, draft parameterization changes,
 and promote repeated per-query `work_mem` hints into reviewed role-level
 settings when the blast radius is explicit.
 
+Index recommendations are measured with HypoPG hypothetical indexes when the
+`hypopg` extension is installed; pg_sage notices an extension installed while it
+runs within 10 minutes, without a restart. Only a complete measurement verifies
+or rejects an index. HypoPG models btree, BRIN, hash and bloom indexes; a GIN,
+GiST, SP-GiST, HNSW or IVFFlat recommendation stays unverified with the method
+named and needs operator approval (measure HNSW and IVFFlat with `pg_sage
+vector-lab`). When some workload statements cannot be planned, the verdict is
+unverified and the reason and approval card name the planned improvement and the
+unplanned queryids (`what_if_measured`, `what_if_unplanned_queryids`). Lowering
+`optimizer.hypopg_min_improvement_pct` re-measures remembered rejections the
+new minimum would admit.
+
 Provider readiness is adapter-driven for Lakebase, self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
 access, provider limitations, and action-family readiness so automation policy

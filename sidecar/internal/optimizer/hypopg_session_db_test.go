@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestHypoPGLockWaitEndsWithLockTimeout(t *testing.T) {
 	if !strings.Contains(err.Error(), "lock timeout") {
 		t.Fatalf("err = %q, want it to say lock timeout", err)
 	}
-	if res != (WhatIfResult{}) {
+	if !reflect.DeepEqual(res, WhatIfResult{}) {
 		t.Fatalf("a lock-timed-out evaluation produced evidence: %+v", res)
 	}
 	if elapsed > 3*time.Second {

@@ -74,6 +74,7 @@ func New(
 		opt(o)
 	}
 	o.hypopg.lockTimeout = o.catalogTimeouts.Lock
+	o.hypopg.readTimeouts = o.catalogTimeouts
 	o.validator.timeouts = o.catalogTimeouts
 	return o
 }
@@ -137,7 +138,7 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
 	if !operatorRequested(ctx) {
-		if r, seen := o.memory.view(ctx, tc).suppress(rec); seen {
+		if r, seen := o.memory.view(ctx, tc).suppress(rec, o.cfg.HypoPGMinImprovePct); seen {
 			o.whatIfSkips.Add(1)
 			return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
 				"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
@@ -163,16 +164,20 @@ func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []s
 // enrichWithHypoPG measures the recommendation with hypothetical indexes
 // and records the verdict (Phase 0 item 7). A complete measurement below
 // HypoPGMinImprovePct rejects it. Anything less than a complete
-// measurement — HypoPG unavailable, an error, no measurable query, a
-// query that could not be planned — is "unverified": the recommendation
-// is kept, but only an operator can approve it (the executor gates on
-// the verdict).
+// measurement — an access method HypoPG cannot model, HypoPG unavailable,
+// an error, no measurable query, a query that could not be planned — is
+// "unverified": the recommendation is kept, but only an operator can
+// approve it (the executor gates on the verdict).
 func (o *Optimizer) enrichWithHypoPG(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
 ) (Recommendation, bool) {
 	rec.Validated = false
+	if reason := HypoPGCannotModel(rec.DDL); reason != "" {
+		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, reason
+		return rec, false
+	}
 	if o.whatIf == nil || !o.whatIf.IsAvailable(ctx) {
 		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, "HypoPG unavailable"
 		return rec, false
@@ -183,6 +188,7 @@ func (o *Optimizer) enrichWithHypoPG(
 	}
 	verdict, reason := whatIfVerdict(res, err, o.cfg.HypoPGMinImprovePct)
 	rec.WhatIf, rec.WhatIfReason = verdict, reason
+	rec.WhatIfMeasured, rec.WhatIfUnplannedQueryIDs = res.Measured, res.UnplannedQueryIDs
 	if res.Measured > 0 {
 		rec.EstimatedImprovementPct = res.Improvement
 	}

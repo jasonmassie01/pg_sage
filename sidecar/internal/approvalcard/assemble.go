@@ -181,6 +181,11 @@ func predictedOf(in Inputs) Predicted {
 	p.QueryIDs = queryIDs(detail["queryids"])
 	p.WhatIfVerdict, _ = detail["what_if_verdict"].(string)
 	p.WhatIfReason, _ = detail["what_if_reason"].(string)
+	if measured, ok := number(detail["what_if_measured"]); ok {
+		n := int(measured)
+		p.WhatIfMeasured = &n
+	}
+	p.WhatIfUnplannedQueryIDs = queryIDs(detail["what_if_unplanned_queryids"])
 	validated, _ := detail["hypopg_validated"].(bool)
 	switch {
 	case p.WhatIfVerdict == "verified" || validated:
