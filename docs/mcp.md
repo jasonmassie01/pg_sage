@@ -87,6 +87,8 @@ curl -s -X DELETE https://pg-sage.example.com:8080/api/v1/mcp/tokens/<id> \
 ```
 
 A bearer token authenticates the MCP endpoint only, never the rest of the API.
+[Agent governance](agent-governance.md#tokens) covers what each kind of token follows, what
+a kill does to agent tokens, legacy tokens and OAuth access tokens.
 
 ## Databases
 
