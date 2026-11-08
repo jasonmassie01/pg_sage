@@ -15,7 +15,8 @@ const (
 	reviewScore  = 0.3
 )
 
-// LintRequest is migration SQL to lint; PGVersion 0 means the server's.
+// LintRequest is migration SQL to lint. PGVersion is a major (14-18) or a
+// server_version_num (140000-189999); 0 means the server's.
 type LintRequest struct {
 	SQL       string `json:"sql"`
 	PGVersion int    `json:"pg_version,omitempty"`
@@ -56,9 +57,6 @@ func (t *Tools) LintMigration(ctx context.Context, req LintRequest) (LintResult,
 	}
 	if len(req.SQL) > maxLintBytes {
 		return LintResult{}, invalid("sql is longer than %d bytes", maxLintBytes)
-	}
-	if req.PGVersion < 0 {
-		return LintResult{}, invalid("pg_version %d is negative", req.PGVersion)
 	}
 	version, err := t.lintVersion(ctx, req.PGVersion)
 	if err != nil {
@@ -132,9 +130,31 @@ func raiseToReview(res LintResult, note string) LintResult {
 	return res
 }
 
+// Supported server majors for pg_version.
+const (
+	minLintMajor = 14
+	maxLintMajor = 18
+)
+
+// normalizeServerVersion maps a requested pg_version to server_version_num:
+// a major from 14 to 18 is scaled by 10000, a server_version_num from
+// 140000 to 189999 passes, and anything else is an invalid request (0 is
+// not a version; the caller reads the server's instead).
+func normalizeServerVersion(v int) (int, error) {
+	switch {
+	case v >= minLintMajor && v <= maxLintMajor:
+		return v * 10000, nil
+	case v >= minLintMajor*10000 && v < (maxLintMajor+1)*10000:
+		return v, nil
+	}
+	return 0, invalid("pg_version %d is not supported: give a major from %d to %d "+
+		"or a server_version_num from %d to %d", v, minLintMajor, maxLintMajor,
+		minLintMajor*10000, (maxLintMajor+1)*10000-1)
+}
+
 func (t *Tools) lintVersion(ctx context.Context, requested int) (int, error) {
-	if requested > 0 {
-		return requested, nil
+	if requested != 0 {
+		return normalizeServerVersion(requested)
 	}
 	var version int
 	err := t.pool.QueryRow(ctx,

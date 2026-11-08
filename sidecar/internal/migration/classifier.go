@@ -4,8 +4,8 @@ import (
 	"regexp"
 )
 
-// RegexClassifier implements SQLParser using regex/token matching.
-// It is designed to be replaced by a pg_query_go-based classifier.
+// RegexClassifier implements SQLParser using regex/token matching over
+// sanitized, statement-split SQL.
 type RegexClassifier struct {
 	rules []ruleDefinition
 }
@@ -19,8 +19,10 @@ func NewRegexClassifier() *RegexClassifier {
 // matching classification. The text is sanitized first (comments
 // stripped, literals redacted) and split into statements, so batches
 // such as "SET lock_timeout = '5s'; ALTER TABLE ..." are classified per
-// statement. pgVersion is server_version_num (or a bare major version).
-func (rc *RegexClassifier) Classify(sql string, pgVersion int) []DDLClassification {
+// statement. The server version is accepted for the SQLParser contract
+// but no rule depends on it: every rule holds on the supported floor
+// (PostgreSQL 14) and later.
+func (rc *RegexClassifier) Classify(sql string, _ int) []DDLClassification {
 	var results []DDLClassification
 	lockTimeoutSet := false
 	for _, stmt := range splitStatements(sanitizeDDL(sql)) {
@@ -29,7 +31,7 @@ func (rc *RegexClassifier) Classify(sql string, pgVersion int) []DDLClassificati
 			lockTimeoutSet = true
 			continue
 		}
-		found := rc.classifyStatement(stmt, pgVersion)
+		found := rc.classifyStatement(stmt)
 		results = append(results, found...)
 		if !lockTimeoutSet {
 			results = append(results, rc.checkLockTimeout(stmt, found)...)
@@ -38,18 +40,16 @@ func (rc *RegexClassifier) Classify(sql string, pgVersion int) []DDLClassificati
 	return results
 }
 
-func (rc *RegexClassifier) classifyStatement(
-	sql string, pgVersion int,
-) []DDLClassification {
+func (rc *RegexClassifier) classifyStatement(sql string) []DDLClassification {
 	var results []DDLClassification
 	results = append(results, rc.matchIndexRules(sql)...)
 	if reAlterTable.MatchString(sql) {
 		results = append(results, rc.matchConstraintRules(sql)...)
-		results = append(results, rc.matchAlterColumnRules(sql, pgVersion)...)
-		results = append(results, rc.matchAddColumnRules(sql, pgVersion)...)
+		results = append(results, rc.matchAlterColumnRules(sql)...)
+		results = append(results, rc.matchAddColumnRules(sql)...)
 	}
 	results = append(results, rc.matchDropRules(sql)...)
-	results = append(results, rc.matchMaintenanceRules(sql, pgVersion)...)
+	results = append(results, rc.matchMaintenanceRules(sql)...)
 	return results
 }
 

@@ -265,8 +265,9 @@ func TestScenario_TruncateSQL(t *testing.T) {
 // Scenario: Classifier version gates
 // ---------------------------------------------------------------------------
 
-// TestScenario_Classifier_VersionGates verifies PG version-dependent
-// rule matching.
+// TestScenario_Classifier_VersionGates verifies rule matching on the
+// supported floor (PG 14): the pre-11 and pre-12 gates are gone
+// (migration-12).
 func TestScenario_Classifier_VersionGates(t *testing.T) {
 	classifier := NewRegexClassifier()
 
@@ -278,32 +279,18 @@ func TestScenario_Classifier_VersionGates(t *testing.T) {
 		wantMatch bool
 	}{
 		{
-			name:      "REINDEX_PG11_no_match",
+			name:      "REINDEX_PG14_matches",
 			sql:       "REINDEX TABLE t",
-			pgVersion: 11, // simple major version, not PG internal format
-			wantRule:  "ddl_reindex_not_concurrent",
-			wantMatch: false, // CONCURRENTLY not available < PG12
-		},
-		{
-			name:      "REINDEX_PG12_matches",
-			sql:       "REINDEX TABLE t",
-			pgVersion: 12,
+			pgVersion: 14,
 			wantRule:  "ddl_reindex_not_concurrent",
 			wantMatch: true,
-		},
-		{
-			name:      "ADD_COLUMN_NOT_NULL_PG10_matches",
-			sql:       "ALTER TABLE t ADD COLUMN name text NOT NULL",
-			pgVersion: 10,
-			wantRule:  "ddl_add_column_not_null",
-			wantMatch: true, // rewrite required < PG11
 		},
 		{
 			name:      "ADD_COLUMN_NOT_NULL_PG14_no_match",
 			sql:       "ALTER TABLE t ADD COLUMN name text NOT NULL",
 			pgVersion: 14,
 			wantRule:  "ddl_add_column_not_null",
-			wantMatch: false, // safe in PG11+
+			wantMatch: false, // the PG < 11 rule is deleted
 		},
 	}
 

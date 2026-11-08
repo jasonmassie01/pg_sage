@@ -51,9 +51,7 @@ func (rc *RegexClassifier) matchConstraintRules(sql string) []DDLClassification 
 }
 
 // matchAlterColumnRules checks SET NOT NULL and ALTER TYPE.
-func (rc *RegexClassifier) matchAlterColumnRules(
-	sql string, _ int,
-) []DDLClassification {
+func (rc *RegexClassifier) matchAlterColumnRules(sql string) []DDLClassification {
 	var results []DDLClassification
 	if m := reSetNotNull.FindStringSubmatch(sql); m != nil && isColumnIdent(m[1]) {
 		c := newClassification(rc.ruleByID("ddl_set_not_null"), sql)
@@ -71,35 +69,23 @@ func (rc *RegexClassifier) matchAlterColumnRules(
 	return results
 }
 
-// matchAddColumnRules checks ADD COLUMN with a volatile default, a
-// generated/serial/identity column, or NOT NULL without DEFAULT.
-func (rc *RegexClassifier) matchAddColumnRules(
-	sql string, pgVersion int,
-) []DDLClassification {
-	var results []DDLClassification
-	add := func(id string) {
-		c := newClassification(rc.ruleByID(id), sql)
-		fillTableFromAlter(sql, &c)
-		results = append(results, c)
-	}
+// matchAddColumnRules checks ADD COLUMN with a volatile default or a
+// generated/serial/identity column. A constant DEFAULT is a catalog-only
+// change on PostgreSQL 11+, so it is not flagged.
+func (rc *RegexClassifier) matchAddColumnRules(sql string) []DDLClassification {
 	rewrites := false
 	if m := reAddColumnDefault.FindStringSubmatch(sql); m != nil && isColumnIdent(m[1]) {
-		// On PG < 11 any DEFAULT causes a rewrite; on PG 11+ only
-		// volatile defaults are problematic.
-		rewrites = (pgVersion > 0 && pgVersion < 11) || isVolatileDefault(m[2])
+		rewrites = isVolatileDefault(m[2])
 	}
 	if m := reAddColumnGenerated.FindStringSubmatch(sql); m != nil && isColumnIdent(m[1]) {
 		rewrites = true
 	}
-	if rewrites {
-		add("ddl_add_column_volatile_default")
+	if !rewrites {
+		return nil
 	}
-	m := reAddColumnNotNull.FindStringSubmatch(sql)
-	if m != nil && isColumnIdent(m[1]) && !reHasDefault.MatchString(sql) &&
-		pgVersion > 0 && pgVersion < 11 {
-		add("ddl_add_column_not_null")
-	}
-	return results
+	c := newClassification(rc.ruleByID("ddl_add_column_volatile_default"), sql)
+	fillTableFromAlter(sql, &c)
+	return []DDLClassification{c}
 }
 
 // matchDropRules checks DROP COLUMN (COLUMN keyword optional inside
@@ -130,12 +116,10 @@ func hasDroppedColumn(sql string) bool {
 
 // matchMaintenanceRules checks REINDEX, VACUUM FULL, REFRESH, CLUSTER,
 // SET TABLESPACE, and ATTACH PARTITION.
-func (rc *RegexClassifier) matchMaintenanceRules(
-	sql string, pgVersion int,
-) []DDLClassification {
+func (rc *RegexClassifier) matchMaintenanceRules(sql string) []DDLClassification {
 	var results []DDLClassification
 
-	results = append(results, rc.matchReindex(sql, pgVersion)...)
+	results = append(results, rc.matchReindex(sql)...)
 	results = append(results, rc.matchVacuumFull(sql)...)
 	results = append(results, rc.matchRefresh(sql)...)
 	results = append(results, rc.matchCluster(sql)...)
@@ -145,17 +129,9 @@ func (rc *RegexClassifier) matchMaintenanceRules(
 	return results
 }
 
-func (rc *RegexClassifier) matchReindex(
-	sql string, pgVersion int,
-) []DDLClassification {
-	if !reReindex.MatchString(sql) {
+func (rc *RegexClassifier) matchReindex(sql string) []DDLClassification {
+	if !reReindex.MatchString(sql) || reReindexConcurrently.MatchString(sql) {
 		return nil
-	}
-	if reReindexConcurrently.MatchString(sql) {
-		return nil
-	}
-	if pgVersion > 0 && pgVersion < 12 {
-		return nil // REINDEX CONCURRENTLY not available before PG12
 	}
 	c := newClassification(rc.ruleByID("ddl_reindex_not_concurrent"), sql)
 	fillTarget(reReindexTarget, sql, &c)

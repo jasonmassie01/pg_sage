@@ -60,12 +60,6 @@ var (
 			`)\s+(?:(?:small|big)?serial[248]?\b|\S+.*\bGENERATED\s+` +
 			`(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+(?:IDENTITY\b|\(.*\)\s*STORED\b))`)
 
-	// ADD [COLUMN] x type NOT NULL without DEFAULT
-	reAddColumnNotNull = regexp.MustCompile(
-		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
-			`)\s+\S+\s+NOT\s+NULL\b`)
-	reHasDefault = regexp.MustCompile(`(?i)\bDEFAULT\b`)
-
 	// DROP [COLUMN] [IF EXISTS] x
 	reDropColumn = regexp.MustCompile(
 		`(?i)\bDROP\s+(COLUMN\s+)?(?:IF\s+EXISTS\s+)?(` + identRE + `)`)

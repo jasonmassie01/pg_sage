@@ -697,7 +697,7 @@ Scope: `read`
 | Argument | Type | Required | Notes |
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
-| `pg_version` | integer | no | value >= 0 |
+| `pg_version` | integer | no | a major (14-18) or a server_version_num (140000-189999); 0 or absent reads the server's; value >= 0 |
 | `sql` | string | yes | length 1-100000 |
 
 ### `query_sources`

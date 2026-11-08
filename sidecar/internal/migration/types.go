@@ -10,14 +10,15 @@ type DDLClassification struct {
 	SafeAlternative string // suggested safe DDL
 	TableName       string // extracted from statement
 	SchemaName      string // extracted from statement
-	MinPGVersion    int    // 0 = all versions
 	Description     string // human-readable explanation
 	ColumnName      string // ALTER COLUMN target, when extracted
 	TargetType      string // ALTER COLUMN ... TYPE target, when extracted
 }
 
-// SQLParser abstracts DDL classification so a future pg_query_go
-// implementation can replace the regex-based classifier.
+// SQLParser abstracts DDL classification. RegexClassifier is the only
+// implementation: it matches the rule catalog's regular expressions
+// against sanitized, statement-split SQL. pgVersion is the server's
+// server_version_num (0 when unknown).
 type SQLParser interface {
 	Classify(sql string, pgVersion int) []DDLClassification
 }

@@ -6,7 +6,6 @@ type ruleDefinition struct {
 	ID              string
 	LockLevel       string
 	RequiresRewrite bool
-	MinPGVersion    int
 	Description     string
 	SafeAltTemplate string // prose or SQL; never a format string
 }
@@ -83,12 +82,6 @@ func columnRules() []ruleDefinition {
 				"GENERATED ... STORED) rewrites the whole table",
 			SafeAltTemplate: "Add nullable, backfill in batches, then add constraint",
 		},
-		{
-			ID: "ddl_add_column_not_null", LockLevel: "ACCESS EXCLUSIVE",
-			RequiresRewrite: true,
-			Description:     "ADD COLUMN NOT NULL without DEFAULT rewrites on PG < 11",
-			SafeAltTemplate: "PG11+: safe with DEFAULT. PG<11: add nullable, backfill",
-		},
 	}
 }
 
@@ -97,8 +90,7 @@ func maintenanceRules() []ruleDefinition {
 	return []ruleDefinition{
 		{
 			ID: "ddl_reindex_not_concurrent", LockLevel: "ACCESS EXCLUSIVE",
-			MinPGVersion:    12,
-			Description:     "REINDEX blocks all access; use CONCURRENTLY on PG12+",
+			Description:     "REINDEX blocks all access; use CONCURRENTLY instead",
 			SafeAltTemplate: "REINDEX CONCURRENTLY",
 		},
 		{
