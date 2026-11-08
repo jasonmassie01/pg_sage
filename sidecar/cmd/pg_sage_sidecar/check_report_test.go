@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,5 +69,32 @@ func TestWithCapabilityFlagsCarriesStatementsSchema(t *testing.T) {
 	if got.StatementsSchema != "ext" || !got.HasWALColumns || !got.HasPlanTimeColumns ||
 		got.PGVersionNum != 170000 {
 		t.Fatalf("runtime config = %+v, want the checks' flags and schema", got)
+	}
+}
+
+// An override delete rebases on loadFileConfigBase; it must keep the
+// extension schema found at startup, or the collector would read
+// pg_stat_statements unqualified again after the delete.
+func TestFileConfigBaseKeepsStatementsSchema(t *testing.T) {
+	preserveFleetRuntimeGlobals(t)
+	previous := os.Args
+	t.Cleanup(func() { os.Args = previous })
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := strings.Join([]string{"mode: standalone", "postgres:", "  host: db.example",
+		"  database: app", "  user: u", ""}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Args = []string{"pg_sage", "--config", path}
+	cfg = config.DefaultConfig()
+	withCapabilityFlags(cfg, &startup.CheckResult{PGVersionNum: 170000,
+		HasWALColumns: true, HasPlanTimeColumns: true, StatementsSchema: "ext"})
+	base, err := loadFileConfigBase()
+	if err != nil {
+		t.Fatalf("load base: %v", err)
+	}
+	if base.StatementsSchema != "ext" || !base.HasWALColumns || !base.HasPlanTimeColumns {
+		t.Fatalf("base schema=%q wal=%v plan=%v, want the startup facts", base.StatementsSchema,
+			base.HasWALColumns, base.HasPlanTimeColumns)
 	}
 }
