@@ -16,7 +16,7 @@ const (
 	// database returns.
 	OutOfGateKillFallback OutOfGatePath = "kill_direct_fallback"
 	// OutOfGateManualRunbook is the manual SQL runbook in
-	// docs/agent-guard.md, for when pg_sage is down. Audit: the operator's
+	// docs/agent-governance.md, for when pg_sage is down. Audit: the operator's
 	// own records; a startup self-check notes changed agent roles.
 	OutOfGateManualRunbook OutOfGatePath = "manual_sql_runbook"
 	// OutOfGateBreakGlass is the break-glass login (E1), for when the IdP is

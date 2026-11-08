@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -50,6 +51,7 @@ func (l *Limiter) release() { <-l.slots }
 // at a time on this database, and at most the shared limiter's size
 // across the sidecar.
 type Runner struct {
+	policy *ReadPolicy
 	pool   *pgxpool.Pool
 	reg    *Registry
 	global *Limiter
@@ -65,13 +67,19 @@ type Runner struct {
 
 // NewRunner binds a registry to a database pool. global is shared by
 // every runner of the sidecar; nil gives this runner its own.
-func NewRunner(pool *pgxpool.Pool, reg *Registry, global *Limiter) *Runner {
+func NewRunner(pool *pgxpool.Pool, reg *Registry, global *Limiter, policy ...*ReadPolicy) *Runner {
 	if global == nil {
 		global = NewLimiter(MaxSidecarConcurrency)
 	}
-	return &Runner{pool: pool, reg: reg, global: global, local: NewLimiter(1),
+	var p *ReadPolicy
+	if len(policy) > 0 {
+		p = policy[0].Clone()
+	}
+	return &Runner{pool: pool, reg: reg, global: global, local: NewLimiter(1), policy: p,
 		acquireWait: acquireWait}
 }
+
+func (r *Runner) ReadPolicy() *ReadPolicy { return r.policy.Clone() }
 
 // Run executes one probe and returns its typed result. It never panics
 // and never returns an untyped failure.
@@ -89,6 +97,16 @@ func (r *Runner) RunBackground(ctx context.Context, id ID, args Args) Result {
 
 func (r *Runner) run(ctx context.Context, id ID, args Args, background bool) Result {
 	res := Result{ProbeID: id, ObservedAt: time.Now()}
+	if r != nil {
+		if denied := CheckReadPolicy(ctx, r.policy, id, args); denied != nil {
+			return *denied
+		}
+		for _, p := range []*ReadPolicy{r.policy, ContextReadPolicy(ctx)} {
+			if p != nil && (r.pool == nil || r.pool.Config().ConnConfig.Database != p.Database || p.Binding != PoolBinding(r.pool)) {
+				return PolicyDenied(id, "pool database does not match trusted read policy")
+			}
+		}
+	}
 	if r == nil || r.pool == nil || r.reg == nil {
 		return failed(res, StatusError, "not_configured", nil)
 	}
@@ -202,11 +220,22 @@ func (r *Runner) runSpec(ctx context.Context, conn *pgxpool.Conn, spec Spec, arg
 		return failedAt(res, PhaseExecution, StatusUnsupported, "pg_version",
 			fmt.Errorf("server_version_num %d", version))
 	}
+	if idScope := effectiveDatabasePolicy(ctx, r.policy); idScope && spec.ID == LockGraph {
+		variant.SQL = databaseLockGraphSQL
+		res.Version = "v3_database"
+	}
 	res, err = r.execute(ctx, conn, spec, variant, args, res, store)
 	if err != nil {
 		st, reason := classify(err)
 		return failedAt(res, PhaseExecution, st, reason, err)
 	}
+	for _, row := range res.Rows {
+		if outside, _ := row["_outside_scope"].(bool); outside {
+			return failed(res, StatusUnsupported, ReasonPolicyDenied, fmt.Errorf("a blocker is outside the monitored database"))
+		}
+		delete(row, "_outside_scope")
+	}
+	res.Columns = slices.DeleteFunc(res.Columns, func(s string) bool { return s == "_outside_scope" })
 	if len(res.Rows) == 0 {
 		res.Status, res.Reason = StatusEmpty, "no_rows"
 		return res

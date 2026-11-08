@@ -110,6 +110,8 @@ func writeToolMenu(b *strings.Builder, tools []string) {
 		case ToolExplain:
 			fmt.Fprintf(b, "%s {\"queryid\": n} explains a statement from "+
 				"stat_statements, plan only.\n", ToolExplain)
+		case ToolHistory:
+			fmt.Fprintf(b, "%s reads retained provider history with source, window_seconds and optional queryid. Original event times and compute IDs describe historical observations; empty/sampled history never proves current health, exact error multiplicity or SLO compliance.\n", ToolHistory)
 		}
 	}
 }

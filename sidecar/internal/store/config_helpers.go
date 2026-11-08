@@ -43,6 +43,7 @@ var allowedConfigKeys = map[string]string{
 	"safety.ddl_timeout_seconds":          "int_pos",
 	"safety.lock_timeout_ms":              "int_pos",
 	"llm.enabled":                         "bool",
+	"llm.auth":                            "llm_auth",
 	"llm.endpoint":                        "string",
 	"llm.api_key":                         "string",
 	"llm.model":                           "string",
@@ -206,6 +207,10 @@ func validateByType(vtype, key, value string) error {
 	case "mcp_transport":
 		return validateEnum(key, value, map[string]bool{
 			"stdio": true, "http": true,
+		})
+	case "llm_auth":
+		return validateEnum(key, value, map[string]bool{
+			"": true, "api_key": true, "databricks": true,
 		})
 	case "maintenance_window":
 		return validateMaintenanceWindow(value)
@@ -536,6 +541,7 @@ func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
 	addField(m, "llm.enabled", l.Enabled, "yaml")
+	addField(m, "llm.auth", l.Auth, "yaml")
 	addField(m, "llm.endpoint", l.Endpoint, "yaml")
 	addField(m, "llm.api_key", maskSecret(l.APIKey), "yaml")
 	addField(m, "llm.model", l.Model, "yaml")

@@ -16,7 +16,7 @@ func init() { Register(ap16{}) }
 type ap16 struct{}
 
 func (ap16) Spec() Spec {
-	return Spec{ID: "AP-16", Title: "Agent-like logins outside Agent Guard", Severity: Warning}
+	return Spec{ID: "AP-16", Title: "Agent-like logins outside agent governance", Severity: Warning}
 }
 
 var ap16SQL = Statement("AP-16", `SELECT r.oid, r.rolname::text
@@ -63,7 +63,7 @@ func unmanagedLogin(name, app string) Finding {
 		seen = "application_name " + app
 	}
 	return Finding{Severity: Warning, ObjectType: "role", Object: name,
-		Title: "Agent-like login outside Agent Guard",
+		Title: "Agent-like login outside agent governance",
 		Detail: "Login " + name + " is used by " + seen + " but is not a Guard agent " +
 			"role: Guard's grants, limits, audit and kill switch do not cover it.",
 		Recommendation: "Register the agent as a Guard principal and move it to its " +

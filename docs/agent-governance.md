@@ -1,6 +1,4 @@
-# Agent Guard: agent posture
-
-<!-- The product name appears only in the title above. To rename, change that line. -->
+# Agent governance: agent posture
 
 pg_sage's agent posture check reports how exposed a PostgreSQL database is to the AI agents
 and untrusted clients that connect to it. This covers MCP servers, coding agents, LangGraph
@@ -79,7 +77,7 @@ pg_sage's own role is never counted as an agent.
 | AP-13 | A login role used at once by 3 or more distinct clients (`application_name` and client address), at least one of them agent-like | info; warning once any registered agent role exists | `CREATE ROLE <login>_agent LOGIN NOINHERIT`, then move the agent to it |
 | AP-14 | pg_sage's own role is a superuser, holds `BYPASSRLS`, or has the privileges of an agent role | warning | `ALTER ROLE … NOBYPASSRLS`; `REVOKE <agent> FROM …` (PostgreSQL 14/15) or `REVOKE INHERIT OPTION FOR <agent> FROM …` (16+); a dedicated non-superuser role |
 | AP-15 | The `PUBLIC` baseline: tables, views and foreign tables granted to `PUBLIC` (one finding per schema), and default privileges that grant `PUBLIC` on new tables or sequences. Extension-owned objects are skipped | warning | `REVOKE ALL ON TABLE … FROM PUBLIC`; `ALTER DEFAULT PRIVILEGES FOR ROLE … REVOKE ALL ON TABLES FROM PUBLIC` |
-| AP-16 | Once any registered agent role exists, a login role seen with an agent-like `application_name` that isn't one (an agent outside Agent Guard) | warning | `ALTER ROLE … NOLOGIN` after the agent moves to its own credentials |
+| AP-16 | Once any registered agent role exists, a login role seen with an agent-like `application_name` that isn't one (an agent outside agent governance) | warning | `ALTER ROLE … NOLOGIN` after the agent moves to its own credentials |
 
 AP-03 and AP-06 skip tables and views an extension owns (pg_hint_plan's `hint_plan.hints`,
 for example): those grants come from the extension, not from you.
@@ -104,7 +102,7 @@ Notes on AP-09 to AP-16:
 - **AP-13** needs `pg_read_all_stats` (part of `pg_monitor`) to see other roles' client
   addresses. Without it, clients are counted by `application_name` only, and the finding's
   caveat says so.
-- **AP-14.** pg_sage also warns once at startup when it connects as a superuser: Agent Guard
+- **AP-14.** pg_sage also warns once at startup when it connects as a superuser: agent governance
   features need a non-superuser role. Posture still runs. Inheritance is read with
   `pg_has_role` on every version; the arms decide the fix (PostgreSQL 14/15 inherit per role,
   16+ per grant).

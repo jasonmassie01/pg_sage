@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 )
 
@@ -9,8 +10,9 @@ import (
 // their M2 plans.
 func (rt *databaseRuntime) newSignals(legacyID *int) *sreSignals {
 	sig, err := newSRESignals(sreSignalsDeps{control: rt.spec.ControlPool,
-		monitored: rt.spec.Pool, name: rt.spec.Name, legacyID: legacyID,
-		settings: rt.cfg.SRE, errors: rt.logErrorCounter(), logFn: logStructuredWrapper})
+		readPolicy: rt.sreReadPolicy(),
+		monitored:  rt.spec.Pool, name: rt.spec.Name, legacyID: legacyID,
+		settings: rt.cfg.SRE, errors: rt.logErrorCounter(), history: rt.sreHistorySource(), logFn: logStructuredWrapper})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre change feed and SLOs not started: %v",
 			rt.spec.Name, err)
@@ -24,6 +26,9 @@ func (rt *databaseRuntime) newSignals(legacyID *int) *sreSignals {
 func (rt *databaseRuntime) logErrorCounter() slo.ErrorCounter {
 	slos := rt.cfg.SRE.SLO
 	if rt.logFanout == nil || !slos.Enabled || !slos.Proxies.Enabled {
+		return nil
+	}
+	if !rt.sreReadPolicy().Allows(probes.SLOStatus) {
 		return nil
 	}
 	sub := rt.logFanout.SubscribeEntries("sre-slo:"+rt.spec.Name, rt.spec.Name)

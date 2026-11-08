@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -251,6 +252,99 @@ func TestEventsHandlerStreamsSubscribedEvent(t *testing.T) {
 		t.Errorf("stream missing payload database; got: %s", body)
 	}
 	assertEventStreamHeaders(t, rec.Header())
+}
+
+func TestEventsHandlerHTTP2LifetimeClosesCleanlyAndReconnects(t *testing.T) {
+	b := NewEventBroker()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.Start(ctx, nil, time.Hour, time.Millisecond)
+	defer b.Stop()
+	server := httptest.NewUnstartedServer(eventsHandlerWithLifetime(b, 20*time.Millisecond))
+	server.EnableHTTP2 = true
+	server.Config.WriteTimeout = 80 * time.Millisecond
+	server.StartTLS()
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 2 * time.Second
+	// A clean end preserves EventSource's normal retry/reconnect contract;
+	// each replacement stream must subscribe and clean up independently.
+	for attempt := 0; attempt < 2; attempt++ {
+		response, err := client.Get(server.URL + "/api/v1/events")
+		if err != nil {
+			t.Fatalf("stream %d open: %v", attempt, err)
+		}
+		if response.ProtoMajor != 2 || response.StatusCode != http.StatusOK {
+			response.Body.Close()
+			t.Fatalf("stream protocol/status = %s/%d", response.Proto, response.StatusCode)
+		}
+		assertEventStreamHeaders(t, response.Header)
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			t.Fatalf("stream %d ended with transport error instead of clean EOF: %v", attempt, err)
+		}
+		if !strings.HasPrefix(string(body), "retry: 3000\n\n") || !strings.Contains(string(body), "event: heartbeat\n") {
+			t.Fatalf("stream %d lost retry/heartbeat frames: %q", attempt, body)
+		}
+		if got := b.SubscriberCount(); got != 0 {
+			t.Fatalf("stream %d retained %d subscriptions after EOF", attempt, got)
+		}
+	}
+}
+
+func TestEventsHandlerLifetimeUnsubscribesWhileRequestRemainsOpen(t *testing.T) {
+	b := NewEventBroker()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	rec := &syncRecorder{rec: httptest.NewRecorder()}
+	done := make(chan struct{})
+	go func() {
+		eventsHandlerWithLifetime(b, 20*time.Millisecond)(rec, req)
+		close(done)
+	}()
+	if !waitFor(time.Second, func() bool { return b.SubscriberCount() == 1 }) {
+		t.Fatal("stream never subscribed")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not return at its lifetime")
+	}
+	if req.Context().Err() != nil || b.SubscriberCount() != 0 {
+		t.Fatalf("stream did not independently clean up: request=%v subscribers=%d", req.Context().Err(), b.SubscriberCount())
+	}
+}
+
+func TestEventsHandlerHTTP2CloseMarginSurvivesPriorAuthWork(t *testing.T) {
+	b := NewEventBroker()
+	handler := eventsHandlerWithLifetime(b, 60*time.Millisecond)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate account lookup consuming half of the server's absolute
+		// timeout before the stream starts. Without reanchoring a bounded
+		// deadline, the stream would be reset before its clean close.
+		time.Sleep(40 * time.Millisecond)
+		handler(w, r)
+	}))
+	server.EnableHTTP2 = true
+	server.Config.WriteTimeout = 80 * time.Millisecond
+	server.StartTLS()
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 2 * time.Second
+	response, err := client.Get(server.URL + "/api/v1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.ProtoMajor != 2 {
+		t.Fatalf("wanted HTTP/2, got %s", response.Proto)
+	}
+	if _, err := io.ReadAll(response.Body); err != nil {
+		t.Fatalf("prior account lookup consumed stream's close margin: %v", err)
+	}
+	if b.SubscriberCount() != 0 {
+		t.Fatal("stream retained its subscription after clean EOF")
+	}
 }
 
 func assertEventStreamHeaders(t *testing.T, h http.Header) {

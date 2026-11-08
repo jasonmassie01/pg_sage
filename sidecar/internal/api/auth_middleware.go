@@ -96,6 +96,8 @@ func UserFromContext(ctx context.Context) *auth.User {
 // shouldSkipAuth returns true for paths that don't require auth.
 func shouldSkipAuth(path string) bool {
 	switch {
+	case path == "/api/v1/auth/mode":
+		return true
 	case path == "/api/v1/auth/login":
 		return true
 	case path == "/api/v1/auth/oauth/callback":

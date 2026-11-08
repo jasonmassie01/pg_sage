@@ -101,7 +101,7 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = diagnoseM6(inv.TriggerKind, obs)
 	}
 	d = causal.WithChanges(causal.WithSelfActions(d, obs), obs)
-	return causal.WithSLO(d, obs)
+	return causal.WithHistorical(causal.WithSLO(d, obs), obs)
 }
 
 // seriesProbes are compared across samples. Every other probe is a

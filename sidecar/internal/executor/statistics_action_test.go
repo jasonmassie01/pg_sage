@@ -28,7 +28,7 @@ const statsRollback = "DROP STATISTICS IF EXISTS public.sage_stx_orders_ab"
 func TestValidateAcceptsPgSageStatistics(t *testing.T) {
 	for _, sql := range []string{
 		statsSQL,
-		"CREATE STATISTICS IF NOT EXISTS app.sage_stx_x (ndistinct, mcv) ON a, b, c FROM app.t",
+		"CREATE STATISTICS app.sage_stx_x (ndistinct, mcv) ON a, b, c FROM app.t",
 		statsRollback,
 		"DROP STATISTICS public.sage_stx_orders_ab;",
 	} {
@@ -40,6 +40,7 @@ func TestValidateAcceptsPgSageStatistics(t *testing.T) {
 
 func TestValidateRefusesOtherStatistics(t *testing.T) {
 	for _, sql := range []string{
+		"CREATE STATISTICS IF NOT EXISTS public.sage_stx_x ON a, b FROM public.t",
 		"CREATE STATISTICS st_orders ON id, status FROM orders",
 		"CREATE STATISTICS public.st_orders ON id, status FROM public.orders",
 		"CREATE STATISTICS public.sage_stx_x ON (lower(a)), b FROM public.t",
@@ -66,8 +67,9 @@ func TestStatisticsActionTypes(t *testing.T) {
 		statsSQL:      "create_statistics",
 		statsRollback: "revert_created_statistics",
 		// not the pg_sage form: no contract, so the gate fails closed
-		"CREATE STATISTICS st_orders ON id, status FROM orders": "",
-		"DROP STATISTICS public.st_orders":                      "",
+		"CREATE STATISTICS st_orders ON id, status FROM orders":                                "",
+		"CREATE STATISTICS IF NOT EXISTS public.sage_stx_orders_ab ON a, b FROM public.orders": "",
+		"DROP STATISTICS public.st_orders":                                                     "",
 	} {
 		if got := actionTypeForProposalSQL(sql); got != want {
 			t.Errorf("actionTypeForProposalSQL(%q) = %q, want %q", sql, got, want)
@@ -150,6 +152,9 @@ func TestRevertCreatedStatisticsContract(t *testing.T) {
 }
 
 func TestStatisticsRollbackIsDerivedAndMustMatch(t *testing.T) {
+	if _, err := statisticsRollback("CREATE STATISTICS IF NOT EXISTS public.sage_stx_orders_ab ON a, b FROM public.orders", statsRollback); !errors.Is(err, ErrDisallowedSQL) {
+		t.Fatalf("no-op-capable CREATE must not derive or retain a destructive inverse: %v", err)
+	}
 	got, err := statisticsRollback(statsSQL, "")
 	if err != nil || got != statsRollback {
 		t.Fatalf("derived rollback = %q, %v; want %q", got, err, statsRollback)
@@ -182,6 +187,10 @@ func TestFindingRollbackForStatistics(t *testing.T) {
 	f.RollbackSQL = "DROP STATISTICS IF EXISTS public.sage_stx_other"
 	if err := prepareFindingRollback(&f); !errors.Is(err, ErrRollbackMismatch) {
 		t.Fatalf("mismatched finding rollback = %v, want ErrRollbackMismatch", err)
+	}
+	f.RecommendedSQL = "CREATE STATISTICS IF NOT EXISTS public.sage_stx_orders_ab ON a, b FROM public.orders"
+	if err := prepareFindingRollback(&f); !errors.Is(err, ErrDisallowedSQL) {
+		t.Fatalf("no-op-capable finding must be refused before a rollback is queued: %v", err)
 	}
 }
 

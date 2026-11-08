@@ -190,7 +190,7 @@ export async function notificationLifecycle(page: Page, r: APIRequestContext) {
 }
 
 export const databaseInput = () => ({
-  name: unique(), host: '127.0.0.1', port: 5455,
+  name: unique(), host: '127.0.0.1', port: Number(process.env.PG_SAGE_E2E_PG_PORT || 5455),
   database_name: 'audit_browser_target1', username: 'postgres', password: 'postgres',
   sslmode: 'disable', trust_level: 'observation', execution_mode: 'approval',
 });
@@ -249,6 +249,18 @@ export function seedQueryWorkload() {
     'SELECT count(*) FROM generate_series(1,300) AS walkthrough_query_probe(id)'],
   { encoding: 'utf8' });
   expect(result.trim()).toBe('300');
+}
+
+export function seedSequenceWorkload() {
+  const fixture = fixtureTargets.find(db => db.name === target);
+  if (!fixture) throw new Error('Sequence workload requires an explicit disposable fixture');
+  // The collector intentionally persists null when there are no called user
+  // sequences. Seed a real used sequence for this populated-snapshot scenario.
+  execFileSync('docker', ['exec', fixture.container, 'psql', '-U', 'postgres',
+    '-d', fixture.db, '-v', 'ON_ERROR_STOP=1', '-At', '-c',
+    'CREATE SEQUENCE IF NOT EXISTS public.walkthrough_sequence_probe MAXVALUE 10000; '
+      + "SELECT nextval('public.walkthrough_sequence_probe')"],
+  { encoding: 'utf8' });
 }
 
 async function verifyDatabaseEdit(

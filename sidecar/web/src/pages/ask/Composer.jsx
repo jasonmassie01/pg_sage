@@ -8,8 +8,8 @@ import { MAX_QUESTION_LENGTH } from '../../lib/ask'
 
 const muted = { color: 'var(--text-secondary)' }
 
-export function Composer({ busy, onAsk, onNewConversation }) {
-  const [text, setText] = useState('')
+export function Composer({ busy, onAsk, onNewConversation, initialQuestion = '' }) {
+  const [text, setText] = useState(initialQuestion.slice(0, MAX_QUESTION_LENGTH))
   const question = text.trim()
   const canAsk = question !== '' && !busy
 

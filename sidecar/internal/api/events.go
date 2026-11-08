@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -146,6 +147,16 @@ func (b *EventBroker) heartbeatLoop(
 // response flushing rather than buffering so events reach
 // the client within the poll cadence.
 func eventsHandler(b *EventBroker) http.HandlerFunc {
+	// Finish normally before the server's 60-second write timeout or the
+	// Apps proxy timeout resets the stream. EventSource reconnects using
+	// the existing retry hint and rechecks authentication on that request.
+	return eventsHandlerWithLifetime(b, 45*time.Second)
+}
+
+func eventsHandlerWithLifetime(b *EventBroker, lifetime time.Duration) http.HandlerFunc {
+	if lifetime <= 0 {
+		lifetime = 45 * time.Second
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -153,13 +164,22 @@ func eventsHandler(b *EventBroker) http.HandlerFunc {
 				http.StatusInternalServerError)
 			return
 		}
+		// Authentication may have consumed part of the server's absolute
+		// write deadline. Give this stream its own bounded close margin;
+		// never remove the global timeout or leave a blocked write unbounded.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(lifetime + 5*time.Second)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			jsonError(w, "streaming temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		timer := time.NewTimer(lifetime)
+		defer timer.Stop()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
-		// Greet with a retry hint and an initial heartbeat so the
+		// Greet with a retry hint so the
 		// client's EventSource fires onopen quickly.
 		if _, err := fmt.Fprint(w, "retry: 3000\n\n"); err != nil {
 			return
@@ -173,6 +193,8 @@ func eventsHandler(b *EventBroker) http.HandlerFunc {
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-timer.C:
 				return
 			case evt, open := <-ch:
 				if !open {

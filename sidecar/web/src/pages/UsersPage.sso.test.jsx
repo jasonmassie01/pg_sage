@@ -35,6 +35,24 @@ describe('UsersPage SSO controls', () => {
     vi.restoreAllMocks()
   })
 
+  it('keeps role administration while hiding local account and SSO controls in Databricks Apps', async () => {
+    render(<UsersPage currentUser={{ id: 1, role: 'admin', auth_mode: 'databricks_app' }} />)
+    await screen.findByText('linked@x.test')
+    expect(screen.queryByTestId('add-user-email')).toBeNull()
+    expect(screen.queryByTestId('add-user-password')).toBeNull()
+    expect(screen.queryByTestId('add-user-submit')).toBeNull()
+    expect(screen.queryByTestId('user-sso-unlink')).toBeNull()
+    expect(screen.queryByTestId('user-sso-grant')).toBeNull()
+    expect(screen.queryByTestId('user-delete-button')).toBeNull()
+    const role = within(rowFor('linked@x.test')).getByTestId('user-role-select')
+    expect(role).not.toBeDisabled()
+    fireEvent.change(role, { target: { value: 'viewer' } })
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/v1/users/5/role', expect.objectContaining({ method: 'PUT', body: '{"role":"viewer"}' }),
+    ))
+    expect(within(rowFor('admin@x.test')).getByTestId('user-role-select')).toBeDisabled()
+  })
+
   it('shows an SSO badge and unlink for linked users', async () => {
     render(<UsersPage currentUser={{ id: 1, role: 'admin' }} />)
     const linked = await screen.findByText('linked@x.test')

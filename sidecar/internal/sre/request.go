@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // TriggerKind is the incident family that starts an investigation.
@@ -36,6 +38,7 @@ var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: t
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {
+	ReadPolicy     *probes.ReadPolicy
 	Scope          Scope
 	CaseID         string
 	IncidentID     string
@@ -65,6 +68,9 @@ func (r StartRequest) actor() string {
 
 // Validate checks the request before any store I/O.
 func (r StartRequest) Validate() error {
+	if err := r.ReadPolicy.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
 	if err := r.Scope.Validate(); err != nil {
 		return err
 	}

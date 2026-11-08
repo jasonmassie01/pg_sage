@@ -1,10 +1,9 @@
-// resolveSelectedDB returns the effective database selection. A name
-// restored from localStorage that no longer exists in the fleet falls
-// back to 'all' so the UI is never stuck on a deleted database with
-// the picker hidden (G9-B09). While the fleet is loading the stored
-// value is kept.
+// A singleton fleet always has a useful concrete scope, including on a first
+// visit or after a stored database is removed. Multi-database fleets retain
+// the explicit all-databases scope. Keep stored scope while inventory loads.
 export function resolveSelectedDB(selected, databases) {
-  if (!selected || selected === 'all') return 'all'
-  if (!Array.isArray(databases)) return selected
-  return databases.some(db => db?.name === selected) ? selected : 'all'
+  if (!Array.isArray(databases)) return selected || 'all'
+  const names = [...new Set(databases.map(db => db?.name).filter(Boolean))]
+  if (selected !== 'all' && names.includes(selected)) return selected
+  return names.length === 1 ? names[0] : 'all'
 }

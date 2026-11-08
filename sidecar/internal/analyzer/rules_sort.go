@@ -169,7 +169,7 @@ func (a *Analyzer) checkSortWithoutIndex(
 		SELECT DISTINCT ON (queryid)
 			queryid, query_text, plan_json
 		FROM sage.explain_cache
-		WHERE captured_at > now() - interval '1 day'
+		WHERE source <> 'lakebase_plan_history' AND captured_at > now() - interval '1 day'
 		ORDER BY queryid, captured_at DESC`)
 	if err != nil {
 		a.evalFail("sort_without_index")

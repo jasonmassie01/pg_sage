@@ -114,6 +114,13 @@ func (s *investigatorSession) finish(ctx context.Context, prior causal.Diagnosis
 	}
 	if prior.Conclusive {
 		d = prior
+		// Preserve the conclusive live graph, while allowing newly collected
+		// historical context to survive in its separate observed-fact channel.
+		obs, err := observations(stored)
+		if err != nil {
+			return s.lease, prior, modelOutcome{memory: s.memoryRef}, err
+		}
+		d = causal.WithHistorical(d, freshObservations(currentObservations(obs)))
 	}
 	run := s.transcript(res)
 	out := modelOutcome{memory: s.memoryRef, run: run}

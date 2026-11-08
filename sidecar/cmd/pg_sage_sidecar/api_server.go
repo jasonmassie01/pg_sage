@@ -45,11 +45,12 @@ func startAPIServer(rl *RateLimiter) {
 
 	configureAPIProcessHooks()
 	result := wireRouter(WireParams{
-		Cfg:       cfg,
-		Pool:      pool,
-		FleetMgr:  fleetMgr,
-		LLMMgr:    llmMgr,
-		MetaState: globalMetaState,
+		DatabricksAppAuth: databricksAppAuth,
+		Cfg:               cfg,
+		Pool:              pool,
+		FleetMgr:          fleetMgr,
+		LLMMgr:            llmMgr,
+		MetaState:         globalMetaState,
 		Actions: struct {
 			Store    *store.ActionStore
 			Executor *executor.Executor
@@ -137,6 +138,7 @@ func serveAPI(addr string, handler http.Handler) {
 	apiServer = &http.Server{
 		Addr:              addr,
 		Handler:           handler,
+		Protocols:         apiHTTPProtocols(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -150,4 +152,17 @@ func serveAPI(addr string, handler http.Handler) {
 			logError("api", "server error: %v", err)
 		}
 	}()
+}
+
+// Databricks Apps terminates TLS at its proxy and forwards H2C to the app.
+// Leave the standard Go protocol defaults intact for other deployments.
+func apiHTTPProtocols() *http.Protocols {
+	if os.Getenv("DATABRICKS_APP_PORT") == "" {
+		return nil
+	}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
+	return protocols
 }

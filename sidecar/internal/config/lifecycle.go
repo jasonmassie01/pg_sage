@@ -146,7 +146,7 @@ func reconfigurationOwner(path string) string {
 
 func isLLMResourceField(path string) bool {
 	for _, suffix := range []string{
-		"enabled", "endpoint", "api_key", "model",
+		"enabled", "endpoint", "api_key", "model", "auth",
 		"timeout_seconds", "cooldown_seconds",
 		"json_mode", "token_parameter", "tool_reasoning_effort",
 	} {

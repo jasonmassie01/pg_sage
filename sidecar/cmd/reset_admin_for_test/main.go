@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
 )
 
 type resetConfig struct {
@@ -84,7 +85,7 @@ func resetAdmin(
 
 func productionResetDeps() resetDeps {
 	return resetDeps{
-		open: pgxpool.New,
+		open: databricksauth.NewPool,
 		close: func(pool *pgxpool.Pool) {
 			pool.Close()
 		},

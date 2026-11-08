@@ -48,3 +48,23 @@ func TestHostedProviderFromHostAzure(t *testing.T) {
 		}
 	}
 }
+
+func TestHostedProviderFromHostLakebase(t *testing.T) {
+	for host, want := range map[string]string{
+		"ep-example.database.us-west-2.cloud.databricks.com":                  "lakebase",
+		"ep-example-pooler.database.ap-southeast-2.cloud.databricks.com":      "lakebase",
+		"EP-EXAMPLE.DATABASE.EU-WEST-3.CLOUD.DATABRICKS.COM.":                 "lakebase",
+		"ep-example.database.eastus2.azuredatabricks.net":                     "lakebase",
+		"ep-example-pooler.database.westeurope.azuredatabricks.net":           "lakebase",
+		"ep-example.database.us-west-2.cloud.databricks.com.attacker.example": "",
+		"ep-example.database.eastus2.azuredatabricks.net.attacker.example":    "",
+		"database.us-west-2.cloud.databricks.com":                             "",
+		"nested.ep-example.database.us-west-2.cloud.databricks.com":           "",
+		"ep-example.database.us-west-2.cloud.databricks.com:5432":             "",
+		"https://ep-example.database.eastus2.azuredatabricks.net":             "",
+	} {
+		if got := hostedProviderFromHost(host); got != want {
+			t.Errorf("hostedProviderFromHost(%q) = %q, want %q", host, got, want)
+		}
+	}
+}

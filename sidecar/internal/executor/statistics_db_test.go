@@ -206,6 +206,35 @@ func TestCreateStatisticsRunsWithItsAnalyzeAsOneAction(t *testing.T) {
 	}
 }
 
+func TestCreateStatisticsIfNotExistsCannotClaimExistingObject(t *testing.T) {
+	fx := newStatsFixture(t)
+	fx.mustExec(t, fx.sql)
+	objectOID := func() uint32 {
+		t.Helper()
+		var oid uint32
+		if err := fx.pool.QueryRow(fx.ctx, `SELECT s.oid FROM pg_statistic_ext s
+			JOIN pg_namespace n ON n.oid=s.stxnamespace
+			WHERE n.nspname='public' AND s.stxname=$1`, fx.name).Scan(&oid); err != nil {
+			t.Fatalf("read existing statistics identity: %v", err)
+		}
+		return oid
+	}
+	priorOID := objectOID()
+	fx.sql = strings.Replace(fx.sql, "CREATE STATISTICS ", "CREATE STATISTICS IF NOT EXISTS ", 1)
+	if err := ExecStatistics(fx.ctx, fx.pool, fx.sql, 10*time.Second); !errors.Is(err, ErrDisallowedSQL) {
+		t.Fatalf("direct execution must refuse a no-op-capable CREATE: %v", err)
+	}
+	if id, err := fx.run(t, "DROP STATISTICS IF EXISTS public."+fx.name); id != 0 || !errors.Is(err, ErrDisallowedSQL) {
+		t.Fatalf("operator action must refuse before retaining its inverse: id=%d error=%v", id, err)
+	}
+	if acts := fx.actions(t); len(acts) != 0 {
+		t.Fatalf("refused CREATE registered an action or rollback: %+v", acts)
+	}
+	if got := objectOID(); got != priorOID {
+		t.Fatalf("existing statistics identity changed: got %d want %d", got, priorOID)
+	}
+}
+
 // The verifier must count the action's own ANALYZE as the build of the
 // statistics, although action_log.executed_at is stamped after it.
 func TestStatisticsVerdictFromTheActionsOwnAnalyze(t *testing.T) {
@@ -220,8 +249,7 @@ func TestStatisticsVerdictFromTheActionsOwnAnalyze(t *testing.T) {
 		t.Fatalf("load plan: %v", err)
 	}
 	waitBuiltSinceAction(t, fx.ctx, fx.pool, plan)
-	time.Sleep(20 * time.Millisecond)
-	fx.capturePlans(t, time.Now().UTC())
+	fx.capturePlans(t, postAnalyzeCaptureTime(t, fx.ctx, fx.pool))
 	evidence := map[string]any{}
 	j := plan.judgeEstimates(fx.ctx, fx.pool, time.Now().Add(time.Second), evidence)
 	if j.Verdict != verify.OutcomeImproved {
@@ -248,6 +276,30 @@ func waitBuiltSinceAction(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	}
 	t.Fatalf("the action's ANALYZE of %s never showed in pg_stat_user_tables",
 		plan.r2.StatisticsTable)
+}
+
+// postAnalyzeCaptureTime puts the synthetic plans after PostgreSQL's ANALYZE
+// timestamp, even when the database VM clock is slightly ahead of the host.
+// The monitor's upper bound uses the host clock, so wait for the final seeded
+// timestamp to be observable there before starting its first judgement.
+func postAnalyzeCaptureTime(t *testing.T, ctx context.Context, pool *pgxpool.Pool) time.Time {
+	t.Helper()
+	var at time.Time
+	if err := pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&at); err != nil {
+		t.Fatalf("read database capture clock: %v", err)
+	}
+	wait := time.Until(at.Add(2 * time.Millisecond))
+	if wait > time.Second {
+		t.Fatalf("database capture clock is too far ahead of host: %s", wait)
+	}
+	timer := time.NewTimer(max(wait, 0))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		t.Fatalf("wait for capture timestamp: %v", ctx.Err())
+	}
+	return at
 }
 
 // improvedThenRolledBack: the full monitor records an improved statistics
@@ -314,8 +366,7 @@ func (fx *statsFixture) monitoredAction(t *testing.T, meanAfterMs float64) int64
 		t.Fatalf("load plan: %v", err)
 	}
 	waitBuiltSinceAction(t, fx.ctx, fx.pool, plan)
-	time.Sleep(20 * time.Millisecond)
-	fx.capturePlans(t, time.Now().UTC())
+	fx.capturePlans(t, postAnalyzeCaptureTime(t, fx.ctx, fx.pool))
 	acts := fx.actions(t)
 	if len(acts) != 1 {
 		t.Fatalf("actions = %+v, want one", acts)

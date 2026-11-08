@@ -59,7 +59,14 @@ func TestRequestCapability_QueuesForAnOperator(t *testing.T) {
 	require.Equal(t, "approval_required", res.ReasonCode)
 	require.True(t, res.RequestID > 0)
 	require.NotNil(t, res.ExpiresAt)
-	ttl := time.Until(*res.ExpiresAt)
+	// The expiry is stamped by PostgreSQL, which can run in a VM or on a
+	// remote host. Measure it against that clock rather than assuming the
+	// test runner and database clocks are perfectly synchronized.
+	var ttlSeconds float64
+	require.NoError(t, f.super.QueryRow(context.Background(),
+		"SELECT EXTRACT(EPOCH FROM ($1::timestamptz - clock_timestamp()))::double precision",
+		*res.ExpiresAt).Scan(&ttlSeconds))
+	ttl := time.Duration(ttlSeconds * float64(time.Second))
 	require.True(t, ttl > 14*time.Minute && ttl <= 15*time.Minute, "ttl %v", ttl)
 	require.Len(t, d.got, 1)
 	require.Equal(t, decide.Request{PrincipalID: f.p.ID, Tool: "agent_request_capability",

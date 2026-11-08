@@ -2,7 +2,8 @@
 // its inverse (owner decision 2026-10-04, PR #110): a pg_sage-named
 // statistics object (NamePrefix) in the table's own schema, of the kinds
 // the statistics verifier understands (ndistinct, dependencies, mcv), on
-// 2 to 8 plain columns of one schema-qualified table; undone by DROP
+// 2 to 8 plain columns of one schema-qualified table, without IF NOT EXISTS;
+// undone by DROP
 // STATISTICS IF EXISTS of exactly that object. Every other form is refused,
 // so pg_sage never creates or drops a statistics object it cannot name as
 // its own. Identifiers are plain or double-quoted without spaces, dots or
@@ -59,7 +60,6 @@ type Create struct {
 	TableSchema, Table Ident
 	Kinds              []string // canonical, in written order; empty = all kinds
 	Columns            []string // canonical, in written order
-	IfNotExists        bool
 }
 
 // QualifiedName is the statistics object as written.
@@ -158,7 +158,7 @@ func (c *Create) parseTable(tail string) error {
 func (c *Create) parseHead(head string) error {
 	idx := headPattern.FindStringSubmatchIndex(head)
 	if idx == nil {
-		return fmt.Errorf("CREATE STATISTICS must be [IF NOT EXISTS] schema.name " +
+		return fmt.Errorf("CREATE STATISTICS must be schema.name " +
 			"[(kinds)] ON plain column list")
 	}
 	group := func(n int) string {
@@ -167,7 +167,11 @@ func (c *Create) parseHead(head string) error {
 		}
 		return head[idx[2*n]:idx[2*n+1]]
 	}
-	c.IfNotExists = group(1) != ""
+	if group(1) != "" {
+		// A no-op CREATE cannot own the existing object: its derived inverse
+		// would drop statistics that this action did not create.
+		return fmt.Errorf("CREATE STATISTICS IF NOT EXISTS is not supported: rollback requires a newly created object")
+	}
 	if group(3) == "" {
 		return fmt.Errorf("the statistics name must be schema-qualified")
 	}

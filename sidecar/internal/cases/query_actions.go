@@ -1,7 +1,10 @@
 package cases
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,12 +27,13 @@ func prepareQueryRewriteCandidate(h SourceQueryHint) ActionCandidate {
 func retireQueryHintCandidate(h SourceQueryHint) ActionCandidate {
 	expires := queryHintEvidenceTime(h).Add(24 * time.Hour)
 	return ActionCandidate{
-		ActionType:    "retire_query_hint",
-		RiskTier:      "safe",
-		Confidence:    0.80,
-		ExpiresAt:     &expires,
-		OutputModes:   []string{"execute", "script"},
-		RollbackClass: "reversible",
+		ActionType:     "retire_query_hint",
+		RiskTier:       "safe",
+		Confidence:     0.80,
+		ExpiresAt:      &expires,
+		OutputModes:    []string{"execute", "script"},
+		RollbackClass:  "unknown",
+		RecoveryDetail: "The previous hint state has not been captured. Review the action audit and prepare the exact restoration before retiring this hint.",
 		VerificationPlan: []string{
 			"verify hint no longer appears in active hints",
 			"rerun query without forced planner directive",
@@ -37,7 +41,6 @@ func retireQueryHintCandidate(h SourceQueryHint) ActionCandidate {
 		ScriptOutput: &ScriptOutput{
 			Filename:     fmt.Sprintf("retire_query_hint_%d.sql", h.QueryID),
 			MigrationSQL: retireQueryHintSQL(h),
-			RollbackSQL:  "-- Re-enable from action audit if the hint is still beneficial.",
 			VerificationSQL: []string{
 				fmt.Sprintf(
 					"SELECT status FROM sage.query_hints WHERE queryid = %d;",
@@ -47,7 +50,7 @@ func retireQueryHintCandidate(h SourceQueryHint) ActionCandidate {
 			PRTitle: "Retire broken query hint",
 			PRBody: "Generated from pg_sage query hint case. " +
 				"The hint regressed during verification.",
-			RiskLabels: []string{"safe", "reversible", "query_hint"},
+			RiskLabels: []string{"safe", "unknown", "query_hint"},
 			Format:     "sql",
 		},
 	}
@@ -62,7 +65,8 @@ func roleWorkMemCandidate(f SourceFinding) ActionCandidate {
 		ProposedSQL:      strings.TrimSpace(f.RecommendedSQL),
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
-		RollbackClass:    "reversible",
+		RollbackClass:    "unknown",
+		RecoveryDetail:   "The previous role work_mem setting has not been captured. Capture its value and whether it was explicitly set before preparing recovery; RESET may not restore the previous state.",
 		VerificationPlan: roleWorkMemVerificationPlan(),
 	}
 	candidate.ScriptOutput = roleWorkMemScriptOutput(f, candidate)
@@ -132,6 +136,9 @@ func applyQueryHintCandidate(f SourceFinding) ActionCandidate {
 			RiskLabels: []string{"moderate", "reversible", "query_tuning"},
 			Format:     "sql",
 		},
+	}
+	if queryID == "" {
+		candidate.ScriptOutput = nil
 	}
 	return candidate
 }
@@ -216,7 +223,6 @@ func roleWorkMemScriptOutput(
 	return &ScriptOutput{
 		Filename:     scriptFilename(f, candidate),
 		MigrationSQL: candidate.ProposedSQL,
-		RollbackSQL:  "ALTER ROLE " + f.ObjectIdentifier + " RESET work_mem;",
 		VerificationSQL: []string{
 			"SELECT rolconfig FROM pg_roles WHERE rolname = " +
 				sqlLiteral(f.ObjectIdentifier) + ";",
@@ -225,7 +231,7 @@ func roleWorkMemScriptOutput(
 		PRTitle: "Review role work_mem promotion: " + f.ObjectIdentifier,
 		PRBody: "Generated from pg_sage query tuning case. " +
 			"Promotes repeated per-query work_mem hints to a reviewed role default.",
-		RiskLabels: []string{"moderate", "reversible", "query_tuning"},
+		RiskLabels: []string{candidate.RiskTier, candidate.RollbackClass, "query_tuning"},
 		Format:     "sql",
 	}
 }
@@ -255,6 +261,9 @@ func queryInvestigationScriptOutput(
 	query string,
 	queryID string,
 ) *ScriptOutput {
+	if queryID == "" {
+		return nil
+	}
 	if query == "" {
 		query = "-- Query text was not captured; use pg_stat_statements queryid " +
 			queryID + " to locate it."
@@ -278,23 +287,60 @@ func queryInvestigationScriptOutput(
 }
 
 func detailQueryID(f SourceFinding) string {
-	switch v := f.Detail["queryid"].(type) {
-	case int64:
-		return fmt.Sprintf("%d", v)
-	case int:
-		return fmt.Sprintf("%d", v)
-	case float64:
-		return fmt.Sprintf("%.0f", v)
-	case string:
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
+	var identity int64
+	identityKnown := false
+	if strings.HasPrefix(f.ObjectIdentifier, "queryid:") {
+		text := strings.TrimPrefix(f.ObjectIdentifier, "queryid:")
+		var err error
+		identity, err = strconv.ParseInt(text, 10, 64)
+		identityKnown = err == nil && strconv.FormatInt(identity, 10) == text
+		if !identityKnown {
+			return ""
 		}
 	}
-	id := strings.TrimPrefix(f.ObjectIdentifier, "queryid:")
-	if id == "" {
-		return sanitizeScriptPart(f.ID)
+	value, exists := f.Detail["queryid"]
+	if !exists {
+		if identityKnown {
+			return strconv.FormatInt(identity, 10)
+		}
+		return ""
 	}
-	return id
+	// A rounded legacy float can only be recovered from a compatible exact
+	// identity. Never turn its rounded decimal expansion into an identifier.
+	if n, ok := value.(float64); ok && math.Abs(n) > 9007199254740991 {
+		if identityKnown && n == float64(identity) {
+			return strconv.FormatInt(identity, 10)
+		}
+		return ""
+	}
+	id, ok := exactDetailQueryID(value)
+	if !ok || (identityKnown && id != identity) {
+		return ""
+	}
+	return strconv.FormatInt(id, 10)
+}
+
+func exactDetailQueryID(value any) (int64, bool) {
+	var text string
+	switch v := value.(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || math.Abs(v) > 9007199254740991 {
+			return 0, false
+		}
+		return int64(v), true
+	case json.Number:
+		text = v.String()
+	case string:
+		text = strings.TrimSpace(v)
+	default:
+		return 0, false
+	}
+	id, err := strconv.ParseInt(text, 10, 64)
+	return id, err == nil
 }
 
 func queryRewriteVerificationPlan() []string {

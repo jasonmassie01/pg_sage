@@ -1,0 +1,52 @@
+bundle:
+  name: pg-sage-app
+
+sync:
+  include:
+    - app.yaml
+    - binary.json
+    - binary.part-*
+    - config.json
+    - launch.py
+    - databricks.yml
+
+resources:
+  apps:
+    pg_sage:
+      name: pg-sage-test
+      description: 'pg_sage Lakebase compatibility pilot'
+      source_code_path: .
+      config:
+        command: ['python', 'launch.py']
+        env:
+          - name: PGHOST
+            value: '<lakebase-endpoint-host>'
+          - name: PGDATABASE
+            value: '<dedicated-database>'
+          - name: PGSSLMODE
+            value: 'verify-full'
+          - name: SAGE_LAKEBASE_ENDPOINT
+            value: 'projects/<project>/branches/<branch>/endpoints/<endpoint>'
+          - name: SAGE_ENCRYPTION_KEY
+            value_from: sage-encryption-key
+          - name: SAGE_AUTH_MODE
+            value: databricks_app
+          - name: SAGE_DATABRICKS_ADMIN_EMAIL
+            value: '<explicit-admin-email>'
+          - name: SAGE_TRUST_LEVEL
+            value: observation
+      resources:
+        - name: postgres
+          postgres:
+            branch: 'projects/<project>/branches/<branch>'
+            database: 'projects/<project>/branches/<branch>/databases/<database-id>'
+            permission: CAN_CONNECT_AND_CREATE
+        - name: sage-encryption-key
+          secret:
+            scope: '<existing-secret-scope>'
+            key: '<existing-encryption-key-secret>'
+            permission: READ
+
+targets:
+  test:
+    default: true

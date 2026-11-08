@@ -48,13 +48,13 @@ func TestBuildActionFamilyReadinessAsksGateOnlyForSupportedFamilies(t *testing.T
 	}
 	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"}, explain)
 	for _, actionType := range asked {
-		if actionType == "create_statistics" || actionType == "promote_role_work_mem" {
+		if actionType == "promote_role_work_mem" {
 			t.Fatalf("unimplemented family %s was sent to the gate", actionType)
 		}
 	}
 	stats := actionReadiness(t, got, "create_statistics")
-	if stats.Supported || stats.BlockedReason != "direct execution is not implemented" {
-		t.Fatalf("create_statistics = %#v", stats)
+	if !stats.Supported || stats.Decision != executor.PolicyDecisionExecute {
+		t.Fatalf("implemented create_statistics = %#v", stats)
 	}
 	if len(asked) == 0 || len(asked) >= len(got) {
 		t.Fatalf("gate asked about %d of %d families", len(asked), len(got))

@@ -4,7 +4,7 @@ import { fixtureTargets } from './fixture-targets';
 import {
   adminEmail, adminPassword, apiLogin, body, databaseInput, databaseLifecycle, get,
   localSink, login, managed, notificationLifecycle, object, open, path, post, put,
-  remove, rows, secondTarget, seedQueryWorkload, target, unique, withConfig, withUser,
+  remove, rows, secondTarget, seedQueryWorkload, seedSequenceWorkload, target, unique, withConfig, withUser,
 } from './walkthrough-support';
 
 // Scenario consolidation/mapping: tasks/walkthrough-repair-2026-09-04.md.
@@ -108,12 +108,15 @@ test('CHECK-12/13/14/65/66/67 case evidence, SQL and finding identity agree',
   expect(findings.every(f => f.database_name === target)).toBe(true);
   const other = rows((await get(request, `/findings?database=${secondTarget}`)).findings);
   expect(other.every(f => f.database_name === secondTarget)).toBe(true);
-  const detail = await get(request, `/findings/${findings[0].id}?database=${target}`);
-  expect(detail.id).toBe(findings[0].id);
-  expect(detail.title).toBe(findings[0].title);
+  const actionable = findings.find(f => String(f.recommended_sql || '').trim() !== '');
+  expect(actionable, 'Fixture must include a finding with a proposed migration').toBeDefined();
+  const detail = await get(request, `/findings/${actionable!.id}?database=${target}`);
+  expect(detail.id).toBe(actionable!.id);
+  expect(detail.title).toBe(actionable!.title);
   expect(String(detail.category)).not.toBe('');
   const cases = rows((await get(request, `/cases?database=${target}`)).cases);
-  const findingCase = cases.find(c => c.source_type === 'finding');
+  const findingCase = cases.find(c => c.source_type === 'finding'
+    && Array.isArray(c.source_ids) && c.source_ids.map(String).includes(String(detail.id)));
   expect(findingCase).toBeDefined();
   expect(rows(findingCase!.evidence).length).toBeGreaterThan(0);
   expect(rows(findingCase!.action_candidates).length).toBeGreaterThan(0);
@@ -252,7 +255,7 @@ for (const scope of ['', `?database=${target}`]) {
         expect(object((await get(request, '/databases')).summary).emergency_stopped).toBe(true);
         await login(page);
         await expect(page.getByTestId('emergency-stop-badge')).toBeVisible();
-        await open(page, 'settings', 'resume-button');
+        await open(page, 'settings', 'header-emergency-resume');
       } finally {
         expect((await post(request, `/resume${scope}`)).status).toBe('resumed');
         expect(object((await get(request, '/databases')).summary).emergency_stopped).toBe(false);
@@ -311,6 +314,12 @@ for (const metric of ['tables', 'indexes', 'queries', 'sequences']) {
       await expect.poll(async () => JSON.stringify((await get(request,
         `/snapshots/latest?database=${target}&metric=queries`)).snapshot),
       { timeout: 20000 }).toContain('walkthrough_query_probe');
+    }
+    if (metric === 'sequences') {
+      seedSequenceWorkload();
+      await expect.poll(async () => JSON.stringify((await get(request,
+        `/snapshots/latest?database=${target}&metric=sequences`)).snapshot),
+      { timeout: 20000 }).toContain('walkthrough_sequence_probe');
     }
     const snapshot = await get(request, `/snapshots/latest?database=${target}&metric=${metric}`);
     expect(snapshot.database).toBe(target);

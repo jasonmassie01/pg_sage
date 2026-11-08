@@ -22,6 +22,10 @@ func startMCPRuntime() {
 	if cfg == nil || !cfg.MCP.Enabled {
 		return
 	}
+	if config.DatabricksAppMode() {
+		logInfo("mcp", "MCP is unavailable in Databricks Apps until platform identity can preserve agent/task/database authorization")
+		return
+	}
 	backend, err := mcp.NewProductionBackend(mcpDependencies())
 	if err != nil {
 		logError("mcp", "production backend: %v", err)

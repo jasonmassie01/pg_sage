@@ -48,7 +48,7 @@ func VerifyGrants(
 	logFn func(string, string, ...any),
 ) {
 	// Resolve actual connected user (handles DATABASE_URL override) and
-	// whether it is a superuser (the Agent Guard self-check, AP-14).
+	// whether it is a superuser (the agent governance self-check, AP-14).
 	var actual string
 	var super bool
 	if err := pool.QueryRow(ctx, selfRoleSQL).Scan(&actual, &super); err == nil {

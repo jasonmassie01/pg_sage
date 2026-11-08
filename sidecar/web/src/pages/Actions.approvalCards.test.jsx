@@ -55,7 +55,7 @@ vi.mock('../hooks/useAPI', () => ({
 
 function openPending() {
   render(<Actions database="all" user={{ role: 'operator' }} />)
-  fireEvent.click(screen.getByText('Pending Approval'))
+  fireEvent.click(screen.getByTestId('actions-tab-pending'))
 }
 
 describe('Actions pending approval cards', () => {
@@ -87,10 +87,10 @@ describe('Actions pending approval cards', () => {
     expect(detail).toHaveTextContent('Trust level is advisory')
   })
 
-  it('shows an empty state when there are no cards', () => {
+  it('keeps pending work visible when the card response is empty', () => {
     cardsResponse = { cards: [], total: 0, errors: [] }
     openPending()
     expect(screen.queryByTestId('approval-card')).toBeNull()
-    expect(screen.getByTestId('approval-cards-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-actions-table')).toBeInTheDocument()
   })
 })

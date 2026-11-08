@@ -167,6 +167,7 @@ func derivedLLMConfig(
 func optimizerLLMConfig(parent config.LLMConfig) config.LLMConfig {
 	opt := parent.OptimizerLLM
 	merged := config.LLMConfig{
+		Auth:             parent.OptimizerAuth(),
 		Enabled:          opt.Enabled,
 		Endpoint:         firstNonEmpty(opt.Endpoint, parent.Endpoint),
 		APIKey:           firstNonEmpty(opt.APIKey, parent.APIKey),

@@ -4,7 +4,21 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/store"
 )
+
+func TestPersistedLLMAuthOverride(t *testing.T) {
+	for _, value := range []string{"", "api_key", "databricks"} {
+		if err := store.ValidateConfigOverride("llm.auth", value); err != nil {
+			t.Fatalf("validate auth %q: %v", value, err)
+		}
+		candidate := config.DefaultConfig()
+		ApplyConfigOverrideSnapshot(candidate, "llm.auth", value)
+		if candidate.LLM.Auth != value {
+			t.Errorf("auth = %q, want %q", candidate.LLM.Auth, value)
+		}
+	}
+}
 
 // A persisted override (Settings UI / API, stored in sage.config) of
 // "false" must win over the new default-on LLM switches at startup.

@@ -34,17 +34,36 @@ func (s *investigatorSession) tools() []agentloop.Tool {
 	for _, name := range s.plan.ToolsFor(s.inv.TriggerKind) {
 		switch name {
 		case ToolRunProbe:
-			out = append(out, s.probeTool())
+			for _, id := range probes.Catalog().IDs() {
+				if s.c.SourceAllowed(id) {
+					out = append(out, s.probeTool())
+					break
+				}
+			}
 		case ToolStatView:
-			out = append(out, s.statTool())
+			for _, name := range probes.StatViews() {
+				if s.c.SourceAllowed(probes.StatView(name)) {
+					out = append(out, s.statTool())
+					break
+				}
+			}
 		case ToolExplain:
-			if s.c.investigator.Explainer != nil {
+			if s.c.investigator.Explainer != nil && s.c.SourceAllowed(ExplainProbeID) {
 				out = append(out, s.explainTool())
 			}
 		case ToolGraphState:
 			out = append(out, s.graphTool())
 		case ToolFacts:
 			out = append(out, s.factsTool())
+		case ToolHistory:
+			if s.c.investigator.History != nil {
+				for _, id := range probes.HistoricalIDs() {
+					if s.c.SourceAllowed(id) {
+						out = append(out, s.historyTool())
+						break
+					}
+				}
+			}
 		}
 	}
 	return out
@@ -61,6 +80,9 @@ func toolNames(ts []agentloop.Tool) []string {
 func (s *investigatorSession) probeTool() agentloop.Tool {
 	ids := make([]string, 0, len(probes.Catalog().IDs()))
 	for _, id := range probes.Catalog().IDs() {
+		if !s.c.SourceAllowed(id) {
+			continue
+		}
 		ids = append(ids, `"`+string(id)+`"`)
 	}
 	schema := `{"type":"object","properties":{"probe":{"type":"string","enum":[` +
@@ -103,6 +125,9 @@ func decodeProbeCall(raw json.RawMessage) (probes.ID, probes.Args, error) {
 func (s *investigatorSession) statTool() agentloop.Tool {
 	views := make([]string, 0, 3)
 	for _, v := range probes.StatViews() {
+		if !s.c.SourceAllowed(probes.StatView(v)) {
+			continue
+		}
 		views = append(views, `"`+v+`"`)
 	}
 	schema := `{"type":"object","properties":{"view":{"type":"string","enum":[` +

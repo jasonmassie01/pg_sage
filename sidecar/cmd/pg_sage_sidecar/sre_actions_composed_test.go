@@ -305,3 +305,62 @@ func TestSREActionsWiringNeedsItsDependencies(t *testing.T) {
 		t.Fatalf("defaults = %+v, want proposals and approval requests on", d)
 	}
 }
+
+// Construction must preserve existing SRE actions while withholding only the
+// typed maintenance bridge when retention cannot reach its target records.
+func TestSREActionsWiringMaintenanceNeedsColocatedRetention(t *testing.T) {
+	const controlURL = "postgres://control@127.0.0.1:1/owned?sslmode=disable"
+	for _, tc := range []struct {
+		name, target         string
+		denied               bool
+		maintenance, warning bool
+	}{
+		{name: "same target separate pool", target: controlURL, maintenance: true},
+		{name: "same database different identity", target: "postgres://operator@127.0.0.1:1/owned?sslmode=disable", maintenance: true},
+		{name: "separate database", target: "postgres://control@127.0.0.1:1/other?sslmode=disable", warning: true},
+		{name: "separate port", target: "postgres://control@127.0.0.1:2/owned?sslmode=disable", warning: true},
+		{name: "separate host", target: "postgres://control@127.0.0.2:1/owned?sslmode=disable", warning: true},
+		{name: "source denied", target: controlURL, denied: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Lazy pools target closed loopback ports. No network or SQL is needed to
+			// decide whether local retention can protect this maintenance topology.
+			control, err := pgxpool.New(context.Background(), controlURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer control.Close()
+			target, err := pgxpool.New(context.Background(), tc.target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer target.Close()
+			st, err := sre.NewPostgresStore(control, sre.DefaultLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			svc := sre.NewService("owned", &sre.Coordinator{}, st)
+			cfg := config.DefaultConfig()
+			ex := executor.New(target, cfg, time.Time{}, func(string, string, ...any) {})
+			var readPolicy *probes.ReadPolicy
+			if tc.denied {
+				readPolicy = &probes.ReadPolicy{Version: 1, Scope: "database", Database: "owned", Binding: probes.PoolBinding(target), Allowed: []probes.ID{probes.StatDatabase}}
+			}
+			warnings := 0
+			actions, err := newSREActions(sreActionDeps{service: svc, monitored: target, executor: ex, name: "owned", settings: cfg.SRE.Actions, readPolicy: readPolicy, logFn: func(level, _ string, _ ...any) {
+				if level == "WARN" {
+					warnings++
+				}
+			}})
+			if err != nil || actions == nil {
+				t.Fatalf("existing SRE actions lost: actions=%v err=%v", actions, err)
+			}
+			if got := actions.MaintenanceService() != nil; got != tc.maintenance {
+				t.Fatalf("maintenance attached=%v, want %v; control=%s target=%s warnings=%d", got, tc.maintenance, probes.PoolBinding(control), probes.PoolBinding(target), warnings)
+			}
+			if got := warnings > 0; got != tc.warning {
+				t.Fatalf("topology warning=%v, want %v", got, tc.warning)
+			}
+		})
+	}
+}

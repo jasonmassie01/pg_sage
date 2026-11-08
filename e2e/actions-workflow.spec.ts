@@ -6,9 +6,9 @@ const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
 type PendingAction = {
-  id: number;
+  id: number | string;
   database_name: string;
-  finding_id: number;
+  finding_id: number | string;
   proposed_sql: string;
   status: string;
 };
@@ -26,6 +26,7 @@ type ActionLogEntry = {
   id: number | string;
   finding_id?: number | string | null;
   outcome?: string;
+  verification_verdict?: string;
   sql_executed?: string;
 };
 
@@ -43,6 +44,9 @@ async function fetchPending(page: Page): Promise<PendingAction[]> {
 }
 
 async function rowForAction(page: Page, action: PendingAction) {
+  // Approval cards are the default; the workflow below exercises the
+  // existing table controls and identifies the exact queued action.
+  await page.getByRole('button', { name: 'Table view', exact: true }).click();
   const row = page.locator('tbody tr')
     .filter({
       has: page.locator(`td:text-is("${action.database_name}")`),
@@ -92,7 +96,7 @@ test.describe.serial('Actions workflow', () => {
     const queueID = seedAction('reject');
     const pending = await fetchPending(page);
     const target = pending.find((a) =>
-      a.id === queueID && a.database_name === 'health_test' &&
+      Number(a.id) === queueID && a.database_name === 'health_test' &&
       a.proposed_sql.startsWith('DROP INDEX CONCURRENTLY'),
     );
     expect(target, 'seeded rejection action must be returned').toBeTruthy();
@@ -133,7 +137,7 @@ test.describe.serial('Actions workflow', () => {
     const queueID = seedAction('approve');
     const pending = await fetchPending(page);
     const target = pending.find((a) =>
-      a.id === queueID && a.database_name === 'testdb' &&
+      Number(a.id) === queueID && a.database_name === 'testdb' &&
       a.proposed_sql.includes(
         'CREATE INDEX CONCURRENTLY e2e_workflow_idx ON public.e2e_workflow_orders',
       ),
@@ -185,8 +189,11 @@ test.describe.serial('Actions workflow', () => {
 
     expect(actionLog, 'approved action should be visible in executed log')
       .toBeTruthy();
-    expect(Number(actionLog!.finding_id)).toBe(target!.finding_id);
-    expect(actionLog!.outcome).toBe('success');
+    expect(Number(actionLog!.finding_id)).toBe(Number(target!.finding_id));
+    // The fixture has no predicted gain or measured workload. Executing
+    // its DDL must not manufacture verified performance credit.
+    expect(actionLog!.outcome).toBe('unverifiable');
+    expect(actionLog!.verification_verdict).toBe('unverifiable');
     expect(actionLog!.sql_executed).toContain(
       'CREATE INDEX CONCURRENTLY e2e_workflow_idx ON public.e2e_workflow_orders',
     );
@@ -231,7 +238,7 @@ test.describe.serial('Actions workflow', () => {
       'open',
     );
     expect(
-      refreshedOpen.some((f) => Number(f.id) === target!.finding_id),
+      refreshedOpen.some((f) => Number(f.id) === Number(target!.finding_id)),
       'approved action finding must not reopen after refresh',
     ).toBe(false);
 
@@ -241,7 +248,7 @@ test.describe.serial('Actions workflow', () => {
       'resolved',
     );
     const resolvedFinding = refreshedResolved.find((f) =>
-      Number(f.id) === target!.finding_id
+      Number(f.id) === Number(target!.finding_id)
     );
     expect(resolvedFinding).toBeTruthy();
     expect(Number(resolvedFinding!.action_log_id))

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -16,6 +17,8 @@ type PlanCapture struct {
 	pool                 *pgxpool.Pool
 	pgVersionNum         int
 	autoExplainAvailable bool
+	providerScope        func() string
+	providerRetention    time.Duration
 	preferredSource      string
 	logFn                func(string, string, ...any)
 }
@@ -45,6 +48,16 @@ func (p *PlanCapture) CapturePlans(
 ) ([]PlanSummary, string) {
 	if p.preferredSource == "none" {
 		return nil, "none"
+	}
+
+	// Resource-bound provider plans remain useful when session auto_explain is
+	// unavailable. Keep their source and capture flags distinct from estimates.
+	if p.providerScope != nil {
+		if scope := p.providerScope(); scope != "" {
+			if plans := p.fromLakebase(ctx, queries, scope); len(plans) > 0 {
+				return plans, "lakebase_plan_history"
+			}
+		}
 	}
 
 	// Strategy 1: auto_explain cached plans.
@@ -195,4 +208,40 @@ func summarizePlan(planJSON []byte, queryID int64) PlanSummary {
 	}
 
 	return ps
+}
+
+func (p *PlanCapture) fromLakebase(ctx context.Context, queries []collector.QueryStats, scope string) []PlanSummary {
+	var plans []PlanSummary
+	for _, q := range queries {
+		var raw []byte
+		var captured time.Time
+		var compute, durationSource string
+		var analyzed, buffers, timing *bool
+		err := p.pool.QueryRow(ctx, `/* pg_sage */ SELECT plan_json,captured_at,provider_compute_id,analyze_enabled,buffers_enabled,timing_enabled,duration_source
+ FROM sage.explain_cache WHERE source='lakebase_plan_history' AND provider_scope_hash=$1 AND queryid=$2 AND captured_at>now()-make_interval(secs=>$3)
+ ORDER BY captured_at DESC,id DESC LIMIT 1`, scope, q.QueryID, p.lakebasePlanRetention().Seconds()).Scan(&raw, &captured, &compute, &analyzed, &buffers, &timing, &durationSource)
+		if err != nil {
+			continue
+		}
+		ps := summarizePlan(raw, q.QueryID)
+		if ps.ScanType == "" {
+			continue
+		}
+		ps.Source = "lakebase_plan_history"
+		ps.CapturedAt = captured
+		ps.ComputeID = compute
+		ps.AnalyzeEnabled = analyzed
+		ps.BuffersEnabled = buffers
+		ps.TimingEnabled = timing
+		ps.DurationSource = durationSource
+		plans = append(plans, ps)
+	}
+	return plans
+}
+
+func (p *PlanCapture) lakebasePlanRetention() time.Duration {
+	if p.providerRetention > 0 && p.providerRetention < 7*24*time.Hour {
+		return p.providerRetention
+	}
+	return 7 * 24 * time.Hour
 }

@@ -144,7 +144,7 @@ func statsFinding(table, schema, rel string, cols, kinds []string,
 	for i, col := range cols {
 		quoted[i] = quoteIdent(col)
 	}
-	sql := fmt.Sprintf("CREATE STATISTICS IF NOT EXISTS %s.%s (%s) ON %s FROM %s",
+	sql := fmt.Sprintf("CREATE STATISTICS %s.%s (%s) ON %s FROM %s",
 		quoteIdent(schema), name, strings.Join(kinds, ", "), strings.Join(quoted, ", "), table)
 	parsed, err := extstats.ParseCreate(sql)
 	if err != nil {

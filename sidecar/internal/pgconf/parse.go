@@ -123,7 +123,7 @@ func cutKeywords(s string, words ...string) (string, bool) {
 			return s, false
 		}
 		after := rest[len(w):]
-		if after != "" && after[0] != ' ' && after[0] != '\t' && after[0] != '(' {
+		if after != "" && after[0] != ' ' && after[0] != '\t' && after[0] != '\r' && after[0] != '\n' && after[0] != '(' {
 			return s, false
 		}
 		rest = strings.TrimSpace(after)
@@ -139,7 +139,7 @@ func splitIdentifier(s string) (string, string) {
 		switch c := s[i]; {
 		case c == '"':
 			inQuote = !inQuote
-		case !inQuote && (c == ' ' || c == '\t' || c == '('):
+		case !inQuote && (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '('):
 			return s[:i], strings.TrimSpace(s[i:])
 		}
 	}

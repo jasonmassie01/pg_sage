@@ -22,7 +22,10 @@ type Execer interface {
 // snapshot of the same database predates the page's rows (an autovacuum
 // ANALYZE, another session's open transaction), so one VACUUM leaves a
 // test that counts heap fetches to timing. It retries until timeout and
-// then names the snapshot holders.
+// then names the snapshot holders. INDEX_CLEANUP ON: with dead items on
+// under 2% of the pages, PostgreSQL 14+ skips index vacuuming and keeps
+// those items, and their pages never become all-visible however often it
+// retries.
 func VacuumAllVisible(ctx context.Context, db Execer, table string,
 	timeout time.Duration) error {
 	var name string
@@ -31,7 +34,7 @@ func VacuumAllVisible(ctx context.Context, db Execer, table string,
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		if _, err := db.Exec(ctx, "VACUUM (ANALYZE) "+name); err != nil {
+		if _, err := db.Exec(ctx, "VACUUM (ANALYZE, INDEX_CLEANUP ON) "+name); err != nil {
 			return fmt.Errorf("vacuum %s: %w", table, err)
 		}
 		var visible, pages int

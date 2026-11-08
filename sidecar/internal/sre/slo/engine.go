@@ -19,14 +19,18 @@ type PageHandler func(ctx context.Context, st Status) error
 
 // Engine errors; callers distinguish them with errors.Is.
 var (
-	ErrUnknownSLO = errors.New("unknown SLO")
-	ErrNotPush    = errors.New("SLO does not accept pushed samples")
+	ErrUnknownSLO    = errors.New("unknown SLO")
+	ErrNotPush       = errors.New("SLO does not accept pushed samples")
+	ErrScopeMismatch = errors.New("SLO engine registered database scope differs")
 )
 
 // EngineDeps wires one database's SLO engine.
 type EngineDeps struct {
 	// Database is the display name the statuses carry.
 	Database string
+	// DatabaseScopedPush isolates pushed counters by the registered database
+	// UUID. False preserves the legacy deployment-wide service namespace.
+	DatabaseScopedPush bool
 	// Objectives are the app SLOs of this database.
 	Objectives []Objective
 	// Proxies are the database proxy SLIs.
@@ -45,17 +49,18 @@ type EngineDeps struct {
 // Engine evaluates one database's SLOs every interval, persists their
 // error-budget state and reports page-level burns.
 type Engine struct {
-	database   string
-	objectives []Objective
-	proxies    map[string]Proxy
-	rules      []Rule
-	store      *Store
-	prom       PromSource
-	scope      ScopeFunc
-	onPage     PageHandler
-	interval   time.Duration
-	logf       func(level, msg string, args ...any)
-	now        func() time.Time
+	database           string
+	databaseScopedPush bool
+	objectives         []Objective
+	proxies            map[string]Proxy
+	rules              []Rule
+	store              *Store
+	prom               PromSource
+	scope              ScopeFunc
+	onPage             PageHandler
+	interval           time.Duration
+	logf               func(level, msg string, args ...any)
+	now                func() time.Time
 
 	evalMu    sync.Mutex
 	mu        sync.Mutex
@@ -80,7 +85,7 @@ func NewEngine(d EngineDeps) (*Engine, error) {
 	if err := ValidateRules(rules); err != nil {
 		return nil, err
 	}
-	e := &Engine{database: d.Database, proxies: map[string]Proxy{}, rules: rules,
+	e := &Engine{database: d.Database, databaseScopedPush: d.DatabaseScopedPush, proxies: map[string]Proxy{}, rules: rules,
 		store: d.Store, prom: PromSource{Client: d.Prometheus}, scope: d.Scope,
 		onPage: d.OnPage, interval: d.Interval, logf: d.Logf, now: d.Now,
 		totals: map[string]PushSample{}, reasons: map[string]string{},
@@ -118,6 +123,10 @@ func (e *Engine) setObjectives(objs []Objective) error {
 
 // Database is the display name of the engine's database.
 func (e *Engine) Database() string { return e.database }
+
+// DatabaseScopedPush reports whether this engine isolates application push
+// counters by durable database identity, including reads and retention.
+func (e *Engine) DatabaseScopedPush() bool { return e.databaseScopedPush }
 
 // Store is the engine's store.
 func (e *Engine) Store() *Store { return e.store }
@@ -158,7 +167,7 @@ func (e *Engine) Run(ctx context.Context) {
 func (e *Engine) EvaluateOnce(ctx context.Context) ([]Status, error) {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
-	scope, err := e.scope(ctx)
+	scope, err := e.BoundScope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +183,8 @@ func (e *Engine) EvaluateOnce(ctx context.Context) ([]Status, error) {
 	for _, o := range e.objectives {
 		st := Evaluate(o, e.rules, e.windows(ctx, scope, o, now),
 			e.window(ctx, scope, o, o.Window, now), now)
-		saved, _, err := e.store.Save(ctx, scope, st)
+		st.DefinitionHash = e.definitionHash(scope, o)
+		saved, _, err := e.store.save(ctx, scope, st, e.databaseScopedPush && o.Source == SourcePush)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -226,7 +236,7 @@ func (e *Engine) window(ctx context.Context, scope sre.Scope, o Objective, d tim
 		series = string(scope.DatabaseID)
 	}
 	from := now.Add(-d)
-	aggs, err := e.store.Aggregate(ctx, scope.DeploymentID, o.Name, series, from, now,
+	aggs, err := e.store.Aggregate(ctx, scope.DeploymentID, e.sampleName(scope, o), series, from, now,
 		o.staleAfter())
 	if err != nil {
 		e.logf("WARN", "sre slo: reading %s of %s failed: %v", FormatWindow(d), o.Name, err)
@@ -289,7 +299,7 @@ func (e *Engine) purge(ctx context.Context, scope sre.Scope, now time.Time) {
 	var total int64
 	for _, o := range e.objectives {
 		keep := max(o.Window, longestRule) + 24*time.Hour
-		n, err := e.store.Purge(ctx, scope, o.Name, now.Add(-keep),
+		n, err := e.store.purge(ctx, scope, e.sampleName(scope, o), o.Name, now.Add(-keep),
 			now.Add(-transitionsRetention))
 		if err != nil {
 			e.logf("WARN", "sre slo: retention of %s failed: %v", o.Name, err)

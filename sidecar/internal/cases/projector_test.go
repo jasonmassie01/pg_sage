@@ -40,7 +40,7 @@ func TestIdentityKeyQueryPrefersNormalizedFingerprint(t *testing.T) {
 	}
 }
 
-func TestNewCaseRequiresWhyNowEvenWhenNotUrgent(t *testing.T) {
+func TestNewCaseDoesNotInventUrgencyAssessment(t *testing.T) {
 	c := NewCase(CaseInput{
 		SourceType:   SourceFindingType,
 		SourceID:     "42",
@@ -54,8 +54,8 @@ func TestNewCaseRequiresWhyNowEvenWhenNotUrgent(t *testing.T) {
 		}},
 	})
 
-	if c.WhyNow != "not urgent" {
-		t.Fatalf("WhyNow = %q, want not urgent", c.WhyNow)
+	if c.WhyNow != "Urgency not assessed" {
+		t.Fatalf("WhyNow = %q, want unknown urgency", c.WhyNow)
 	}
 	if c.State != StateOpen {
 		t.Fatalf("State = %q, want %q", c.State, StateOpen)

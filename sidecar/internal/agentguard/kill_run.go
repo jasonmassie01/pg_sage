@@ -194,7 +194,7 @@ func disableFailure(failed []string, first error) error {
 		len(failed), strings.Join(names, ", "), more, first)
 	if isPermissionDenied(first) {
 		msg += "; pg_sage needs the ADMIN option on them (it has it on roles it created): " +
-			"disable them as their owner, see the manual runbook in docs/agent-guard.md"
+			"disable them as their owner, see the manual runbook in docs/agent-governance.md"
 	}
 	return errors.New(msg)
 }

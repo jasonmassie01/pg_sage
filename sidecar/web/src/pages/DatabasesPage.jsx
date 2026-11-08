@@ -5,7 +5,7 @@ import { CSVImport } from './databases/CSVImport'
 import { DeleteConfirm } from './databases/DeleteConfirm'
 import { FleetFindings } from './databases/FleetFindings'
 
-export function DatabasesPage() {
+export function DatabasesPage({ onSelectDatabase }) {
   const [databases, setDatabases] = useState([])
   const [error, setError] = useState(null)
   const [showForm, setShowForm] = useState(false)
@@ -16,40 +16,44 @@ export function DatabasesPage() {
   const [writeGuidance, setWriteGuidance] = useState('edit the YAML file')
   const [loading, setLoading] = useState(true)
   const [configFileDBs, setConfigFileDBs] = useState([])
+  const [runtimeDBs, setRuntimeDBs] = useState([])
+  const [runtimeAvailable, setRuntimeAvailable] = useState(false)
+  const [readOnlySource, setReadOnlySource] = useState(null)
+  const [inventoryComplete, setInventoryComplete] = useState(false)
 
   const fetchDatabases = useCallback(async () => {
     setLoading(true)
+    setInventoryComplete(false)
     try {
-      const configRes = await fetch('/api/v1/config/global', {
-        credentials: 'include',
-      })
-      if (configRes.ok) {
-        const configData = await configRes.json()
-        if (configData.read_only === true) {
-          const fleetRes = await fetch('/api/v1/databases', {
-            credentials: 'include',
-          })
-          if (!fleetRes.ok) throw new Error('Failed to load YAML fleet')
-          const fleetData = await fleetRes.json()
-          setReadOnly(true)
-          setWriteGuidance(
-            configData.write_guidance || 'edit the YAML file'
-          )
-          setDatabases(fleetData.databases || [])
-          setError(null)
-          return
-        }
-      }
-      const res = await fetch('/api/v1/databases/managed', {
-        credentials: 'include',
-      })
-      if (!res.ok) throw new Error('Failed to load databases')
-      const data = await res.json()
-      const managed = data.databases || []
-      setReadOnly(false)
-      setDatabases(managed)
-      setConfigFileDBs(await fetchConfigFileDBs(managed))
-      setError(null)
+      // Verify ownership before advertising edits. The runtime inventory is
+      // independent of managed registration and must survive its failures.
+      const [configResult] = await Promise.allSettled([
+        fetchJSON('/api/v1/config/global', 'fleet configuration'),
+      ])
+      const config = configResult.status === 'fulfilled' ? configResult.value : null
+      const yaml = config?.read_only === true
+      const [runtimeResult, managedResult] = await Promise.allSettled([
+        fetchInventory('/api/v1/databases', 'runtime database inventory'),
+        config && !yaml
+          ? fetchInventory('/api/v1/databases/managed', 'managed database registrations')
+          : Promise.resolve([]),
+      ])
+      const running = runtimeResult.status === 'fulfilled' ? runtimeResult.value : []
+      const managed = managedResult.status === 'fulfilled' ? managedResult.value : []
+      const canManage = Boolean(config) && !yaml && managedResult.status === 'fulfilled'
+      const errors = [configResult, runtimeResult, managedResult]
+        .filter(result => result.status === 'rejected')
+        .map(result => result.reason.message)
+      setRuntimeDBs(running)
+      setRuntimeAvailable(runtimeResult.status === 'fulfilled')
+      setReadOnly(!canManage)
+      setReadOnlySource(yaml ? 'yaml' : canManage ? null : 'unavailable')
+      setWriteGuidance(config?.write_guidance || 'edit the YAML file')
+      setDatabases(canManage ? managed : running)
+      const names = new Set(managed.map(db => db.name))
+      setConfigFileDBs(canManage ? running.filter(db => !names.has(db.name)) : [])
+      setInventoryComplete(errors.length === 0)
+      setError(errors.length ? errors.join('. ') : null)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -75,6 +79,10 @@ export function DatabasesPage() {
     fetchDatabases()
   }
 
+  const inventory = [...new Map([...databases, ...configFileDBs]
+    .map(db => [db.name, db])).values()]
+  const connected = runtimeDBs.filter(db => db.status?.connected === true).length
+
   return (
     <div className="space-y-4">
       <div>
@@ -84,22 +92,35 @@ export function DatabasesPage() {
         </h2>
         <p className="text-sm" data-testid="fleet-page-description"
           style={{ color: 'var(--text-secondary)' }}>
-          Register the Postgres fleet pg_sage should watch. Collector and
-          analyzer results become cases, and action-ready cases flow into
-          actions for approval, execution, and audit.
+          Your monitored Postgres databases, connection health, and registration sources.
+          Analyzer findings identify tuning opportunities. SRE investigations produce
+          durable cases; supported actions follow the configured approval policy.
         </p>
       </div>
 
       {error && (
-        <div className="text-sm p-3 rounded"
+        <div role="alert" data-testid="fleet-load-error" className="text-sm p-3 rounded"
           style={{
             background: 'rgba(239,68,68,0.1)',
             color: '#ef4444',
             border: '1px solid rgba(239,68,68,0.3)',
           }}>
           {error}
+          <button className="ml-2 underline" onClick={fetchDatabases}>Retry inventory</button>
           <button className="ml-2 underline"
             onClick={() => setError(null)}>dismiss</button>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="grid gap-3 sm:grid-cols-3" data-testid="fleet-inventory-summary">
+          <InventoryMetric label="Known databases" value={inventory.length}
+            detail={inventoryComplete ? 'Inventory loaded' : 'Inventory may be incomplete'} />
+          <InventoryMetric label="Runtime connections" value={runtimeAvailable ? `${connected} / ${runtimeDBs.length}` : 'Unavailable'}
+            detail={runtimeAvailable ? 'Connected / reported by collector' : 'Retry inventory to read connection status'} />
+          <InventoryMetric label="Registration" value={readOnlySource === 'yaml' ? 'Config file'
+            : readOnlySource === 'unavailable' ? 'Unverified' : 'Config + UI'}
+            detail={readOnly ? 'Read-only inventory' : 'UI registration available'} />
         </div>
       )}
 
@@ -120,8 +141,11 @@ export function DatabasesPage() {
             border: '1px solid var(--yellow)',
           }}
         >
-          Fleet membership is read-only in YAML fleet mode. To add, edit,
-          or remove databases, {writeGuidance}.
+          {readOnlySource === 'yaml'
+            ? <>Fleet membership is read-only in YAML fleet mode. To add, edit,
+              or remove databases, {writeGuidance}.</>
+            : <>Showing the runtime inventory in read-only mode. Registration settings
+              could not be verified; retry inventory to restore management controls.</>}
         </div>
       )}
 
@@ -179,59 +203,101 @@ export function DatabasesPage() {
             From the config file (edit the YAML file to change these):
           </p>
           <ReadOnlyFleet databases={configFileDBs}
-            testId="config-file-databases" />
+            testId="config-file-databases" onSelectDatabase={onSelectDatabase} />
         </div>
       )}
 
       {!loading && (readOnly ? (
-        <ReadOnlyFleet databases={databases} />
-      ) : (
+        <ReadOnlyFleet databases={databases} onSelectDatabase={onSelectDatabase} />
+      ) : databases.length > 0 ? (
         <DatabaseTable databases={databases}
           onEdit={handleEdit}
           onDelete={setDeleteTarget}
           onError={setError} />
-      ))}
+      ) : null)}
+
+      {!loading && inventoryComplete && inventory.length === 0 && (
+        <div data-testid="fleet-inventory-empty" className="rounded-lg p-8 text-center text-sm" style={{
+          background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)',
+        }}>
+          {readOnly
+            ? `No databases are configured. To add a database, ${writeGuidance}.`
+            : 'No databases configured yet. Click "Add Database" to get started.'}
+        </div>
+      )}
 
       {!loading && <FleetFindings />}
     </div>
   )
 }
 
-// fetchConfigFileDBs returns the running databases that are not in the
-// managed list: in standalone mode, the one from the YAML postgres section.
-// A failed read only hides that section; the managed list still shows.
-async function fetchConfigFileDBs(managed) {
-  try {
-    const res = await fetch('/api/v1/databases', { credentials: 'include' })
-    if (!res.ok) return []
-    const data = await res.json()
-    const names = new Set(managed.map(db => db.name))
-    return (data.databases || []).filter(db => !names.has(db.name))
-  } catch {
-    return []
+async function fetchJSON(url, label) {
+  const res = await fetch(url, { credentials: 'include' })
+  if (!res.ok) throw new Error(`Failed to load ${label}${res.status ? ` (HTTP ${res.status})` : ''}`)
+  const data = await res.json()
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error(`Invalid ${label} response`)
   }
+  return data
 }
 
-function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list' }) {
+async function fetchInventory(url, label) {
+  const data = await fetchJSON(url, label)
+  if (data.databases === null) return []
+  if (!Array.isArray(data.databases) || data.databases.some(db => typeof db?.name !== 'string' || !db.name)) {
+    throw new Error(`Invalid ${label} response`)
+  }
+  return data.databases
+}
+
+function InventoryMetric({ label, value, detail }) {
   return (
-    <div className="rounded-lg divide-y"
+    <div className="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <p className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>{label}</p>
+      <p className="text-xl font-semibold font-mono mt-2" style={{ color: 'var(--text-primary)' }}>{value}</p>
+      <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{detail}</p>
+    </div>
+  )
+}
+
+function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list', onSelectDatabase }) {
+  if (!databases.length) return null
+  return (
+    <div className="rounded-lg overflow-x-auto"
       data-testid={testId}
       style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
       }}>
-      {databases.map(database => (
-        <div key={database.id || database.database_id || database.name}
-          className="flex items-center justify-between px-4 py-3 text-sm">
-          <span style={{ color: 'var(--text-primary)' }}>
-            {database.name}
-          </span>
-          <span style={{ color: 'var(--text-secondary)' }}>
-            {database.status?.trust_level || 'unknown'} ·{' '}
-            {database.status?.connected ? 'connected' : 'disconnected'}
-          </span>
-        </div>
-      ))}
+      <table className="w-full text-sm">
+        <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+          {['Database', 'Platform / Postgres', 'Connection', 'Trust', 'Open findings', 'Explore'].map(label => (
+            <th key={label} className="text-left px-4 py-3 text-xs whitespace-nowrap"
+              style={{ color: 'var(--text-secondary)' }}>{label}</th>
+          ))}
+        </tr></thead>
+        <tbody>{databases.map(database => {
+          const status = database.status || {}
+          const connection = status.connected === true ? 'connected'
+            : status.connected === false ? 'disconnected' : 'unknown'
+          return (
+            <tr key={database.name} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td className="px-4 py-4 font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{database.name}</td>
+              <td className="px-4 py-4" style={{ color: 'var(--text-secondary)' }}>
+                {status.platform || 'Postgres'}{status.pg_version ? ` / ${status.pg_version}` : ''}
+              </td>
+              <td className="px-4 py-4"><span className="inline-flex items-center gap-2"
+                style={{ color: connection === 'connected' ? 'var(--green)' : connection === 'disconnected' ? 'var(--red)' : 'var(--text-secondary)' }}>
+                <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }} />{connection}
+              </span></td>
+              <td className="px-4 py-4" style={{ color: 'var(--text-secondary)' }}>{status.trust_level || 'unknown'}</td>
+              <td className="px-4 py-4 font-mono" style={{ color: 'var(--text-primary)' }}>{status.findings_open ?? '—'}</td>
+              <td className="px-4 py-4"><a href="#/database" onClick={() => onSelectDatabase?.(database.name)}
+                className="underline whitespace-nowrap" style={{ color: 'var(--accent)' }}>Inspect database</a></td>
+            </tr>
+          )
+        })}</tbody>
+      </table>
     </div>
   )
 }

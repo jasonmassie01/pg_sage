@@ -108,11 +108,14 @@ const maxSLOFacts = 4
 func WithSLO(d Diagnosis, obs []Observation) Diagnosis {
 	o, ok := find(obs, probes.SLOStatus)
 	if !ok {
+		o, ok = find(obs, probes.ApplicationSLOStatus)
+	}
+	if !ok {
 		return d
 	}
 	rows, err := probes.SLORows(o.Result)
 	if err != nil {
-		d.Missing = append(d.Missing, Missing{ProbeID: probes.SLOStatus,
+		d.Missing = append(d.Missing, Missing{ProbeID: o.Result.ProbeID,
 			Status: o.Result.Status, Reason: unavailableReason(o, err)})
 		d.Impact = &Impact{State: ImpactUnknown, EvidenceID: o.EvidenceID,
 			Reason: unavailableReason(o, err)}

@@ -64,6 +64,10 @@ func tenantConfigGuidance(provider, name, settingContext string) string {
 	if settingContext == "" {
 		return fmt.Sprintf(" (Verify pg_settings.context and privileges for %s before applying.)", name)
 	}
+	if provider == "lakebase" {
+		return " (Lakebase manages instance settings; only permitted user-context " +
+			"session/database/role settings can be changed. ALTER SYSTEM and instance changes are unavailable.)"
+	}
 	if provider == "supabase" {
 		if strings.HasPrefix(name, "auto_explain.") {
 			return " (Supabase supports auto_explain settings for the privileged postgres role; " +

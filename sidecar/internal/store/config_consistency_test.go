@@ -34,7 +34,9 @@ var excludedPrefixes = []string{
 	"history.",
 	// managed-cloud telemetry identity and guard floors: YAML/env only, restart-bound
 	"cloud_telemetry.",
-	"self_config.", // derivation switch and soak: YAML only, safety-critical, restart-bound
+	"lakebase_observability.", // trusted resource bindings; restart-bound startup configuration
+	"sre.read_policy.",        // trusted observation boundary; never a model-derived grant
+	"self_config.",            // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
 	"fleet_learning.",
 	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
@@ -567,6 +569,7 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 		"policy_profile":     "staffed",
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
+		"llm_auth":           "databricks",
 	}
 
 	for key, vtype := range allowedConfigKeys {
@@ -806,6 +809,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"policy_profile":     "staffed",
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
+		"llm_auth":           "databricks",
 	}
 
 	for vtype := range vtypes {
@@ -859,7 +863,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 					sampleKey, input, vtype, result)
 			}
 		case "trust_level", "exec_mode", "policy_profile",
-			"clone_provider", "mcp_transport", "string", "maintenance_window":
+			"clone_provider", "mcp_transport", "llm_auth", "string", "maintenance_window":
 			if _, ok := result.(string); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -874,7 +878,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 112 // Update when adding/removing keys.
+	const expectedCount = 113 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -903,7 +907,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 112 // Should match allowedConfigKeys.
+	const expectedCount = 113 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabasesPage } from './DatabasesPage'
 
@@ -48,6 +48,9 @@ describe('DatabasesPage in standalone mode', () => {
       .toHaveTextContent(/config file/i)
     // Adding databases in the UI still works next to it.
     expect(screen.getByTestId('add-database-button')).toBeInTheDocument()
+    expect(screen.queryByText(/No databases configured/)).toBeNull()
+    expect(screen.getByTestId('fleet-inventory-summary')).toHaveTextContent('Known databases1')
+    expect(screen.getByRole('link', { name: 'Inspect database' })).toHaveAttribute('href', '#/database')
   })
 
   it('shows a UI-added database only once, as editable', async () => {
@@ -78,11 +81,12 @@ describe('DatabasesPage in standalone mode', () => {
       ).toBeInTheDocument())
       expect(screen.queryByTestId('config-file-databases'))
         .not.toBeInTheDocument()
+      expect(screen.getByTestId('fleet-inventory-empty')).toBeInTheDocument()
     })
 
   it('still shows managed databases when the running list fails',
     async () => {
-      mockFetch({ running: [], managed: [] })
+      mockFetch({ running: [], managed: [{ id: 3, name: 'orders', enabled: true }] })
       const base = globalThis.fetch
       globalThis.fetch = vi.fn(async url => {
         if (url === '/api/v1/databases') return { ok: false, json: async () => ({}) }
@@ -95,5 +99,77 @@ describe('DatabasesPage in standalone mode', () => {
       ).toBeInTheDocument())
       expect(screen.queryByTestId('config-file-databases'))
         .not.toBeInTheDocument()
+      expect(screen.getByText('orders')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to load runtime database inventory')
+      expect(screen.getByTestId('fleet-inventory-summary')).toHaveTextContent('Runtime connectionsUnavailable')
+      expect(screen.queryByTestId('fleet-inventory-empty')).toBeNull()
     })
+
+  it('keeps runtime databases visible when managed registration fails and recovers on retry', async () => {
+    mockFetch({ running: [lifeos], managed: [] })
+    const base = globalThis.fetch
+    let failManaged = true
+    globalThis.fetch = vi.fn(async url => {
+      if (url === '/api/v1/databases/managed' && failManaged) return { ok: false, status: 503 }
+      return base(url)
+    })
+    render(<DatabasesPage />)
+    expect(await screen.findByText('lifeos')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('managed database registrations (HTTP 503)')
+    expect(screen.getByTestId('fleet-read-only')).toHaveTextContent('could not be verified')
+    expect(screen.queryByTestId('add-database-button')).toBeNull()
+    expect(screen.queryByText(/No databases configured/)).toBeNull()
+    failManaged = false
+    fireEvent.click(screen.getByRole('button', { name: 'Retry inventory' }))
+    expect(await screen.findByTestId('add-database-button')).toBeInTheDocument()
+    expect(screen.getByTestId('config-file-databases')).toHaveTextContent('lifeos')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('does not report unknown connectivity as disconnected', async () => {
+    mockFetch({ running: [{ name: 'starting' }], managed: [] })
+    render(<DatabasesPage />)
+    const inventory = await screen.findByTestId('config-file-databases')
+    expect(inventory).toHaveTextContent('unknown')
+    expect(inventory).not.toHaveTextContent('disconnected')
+  })
+
+  it('selects the inspected runtime database before navigating', async () => {
+    mockFetch({ running: [lifeos], managed: [] })
+    const select = vi.fn()
+    render(<DatabasesPage onSelectDatabase={select} />)
+    fireEvent.click(await screen.findByRole('link', { name: 'Inspect database' }))
+    expect(select).toHaveBeenCalledWith('lifeos')
+  })
+
+  it('keeps live inventory read-only when configuration fails', async () => {
+    mockFetch({ running: [lifeos], managed: [] })
+    const base = globalThis.fetch
+    globalThis.fetch = vi.fn(async url => {
+      if (url === '/api/v1/config/global') throw new Error('configuration offline')
+      return base(url)
+    })
+    render(<DatabasesPage />)
+    expect(await screen.findByText('lifeos')).toBeInTheDocument()
+    expect(screen.queryByTestId('add-database-button')).toBeNull()
+    expect(screen.getByRole('alert')).toHaveTextContent('configuration offline')
+    expect(globalThis.fetch.mock.calls.map(([url]) => url)).not.toContain('/api/v1/databases/managed')
+  })
+
+  it('accepts null empty lists without mistaking a malformed response for an empty fleet', async () => {
+    mockFetch({ running: null, managed: null })
+    const base = globalThis.fetch
+    let malformed = true
+    globalThis.fetch = vi.fn(async url => {
+      if (url === '/api/v1/databases' && malformed) return { ok: true, json: async () => ({}) }
+      return base(url)
+    })
+    render(<DatabasesPage />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid runtime database inventory response')
+    expect(screen.queryByTestId('fleet-inventory-empty')).toBeNull()
+    malformed = false
+    fireEvent.click(screen.getByRole('button', { name: 'Retry inventory' }))
+    expect(await screen.findByTestId('fleet-inventory-empty')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })

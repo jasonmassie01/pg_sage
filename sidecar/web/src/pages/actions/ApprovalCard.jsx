@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { SQLBlock } from '../../components/SQLBlock'
 import { useToast } from '../../components/Toast'
 import { ShadowHistory } from './ShadowHistory'
+import { blockerText, riskLabel } from './workflow'
 
 // ApprovalCard shows one queued action with the why (roadmap 1.5): what
 // pg_sage wants to do, why it needs a person, the cited evidence, the
@@ -12,7 +13,7 @@ import { ShadowHistory } from './ShadowHistory'
 // loaded, the server refuses it.
 
 const RISK_COLORS = {
-  safe: 'var(--green)', moderate: 'var(--yellow)', high: 'var(--red)',
+  safe: 'var(--green)', moderate: 'var(--yellow)', high: 'var(--red)', high_risk: 'var(--red)',
 }
 
 const SNOOZE_HOURS = [1, 4, 24, 72]
@@ -47,9 +48,15 @@ export function approvalOutcomeMessage(status, json) {
     return { ok: true, text: 'Approved and executed; verification: ' +
       (body.verification_status || 'pending') }
   }
+  if (status >= 200 && status < 300 && (body.execution_started === true || body.status === 'executing')) {
+    return { ok: true, text: 'Approval accepted; execution started. Completion and outcome verification are still pending.' }
+  }
+  if (status >= 200 && status < 300 && body.ok === true && body.executed == null) {
+    return { ok: true, text: 'Approval accepted. Execution has not been confirmed; check In progress and History for the recorded result.' }
+  }
   if (status >= 200 && status < 300) {
-    return { ok: false, text: 'Approved, but the action did not run: ' +
-      (body.error || 'unknown error') }
+    return { ok: false, text: 'The action did not run: ' +
+      (body.error || 'execution was not confirmed') }
   }
   if (status === 409 && body.code === 'content_changed') {
     return { ok: false, text: 'This action changed after this card was shown. ' +
@@ -157,7 +164,7 @@ function PredictedSection({ predicted }) {
   const parts = []
   if (Number.isFinite(p.improvement_pct)) {
     const queries = (p.affected_queries || []).length
-    parts.push(`${p.improvement_pct.toFixed(1)}% faster` +
+    parts.push(`${p.improvement_pct.toFixed(1)}% estimated improvement` +
       (queries ? ` on ${queries} quer${queries === 1 ? 'y' : 'ies'}` : ''))
   }
   if (Number.isFinite(p.estimated_size_bytes)) {
@@ -169,7 +176,9 @@ function PredictedSection({ predicted }) {
     <Section title="Predicted effect" testId="approval-predicted">
       <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
         {parts.join(' · ')}
-        {p.method === 'llm_estimate' && ' (estimate, not measured)'}
+        {p.method === 'llm_estimate' ? ' (model estimate; not measured)'
+          : p.method === 'hypopg' ? ' (planner estimate; runtime improvement has not been measured)'
+            : ' (estimate; method unavailable, not measured)'}
       </p>
     </Section>
   )
@@ -182,7 +191,7 @@ function RiskSection({ risk }) {
       <div className="text-sm space-y-0.5" style={{ color: 'var(--text-primary)' }}>
         <div>
           Risk: <span style={{ color: RISK_COLORS[r.tier] || 'var(--text-secondary)' }}>
-            {r.tier || 'unknown'}</span>
+            {riskLabel(r.tier)}</span>
         </div>
         {r.blast_radius && <div>Blast radius: {r.blast_radius}</div>}
         {r.lock && <div>Lock: {r.lock}</div>}
@@ -200,14 +209,14 @@ function RollbackSection({ rollback }) {
   return (
     <Section title={title} testId="approval-rollback">
       {r.sql ? <SQLBlock sql={r.sql} />
-        : <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{r.note}</p>}
+        : <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{r.note || 'A recovery procedure has not been supplied.'}</p>}
     </Section>
   )
 }
 
 // facts is an optional node (the binding facts about the card's targets)
 // shown under the why and trust lines.
-export function ApprovalCard({ card, onDecided, facts = null }) {
+export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedReason, mode }) {
   const [now] = useState(() => Date.now())
   return (
     <div data-testid="approval-card" className="rounded p-4 space-y-3"
@@ -243,8 +252,15 @@ export function ApprovalCard({ card, onDecided, facts = null }) {
       <Section title="SQL" testId="approval-sql"><SQLBlock sql={card.sql} /></Section>
       <RollbackSection rollback={card.rollback} />
       <RiskSection risk={card.risk} />
+      <Section title="How the outcome will be checked" testId="approval-verification-plan">
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          {card.risk?.post_checks?.length ? card.risk.post_checks.join('; ')
+            : 'An outcome-checking plan has not been supplied in this card.'}
+        </p>
+      </Section>
       <ShadowHistory history={card.shadow_history} />
-      <ApprovalActions card={card} onDecided={onDecided} />
+      <ApprovalActions card={card} onDecided={onDecided}
+        eligible={eligible} blockedReason={blockedReason} mode={mode} />
     </div>
   )
 }
@@ -268,13 +284,16 @@ async function postDecision(card, verb, body) {
   return { status: res.status, json }
 }
 
-function ApprovalActions({ card, onDecided }) {
+function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: executionMode }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState(null)
   const [reason, setReason] = useState('')
   const [hours, setHours] = useState(4)
   const [snoozeReason, setSnoozeReason] = useState('')
+  const blocked = executionMode === 'observation'
+    ? 'Database changes are disabled in Observation mode.'
+    : blockerText(blockedReason) || (eligible === false ? 'This action cannot run yet; eligibility reason unavailable.' : '')
 
   async function run(verb, body, describe) {
     setBusy(true)
@@ -297,13 +316,19 @@ function ApprovalActions({ card, onDecided }) {
 
   return (
     <div data-testid="approval-actions" className="space-y-2">
+      {blocked ? <p data-testid="approval-blocker" className="text-sm"
+        style={{ color: 'var(--yellow)' }}>{blocked}</p>
+        : <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Approve and run requests immediate execution of this SQL after current safety checks.
+          {eligible == null && ' Current eligibility is not available in this summary; the server will recheck it.'}
+        </p>}
       <div className="flex flex-wrap gap-2">
-        <button data-testid="approval-approve" disabled={busy}
+        <button data-testid="approval-approve" disabled={busy || eligible === false || executionMode === 'observation'}
           onClick={() => run('approve', { card_hash: card.card_hash },
             approvalOutcomeMessage)}
           className="px-3 py-1 rounded text-sm"
           style={{ background: 'var(--green)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
-          Approve
+          Approve and run
         </button>
         <button data-testid="approval-reject" disabled={busy}
           onClick={() => setMode(mode === 'reject' ? null : 'reject')}

@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/tuning"
+	"time"
 )
 
 // newTuningAgent builds the database's tuning agent (roadmap 2.2) when
@@ -20,6 +21,9 @@ func (rt *databaseRuntime) newTuningAgent(autoExplain bool, hints *tuner.Tuner) 
 	primary, fallback := tuningModels(rt.llmManager)
 	timeouts := catalogread.FromSafety(cfg.Safety)
 	options := []func(*optimizer.Optimizer){optimizer.WithCatalogReadTimeouts(timeouts)}
+	if rt.provider == "lakebase" && rt.cfg.LakebaseObservability.Enabled && rt.cfg.LakebaseObservability.AllowPayload {
+		options = append(options, optimizer.WithLakebasePlanScope(rt.currentLakebaseScope, time.Duration(rt.cfg.LakebaseObservability.RetentionHours)*time.Hour))
+	}
 	if autoExplain {
 		options = append(options, optimizer.WithAutoExplain())
 	}

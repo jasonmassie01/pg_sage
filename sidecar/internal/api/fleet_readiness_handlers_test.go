@@ -105,12 +105,18 @@ func TestFleetReadinessDoesNotAdvertiseUnimplementedDirectExecution(t *testing.T
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode readiness: %v", err)
 	}
-	for _, actionType := range []string{"create_statistics", "promote_role_work_mem"} {
+	for _, actionType := range []string{"promote_role_work_mem"} {
 		family := apiActionReadiness(t, body.Databases[0].Capabilities.ActionFamilies, actionType)
 		if family.Supported || family.Decision != "blocked" ||
 			family.BlockedReason != "direct execution is not implemented" {
 			t.Fatalf("%s readiness = %#v", actionType, family)
 		}
+	}
+	// Statistics execution exists; without an executor it must fail at the
+	// standing-policy gate rather than claim the implementation is absent.
+	stats := apiActionReadiness(t, body.Databases[0].Capabilities.ActionFamilies, "create_statistics")
+	if stats.Supported || stats.Decision != "blocked" || stats.BlockedReason != "standing policy unavailable" {
+		t.Fatalf("implemented statistics readiness = %#v", stats)
 	}
 }
 

@@ -21,9 +21,10 @@ type Transition struct {
 }
 
 type prevState struct {
-	state     State
-	since     time.Time
-	burnStart *time.Time
+	state      State
+	since      time.Time
+	burnStart  *time.Time
+	definition string
 }
 
 // Save records a status: the state's since-time moves only when the
@@ -31,6 +32,10 @@ type prevState struct {
 // keeps its start time until the SLO stops burning. It returns the
 // status as stored and whether the state changed.
 func (s *Store) Save(ctx context.Context, scope sre.Scope, st Status) (Status, bool, error) {
+	return s.save(ctx, scope, st, false)
+}
+
+func (s *Store) save(ctx context.Context, scope sre.Scope, st Status, resetDefinition bool) (Status, bool, error) {
 	if err := scope.Validate(); err != nil {
 		return Status{}, false, fmt.Errorf("%w: %v", ErrInvalidObjective, err)
 	}
@@ -40,8 +45,9 @@ func (s *Store) Save(ctx context.Context, scope sre.Scope, st Status) (Status, b
 		if err != nil {
 			return err
 		}
-		changed = !found || prev.state != st.State
-		applyHistory(&st, prev, found, changed)
+		definitionChanged := resetDefinition && prev.definition != st.DefinitionHash
+		changed = !found || prev.state != st.State || definitionChanged
+		applyHistory(&st, prev, found, changed, definitionChanged)
 		if err := upsertStatus(ctx, tx, scope, st); err != nil {
 			return err
 		}
@@ -65,7 +71,7 @@ func (s *Store) Save(ctx context.Context, scope sre.Scope, st Status) (Status, b
 	return st, changed, nil
 }
 
-func applyHistory(st *Status, prev prevState, found, changed bool) {
+func applyHistory(st *Status, prev prevState, found, changed, definitionChanged bool) {
 	st.StateSince = st.EvaluatedAt
 	if !changed {
 		st.StateSince = prev.since
@@ -75,7 +81,7 @@ func applyHistory(st *Status, prev prevState, found, changed bool) {
 		return
 	}
 	start := st.EvaluatedAt
-	wasBurning := found && (prev.state == StatePage || prev.state == StateTicket)
+	wasBurning := found && !definitionChanged && (prev.state == StatePage || prev.state == StateTicket)
 	if wasBurning && prev.burnStart != nil {
 		start = *prev.burnStart
 	}
@@ -86,11 +92,11 @@ func lockStatus(ctx context.Context, tx pgx.Tx, scope sre.Scope, name string) (p
 	bool, error) {
 	var p prevState
 	var state string
-	err := tx.QueryRow(ctx, `SELECT state, state_since, burn_started_at
+	err := tx.QueryRow(ctx, `SELECT state, state_since, burn_started_at, definition_hash
 		FROM sage.sre_service_slos
 		WHERE deployment_id = $1 AND database_id = $2 AND name = $3 FOR UPDATE`,
 		string(scope.DeploymentID), string(scope.DatabaseID), name).Scan(&state, &p.since,
-		&p.burnStart)
+		&p.burnStart, &p.definition)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, false, nil
 	}
@@ -188,17 +194,24 @@ func (s *Store) Prune(ctx context.Context, scope sre.Scope, keep []string) error
 // deployment that has the SLO) and this database's transitions of it.
 func (s *Store) Purge(ctx context.Context, scope sre.Scope, slo string, samplesBefore,
 	transitionsBefore time.Time) (int64, error) {
+	return s.purge(ctx, scope, slo, slo, samplesBefore, transitionsBefore)
+}
+
+// The sample key may be database scoped while transition names remain the
+// public objective name under their existing database UUID primary key.
+func (s *Store) purge(ctx context.Context, scope sre.Scope, sampleKey, name string, samplesBefore,
+	transitionsBefore time.Time) (int64, error) {
 	a, err := s.pool.Exec(ctx, `DELETE FROM sage.sre_sli_samples
 		WHERE deployment_id = $1 AND slo_name = $2 AND observed_at < $3`,
-		string(scope.DeploymentID), slo, samplesBefore)
+		string(scope.DeploymentID), sampleKey, samplesBefore)
 	if err != nil {
-		return 0, fmt.Errorf("purge SLI samples of %s: %w", slo, err)
+		return 0, fmt.Errorf("purge SLI samples of %s: %w", name, err)
 	}
 	b, err := s.pool.Exec(ctx, `DELETE FROM sage.sre_slo_transitions
 		WHERE deployment_id = $1 AND database_id = $2 AND name = $3 AND at < $4`,
-		string(scope.DeploymentID), string(scope.DatabaseID), slo, transitionsBefore)
+		string(scope.DeploymentID), string(scope.DatabaseID), name, transitionsBefore)
 	if err != nil {
-		return 0, fmt.Errorf("purge SLO transitions of %s: %w", slo, err)
+		return 0, fmt.Errorf("purge SLO transitions of %s: %w", name, err)
 	}
 	return a.RowsAffected() + b.RowsAffected(), nil
 }

@@ -9,7 +9,6 @@ import { useToast } from '../../components/Toast'
 // pg_sage never applies these changes and marks one applied once
 // PostgreSQL runs the new value.
 
-const OPEN = new Set(['pending', 'approved'])
 const muted = { color: 'var(--text-secondary)' }
 const codeStyle = { background: 'var(--bg-primary)', border: '1px solid var(--border)',
   color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }
@@ -136,13 +135,14 @@ function Card({ database, record, canDecide, onDecided }) {
   )
 }
 
-export function ManagedChanges({ database, canDecide }) {
+export function ManagedChanges({ database, canDecide, response, statuses = ['pending', 'approved'] }) {
   const dbParam = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
-  const { data, refetch } = useAPI(`/api/v1/managed-changes${dbParam}`)
+  const own = useAPI(response ? null : `/api/v1/managed-changes${dbParam}`)
+  const { data, refetch } = response || own
   const groups = (data?.databases || []).map(d => ({
     database: d.database,
-    records: (d.proposals || []).filter(r => OPEN.has(r.status)),
+    records: (d.proposals || []).filter(r => statuses.includes(r.status)),
   })).filter(g => g.records.length > 0)
   if (groups.length === 0) return null
   return (

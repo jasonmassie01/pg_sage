@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentloop"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // Investigator plans (roadmap 2.1, owner decision 4): how much one
@@ -28,12 +29,13 @@ const (
 	ToolExplain    = "explain_statement"
 	ToolGraphState = "graph_state"
 	ToolFacts      = "confirmed_facts"
+	ToolHistory    = "read_history"
 	ToolSubmit     = "submit_conclusion"
 )
 
 // readOnlyTools are every tool a plan may offer; none can mutate.
 var readOnlyTools = map[string]bool{ToolRunProbe: true, ToolStatView: true,
-	ToolExplain: true, ToolGraphState: true, ToolFacts: true}
+	ToolExplain: true, ToolGraphState: true, ToolFacts: true, ToolHistory: true}
 
 // Investigator ceilings. The active-time ceiling (120 s) and the probe
 // ceiling (12) are the investigation's own.
@@ -61,13 +63,13 @@ type InvestigatorPlan struct {
 var defaultPlans = map[string]InvestigatorPlan{
 	PlanNarrow: {Name: PlanNarrow, MaxSteps: 5, MaxProbes: 3, Wall: 45 * time.Second,
 		MaxTokens: 32000, StepTokens: 1024,
-		Tools: []string{ToolRunProbe, ToolStatView, ToolGraphState, ToolFacts},
+		Tools: []string{ToolRunProbe, ToolStatView, ToolGraphState, ToolFacts, ToolHistory},
 		// A plan regression is about one statement's plan: the narrow plan
 		// may read it (plan-only EXPLAIN) without a broader budget.
 		TriggerTools: map[TriggerKind][]string{TriggerPlan: {ToolExplain}}},
 	PlanBroad: {Name: PlanBroad, MaxSteps: 10, MaxProbes: 6, Wall: 90 * time.Second,
 		MaxTokens: 64000, StepTokens: 1024,
-		Tools: []string{ToolRunProbe, ToolStatView, ToolExplain, ToolGraphState, ToolFacts}},
+		Tools: []string{ToolRunProbe, ToolStatView, ToolExplain, ToolGraphState, ToolFacts, ToolHistory}},
 }
 
 // triggerPlans names the plan of each trigger kind; any other is narrow.
@@ -160,6 +162,7 @@ func (p InvestigatorPlan) probeBudget(l Limits, used int) int {
 // EXPLAIN; Protocol "" is auto (native tool calls, JSON actions when the
 // provider refuses them).
 type InvestigatorConfig struct {
+	History   probes.HistoricalSource
 	Plans     map[string]InvestigatorPlan
 	Explainer Explainer
 	Protocol  agentloop.Protocol

@@ -19,6 +19,13 @@ sidecar/test.log
 sidecar/pg_sage_sidecar_linux
 
 # Sensitive files
+.env
+.env.*
+!.env.example
+!.env.*.example
+/.local-test-results/
+/deploy/databricks-apps/settings.local.json
+/deploy/databricks-apps/settings.*.local.json
 cloudsqltests/config_test.yaml
 cloudsqltests/config_alloydb_test.yaml
 cloudsqltests/*.pid

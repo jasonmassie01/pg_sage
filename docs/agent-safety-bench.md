@@ -139,9 +139,8 @@ table) and AP-10 (HNSW index below pgvector 0.8.4).
 
 ## The name
 
-The governed configuration this bench measures is pg_sage's **Agent Guard**.
-The name is under a trademark check and may change; the bench's own name does
-not.
+The governed configuration this bench measures is pg_sage's agent governance:
+agent posture, the brokered read path (`agent_query`) and the EXPLAIN guard.
 
 ## Running it
 

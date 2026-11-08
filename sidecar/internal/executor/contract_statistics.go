@@ -13,7 +13,7 @@ func createStatisticsContract() ActionContract {
 	return ActionContract{
 		ActionType:      "create_statistics",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: portableActionProviders(),
+		ProviderSupport: lakebaseOwnedActionProviders(),
 		RequiredPermissions: []string{
 			"CREATE privilege on the schema and table ownership (or MAINTAIN)",
 		},
@@ -55,7 +55,7 @@ func revertCreatedStatisticsContract() ActionContract {
 	return ActionContract{
 		ActionType:          "revert_created_statistics",
 		BaseRiskTier:        "moderate",
-		ProviderSupport:     portableActionProviders(),
+		ProviderSupport:     lakebaseOwnedActionProviders(),
 		RequiredPermissions: []string{"statistics object ownership"},
 		Prechecks:           []string{"the object is a " + extstats.NamePrefix + " object"},
 		Guardrails: []string{"DROP STATISTICS IF EXISTS of one object, never CASCADE",

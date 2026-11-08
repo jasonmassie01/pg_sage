@@ -80,10 +80,17 @@ func poolHealthCheck() {
 }
 
 // bootstrapAdminIfEmpty creates the first admin user when no users
-// exist. Prints credentials to stdout so the operator can log in.
+// exist. Only generated credentials are printed to stderr.
 func bootstrapAdminIfEmpty(
 	ctx context.Context, p *pgxpool.Pool,
 ) error {
+	appAuth, err := auth.LoadDatabricksAppConfigFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if appAuth != nil {
+		return auth.BootstrapDatabricksAppAdmin(ctx, p, *appAuth)
+	}
 	count, err := auth.UserCount(ctx, p)
 	if err != nil {
 		return fmt.Errorf("checking user count: %w", err)
@@ -91,20 +98,24 @@ func bootstrapAdminIfEmpty(
 	if count > 0 {
 		return nil
 	}
-	password, err := generateRandomPassword(adminPassLen)
+	credentials, err := loadBootstrapAdminCredentials()
 	if err != nil {
-		return fmt.Errorf("generating admin password: %w", err)
+		return fmt.Errorf("loading admin bootstrap credentials: %w", err)
 	}
 	if err := auth.BootstrapAdmin(
-		ctx, p, adminEmail, password,
+		ctx, p, credentials.email, credentials.password,
 	); err != nil {
 		return fmt.Errorf("creating admin: %w", err)
 	}
+	if credentials.supplied {
+		logInfo("startup", "first admin created — email: %s (configured bootstrap secret; password not logged)", credentials.email)
+		return nil
+	}
 	logInfo("startup",
 		"first admin created — email: %s  password: [redacted, see stderr]",
-		adminEmail)
+		credentials.email)
 	fmt.Fprintf(os.Stderr, "\n*** INITIAL ADMIN PASSWORD: %s ***\n"+
-		"*** Change this password immediately. ***\n\n", password)
+		"*** Change this password immediately. ***\n\n", credentials.password)
 	return nil
 }
 

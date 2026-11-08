@@ -142,7 +142,7 @@ func topQuery(s statement) TopQuery {
 const cachedPlansSQL = `/* pg_sage */ SELECT DISTINCT ON (queryid) queryid, source,
     captured_at, COALESCE(total_cost, 0)::float8, COALESCE(plan_hash, ''), plan_json
 FROM sage.explain_cache
-WHERE queryid = ANY($1)
+WHERE queryid = ANY($1) AND source <> 'lakebase_plan_history'
 ORDER BY queryid, captured_at DESC, id DESC`
 
 // attachPlans sets each query's newest cached plan, when there is one.

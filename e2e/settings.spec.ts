@@ -61,20 +61,13 @@ test.describe('Settings', () => {
     }
   });
 
-  // Verifies the emergency stop button is visible on the General tab
+  // The global header exposes emergency stop while monitoring is active.
   test('emergency stop button is visible', async ({ page }) => {
     // Wait for settings tabs to render (proves API data loaded)
     await page.waitForSelector('button:has-text("General")');
 
-    // General tab is the default, so Emergency Stop should be visible
-    const emergencyBtn = page.locator(
-      'button:has-text("Emergency Stop")',
-    );
-    await expect(emergencyBtn).toBeVisible();
-
-    // Resume button should also be visible
-    const resumeBtn = page.locator('button:has-text("Resume")');
-    await expect(resumeBtn).toBeVisible();
+    await expect(page.getByTestId('header-emergency-stop')).toBeVisible();
+    await expect(page.getByTestId('header-emergency-resume')).toHaveCount(0);
   });
 
   // Verifies save/discard buttons appear when a field is modified

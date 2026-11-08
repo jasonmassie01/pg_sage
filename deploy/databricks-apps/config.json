@@ -1,0 +1,12 @@
+{
+  "trust": {
+    "level": "observation"
+  },
+  "llm": {
+    "json_mode": false
+  },
+  "lakebase_observability": {
+    "enabled": false,
+    "allow_payload": false
+  }
+}

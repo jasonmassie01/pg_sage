@@ -12,7 +12,7 @@ import (
 )
 
 // The startup self-check of spec §6.15 (AP-14): pg_sage's role must not be
-// a superuser for Agent Guard features. It is one warning line; a
+// a superuser for agent governance features. It is one warning line; a
 // non-superuser role adds nothing. No concurrent access tests:
 // reportGuardRole is stateless.
 
@@ -23,7 +23,7 @@ func TestReportGuardRoleSuperuserWarns(t *testing.T) {
 		t.Fatalf("lines = %+v, want one", lines)
 	}
 	l := lines[0]
-	for _, want := range []string{"WARNING", `"postgres"`, "superuser", "Agent Guard",
+	for _, want := range []string{"WARNING", `"postgres"`, "superuser", "agent governance",
 		"AP-14", "posture"} {
 		if l.component != "grants" || !strings.Contains(l.text, want) {
 			t.Fatalf("line = %+v, want it to contain %q", l, want)
@@ -60,12 +60,12 @@ func TestVerifyGrantsWarnsSuperuserForGuard(t *testing.T) {
 		VerifyGrants(ctx, pool, "ignored", level, captureLog(&lines))
 		n := 0
 		for _, l := range lines {
-			if strings.Contains(l.text, "Agent Guard") {
+			if strings.Contains(l.text, "agent governance") {
 				n++
 			}
 		}
 		if n != 1 {
-			t.Fatalf("%s: lines = %+v, want one Agent Guard warning", level, lines)
+			t.Fatalf("%s: lines = %+v, want one agent governance warning", level, lines)
 		}
 	}
 }

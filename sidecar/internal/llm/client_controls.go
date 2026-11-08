@@ -61,7 +61,7 @@ type budgetReservation struct {
 }
 
 func configEnabled(cfg config.LLMConfig) bool {
-	return cfg.Enabled && cfg.Endpoint != "" && cfg.APIKey != ""
+	return cfg.ValidateDatabricksApp() == nil && cfg.Enabled && cfg.Endpoint != "" && (cfg.APIKey != "" || cfg.Auth == "databricks")
 }
 
 func normalizedMaxTokens(model string, requested int) int {

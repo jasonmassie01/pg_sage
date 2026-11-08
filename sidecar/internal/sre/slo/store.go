@@ -34,6 +34,9 @@ func (s *Store) Key() *pgxpool.Pool { return s.pool }
 // ErrInvalidSample reports a sample the store refuses.
 var ErrInvalidSample = errors.New("invalid SLI sample")
 
+// ErrSampleConflict is a replay identity carrying different counter/gauge data.
+var ErrSampleConflict = errors.New("SLI sample replay conflicts with stored data")
+
 // DefaultSeries names the series of a push that names none.
 const DefaultSeries = "default"
 
@@ -73,6 +76,9 @@ func (s *Store) RecordSample(ctx context.Context, dep sre.UUID, slo string, p Pu
 	value *float64) (bool, error) {
 	if err := p.validate(); err != nil {
 		return false, err
+	}
+	if value != nil && !finite(*value) {
+		return false, fmt.Errorf("%w: gauge must be finite", ErrInvalidSample)
 	}
 	return s.recordSample(ctx, dep, slo, p, value)
 }

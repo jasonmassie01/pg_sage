@@ -136,3 +136,39 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+func TestRecord_DelayedProviderPlanDoesNotStampCurrentCounters(t *testing.T) {
+	pool, ctx := requireDB(t)
+	t.Cleanup(pool.Close)
+	const qid = int64(515151515199)
+	cleanPlanHashRows(t, ctx, pool, qid)
+	t.Cleanup(func() { cleanPlanHashRows(t, ctx, pool, qid) })
+	seedPlanHash(t, ctx, pool, qid, "v1:local", time.Now().Add(-time.Hour))
+	_, err := pool.Exec(ctx, `INSERT INTO sage.explain_cache(queryid,query_text,plan_json,source,captured_at,plan_hash) VALUES ($1,'SELECT 1','[]','lakebase_plan_history',now(),'v1:late-provider')`, qid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = Record(ctx, pool, []Sample{{QueryID: qid, Calls: 100}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := latestSampleHash(t, ctx, pool, qid); got == nil || *got != "v1:local" {
+		t.Fatalf("late execution assigned to cumulative sample: %v", deref(got))
+	}
+	hashes, err := latestPlanHashes(ctx, pool, []int64{qid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hashes) != 1 || hashes[0] == nil || *hashes[0] != "v1:local" {
+		t.Fatal("meta history assigned delayed execution")
+	}
+	_, err = pool.Exec(ctx, `DELETE FROM sage.explain_cache WHERE queryid=$1 AND source<>'lakebase_plan_history'`, qid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = Record(ctx, pool, []Sample{{QueryID: qid, Calls: 101}}); err != nil {
+		t.Fatal(err)
+	}
+	if latestSampleHash(t, ctx, pool, qid) != nil {
+		t.Fatal("provider-only cache became current counter plan")
+	}
+}

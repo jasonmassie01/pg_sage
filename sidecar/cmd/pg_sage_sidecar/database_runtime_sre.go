@@ -10,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // sreBindTimeout bounds binding the database identity at startup; the
@@ -46,6 +47,7 @@ type sreInvestigatorDeps struct {
 	// rootAuthority decides per family whether the model may override a
 	// conclusive graph root (roadmap 2.4); nil keeps model roots advisory.
 	rootAuthority sre.RootAuthority
+	history       probes.HistoricalSource
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -73,10 +75,14 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	icfg := sreInvestigatorConfig(d.settings, d.monitored)
+	if icfg != nil {
+		icfg.History = d.history
+	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
 		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority,
-		Investigator: sreInvestigatorConfig(d.settings, d.monitored)})
+		Investigator: icfg})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -98,8 +104,10 @@ func (rt *databaseRuntime) startInvestigator() {
 	if signals != nil {
 		signalProbes = signals.probes()
 	}
-	signalProbes = append(signalProbes, poolerSignalsFor(rt.cfg.SRE.Poolers, rt.spec.Name,
-		logStructuredWrapper)...)
+	if rt.sreReadPolicy().Allows(probes.PoolerPools) {
+		signalProbes = append(signalProbes, poolerSignalsFor(rt.cfg.SRE.Poolers, rt.spec.Name,
+			logStructuredWrapper)...)
+	}
 	rt.runwayAdvisor = newRunwayAdvisorFor(rt.spec.Pool, rt.cfg, rt.spec.Name)
 	specialistCustodian.register(rt.spec.Name, rt.runwayAdvisor)
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
@@ -108,6 +116,7 @@ func (rt *databaseRuntime) startInvestigator() {
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
 		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents(),
+		history: rt.sreHistorySource(),
 		rootAuthority: registryRootAuthority{registry: processAutonomy().registry,
 			database: rt.spec.Name}})
 	if err != nil {

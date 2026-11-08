@@ -45,7 +45,7 @@ test.describe('Explain API', () => {
       query: 'CREATE TABLE codex_explain_nope(id int)',
     });
     expect(ddl.status).toBe(400);
-    expect(ddl.json.error).toContain('DDL/admin statements');
+    expect(ddl.json.error).toContain('DDL, DML and utility statements cannot be explained');
 
     const queryID = await postExplain(page, { query_id: 12345 });
     expect(queryID.status).toBe(400);

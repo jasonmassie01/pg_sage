@@ -139,11 +139,12 @@ func (c CoordinatorConfig) validate(hasTriggers bool) error {
 
 // CoordinatorDeps wires a coordinator.
 type CoordinatorDeps struct {
-	Store    CoordinatorStore
-	Runner   ProbeRunner
-	Triggers TriggerSource
-	Config   CoordinatorConfig
-	LogFn    func(level, msg string, args ...any)
+	ReadPolicy *probes.ReadPolicy
+	Store      CoordinatorStore
+	Runner     ProbeRunner
+	Triggers   TriggerSource
+	Config     CoordinatorConfig
+	LogFn      func(level, msg string, args ...any)
 	// Wait waits between compared samples; nil sleeps. PGIncidentBench
 	// runs a scenario's mid-sample fault program here.
 	Wait func(ctx context.Context, d time.Duration) error
@@ -170,6 +171,7 @@ type CoordinatorDeps struct {
 
 // Coordinator runs one database's investigations.
 type Coordinator struct {
+	readPolicy *probes.ReadPolicy
 	store      CoordinatorStore
 	runner     ProbeRunner
 	triggers   TriggerSource
@@ -197,6 +199,14 @@ type Coordinator struct {
 
 // NewCoordinator validates its dependencies and configuration.
 func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
+	if d.ReadPolicy == nil {
+		if r, ok := d.Runner.(interface{ ReadPolicy() *probes.ReadPolicy }); ok {
+			d.ReadPolicy = r.ReadPolicy()
+		}
+	}
+	if err := d.ReadPolicy.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
 	if d.Store == nil || d.Runner == nil {
 		return nil, fmt.Errorf("%w: coordinator needs a store and a probe runner",
 			ErrInvalidRequest)
@@ -223,7 +233,11 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 	if notices == nil {
 		notices = ModelNotices
 	}
-	return &Coordinator{store: d.Store, runner: withSignals(d.Runner, d.Signals),
+	runner := withSignals(d.Runner, d.Signals)
+	if d.ReadPolicy != nil {
+		runner = policyRunner{base: runner, policy: d.ReadPolicy.Clone()}
+	}
+	return &Coordinator{store: d.Store, runner: runner, readPolicy: d.ReadPolicy.Clone(),
 		triggers: d.Triggers, signals: signalIDs(d.Signals),
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
@@ -288,6 +302,7 @@ func (c *Coordinator) Start(ctx context.Context, t Trigger) (Investigation, bool
 		actor = "trigger"
 	}
 	inv, created, err := c.store.Create(ctx, StartRequest{Scope: scope, CaseID: t.CaseID,
+		ReadPolicy: c.readPolicy.Clone(),
 		IncidentID: t.IncidentID, TriggerKind: t.Kind, Subject: t.Subject,
 		IdempotencyKey: t.IdempotencyKey, Actor: actor})
 	c.durability.Observe(err)

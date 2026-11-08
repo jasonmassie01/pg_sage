@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -9,6 +9,7 @@ import { FactBadges } from '../components/FactBadges'
 import { FindingFactSections } from './facts/FindingFactSections'
 import { caseFactTarget } from '../lib/caseFacts'
 import { canDecideFacts } from '../lib/facts'
+import { actionAvailability, caseID, caseLink, casePresentation } from './cases/casePresentation'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -23,10 +24,6 @@ function dbParam(database) {
   return database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}`
     : ''
-}
-
-function caseID(caseRow) {
-  return caseRow.case_id || caseRow.id || caseRow.identity_key
 }
 
 // investigationsByCase keeps each case's newest investigation (the API
@@ -74,6 +71,12 @@ function formatDate(value) {
 export function CasesPage({ database, initialSource = 'all', user }) {
   const [sourceFilter, setSourceFilter] = useState(initialSource)
   const [showSuppressed, setShowSuppressed] = useState(false)
+  const [focusedID, setFocusedID] = useState(() => focusedCaseID())
+  useEffect(() => {
+    const onHashChange = () => setFocusedID(focusedCaseID())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
   const { data, loading, error, refetch } = useAPI(
     `/api/v1/cases${dbParam(database)}`,
     30000,
@@ -91,26 +94,40 @@ export function CasesPage({ database, initialSource = 'all', user }) {
   const filteredCases = sourceFilter === 'all'
     ? cases
     : cases.filter(c => c.source_type === sourceFilter)
+  const focusedCase = cases.find(c => caseID(c) === focusedID)
+  const visibleCases = focusedID ? (focusedCase ? [focusedCase] : []) : filteredCases
+  const criticalCount = cases.filter(c => c.severity === 'critical').length
+  const investigationCount = cases.filter(c => !c.action_candidates?.length).length
+  const listQuery = database && database !== 'all'
+    ? `?database=${encodeURIComponent(database)}` : ''
 
   return (
     <div className="space-y-4" data-testid="cases-page">
       <div>
         <h2 className="text-sm font-semibold"
           style={{ color: 'var(--text-primary)' }}>
-          Cases
+          Cases · Issues &amp; investigations
         </h2>
         <p className="text-sm" data-testid="cases-page-description"
           style={{ color: 'var(--text-secondary)' }}>
-          Cases group findings into ranked work items (by severity, then most
-          recent observation) across findings, incidents and query hints.
-          pg_sage attaches
-          evidence and action candidates here, then approved or executable
-          work flows to Actions for review, execution, and audit history.
-          {' '}{filteredCases.length} of {cases.length} cases are visible.
+          Review what needs attention and what we know. Cases hold observations
+          and evidence; Actions holds proposed changes, decisions and results.
+          Ask Sage can help explain a case.
+          {' '}{visibleCases.length} of {cases.length} cases are visible.
+        </p>
+        <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {criticalCount} reported critical · {investigationCount} without a proposed change.
+          {' '}Ordered by reported severity, then latest observation. These counts
+          describe returned cases; they do not establish collection health or user impact.
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2" aria-label="Case source filters">
+      {focusedID ? (
+        <a href={`#/cases${listQuery}`} className="inline-block text-sm underline"
+          style={{ color: 'var(--accent)' }} onClick={() => setFocusedID(null)}>
+          Back to all cases
+        </a>
+      ) : <div className="flex flex-wrap gap-2" aria-label="Case source filters">
         {SOURCE_FILTERS.map(source => (
           <button
             key={source.value}
@@ -128,9 +145,9 @@ export function CasesPage({ database, initialSource = 'all', user }) {
             {source.label}
           </button>
         ))}
-      </div>
+      </div>}
 
-      <div>
+      {!focusedID && <div>
         <button type="button" data-testid="cases-show-suppressed"
           aria-pressed={showSuppressed}
           onClick={() => setShowSuppressed(v => !v)}
@@ -146,11 +163,23 @@ export function CasesPage({ database, initialSource = 'all', user }) {
               onDone={refetch} />
           </div>
         )}
-      </div>
+      </div>}
+
+      {visibleCases.length === 0 && (
+        <div className="rounded border p-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+          {focusedID
+            ? 'This case is unavailable in the selected database. Return to the case list or check the database selection.'
+            : cases.length > 0 ? 'No cases match this filter.'
+              : 'No cases were returned for this database. This alone does not confirm a healthy database; check collection status.'}
+          {!focusedID && cases.length > 0 && <button type="button" className="ml-2 underline"
+            onClick={() => setSourceFilter('all')}>Show all cases</button>}
+        </div>
+      )}
 
       <div className="space-y-2">
-        {filteredCases.map(c => (
+        {visibleCases.map(c => (
           <CaseCard key={caseID(c)} caseRow={c} user={user}
+            focused={Boolean(focusedID)} onReview={() => setFocusedID(caseID(c))}
             investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
             onDone={refetch} />
         ))}
@@ -159,10 +188,17 @@ export function CasesPage({ database, initialSource = 'all', user }) {
   )
 }
 
-function CaseCard({ caseRow, user, investigation, onDone }) {
+function focusedCaseID() {
+  const [path, query = ''] = window.location.hash.split('?')
+  return path === '#/cases' ? new URLSearchParams(query).get('case') : null
+}
+
+function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
   const candidate = caseRow.action_candidates?.[0]
   const candidateGuardrails = guardrails(candidate)
   const factTarget = caseFactTarget(caseRow)
+  const summary = casePresentation(caseRow)
+  const observedAt = formatDate(caseRow.observed_at)
 
   return (
     <article className="rounded border p-3"
@@ -174,34 +210,67 @@ function CaseCard({ caseRow, user, investigation, onDone }) {
         <div>
           <h3 className="font-medium"
             style={{ color: 'var(--text-primary)' }}>
-            {caseRow.title}
+            {summary.title}
           </h3>
           <p className="text-sm mt-1"
             style={{ color: 'var(--text-secondary)' }}>
-            {caseRow.why_now || 'not urgent'}
+            <strong>Observed: </strong>{summary.observed}
           </p>
         </div>
         <span className="text-xs uppercase"
           style={{ color: 'var(--text-secondary)' }}>
-          {caseRow.severity}
+          Reported severity: {caseRow.severity || 'unknown'}
         </span>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs"
         style={{ color: 'var(--text-secondary)' }}>
-        <span>State: {caseRow.state}</span>
+        <span>Case state: {caseRow.state || 'unknown'}</span>
         {caseRow.database_name && (
           <span data-testid="case-database">DB: {caseRow.database_name}</span>
         )}
-        <span>Next: <span>{nextStep(caseRow)}</span></span>
-        {candidate && <span>Policy: {policyLabel(candidate)}</span>}
+        {factTarget?.object && <span className="font-mono break-all">Object: {factTarget.object}</span>}
+        <span>Last observed: {observedAt || 'unknown'}</span>
       </div>
-      {caseRow.why && (
-        <div className="mt-3 text-sm"
-          style={{ color: 'var(--text-secondary)' }}>
-          {caseRow.why}
-        </div>
-      )}
+      <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+        <strong>Possible consequence: </strong>{summary.consequence}
+      </p>
+      <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <strong>Reason for attention: </strong>{summary.attention}
+      </p>
+      <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+        <strong>Next step: </strong>{actionAvailability(caseRow)}
+      </p>
+      {summary.glossary && <details className="mt-2 text-xs" data-testid="case-glossary"
+        style={{ color: 'var(--text-secondary)' }}>
+        <summary className="cursor-pointer">What {summary.glossary.term === 'table statistics' ? 'are' : 'is'} {summary.glossary.term}?</summary>
+        <p className="mt-1">{summary.glossary.definition}</p>
+      </details>}
       <CaseFacts target={factTarget} user={user} onDone={onDone} />
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+        {!focused && <a href={caseLink('cases', caseRow)} onClick={onReview}
+          className="rounded border px-3 py-1.5 font-medium"
+          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review case</a>}
+        {focused && candidate && <a href={caseLink('actions', caseRow)}
+          className="rounded border px-3 py-1.5 font-medium"
+          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review proposed changes</a>}
+        <a href={caseLink('ask', caseRow)} className="underline"
+          style={{ color: 'var(--accent)' }}>Explain this</a>
+      </div>
+      {investigation && <InvestigationPanel database={investigation.database}
+        investigation={investigation} user={user} />}
+      <details className="mt-3 text-xs" data-testid="case-technical-details">
+        <summary className="cursor-pointer py-1" style={{ color: 'var(--text-secondary)' }}>
+          Technical evidence and proposed changes
+        </summary>
+        <div className="mt-2 space-y-2" style={{ color: 'var(--text-secondary)' }}>
+          <p className="font-mono break-all">Reported condition: {caseRow.title}</p>
+          <p className="font-mono break-all">Case ID: {caseID(caseRow)}</p>
+          <p>Source urgency note: {caseRow.why_now || 'not supplied'}</p>
+          {factTarget?.object && <p className="font-mono break-all">Affected object: {factTarget.object}</p>}
+          <p>Next: <span>{nextStep(caseRow)}</span></p>
+          {candidate && <p>Policy: {policyLabel(candidate)}</p>}
+          {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
+        </div>
       <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />
       {candidateGuardrails.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5"
@@ -232,10 +301,7 @@ function CaseCard({ caseRow, user, investigation, onDone }) {
           ))}
         </div>
       )}
-      {investigation && (
-        <InvestigationPanel database={investigation.database}
-          investigation={investigation} user={user} />
-      )}
+      </details>
       <CaseControls caseRow={caseRow} user={user} onDone={onDone} />
     </article>
   )
@@ -283,7 +349,6 @@ function EvidenceItem({ evidence, category }) {
       value !== undefined &&
       typeof value !== 'object',
     )
-    .slice(0, 8)
   return (
     <section className="rounded border p-2 text-xs"
       style={{ borderColor: 'var(--border)' }}>
@@ -310,6 +375,10 @@ function EvidenceItem({ evidence, category }) {
         </div>
       )}
       <FindingFactSections row={{ category, detail }} />
+      <details className="mt-2">
+        <summary className="cursor-pointer">Complete evidence payload</summary>
+        <pre className="mt-2 whitespace-pre-wrap break-all">{JSON.stringify(detail, null, 2)}</pre>
+      </details>
     </section>
   )
 }
@@ -317,9 +386,15 @@ function EvidenceItem({ evidence, category }) {
 function CandidateArtifacts({ candidate }) {
   const preflight = candidate.ddl_preflight
   const script = candidate.script_output
-  if (!preflight && !script) return null
   return (
     <div className="mt-3 space-y-2">
+      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+        Proposed action: {candidate.action_type} · Risk: {candidate.risk_tier || 'unknown'}
+        {candidate.blocked_reason && <p>Recorded restriction: {candidate.blocked_reason}</p>}
+        <p>Recovery classification: {candidate.rollback_class || 'unknown'}</p>
+        {candidate.recovery_detail && <p>Recovery: {candidate.recovery_detail}</p>}
+      </div>
+      {candidate.proposed_sql && <SQLBlock sql={candidate.proposed_sql} />}
       {preflight && <DDLPreflight preflight={preflight} />}
       {script && <ScriptOutput script={script} />}
     </div>
@@ -327,6 +402,7 @@ function CandidateArtifacts({ candidate }) {
 }
 
 function DDLPreflight({ preflight }) {
+  const rewrite = preflight.checks?.find(check => check.name === 'rewrite')
   return (
     <section className="rounded border p-2 text-xs"
       style={{ borderColor: 'var(--border)' }}>
@@ -342,7 +418,7 @@ function DDLPreflight({ preflight }) {
         {preflight.lock_level && (
           <span>Lock: {preflight.lock_level}</span>
         )}
-        <span>Rewrite: {preflight.requires_rewrite ? 'yes' : 'no'}</span>
+        <span>Rewrite: {rewrite ? rewrite.detail || rewrite.status : 'not assessed'}</span>
         {preflight.risk_score > 0 && (
           <span>Risk: {preflight.risk_score}</span>
         )}
