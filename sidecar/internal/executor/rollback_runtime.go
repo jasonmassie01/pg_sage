@@ -48,6 +48,16 @@ func (e *Executor) standingRollbackAuthorizer(
 func (e *Executor) standingRollbackDecider(
 	finding analyzer.Finding,
 ) func(context.Context, string) RollbackVerdict {
+	return e.findingRollbackDecider(finding, 0)
+}
+
+// findingRollbackDecider is standingRollbackDecider for the revert of
+// action actionID (0: unknown): the verdict carries the gate's lock
+// ceiling and decision, and the decision names the reverted action
+// (policy-05).
+func (e *Executor) findingRollbackDecider(
+	finding analyzer.Finding, actionID int64,
+) func(context.Context, string) RollbackVerdict {
 	return func(ctx context.Context, rollbackSQL string) RollbackVerdict {
 		if _, ok := rollbackContractFor(finding.RecommendedSQL, rollbackSQL); !ok {
 			return RollbackVerdict{Reason: rollbackNoContract + ": no action contract " +
@@ -56,15 +66,11 @@ func (e *Executor) standingRollbackDecider(
 		}
 		candidate := finding
 		candidate.RecommendedSQL = rollbackSQL
-		decision := e.evaluateRollbackPolicy(ctx, candidate)
+		decision := e.evaluateRollbackPolicy(ctx, candidate, actionID)
 		// A rollback restores the prior state and never counted toward a
 		// budget: its authorization holds no slot.
 		e.releaseBudget(ctx, decision.DecisionID)
-		if decision.Decision == PolicyDecisionExecute {
-			return RollbackVerdict{Allowed: true}
-		}
-		return RollbackVerdict{Reason: fmt.Sprintf("%s (%s: %s)", standingWithheld,
-			decision.Decision, decision.BlockedReason)}
+		return rollbackVerdictFor(decision)
 	}
 }
 

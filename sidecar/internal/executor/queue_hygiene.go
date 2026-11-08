@@ -91,7 +91,9 @@ func (e *Executor) skipCoveredCreate(
 // open (restore and revert cards outlive their action's finding by
 // design: see supersedeSettledRestoresSQL and supersedeSettledRevertsSQL),
 // and those an equivalent newer pending proposal replaces (same identity
-// key, or the same SQL).
+// key, or the same SQL). A revert item is replaced only by its identity
+// key: a forward proposal of the same SQL does not settle the withheld
+// revert, so superseding the item would dead-end it (policy-05).
 const supersedeGoneSQL = `/* pg_sage */ UPDATE sage.action_queue q
 	SET status = 'superseded',
 	    reason = 'superseded: finding ' || q.finding_id || ' is no longer open'
@@ -109,7 +111,8 @@ const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
 		  ON n.status = 'pending' AND n.id > q.id
 		 AND n.database_id IS NOT DISTINCT FROM q.database_id
 		 AND ((q.identity_key IS NOT NULL AND n.identity_key = q.identity_key)
-		      OR btrim(n.proposed_sql) = btrim(q.proposed_sql))
+		      OR (btrim(n.proposed_sql) = btrim(q.proposed_sql)
+		          AND q.action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'))
 		WHERE q.status = 'pending'
 		GROUP BY q.id)
 	UPDATE sage.action_queue q
