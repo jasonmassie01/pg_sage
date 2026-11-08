@@ -12,6 +12,17 @@ import (
 var retiredTunerKeys = map[string]string{
 	"analyze_maintenance_threshold_mb": "tuner.analyze_maintenance_threshold_mb " +
 		"is no longer used and is ignored; remove it from the config file",
+	// tuning-09: revalidation does no hinted-vs-unhinted cost comparison and
+	// issues no EXPLAIN, so these three never had a reader.
+	"revalidation_keep_ratio": "tuner.revalidation_keep_ratio is no longer used " +
+		"and is ignored; remove it from the config file (revalidation compares " +
+		"no plan costs)",
+	"revalidation_rollback_ratio": "tuner.revalidation_rollback_ratio is no longer " +
+		"used and is ignored; remove it from the config file (revalidation never " +
+		"rolls a hint back on a cost ratio)",
+	"revalidation_explain_timeout_ms": "tuner.revalidation_explain_timeout_ms is no " +
+		"longer used and is ignored; remove it from the config file (revalidation " +
+		"runs no EXPLAIN)",
 }
 
 // stripRetiredKeys removes retired keys from raw and returns the YAML to

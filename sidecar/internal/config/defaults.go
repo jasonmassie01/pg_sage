@@ -130,11 +130,8 @@ const (
 	DefaultTunerLLMEnabled          = true
 
 	// Tuner v0.8.5 — Hint revalidation loop (Feature 1).
-	DefaultTunerHintRetirementDays           = 14
-	DefaultTunerRevalidationIntervalHours    = 24
-	DefaultTunerRevalidationKeepRatio        = 1.2
-	DefaultTunerRevalidationRollbackRatio    = 0.8
-	DefaultTunerRevalidationExplainTimeoutMs = 10000
+	DefaultTunerHintRetirementDays        = 14
+	DefaultTunerRevalidationIntervalHours = 24
 
 	// Tuner v0.8.5 — Stale-stats detection + ANALYZE (Feature 2).
 	DefaultTunerStaleStatsEstimateSkew = 10.0

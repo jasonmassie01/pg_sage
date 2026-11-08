@@ -443,17 +443,14 @@ type TunerConfig struct {
 	LLMEnabled             bool    `yaml:"llm_enabled" doc:"Let the tuning agent propose per-query pg_hint_plan hints for its cases; the tuner validates, clamps and records them. The tuner's deterministic hint rules run either way. Default: true."`
 	WorkMemMaxMB           int     `yaml:"work_mem_max_mb" doc:"Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions."`
 	PlanTimeRatio          float64 `yaml:"plan_time_ratio" doc:"When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints."`
-	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold" doc:"Minimum actual-row count on a nested-loop inner that triggers the bad-nested-loop symptom. Smaller values increase sensitivity."`
+	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold" doc:"Total rows (Actual Rows x Actual Loops) a misestimated (>10x) nested loop's inner side must read before the tuner prescribes HashJoin or ANALYZE. 0 or less means 10000."`
 	ParallelMinTableRows   int64   `yaml:"parallel_min_table_rows" doc:"Threshold for suggesting parallel-enable hints on large sequential scans. Tables smaller than this are assumed not to benefit from parallelism."`
 	MinQueryCalls          int     `yaml:"min_query_calls" doc:"Require at least this many pg_stat_statements.calls before the tuner will act on a query. Filters out one-offs."`
 	VerifyAfterApply       bool    `yaml:"verify_after_apply" doc:"Run the daily hint revalidation loop: broken when a named index is gone, dormant while the query is idle, re-baselined after a stats reset. Never removes a working hint. Requires pg_hint_plan." warning:"v0.8.5 activates a real background cycle here — upgrade note: if you want v0.8.4 inert behavior, set this to false before upgrading."`
 
 	// v0.8.5 Feature 1 — Hint revalidation loop.
-	HintRetirementDays           int     `yaml:"hint_retirement_days" doc:"Hints older than this many days are stamped due for re-verification (reverify_due); they stay installed. 0 disables the age rule. Default 14."`
-	RevalidationIntervalHours    int     `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
-	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio" doc:"Reserved; no effect. Revalidation does no hinted-vs-unhinted cost comparison (it uses age, missing objects, stale queryids, latency). Kept so existing configs load."`
-	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio" doc:"Reserved; currently has no effect. No hinted-vs-unhinted cost comparison is performed. Kept so existing config files still load."`
-	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load."`
+	HintRetirementDays        int `yaml:"hint_retirement_days" doc:"Hints older than this many days are stamped due for re-verification (reverify_due); they stay installed. 0 disables the age rule. Default 14."`
+	RevalidationIntervalHours int `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
 
 	// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE action.
 	StaleStatsEstimateSkew float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
@@ -1030,11 +1027,8 @@ func newDefaults() *Config {
 			VerifyAfterApply:       true,
 
 			// Feature 1 — Hint revalidation loop.
-			HintRetirementDays:           DefaultTunerHintRetirementDays,
-			RevalidationIntervalHours:    DefaultTunerRevalidationIntervalHours,
-			RevalidationKeepRatio:        DefaultTunerRevalidationKeepRatio,
-			RevalidationRollbackRatio:    DefaultTunerRevalidationRollbackRatio,
-			RevalidationExplainTimeoutMs: DefaultTunerRevalidationExplainTimeoutMs,
+			HintRetirementDays:        DefaultTunerHintRetirementDays,
+			RevalidationIntervalHours: DefaultTunerRevalidationIntervalHours,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
 			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,

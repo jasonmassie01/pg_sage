@@ -62,11 +62,8 @@ type TunerConfig struct {
 	CascadeCooldownCycles  int     `yaml:"cascade_cooldown_cycles"`
 
 	// Feature 1 — Hint revalidation loop (v0.8.5).
-	HintRetirementDays           int     `yaml:"hint_retirement_days"`
-	RevalidationIntervalHours    int     `yaml:"revalidation_interval_hours"`
-	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio"`
-	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio"`
-	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms"`
+	HintRetirementDays        int `yaml:"hint_retirement_days"`
+	RevalidationIntervalHours int `yaml:"revalidation_interval_hours"`
 
 	// Feature 2 — Stale-stats detection + ANALYZE (v0.8.5).
 	StaleStatsEstimateSkew float64 `yaml:"stale_stats_estimate_skew"`
