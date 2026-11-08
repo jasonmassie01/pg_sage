@@ -134,6 +134,24 @@ func TestChatResult_TruncatedArrayUnderPlainPrompt(t *testing.T) {
 	}
 }
 
+// Invalid input for the gate: prose that quotes a repairable JSON fragment
+// is still prose, so it is not cut back to the fragment's first member.
+func TestChatResult_ProseQuotingJSONNotRepaired(t *testing.T) {
+	cut := "The model said {\"a\":1,\"b\":2 and then"
+	if RepairTruncatedJSON(cut) == cut {
+		t.Fatalf("probe %q must be repairable for this test to pin the gate", cut)
+	}
+	srv, _ := finishServer(t, cut, "length")
+	got, err := finishClient(srv.URL, false, noopLog).ChatResult(
+		context.Background(), proseSystem, "data", 4096)
+	if err != nil {
+		t.Fatalf("ChatResult: %v", err)
+	}
+	if got.Content != cut || !got.Truncated || got.Repaired {
+		t.Fatalf("ChatResult = %+v, want the prose unchanged and truncated", got)
+	}
+}
+
 // Boundary: nothing salvageable leaves the content unchanged, still flagged.
 func TestChatResult_UnsalvageableJSONUnchanged(t *testing.T) {
 	srv, _ := finishServer(t, `{"a"`, "length")
