@@ -47,7 +47,8 @@ def telemetry_config(settings: dict) -> dict | None:
     raw = settings["lakebase_observability"]
     bounds = {"poll_interval_seconds": (30, 3600), "query_timeout_seconds": (1, 120),
               "max_rows": (1, 10000), "max_bytes": (1024, 16777216), "queries_per_poll": (1, 1000),
-              "window_seconds": (1, 604800), "retention_hours": (1, 168)}
+              "window_seconds": (1, 604800), "retention_hours": (1, 168),
+              "settle_lag_seconds": (1, 3600), "short_lookback_seconds": (1, 604800)}
     allowed = set(bounds) | {"enabled", "warehouse_id", "allow_payload", "allow_compute", "streams"}
     if not isinstance(raw, dict) or set(raw) - allowed:
         raise ValueError("lakebase_observability accepts bounded non-secret settings only; its resource binding is derived from the selected database")

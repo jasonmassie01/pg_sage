@@ -71,7 +71,8 @@ func lakebaseTelemetryOptions(c config.LakebaseObservabilityConfig) lakebaseobs.
 		MaxRows: c.MaxRows, MaxBytes: c.MaxBytes, QueriesPerPoll: c.QueriesPerPoll,
 		PollInterval: c.PollInterval(), QueryTimeout: time.Duration(c.QueryTimeoutSeconds) * time.Second,
 		Window: time.Duration(c.WindowSeconds) * time.Second, Retention: time.Duration(c.RetentionHours) * time.Hour,
-		Streams: streams}
+		Streams: streams, SettleLag: time.Duration(c.SettleLagSeconds) * time.Second,
+		ShortLookback: time.Duration(c.ShortLookbackSeconds) * time.Second}
 }
 func (rt *databaseRuntime) startLakebaseTelemetry() {
 	c := rt.cfg.LakebaseObservability

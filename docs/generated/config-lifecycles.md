@@ -171,6 +171,8 @@
 | `lakebase_observability.queries_per_poll` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.query_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.retention_hours` | `restart` | `-` | `safety_critical` |
+| `lakebase_observability.settle_lag_seconds` | `restart` | `-` | `safety_critical` |
+| `lakebase_observability.short_lookback_seconds` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.streams` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.warehouse_id` | `restart` | `-` | `safety_critical` |
 | `lakebase_observability.window_seconds` | `restart` | `-` | `safety_critical` |

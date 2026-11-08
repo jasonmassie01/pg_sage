@@ -321,6 +321,18 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(config["lakebase_observability"], rendered)
             self.assertFalse(config["ask"]["enabled"])
 
+    def test_telemetry_schedule_keys_are_bounded(self):
+        accepted = {"settle_lag_seconds": 3600, "short_lookback_seconds": 604800}
+        rendered = configurer.telemetry_config(self.settings() | {"lakebase_observability": accepted})
+        self.assertEqual(rendered["settle_lag_seconds"], 3600)
+        self.assertEqual(rendered["short_lookback_seconds"], 604800)
+        for telemetry in ({"settle_lag_seconds": 3601}, {"settle_lag_seconds": -1},
+                          {"settle_lag_seconds": True}, {"short_lookback_seconds": 604801},
+                          {"short_lookback_seconds": 0}, {"short_lookback_seconds": "7200"}):
+            with self.subTest(telemetry=telemetry):
+                with self.assertRaises(ValueError):
+                    configurer.telemetry_config(self.settings() | {"lakebase_observability": telemetry})
+
     def test_telemetry_rejects_unbounded_settings_credentials_and_unreviewed_scope(self):
         for telemetry in ({"enabled": True}, {"enabled": "true"}, {"warehouse_id": "id?token=secret"},
                           {"allow_payload": "true"}, {"max_rows": 10001}, {"max_rows": True},

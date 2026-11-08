@@ -1156,7 +1156,7 @@
   "lakebase_observability.queries_per_poll": {
     "type": "int",
     "default": 0,
-    "doc": "Query budget per poll; 0=12, range 1-1000. Backlog or expiry gaps remain visible.",
+    "doc": "Query budget per poll; 0=2x streams+4 (16 for the six default streams), range 1-1000. Forward reads come first; backlog or expiry gaps remain visible.",
     "class": "safety_critical"
   },
   "lakebase_observability.query_timeout_seconds": {
@@ -1169,6 +1169,18 @@
     "type": "int",
     "default": 0,
     "doc": "Raw provider payload retention by event time; 0=168, range 1-168. Dedup receipts outlive the replay horizon.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.settle_lag_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Seconds forward reads stay behind now so rows the provider commits late are read; 0=120, range 1-3600.",
+    "class": "safety_critical"
+  },
+  "lakebase_observability.short_lookback_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Seconds behind the forward edge each short reconcile sweep re-reads for late rows; 0=7200, range 1-604800.",
     "class": "safety_critical"
   },
   "lakebase_observability.streams": {

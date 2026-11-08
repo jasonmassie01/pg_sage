@@ -309,14 +309,46 @@ lakebase_observability:
   warehouse_id: '<existing-warehouse-id>'
   allow_payload: false
   poll_interval_seconds: 60
-  queries_per_poll: 12
+  queries_per_poll: 16
   retention_hours: 168
+  settle_lag_seconds: 120
+  short_lookback_seconds: 7200
   bindings:
     - host: '<direct-lakebase-host>'
       database: '<monitored-database>'
       endpoint: projects/<project>/branches/<branch>/endpoints/<endpoint>
       allow_compute: false
 ```
+
+#### Read cadence and query budget
+
+Each poll spends at most `queries_per_poll` SQL warehouse reads. When it is 0
+or unset, the budget is two reads per stream plus four: 16 for the six default
+streams. A poll spends the budget in this order:
+
+1. **Forward.** Every stream reads new history first, ending
+   `settle_lag_seconds` (default 120) before now, so rows the provider commits
+   late are visible when their window is read. Each stream keeps one read
+   reserved while earlier streams catch up, so no stream misses a poll.
+2. **Short reconcile.** Each stream gets one read of a sweep over the
+   `short_lookback_seconds` (default 7,200, two hours) behind its forward
+   edge. This catches rows that arrive later than the settle lag.
+3. **Deep reconcile.** Whatever budget is left goes to a sweep of the full
+   seven-day source horizon. A stream starts a new deep sweep at most once
+   every 24 hours.
+
+The forward read width adapts to each stream. A read that exceeds
+`max_rows` or `max_bytes` is split in half, and the narrower width is kept in
+the cursor, so it survives a restart. After three reads projected under a
+quarter of `max_rows`, the width doubles, up to `window_seconds`. A stream that
+stays that sparse at the full window also reconciles four windows per read.
+History that leaves the source horizon before it is read still counts as a gap.
+
+`GET /api/v1/lakebase-observability/status` reports each stream's
+`forward_lag_seconds` (how far the forward cursor trails the last poll) and
+`reconcile_progress` (the share of the current deep sweep read, 0 to 1). A
+forward lag that keeps growing means the stream needs more than its share of
+the budget: raise `queries_per_poll` or `max_rows`.
 
 This configuration is restart-bound and never grants permissions or enables a
 provider setting. Compute-wide streams require explicit `allow_compute: true`.
