@@ -37,6 +37,10 @@ type Trigger struct {
 	Actor          string
 }
 
+// triggerActor attributes the trigger loop's requests (a Trigger without
+// an Actor). Only its requests start a new attempt after an expiry.
+const triggerActor = "trigger"
+
 // TriggerSource yields the current committed triggers.
 type TriggerSource interface {
 	Triggers(ctx context.Context) ([]Trigger, error)
@@ -301,7 +305,7 @@ func (c *Coordinator) Start(ctx context.Context, t Trigger) (Investigation, bool
 	}
 	actor := t.Actor
 	if actor == "" {
-		actor = "trigger"
+		actor = triggerActor
 	}
 	inv, created, err := c.store.Create(ctx, StartRequest{Scope: scope, CaseID: t.CaseID,
 		ReadPolicy: c.readPolicy.Clone(),

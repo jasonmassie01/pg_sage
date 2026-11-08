@@ -449,7 +449,8 @@ func migrationStatements() []string {
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
 		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt)   // apiauth-01: user deactivation
+		ddlUsersDisabledAt,   // apiauth-01: user deactivation
+		ddlSREAttempts)       // sre-01: numbered re-runs of a trigger
 }
 
 // ---------------------------------------------------------------------------
