@@ -71,7 +71,21 @@ func parseKey(part string) (indexKey, error) {
 // splitTopLevel splits s at commas outside parentheses, quoted
 // identifiers and string literals.
 func splitTopLevel(s string) ([]string, error) {
-	var parts []string
+	spans, err := topLevelSpans(s)
+	if err != nil {
+		return nil, err
+	}
+	parts := make([]string, len(spans))
+	for i, sp := range spans {
+		parts[i] = strings.TrimSpace(s[sp[0]:sp[1]])
+	}
+	return parts, nil
+}
+
+// topLevelSpans returns the [start, end) spans of s between the commas
+// outside parentheses, quoted identifiers and string literals.
+func topLevelSpans(s string) ([][2]int, error) {
+	var spans [][2]int
 	depth, start := 0, 0
 	var quote byte
 	for i := 0; i < len(s); i++ {
@@ -88,14 +102,14 @@ func splitTopLevel(s string) ([]string, error) {
 		case c == ')':
 			depth--
 		case c == ',' && depth == 0:
-			parts = append(parts, strings.TrimSpace(s[start:i]))
+			spans = append(spans, [2]int{start, i})
 			start = i + 1
 		}
 	}
 	if depth != 0 || quote != 0 {
 		return nil, fmt.Errorf("unbalanced key list %q", s)
 	}
-	return append(parts, strings.TrimSpace(s[start:])), nil
+	return append(spans, [2]int{start, len(s)}), nil
 }
 
 var plainIdent = regexp.MustCompile(`^(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")+")$`)

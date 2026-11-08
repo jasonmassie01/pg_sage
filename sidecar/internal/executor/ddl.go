@@ -42,7 +42,9 @@ func wrapDDLError(err error) error {
 // CONCURRENTLY semantics (e.g., CREATE INDEX CONCURRENTLY).
 // It acquires a raw connection from the pool, sets timeouts, pins
 // search_path (pg_catalog, pg_temp), executes outside a transaction,
-// and returns the connection with every setting reset.
+// and returns the connection with every setting reset. A bare extension
+// operator class in a CREATE INDEX is run with its schema named
+// (qualifyIndexOpclasses).
 func ExecConcurrently(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -53,17 +55,21 @@ func ExecConcurrently(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return fmt.Errorf("SQL validation: %w", err)
 	}
+	run, err := pinnedStatements(ctx, pool, sql)
+	if err != nil {
+		return stoppedStatement(ctx, sql, err)
+	}
 
 	o := applyDDLOpts(opts)
 
-	err := withTopLevelSession(ctx, pool, sql, timeout, o, func(conn pooledExecutor) error {
-		_, execErr := conn.Exec(ctx, sql)
+	err = withTopLevelSession(ctx, pool, run[0], timeout, o, func(conn pooledExecutor) error {
+		_, execErr := conn.Exec(ctx, run[0])
 		if execErr != nil {
 			return wrapDDLError(execErr)
 		}
 		return nil
 	})
-	return stoppedStatement(ctx, sql, err)
+	return stoppedStatement(ctx, run[0], err)
 }
 
 // ExecInTransaction executes a SQL statement within a transaction
@@ -84,13 +90,17 @@ func ExecInTransaction(
 
 // execStatementsInTransaction runs already validated statements in one
 // transaction under statement_timeout and lock_timeout, with search_path
-// pinned to pg_catalog: all or none. An emergency stop cancels them while
-// they run.
+// pinned to pg_catalog: all or none. A bare extension operator class in a
+// CREATE INDEX runs with its schema named. An emergency stop cancels them
+// while they run.
 func execStatementsInTransaction(
 	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
 	statements ...string,
 ) error {
-	err := execTransaction(ctx, pool, timeout, o, statements)
+	run, err := pinnedStatements(ctx, pool, statements...)
+	if err == nil {
+		err = execTransaction(ctx, pool, timeout, o, run)
+	}
 	return stoppedStatement(ctx, strings.Join(statements, "; "), err)
 }
 

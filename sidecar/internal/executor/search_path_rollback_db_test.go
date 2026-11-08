@@ -133,16 +133,21 @@ func TestSearchPathPinRenderPropagatesError(t *testing.T) {
 	}
 }
 
-// State transition (drop, then rollback under the pin): the captured
-// application-path rollback cannot run in the pinned session; the
-// re-rendered one recreates the same index.
+// State transition (drop, then rollback under the pin): the re-rendered
+// rollback recreates the same index. The captured application-path text
+// with an enum in its predicate cannot run in the pinned session (types are
+// never resolved); the one with a bare extension operator class now runs,
+// because the executor names the extension's schema (qualifyIndexOpclasses).
 func TestSearchPathPinDropRollbackRecreatesIndex(t *testing.T) {
 	pool, ctx := requireDB(t)
 	trgmDef, partialDef := setupPinnedRollbackIndexes(t, ctx, pool)
 	e := &Executor{pool: pool}
 	cfg := RollbackMonitorConfig{StatementTimeout: time.Minute, LockTimeoutMs: 5000}
-	for _, c := range []struct{ index, captured string }{
-		{spRbTrgm, trgmDef}, {spRbPartial, partialDef},
+	for _, c := range []struct {
+		index, captured string
+		capturedRuns    bool
+	}{
+		{spRbTrgm, trgmDef, true}, {spRbPartial, partialDef, false},
 	} {
 		drop := "DROP INDEX CONCURRENTLY " + c.index
 		rollback, err := e.pinDropRollback(ctx, drop, c.captured+";")
@@ -153,8 +158,19 @@ func TestSearchPathPinDropRollbackRecreatesIndex(t *testing.T) {
 		if err := ExecConcurrently(ctx, pool, drop, time.Minute); err != nil {
 			t.Fatalf("drop %s: %v", c.index, err)
 		}
-		if _, err := executeRollbackSQL(ctx, pool, c.captured+";", cfg); err == nil {
+		_, err = executeRollbackSQL(ctx, pool, c.captured+";", cfg)
+		switch {
+		case c.capturedRuns && err != nil:
+			t.Fatalf("captured rollback %q under the pin: %v", c.captured, err)
+		case !c.capturedRuns && err == nil:
 			t.Fatalf("captured rollback %q ran under the pin; the test is vacuous", c.captured)
+		case c.capturedRuns:
+			if got := liveIndexDef(t, ctx, pool, c.index); got != want {
+				t.Fatalf("captured rollback recreated %s = %q, want %q", c.index, got, want)
+			}
+			if err := ExecConcurrently(ctx, pool, drop, time.Minute); err != nil {
+				t.Fatalf("drop %s again: %v", c.index, err)
+			}
 		}
 		if _, err := executeRollbackSQL(ctx, pool, rollback, cfg); err != nil {
 			t.Fatalf("pinned rollback %q: %v", rollback, err)

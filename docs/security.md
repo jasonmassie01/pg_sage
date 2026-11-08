@@ -74,9 +74,15 @@ All data sources are read-only catalog views and statistics:
   and `CONCURRENTLY`) runs with `search_path = pg_catalog, pg_temp`, so a function or
   operator another role plants in `public` cannot bind into an index pg_sage builds (the
   CVE-2018-1058 class). Targets must be schema-qualified: an unqualified table fails with
-  `relation "..." does not exist` and the action is recorded `failed`. Objects from an
-  extension installed outside `pg_catalog`, such as `gin_trgm_ops` in `public`, must be
-  written with their schema (`public.gin_trgm_ops`). Before pg_sage drops an index, it
+  `relation "..." does not exist` and the action is recorded `failed`; the optimizer names
+  the analyzed table's schema in every index it recommends. Operator classes are the one
+  exception, because creating one takes a superuser or a trusted extension, so another role
+  cannot plant one. A bare operator class in a `CREATE INDEX` (`gin_trgm_ops`,
+  `vector_l2_ops`) runs with its schema named: pg_catalog's class when there is one, else
+  the class of that name and access method that belongs to an installed extension. A class
+  outside every extension, or defined by more than one extension, is refused before the
+  statement runs. Functions, types and tables are never resolved this way. Before pg_sage
+  drops an index, it
   re-renders the index's re-create rollback under the same path, so an extension operator
   class or a user type in a partial-index predicate comes back schema-qualified and the
   rollback still runs; index replacement reads the old index the same way. The session's

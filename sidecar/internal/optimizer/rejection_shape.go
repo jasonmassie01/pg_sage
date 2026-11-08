@@ -196,10 +196,13 @@ func (s *ddlScanner) opclass(d *keyDecor) error {
 	if d.opclass != "" {
 		return fmt.Errorf("unexpected %q after operator class", s.rest())
 	}
+	s.skipSpace()
+	nameStart := s.pos
 	name, err := s.qualifiedName()
 	if err != nil {
 		return fmt.Errorf("operator class: %w", err)
 	}
+	s.opclassAt = [2]int{nameStart, spaceTrimmedEnd(s.src, nameStart, s.pos)}
 	start := s.pos
 	if s.peek('(') {
 		if _, err := s.parens(); err != nil {

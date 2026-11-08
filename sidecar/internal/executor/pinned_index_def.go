@@ -17,8 +17,9 @@ const pinnedCatalogReadTimeout = 10 * time.Second
 // search_path is the executor's. pg_get_indexdef qualifies every object it
 // cannot see on the session's path, so text rendered here re-creates the
 // same index in a pinned DDL session; text rendered on the application's
-// path leaves "gin_trgm_ops" or "'a'::my_enum" bare, and those no longer
-// resolve.
+// path leaves "'a'::my_enum" or a function outside pg_catalog bare, and
+// those do not resolve under the pin (only a bare extension operator class
+// is named at run time, by qualifyIndexOpclasses).
 func queryRowPinned(
 	ctx context.Context, pool *pgxpool.Pool, sql string, args []any, dest ...any,
 ) error {

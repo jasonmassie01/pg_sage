@@ -199,22 +199,16 @@ func shapeCreateIndexHNSW(
 		INSERT INTO shp_b04
 		SELECT ('['||g%10||',0,0,0,0,0,0,'||g%7||']')::vector
 		  FROM generate_series(1,500) g;`)
-	// The executor runs DDL under search_path = pg_catalog, pg_temp
-	// (security-01a), so the extension's operator class is written with
-	// its schema, as docs/security.md requires of reviewed SQL.
-	var extSchema string
-	if err := pool.QueryRow(ctx, `SELECT quote_ident(n.nspname)
-		FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
-		WHERE e.extname = 'vector'`).Scan(&extSchema); err != nil {
-		t.Fatalf("read the vector extension's schema: %v", err)
-	}
+	// The operator class is bare, as recommendations write it. The executor
+	// runs DDL under search_path = pg_catalog, pg_temp (security-01a) and
+	// names the vector extension's schema on it before the statement runs.
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
 	driveReviewedIndexFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "missing_index", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b04",
 		Title: "hnsw index for vector knn",
 		RecommendedSQL: "CREATE INDEX CONCURRENTLY shp_b04_hnsw_idx " +
-			"ON public.shp_b04 USING hnsw (emb " + extSchema + ".vector_l2_ops)",
+			"ON public.shp_b04 USING hnsw (emb vector_l2_ops)",
 		RollbackSQL: "DROP INDEX CONCURRENTLY IF EXISTS shp_b04_hnsw_idx",
 		ActionRisk:  "moderate",
 	})

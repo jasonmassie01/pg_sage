@@ -258,39 +258,3 @@ func TestSearchPathPinFailsUnqualifiedManualAction(t *testing.T) {
 		t.Fatalf("action outcome=%q sql=%q, want failed for %q", outcome, executed, sql)
 	}
 }
-
-// Boundary: an operator class from an extension installed in public no
-// longer resolves unqualified; written with its schema it still builds.
-func TestSearchPathPinRequiresQualifiedExtensionOpclass(t *testing.T) {
-	pool, ctx := requireDB(t)
-	var installed bool
-	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_extension
-		WHERE extname = 'pg_trgm')`).Scan(&installed); err != nil {
-		t.Fatalf("check pg_trgm: %v", err)
-	}
-	if !installed {
-		if _, err := pool.Exec(ctx, "CREATE EXTENSION pg_trgm SCHEMA public"); err != nil {
-			t.Fatalf("create pg_trgm in public (contrib is in every CI image): %v", err)
-		}
-		t.Cleanup(func() {
-			_, _ = pool.Exec(context.Background(), "DROP EXTENSION IF EXISTS pg_trgm")
-		})
-	}
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS public.sp_trgm_t;
-		CREATE TABLE public.sp_trgm_t (email text)`); err != nil {
-		t.Fatalf("create table: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public.sp_trgm_t")
-	})
-	err := ExecConcurrently(ctx, pool, `CREATE INDEX CONCURRENTLY sp_trgm_bare
-		ON public.sp_trgm_t USING gin (email gin_trgm_ops)`, time.Minute)
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "42704" {
-		t.Fatalf("unqualified opclass error = %v, want undefined_object (42704)", err)
-	}
-	if err := ExecConcurrently(ctx, pool, `CREATE INDEX CONCURRENTLY sp_trgm_ok
-		ON public.sp_trgm_t USING gin (email public.gin_trgm_ops)`, time.Minute); err != nil {
-		t.Fatalf("schema-qualified opclass: %v", err)
-	}
-}

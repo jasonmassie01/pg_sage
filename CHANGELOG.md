@@ -11,9 +11,13 @@ These changes are planned as two releases: v2.5.1 (tranche T0a, the safety fixes
 
 - **DDL search_path.** pg_sage's own DDL now runs with `search_path = pg_catalog, pg_temp`,
   both transactional and `CONCURRENTLY`, so a function another role plants in `public` can no
-  longer bind into indexes pg_sage builds (the CVE-2018-1058 class). Unqualified targets, and
-  extension operator classes installed outside `pg_catalog` such as a bare `gin_trgm_ops`, now
-  fail and the action is recorded as `failed` (security-01a).
+  longer bind into indexes pg_sage builds (the CVE-2018-1058 class). Unqualified targets now
+  fail and the action is recorded as `failed`, and optimizer index recommendations always name
+  the table's schema (security-01a). A bare operator class in a `CREATE INDEX`, such as
+  `gin_trgm_ops` or `vector_l2_ops`, still builds. It runs with pg_catalog's class when one
+  exists, otherwise with the schema of the one installed extension that defines it. A class
+  outside every extension, or defined by more than one extension, is refused before the
+  statement runs. Functions, types and tables are never resolved this way.
 - **Expression indexes.** The optimizer no longer recommends an expression index that calls a
   function outside pg_catalog or an allowlisted extension (refused with
   `function_schema_not_allowed`). It also refuses indexes on functions with any non-IMMUTABLE
