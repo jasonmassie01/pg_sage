@@ -430,7 +430,7 @@ The `reason` tells the two cases apart:
 | `reason` | Cause | Retry |
 |---|---|---|
 | `identity provider unreachable` | Transport error, timeout, or a non-200 or unreadable answer from `/.well-known/openid-configuration` | Every 2 s, doubling to at most every 5 min (with jitter); a `WARN` log per attempt |
-| `misconfigured` | `oauth.issuer_url` names an issuer the document does not, the document lacks the authorization, token or `jwks_uri` endpoints, or the provider setting is invalid | Once a day; logged once at `ERROR`. Fix the configuration or the IdP, then restart |
+| `misconfigured` | `oauth.issuer_url` names an issuer the document does not, the document lacks the authorization, token or `jwks_uri` endpoints, or the provider or `oauth.issuer_url` setting is invalid (not an absolute http(s) URL) | Once a day; logged once at `ERROR`. Fix the configuration or the IdP, then restart |
 
 Once discovery has succeeded, pg_sage re-reads the document every 24 hours.
 A failed refresh keeps the last good endpoints and signing keys, so sign-in

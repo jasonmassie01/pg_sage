@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -31,6 +32,9 @@ var (
 
 func (p *OAuthProvider) discoverOIDC(ctx context.Context, issuer string) error {
 	issuer = strings.TrimRight(issuer, "/")
+	if err := checkIssuerURL(issuer); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		issuer+"/.well-known/openid-configuration", nil)
 	if err != nil {
@@ -56,6 +60,17 @@ func (p *OAuthProvider) discoverOIDC(ctx context.Context, issuer string) error {
 	p.storeDiscovered(&disc, oidc.NewVerifier(disc.Issuer, keys, &oidc.Config{
 		ClientID: p.cfg.ClientID, SupportedSigningAlgs: disc.SigningAlgs,
 	}))
+	return nil
+}
+
+// checkIssuerURL rejects an issuer_url that is not an absolute http(s) URL
+// before any request: a typo is a misconfiguration, not an IdP outage.
+func checkIssuerURL(issuer string) error {
+	u, err := url.Parse(issuer)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("%w: issuer_url %q is not an absolute http(s) URL",
+			ErrDiscoveryMisconfigured, issuer)
+	}
 	return nil
 }
 

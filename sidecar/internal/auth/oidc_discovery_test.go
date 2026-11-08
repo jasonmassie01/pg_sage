@@ -334,3 +334,26 @@ func TestDiscoveryLoop_StopsWhenContextEnds(t *testing.T) {
 	}
 	t.Fatal("waitDiscovery: want false for an ended context, true for a zero wait")
 }
+
+// An issuer_url that is not an absolute http(s) URL is a configuration
+// typo, not an outage: it must say misconfigured and wait a day, not retry
+// every few minutes as "identity provider unreachable".
+func TestDiscoveryMisconfigured_MalformedIssuerURL(t *testing.T) {
+	for _, issuer := range []string{"idp.corp.example", "ftp://idp.corp.example",
+		"https://", "http://%zz", "/relative/issuer"} {
+		t.Run(issuer, func(t *testing.T) {
+			p := NewOAuthProvider(&config.OAuthConfig{Provider: "oidc",
+				IssuerURL: issuer, ClientID: "cid"})
+			err := p.Discover(context.Background())
+			if !errors.Is(err, ErrDiscoveryMisconfigured) ||
+				!strings.Contains(err.Error(), "issuer_url") {
+				t.Fatalf("Discover(%q) = %v, want ErrDiscoveryMisconfigured naming "+
+					"issuer_url", issuer, err)
+			}
+			if ready, reason := p.Ready(); ready || reason != ReasonMisconfigured {
+				t.Fatalf("Ready() = %v, %q; want false, %q", ready, reason,
+					ReasonMisconfigured)
+			}
+		})
+	}
+}
