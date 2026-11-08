@@ -104,3 +104,19 @@ func TestLogTree_CorruptionStaysCritical(t *testing.T) {
 			inc.Severity, inc.ActionRisk)
 	}
 }
+
+// The slot rule fires on invalidation, so the incident must say the slot
+// was invalidated and name it, not merely that it retains WAL.
+func TestLogTree_SlotInvalidationNamesTheSlot(t *testing.T) {
+	inc := logTreeFor(t, "log_replication_slot_inactive", map[string]any{
+		"message":   `invalidating obsolete replication slot "corpus_slot"`,
+		"slot_name": "corpus_slot",
+	})
+	if !strings.Contains(inc.RootCause, `invalidated slot "corpus_slot"`) {
+		t.Errorf("RootCause %q does not name the invalidated slot", inc.RootCause)
+	}
+	bare := logTreeFor(t, "log_replication_slot_inactive", map[string]any{})
+	if !strings.Contains(bare.RootCause, "invalidated a slot") {
+		t.Errorf("RootCause without slot_name = %q", bare.RootCause)
+	}
+}

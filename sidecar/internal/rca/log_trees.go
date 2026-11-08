@@ -321,12 +321,17 @@ func logTreeTempFile(s *Signal) Incident {
 	)
 }
 
-// logTreeReplicationSlot handles log_replication_slot_inactive with
-// a diagnostic SQL recommendation. Shows ALL slots (active and
-// inactive) since active slots with slow consumers are equally
-// dangerous for WAL retention and xmin horizon.
+// logTreeReplicationSlot handles log_replication_slot_inactive, which
+// fires when PostgreSQL invalidates a slot. Its diagnostic SQL shows ALL
+// slots (active and inactive) since active slots with slow consumers are
+// equally dangerous for WAL retention and xmin horizon.
 func logTreeReplicationSlot(s *Signal) Incident {
-	rootCause := "Replication slot accumulating WAL"
+	slot := "a slot"
+	if name := stringMetric(s, "slot_name"); name != "" {
+		slot = fmt.Sprintf("slot %q", name)
+	}
+	rootCause := "Replication slot accumulating WAL: PostgreSQL invalidated " +
+		slot + " (the log detail says why); its consumer must be re-synced"
 	sql := "SELECT slot_name, slot_type, active, " +
 		"pg_size_pretty(pg_wal_lsn_diff(" +
 		"pg_current_wal_lsn(), restart_lsn)) AS retained " +
