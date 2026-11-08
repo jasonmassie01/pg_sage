@@ -520,3 +520,29 @@ When LLM is enabled, the optimizer generates additional findings of category `in
 - Write impact assessment
 
 Optimizer findings do not appear without an LLM endpoint configured.
+
+---
+
+## Tier 2 -- Configuration Advisor
+
+With an LLM configured, the advisor proposes `wal_tuning`, `connection_tuning`,
+`query_rewrite` (advisory) and `bloat_remediation` (advisory) findings. The model
+never resolves one by going quiet: each cycle pg_sage re-checks every open advisor
+finding against the latest snapshot, deterministically.
+
+| Category | Resolves when |
+|----------|---------------|
+| `wal_tuning`, `connection_tuning` | the live `pg_settings` value equals the recommended value (from the `ALTER SYSTEM`, the managed `ALTER DATABASE`, or the managed-change intent; units normalized). A setting pending a restart is not live yet |
+| `query_rewrite` | the query has been absent from `pg_stat_statements` for 3 consecutive cycles (a stats reset or an unreadable query list does not count) |
+| `bloat_remediation` | the table has been under 10% dead tuples (or under 1,000 rows) for 2 consecutive cycles |
+| `advisor_degraded` | the LLM is enabled again, or the advisor is disabled on purpose |
+
+A finding that still holds is re-emitted unchanged, and only its own setting,
+query or table is left out of the next model review. Dismissing a finding keeps
+working as before (it is suppressed). The first cycle after upgrading resolves
+WAL and connection findings a DBA already applied by hand.
+
+A global setting finding whose GUC some tables override (a per-table finding, or
+an explicit storage parameter) is kept, with `detail.overridden_by_tables` naming
+those tables: they keep their own setting and the global change does not affect
+them.
