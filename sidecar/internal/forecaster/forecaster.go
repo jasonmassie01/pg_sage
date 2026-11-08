@@ -73,7 +73,7 @@ func (f *Forecaster) Forecast(
 		all = append(all, forecastConnectionSaturation(sysAggs, f.cfg)...)
 		all = append(all, forecastCachePressure(sysAggs, f.cfg)...)
 		all = append(all, forecastCheckpointPressure(sysAggs, f.cfg)...)
-		evaluated = append(evaluated, systemForecastCategories...)
+		evaluated = append(evaluated, evaluatedSystemCategories(sysAggs)...)
 	}
 	if qAggs, err := f.dailyQueryAggs(ctx); err != nil {
 		f.logFn("WARN", "forecaster: query aggs: %v", err)
@@ -92,6 +92,23 @@ func (f *Forecaster) Forecast(
 	f.lastEvaluated = evaluated
 	f.mu.Unlock()
 	return all, nil
+}
+
+// evaluatedSystemCategories lists the system categories a read of aggs
+// evaluates. With minDataPoints days of history but fewer days of
+// measured size, the disk trend is unknown rather than flat, so an open
+// disk finding must not be resolved on missing data (forecast-07).
+func evaluatedSystemCategories(aggs []DaySystemAgg) []string {
+	diskUnknown := len(aggs) >= minDataPoints &&
+		len(knownSizeDays(aggs)) < minDataPoints
+	cats := make([]string, 0, len(systemForecastCategories))
+	for _, c := range systemForecastCategories {
+		if diskUnknown && c == "forecast_disk_growth" {
+			continue
+		}
+		cats = append(cats, c)
+	}
+	return cats
 }
 
 // LastEvaluatedCategories reports the forecast categories whose data

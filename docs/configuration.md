@@ -1818,6 +1818,22 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 
+### Forecaster
+
+The forecaster (`forecaster.*`, see `sidecar/config.example.yaml`) fits daily trends
+over `lookback_days` of system snapshots and needs 7 days of data for each trend
+(8 for the checkpoint rate, which is a difference between days).
+
+- Days without a measured database size (`pg_database_size` had not yet succeeded,
+  timed out, or is refused by the provider) are left out of the disk growth trend
+  (`forecast_disk_growth`); they are not read as a size of 0. With 7 or more days of
+  history but fewer than 7 measured sizes, the disk trend is not evaluated: no disk
+  finding opens, and an open one is neither refreshed nor resolved until 7 measured
+  days exist again. The connection, cache and checkpoint trends still run.
+- Days without backend counts or `max_connections` are left out of the connection
+  trend, and days without a checkpoint count are left out of the checkpoint trend,
+  whose hourly rate spans the days since the previous counted day.
+
 ### Retention
 
 | Parameter | Default | Description |

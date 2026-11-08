@@ -10,15 +10,17 @@ import (
 const minDataPoints = 7
 
 // forecastDiskGrowth warns when database size is growing faster
-// than the configured threshold in GB/day.
+// than the configured threshold in GB/day. Only days with a measured
+// size count, and minDataPoints of them are needed (forecast-07).
 func forecastDiskGrowth(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
-	if len(aggs) < minDataPoints {
+	known := knownSizeDays(aggs)
+	if len(known) < minDataPoints {
 		return nil
 	}
 
-	points := sysToDataPoints(aggs, func(a DaySystemAgg) float64 {
+	points := sysToDataPoints(known, func(a DaySystemAgg) float64 {
 		return a.MaxDBSizeBytes
 	})
 	reg := LinearRegression(points)
@@ -28,7 +30,7 @@ func forecastDiskGrowth(
 		return nil
 	}
 
-	currentGB := aggs[len(aggs)-1].MaxDBSizeBytes / 1e9
+	currentGB := known[len(known)-1].MaxDBSizeBytes / 1e9
 	return []analyzer.Finding{{
 		Category:   "forecast_disk_growth",
 		Severity:   "warning",
@@ -58,18 +60,22 @@ func connectionsInUse(a DaySystemAgg) float64 {
 }
 
 // forecastConnectionSaturation projects when connections in use
-// will reach a dangerous fraction of max_connections.
+// will reach a dangerous fraction of max_connections. Days without
+// backend counts or max_connections are skipped (forecast-07).
 func forecastConnectionSaturation(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
-	if len(aggs) < minDataPoints {
+	known := knownDays(aggs, func(a DaySystemAgg) bool {
+		return a.BackendsUnknown || a.MaxConnectionsUnknown
+	})
+	if len(known) < minDataPoints {
 		return nil
 	}
 
-	points := sysToDataPoints(aggs, connectionsInUse)
+	points := sysToDataPoints(known, connectionsInUse)
 	reg := LinearRegression(points)
 
-	latest := aggs[len(aggs)-1]
+	latest := known[len(known)-1]
 	maxConns := latest.MaxConnections
 	if maxConns == 0 {
 		return nil
@@ -273,22 +279,27 @@ func forecastQueryVolume(
 }
 
 // forecastCheckpointPressure warns when the checkpoint rate is
-// trending upward.
+// trending upward. Days without a checkpoint count are skipped, and a
+// rate spans the days elapsed since the previous counted day (forecast-07).
 func forecastCheckpointPressure(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
-	if len(aggs) < minDataPoints+1 {
+	known := knownDays(aggs, func(a DaySystemAgg) bool {
+		return a.CheckpointsUnknown
+	})
+	if len(known) < minDataPoints+1 {
 		return nil
 	}
 
-	rates := make([]float64, 0, len(aggs)-1)
-	for i := 1; i < len(aggs); i++ {
-		delta := aggs[i].TotalCheckpoints -
-			aggs[i-1].TotalCheckpoints
+	rates := make([]float64, 0, len(known)-1)
+	for i := 1; i < len(known); i++ {
+		delta := known[i].TotalCheckpoints -
+			known[i-1].TotalCheckpoints
 		if delta < 0 {
 			delta = 0 // stats reset
 		}
-		rates = append(rates, delta/24) // per hour
+		hours := 24 * elapsedDays(known[i-1].Day, known[i].Day)
+		rates = append(rates, delta/hours) // per hour
 	}
 
 	smoothed := EWMA(rates, 0.1)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/histstore"
@@ -20,6 +21,13 @@ type DaySystemAgg struct {
 	MaxConnections    float64
 	AvgCacheHitRatio  float64
 	TotalCheckpoints  float64
+	// An input is unknown on a day where every snapshot left it null (or,
+	// for the size, wrote 0): its value above is then 0 and the rules
+	// that read it skip the day (forecast-07).
+	DBSizeUnknown         bool
+	BackendsUnknown       bool
+	MaxConnectionsUnknown bool
+	CheckpointsUnknown    bool
 }
 
 // DayQueryAgg holds daily aggregated query volume.
@@ -38,8 +46,12 @@ type DaySeqAgg struct {
 
 const systemAggsSQL = `/* pg_sage */
 SELECT date_trunc('day', collected_at) AS day,
-       avg((data->>'db_size_bytes')::bigint)     AS avg_db_size,
-       max((data->>'db_size_bytes')::bigint)     AS max_db_size,
+       -- db_size_bytes is null until pg_database_size succeeds; legacy
+       -- rows wrote 0. A day with no measured size stays NULL (forecast-07).
+       avg((data->>'db_size_bytes')::bigint)
+           FILTER (WHERE (data->>'db_size_bytes')::bigint > 0) AS avg_db_size,
+       max((data->>'db_size_bytes')::bigint)
+           FILTER (WHERE (data->>'db_size_bytes')::bigint > 0) AS max_db_size,
        max((data->>'active_backends')::int)      AS max_active,
        max((data->>'total_backends')::int)       AS max_total,
        max((data->>'max_connections')::int)      AS max_conns,
@@ -71,16 +83,9 @@ func QueryDailySystemAggs(
 
 	var aggs []DaySystemAgg
 	for rows.Next() {
-		var a DaySystemAgg
-		if err := rows.Scan(
-			&a.Day,
-			&a.AvgDBSizeBytes, &a.MaxDBSizeBytes,
-			&a.MaxActiveBackends, &a.MaxTotalBackends,
-			&a.MaxConnections,
-			&a.AvgCacheHitRatio,
-			&a.TotalCheckpoints,
-		); err != nil {
-			return nil, fmt.Errorf("scan system agg: %w", err)
+		a, err := scanSystemAgg(rows)
+		if err != nil {
+			return nil, err
 		}
 		aggs = append(aggs, a)
 	}
@@ -88,6 +93,36 @@ func QueryDailySystemAggs(
 		return nil, fmt.Errorf("iterate system aggs: %w", err)
 	}
 	return aggs, nil
+}
+
+// scanSystemAgg reads one day of systemAggsSQL. The size, backend,
+// max_connections and checkpoint aggregates are NULL on a day where no
+// snapshot measured them; such an input is marked unknown, not failed.
+func scanSystemAgg(rows pgx.Rows) (DaySystemAgg, error) {
+	var a DaySystemAgg
+	var avgSize, maxSize, active, total, maxConns, chkpts *float64
+	if err := rows.Scan(
+		&a.Day, &avgSize, &maxSize, &active, &total, &maxConns,
+		&a.AvgCacheHitRatio, &chkpts,
+	); err != nil {
+		return DaySystemAgg{}, fmt.Errorf("scan system agg: %w", err)
+	}
+	a.AvgDBSizeBytes, a.MaxDBSizeBytes = orZero(avgSize), orZero(maxSize)
+	a.DBSizeUnknown = maxSize == nil
+	a.MaxActiveBackends, a.MaxTotalBackends = orZero(active), orZero(total)
+	a.BackendsUnknown = active == nil && total == nil
+	a.MaxConnections = orZero(maxConns)
+	a.MaxConnectionsUnknown = maxConns == nil
+	a.TotalCheckpoints = orZero(chkpts)
+	a.CheckpointsUnknown = chkpts == nil
+	return a, nil
+}
+
+func orZero(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // QueryDailyQueryAggs returns daily query call volume aggregates (a
