@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -27,9 +29,16 @@ var sessionStoreLog = newRateLimitedLog(sessionStoreLogEvery, nil)
 // writeSessionStoreUnavailable answers 503 auth_store_unavailable and logs
 // the cause, rate limited. The cause never reaches the client.
 func writeSessionStoreUnavailable(w http.ResponseWriter, r *http.Request, cause error) {
-	sessionStoreLog.Error("session store unavailable; answering 503 "+
-		"auth_store_unavailable and keeping sessions",
-		"path", r.URL.Path, "error", cause)
+	if errors.Is(r.Context().Err(), context.Canceled) {
+		// The client left mid-lookup: nothing says the store is down, so
+		// do not raise an outage ERROR or use up the log window.
+		slog.Debug("session lookup abandoned by the client",
+			"path", r.URL.Path, "error", cause)
+	} else {
+		sessionStoreLog.Error("session store unavailable; answering 503 "+
+			"auth_store_unavailable and keeping sessions",
+			"path", r.URL.Path, "error", cause)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", authStoreRetryAfter)
 	w.WriteHeader(http.StatusServiceUnavailable)

@@ -289,3 +289,25 @@ func TestSessionUser_TriState(t *testing.T) {
 		t.Fatalf("closed pool = (%v, %v), want ErrSessionStoreUnavailable", u, err)
 	}
 }
+
+func TestSessionAuth_ClientCancelIsNotLoggedAsOutage(t *testing.T) {
+	sink := captureSessionStoreLog(t, nil)
+	h := SessionAuthMiddleware(refusingPool(t))(mustNotReach(t))
+	cookie := wellFormedSessionCookie(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the browser navigated away before the lookup finished
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/findings", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: "sage_session", Value: cookie})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	// Still fail closed: an unvalidated request never reaches the handler.
+	assertStoreUnavailable(t, w)
+	if sink.String() != "" {
+		t.Fatalf("a client cancel was logged as a store outage: %q", sink.String())
+	}
+	// It must not use up the window: the next real failure is logged.
+	assertStoreUnavailable(t, callWithCookie(h, "/api/v1/findings", cookie))
+	if n := strings.Count(sink.String(), "level=ERROR"); n != 1 {
+		t.Fatalf("real outage after a cancel logged %d lines, want 1: %q", n, sink.String())
+	}
+}
