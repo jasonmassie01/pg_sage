@@ -3,6 +3,7 @@ package facts
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -24,30 +25,80 @@ var guidance = map[Type]string{
 		"indexes (they serve rare reads).",
 }
 
+// promptPriority orders the binding facts of a prompt before its budget
+// cuts: the facts behind WAL and vacuum advice first, so many index
+// ownership facts never crowd them out. Ties go by fact id.
+var promptPriority = map[Type]int{TypeSlotConsumer: 0, TypeTableWindow: 1,
+	TypeAppendOnly: 2, TypeAppMigrations: 3, TypeTestFixture: 4}
+
+func promptRank(t Type) int {
+	if p, ok := promptPriority[t]; ok {
+		return p
+	}
+	return len(promptPriority)
+}
+
 // PromptLines renders the confirmed, unexpired facts relevant to objects
-// (all of them when objects is empty) as bounded prompt lines in fact
-// order. Proposed, rejected and expired facts are never included.
+// (all of them when objects is empty) as bounded prompt lines, by type
+// priority and then fact order. Proposed, rejected and expired facts are
+// never included. When the bounds cut facts, a last line says how many,
+// and the lines with it stay within maxPromptChars.
 func PromptLines(facts []Fact, now time.Time, objects ...string) []string {
+	picked := promptFacts(facts, now, objects)
+	var out []string
+	used := 0
+	for i, f := range picked {
+		line := clip(promptLine(f), maxPromptLine)
+		if len(out) == maxPromptLines || used+len(line)+1 > maxPromptChars {
+			return withOmittedNote(out, used, len(picked)-i)
+		}
+		out = append(out, line)
+		used += len(line) + 1
+	}
+	return out
+}
+
+// promptFacts are the binding facts relevant to objects, in prompt order;
+// the caller's slice is left as it is.
+func promptFacts(facts []Fact, now time.Time, objects []string) []Fact {
 	refs := make([]ObjectRef, 0, len(objects))
 	for _, o := range objects {
 		if ref, err := ParseObjectRef(o); err == nil {
 			refs = append(refs, ref)
 		}
 	}
-	var out []string
-	used := 0
+	var picked []Fact
 	for _, f := range facts {
-		if !f.binds(now) || (len(objects) > 0 && !relevant(f, refs)) {
-			continue
+		if f.binds(now) && (len(objects) == 0 || relevant(f, refs)) {
+			picked = append(picked, f)
 		}
-		line := clip(promptLine(f), maxPromptLine)
-		if len(out) == maxPromptLines || used+len(line)+1 > maxPromptChars {
-			break
-		}
-		out = append(out, line)
-		used += len(line) + 1
 	}
-	return out
+	sort.SliceStable(picked, func(i, j int) bool {
+		ri, rj := promptRank(picked[i].Type), promptRank(picked[j].Type)
+		return ri < rj || (ri == rj && picked[i].ID < picked[j].ID)
+	})
+	return picked
+}
+
+// withOmittedNote ends out (used characters) with a note naming the
+// omitted facts, dropping fact lines until the note fits the budget.
+func withOmittedNote(out []string, used, omitted int) []string {
+	for {
+		note := omittedNote(omitted)
+		if used+len(note)+1 <= maxPromptChars || len(out) == 0 {
+			return append(out, note)
+		}
+		used -= len(out[len(out)-1]) + 1
+		out = out[:len(out)-1]
+		omitted++
+	}
+}
+
+func omittedNote(n int) string {
+	if n == 1 {
+		return "- 1 more confirmed fact omitted."
+	}
+	return fmt.Sprintf("- %d more confirmed facts omitted.", n)
 }
 
 func promptLine(f Fact) string {
