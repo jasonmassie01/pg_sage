@@ -101,8 +101,17 @@ every user schema that has a relation of that name (`test_a.orders` is a test fi
 SQL names stay conservative: an unqualified one that cannot be resolved still matches every
 schema subject. If the catalog cannot be read, the gate fails closed (`facts_unavailable`).
 
-The optimizer, advisor and investigator prompts carry the confirmed facts as bounded context.
-Proposed facts are never presented to the model as true.
+The optimizer, advisor and investigator prompts carry the confirmed facts as bounded context
+(at most 12 facts and 1,500 characters). When there are more, the facts behind WAL and vacuum
+advice go first: `slot_consumer`, then `table_window`, `append_only`,
+`owned_by_app_migrations` and `test_fixture`, by fact id within a type. The last line then
+says how many were left out (`- 19 more confirmed facts omitted.`); the budget still holds
+with that line. Proposed facts are never presented to the model as true.
+
+The gate reads the confirmed facts through a cache of at most 10 seconds per database. A
+confirm, reject or expire in the same pg_sage process (UI, API, MCP or a chat card) clears it
+at once, including a read already in flight, so the next action sees the decision. A change
+written by another process is seen within 10 seconds.
 
 ### Slot facts are cluster facts
 
