@@ -14,8 +14,10 @@ import (
 )
 
 // forecast-02: a gap longer than the lookback neither resolves nor
-// reopens the forecast finding. The xid_runway probe is failed so only
-// the seeded xid samples exist (a live sample would start a new epoch).
+// reopens the forecast finding. The xid_runway reading has no counters,
+// so only the seeded xid samples exist (a live sample would start a new
+// epoch), and an age past the freeze maximum, so the trend is projected
+// (forecast-01: without a reading it would be held, not projected).
 
 func xidTriggerKeys(st *fakeStarter) []string {
 	var keys []string
@@ -25,21 +27,6 @@ func xidTriggerKeys(st *fakeStarter) []string {
 		}
 	}
 	return keys
-}
-
-// tickNamingOnly ticks and fails unless every problem names the probe
-// the test failed on purpose.
-func tickNamingOnly(t *testing.T, ctx context.Context, m *Monitor, probe string) {
-	t.Helper()
-	_, err := m.Tick(ctx)
-	if err == nil {
-		t.Fatalf("tick: no error, want %s named", probe)
-	}
-	for _, line := range strings.Split(err.Error(), "\n") {
-		if !strings.Contains(line, probe) {
-			t.Fatalf("tick: unexpected problem %q", line)
-		}
-	}
 }
 
 func countFindings(t *testing.T, ctx context.Context, pool *pgxpool.Pool, cat,
@@ -61,9 +48,8 @@ func TestMonitorTick_GapKeepsOneFindingAndOneKey(t *testing.T) {
 	resetXID(t, ctx, pool)
 	seedXIDTrend(t, ctx, pool, 0)
 	st := &fakeStarter{}
-	m := newTestMonitor(t, pool, failingRunner{inner: liveRunner(pool),
-		fail: probes.XIDRunwayProbe}, st)
-	tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+	m := newTestMonitor(t, pool, pastGateXID(liveRunner(pool)), st)
+	mustTick(t, ctx, m)
 	id, sev, ok := openFinding(t, ctx, pool, CategoryWraparound, "xid")
 	if !ok || sev != SeverityCritical {
 		t.Fatalf("measured xid trend: finding open=%v severity %q", ok, sev)
@@ -73,7 +59,7 @@ func TestMonitorTick_GapKeepsOneFindingAndOneKey(t *testing.T) {
 		t.Fatalf("age the samples: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+		mustTick(t, ctx, m)
 		got, _, ok := openFinding(t, ctx, pool, CategoryWraparound, "xid")
 		if !ok || got != id {
 			t.Fatalf("gap tick %d: finding open=%v id %d, want %d", i+1, ok, got, id)
@@ -85,7 +71,7 @@ func TestMonitorTick_GapKeepsOneFindingAndOneKey(t *testing.T) {
 		}
 	}
 	seedXIDTrend(t, ctx, pool, 0)
-	tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+	mustTick(t, ctx, m)
 	if got, _, ok := openFinding(t, ctx, pool, CategoryWraparound, "xid"); !ok || got != id {
 		t.Fatalf("measured again: finding open=%v id %d, want %d", ok, got, id)
 	}

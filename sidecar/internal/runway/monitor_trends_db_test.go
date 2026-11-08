@@ -55,8 +55,7 @@ func TestMonitorTick_UnreadableTrendsKeepTheStaleMarks(t *testing.T) {
 	resetXID(t, ctx, pool)
 	seedXIDTrend(t, ctx, pool, 7*time.Hour)
 	openXIDFinding(t, ctx, pool)
-	run := &probeFailer{inner: liveRunner(pool),
-		fail: map[probes.ID]bool{probes.XIDRunwayProbe: true}}
+	run := &probeFailer{inner: pastGateXID(liveRunner(pool)), fail: map[probes.ID]bool{}}
 	m := newTestMonitor(t, pool, run, nil)
 	var mu sync.Mutex
 	var logs []string

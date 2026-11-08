@@ -162,8 +162,7 @@ func TestMonitorTick_StaleTransitionsLogOnce(t *testing.T) {
 	resetXID(t, ctx, pool)
 	seedXIDTrend(t, ctx, pool, 7*time.Hour)
 	openXIDFinding(t, ctx, pool)
-	m := newTestMonitor(t, pool, failingRunner{inner: liveRunner(pool),
-		fail: probes.XIDRunwayProbe}, nil)
+	m := newTestMonitor(t, pool, pastGateXID(liveRunner(pool)), nil)
 	var mu sync.Mutex
 	var logs []string
 	m.logFn = func(_, msg string, args ...any) {
@@ -183,14 +182,14 @@ func TestMonitorTick_StaleTransitionsLogOnce(t *testing.T) {
 		return n
 	}
 	for i := 0; i < 3; i++ {
-		tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+		mustTick(t, ctx, m)
 	}
 	if n := count("held open, marked stale"); n != 1 {
 		t.Fatalf("%d stale logs over three held ticks, want 1 (%v)", n, logs)
 	}
 	seedXIDTrend(t, ctx, pool, 0)
 	for i := 0; i < 2; i++ {
-		tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+		mustTick(t, ctx, m)
 	}
 	if n := count("no longer held stale"); n != 1 {
 		t.Fatalf("%d release logs over two measured ticks, want 1 (%v)", n, logs)

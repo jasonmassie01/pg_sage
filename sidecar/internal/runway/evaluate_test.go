@@ -39,8 +39,10 @@ func rateFor(last, limit float64, d time.Duration) float64 {
 
 func evalOne(t *testing.T, tr probes.RunwayTrend) []Runway {
 	t.Helper()
-	rs, _ := Evaluate(EvalInput{Trends: []probes.RunwayTrend{tr}, TrendsOK: true},
-		testOptions())
+	// The XID reading is past its freeze maximum (forecast-01's gate), as
+	// the 1.5e9 ages these trends project from are.
+	rs, _ := Evaluate(EvalInput{Trends: []probes.RunwayTrend{tr}, TrendsOK: true,
+		XID: xidReading(1.5e9, 2e8)}, testOptions())
 	return rs
 }
 

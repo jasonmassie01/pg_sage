@@ -52,7 +52,8 @@ func TestHolds_XIDStateTransitions(t *testing.T) {
 		{"outside the horizon", xidTrend(12, time.Hour, 400*time.Hour), false, ""},
 	}
 	for _, c := range cases {
-		in := EvalInput{Trends: []probes.RunwayTrend{c.tr}, TrendsOK: true, TablesOK: true}
+		in := EvalInput{Trends: []probes.RunwayTrend{c.tr}, TrendsOK: true, TablesOK: true,
+			XID: xidReading(1.5e9, 2e8)} // past the freeze maximum (forecast-01)
 		rs, evaluated := Evaluate(in, opts)
 		if got := len(rs) == 1 && rs[0].Identifier == "xid"; got != c.wantRunway ||
 			len(rs) > 1 {
@@ -85,7 +86,8 @@ func TestHolds_MeasuredBoundary(t *testing.T) {
 		{"unknown rate", nan, HoldUnmeasured},
 	}
 	for _, c := range cases {
-		in := EvalInput{Trends: []probes.RunwayTrend{c.tr}, TrendsOK: true}
+		in := EvalInput{Trends: []probes.RunwayTrend{c.tr}, TrendsOK: true,
+			XID: xidReading(1.5e9, 2e8)} // past the freeze maximum (forecast-01)
 		if got := heldReason(Holds(in, opts), CategoryWraparound, "xid"); got != c.want {
 			t.Errorf("%s: held %q, want %q", c.name, got, c.want)
 		}

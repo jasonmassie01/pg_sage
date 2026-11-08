@@ -181,6 +181,10 @@ type RunwayTrend struct {
 	Limit     float64
 	RatePerS  float64
 	R2        float64
+	// ValueRatePerS is the slope of the value alone: for xid and mxid the
+	// net age slope (freezing lowers it), RatePerS being the consumption
+	// rate; equal to RatePerS for a series without a counter.
+	ValueRatePerS float64
 }
 
 // SpanS is the seconds between the first and last sample.
@@ -413,7 +417,8 @@ func RunwayTrends(res Result) ([]RunwayTrend, error) {
 		out = append(out, RunwayTrend{Kind: kind, Subject: subject, Samples: n,
 			FirstAt: timeField(r, "first_at"), LastAt: timeField(r, "last_at"),
 			LastValue: floatField(r, "last_value"), Limit: floatField(r, "last_limit"),
-			RatePerS: floatField(r, "rate_per_s"), R2: floatField(r, "r2")})
+			RatePerS: floatField(r, "rate_per_s"), R2: floatField(r, "r2"),
+			ValueRatePerS: floatField(r, "value_rate_per_s")})
 	}
 	return out, nil
 }
