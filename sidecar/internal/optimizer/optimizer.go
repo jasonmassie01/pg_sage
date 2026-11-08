@@ -133,7 +133,8 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 	if err != nil {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: err.Error()}
 	}
-	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
+	rec, ok, reason := o.validator.ValidateAndQualify(ctx, rec, tc)
+	if !ok {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
 	if !operatorRequested(ctx) {

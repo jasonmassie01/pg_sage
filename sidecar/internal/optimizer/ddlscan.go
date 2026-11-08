@@ -15,6 +15,9 @@ type ddlScanner struct {
 	// opclassAt is the span in src of the last operator class name read
 	// (qualifier included); empty until one is read.
 	opclassAt [2]int
+	// keysAt and keysEnd span the key list's text and whereAt is where the
+	// WHERE predicate starts, once parseBody has read them.
+	keysAt, keysEnd, whereAt int
 }
 
 func (s *ddlScanner) skipSpace() {

@@ -40,7 +40,7 @@ func reject(format string, args ...any) error {
 func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	switch {
 	case stmt.GetIndexStmt() != nil:
-		return nil
+		return checkIndexStmt(stmt.GetIndexStmt(), rules)
 	case stmt.GetCreateStatsStmt() != nil:
 		return checkCreateStats(stmt.GetCreateStatsStmt(), rules)
 	case stmt.GetDropStmt() != nil:

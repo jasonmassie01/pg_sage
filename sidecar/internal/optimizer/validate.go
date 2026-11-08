@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"regexp"
 	"sort"
@@ -39,37 +40,45 @@ func NewValidator(
 	return v
 }
 
-// Validate runs all checks in order. Returns (accepted, reason).
+// Validate runs all checks in order. Returns (accepted, reason). It is
+// ValidateAndQualify without the qualified DDL.
 func (v *Validator) Validate(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
 ) (bool, string) {
-	if ok, reason := v.checkConcurrently(rec); !ok {
-		return false, reason
+	_, ok, reason := v.ValidateAndQualify(ctx, rec, tc)
+	return ok, reason
+}
+
+// ValidateAndQualify runs all checks in order and returns rec with every
+// bare function its index expressions call named by the schema it binds to
+// (pg_catalog.lower(email)), so the DDL builds the same index on any
+// search_path (security-01). Returns (rec, accepted, reason).
+func (v *Validator) ValidateAndQualify(
+	ctx context.Context,
+	rec Recommendation,
+	tc TableContext,
+) (Recommendation, bool, string) {
+	for _, check := range []func() (bool, string){
+		func() (bool, string) { return v.checkConcurrently(rec) },
+		func() (bool, string) { return v.checkColumnExistence(rec, tc) },
+		func() (bool, string) { return v.checkDuplicate(rec, tc) },
+		func() (bool, string) { return v.checkWriteImpact(rec, tc) },
+		func() (bool, string) { return v.checkMaxIndexes(tc) },
+		func() (bool, string) { return v.checkExtensionRequired(ctx, rec) },
+		func() (bool, string) { return v.checkBRINCorrelation(rec, tc) },
+	} {
+		if ok, reason := check(); !ok {
+			return rec, false, reason
+		}
 	}
-	if ok, reason := v.checkColumnExistence(rec, tc); !ok {
-		return false, reason
+	ddl, reason := v.resolveIndexFunctions(ctx, rec)
+	if reason != "" {
+		return rec, false, reason
 	}
-	if ok, reason := v.checkDuplicate(rec, tc); !ok {
-		return false, reason
-	}
-	if ok, reason := v.checkWriteImpact(rec, tc); !ok {
-		return false, reason
-	}
-	if ok, reason := v.checkMaxIndexes(tc); !ok {
-		return false, reason
-	}
-	if ok, reason := v.checkExtensionRequired(ctx, rec); !ok {
-		return false, reason
-	}
-	if ok, reason := v.checkBRINCorrelation(rec, tc); !ok {
-		return false, reason
-	}
-	if ok, reason := v.checkExpressionVolatility(ctx, rec); !ok {
-		return false, reason
-	}
-	return true, ""
+	rec.DDL = ddl
+	return rec, true, ""
 }
 
 func (v *Validator) checkConcurrently(rec Recommendation) (bool, string) {
@@ -236,37 +245,44 @@ func (v *Validator) checkBRINCorrelation(
 	return true, ""
 }
 
-// checkExpressionVolatility rejects an index whose key expressions or
-// predicate call a function that is not IMMUTABLE in every overload in
-// pg_catalog or an allowlisted extension (PostgreSQL refuses STABLE and
-// VOLATILE functions in index expressions). A name with no such overload
-// (a function planted in public, or none at all), a call qualified by a
-// schema that holds none, and a call the name match cannot see (a quoted
-// name, a comment, a character Go folds unlike PostgreSQL) are refused
-// with function_schema_not_allowed, and a failed lookup refuses the index.
-// ParseIndexDDL folds unquoted ASCII names to lower case, as PostgreSQL
-// does.
-func (v *Validator) checkExpressionVolatility(
-	ctx context.Context,
-	rec Recommendation,
-) (bool, string) {
+// resolveIndexFunctions binds every function an index's key expressions
+// and predicate call (bindFunction) and returns the DDL with each bare call
+// named by its bound schema. A call bound outside pg_catalog and the
+// allowlisted extensions (a function planted in public, or none at all),
+// one that is not IMMUTABLE in every overload of its bound schema
+// (PostgreSQL refuses STABLE and VOLATILE functions in index expressions),
+// and a call the name match cannot see (a quoted name, a comment, a
+// character Go folds unlike PostgreSQL) are refused with a reason; a failed
+// lookup refuses the index. ParseIndexDDL folds unquoted ASCII names to
+// lower case, as PostgreSQL does. The reason is "" when the index is
+// admitted.
+func (v *Validator) resolveIndexFunctions(
+	ctx context.Context, rec Recommendation,
+) (string, string) {
 	spec, err := ParseIndexDDL(rec.DDL)
 	if err != nil || v.catalog == nil {
-		return true, ""
+		return rec.DDL, ""
 	}
 	frag := spec.Keys + " " + spec.Where
 	if unverifiableCallRe.MatchString(frag) ||
 		(strings.Contains(frag, "(") && foldsUnlikePostgres(rec.DDL)) {
-		return false, "function_schema_not_allowed: a quoted function or schema " +
+		return "", "function_schema_not_allowed: a quoted function or schema " +
 			"name, a comment, or a character PostgreSQL reads differently, in an " +
 			"index expression cannot be verified"
 	}
+	bound := map[funcCall]string{}
 	for _, c := range functionCalls(frag) {
-		if reason := v.functionVolatility(ctx, c); reason != "" {
-			return false, reason
+		found, err := v.functionSchemas(ctx, c)
+		if err != nil {
+			return "", fmt.Sprintf("volatility lookup for %s failed, index refused: %v", c, err)
 		}
+		schema, reason := bindFunction(c, found)
+		if reason != "" {
+			return "", reason
+		}
+		bound[c] = schema
 	}
-	return true, ""
+	return qualifyBoundCalls(rec.DDL, bound)
 }
 
 // extractColumnsFromDDL returns the plain key columns of a CREATE INDEX
@@ -334,10 +350,10 @@ func shapeOf(ddl string, defaults map[string]KeyDefault) (indexShape, bool) {
 var castPattern = regexp.MustCompile(
 	`::\s*(?:"[^"]*"|[a-z_][a-z0-9_]*)(?:\s+varying)?(?:\(\s*\d+(?:\s*,\s*\d+)?\s*\))?(?:\[\])*`)
 
-// canonicalShape drops casts and parentheses from a normalized fragment
-// and collapses whitespace.
+// canonicalShape drops casts, parentheses and pg_catalog qualifiers from a
+// normalized fragment and collapses whitespace.
 func canonicalShape(frag string) string {
-	s := castPattern.ReplaceAllString(frag, "")
+	s := castPattern.ReplaceAllString(dropCatalogQualifiers(frag), "")
 	s = strings.NewReplacer("(", " ", ")", " ").Replace(s)
 	s = strings.Join(strings.Fields(s), " ")
 	return strings.NewReplacer(" ,", ",", ", ", ",").Replace(s)

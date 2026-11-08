@@ -92,6 +92,9 @@ func ValidateExecutorSQL(sql string) error {
 		if err := checkProtectedSchemaUsage(normalized, prefix); err != nil {
 			return err
 		}
+		if err := checkIndexCallSchemas(trimmed, prefix); err != nil {
+			return err
+		}
 		return checkParseTree(trimmed)
 	}
 
@@ -337,7 +340,8 @@ func rejectMultiStatement(sql string) error {
 // search_path at run time, where "$user" may be sage and pg_catalog is
 // always searched, so the protected-schema check could not see it.
 var qualifiedTargetPrefixes = map[string]bool{"DROP INDEX": true, "ALTER TABLE": true,
-	"CREATE STATISTICS": true, "DROP STATISTICS": true}
+	"CREATE STATISTICS": true, "DROP STATISTICS": true,
+	"CREATE INDEX": true, "CREATE UNIQUE INDEX": true}
 
 func checkProtectedSchemaUsage(trimmed, prefix string) error {
 	ident := statementTarget(trimmed, prefix)
