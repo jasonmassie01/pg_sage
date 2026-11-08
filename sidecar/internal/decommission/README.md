@@ -120,7 +120,8 @@ as `changed_by_actor`). The answer is 200 with the `dropped` list; a repeat, or
 an install that never had the tables, is 200 with an empty list.
 
 The drop is irreversible: take a backup of the `sage` schema first if you want
-to keep the history. Run it on the control database only (the meta database,
+to keep the history, and upgrade every sidecar that uses this control database
+first, so no older version still reads or writes the tables. Run it on the control database only (the meta database,
 else the fleet's primary); it is plain DDL by the owner role on PostgreSQL 14
 to 18 and on managed providers. `sage.agentdb_decommission` stays, so your
 acknowledgements remain on record. Afterwards the inventory reports
