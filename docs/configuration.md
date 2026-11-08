@@ -1855,8 +1855,10 @@ alerting:
       channels: [slack]
 ```
 
-A severity with no route is not sent. Values changed later through the settings API are not
-checked again; if a route channel then has no URL or key, routing logs a warning naming it.
+A severity with no route is not sent. A hot-reloaded config file is checked the same way, and
+an invalid one is refused while the previous config keeps running. Values changed through the
+settings API are not checked against the routes, so an alerting change there never blocks an
+unrelated setting; if a route channel then has no URL or key, routing logs a warning naming it.
 
 ### Retention
 
