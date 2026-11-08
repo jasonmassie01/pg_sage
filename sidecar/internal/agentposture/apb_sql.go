@@ -3,6 +3,8 @@ package agentposture
 import (
 	"slices"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Shared parts of the AP-09..AP-16 statements and fix scripts.
@@ -55,7 +57,7 @@ func revokeTarget(r Role) string {
 	if r.OID == PublicOID {
 		return "PUBLIC"
 	}
-	return QuoteIdent(r.Name)
+	return sqlident.Ident(r.Name)
 }
 
 // roleText is "a, b and c" of the role names.

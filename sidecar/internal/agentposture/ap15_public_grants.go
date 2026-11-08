@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap15{}) }
@@ -83,7 +85,7 @@ func publicTableGrants(ctx context.Context, q Querier) ([]Finding, error) {
 			all = append(all, &schemaGrants{schema: schema})
 		}
 		g := all[len(all)-1]
-		name := QualifiedName(schema, rel)
+		name := sqlident.Qualified(schema, rel)
 		g.fix = append(g.fix, "REVOKE ALL ON TABLE "+name+" FROM PUBLIC;")
 		g.shown = append(g.shown, rel+" ("+strings.Join(privs, ", ")+")")
 		g.ev = append(g.ev, Evidence{Source: "pg_class.relacl", Ref: name,
@@ -134,7 +136,7 @@ func defaultPrivilegeFinding(owner, schema, objects string, privs []string) Find
 	if schema != "" {
 		object = owner + " in " + schema + ": " + objects
 		scope = "in schema " + schema
-		in = " IN SCHEMA " + QuoteIdent(schema)
+		in = " IN SCHEMA " + sqlident.Ident(schema)
 	}
 	return Finding{Severity: Warning, ObjectType: "default_privileges", Object: object,
 		Title: "Default privileges grant PUBLIC",
@@ -142,7 +144,7 @@ func defaultPrivilegeFinding(owner, schema, objects string, privs []string) Find
 			"agent role gets them.", objects, owner, scope, strings.Join(privs, ", ")),
 		Recommendation: "Remove PUBLIC from the default privileges; grant new objects " +
 			"to the roles that need them.",
-		FixScript: "ALTER DEFAULT PRIVILEGES FOR ROLE " + QuoteIdent(owner) + in +
+		FixScript: "ALTER DEFAULT PRIVILEGES FOR ROLE " + sqlident.Ident(owner) + in +
 			" REVOKE ALL ON " + strings.ToUpper(objects) + " FROM PUBLIC;",
 		Evidence: []Evidence{{Source: "pg_default_acl", Ref: object,
 			Detail: "PUBLIC: " + strings.Join(privs, ", ")}}}

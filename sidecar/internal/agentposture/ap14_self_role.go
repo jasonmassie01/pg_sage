@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap14{}) }
@@ -75,7 +77,7 @@ func superuserSelf(self Role) Finding {
 
 func selfFinding(in Input, self Role, bypass bool, inherited []string) Finding {
 	var why, fix []string
-	who := QuoteIdent(self.Name)
+	who := sqlident.Ident(self.Name)
 	if bypass {
 		why = append(why, "holds BYPASSRLS")
 		fix = append(fix, "ALTER ROLE "+who+" NOBYPASSRLS;")
@@ -103,9 +105,9 @@ func inheritFix(in Input, who string, inherited []string) []string {
 	var fix []string
 	for _, a := range inherited {
 		if in.Arm("inherit_per_grant") {
-			fix = append(fix, "REVOKE INHERIT OPTION FOR "+QuoteIdent(a)+" FROM "+who+";")
+			fix = append(fix, "REVOKE INHERIT OPTION FOR "+sqlident.Ident(a)+" FROM "+who+";")
 		} else {
-			fix = append(fix, "REVOKE "+QuoteIdent(a)+" FROM "+who+";")
+			fix = append(fix, "REVOKE "+sqlident.Ident(a)+" FROM "+who+";")
 		}
 	}
 	if in.Arm("inherit_role_level") {

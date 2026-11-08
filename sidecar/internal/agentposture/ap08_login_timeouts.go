@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap08{}) }
@@ -87,7 +89,7 @@ func (ap08) Detect(ctx context.Context, in Input) ([]Finding, error) {
 
 func ap08Finding(name string, stmt, idle, agent bool) Finding {
 	var missing, fix []string
-	role := QuoteIdent(name)
+	role := sqlident.Ident(name)
 	if !stmt {
 		missing = append(missing, "statement_timeout")
 		fix = append(fix, fmt.Sprintf("ALTER ROLE %s SET statement_timeout = '%s';", role,

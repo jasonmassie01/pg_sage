@@ -3,6 +3,8 @@ package agentposture
 import (
 	"context"
 	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap16{}) }
@@ -69,7 +71,7 @@ func unmanagedLogin(name, app string) Finding {
 		Recommendation: "Register the agent as a Guard principal and move it to its " +
 			"Guard credentials, then stop this login.",
 		FixScript: "-- after the agent uses its Guard credentials:\nALTER ROLE " +
-			QuoteIdent(name) + " NOLOGIN;",
+			sqlident.Ident(name) + " NOLOGIN;",
 		Caveat: "Agent-like is a hint from application_name (agents.client_patterns); " +
 			"an application can name itself anything.",
 		Evidence: []Evidence{{Source: "pg_stat_activity", Ref: name, Detail: seen}}}

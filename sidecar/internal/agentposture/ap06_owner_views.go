@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap06{}) }
@@ -76,7 +78,7 @@ func (ap06) Detect(ctx context.Context, in Input) ([]Finding, error) {
 
 func ap06Finding(in Input, schema, name string, bases []string) Finding {
 	obj := schema + "." + name
-	qn := QualifiedName(schema, name)
+	qn := sqlident.Qualified(schema, name)
 	tables := strings.Join(bases, ", ")
 	f := Finding{Severity: Warning, ObjectType: "view", Object: obj,
 		Detail: fmt.Sprintf("View %s in an exposed schema reads %s, which use row-level "+

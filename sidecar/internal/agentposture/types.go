@@ -166,31 +166,3 @@ type Input struct {
 
 // Arm reports whether the detector's arm name applies to this server.
 func (in Input) Arm(name string) bool { return in.active[name] }
-
-// QuoteIdent quotes a PostgreSQL identifier unless it is a plain
-// lower-case name, so fix scripts stay readable and safe to paste.
-func QuoteIdent(name string) string {
-	bare := name != "" && (name[0] < '0' || name[0] > '9')
-	for _, r := range name {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
-			bare = false
-			break
-		}
-	}
-	if bare && !reservedWords[name] {
-		return name
-	}
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-// QualifiedName is schema.name, each part quoted when needed.
-func QualifiedName(schema, name string) string {
-	return QuoteIdent(schema) + "." + QuoteIdent(name)
-}
-
-// reservedWords are the reserved key words most likely as object names.
-var reservedWords = map[string]bool{"user": true, "order": true, "group": true,
-	"table": true, "select": true, "from": true, "where": true, "default": true,
-	"check": true, "column": true, "limit": true, "offset": true, "end": true,
-	"primary": true, "references": true, "all": true, "analyse": true, "analyze": true,
-	"grant": true, "to": true}

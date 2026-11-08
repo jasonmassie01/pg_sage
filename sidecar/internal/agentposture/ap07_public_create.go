@@ -3,6 +3,8 @@ package agentposture
 import (
 	"context"
 	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap07{}) }
@@ -47,7 +49,7 @@ func (ap07) Detect(ctx context.Context, in Input) ([]Finding, error) {
 			Recommendation: "Revoke CREATE from PUBLIC and grant it only to the roles " +
 				"that own objects in the schema.",
 			FixScript: fmt.Sprintf("REVOKE CREATE ON SCHEMA %s FROM PUBLIC;",
-				QuoteIdent(schema)),
+				sqlident.Ident(schema)),
 			Caveat: "Grant CREATE to the roles that deploy into the schema first, or " +
 				"their migrations fail.",
 			Evidence: []Evidence{{Source: "pg_namespace.nspacl", Ref: schema,
