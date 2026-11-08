@@ -365,6 +365,37 @@ func Sequences(res Result) ([]SequenceRunway, error) {
 	return out, nil
 }
 
+// RunwayTrendSet is a decoded runway_trends result with what its row cap
+// cut: the series come in (kind, subject) order, so a truncated read
+// holds every series of the kinds before the last one returned and may
+// lack the rest.
+type RunwayTrendSet struct {
+	Trends      []RunwayTrend
+	Truncated   bool
+	LastKind    string // of the last series returned ("" when none was)
+	LastSubject string
+}
+
+// RunwayTrendsOf decodes a runway_trends result and where it was cut.
+func RunwayTrendsOf(res Result) (RunwayTrendSet, error) {
+	ts, err := RunwayTrends(res)
+	if err != nil {
+		return RunwayTrendSet{}, err
+	}
+	set := RunwayTrendSet{Trends: ts, Truncated: res.Truncated}
+	if n := len(ts); n > 0 {
+		set.LastKind, set.LastSubject = ts[n-1].Kind, ts[n-1].Subject
+	}
+	return set, nil
+}
+
+// Complete reports whether the set holds every series of kind: always
+// when it was not truncated, else only for kinds before the last one
+// returned (that kind itself may have been cut part way).
+func (s RunwayTrendSet) Complete(kind string) bool {
+	return !s.Truncated || kind < s.LastKind
+}
+
 // RunwayTrends decodes a runway_trends result.
 func RunwayTrends(res Result) ([]RunwayTrend, error) {
 	rows, err := rowsFor(res, RunwayTrendsProbe)
