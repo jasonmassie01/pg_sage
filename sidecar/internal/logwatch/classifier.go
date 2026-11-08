@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // signalPattern defines one pattern the classifier matches against log entries.
@@ -22,48 +23,48 @@ type signalPattern struct {
 
 // patterns is the full catalog of 18 signal definitions.
 var patterns = []signalPattern{
-	{ID: "log_deadlock_detected", Severity: "critical",
+	{ID: signalid.LogDeadlockDetected, Severity: "critical",
 		SQLStates: []string{"40P01"}, MinLevel: "ERROR"},
-	{ID: "log_connection_refused", Severity: "critical",
+	{ID: signalid.LogConnectionRefused, Severity: "critical",
 		SQLStates: []string{"53300"}, MinLevel: "FATAL"},
-	{ID: "log_out_of_memory", Severity: "critical",
+	{ID: signalid.LogOutOfMemory, Severity: "critical",
 		SQLStates: []string{"53200"}, MinLevel: "ERROR"},
-	{ID: "log_disk_full", Severity: "critical",
+	{ID: signalid.LogDiskFull, Severity: "critical",
 		SQLStates: []string{"53100"}, MinLevel: "ERROR"},
-	{ID: "log_panic_server_crash", Severity: "critical",
+	{ID: signalid.LogPanicServerCrash, Severity: "critical",
 		Substrings: []string{"server process was terminated by signal"},
 		MinLevel:   "LOG"},
-	{ID: "log_data_corruption", Severity: "critical",
+	{ID: signalid.LogDataCorruption, Severity: "critical",
 		MinLevel: "WARNING"},
-	{ID: "log_txid_wraparound_warning", Severity: "critical",
+	{ID: signalid.LogTxidWraparoundWarning, Severity: "critical",
 		Substrings: []string{"must be vacuumed within"},
 		MinLevel:   "WARNING"},
-	{ID: "log_archive_failed", Severity: "critical",
+	{ID: signalid.LogArchiveFailed, Severity: "critical",
 		Substrings: []string{"archive command failed"}, MinLevel: "LOG"},
-	{ID: "log_temp_file_created", Severity: "warning",
+	{ID: signalid.LogTempFileCreated, Severity: "warning",
 		Substrings: []string{"temporary file"}, MinLevel: "LOG"},
-	{ID: "log_checkpoint_too_frequent", Severity: "warning",
+	{ID: signalid.LogCheckpointTooFrequent, Severity: "warning",
 		Substrings: []string{"checkpoints are occurring too frequently"},
 		MinLevel:   "LOG"},
-	{ID: "log_lock_timeout", Severity: "warning",
+	{ID: signalid.LogLockTimeout, Severity: "warning",
 		SQLStates: []string{"55P03"}, MinLevel: "ERROR"},
-	{ID: "log_statement_timeout", Severity: "warning",
+	{ID: signalid.LogStatementTimeout, Severity: "warning",
 		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
-	{ID: "log_replication_conflict", Severity: "warning",
+	{ID: signalid.LogReplicationConflict, Severity: "warning",
 		Substrings: []string{"conflict with recovery"},
 		MinLevel:   "ERROR"},
-	{ID: "log_wal_segment_removed", Severity: "critical",
+	{ID: signalid.LogWALSegmentRemoved, Severity: "critical",
 		Substrings: []string{"WAL segment has already been removed"},
 		MinLevel:   "ERROR"},
-	{ID: "log_autovacuum_cancel", Severity: "warning",
+	{ID: signalid.LogAutovacuumCancel, Severity: "warning",
 		Substrings: []string{"canceling autovacuum task"},
 		MinLevel:   "LOG"},
-	{ID: "log_replication_slot_inactive", Severity: "warning",
+	{ID: signalid.LogReplicationSlotInactive, Severity: "warning",
 		Substrings: []string{"replication slot", "inactive"},
 		MinLevel:   "WARNING"},
-	{ID: "log_authentication_failure", Severity: "warning",
+	{ID: signalid.LogAuthenticationFailure, Severity: "warning",
 		MinLevel: "FATAL"},
-	{ID: "log_slow_query", Severity: "info",
+	{ID: signalid.LogSlowQuery, Severity: "info",
 		Substrings: []string{"duration:"}, MinLevel: "LOG", OptIn: true},
 }
 
@@ -270,12 +271,12 @@ func (c *Classifier) matchesSQLStateOrSubstring(
 	pat signalPattern, entry LogEntry, lower string,
 ) bool {
 	switch pat.ID {
-	case "log_panic_server_crash":
+	case signalid.LogPanicServerCrash:
 		return entry.ErrorLevel == "PANIC" ||
 			strings.Contains(lower, "server process was terminated by signal")
-	case "log_data_corruption":
+	case signalid.LogDataCorruption:
 		return strings.HasPrefix(entry.SQLState, "XX")
-	case "log_authentication_failure":
+	case signalid.LogAuthenticationFailure:
 		return strings.HasPrefix(entry.SQLState, "28")
 	}
 	if len(pat.SQLStates) > 0 && entry.SQLState != "" {
@@ -303,7 +304,7 @@ func allSubstringsMatch(lower string, subs []string) bool {
 }
 
 func (c *Classifier) optInEnabled(id string) bool {
-	if id == "log_slow_query" {
+	if id == signalid.LogSlowQuery {
 		return c.slowQueryEnabled
 	}
 	return false
@@ -335,13 +336,13 @@ func (c *Classifier) buildSignal(
 	}
 
 	switch pat.ID {
-	case "log_temp_file_created":
+	case signalid.LogTempFileCreated:
 		sz := parseTempFileSize(entry.Message)
 		if sz < c.tempFileMinBytes {
 			return nil
 		}
 		metrics["temp_file_bytes"] = sz
-	case "log_slow_query":
+	case signalid.LogSlowQuery:
 		dur := parseSlowQueryDuration(entry.Message)
 		metrics["duration_ms"] = dur
 		if entry.Query != "" {

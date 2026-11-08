@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // Registry is an immutable set of validated probe specs.
@@ -152,17 +154,17 @@ func catalogSpecs() []Spec {
 // signalProbes maps RCA incident signals to the catalog probes that
 // investigate them, most discriminating first.
 var signalProbes = map[string][]ID{
-	"lock_contention":            {LockGraph, LockChains, LongTransactions, PreparedXacts},
-	"idle_in_tx_elevated":        {LongTransactions, LockGraph},
-	"orphaned_prepared_tx":       {PreparedXacts, LockGraph},
-	"connections_high":           {ConnectionSaturation, LockGraph, LongTransactions},
-	"replication_lag_increasing": {ReplicationLag, ReplicationSlots},
-	"wal_growth_spike":           {WALCheckpoint, ReplicationSlots},
-	"vacuum_blocked":             {AutovacuumWraparound, VacuumProgress, LongTransactions},
+	signalid.LockContention:           {LockGraph, LockChains, LongTransactions, PreparedXacts},
+	signalid.IdleInTxElevated:         {LongTransactions, LockGraph},
+	signalid.OrphanedPreparedTx:       {PreparedXacts, LockGraph},
+	signalid.ConnectionsHigh:          {ConnectionSaturation, LockGraph, LongTransactions},
+	signalid.ReplicationLagIncreasing: {ReplicationLag, ReplicationSlots},
+	signalid.WALGrowthSpike:           {WALCheckpoint, ReplicationSlots},
+	signalid.VacuumBlocked:            {AutovacuumWraparound, VacuumProgress, LongTransactions},
 	// M6 log signals.
-	"log_checkpoint_too_frequent": {CheckpointActivity},
-	"log_temp_file_created":       {TempFileActivity, TempFileHolders, TempSpillStatements},
-	"log_replication_conflict":    {StandbyReplayState, ReplicationLag},
+	signalid.LogCheckpointTooFrequent: {CheckpointActivity},
+	signalid.LogTempFileCreated:       {TempFileActivity, TempFileHolders, TempSpillStatements},
+	signalid.LogReplicationConflict:   {StandbyReplayState, ReplicationLag},
 }
 
 // ForSignal returns the probes that investigate an RCA signal (nil for
