@@ -137,6 +137,22 @@ describe('LiveEventsProvider reconnect', () => {
     expect(FakeEventSource.instances).toHaveLength(2)
   })
 
+  // A sidecar restart drops the stream (the browser retries, CONNECTING)
+  // and the proxy then answers that retry with a 502 (CLOSED). The first
+  // reconnect of our own still waits only the base 3 s.
+  it('waits 3 s for the first reconnect after a browser retry was refused', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const { result } = renderHook(() => useLiveEvents(), { wrapper })
+    act(() => latest().open())
+    failRetrying()
+    failClosed()
+    expect(result.current.status).toBe('reconnecting')
+    waitsExactly(3000)
+    failClosed()
+    expect(result.current.status).toBe('offline')
+    waitsExactly(6000)
+  })
+
   it('schedules one reconnect when a closed source reports twice', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5)
     renderHook(() => useLiveEvents(), { wrapper })

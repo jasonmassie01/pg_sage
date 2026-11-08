@@ -11,10 +11,11 @@ const MAX_DELAY_MS = 60000
 const JITTER = 0.2
 const OFFLINE_AFTER = 3
 
-// reconnectDelay is 3 s doubling per failure up to 60 s, with +/-20%
-// jitter so tabs do not all reconnect at once after a sidecar restart.
-function reconnectDelay(failures) {
-  const base = Math.min(BASE_DELAY_MS * 2 ** (failures - 1), MAX_DELAY_MS)
+// reconnectDelay is 3 s for the first reconnect we open, doubling up to
+// 60 s, with +/-20% jitter so tabs do not all reconnect at once after a
+// sidecar restart.
+function reconnectDelay(attempt) {
+  const base = Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS)
   return Math.round(base * (1 + JITTER * (2 * Math.random() - 1)))
 }
 
@@ -37,7 +38,8 @@ function useEventStream(listenersRef) {
   useEffect(() => {
     let es = null
     let timer = null
-    let failures = 0
+    let failures = 0 // errors since the last open, browser retries included
+    let reconnects = 0 // sources we reopened since the last open
     const dispatch = (evt) => {
       let parsed
       try { parsed = JSON.parse(evt.data) } catch { return }
@@ -53,7 +55,8 @@ function useEventStream(listenersRef) {
       setStatus(prev => statusAfterError(count, closed, prev))
       if (!closed) return
       source.close()
-      timer = setTimeout(connect, reconnectDelay(failures))
+      reconnects += 1
+      timer = setTimeout(connect, reconnectDelay(reconnects))
     }
     function connect() {
       timer = null
@@ -63,6 +66,7 @@ function useEventStream(listenersRef) {
       source.onopen = () => {
         if (source !== es) return
         failures = 0
+        reconnects = 0
         setStatus('live')
       }
       source.onerror = () => onError(source)
