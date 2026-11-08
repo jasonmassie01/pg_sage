@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -215,25 +216,21 @@ func TestExplainWithoutLockStoresAutoExplainPlan(t *testing.T) {
 	f.assertBoundsRolledBack(t)
 }
 
-// Boundary: a lock wait shorter than the lock timeout still captures.
+// Boundary: a lock wait shorter than the lock timeout still captures. The
+// release lands about 50ms into the 100ms timeout. On a loaded host the
+// poll and the commit can overrun it, so only a lock-busy attempt is
+// retried (three at most); any other outcome decides the test at once.
 func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 	f := newLockFixture(t)
 	const qid = int64(991200503)
 	f.cleanPlans(t, qid)
-	tx := f.lockExclusive(t)
-
-	done := make(chan error, 1)
-	start := time.Now()
-	go func() {
-		done <- f.collector().captureOnDemand(context.Background(), qid,
-			"SELECT * FROM "+lockTable+" WHERE id = 1")
-	}()
-	waitForLockWaiter(t, f.holder)
-	time.Sleep(50*time.Millisecond - min(time.Since(start), 50*time.Millisecond))
-	if err := tx.Commit(context.Background()); err != nil {
-		t.Fatalf("release lock: %v", err)
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = f.captureAfterShortLock(t, qid); !errors.Is(err, errLockBusy) {
+			break
+		}
 	}
-	if err := <-done; err != nil {
+	if err != nil {
 		t.Fatalf("capture after a ~50ms lock wait: %v", err)
 	}
 	if got := f.storedPlans(t, qid); got[qid] != "auto_explain" {
@@ -241,9 +238,36 @@ func TestExplainLockReleasedWithinTimeoutStillCaptures(t *testing.T) {
 	}
 }
 
-// waitForLockWaiter returns once a session waits for a lock on lockTable,
-// so the boundary test proves the EXPLAIN actually waited.
-func waitForLockWaiter(t *testing.T, holder *pgx.Conn) {
+// captureAfterShortLock runs one capture behind ACCESS EXCLUSIVE and
+// releases the lock about 50ms after the capture started, once the EXPLAIN
+// is seen waiting.
+func (f *lockFixture) captureAfterShortLock(t *testing.T, qid int64) error {
+	t.Helper()
+	tx := f.lockExclusive(t)
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- f.collector().captureOnDemand(context.Background(), qid,
+			"SELECT * FROM "+lockTable+" WHERE id = 1")
+	}()
+	waited := waitForLockWaiter(t, f.holder, done)
+	if waited {
+		time.Sleep(50*time.Millisecond - min(time.Since(start), 50*time.Millisecond))
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatalf("release lock: %v", err)
+	}
+	err := <-done
+	if !waited && err == nil {
+		t.Fatal("the capture succeeded without waiting for ACCESS EXCLUSIVE")
+	}
+	return err
+}
+
+// waitForLockWaiter reports true once a session waits for a lock on
+// lockTable, so the boundary test proves the EXPLAIN actually waited, and
+// false when the capture finished before the wait was seen.
+func waitForLockWaiter(t *testing.T, holder *pgx.Conn, done <-chan error) bool {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -254,11 +278,15 @@ func waitForLockWaiter(t *testing.T, holder *pgx.Conn) {
 			t.Fatalf("read pg_locks: %v", err)
 		}
 		if n > 0 {
-			return
+			return true
+		}
+		if len(done) > 0 {
+			return false
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatal("the EXPLAIN never waited for the lock")
+	return false
 }
 
 // shadowCandidates makes Collect see exactly these statements, through a
@@ -283,7 +311,10 @@ func (f *lockFixture) shadowCandidates(t *testing.T, cands map[int64]string) {
 }
 
 // Concurrency: two candidates behind one DDL lock both skip, each after one
-// lock timeout, and the cycle reports them once at INFO.
+// lock timeout, and the cycle reports them once at INFO. The cycle takes at
+// least the two lock timeouts and stays far below one 5s statement_timeout
+// (10s unbounded); the bound leaves room for the per-candidate round trips,
+// which overran a 300ms bound on a loaded host.
 func TestCollectSkipsCandidatesBehindOneLock(t *testing.T) {
 	f := newLockFixture(t)
 	ids := []int64{991200504, 991200505}
@@ -298,8 +329,10 @@ func TestCollectSkipsCandidatesBehindOneLock(t *testing.T) {
 	if err := f.collector().Collect(context.Background()); err != nil {
 		t.Fatalf("collect: %v", err)
 	}
-	if elapsed := time.Since(start); elapsed >= 2*150*time.Millisecond {
-		t.Fatalf("cycle took %v behind one lock, want under 300ms", elapsed)
+	elapsed := time.Since(start)
+	if elapsed < 2*selfmonitor.ProbeLockTimeout || elapsed >= time.Second {
+		t.Fatalf("cycle took %v behind one lock, want 2 lock timeouts (200ms) to 1s",
+			elapsed)
 	}
 	if got := f.logs("DEBUG"); len(got) != 2 ||
 		!strings.Contains(strings.Join(got, "\n"), "skip queryid=") {
