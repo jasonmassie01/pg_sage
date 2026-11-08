@@ -120,7 +120,7 @@ func TestCapabilities_SeededFromStartupFlags(t *testing.T) {
 	}
 	// Zero value: nothing detected at startup.
 	got = New(nil, capsConfig(false, false), 0, noopLog).Capabilities()
-	if got.PGVersionNum != 0 || got.StatStatementsView || got.WALColumns || got.PlanTimeColumns || got.BlockIOTime {
+	if got != (Capabilities{blk: zeroBlockTime}) {
 		t.Fatalf("degraded seed = %+v, want nothing", got)
 	}
 }
