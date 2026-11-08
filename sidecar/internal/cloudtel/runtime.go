@@ -32,7 +32,7 @@ type RuntimeOptions struct {
 type Runtime struct {
 	src      Source
 	database string
-	provider string
+	provider string // an Unavailable runtime's; a source reports its own
 	reason   string // permanently unavailable: why
 	interval time.Duration
 	limits   Limits
@@ -63,7 +63,7 @@ func NewRuntime(src Source, opts RuntimeOptions) (*Runtime, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Runtime{src: src, database: opts.Database, provider: src.Provider(),
+	return &Runtime{src: src, database: opts.Database,
 		interval: opts.Interval, limits: opts.Limits, now: opts.Now}, nil
 }
 

@@ -116,8 +116,13 @@ func (s *AWSSource) Target(ctx context.Context) (managedparam.Target, error) {
 	if err != nil {
 		return managedparam.Target{}, err
 	}
+	if err := s.checkDetected(inst); err != nil {
+		return managedparam.Target{}, err
+	}
+	ident := s.identity()
 	t := managedparam.Target{Provider: s.Provider(), Region: s.opts.Region,
-		InstanceID: inst.ID, ParameterGroup: inst.ParameterGroup,
+		InstanceID: inst.ID, Cluster: ident.cluster, InstanceRole: ident.role,
+		ParameterGroup:          inst.ParameterGroup,
 		ParameterGroupIsDefault: strings.HasPrefix(inst.ParameterGroup, "default."),
 		ParameterGroupStatus:    inst.ParameterApplyStatus}
 	if inst.ParameterGroup == "" {

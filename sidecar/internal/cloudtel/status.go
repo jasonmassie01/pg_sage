@@ -13,6 +13,8 @@ import (
 type Status struct {
 	Database      string               `json:"database"`
 	Provider      string               `json:"provider"`
+	Cluster       string               `json:"cluster,omitempty"`       // Aurora
+	InstanceRole  string               `json:"instance_role,omitempty"` // writer|reader|unknown
 	Resource      string               `json:"resource,omitempty"`
 	Available     bool                 `json:"available"`
 	Reason        string               `json:"reason,omitempty"`
@@ -30,8 +32,10 @@ type Status struct {
 // whenever no fresh sample backs the guards.
 func (r *Runtime) Status() Status {
 	now := r.now()
+	provider, cluster, role := r.identity()
 	r.mu.RLock()
-	st := Status{Database: r.database, Provider: r.provider, Limits: r.limits,
+	st := Status{Database: r.database, Provider: provider, Cluster: cluster,
+		InstanceRole: role, Limits: r.limits,
 		LastError: r.lastErr, Withhold: []string{},
 		Drift: append([]managedparam.Drift{}, r.drift...)}
 	if !r.lastPoll.IsZero() {
@@ -65,6 +69,23 @@ func (r *Runtime) Status() Status {
 		st.Runway.Hours = -1 // JSON has no infinity: -1 means "not running out"
 	}
 	return st
+}
+
+// clusterMember is a source that knows its instance's cluster and role.
+type clusterMember interface {
+	ClusterMember() (cluster, role string)
+}
+
+// identity is read from the source on each call: an instance endpoint
+// learns that it is Aurora, and its role, only once AWS has answered.
+func (r *Runtime) identity() (provider, cluster, role string) {
+	if r.src == nil {
+		return r.provider, "", ""
+	}
+	if m, ok := r.src.(clusterMember); ok {
+		cluster, role = m.ClusterMember()
+	}
+	return r.src.Provider(), cluster, role
 }
 
 var registry = struct {

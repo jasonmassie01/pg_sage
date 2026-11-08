@@ -67,7 +67,7 @@ func cloudTelemetryFor(ctx context.Context, c *config.Config, provider, host,
 	if provider == "cloud-sql" {
 		src, err = gcpSourceFor(ctx, c.CloudTelemetry, host, standalone, deps)
 	} else {
-		src, err = awsSourceFor(ctx, c.CloudTelemetry, host, standalone, deps)
+		src, err = awsSourceFor(ctx, c.CloudTelemetry, provider, host, standalone, deps)
 	}
 	if err != nil {
 		return cloudtel.Unavailable(database, provider, err.Error()), nil
@@ -86,9 +86,12 @@ func cloudLimits(ct config.CloudTelemetryConfig) cloudtel.Limits {
 		MinAvailableMemoryPct: ct.MinAvailableMemory()}
 }
 
-func awsSourceFor(ctx context.Context, ct config.CloudTelemetryConfig, host string,
+// awsSourceFor names the RDS instance or Aurora cluster; provider is the
+// normalized platform PostgreSQL reported, so an Aurora writer reached by
+// its instance endpoint is Aurora.
+func awsSourceFor(ctx context.Context, ct config.CloudTelemetryConfig, provider, host string,
 	standalone bool, deps cloudDeps) (*cloudtel.AWSSource, error) {
-	opts := cloudtel.AWSOptions{}
+	opts := cloudtel.AWSOptions{DetectedProvider: provider}
 	if h, ok := cloudtel.ParseRDSHost(host); ok {
 		opts.Region, opts.ReaderEndpoint = h.Region, h.Reader
 		if h.Cluster {

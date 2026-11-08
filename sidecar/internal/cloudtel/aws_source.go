@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+
+	"github.com/pg-sage/sidecar/internal/managedparam"
 )
 
 // AWSOptions identify one RDS instance or Aurora cluster (writer) and how
@@ -19,8 +23,13 @@ type AWSOptions struct {
 	InstanceID     string
 	ClusterID      string
 	ReaderEndpoint bool // the endpoint was a cluster reader endpoint
-	Credentials    aws.CredentialsProvider
-	HTTPClient     *http.Client
+	// DetectedProvider is the platform PostgreSQL itself reports ("rds"
+	// or "aurora"; "" unknown): an instance endpoint of an Aurora writer
+	// is then Aurora before AWS is asked, and a contradicting engine is
+	// an identity error instead of a mislabelled target.
+	DetectedProvider string
+	Credentials      aws.CredentialsProvider
+	HTTPClient       *http.Client
 	// Endpoint overrides (tests, VPC endpoints); default: AWS public ones.
 	CloudWatchEndpoint, PIEndpoint, RDSEndpoint string
 	Now                                         func() time.Time
@@ -28,9 +37,19 @@ type AWSOptions struct {
 
 // AWSSource collects CloudWatch and Performance Insights telemetry.
 type AWSSource struct {
-	opts   AWSOptions
-	client *awsClient
-	rds    *rdsAPI
+	opts     AWSOptions
+	detected string // normalized DetectedProvider
+	client   *awsClient
+	rds      *rdsAPI
+
+	mu       sync.Mutex
+	resolved awsIdentity // as of the last resolved instance
+}
+
+// awsIdentity is what DescribeDBInstances (and, for an Aurora instance
+// endpoint, DescribeDBClusters) said about the instance.
+type awsIdentity struct {
+	engine, cluster, role string
 }
 
 // NewAWSSource validates the identity; it makes no network call.
@@ -47,6 +66,11 @@ func NewAWSSource(opts AWSOptions) (*AWSSource, error) {
 	case opts.InstanceID != "" && !ValidRDSIdentifier(opts.InstanceID),
 		opts.ClusterID != "" && !ValidRDSIdentifier(opts.ClusterID):
 		return nil, fmt.Errorf("%w: invalid RDS identifier", ErrIdentity)
+	case opts.DetectedProvider != "" &&
+		!slices.Contains([]string{"rds", "aurora"},
+			managedparam.NormalizeProvider(opts.DetectedProvider)):
+		return nil, fmt.Errorf("%w: detected provider %q is not RDS or Aurora",
+			ErrIdentity, opts.DetectedProvider)
 	case opts.Credentials == nil:
 		return nil, fmt.Errorf("%w: no AWS credential provider", ErrNoCredentials)
 	}
@@ -71,17 +95,36 @@ func NewAWSSource(opts AWSOptions) (*AWSSource, error) {
 		creds = aws.NewCredentialsCache(creds)
 	}
 	return &AWSSource{opts: opts,
+		detected: managedparam.NormalizeProvider(opts.DetectedProvider),
 		client: &awsClient{creds: creds, http: opts.HTTPClient, signer: v4.NewSigner(),
 			region: opts.Region, now: opts.Now},
 		rds: newRDSAPI(opts.Region, opts.RDSEndpoint, creds, opts.HTTPClient)}, nil
 }
 
-// Provider is "aurora" for a cluster, else "rds".
+// Provider is "aurora" for a cluster endpoint, an instance PostgreSQL
+// reports as Aurora, or one whose engine AWS reported as aurora*; else
+// "rds".
 func (s *AWSSource) Provider() string {
-	if s.opts.ClusterID != "" {
+	if s.opts.ClusterID != "" || s.detected == "aurora" {
+		return "aurora"
+	}
+	if strings.HasPrefix(s.identity().engine, "aurora") {
 		return "aurora"
 	}
 	return "rds"
+}
+
+// ClusterMember is the Aurora cluster and the instance's role in it, as
+// last resolved ("" before then and outside any cluster).
+func (s *AWSSource) ClusterMember() (cluster, role string) {
+	ident := s.identity()
+	return ident.cluster, ident.role
+}
+
+func (s *AWSSource) identity() awsIdentity {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resolved
 }
 
 // resolve finds the instance (the writer for a cluster) after checking
@@ -101,7 +144,58 @@ func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, error) {
 		}
 		id = writer
 	}
-	return s.rds.instance(ctx, id)
+	inst, err := s.rds.instance(ctx, id)
+	if err != nil {
+		return rdsInstance{}, fmt.Errorf("RDS instance %s: %w", id, err)
+	}
+	ident := awsIdentity{engine: inst.Engine, cluster: s.opts.ClusterID,
+		role: managedparam.InstanceRoleWriter}
+	if s.opts.ClusterID == "" {
+		ident.cluster, ident.role = inst.ClusterID, s.memberRole(ctx, inst)
+		if err := ctx.Err(); err != nil {
+			return rdsInstance{}, err
+		}
+	}
+	s.mu.Lock()
+	s.resolved = ident
+	s.mu.Unlock()
+	return inst, nil
+}
+
+// memberRole is an instance endpoint's role in its Aurora cluster ("" for
+// an instance outside any cluster). An unreadable cluster leaves the role
+// unknown rather than failing collection, which never needed it.
+func (s *AWSSource) memberRole(ctx context.Context, inst rdsInstance) string {
+	if inst.ClusterID == "" {
+		return ""
+	}
+	writer, err := s.rds.clusterWriter(ctx, inst.ClusterID)
+	switch {
+	case err != nil:
+		return managedparam.InstanceRoleUnknown
+	case writer == inst.ID:
+		return managedparam.InstanceRoleWriter
+	}
+	return managedparam.InstanceRoleReader
+}
+
+// checkDetected refuses an instance whose engine contradicts the platform
+// PostgreSQL reports: proposals built for one would not match the
+// advisor's intents (or would name the wrong kind of resource).
+func (s *AWSSource) checkDetected(inst rdsInstance) error {
+	if s.detected == "" {
+		return nil
+	}
+	engine := "rds"
+	if strings.HasPrefix(inst.Engine, "aurora") {
+		engine = "aurora"
+	}
+	if engine == s.detected {
+		return nil
+	}
+	return fmt.Errorf("%w: PostgreSQL reports %s but RDS instance %s runs engine %q "+
+		"(%s); check that the connection host is this database's own endpoint",
+		ErrIdentity, s.detected, inst.ID, inst.Engine, engine)
 }
 
 // Collect gathers one sample: CloudWatch is required, Performance

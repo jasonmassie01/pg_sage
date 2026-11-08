@@ -34,6 +34,14 @@ var (
 	regionPattern       = regexp.MustCompile(`^[a-z]{2}(-gov)?-[a-z]+-[0-9]$`)
 )
 
+// InstanceRole values: an Aurora instance's role in its cluster, when
+// known ("" for an instance outside any cluster).
+const (
+	InstanceRoleWriter  = "writer"
+	InstanceRoleReader  = "reader"
+	InstanceRoleUnknown = "unknown"
+)
+
 // Target is the provider resource a change applies to, as resolved
 // through the provider's API (Known) or not (Unresolved says why).
 type Target struct {
@@ -44,6 +52,8 @@ type Target struct {
 	ParameterGroup          string                `json:"parameter_group,omitempty"`
 	ParameterGroupIsDefault bool                  `json:"parameter_group_is_default"`
 	ParameterGroupStatus    string                `json:"parameter_group_status,omitempty"`
+	Cluster                 string                `json:"cluster,omitempty"` // Aurora
+	InstanceRole            string                `json:"instance_role,omitempty"`
 	Params                  map[string]GroupParam `json:"-"`
 	Flags                   map[string]string     `json:"-"`
 	FlagsKnown              bool                  `json:"flags_known"`

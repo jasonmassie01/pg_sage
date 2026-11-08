@@ -55,6 +55,13 @@ func cloudTelemetryCases() []cloudCase {
 			host: "orders.c9akciq32.us-east-1.rds.amazonaws.com", wantProvider: "rds"},
 		{name: "aurora cluster endpoint", provider: "aurora",
 			host: "shop.cluster-c9akciq32.us-west-2.rds.amazonaws.com", wantProvider: "aurora"},
+		{name: "aurora writer instance endpoint", provider: "aurora",
+			host: "writer-1.c9akciq32.us-west-2.rds.amazonaws.com", wantProvider: "aurora"},
+		{name: "aurora standalone instance name", provider: "aurora", host: "10.0.0.5",
+			standalone: true, wantProvider: "aurora", mutate: func(c *config.Config) {
+				c.CloudTelemetry.AWS.Region = "us-east-1"
+				c.CloudTelemetry.AWS.DBInstanceIdentifier = "writer-1"
+			}},
 		{name: "aurora reader endpoint", provider: "aurora",
 			host:         "shop.cluster-ro-c9akciq32.us-west-2.rds.amazonaws.com",
 			wantProvider: "aurora", wantAvailableReason: "reader endpoint"},
