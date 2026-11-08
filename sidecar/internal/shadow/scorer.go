@@ -109,7 +109,8 @@ func (s *Scorer) evidence(ctx context.Context, p pendingDecision, queue []queueR
 
 // pendingSQL reads the oldest $1 and the newest $2 pending decisions, each
 // once, oldest first: decisions that wait (up to the horizon) never keep
-// a newer one, whose evidence is in, from being scored.
+// a newer one, whose evidence is in, from being scored. The rows are read
+// by primary key (a join may hash every pending row).
 const pendingSQL = `/* pg_sage */ WITH picked AS (
 	(SELECT id FROM sage.shadow_decision WHERE status = 'pending'
 	 ORDER BY recorded_at, id LIMIT $1)
@@ -118,7 +119,8 @@ const pendingSQL = `/* pg_sage */ WITH picked AS (
 	 ORDER BY recorded_at DESC, id DESC LIMIT $2))
 	SELECT ` + decisionColumns + `,
 	extract(epoch FROM now() - recorded_at)::float8, now()
-	FROM sage.shadow_decision WHERE status = 'pending' AND id IN (SELECT id FROM picked)
+	FROM sage.shadow_decision
+	WHERE id = ANY (ARRAY(SELECT id FROM picked)) AND status = 'pending'
 	ORDER BY recorded_at, id`
 
 func (s *Scorer) pending(ctx context.Context) ([]pendingDecision, error) {

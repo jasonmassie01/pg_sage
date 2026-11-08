@@ -62,9 +62,10 @@ func TestScorerFactReadsNeverScanTheOutcomeTable(t *testing.T) {
 }
 
 // earned-03: the read of pg_sage's own index changes since a decision
-// walks the partial index of index DDL actions in its generic plan,
-// never the whole action ledger (EXPLAIN (GENERIC_PLAN) needs PG16).
-func TestOwnIndexActionsReadWalksTheIndexDDLIndex(t *testing.T) {
+// walks the partial index of index DDL actions, and the pending read
+// fetches its picked decisions by primary key, in their generic plans
+// (EXPLAIN (GENERIC_PLAN) needs PG16): neither reads its table whole.
+func TestScorerReadsWalkTheirIndexes(t *testing.T) {
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "scorer_own_plan"))
 	if err != nil {
@@ -82,12 +83,17 @@ func TestOwnIndexActionsReadWalksTheIndexDDLIndex(t *testing.T) {
 	if err := perfgate.AnalyzeSage(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	plan := genericPlan(ctx, t, pool, ownIndexActionsSQL)
-	walked := plan.Has(func(n testdb.PlanNode) bool {
-		return n.Index == "idx_action_log_index_ddl"
-	})
-	if !walked || plan.SeqScans("action_log") != 0 {
-		t.Fatalf("own index actions plan does not walk idx_action_log_index_ddl:\n%s", plan)
+	for _, tc := range []struct{ name, sql, index, table string }{
+		{"own index actions", ownIndexActionsSQL, "idx_action_log_index_ddl", "action_log"},
+		{"pending", pendingSQL, "shadow_decision_pkey", "shadow_decision"},
+	} {
+		plan := genericPlan(ctx, t, pool, tc.sql)
+		walked := plan.Has(func(n testdb.PlanNode) bool { return n.Index == tc.index })
+		joined := plan.Has(func(n testdb.PlanNode) bool { return n.NodeType == "Hash Join" })
+		if !walked || joined || plan.SeqScans(tc.table) != 0 {
+			t.Errorf("%s: plan does not walk %s (or joins by hash):\n%s", tc.name, tc.index,
+				plan)
+		}
 	}
 }
 
