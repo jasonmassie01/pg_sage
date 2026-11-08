@@ -29,15 +29,20 @@ const (
 	KindUnchainedRow    = "unchained_row"     // a row written with the triggers bypassed
 	KindOrphanRow       = "orphan_row"        // a row's own link is no longer in the chain
 	KindUnknownVersion  = "unknown_version"   // a link's payload version is not the spec's
+	// KindCheckpointMismatch: the link a checkpoint vouched for is gone,
+	// rewritten, or beyond the head.
+	KindCheckpointMismatch = "checkpoint_mismatch"
 )
 
 // ErrNotInstalled means the chain's table has no chain (yet).
 var ErrNotInstalled = errors.New("auditchain: chain not installed")
 
 // Window bounds a verification by position; zero values are open.
+// Anchor, when set, is a checkpoint whose link must still carry its hash.
 type Window struct {
-	FromSeq int64 `json:"from_seq"`
-	ToSeq   int64 `json:"to_seq"`
+	FromSeq int64       `json:"from_seq"`
+	ToSeq   int64       `json:"to_seq"`
+	Anchor  *Checkpoint `json:"-"`
 }
 
 // Problem is one integrity failure.
@@ -51,6 +56,8 @@ type Problem struct {
 // Report is the outcome of one verification.
 type Report struct {
 	Chain             string    `json:"chain"`
+	Mode              string    `json:"mode"`
+	CheckpointSeq     int64     `json:"checkpoint_seq,omitempty"`
 	FromSeq           int64     `json:"from_seq"`
 	ToSeq             int64     `json:"to_seq"`
 	Links             int       `json:"links"`
@@ -81,6 +88,7 @@ type rowLinks struct {
 	insert  *Link
 	sealed  map[string]int64 // sealed hash -> first seq carrying it
 	deleted bool
+	latest  *latestLink // the last insert or state link read
 }
 
 type verifier struct {
@@ -92,12 +100,18 @@ type verifier struct {
 	rows      map[int64]*rowLinks
 	unknown   map[int64]bool // rows with a link of another payload version
 	legacy    int64
+	// stream: a full pass keeps no per-row state in the walk; rows are
+	// checked by an ordered pass over the link index (stream.go).
+	stream bool
+	anchor *anchor
 }
 
 // Verify checks chain s within w: every position present, every link
 // following its predecessor and hashing to itself, and every row the links
 // name matching them (sealed columns, current state, its own link). It
-// also finds rows written behind the triggers.
+// also finds rows written behind the triggers. A full verification holds
+// only the previous hash and counters while it walks, whatever the
+// chain's length; a window's memory follows the rows it names.
 func Verify(ctx context.Context, q Querier, s Spec, w Window) (Report, error) {
 	if err := s.validate(); err != nil {
 		return Report{}, fmt.Errorf("auditchain: invalid spec: %w", err)
@@ -121,30 +135,22 @@ func Verify(ctx context.Context, q Querier, s Spec, w Window) (Report, error) {
 }
 
 func (v *verifier) run(ctx context.Context, w Window) error {
-	err := v.q.QueryRow(ctx, `/* pg_sage audit_chain v1 */ SELECT legacy_max_id
-		FROM sage.audit_chain_meta WHERE chain = $1`, v.s.Chain).Scan(&v.legacy)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotInstalled
-	}
-	if err != nil {
-		return fmt.Errorf("read install boundary: %w", err)
-	}
-	head, hash, err := Head(ctx, v.q, v.s.Chain)
-	if err != nil {
+	if err := v.readHead(ctx); err != nil {
 		return err
 	}
-	v.rep.HeadSeq, v.rep.HeadHash = head, hash
+	head := v.rep.HeadSeq
 	from, to := max(w.FromSeq, 1), w.ToSeq
 	if to == 0 || to > head {
 		to = head
 	}
 	v.rep.FromSeq, v.rep.ToSeq = from, to
 	full := from == 1 && to == head
+	v.rep.Mode = verifyMode(full, w.Anchor, from, to == head)
+	if err := v.checkAnchor(ctx, w.Anchor); err != nil {
+		return err
+	}
 	if from <= to {
-		if err := v.walk(ctx, from, to); err != nil {
-			return err
-		}
-		if err := v.checkRows(ctx); err != nil {
+		if err := v.checkRange(ctx, from, to, full); err != nil {
 			return err
 		}
 	}
@@ -160,6 +166,47 @@ func (v *verifier) run(ctx context.Context, w Window) error {
 		return v.countLegacy(ctx)
 	}
 	return nil
+}
+
+// readHead reads the install boundary and the chain's head.
+func (v *verifier) readHead(ctx context.Context) error {
+	err := v.q.QueryRow(ctx, `/* pg_sage audit_chain v1 */ SELECT legacy_max_id
+		FROM sage.audit_chain_meta WHERE chain = $1`, v.s.Chain).Scan(&v.legacy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotInstalled
+	}
+	if err != nil {
+		return fmt.Errorf("read install boundary: %w", err)
+	}
+	head, hash, err := Head(ctx, v.q, v.s.Chain)
+	if err != nil {
+		return err
+	}
+	v.rep.HeadSeq, v.rep.HeadHash = head, hash
+	return nil
+}
+
+func verifyMode(full bool, cp *Checkpoint, from int64, toHead bool) string {
+	switch {
+	case full:
+		return ModeFull
+	case cp != nil && from == cp.Seq+1 && toHead:
+		return ModeIncremental
+	}
+	return ModeWindow
+}
+
+// checkRange walks the links from-to, then checks the rows they name:
+// in full by the ordered row pass, otherwise from what the walk tracked.
+func (v *verifier) checkRange(ctx context.Context, from, to int64, full bool) error {
+	v.stream = full
+	if err := v.walk(ctx, from, to); err != nil {
+		return err
+	}
+	if full {
+		return v.checkAllRows(ctx)
+	}
+	return v.checkRows(ctx, to == v.rep.HeadSeq)
 }
 
 // walk reads the window's links in order and checks the chain itself.
@@ -189,6 +236,10 @@ func (v *verifier) walk(ctx context.Context, from, to int64) error {
 func (v *verifier) start(ctx context.Context, from int64) error {
 	if from == 1 {
 		v.prev, v.prevKnown = Genesis, true
+		return nil
+	}
+	if a := v.anchor; a != nil && a.seq == from-1 {
+		v.prev, v.prevKnown = a.hash, a.found // checkAnchor reported a mismatch
 		return nil
 	}
 	hash, found, err := LinkHashAt(ctx, v.q, v.s.Chain, from-1)
@@ -221,30 +272,40 @@ func (v *verifier) checkLink(l *Link, expected int64) int64 {
 			Detail: "the link's content was changed after it was written"})
 	}
 	v.prev, v.prevKnown = l.Hash, true
-	if l.Op != "T" && l.V != v.s.Version {
+	if l.Op == "T" {
+		v.rep.Truncations++
+		return l.Seq + 1
+	}
+	if l.V != v.s.Version {
 		v.rep.add(Problem{Kind: KindUnknownVersion, Seq: l.Seq, RowID: l.RowID,
 			Detail: fmt.Sprintf("the link has payload version %d; the %s spec is version "+
 				"%d, so its row is not checked", l.V, v.s.Chain, v.s.Version)})
-		v.unknown[l.RowID] = true
+		if !v.stream {
+			v.unknown[l.RowID] = true
+		}
 		return l.Seq + 1
 	}
-	v.track(l)
+	if l.Op == "D" {
+		v.rep.Deleted++
+	}
+	if !v.stream {
+		v.track(l)
+	}
 	return l.Seq + 1
 }
 
+// track records what a window link says about its row.
 func (v *verifier) track(l *Link) {
-	switch l.Op {
-	case "T":
-		v.rep.Truncations++
-		return
-	case "D":
-		v.rep.Deleted++
-	}
 	r := v.rows[l.RowID]
 	if r == nil {
 		r = &rowLinks{sealed: map[string]int64{}}
 		v.rows[l.RowID] = r
 	}
+	r.note(l)
+}
+
+// note adds one row link (never a truncate) to r.
+func (r *rowLinks) note(l *Link) {
 	if _, seen := r.sealed[l.SealedHash]; !seen {
 		r.sealed[l.SealedHash] = l.Seq
 	}
@@ -252,6 +313,9 @@ func (v *verifier) track(l *Link) {
 	case "I":
 		copied := *l
 		r.insert = &copied
+		r.latest = &latestLink{seq: l.Seq, state: l.State}
+	case "U":
+		r.latest = &latestLink{seq: l.Seq, state: l.State}
 	case "D":
 		r.deleted = true
 	}
