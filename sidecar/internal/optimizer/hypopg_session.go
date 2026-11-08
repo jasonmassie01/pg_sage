@@ -103,10 +103,7 @@ func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []st
 	if err != nil {
 		return WhatIfResult{}, err
 	}
-	unplanned = append(unplanned, lostPlans(queries, before, after)...)
-	res := WhatIfResult{UnplannedQueryIDs: unplanned}
-	res.Failed = len(res.UnplannedQueryIDs)
-	res.Improvement, res.Measured = weightedImprovement(queries, before, after)
+	res := comparedCosts(queries, before, after, unplanned)
 	if res.Measured == 0 {
 		return res, nil
 	}
@@ -134,6 +131,21 @@ func (s *hypopgSession) estimateSize(ctx context.Context, oid uint32) (int64, er
 		return 0, fmt.Errorf("measure hypothetical index size: %w", err)
 	}
 	return size, nil
+}
+
+// comparedCosts is the evaluation of the costs planned without (before)
+// and with (after) the index: the improvement over the statements planned
+// both times, and as unplanned those that failed before (unplanned) and
+// those planned only without the index. Any unplanned statement keeps the
+// verdict unverified (whatIfVerdict).
+func comparedCosts(queries []QueryInfo, before, after map[int64]float64,
+	unplanned []int64,
+) WhatIfResult {
+	res := WhatIfResult{UnplannedQueryIDs: append(unplanned,
+		lostPlans(queries, before, after)...)}
+	res.Failed = len(res.UnplannedQueryIDs)
+	res.Improvement, res.Measured = weightedImprovement(queries, before, after)
+	return res
 }
 
 // lostPlans are the queryids planned without the index but not with it,
