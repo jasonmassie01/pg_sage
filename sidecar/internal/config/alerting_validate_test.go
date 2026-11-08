@@ -136,16 +136,63 @@ func TestAlertingValidate_RouteWithoutChannelsFails(t *testing.T) {
 		"alerting.routes[0].channels")
 }
 
+// A route naming slack or pagerduty loads without the URL or key, which a
+// persisted dashboard override can still supply (the Settings page offers
+// the Slack URL); the effective-config check then refuses it if none came.
+func requireSecretDeferredToEffective(t *testing.T, body string, wants ...string) {
+	t.Helper()
+	cfg, err := loadAlertingYAML(t, body)
+	if err != nil {
+		t.Fatalf("Load refused a route whose secret an override can supply: %v", err)
+	}
+	err = cfg.ValidateAlerting()
+	if err == nil {
+		t.Fatalf("effective check passed routes %+v with no secret", cfg.Alerting.Routes)
+	}
+	for _, w := range wants {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("err = %v, want it to mention %q", err, w)
+		}
+	}
+}
+
 func TestAlertingValidate_SlackRouteWithoutURLFails(t *testing.T) {
-	requireAlertingErr(t, "  enabled: true\n"+
+	requireSecretDeferredToEffective(t, "  enabled: true\n"+
 		"  routes:\n    - severity: critical\n      channels: [slack]\n",
 		"alerting.routes[0].channels[0]", "alerting.slack_webhook_url")
 }
 
 func TestAlertingValidate_PagerDutyRouteWithoutKeyFails(t *testing.T) {
-	requireAlertingErr(t, "  enabled: true\n"+alertSlackURL+
+	requireSecretDeferredToEffective(t, "  enabled: true\n"+alertSlackURL+
 		"  routes:\n    - severity: critical\n      channels: [slack, pagerduty]\n",
 		"alerting.routes[0].channels[1]", "alerting.pagerduty_routing_key")
+}
+
+// Once the override supplies the secret, the same file passes in full.
+func TestAlertingValidate_OverrideSuppliedSecretsPass(t *testing.T) {
+	cfg, err := loadAlertingYAML(t, "  enabled: true\n"+
+		"  routes:\n    - severity: critical\n      channels: [slack, pagerduty]\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Alerting.HasUsableRoute() {
+		t.Fatal("HasUsableRoute = true before any secret is set")
+	}
+	cfg.Alerting.SlackWebhookURL = "https://hooks.slack.example.com/x"
+	cfg.Alerting.PagerDutyRoutingKey = "fixture-routing-key"
+	if err := cfg.ValidateAlerting(); err != nil {
+		t.Fatalf("effective check refused override-supplied secrets: %v", err)
+	}
+	if !cfg.Alerting.HasUsableRoute() {
+		t.Fatal("HasUsableRoute = false once the secrets are set")
+	}
+}
+
+// Deferring secrets must not let an unknown name through at load.
+func TestAlertingValidate_DeferredSecretsStillRefuseUnknownNames(t *testing.T) {
+	requireAlertingErr(t, "  enabled: true\n"+
+		"  routes:\n    - severity: critical\n      channels: [PagerDuty]\n",
+		"alerting.routes[0].channels[0]", `"PagerDuty"`, `"pagerduty"`)
 }
 
 func TestAlertingValidate_UnknownWebhookRouteFails(t *testing.T) {
@@ -225,7 +272,7 @@ func TestAlertingValidate_ShippedExampleLoadsWithTwoRoutes(t *testing.T) {
 	cfg.Alerting.Enabled = true
 	cfg.Alerting.SlackWebhookURL = "https://hooks.slack.example.com/x"
 	cfg.Alerting.PagerDutyRoutingKey = "fixture-routing-key"
-	if err := cfg.validateAlerting(); err != nil {
+	if err := cfg.ValidateAlerting(); err != nil {
 		t.Fatalf("example routes do not resolve once enabled: %v", err)
 	}
 }
@@ -297,7 +344,7 @@ func TestResolveAlertChannel_ConcurrentReaders(t *testing.T) {
 				key != "pagerduty" {
 				errs <- "resolve " + key
 			}
-			if err := cfg.validateAlerting(); err != nil {
+			if err := cfg.ValidateAlerting(); err != nil {
 				errs <- err.Error()
 			}
 		}()
@@ -371,5 +418,21 @@ func TestAlertingValidate_WatcherKeepsPreviousOnBrokenAlerting(t *testing.T) {
 	if calls != 1 || !w.Current().Alerting.Enabled {
 		t.Fatalf("reload of fixed alerting: onChange calls %d, enabled %v, want 1, true",
 			calls, w.Current().Alerting.Enabled)
+	}
+}
+
+// The watcher candidate already carries the persisted overrides, so the
+// reload applies the full check: a slack route with no URL is refused.
+func TestAlertingValidate_WatcherRefusesSecretlessEffectiveCandidate(t *testing.T) {
+	candidate := DefaultConfig()
+	candidate.Alerting.Enabled = true
+	candidate.Alerting.Routes = []AlertRoute{{Severity: "critical", Channels: []string{"slack"}}}
+	calls := 0
+	w := NewAcknowledgedWatcherWithLoader(filepath.Join(t.TempDir(), "c.yaml"),
+		DefaultConfig(), func() (*Config, error) { return Clone(candidate), nil },
+		func(*Config) error { calls++; return nil })
+	w.reload()
+	if calls != 0 || w.Current().Alerting.Enabled {
+		t.Fatalf("reload applied a slack route with no URL: onChange calls %d", calls)
 	}
 }

@@ -1824,6 +1824,8 @@ or approves. See [Ask Sage](ask-sage.md).
 `alerting.enabled` is true the block is checked at startup, and a sidecar whose routes would
 send nothing refuses to start with an error naming the key (for example
 `alerting.routes[0].channels[0] "Slack" is not a configured channel ... did you mean "slack"?`).
+The Slack URL and PagerDuty key may instead be saved from the Settings page; they are
+checked once those saved settings are applied, still before the sidecar starts work.
 A disabled block is not checked. In fleet mode the one shared block is checked once.
 
 | Key | Default | Meaning |

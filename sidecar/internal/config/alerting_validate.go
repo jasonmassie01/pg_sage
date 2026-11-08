@@ -74,30 +74,49 @@ func QuietHourMinute(s string) int {
 	return h*60 + minute
 }
 
-// validateFileConfig validates a configuration read from the operator's
-// file (startup and hot reload): everything validate checks, plus the
-// alerting block. API candidates skip the alerting check so that a
-// persisted alerting.enabled override never blocks an unrelated settings
-// change such as lowering trust; routing logs an unroutable channel.
+// validateFileConfig validates a configuration as Load reads it (YAML,
+// env, secret files, flags): everything validate checks, plus the
+// alerting block's structure. The Slack URL and PagerDuty key are not
+// required yet, because a persisted dashboard override can still supply
+// them; ValidateAlerting checks the effective config once overrides are
+// applied. API candidates skip the alerting check so that a persisted
+// alerting.enabled override never blocks an unrelated settings change
+// such as lowering trust; routing logs an unroutable channel.
 func (c *Config) validateFileConfig() error {
 	if err := c.validate(); err != nil {
 		return err
 	}
-	return c.validateAlerting()
+	return c.Alerting.validateBlock(false)
 }
 
-// validateAlerting refuses an enabled alerting block that would send
-// nothing or not what it says (alerting-08). A disabled block is not
-// validated. Fleet mode shares this one block.
-func (c *Config) validateAlerting() error {
-	a := &c.Alerting
+// validateEffective validates a reloaded candidate that already carries
+// the persisted overrides: validate plus the full alerting check.
+func (c *Config) validateEffective() error {
+	if err := c.validate(); err != nil {
+		return err
+	}
+	return c.ValidateAlerting()
+}
+
+// ValidateAlerting refuses an enabled alerting block that would send
+// nothing or not what it says (alerting-08), including a slack or
+// pagerduty route without its URL or key. Run it on the effective config,
+// after persisted overrides. A disabled block is not validated. Fleet mode
+// shares this one block.
+func (c *Config) ValidateAlerting() error {
+	return c.Alerting.validateBlock(true)
+}
+
+// validateBlock checks an enabled block; requireSecrets also demands the
+// Slack URL and PagerDuty key behind the routes that name them.
+func (a *AlertingConfig) validateBlock(requireSecrets bool) error {
 	if !a.Enabled {
 		return nil
 	}
 	if err := a.validateWebhooks(); err != nil {
 		return err
 	}
-	if err := a.validateRoutes(); err != nil {
+	if err := a.validateRoutes(requireSecrets); err != nil {
 		return err
 	}
 	return a.validateSchedule()
@@ -121,7 +140,7 @@ func (a *AlertingConfig) validateWebhooks() error {
 	return nil
 }
 
-func (a *AlertingConfig) validateRoutes() error {
+func (a *AlertingConfig) validateRoutes(requireSecrets bool) error {
 	if len(a.Routes) == 0 {
 		return fmt.Errorf("alerting.enabled is true but alerting.routes is empty, so no " +
 			"alert would be sent; add a route such as {severity: critical, channels: [slack]}")
@@ -136,13 +155,23 @@ func (a *AlertingConfig) validateRoutes() error {
 				"pagerduty or a webhook name", i)
 		}
 		for j, ch := range r.Channels {
-			if _, ok := a.ResolveAlertChannel(ch); !ok {
-				return fmt.Errorf("alerting.routes[%d].channels[%d] %q %s",
-					i, j, ch, a.unresolvedReason(ch))
+			if a.channelAccepted(ch, requireSecrets) {
+				continue
 			}
+			return fmt.Errorf("alerting.routes[%d].channels[%d] %q %s",
+				i, j, ch, a.unresolvedReason(ch))
 		}
 	}
 	return nil
+}
+
+// channelAccepted reports whether a route channel passes: it resolves, or
+// it is a built-in whose secret may still come from a persisted override.
+func (a *AlertingConfig) channelAccepted(name string, requireSecrets bool) bool {
+	if _, ok := a.ResolveAlertChannel(name); ok {
+		return true
+	}
+	return !requireSecrets && (name == "slack" || name == "pagerduty")
 }
 
 // unresolvedReason says why ResolveAlertChannel refused name.
