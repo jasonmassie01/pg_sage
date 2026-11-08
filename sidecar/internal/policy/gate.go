@@ -67,6 +67,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if req.Principal != nil {
 		return gate.agentDecision(ctx, runtime, req)
 	}
+	if rollbackMitigation(req) {
+		return gate.rollbackDecision(ctx, runtime, req)
+	}
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
 	}
