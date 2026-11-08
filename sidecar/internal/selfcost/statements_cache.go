@@ -38,27 +38,40 @@ func readCounters(ctx context.Context, q Querier, topLevel bool) (
 	return out, reset, rows.Err()
 }
 
+// tagged is a text read: the tagged entries, and the keys whose text
+// pg_stat_statements could not show (NULL), which cannot be told apart.
+type tagged struct {
+	entries map[StatementKey]StatementCounters
+	untold  map[StatementKey]bool
+}
+
 // readTexts reads the tagged entries with their texts.
-func readTexts(ctx context.Context, q Querier, topLevel bool) (
-	map[StatementKey]StatementCounters, error) {
+func readTexts(ctx context.Context, q Querier, topLevel bool) (tagged, error) {
 	sql := textsSQL18
 	if topLevel {
 		sql = textsSQL
 	}
+	out := tagged{entries: map[StatementKey]StatementCounters{},
+		untold: map[StatementKey]bool{}}
 	rows, err := q.Query(ctx, sql)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	defer rows.Close()
-	out := map[StatementKey]StatementCounters{}
 	for rows.Next() {
 		var k StatementKey
 		var c StatementCounters
+		var text *string
 		if err := rows.Scan(&k.UserID, &k.QueryID, &k.TopLevel, &c.TimeMs, &c.Calls,
-			&c.Blocks, &c.Text); err != nil {
-			return nil, fmt.Errorf("scan tagged text: %w", err)
+			&c.Blocks, &text); err != nil {
+			return out, fmt.Errorf("scan tagged text: %w", err)
 		}
-		out[k] = sum(out[k], c)
+		if text == nil {
+			out.untold[k] = true
+			continue
+		}
+		c.Text = *text
+		out.entries[k] = sum(out.entries[k], c)
 	}
 	return out, rows.Err()
 }
@@ -102,16 +115,21 @@ func (s *Sampler) unclassified(counters map[StatementKey]StatementCounters) bool
 }
 
 // classify returns pg_sage's entries of the counters, with their texts,
-// and caches each key. texts (nil when every key was cached) are the
+// and caches each key. texts (empty when every key was cached) are the
 // tagged entries; one only there appeared after the counters were read.
+// A key whose text could not be shown is neither cached nor counted (it
+// is read again next sample).
 func (s *Sampler) classify(
-	counters, texts map[StatementKey]StatementCounters,
+	counters map[StatementKey]StatementCounters, texts tagged,
 ) map[StatementKey]StatementCounters {
 	out := map[StatementKey]StatementCounters{}
 	for k, c := range counters {
 		entry, ok := s.keys[k]
+		if !ok && texts.untold[k] {
+			continue
+		}
 		if !ok {
-			t, sage := texts[k]
+			t, sage := texts.entries[k]
 			entry = classified{sage: sage, text: t.Text}
 		}
 		entry.calls = c.Calls
@@ -121,7 +139,7 @@ func (s *Sampler) classify(
 			out[k] = c
 		}
 	}
-	for k, t := range texts {
+	for k, t := range texts.entries {
 		if _, ok := counters[k]; !ok {
 			out[k] = t
 			s.remember(k, classified{sage: true, calls: t.Calls, text: t.Text})

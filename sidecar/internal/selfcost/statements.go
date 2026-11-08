@@ -44,20 +44,21 @@ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 
 // The tagged entries with their texts, read only when the counters show
 // keys not yet classified. pg_sage's statements carry the /* pg_sage */
-// tag: that is how its own entries are found.
+// tag: that is how its own entries are found. An entry whose text cannot
+// be shown (NULL) is read too, so it stays unclassified.
 const (
 	textsSQL = `/* pg_sage */ SELECT userid, queryid, toplevel,
   (total_exec_time + total_plan_time)::float8, calls,
   (shared_blks_hit + shared_blks_read)::int8, left(query, 2000)
 FROM pg_stat_statements(true)
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND queryid IS NOT NULL AND strpos(query, '/* pg_sage') > 0`
+  AND queryid IS NOT NULL AND (query IS NULL OR strpos(query, '/* pg_sage') > 0)`
 	textsSQL18 = `/* pg_sage */ SELECT userid, queryid, false,
   (total_exec_time + total_plan_time)::float8, calls,
   (shared_blks_hit + shared_blks_read)::int8, left(query, 2000)
 FROM pg_stat_statements(true)
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND queryid IS NOT NULL AND strpos(query, '/* pg_sage') > 0`
+  AND queryid IS NOT NULL AND (query IS NULL OR strpos(query, '/* pg_sage') > 0)`
 )
 
 // extension is what the installed pg_stat_statements version allows.
@@ -140,7 +141,7 @@ func (s *Sampler) sample(ctx context.Context, q Querier) (
 		return nil, fmt.Errorf("read counters: %w", err)
 	}
 	s.revalidate(counters, reset)
-	var texts map[StatementKey]StatementCounters
+	var texts tagged
 	if s.unclassified(counters) {
 		if texts, err = readTexts(ctx, q, ext.topLevel); err != nil {
 			return nil, fmt.Errorf("read tagged texts: %w", err)

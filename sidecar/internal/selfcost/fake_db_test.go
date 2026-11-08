@@ -32,6 +32,7 @@ type fakeDB struct {
 	countersErr error
 	textsErr    error
 	textsOnly   map[int64]bool // entries the counters read does not see yet
+	noText      map[int64]bool // entries whose text reads as NULL
 	tables      []fakeTable
 	schemaErr   error
 	noSchemaRow bool
@@ -166,7 +167,15 @@ func (f *fakeDB) textRows(sql string) (pgx.Rows, error) {
 	}
 	top := strings.Contains(sql, "toplevel")
 	out := &fakeRows{}
+	nulls := strings.Contains(sql, "query IS NULL")
 	for _, e := range f.entries {
+		if f.noText[e.key.QueryID] {
+			if nulls { // a strpos filter alone drops the NULL texts
+				out.rows = append(out.rows, []any{e.key.UserID, e.key.QueryID,
+					e.key.TopLevel && top, e.c.TimeMs, e.c.Calls, e.c.Blocks, nil})
+			}
+			continue
+		}
 		if e.sage {
 			out.rows = append(out.rows, []any{e.key.UserID, e.key.QueryID,
 				e.key.TopLevel && top, e.c.TimeMs, e.c.Calls, e.c.Blocks, e.c.Text})
