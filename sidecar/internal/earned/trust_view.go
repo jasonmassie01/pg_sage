@@ -52,6 +52,9 @@ type TrustRow struct {
 	Next          *Assessment   `json:"next,omitempty"`
 	Pending       *Proposal     `json:"pending,omitempty"`
 	Downgrades    []Downgrade   `json:"downgrades,omitempty"`
+	// Bench is the report an incident pair's bench checks read (the
+	// newest that counts, whatever its origin), with its provenance.
+	Bench *BenchSummary `json:"bench,omitempty"`
 }
 
 // TrustView is one database's Trust page. Floor is the observation floor
@@ -148,7 +151,7 @@ func (s *Service) trustRow(st State, ev Evidence, rec ClassRecord, pending *Prop
 		row.Kind, row.OutcomeClass = KindSelfInitiated, OutcomeClassFor(c)
 	} else {
 		supported := SupportedLevel(s.cfg.Thresholds, ev)
-		row.Supported = &supported
+		row.Supported, row.Bench = &supported, SummarizeBench(ev.Bench)
 	}
 	if next := st.Level + 1; next <= row.Cap && next.Grantable() {
 		a := Assess(s.cfg.Thresholds, next, ev)

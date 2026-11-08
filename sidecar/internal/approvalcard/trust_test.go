@@ -114,3 +114,32 @@ func TestTrustRowForPicksTheActionsPair(t *testing.T) {
 		t.Fatalf("a pair missing from the view got a row: %+v", row)
 	}
 }
+
+// earned-10: the newest bench report decides an incident class whatever
+// its origin, so the card names the deciding report and where it came
+// from; a class without bench evidence says nothing about a bench.
+func TestCardTrustNamesTheDecidingBenchReport(t *testing.T) {
+	in := analyzeInputs()
+	row := analyzeTrustRow()
+	row.Bench = &earned.BenchSummary{ID: "run-op-1", Origin: earned.OriginOperator,
+		Provenance: "unsigned (operator-provided)"}
+	in.Trust = row
+	c := Assemble(in)
+	tr := c.Trust
+	if tr == nil || tr.BenchOrigin != earned.OriginOperator ||
+		tr.Bench != "unsigned (operator-provided)" || tr.BenchID != "run-op-1" {
+		t.Fatalf("trust = %+v, want the operator report", tr)
+	}
+	if !strings.Contains(tr.Line, "bench: unsigned (operator-provided) run-op-1") ||
+		!strings.Contains(Text(c, now), "bench: unsigned (operator-provided)") {
+		t.Fatalf("line %q does not name the deciding report", tr.Line)
+	}
+	if without := Assemble(analyzeInputs()); without.CardHash != c.CardHash {
+		t.Fatal("the bench report changed the content hash a decision is bound to")
+	}
+	in.Trust = analyzeTrustRow()
+	plain := Assemble(in).Trust
+	if plain.Bench != "" || plain.BenchOrigin != "" || strings.Contains(plain.Line, "bench") {
+		t.Fatalf("a class without bench evidence = %+v", plain)
+	}
+}

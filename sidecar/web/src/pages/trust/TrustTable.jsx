@@ -68,6 +68,7 @@ function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
       <td className={cell}><Level row={row} /></td>
       <td className={cell} data-testid="trust-evidence" style={muted}>
         <Evidence counts={row.evidence || {}} />
+        {row.bench && <BenchReport bench={row.bench} />}
         {shadow && (
           <div className="mt-1">
             <ShadowSummary summary={shadow} />
@@ -141,6 +142,19 @@ function Evidence({ counts }) {
   )
 }
 
+// BenchReport is the report the row's bench checks read: the newest that
+// counts for this build, whatever its origin (earned-10).
+function BenchReport({ bench }) {
+  const generated = bench.generated_at
+    ? `, generated ${new Date(bench.generated_at).toLocaleString()}` : ''
+  return (
+    <div data-testid="trust-bench" data-origin={bench.origin || ''}
+      title={`bench report ${bench.id || ''}${generated}`}>
+      bench: {bench.provenance}
+    </div>
+  )
+}
+
 function LastChange({ change }) {
   if (!change.at) return <span>default (never changed)</span>
   return (
@@ -158,6 +172,11 @@ function NextLevel({ database, row, isAdmin, onApprove }) {
     return (
       <div>
         Promotion to {row.pending.to} proposed, waiting for an admin.
+        {row.bench && (
+          <div data-testid="trust-pending-bench">
+            Deciding bench report: {row.bench.provenance}
+          </div>
+        )}
         {isAdmin && (
           <button type="button" className="ml-2 rounded px-2 py-0.5"
             style={{ border: '1px solid var(--green)', color: 'var(--green)' }}
