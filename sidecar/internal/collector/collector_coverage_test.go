@@ -1163,9 +1163,8 @@ func TestNew_SetsFieldsCorrectly(t *testing.T) {
 	if c.cfg != cfg {
 		t.Error("cfg not set correctly")
 	}
-	if c.pgVersionNum != 160005 {
-		t.Errorf("pgVersionNum: got %d, want 160005",
-			c.pgVersionNum)
+	if v := c.Capabilities().PGVersionNum; v != 160005 {
+		t.Errorf("pgVersionNum: got %d, want 160005", v)
 	}
 	if c.breaker == nil {
 		t.Fatal("breaker should not be nil")

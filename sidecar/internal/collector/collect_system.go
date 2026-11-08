@@ -7,20 +7,31 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// collectSystem reads the system stats with the live version's SQL. The
+// other major version's SQL is the fallback, both ways (a PG17 server has
+// no checkpoints_timed, 42703; an older one no pg_stat_checkpointer,
+// 42P01): the version moved since the probe, so the next cycle re-probes.
 func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
-	sql := systemStatsSQL14
-	if c.pgVersionNum >= 170000 {
-		sql = systemStatsSQL17
+	sql, other := systemStatsSQL14, systemStatsSQL17
+	if c.Capabilities().PGVersionNum >= 170000 {
+		sql, other = other, sql
 	}
 	s, err := c.scanSystemStats(ctx, sql)
-	var pgErr *pgconn.PgError
-	if c.pgVersionNum >= 170000 && errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-		s, err = c.scanSystemStats(ctx, systemStatsSQL14)
+	if otherMajorVersion(err) {
+		c.invalidateCapabilities()
+		s, err = c.scanSystemStats(ctx, other)
 	}
 	if err == nil {
 		s.DBSizeBytes = c.databaseSize(ctx)
 	}
 	return s, err
+}
+
+// otherMajorVersion reports an undefined column or relation: the system
+// SQL of the other major version.
+func otherMajorVersion(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "42703" || pgErr.Code == "42P01")
 }
 
 // scanSystemStats reads one system stats row. A NULL cache hit ratio (no

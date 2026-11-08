@@ -60,7 +60,7 @@ func (c *Collector) catalogSteps() []catalogStep {
 // consumer: a category not read is not collected, which is not failed.
 func (c *Collector) extraSteps() []catalogStep {
 	var steps []catalogStep
-	if c.pgVersionNum >= 160000 {
+	if c.Capabilities().PGVersionNum >= 160000 {
 		steps = append(steps, catalogStep{name: "io",
 			run: func(ctx context.Context, s *Snapshot) (err error) {
 				s.IO, err = c.collectIO(ctx)

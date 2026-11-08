@@ -59,7 +59,13 @@ func TestCollect_FailedExtraIsUnavailableNotEmpty(t *testing.T) {
 	for _, cat := range []string{"io", "prepared_xacts", "partitions", "config_data"} {
 		t.Run(cat, func(t *testing.T) {
 			rec := &logRecorder{}
-			c := New(testPool(t), testConfig(), 170000, rec.log)
+			pool := testPool(t)
+			// The io gate follows the live version (collection-02), not
+			// the 170000 seed: no pg_stat_io read to fail below PG16.
+			if v := serverVersion(t, pool); cat == "io" && v < 160000 {
+				t.Skipf("pg_stat_io is not read below PG16 (server %d)", v)
+			}
+			c := New(pool, testConfig(), 170000, rec.log)
 			var calls atomic.Int32
 			c.overrideStep(cat, fillAndFail(cat, &calls, stmtTimeout()))
 			snap, err := c.collect(context.Background())

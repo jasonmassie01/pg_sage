@@ -18,16 +18,18 @@ import (
 
 // Collector runs periodic stats collection against the target database.
 type Collector struct {
-	pool         *pgxpool.Pool
-	cfg          *config.Config
-	breaker      *CircuitBreaker
-	mu           sync.RWMutex
-	latest       *Snapshot
-	previous     *Snapshot
-	pgVersionNum int // e.g. 170009 for PG 17.9
-	blkTime      *blockTimeExprs
-	logFn        func(string, string, ...any)
-	snapWriter   *snapstore.Writer
+	pool     *pgxpool.Pool
+	cfg      *config.Config
+	breaker  *CircuitBreaker
+	mu       sync.RWMutex
+	latest   *Snapshot
+	previous *Snapshot
+	// caps is what the database can report, re-derived each cycle
+	// (guarded by mu); probeDB replaces the probe's querier (tests).
+	caps       capState
+	probeDB    catalogQuerier
+	logFn      func(string, string, ...any)
+	snapWriter *snapstore.Writer
 	// period is the ticker's period in nanoseconds (0 before Run); only
 	// the Run goroutine resets the ticker, Interval reads it.
 	period atomic.Int64
@@ -79,7 +81,9 @@ const (
 	IndexDefMaxAge = time.Hour
 )
 
-// New creates a Collector wired to the given pool and config.
+// New creates a Collector wired to the given pool and config. pgVersionNum
+// and the config's capability flags (the startup checks) only seed the
+// capabilities each cycle re-derives.
 func New(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
@@ -87,9 +91,9 @@ func New(
 	logFn func(string, string, ...any),
 ) *Collector {
 	return &Collector{
-		pool:         pool,
-		cfg:          cfg,
-		pgVersionNum: pgVersionNum,
+		pool: pool,
+		cfg:  cfg,
+		caps: capState{caps: seedCapabilities(pgVersionNum, cfg)},
 		breaker: NewCircuitBreaker(
 			cfg.Safety.CPUCeilingPct,
 			cfg.Safety.BackoffConsecutiveSkips,
@@ -205,6 +209,7 @@ func (c *Collector) PreviousSnapshot() *Snapshot {
 func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	now := time.Now().UTC()
 	snap := &Snapshot{CollectedAt: now}
+	c.refreshCapabilities(ctx)
 
 	// Read the epoch before the counters: a reset in between leaves the
 	// old epoch on reset counters, which the counter-decrease check and

@@ -33,7 +33,7 @@ const sageTag = "/* pg_sage */ "
 // produce duplicate query_store samples with one captured_at (G1-B05).
 // Means and the population stddev are recombined from per-row calls.
 // The %[1]s and %[2]s verbs are the block read/write time expressions
-// chosen by blockTimeColumns (PG17 renamed blk_*_time to
+// chosen by the capability probe (blockTimeFor) (PG17 renamed blk_*_time to
 // shared_/local_blk_*_time); %[3]d, and the final %d after them, is the
 // row limit.
 //
@@ -101,15 +101,6 @@ var queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + query
 
 var queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
 	queryStatsPlanColumns + queryStatsFrom
-
-// blockTimeColumnsSQL finds which block-time columns the installed
-// pg_stat_statements view exposes (depends on the extension version, not
-// only the server version).
-const blockTimeColumnsSQL = sageTag + `
-SELECT attname::text FROM pg_attribute
- WHERE attrelid = to_regclass('pg_stat_statements')
-   AND attnum > 0 AND NOT attisdropped
-   AND attname IN ('shared_blk_read_time', 'blk_read_time')`
 
 // tableStatsSQL pages pg_class by oid and reads each table's counters
 // with the pg_stat_get_* functions pg_stat_user_tables is built from
