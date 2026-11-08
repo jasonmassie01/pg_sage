@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
@@ -28,7 +27,7 @@ type fleetBootstrap struct {
 // cannot connect or be prepared is registered as failed so the dashboard
 // shows why.
 func (b *fleetBootstrap) start(dbCfg config.DatabaseConfig) {
-	rt, err := prepareFleetRuntime(dbCfg, b.controlPool)
+	rt, err := prepareFleetRuntimeFrom(dbCfg, b.controlPool, openFleetPoolAtStartup)
 	if err != nil {
 		registerFailedFleetDatabase(dbCfg, err)
 		return
@@ -45,14 +44,23 @@ func (b *fleetBootstrap) start(dbCfg config.DatabaseConfig) {
 	b.initialized++
 }
 
-// prepareFleetRuntime connects one YAML database and builds its runtime
-// without publishing it, for startup and for reloads alike. control is the
-// fleet's control pool; nil makes the database its own control.
+// prepareFleetRuntime connects one YAML database in a single attempt and
+// builds its runtime without publishing it, for reloads and provider
+// re-probes: an operator-visible reload reports an unreachable database at
+// once instead of waiting out startup backoff. control is the fleet's control
+// pool; nil makes the database its own control.
 func prepareFleetRuntime(
 	dbCfg config.DatabaseConfig, control *pgxpool.Pool,
 ) (*databaseRuntime, error) {
+	return prepareFleetRuntimeFrom(dbCfg, control, openFleetPool)
+}
+
+func prepareFleetRuntimeFrom(
+	dbCfg config.DatabaseConfig, control *pgxpool.Pool,
+	open func(config.DatabaseConfig) (*pgxpool.Pool, error),
+) (*databaseRuntime, error) {
 	logInfo("fleet", "connecting to database %q", dbCfg.Name)
-	dbPool, err := openFleetPool(dbCfg)
+	dbPool, err := open(dbCfg)
 	if err != nil {
 		logError("fleet", "db %q: %v", dbCfg.Name, err)
 		return nil, err
@@ -74,34 +82,44 @@ func prepareFleetRuntime(
 	return rt, nil
 }
 
-// openFleetPool connects a YAML database with the sidecar's pool settings.
+// openFleetPool connects a YAML database with the sidecar's pool settings in
+// one attempt.
 func openFleetPool(dbCfg config.DatabaseConfig) (*pgxpool.Pool, error) {
-	poolCfg, err := pgxpool.ParseConfig(dbCfg.ConnString())
+	return openFleetPoolAttempts(dbCfg, 1)
+}
+
+// openFleetPoolAtStartup retries transient endpoint and connection failures
+// like single-database startup does: a startup failure leaves the database
+// registered as failed until the next reload.
+func openFleetPoolAtStartup(dbCfg config.DatabaseConfig) (*pgxpool.Pool, error) {
+	return openFleetPoolAttempts(dbCfg, startupAttempts)
+}
+
+// openFleetPoolAttempts resolves, connects and pings a YAML database;
+// shutdown interrupts the retries.
+func openFleetPoolAttempts(dbCfg config.DatabaseConfig, attempts int) (*pgxpool.Pool, error) {
+	base, err := pgxpool.ParseConfig(dbCfg.ConnString())
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}
-	poolCfg.MaxConns = int32(max(dbCfg.MaxConnections, 2))
-	if err := databricksauth.ConfigurePool(context.Background(), poolCfg); err != nil {
-		return nil, err
+	base.MaxConns = int32(max(dbCfg.MaxConnections, 2))
+	ctx := shutdownCtx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	poolCfg.MinConns = 1
-	poolCfg.MaxConnLifetime = 30 * time.Minute
-	poolCfg.MaxConnIdleTime = 5 * time.Minute
-	// A stable application_name lets the analyzer and executor recognize
-	// every sidecar backend; tagged statements keep pg_sage visible in
-	// pg_stat_statements and out of its own analysis.
-	selfmonitor.ConfigurePool(poolCfg)
-	dbPool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		return nil, fmt.Errorf("pool: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := dbPool.Ping(ctx); err != nil {
-		dbPool.Close()
-		return nil, fmt.Errorf("ping: %w", err)
-	}
-	return dbPool, nil
+	return retryStartup(ctx, "fleet db "+dbCfg.Name, attempts,
+		func(ctx context.Context) (*pgxpool.Pool, error) {
+			return openStartupPool(ctx, base, func(poolCfg *pgxpool.Config) {
+				poolCfg.MinConns = 1
+				poolCfg.MaxConnLifetime = 30 * time.Minute
+				poolCfg.MaxConnIdleTime = 5 * time.Minute
+				// A stable application_name lets the analyzer and executor
+				// recognize every sidecar backend; tagged statements keep
+				// pg_sage visible in pg_stat_statements and out of its own
+				// analysis.
+				selfmonitor.ConfigurePool(poolCfg)
+			})
+		})
 }
 
 func registerFailedFleetDatabase(dbCfg config.DatabaseConfig, err error) {

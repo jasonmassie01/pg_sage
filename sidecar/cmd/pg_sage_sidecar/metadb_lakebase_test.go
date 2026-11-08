@@ -73,7 +73,7 @@ func startupOpeners(dsn string) map[string]func() (*pgxpool.Pool, error) {
 		"meta":      func() (*pgxpool.Pool, error) { return connectMetaDB(dsn) },
 		"monitored": func() (*pgxpool.Pool, error) { return connectMonitoredDB(dsn, 3) },
 		"fleet": func() (*pgxpool.Pool, error) {
-			return openFleetPool(fleetConfigFor(dsn))
+			return openFleetPoolAtStartup(fleetConfigFor(dsn))
 		},
 	}
 }
@@ -176,13 +176,31 @@ func TestRetryStartupHonorsCancellation(t *testing.T) {
 		return nil, errors.New("connection refused")
 	}
 	start := time.Now()
-	pool, err := retryStartup(ctx, "test", open)
+	pool, err := retryStartup(ctx, "test", startupAttempts, open)
 	if pool != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled startup = %v, %v; want context.Canceled", pool, err)
 	}
 	if calls != 1 || time.Since(start) > 5*time.Second {
 		t.Fatalf("calls = %d after %s; want one attempt and no full backoff",
 			calls, time.Since(start))
+	}
+}
+
+func TestFleetReloadPoolMakesOneAttempt(t *testing.T) {
+	const dsn = "postgres://test@127.0.0.1:1/test?sslmode=disable"
+	unavailable := &apierr.APIError{StatusCode: 503, Message: "unavailable"}
+	f := installFakeLakebase(t, unavailable, unavailable)
+	pool, err := openFleetPool(fleetConfigFor(dsn))
+	if pool != nil {
+		pool.Close()
+		t.Fatal("reload opened a pool although the resolve failed")
+	}
+	if !errors.Is(err, apierr.ErrTemporarilyUnavailable) ||
+		strings.Contains(err.Error(), "attempts") {
+		t.Fatalf("reload error = %v; want the 503 itself, unretried", err)
+	}
+	if f.calls != 1 {
+		t.Fatalf("configure calls = %d; want one for an operator-visible reload", f.calls)
 	}
 }
 
