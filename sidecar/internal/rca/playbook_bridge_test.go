@@ -190,3 +190,24 @@ func TestUnknownSignalBuildsNoIncident(t *testing.T) {
 		t.Fatalf("log trees built %d incidents for an unknown id", len(got))
 	}
 }
+
+// A vacuum_blocked incident from the prepared-transaction branch carries a
+// structured holder, so the case offers the read-only freeze-blocker
+// diagnostic and no VACUUM the holder would defeat.
+func TestRealVacuumBlockedPreparedHolderGetsFreezeBlockers(t *testing.T) {
+	now := time.Now()
+	curr := &collector.Snapshot{CollectedAt: now,
+		System: collector.SystemStats{TotalBackends: 5, MaxConnections: 100},
+		PreparedXacts: []collector.PreparedTransaction{{GID: "g-old",
+			Prepared: now.Add(-48 * time.Hour), Database: "prod", XIDAge: 90000}}}
+	sig := firedSignal(signalid.VacuumBlocked,
+		map[string]any{"blocked_tables": []string{"public.orders"}})
+	incs := newTestEngine().runDecisionTrees([]*Signal{sig}, curr, nil, defaultCfg())
+	if len(incs) != 1 || incs[0].CausalChain[0].Blocker == nil {
+		t.Fatalf("fixture did not build a prepared-holder incident: %+v", incs)
+	}
+	got := caseActionTypes(projectCase(t, incs[0]))
+	if !reflect.DeepEqual(got, []string{"diagnose_freeze_blockers"}) {
+		t.Fatalf("candidates = %v, want [diagnose_freeze_blockers]", got)
+	}
+}

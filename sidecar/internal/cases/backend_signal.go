@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/backendguard"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // IncidentBlocker is the structured identity RCA records for one root
@@ -76,7 +77,7 @@ func lockBlockerCandidates(i SourceIncident, expires time.Time) []ActionCandidat
 func singleRootBlocker(i SourceIncident) (IncidentBlocker, bool) {
 	var found []IncidentBlocker
 	for _, link := range i.CausalChain {
-		if link.Signal == "lock_contention" && link.Blocker != nil {
+		if link.Signal == signalid.LockContention && link.Blocker != nil {
 			found = append(found, *link.Blocker)
 		}
 	}
