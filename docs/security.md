@@ -404,7 +404,40 @@ providers:
   no email, and must name the same subject.
 - **Discovery.** The discovery document must name the configured issuer
   (`oauth.issuer_url`, trailing slash ignored) and publish `jwks_uri`;
-  otherwise SSO stays disabled and startup logs why.
+  otherwise SSO stays unavailable and the log says why (see
+  [SSO temporarily unavailable](#sso-temporarily-unavailable)).
+
+#### SSO temporarily unavailable
+
+pg_sage tries OIDC discovery once at startup and keeps trying in the
+background, so an identity provider or DNS blip during a rollout never turns
+SSO off until a restart. While discovery has not succeeded:
+
+- `GET /api/v1/auth/oauth/config` answers
+  `{"enabled": true, "ready": false, "reason": "..."}`, and the login page
+  shows the SSO button disabled with **SSO temporarily unavailable**. The page
+  asks again every 30 seconds and enables the button once SSO is ready.
+- `GET /api/v1/auth/oauth/authorize`, the OAuth callback and
+  `POST /api/v1/auth/oauth/link-grant` answer `503` with
+  `{"code": "sso_not_ready"}` and `Retry-After`, not `404`. A link grant is
+  not used up by a refused request. Password login and break-glass are
+  unaffected.
+- `pg_sage_sso_discovery_ready` is `0` and
+  `pg_sage_sso_discovery_failures_total` counts the failed attempts.
+
+The `reason` tells the two cases apart:
+
+| `reason` | Cause | Retry |
+|---|---|---|
+| `identity provider unreachable` | Transport error, timeout, or a non-200 or unreadable answer from `/.well-known/openid-configuration` | Every 2 s, doubling to at most every 5 min (with jitter); a `WARN` log per attempt |
+| `misconfigured` | `oauth.issuer_url` names an issuer the document does not, the document lacks the authorization, token or `jwks_uri` endpoints, or the provider setting is invalid | Once a day; logged once at `ERROR`. Fix the configuration or the IdP, then restart |
+
+Once discovery has succeeded, pg_sage re-reads the document every 24 hours.
+A failed refresh keeps the last good endpoints and signing keys, so sign-in
+keeps working through a later outage; the refresh is retried on the short
+backoff. The `oauth.enabled: false` answers are unchanged: `enabled: false`
+and `404 OAuth not configured`. GitHub uses static endpoints and is always
+ready.
 
 Every refusal is recorded in `sage.auth_audit` as `login_failed` with a
 reason code (`nonce_mismatch`, `id_token_invalid`, `id_token_missing`,
