@@ -2,6 +2,7 @@ package tuner
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -179,14 +180,14 @@ func TestReconcileHintStatuses_NoHintTableIsNoop(t *testing.T) {
 	New(nil, TunerConfig{}, nil, noopLogFn).reconcileHintStatuses(ctx) // must not panic
 }
 
-// Proposed hints still count for the restart cooldown bootstrap.
-func TestLoadActiveHints_IncludesProposed(t *testing.T) {
+// Proposed hints still refuse a new hint after a restart: the durable
+// state is read on every check (tuning-02 replaced the map bootstrap).
+func TestHintStates_IncludesProposedAfterRestart(t *testing.T) {
 	pool, ctx := requireHintStatusDB(t)
 	tu := readyTuner(pool)
 	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort")
 	fresh := readyTuner(pool)
-	fresh.loadActiveHints(ctx)
-	if _, ok := fresh.recentlyTuned[hintStatusQueryID]; !ok {
-		t.Fatal("proposed hint not in cooldown after restart")
+	if err := fresh.coolingErr(ctx, hintStatusQueryID); !errors.Is(err, ErrHintExists) {
+		t.Fatalf("proposed hint after restart = %v, want ErrHintExists", err)
 	}
 }

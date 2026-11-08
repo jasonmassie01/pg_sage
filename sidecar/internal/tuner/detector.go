@@ -113,6 +113,11 @@ func checkHintSessionLoad(
 // the tuner writes (query_id, application_name, hints). pg_hint_plan
 // 1.4-1.6, shipped for PG14-16, key hints by norm_query_string; that table
 // is not ready, so tuning findings stay advisory (no executable SQL).
+//
+// The table also needs a valid, non-partial unique index on columns among
+// (query_id, application_name), as pg_hint_plan 1.7 ships: the apply INSERT
+// relies on it to fail over an existing row (tuning-02). Without it hints
+// stay advisory too.
 func checkHintTable(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -121,5 +126,26 @@ func checkHintTable(
 		ctx,
 		"SELECT query_id, application_name, hints FROM hint_plan.hints LIMIT 0",
 	)
-	return err == nil
+	if err != nil {
+		return false
+	}
+	var unique bool
+	err = pool.QueryRow(ctx, hintUniqueIndexSQL).Scan(&unique)
+	return err == nil && unique
 }
+
+// hintUniqueIndexSQL reports whether hint_plan.hints has a valid unique
+// index, without predicate or expressions, whose every column is query_id
+// or application_name, so two rows for one (query_id, application_name)
+// cannot coexist.
+const hintUniqueIndexSQL = `/* pg_sage */
+SELECT EXISTS (
+  SELECT 1 FROM pg_catalog.pg_index i
+   WHERE i.indrelid = to_regclass('hint_plan.hints')
+     AND i.indisunique AND i.indisvalid
+     AND i.indpred IS NULL AND i.indexprs IS NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = i.indrelid
+          AND a.attnum = ANY (i.indkey::int2[])
+          AND a.attname NOT IN ('query_id', 'application_name')))`

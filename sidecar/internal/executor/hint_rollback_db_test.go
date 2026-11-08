@@ -59,7 +59,7 @@ func newHintRollbackFixture(t *testing.T) *hintRollbackFixture {
 		_, _ = pool.Exec(c, `DELETE FROM hint_plan.hints WHERE query_id = $1`, fx.qid)
 		_, _ = pool.Exec(c, `DELETE FROM sage.query_hints WHERE queryid = $1`, fx.qid)
 		_, _ = pool.Exec(c, `DELETE FROM sage.action_log WHERE sql_executed LIKE $1`,
-			fmt.Sprintf("%%SELECT %d, ''%%", fx.qid))
+			fmt.Sprintf("%%%d, ''%%", fx.qid)) // INSERT ... SELECT or VALUES form
 	})
 	return fx
 }

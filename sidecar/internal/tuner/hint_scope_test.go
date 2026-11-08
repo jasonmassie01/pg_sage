@@ -96,3 +96,22 @@ func TestHintScope_BuildFindingRollbackMatchesInsert(t *testing.T) {
 		t.Fatalf("InsertedHintText(RecommendedSQL) = %q, %t; want %q", got, ok, hint)
 	}
 }
+
+// tuning-02: actions recorded before the apply INSERT dropped its WHERE NOT
+// EXISTS guard carry the INSERT ... SELECT form; their hint text must still
+// parse, or their legacy rollback could not be scoped.
+func TestHintScope_InsertedHintTextLegacySelectForm(t *testing.T) {
+	legacy := "INSERT INTO hint_plan.hints (query_id, application_name, hints) " +
+		"SELECT 42, '', $sageqh$HashJoin(a b)$sageqh$ WHERE NOT EXISTS (" +
+		"SELECT 1 FROM hint_plan.hints WHERE query_id = 42 AND application_name = '')"
+	if got, ok := InsertedHintText(legacy, 42); !ok || got != "HashJoin(a b)" {
+		t.Fatalf("InsertedHintText(legacy) = %q, %t; want HashJoin(a b)", got, ok)
+	}
+	if got, ok := InsertedHintText(legacy, 4); ok {
+		t.Fatalf("legacy INSERT of query 42 parsed for query 4: %q", got)
+	}
+	current := BuildInsertSQL(42, "HashJoin(a b)")
+	if !strings.Contains(current, "VALUES (42, '', ") {
+		t.Fatalf("apply INSERT is not the plain VALUES form: %s", current)
+	}
+}

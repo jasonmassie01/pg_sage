@@ -2,6 +2,7 @@ package tuner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -295,10 +296,10 @@ func TestRevalidate_FastHintSurvivesPasses(t *testing.T) {
 		t.Fatalf("quiet pass: status = %q, want dormant", s.status)
 	}
 	assertInstalledAndKept(t, ctx, tu, qid)
-	fresh := readyTuner(pool)
-	fresh.loadActiveHints(ctx)
-	if _, ok := fresh.recentlyTuned[qid]; !ok {
-		t.Fatal("dormant hint not counted as covered: the tuner would propose it again")
+	// tuning-02: covered means refused by the durable check (the map
+	// bootstrap it replaced is gone).
+	if err := readyTuner(pool).coolingErr(ctx, qid); !errors.Is(err, ErrHintExists) {
+		t.Fatalf("dormant hint not counted as covered: %v", err)
 	}
 
 	runProbe(t, ctx, pool, revalPassesCols, 1)

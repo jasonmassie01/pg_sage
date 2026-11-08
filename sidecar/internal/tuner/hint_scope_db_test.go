@@ -81,14 +81,15 @@ func execRows(t *testing.T, pool *pgxpool.Pool, sql string) int64 {
 	return tag.RowsAffected()
 }
 
-// Boundary (failed before tuning-02a): pg_sage's H1 apply is a no-op over
-// an operator's H2, so rolling it back must delete nothing.
+// Boundary (failed before tuning-02a): pg_sage's H1 apply over an
+// operator's H2 installs nothing (since tuning-02 it fails on the unique
+// index), so rolling it back must delete nothing.
 func TestHintScope_NoopActionRollbackKeepsOperatorHint(t *testing.T) {
 	const qid = int64(9_210_001)
-	pool, _ := hintScopeDB(t, qid)
+	pool, ctx := hintScopeDB(t, qid)
 	installHintRow(t, pool, qid, "", scopeOperatorHint)
-	if n := execRows(t, pool, BuildInsertSQL(qid, scopeOwnHint)); n != 0 {
-		t.Fatalf("apply over an operator row inserted %d rows, want 0", n)
+	if _, err := pool.Exec(ctx, BuildInsertSQL(qid, scopeOwnHint)); err == nil {
+		t.Fatal("apply over an operator row succeeded, want a unique violation")
 	}
 	if n := execRows(t, pool, BuildDeleteSQL(qid, scopeOwnHint)); n != 0 {
 		t.Fatalf("rollback deleted %d rows, want 0", n)

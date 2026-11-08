@@ -61,9 +61,9 @@ func New(
 		recentlyTuned: make(map[int64]int),
 		spill:         statSpill{baselines: map[spillKey]spillBaseline{}},
 	}
-	// Active hints are loaded on the first Tune() call when
-	// recentlyTuned is empty (see Tune()), so bootstrap here is
-	// unnecessary and would require a context we don't have.
+	// recentlyTuned is only the post-proposal cooldown: one hint per
+	// statement is enforced from the durable state on every check
+	// (hintStates), so nothing is bootstrapped here.
 	return t
 }
 
@@ -76,6 +76,8 @@ type candidate struct {
 	TempBlksRead    int64
 	TempBlksWritten int64
 	UserID          int64
+	// foreignHint: hint_plan.hints holds a hint pg_sage did not install.
+	foreignHint bool
 }
 
 // Tune queries pg_stat_statements for slow queries, scans
@@ -114,13 +116,37 @@ func (t *Tuner) Tune(
 	}
 	candidates = filterSelfMonitoringCandidates(candidates)
 	t.observeSpills(ctx, candidates)
-	if len(t.recentlyTuned) == 0 {
-		t.loadActiveHints(ctx)
+	findings, err := t.tuneCandidates(ctx, candidates, deferredTables)
+	if err != nil {
+		return nil, err
+	}
+	// C11: remove installed hints whose metadata was retired/broken.
+	findings = append(findings, t.hintRemovalFindings(ctx)...)
+	return findings, nil
+}
+
+// tuneCandidates runs the deterministic rules over the candidates. A
+// statement in its cooldown or with an installed pg_sage hint is skipped;
+// one with a hint pg_sage did not install gets an informational finding
+// without SQL (tuning-02). A failed read of the durable hint state fails
+// the pass, so no hint is proposed blind. The caller holds t.mu.
+func (t *Tuner) tuneCandidates(
+	ctx context.Context, candidates []candidate, deferredTables map[string]bool,
+) ([]analyzer.Finding, error) {
+	states, err := t.hintStates(ctx, candidateIDs(candidates))
+	if err != nil {
+		return nil, fmt.Errorf("tuner: %w", err)
 	}
 	var findings []analyzer.Finding
 	for _, c := range candidates {
 		if _, ok := t.recentlyTuned[c.QueryID]; ok {
 			continue
+		}
+		switch states[c.QueryID] {
+		case hintInstalled:
+			continue
+		case hintForeign:
+			c.foreignHint = true
 		}
 		if reason := t.deferralReason(ctx, c, deferredTables); reason != "" {
 			t.logFn("INFO",
@@ -135,8 +161,6 @@ func (t *Tuner) Tune(
 		}
 		findings = append(findings, f...)
 	}
-	// C11: remove installed hints whose metadata was retired/broken.
-	findings = append(findings, t.hintRemovalFindings(ctx)...)
 	return findings, nil
 }
 
@@ -184,39 +208,6 @@ func (t *Tuner) cooldownCycles() int {
 		return t.cfg.CascadeCooldownCycles
 	}
 	return 3
-}
-
-// loadActiveHints bootstraps the recentlyTuned map from
-// sage.query_hints so hints survive sidecar restarts.
-func (t *Tuner) loadActiveHints(ctx context.Context) {
-	if t.pool == nil {
-		return
-	}
-	rows, err := t.pool.Query(ctx,
-		`/* pg_sage */ SELECT queryid FROM sage.query_hints
-		 WHERE status IN ('active', 'dormant', 'proposed')`,
-	)
-	if err != nil {
-		t.logFn("WARN",
-			"tuner: load active hints: %v", err)
-		return
-	}
-	defer rows.Close()
-
-	cooldown := t.cooldownCycles()
-	for rows.Next() {
-		var qid int64
-		if err := rows.Scan(&qid); err != nil {
-			t.logFn("WARN",
-				"tuner: scan active hint: %v", err)
-			continue
-		}
-		t.recentlyTuned[qid] = cooldown
-	}
-	if err := rows.Err(); err != nil {
-		t.logFn("WARN",
-			"tuner: iterate active hints: %v", err)
-	}
 }
 
 var candidateSQL = `/* pg_sage */
@@ -301,25 +292,33 @@ func (t *Tuner) processCandidate(
 		return nil
 	}
 
-	combined := CombineHints(prescriptions)
-	// Deterministic prescriptions interpolate plan-derived identifiers
-	// raw (e.g. HashJoin(alias)), so re-validate the combined directive
-	// the same way agent hints are validated (W4). A malformed hint is
-	// dropped rather than emitted as an unparseable directive.
-	if combined != "" && !validateHintSyntax(combined) {
-		t.logFn("tuner",
-			"dropping unparseable combined hint: %s", combined)
-		combined = ""
+	combined := t.combinedHint(prescriptions)
+	rationale := buildRationale(prescriptions)
+	if c.foreignHint && combined != "" {
+		return append(staleFindings, operatorHintFinding(c, symptoms, combined, rationale))
 	}
 	// Every work_mem hint stays within min(work_mem_max_mb, 5% of host
 	// memory); with host memory unknown it needs approval (tuning-03).
 	budget := t.workMemBudget()
 	combined, budgetDetail := budget.capHint(combined)
 	title := buildTitle(symptoms)
-	rationale := buildRationale(prescriptions)
 	finding := t.buildFinding(ctx, c, symptoms, combined, title, rationale)
 	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
 	return append(staleFindings, finding)
+}
+
+// combinedHint combines the prescriptions' directives. Deterministic
+// prescriptions interpolate plan-derived identifiers raw (e.g.
+// HashJoin(alias)), so the combined directive is re-validated the same way
+// agent hints are (W4); a malformed hint is dropped ("") rather than
+// emitted as an unparseable directive.
+func (t *Tuner) combinedHint(prescriptions []Prescription) string {
+	combined := CombineHints(prescriptions)
+	if combined != "" && !validateHintSyntax(combined) {
+		t.logFn("tuner", "dropping unparseable combined hint: %s", combined)
+		return ""
+	}
+	return combined
 }
 
 func (t *Tuner) gatherSymptoms(

@@ -861,8 +861,10 @@ func TestFunctional_BuildInsertSQL_Format(t *testing.T) {
 	if strings.Contains(sql, "norm_query_string") {
 		t.Errorf("contains obsolete norm_query_string column: %s", sql)
 	}
-	if !strings.Contains(sql, "WHERE NOT EXISTS") {
-		t.Errorf("missing duplicate guard: %s", sql)
+	// tuning-02: no WHERE NOT EXISTS guard. Over an existing row the
+	// unique index must fail the INSERT loudly, not make it a no-op.
+	if strings.Contains(sql, "WHERE NOT EXISTS") {
+		t.Errorf("apply INSERT is a silent no-op over an existing row: %s", sql)
 	}
 }
 

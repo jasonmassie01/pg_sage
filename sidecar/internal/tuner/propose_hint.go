@@ -19,6 +19,11 @@ var (
 	// ErrHintExists: the statement already has a proposed or active hint,
 	// or was tuned within the cooldown.
 	ErrHintExists = errors.New("statement already has a hint or is cooling down")
+	// ErrForeignHint: hint_plan.hints holds a hint for the statement that
+	// pg_sage did not install (an operator hint present); pg_sage never
+	// replaces it.
+	ErrForeignHint = errors.New("statement has a hint pg_sage did not install " +
+		"(operator hint present)")
 )
 
 // agentSymptom is the symptom sage.query_hints records for agent hints.
@@ -45,7 +50,8 @@ func (t *Tuner) HintsAvailable() bool {
 // tuner's own safeguards: pg_hint_plan syntax, the Set() allowlist and the
 // work_mem clamp, the host-memory budget (ErrHintMemory above 5% of host
 // RAM, approval_required when host memory is unknown), and one hint per
-// statement (proposed or active hints and the cooldown). It has no side
+// statement (proposed or installed hints, an operator's hint, and the
+// cooldown). It has no side
 // effects: the agent records only the hints it keeps after its per-cycle
 // cap, through RecordHint.
 func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding, error) {
@@ -88,13 +94,23 @@ func (t *Tuner) admitHint(p HintProposal) (string, error) {
 	return t.checkHint(p)
 }
 
-// coolingErr refuses a statement with a proposed or active hint or in its
-// cooldown. The caller holds t.mu.
+// coolingErr refuses a statement in its cooldown, with an open proposal or
+// an installed hint (ErrHintExists), or with a hint pg_sage did not install
+// (ErrForeignHint). The durable state is read on every call; a failed read
+// refuses the hint. The caller holds t.mu.
 func (t *Tuner) coolingErr(ctx context.Context, queryID int64) error {
-	if len(t.recentlyTuned) == 0 {
-		t.loadActiveHints(ctx)
-	}
 	if _, cooling := t.recentlyTuned[queryID]; cooling {
+		return fmt.Errorf("%w: queryid %d", ErrHintExists, queryID)
+	}
+	states, err := t.hintStates(ctx, []int64{queryID})
+	if err != nil {
+		return fmt.Errorf("tuner: refusing hint for queryid %d, hint state unknown: %w",
+			queryID, err)
+	}
+	switch states[queryID] {
+	case hintForeign:
+		return fmt.Errorf("%w: queryid %d", ErrForeignHint, queryID)
+	case hintProposed, hintInstalled:
 		return fmt.Errorf("%w: queryid %d", ErrHintExists, queryID)
 	}
 	return nil
