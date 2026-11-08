@@ -195,6 +195,24 @@ timing such as `NOT DEFERRABLE INITIALLY DEFERRED`, and any constraint, index, c
 proof name longer than 63 bytes, which PostgreSQL would otherwise truncate. Plan those
 migrations by hand.
 
+### The migration ledger
+
+Every `apply_migration` call leaves one row in `sage.migration_run`, keyed by `evidence_id`.
+The `verdict` column uses this vocabulary:
+
+| Verdict | Meaning |
+|---|---|
+| `blocked` | The policy gate refused an expand step before any rehearsal. `reason` holds the gate's reason code, for example `change_class_not_allowed`. |
+| `recommend_only` | The plan was returned for a person to run; nothing was rehearsed or applied. |
+| `parked` | Rehearsal or the gate held the migration for review. |
+| `promote` | The expand steps ran. The contract steps wait for `contract_not_before`. |
+| `failed` | The rehearsal or an expand step failed. |
+| `pending` | Reserved for a run that has not reached a verdict. |
+
+A run uses the gate's evidence id. When the gate returned none, the run gets a fresh id, so
+two runs never share a row. If a later write reuses an evidence id, the row takes that
+write's verdict, `source_sql_hash` and `reason`.
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:

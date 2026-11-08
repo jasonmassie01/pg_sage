@@ -67,6 +67,8 @@ type MigrationRecord struct {
 	EvidenceID string
 	SourceSQL  string
 	Verdict    string
+	// Reason is the gate's reason code for a blocked plan (empty otherwise).
+	Reason string
 }
 
 type MigrationOutcome struct {
