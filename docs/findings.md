@@ -495,9 +495,11 @@ Checkpoint pressure: 45 checkpoints in last hour (expected < 6)
 
 Detects replication lag exceeding acceptable thresholds.
 
-**Severity:** warning or critical
+**Severity:** warning (replay lag of 30 seconds or more) or critical (5 minutes or more)
 
 **What it detects:** Standby servers falling behind the primary, measured via `pg_stat_replication`.
+
+**Identity:** one finding per `replica:<application_name>@<client_addr>` (`<unnamed>` and `<unknown>` stand in for an empty name or a Unix-socket connection). `pg_stat_replication` row order is not stable, so the row position is not part of the name. Replicas that share a name merge into one finding at the worst lag; `detail.merged_replicas` counts them. Findings opened by earlier releases (named `replica:<row>:<addr>`) resolve once after the upgrade and reopen under the new name.
 
 **Example output:**
 
@@ -513,17 +515,19 @@ Replication lag: 45 seconds behind primary
 
 Detects inactive replication slots consuming WAL.
 
-**Severity:** warning
+**Severity:** warning, or critical when `wal_status` is `unreserved` or `lost`
 
-**What it detects:** Replication slots without active consumers, causing WAL to accumulate and disk usage to grow.
+**What it detects:** Replication slots without an active consumer, causing WAL to accumulate and disk usage to grow. A slot is reported once it has been inactive for `analyzer.inactive_slot_min_minutes` (default 5), so a CDC connector's reconnect or a nightly consumer does not raise a warning. The inactive time comes from `pg_replication_slots.inactive_since` on PostgreSQL 17 and later; on older servers pg_sage starts its own clock the first time it sees the slot inactive (kept in memory, so a restart only delays a finding, never fires one early). A slot whose `wal_status` is `extended` (warning) or `unreserved`/`lost` (critical) is reported at once. Temporary slots are never reported, and neither are synchronized failover slots (`synced = true`) on a standby, which are always inactive there and cannot be dropped.
+
+**Detail:** `slot_type`, `retained_bytes`, `wal_status`, `safe_wal_size`, `inactive_since`, `inactive_seconds` and `invalidation_reason` (each when the server has it), `manual_sql` and `approval_required`.
 
 **Example output:**
 
 ```
-Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
+Inactive replication slot old_subscriber (retaining 12.0 GB)
 ```
 
-**Recommended action:** Drop the inactive slot if the consumer is permanently gone.
+**Recommended action:** Find the slot's consumer (CDC connector, subscriber or standby) and reconnect it. If it is gone for good, drop the slot by hand with `detail.manual_sql`. The finding is `high_risk` and carries no executable SQL: dropping a slot is irreversible and the consumer must resync, so pg_sage never runs it.
 
 ```sql
 SELECT pg_drop_replication_slot('old_subscriber');

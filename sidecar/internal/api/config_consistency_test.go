@@ -50,6 +50,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "4500",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.SelfCostBudgetMs) },
 	},
+	"analyzer.inactive_slot_min_minutes": {
+		input:  "15",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.InactiveSlotMinMinutes) },
+	},
 	"analyzer.seq_scan_min_rows": {
 		input:  "5000",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.SeqScanMinRows) },

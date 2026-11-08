@@ -3,16 +3,19 @@ package analyzer
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // ruleReplicationLag flags replicas with high replay lag.
-// Warning if > 30s, critical if > 5 minutes.
+// Warning if > 30s, critical if > 5 minutes. A replica is named by its
+// application_name and client address, not its row position: the order
+// of pg_stat_replication rows is not stable across cycles. Replicas that
+// share a name merge into one finding at the worst lag.
 func ruleReplicationLag(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -22,144 +25,92 @@ func ruleReplicationLag(
 	if current.Replication == nil {
 		return nil
 	}
-
-	var findings []Finding
-	for i, r := range current.Replication.Replicas {
+	worst := map[string]*replicaLag{}
+	var keys []string
+	for _, r := range current.Replication.Replicas {
 		if r.ReplayLag == nil || *r.ReplayLag == "" {
 			continue
 		}
+		key := replicaIdentity(r)
 		lag := parsePGInterval(*r.ReplayLag)
-		if lag < 30*time.Second {
-			continue
+		w, seen := worst[key]
+		if !seen {
+			w = &replicaLag{replica: r, lag: lag}
+			worst[key] = w
+			keys = append(keys, key)
+		} else if lag > w.lag {
+			w.replica, w.lag = r, lag
 		}
-
-		severity := "warning"
-		if lag >= 5*time.Minute {
-			severity = "critical"
+		w.count++
+	}
+	sort.Strings(keys)
+	var findings []Finding
+	for _, key := range keys {
+		if w := worst[key]; w.lag >= 30*time.Second {
+			findings = append(findings, replicationLagFinding(key, w))
 		}
-
-		clientAddr := "<unknown>"
-		if r.ClientAddr != nil {
-			clientAddr = *r.ClientAddr
-		}
-
-		ident := fmt.Sprintf("replica:%d:%s", i, clientAddr)
-		writeLag := ""
-		if r.WriteLag != nil {
-			writeLag = *r.WriteLag
-		}
-		flushLag := ""
-		if r.FlushLag != nil {
-			flushLag = *r.FlushLag
-		}
-
-		findings = append(findings, Finding{
-			Category:         "replication_lag",
-			Severity:         severity,
-			ObjectType:       "replication",
-			ObjectIdentifier: ident,
-			Title: fmt.Sprintf(
-				"Replication lag %s on replica %s",
-				*r.ReplayLag, clientAddr,
-			),
-			Detail: map[string]any{
-				"client_addr": clientAddr,
-				"replay_lag":  *r.ReplayLag,
-				"lag_seconds": lag.Seconds(),
-				"write_lag":   writeLag,
-				"flush_lag":   flushLag,
-				"state":       r.State,
-			},
-			Recommendation: "Investigate replica performance or network issues.",
-			ActionRisk:     "safe",
-		})
 	}
 	return findings
 }
 
-// ruleInactiveSlots flags replication slots that are not active.
-// ruleSlowActiveSlots flags active slots with high WAL retention
-// (slow consumers like Debezium, Fivetran, or struggling replicas).
-func ruleInactiveSlots(
-	current *collector.Snapshot,
-	_ *collector.Snapshot,
-	cfg *config.Config,
-	_ *RuleExtras,
-) []Finding {
-	if current.Replication == nil {
-		return nil
-	}
+// replicaLag is the worst replay lag seen under one replica identity.
+type replicaLag struct {
+	replica collector.ReplicaInfo
+	lag     time.Duration
+	count   int
+}
 
-	// 1 GB default threshold for active slot WAL retention warning.
-	var slowSlotBytes int64
-	if cfg != nil {
-		slowSlotBytes = cfg.Analyzer.SlowSlotRetainedBytes
+// replicaIdentity is "replica:<application_name>@<client_addr>".
+func replicaIdentity(r collector.ReplicaInfo) string {
+	app := r.ApplicationName
+	if app == "" {
+		app = "<unnamed>"
 	}
-	if slowSlotBytes == 0 {
-		slowSlotBytes = 1 << 30 // 1 GB
+	return "replica:" + app + "@" + replicaAddr(r)
+}
+
+func replicaAddr(r collector.ReplicaInfo) string {
+	if r.ClientAddr != nil {
+		return *r.ClientAddr
 	}
+	return "<unknown>"
+}
 
-	var findings []Finding
-	for _, s := range current.Replication.Slots {
-		ident := fmt.Sprintf("slot:%s", s.SlotName)
-
-		if !s.Active {
-			findings = append(findings, Finding{
-				Category:         "inactive_slot",
-				Severity:         "warning",
-				ObjectType:       "replication_slot",
-				ObjectIdentifier: ident,
-				Title: fmt.Sprintf(
-					"Inactive replication slot %s (retaining %d bytes)",
-					s.SlotName, s.RetainedBytes,
-				),
-				Detail: map[string]any{
-					"slot_name":      s.SlotName,
-					"slot_type":      s.SlotType,
-					"retained_bytes": s.RetainedBytes,
-					"active":         s.Active,
-				},
-				Recommendation: "Drop the inactive slot to free retained WAL.",
-				RecommendedSQL: fmt.Sprintf(
-					"SELECT pg_drop_replication_slot(%s);",
-					sanitize.QuoteLiteral(s.SlotName),
-				),
-				ActionRisk: "safe",
-			})
-			continue
-		}
-
-		// Active slot with high retained bytes = slow consumer.
-		if s.RetainedBytes >= slowSlotBytes {
-			severity := "warning"
-			if s.RetainedBytes >= slowSlotBytes*5 {
-				severity = "critical"
-			}
-			findings = append(findings, Finding{
-				Category:         "slow_replication_slot",
-				Severity:         severity,
-				ObjectType:       "replication_slot",
-				ObjectIdentifier: ident,
-				Title: fmt.Sprintf(
-					"Active slot %s retaining %s -- slow consumer",
-					s.SlotName,
-					humanBytes(s.RetainedBytes),
-				),
-				Detail: map[string]any{
-					"slot_name":      s.SlotName,
-					"slot_type":      s.SlotType,
-					"retained_bytes": s.RetainedBytes,
-					"active":         s.Active,
-				},
-				Recommendation: "Investigate slow consumer " +
-					"(Debezium, replica, CDC pipeline). " +
-					"Slot holds WAL and xmin horizon, " +
-					"blocking vacuum and risking disk exhaustion.",
-				ActionRisk: "moderate",
-			})
-		}
+func replicationLagFinding(ident string, w *replicaLag) Finding {
+	r := w.replica
+	severity := "warning"
+	if w.lag >= 5*time.Minute {
+		severity = "critical"
 	}
-	return findings
+	clientAddr := replicaAddr(r)
+	writeLag, flushLag := "", ""
+	if r.WriteLag != nil {
+		writeLag = *r.WriteLag
+	}
+	if r.FlushLag != nil {
+		flushLag = *r.FlushLag
+	}
+	return Finding{
+		Category:         "replication_lag",
+		Severity:         severity,
+		ObjectType:       "replication",
+		ObjectIdentifier: ident,
+		Title: fmt.Sprintf(
+			"Replication lag %s on replica %s", *r.ReplayLag, clientAddr,
+		),
+		Detail: map[string]any{
+			"application_name": r.ApplicationName,
+			"client_addr":      clientAddr,
+			"replay_lag":       *r.ReplayLag,
+			"lag_seconds":      w.lag.Seconds(),
+			"write_lag":        writeLag,
+			"flush_lag":        flushLag,
+			"state":            r.State,
+			"merged_replicas":  w.count,
+		},
+		Recommendation: "Investigate replica performance or network issues.",
+		ActionRisk:     "safe",
+	}
 }
 
 // humanBytes formats bytes as a human-readable string.

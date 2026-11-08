@@ -19,6 +19,7 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.interval_seconds":           "int_min5",
 	"analyzer.slow_query_threshold_ms":    "int_nonneg",
 	"analyzer.self_cost_budget_ms":        "int_nonneg",
+	"analyzer.inactive_slot_min_minutes":  "int_pos",
 	"analyzer.seq_scan_min_rows":          "int_pos",
 	"analyzer.unused_index_window_days":   "int_pos",
 	"analyzer.index_bloat_threshold_pct":  "pct",
@@ -489,6 +490,8 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.SlowQueryThresholdMs, "yaml")
 	addField(m, "analyzer.self_cost_budget_ms",
 		a.SelfCostBudgetMs, "yaml")
+	addField(m, "analyzer.inactive_slot_min_minutes",
+		a.InactiveSlotMinMinutes, "yaml")
 	addField(m, "analyzer.seq_scan_min_rows",
 		a.SeqScanMinRows, "yaml")
 	addField(m, "analyzer.unused_index_window_days",

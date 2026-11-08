@@ -141,6 +141,7 @@ derivable analyzer.autovacuum_tune_min_rows
 derivable analyzer.cache_hit_ratio_warning
 derivable analyzer.checkpoint_frequency_warning_per_hour
 derivable analyzer.idle_in_transaction_timeout_minutes
+derivable analyzer.inactive_slot_min_minutes
 derivable analyzer.index_bloat_threshold_pct
 derivable analyzer.interval_seconds
 safety_critical analyzer.lock_chain.active_query_cancel_minutes

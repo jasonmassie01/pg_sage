@@ -26,6 +26,10 @@ type RuleExtras struct {
 	// IndexOID records the object (oid) each FirstSeen clock belongs to: a
 	// dropped and recreated index under the same name is a new object.
 	IndexOID map[string]uint32
+	// InactiveSlotSince records when each replication slot was first seen
+	// inactive, for servers without pg_replication_slots.inactive_since
+	// (before PG17). It lives in memory: a restart only delays a finding.
+	InactiveSlotSince map[string]time.Time
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
 }

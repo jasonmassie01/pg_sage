@@ -23,7 +23,7 @@ func coverageTestConfig() *config.Config {
 			SlowQueryThresholdMs:         1000,
 			TableBloatDeadTuplePct:       20,
 			TableBloatMinRows:            1000,
-			SeqScanMinRows:              10000,
+			SeqScanMinRows:               10000,
 			UnusedIndexWindowDays:        7,
 			RegressionThresholdPct:       50,
 			RegressionLookbackDays:       7,
@@ -1114,11 +1114,14 @@ func TestCoverage_RuleInactiveSlots_NilReplication(t *testing.T) {
 }
 
 func TestCoverage_RuleInactiveSlots_HasInactive(t *testing.T) {
+	// rules-09: reported once idle past the threshold (inactive_since).
+	idleSince := time.Now().Add(-time.Hour)
 	snap := &collector.Snapshot{
 		Replication: &collector.ReplicationStats{
 			Slots: []collector.SlotInfo{
 				{SlotName: "active_slot", Active: true, SlotType: "physical", RetainedBytes: 1000},
-				{SlotName: "dead_slot", Active: false, SlotType: "logical", RetainedBytes: 5000000},
+				{SlotName: "dead_slot", Active: false, SlotType: "logical", RetainedBytes: 5000000,
+					InactiveSince: &idleSince},
 			},
 		},
 	}
@@ -1133,8 +1136,12 @@ func TestCoverage_RuleInactiveSlots_HasInactive(t *testing.T) {
 	if findings[0].ObjectIdentifier != "slot:dead_slot" {
 		t.Errorf("ObjectIdentifier = %q, want slot:dead_slot", findings[0].ObjectIdentifier)
 	}
-	if findings[0].RecommendedSQL == "" {
-		t.Error("expected RecommendedSQL to drop slot")
+	// rules-09: the irreversible drop is manual SQL, never executable.
+	if findings[0].RecommendedSQL != "" {
+		t.Errorf("RecommendedSQL = %q, want empty", findings[0].RecommendedSQL)
+	}
+	if sql, _ := findings[0].Detail["manual_sql"].(string); sql == "" {
+		t.Error("expected manual_sql to drop slot")
 	}
 }
 
