@@ -112,15 +112,14 @@ func applyCloudWatch(s *Sample, points map[string][]Point, fields map[string]cwF
 // Target resolves the parameter group behind the instance and reads its
 // parameters (managedparam.Resolver).
 func (s *AWSSource) Target(ctx context.Context) (managedparam.Target, error) {
-	inst, err := s.resolve(ctx)
+	inst, ident, err := s.resolve(ctx)
 	if err != nil {
 		return managedparam.Target{}, err
 	}
 	if err := s.checkDetected(inst); err != nil {
 		return managedparam.Target{}, err
 	}
-	ident := s.identity()
-	t := managedparam.Target{Provider: s.Provider(), Region: s.opts.Region,
+	t := managedparam.Target{Provider: s.providerFor(ident.engine), Region: s.opts.Region,
 		InstanceID: inst.ID, Cluster: ident.cluster, InstanceRole: ident.role,
 		ParameterGroup:          inst.ParameterGroup,
 		ParameterGroupIsDefault: strings.HasPrefix(inst.ParameterGroup, "default."),

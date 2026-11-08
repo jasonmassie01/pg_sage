@@ -104,11 +104,12 @@ func NewAWSSource(opts AWSOptions) (*AWSSource, error) {
 // Provider is "aurora" for a cluster endpoint, an instance PostgreSQL
 // reports as Aurora, or one whose engine AWS reported as aurora*; else
 // "rds".
-func (s *AWSSource) Provider() string {
-	if s.opts.ClusterID != "" || s.detected == "aurora" {
-		return "aurora"
-	}
-	if strings.HasPrefix(s.identity().engine, "aurora") {
+func (s *AWSSource) Provider() string { return s.providerFor(s.identity().engine) }
+
+// providerFor is Provider as of a resolve that found engine.
+func (s *AWSSource) providerFor(engine string) string {
+	if s.opts.ClusterID != "" || s.detected == "aurora" ||
+		strings.HasPrefix(engine, "aurora") {
 		return "aurora"
 	}
 	return "rds"
@@ -128,38 +129,40 @@ func (s *AWSSource) identity() awsIdentity {
 }
 
 // resolve finds the instance (the writer for a cluster) after checking
-// that credentials exist, so nothing is sent without them.
-func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, error) {
+// that credentials exist, so nothing is sent without them. It returns the
+// identity it recorded, so a caller never pairs this instance with the
+// identity a concurrent resolve recorded.
+func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, awsIdentity, error) {
 	if err := ctx.Err(); err != nil {
-		return rdsInstance{}, err
+		return rdsInstance{}, awsIdentity{}, err
 	}
 	if _, err := s.client.credentials(ctx); err != nil {
-		return rdsInstance{}, err
+		return rdsInstance{}, awsIdentity{}, err
 	}
 	id := s.opts.InstanceID
 	if s.opts.ClusterID != "" {
 		writer, err := s.rds.clusterWriter(ctx, s.opts.ClusterID)
 		if err != nil {
-			return rdsInstance{}, err
+			return rdsInstance{}, awsIdentity{}, err
 		}
 		id = writer
 	}
 	inst, err := s.rds.instance(ctx, id)
 	if err != nil {
-		return rdsInstance{}, fmt.Errorf("RDS instance %s: %w", id, err)
+		return rdsInstance{}, awsIdentity{}, fmt.Errorf("RDS instance %s: %w", id, err)
 	}
 	ident := awsIdentity{engine: inst.Engine, cluster: s.opts.ClusterID,
 		role: managedparam.InstanceRoleWriter}
 	if s.opts.ClusterID == "" {
 		ident.cluster, ident.role = inst.ClusterID, s.memberRole(ctx, inst)
 		if err := ctx.Err(); err != nil {
-			return rdsInstance{}, err
+			return rdsInstance{}, awsIdentity{}, err
 		}
 	}
 	s.mu.Lock()
 	s.resolved = ident
 	s.mu.Unlock()
-	return inst, nil
+	return inst, ident, nil
 }
 
 // memberRole is an instance endpoint's role in its Aurora cluster ("" for
@@ -201,13 +204,14 @@ func (s *AWSSource) checkDetected(inst rdsInstance) error {
 // Collect gathers one sample: CloudWatch is required, Performance
 // Insights optional (its failure is partial data).
 func (s *AWSSource) Collect(ctx context.Context, now time.Time) (Sample, error) {
-	inst, err := s.resolve(ctx)
+	inst, ident, err := s.resolve(ctx)
 	if err != nil {
 		return Sample{}, err
 	}
 	aurora := s.opts.ClusterID != "" || strings.HasPrefix(inst.Engine, "aurora")
-	sample := Sample{Provider: s.Provider(), CollectedAt: now,
-		Resource: s.Provider() + ":" + s.opts.Region + "/" + inst.ID}
+	provider := s.providerFor(ident.engine)
+	sample := Sample{Provider: provider, CollectedAt: now,
+		Resource: provider + ":" + s.opts.Region + "/" + inst.ID}
 	queries, fields := cloudWatchQueries(inst, aurora)
 	points, err := s.client.getMetricData(ctx, s.opts.CloudWatchEndpoint, queries, now)
 	if err != nil {
