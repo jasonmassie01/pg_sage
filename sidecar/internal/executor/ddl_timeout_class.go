@@ -23,18 +23,23 @@ const (
 	classVacuum     ddlTimeoutClass = "vacuum"
 )
 
-var vacuumFullPattern = regexp.MustCompile(`(?i)\bFULL\b`)
+var (
+	vacuumFullPattern = regexp.MustCompile(`(?i)\bFULL\b`)
+	// The CONCURRENTLY keyword must be in the statement's head, so a
+	// literal in a blocking build's predicate never earns the long class.
+	concurrentBuildHead   = regexp.MustCompile(`^CREATE (UNIQUE )?INDEX CONCURRENTLY `)
+	concurrentReindexHead = regexp.MustCompile(
+		`^REINDEX (\([^)]*\) )?(INDEX|TABLE|SCHEMA|DATABASE|SYSTEM) CONCURRENTLY `)
+)
 
 func timeoutClassOf(sql string) ddlTimeoutClass {
-	upper := strings.ToUpper(strings.Join(strings.Fields(normalizeSQLText(sql)), " "))
-	concurrent := strings.Contains(upper, " CONCURRENTLY ")
+	upper := strings.ToUpper(strings.Join(strings.Fields(normalizeSQLText(sql)), " ")) + " "
 	switch {
 	case IsIndexReplaceSQL(sql):
 		return classIndexBuild
-	case strings.HasPrefix(upper, "CREATE ") && concurrent &&
-		strings.Contains(upper, " INDEX "):
+	case concurrentBuildHead.MatchString(upper):
 		return classIndexBuild
-	case strings.HasPrefix(upper, "REINDEX") && concurrent:
+	case concurrentReindexHead.MatchString(upper):
 		return classReindex
 	case strings.HasPrefix(upper, "VACUUM") && !vacuumFullPattern.MatchString(upper):
 		return classVacuum

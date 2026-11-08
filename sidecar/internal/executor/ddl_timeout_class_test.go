@@ -37,6 +37,10 @@ func TestTimeoutClassOfStatements(t *testing.T) {
 		"DROP INDEX CONCURRENTLY IF EXISTS public.i":                      classDDL,
 		"CREATE STATISTICS public.s (dependencies) ON a, b FROM public.t": classDDL,
 		"": classDDL,
+		"CREATE INDEX i ON public.t (a) WHERE n = ' CONCURRENTLY '": classDDL,
+		"REINDEX INDEX public.i_concurrently":                       classDDL,
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS i ON public.t (a)": classIndexBuild,
+		"REINDEX SCHEMA CONCURRENTLY public":                        classReindex,
 	}
 	for sql, want := range cases {
 		if got := timeoutClassOf(sql); got != want {
