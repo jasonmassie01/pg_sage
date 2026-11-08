@@ -9,6 +9,28 @@ Severities: **critical** > **warning** > **info**
 
 ---
 
+## Source filter and risk fields
+
+`GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
+`rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident` or `schema_lint`
+(see the category table in [ui-redesign-v2.md §16](ui-redesign-v2.md)). Each row reports
+the same value as `subsystem`. An unknown `source` value applies no filter, and
+`migration_advisor` is reserved and returns no rows.
+
+Each finding row (list and detail) also carries display-only action fields:
+
+| Field | Meaning |
+|---|---|
+| `action_type` | The executor action the `recommended_sql` classifies as, or `""` when it has none |
+| `contract_tier` | That action contract's base risk tier (`read_only`, `safe`, `moderate`, `high`), or `none` when the SQL is empty or has no contract: the finding is advisory only |
+| `action_risk` | The stricter of the producer's risk (`detail.action_risk`, with `high_risk` reported as `high`) and the contract tier; `none` when there is no SQL. An unrecognised producer risk is reported as `high` |
+| `approval_required`, `approval_reason` | Whether, and why, the change may run only with an operator's approval: a producer mark, a restart-required or non-allowlisted setting, or high risk |
+
+The upsert stores the producer's risk in `detail.action_risk`. These fields never gate
+execution: the executor re-derives risk and approval under policy for every action.
+
+---
+
 ## Index Health
 
 ### unused_index

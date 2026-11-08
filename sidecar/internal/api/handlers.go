@@ -1120,72 +1120,6 @@ func buildFindingsWhere(
 	return where, args
 }
 
-// buildSourceClause converts a subsystem filter value into a WHERE
-// fragment + args. Returns ok=false when the value is empty or
-// unrecognised (caller must then emit nothing).
-func buildSourceClause(
-	source string, startN int,
-) (string, []any, bool) {
-	if source == "" {
-		return "", nil, false
-	}
-	switch source {
-	case "schema_lint":
-		return fmt.Sprintf(" AND category LIKE $%d", startN),
-			[]any{"schema_lint:%"}, true
-	case "rules":
-		return fmt.Sprintf(
-				" AND category = ANY($%d::text[])", startN),
-			[]any{rulesCategories}, true
-	case "forecaster":
-		return fmt.Sprintf(" AND category LIKE $%d", startN),
-			[]any{"forecast%"}, true
-	case "query_tuning":
-		return fmt.Sprintf(
-				" AND category = ANY($%d::text[])", startN),
-			[]any{queryTuningCategories}, true
-	case "advisor":
-		return fmt.Sprintf(
-				" AND (category = 'advisor' OR "+
-					"detail->>'subsystem' = $%d)", startN),
-			[]any{"advisor"}, true
-	case "optimizer":
-		return fmt.Sprintf(
-				" AND (category = 'optimizer' OR "+
-					"detail->>'subsystem' = $%d)", startN),
-			[]any{"optimizer"}, true
-	case "incident":
-		return fmt.Sprintf(
-				" AND category = ANY($%d::text[])", startN),
-			[]any{incidentCategories}, true
-	case "migration_advisor":
-		return " AND 1=0", nil, true // reserved, emits nothing
-	}
-	return "", nil, false
-}
-
-var (
-	// rulesCategories is the analyzer Tier-1 allowlist.
-	rulesCategories = []string{
-		"index_health", "unused_index", "invalid_index",
-		"duplicate_index", "missing_fk_index", "slow_query",
-		"high_plan_time", "query_regression", "seq_scan_heavy",
-		"high_total_time", "temp_spill", "lock_chain", "connection_leak",
-		"cache_hit_ratio", "checkpoint_pressure",
-		"stat_statements_pressure", "replication_lag",
-		"inactive_slot", "slow_replication_slot",
-		"sequence_exhaustion", "sort_without_index",
-		"work_mem_promotion", "table_bloat", "xid_wraparound",
-		"extension_drift", "plan_regression",
-	}
-	queryTuningCategories = []string{
-		"query_tuning", "stale_statistics", "runaway_query",
-	}
-	incidentCategories = []string{
-		"incident", "incident_open", "incident_resolved",
-	}
-)
-
 func buildFindingMapWithAction(
 	id int64, createdAt, lastSeen time.Time,
 	occurrenceCount int, category, severity string,
@@ -1211,7 +1145,7 @@ func buildFindingMapWithAction(
 		}
 	}
 	normalizeFindingQueryID(detailParsed, derefStr(objectType), derefStr(objectIdent))
-	return map[string]any{
+	return withFindingRisk(map[string]any{
 		"id":                strconv.FormatInt(id, 10),
 		"created_at":        createdAt,
 		"last_seen":         lastSeen,
@@ -1233,40 +1167,7 @@ func buildFindingMapWithAction(
 		"acted_on_at":       actedOnAt,
 		"action_log_id":     actionLogID,
 		"subsystem":         subsystemFromCategory(category),
-	}
-}
-
-// subsystemFromCategory maps a category value to the subsystem the
-// UI shows in the source filter. Kept in lockstep with §16 appendix.
-func subsystemFromCategory(category string) string {
-	if strings.HasPrefix(category, "schema_lint:") {
-		return "schema_lint"
-	}
-	if strings.HasPrefix(category, "forecast") {
-		return "forecaster"
-	}
-	for _, c := range queryTuningCategories {
-		if c == category {
-			return "query_tuning"
-		}
-	}
-	for _, c := range incidentCategories {
-		if c == category {
-			return "incident"
-		}
-	}
-	for _, c := range rulesCategories {
-		if c == category {
-			return "rules"
-		}
-	}
-	if category == "advisor" {
-		return "advisor"
-	}
-	if category == "optimizer" {
-		return "optimizer"
-	}
-	return ""
+	}, derefStr(recommendedSQL), detailParsed)
 }
 
 func queryFindingByID(
@@ -1318,7 +1219,7 @@ func queryFindingByID(
 		}
 	}
 	normalizeFindingQueryID(detailParsed, derefStr(objectType), derefStr(objectIdent))
-	return map[string]any{
+	return withFindingRisk(map[string]any{
 		"id":                 strconv.FormatInt(fID, 10),
 		"created_at":         createdAt,
 		"last_seen":          lastSeen,
@@ -1338,7 +1239,7 @@ func queryFindingByID(
 		"resolved_at":        resolvedAt,
 		"acted_on_at":        actedOnAt,
 		"action_log_id":      actionLogID,
-	}, nil
+	}, derefStr(recommendedSQL), detailParsed), nil
 }
 
 const findingDetailSQL = `/* pg_sage */SELECT id, created_at, last_seen,
