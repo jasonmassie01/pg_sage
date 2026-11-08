@@ -105,3 +105,31 @@ func TestSelfExclIndexMigration_RetiresOldInvestigationIndexes(t *testing.T) {
 		t.Fatal("an existing valid index was rebuilt")
 	}
 }
+
+// earned-03: the shadow scorer reads pg_sage's own index changes since a
+// decision through a partial index of the index DDL actions; it is built
+// on a fresh server and left alone by a second bootstrap.
+func TestSelfExclIndexMigration_IndexesIndexDDLActions(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	var before uint32
+	var def string
+	if err := pool.QueryRow(ctx, `SELECT 'sage.idx_action_log_index_ddl'::regclass::oid,
+		pg_get_indexdef('sage.idx_action_log_index_ddl'::regclass)`).
+		Scan(&before, &def); err != nil {
+		t.Fatalf("index missing: %v", err)
+	}
+	want := "ON sage.action_log USING btree (executed_at) WHERE (action_type = ANY " +
+		"(ARRAY['create_index'::text, 'drop_index'::text, 'replace_index'::text]))"
+	if !strings.Contains(def, want) {
+		t.Fatalf("index = %s, want %s", def, want)
+	}
+	bootstrapWithRetry(t, ctx, pool)
+	var after uint32
+	var valid bool
+	if err := pool.QueryRow(ctx, `SELECT i.indexrelid::oid, i.indisvalid FROM pg_index i
+		WHERE i.indexrelid = 'sage.idx_action_log_index_ddl'::regclass`).
+		Scan(&after, &valid); err != nil || after != before || !valid {
+		t.Fatalf("second bootstrap: oid %d -> %d, valid %v (%v)", before, after, valid, err)
+	}
+}

@@ -15,6 +15,10 @@ import "strings"
 //     history reads the rollbacks measured in its window (it read every
 //     rollback). Both sets are small; a drop is never updated and a
 //     rollback's measured_at is set once.
+//   - idx_action_log_index_ddl (earned-03): the shadow scorer reads
+//     pg_sage's own index changes since a decision before it counts a
+//     change found in the catalog as applied outside pg_sage. Index DDL
+//     is a small share of the ledger, and its rows are never re-keyed.
 //   - sage.sre_investigations: every lease grant, step, budget and case
 //     update moves updated_at, and two indexes keyed it (43 % HOT updates
 //     in the gate). The queue index is keyed on created_at instead (the
@@ -35,6 +39,8 @@ var selfexclIndexes = []ledgerIndex{
 		"(executed_at) WHERE action_type = 'drop_index'"},
 	{"idx_action_log_rolled_back", "action_log", "INDEX %I ON sage.action_log " +
 		"(measured_at) WHERE outcome = 'rolled_back'"},
+	{"idx_action_log_index_ddl", "action_log", "INDEX %I ON sage.action_log " +
+		"(executed_at) WHERE action_type IN ('create_index', 'drop_index', 'replace_index')"},
 }
 
 // retiredInvestigationIndexes keyed updated_at.
