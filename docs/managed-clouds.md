@@ -154,6 +154,17 @@ RDS Proxy and custom DNS are not resolved; in standalone mode set
 `cloud_telemetry.aws.db_instance_identifier` (or `db_cluster_identifier`) and `region`, or
 `cloud_telemetry.gcp.instance`. Fleet databases are always identified from their hosts.
 
+An Aurora instance endpoint (`writer-1.abc.us-east-1.rds.amazonaws.com`) is Aurora, not
+RDS, when PostgreSQL reports Aurora (`aurora_version()`) or `DescribeDBInstances` reports an
+`aurora*` engine; this holds in fleet mode too, where each member may use its own instance
+endpoint. The telemetry status (`GET /api/v1/cloud-telemetry`) then carries `cluster` and
+`instance_role` (`writer`, `reader`, or `unknown` when `rds:DescribeDBClusters` is denied:
+metrics are still collected). Managed proposals name the cluster; a reader's proposal adds
+that its DB parameter group may differ from the writer's. When the detected platform and the
+instance's engine disagree (PostgreSQL says Aurora, AWS says `postgres`, or the reverse), the
+managed-change worker reports one target error naming the instance and both providers, and
+its proposals keep placeholders instead of naming a group of the wrong kind of resource.
+
 Credentials come only from the standard chains and are never stored, logged or put in errors:
 
 - **AWS:** the default chain (environment, shared config/SSO, web identity, ECS task or EC2
