@@ -1788,6 +1788,12 @@
     "doc": "",
     "class": "safety_critical"
   },
+  "prometheus.refresh_interval_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Seconds between re-reads of each database's /metrics values; scrapes render the last read, up to one interval old. 0 means 30; never faster than collector.interval_seconds. Requires restart.",
+    "class": "operator_preference"
+  },
   "rca.connection_saturation_pct": {
     "type": "int",
     "default": 80,

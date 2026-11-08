@@ -486,10 +486,6 @@ type NotificationPolicyConfig struct {
 	AllowPrivateTargets bool `yaml:"allow_private_targets" doc:"Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."`
 }
 
-type PrometheusConfig struct {
-	ListenAddr string `yaml:"listen_addr"`
-}
-
 // OAuthConfig holds OAuth2/OIDC SSO settings.
 type OAuthConfig struct {
 	Enabled      bool   `yaml:"enabled" doc:"Enable OAuth single sign-on for the sidecar UI. When false, the UI falls back to local auth."`
@@ -812,6 +808,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := validateReplicas(c.Databases); err != nil {
+		return err
+	}
+	if err := c.Prometheus.validate(); err != nil {
 		return err
 	}
 

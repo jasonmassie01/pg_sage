@@ -341,7 +341,7 @@ func TestConnectionMetricStates(t *testing.T) {
 	}
 	m := newMetricsRefresher("a", fixedInterval(time.Hour), fakeValueSource("id", 1, 1))
 	processMetrics.register(m)
-	if out := renderConnectionMetric(); strings.Contains(out, "pg_sage_connection_up ") {
+	if out := renderConnectionMetric(); strings.Contains(out, "\npg_sage_connection_up ") {
 		t.Fatalf("before any refresh = %q, want no sample", out)
 	}
 	m.refresh(context.Background())
@@ -349,7 +349,7 @@ func TestConnectionMetricStates(t *testing.T) {
 		t.Fatalf("after a good refresh = %q, want 1", out)
 	}
 	pool = hungPool(t) // a process pool reports its last health check
-	if out := renderConnectionMetric(); strings.Contains(out, "pg_sage_connection_up ") {
+	if out := renderConnectionMetric(); strings.Contains(out, "\npg_sage_connection_up ") {
 		t.Fatalf("before any health check = %q, want no sample", out)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -442,5 +442,49 @@ func TestValueMetricsRenderFromSnapshots(t *testing.T) {
 	}
 	if strings.Contains(out, `database="c"`) {
 		t.Fatalf("a database without a value source got value series:\n%s", out)
+	}
+}
+
+// Error propagation for the standalone sources: a pool that cannot answer
+// marks them failed and the scrape omits their samples instead of
+// reporting zero connections or a zero recommendation count.
+func TestStandaloneSourcesFailClosedWithoutADatabase(t *testing.T) {
+	preserveValueGlobals(t)
+	cfg = config.DefaultConfig() // the optimizer gauge reads the process config
+	closed := hungPool(t)
+	closed.Close()
+	for _, p := range []*metricsRefresher{
+		newMetricsRefresher("solo", fixedInterval(time.Hour),
+			optimizerMetricsSource(closed), pgStatMetricsSource(closed)),
+		newMetricsRefresher("solo", fixedInterval(time.Hour),
+			optimizerMetricsSource(nil), pgStatMetricsSource(nil)),
+	} {
+		p.refresh(context.Background())
+		snap := p.snapshot()
+		if snap == nil || snap.ok[metricsSourceOptimizer] || snap.ok[metricsSourcePGStat] ||
+			snap.optimizer != nil || snap.pgstat.connectionsByState != nil {
+			t.Fatalf("failed sources = %+v, want both failed with no values", snap)
+		}
+		views := []metricsView{{name: "solo", snap: snap,
+			sources: []string{metricsSourceOptimizer, metricsSourcePGStat}}}
+		var b strings.Builder
+		writeOptimizerMetrics(&b, views)
+		writeDatabaseMetrics(&b, views)
+		writeMetricsRefreshSeries(&b, views)
+		out := b.String()
+		for _, bad := range []string{"pg_sage_optimizer_recommendations_total{",
+			"pg_sage_connections_total", "pg_sage_cache_hit_ratio"} {
+			if strings.Contains(out, bad) {
+				t.Fatalf("failed refresh exported %q:\n%s", bad, out)
+			}
+		}
+		if !strings.Contains(out, `pg_sage_metrics_refresh_success{database="solo",`+
+			`source="pgstat"} 0`) {
+			t.Fatalf("failed pgstat refresh not reported:\n%s", out)
+		}
+	}
+	if _, err := queryCounts(context.Background(), nil, optimizerCountsSQL); !errors.Is(err,
+		errNoMetricsPool) {
+		t.Fatalf("nil pool error = %v, want errNoMetricsPool", err)
 	}
 }

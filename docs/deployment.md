@@ -350,6 +350,34 @@ scrape_configs:
 | `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
+| `pg_sage_metrics_refresh_success{database,source}` | == 0 for 5m | A database's metrics could not be read (its series are omitted) |
+| `time() - pg_sage_metrics_refresh_timestamp_seconds` | > 3 x refresh interval | A database's exported values are stale |
+
+### Metrics freshness
+
+A scrape never queries a monitored database. Each database has its own refresher that
+reads the values `/metrics` exports (value ledger, SLO state and, in standalone mode,
+optimizer recommendation counts and `pg_stat_activity`/`pg_stat_database`) every
+`prometheus.refresh_interval_seconds` (default 30 s, never faster than the collector), each
+source under a 2 s timeout, with `/* pg_sage */`-tagged statements. Scrapes render the last
+refresh, so values can be up to one refresh interval old, and the load on your databases is
+the same whether Prometheus scrapes every second or every minute. In fleet and meta mode
+each database refreshes independently: one unreachable database reports
+`pg_sage_metrics_refresh_success{source="value"} 0` and `pg_sage_value_metrics_up 0` while
+every other database keeps its series, and the scrape itself stays fast.
+
+- `pg_sage_metrics_refresh_success{database,source}`: 1 if the last refresh of `source`
+  (`value`, `slo`, `optimizer`, `pgstat`) succeeded. A failed source's series are omitted
+  rather than shown stale or zero.
+- `pg_sage_metrics_refresh_timestamp_seconds{database,source}`: Unix time of the last
+  successful refresh of `source`; it keeps its value while refreshes fail.
+- `pg_sage_value_metrics_up{database}`: 1 if the last refresh read the database's value
+  ledger.
+- `pg_sage_connection_up`: the last pool health check (every 30 s) in standalone and meta
+  mode; in YAML fleet mode, 1 if any database's last refresh reached it. Before the first
+  result there is no sample.
+- In meta mode, `pg_sage_connections_total` and `pg_sage_cache_hit_ratio` are no longer
+  exported: they described the metadata database, not a monitored one.
 
 ### Grafana Dashboard
 

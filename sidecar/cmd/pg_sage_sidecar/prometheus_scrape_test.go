@@ -15,7 +15,6 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
-	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -193,14 +192,15 @@ func resetDatabaseStatements(t *testing.T, p *pgxpool.Pool) {
 }
 
 // taggedCalls sums the calls of this database's /* pg_sage */ statements
-// whose text contains fragment.
+// whose text contains fragment. The tag may sit after the first keyword
+// (selfmonitor places it there; PostgreSQL 18 drops a leading comment).
 func taggedCalls(t *testing.T, p *pgxpool.Pool, fragment string) int64 {
 	t.Helper()
 	var calls int64
 	err := p.QueryRow(context.Background(), `SELECT COALESCE(sum(calls), 0)::bigint
 		FROM pg_stat_statements
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-		  AND query LIKE '/* pg_sage */%' AND strpos(query, $1) > 0`, fragment).Scan(&calls)
+		  AND strpos(query, '/* pg_sage */') > 0 AND strpos(query, $1) > 0`, fragment).Scan(&calls)
 	if err != nil {
 		t.Fatalf("read pg_stat_statements: %v", err)
 	}

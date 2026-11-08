@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/executor"
-	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/shadow"
 )
 
@@ -34,10 +32,11 @@ func startPrometheusServer(addr string) *http.Server {
 	return srv
 }
 
-func handleMetrics(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
+// handleMetrics renders in-memory state and the refreshers' snapshots;
+// it performs no database I/O (observability-03). Each database's
+// snapshot is loaded once, so a scrape sees one consistent refresh.
+func handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	views := processMetrics.views()
 	var b strings.Builder
 
 	// Info metric.
@@ -49,11 +48,11 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 
-	writeConnectionMetric(&b, ctx)
+	writeConnectionMetric(&b, views)
 
 	// Standalone metrics.
 	if cfg.IsStandalone() {
-		writeStandaloneMetrics(&b, ctx)
+		writeStandaloneMetrics(&b, views)
 	}
 
 	// Fleet metrics.
@@ -64,12 +63,13 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	// Database metrics (only when global pool exists).
 	if pool != nil {
-		writeDatabaseMetrics(&b, ctx)
+		writeDatabaseMetrics(&b, views)
 	}
-	// Value lives in each monitored database (D3), so it is read from
-	// every fleet instance in all modes, never from the meta pool.
-	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
-	writeSLOMetrics(&b, ctx, fleetMgr)
+	// Value lives in each monitored database (D3), so every database
+	// runtime refreshes its own ledger, never the meta pool's.
+	writeValueMetrics(&b, views)
+	writeSLOMetrics(&b, views)
+	writeMetricsRefreshSeries(&b, views)
 	writeSelfCostFromFleet(&b, fleetMgr)
 	writeSelfBudgetFromFleet(&b, fleetMgr)
 	writeOptimizerMemoryFromFleet(&b, fleetMgr)
@@ -83,32 +83,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeConnectionMetric reports whether PostgreSQL is reachable: the global
-// pool when there is one, otherwise any connected fleet instance.
-func writeConnectionMetric(b *strings.Builder, ctx context.Context) {
-	// Connection metric.
-	b.WriteString("# HELP pg_sage_connection_up PostgreSQL connection status\n" +
-		"# TYPE pg_sage_connection_up gauge\n")
-	connUp := 0
-	if pool != nil {
-		if err := pool.Ping(ctx); err == nil {
-			connUp = 1
-		}
-	} else if fleetMgr != nil {
-		// Fleet mode: report up if any instance is connected.
-		for _, inst := range fleetMgr.Instances() {
-			if inst.Pool != nil {
-				if err := inst.Pool.Ping(ctx); err == nil {
-					connUp = 1
-					break
-				}
-			}
-		}
-	}
-	fmt.Fprintf(b, "pg_sage_connection_up %d\n\n", connUp)
-}
-
-func writeStandaloneMetrics(b *strings.Builder, ctx context.Context) {
+func writeStandaloneMetrics(b *strings.Builder, views []metricsView) {
 	// Findings from sage.findings table.
 	b.WriteString("# HELP pg_sage_findings_total Open findings by severity\n" +
 		"# TYPE pg_sage_findings_total gauge\n")
@@ -135,8 +110,8 @@ func writeStandaloneMetrics(b *strings.Builder, ctx context.Context) {
 		writeLLMMetrics(b)
 	}
 
-	// Optimizer metrics from sage.findings.
-	writeOptimizerMetrics(b, ctx)
+	// Optimizer metrics from sage.findings, as last refreshed.
+	writeOptimizerMetrics(b, views)
 }
 
 // writeLLMMetrics reports the general LLM client's state and token use.
@@ -166,24 +141,14 @@ func writeLLMMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "pg_sage_llm_tokens_budget_daily %d\n\n", cfg.LLM.TokenBudgetDaily)
 }
 
-func writeOptimizerMetrics(b *strings.Builder, ctx context.Context) {
+func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {
 	b.WriteString("# HELP pg_sage_optimizer_recommendations_total Index recommendations by category\n")
 	b.WriteString("# TYPE pg_sage_optimizer_recommendations_total gauge\n")
-
-	rows, err := pool.Query(ctx,
-		`SELECT category, count(*)
-		 FROM sage.findings
-		 WHERE status = 'open'
-		   AND category IN ('missing_index','covering_index','partial_index','composite_index')
-		 GROUP BY category`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var cat string
-			var cnt int64
-			if rows.Scan(&cat, &cnt) == nil {
-				fmt.Fprintf(b, "pg_sage_optimizer_recommendations_total{category=%q} %d\n", cat, cnt)
-			}
+	if v, found := sourceView(views, metricsSourceOptimizer); found &&
+		v.ok(metricsSourceOptimizer) {
+		for _, cat := range sortedKeys(v.snap.optimizer) {
+			fmt.Fprintf(b, "pg_sage_optimizer_recommendations_total{category=%q} %d\n",
+				cat, v.snap.optimizer[cat])
 		}
 	}
 	b.WriteString("\n")
@@ -235,20 +200,19 @@ func writeFleetMetrics(b *strings.Builder) {
 	b.WriteString("\n")
 }
 
-func writeDatabaseMetrics(b *strings.Builder, ctx context.Context) {
-	// Connections.
-	b.WriteString("# HELP pg_sage_connections_total Connections by state\n" +
-		"# TYPE pg_sage_connections_total gauge\n")
-	rows, err := pool.Query(ctx, "SELECT coalesce(state, 'unknown'), count(*) "+
-		"FROM pg_stat_activity GROUP BY state")
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var state string
-			var cnt int64
-			if rows.Scan(&state, &cnt) == nil {
-				fmt.Fprintf(b, "pg_sage_connections_total{state=%q} %d\n", state, cnt)
-			}
+// writeDatabaseMetrics renders the standalone database's last pg_stat
+// refresh and the collector's cached size; a failed refresh omits them.
+func writeDatabaseMetrics(b *strings.Builder, views []metricsView) {
+	v, found := sourceView(views, metricsSourcePGStat)
+	fresh := found && v.ok(metricsSourcePGStat)
+	var stat pgStatValues
+	if fresh {
+		stat = v.snap.pgstat
+		b.WriteString("# HELP pg_sage_connections_total Connections by state\n" +
+			"# TYPE pg_sage_connections_total gauge\n")
+		for _, state := range sortedKeys(stat.connectionsByState) {
+			fmt.Fprintf(b, "pg_sage_connections_total{state=%q} %d\n", state,
+				stat.connectionsByState[state])
 		}
 		b.WriteString("\n")
 	}
@@ -260,11 +224,8 @@ func writeDatabaseMetrics(b *strings.Builder, ctx context.Context) {
 	}
 
 	// Cache hit ratio.
-	var hit, read int64
-	if pool.QueryRow(ctx, "SELECT blks_hit, blks_read FROM pg_stat_database "+
-		"WHERE datname = current_database()").Scan(&hit, &read) == nil &&
-		(hit+read) > 0 {
-		ratio := float64(hit) / float64(hit+read)
+	if fresh && stat.blksHit+stat.blksRead > 0 {
+		ratio := float64(stat.blksHit) / float64(stat.blksHit+stat.blksRead)
 		b.WriteString("# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio\n" +
 			"# TYPE pg_sage_cache_hit_ratio gauge\n")
 		fmt.Fprintf(b, "pg_sage_cache_hit_ratio %g\n\n", ratio)

@@ -1,31 +1,21 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
 
-	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 )
 
-// writeSLOMetrics exposes every database's SLO error-budget state.
-func writeSLOMetrics(b *strings.Builder, ctx context.Context, mgr *fleet.DatabaseManager) {
-	if mgr == nil {
-		return
-	}
+// writeSLOMetrics exposes every database's SLO error-budget state as of
+// its last metrics refresh; a database whose SLO read failed is omitted.
+func writeSLOMetrics(b *strings.Builder, views []metricsView) {
 	byDB := map[string][]slo.Status{}
-	for name, inst := range mgr.Instances() {
-		if inst.SLO == nil {
-			continue
+	for _, v := range views {
+		if v.ok(metricsSourceSLO) {
+			byDB[v.name] = v.snap.slo
 		}
-		sts, err := inst.SLO.Statuses(ctx)
-		if err != nil {
-			logWarn("metrics", "db %q: reading SLO state failed: %v", name, err)
-			continue
-		}
-		byDB[name] = sts
 	}
 	writeSLOStatusMetrics(b, byDB)
 }
