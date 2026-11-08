@@ -164,17 +164,18 @@ func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []s
 // enrichWithHypoPG measures the recommendation with hypothetical indexes
 // and records the verdict (Phase 0 item 7). A complete measurement below
 // HypoPGMinImprovePct rejects it. Anything less than a complete
-// measurement — an access method HypoPG cannot model, HypoPG unavailable,
-// an error, no measurable query, a query that could not be planned — is
-// "unverified": the recommendation is kept, but only an operator can
-// approve it (the executor gates on the verdict).
+// measurement — an access method HypoPG cannot model (the candidate's or
+// an in-flight index's), HypoPG unavailable, an error, no measurable
+// query, a query that could not be planned — is "unverified": the
+// recommendation is kept, but only an operator can approve it (the
+// executor gates on the verdict).
 func (o *Optimizer) enrichWithHypoPG(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
 ) (Recommendation, bool) {
 	rec.Validated = false
-	if reason := HypoPGCannotModel(rec.DDL); reason != "" {
+	if reason := hypopgCannotModelRec(rec); reason != "" {
 		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, reason
 		return rec, false
 	}

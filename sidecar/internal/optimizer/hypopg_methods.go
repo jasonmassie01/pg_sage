@@ -27,3 +27,26 @@ func HypoPGCannotModel(ddl string) string {
 	}
 	return reason
 }
+
+// hypopgCannotModelRec returns why rec cannot be measured with HypoPG, or
+// "": its own method, or the method of an in-flight index on its table
+// (the baseline it is judged against would be incomplete, which could
+// overstate what it adds, so the candidate stays unverified).
+func hypopgCannotModelRec(rec Recommendation) string {
+	if reason := HypoPGCannotModel(rec.DDL); reason != "" {
+		return reason
+	}
+	for _, d := range rec.Alongside {
+		spec, err := ParseIndexDDL(d)
+		if err != nil || hypopgMethods[spec.Method] {
+			continue
+		}
+		name := ""
+		if spec.Name != "" {
+			name = " " + spec.Name
+		}
+		return fmt.Sprintf("HypoPG cannot model the in-flight %s index%s on this "+
+			"table; operator approval required", spec.Method, name)
+	}
+	return ""
+}
