@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -77,5 +78,37 @@ func TestAdvisorWithoutFactsAddsNothing(t *testing.T) {
 	a.WithFacts(advisorFacts{})
 	if got := promptFactsFrom(a.factsContext(ctx)); got != "" {
 		t.Fatalf("empty facts produced %q", got)
+	}
+}
+
+// advisors-06: an over-long facts block is cut on a rune boundary, so the
+// prompt never carries invalid UTF-8.
+func TestFactsContext_RuneSafeCut(t *testing.T) {
+	line := strings.Repeat("a", maxFactsChars-1) + "é" +
+		strings.Repeat("b", 2000-maxFactsChars-1)
+	if len(line) != 2000 || line[maxFactsChars-1] != 0xC3 {
+		t.Fatalf("precondition: fixture is %d bytes", len(line))
+	}
+	a := &Advisor{logFn: noopLog}
+	a.WithFacts(advisorFacts{lines: []string{line}})
+	got := promptFactsFrom(a.factsContext(context.Background()))
+	if got == "" || len(got) > maxFactsChars {
+		t.Fatalf("facts block is %d bytes, want 1..%d", len(got), maxFactsChars)
+	}
+	if !utf8.ValidString(got) || !strings.HasPrefix(line, got) {
+		t.Fatalf("facts block is not a valid UTF-8 prefix: %q", got[len(got)-4:])
+	}
+}
+
+// Whole lines are kept when a line boundary fits under the cap.
+func TestFactsContext_PrefersLineBoundary(t *testing.T) {
+	first := "- fact #1: " + strings.Repeat("x", 900)
+	second := "- fact #2: " + strings.Repeat("é", 400)
+	a := &Advisor{logFn: noopLog}
+	a.WithFacts(advisorFacts{lines: []string{first, second}})
+	got := promptFactsFrom(a.factsContext(context.Background()))
+	if got != first {
+		t.Fatalf("facts block = %d bytes, want only the first whole line (%d)",
+			len(got), len(first))
 	}
 }
