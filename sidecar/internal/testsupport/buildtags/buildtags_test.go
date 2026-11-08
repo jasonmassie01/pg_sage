@@ -140,6 +140,8 @@ func TestScanTreeFixture(t *testing.T) {
 	write(t, root, "testdata/t.go", "//go:build fixtureonly\n\npackage t\n")
 	write(t, root, "web/node_modules/x/x.go", "//go:build nodeonly\n\npackage x\n")
 	write(t, root, "d/notes.txt", "//go:build textonly\n")
+	write(t, root, "nested/go.mod", "module example.com/nested\n")
+	write(t, root, "nested/n/n_test.go", "//go:build othermodule\n\npackage n\n")
 	got, err := ScanTree(root)
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)

@@ -59,9 +59,9 @@ func CustomTags(line string) ([]string, error) {
 }
 
 // ScanTree maps each custom tag used under root to the files that use it.
-// Like the go tool, it skips testdata, vendor, node_modules and dot or
-// underscore directories, and reads constraints only above the package
-// clause.
+// Like the go tool's ./..., it skips testdata, vendor, node_modules, dot
+// or underscore directories and nested modules (a directory with its own
+// go.mod), and reads constraints only above the package clause.
 func ScanTree(root string) (map[string][]string, error) {
 	tags := map[string][]string{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -69,7 +69,7 @@ func ScanTree(root string) (map[string][]string, error) {
 			return fmt.Errorf("walk %s: %w", path, err)
 		}
 		if d.IsDir() {
-			if path != root && skipDir(d.Name()) {
+			if path != root && (skipDir(d.Name()) || isModuleRoot(path)) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -92,6 +92,13 @@ func ScanTree(root string) (map[string][]string, error) {
 func skipDir(name string) bool {
 	return name == "testdata" || name == "vendor" || name == "node_modules" ||
 		strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
+}
+
+// isModuleRoot reports whether dir holds a go.mod: its packages belong to
+// another module, which the module's go vet ./... does not compile.
+func isModuleRoot(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "go.mod"))
+	return err == nil
 }
 
 func fileTags(path string) ([]string, error) {
