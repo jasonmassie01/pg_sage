@@ -227,3 +227,59 @@ func TestParallelScansRecordNoDuplicateRows(t *testing.T) {
 		t.Fatalf("calls = %v, want each routed by both scans", router.snapshot())
 	}
 }
+
+// An invariant that stops being detected is forgotten: when it comes back
+// it is routed at once, not still paused.
+func TestDisappearedInvariantForgetsItsPause(t *testing.T) {
+	router := newScriptRouter()
+	router.set("orders", lockTimeout(lockTimeoutMessage))
+	custodian, _ := newScriptCustodian(router, "orders")
+	detector := custodian.detector.(*fakeDetector)
+	scanTimes(t, custodian, routeFailureLimit)
+	items := detector.items
+	detector.items = nil
+	scanTimes(t, custodian, 1)
+	detector.items = items
+	if err := scanTimes(t, custodian, 1); err == nil ||
+		router.callsFor("orders") != routeFailureLimit+1 {
+		t.Fatalf("reappeared scan: err=%v calls=%d, want routed again",
+			err, router.callsFor("orders"))
+	}
+}
+
+// A connection failure inside a clone family leaves members unreached: the
+// family's partial outcome is not recorded, so no false change is written.
+func TestConnectionFailureSkipsAPartlyReachedFamily(t *testing.T) {
+	family := &Family{Key: "tenant", Members: []string{"tenant_a", "tenant_b"}}
+	first := fkInvariant("tenant_a", "orders", "orders_fk")
+	second := fkInvariant("tenant_b", "orders", "orders_fk")
+	first.Family, second.Family = family, family
+	router := &schemaFailRouter{fail: map[string]error{"tenant_a": &pgconn.PgError{
+		Code: "08006", Message: "connection failure"}}}
+	ledger := &fakeLedger{}
+	custodian := NewCustodian(&fakeDetector{items: []Invariant{first, second}},
+		&targetContracts{}, ledger, router, ledger, testPolicy())
+	result, err := custodian.Scan(context.Background())
+	if err == nil || result.Recorded != 0 || ledger.count() != 0 || router.calls != 1 {
+		t.Fatalf("result=%+v err=%v rows=%d calls=%d, want the family unrecorded",
+			result, err, ledger.count(), router.calls)
+	}
+	router.fail = nil
+	healed, err := custodian.Scan(context.Background())
+	if err != nil || healed.Recorded != 1 || ledger.count() != 1 ||
+		len(ledger.since(0)[0].Targets) != 2 {
+		t.Fatalf("healed=%+v err=%v rows=%+v, want one row covering both members",
+			healed, err, ledger.since(0))
+	}
+}
+
+// schemaFailRouter fails the routes of the schemas in fail.
+type schemaFailRouter struct {
+	fail  map[string]error
+	calls int
+}
+
+func (r *schemaFailRouter) Route(_ context.Context, item Remediation) error {
+	r.calls++
+	return r.fail[item.Invariant.Schema]
+}
