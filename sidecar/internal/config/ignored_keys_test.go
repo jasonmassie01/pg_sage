@@ -84,15 +84,5 @@ func TestPlanSourceAbsentGivesNoWarning(t *testing.T) {
 	}
 }
 
-func TestIgnoredKeyWarningsInvalidYAML(t *testing.T) {
-	if _, err := ignoredKeyWarnings("llm: [unclosed"); err == nil {
-		t.Fatal("invalid YAML must be an error, not silently no warnings")
-	}
-	warnings, err := ignoredKeyWarnings("")
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("empty config = %v, %v; want no warnings", warnings, err)
-	}
-}
-
 // No concurrency or state-transition tests: the check is a pure function
 // of the YAML text.

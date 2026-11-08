@@ -163,7 +163,7 @@ outside fleet), `rollback_threshold_pct` (10), `rollback_window_minutes` (15),
 (8192), `cooldown_seconds` (300), `json_mode`. Sub-blocks: `index_optimizer`
 (deprecated; migrated to `optimizer` in `loadYAML` only for keys the file sets,
 `llm_legacy.go`), `optimizer` (enabled true, min_query_calls 100,
-confidence_threshold 0.5, plan_source `auto`, hypopg_min_improvement_pct 10), `optimizer_llm` (dedicated reasoning
+confidence_threshold 0.5, max_include_columns 3, hypopg_min_improvement_pct 10), `optimizer_llm` (dedicated reasoning
 tier, enabled false, timeout 120s, max_output_tokens 8192, fallback_to_general
 true).
 

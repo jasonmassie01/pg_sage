@@ -67,7 +67,6 @@ const (
 	DefaultIdxOptMinQueryCalls      = 100
 	DefaultIdxOptMaxIndexesPerTable = 10
 	DefaultIdxOptMaxIncludeColumns  = 3
-	DefaultIdxOptOverIndexedRatio   = 150
 	DefaultIdxOptWriteHeavyRatio    = 70
 
 	// Optimizer v2 defaults.
@@ -76,11 +75,9 @@ const (
 	DefaultOptMaxIndexesPerTable   = 10
 	DefaultOptMaxNewPerTable       = 3
 	DefaultOptMaxIncludeColumns    = 3
-	DefaultOptOverIndexedRatioPct  = 150
 	DefaultOptWriteHeavyRatioPct   = 70
 	DefaultOptMinSnapshots         = 2
 	DefaultOptHypoPGMinImprovePct  = 10.0
-	DefaultOptPlanSource           = "auto"
 	DefaultOptConfidenceThreshold  = 0.5
 	DefaultOptWriteImpactThreshPct = 15.0
 

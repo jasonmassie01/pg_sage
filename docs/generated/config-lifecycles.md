@@ -185,7 +185,6 @@
 | `llm.index_optimizer.max_include_columns` | `restart` | `-` | `safety_critical` |
 | `llm.index_optimizer.max_indexes_per_table` | `restart` | `-` | `safety_critical` |
 | `llm.index_optimizer.min_query_calls` | `restart` | `-` | `derivable` |
-| `llm.index_optimizer.over_indexed_ratio_pct` | `restart` | `-` | `derivable` |
 | `llm.index_optimizer.write_heavy_ratio_pct` | `restart` | `-` | `derivable` |
 | `llm.json_mode` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.model` | `reconfigure` | `llm` | `safety_critical` |
@@ -197,8 +196,6 @@
 | `llm.optimizer.max_new_per_table` | `restart` | `-` | `safety_critical` |
 | `llm.optimizer.min_query_calls` | `restart` | `-` | `derivable` |
 | `llm.optimizer.min_snapshots` | `restart` | `-` | `derivable` |
-| `llm.optimizer.over_indexed_ratio_pct` | `restart` | `-` | `derivable` |
-| `llm.optimizer.plan_source` | `restart` | `-` | `operator_preference` |
 | `llm.optimizer.rejection_memory.call_volume_ratio` | `restart` | `-` | `derivable` |
 | `llm.optimizer.rejection_memory.enabled` | `restart` | `-` | `operator_preference` |
 | `llm.optimizer.rejection_memory.max_age_days` | `restart` | `-` | `derivable` |

@@ -266,7 +266,6 @@ safety_critical llm.index_optimizer.enabled
 safety_critical llm.index_optimizer.max_include_columns
 safety_critical llm.index_optimizer.max_indexes_per_table
 derivable llm.index_optimizer.min_query_calls
-derivable llm.index_optimizer.over_indexed_ratio_pct
 derivable llm.index_optimizer.write_heavy_ratio_pct
 safety_critical llm.json_mode
 safety_critical llm.model
@@ -278,8 +277,6 @@ safety_critical llm.optimizer.max_indexes_per_table
 safety_critical llm.optimizer.max_new_per_table
 derivable llm.optimizer.min_query_calls
 derivable llm.optimizer.min_snapshots
-derivable llm.optimizer.over_indexed_ratio_pct
-operator_preference llm.optimizer.plan_source
 derivable llm.optimizer.rejection_memory.call_volume_ratio
 operator_preference llm.optimizer.rejection_memory.enabled
 derivable llm.optimizer.rejection_memory.max_age_days

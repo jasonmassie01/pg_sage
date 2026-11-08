@@ -91,7 +91,6 @@ llm:
     max_indexes_per_table: 10   # Skip table if already has this many indexes
     max_new_per_table: 3        # Max new index recommendations per table/cycle
     max_include_columns: 3      # Max INCLUDE columns per recommendation
-    over_indexed_ratio_pct: 150 # Index bytes > 150% of table bytes = over-indexed
     write_heavy_ratio_pct: 70   # Skip table if >70% of ops are writes
     rejection_memory:           # Don't re-measure ideas HypoPG already rejected
       enabled: true
