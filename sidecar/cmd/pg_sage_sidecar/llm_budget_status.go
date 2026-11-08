@@ -24,14 +24,17 @@ func (r *llmClientRegistry) TokenStatus() map[string]llm.ClientStatus {
 	return status
 }
 
-// ResetBudgets zeroes every tracked client and the fleet budget.
+// ResetBudgets zeroes every tracked client, the global ceiling's spend
+// and the fleet budget.
 func (r *llmClientRegistry) ResetBudgets() {
 	r.mu.Lock()
 	entries := append([]llmRegistryEntry(nil), r.entries...)
+	global := r.global
 	r.mu.Unlock()
 	for _, entry := range entries {
 		entry.client.ResetBudget()
 	}
+	global.Reset()
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.ResetDaily()
 	}

@@ -181,6 +181,7 @@
 | `llm.enabled` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.endpoint` | `reconfigure` | `llm` | `safety_critical` |
 | `llm.fleet_token_budget_daily` | `restart` | `-` | `operator_preference` |
+| `llm.global_token_budget_daily` | `reconfigure` | `llm` | `operator_preference` |
 | `llm.index_optimizer.enabled` | `restart` | `-` | `safety_critical` |
 | `llm.index_optimizer.max_include_columns` | `restart` | `-` | `safety_critical` |
 | `llm.index_optimizer.max_indexes_per_table` | `restart` | `-` | `safety_critical` |

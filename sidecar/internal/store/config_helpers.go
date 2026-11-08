@@ -51,6 +51,7 @@ var allowedConfigKeys = map[string]string{
 	"llm.timeout_seconds":                 "int_pos",
 	"llm.token_budget_daily":              "int_pos",
 	"llm.fleet_token_budget_daily":        "int_nonneg",
+	"llm.global_token_budget_daily":       "int_nonneg",
 	"llm.context_budget_tokens":           "int_pos",
 	"advisor.enabled":                     "bool",
 	"advisor.interval_seconds":            "int_min5",
@@ -560,6 +561,8 @@ func addLLMFields(m map[string]any, l *config.LLMConfig) {
 		l.TokenBudgetDaily, "yaml")
 	addField(m, "llm.fleet_token_budget_daily",
 		l.FleetTokenBudgetDaily, "yaml")
+	addField(m, "llm.global_token_budget_daily",
+		l.GlobalTokenBudgetDaily, "yaml")
 	addField(m, "llm.context_budget_tokens",
 		l.ContextBudgetTokens, "yaml")
 	addField(m, "llm.optimizer.enabled",

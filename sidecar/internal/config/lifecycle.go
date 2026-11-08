@@ -149,6 +149,7 @@ func isLLMResourceField(path string) bool {
 		"enabled", "endpoint", "api_key", "model", "auth",
 		"timeout_seconds", "cooldown_seconds",
 		"json_mode", "token_parameter", "tool_reasoning_effort",
+		"global_token_budget_daily",
 	} {
 		if path == "llm."+suffix {
 			return true

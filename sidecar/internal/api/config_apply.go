@@ -306,6 +306,8 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 		cfg.LLM.TokenBudgetDaily = atoi(v)
 	case "llm.fleet_token_budget_daily":
 		cfg.LLM.FleetTokenBudgetDaily = atoi(v)
+	case "llm.global_token_budget_daily":
+		cfg.LLM.GlobalTokenBudgetDaily = atoi(v)
 	case "llm.context_budget_tokens":
 		cfg.LLM.ContextBudgetTokens = atoi(v)
 	case "llm.optimizer.enabled":

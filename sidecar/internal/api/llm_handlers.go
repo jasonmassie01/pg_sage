@@ -204,6 +204,12 @@ type LLMBudgetRegistry interface {
 	ResetBudgets()
 }
 
+// LLMGlobalBudgetReporter is a registry that also enforces one
+// process-wide ceiling across its clients (llm.global_token_budget_daily).
+type LLMGlobalBudgetReporter interface {
+	GlobalBudget() llm.BudgetStatus
+}
+
 // llmBudgetSource prefers the process registry and falls back to the
 // shared manager; nil means no LLM is configured.
 func llmBudgetSource(
@@ -263,22 +269,30 @@ func llmStatusHandler(
 			})
 			return
 		}
-		status := mgr.TokenStatus()
-
-		// Compute an aggregate exhaustion flag so the UI can
-		// show a single banner when any client is out of budget.
-		anyExhausted := false
-		for _, s := range status {
-			if s.Exhausted {
-				anyExhausted = true
-				break
-			}
-		}
-
-		jsonResponse(w, map[string]any{
-			"clients":         status,
-			"any_exhausted":   anyExhausted,
-			"databricks_auth": databricksauth.CurrentAuthMetadata(),
-		})
+		jsonResponse(w, llmStatusPayload(mgr))
 	}
+}
+
+// llmStatusPayload reports every client and, when the registry enforces
+// one, the global ceiling. any_exhausted is the UI's single banner flag.
+func llmStatusPayload(mgr LLMBudgetRegistry) map[string]any {
+	status := mgr.TokenStatus()
+	anyExhausted := false
+	for _, s := range status {
+		if s.Exhausted {
+			anyExhausted = true
+			break
+		}
+	}
+	body := map[string]any{
+		"clients":         status,
+		"databricks_auth": databricksauth.CurrentAuthMetadata(),
+	}
+	if reporter, ok := mgr.(LLMGlobalBudgetReporter); ok {
+		global := reporter.GlobalBudget()
+		body["global"] = global
+		anyExhausted = anyExhausted || global.Exhausted
+	}
+	body["any_exhausted"] = anyExhausted
+	return body
 }

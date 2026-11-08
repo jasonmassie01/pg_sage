@@ -700,8 +700,11 @@ LLM features are on by default, but they call a provider only once `llm.endpoint
 `llm.auth: databricks`, an endpoint and Databricks unified authentication replace
 the static API key; see [Lakebase and Unity Gateway](lakebase.md). Until then every
 feature runs its deterministic path, no LLM request is made, and startup logs one line
-saying the LLM is not configured. `llm.token_budget_daily` caps spend across the general
-LLM features. Turning a feature on grants no autonomy: what an LLM proposes executes only
+saying the LLM is not configured. `llm.token_budget_daily` caps spend per client (the
+shared client and each database's general and optimizer client), unless
+`llm.fleet_token_budget_daily` is set; `llm.global_token_budget_daily` caps the sum, and a
+stricter policy `budgets.llm_tokens_daily` also applies (see the
+[LLM costing guide](llm-costing.md#global-ceiling-and-policy-cap)). Turning a feature on grants no autonomy: what an LLM proposes executes only
 through the policy gate, trust level and execution mode, like any other recommendation.
 
 | Parameter | Default | Description |
@@ -712,7 +715,8 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.api_key` | (none) | API key (supports `${ENV_VAR}` expansion) |
 | `llm.auth` | `api_key` | `databricks` authenticates each request using the official SDK and restricts credentials to the configured workspace HTTPS origin |
 | `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
-| `llm.token_budget_daily` | `500000` | Maximum tokens per day across general LLM features; `0` means no cap |
+| `llm.token_budget_daily` | `500000` | Maximum tokens per day for each LLM client (every per-database general and optimizer client gets its own copy) unless `fleet_token_budget_daily` is set; `0` means no cap. A stricter policy `budgets.llm_tokens_daily` wins |
+| `llm.global_token_budget_daily` | `0` | Process-wide daily cap across every LLM client (Ask Sage keeps its own). `0` derives it: `fleet_token_budget_daily` when set, else the sum of every client's `token_budget_daily` (unlimited if any client is), so the default changes no spend. Hot-reloadable; reported as `global` in `GET /api/v1/llm/status` |
 | `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of indexes another valid index covers, each marked for approval when the database has standbys (primary statistics miss replica reads). Never-scanned indexes are proposed only by the `unused_index` rule, with its first-seen clock and its recently-created, FK-only and standby guards |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new index proposals per table per cycle |

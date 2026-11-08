@@ -227,22 +227,23 @@ type TrustConfig struct {
 }
 
 type LLMConfig struct {
-	Auth                  string               `yaml:"auth" doc:"LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin."`
-	Enabled               bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only."`
-	Endpoint              string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
-	APIKey                string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
-	Model                 string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
-	TimeoutSeconds        int                  `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
-	TokenBudgetDaily      int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
-	FleetTokenBudgetDaily int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
-	ContextBudgetTokens   int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
-	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit."`
-	JSONMode              bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
-	TokenParameter        string               `yaml:"token_parameter" doc:"Completion cap parameter: auto (max_tokens, switching per model to max_completion_tokens when the provider asks), max_tokens or max_completion_tokens. Default: auto."`
-	ToolReasoningEffort   string               `yaml:"tool_reasoning_effort" doc:"reasoning_effort sent with tool calls: auto (unset; none once a model rejects tools without it), none, low, medium, high, or omit (never sent). Default: auto."`
-	IndexOptimizer        IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
-	Optimizer             OptimizerConfig      `yaml:"optimizer"`
-	OptimizerLLM          OptimizerLLMConfig   `yaml:"optimizer_llm"`
+	Auth                   string               `yaml:"auth" doc:"LLM authentication: api_key (default) or databricks (SDK unified authentication with automatic token refresh). Databricks auth requires the configured workspace HTTPS origin."`
+	Enabled                bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only."`
+	Endpoint               string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
+	APIKey                 string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
+	Model                  string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
+	TimeoutSeconds         int                  `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
+	TokenBudgetDaily       int                  `yaml:"token_budget_daily" doc:"Daily token cap (input + output) per LLM client: the shared client and each database's general and optimizer client get their own copy. llm.global_token_budget_daily caps the sum."`
+	FleetTokenBudgetDaily  int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
+	GlobalTokenBudgetDaily int                  `yaml:"global_token_budget_daily" doc:"Process-wide daily token cap across all LLM clients. 0 derives it: fleet_token_budget_daily if set, else the sum of every client's token_budget_daily (unlimited if one is unlimited)."`
+	ContextBudgetTokens    int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
+	CooldownSeconds        int                  `yaml:"cooldown_seconds" doc:"Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit."`
+	JSONMode               bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
+	TokenParameter         string               `yaml:"token_parameter" doc:"Completion cap parameter: auto (max_tokens, switching per model to max_completion_tokens when the provider asks), max_tokens or max_completion_tokens. Default: auto."`
+	ToolReasoningEffort    string               `yaml:"tool_reasoning_effort" doc:"reasoning_effort sent with tool calls: auto (unset; none once a model rejects tools without it), none, low, medium, high, or omit (never sent). Default: auto."`
+	IndexOptimizer         IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
+	Optimizer              OptimizerConfig      `yaml:"optimizer"`
+	OptimizerLLM           OptimizerLLMConfig   `yaml:"optimizer_llm"`
 }
 
 type IndexOptimizerConfig struct {

@@ -168,6 +168,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "500000",
 		reader: func(c *config.Config) string { return itoa(c.LLM.FleetTokenBudgetDaily) },
 	},
+	"llm.global_token_budget_daily": {
+		input:  "750000",
+		reader: func(c *config.Config) string { return itoa(c.LLM.GlobalTokenBudgetDaily) },
+	},
 	"analyzer.autovacuum_tune_min_rows": {
 		input:  "2000000",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.AutovacuumTuneMinRows) },

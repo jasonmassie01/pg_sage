@@ -9,12 +9,36 @@ recommended budgets.
 LLM features are on by default (`llm.enabled`, `tuning.enabled`, `llm.optimizer.enabled`,
 `advisor.enabled`, `tuner.llm_enabled`, `rca.narration_enabled`, `explain.enabled`)
 but spend nothing until `llm.endpoint` and `llm.api_key` are set. Once they are,
-`llm.token_budget_daily` (default 500,000 tokens) caps the general client's daily
-spend; when it is exhausted every feature falls back to its deterministic path until
-the next UTC day. `llm.optimizer_llm.enabled` defaults to `false`: turning it on adds a
-second client with its own `token_budget_daily`, so the combined ceiling doubles unless
-you lower one. To turn a feature off, set its switch to `false`; `llm.enabled: false`
-turns all of them off.
+`llm.token_budget_daily` (default 500,000 tokens) caps each LLM client's daily spend;
+when it is exhausted that client's features fall back to their deterministic path until
+the next UTC day. The cap is per client, not per sidecar: the shared client and, in
+fleet mode, each database's general client get their own copy, and
+`llm.optimizer_llm.enabled` (default `false`) adds one more optimizer client per
+database. A default two-database fleet with the optimizer LLM on therefore has five
+copies, 2,500,000 tokens a day in all, unless `llm.fleet_token_budget_daily` is set.
+To turn a feature off, set its switch to `false`; `llm.enabled: false` turns all of
+them off.
+
+### Global ceiling and policy cap
+
+`llm.global_token_budget_daily` caps the sum of every client's spend (Ask Sage keeps
+its own budget). The default `0` derives it: `llm.fleet_token_budget_daily` when that
+is set, else the sum of every client's `token_budget_daily`, and unlimited when any
+client is unlimited. The derived value is today's effective total, so the default
+spends exactly what it did before; set the key to make one true process-wide cap. It
+is hot-reloadable, the startup log names the ceiling and how it was derived, and
+`GET /api/v1/llm/status` reports it as `global{ceiling, used, reserved, source,
+exhausted}` (`source` is `configured`, `fleet` or `derived`).
+
+The standing policy's `budgets.llm_tokens_daily` also binds: each client's daily cap
+is the stricter of `token_budget_daily` and the policy value (`null`, no cap, means
+the config alone; `0` refuses every call). In meta-DB mode the database's own policy
+applies, otherwise the global policy. pg_sage rereads the policy at most once a minute
+and keeps the last value, with a warning, when the control database cannot be read.
+
+A call holds its `max_tokens` against each budget while it is in flight. A UTC day turn
+or `POST /api/v1/llm/budget/reset` restarts spend at zero but keeps those holds, so a
+call that straddles a reset is charged in full to the new day.
 
 ## Token-Consuming Features
 
