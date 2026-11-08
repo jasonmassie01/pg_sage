@@ -61,7 +61,7 @@ func openXIDFinding(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64
 	t.Helper()
 	r := Runway{Category: CategoryWraparound, ObjectType: "database", Identifier: "xid",
 		Kind: sre.TriggerWraparound, Subject: "xid", Severity: SeverityCritical,
-		Title: "The XID age reaches the wraparound warning limit in about 24h0m0s",
+		Title:          "The XID age reaches the wraparound warning limit in about 24h0m0s",
 		Recommendation: "test", Detail: map[string]any{"runway_kind": "xid"}}
 	if _, err := analyzer.UpsertFindingsWithResult(ctx, pool,
 		[]analyzer.Finding{r.Finding()}); err != nil {
