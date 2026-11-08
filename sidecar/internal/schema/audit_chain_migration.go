@@ -54,10 +54,14 @@ CREATE TABLE IF NOT EXISTS sage.siem_cursor (
 `
 
 // ddlGuardIdentityBindings maps an external identity (issuer, subject) to a
-// principal (E2, §7), and records which principals file manages a
-// principal. Both reference sage.guard_principals, created by the G1 core
-// migration that runs before this one.
+// principal (E2, §7). It references sage.guard_principals, created by the
+// G1 core migration that runs before this one. It also drops
+// sage.guard_principal_files, the table of a declarative principals-file
+// package that had no caller and was removed (agentgov-04): it held only
+// file-ownership rows, never principals. The catalog check means a re-run
+// takes no lock; lock_timeout bounds the wait of the first run.
 const ddlGuardIdentityBindings = `
+SET LOCAL lock_timeout = '5s';
 DO $do$
 BEGIN
     IF to_regclass('sage.guard_principals') IS NULL THEN
@@ -73,14 +77,9 @@ BEGIN
     );
     CREATE INDEX IF NOT EXISTS guard_identity_bindings_principal
         ON sage.guard_identity_bindings (principal_id);
-    -- The declarative principals file that manages each principal (E2, PC-1).
-    CREATE TABLE IF NOT EXISTS sage.guard_principal_files (
-        principal_id text PRIMARY KEY
-                     REFERENCES sage.guard_principals(id) ON DELETE CASCADE,
-        file_name    text NOT NULL CHECK (file_name ~ '^[a-z][a-z0-9-]{1,62}$'),
-        applied_by   text NOT NULL,
-        applied_at   timestamptz NOT NULL DEFAULT now()
-    );
+    IF to_regclass('sage.guard_principal_files') IS NOT NULL THEN
+        DROP TABLE IF EXISTS sage.guard_principal_files;
+    END IF;
 END $do$;
 `
 
