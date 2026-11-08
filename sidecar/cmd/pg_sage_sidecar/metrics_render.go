@@ -16,12 +16,15 @@ func sourceView(views []metricsView, source string) (metricsView, bool) {
 	return metricsView{}, false
 }
 
-// writeConnectionMetric reports whether PostgreSQL is reachable: the
-// process pool's last health check when there is one, otherwise whether
-// any database's last metrics refresh read it. Nothing is sampled while
-// neither has a result yet, so startup never reports a false 0.
+// writeConnectionMetric reports whether the sidecar reaches its control
+// database: the process pool's last health check when there is one (the
+// monitored database in standalone, the metadata database in meta mode),
+// otherwise whether any database's last metrics refresh read it. Nothing
+// is sampled while neither has a result yet, so startup never reports a
+// false 0. Per-database reachability is pg_sage_database_up.
 func writeConnectionMetric(b *strings.Builder, views []metricsView) {
-	b.WriteString("# HELP pg_sage_connection_up PostgreSQL connection status\n" +
+	b.WriteString("# HELP pg_sage_connection_up 1 if the sidecar reaches its control " +
+		"database (YAML fleet: any database); per database see pg_sage_database_up\n" +
 		"# TYPE pg_sage_connection_up gauge\n")
 	if up, known := connectionState(views); known {
 		fmt.Fprintf(b, "pg_sage_connection_up %d\n", up)

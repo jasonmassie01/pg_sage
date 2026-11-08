@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/api"
-	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/shadow"
 )
@@ -50,18 +49,16 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 
 	writeConnectionMetric(&b, views)
 
-	// Standalone metrics.
-	if cfg.IsStandalone() {
-		writeStandaloneMetrics(&b, views)
-	}
-
-	// Fleet metrics.
-	if cfg.Mode == "fleet" && fleetMgr != nil {
+	// Every family renders whenever its data exists, in every mode
+	// (observability-02); per-database health comes from the manager.
+	writeProcessMetrics(&b, views)
+	writeDatabaseHealthMetrics(&b, fleetMgr)
+	if fleetMgr != nil {
 		writeFleetMetrics(&b)
 	}
 	writeFleetBudgetMetrics(&b, fleetLLMBudget)
 
-	// Database metrics (only when global pool exists).
+	// pg_stat metrics of the process database (only when it exists).
 	if pool != nil {
 		writeDatabaseMetrics(&b, views)
 	}
@@ -85,10 +82,30 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func writeStandaloneMetrics(b *strings.Builder, views []metricsView) {
+// Help text of the families observability-09 removes in v2.7.0; each
+// names the family that replaces it.
+const (
+	helpFindingsTotal = "# HELP pg_sage_findings_total Open findings by severity " +
+		"(deprecated, removed in v2.7.0: use pg_sage_findings_open)\n"
+	helpCollectorLastRun = "# HELP pg_sage_collector_last_run_timestamp Last " +
+		"collector run (deprecated, removed in v2.7.0: use " +
+		"pg_sage_collector_last_success_timestamp_seconds)\n"
+	helpConnectionsTotal = "# HELP pg_sage_connections_total Connections by state " +
+		"(deprecated, removed in v2.7.0: use postgres_exporter)\n"
+	helpCacheHitRatio = "# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio " +
+		"(deprecated, removed in v2.7.0: use postgres_exporter)\n"
+	helpFleetInstanceFindings = "# HELP pg_sage_fleet_instance_findings Per-instance " +
+		"open findings (deprecated, removed in v2.7.0: use pg_sage_findings_open)\n"
+	helpFleetInstanceHealth = "# HELP pg_sage_fleet_instance_health Per-instance " +
+		"health score (deprecated, removed in v2.7.0: use pg_sage_database_health_score)\n"
+)
+
+// writeProcessMetrics renders the process-wide families: the standalone
+// analyzer and collector (no samples in other modes), the shared LLM
+// client and the optimizer.
+func writeProcessMetrics(b *strings.Builder, views []metricsView) {
 	// Findings from sage.findings table.
-	b.WriteString("# HELP pg_sage_findings_total Open findings by severity\n" +
-		"# TYPE pg_sage_findings_total gauge\n")
+	b.WriteString(helpFindingsTotal + "# TYPE pg_sage_findings_total gauge\n")
 	if anal != nil {
 		counts := anal.OpenFindingsCount()
 		for _, sev := range []string{"critical", "warning", "info"} {
@@ -101,7 +118,7 @@ func writeStandaloneMetrics(b *strings.Builder, views []metricsView) {
 	if coll != nil {
 		snap := coll.LatestSnapshot()
 		if snap != nil {
-			b.WriteString("# HELP pg_sage_collector_last_run_timestamp Last collector run\n" +
+			b.WriteString(helpCollectorLastRun +
 				"# TYPE pg_sage_collector_last_run_timestamp gauge\n")
 			fmt.Fprintf(b, "pg_sage_collector_last_run_timestamp %d\n\n", snap.CollectedAt.Unix())
 		}
@@ -183,7 +200,7 @@ func writeFleetMetrics(b *strings.Builder) {
 	fmt.Fprintf(b, "pg_sage_fleet_findings_critical %d\n\n",
 		status.Summary.TotalCritical)
 
-	b.WriteString("# HELP pg_sage_fleet_instance_findings Per-instance open findings\n" +
+	b.WriteString(helpFleetInstanceFindings +
 		"# TYPE pg_sage_fleet_instance_findings gauge\n")
 	for _, db := range status.Databases {
 		fmt.Fprintf(b,
@@ -192,7 +209,7 @@ func writeFleetMetrics(b *strings.Builder) {
 	}
 	b.WriteString("\n")
 
-	b.WriteString("# HELP pg_sage_fleet_instance_health Per-instance health score\n" +
+	b.WriteString(helpFleetInstanceHealth +
 		"# TYPE pg_sage_fleet_instance_health gauge\n")
 	for _, db := range status.Databases {
 		fmt.Fprintf(b,
@@ -203,45 +220,25 @@ func writeFleetMetrics(b *strings.Builder) {
 }
 
 // writeDatabaseMetrics renders the process database's last pg_stat
-// refresh (the monitored database, or the metadata database in meta mode)
-// and the collector's cached size; a failed refresh omits the pg_stat ones.
+// refresh (the monitored database, or the metadata database in meta mode);
+// a failed refresh omits them. The size is per database, with the health
+// families (database_health_metrics.go).
 func writeDatabaseMetrics(b *strings.Builder, views []metricsView) {
 	v, found := pgStatView(views)
-	fresh := found && v.ok(metricsSourcePGStat)
-	var stat pgStatValues
-	if fresh {
-		stat = v.snap.pgstat
-		b.WriteString("# HELP pg_sage_connections_total Connections by state\n" +
-			"# TYPE pg_sage_connections_total gauge\n")
-		for _, state := range sortedKeys(stat.connectionsByState) {
-			fmt.Fprintf(b, "pg_sage_connections_total{state=%q} %d\n", state,
-				stat.connectionsByState[state])
-		}
-		b.WriteString("\n")
+	if !found || !v.ok(metricsSourcePGStat) {
+		return
 	}
-
-	// Database size: the collector's cached measurement (a size walk on
-	// every scrape stat()ed every file of the database, untimed).
-	if coll != nil {
-		b.WriteString(databaseSizeMetric(coll.LatestSnapshot()))
+	stat := v.snap.pgstat
+	b.WriteString(helpConnectionsTotal + "# TYPE pg_sage_connections_total gauge\n")
+	for _, state := range sortedKeys(stat.connectionsByState) {
+		fmt.Fprintf(b, "pg_sage_connections_total{state=%q} %d\n", state,
+			stat.connectionsByState[state])
 	}
+	b.WriteString("\n")
 
-	// Cache hit ratio.
-	if fresh && stat.blksHit+stat.blksRead > 0 {
+	if stat.blksHit+stat.blksRead > 0 {
 		ratio := float64(stat.blksHit) / float64(stat.blksHit+stat.blksRead)
-		b.WriteString("# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio\n" +
-			"# TYPE pg_sage_cache_hit_ratio gauge\n")
+		b.WriteString(helpCacheHitRatio + "# TYPE pg_sage_cache_hit_ratio gauge\n")
 		fmt.Fprintf(b, "pg_sage_cache_hit_ratio %g\n\n", ratio)
 	}
-}
-
-// databaseSizeMetric renders the database size gauge from a collector
-// snapshot; an unknown size (no snapshot yet, never measured) is omitted.
-func databaseSizeMetric(snap *collector.Snapshot) string {
-	if snap == nil || snap.System.DBSizeBytes <= 0 {
-		return ""
-	}
-	return "# HELP pg_sage_database_size_bytes Database size\n" +
-		"# TYPE pg_sage_database_size_bytes gauge\n" +
-		fmt.Sprintf("pg_sage_database_size_bytes %d\n\n", snap.System.DBSizeBytes)
 }

@@ -149,6 +149,7 @@ llm:
 		"pg_sage_fleet_databases 1") {
 		t.Errorf("fleet metrics lack the database count:\n%s", body)
 	}
+	assertFleetHealthFamilies(t, prom)
 	if code := child.terminate(t); code != 0 {
 		t.Fatalf("SIGTERM exit = %d", code)
 	}
@@ -180,8 +181,31 @@ llm:
 		body != `{"status":"ok"}` {
 		t.Fatalf("/health = %d %q", code, body)
 	}
+	assertMetaHealthFamilies(t, prom)
 	if code := child.terminate(t); code != 0 {
 		t.Fatalf("SIGTERM exit = %d", code)
+	}
+}
+
+// assertFleetHealthFamilies: observability-02, the per-database health
+// families render in fleet mode too.
+func assertFleetHealthFamilies(t *testing.T, prom string) {
+	t.Helper()
+	if _, body := httpGet(t, "http://"+prom+"/metrics"); !strings.Contains(body,
+		`pg_sage_database_up{database="alpha"} 1`) {
+		t.Errorf("fleet metrics lack alpha's database_up:\n%s", body)
+	}
+}
+
+// assertMetaHealthFamilies: meta mode (no database registered yet) serves
+// the per-database health families with no sample for the meta database.
+func assertMetaHealthFamilies(t *testing.T, prom string) {
+	t.Helper()
+	waitForListeners(t, 10*time.Second, prom)
+	_, body := httpGet(t, "http://"+prom+"/metrics")
+	if !strings.Contains(body, "# TYPE pg_sage_database_up gauge") ||
+		strings.Contains(body, "pg_sage_database_up{") {
+		t.Errorf("meta metrics: want the database_up family without samples:\n%s", body)
 	}
 }
 

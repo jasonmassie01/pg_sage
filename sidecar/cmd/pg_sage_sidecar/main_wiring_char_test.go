@@ -113,10 +113,11 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 		}
 	}
 	// No collector, so no measured size: the gauge is the collector's cached
-	// size, never a per-scrape walk of the database.
+	// size, never a per-scrape walk of the database. Since observability-02
+	// the size family always has HELP/TYPE, so only a sample would be wrong.
 	if strings.Contains(body, "pg_sage_fleet_databases") ||
 		strings.Contains(body, "pg_sage_collector_last_run_timestamp") ||
-		strings.Contains(body, "pg_sage_database_size_bytes") {
+		len(sampleLines(body, "pg_sage_database_size_bytes")) != 0 {
 		t.Errorf("standalone metrics include fleet/collector sections:\n%s", body)
 	}
 }
