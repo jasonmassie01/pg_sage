@@ -90,10 +90,10 @@ const (
 	helpCollectorLastRun = "# HELP pg_sage_collector_last_run_timestamp Last " +
 		"collector run (deprecated, removed in v2.7.0: use " +
 		"pg_sage_collector_last_success_timestamp_seconds)\n"
-	helpConnectionsTotal = "# HELP pg_sage_connections_total Connections by state " +
-		"(deprecated, removed in v2.7.0: use postgres_exporter)\n"
-	helpCacheHitRatio = "# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio " +
-		"(deprecated, removed in v2.7.0: use postgres_exporter)\n"
+	helpConnectionsTotal = "# HELP pg_sage_connections_total Connections by state on " +
+		"the control database (deprecated, removed in v2.7.0: use postgres_exporter)\n"
+	helpCacheHitRatio = "# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio of " +
+		"the control database (deprecated, removed in v2.7.0: use postgres_exporter)\n"
 	helpFleetInstanceFindings = "# HELP pg_sage_fleet_instance_findings Per-instance " +
 		"open findings (deprecated, removed in v2.7.0: use pg_sage_findings_open)\n"
 	helpFleetInstanceHealth = "# HELP pg_sage_fleet_instance_health Per-instance " +

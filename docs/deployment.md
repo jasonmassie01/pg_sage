@@ -350,7 +350,7 @@ scrape_configs:
 | `time() - pg_sage_collector_last_success_timestamp_seconds{database}` | > 3 x collector interval | A database's collector has stalled |
 | `pg_sage_emergency_stopped{database}` | == 1 | The database's emergency stop holds |
 | `pg_sage_connection_up` | == 0 | The sidecar cannot reach its control database |
-| `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
+| `pg_sage_cache_hit_ratio` | < 0.95 | Control database cache hit ratio below 95% (deprecated, removed in v2.7.0) |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 | `pg_sage_metrics_refresh_success{database,source}` | == 0 for 5m | A database's metrics could not be read (its series are omitted) |

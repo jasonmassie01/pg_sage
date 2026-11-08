@@ -416,3 +416,37 @@ func TestPrometheusSourceHasNoModeGates(t *testing.T) {
 		}
 	}
 }
+
+// State transitions: the fleet-wide stop shows on every database,
+// including one registered while the latch holds, and a fleet-wide
+// resume clears it everywhere.
+func TestDatabaseHealthFleetWideStopShowsOnEveryDatabase(t *testing.T) {
+	installHealthFleet(t, config.ModeMeta,
+		healthInstance("alpha", fleet.InstanceStatus{Connected: true}))
+	fleetMgr.EmergencyStop("")
+	fleetMgr.RegisterInstance(healthInstance("late", fleet.InstanceStatus{Connected: true}))
+	want := []string{`pg_sage_emergency_stopped{database="alpha"} 1`,
+		`pg_sage_emergency_stopped{database="late"} 1`}
+	if got := sampleLines(scrapeMetrics(t), "pg_sage_emergency_stopped"); strings.Join(got,
+		"\n") != strings.Join(want, "\n") {
+		t.Fatalf("stopped: emergency_stopped = %q, want %q", got, want)
+	}
+	fleetMgr.Resume("")
+	want = []string{`pg_sage_emergency_stopped{database="alpha"} 0`,
+		`pg_sage_emergency_stopped{database="late"} 0`}
+	if got := sampleLines(scrapeMetrics(t), "pg_sage_emergency_stopped"); strings.Join(got,
+		"\n") != strings.Join(want, "\n") {
+		t.Fatalf("resumed: emergency_stopped = %q, want %q", got, want)
+	}
+}
+
+// The deprecated pg_stat families read the control database (the
+// metadata database in meta mode), so their HELP must not imply a
+// monitored database.
+func TestDatabaseHealthPGStatHelpNamesTheControlDatabase(t *testing.T) {
+	for _, help := range []string{helpConnectionsTotal, helpCacheHitRatio} {
+		if !strings.Contains(help, "control database") {
+			t.Errorf("HELP %q does not say it describes the control database", help)
+		}
+	}
+}
