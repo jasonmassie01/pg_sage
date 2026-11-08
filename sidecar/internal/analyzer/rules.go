@@ -30,6 +30,11 @@ type RuleExtras struct {
 	// inactive, for servers without pg_replication_slots.inactive_since
 	// (before PG17). It lives in memory: a restart only delays a finding.
 	InactiveSlotSince map[string]time.Time
+	// InactiveSlotPending is set by the slot rule when an inactive slot is
+	// below the threshold on the in-memory clock (no inactive_since): it
+	// may carry an open finding from before a restart, so its absence is
+	// not proof of clearance and inactive_slot must not resolve.
+	InactiveSlotPending bool
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
 }

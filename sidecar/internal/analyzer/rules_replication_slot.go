@@ -28,6 +28,7 @@ func ruleInactiveSlots(
 		// Unobserved: forget every clock so a gap never fires early.
 		if extras != nil {
 			extras.InactiveSlotSince = nil
+			extras.InactiveSlotPending = false
 		}
 		return nil
 	}
@@ -35,6 +36,7 @@ func ruleInactiveSlots(
 	minIdle := inactiveSlotMinIdle(cfg)
 	slowBytes := slowSlotThreshold(cfg)
 	idle := map[string]bool{}
+	pending := false
 	var findings []Finding
 	for _, s := range current.Replication.Slots {
 		if s.Active {
@@ -48,14 +50,19 @@ func ruleInactiveSlots(
 		}
 		idle[s.SlotName] = true
 		dur, known := slotIdleFor(s, now, clock)
-		if f, ok := inactiveSlotFinding(s, dur, known, minIdle); ok {
+		f, ok := inactiveSlotFinding(s, dur, known, minIdle)
+		if ok {
 			findings = append(findings, f)
 		}
+		pending = pending || (!ok && s.InactiveSince == nil)
 	}
 	for name := range clock {
 		if !idle[name] {
 			delete(clock, name)
 		}
+	}
+	if extras != nil {
+		extras.InactiveSlotPending = pending
 	}
 	return findings
 }

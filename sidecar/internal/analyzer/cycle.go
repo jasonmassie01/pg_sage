@@ -110,6 +110,9 @@ func (a *Analyzer) runSnapshotRules(
 		}
 		a.eval.evaluated(rule.Categories...)
 		out = append(out, rule.Fn(current, previous, a.cfg, a.extras)...)
+		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
+			a.eval.fail("inactive_slot")
+		}
 	}
 	return out
 }
