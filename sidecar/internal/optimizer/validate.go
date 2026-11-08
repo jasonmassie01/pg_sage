@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"regexp"
 	"sort"
@@ -52,6 +53,9 @@ func (v *Validator) Validate(
 		return false, reason
 	}
 	if ok, reason := v.checkColumnExistence(rec, tc); !ok {
+		return false, reason
+	}
+	if ok, reason := v.checkIncludeWidth(rec); !ok {
 		return false, reason
 	}
 	if ok, reason := v.checkDuplicate(rec, tc); !ok {
@@ -105,6 +109,31 @@ func (v *Validator) checkColumnExistence(
 		if key.expr != "" && !anyExists(key.refs, existing) {
 			return false, "expression " + key.expr + " references no existing column"
 		}
+	}
+	return true, ""
+}
+
+// defaultMaxIncludeColumns is the INCLUDE cap when max_include_columns is
+// unset or not positive.
+const defaultMaxIncludeColumns = 3
+
+// checkIncludeWidth rejects an index whose INCLUDE list is wider than
+// llm.optimizer.max_include_columns: every INCLUDE column widens each leaf
+// entry, so a covering index can cost more than the scans it saves. The
+// reason names the cap so the tuning agent can re-propose a narrower index.
+func (v *Validator) checkIncludeWidth(rec Recommendation) (bool, string) {
+	_, include, ok := indexColumns(rec.DDL)
+	if !ok {
+		return true, "" // unparseable DDL is rejected by canonicalization
+	}
+	limit := v.cfg.MaxIncludeColumns
+	if limit <= 0 {
+		limit = defaultMaxIncludeColumns
+	}
+	if len(include) > limit {
+		return false, fmt.Sprintf("INCLUDE has %d columns, more than "+
+			"max_include_columns (%d); propose at most %d INCLUDE columns",
+			len(include), limit, limit)
 	}
 	return true, ""
 }
