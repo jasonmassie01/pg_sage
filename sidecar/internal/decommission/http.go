@@ -3,6 +3,7 @@ package decommission
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -97,7 +98,8 @@ func (h Handlers) Drop(w http.ResponseWriter, r *http.Request) {
 	var req DropRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
+	// One object and nothing after it: an irreversible drop takes no extras.
+	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request body"})
 		return
 	}

@@ -28,6 +28,10 @@ func TestDropHandler_RefusesBadRequests(t *testing.T) {
 		{"bad digest", dropBody("abc", DropConfirmPhrase), http.StatusBadRequest,
 			"inventory_sha256"},
 		{"bad json", `{"confirm":`, http.StatusBadRequest, "invalid"},
+		{"trailing value", dropBody(digest, DropConfirmPhrase) + `{"cascade":true}`,
+			http.StatusBadRequest, "invalid"},
+		{"trailing brace", dropBody(digest, DropConfirmPhrase) + `}`,
+			http.StatusBadRequest, "invalid"},
 		{"empty", ``, http.StatusBadRequest, "invalid"},
 	}
 	for _, c := range cases {
