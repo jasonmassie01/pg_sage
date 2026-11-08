@@ -244,3 +244,26 @@ func TestGuard_CallerForKeepsTheCallerUnlessReadOnly(t *testing.T) {
 		t.Fatalf("read-only viewer = %+v", got)
 	}
 }
+
+// mcp-02: the loop tells the model to cite only by aliases, so every
+// tool that takes evidence says so, and none asks for durable ids.
+func TestGuard_CitingToolsAskForAliases(t *testing.T) {
+	s := &Service{d: Deps{Investigations: &fakeInvestigations{}, Trust: fakeTrust(`{}`),
+		Queries: fakeQueries{}, Proposer: &fakeProposer{}, Starter: &fakeStarter{}}}
+	citing := 0
+	for _, tl := range s.newSession(operator).tools() {
+		if strings.Contains(tl.Description, "evidence ids (e.g.") {
+			t.Errorf("%s asks for durable evidence ids: %q", tl.Name, tl.Description)
+		}
+		if strings.Contains(string(tl.Parameters), `"evidence_ids"`) {
+			citing++
+			if !strings.Contains(tl.Description, "aliases (E1, E2, ...)") {
+				t.Errorf("%s takes evidence_ids but does not ask for aliases: %q", tl.Name,
+					tl.Description)
+			}
+		}
+	}
+	if citing == 0 {
+		t.Fatal("no citing tool found; propose_fact takes evidence_ids")
+	}
+}

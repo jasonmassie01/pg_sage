@@ -54,9 +54,11 @@ question:
 
 - **Open an investigation** of a symptom (the operator trigger; read-only probes).
 - **Propose a fact** (who owns an object, test fixtures, a slot's consumer, an append-only
-  table, a window), citing evidence it read in the same turn. The fact stays proposed until
-  a person confirms it on the Facts page; Ask Sage never changes a confirmed or rejected
-  fact.
+  table, a window), citing evidence it read in the same turn. The model cites by the alias
+  each result was shown with (E1, E2, ...); the fact records that evidence's durable id
+  (such as `finding:42`) and digest, and an alias or id for anything not read in the turn
+  is refused. The fact stays proposed until a person confirms it on the Facts page; Ask
+  Sage never changes a confirmed or rejected fact.
 - **Queue one of pg_sage's own open findings for approval.** The finding's own SQL is
   queued with its rollback and predicted effect, after the policy gate's verdict: a
   blocked proposal is not queued, and a proposal the gate would run on its own is still
