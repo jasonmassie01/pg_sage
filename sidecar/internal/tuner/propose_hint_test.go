@@ -123,6 +123,9 @@ func TestCheckHint_Refusals(t *testing.T) {
 
 func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
+	// The tuner below claims a ready hint table, and since tuning-02 every
+	// check reads it: that claim holds only for the pg_hint_plan 1.7 layout.
+	requireQueryIDHintTable(t, pool)
 	if _, err := pool.Exec(ctx, "DELETE FROM sage.query_hints WHERE queryid = 4242"); err != nil {
 		t.Fatalf("clean: %v", err)
 	}
