@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
+
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // Registry is an immutable set of validated probe specs.
@@ -191,5 +192,5 @@ func needsStats(s Spec) Spec {
 func spec(id ID, family string, args ArgKind, variants ...Variant) Spec {
 	return Spec{ID: id, Version: "v1", Family: family, Args: args,
 		Variants: variants, StatementTimeout: MaxStatementTimeout,
-		LockTimeout: 100 * time.Millisecond, MaxRows: MaxRows, MaxBytes: MaxBytes}
+		LockTimeout: selfmonitor.ProbeLockTimeout, MaxRows: MaxRows, MaxBytes: MaxBytes}
 }
