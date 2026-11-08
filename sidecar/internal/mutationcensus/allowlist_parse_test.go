@@ -101,11 +101,6 @@ func TestWriteStatements(t *testing.T) {
 		"extension":     "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
 		"sage in later": "INSERT INTO t SELECT * FROM sage.x",
 	}
-	for name, sql := range sinks {
-		if got := writeStatements(sql); len(got) == 0 {
-			t.Errorf("%s: %q is not reported as a write", name, sql)
-		}
-	}
 	notSinks := map[string]string{
 		"select":        "SELECT a FROM t",
 		"update ident":  "SELECT updated_at FROM t",
@@ -119,6 +114,43 @@ func TestWriteStatements(t *testing.T) {
 		"sage function": "CREATE OR REPLACE FUNCTION sage.f() RETURNS int AS $$ SELECT 1 $$",
 		"empty":         "",
 		"comment":       "/* DROP TABLE t */ SELECT 1",
+	}
+	checkWrites(t, sinks, notSinks)
+}
+
+// Lists and the replication and WAL functions: a DROP or GRANT that names
+// a sage target first must not hide the user target after it.
+func TestWriteStatementTargetLists(t *testing.T) {
+	sinks := map[string]string{
+		"drop list":     "DROP TABLE IF EXISTS sage.a, public.b CASCADE",
+		"truncate list": "TRUNCATE sage.a, b",
+		"grant list":    "GRANT SELECT ON sage.a, public.b TO r",
+		"schema list":   "GRANT USAGE ON SCHEMA sage, public TO r",
+		"drop schemas":  "DROP SCHEMA IF EXISTS sage, public CASCADE",
+		"vacuum list":   "VACUUM (ANALYZE, VERBOSE) sage.a, public.b",
+		"slot drop":     "SELECT pg_drop_replication_slot($1)",
+		"slot create":   "SELECT * FROM pg_create_logical_replication_slot($1, 'pgoutput')",
+		"slot advance":  "SELECT pg_replication_slot_advance($1, $2)",
+		"switch wal":    "SELECT pg_switch_wal()",
+		"promote":       "SELECT pg_promote()",
+		"restore point": "SELECT pg_create_restore_point('x')",
+	}
+	notSinks := map[string]string{
+		"sage drop list": "DROP TABLE IF EXISTS sage.a, \"sage\".b CASCADE",
+		"sage vacuum":    "VACUUM (ANALYZE, VERBOSE) sage.a, sage.b",
+		"sage func drop": "DROP FUNCTION IF EXISTS sage.f(int, text)",
+		"sage alter":     "ALTER TABLE sage.x ADD COLUMN a int, ADD COLUMN b int",
+		"slot read":      "SELECT slot_name FROM pg_replication_slots",
+	}
+	checkWrites(t, sinks, notSinks)
+}
+
+func checkWrites(t *testing.T, sinks, notSinks map[string]string) {
+	t.Helper()
+	for name, sql := range sinks {
+		if got := writeStatements(sql); len(got) == 0 {
+			t.Errorf("%s: %q is not reported as a write", name, sql)
+		}
 	}
 	for name, sql := range notSinks {
 		if got := writeStatements(sql); len(got) != 0 {

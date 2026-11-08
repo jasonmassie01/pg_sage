@@ -165,6 +165,9 @@ func TestBoundaryFixture(t *testing.T) {
 		"CTEDelete":     "DELETE FROM public.t RETURNING id) SELECT count(*) FROM gone",
 		"Wrapped":       "TRUNCATE public.t",
 		"Built":         "ALTER ROLE ? NOLOGIN",
+		"RequestCtx":    "DELETE FROM public.r",
+		"ShortCtx":      "DROP TABLE public.c",
+		"MultiDrop":     "DROP TABLE IF EXISTS sage.a, public.b",
 	}
 	for fn, detail := range want {
 		s, ok := found["internal/fix/boundary.go#"+fn+"/A"]

@@ -187,3 +187,25 @@ func Batched(b *pgx.Batch) {
 	b.Queue("INSERT INTO sage.ok VALUES (1)")
 	b.Queue("DELETE FROM public.q WHERE id = $1", 1)
 }
+
+// RequestCtx takes its context from a method call: a sink.
+func RequestCtx(r interface{ Context() context.Context }, p pool) error {
+	_, err := p.Exec(r.Context(), "DELETE FROM public.r")
+	return err
+}
+
+func run(c context.Context, p pool, q string) error {
+	_, err := p.Exec(c, q)
+	return err
+}
+
+// ShortCtx writes through a wrapper whose context is not named ctx: a sink.
+func ShortCtx(c context.Context, p pool) error {
+	return run(c, p, "DROP TABLE public.c")
+}
+
+// MultiDrop names a sage table first and a user table second: a sink.
+func MultiDrop(ctx context.Context, p pool) error {
+	_, err := p.Exec(ctx, "DROP TABLE IF EXISTS sage.a, public.b")
+	return err
+}

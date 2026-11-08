@@ -123,10 +123,14 @@ The scan finds two kinds of sink:
   `ALTER`, `DROP`, `COMMENT ON`, `GRANT`, `REVOKE`, `VACUUM`, `ANALYZE`,
   `REINDEX`, `CLUSTER` or `REFRESH MATERIALIZED`, or that calls
   `hypopg_create_index`, `pg_cancel_backend`, `pg_terminate_backend`,
-  `pg_stat_reset*`, `pg_stat_statements_reset` or `pg_reload_conf`. The scan
-  reads literals, constants, concatenations, `fmt.Sprintf`,
-  `pgx.Identifier{...}.Sanitize()` and the package's own SQL builders. A write
-  whose target it can prove is `sage.*` (pg_sage's own schema) is not a sink.
+  `pg_stat_reset*`, `pg_stat_statements_reset`, `pg_reload_conf`, a
+  replication-slot function, `pg_switch_wal`, `pg_promote` or
+  `pg_create_restore_point`. The scan reads literals, constants,
+  concatenations, `fmt.Sprintf`, `pgx.Identifier{...}.Sanitize()` and the
+  package's own SQL builders. A write whose target it can prove is `sage.*`
+  (pg_sage's own schema) is not a sink; a `DROP`, `TRUNCATE`, `GRANT`,
+  `REVOKE`, `VACUUM` or `ANALYZE` that lists several targets is dropped only
+  when every target is `sage.*`.
 - **Raw executor helpers.** Any use of `executor.ExecConcurrently`,
   `executor.ExecInTransaction` or `executor.ExecStatistics` outside
   `internal/executor`, whatever the SQL, because those helpers run whatever

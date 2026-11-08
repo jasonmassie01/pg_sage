@@ -12,7 +12,10 @@
 //     REFRESH MATERIALIZED) or that calls a function changing state other
 //     sessions see (hypopg_create_index, pg_cancel_backend,
 //     pg_terminate_backend, pg_stat_reset*, pg_stat_statements_reset,
-//     pg_reload_conf), unless its target is in the sage schema;
+//     pg_reload_conf, the replication-slot functions, pg_switch_wal,
+//     pg_promote, pg_create_restore_point), unless its target (every
+//     target, for a DROP, TRUNCATE, GRANT, REVOKE, VACUUM or ANALYZE
+//     list) is in the sage schema;
 //   - Rule B: any reference to executor.ExecConcurrently, ExecInTransaction
 //     or ExecStatistics from outside internal/executor, whatever its SQL.
 //

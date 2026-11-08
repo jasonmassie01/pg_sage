@@ -36,7 +36,10 @@ func sqlCallSink(call *ast.CallExpr, r *resolver, wrappers map[string]int,
 }
 
 // sqlArg returns the SQL argument of a call that runs SQL and the callee's
-// name. A driver method takes its SQL first, or second after a context.
+// name. Batch.Queue takes its SQL first. Every other pgx driver method
+// takes a context first, so with two or more arguments the SQL is the
+// second one unless the first is visibly SQL text; a context of any name
+// (c, bg, r.Context()) is read that way.
 func sqlArg(call *ast.CallExpr, wrappers map[string]int) (ast.Expr, string, bool) {
 	name := calleeName(call)
 	if idx, ok := wrappers[name]; ok {
@@ -49,7 +52,7 @@ func sqlArg(call *ast.CallExpr, wrappers map[string]int) (ast.Expr, string, bool
 		return nil, "", false
 	}
 	i := 0
-	if len(call.Args) > 1 && isContextArg(call.Args[0]) {
+	if name != "Queue" && len(call.Args) > 1 && !visiblySQL(call.Args[0]) {
 		i = 1
 	}
 	if i >= len(call.Args) {
@@ -68,19 +71,23 @@ func calleeName(call *ast.CallExpr) string {
 	return ""
 }
 
-func isContextArg(expr ast.Expr) bool {
+// visiblySQL reports whether an expression is plainly SQL text: a string
+// literal, a concatenation or a fmt call, never a context.
+func visiblySQL(expr ast.Expr) bool {
 	switch e := expr.(type) {
-	case *ast.Ident:
-		return strings.Contains(strings.ToLower(e.Name), "ctx") || e.Name == "context"
-	case *ast.SelectorExpr:
-		return strings.Contains(strings.ToLower(e.Sel.Name), "ctx")
+	case *ast.BasicLit:
+		return e.Kind == token.STRING
+	case *ast.ParenExpr:
+		return visiblySQL(e.X)
+	case *ast.BinaryExpr:
+		return e.Op == token.ADD
 	case *ast.CallExpr:
 		sel, ok := e.Fun.(*ast.SelectorExpr)
 		if !ok {
 			return false
 		}
 		pkg, ok := sel.X.(*ast.Ident)
-		return ok && pkg.Name == "context"
+		return ok && pkg.Name == "fmt"
 	}
 	return false
 }
