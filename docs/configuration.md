@@ -660,6 +660,35 @@ The soft-drop restore runs under its own typed contract:
   automatic rollback (<verdict>: <reason>)`). At startup the executor checks that every
   reversible forward contract's rollback classifies to a contract and logs each one that
   does not at ERROR.
+- **Every revert is a recorded decision.** The automatic revert of any action (pg_sage's
+  own, one an operator approved or ran by hand, one whose monitor resumed after a restart)
+  and the operator's rollback button go through the standing policy gate as a typed
+  rollback request, judged on the statement that runs (an index rollback in its
+  `CONCURRENTLY` form). Each leaves one `sage.decision` row with `evidence.rollback = true`,
+  `evidence.rolled_back_action_id` and `evidence.source` (`automatic_rollback` or
+  `operator_rollback`).
+- **A revert is a mitigation.** Undoing a change that already ran is not maintenance:
+  maintenance windows, the kind budgets, earned per-class autonomy, the trust tiers and
+  ramp and the change-class allowlist do not bind it, and its decision reads `execute` with
+  the reason `rollback_mitigation`. The executor-disabled switch, the emergency stop, a
+  replica, the provider list, `trust.level: observation` and the lock ceiling still bind; a
+  rollback no contract classifies is parked as `no_typed_contract`. An approval-required
+  rollback contract (for example an `ALTER TABLE ... RESET`) and, for an automatic revert,
+  the standing policy's `approval_required_classes` and `refusal_set` send it to a person
+  (`queue_approval`); an operator's revert already has one. If the standing policy cannot be
+  read, the revert still runs, under `safety.lock_timeout_ms` with no ceiling, and the
+  decision's `evidence.policy_read_error` names the error. The soft-drop restore keeps its
+  own `drop_restore_bypass` decision above.
+- **A withheld revert reaches a person.** An automatic revert the gate or an emergency stop
+  withholds is recorded as `rollback_skipped` (its `rollback_reason` names the verdict) and
+  one approval item, "Revert action N", is queued (`sage.action_queue.reverts_action_id`,
+  action type `revert_action`). Its card says why the revert was withheld; after an
+  emergency stop, that it is approvable once the stop is lifted. While the gate would still
+  refuse a person's revert the item stays pending and not approvable. Approving it runs the
+  action's recorded rollback through the operator rollback, once. It is superseded when the
+  action is rolled back another way, and expires like any queue item (7 days); the
+  action's rollback button stays available after that. The index-replace watch keeps its
+  own undo path and queues no item.
 
 Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
 `/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
@@ -977,7 +1006,8 @@ The standing policy document also carries three safety fields, all enforced:
   the owner declared as the contract's `retention.column`; see [Retention
   contracts](#retention-contracts)). Unknown tokens are rejected.
 - `lock_duration_ceiling_ms`: caps `lock_timeout` for DDL that runs inside a
-  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`.
+  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`, reverts
+  included.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
   older transactions by design. `0` means no ceiling.
 - `serialize_mode`: `park` (both profiles). When another writer holds the
