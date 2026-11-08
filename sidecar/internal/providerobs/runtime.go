@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/logwatch"
 )
 
+// API is a provider's observability endpoint. Logs also returns how many
+// of the database's records it skipped as malformed.
 type API interface {
 	Metrics(context.Context) (string, error)
-	Logs(context.Context, string, time.Time, time.Time) ([]logwatch.LogEntry, error)
+	Logs(context.Context, string, time.Time, time.Time) ([]logwatch.LogEntry, int, error)
 }
 
 type LogHandler func(context.Context, []logwatch.LogEntry) error
@@ -27,6 +30,9 @@ type Runtime struct {
 	telemetry Telemetry
 	through   time.Time
 	seen      map[[32]byte]time.Time
+	// rejected counts malformed log records; onRejected reports them.
+	rejected   atomic.Uint64
+	onRejected func(rejected int, total uint64)
 }
 
 func NewRuntime(api API, database string, handler LogHandler) (*Runtime, error) {
@@ -114,6 +120,22 @@ func cloneValue(value *float64) *float64 {
 	}
 	result := *value
 	return &result
+}
+
+// SetRejectionReporter receives, once per poll that skipped malformed log
+// records, that poll's count and the running total.
+func (r *Runtime) SetRejectionReporter(report func(rejected int, total uint64)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onRejected = report
+}
+
+// RejectedLogRecords is how many malformed log records were skipped.
+func (r *Runtime) RejectedLogRecords() uint64 { return r.rejected.Load() }
+
+// HostMemory is fresh total and available host memory in bytes (0 = unknown).
+func (r *Runtime) HostMemory() (total, available int64) {
+	return r.Telemetry().HostMemory(time.Now())
 }
 
 // CurrentCPU reports fresh host CPU utilization for load admission.

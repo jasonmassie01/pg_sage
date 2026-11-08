@@ -50,7 +50,7 @@ func (r *Runtime) pollLogs(ctx context.Context, now time.Time) error {
 	if !to.After(from) {
 		return gapErr
 	}
-	entries, to, err := r.readLogWindow(ctx, from, to)
+	entries, rejected, to, err := r.readLogWindow(ctx, from, to)
 	if err != nil && !errors.Is(err, ErrLogWindowSaturated) {
 		return errors.Join(gapErr, err)
 	}
@@ -58,7 +58,24 @@ func (r *Runtime) pollLogs(ctx context.Context, now time.Time) error {
 		return errors.Join(gapErr, deliverErr)
 	}
 	r.through = to
+	r.countRejected(rejected)
 	return errors.Join(gapErr, err)
+}
+
+// countRejected adds a delivered window's malformed rows to the total and
+// reports them in one line per poll. A retried window is counted once,
+// when it is delivered; a row in the one-minute overlap can count twice.
+func (r *Runtime) countRejected(rejected int) {
+	if rejected <= 0 {
+		return
+	}
+	total := r.rejected.Add(uint64(rejected))
+	r.mu.RLock()
+	report := r.onRejected
+	r.mu.RUnlock()
+	if report != nil {
+		report(rejected, total)
+	}
 }
 
 // readLogWindow fetches [from, to), halving the window while the
@@ -67,15 +84,15 @@ func (r *Runtime) pollLogs(ctx context.Context, now time.Time) error {
 // caller still advances (and reports the loss) instead of retrying the
 // same saturated window forever.
 func (r *Runtime) readLogWindow(ctx context.Context, from, to time.Time) (
-	[]logwatch.LogEntry, time.Time, error,
+	[]logwatch.LogEntry, int, time.Time, error,
 ) {
 	for {
-		entries, err := r.api.Logs(ctx, r.database, from, to)
+		entries, rejected, err := r.api.Logs(ctx, r.database, from, to)
 		if !errors.Is(err, ErrLogWindowSaturated) {
-			return entries, to, err
+			return entries, rejected, to, err
 		}
 		if to.Sub(from) <= minLogWindow {
-			return nil, to, fmt.Errorf("provider logs %s..%s dropped: %w",
+			return nil, 0, to, fmt.Errorf("provider logs %s..%s dropped: %w",
 				from.Format(time.RFC3339), to.Format(time.RFC3339), err)
 		}
 		half := from.Add(to.Sub(from) / 2).Truncate(time.Minute)
