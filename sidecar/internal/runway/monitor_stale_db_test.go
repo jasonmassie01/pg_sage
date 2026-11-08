@@ -3,6 +3,8 @@ package runway
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -150,5 +152,47 @@ func TestMonitorTick_TruncatedTrendsKeepTheXIDFinding(t *testing.T) {
 	if stale, reason, _ := staleDetail(t, ctx, pool, CategoryWraparound,
 		"xid"); stale {
 		t.Fatalf("a series cut by the row cap was marked stale (%q)", reason)
+	}
+}
+
+// State transition logging: becoming stale and being measured again are
+// each logged once, however many ticks the state lasts.
+func TestMonitorTick_StaleTransitionsLogOnce(t *testing.T) {
+	pool, ctx := livePool(t)
+	resetXID(t, ctx, pool)
+	seedXIDTrend(t, ctx, pool, 7*time.Hour)
+	openXIDFinding(t, ctx, pool)
+	m := newTestMonitor(t, pool, failingRunner{inner: liveRunner(pool),
+		fail: probes.XIDRunwayProbe}, nil)
+	var mu sync.Mutex
+	var logs []string
+	m.logFn = func(_, msg string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		logs = append(logs, fmt.Sprintf(msg, args...))
+	}
+	count := func(sub string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		n := 0
+		for _, l := range logs {
+			if strings.Contains(l, sub) && strings.Contains(l, " xid ") {
+				n++
+			}
+		}
+		return n
+	}
+	for i := 0; i < 3; i++ {
+		tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+	}
+	if n := count("held open, marked stale"); n != 1 {
+		t.Fatalf("%d stale logs over three held ticks, want 1 (%v)", n, logs)
+	}
+	seedXIDTrend(t, ctx, pool, 0)
+	for i := 0; i < 2; i++ {
+		tickNamingOnly(t, ctx, m, string(probes.XIDRunwayProbe))
+	}
+	if n := count("no longer held stale"); n != 1 {
+		t.Fatalf("%d release logs over two measured ticks, want 1 (%v)", n, logs)
 	}
 }

@@ -11,15 +11,20 @@ import (
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
-// EvalInput is what one tick evaluates: the measured trends and the
-// current tables and sequences, each with whether it could be read.
+// EvalInput is what one tick evaluates: the measured trends (and where
+// their row cap cut them) and the current tables, slots and sequences,
+// each with whether it could be read.
 type EvalInput struct {
-	Trends      []probes.RunwayTrend
-	TrendsOK    bool
-	Tables      []probes.WraparoundTable
-	TablesOK    bool
-	Sequences   []probes.SequenceRunway
-	SequencesOK bool
+	Trends          []probes.RunwayTrend
+	TrendsOK        bool
+	TrendsTruncated bool
+	TrendsLastKind  string // the kind of the last trend a truncated read returned
+	Tables          []probes.WraparoundTable
+	TablesOK        bool
+	Slots           []probes.Slot
+	SlotsOK         bool
+	Sequences       []probes.SequenceRunway
+	SequencesOK     bool
 }
 
 // Runway is one runway that crossed its horizon: the forecast finding it
@@ -39,17 +44,18 @@ type Runway struct {
 
 // Evaluate returns the runways that crossed their horizons and the
 // categories it could evaluate completely (only those may resolve their
-// cleared findings).
+// cleared findings). A category whose trends a truncated read may have
+// cut is not evaluated; the runways of the rows returned still open.
 func Evaluate(in EvalInput, opts Options) ([]Runway, []string) {
 	var out []Runway
 	var evaluated []string
-	if in.TrendsOK && in.TablesOK {
+	if in.TrendsOK && in.TablesOK && in.trendsComplete(CategoryWraparound) {
 		evaluated = append(evaluated, CategoryWraparound)
 	}
-	if in.TrendsOK {
+	if in.TrendsOK && in.trendsComplete(CategoryWAL) {
 		evaluated = append(evaluated, CategoryWAL)
 	}
-	if in.TrendsOK && in.SequencesOK {
+	if in.TrendsOK && in.SequencesOK && in.trendsComplete(CategorySequence) {
 		evaluated = append(evaluated, CategorySequence)
 	}
 	if in.TrendsOK {

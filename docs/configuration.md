@@ -1483,8 +1483,16 @@ A projection needs `sre.runways.min_samples` samples over at least
 that fits, r² at least 0.5), so a sawtooth never alarms. A runway inside its horizon opens a
 forecast finding (critical inside the critical horizon) and, with `sre.runways.investigate`,
 one read-only pre-incident investigation per finding and severity, whatever
-`sre.automatic_start` says. A finding resolves when its runway clears. A standby samples
-nothing (it is read-only).
+`sre.automatic_start` says. A finding resolves when its runway clears and its series is
+measured; an unmeasured series keeps its finding open, marked stale. A series is unmeasured
+when the lookback holds too few samples, too short a span or an unknown rate, or none at all
+(for example after a gap longer than `sre.runways.lookback_hours`). The finding keeps its id
+and gains `detail.stale = true`, `detail.stale_reason` (`unmeasured` or `no_samples`) and
+`detail.stale_since`; the next measured projection replaces the detail and clears them. A
+replication slot or sequence is held only while the current reading still lists it, so the
+finding of a dropped slot or sequence (or one that fell out of the top sequences) resolves.
+When the trends read reaches its row cap, the categories it may have cut are not resolved
+until it fits again (logged once). A standby samples nothing (it is read-only).
 
 A pre-incident investigation explains what drives the runway. Wraparound: a session,
 prepared transaction or replication slot holding the xmin horizon, busy, disabled or

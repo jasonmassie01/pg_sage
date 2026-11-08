@@ -38,6 +38,12 @@ type Monitor struct {
 	// measured.
 	sizeMu sync.Mutex
 	sizeAt time.Time
+	// staleMu guards stale, the held findings this monitor marked stale
+	// (category NUL identifier), and truncated, whether the last trends
+	// read was cut at its row cap: each transition is logged once.
+	staleMu   sync.Mutex
+	stale     map[string]bool
+	truncated bool
 }
 
 // TickResult is what one tick did.
@@ -66,7 +72,8 @@ func NewMonitor(pool *pgxpool.Pool, runner ProbeRunner, starter Starter, opts Op
 		opts.Sizes = NewSizeShare() // its own reading, kept for SizeInterval
 	}
 	return &Monitor{pool: pool, runner: runner, starter: starter, opts: opts,
-		logFn: logFn, last: map[seriesKey]lastPoint{}, now: time.Now}, nil
+		logFn: logFn, last: map[seriesKey]lastPoint{}, now: time.Now,
+		stale: map[string]bool{}}, nil
 }
 
 // Run ticks every interval until ctx ends. A failed tick is logged and
@@ -87,7 +94,8 @@ func (m *Monitor) Run(ctx context.Context) {
 }
 
 // Tick samples the series, evaluates the runways over the lookback,
-// updates the forecast findings and starts the pre-incident
+// updates the forecast findings (holding open, marked stale, those whose
+// series it could not measure) and starts the pre-incident
 // investigations. It reports the first problem met; what could be done
 // is done.
 func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
@@ -98,17 +106,22 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 		n, err := m.sample(ctx, snap)
 		res.Sampled, problems = n, append(problems, err)
 	}
-	trends, err := probes.RunwayTrends(m.runner.Run(ctx, probes.RunwayTrendsProbe,
+	set, err := probes.RunwayTrendsOf(m.runner.Run(ctx, probes.RunwayTrendsProbe,
 		probes.Args{Window: m.opts.Lookback}))
 	if err != nil {
 		problems = append(problems, fmt.Errorf("runway_trends: %w", err))
+	} else {
+		m.noteTruncation(set)
 	}
-	in := EvalInput{Trends: trends, TrendsOK: err == nil, Tables: snap.Tables,
-		TablesOK: snap.TablesOK, Sequences: snap.Sequences, SequencesOK: snap.SequencesOK}
+	in := EvalInput{Trends: set.Trends, TrendsOK: err == nil,
+		TrendsTruncated: set.Truncated, TrendsLastKind: set.LastKind, Tables: snap.Tables,
+		TablesOK: snap.TablesOK, Slots: snap.Slots, SlotsOK: snap.SlotsOK,
+		Sequences: snap.Sequences, SequencesOK: snap.SequencesOK}
 	runways, evaluated := Evaluate(in, m.opts)
 	res.Runways = runways
 	if !res.Standby {
-		res.Started, res.Resolved, err = m.report(ctx, runways, evaluated)
+		res.Started, res.Resolved, err = m.report(ctx, runways, evaluated,
+			Holds(in, m.opts))
 		problems = append(problems, err)
 	}
 	return res, errors.Join(problems...)
