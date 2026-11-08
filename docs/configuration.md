@@ -1818,6 +1818,36 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 
+### Log-based RCA: what the server log must look like
+
+With `logwatch.enabled` and `rca.enabled`, pg_sage tails the server's csvlog or jsonlog
+(jsonlog needs PostgreSQL 15+) and opens incidents from it. Some signals come from the
+SQLSTATE and work in any language. The others match the message text, which PostgreSQL
+translates, so the server must log in C or English: set `lc_messages = 'C'`. When
+`lc_messages` is something else, pg_sage logs a warning naming the setting when the log
+watcher starts.
+
+| Signal | How it is matched | Incident |
+|---|---|---|
+| `log_panic_server_crash` | PANIC, or the postmaster's `... (PID n) was terminated by signal n` | critical; records the crashed PID and the signal |
+| `log_wal_segment_removed` | `requested WAL segment <name> has already been removed` (walsender or walreceiver) | critical; records the segment |
+| `log_replication_slot_inactive` | `invalidating [obsolete replication] slot "<name>"` at LOG | warning; records the slot |
+| `log_data_corruption` | SQLSTATE XX001, XX002 (and any unknown XX code) | critical |
+| `log_internal_error` | SQLSTATE XX000 (for example "cache lookup failed") | warning, not corruption |
+| `log_wraparound_outage` | SQLSTATE 54000 with "is not accepting commands ... to avoid wraparound data loss" | critical |
+| `log_multixact_wraparound_warning` | "must be vacuumed before n more MultiXactIds / multixact members are used" | critical |
+| `log_multixact_wraparound_outage` | SQLSTATE 54000 with the MultiXactId stop-limit or `multixact "members" limit exceeded` text | critical |
+
+A client's `RAISE` of the same text does not fire the crash, WAL-gap or slot signals: those
+need the server process that really logs them (`backend_type` in csvlog and jsonlog; without
+it, a line with no user and no database counts as the postmaster's). Managed services whose
+logs arrive through a provider sink use the same classifier.
+
+The patterns are tested against the server's own log records for PostgreSQL 14-18, kept
+under `sidecar/internal/logwatch/testdata/`. To cover a new major, run
+`python scripts/capture_logwatch_corpus.py --majors <n>` (it needs Docker and a
+`pgvector/pgvector:<version>-pg<n>` image) and then `go test ./internal/logwatch/`.
+
 ### Retention
 
 | Parameter | Default | Description |

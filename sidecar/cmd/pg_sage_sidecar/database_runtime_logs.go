@@ -60,7 +60,31 @@ func (s *logFanoutSet) forCluster(
 	go runFanoutDrain(ctx, key, fanout, logwatchPollInterval())
 	logInfo("logwatch", "[%s] started (dir=%s format=%s)",
 		key, settings.LogDirectory, settings.Format)
+	warnLogLocale(ctx, key, pool)
 	return fanout
+}
+
+// logLocaleProbeTimeout bounds the one pg_settings read of lc_messages.
+const logLocaleProbeTimeout = 5 * time.Second
+
+// warnLogLocale warns once per cluster when lc_messages is not C or
+// English: the text-matched log signals would then never fire. Without a
+// pool (an explicitly configured log path needs none) there is nothing
+// to read.
+func warnLogLocale(ctx context.Context, key string, pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, logLocaleProbeTimeout)
+	defer cancel()
+	setting, err := logwatch.DetectLCMessages(ctx, pool)
+	if err != nil {
+		logWarn("logwatch", "[%s] %v", key, err)
+		return
+	}
+	if msg := logwatch.LCMessagesWarning(setting); msg != "" {
+		logWarn("logwatch", "[%s] %s", key, msg)
+	}
 }
 
 // resolvedLogWatchConfig fills an unset log directory or format from the
