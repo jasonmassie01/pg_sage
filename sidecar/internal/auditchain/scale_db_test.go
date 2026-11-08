@@ -130,6 +130,10 @@ func TestFullVerificationMemoryIsBounded(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipped in -short: builds a 1M-link chain (several minutes)")
 	}
+	if raceDetector {
+		t.Skip("skipped under -race: the detector's own memory and slowdown make " +
+			"the heap bound meaningless; the non-race integration job runs it")
+	}
 	pool := freshDB(t, "chain_scale")
 	buildLargeChain(t, pool, scaleRows)
 	runtime.GC()
