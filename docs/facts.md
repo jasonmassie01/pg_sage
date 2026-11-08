@@ -37,7 +37,12 @@ would not have done anyway.
     EF Core-style `"IX_Orders_CustomerId"` is proposed as `public."IX_Orders_CustomerId"`;
     a drop that named no schema, and an index whose name holds `*`, are not proposed;
   * test-named schemas (`test_*`, `tmp_*`, `*_test`, ...) with no scans or writes for six
-    hours, as one pattern per family of copies;
+    hours: a family of copies with generated suffixes (`test_memory_a1b2`,
+    `test_memory_c3d4`) as one pattern (`test_memory_*`), any other one by name. A family
+    is proposed only once every test-named schema its pattern would match is idle, members
+    or not, so a live `test_memory_live` holds `test_memory_*` back (confirming it would
+    hide live traffic). The first look on a new database proposes the same subjects by the
+    same rule from the statistics window, when that window covers at least six hours;
   * logical replication slots and their consumer;
   * tables with a million inserts and no update or delete.
 * **The model** (when an LLM is configured) proposes facts from a bounded summary of the
@@ -50,13 +55,16 @@ would not have done anyway.
   table facts (`append_only`, `table_window`, or ownership of a table); the detectors and
   you still can. A proposal that fails this is dropped and logged
   (`facts: model proposal dropped: ... the cited evidence is not about the subject`).
+* **Ask Sage** (`propose_fact`) can propose one fact per question, citing evidence it read
+  in that run. It has no confirm path; it can list facts (`list_facts`) but not decide them.
+* **MCP clients** can propose with `propose_fact`; the fact stays proposed.
 * **You** can declare a fact directly; your declaration confirms it.
 * What you already declared with the MCP tools `register_consumer` and
   `declare_table_contract` (append-only) is imported as confirmed facts.
 
-Nothing proposed binds anything until a person confirms it. A rejected fact stays rejected
-when it is proposed again (the proposal count grows); new evidence reopens only an expired
-fact.
+Nothing proposed binds anything until a person confirms it, whichever of these proposed it.
+A rejected fact stays rejected when it is proposed again (the proposal count grows); new
+evidence reopens only an expired fact.
 
 ## Confirming and rejecting
 
@@ -101,17 +109,40 @@ every user schema that has a relation of that name (`test_a.orders` is a test fi
 SQL names stay conservative: an unqualified one that cannot be resolved still matches every
 schema subject. If the catalog cannot be read, the gate fails closed (`facts_unavailable`).
 
-The optimizer, advisor and investigator prompts carry the confirmed facts as bounded context
-(at most 12 facts and 1,500 characters). When there are more, the facts behind WAL and vacuum
-advice go first: `slot_consumer`, then `table_window`, `append_only`,
-`owned_by_app_migrations` and `test_fixture`, by fact id within a type. The last line then
-says how many were left out (`- 19 more confirmed facts omitted.`); the budget still holds
-with that line. Proposed facts are never presented to the model as true.
+Confirmed facts also reach the model, as bounded context fenced as data (the gate, not the
+model, is what enforces them):
+
+* The **advisor**'s review prompts and the **investigator**'s review turns carry the
+  database's confirmed facts: at most 12 facts and 1,500 characters. When there are more,
+  the facts behind WAL and vacuum advice go first: `slot_consumer`, then `table_window`,
+  `append_only`, `owned_by_app_migrations` and `test_fixture`, by fact id within a type.
+  The last line then says how many were left out (`- 19 more confirmed facts omitted.`);
+  the budget still holds with that line.
+* The **tuning agent**'s case packet carries the confirmed facts about the case's tables
+  (an index fact counts for every table in its schema), one line each of at most 300
+  characters, citable as `F<id>`, within the packet's 12,000-byte budget.
+* **Ask Sage**'s prompt does not carry them; it reads them with its `list_facts` tool.
+
+Proposed, rejected and expired facts are never presented to the model as true. A fact past
+its expiry date stops binding and leaves these prompts at that moment, before
+re-verification marks it expired.
 
 The gate reads the confirmed facts through a cache of at most 10 seconds per database. A
 confirm, reject or expire in the same pg_sage process (UI, API, MCP or a chat card) clears it
 at once, including a read already in flight, so the next action sees the decision. A change
-written by another process is seen within 10 seconds.
+written by another process is seen within 10 seconds. The advisor's and the investigator's
+prompt context reads through the same cache; the tuning agent reads the facts afresh for each
+run. If the facts cannot be read, a prompt goes without them (logged), while the gate still
+fails closed.
+
+### Partitioned tables
+
+A table fact binds the relation it names, not the partition tree. A fact on a partitioned
+table `public.events` does not cover `public.events_2026_11`: an action on a partition or on
+a partition's index is matched against the partition's own name. To cover the partitions,
+use a pattern (`public.events*`, which also matches other tables with that prefix) or
+confirm a fact per partition. A fact on a partitioned table does not expire while the table
+exists, even with no partitions.
 
 ### Slot facts are cluster facts
 
@@ -176,5 +207,10 @@ withheld for the cycle (logged) and the earlier batch stays open.
 
 Every 15 minutes pg_sage re-checks proposed and confirmed facts. A fact whose subject no
 longer names anything (the schema was dropped, the slot removed) expires after an hour of
-absence; a fact with an expiry date expires on that date. Expired and rejected facts are
-purged after `retention.actions_days`; proposed and confirmed facts are kept.
+absence, so in practice at the first re-check an hour or more after the absence was first
+seen. A fact that a detector or the model proposes again in the same pass counts as present.
+The absence clock is kept in memory, per pg_sage process: a restart, or the subject coming
+back, starts it over, so a sidecar restarted more often than hourly never expires an absent
+fact (it keeps binding, which is the safe side). A fact with an expiry date expires on that
+date, and stops binding from that moment. Expired and rejected facts are purged after
+`retention.actions_days`; proposed and confirmed facts are kept.

@@ -130,7 +130,7 @@ func relevant(f Fact, refs []ObjectRef) bool {
 }
 
 // PromptLines renders the database's confirmed facts about objects for a
-// model prompt (optimizer, advisor, investigator). A read error yields no
+// model prompt (advisor, investigator). A read error yields no
 // lines: the prompt goes without them and the gate still binds.
 func (s *Store) PromptLines(ctx context.Context, objects ...string) []string {
 	facts, err := s.Confirmed(ctx)
