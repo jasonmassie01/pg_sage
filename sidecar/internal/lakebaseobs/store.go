@@ -112,6 +112,15 @@ type Cursor struct {
 	LastEvent        time.Time `json:"last_event"`
 	GapCount         int64     `json:"gap_count"`
 	LastGap          string    `json:"last_gap,omitempty"`
+	// Width is the adaptive forward read width; zero means Options.Window.
+	Width time.Duration `json:"width,omitempty"`
+	// Sparse counts consecutive forward reads projected under MaxRows/4.
+	Sparse int `json:"sparse,omitempty"`
+	// ShortThrough/ShortTarget track the short reconcile sweep;
+	// ReconcileThrough/ReconcileTarget track the deep sweep begun at DeepStartedAt.
+	ShortThrough  time.Time `json:"short_through,omitzero"`
+	ShortTarget   time.Time `json:"short_target,omitzero"`
+	DeepStartedAt time.Time `json:"deep_started_at,omitzero"`
 }
 
 func (s *Store) LoadCursor(ctx context.Context, binding string, stream Stream) (Cursor, error) {

@@ -18,6 +18,11 @@ type StreamStatus struct {
 	HistoricalOnly    bool   `json:"historical_only"`
 	Complete          bool   `json:"complete"` // No provider completeness contract exists.
 	ExactMultiplicity bool   `json:"exact_multiplicity"`
+	// ForwardLagSeconds is how far the forward cursor trails the last poll;
+	// absent until the first forward read commits.
+	ForwardLagSeconds *int64 `json:"forward_lag_seconds,omitempty"`
+	// ReconcileProgress is the share (0-1) of the current deep sweep read.
+	ReconcileProgress float64 `json:"reconcile_progress"`
 }
 type Runtime struct {
 	reader    Reader
@@ -30,6 +35,8 @@ type Runtime struct {
 	mu        sync.RWMutex
 	statuses  map[Stream]StreamStatus
 	next      int
+	// narrowed holds forward widths halved on ErrBudget but not yet committed.
+	narrowed map[Stream]time.Duration
 }
 
 func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consumers ...Consumer) (*Runtime, error) {
@@ -61,7 +68,8 @@ func NewRuntime(reader Reader, store *Store, scope Scope, options Options, consu
 	}
 	policy, _ := json.Marshal(options.SourceObjects)
 	policyHash := sha256.Sum256(policy)
-	r := &Runtime{reader: reader, store: store, scope: scope, options: options, consumers: consumers, binding: fmt.Sprintf("%s:v%d:%s:%s", scope.Hash(), SchemaVersion, mode, hex.EncodeToString(policyHash[:8])), statuses: map[Stream]StreamStatus{}}
+	r := &Runtime{reader: reader, store: store, scope: scope, options: options, consumers: consumers, binding: fmt.Sprintf("%s:v%d:%s:%s", scope.Hash(), SchemaVersion, mode, hex.EncodeToString(policyHash[:8])), statuses: map[Stream]StreamStatus{},
+		narrowed: map[Stream]time.Duration{}}
 	for _, s := range options.Streams {
 		r.statuses[s] = StreamStatus{Stream: s, HistoricalOnly: true}
 	}
@@ -83,7 +91,6 @@ func (r *Runtime) Poll(ctx context.Context, now time.Time) error {
 	r.pollMu.Lock()
 	defer r.pollMu.Unlock()
 	now = now.UTC()
-	remaining := r.options.QueriesPerPoll
 	if err := r.store.BindOwner(ctx, r.scope); err != nil {
 		return err
 	}
@@ -93,25 +100,16 @@ func (r *Runtime) Poll(ctx context.Context, now time.Time) error {
 	if err := r.store.EnforceRetention(ctx, r.scope.Hash(), r.options.Retention); err != nil {
 		return err
 	}
-	var errs []error
-	// Rotate priority so one permanently saturated source cannot starve others.
-	for i := 0; i < len(r.options.Streams) && remaining > 0; i++ {
-		stream := r.options.Streams[(r.next+i)%len(r.options.Streams)]
-		err := r.pollStream(ctx, stream, now, &remaining)
-		r.mu.Lock()
-		st := r.statuses[stream]
-		if err != nil {
-			st.LastError = safeError(err)
-		} else {
-			st.LastError = ""
-		}
-		r.statuses[stream] = st
-		r.mu.Unlock()
-		if err != nil {
-			errs = append(errs, err)
-		}
+	errs := r.collect(ctx, r.store, now)
+	errs = append(errs, r.deliver(ctx, now)...)
+	if err := r.store.Purge(ctx, now); err != nil {
+		errs = append(errs, err)
 	}
-	r.next = (r.next + 1) % len(r.options.Streams)
+	return errors.Join(errs...)
+}
+
+func (r *Runtime) deliver(ctx context.Context, now time.Time) []error {
+	var errs []error
 	for _, consumer := range r.consumers {
 		events, err := r.store.Pending(ctx, r.binding, consumer.Name(), r.options.MaxRows, now)
 		if err != nil {
@@ -132,108 +130,7 @@ func (r *Runtime) Poll(ctx context.Context, now time.Time) error {
 			}
 		}
 	}
-	if err := r.store.Purge(ctx, now); err != nil {
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
-}
-
-func (r *Runtime) pollStream(ctx context.Context, stream Stream, now time.Time, remaining *int) error {
-	c, err := r.store.LoadCursor(ctx, r.binding, stream)
-	if err != nil {
-		return err
-	}
-	oldest := now.Add(-SourceRetention)
-	if !c.LastPoll.IsZero() && c.LastPoll.Before(oldest) {
-		c.GapCount++
-		c.LastGap = "source retention exceeded during outage"
-	}
-	for _, reconcile := range []bool{false, true} {
-		if *remaining <= 0 {
-			break
-		}
-		before := c
-		from := c.ForwardThrough
-		if reconcile {
-			from = c.ReconcileThrough
-			// Pin a sweep's upper boundary. Chasing a moving `now` forever
-			// would strand reconciliation at the tail and never rotate back.
-			if c.ReconcileTarget.IsZero() || !from.Before(c.ReconcileTarget) {
-				from = oldest
-				c.ReconcileTarget = now
-			}
-		}
-		if from.IsZero() {
-			if reconcile {
-				from = oldest
-			} else {
-				from = now.Add(-r.options.Window)
-			}
-		}
-		if from.Before(oldest) {
-			from = oldest
-			c.GapCount++
-			c.LastGap = "unread history expired before reconciliation"
-		}
-		if !from.Before(now) {
-			if reconcile {
-				from = oldest
-			} else {
-				from = now.Add(-r.options.Window)
-			}
-		}
-		to := from.Add(r.options.Window)
-		if to.After(now) {
-			to = now
-		}
-		if reconcile && to.After(c.ReconcileTarget) {
-			to = c.ReconcileTarget
-		}
-		var b Batch
-		for {
-			if *remaining <= 0 {
-				return ErrBudget
-			}
-			*remaining--
-			b, err = r.reader.ReadWindow(ctx, stream, r.scope, Window{from, to})
-			if !errors.Is(err, ErrBudget) {
-				break
-			}
-			if to.Sub(from) <= time.Millisecond {
-				return ErrBudget
-			}
-			to = from.Add(to.Sub(from) / 2)
-		}
-		if err != nil {
-			return err
-		}
-		for _, e := range b.Events {
-			if e.ScopeHash != r.scope.Hash() || e.Stream != stream || e.OccurredAt.Before(from) || !e.OccurredAt.Before(to) {
-				return ErrScope
-			}
-		}
-		if reconcile {
-			c.ReconcileThrough = to
-		} else if to.After(c.ForwardThrough) {
-			c.ForwardThrough = to
-		}
-		c.LastPoll = now
-		for _, e := range b.Events {
-			if e.OccurredAt.After(c.LastEvent) {
-				c.LastEvent = e.OccurredAt
-			}
-		}
-		if err = r.store.CommitBatch(ctx, r.binding, stream, before, c, b.Events, r.options.Retention); err != nil {
-			return err
-		}
-		c.Revision = before.Revision + 1
-		r.mu.Lock()
-		st := r.statuses[stream]
-		st.Cursor = c
-		r.statuses[stream] = st
-		r.mu.Unlock()
-	}
-	return nil
+	return errs
 }
 
 func (r *Runtime) Run(ctx context.Context, report func(error)) {
