@@ -207,3 +207,49 @@ func TestPromptLinesUnknownTypeSortsLast(t *testing.T) {
 		t.Fatalf("lines %q", lines)
 	}
 }
+
+// fixtureOfLine is a test-fixture fact whose prompt line is exactly n chars.
+func fixtureOfLine(t *testing.T, id int64, n int) Fact {
+	t.Helper()
+	for pad := 1; pad < maxPromptLine; pad++ {
+		f := confirmed(id, TypeTestFixture, KindSchema, strings.Repeat("s", pad), nil)
+		if got := len(clip(promptLine(f), maxPromptLine)); got == n {
+			return f
+		} else if got > n {
+			break
+		}
+	}
+	t.Fatalf("no fixture renders to a %d-char line", n)
+	return Fact{}
+}
+
+// The note must fit: when the fact lines leave less room than the note
+// needs, the last fact line gives way and is counted as omitted too.
+func TestPromptLinesNoteDisplacesALastLineThatLeavesNoRoom(t *testing.T) {
+	var facts []Fact
+	for i := int64(1); i <= 4; i++ {
+		facts = append(facts, fixtureOfLine(t, i, 299)) // 4 x 300 chars used
+	}
+	// Line 5 leaves 10 chars, less than the note needs; line 6 cannot fit.
+	facts = append(facts, fixtureOfLine(t, 5, 289), fixtureOfLine(t, 6, 200))
+	lines := PromptLines(facts, bindNow)
+	if len(lines) != 5 || lines[4] != "- 2 more confirmed facts omitted." {
+		t.Fatalf("want 4 facts and a note of 2, got:\n%s", strings.Join(lines, "\n"))
+	}
+	for i := 0; i < 4; i++ {
+		if !hasFactID(lines[i], int64(i+1)) {
+			t.Fatalf("line %d is %q", i+1, lines[i])
+		}
+	}
+	if n := promptChars(lines); n > maxPromptChars {
+		t.Fatalf("%d chars exceed the budget of %d", n, maxPromptChars)
+	}
+	// Without line 6 nothing is cut: five lines of 1,490 chars and no note.
+	if got := PromptLines(facts[:5], bindNow); len(got) != 5 || hasNote(got) {
+		t.Fatalf("five fitting facts:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+func hasNote(lines []string) bool {
+	return len(lines) > 0 && strings.HasSuffix(lines[len(lines)-1], "omitted.")
+}
