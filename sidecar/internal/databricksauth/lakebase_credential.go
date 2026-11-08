@@ -105,7 +105,9 @@ func (c *credentialCache) token(ctx context.Context) (string, error) {
 	return c.offerLocked(f.err)
 }
 
-// awaitFlight waits for another connection's mint instead of starting one.
+// awaitFlight waits for another connection's mint instead of starting one
+// and shares its outcome: a successful mint is used as the leader uses it,
+// even when it is short-lived.
 func (c *credentialCache) awaitFlight(ctx context.Context, f *mintFlight) (string, error) {
 	select {
 	case <-f.done:
@@ -114,7 +116,7 @@ func (c *credentialCache) awaitFlight(ctx context.Context, f *mintFlight) (strin
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.remainingLocked() > minUsable {
+	if f.err == nil || c.remainingLocked() > minUsable {
 		return c.cached.Token, nil
 	}
 	return "", fmt.Errorf("refresh Lakebase database credential: %w", f.err)
