@@ -1862,6 +1862,13 @@ an invalid one is refused while the previous config keeps running. Values change
 settings API are not checked against the routes, so an alerting change there never blocks an
 unrelated setting; if a route channel then has no URL or key, routing logs a warning naming it.
 
+When an alerted finding resolves, each channel that delivered the alert and is still routed
+for the finding's severity gets one resolve notification (PagerDuty closes its incident),
+tried for up to 24 hours after the resolution. Each channel is tracked on its own in the Alert Log (`sage.alert_log`): success
+writes a `resolved` row; a failure writes a `resolve_error` row with the channel's error text,
+is logged at ERROR, and is retried on the next check, up to 5 times per channel. After the
+fifth failure the ERROR log says it gave up; close that alert in the channel by hand.
+
 ### Retention
 
 | Parameter | Default | Description |
