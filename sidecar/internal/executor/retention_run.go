@@ -66,7 +66,7 @@ func (r *retentionRun) execute(ctx context.Context, decision ActionPolicyDecisio
 		MaxRows:       r.maxRows(),
 	})
 	if err != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "failed",
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed",
 			"retention batch rolled back: "+err.Error())
 		return actionID, fmt.Errorf("retention batch: %w", err)
 	}
@@ -109,7 +109,7 @@ func (r *retentionRun) verify(ctx context.Context, actionID int64) error {
 			e.logFn("executor", "record retention verification for action %d: %v",
 				actionID, finalizeErr)
 		}
-		updateActionOutcome(ctx, e.pool, actionID, "failed", err.Error())
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed", err.Error())
 		r.recordOutcome(ctx, actionID, r.failedVerdict(err))
 		return err
 	}

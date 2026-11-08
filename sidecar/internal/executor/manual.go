@@ -285,7 +285,7 @@ func (e *Executor) runClaimedRollback(
 	cfg.Acquire = nil // the caller already holds the DDL slot
 	note, execErr := executeRollbackSQL(ctx, e.pool, rollbackSQL, cfg)
 	if execErr != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed",
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed",
 			"manual rollback failed: "+execErr.Error())
 		return fmt.Errorf("executing rollback SQL: %w", execErr)
 	}
@@ -296,7 +296,10 @@ func (e *Executor) runClaimedRollback(
 	if isAlterSystem(rollbackSQL) {
 		reason += " (" + note + ")"
 	}
-	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
+	if err := recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rolled_back",
+		reason); err != nil {
+		return fmt.Errorf("rollback ran but its outcome was not recorded: %w", err)
+	}
 	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 	return nil
 }

@@ -27,6 +27,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		if err := e.ResumeIndexReplaces(ctx); err != nil {
 			e.logFn("executor", "resume index replacements: %v", err)
 		}
+		// Every cycle, not once: a claim younger than the grace at startup,
+		// or a terminal write lost while running, settles later.
+		e.settleStuckRollbacks(ctx)
 	}
 	e.reconcileRecommendations(ctx)
 	// Queue housekeeping runs in every mode: a proposal whose reason is

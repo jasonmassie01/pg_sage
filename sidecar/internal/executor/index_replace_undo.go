@@ -126,7 +126,7 @@ func (e *Executor) failUndo(ctx context.Context, rec *indexReplaceRecord, cause 
 	err := e.moveReplace(ctx, rec, replaceRollbackFailed, cause.Error(),
 		replaceRollbackRecreating, replaceRollbackDropping, replaceOldRestoring)
 	if rec.ActionLogID > 0 {
-		updateActionOutcome(ctx, e.pool, rec.ActionLogID, "rollback_failed",
+		recordActionOutcome(ctx, e.pool, e.logFn, rec.ActionLogID, "rollback_failed",
 			"index replace rollback failed: "+cause.Error())
 	}
 	return errors.Join(fmt.Errorf("undo the replacement: %w", cause), err)
@@ -145,7 +145,7 @@ func (e *Executor) finishUndo(ctx context.Context, rec *indexReplaceRecord, keep
 		e.notifyPostDDL(ctx, rec.Plan.RecreateSQL)
 		return err
 	}
-	updateActionOutcome(ctx, e.pool, rec.ActionLogID, "rolled_back", reason)
+	recordActionOutcome(ctx, e.pool, e.logFn, rec.ActionLogID, "rolled_back", reason)
 	if _, ferr := finalizeActionVerification(ctx, e.pool, rec.ActionLogID, "revert",
 		reason); ferr != nil {
 		err = errors.Join(err, ferr)

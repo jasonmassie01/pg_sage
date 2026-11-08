@@ -661,6 +661,21 @@ The soft-drop restore runs under its own typed contract:
   reversible forward contract's rollback classifies to a contract and logs each one that
   does not at ERROR.
 
+A rollback interrupted by a crash or restart no longer stays `rolling_back`. Each cycle on
+the primary, a `rolling_back` action (other than an index replacement, which resumes its own
+undo) whose claim is older than `safety.ddl_timeout_seconds` plus one minute is settled from
+the catalog, while the executor has no work in flight; no DDL runs. A dropped index that is
+gone, a re-created index back with the recorded definition, or a setting at the rollback's
+value (`pg_settings`; for `ALTER DATABASE`, the stored setting read in a fresh session)
+becomes `rolled_back`. Anything else, including a statement it cannot probe, becomes
+`rollback_failed` with the reason `interrupted during rollback: ...`. An INVALID index left
+by an interrupted `CREATE INDEX CONCURRENTLY` is named in that reason: drop it with
+`DROP INDEX CONCURRENTLY` before retrying. Outcome writes are retried three times with
+backoff; a write that still fails is logged with the action id and outcome, and an operator
+rollback whose DDL ran reports that its outcome was not recorded. The Actions page offers
+**Retry rollback** on `rollback_skipped` and `rollback_failed` actions that have rollback
+SQL, and shows their reason.
+
 Each executed action carries `verification_outcome` in `GET /api/v1/actions` and
 `/api/v1/actions/{id}`; `GET /api/v1/action-outcomes?database=&class=&verdict=&since=&limit=` lists the
 outcome ledger (`sage.action_outcome`).
