@@ -179,6 +179,18 @@ Credentials come only from the standard chains and are never stored, logged or p
 Without credentials telemetry reports `unavailable: <reason>` (see
 `GET /api/v1/cloud-telemetry`) and pg_sage behaves as before.
 
+Failed polls back off instead of retrying every interval. After *n* failures in a row the next
+poll waits the poll interval × 2^(n-1): up to 30 minutes when credentials are missing, the
+database identity is unknown or access is denied, and up to 10 minutes (±20 % jitter) for
+throttling, provider, response, clock-skew and network errors. A ceiling never shortens a poll
+interval that is already longer. One success returns to the poll interval. pg_sage keeps
+retrying, so credentials added later are picked up within 30 minutes; reloading the
+configuration rebuilds the runtime and polls at once. The log gets one warning when a failure
+starts or its reason changes and one line when telemetry recovers, not one per poll.
+`GET /api/v1/cloud-telemetry` shows `next_poll_at` and `consecutive_failures` for each
+database. A failed poll still drops the previous sample, so the guards never use stale
+evidence.
+
 ## Configuration
 
 ```yaml

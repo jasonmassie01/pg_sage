@@ -303,7 +303,7 @@ func TestRuntimeRunStopsOnCancel(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { r.Run(ctx, nil); close(done) }()
+	go func() { r.Run(ctx, nil, nil); close(done) }()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	select {

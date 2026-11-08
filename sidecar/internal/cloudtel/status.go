@@ -11,21 +11,25 @@ import (
 
 // Status is a database's telemetry as served to operators.
 type Status struct {
-	Database      string               `json:"database"`
-	Provider      string               `json:"provider"`
-	Cluster       string               `json:"cluster,omitempty"`       // Aurora
-	InstanceRole  string               `json:"instance_role,omitempty"` // writer|reader|unknown
-	Resource      string               `json:"resource,omitempty"`
-	Available     bool                 `json:"available"`
-	Reason        string               `json:"reason,omitempty"`
-	LastPollAt    *time.Time           `json:"last_poll_at,omitempty"`
-	LastSuccessAt *time.Time           `json:"last_success_at,omitempty"`
-	LastError     string               `json:"last_error,omitempty"`
-	Sample        *Sample              `json:"sample,omitempty"`
-	Runway        Runway               `json:"storage_runway"`
-	Withhold      []string             `json:"withhold"`
-	Limits        Limits               `json:"limits"`
-	Drift         []managedparam.Drift `json:"parameter_drift"`
+	Database      string     `json:"database"`
+	Provider      string     `json:"provider"`
+	Cluster       string     `json:"cluster,omitempty"`       // Aurora
+	InstanceRole  string     `json:"instance_role,omitempty"` // writer|reader|unknown
+	Resource      string     `json:"resource,omitempty"`
+	Available     bool       `json:"available"`
+	Reason        string     `json:"reason,omitempty"`
+	LastPollAt    *time.Time `json:"last_poll_at,omitempty"`
+	LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
+	// NextPollAt is when the poller tries again (absent: not polling);
+	// failed polls back off up to 10 minutes, 30 without credentials.
+	NextPollAt          *time.Time           `json:"next_poll_at,omitempty"`
+	ConsecutiveFailures int                  `json:"consecutive_failures"`
+	Sample              *Sample              `json:"sample,omitempty"`
+	Runway              Runway               `json:"storage_runway"`
+	Withhold            []string             `json:"withhold"`
+	Limits              Limits               `json:"limits"`
+	Drift               []managedparam.Drift `json:"parameter_drift"`
 }
 
 // Status reports the runtime's state; Reason starts with "unavailable: "
@@ -36,11 +40,15 @@ func (r *Runtime) Status() Status {
 	r.mu.RLock()
 	st := Status{Database: r.database, Provider: provider, Cluster: cluster,
 		InstanceRole: role, Limits: r.limits,
-		LastError: r.lastErr, Withhold: []string{},
+		LastError: r.lastErr, Withhold: []string{}, ConsecutiveFailures: r.failures,
 		Drift: append([]managedparam.Drift{}, r.drift...)}
 	if !r.lastPoll.IsZero() {
 		t := r.lastPoll
 		st.LastPollAt = &t
+	}
+	if !r.nextPoll.IsZero() {
+		t := r.nextPoll
+		st.NextPollAt = &t
 	}
 	if !r.lastSuccess.IsZero() {
 		t := r.lastSuccess

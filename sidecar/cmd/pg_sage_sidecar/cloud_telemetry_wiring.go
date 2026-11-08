@@ -57,7 +57,10 @@ func (rt *databaseRuntime) startCloudTelemetry() {
 		}
 		rt.start(func() {
 			rt.cloud.Run(rt.ctx, func(err error) {
-				logWarn(rt.spec.Scope, "db %q: cloud telemetry: %v", rt.spec.Name, err)
+				logWarn(rt.spec.Scope, "db %q: cloud telemetry: %v (retrying with backoff; "+
+					"reload the config to retry now)", rt.spec.Name, err)
+			}, func() {
+				logInfo(rt.spec.Scope, "db %q: cloud telemetry recovered", rt.spec.Name)
 			})
 		})
 		rt.note("cloud_telemetry")
