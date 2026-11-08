@@ -24,15 +24,15 @@ func TestValidateGUCValue(t *testing.T) {
 		wantOK     bool
 	}{
 		{"work_mem", "256MB", true},
-		{"work_mem", "8GB", false},          // > 2GB safe max
-		{"work_mem", "1MB", false},          // < 4MB safe min
+		{"work_mem", "8GB", false}, // > 2GB safe max
+		{"work_mem", "1MB", false}, // < 4MB safe min
 		{"random_page_cost", "1.1", true},
-		{"random_page_cost", "0.1", false},  // < 1.0
-		{"random_page_cost", "10", false},   // > 4.0
+		{"random_page_cost", "0.1", false}, // < 1.0
+		{"random_page_cost", "10", false},  // > 4.0
 		{"checkpoint_completion_target", "0.9", true},
 		{"default_statistics_target", "500", true},
 		{"default_statistics_target", "5000", false},
-		{"unknown_guc", "whatever", true},   // unknown passes
+		{"unknown_guc", "whatever", true}, // unknown passes
 		{"shared_buffers", "8GB", true},
 	}
 	for _, c := range cases {
