@@ -48,6 +48,9 @@ type sreInvestigatorDeps struct {
 	// conclusive graph root (roadmap 2.4); nil keeps model roots advisory.
 	rootAuthority sre.RootAuthority
 	history       probes.HistoricalSource
+	// onDetector receives the reactive detector built for the trigger
+	// source (self-configuration samples its temp-file peaks); optional.
+	onDetector func(*sre.ReactiveDetector)
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -116,7 +119,8 @@ func (rt *databaseRuntime) startInvestigator() {
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
 		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents(),
-		history: rt.sreHistorySource(),
+		history:    rt.sreHistorySource(),
+		onDetector: func(d *sre.ReactiveDetector) { rt.tempDetector = d },
 		rootAuthority: registryRootAuthority{registry: processAutonomy().registry,
 			database: rt.spec.Name}})
 	if err != nil {

@@ -112,6 +112,7 @@ func collectorIntervalRule() Rule {
 			"a collector cycle makes; relation count for context.",
 		OutcomeDoc: "mean measured cycle cost against the 1% budget",
 		Widens:     WidensWhenLower, Cap: CapAtDefault, Step: 30, HardMin: 60, HardMax: 600,
+		PromoteP90: true,
 		Cites: []string{"collector_cycle_ms", "catalog_scan_ms", "statements_scan_ms",
 			"relations"},
 		Derive: func(ev Evidence, _ *config.Config) Derivation {
@@ -143,6 +144,7 @@ func queryTimeoutRule() Rule {
 			"relation count.",
 		OutcomeDoc: "largest catalog scan during the soak needs 2x headroom",
 		Widens:     WidensWhenHigher, Cap: CapFixed, Step: 100, HardMin: 500, HardMax: 5000,
+		PromoteP90: true,
 		CapNote: "A deadline shorter than the catalog scan fails every cycle and wastes " +
 			"the work done; a longer one only lets the same read finish. Capped at 10x " +
 			"the default.",
@@ -181,7 +183,8 @@ func sequenceIntervalRule() Rule {
 		EvidenceDoc: "measured time to read every sequence's last value; sequence count.",
 		OutcomeDoc:  "mean measured scan time against the 0.1% budget",
 		Widens:      WidensWhenLower, Cap: CapAtDefault, Step: 60, HardMin: 600, HardMax: 3600,
-		Cites: []string{"sequence_scan_ms", "sequences"},
+		PromoteP90: true,
+		Cites:      []string{"sequence_scan_ms", "sequences"},
 		BoundsFor: func(cfg *config.Config) (float64, float64, string) {
 			r := cfg.SRE.Runways
 			if r.MinSamples <= 1 {

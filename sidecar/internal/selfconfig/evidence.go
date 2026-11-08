@@ -40,6 +40,10 @@ type Evidence struct {
 	// catalog scan plus the statements read. Both are per cycle, so the
 	// estimate does not grow with the interval it is used to size.
 	CollectorCycleMs Measure
+	// TempWindowPeakBytes is the largest temp-file growth the reactive
+	// detector measured within one detector window since the previous pass
+	// (unknown when the detector did not poll).
+	TempWindowPeakBytes Measure
 }
 
 // sequenceSampleSize is how many last values the sequence evidence reads;
@@ -224,6 +228,18 @@ func (ev Evidence) WithTempRateSince(prev Evidence) Evidence {
 	return ev
 }
 
+// WithTempPeak adds the detector's peak window (take: nil or false when
+// there is no detector reading).
+func (ev Evidence) WithTempPeak(take func() (float64, bool)) Evidence {
+	if take == nil {
+		return ev
+	}
+	if bytes, ok := take(); ok {
+		ev.TempWindowPeakBytes = Known(bytes)
+	}
+	return ev
+}
+
 type namedMeasure struct {
 	name, unit string
 	m          Measure
@@ -241,6 +257,7 @@ func (ev Evidence) measures() []namedMeasure {
 		{"stats_age_seconds", "s", ev.StatsAgeSeconds},
 		{"temp_bytes_per_second", "bytes/s", ev.TempBytesPerSecond},
 		{"collector_cycle_ms", "ms", ev.CollectorCycleMs},
+		{"temp_window_peak_bytes", "bytes", ev.TempWindowPeakBytes},
 	}
 }
 

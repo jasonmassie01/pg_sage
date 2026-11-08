@@ -428,6 +428,19 @@ recorded in shadow first; it is promoted only after the soak and only when the c
 is not worse, otherwise it stays in shadow with the reason. Restart-bound keys take a
 promoted value at the next start and show it as pending restart.
 
+Noisy evidence does not restart the soak. Each pass derives a candidate, rounded up to the
+rule's step; a candidate within one step of the shadow, on the same side of the value in
+force, keeps the soak and its samples, and only a move of two or more steps (or to the
+other side) starts a new one. A derived value in force is not re-derived for a one-step
+move. The cost-sized keys (collector interval, catalog read timeout, sequence sampling)
+promote the 90th percentile of the soak's derivations, so one cheap pass does not set the
+cadence. The temp-file threshold's soak samples the reactive detector's busiest window
+since the previous pass, so real bursts are judged instead of an hourly average. A hold is
+recorded once per outcome; the latest reason shows on the key. When other keys narrow a
+rule's bounds (for example a larger `sre.runways.min_samples`), the derived value is
+clamped into them on the next pass (a `clamped` ledger row), and dropped when no value
+fits; a new rule version drops the old version's value and soaks its own.
+
 A key you set in the YAML file, in a fleet `defaults`/`databases[]` field or as an API
 override is never derived and shows as `operator`. The Configuration page's **Derived
 settings** section (and `GET /api/v1/derived-settings?database=`) shows each key's value,

@@ -23,6 +23,9 @@ func sreTriggerSource(d sreInvestigatorDeps) (sre.TriggerSource, error) {
 	if d.episodes != nil {
 		detector.WithIncidents(d.episodes)
 	}
+	if d.onDetector != nil {
+		d.onDetector(detector)
+	}
 	warnDetectorWindow(d, dc)
 	return sre.CombineTriggers(d.logFn, sre.NewPGTriggerSource(d.monitored, d.name),
 		detector), nil
