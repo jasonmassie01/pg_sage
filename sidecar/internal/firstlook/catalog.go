@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // Every first-look statement reads only the system catalog and the
@@ -260,7 +262,7 @@ const extensionsSQL = tag + `SELECT current_user::text,
   EXISTS (SELECT 1 FROM pg_catalog.pg_settings WHERE name LIKE 'auto\_explain.%'),
   EXISTS (SELECT 1 FROM pg_catalog.pg_settings WHERE name = 'pg_stat_statements.max'),
   (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'shared_preload_libraries'),
-  pg_catalog.pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')`
+  ` + rolegrants.QueryTextVisibleSQL
 
 func readExtensions(ctx context.Context, tx pgx.Tx) (Extensions, error) {
 	var e Extensions

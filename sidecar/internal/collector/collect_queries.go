@@ -52,7 +52,7 @@ func (c *Collector) blockTimeColumns(ctx context.Context) blockTimeExprs {
 		return *cached
 	}
 	exprs := blockTimeExprs{read: "0", write: "0"}
-	rows, err := c.catalogQuery(ctx, blockTimeColumnsSQL)
+	rows, err := c.catalogQuery(ctx, c.statementsSQL(blockTimeColumnsSQL))
 	if err != nil {
 		c.logFn("WARN", "probe pg_stat_statements block time columns: %v", err)
 		return exprs
@@ -111,7 +111,7 @@ func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
 		limit = 500
 	}
 	blk := c.blockTimeColumns(ctx)
-	sql := fmt.Sprintf(tpl, blk.read, blk.write, limit)
+	sql := c.statementsSQL(fmt.Sprintf(tpl, blk.read, blk.write, limit))
 
 	rows, err := c.catalogQuery(ctx, sql)
 	if err != nil {

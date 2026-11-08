@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // ErrStatementsUnavailable marks a missing or unreadable pg_stat_statements:
@@ -14,12 +17,9 @@ import (
 // first look and rules, no query statistics) instead of refusing to start.
 var ErrStatementsUnavailable = errors.New("pg_stat_statements is unavailable")
 
-// CheckResult holds the results of prerequisite checks.
-type CheckResult struct {
-	PGVersionNum       int
-	QueryTextVisible   bool
-	HasWALColumns      bool
-	HasPlanTimeColumns bool
+// querier runs one-row checks: a pool or a connection.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // RunChecks validates that the target PostgreSQL instance meets all
@@ -33,46 +33,38 @@ func RunChecks(ctx context.Context, pool *pgxpool.Pool) (*CheckResult, error) {
 	if err := ValidateSessionEndpoint(endpoint.Host, endpoint.Port); err != nil {
 		return nil, err
 	}
-	result := &CheckResult{
-		QueryTextVisible: true, // assume true, flip if disproved
-	}
+	return runChecks(ctx, pool)
+}
 
-	if err := checkConnectivity(ctx, pool); err != nil {
+func runChecks(ctx context.Context, q querier) (*CheckResult, error) {
+	if err := checkConnectivity(ctx, q); err != nil {
 		return nil, fmt.Errorf("connectivity check: %w", err)
 	}
-
-	versionNum, err := checkPGVersion(ctx, pool)
+	result := &CheckResult{}
+	versionNum, err := checkPGVersion(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("version check: %w", err)
 	}
 	result.PGVersionNum = versionNum
 
-	if err := checkExtensionInstalled(ctx, pool); err != nil {
+	schema, err := checkExtensionInstalled(ctx, q)
+	if err != nil {
 		return nil, statementsError(ctx, "pg_stat_statements check", err)
 	}
-
-	if err := checkExtensionReadable(ctx, pool); err != nil {
+	result.StatementsSchema = schema
+	rel := statementsRelation(schema)
+	if err := checkExtensionReadable(ctx, q, rel); err != nil {
 		return nil, statementsError(ctx, "pg_stat_statements access", err)
 	}
 
-	queryVisible, err := checkQueryTextVisible(ctx, pool)
+	queryVisible, err := checkQueryTextVisible(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("query text visibility check: %w", err)
 	}
 	result.QueryTextVisible = queryVisible
-
-	hasWAL, err := checkWALColumns(ctx, pool)
-	if err != nil {
-		return nil, fmt.Errorf("WAL columns check: %w", err)
+	if err := checkCapabilityColumns(ctx, q, rel, result); err != nil {
+		return nil, err
 	}
-	result.HasWALColumns = hasWAL
-
-	hasPlan, err := checkPlanTimeColumns(ctx, pool)
-	if err != nil {
-		return nil, fmt.Errorf("plan time columns check: %w", err)
-	}
-	result.HasPlanTimeColumns = hasPlan
-
 	return result, nil
 }
 
@@ -80,24 +72,24 @@ func queryCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, 5*time.Second)
 }
 
-func checkConnectivity(ctx context.Context, pool *pgxpool.Pool) error {
+func checkConnectivity(ctx context.Context, q querier) error {
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	var one int
-	err := pool.QueryRow(qctx, "SELECT 1").Scan(&one)
+	err := q.QueryRow(qctx, "SELECT 1").Scan(&one)
 	if err != nil {
 		return fmt.Errorf("cannot connect to PostgreSQL: %w", err)
 	}
 	return nil
 }
 
-func checkPGVersion(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+func checkPGVersion(ctx context.Context, q querier) (int, error) {
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
 	var versionNum int
-	err := pool.QueryRow(
+	err := q.QueryRow(
 		qctx,
 		"SELECT current_setting('server_version_num')::int",
 	).Scan(&versionNum)
@@ -113,27 +105,32 @@ func checkPGVersion(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	return versionNum, nil
 }
 
-func checkExtensionInstalled(ctx context.Context, pool *pgxpool.Pool) error {
+// statementsSchemaSQL finds the schema pg_stat_statements was created in.
+const statementsSchemaSQL = `/* pg_sage */ SELECT n.nspname::text
+  FROM pg_catalog.pg_extension e
+  JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+ WHERE e.extname = 'pg_stat_statements'`
+
+// checkExtensionInstalled returns the schema of pg_stat_statements.
+func checkExtensionInstalled(ctx context.Context, q querier) (string, error) {
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
-	var one int
-	err := pool.QueryRow(
-		qctx,
-		"SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'",
-	).Scan(&one)
-	if err != nil {
-		return fmt.Errorf(
+	var schema string
+	if err := q.QueryRow(qctx, statementsSchemaSQL).Scan(&schema); err != nil {
+		return "", fmt.Errorf(
 			"pg_stat_statements extension is not installed; "+
 				"install it with: CREATE EXTENSION pg_stat_statements; "+
 				"and add shared_preload_libraries = 'pg_stat_statements' "+
-				"to postgresql.conf, then restart PostgreSQL: %w", err,
+				"to postgresql.conf, then restart PostgreSQL (the dashboard's "+
+				"first look lists the exact steps for this provider): %w", err,
 		)
 	}
-	return nil
+	return schema, nil
 }
 
-func checkExtensionReadable(ctx context.Context, pool *pgxpool.Pool) error {
+// checkExtensionReadable reads rel, the qualified pg_stat_statements.
+func checkExtensionReadable(ctx context.Context, q querier, rel string) error {
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
@@ -142,84 +139,29 @@ func checkExtensionReadable(ctx context.Context, pool *pgxpool.Pool) error {
 	// ErrNoRows and gets misreported as a permission failure (audit L).
 	// A genuine permission error still surfaces here.
 	var n int
-	err := pool.QueryRow(
-		qctx,
-		"/* pg_sage */ SELECT count(*) FROM pg_stat_statements",
-	).Scan(&n)
+	err := q.QueryRow(qctx, "/* pg_sage */ SELECT count(*) FROM "+rel).Scan(&n)
 	if err != nil {
 		return fmt.Errorf(
-			"cannot read pg_stat_statements — ensure the connected role "+
-				"has the pg_read_all_stats role or is a superuser: %w", err,
+			"cannot read %s — ensure the connected role "+
+				"has the pg_read_all_stats role or is a superuser: %w", rel, err,
 		)
 	}
 	return nil
 }
 
-func checkQueryTextVisible(
-	ctx context.Context, pool *pgxpool.Pool,
-) (bool, error) {
+// checkQueryTextVisible reports pg_read_all_stats membership. A failed
+// query is an error (unknown), never "hidden".
+func checkQueryTextVisible(ctx context.Context, q querier) (bool, error) {
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
-	var query *string
-	err := pool.QueryRow(
-		qctx,
-		"/* pg_sage */ SELECT query FROM pg_stat_statements WHERE query IS NOT NULL LIMIT 1",
-	).Scan(&query)
+	var visible bool
+	err := q.QueryRow(qctx, "/* pg_sage */ SELECT "+rolegrants.QueryTextVisibleSQL).
+		Scan(&visible)
 	if err != nil {
-		// No rows with non-null query text — likely all NULL.
-		return false, nil
+		return false, fmt.Errorf("check pg_read_all_stats membership: %w", err)
 	}
-	return true, nil
-}
-
-func checkPlanTimeColumns(
-	ctx context.Context, pool *pgxpool.Pool,
-) (bool, error) {
-	qctx, cancel := queryCtx(ctx)
-	defer cancel()
-
-	// pg_stat_statements is a view, so information_schema.columns may not
-	// list it under pg_catalog. Query the view columns directly via
-	// pg_attribute on the relation OID, which works for both tables and views.
-	var exists bool
-	err := pool.QueryRow(
-		qctx,
-		`SELECT EXISTS(
-			SELECT 1 FROM pg_attribute
-			WHERE attrelid = 'pg_stat_statements'::regclass
-			  AND attname = 'total_plan_time'
-			  AND NOT attisdropped
-		)`,
-	).Scan(&exists)
-	if err != nil {
-		return false, nil
-	}
-	return exists, nil
-}
-
-func checkWALColumns(
-	ctx context.Context, pool *pgxpool.Pool,
-) (bool, error) {
-	qctx, cancel := queryCtx(ctx)
-	defer cancel()
-
-	// Use pg_attribute instead of information_schema.columns since
-	// pg_stat_statements is a view, not a base table.
-	var exists bool
-	err := pool.QueryRow(
-		qctx,
-		`SELECT EXISTS(
-			SELECT 1 FROM pg_attribute
-			WHERE attrelid = 'pg_stat_statements'::regclass
-			  AND attname = 'wal_records'
-			  AND NOT attisdropped
-		)`,
-	).Scan(&exists)
-	if err != nil {
-		return false, nil
-	}
-	return exists, nil
+	return visible, nil
 }
 
 // statementsError marks a pg_stat_statements failure degradable, unless the

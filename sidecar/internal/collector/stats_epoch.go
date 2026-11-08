@@ -29,7 +29,8 @@ const postmasterEpochSQL = sageTag + `SELECT pg_postmaster_start_time()`
 // (R10). An unknown epoch is recorded as such, never guessed.
 func (c *Collector) collectStatementsEpoch(ctx context.Context) time.Time {
 	var hasInfo bool
-	if err := c.catalogQueryRow(ctx, statementsInfoProbeSQL).Scan(&hasInfo); err != nil {
+	probe := c.statementsSQL(statementsInfoProbeSQL)
+	if err := c.catalogQueryRow(ctx, probe).Scan(&hasInfo); err != nil {
 		c.logFn("WARN", "probe pg_stat_statements_info: %v; "+
 			"statistics epoch unknown this cycle", err)
 		return time.Time{}
@@ -39,7 +40,7 @@ func (c *Collector) collectStatementsEpoch(ctx context.Context) time.Time {
 		sql = statementsEpochSQL
 	}
 	var epoch time.Time
-	if err := c.catalogQueryRow(ctx, sql).Scan(&epoch); err != nil {
+	if err := c.catalogQueryRow(ctx, c.statementsSQL(sql)).Scan(&epoch); err != nil {
 		c.logFn("WARN", "read pg_stat_statements statistics epoch: %v; "+
 			"statistics epoch unknown this cycle", err)
 		return time.Time{}
