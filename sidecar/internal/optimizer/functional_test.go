@@ -311,7 +311,7 @@ func TestFunctional_Validate_MaxIndexesReached(t *testing.T) {
 }
 
 func TestFunctional_Validate_GINWithoutPgTrgm(t *testing.T) {
-	// With nil pool, extensionInstalled returns true (can't check).
+	// With nil pool, the extension check admits (cannot check).
 	// extractColumnsFromDDL parses "status gin_trgm_ops" as the
 	// column name (includes opclass). We need to test that the
 	// extension check passes. Use a column-less DDL that skips
@@ -434,10 +434,11 @@ func TestFunctional_Validate_ColumnExtractionEmpty(t *testing.T) {
 
 func TestFunctional_Validate_NilPoolExtension(t *testing.T) {
 	v := fnNewTestValidator(fnTestOptimizerConfig())
-	// extensionInstalled with nil pool returns true.
-	got := v.extensionInstalled(context.Background(), "pg_trgm")
-	if !got {
-		t.Error("extensionInstalled(nil pool) should return true")
+	// The extension check with nil pool admits (cannot check).
+	ok, reason := v.checkExtensionRequired(context.Background(), Recommendation{
+		DDL: "CREATE INDEX CONCURRENTLY i ON t USING gist (c gist_trgm_ops)"}, TableContext{})
+	if !ok {
+		t.Errorf("checkExtensionRequired(nil pool) should admit, got %q", reason)
 	}
 }
 

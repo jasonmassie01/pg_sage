@@ -23,6 +23,9 @@ type Validator struct {
 	timeouts catalogread.Timeouts
 	// extensions whose member functions an expression index may call.
 	extensions []string
+	// extensionSource, when set, answers which extensions are installed
+	// instead of the catalog (tests).
+	extensionSource func(context.Context, []string) (map[string]bool, error)
 }
 
 // NewValidator creates a Validator.
@@ -60,7 +63,7 @@ func (v *Validator) Validate(
 	if ok, reason := v.checkMaxIndexes(tc); !ok {
 		return false, reason
 	}
-	if ok, reason := v.checkExtensionRequired(ctx, rec); !ok {
+	if ok, reason := v.checkExtensionRequired(ctx, rec, tc); !ok {
 		return false, reason
 	}
 	if ok, reason := v.checkBRINCorrelation(rec, tc); !ok {
@@ -167,45 +170,6 @@ func (v *Validator) checkMaxIndexes(tc TableContext) (bool, string) {
 	}
 	if tc.IndexCount >= max {
 		return false, "table already has maximum indexes"
-	}
-	return true, ""
-}
-
-// extensionInstalled checks if a PostgreSQL extension is installed.
-func (v *Validator) extensionInstalled(
-	ctx context.Context,
-	extName string,
-) bool {
-	if v.pool == nil {
-		return true // can't check, assume installed
-	}
-	var exists bool
-	err := v.pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = $1)",
-		extName,
-	).Scan(&exists)
-	return err == nil && exists
-}
-
-// checkExtensionRequired validates that GIN+pg_trgm and GiST+PostGIS
-// recommendations have the required extension installed.
-func (v *Validator) checkExtensionRequired(
-	ctx context.Context,
-	rec Recommendation,
-) (bool, string) {
-	lower := strings.ToLower(rec.DDL)
-	if rec.IndexType == "gin" &&
-		(strings.Contains(lower, "gin_trgm_ops") || strings.Contains(lower, "trgm")) {
-		if !v.extensionInstalled(ctx, "pg_trgm") {
-			return false, "requires pg_trgm extension which is not installed"
-		}
-	}
-	if rec.IndexType == "gist" &&
-		(strings.Contains(lower, "geometry") || strings.Contains(lower, "geography") ||
-			strings.Contains(lower, "st_")) {
-		if !v.extensionInstalled(ctx, "postgis") {
-			return false, "requires postgis extension which is not installed"
-		}
 	}
 	return true, ""
 }
