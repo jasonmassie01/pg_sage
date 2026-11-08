@@ -160,7 +160,7 @@ func (w *Watcher) reload() {
 		log.Printf("[WARN] [config-watcher] parse failed: %v", err)
 		return
 	}
-	if err := fresh.validate(); err != nil {
+	if err := fresh.validateFileConfig(); err != nil {
 		log.Printf("[WARN] [config-watcher] invalid config, keeping previous: %v", err)
 		return
 	}

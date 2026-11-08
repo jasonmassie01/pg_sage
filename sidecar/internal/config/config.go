@@ -676,7 +676,7 @@ func Load(args []string) (*Config, error) {
 			"standalone mode requires postgres connection config or --meta-db")
 	}
 
-	if err := cfg.validate(); err != nil {
+	if err := cfg.validateFileConfig(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
 

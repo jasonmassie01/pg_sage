@@ -43,13 +43,29 @@ func buildAlertRoutes(
 
 	routes := make(map[string][]alerting.Channel)
 	for _, r := range c.Alerting.Routes {
+		routed := make(map[string]bool, len(r.Channels))
 		for _, chName := range r.Channels {
-			if ch, ok := channels[chName]; ok {
-				routes[r.Severity] = append(
-					routes[r.Severity], ch,
-				)
+			key, ok := c.Alerting.ResolveAlertChannel(chName)
+			if !ok {
+				warnUnroutedChannel(logFn, r.Severity, chName)
+				continue
+			}
+			if !routed[key] {
+				routed[key] = true
+				routes[r.Severity] = append(routes[r.Severity], channels[key])
 			}
 		}
 	}
 	return routes
+}
+
+// warnUnroutedChannel reports a route channel that resolves to nothing.
+// Startup validation refuses these; a hot-reloaded secret can still empty
+// a channel, and that must not go silent (alerting-08).
+func warnUnroutedChannel(logFn func(string, string, ...any), severity, name string) {
+	if logFn == nil {
+		return
+	}
+	logFn("WARN", "alerting: %s route channel %q is not configured; nothing is sent to it",
+		severity, name)
 }

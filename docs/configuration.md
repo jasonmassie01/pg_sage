@@ -1818,6 +1818,46 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 
+### Alerting
+
+`alerting.*` sends new findings to Slack, PagerDuty and generic webhooks by severity. When
+`alerting.enabled` is true the block is checked at startup, and a sidecar whose routes would
+send nothing refuses to start with an error naming the key (for example
+`alerting.routes[0].channels[0] "Slack" is not a configured channel ... did you mean "slack"?`).
+A disabled block is not checked. In fleet mode the one shared block is checked once.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `alerting.enabled` | `false` | Send alerts. Needs at least one route that reaches a usable channel |
+| `alerting.check_interval_seconds` | `60` | How often new findings are read |
+| `alerting.cooldown_minutes` | `15` | Raises the per-severity cooldown floors: critical 5 min, warning 30 min, info 6 h. A value below a floor leaves that floor |
+| `alerting.quiet_hours_start` / `alerting.quiet_hours_end` | empty | `HH:MM` (00:00-23:59); set both or neither. The window may cross midnight. Warning and info alerts are deferred, never dropped, until it ends; critical alerts bypass it |
+| `alerting.timezone` | `UTC` (empty) | IANA zone for quiet hours, such as `America/Chicago`; an unknown zone refuses startup |
+| `alerting.slack_webhook_url` | empty | Slack incoming webhook; required by a route naming `slack` |
+| `alerting.pagerduty_routing_key` | empty | PagerDuty Events v2 routing key; required by a route naming `pagerduty` |
+| `alerting.webhooks[].name` | | Unique, non-empty name a route uses to reach the webhook |
+| `alerting.webhooks[].url` | | Where the JSON alert is posted; required |
+| `alerting.webhooks[].headers` | | Extra request headers; use `${NAME}` for secrets |
+| `alerting.routes[].severity` | | `critical`, `warning` or `info` (lower case) |
+| `alerting.routes[].channels` | | `slack`, `pagerduty`, or a webhook as `webhook:<name>` or plain `<name>`. Names are case-sensitive; `slack` and `pagerduty` always mean the built-in channels |
+
+```yaml
+alerting:
+  enabled: true
+  slack_webhook_url: ${SAGE_SLACK_WEBHOOK}
+  webhooks:
+    - name: myapp
+      url: https://hooks.example.com/pg-sage
+  routes:
+    - severity: critical
+      channels: [slack, myapp]      # myapp is the same as webhook:myapp
+    - severity: warning
+      channels: [slack]
+```
+
+A severity with no route is not sent. Values changed later through the settings API are not
+checked again; if a route channel then has no URL or key, routing logs a warning naming it.
+
 ### Retention
 
 | Parameter | Default | Description |

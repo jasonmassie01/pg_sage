@@ -92,6 +92,12 @@ alerting:
   webhooks:
     - name: test
       url: http://localhost:9999/alert-hook
+  # Alerting must route somewhere when enabled (alerting-08).
+  routes:
+    - severity: critical
+      channels: [test]
+    - severity: warning
+      channels: [test]
 
 auto_explain:
   enabled: true
