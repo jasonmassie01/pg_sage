@@ -65,15 +65,12 @@ func connectionsInUse(a DaySystemAgg) float64 {
 func forecastConnectionSaturation(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
-	known := knownDays(aggs, func(a DaySystemAgg) bool {
-		return a.BackendsUnknown || a.MaxConnectionsUnknown
-	})
+	known := knownConnectionDays(aggs)
 	if len(known) < minDataPoints {
 		return nil
 	}
 
-	points := sysToDataPoints(known, connectionsInUse)
-	reg := LinearRegression(points)
+	reg := LinearRegression(sysToDataPoints(known, connectionsInUse))
 
 	latest := known[len(known)-1]
 	maxConns := latest.MaxConnections

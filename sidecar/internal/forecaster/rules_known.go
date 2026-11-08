@@ -24,6 +24,14 @@ func knownSizeDays(aggs []DaySystemAgg) []DaySystemAgg {
 	return knownDays(aggs, func(a DaySystemAgg) bool { return a.DBSizeUnknown })
 }
 
+// knownConnectionDays returns the days with backend counts and
+// max_connections both known.
+func knownConnectionDays(aggs []DaySystemAgg) []DaySystemAgg {
+	return knownDays(aggs, func(a DaySystemAgg) bool {
+		return a.BackendsUnknown || a.MaxConnectionsUnknown
+	})
+}
+
 // elapsedDays counts the whole days from one daily aggregate to the next,
 // at least 1, so a rate across a skipped or missing day is not doubled.
 // Rounding absorbs a 23 or 25 hour day at a DST change.
