@@ -162,11 +162,25 @@ func (e *Executor) finishRevert(ctx context.Context, actionID int64, reason stri
 	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }
 
+// revertRefusedPrefix starts the reason of a revert abandoned because the
+// index is not provably pg_sage's; an operator retry is refused too.
+const revertRefusedPrefix = "revert refused: "
+
+// refusedRevertRetry refuses a retry of a revert abandoned for identity:
+// its DROP would hit an object pg_sage did not create (executor-07).
+func refusedRevertRetry(outcome, reason string) error {
+	if outcome != "rollback_skipped" || !strings.HasPrefix(reason, revertRefusedPrefix) {
+		return nil
+	}
+	return fmt.Errorf("rollback refused: the automatic revert was abandoned (%s); "+
+		"check the object and change it by hand", reason)
+}
+
 // abandonRevert records a revert that can never be performed safely and
 // closes the verification so it is not retried against the wrong object.
 func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason string) error {
 	recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
-		"revert refused: "+reason)
+		revertRefusedPrefix+reason)
 	e.completeVerificationRevert(ctx, actionID)
 	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)
 }

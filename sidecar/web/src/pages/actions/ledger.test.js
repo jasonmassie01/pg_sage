@@ -28,6 +28,16 @@ describe('canRollBackRow', () => {
       expect(canRollBackRow(row(outcome))).toBe(false)
     })
 
+  // The identity check abandoned the revert: the index is not pg_sage's.
+  it('refuses a retry of an abandoned revert', () => {
+    const reason = 'revert refused: index public.idx_a is no longer the object pg_sage created'
+    expect(canRollBackRow(row('rollback_skipped', { rollback_reason: reason }))).toBe(false)
+    expect(canRollBackRow(row('rollback_skipped', {
+      rollback_reason: 'emergency stop active; automatic rollback withheld',
+    }))).toBe(true)
+    expect(canRollBackRow(row('rollback_failed', { rollback_reason: reason }))).toBe(true)
+  })
+
   it('refuses a queued proposal even with SQL', () => {
     expect(canRollBackRow(row('rollback_failed', { record_kind: 'queued' }))).toBe(false)
   })

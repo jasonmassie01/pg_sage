@@ -307,12 +307,13 @@ func (e *Executor) runClaimedRollback(
 func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string, error) {
 	var rollbackSQL *string
 	var outcome string
-	var category string
+	var category, reason string
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT a.rollback_sql, a.outcome, COALESCE(f.category,'')
+		`/* pg_sage */ SELECT a.rollback_sql, a.outcome, COALESCE(f.category,''),
+       COALESCE(a.rollback_reason, '')
  FROM sage.action_log a LEFT JOIN sage.findings f ON f.id=a.finding_id WHERE a.id = $1`,
 		actionID,
-	).Scan(&rollbackSQL, &outcome, &category)
+	).Scan(&rollbackSQL, &outcome, &category, &reason)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("action not found")
@@ -324,6 +325,9 @@ func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string,
 	}
 	if outcome == "rolled_back" {
 		return "", fmt.Errorf("action already rolled back")
+	}
+	if err := refusedRevertRetry(outcome, reason); err != nil {
+		return "", err
 	}
 	if rollbackSQL == nil || strings.TrimSpace(*rollbackSQL) == "" {
 		return "", fmt.Errorf("action has no rollback SQL")
