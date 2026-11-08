@@ -24,9 +24,32 @@ later revision closes a gap.
 The Lakebase integration uses the standard PostgreSQL wire protocol and the
 official Databricks Go SDK for unified authentication. It supports local CLI
 profiles and Databricks Apps service principal credentials. Short-lived
-database tokens are obtained at physical connection time, cached until two
-minutes before expiry, and never written into pg_sage configuration or its
-metadata database.
+database tokens are obtained at physical connection time and never written
+into pg_sage configuration or its metadata database.
+
+Each pool keeps one cached database token (in fleet mode, one per database
+pool). Lakebase checks a token's expiry only at login, so open connections
+are unaffected by expiry and only new physical connections need a valid token:
+
+- A cached token with more than 15 minutes left is used without contacting
+  Databricks.
+- With 15 minutes or less left, the next new connection mints a fresh token.
+  One mint runs at a time and is bounded to 20 seconds; other connections keep
+  using the cached token meanwhile instead of queueing behind the mint.
+- If the mint fails (for example while the workspace control plane throttles
+  or is unavailable), connections keep using the cached token while it has
+  more than 30 seconds left. pg_sage logs one warning per minute
+  (`lakebase credential refresh failed; using the cached credential`) with the
+  endpoint, the consecutive failure count and the time the cached token stays
+  valid. With 30 seconds or less left, new connections fail with
+  `refresh Lakebase database credential: ...` until a mint succeeds.
+
+At startup the endpoint lookup is part of each connection attempt: the meta
+database, the monitored database and every fleet database retry a throttled,
+unavailable or unreachable endpoint lookup up to five times with backoff
+(1, 2, 4 and 8 seconds), each lookup bounded to 30 seconds. A permission
+denied (403) or not found (404) answer, an invalid endpoint mapping and an
+unverified TLS mode stop startup at once with an error naming the endpoint.
 
 The current [dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md)
 verifies Databricks-only App sign-in, native Gateway OAuth M2M, connected Fleet,
