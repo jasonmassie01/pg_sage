@@ -81,6 +81,7 @@ var (
 	ErrInvalidTransition = errors.New("facts: decision not allowed in the fact's status")
 	ErrChanged           = errors.New("facts: the fact changed since it was shown")
 	ErrModelOutput       = errors.New("facts: model output is not a fact list")
+	ErrUngrounded        = errors.New("facts: the cited evidence is not about the subject")
 )
 
 // Citation is one piece of evidence behind a proposal.

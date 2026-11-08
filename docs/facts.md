@@ -41,8 +41,15 @@ would not have done anyway.
   * logical replication slots and their consumer;
   * tables with a million inserts and no update or delete.
 * **The model** (when an LLM is configured) proposes facts from a bounded summary of the
-  catalog, at most once a day. Every model proposal must cite the evidence it was shown and
-  passes the same validation as any other; it is only ever a proposal.
+  catalog, at most once a day: schema summaries, logical slots, and indexes pg_sage dropped
+  that came back. Every model proposal must cite the evidence it was shown and passes the
+  same validation as any other; it is only ever a proposal. The cited evidence must also be
+  about the proposal's own subject: a schema fact cites that schema's summary, a slot fact
+  its slot, an index fact its drop history, and a subject with `*` cites at least two
+  distinct objects it matches. The model is shown no table evidence, so it proposes no
+  table facts (`append_only`, `table_window`, or ownership of a table); the detectors and
+  you still can. A proposal that fails this is dropped and logged
+  (`facts: model proposal dropped: ... the cited evidence is not about the subject`).
 * **You** can declare a fact directly; your declaration confirms it.
 * What you already declared with the MCP tools `register_consumer` and
   `declare_table_contract` (append-only) is imported as confirmed facts.
