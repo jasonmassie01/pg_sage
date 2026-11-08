@@ -103,10 +103,11 @@ func TestFactCitations_AliasesResolveThroughTheRun(t *testing.T) {
 	want := "finding:5|ask_sage:finding|finding:5 open sha256:" + digest
 	got := runCitations(t, ss, []string{"E1"}, []string{"E1", "finding:5"},
 		[]string{"E2"}, []string{"E9"}, []string{"e1"}, []string{"E1", "E2"})
+	// E1 and finding:5 name the same evidence, so it is cited once.
 	for i, r := range got[:2] {
-		if r.err != nil || r.first != want || r.cites != len(r.refs) {
-			t.Errorf("case %d %v: %d cites, first %q, err %v; want %d cites, first %q",
-				i, r.refs, r.cites, r.first, r.err, len(r.refs), want)
+		if r.err != nil || r.first != want || r.cites != 1 {
+			t.Errorf("case %d %v: %d cites, first %q, err %v; want 1 cite, first %q",
+				i, r.refs, r.cites, r.first, r.err, want)
 		}
 	}
 	// E2 is the loop's alias for evidence the session never read; E9 was
@@ -135,6 +136,12 @@ func TestFactCitations_CountBoundaries(t *testing.T) {
 		cites[maxFactEvidence-1].Ref != ids[maxFactEvidence-1] {
 		t.Fatalf("%d refs: %d cites (%v), want %d", maxFactEvidence, len(cites), err,
 			maxFactEvidence)
+	}
+	same := []string{ids[0], ids[1], ids[0], ids[0], ids[1], ids[0]}
+	if cites, err := ss.factCitations(ctx, same); err != nil || len(cites) != 2 ||
+		cites[0].Ref != ids[0] || cites[1].Ref != ids[1] {
+		t.Fatalf("repeated refs: %+v (%v), want %s then %s once each", cites, err, ids[0],
+			ids[1])
 	}
 	for _, refs := range [][]string{nil, {}, ids} {
 		if cites, err := ss.factCitations(ctx, refs); !errors.Is(err,

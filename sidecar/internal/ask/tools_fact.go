@@ -80,6 +80,7 @@ func (ss *session) proposeFact(ctx context.Context, raw json.RawMessage) (agentl
 // factCitations turns evidence this run read into fact citations. A ref
 // is an alias the loop issued (E1, E2, ...) or a durable id; either way
 // the evidence must be what this session read, or the ref is refused.
+// Two refs to the same evidence (E1 and its finding:42) cite it once.
 func (ss *session) factCitations(ctx context.Context, refs []string) ([]facts.Citation,
 	error) {
 	if len(refs) == 0 || len(refs) > maxFactEvidence {
@@ -89,6 +90,7 @@ func (ss *session) factCitations(ctx context.Context, refs []string) ([]facts.Ci
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	out := make([]facts.Citation, 0, len(refs))
+	cited := make(map[string]bool, len(refs))
 	for _, ref := range refs {
 		id := ref
 		if ev, ok := agentloop.ResolveEvidence(ctx, ref); ok {
@@ -99,6 +101,10 @@ func (ss *session) factCitations(ctx context.Context, refs []string) ([]facts.Ci
 			return nil, invalidArgs("evidence %q was not read in this turn; cite the alias "+
 				"(E1, E2, ...) shown with a result", ref)
 		}
+		if cited[id] {
+			continue
+		}
+		cited[id] = true
 		kind, _, _ := strings.Cut(id, ":")
 		out = append(out, facts.Citation{Kind: "ask_sage:" + kind, Ref: id,
 			Detail: clip(ev.Label+" sha256:"+ev.Digest, 300)})
