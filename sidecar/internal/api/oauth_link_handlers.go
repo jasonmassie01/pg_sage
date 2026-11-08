@@ -48,25 +48,28 @@ func oauthAuthorizeRouter(
 		}
 		// The authorize route is public for login, so the link branch
 		// resolves the session itself.
-		user := sessionUser(r, pool)
-		if user == nil {
+		user, err := sessionUser(r, pool)
+		if errors.Is(err, auth.ErrSessionInvalid) {
 			jsonError(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			writeSessionStoreUnavailable(w, r, err)
 			return
 		}
 		startLinkRoundTrip(w, r, provider, user.ID, auth.LinkViaSession)
 	}
 }
 
-func sessionUser(r *http.Request, pool *pgxpool.Pool) *auth.User {
+// sessionUser resolves the request's session: the user, ErrSessionInvalid
+// for no cookie or an invalid one, or ErrSessionStoreUnavailable when the
+// store cannot answer (apiauth-02).
+func sessionUser(r *http.Request, pool *pgxpool.Pool) (*auth.User, error) {
 	cookie, err := r.Cookie("sage_session")
-	if err != nil || pool == nil {
-		return nil
-	}
-	user, err := auth.ValidateSession(r.Context(), pool, cookie.Value)
 	if err != nil {
-		return nil
+		return nil, auth.ErrSessionInvalid
 	}
-	return user
+	return auth.ValidateSession(r.Context(), pool, cookie.Value)
 }
 
 func startLinkRoundTrip(

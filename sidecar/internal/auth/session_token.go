@@ -24,6 +24,12 @@ var sessionTokenLen = base64.RawURLEncoding.EncodedLen(sessionTokenBytes)
 // other ValidateSession error is a failure of the session store itself.
 var ErrSessionInvalid = errors.New("session invalid or expired")
 
+// ErrSessionStoreUnavailable is a session lookup the store could not answer
+// (no pool, a refused or dropped connection, a timeout). It says nothing
+// about the cookie, so callers answer 503 and keep the user signed in
+// (apiauth-02).
+var ErrSessionStoreUnavailable = errors.New("session store unavailable")
+
 // Execer runs one statement; *pgxpool.Pool, *pgx.Conn and pgx.Tx satisfy it.
 type Execer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)

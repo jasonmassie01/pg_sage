@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -37,12 +36,8 @@ func SessionAuthMiddleware(
 				return
 			}
 
-			if pool == nil {
-				jsonError(w, "session invalid or expired",
-					http.StatusUnauthorized)
-				return
-			}
-
+			// A nil pool is handled by ValidateSession: a malformed
+			// cookie is still 401, a well-formed one cannot be checked.
 			user, err := auth.ValidateSession(
 				r.Context(), pool, cookie.Value,
 			)
@@ -54,10 +49,7 @@ func SessionAuthMiddleware(
 			if err != nil {
 				// Fail closed, but do not bounce a signed-in user to
 				// the login page because the session store blinked.
-				slog.Error("session validation failed",
-					"path", r.URL.Path, "error", err)
-				jsonError(w, "session store unavailable",
-					http.StatusServiceUnavailable)
+				writeSessionStoreUnavailable(w, r, err)
 				return
 			}
 
