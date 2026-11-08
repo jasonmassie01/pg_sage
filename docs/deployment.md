@@ -376,8 +376,10 @@ every other database keeps its series, and the scrape itself stays fast.
 - `pg_sage_connection_up`: the last pool health check (every 30 s) in standalone and meta
   mode; in YAML fleet mode, 1 if any database's last refresh reached it. Before the first
   result there is no sample.
-- In meta mode, `pg_sage_connections_total` and `pg_sage_cache_hit_ratio` are no longer
-  exported: they described the metadata database, not a monitored one.
+- In meta mode, `pg_sage_connections_total` and `pg_sage_cache_hit_ratio` describe the
+  metadata database, refreshed on the same cadence.
+- A database that failed to connect or prepare has no refresher; it keeps reporting
+  `pg_sage_value_metrics_up 0` and `pg_sage_metrics_refresh_success{source="value"} 0`.
 
 ### Grafana Dashboard
 

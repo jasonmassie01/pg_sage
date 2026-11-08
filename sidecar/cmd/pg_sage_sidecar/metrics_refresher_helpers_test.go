@@ -23,11 +23,14 @@ func withMetricsRegistry(t *testing.T) *metricsRegistry {
 	t.Helper()
 	old := processMetrics
 	oldHealth := poolHealth.load()
+	oldProcessPool := processPoolMetrics.Load()
 	processMetrics = newMetricsRegistry()
 	poolHealth.reset()
+	processPoolMetrics.Store(nil)
 	t.Cleanup(func() {
 		processMetrics = old
 		poolHealth.restore(oldHealth)
+		processPoolMetrics.Store(oldProcessPool)
 	})
 	return processMetrics
 }

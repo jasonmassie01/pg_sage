@@ -67,9 +67,11 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 	// Value lives in each monitored database (D3), so every database
 	// runtime refreshes its own ledger, never the meta pool's.
-	writeValueMetrics(&b, views)
+	// A database that failed to connect has no runtime; it still shows.
+	monitored := withUnrefreshedInstances(views, fleetMgr)
+	writeValueMetrics(&b, monitored)
 	writeSLOMetrics(&b, views)
-	writeMetricsRefreshSeries(&b, views)
+	writeMetricsRefreshSeries(&b, monitored)
 	writeSelfCostFromFleet(&b, fleetMgr)
 	writeSelfBudgetFromFleet(&b, fleetMgr)
 	writeOptimizerMemoryFromFleet(&b, fleetMgr)
@@ -200,10 +202,11 @@ func writeFleetMetrics(b *strings.Builder) {
 	b.WriteString("\n")
 }
 
-// writeDatabaseMetrics renders the standalone database's last pg_stat
-// refresh and the collector's cached size; a failed refresh omits them.
+// writeDatabaseMetrics renders the process database's last pg_stat
+// refresh (the monitored database, or the metadata database in meta mode)
+// and the collector's cached size; a failed refresh omits the pg_stat ones.
 func writeDatabaseMetrics(b *strings.Builder, views []metricsView) {
-	v, found := sourceView(views, metricsSourcePGStat)
+	v, found := pgStatView(views)
 	fresh := found && v.ok(metricsSourcePGStat)
 	var stat pgStatValues
 	if fresh {

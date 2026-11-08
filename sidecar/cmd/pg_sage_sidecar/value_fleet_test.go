@@ -216,9 +216,12 @@ func installValueFleet(pools map[string]*pgxpool.Pool) {
 			Name: name, Pool: p, Config: config.DatabaseConfig{Name: name},
 			Status: &fleet.InstanceStatus{Connected: p != nil, LastSeen: time.Now()},
 		})
-		// What each database runtime's start hook registers.
-		processMetrics.register(newMetricsRefresher(name, fixedInterval(time.Hour),
-			valueMetricsSource(name, p)))
+		// What each database runtime's start hook registers. A database
+		// without a pool failed to connect: it has no runtime, so none.
+		if p != nil {
+			processMetrics.register(newMetricsRefresher(name, fixedInterval(time.Hour),
+				valueMetricsSource(name, p)))
+		}
 	}
 }
 

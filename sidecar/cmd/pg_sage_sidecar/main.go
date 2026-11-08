@@ -257,6 +257,7 @@ func initProcessContext() {
 
 	// Background pool health.
 	go poolHealthCheck()
+	startProcessPoolMetrics(shutdownCtx, cfg, pool) // meta mode's pg_stat series
 
 	// Cloud environment detection.
 	cloudEnvironment = detectCloudEnvironment()
