@@ -71,12 +71,13 @@ func (p *OAuthProvider) getJSON(
 func (p *OAuthProvider) fetchUserinfo(
 	ctx context.Context, accessToken string,
 ) (map[string]json.RawMessage, error) {
-	endpoint := p.discovery.UserinfoEndpoint
-	if endpoint == "" {
+	disc, _ := p.discovered()
+	if disc == nil || disc.UserinfoEndpoint == "" {
 		return nil, fmt.Errorf("oauth: no userinfo endpoint")
 	}
 	var info map[string]json.RawMessage
-	if err := p.getJSON(ctx, endpoint, accessToken, "userinfo", &info); err != nil {
+	if err := p.getJSON(ctx, disc.UserinfoEndpoint, accessToken, "userinfo",
+		&info); err != nil {
 		return nil, err
 	}
 	return info, nil

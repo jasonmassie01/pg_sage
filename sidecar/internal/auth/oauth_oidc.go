@@ -53,26 +53,27 @@ func (p *OAuthProvider) discoverOIDC(ctx context.Context, issuer string) error {
 	}
 	keys := oidc.NewRemoteKeySet(oidc.ClientContext(context.Background(), p.client),
 		disc.JWKSURI)
-	p.verifier = oidc.NewVerifier(disc.Issuer, keys, &oidc.Config{
+	p.storeDiscovered(&disc, oidc.NewVerifier(disc.Issuer, keys, &oidc.Config{
 		ClientID: p.cfg.ClientID, SupportedSigningAlgs: disc.SigningAlgs,
-	})
-	p.discovery = &disc
+	}))
 	return nil
 }
 
 // checkDiscovery enforces OIDC Discovery 1.0 section 4.3: the document
 // must name the configured issuer, and it must publish the keys that sign
-// id_tokens.
+// id_tokens. Its failures are misconfigurations (ErrDiscoveryMisconfigured).
 func checkDiscovery(disc *OIDCDiscovery, issuer string) error {
 	if disc.AuthorizationEndpoint == "" || disc.TokenEndpoint == "" {
-		return fmt.Errorf("oauth: discovery missing required endpoints")
+		return fmt.Errorf("%w: discovery missing required endpoints",
+			ErrDiscoveryMisconfigured)
 	}
 	if strings.TrimRight(disc.Issuer, "/") != issuer {
-		return fmt.Errorf("oauth: discovery issuer %q does not match configured "+
-			"issuer %q", disc.Issuer, issuer)
+		return fmt.Errorf("%w: discovery issuer %q does not match configured "+
+			"issuer %q", ErrDiscoveryMisconfigured, disc.Issuer, issuer)
 	}
 	if disc.JWKSURI == "" {
-		return fmt.Errorf("oauth: discovery has no jwks_uri; id_tokens cannot be verified")
+		return fmt.Errorf("%w: discovery has no jwks_uri; id_tokens cannot be verified",
+			ErrDiscoveryMisconfigured)
 	}
 	return nil
 }
@@ -111,10 +112,11 @@ func (p *OAuthProvider) oidcIdentity(
 func (p *OAuthProvider) verifyIDToken(
 	ctx context.Context, raw, nonce string,
 ) (*oidc.IDToken, error) {
-	if p.verifier == nil {
+	_, verifier := p.discovered()
+	if verifier == nil {
 		return nil, fmt.Errorf("%w: discovery not performed", ErrOIDCIDTokenInvalid)
 	}
-	tok, err := p.verifier.Verify(oidc.ClientContext(ctx, p.client), raw)
+	tok, err := verifier.Verify(oidc.ClientContext(ctx, p.client), raw)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrOIDCIDTokenInvalid, err)
 	}
