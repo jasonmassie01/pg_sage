@@ -60,3 +60,33 @@ func TestScorerMarkedChangePgSageMadeIsNotScoredExternal(t *testing.T) {
 	}
 	unscoredAtHorizon(t, pool, s, d.ID)
 }
+
+// Earned-03 review: pg_sage built the index after the decision and rolled
+// it back (its action past the pass's action window), so the catalog has
+// no index; that action already decided the decision, and the what-if
+// must not count it as shadow evidence too.
+func TestScorerOwnRolledBackIndexIsNotWhatIfScored(t *testing.T) {
+	pool, _ := testPool(t)
+	qid := hypoFixture(t, pool)
+	t.Cleanup(func() { mustExec(t, pool, `DELETE FROM sage.query_store WHERE queryid = $1`, qid) })
+	s := NewStore(pool)
+	o := fastOptions()
+	d := hypoShadow(t, s, pool, `CREATE INDEX CONCURRENTLY i_own_rb ON public.shadow_hypo (a)`,
+		qid, o.ScoreAfter+3*time.Hour)
+	other := hypoShadow(t, s, pool,
+		`CREATE INDEX CONCURRENTLY i_other_rb ON public.shadow_hypo (a, b)`, qid,
+		o.ScoreAfter+3*time.Hour)
+	seedSeries(t, pool, qid, time.Now().Add(-30*time.Minute), 20, 5, 10)
+	busyActions(t, pool, factBatch+100, o.ScoreAfter+2*time.Hour)
+	executedAction(t, pool, "create_index",
+		`CREATE INDEX CONCURRENTLY shadow_hypo_rb ON public.shadow_hypo (a)`,
+		"rolled_back", "regressed", o.ScoreAfter+time.Hour)
+	res := runOnce(t, newScorer(pool, o))
+	assertPending(t, s, d.ID)
+	// The what-if still scores a decision pg_sage never acted on.
+	assertScore(t, s, other.ID, ScoreCorrect, SourceHypoPG, true)
+	if res.Scored[SourceHypoPG] != 1 {
+		t.Fatalf("result %+v, want one what-if score", res)
+	}
+	unscoredAtHorizon(t, pool, s, d.ID)
+}

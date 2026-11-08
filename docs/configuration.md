@@ -543,9 +543,11 @@ available, in this order (never from model text):
 Verdicts map by the family's rule: `improved` is correct (hygiene: a `neutral` that held is
 correct too), `regressed` or an operator's rollback is incorrect, a tuning `neutral` is
 neutral, `insufficient_evidence` and `unverifiable` are unscored. A matched action still being
-verified is waited for (up to 21 days). When pg_sage cannot rule out its own change (more than
-50 of its index actions on the table since the decision, or a drop whose rollback names no
-table), the change is not counted as `external`: the decision is left unscored at the horizon.
+verified is waited for (up to 21 days). A change pg_sage made itself since the decision (an
+index it built, dropped or built and rolled back) is no shadow evidence: neither `external` nor
+`hypopg` scores it. Nor is one pg_sage cannot rule out (more than 50 of its index actions on the
+table since the decision, or a drop whose rollback names no table). Such a decision is left
+unscored at the horizon.
 Each scoring pass reads the oldest and the newest pending decisions (100 each), so decisions
 waiting out their horizon never hold back newer ones an operator already decided.
 
