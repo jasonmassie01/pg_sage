@@ -169,21 +169,6 @@ func TestRejectionMemory_LoadFailureStillEvaluates(t *testing.T) {
 	}
 }
 
-// An operator's request is never suppressed by memory; its rejection is
-// still remembered.
-func TestRejectionMemory_OperatorRequestIsNeverSuppressed(t *testing.T) {
-	store := newMemStore(storedRejection(t, lifeosDDL("a", "id, status"), time.Hour))
-	o, w, _ := memOptimizer(store, zeroGain)
-	ctx := WithOperatorRequest(context.Background())
-	a := admitDDL(ctx, o, claimsTable(), lifeosDDL("b", "id"))
-	if a.Outcome != AdmitRejected || w.calls.Load() != 1 {
-		t.Fatalf("operator request: %+v whatif=%d", a, w.calls.Load())
-	}
-	if store.records != 1 {
-		t.Fatalf("its rejection must be remembered, records=%d", store.records)
-	}
-}
-
 // Concurrent admissions of one idea: each may measure before another
 // records, but every measurement lands on the one row for the shape.
 func TestRejectionMemory_ConcurrentAdmissionsOnOneTable(t *testing.T) {

@@ -95,12 +95,10 @@ type QueryInfo struct {
 	Operators   []string // operators used in WHERE/JOIN (e.g., "@>", "&&", "@@")
 }
 
-// PlanSummary holds a condensed execution plan for one query.
-type PlanSummary struct {
-	QueryID  int64
-	Summary  string
-	ScanType string
-	SortDisk int64
+// CostEstimate is the measured cost of an index: the size HypoPG
+// estimated for it.
+type CostEstimate struct {
+	EstimatedSizeBytes int64
 }
 
 // ColStat holds pg_stats data for a single column.

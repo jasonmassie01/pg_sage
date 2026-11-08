@@ -126,8 +126,9 @@ type Admission struct {
 
 // Admit canonicalizes, validates, checks rejection memory and HypoPG-
 // measures one candidate for tc. An idea rejection memory already measured
-// on this workload skips the what-if (unless an operator asked); a new
-// what-if rejection is remembered.
+// on this workload skips the what-if; a new what-if rejection is
+// remembered. Memory's age and material-change rules let an idea be
+// measured again once it may have changed.
 func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableContext,
 ) Admission {
 	rec, err := canonicalizeRecommendation(rec, tc)
@@ -137,13 +138,11 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
-	if !operatorRequested(ctx) {
-		if r, seen := o.memory.view(ctx, tc).suppress(rec, o.cfg.HypoPGMinImprovePct); seen {
-			o.whatIfSkips.Add(1)
-			return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
-				"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
-				r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
-		}
+	if r, seen := o.memory.view(ctx, tc).suppress(rec, o.cfg.HypoPGMinImprovePct); seen {
+		o.whatIfSkips.Add(1)
+		return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
+			"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
+			r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
 	if rejected {
@@ -224,18 +223,4 @@ func (o *Optimizer) MemoryStats() MemoryStats {
 		return MemoryStats{}
 	}
 	return MemoryStats{WhatIfSkipped: o.whatIfSkips.Load()}
-}
-
-type operatorRequestKey struct{}
-
-// WithOperatorRequest marks an admission an operator asked for: every
-// candidate is measured, whatever rejection memory says (memory still
-// records what it measures).
-func WithOperatorRequest(ctx context.Context) context.Context {
-	return context.WithValue(ctx, operatorRequestKey{}, true)
-}
-
-func operatorRequested(ctx context.Context) bool {
-	requested, _ := ctx.Value(operatorRequestKey{}).(bool)
-	return requested
 }

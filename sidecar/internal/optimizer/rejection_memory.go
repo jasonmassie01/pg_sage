@@ -16,8 +16,9 @@ import (
 // of a candidate is remembered with the workload it was measured on.
 // While that workload and the table are materially unchanged, a candidate
 // with the same shape skips the what-if, and the tuning agent's case
-// packet lists the shape as already measured. An operator's request is
-// never suppressed, and deterministic detectors do not pass through the
+// packet lists the shape as already measured. Memory never blocks for
+// good: the age limit and the material-change rules let the idea be
+// measured again, and deterministic detectors do not pass through the
 // optimizer at all.
 
 const (

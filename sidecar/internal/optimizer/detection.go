@@ -35,7 +35,6 @@ var (
 	implicitCondRe = regexp.MustCompile(
 		`(?i)WHERE\s+.*?([\w.]+\s*=\s*[\w.]+)`,
 	)
-	groupByRe = regexp.MustCompile(`(?i)\bGROUP\s+BY\b`)
 )
 
 // DetectPartialCandidates analyzes queries to find columns where >80%
@@ -199,61 +198,4 @@ func addJoinPair(
 		pairs[key] = jp
 	}
 	jp.Queries = append(jp.Queries, q)
-}
-
-// DetectMatViewCandidates finds queries that aggregate entire tables
-// (GROUP BY on full scan) which cannot be fixed with indexes.
-// Returns query IDs of candidates.
-func DetectMatViewCandidates(
-	queries []QueryInfo,
-	plans []PlanSummary,
-) []int64 {
-	planByQID := make(map[int64]PlanSummary, len(plans))
-	for _, p := range plans {
-		planByQID[p.QueryID] = p
-	}
-	var ids []int64
-	for _, q := range queries {
-		p, ok := planByQID[q.QueryID]
-		if !ok {
-			continue
-		}
-		if !strings.Contains(p.ScanType, "Seq Scan") {
-			continue
-		}
-		if !groupByRe.MatchString(q.Text) {
-			continue
-		}
-		ids = append(ids, q.QueryID)
-	}
-	return ids
-}
-
-// DetectParamTuningNeeds analyzes plans for signals that indicate
-// parameter tuning rather than index creation.
-// Returns a map of signal name to recommendation string.
-func DetectParamTuningNeeds(plans []PlanSummary) map[string]string {
-	results := make(map[string]string)
-	for _, p := range plans {
-		if p.SortDisk > 0 {
-			results["work_mem_sort"] =
-				"work_mem: Sort spilling to disk"
-		}
-		if strings.Contains(p.Summary, "Hash Batches") {
-			results["work_mem_hash"] =
-				"work_mem: Hash join spilling"
-		}
-	}
-	return results
-}
-
-// IsBRINCandidate returns true if a column has high enough physical
-// correlation (>0.8) to benefit from a BRIN index.
-func IsBRINCandidate(colStats []ColStat, column string) bool {
-	for _, cs := range colStats {
-		if strings.EqualFold(cs.Column, column) {
-			return cs.Correlation > 0.8 || cs.Correlation < -0.8
-		}
-	}
-	return false
 }

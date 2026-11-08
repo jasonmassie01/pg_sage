@@ -120,10 +120,6 @@ func TestAdmit_RememberedIdeaIsNotRemeasured(t *testing.T) {
 	if o.MemoryStats().WhatIfSkipped != 1 {
 		t.Fatalf("skips = %+v", o.MemoryStats())
 	}
-	a = o.Admit(WithOperatorRequest(context.Background()), candidate(renamed), tc)
-	if a.Outcome != AdmitAccepted || w.calls.Load() != 1 {
-		t.Fatalf("an operator's request measures anyway: %+v", a)
-	}
 }
 
 func TestAdmit_WhatIfRejectionIsRemembered(t *testing.T) {
