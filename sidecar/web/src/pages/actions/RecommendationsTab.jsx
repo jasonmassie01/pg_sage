@@ -42,6 +42,10 @@ function RecommendationCard({ row, database, mode, onReview }) {
   const blocked = mode === 'observation'
     ? 'Database changes are disabled in Observation mode.'
     : blockerText(context.blocked_reason || context.policy_decision?.blocked_reason)
+  // A case candidate says requires_approval (from the policy explainer); a
+  // finding row says approval_required. Either one shows the approval line.
+  const needsApproval = Boolean(row.approval_required || context.approval_required
+    || context.requires_approval || context.policy_decision?.requires_approval)
   const title = row.title || actionLabel(row.action_type)
   const state = ({ proposed: 'Proposed', approved: 'Approved; waiting to run',
     applying: 'Applying change', applied: 'Applied; awaiting verification', verifying: 'Verifying result',
@@ -60,7 +64,7 @@ function RecommendationCard({ row, database, mode, onReview }) {
         {row.contract_tier && <>{' · '}<span data-testid="proposal-contract">Contract tier: {
           row.contract_tier === 'none' ? 'none (advisory only)' : riskLabel(row.contract_tier)}</span></>}
       </p>
-      {row.approval_required && <p className="text-sm" data-testid="proposal-approval"
+      {needsApproval && <p className="text-sm" data-testid="proposal-approval"
         style={{ color: 'var(--yellow)' }}>Needs approval: {row.approval_reason
           || 'an operator must approve this change before it runs.'}</p>}
       <p className="text-sm" style={muted}>

@@ -54,6 +54,39 @@ describe('RecommendationsTab risk', () => {
   })
 })
 
+// The live rows are case candidates and stored recommendations: their
+// approval comes from the policy explainer as requires_approval.
+describe('RecommendationsTab approval from the case policy', () => {
+  const approvalText = 'Needs approval: an operator must approve this change before it runs.'
+
+  it('shows the approval line for a case candidate that requires approval', () => {
+    riskLine({ id: 'c1', state: 'proposed', action_type: 'alter_system_guc',
+      risk_tier: 'moderate', requires_approval: true })
+    expect(screen.getByTestId('proposal-approval').textContent).toBe(approvalText)
+  })
+
+  it('reads the nested policy decision too', () => {
+    riskLine({ id: 'c2', state: 'proposed', action_type: 'alter_system_guc',
+      risk_tier: 'moderate', policy_decision: { requires_approval: true } })
+    expect(screen.getByTestId('proposal-approval').textContent).toBe(approvalText)
+  })
+
+  it('uses the current candidate of a stored recommendation', () => {
+    riskLine({ id: 'r1', state: 'proposed', storedRecommendation: true,
+      action_type: 'drop_unused_index',
+      currentCandidate: { action_type: 'drop_unused_index', risk_tier: 'high',
+        requires_approval: true } })
+    expect(screen.getByTestId('proposal-approval').textContent).toBe(approvalText)
+  })
+
+  it('shows no approval line when the policy does not require one', () => {
+    riskLine({ id: 'c3', state: 'proposed', action_type: 'analyze_table',
+      risk_tier: 'safe', requires_approval: false,
+      policy_decision: { requires_approval: false } })
+    expect(screen.queryByTestId('proposal-approval')).toBeNull()
+  })
+})
+
 describe('riskLabel', () => {
   it('maps every normalized tier', () => {
     expect(riskLabel('safe')).toBe('Low')
