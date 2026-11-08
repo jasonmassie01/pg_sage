@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { CasesPage } from './pages/CasesPage'
@@ -28,6 +28,8 @@ import { resolveSelectedDB } from './lib/selectedDatabase'
 import { readPref, writePref } from './lib/storage'
 import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
+import { AuthStoreBanner, AuthStoreRetry } from './components/AuthStoreStatus'
+import { isAuthStoreUnavailable } from './lib/authExpiry'
 import { LiveEventsProvider } from './hooks/useLiveEvents'
 import { ToastProvider } from './components/Toast'
 import { PostgresMeme } from './components/PostgresMeme'
@@ -124,12 +126,17 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   const [authChecked, setAuthChecked] = useState(false)
   const [authMode, setAuthMode] = useState(null)
   const [authAttempt, setAuthAttempt] = useState(0)
+  // apiauth-02: the session store could not answer; the session may be fine.
+  const [authStoreDown, setAuthStoreDown] = useState(false)
+  const [authDegraded, setAuthDegraded] = useState(false)
+  const retryAuth = useCallback(() => setAuthAttempt(attempt => attempt + 1), [])
 
   useEffect(() => {
     let cancelled = false
     setAuthChecked(false)
     async function checkAuth() {
       let mode = null
+      let storeDown = false
       // The public mode endpoint lets an identity failure keep the platform
       // sign-in flow. Browser-supplied identity headers never choose the mode.
       try {
@@ -141,6 +148,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
       } catch { /* An unknown mode fails closed if identity also fails. */ }
       try {
         const response = await fetch('/api/v1/auth/me', { credentials: 'include' })
+        if (response.status === 503) storeDown = await isAuthStoreUnavailable(response)
         if (!response.ok) throw new Error('not authenticated')
         const data = await response.json()
         if (data.auth_mode === 'databricks_app') mode = 'databricks_app'
@@ -152,6 +160,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
       } finally {
         if (!cancelled) {
           setAuthMode(mode)
+          setAuthStoreDown(storeDown)
           setAuthChecked(true)
         }
       }
@@ -179,9 +188,22 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   // Return to the login screen when any polling request reports the
   // session has expired, instead of leaving stale pages showing 401s.
   useEffect(() => {
-    const onExpired = () => setUser(null)
+    const onExpired = () => { setAuthDegraded(false); setUser(null) }
     window.addEventListener('sage:auth-expired', onExpired)
     return () => window.removeEventListener('sage:auth-expired', onExpired)
+  }, [])
+
+  // A session-store outage keeps the user and shows a banner until the
+  // next successful API response (apiauth-02).
+  useEffect(() => {
+    const onDegraded = () => setAuthDegraded(true)
+    const onRestored = () => setAuthDegraded(false)
+    window.addEventListener('sage:auth-degraded', onDegraded)
+    window.addEventListener('sage:auth-restored', onRestored)
+    return () => {
+      window.removeEventListener('sage:auth-degraded', onDegraded)
+      window.removeEventListener('sage:auth-restored', onRestored)
+    }
   }, [])
 
   useEffect(() => {
@@ -195,6 +217,9 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   const platformManaged = authMode === 'databricks_app'
 
   if (!user) {
+    // The store could not say whether the session is valid: retry, do not
+    // send the operator to a login that fails against the same database.
+    if (authStoreDown) return <AuthStoreRetry onRetry={retryAuth} />
     if (authMode !== 'session') return (
       <PlatformSignInError mode={authMode}
         onReload={platformManaged
@@ -372,6 +397,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     <LiveEventsProvider>
       <ToastProvider>
         <TimeRangeProvider>
+          {authDegraded && <AuthStoreBanner />}
           <Layout data-testid="app-loaded" databases={databases}
             selectedDB={effectiveDB}
             onSelectDB={selectDatabase} user={user} authMode={authMode}
