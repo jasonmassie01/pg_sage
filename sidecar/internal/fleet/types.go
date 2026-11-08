@@ -49,6 +49,10 @@ type DatabaseInstance struct {
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string
 	StoppedAt time.Time
+	// RegisteredAt is when the runtime was published to the manager; a
+	// collector that never sampled is stale only once it is old enough.
+	// Guarded by the manager lock.
+	RegisteredAt time.Time
 	// stopsPending counts stops latched in memory whose durable flag is
 	// not yet written; an overlapping resume must not release them.
 	stopsPending int
@@ -286,6 +290,7 @@ func (m *DatabaseManager) commitReplacement(
 		delete(m.instances, oldName)
 	}
 	inherited := inheritEmergencyStop(old, candidate)
+	stampRegistered(candidate, time.Now())
 	m.instances[candidate.Name] = candidate
 	if m.primaryName == oldName {
 		m.primaryName = candidate.Name
@@ -447,23 +452,25 @@ func (m *DatabaseManager) firstConnectedNameLocked() string {
 
 // InstanceStatus tracks the health of a single database.
 type InstanceStatus struct {
-	Connected        bool                 `json:"connected"`
-	PGVersion        string               `json:"pg_version"`
-	Platform         string               `json:"platform"`
-	DatabaseSize     int64                `json:"database_size_bytes"`
-	TrustLevel       string               `json:"trust_level"`
-	CollectorLastRun time.Time            `json:"collector_last_run"`
-	AnalyzerLastRun  time.Time            `json:"analyzer_last_run"`
-	FindingsOpen     int                  `json:"findings_open"`
-	FindingsCritical int                  `json:"findings_critical"`
-	FindingsWarning  int                  `json:"findings_warning"`
-	FindingsInfo     int                  `json:"findings_info"`
-	ActionsTotal     int                  `json:"actions_total"`
-	LLMTokensUsed    int                  `json:"llm_tokens_used"`
-	AdvisoryLockHeld bool                 `json:"advisory_lock_held"`
-	HealthScore      int                  `json:"health_score"`
-	Error            string               `json:"error,omitempty"`
-	LastSeen         time.Time            `json:"last_seen"`
-	DatabaseName     string               `json:"database_name"`
-	Capabilities     ProviderCapabilities `json:"capabilities,omitempty"`
+	Connected        bool      `json:"connected"`
+	PGVersion        string    `json:"pg_version"`
+	Platform         string    `json:"platform"`
+	DatabaseSize     int64     `json:"database_size_bytes"`
+	TrustLevel       string    `json:"trust_level"`
+	CollectorLastRun time.Time `json:"collector_last_run"`
+	AnalyzerLastRun  time.Time `json:"analyzer_last_run"`
+	FindingsOpen     int       `json:"findings_open"`
+	FindingsCritical int       `json:"findings_critical"`
+	FindingsWarning  int       `json:"findings_warning"`
+	FindingsInfo     int       `json:"findings_info"`
+	ActionsTotal     int       `json:"actions_total"`
+	LLMTokensUsed    int       `json:"llm_tokens_used"`
+	HealthScore      int       `json:"health_score"`
+	// HealthReasons explains HealthScore ("collector stale 42m",
+	// "2 critical findings"); set only on scored snapshots.
+	HealthReasons []string             `json:"health_reasons"`
+	Error         string               `json:"error,omitempty"`
+	LastSeen      time.Time            `json:"last_seen"`
+	DatabaseName  string               `json:"database_name"`
+	Capabilities  ProviderCapabilities `json:"capabilities,omitempty"`
 }

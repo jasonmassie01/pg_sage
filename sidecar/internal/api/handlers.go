@@ -902,20 +902,20 @@ func metricsHandler(
 		if !ok {
 			return
 		}
-		status := mgr.FleetStatus()
 		if database != "" {
-			inst := mgr.GetInstance(database)
-			if inst == nil {
+			row, found := mgr.InstanceStatus(database)
+			if !found {
 				jsonError(w, "database not found",
 					http.StatusNotFound)
 				return
 			}
 			jsonResponse(w, map[string]any{
 				"database": database,
-				"status":   inst.Status,
+				"status":   row.Status,
 			})
 			return
 		}
+		status := mgr.FleetStatus()
 		jsonResponse(w, map[string]any{
 			"fleet":     status.Summary,
 			"databases": status.Databases,
