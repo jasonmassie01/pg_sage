@@ -19,7 +19,8 @@ type settlementCase struct {
 	final        State
 }
 
-func settlementCases() []settlementCase {
+// successSettlementCases cover a nil outcome and outcome success by verdict.
+func successSettlementCases() []settlementCase {
 	return []settlementCase{
 		{name: "no action outcome", verdict: "missing", final: StateInconclusive},
 		{name: "no action outcome ignores a success row",
@@ -52,6 +53,12 @@ func settlementCases() []settlementCase {
 		{name: "success with an unknown verdict fails closed (keeps verifying)",
 			outcome: strp("success"), verification: strp("bogus"), expected: true,
 			verdict: "", final: ""},
+	}
+}
+
+// otherSettlementCases are the non-success outcomes, unchanged by cases-03.
+func otherSettlementCases() []settlementCase {
+	return []settlementCase{
 		{name: "rolled back ignores a success row",
 			outcome: strp("rolled_back"), verification: strp("success"),
 			verdict: "regressed", final: StateReverted},
@@ -81,7 +88,7 @@ func settlementCases() []settlementCase {
 }
 
 func TestSettlementTable(t *testing.T) {
-	for _, tc := range settlementCases() {
+	for _, tc := range append(successSettlementCases(), otherSettlementCases()...) {
 		e := effect{verdict: tc.prior, outcome: tc.outcome,
 			verification: tc.verification, verificationExpected: tc.expected}
 		verdict, final := settlement(e)

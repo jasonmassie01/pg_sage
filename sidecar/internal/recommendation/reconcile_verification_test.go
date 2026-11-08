@@ -160,3 +160,21 @@ func TestReconcileVerifiesPostCheckSuccessAfterGrace(t *testing.T) {
 			"verified/success", got.State, got.Verdict)
 	}
 }
+
+// Nil: a decided success whose measured_at is NULL and that has no
+// verification row has no row on the way, so the grace expression must
+// read NULL as "not expected" and verify the head rather than hold it.
+func TestReconcileVerifiesDecidedSuccessWithoutMeasuredAt(t *testing.T) {
+	pool, ctx := requireDB(t)
+	s := NewStore(pool)
+	rec, actionID, _ := verifiedAction(t, ctx, pool, s, "success")
+	if _, err := pool.Exec(ctx, `UPDATE sage.action_log SET measured_at = NULL
+		WHERE id=$1`, actionID); err != nil {
+		t.Fatal(err)
+	}
+	if got := reconcileAndGet(t, ctx, s, rec); got.State != StateVerified ||
+		got.Verdict != "success" {
+		t.Fatalf("decided success, measured_at NULL: state=%s verdict=%q, want "+
+			"verified/success", got.State, got.Verdict)
+	}
+}
