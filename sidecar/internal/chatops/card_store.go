@@ -140,6 +140,32 @@ func (s *CardStore) Lookup(ctx context.Context, token string) (CardDelivery, err
 	return d, nil
 }
 
+// consumeSQL uses a card once. A superseded card pressed while a newer
+// card of its chat still waits takes the follow-up back from it, so the
+// verdict replies to the message the decision came from; once the chat got
+// its verdict, nothing is reopened.
+const consumeSQL = `/* pg_sage */ WITH used AS (
+	UPDATE sage.approval_card_deliveries c
+	   SET used_at = now(), used_by = $2, decision = $3, message_id = $4,
+	       followed_up_at = CASE WHEN r.reclaim THEN NULL ELSE c.followed_up_at END,
+	       followup_verdict = CASE WHEN r.reclaim THEN '' ELSE c.followup_verdict END
+	  FROM (SELECT p.id, p.followup_verdict = 'superseded' AND EXISTS (
+	          SELECT 1 FROM sage.approval_card_deliveries o
+	           WHERE o.channel_id = p.channel_id AND o.database_name = p.database_name
+	             AND o.queue_id = p.queue_id AND o.id <> p.id
+	             AND o.followed_up_at IS NULL) AS reclaim
+	          FROM sage.approval_card_deliveries p WHERE p.token_sha256 = $1) r
+	 WHERE c.id = r.id AND c.used_at IS NULL AND c.expires_at > now()
+	RETURNING c.*),
+handed AS (
+	UPDATE sage.approval_card_deliveries o
+	   SET followed_up_at = now(), followup_verdict = 'superseded'
+	  FROM used u
+	 WHERE u.followed_up_at IS NULL AND o.channel_id = u.channel_id
+	   AND o.database_name = u.database_name AND o.queue_id = u.queue_id
+	   AND o.id <> u.id AND o.followed_up_at IS NULL)
+SELECT ` + cardColumns + ` FROM used`
+
 // Consume uses a card once: it records who decided what from which chat
 // message. A used card is ErrCardUsed, an expired one ErrCardExpired.
 func (s *CardStore) Consume(ctx context.Context, token string, userID int, d Decision,
@@ -147,10 +173,8 @@ func (s *CardStore) Consume(ctx context.Context, token string, userID int, d Dec
 	if !ValidCardToken(token) {
 		return CardDelivery{}, ErrCardUnknown
 	}
-	got, err := scanCard(s.pool.QueryRow(ctx, `/* pg_sage */ UPDATE
-		sage.approval_card_deliveries SET used_at = now(), used_by = $2, decision = $3,
-		message_id = $4 WHERE token_sha256 = $1 AND used_at IS NULL AND expires_at > now()
-		RETURNING `+cardColumns, tokenHash(token), userID, string(d), messageID))
+	got, err := scanCard(s.pool.QueryRow(ctx, consumeSQL, tokenHash(token), userID,
+		string(d), messageID))
 	if err == nil {
 		return got, nil
 	}

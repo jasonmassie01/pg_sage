@@ -283,3 +283,40 @@ func TestFollowupDelay(t *testing.T) {
 		}
 	}
 }
+
+// A chat that decides from the card sent before the re-send still gets
+// one follow-up, as a reply to that decision.
+func TestFollowupRepliesToAnOlderCardPressedAfterAResend(t *testing.T) {
+	pool, ctx := livePool(t)
+	clearSnoozes(t, ctx, pool)
+	clearDeliveries(t, ctx, pool)
+	cards := chatops.NewCardStore(pool)
+	queueID, findingID := queueOptimizerIndex(t, ctx, pool)
+	l := Loader{Pool: pool, Database: "orders", TrustLevel: "advisory"}
+	d := &issuingDispatch{iss: TokenIssuer{Store: cards}, channels: []int{21, 22}}
+	n := NewNotifier(d, l)
+	if err := n.Dispatch(ctx, notify.QueuedApprovalEvent("Index recommendation",
+		"CREATE INDEX ...", "orders", "moderate", queueID)); err != nil {
+		t.Fatalf("approval request: %v", err)
+	}
+	first22 := d.latest(t, 22)
+	snoozeAndResend(t, ctx, pool, queueID, 0, d, n, l)
+	if _, err := cards.Consume(ctx, first22, 3, chatops.DecisionApprove, 888); err != nil {
+		t.Fatalf("approve from channel 22's first card: %v", err)
+	}
+	markExecuted(t, ctx, pool, queueID, findingID, "success")
+	chans := &fakeChannels{}
+	f := &Followups{Store: cards, Sender: chans, Pools: ordersPool(pool)}
+	if sent, err := f.RunOnce(ctx); sent != 2 || err != nil {
+		t.Fatalf("follow-ups = %d, %v; want one per channel", sent, err)
+	}
+	var to22 []notify.Event
+	for _, s := range chans.sent {
+		if s.channel == 22 {
+			to22 = append(to22, s.evt)
+		}
+	}
+	if len(to22) != 1 || to22[0].Data[notify.DataReplyTo] != int64(888) {
+		t.Fatalf("channel 22 follow-ups = %+v, want one reply to message 888", to22)
+	}
+}

@@ -377,3 +377,50 @@ func TestCardFollowupQueueSchemaAndPlan(t *testing.T) {
 			strings.Join(plan, "\n"))
 	}
 }
+
+// policy-06 review: an older card pressed after a re-send takes the open
+// follow-up back, so the verdict still replies to the decision's message.
+// A card whose chat already got its verdict hands nothing back.
+func TestCardConsumeOfSupersededCardCarriesTheFollowup(t *testing.T) {
+	s, _, ctx := liveCards(t)
+	old := issueOK(t, ctx, s, cardIssue(812))
+	resent := issueOK(t, ctx, s, cardIssue(812))
+	got, err := s.Consume(ctx, old, 1, DecisionApprove, 4242)
+	if err != nil {
+		t.Fatalf("approve from the older card: %v", err)
+	}
+	if got.FollowedUpAt != nil || got.FollowupVerdict != "" || got.MessageID != 4242 {
+		t.Fatalf("pressed card = %+v, want it open with message 4242", got)
+	}
+	if d := lookupOK(t, ctx, s, resent); d.FollowedUpAt == nil ||
+		d.FollowupVerdict != "superseded" {
+		t.Fatalf("newer unused card = %+v, want superseded", d)
+	}
+	open := lookupOK(t, ctx, s, old)
+	if err := s.MarkFollowedUp(ctx, open.ID, "verified"); err != nil {
+		t.Fatal(err)
+	}
+	// The verdict is out: a later press of the superseded card reopens nothing.
+	stale := lookupOK(t, ctx, s, resent)
+	got, err = s.Consume(ctx, resent, 1, DecisionApprove, 4343)
+	if err != nil {
+		t.Fatalf("late press: %v", err)
+	}
+	if got.FollowedUpAt == nil || got.FollowupVerdict != "superseded" {
+		t.Fatalf("late press reopened its card: %+v (was %+v)", got, stale)
+	}
+	if d := lookupOK(t, ctx, s, old); d.FollowupVerdict != "verified" {
+		t.Fatalf("posted card rewritten to %q", d.FollowupVerdict)
+	}
+	// Another chat's open card is not taken over.
+	other := cardIssue(813)
+	other.ChannelID = 9
+	keep := issueOK(t, ctx, s, other)
+	mine := issueOK(t, ctx, s, cardIssue(813))
+	if _, err := s.Consume(ctx, mine, 1, DecisionDeny, 1); err != nil {
+		t.Fatal(err)
+	}
+	if d := lookupOK(t, ctx, s, keep); d.FollowedUpAt != nil {
+		t.Fatalf("another channel's card was closed: %+v", d)
+	}
+}

@@ -1467,9 +1467,10 @@ snooze. If that re-send fails, the other ended snoozes are still sent, and the f
 retried 5 minutes later; the warning log names each queue item that failed. A re-sent card
 replaces the older cards of the same action in the same channel (closed as `superseded`), so
 the verification verdict is posted once per channel, as a reply to the message the decision
-was made from. A card whose action has no verdict yet is checked again after an eighth of its
-age (at least 1 minute, at most 1 hour), so cards still waiting do not hold up newer ones; a
-card with no verdict after 14 days is closed.
+was made from, even when the decision came from a card sent before the re-send. A card whose
+action has no verdict yet is checked again after an eighth of its age (at least 1 minute, at
+most 1 hour), so cards still waiting do not hold up newer ones; a card with no verdict after
+14 days is closed.
 
 #### Runways and pre-incident investigations
 
