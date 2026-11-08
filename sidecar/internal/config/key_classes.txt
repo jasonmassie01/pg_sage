@@ -523,6 +523,7 @@ operator_preference audit.siem.interval_seconds
 operator_preference audit.siem.max_backoff_seconds
 operator_preference audit.pgaudit.correlate
 operator_preference audit.verify_interval_hours
+operator_preference audit.full_verify_interval_hours
 safety_critical agents.roles.connection_limit
 safety_critical agents.roles.statement_timeout_ms
 safety_critical agents.roles.lock_timeout_ms

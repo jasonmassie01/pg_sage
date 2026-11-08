@@ -519,6 +519,12 @@
     "doc": "Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed.",
     "class": "safety_critical"
   },
+  "audit.full_verify_interval_hours": {
+    "type": "int",
+    "default": 168,
+    "doc": "Hours between full verifications of each audit chain; runs in between check only the links written since the last clean one. 0: always full. 0-8760. Default: 168.",
+    "class": "operator_preference"
+  },
   "audit.pgaudit.correlate": {
     "type": "bool",
     "default": true,

@@ -15,6 +15,9 @@ type AuditConfig struct {
 	Evidence            AuditEvidenceConfig `yaml:"evidence"`
 	PGAudit             AuditPGAuditConfig  `yaml:"pgaudit"`
 	VerifyIntervalHours int                 `yaml:"verify_interval_hours" doc:"Hours between verifications of the audit hash chains; a broken chain raises a critical finding. 0 disables. 0-168. Default: 24."`
+	// FullVerifyIntervalHours spaces the full passes; the verifications in
+	// between read only the links after the newest checkpoint.
+	FullVerifyIntervalHours int `yaml:"full_verify_interval_hours" doc:"Hours between full verifications of each audit chain; runs in between check only the links written since the last clean one. 0: always full. 0-8760. Default: 168."`
 }
 
 // AuditSIEMConfig ships every audit chain link to SIEM sinks as OCSF.
@@ -50,6 +53,7 @@ type AuditPGAuditConfig struct {
 // Audit defaults.
 const (
 	DefaultAuditVerifyIntervalHours = 24
+	DefaultAuditFullVerifyHours     = 168
 	DefaultSIEMBatchSize            = 200
 	DefaultSIEMIntervalSeconds      = 10
 	DefaultSIEMMaxBackoffSeconds    = 300
@@ -58,6 +62,7 @@ const (
 
 func defaultAuditConfig() AuditConfig {
 	return AuditConfig{VerifyIntervalHours: DefaultAuditVerifyIntervalHours,
+		FullVerifyIntervalHours: DefaultAuditFullVerifyHours,
 		SIEM: AuditSIEMConfig{BatchSize: DefaultSIEMBatchSize,
 			IntervalSeconds:   DefaultSIEMIntervalSeconds,
 			MaxBackoffSeconds: DefaultSIEMMaxBackoffSeconds},
@@ -75,6 +80,7 @@ func (a AuditConfig) validate() error {
 		v, lo, hi int
 	}{
 		{"audit.verify_interval_hours", a.VerifyIntervalHours, 0, 168},
+		{"audit.full_verify_interval_hours", a.FullVerifyIntervalHours, 0, 8760},
 		{"audit.siem.batch_size", a.SIEM.BatchSize, 1, 1000},
 		{"audit.siem.interval_seconds", a.SIEM.IntervalSeconds, 1, 3600},
 		{"audit.siem.max_backoff_seconds", a.SIEM.MaxBackoffSeconds, 1, 3600},

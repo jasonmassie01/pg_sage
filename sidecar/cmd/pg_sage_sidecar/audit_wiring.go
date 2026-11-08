@@ -45,6 +45,7 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 		if e := auditExport.Load(); e != nil {
 			cursors = e
 		}
+		full := fullVerifyHours()
 		seen := map[*pgxpool.Pool]bool{}
 		if mgr != nil {
 			instances := mgr.Instances()
@@ -57,16 +58,25 @@ func auditSources(control *pgxpool.Pool, mgr *fleet.DatabaseManager) func() []au
 				if inst := instances[name]; inst != nil && inst.Pool != nil && !seen[inst.Pool] {
 					seen[inst.Pool] = true
 					out = append(out, auditjob.Source{Name: name, Pool: inst.Pool,
-						Cursors: cursors})
+						Cursors: cursors, FullVerifyHours: full})
 				}
 			}
 		}
 		if control != nil && !seen[control] {
 			out = append(out, auditjob.Source{Name: "control", Pool: control,
-				Cursors: cursors})
+				Cursors: cursors, FullVerifyHours: full})
 		}
 		return out
 	}
+}
+
+// fullVerifyHours is audit.full_verify_interval_hours; without a config
+// every pass is full (the safe, if slower, choice).
+func fullVerifyHours() int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.Audit.FullVerifyIntervalHours
 }
 
 func startSIEMExport(ctx context.Context, control *pgxpool.Pool,
