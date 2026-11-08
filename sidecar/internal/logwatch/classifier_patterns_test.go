@@ -140,6 +140,51 @@ func TestWALGap_RealMessagesMatch(t *testing.T) {
 	}
 }
 
+// The walreceiver re-raises the walsender's error under its own SQLSTATE,
+// which is a generic XX000 when no errcode is set. The WAL gap must win
+// over the internal-error rule, or a broken standby is a mere warning.
+func TestWALGap_WalreceiverUnderXX000IsStillAWALGap(t *testing.T) {
+	e := baseEntry(func(e *LogEntry) {
+		e.ErrorLevel, e.SQLState, e.BackendType = "FATAL", "XX000", "walreceiver"
+		e.User, e.Database = "", ""
+		e.Message = "could not receive data from WAL stream: ERROR:  requested WAL " +
+			"segment 0000000100000000000000A3 has already been removed"
+	})
+	id, m := classifyOne(e)
+	if id != "log_wal_segment_removed" {
+		t.Fatalf("signal = %q, want log_wal_segment_removed", id)
+	}
+	if m["wal_segment"] != "0000000100000000000000A3" {
+		t.Errorf("wal_segment = %v, want 0000000100000000000000A3", m["wal_segment"])
+	}
+}
+
+// PG14-17 name auxiliary processes with a capitalised "WAL ..." prefix;
+// a SIGKILLed WAL writer or WAL receiver is a server crash too.
+func TestCrash_AuxiliaryProcessNamesMatch(t *testing.T) {
+	cases := []struct {
+		msg, procType string
+		pid           int
+	}{
+		{"WAL writer process (PID 61) was terminated by signal 9: Killed",
+			"WAL writer process", 61},
+		{"WAL receiver process (PID 62) was terminated by signal 9: Killed",
+			"WAL receiver process", 62},
+		{"checkpointer process (PID 63) was terminated by signal 9: Killed",
+			"checkpointer process", 63},
+	}
+	for _, tc := range cases {
+		id, m := classifyOne(postmasterEntry(tc.msg))
+		if id != "log_panic_server_crash" {
+			t.Fatalf("%q: signal = %q, want log_panic_server_crash", tc.msg, id)
+		}
+		if m["process_type"] != tc.procType || m["crashed_pid"] != tc.pid ||
+			m["signal"] != 9 {
+			t.Errorf("%q: metrics = %v", tc.msg, m)
+		}
+	}
+}
+
 func TestWALGap_LookalikesDoNotMatch(t *testing.T) {
 	cases := map[string]LogEntry{
 		"invented text without a segment": baseEntry(func(e *LogEntry) {

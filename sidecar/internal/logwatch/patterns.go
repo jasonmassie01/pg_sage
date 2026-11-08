@@ -36,10 +36,11 @@ const (
 )
 
 var (
-	// PG14-16 say "server process (PID n)", PG17+ name the backend type,
-	// background workers say `background worker "name" (PID n)`.
+	// PG14-17 say "server process (PID n)" for backends and name auxiliary
+	// processes ("WAL writer process", "checkpointer process"); PG18 names
+	// the backend type; background workers say `background worker "name"`.
 	reCrash = regexp.MustCompile(
-		`^([a-z][a-z ]*(?: "[^"]*")?) \(PID (\d+)\) was terminated by signal (\d+)`)
+		`^([A-Za-z][A-Za-z ]*(?: "[^"]*")?) \(PID (\d+)\) was terminated by signal (\d+)`)
 	// Logged by the walsender (ERROR) and quoted by the standby's
 	// walreceiver (FATAL "could not receive data from WAL stream: ...").
 	reWALRemoved = regexp.MustCompile(
@@ -74,6 +75,10 @@ var patterns = []signalPattern{
 		SQLStates: []string{"53100"}, MinLevel: "ERROR"},
 	{ID: "log_panic_server_crash", Severity: "critical", MinLevel: "LOG",
 		Regex: reCrash, Extract: extractCrash, Origin: originPostmaster},
+	// Before the XX rules: the standby's walreceiver may log the quoted
+	// walsender error under a generic SQLSTATE such as XX000.
+	{ID: "log_wal_segment_removed", Severity: "critical", MinLevel: "ERROR",
+		Regex: reWALRemoved, Extract: extractWALSegment, Origin: originServer},
 	{ID: "log_data_corruption", Severity: "critical",
 		MinLevel: "WARNING"},
 	{ID: "log_internal_error", Severity: "warning",
@@ -103,8 +108,6 @@ var patterns = []signalPattern{
 	{ID: "log_replication_conflict", Severity: "warning",
 		Substrings: []string{"conflict with recovery"},
 		MinLevel:   "ERROR"},
-	{ID: "log_wal_segment_removed", Severity: "critical", MinLevel: "ERROR",
-		Regex: reWALRemoved, Extract: extractWALSegment, Origin: originServer},
 	{ID: "log_autovacuum_cancel", Severity: "warning",
 		Substrings: []string{"canceling autovacuum task"},
 		MinLevel:   "LOG"},
