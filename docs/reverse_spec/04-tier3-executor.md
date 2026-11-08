@@ -277,6 +277,31 @@ emergency stop and validates SQL first).
   (`HasRecentlyRejectedForFinding/SQL`) avoid re-queueing
   (`executor.go:261-312`).
 
+### 6.3.1 Schema guard route failures
+
+The schema guard custodian (`internal/schemaguard`, `route_failure.go`)
+routes each invariant's remediation in turn. A route that fails (not a
+`ParkedRoute`) no longer halts the scan:
+
+- **Continue on failure:** the item is parked with the reason
+  `schema remediation routing failed (<class>); review runtime error before
+  retrying` and the scan goes on to the next invariant. The route errors are
+  returned together (`errors.Join`) after the scan records its decisions.
+  `<class>` is `lock_timeout` (55P03), `statement_timeout` (57014),
+  `connection` (class 08, a failed connect, a network error), `permission`
+  (42501) or `other`. The reason names only the class, so the change-only
+  ledger records one row while the class stays the same, not one per cycle.
+- **Connection failures stop the scan:** every later route would fail too.
+  Invariants the scan did not reach keep their earlier state and are not
+  re-recorded as reappearing.
+- **Backoff:** after 3 consecutive failures of one invariant its route is
+  skipped for the next 6 scans, parked as `routing paused after 3 failures
+  (<class>)`. A success resets the count; a failed retry after the pause
+  pauses it again. The state is in memory and resets on restart.
+- **Serialized scans:** one custodian runs one scan at a time, so two scans
+  never record from one stale history. In fleet mode each database has its
+  own custodian.
+
 ### 6.4 Maintenance window
 
 `inMaintenanceWindow` / `inMaintenanceWindowAt` (`trust.go:69-136`) parse a
