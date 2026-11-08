@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -76,13 +77,20 @@ func (d AuditDeps) pool(w http.ResponseWriter, r *http.Request) (*pgxpool.Pool, 
 	return p, name, true
 }
 
+// auditVerifyTimeout bounds a verification that may read a whole chain
+// (full=true, or the first one before any checkpoint exists).
+const auditVerifyTimeout = 5 * time.Minute
+
+// auditVerifyHandler verifies chains: since each one's newest checkpoint
+// by default (in full when it has none), the whole chain with full=true,
+// or an explicit from_seq/to_seq window.
 func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		pool, name, ok := d.pool(w, r)
 		if !ok {
 			return
 		}
-		window, err := seqWindow(r)
+		req, err := parseVerifyRequest(r)
 		if err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -92,10 +100,18 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		ctx, cancel := req.context(w, r)
+		defer cancel()
 		reports := []auditchain.Report{}
 		ok = true
 		for _, spec := range specs {
-			rep, err := auditchain.Verify(r.Context(), pool, spec, window)
+			rep, err := req.verify(ctx, pool, spec)
+			if errors.Is(err, context.DeadlineExceeded) {
+				jsonError(w, fmt.Sprintf("verifying %s took longer than %s; verify it "+
+					"in from_seq/to_seq windows", spec.Chain, auditVerifyTimeout),
+					http.StatusGatewayTimeout)
+				return
+			}
 			if err != nil {
 				internalError(w, r, "verify audit chain", err)
 				return
@@ -105,6 +121,56 @@ func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 		}
 		jsonResponse(w, map[string]any{"database": name, "ok": ok, "reports": reports})
 	}
+}
+
+// verifyRequest is how GET /api/v1/audit/verify was asked to verify.
+type verifyRequest struct {
+	window auditchain.Window
+	full   bool
+}
+
+func parseVerifyRequest(r *http.Request) (verifyRequest, error) {
+	window, err := seqWindow(r)
+	if err != nil {
+		return verifyRequest{}, err
+	}
+	req := verifyRequest{window: window}
+	if raw := r.URL.Query().Get("full"); raw != "" {
+		if req.full, err = strconv.ParseBool(raw); err != nil {
+			return verifyRequest{}, fmt.Errorf("full must be true or false")
+		}
+	}
+	if req.full && req.windowed() {
+		return verifyRequest{}, fmt.Errorf("full=true verifies the whole chain; " +
+			"leave out from_seq and to_seq")
+	}
+	return req, nil
+}
+
+func (q verifyRequest) windowed() bool { return q.window.FromSeq > 0 || q.window.ToSeq > 0 }
+
+// context bounds a verification that may read a whole chain, and lets its
+// response outlive the server's write timeout. A window keeps the request's.
+func (q verifyRequest) context(w http.ResponseWriter, r *http.Request) (context.Context,
+	context.CancelFunc) {
+	if q.windowed() {
+		return r.Context(), func() {}
+	}
+	deadline := time.Now().Add(auditVerifyTimeout + 5*time.Second)
+	if err := http.NewResponseController(w).SetWriteDeadline(deadline); err != nil &&
+		!errors.Is(err, http.ErrNotSupported) {
+		slog.Warn("audit verify: the response may hit the server's write timeout",
+			"error", err)
+	}
+	return context.WithTimeout(r.Context(), auditVerifyTimeout)
+}
+
+func (q verifyRequest) verify(ctx context.Context, pool *pgxpool.Pool,
+	spec auditchain.Spec) (auditchain.Report, error) {
+	if q.windowed() {
+		return auditchain.Verify(ctx, pool, spec, q.window)
+	}
+	return auditchain.VerifyFromCheckpoint(ctx, pool, spec, q.full)
 }
 
 func seqWindow(r *http.Request) (auditchain.Window, error) {

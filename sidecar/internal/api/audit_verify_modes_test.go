@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/auditchain"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
@@ -84,4 +86,21 @@ func TestAuditVerifyFullRefusals(t *testing.T) {
 	body := getVerify(t, mux, "/api/v1/audit/verify?database=orders&chain=action_log"+
 		"&full=false")
 	require.True(t, body.OK)
+}
+
+// Error propagation: a verification that runs out of time answers 504
+// naming the chain and the way out (windows), not a generic 500.
+func TestAuditVerifyTimeoutIs504(t *testing.T) {
+	pool := auditPool(t, "api_audit_verify_timeout")
+	mux := auditMux(pool, AuditDeps{})
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/audit/verify?database=orders&chain=action_log&full=true", nil)
+	req = withUser(req.WithContext(ctx), testAdminUser())
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	require.Equal(t, http.StatusGatewayTimeout, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "action_log")
+	require.Contains(t, w.Body.String(), "from_seq/to_seq")
 }
