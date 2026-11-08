@@ -131,7 +131,7 @@ func (r *Runtime) record(s Sample, now time.Time) {
 func (r *Runtime) invalidate() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.sample, r.history, r.capacity = nil, nil, 0
+	r.sample, r.history, r.capacity, r.nextPoll = nil, nil, 0, time.Time{}
 }
 
 func (r *Runtime) current() (*Sample, []Point) {

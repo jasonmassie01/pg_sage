@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"regexp"
 	"time"
 )
 
@@ -57,11 +58,22 @@ func notifyTransition(reported string, err error, report func(error),
 		}
 		return ""
 	}
-	key := "failed: " + err.Error() // the wrapped sentinel names the class
+	key := failureKey(err)
 	if key != reported && report != nil {
 		report(err)
 	}
 	return key
+}
+
+// requestIDPattern matches the per-request ID an SDK puts in its errors
+// (AWS: "RequestID: 1b2c-..."); it changes on every call.
+var requestIDPattern = regexp.MustCompile(`(?i)request ?id: *[^\s,;]+`)
+
+// failureKey identifies a failure for de-duplication: its text, which
+// names the class sentinel and the reason, minus per-request IDs, so an
+// unchanged failure is not reported again on every retry.
+func failureKey(err error) string {
+	return "failed: " + requestIDPattern.ReplaceAllString(err.Error(), "RequestID: _")
 }
 
 // schedule records when Run polls next and returns the wait.
