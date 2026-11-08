@@ -40,13 +40,29 @@ func (e *Executor) ExplainAction(
 	return decision
 }
 
+// cancelledExplainDecision fails a family closed when the caller is gone,
+// so a closed dashboard request reads nothing more from the database.
+func cancelledExplainDecision(contract ActionContract, err error) ActionPolicyDecision {
+	decision := noStandingPolicyDecision(contract)
+	decision.BlockedReason = string(policy.ReasonPolicyUnavailable)
+	decision.Detail = "policy explanation stopped: " + err.Error()
+	return decision
+}
+
 // ExplainFamilies reports the standing gate's verdict for each action
 // family (no concrete SQL) against one policy snapshot, recording nothing.
-// A nil executor, no gate, or a gate that cannot batch-explain fails closed.
+// A nil executor, no gate, or a gate that cannot batch-explain fails closed;
+// so does a cancelled or expired ctx (policy_unavailable, nothing read).
 func (e *Executor) ExplainFamilies(
 	ctx context.Context, contracts []ActionContract, isReplica bool,
 ) []ActionPolicyDecision {
 	out := make([]ActionPolicyDecision, len(contracts))
+	if err := ctx.Err(); err != nil {
+		for i, contract := range contracts {
+			out[i] = cancelledExplainDecision(contract, err)
+		}
+		return out
+	}
 	var batch policy.BatchExplainer
 	ok := false
 	if e != nil {

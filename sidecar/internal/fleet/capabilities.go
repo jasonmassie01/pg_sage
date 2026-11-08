@@ -62,20 +62,31 @@ type DatabaseReadiness struct {
 
 // FamilyExplainer reports the standing policy's verdict for action
 // families on one database (the executor's gate, one policy snapshot).
+// The policy reads run under ctx, so a cancelled caller stops them.
 type FamilyExplainer func(
-	contracts []executor.ActionContract, isReplica bool,
+	ctx context.Context, contracts []executor.ActionContract, isReplica bool,
 ) []executor.ActionPolicyDecision
 
-// ExecutorFamilyExplainer explains families through exec's standing gate;
-// a nil executor fails closed.
+// ExecutorFamilyExplainer explains families through exec's standing gate
+// under the caller's ctx; a nil executor fails closed.
 func ExecutorFamilyExplainer(exec *executor.Executor) FamilyExplainer {
-	return func(contracts []executor.ActionContract, isReplica bool) []executor.ActionPolicyDecision {
-		return exec.ExplainFamilies(context.Background(), contracts, isReplica)
+	return func(
+		ctx context.Context, contracts []executor.ActionContract, isReplica bool,
+	) []executor.ActionPolicyDecision {
+		return exec.ExplainFamilies(ctx, contracts, isReplica)
 	}
 }
 
+// BuildProviderCapabilities builds readiness for callers without a request
+// context (registration and the fleet overview).
 func BuildProviderCapabilities(
 	provider string, isReplica bool, explain FamilyExplainer,
+) ProviderCapabilities {
+	return buildProviderCapabilities(context.Background(), provider, isReplica, explain)
+}
+
+func buildProviderCapabilities(
+	ctx context.Context, provider string, isReplica bool, explain FamilyExplainer,
 ) ProviderCapabilities {
 	adapter := AdapterForProvider(provider)
 	caps := ProviderCapabilities{
@@ -86,7 +97,7 @@ func BuildProviderCapabilities(
 		LogAccess:   adapter.LogAccess,
 		Limitations: adapter.Limitations,
 	}
-	caps.ActionFamilies = buildActionFamilyReadiness(caps, explain)
+	caps.ActionFamilies = buildActionFamilyReadiness(ctx, caps, explain)
 	caps.Blockers = readinessBlockers(caps)
 	caps.ReadyForAutoSafe = readyForAutoSafe(caps)
 	return caps
@@ -129,7 +140,7 @@ func readinessActionTypes() []string {
 // support, then asks the standing gate about the remaining families in
 // one batch.
 func buildActionFamilyReadiness(
-	caps ProviderCapabilities, explain FamilyExplainer,
+	ctx context.Context, caps ProviderCapabilities, explain FamilyExplainer,
 ) []ActionFamilyReadiness {
 	out := make([]ActionFamilyReadiness, 0, len(readinessActionTypes()))
 	var contracts []executor.ActionContract
@@ -154,7 +165,7 @@ func buildActionFamilyReadiness(
 	if explain == nil {
 		explain = ExecutorFamilyExplainer(nil)
 	}
-	for i, decision := range explain(contracts, caps.IsReplica) {
+	for i, decision := range explain(ctx, contracts, caps.IsReplica) {
 		out[slots[i]] = familyReadiness(contracts[i].ActionType, decision)
 	}
 	return out
@@ -199,7 +210,7 @@ func CollectProviderCapabilities(
 	provider string,
 	explain FamilyExplainer,
 ) ProviderCapabilities {
-	caps := BuildProviderCapabilities(provider, detectReplica(ctx, pool), explain)
+	caps := buildProviderCapabilities(ctx, provider, detectReplica(ctx, pool), explain)
 	collectRuntimeEvidence(ctx, pool, &caps)
 	caps.Blockers = readinessBlockers(caps)
 	caps.ReadyForAutoSafe = readyForAutoSafe(caps)
@@ -257,6 +268,8 @@ func SummarizeReadiness(databases []DatabaseStatus) FleetReadinessSummary {
 // EnsureCapabilities fills capabilities and recomputes action-family
 // readiness from the instance executor's standing gate. A stopped
 // instance, or one without an executor, reports every family blocked.
+// FleetStatus has no request context, so readiness explains under
+// context.Background.
 func EnsureCapabilities(inst *DatabaseInstance, snap *InstanceStatus) *InstanceStatus {
 	if snap == nil {
 		snap = &InstanceStatus{}
@@ -272,7 +285,7 @@ func EnsureCapabilities(inst *DatabaseInstance, snap *InstanceStatus) *InstanceS
 	if caps.Provider == "" {
 		caps = BuildProviderCapabilities(snap.Platform, caps.IsReplica, explain)
 	} else {
-		caps.ActionFamilies = buildActionFamilyReadiness(caps, explain)
+		caps.ActionFamilies = buildActionFamilyReadiness(context.Background(), caps, explain)
 		caps.Blockers = readinessBlockers(caps)
 		caps.ReadyForAutoSafe = readyForAutoSafe(caps)
 	}
@@ -287,7 +300,9 @@ func InstanceFamilyExplainer(inst *DatabaseInstance) FamilyExplainer {
 		return ExecutorFamilyExplainer(nil)
 	}
 	if inst.Stopped {
-		return func(contracts []executor.ActionContract, _ bool) []executor.ActionPolicyDecision {
+		return func(
+			_ context.Context, contracts []executor.ActionContract, _ bool,
+		) []executor.ActionPolicyDecision {
 			out := make([]executor.ActionPolicyDecision, len(contracts))
 			for i, contract := range contracts {
 				out[i] = executor.ActionPolicyDecision{Decision: executor.PolicyDecisionBlocked,
