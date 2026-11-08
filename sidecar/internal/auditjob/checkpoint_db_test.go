@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/auditchain"
@@ -73,25 +74,8 @@ func reportOf(reps []auditchain.Report, chain string) (auditchain.Report, bool) 
 func TestFailingChainDoesNotStopTheOthers(t *testing.T) {
 	pool, slow := freshPair(t, "auditjob_timeout")
 	ctx := context.Background()
-	mustExec(t, pool, `INSERT INTO sage.auth_audit (event, detail) VALUES ('login', '{}')`)
-	mustExec(t, pool, `UPDATE sage.auth_audit SET event = 'tampered'`)
-	if _, err := Run(ctx, Source{Name: "orders", Pool: pool}); err != nil {
-		t.Fatalf("first run: %v", err)
-	}
-	if open, _ := openOn(t, pool, FindingCategory, "auth_audit"); !open {
-		t.Fatalf("tampered auth_audit raised no finding")
-	}
-	mustExec(t, pool, `INSERT INTO sage.action_log (action_type, sql_executed)
-		VALUES ('vacuum', 'VACUUM a')`)
-	mustExec(t, pool, `UPDATE sage.action_log SET sql_executed = 'SELECT 1'`)
-	lock, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin lock: %v", err)
-	}
-	defer func() { _ = lock.Rollback(ctx) }()
-	if _, err := lock.Exec(ctx, "LOCK TABLE sage.auth_audit IN ACCESS EXCLUSIVE MODE"); err != nil {
-		t.Fatalf("lock auth_audit: %v", err)
-	}
+	tamperTwoChains(t, pool)
+	lock := lockTable(t, pool, "sage.auth_audit")
 	reports, err := Run(ctx, Source{Name: "orders", Pool: slow})
 	if err == nil || !strings.Contains(err.Error(), "auth_audit") {
 		t.Fatalf("run with chain 2 timing out: err = %v, want one naming auth_audit", err)
@@ -128,6 +112,39 @@ func TestFailingChainDoesNotStopTheOthers(t *testing.T) {
 	if open, _ := openOn(t, pool, FindingCategory, "auth_audit"); !open {
 		t.Fatalf("chain 2's tampering finding resolved although it is still tampered")
 	}
+}
+
+// tamperTwoChains tampers auth_audit, raises its finding with one run, then
+// tampers action_log.
+func tamperTwoChains(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	mustExec(t, pool, `INSERT INTO sage.auth_audit (event, detail) VALUES ('login', '{}')`)
+	mustExec(t, pool, `UPDATE sage.auth_audit SET event = 'tampered'`)
+	if _, err := Run(context.Background(), Source{Name: "orders", Pool: pool}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if open, _ := openOn(t, pool, FindingCategory, "auth_audit"); !open {
+		t.Fatalf("tampered auth_audit raised no finding")
+	}
+	mustExec(t, pool, `INSERT INTO sage.action_log (action_type, sql_executed)
+		VALUES ('vacuum', 'VACUUM a')`)
+	mustExec(t, pool, `UPDATE sage.action_log SET sql_executed = 'SELECT 1'`)
+}
+
+// lockTable holds an ACCESS EXCLUSIVE lock on table until the returned
+// transaction ends (or the test does).
+func lockTable(t *testing.T, pool *pgxpool.Pool, table string) pgx.Tx {
+	t.Helper()
+	ctx := context.Background()
+	lock, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin lock: %v", err)
+	}
+	t.Cleanup(func() { _ = lock.Rollback(ctx) })
+	if _, err := lock.Exec(ctx, "LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatalf("lock %s: %v", table, err)
+	}
+	return lock
 }
 
 func checkpointCount(t *testing.T, pool *pgxpool.Pool, chain string) int {
