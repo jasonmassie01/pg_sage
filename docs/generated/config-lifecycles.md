@@ -303,8 +303,11 @@
 | `safety.ddl_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `safety.disk_pressure_threshold_pct` | `restart` | `-` | `safety_critical` |
 | `safety.dormant_interval_seconds` | `restart` | `-` | `safety_critical` |
+| `safety.index_build_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `safety.lock_timeout_ms` | `restart` | `-` | `safety_critical` |
 | `safety.query_timeout_ms` | `restart` | `-` | `derivable` |
+| `safety.reindex_timeout_seconds` | `restart` | `-` | `safety_critical` |
+| `safety.vacuum_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `safety.wal_io_ceiling_pct` | `restart` | `-` | `safety_critical` |
 | `schema_lint.disabled_rules` | `restart` | `-` | `operator_preference` |
 | `schema_lint.enabled` | `restart` | `-` | `operator_preference` |

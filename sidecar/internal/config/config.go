@@ -209,6 +209,11 @@ type SafetyConfig struct {
 	// of cpu_ceiling_pct.
 	DataIOCeilingPct int `yaml:"data_io_ceiling_pct" doc:"Data IO ceiling, % of capacity."`
 	WALIOCeilingPct  int `yaml:"wal_io_ceiling_pct" doc:"WAL IO ceiling, % of capacity."`
+
+	// Per-class statement timeouts (executor-05): see ddl_class_timeouts.go.
+	IndexBuildTimeoutSeconds int `yaml:"index_build_timeout_seconds" doc:"statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400."`
+	ReindexTimeoutSeconds    int `yaml:"reindex_timeout_seconds" doc:"statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
+	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"statement_timeout of a VACUUM (not VACUUM FULL) run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
 }
 
 type TrustConfig struct {
@@ -760,6 +765,9 @@ func (c *Config) validate() error {
 	if c.Safety.QueryTimeoutMs <= 0 {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
 	}
+	if err := c.Safety.validateClassTimeouts(); err != nil {
+		return err
+	}
 	if err := c.validateIOAdmission(); err != nil {
 		return err
 	}
@@ -915,6 +923,9 @@ func newDefaults() *Config {
 			BackoffConsecutiveSkips:  DefaultBackoffConsecutiveSkips,
 			DormantIntervalSeconds:   DefaultDormantIntervalSeconds,
 			LockTimeoutMs:            DefaultLockTimeoutMs,
+			IndexBuildTimeoutSeconds: DefaultClassTimeoutSeconds,
+			ReindexTimeoutSeconds:    DefaultClassTimeoutSeconds,
+			VacuumTimeoutSeconds:     DefaultClassTimeoutSeconds,
 		},
 		Trust: TrustConfig{
 			Level:                 DefaultTrustLevel,
