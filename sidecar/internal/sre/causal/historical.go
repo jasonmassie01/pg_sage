@@ -64,4 +64,6 @@ var historicalLogSignals = []string{
 	"log_data_corruption", "log_txid_wraparound_warning", "log_archive_failed", "log_temp_file_created", "log_checkpoint_too_frequent",
 	"log_lock_timeout", "log_statement_timeout", "log_replication_conflict", "log_wal_segment_removed", "log_autovacuum_cancel",
 	"log_replication_slot_inactive", "log_authentication_failure", "log_slow_query",
+	"log_internal_error", "log_wraparound_outage", "log_multixact_wraparound_warning",
+	"log_multixact_wraparound_outage",
 }

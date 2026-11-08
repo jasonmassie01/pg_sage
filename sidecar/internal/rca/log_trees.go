@@ -17,6 +17,7 @@ func (e *Engine) runLogDecisionTrees(signals []*Signal) []Incident {
 	var incidents []Incident
 	incidents = append(incidents, e.logTreesCriticalP0(sigMap)...)
 	incidents = append(incidents, e.logTreesWarningP1(sigMap)...)
+	incidents = append(incidents, logTreesWraparound(sigMap)...)
 	return incidents
 }
 
@@ -60,8 +61,8 @@ func (e *Engine) logTreesCriticalP0(
 	if s, ok := sigMap["log_checkpoint_too_frequent"]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Checkpoints occurring too frequently "+
-				"-- consider increasing checkpoint_completion_target "+
-				"or max_wal_size", "safe"))
+				"-- WAL volume is forcing them; increase max_wal_size",
+			"safe"))
 	}
 	return out
 }
@@ -96,6 +97,12 @@ func (e *Engine) logTreesWarningP1(
 	}
 	if s, ok := sigMap["log_replication_slot_inactive"]; ok {
 		out = append(out, logTreeReplicationSlot(s))
+	}
+	if s, ok := sigMap["log_internal_error"]; ok {
+		out = append(out, logTreeSimple(s, "warning",
+			"Internal error (SQLSTATE XX000) -- an unexpected internal "+
+				"condition such as a cache lookup failure; investigate if "+
+				"it repeats", "safe"))
 	}
 	if s, ok := sigMap["log_authentication_failure"]; ok {
 		out = append(out, logTreeSimple(s, "warning",
@@ -194,8 +201,38 @@ func logTreeOOM(s *Signal) Incident {
 // holds the xmin horizon back: stale backend_xmin, replication slots
 // (catalog_xmin), or orphaned prepared transactions.
 func logTreeTxidWraparound(s *Signal) Incident {
-	rootCause := "Transaction ID wraparound imminent " +
-		"-- identify what holds the xmin horizon"
+	return logTreeXIDHorizon(s, "Transaction ID wraparound imminent "+
+		"-- identify what holds the xmin horizon",
+		"XID wraparound warning from PostgreSQL")
+}
+
+// logTreesWraparound handles the wraparound outages and the multixact
+// limits. The XID warning stays in logTreesCriticalP0.
+func logTreesWraparound(sigMap map[string]*Signal) []Incident {
+	var out []Incident
+	if s, ok := sigMap["log_wraparound_outage"]; ok {
+		out = append(out, logTreeXIDHorizon(s,
+			"Transaction ID wraparound protection engaged: the database "+
+				"refuses commands that assign new transaction IDs until it "+
+				"is vacuumed",
+			"Wraparound stop limit reached (SQLSTATE 54000)"))
+	}
+	if s, ok := sigMap["log_multixact_wraparound_warning"]; ok {
+		out = append(out, logTreeMultiXact(s,
+			"MultiXact ID wraparound approaching -- vacuum must freeze "+
+				"old multixacts before the stop limit"))
+	}
+	if s, ok := sigMap["log_multixact_wraparound_outage"]; ok {
+		out = append(out, logTreeMultiXact(s,
+			"MultiXact wraparound protection engaged: the database refuses "+
+				"commands that create new MultiXactIds until it is vacuumed"))
+	}
+	return out
+}
+
+// logTreeXIDHorizon builds a wraparound incident whose diagnostic SQL
+// shows the three sources that can hold the xmin horizon back.
+func logTreeXIDHorizon(s *Signal, rootCause, firstLink string) Incident {
 	// Diagnostic: show the three sources that can hold back xmin.
 	sql := "-- 1. Oldest backend xmin holders\n" +
 		"SELECT pid, usename, state, " +
@@ -220,7 +257,7 @@ func logTreeTxidWraparound(s *Signal) Incident {
 		[]string{s.ID}, rootCause,
 		[]ChainLink{
 			{Order: 1, Signal: s.ID,
-				Description: "XID wraparound warning from PostgreSQL",
+				Description: firstLink,
 				Evidence:    stringMetric(s, "message")},
 			{Order: 2, Signal: s.ID,
 				Description: "Autovacuum cannot freeze because " +
@@ -228,6 +265,32 @@ func logTreeTxidWraparound(s *Signal) Incident {
 				Evidence: "Check: stale backend_xmin, " +
 					"replication slot catalog_xmin, " +
 					"orphaned prepared transactions"},
+		},
+		dbAffected(s), sql, "high_risk",
+	)
+}
+
+// logTreeMultiXact builds a multixact-limit incident. Old multixacts are
+// frozen by vacuum, so the diagnostic shows the databases and tables with
+// the oldest relminmxid.
+func logTreeMultiXact(s *Signal, rootCause string) Incident {
+	sql := "SELECT datname, mxid_age(datminmxid) AS mxid_age " +
+		"FROM pg_database ORDER BY 2 DESC;\n" +
+		"SELECT c.oid::regclass AS relation, " +
+		"mxid_age(c.relminmxid) AS mxid_age " +
+		"FROM pg_class c WHERE c.relkind IN ('r','m','t') " +
+		"ORDER BY 2 DESC LIMIT 10;"
+	return buildLogIncident(s.FiredAt, "critical",
+		[]string{s.ID}, rootCause,
+		[]ChainLink{
+			{Order: 1, Signal: s.ID,
+				Description: rootCause,
+				Evidence:    stringMetric(s, "message")},
+			{Order: 2, Signal: s.ID,
+				Description: "Vacuum the databases and tables with the " +
+					"oldest relminmxid; long transactions holding row " +
+					"locks keep old multixacts alive",
+				Evidence: "mxid_age(datminmxid) per database"},
 		},
 		dbAffected(s), sql, "high_risk",
 	)

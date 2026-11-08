@@ -1,0 +1,56 @@
+-- expect=log_panic_server_crash event=crash_sigkill source=captured
+2026-11-08 20:15:51.160 UTC,,,1,,6af0d874.1,7,,2026-11-08 20:15:48 UTC,,0,LOG,00000,"server process (PID 108) was terminated by signal 9: Killed","Failed process was running: SELECT pg_sleep(120) /* corpus-victim */",,,,,,,,"","postmaster",,0
+-- expect=log_panic_server_crash event=crash_sigsegv source=captured
+2026-11-08 20:15:59.460 UTC,,,1,,6af0d874.1,11,,2026-11-08 20:15:48 UTC,,0,LOG,00000,"server process (PID 170) was terminated by signal 11: Segmentation fault","Failed process was running: SELECT pg_sleep(120) /* corpus-victim */",,,,,,,,"","postmaster",,0
+-- expect=none event=lookalike_raise source=captured
+2026-11-08 20:16:08.255 UTC,"postgres","postgres",246,"[local]",6af0d888.f6,1,"DO",2026-11-08 20:16:08 UTC,3/4,0,LOG,00000,"server process (PID 4242) was terminated by signal 9: Killed",,,,,"PL/pgSQL function inline_code_block line 1 at RAISE","DO $$BEGIN RAISE LOG 'server process (PID 4242) was terminated by signal 9: Killed'; END$$",,,"psql","client backend",,0
+-- expect=none event=lookalike_raise source=captured
+2026-11-08 20:16:08.703 UTC,"postgres","postgres",253,"[local]",6af0d888.fd,1,"DO",2026-11-08 20:16:08 UTC,3/6,0,WARNING,01000,"server process (PID 4242) was terminated by signal 9: Killed",,,,,"PL/pgSQL function inline_code_block line 1 at RAISE",,,,"psql","client backend",,0
+-- expect=none event=lookalike_raise source=captured
+2026-11-08 20:16:09.127 UTC,"postgres","postgres",260,"[local]",6af0d889.104,1,"DO",2026-11-08 20:16:09 UTC,3/8,0,ERROR,P0001,"server process (PID 4242) was terminated by signal 9: Killed",,,,,"PL/pgSQL function inline_code_block line 1 at RAISE","DO $$BEGIN RAISE EXCEPTION 'server process (PID 4242) was terminated by signal 9: Killed'; END$$",,,"psql","client backend",,0
+-- expect=none event=lookalike_raise source=captured
+2026-11-08 20:16:09.526 UTC,"postgres","postgres",267,"[local]",6af0d889.10b,1,"DO",2026-11-08 20:16:09 UTC,3/10,0,LOG,00000,"server process (PID abc) was terminated by signal 9: Killed",,,,,"PL/pgSQL function inline_code_block line 1 at RAISE","DO $$BEGIN RAISE LOG 'server process (PID abc) was terminated by signal 9: Killed'; END$$",,,"psql","client backend",,0
+-- expect=log_internal_error event=internal_error source=captured
+2026-11-08 20:16:14.747 UTC,"postgres","postgres",302,"[local]",6af0d88e.12e,1,"SELECT",2026-11-08 20:16:14 UTC,3/12,0,ERROR,XX000,"cache lookup failed for operator class 0",,,,,,"SELECT amvalidate(0)",,,"psql","client backend",,0
+-- expect=log_statement_timeout event=statement_timeout source=captured
+2026-11-08 20:16:18.689 UTC,"postgres","postgres",337,"[local]",6af0d892.151,1,"SELECT",2026-11-08 20:16:18 UTC,3/14,0,ERROR,57014,"canceling statement due to statement timeout",,,,,,"SET statement_timeout = 50; SELECT pg_sleep(2)",,,"psql","client backend",,0
+-- expect=log_temp_file_created event=temp_file source=captured
+2026-11-08 20:16:22.953 UTC,"postgres","postgres",372,"[local]",6af0d896.174,1,"SELECT",2026-11-08 20:16:22 UTC,3/16,0,LOG,00000,"temporary file: path ""base/pgsql_tmp/pgsql_tmp372.1"", size 2457600",,,,,,"SET log_temp_files = 0; SET work_mem = '64kB'; SELECT count(*) FROM (SELECT g FROM generate_series(1, 200000) g ORDER BY g DESC) s",,,"psql","client backend",,0
+-- expect=log_temp_file_created event=temp_file source=captured
+2026-11-08 20:16:22.953 UTC,"postgres","postgres",372,"[local]",6af0d896.174,2,"SELECT",2026-11-08 20:16:22 UTC,3/16,0,LOG,00000,"temporary file: path ""base/pgsql_tmp/pgsql_tmp372.0"", size 2800000",,,,,,"SET log_temp_files = 0; SET work_mem = '64kB'; SELECT count(*) FROM (SELECT g FROM generate_series(1, 200000) g ORDER BY g DESC) s",,,"psql","client backend",,0
+-- expect=log_checkpoint_too_frequent event=checkpoint_pressure source=captured
+2026-11-08 20:16:28.363 UTC,,,185,,6af0d87f.b9,3,,2026-11-08 20:15:59 UTC,,0,LOG,00000,"checkpoints are occurring too frequently (26 seconds apart)",,"Consider increasing the configuration parameter ""max_wal_size"".",,,,,,,"","checkpointer",,0
+-- expect=log_checkpoint_too_frequent event=checkpoint_pressure source=captured
+2026-11-08 20:16:29.026 UTC,,,185,,6af0d87f.b9,6,,2026-11-08 20:15:59 UTC,,0,LOG,00000,"checkpoints are occurring too frequently (1 second apart)",,"Consider increasing the configuration parameter ""max_wal_size"".",,,,,,,"","checkpointer",,0
+-- expect=log_checkpoint_too_frequent event=checkpoint_pressure source=captured
+2026-11-08 20:16:30.148 UTC,,,185,,6af0d87f.b9,9,,2026-11-08 20:15:59 UTC,,0,LOG,00000,"checkpoints are occurring too frequently (1 second apart)",,"Consider increasing the configuration parameter ""max_wal_size"".",,,,,,,"","checkpointer",,0
+-- expect=log_checkpoint_too_frequent event=checkpoint_pressure source=captured
+2026-11-08 20:16:30.355 UTC,,,185,,6af0d87f.b9,12,,2026-11-08 20:15:59 UTC,,0,LOG,00000,"checkpoints are occurring too frequently (0 seconds apart)",,"Consider increasing the configuration parameter ""max_wal_size"".",,,,,,,"","checkpointer",,0
+-- expect=log_wal_segment_removed event=wal_gap source=captured
+2026-11-08 20:17:01.533 UTC,"postgres","",555,"[local]",6af0d8bd.22b,1,"START_REPLICATION",2026-11-08 20:17:01 UTC,3/0,0,ERROR,58P01,"requested WAL segment 000000010000000000000001 has already been removed",,,,,,"START_REPLICATION 0/1000000",,,"psql","walsender",,0
+-- expect=log_replication_slot_inactive event=slot_invalidated source=captured
+2026-11-08 20:17:11.554 UTC,,,185,,6af0d87f.b9,58,,2026-11-08 20:15:59 UTC,,0,LOG,00000,"invalidating obsolete replication slot ""corpus_slot""","The slot's restart_lsn 0/16000110 exceeds the limit by 16776944 bytes.","You might need to increase max_slot_wal_keep_size.",,,,,,,"","checkpointer",,0
+-- expect=none event=program_limit source=captured
+2026-11-08 20:17:38.102 UTC,"postgres","postgres",696,"[local]",6af0d8e2.2b8,1,"SELECT",2026-11-08 20:17:38 UTC,3/79,0,ERROR,54000,"array size exceeds the maximum allowed (134217727)",,,,,,"SELECT array_fill(1, ARRAY[1000000000])",,,"psql","client backend",,0
+-- expect=log_data_corruption event=data_corruption source=captured
+2026-11-08 20:17:44.480 UTC,"postgres","postgres",47,"[local]",6af0d8e8.2f,1,"SELECT",2026-11-08 20:17:44 UTC,3/4,0,ERROR,XX001,"invalid page in block 0 of relation base/5/16434",,,,,,"SELECT count(*) FROM corrupt_me",,,"psql","client backend",,0
+-- expect=log_txid_wraparound_warning event=xid_stop_limit source=captured
+2026-11-08 20:17:59.753 UTC,,,123,,6af0d8f7.7b,2,,2026-11-08 20:17:59 UTC,,0,WARNING,01000,"database with OID 5 must be vacuumed within 100022 transactions",,"To avoid a database shutdown, execute a database-wide VACUUM in that database.
+You might also need to commit or roll back old prepared transactions, or drop stale replication slots.",,,,,,,"","startup",,0
+-- expect=log_txid_wraparound_warning event=xid_stop_limit source=captured
+2026-11-08 20:18:02.600 UTC,,,127,,6af0d8f7.7f,109,,2026-11-08 20:17:59 UTC,2/219,0,WARNING,01000,"database ""template1"" must be vacuumed within 100022 transactions",,"To avoid a database shutdown, execute a database-wide VACUUM in that database.
+You might also need to commit or roll back old prepared transactions, or drop stale replication slots.",,,,,,,"","autovacuum worker",,0
+-- expect=log_wraparound_outage event=xid_stop_limit source=captured
+2026-11-08 20:18:00.550 UTC,"postgres","postgres",130,"[local]",6af0d8f7.82,1,"CREATE TABLE",2026-11-08 20:17:59 UTC,3/2,0,ERROR,54000,"database is not accepting commands to avoid wraparound data loss in database ""postgres""",,"Stop the postmaster and vacuum that database in single-user mode.
+You might also need to commit or roll back old prepared transactions, or drop stale replication slots.",,,,"CREATE TABLE wrap_probe (x int)",,,"psql","client backend",,0
+-- expect=log_wraparound_outage event=xid_stop_limit source=captured
+2026-11-08 20:18:00.593 UTC,"postgres","postgres",133,"[local]",6af0d8f8.85,1,"CREATE TABLE",2026-11-08 20:18:00 UTC,3/4,0,ERROR,54000,"database is not accepting commands to avoid wraparound data loss in database ""postgres""",,"Stop the postmaster and vacuum that database in single-user mode.
+You might also need to commit or roll back old prepared transactions, or drop stale replication slots.",,,,"CREATE TABLE wrap_probe (x int)",,,"psql","client backend",,0
+-- expect=log_multixact_wraparound_warning event=multixact_limit source=format-string
+2026-11-08 20:16:14.747 UTC,postgres,postgres,302,[local],6af0d88e.12e,1,SELECT,2026-11-08 20:16:14 UTC,3/12,0,WARNING,01000,"database ""postgres"" must be vacuumed before 1234567 more MultiXactIds are used",,,,,,,,,psql,client backend,,0
+-- expect=log_multixact_wraparound_warning event=multixact_limit source=format-string
+2026-11-08 20:16:14.747 UTC,postgres,postgres,302,[local],6af0d88e.12e,1,SELECT,2026-11-08 20:16:14 UTC,3/12,0,WARNING,01000,database with OID 1234567 must be vacuumed before 1234567 more multixact members are used,,,,,,,,,psql,client backend,,0
+-- expect=log_multixact_wraparound_outage event=multixact_limit source=format-string
+2026-11-08 20:16:14.747 UTC,postgres,postgres,302,[local],6af0d88e.12e,1,SELECT,2026-11-08 20:16:14 UTC,3/12,0,ERROR,54000,"database is not accepting commands that generate new MultiXactIds to avoid wraparound data loss in database ""postgres""",,,,,,,,,psql,client backend,,0
+-- expect=log_multixact_wraparound_outage event=multixact_limit source=format-string
+2026-11-08 20:16:14.747 UTC,postgres,postgres,302,[local],6af0d88e.12e,1,SELECT,2026-11-08 20:16:14 UTC,3/12,0,ERROR,54000,"multixact ""members"" limit exceeded",,,,,,,,,psql,client backend,,0

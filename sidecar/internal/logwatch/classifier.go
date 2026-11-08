@@ -10,63 +10,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/rca"
 )
 
-// signalPattern defines one pattern the classifier matches against log entries.
-type signalPattern struct {
-	ID         string
-	Severity   string
-	SQLStates  []string // exact match (or prefix for XX/28)
-	Substrings []string // case-insensitive, ALL must match
-	MinLevel   string   // minimum ErrorLevel
-	OptIn      bool     // requires explicit config enable
-}
-
-// patterns is the full catalog of 18 signal definitions.
-var patterns = []signalPattern{
-	{ID: "log_deadlock_detected", Severity: "critical",
-		SQLStates: []string{"40P01"}, MinLevel: "ERROR"},
-	{ID: "log_connection_refused", Severity: "critical",
-		SQLStates: []string{"53300"}, MinLevel: "FATAL"},
-	{ID: "log_out_of_memory", Severity: "critical",
-		SQLStates: []string{"53200"}, MinLevel: "ERROR"},
-	{ID: "log_disk_full", Severity: "critical",
-		SQLStates: []string{"53100"}, MinLevel: "ERROR"},
-	{ID: "log_panic_server_crash", Severity: "critical",
-		Substrings: []string{"server process was terminated by signal"},
-		MinLevel:   "LOG"},
-	{ID: "log_data_corruption", Severity: "critical",
-		MinLevel: "WARNING"},
-	{ID: "log_txid_wraparound_warning", Severity: "critical",
-		Substrings: []string{"must be vacuumed within"},
-		MinLevel:   "WARNING"},
-	{ID: "log_archive_failed", Severity: "critical",
-		Substrings: []string{"archive command failed"}, MinLevel: "LOG"},
-	{ID: "log_temp_file_created", Severity: "warning",
-		Substrings: []string{"temporary file"}, MinLevel: "LOG"},
-	{ID: "log_checkpoint_too_frequent", Severity: "warning",
-		Substrings: []string{"checkpoints are occurring too frequently"},
-		MinLevel:   "LOG"},
-	{ID: "log_lock_timeout", Severity: "warning",
-		SQLStates: []string{"55P03"}, MinLevel: "ERROR"},
-	{ID: "log_statement_timeout", Severity: "warning",
-		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
-	{ID: "log_replication_conflict", Severity: "warning",
-		Substrings: []string{"conflict with recovery"},
-		MinLevel:   "ERROR"},
-	{ID: "log_wal_segment_removed", Severity: "critical",
-		Substrings: []string{"WAL segment has already been removed"},
-		MinLevel:   "ERROR"},
-	{ID: "log_autovacuum_cancel", Severity: "warning",
-		Substrings: []string{"canceling autovacuum task"},
-		MinLevel:   "LOG"},
-	{ID: "log_replication_slot_inactive", Severity: "warning",
-		Substrings: []string{"replication slot", "inactive"},
-		MinLevel:   "WARNING"},
-	{ID: "log_authentication_failure", Severity: "warning",
-		MinLevel: "FATAL"},
-	{ID: "log_slow_query", Severity: "info",
-		Substrings: []string{"duration:"}, MinLevel: "LOG", OptIn: true},
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -258,48 +201,11 @@ func (c *Classifier) matchPattern(entry LogEntry) (signalPattern, bool) {
 		if pat.OptIn && !c.optInEnabled(pat.ID) {
 			continue
 		}
-		if c.matchesSQLStateOrSubstring(pat, entry, lower) {
+		if matchesEntry(pat, entry, lower) {
 			return pat, true
 		}
 	}
 	return signalPattern{}, false
-}
-
-// matchesSQLStateOrSubstring checks SQLState then substring rules.
-func (c *Classifier) matchesSQLStateOrSubstring(
-	pat signalPattern, entry LogEntry, lower string,
-) bool {
-	switch pat.ID {
-	case "log_panic_server_crash":
-		return entry.ErrorLevel == "PANIC" ||
-			strings.Contains(lower, "server process was terminated by signal")
-	case "log_data_corruption":
-		return strings.HasPrefix(entry.SQLState, "XX")
-	case "log_authentication_failure":
-		return strings.HasPrefix(entry.SQLState, "28")
-	}
-	if len(pat.SQLStates) > 0 && entry.SQLState != "" {
-		for _, s := range pat.SQLStates {
-			if entry.SQLState == s {
-				return true
-			}
-		}
-	}
-	if len(pat.Substrings) > 0 {
-		return allSubstringsMatch(lower, pat.Substrings)
-	}
-	return false
-}
-
-// allSubstringsMatch returns true if lower contains every substring
-// (already lowered).
-func allSubstringsMatch(lower string, subs []string) bool {
-	for _, sub := range subs {
-		if !strings.Contains(lower, strings.ToLower(sub)) {
-			return false
-		}
-	}
-	return true
 }
 
 func (c *Classifier) optInEnabled(id string) bool {
@@ -333,6 +239,10 @@ func (c *Classifier) buildSignal(
 	if entry.Detail != "" {
 		metrics["detail"] = Truncate(entry.Detail, MaxRawMessageLen)
 	}
+	if entry.BackendType != "" {
+		metrics["backend_type"] = entry.BackendType
+	}
+	applyExtract(pat, entry.Message, metrics)
 
 	switch pat.ID {
 	case "log_temp_file_created":
