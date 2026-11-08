@@ -428,6 +428,48 @@ func TestUnknownVersionSparesTruncateLinks(t *testing.T) {
 	}
 }
 
+// A newer spec whose expressions differ never checks rows written under
+// the old version: comparing them would report every clean row as edited.
+func TestUnknownVersionRowsAreNotCheckedWithTheNewSpec(t *testing.T) {
+	pool := freshDB(t, "chain_unknown_rows")
+	id := insertAction(t, pool, "CREATE INDEX uv1")
+	exec(t, pool, "UPDATE sage.action_log SET outcome = 'success' WHERE id = $1", id)
+	v2 := auditchain.ActionLog
+	v2.Version = 2
+	v2.Sealed = append(append([]string(nil), v2.Sealed...), "%[1]s.id + 1")
+	v2.State = append(append([]string(nil), v2.State...), "%[1]s.id + 1")
+	rep := verify(t, pool, v2, auditchain.Window{})
+	if rep.RowsChecked != 0 || len(rep.Problems) != 2 {
+		t.Fatalf("v2 spec over two v1 links: rows checked %d, problems %+v, want 0 and "+
+			"two unknown_version", rep.RowsChecked, rep.Problems)
+	}
+	for i, p := range rep.Problems {
+		if p.Kind != "unknown_version" || p.RowID != id || p.Seq != int64(i+1) {
+			t.Fatalf("problem %d = %+v, want unknown_version for row %d at seq %d", i, p,
+				id, i+1)
+		}
+	}
+}
+
+// A row inserted under this version and updated under another (its state
+// rendered by the other version's rules) is not checked at all: neither
+// its own-version links nor the other version's state are compared.
+func TestRowWithALaterUnknownVersionLinkIsNotChecked(t *testing.T) {
+	pool := freshDB(t, "chain_unknown_mixed")
+	id := insertAction(t, pool, "CREATE INDEX uv2")
+	exec(t, pool, "UPDATE sage.action_log SET outcome = 'success' WHERE id = $1", id)
+	exec(t, pool, `UPDATE sage.audit_chain_link SET v = 2, state = '["v2 state"]',
+		hash = encode(sha256(convert_to(concat_ws('|', prev_hash, seq::text, op,
+			row_id::text, '2', sealed_hash, '["v2 state"]'), 'UTF8')), 'hex')
+		WHERE chain = 'action_log' AND seq = 2`)
+	rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{})
+	if rep.RowsChecked != 0 || len(rep.Problems) != 1 ||
+		rep.Problems[0].Kind != "unknown_version" || rep.Problems[0].Seq != 2 {
+		t.Fatalf("v1 insert, v2 update: rows checked %d, problems %+v, want 0 and one "+
+			"unknown_version at seq 2 (no state_edited)", rep.RowsChecked, rep.Problems)
+	}
+}
+
 func containsKind(kinds []string, kind string) bool {
 	for _, k := range kinds {
 		if k == kind {
