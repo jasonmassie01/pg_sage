@@ -350,6 +350,9 @@ scrape_configs:
 | `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
 | `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
+| `pg_sage_leader{scope}` | `sum by (scope)` == 0 across sidecars | No sidecar holds the lease: leader-only jobs (fleet learning, SIEM export, governance reconcilers) are not running. 1 = this sidecar leads, 0 = follower |
+| `pg_sage_leader_transitions_total{scope}` | rate > 0 for long | Leadership is flapping; a lapse (renewal overdue past the local deadline) counts and logs one WARN |
+| `pg_sage_leader_last_renew_age_seconds{scope}` | > lease TTL | Seconds since the last successful lease-store round trip (since start when none yet). Each renewal is bounded to a third of the lease, so a stall shows here instead of wedging the elector |
 
 ### Grafana Dashboard
 

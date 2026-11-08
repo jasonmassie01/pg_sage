@@ -154,6 +154,7 @@ type governanceLeader struct {
 func agentGovernanceLeader(ctx context.Context, control,
 	fleetControl *pgxpool.Pool) governanceLeader {
 	if control == fleetControl || cfg.FleetLearning.LeaderLeaseSeconds <= 0 {
+		governanceElector.Store(nil)
 		return governanceLeader{elector: fleetLeader}
 	}
 	scope := "agents:" + fleetLearningScope(cfg)
@@ -165,6 +166,7 @@ func agentGovernanceLeader(ctx context.Context, control,
 	}
 	cancel()
 	go e.Run(ctx)
+	governanceElector.Store(e)
 	return governanceLeader{elector: e}
 }
 
