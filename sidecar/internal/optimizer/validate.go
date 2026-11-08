@@ -14,10 +14,10 @@ import (
 
 // Validator runs the P0 bullet-proofing checks on each recommendation.
 type Validator struct {
-	pool  *pgxpool.Pool
 	cfg   *config.OptimizerConfig
 	logFn func(string, string, ...any)
-	// catalog runs the bounded volatility lookups (nil: no database).
+	// catalog runs the bounded volatility and extension lookups (nil: no
+	// database).
 	catalog catalogread.Beginner
 	// timeouts bound each catalog lookup (the optimizer's catalog bounds).
 	timeouts catalogread.Timeouts
@@ -34,7 +34,7 @@ func NewValidator(
 	cfg *config.OptimizerConfig,
 	logFn func(string, string, ...any),
 ) *Validator {
-	v := &Validator{pool: pool, cfg: cfg, logFn: logFn,
+	v := &Validator{cfg: cfg, logFn: logFn,
 		timeouts: catalogread.Default(), extensions: expressionIndexExtensions}
 	if pool != nil {
 		v.catalog = pool
