@@ -292,7 +292,8 @@ func TestReadIndexBuildsHiddenFromAnotherRole(t *testing.T) {
 func TestInvalidIndexNullsNotDistinctKeepsNulls(t *testing.T) {
 	pool, ctx := livePool(t)
 	var version int
-	if err := pool.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").
+		Scan(&version); err != nil {
 		t.Fatalf("server version: %v", err)
 	}
 	if version < 150000 {
