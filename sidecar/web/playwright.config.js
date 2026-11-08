@@ -22,7 +22,9 @@ export default defineConfig({
   timeout: 30_000,
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? 'github' : 'list',
+  // Under CI, `list` names every spec file and test in the log next to
+  // the GitHub annotations, so a run shows which specs passed or skipped.
+  reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
     baseURL,
     trace: 'retain-on-failure',
