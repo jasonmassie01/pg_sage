@@ -20,7 +20,6 @@ const (
 	buildPollFast   = 5 * time.Millisecond
 	buildPollSlow   = 250 * time.Millisecond
 	gateHoldDefault = 2 * time.Second
-	gateHoldMin     = 20 * time.Millisecond
 	gateHoldMax     = 5 * time.Second
 )
 
@@ -143,9 +142,13 @@ func (w *buildWatch) stop() int64 {
 	return w.oid.Load()
 }
 
-// run polls the build's progress row: fast while the gate holds the build
-// before its first wait, slowly after. It releases the gate as soon as the
-// OID is read, or after hold, so the gate can never time the build out.
+// run polls the build's progress row: fast, on the gate's own connection,
+// while the gate holds the build before its first wait; slowly, on the
+// pool, after. Polling the gate's connection keeps the watch from needing
+// a third pool connection: on a two-connection pool (the default) the gate
+// and the build hold both, and a pool poll would wait until the build
+// timed out on the gate. The gate is released as soon as the OID is read,
+// or after hold, so it can never time the build out.
 func (w *buildWatch) run(ctx context.Context, r remnantRun, gate pgx.Tx, hold time.Duration) {
 	defer close(w.finished)
 	release := gateRelease(gate)
@@ -156,36 +159,67 @@ func (w *buildWatch) run(ctx context.Context, r remnantRun, gate pgx.Tx, hold ti
 	case <-w.done:
 		return
 	}
-	holdUntil, interval := time.Now().Add(hold), buildPollFast
-	for {
-		if oid := buildIndexOID(ctx, r.pool, pid); oid > 0 {
-			w.oid.Store(oid)
-			release()
-			if r.onCapture != nil {
-				r.onCapture(oid)
-			}
-			return
+	readPool := func(c context.Context) int64 { return buildIndexOID(c, r.pool, pid) }
+	read := readPool
+	if gate != nil {
+		read = func(c context.Context) int64 { return gateIndexOID(c, gate, pid) }
+	}
+	holdCtx, cancel := context.WithTimeout(ctx, hold)
+	oid, finished := w.poll(holdCtx, read, buildPollFast)
+	cancel()
+	release()
+	if oid == 0 && !finished {
+		oid, _ = w.poll(ctx, readPool, buildPollSlow)
+	}
+	if oid > 0 {
+		w.oid.Store(oid)
+		if r.onCapture != nil {
+			r.onCapture(oid)
 		}
-		if time.Now().After(holdUntil) {
-			release()
-			interval = buildPollSlow
+	}
+}
+
+// poll reads the build's OID every interval until it is seen (oid), the
+// build has returned (finished) or ctx ends.
+func (w *buildWatch) poll(ctx context.Context, read func(context.Context) int64,
+	interval time.Duration) (oid int64, finished bool) {
+	for {
+		if oid := read(ctx); oid > 0 {
+			return oid, false
 		}
 		select {
 		case <-w.done:
-			return
+			return 0, true
+		case <-ctx.Done():
+			return 0, false
 		case <-time.After(interval):
 		}
 	}
 }
 
+const buildOIDQuery = `/* pg_sage */ SELECT COALESCE(max(index_relid::bigint), 0)
+		FROM pg_stat_progress_create_index
+		WHERE pid = $1 AND command = 'CREATE INDEX CONCURRENTLY'`
+
 // buildIndexOID is the index a backend's CREATE INDEX CONCURRENTLY has
 // registered, 0 before it has.
 func buildIndexOID(ctx context.Context, pool *pgxpool.Pool, pid uint32) int64 {
 	var oid int64
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(max(index_relid::bigint), 0)
-		FROM pg_stat_progress_create_index
-		WHERE pid = $1 AND command = 'CREATE INDEX CONCURRENTLY'`, int64(pid)).Scan(&oid)
-	if err != nil {
+	if err := pool.QueryRow(ctx, buildOIDQuery, int64(pid)).Scan(&oid); err != nil {
+		return 0
+	}
+	return oid
+}
+
+// gateIndexOID is buildIndexOID read inside the gate transaction. The
+// progress views are snapshotted once per transaction, so the snapshot is
+// cleared before each read.
+func gateIndexOID(ctx context.Context, gate pgx.Tx, pid uint32) int64 {
+	if _, err := gate.Exec(ctx, `/* pg_sage */ SELECT pg_stat_clear_snapshot()`); err != nil {
+		return 0
+	}
+	var oid int64
+	if err := gate.QueryRow(ctx, buildOIDQuery, int64(pid)).Scan(&oid); err != nil {
 		return 0
 	}
 	return oid
@@ -219,11 +253,12 @@ func gateRelease(gate pgx.Tx) func() {
 	}
 }
 
-// gateHold is how long the gate may hold the build: half its lock_timeout,
-// so the build's own wait on the gate can never reach that timeout.
+// gateHold is how long the gate may hold the build: half its lock_timeout
+// (at most gateHoldMax), so the build's own wait on the gate can never
+// reach that timeout, however short it is.
 func gateHold(lockTimeoutMS int) time.Duration {
 	if lockTimeoutMS <= 0 {
 		return gateHoldDefault
 	}
-	return min(max(time.Duration(lockTimeoutMS)*time.Millisecond/2, gateHoldMin), gateHoldMax)
+	return min(time.Duration(lockTimeoutMS)*time.Millisecond/2, gateHoldMax)
 }
