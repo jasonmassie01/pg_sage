@@ -77,6 +77,39 @@ func TestRecommendOnlyMigrationKeepsTheActionEvidence(t *testing.T) {
 	require.Equal(t, "ev-queue", result.(MigrationOutcome).EvidenceID)
 }
 
+// The Execute path (a gate that already authorized the intent) had the
+// same gap: a gate without a decision recorder hands back no evidence id,
+// and every such plan was written under one empty evidence_id.
+func TestAuthorizedMigrationWithoutEvidenceGetsAFreshID(t *testing.T) {
+	ids := make([]string, 0, 2)
+	for range 2 {
+		store := &recordingIntentStore{}
+		executor := NewProductionIntentExecutor(store, plan.NewPlanner())
+		result, err := executor.Execute(context.Background(), migrationRequest(),
+			policy.Decision{Verdict: policy.VerdictExecute})
+		require.NoError(t, err)
+		outcome := result.(MigrationOutcome)
+		require.Equal(t, "recommend_only", store.migration.Verdict)
+		require.True(t, strings.HasPrefix(store.migration.EvidenceID, "ev_"),
+			"want a generated ledger evidence id, got %q", store.migration.EvidenceID)
+		require.Equal(t, store.migration.EvidenceID, outcome.EvidenceID)
+		require.Equal(t, ledgerEmailSQL, store.migration.SourceSQL)
+		require.Empty(t, store.migration.Reason)
+		ids = append(ids, outcome.EvidenceID)
+	}
+	require.NotEqual(t, ids[0], ids[1])
+}
+
+func TestAuthorizedMigrationKeepsTheDecisionEvidence(t *testing.T) {
+	store := &recordingIntentStore{}
+	executor := NewProductionIntentExecutor(store, plan.NewPlanner())
+	result, err := executor.Execute(context.Background(), migrationRequest(),
+		policy.Decision{Verdict: policy.VerdictExecute, EvidenceID: "ev-decision"})
+	require.NoError(t, err)
+	require.Equal(t, "ev-decision", store.migration.EvidenceID)
+	require.Equal(t, "ev-decision", result.(MigrationOutcome).EvidenceID)
+}
+
 func TestBlockedMigrationStoreErrorIsReturned(t *testing.T) {
 	storeErr := errors.New("sage.migration_run unavailable")
 	store := &failingMigrationStore{err: storeErr}

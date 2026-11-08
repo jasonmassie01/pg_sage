@@ -131,40 +131,18 @@ func (executor *ProductionIntentExecutor) registerConsumer(
 	})
 }
 
+// planMigration returns the safe plan for an apply_migration the gate
+// authorized and records it as recommend_only; it never runs the DDL.
 func (executor *ProductionIntentExecutor) planMigration(
 	ctx context.Context, request policy.ActionRequest, decision policy.Decision,
 ) (MigrationOutcome, error) {
-	var input struct {
-		SQL   string `json:"sql"`
-		DDL   string `json:"ddl"`
-		Table string `json:"table"`
-		Cycle int    `json:"cycle"`
-	}
-	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return MigrationOutcome{}, fmt.Errorf("decode migration: %w", err)
-	}
-	if input.SQL == "" {
-		input.SQL = input.DDL
-	}
-	schemaName, tableName, err := qualifiedName(input.Table)
+	input, planned, err := executor.buildMigrationPlan(ctx, request)
 	if err != nil {
 		return MigrationOutcome{}, err
 	}
-	planned, err := executor.planner.Plan(ctx, plan.Request{
-		SQL: input.SQL, Cycle: input.Cycle,
-		Table: plan.TableFacts{Schema: schemaName, Name: tableName},
-	})
-	if err != nil {
-		return MigrationOutcome{}, fmt.Errorf("build safe migration plan: %w", err)
-	}
-	const verdict = "recommend_only"
-	if err := executor.store.RecordMigration(ctx, MigrationRecord{
-		DatabaseID: request.DatabaseID, EvidenceID: decision.EvidenceID,
-		SourceSQL: input.SQL, Verdict: verdict,
-	}); err != nil {
-		return MigrationOutcome{}, err
-	}
-	return MigrationOutcome{Verdict: verdict, Plan: planned}, nil
+	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+		Verdict: "recommend_only", EvidenceID: decision.EvidenceID, Plan: planned,
+	}, "")
 }
 
 func (executor *ProductionIntentExecutor) findCandidates(
