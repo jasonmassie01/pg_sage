@@ -18,14 +18,18 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.js'],
     include: ['src/**/*.test.{js,jsx}'],
+    // CI runs `npm run test -- --coverage`, so these floors fail the build.
+    // The shared data layer (hooks, lib) is held at 70% on its own glob,
+    // so a well-covered lib cannot hide an untested hook.
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
-      include: ['src/components/ConfigTooltip.jsx'],
+      include: ['src/hooks/**', 'src/lib/**', 'src/components/ConfigTooltip.jsx'],
       thresholds: {
+        'src/hooks/**': { lines: 70, functions: 70 },
+        'src/lib/**': { lines: 70, functions: 70 },
         // CHECK-T18: ConfigTooltip must hit 100% on lines it owns.
-        lines: 100,
-        functions: 100,
+        'src/components/ConfigTooltip.jsx': { lines: 100, functions: 100 },
       },
     },
   },
