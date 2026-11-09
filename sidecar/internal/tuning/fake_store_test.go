@@ -33,6 +33,28 @@ type fakeStore struct {
 	day       map[string][2]int64 // UTC day -> tokens, requests charged
 	dayErr    error
 	chargeErr error
+	qstates   map[int64]QueryState // nil: every statement unknown
+	qErr      error
+	qAsked    [][]int64
+	qAdm      HintAdmission
+}
+
+func (s *fakeStore) QueryStates(_ context.Context, ids []int64, adm HintAdmission) (
+	map[int64]QueryState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.qAsked = append(s.qAsked, append([]int64(nil), ids...))
+	s.qAdm = adm
+	if s.qErr != nil {
+		return nil, s.qErr
+	}
+	out := map[int64]QueryState{}
+	for _, id := range ids {
+		if st, ok := s.qstates[id]; ok {
+			out[id] = st
+		}
+	}
+	return out, nil
 }
 
 func (s *fakeStore) InFlightIndexes(context.Context) ([]string, error) {

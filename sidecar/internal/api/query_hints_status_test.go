@@ -61,3 +61,25 @@ func TestQueryHintsHandler_RejectsUnknownStatus(t *testing.T) {
 		}
 	}
 }
+
+// tuning-06 added the rejected and expired statuses; the filter accepts
+// them.
+func TestQueryHintsHandler_FiltersRejectedAndExpired(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	for i, s := range []string{"rejected", "expired"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO sage.query_hints
+			(queryid, hint_text, symptom, status) VALUES ($1, 'Use idx', 'seq_scan', $2)`,
+			int64(600+i), s); err != nil {
+			t.Fatalf("insert %s hint: %v", s, err)
+		}
+	}
+	h := queryHintsHandler(phase2MgrWithPool(pool))
+	for _, s := range []string{"rejected", "expired"} {
+		code, hints := getQueryHints(t, h, s)
+		if code != http.StatusOK || len(hints) != 1 || hints[0]["status"] != s {
+			t.Fatalf("status=%s: HTTP %d hints %+v, want exactly the %s hint", s, code,
+				hints, s)
+		}
+	}
+}
