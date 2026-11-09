@@ -47,6 +47,10 @@ func NewSyslogSink(name, network, address string, timeout time.Duration,
 
 func (s *syslogSink) Name() string { return s.name }
 
+// BestEffort reports udp: a datagram that was written is not known to have
+// arrived, and a lost one is never retried.
+func (s *syslogSink) BestEffort() bool { return s.network == "udp" }
+
 func (s *syslogSink) Send(ctx context.Context, events []Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,8 +129,7 @@ func (s *syslogSink) dial(ctx context.Context) (net.Conn, error) {
 		if cfg == nil {
 			cfg = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
-		td := &tls.Dialer{NetDialer: d, Config: cfg}
-		return td.DialContext(ctx, "tcp", s.address)
+		return dialTLS(ctx, d, s.address, cfg, min(s.timeout, tlsConfirmWait))
 	case "udp", "tcp":
 		return d.DialContext(ctx, s.network, s.address)
 	}

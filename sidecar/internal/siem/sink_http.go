@@ -3,6 +3,7 @@ package siem
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,10 +45,11 @@ type httpSink struct {
 }
 
 // NewHTTPSink posts each batch as a JSON array of OCSF events, with an
-// optional bearer token.
-func NewHTTPSink(name, url, token string, timeout time.Duration) Sink {
+// optional bearer token. tlsCfg (LoadTLSConfig) sets the receiver's roots
+// and the client pair; nil keeps the default transport.
+func NewHTTPSink(name, url, token string, timeout time.Duration, tlsCfg *tls.Config) Sink {
 	return &httpSink{name: name, url: url, token: token,
-		client: &http.Client{Timeout: timeout}}
+		client: httpClient(timeout, tlsCfg)}
 }
 
 func (s *httpSink) Name() string { return s.name }

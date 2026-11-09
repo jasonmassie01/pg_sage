@@ -90,6 +90,9 @@ func startSIEMExport(ctx context.Context, control *pgxpool.Pool,
 		logError("audit", "SIEM export is off: %v", err)
 		return
 	}
+	for _, w := range siemStartupWarnings(sc.Sinks) {
+		logWarn("audit", "%s", w)
+	}
 	e := siem.NewExporter(func() []siem.Source {
 		var out []siem.Source
 		for _, s := range sources() {
@@ -123,38 +126,72 @@ func siemUndeliverable(sources func() []auditjob.Source) func(context.Context,
 	}
 }
 
+// siemStartupWarnings is one line per unsafe sink, logged once at start:
+// a token over plain http (refused from the next minor), and udp, which
+// cannot confirm delivery.
+func siemStartupWarnings(cfgs []config.AuditSIEMSink) []string {
+	var out []string
+	for _, s := range cfgs {
+		for _, w := range s.Warnings() {
+			if w == config.SIEMWarningTokenOverHTTP {
+				out = append(out, fmt.Sprintf("SIEM sink %s sends its token over plain "+
+					"http (%s); use https, or set allow_insecure_http: true. The next "+
+					"minor release refuses this configuration", s.Name, w))
+			}
+		}
+		if s.Type == "syslog" && s.Network == "udp" {
+			out = append(out, fmt.Sprintf("SIEM sink %s: udp is best effort; lost "+
+				"datagrams are not retried. Use tcp or tls for at-least-once delivery",
+				s.Name))
+		}
+	}
+	return out
+}
+
 // buildSIEMSinks builds the configured sinks; a token is read from its
 // environment variable (or the variable's _FILE twin) and never logged.
+// TLS files are read once, here; an error names the sink and the file.
 func buildSIEMSinks(cfgs []config.AuditSIEMSink) ([]siem.SinkConfig, error) {
 	out := make([]siem.SinkConfig, 0, len(cfgs))
 	for _, s := range cfgs {
-		token := ""
-		if s.TokenEnv != "" {
-			v, err := config.LookupSecretEnv(s.TokenEnv)
-			if err != nil || v == "" {
-				return nil, fmt.Errorf("sink %s: token variable %s is unset or unreadable",
-					s.Name, s.TokenEnv)
-			}
-			token = v
+		sink, err := buildSIEMSink(s)
+		if err != nil {
+			return nil, err
 		}
-		timeout := time.Duration(s.TimeoutSeconds) * time.Second
-		if timeout <= 0 {
-			timeout = config.DefaultSIEMTimeoutSeconds * time.Second
-		}
-		var sink siem.Sink
-		switch s.Type {
-		case "http":
-			sink = siem.NewHTTPSink(s.Name, s.URL, token, timeout)
-		case "otlp":
-			sink = siem.NewOTLPSink(s.Name, s.URL, token, timeout)
-		case "syslog":
-			sink = siem.NewSyslogSink(s.Name, s.Network, s.Address, timeout, nil)
-		default:
-			return nil, fmt.Errorf("sink %s: unknown type %q", s.Name, s.Type)
-		}
-		out = append(out, siem.SinkConfig{Sink: sink, Chains: s.Chains})
+		out = append(out, siem.SinkConfig{Sink: sink, Chains: s.Chains,
+			Warnings: s.Warnings()})
 	}
 	return out, nil
+}
+
+func buildSIEMSink(s config.AuditSIEMSink) (siem.Sink, error) {
+	token := ""
+	if s.TokenEnv != "" {
+		v, err := config.LookupSecretEnv(s.TokenEnv)
+		if err != nil || v == "" {
+			return nil, fmt.Errorf("sink %s: token variable %s is unset or unreadable",
+				s.Name, s.TokenEnv)
+		}
+		token = v
+	}
+	timeout := time.Duration(s.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = config.DefaultSIEMTimeoutSeconds * time.Second
+	}
+	tlsCfg, err := siem.LoadTLSConfig(siem.TLSFiles{CA: s.CAFile, Cert: s.ClientCertFile,
+		Key: s.ClientKeyFile})
+	if err != nil {
+		return nil, fmt.Errorf("sink %s: %w", s.Name, err)
+	}
+	switch s.Type {
+	case "http":
+		return siem.NewHTTPSink(s.Name, s.URL, token, timeout, tlsCfg), nil
+	case "otlp":
+		return siem.NewOTLPSink(s.Name, s.URL, token, timeout, tlsCfg), nil
+	case "syslog":
+		return siem.NewSyslogSink(s.Name, s.Network, s.Address, timeout, tlsCfg), nil
+	}
+	return nil, fmt.Errorf("sink %s: unknown type %q", s.Name, s.Type)
 }
 
 // auditLeaderFence lets the leader export, fenced by the lease it holds.

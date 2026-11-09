@@ -2,6 +2,7 @@ package siem
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,13 +18,15 @@ type otlpSink struct {
 }
 
 // NewOTLPSink sends events as OTLP/HTTP JSON log records: a bare endpoint
-// gets /v1/logs appended; a full path is used as given.
-func NewOTLPSink(name, endpoint, token string, timeout time.Duration) Sink {
+// gets /v1/logs appended; a full path is used as given. tlsCfg is as for
+// NewHTTPSink.
+func NewOTLPSink(name, endpoint, token string, timeout time.Duration,
+	tlsCfg *tls.Config) Sink {
 	if u, err := url.Parse(endpoint); err == nil && (u.Path == "" || u.Path == "/") {
 		endpoint = strings.TrimRight(endpoint, "/") + "/v1/logs"
 	}
 	return &otlpSink{name: name, url: endpoint, token: token,
-		client: &http.Client{Timeout: timeout}}
+		client: httpClient(timeout, tlsCfg)}
 }
 
 func (s *otlpSink) Name() string { return s.name }

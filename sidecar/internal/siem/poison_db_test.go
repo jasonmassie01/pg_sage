@@ -35,7 +35,7 @@ func newReceiver(t *testing.T, poison ...int64) (*receiver, Sink) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(r.serve))
 	t.Cleanup(srv.Close)
-	return r, NewHTTPSink("soc", srv.URL, "", 5*time.Second)
+	return r, NewHTTPSink("soc", srv.URL, "", 5*time.Second, nil)
 }
 
 func (r *receiver) serve(w http.ResponseWriter, req *http.Request) {

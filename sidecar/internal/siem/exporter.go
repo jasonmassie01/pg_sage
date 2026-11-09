@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -16,10 +17,26 @@ type Source struct {
 	DB   auditchain.Querier
 }
 
-// SinkConfig is one sink and the chains it receives (empty = all).
+// SinkConfig is one sink and the chains it receives (empty = all), with
+// the configuration warnings its status reports.
 type SinkConfig struct {
-	Sink   Sink
-	Chains []string
+	Sink     Sink
+	Chains   []string
+	Warnings []string
+}
+
+// Delivery guarantees a sink reports.
+const (
+	DeliveryAtLeastOnce = "at_least_once" // the receiver confirmed, or the cursor holds
+	DeliveryBestEffort  = "best_effort"   // udp: a lost datagram is not retried
+)
+
+// delivery is the sink's guarantee: best effort when it says so.
+func delivery(s Sink) string {
+	if b, ok := s.(interface{ BestEffort() bool }); ok && b.BestEffort() {
+		return DeliveryBestEffort
+	}
+	return DeliveryAtLeastOnce
 }
 
 // Options tune delivery.
@@ -35,10 +52,13 @@ type Options struct {
 // SinkStatus is a sink's delivery health. Status is StatusOK,
 // StatusFailing (some lane fails) or StatusRegressed (Regressions names the
 // stopped chains). Lanes has one entry per source and chain; Undeliverable
-// counts the events sent as stubs.
+// counts the events sent as stubs. Delivery is DeliveryAtLeastOnce or
+// DeliveryBestEffort; Warnings lists unsafe settings (token_over_http).
 type SinkStatus struct {
 	Name                string       `json:"name"`
 	Status              string       `json:"status"`
+	Delivery            string       `json:"delivery"`
+	Warnings            []string     `json:"warnings,omitempty"`
 	Delivered           int64        `json:"delivered"`
 	Undeliverable       int64        `json:"undeliverable"`
 	LastSuccess         time.Time    `json:"last_success"`
@@ -87,7 +107,9 @@ func NewExporter(sources func() []Source, sinks []SinkConfig, cursors *CursorSto
 	e := &Exporter{sources: sources, cursors: cursors, opts: opts, allow: allow, logf: logf}
 	for _, s := range sinks {
 		e.sinks = append(e.sinks, &sinkState{cfg: s, turn: make(chan struct{}, 1),
-			status: SinkStatus{Name: s.Sink.Name()}, regressed: map[string]Regression{}})
+			status: SinkStatus{Name: s.Sink.Name(), Delivery: delivery(s.Sink),
+				Warnings: slices.Clone(s.Warnings)},
+			regressed: map[string]Regression{}})
 	}
 	return e
 }

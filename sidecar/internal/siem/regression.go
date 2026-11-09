@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -138,6 +139,7 @@ func (s *sinkState) keepRegressions(visited map[string]bool) {
 // statusLocked is the sink's status; s.mu must be held.
 func (s *sinkState) statusLocked() SinkStatus {
 	st := s.status
+	st.Warnings = slices.Clone(st.Warnings)
 	st.Status = StatusOK
 	st.Lanes = s.lanesLocked()
 	if st.ConsecutiveFailures > 0 {

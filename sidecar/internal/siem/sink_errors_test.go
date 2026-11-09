@@ -35,8 +35,8 @@ func TestHTTPStatusClassification(t *testing.T) {
 		{408, false}, {409, false}, {429, false}, {500, false}, {502, false},
 		{503, false}} {
 		srv := statusServer(t, c.status, "")
-		for _, s := range []Sink{NewHTTPSink("soc", srv.URL, "tok", time.Second),
-			NewOTLPSink("otel", srv.URL+"/v1/logs", "tok", time.Second)} {
+		for _, s := range []Sink{NewHTTPSink("soc", srv.URL, "tok", time.Second, nil),
+			NewOTLPSink("otel", srv.URL+"/v1/logs", "tok", time.Second, nil)} {
 			err := s.Send(context.Background(), sampleEvents(2))
 			if err == nil || !strings.Contains(err.Error(), strconv.Itoa(c.status)) {
 				t.Fatalf("%s HTTP %d: err = %v", s.Name(), c.status, err)
@@ -52,11 +52,11 @@ func TestHTTPStatusClassification(t *testing.T) {
 // A 2xx is success; an unreachable receiver is transient.
 func TestHTTPSuccessAndNetworkErrors(t *testing.T) {
 	srv := statusServer(t, http.StatusAccepted, "")
-	if err := NewHTTPSink("soc", srv.URL, "", time.Second).Send(context.Background(),
+	if err := NewHTTPSink("soc", srv.URL, "", time.Second, nil).Send(context.Background(),
 		sampleEvents(1)); err != nil {
 		t.Fatalf("202: %v", err)
 	}
-	err := NewHTTPSink("soc", "http://127.0.0.1:1", "", time.Second).
+	err := NewHTTPSink("soc", "http://127.0.0.1:1", "", time.Second, nil).
 		Send(context.Background(), sampleEvents(1))
 	if err == nil || errors.Is(err, ErrPermanent) {
 		t.Fatalf("unreachable receiver: err = %v, want a transient error", err)
@@ -76,7 +76,7 @@ func TestOTLPRejectionClassification(t *testing.T) {
 		{`{"partialSuccess":{}}`, false, true},
 		{`not json`, false, true}, {``, false, true}} {
 		srv := statusServer(t, http.StatusOK, c.body)
-		err := NewOTLPSink("otel", srv.URL+"/v1/logs", "", time.Second).
+		err := NewOTLPSink("otel", srv.URL+"/v1/logs", "", time.Second, nil).
 			Send(context.Background(), sampleEvents(3))
 		if c.ok != (err == nil) || errors.Is(err, ErrPermanent) != c.permanent {
 			t.Fatalf("reply %q: err = %v, want ok %v permanent %v", c.body, err, c.ok,
@@ -136,8 +136,8 @@ func TestUnencodableEventIsPermanent(t *testing.T) {
 	srv := statusServer(t, http.StatusOK, "")
 	bad := sampleEvents(1)
 	bad[0]["message"] = make(chan int)
-	for _, s := range []Sink{NewHTTPSink("soc", srv.URL, "", time.Second),
-		NewOTLPSink("otel", srv.URL+"/v1/logs", "", time.Second)} {
+	for _, s := range []Sink{NewHTTPSink("soc", srv.URL, "", time.Second, nil),
+		NewOTLPSink("otel", srv.URL+"/v1/logs", "", time.Second, nil)} {
 		if err := s.Send(context.Background(), bad); !errors.Is(err, ErrPermanent) {
 			t.Fatalf("%s: unencodable event: err = %v, want ErrPermanent", s.Name(), err)
 		}
