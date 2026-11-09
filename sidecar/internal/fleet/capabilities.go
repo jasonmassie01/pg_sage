@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
 type CapabilityStatus struct {
@@ -27,6 +28,9 @@ type ProviderCapabilities struct {
 	// PendingProvider is what a re-probe of an unknown provider found where
 	// the runtime cannot be rebuilt in place; it applies after a restart.
 	PendingProvider string `json:"pending_provider,omitempty"`
+	// HintPlan holds whether pg_hint_plan hints reach application sessions
+	// (tuning-04); nil when the module is absent or was not probed.
+	HintPlan *tuner.HintPlanAvailability `json:"hint_plan,omitempty"`
 }
 
 type ActionFamilyReadiness struct {
