@@ -169,8 +169,10 @@ func TestHintStatus_StaleProposalExpires(t *testing.T) {
 	recordSageHint(t, pool, old, scopeOwnHint, "proposed")
 	recordSageHint(t, pool, young, scopeOwnHint, "proposed")
 	recordSageHint(t, pool, live, scopeOwnHint, "active")
-	ageHint(t, pool, old, "30 days 1 minute")
-	ageHint(t, pool, young, "29 days 23 hours")
+	// Hours, not days: a calendar day across a DST change is 23 or 25 hours
+	// in a non-UTC session, and proposalExpiry is an absolute 720 hours.
+	ageHint(t, pool, old, "720 hours 1 minute")
+	ageHint(t, pool, young, "719 hours")
 	ageHint(t, pool, live, "90 days")
 	tu := New(pool, TunerConfig{}, nil, noopLog2)
 	if _, expired := tu.reconcileLifecycle(ctx); expired != 1 {
