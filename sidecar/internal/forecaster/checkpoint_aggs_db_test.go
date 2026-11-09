@@ -153,3 +153,39 @@ func TestCheckpointForecast_TodayDoesNotMoveTheResult(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckpointForecast_MidDayResetIsSkipped(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	seedCheckpointWeek(t, ctx, pool, 10, 12, 3)
+	steady, _ := checkpointRun(t, ctx, pool)
+	if steady == nil {
+		t.Fatal("3 requested checkpoints an hour must warn")
+	}
+	// pg_stat_reset_shared at noon five days ago: from then on the
+	// counters restart from 0 and keep growing 12 timed and 3 requested
+	// an hour. The day maximum is the pre-reset value; read as the day's
+	// counter it would give the reset day a rate of 1.5/hr.
+	cleanupSnapshots(t, pool, ctx, "system")
+	var timed, requested int64 = 90000, 400
+	for d := 10; d >= 1; d-- {
+		for h := 0; h < 24; h++ {
+			if d == 5 && h == 12 {
+				timed, requested = 0, 0
+			}
+			insertSnapshot(t, ctx, pool, dayStart(d).Add(time.Duration(h)*time.Hour+
+				30*time.Minute), "system", ckptRow(timed, requested))
+			timed += 12
+			requested += 3
+		}
+	}
+	got, _ := checkpointRun(t, ctx, pool)
+	if got == nil {
+		t.Fatal("the reset removed the finding")
+	}
+	rates := hourlyRates(t, got.Detail)
+	assertRates(t, rates, len(hourlyRates(t, steady.Detail))-1, 3)
+	if got.Detail["ewma_requested_per_hour"] != steady.Detail["ewma_requested_per_hour"] {
+		t.Fatalf("ewma %v with a mid-day reset, %v without: the reset day was read",
+			got.Detail["ewma_requested_per_hour"], steady.Detail["ewma_requested_per_hour"])
+	}
+}

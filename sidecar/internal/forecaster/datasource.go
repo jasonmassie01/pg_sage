@@ -20,8 +20,8 @@ type DaySystemAgg struct {
 	MaxTotalBackends  float64
 	MaxConnections    float64
 	AvgCacheHitRatio  float64
-	// The day maxima of the split checkpoint counters and the time of the
-	// day's last snapshot that carried them (forecast-03). Only closed days
+	// The split checkpoint counters at the day's last snapshot that carried
+	// them, and that snapshot's time (forecast-03). Only closed days
 	// carry them: today's partial day is unknown, so the newest input does
 	// not move with the hour.
 	CheckpointsTimed     float64
@@ -61,9 +61,13 @@ SELECT date_trunc('day', collected_at) AS day,
                          ELSE (data->>'cache_hit_ratio')::float END)
                 FILTER (WHERE (data->>'cache_hit_ratio')::float > 0),
                 -1)                              AS avg_cache_hit,
-       -- Split checkpoint counters of closed days only (forecast-03).
-       max((data->>'checkpoints_timed')::bigint) FILTER (WHERE c.split) AS chk_timed,
-       max((data->>'checkpoints_requested')::bigint) FILTER (WHERE c.split) AS chk_req,
+       -- Split checkpoint counters of closed days only, read at the day's
+       -- last split sample so a mid-day stats reset shows as a drop
+       -- rather than as the pre-reset maximum (forecast-03).
+       (array_agg((data->>'checkpoints_timed')::bigint ORDER BY s.collected_at DESC)
+           FILTER (WHERE c.split))[1] AS chk_timed,
+       (array_agg((data->>'checkpoints_requested')::bigint ORDER BY s.collected_at DESC)
+           FILTER (WHERE c.split))[1] AS chk_req,
        max(s.collected_at) FILTER (WHERE c.split) AS chk_last_at
 FROM sage.snapshots s
 CROSS JOIN LATERAL (SELECT s.collected_at < date_trunc('day', now())
