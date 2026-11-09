@@ -145,6 +145,13 @@ approval, its note and a rejection all survive a change of target and a failed l
 - A rejected change is not proposed again for 7 days, whatever the target lookup returns.
 - A proposal is superseded when its finding is gone or a newer value for the same parameter
   is proposed.
+- Databases on one instance share its parameter group, so a change one of them holds (open,
+  or rejected in the last 7 days) for the same target and value is not proposed again by the
+  others: approve or reject it in the database that holds it. The cycle counts these as
+  `held_by_peer`, and `GET /api/v1/managed-changes` lists each database's
+  `member_databases`. A different value is still proposed. If a peer database cannot be read,
+  the change is proposed anyway (it may then be listed twice) and the failure is logged once.
+  A database that already held its own copy before this release keeps refreshing it.
 
 Upgrading from v2.5.1 or earlier recomputes the stored identities once; open proposals keep
 their ids, status and decisions. Duplicates left by earlier outages (the same change open
@@ -300,7 +307,11 @@ Environment overrides: `SAGE_CLOUD_TELEMETRY_ENABLED`, `SAGE_AWS_REGION`,
 
 Cost: CloudWatch bills `GetMetricData` per metric requested (about 10 metrics per poll, plus
 one per read replica); Performance Insights and Cloud Monitoring API reads have their own
-pricing. Raise `poll_interval_seconds` to read less often.
+pricing. Raise `poll_interval_seconds` to read less often. The cost is per instance, not per
+database: databases of one fleet on the same instance (the same host and port, or the same
+`cloud_resource`, with the same polling settings) share one poller, polled once per interval
+from the first of them that starts until the last one stops. `GET /api/v1/cloud-telemetry`
+lists such an instance once, with its member databases in `databases`.
 
 ## Live check (owner-run, never in CI)
 
