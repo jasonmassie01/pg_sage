@@ -340,6 +340,7 @@ func initMetaDBFleet(state *metaDBState) {
 	initializeAnalyzeSemaphore()
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	learnLLMInputLimits()
 	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	ctx, cancel := context.WithTimeout(
