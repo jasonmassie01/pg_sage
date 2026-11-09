@@ -23,7 +23,7 @@ func coverageTestConfig() *config.Config {
 			SlowQueryThresholdMs:         1000,
 			TableBloatDeadTuplePct:       20,
 			TableBloatMinRows:            1000,
-			SeqScanMinRows:              10000,
+			SeqScanMinRows:               10000,
 			UnusedIndexWindowDays:        7,
 			RegressionThresholdPct:       50,
 			RegressionLookbackDays:       7,
@@ -1899,7 +1899,7 @@ func TestCoverage_RuleMissingFKIndexes_Covered(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},
@@ -1918,7 +1918,7 @@ func TestCoverage_RuleMissingFKIndexes_NotCovered(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},
@@ -1943,7 +1943,7 @@ func TestCoverage_RuleMissingFKIndexes_UnloggedTable(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},

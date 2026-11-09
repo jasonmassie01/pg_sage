@@ -30,7 +30,7 @@ var keyFields = map[string][]string{
 	"tables":         {"schemaname", "relname"},
 	"indexes":        {"schemaname", "indexrelname"},
 	"sequences":      {"schemaname", "sequencename"},
-	"foreign_keys":   {"table_name", "constraint_name", "fk_column"},
+	"foreign_keys":   {"schemaname", "table_name", "constraint_name"},
 	"partitions":     {"child_schema", "child_table"},
 	"queries":        {"queryid"},
 	"io":             {"backend_type", "object", "context"},

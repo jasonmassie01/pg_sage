@@ -160,10 +160,10 @@ func fkSnap(indexDefs map[string]string, fks []collector.ForeignKey) *collector.
 	return snap
 }
 
-func fk(col, con string) collector.ForeignKey {
+func fk(con string, cols ...string) collector.ForeignKey {
 	return collector.ForeignKey{
-		TableName: "orders", ReferencedTable: "parent",
-		FKColumn: col, ConstraintName: con,
+		Schema: "public", TableName: "orders", ReferencedTable: "parent",
+		Columns: cols, ConstraintName: con,
 	}
 }
 
@@ -171,15 +171,13 @@ func fk(col, con string) collector.ForeignKey {
 func TestRegression_MissingFKIndexIncludeAndComposite(t *testing.T) {
 	include := fkSnap(map[string]string{
 		"idx_c": "CREATE INDEX idx_c ON public.orders USING btree (customer_id) INCLUDE (total)",
-	}, []collector.ForeignKey{fk("customer_id", "orders_customer_fk")})
+	}, []collector.ForeignKey{fk("orders_customer_fk", "customer_id")})
 	if got := ruleMissingFKIndexes(include, nil, nil, nil); len(got) != 0 {
 		t.Fatalf("INCLUDE index not recognized: %+v", got)
 	}
 	composite := fkSnap(map[string]string{
 		"idx_ot": "CREATE INDEX idx_ot ON public.orders USING btree (order_id, tenant_id)",
-	}, []collector.ForeignKey{
-		fk("tenant_id", "orders_line_fk"), fk("order_id", "orders_line_fk"),
-	})
+	}, []collector.ForeignKey{fk("orders_line_fk", "tenant_id", "order_id")})
 	if got := ruleMissingFKIndexes(composite, nil, nil, nil); len(got) != 0 {
 		t.Fatalf("composite FK split per column: %+v", got)
 	}
@@ -191,7 +189,9 @@ func tenantSnap() *collector.Snapshot {
 			{SchemaName: "tenant_a", RelName: "orders"},
 			{SchemaName: "tenant_b", RelName: "orders"},
 		},
-		ForeignKeys: []collector.ForeignKey{fk("customer_id", "orders_customer_fk")},
+		// A row stored before collection-04: the owning schema is unknown.
+		ForeignKeys: []collector.ForeignKey{{TableName: "orders", ReferencedTable: "parent",
+			Columns: []string{"customer_id"}, ConstraintName: "orders_customer_fk"}},
 		Indexes: []collector.IndexStats{{
 			SchemaName: "tenant_b", RelName: "orders", IndexRelName: "idx_cust",
 			IsValid: true, IdxScan: 0,

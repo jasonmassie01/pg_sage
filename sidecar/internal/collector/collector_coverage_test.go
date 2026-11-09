@@ -3,6 +3,7 @@ package collector
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -70,8 +71,9 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 		},
 		ForeignKeys: []ForeignKey{
 			{
-				TableName: "orders", ReferencedTable: "users",
-				FKColumn: "user_id", ConstraintName: "orders_user_id_fkey",
+				Schema: "public", TableName: "orders", RefSchema: "public",
+				ReferencedTable: "users", Columns: []string{"user_id"},
+				ConstraintName: "orders_user_id_fkey", OID: 16_500,
 			},
 		},
 		System: SystemStats{
@@ -482,10 +484,13 @@ func TestIndexStats_JSONRoundTrip(t *testing.T) {
 
 func TestForeignKey_JSONRoundTrip(t *testing.T) {
 	fk := ForeignKey{
+		Schema:          "public",
 		TableName:       "orders",
+		RefSchema:       "public",
 		ReferencedTable: "users",
-		FKColumn:        "user_id",
+		Columns:         []string{"user_id"},
 		ConstraintName:  "fk_orders_user",
+		OID:             16_501,
 	}
 	data, err := json.Marshal(fk)
 	if err != nil {
@@ -495,7 +500,7 @@ func TestForeignKey_JSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if restored != fk {
+	if !reflect.DeepEqual(restored, fk) {
 		t.Errorf("ForeignKey mismatch: got %+v, want %+v", restored, fk)
 	}
 }

@@ -185,21 +185,29 @@ SELECT s.schemaname, s.relname, s.indexrelname,
  ORDER BY s.indexrelid
  LIMIT $2`
 
+// foreignKeysSQL reads one row per constraint (collection-04): the schema
+// of both sides, the referencing columns in conkey order, and the oid.
+// Partition clones (conparentid <> 0, one per partition on either side)
+// are left out: the constraint on the partitioned parent stands for them.
 var foreignKeysSQL = sageTag + `
-SELECT cl.relname AS table_name,
-       cl2.relname AS referenced_table,
-       a.attname AS fk_column,
-       con.conname AS constraint_name
+SELECT n.nspname AS schemaname, cl.relname AS table_name,
+       rn.nspname AS ref_schemaname, cl2.relname AS referenced_table,
+       con.conname AS constraint_name, con.oid,
+       ARRAY(SELECT a.attname::text
+               FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = con.conrelid
+                    AND a.attnum = k.attnum
+              ORDER BY k.ord) AS columns
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
-  JOIN pg_class cl2 ON cl2.oid = con.confrelid
   JOIN pg_namespace n ON n.oid = cl.relnamespace
-  JOIN pg_attribute a ON a.attrelid = con.conrelid
-       AND a.attnum = ANY(con.conkey)
+  JOIN pg_class cl2 ON cl2.oid = con.confrelid
+  JOIN pg_namespace rn ON rn.oid = cl2.relnamespace
  WHERE con.contype = 'f'
+   AND con.conparentid = 0
    AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
    AND ` + notTempRel("cl") + ` AND ` + notTempRel("cl2") + `
- ORDER BY cl.relname, con.conname`
+ ORDER BY cl.relname, con.conname, n.nspname`
 
 // cacheHitRatioExpr is the buffer cache hit ratio as a FRACTION in
 // [0,1] (G1-B08/C01: it used to be a percent compared against fractional

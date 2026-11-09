@@ -142,12 +142,19 @@ type IndexStats struct {
 	LastIdxScan *time.Time `json:"last_idx_scan,omitempty"`
 }
 
-// ForeignKey describes a foreign key constraint.
+// ForeignKey is one foreign key constraint (pg_constraint contype 'f'),
+// partition clones left out. Columns are the referencing columns in
+// declared (conkey) order. Schema is empty only for a row stored before
+// collection-04 (DecodeForeignKeys): the owning schema is then unknown.
 type ForeignKey struct {
-	TableName       string `json:"table_name"`
-	ReferencedTable string `json:"referenced_table"`
-	FKColumn        string `json:"fk_column"`
-	ConstraintName  string `json:"constraint_name"`
+	Schema          string   `json:"schemaname"`
+	TableName       string   `json:"table_name"`
+	RefSchema       string   `json:"ref_schemaname"`
+	ReferencedTable string   `json:"referenced_table"`
+	ConstraintName  string   `json:"constraint_name"`
+	Columns         []string `json:"columns"`
+	// OID is the constraint's pg_constraint oid; zero for legacy rows.
+	OID uint32 `json:"oid"`
 }
 
 // SystemStats holds database-wide health metrics.

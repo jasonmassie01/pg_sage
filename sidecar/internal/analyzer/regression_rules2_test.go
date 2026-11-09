@@ -97,8 +97,8 @@ func TestRegression_IndexDDLQuotesIdentifiers(t *testing.T) {
 	fkS := &collector.Snapshot{
 		Tables: []collector.TableStats{{SchemaName: "Sales", RelName: "Orders"}},
 		ForeignKeys: []collector.ForeignKey{{
-			TableName: "Orders", ReferencedTable: "Customers",
-			FKColumn: "CustomerId", ConstraintName: "orders_fk",
+			Schema: "Sales", TableName: "Orders", ReferencedTable: "Customers",
+			Columns: []string{"CustomerId"}, ConstraintName: "orders_fk",
 		}},
 	}
 	assertSQL(t, ruleMissingFKIndexes(fkS, nil, nil, nil),

@@ -416,3 +416,54 @@ func TestKeyFields_PreparedXactsPairByGID(t *testing.T) {
 		t.Fatalf("delta to no prepared xacts = %s (%v), want g1 removed, none left", empty, err)
 	}
 }
+
+// foreignKey is one foreign_keys element as the collector writes it.
+func foreignKey(schema, constraint string, oid int) string {
+	return fmt.Sprintf(`{"schemaname":%q,"table_name":"orders","ref_schemaname":%q,`+
+		`"referenced_table":"customers","constraint_name":%q,"columns":["customer_id"],`+
+		`"oid":%d}`, schema, schema, constraint, oid)
+}
+
+// collection-04: foreign_keys pairs by (schema, table, constraint). Two
+// tenants' same-named constraints are distinct identities, so the
+// document is delta encodable; an unchanged document is an empty delta
+// and a recreated constraint (new oid) carries only its oid.
+func TestKeyFields_ForeignKeysPairBySchemaTableConstraint(t *testing.T) {
+	want := []string{"schemaname", "table_name", "constraint_name"}
+	if got := keyFields["foreign_keys"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("foreign_keys key fields = %v, want %v", got, want)
+	}
+	parse := func(doc []byte) *catalog {
+		t.Helper()
+		c, ok, err := parseDocument("foreign_keys", doc, nil)
+		if err != nil || !ok {
+			t.Fatalf("parse %s: ok=%v err=%v", doc, ok, err)
+		}
+		return c
+	}
+	base := parse(list(foreignKey("tenant_a", "orders_customer_fk", 100),
+		foreignKey("tenant_b", "orders_customer_fk", 200)))
+	same, err := encodeDelta(base, parse(list(foreignKey("tenant_a", "orders_customer_fk",
+		100), foreignKey("tenant_b", "orders_customer_fk", 200))))
+	if err != nil || string(same) != `{"n":2}` {
+		t.Fatalf("unchanged delta = %s, %v; want {\"n\":2}", same, err)
+	}
+	raw, err := encodeDelta(base, parse(list(foreignKey("tenant_a", "orders_customer_fk",
+		100), foreignKey("tenant_b", "orders_customer_fk", 300))))
+	if err != nil {
+		t.Fatalf("encodeDelta: %v", err)
+	}
+	var d deltaDoc
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatalf("delta %s: %v", raw, err)
+	}
+	if d.N != 2 || len(d.A) != 0 || len(d.D) != 0 || len(d.U)+len(d.I) != 1 {
+		t.Fatalf("delta = %s, want only tenant_b's oid carried", raw)
+	}
+	legacy := `{"table_name":"orders","referenced_table":"customers",` +
+		`"fk_column":"customer_id","constraint_name":"orders_customer_fk"}`
+	if _, _, err := parseDocument("foreign_keys", list(legacy), nil); !errors.Is(err,
+		errNotEncodable) {
+		t.Fatalf("legacy element: err = %v, want errNotEncodable (stored in full)", err)
+	}
+}

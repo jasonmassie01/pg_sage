@@ -1463,9 +1463,7 @@ func querySnapshotLatest(
 	if err != nil {
 		return nil, err
 	}
-	var parsed any
-	_ = json.Unmarshal(data, &parsed)
-	return parsed, nil
+	return decodeLatestSnapshot(metric, data)
 }
 
 func derefStr(s *string) string {
