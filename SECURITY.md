@@ -7,14 +7,16 @@ are end-of-life and will not receive patches.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.5.x   | Yes                |
-| < 1.5   | No (EOL)           |
+| 2.5.x   | Yes                |
+| < 2.5   | No (EOL)           |
 
 The C extension (version 0.5.0) was removed from the repository and receives no
 security fixes. Its last source is preserved at the `c-extension-final` tag.
 
 When a new minor version is released, update this table in the same change
-as the CHANGELOG entry.
+as the CHANGELOG entry. `TestReleaseMetadataAgrees` (`sidecar/internal/docscontract`)
+fails when `VERSION`, the newest `## vX.Y.Z` CHANGELOG heading and this table
+disagree.
 
 ## Reporting a Vulnerability
 
