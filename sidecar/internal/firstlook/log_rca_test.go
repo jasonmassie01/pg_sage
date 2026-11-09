@@ -137,3 +137,19 @@ func TestLogRCALocaleNoted(t *testing.T) {
 		t.Fatalf("German locale log_rca = %+v, want ok with an lc_messages note", c)
 	}
 }
+
+// Boundary: with the collector already on, only log_destination changes,
+// which a reload applies: no restart and no logging_collector step.
+func TestLogRCACollectorOnNeedsOnlyAReload(t *testing.T) {
+	s := stderrPG17()
+	s.LoggingCollector = "on"
+	c := LogRCACapability(s, "self-managed")
+	steps := strings.Join(c.Steps, "\n")
+	if c.Status != CapabilityMissing || !strings.Contains(steps, "log_destination") ||
+		!strings.Contains(steps, "pg_reload_conf()") {
+		t.Fatalf("collector-on stderr log_rca = %+v, want the destination and a reload", c)
+	}
+	if strings.Contains(steps, "restart") || strings.Contains(steps, "logging_collector") {
+		t.Fatalf("steps %q ask for a restart the server does not need", steps)
+	}
+}

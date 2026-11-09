@@ -264,3 +264,13 @@ func TestFileWatcherFailedStartStaysInactive(t *testing.T) {
 		t.Fatalf("failed start reported %+v", fw.Status())
 	}
 }
+
+// Error propagation: log_directory is hidden from a role without
+// pg_read_all_settings; the error says how to fix that.
+func TestResolveLogDirEmptyNamesTheGrant(t *testing.T) {
+	_, err := resolveLogDir("", "")
+	if err == nil || !strings.Contains(err.Error(), "pg_read_all_settings") ||
+		!strings.Contains(err.Error(), "logwatch.log_directory") {
+		t.Fatalf("empty log_directory error = %v, want the grant and the setting", err)
+	}
+}

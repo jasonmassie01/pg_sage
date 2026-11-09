@@ -191,7 +191,6 @@ func (s *sreSignals) start(run func(func()), ctx context.Context) {
 	}
 }
 
-// logErrorCounter counts server-class errors in a database's log entries.
 // logErrorCounter counts server-class errors in the database's log
 // entries. While its source is not reading the log (unavailable, retrying)
 // the count is unknown, never a healthy zero.

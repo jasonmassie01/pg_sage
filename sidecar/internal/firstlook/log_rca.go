@@ -98,11 +98,17 @@ func selfManagedLogSteps(s LogSettings, needDestination bool) []string {
 		steps = append(steps, "As a superuser: ALTER SYSTEM SET log_destination = "+
 			"'stderr,"+format+"';")
 	}
-	steps = append(steps, "ALTER SYSTEM SET logging_collector = on; "+
-		"ALTER SYSTEM SET lc_messages = 'C';",
-		"Then restart PostgreSQL (logging_collector applies only at server start).",
-		"Mount the server's log_directory read-only into the sidecar and set "+
-			"logwatch.enabled: true and rca.enabled: true.")
+	if s.LoggingCollector == "on" {
+		// The collector already runs: log_destination applies on a reload.
+		steps = append(steps, "ALTER SYSTEM SET lc_messages = 'C';",
+			"Then reload PostgreSQL: SELECT pg_reload_conf();")
+	} else {
+		steps = append(steps, "ALTER SYSTEM SET logging_collector = on; "+
+			"ALTER SYSTEM SET lc_messages = 'C';",
+			"Then restart PostgreSQL (logging_collector applies only at server start).")
+	}
+	steps = append(steps, "Mount the server's log_directory read-only into the sidecar "+
+		"and set logwatch.enabled: true and rca.enabled: true.")
 	return steps
 }
 

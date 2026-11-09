@@ -105,8 +105,9 @@ func checkCollector(setting string) error {
 // If log_directory is relative, it is joined with data_directory.
 func resolveLogDir(logDir, dataDir string) (string, error) {
 	if logDir == "" {
-		return "", fmt.Errorf(
-			"logwatch detect: log_directory is empty")
+		return "", fmt.Errorf("logwatch detect: log_directory is empty or not " +
+			"visible to the pg_sage role: grant it pg_read_all_settings (or " +
+			"pg_monitor), or set logwatch.log_directory")
 	}
 	if filepath.IsAbs(logDir) {
 		return logDir, nil
