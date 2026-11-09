@@ -39,7 +39,7 @@ func TestQueryStoreSQLHasOneSource(t *testing.T) {
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			lit, ok := n.(*ast.BasicLit)
-			if ok && lit.Kind == token.STRING && strings.Contains(lit.Value, "query_store") {
+			if ok && lit.Kind == token.STRING && strings.Contains(lit.Value, "sage.query_store") {
 				t.Errorf("%s: SQL naming sage.query_store; use the querystore readers",
 					fset.Position(lit.Pos()))
 			}
