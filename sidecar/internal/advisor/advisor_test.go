@@ -42,7 +42,7 @@ func TestAdvisor_ShouldRun_RecentRun(t *testing.T) {
 
 func TestAdvisor_ShouldRun_StaleRun(t *testing.T) {
 	adv := newTestAdvisor(true, true, 86400)
-	ranAt(adv, time.Now().Add(-25 * time.Hour))
+	ranAt(adv, time.Now().Add(-25*time.Hour))
 	if !adv.ShouldRun() {
 		t.Fatal("expected ShouldRun() == true when lastRunAt is 25h ago (interval=24h)")
 	}

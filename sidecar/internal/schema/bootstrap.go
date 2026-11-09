@@ -449,8 +449,8 @@ func migrationStatements() []string {
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
 		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt, // apiauth-01: user deactivation
-		ddlAdvisorRuns)     // advisors-02: persisted sub-advisor schedule
+		ddlUsersDisabledAt,   // apiauth-01: user deactivation
+		ddlAdvisorRuns)       // advisors-02: persisted sub-advisor schedule
 }
 
 // ---------------------------------------------------------------------------

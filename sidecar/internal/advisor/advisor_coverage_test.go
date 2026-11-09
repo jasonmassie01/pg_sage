@@ -370,7 +370,7 @@ func TestAdvisor_LatestFindings_MultipleCopies(t *testing.T) {
 
 func TestAdvisor_ShouldRun_IntervalBoundary(t *testing.T) {
 	a := newTestAdvisor(true, true, 60)
-	ranAt(a, time.Now().Add(-61 * time.Second))
+	ranAt(a, time.Now().Add(-61*time.Second))
 	if !a.ShouldRun() {
 		t.Fatal("expected true after interval elapsed")
 	}
@@ -378,7 +378,7 @@ func TestAdvisor_ShouldRun_IntervalBoundary(t *testing.T) {
 
 func TestAdvisor_ShouldRun_JustBeforeInterval(t *testing.T) {
 	a := newTestAdvisor(true, true, 60)
-	ranAt(a, time.Now().Add(-59 * time.Second))
+	ranAt(a, time.Now().Add(-59*time.Second))
 	if a.ShouldRun() {
 		t.Fatal("expected false before interval elapsed")
 	}
