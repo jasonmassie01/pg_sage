@@ -1,6 +1,8 @@
 package action
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -50,5 +52,38 @@ func TestMaintenanceReconcileAgesByTheDatabaseClock(t *testing.T) {
 	}
 	if got := h.state(t, p.ID); got.State != "failed" || h.settleEvents(t, p.ID) != 1 {
 		t.Fatalf("past the bound on the database clock was not swept: %+v", got)
+	}
+}
+
+// A proposal written after the sweeper listed it (a live retry) is not
+// settled from the stale listing.
+func TestMaintenanceReconcileSkipsAProposalTouchedSinceListing(t *testing.T) {
+	h := newMaintenanceHarness(t)
+	p := h.request(t)
+	h.strand(t, p.ID, "executing")
+	listedAt := time.Now().Add(-time.Hour)
+	if err := h.m.reconcileOne(h.ctx, p.ID, listedAt); !errors.Is(err, errSettled) {
+		t.Fatalf("fresh proposal reconciled from a stale cutoff: %v", err)
+	}
+	if got := h.state(t, p.ID); got.State != "executing" || h.settleEvents(t, p.ID) != 0 {
+		t.Fatalf("fresh proposal changed: %+v", got)
+	}
+}
+
+// A live run holds its proposal for at most one bounded slot wait and one
+// detached executor run, so the bound must cover both with margin.
+func TestMaintenanceRunBoundsTheSlotWait(t *testing.T) {
+	h := newMaintenanceHarness(t)
+	apply := h.exec.ApplyTimeout()
+	began := time.Now()
+	ctx, cancel := h.m.boundedRun(context.Background())
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok || deadline.Sub(began) > apply || deadline.Sub(began) < apply-5*time.Second {
+		t.Fatalf("slot wait deadline %v (set %v) not one apply timeout %v", deadline, ok, apply)
+	}
+	if h.m.strandedAfter() < 2*apply+30*time.Second {
+		t.Fatalf("stranded bound %v does not cover two apply timeouts %v", h.m.strandedAfter(),
+			apply)
 	}
 }
