@@ -29,6 +29,9 @@ type ReadinessProbe struct {
 	// Schema checks the migrations; schema.ErrSchemaNotReady means not run.
 	Schema  func(context.Context) error
 	Timeout time.Duration
+	// TLSExpiring reports a serving certificate near expiry; nil means the
+	// API does not serve TLS. It is a detail, never a readiness failure.
+	TLSExpiring func() bool
 }
 
 // ControlPoolReadiness probes pool, the database that holds sessions and
@@ -46,9 +49,18 @@ func ControlPoolReadiness(cfg *config.Config, pool *pgxpool.Pool) ReadinessProbe
 	return probe
 }
 
+// routerReadiness is the router's /ready probe: the control pool, plus the
+// TLS expiry detail when the API serves TLS.
+func routerReadiness(cfg *config.Config, pool *pgxpool.Pool, rt RuntimeDeps) ReadinessProbe {
+	probe := ControlPoolReadiness(cfg, pool)
+	probe.TLSExpiring = rt.TLSExpiring
+	return probe
+}
+
 type readinessResult struct {
-	Status string            `json:"status"`
-	Checks map[string]string `json:"checks"`
+	Status  string            `json:"status"`
+	Checks  map[string]string `json:"checks"`
+	Details map[string]bool   `json:"details,omitempty"`
 }
 
 // NewReadinessHandler answers GET/HEAD /ready with 200 when every check
@@ -103,7 +115,11 @@ func (p ReadinessProbe) run(ctx context.Context) (readinessResult, error) {
 	if failed != nil {
 		status = "not_ready"
 	}
-	return readinessResult{Status: status, Checks: checks}, failed
+	result := readinessResult{Status: status, Checks: checks}
+	if p.TLSExpiring != nil {
+		result.Details = map[string]bool{"tls_expiring": p.TLSExpiring()}
+	}
+	return result, failed
 }
 
 func (p ReadinessProbe) checkSchema(ctx context.Context, checks map[string]string) error {

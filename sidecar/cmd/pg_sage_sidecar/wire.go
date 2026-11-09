@@ -190,6 +190,8 @@ func wireRouter(p WireParams) WireResult {
 			AgentActivity: agentActivityAPI{},
 			// Agent grants and capability requests (agent_grants_wiring.go).
 			AgentGrants: agentGrantAPI(p.Cfg, p.FleetMgr, p.MetaState),
+			// tls_expiring in /ready details when the API serves TLS.
+			TLSExpiring: apiTLSExpiringFunc(apiTLS),
 		},
 		middlewares...,
 	)

@@ -131,6 +131,9 @@ type RuntimeDeps struct {
 	// AgentGrants serves agent grants and capability requests; nil answers
 	// 503 (no control database or executor).
 	AgentGrants AgentGrantService
+	// TLSExpiring adds tls_expiring to /ready details; nil when the API
+	// serves plain HTTP.
+	TLSExpiring func() bool
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -189,7 +192,7 @@ func NewRouterFullRuntime(
 		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
-	route(root, "/ready", gatePublic, NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
+	route(root, "/ready", gatePublic, NewReadinessHandler(routerReadiness(cfg, pool, rt)))
 	if rt.MCPHandler != nil && !rt.DatabricksAppAuth {
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}
