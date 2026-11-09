@@ -118,6 +118,26 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(config["api"]["listen_addr"], "0.0.0.0:8123")
         self.assertIs(config["llm"]["json_mode"], False)
 
+    def test_metrics_served_on_the_api_port_only(self):
+        # observability-08: Apps exposes only the API port, so /metrics is
+        # served there behind the platform identity, and no separate
+        # listener is opened, whatever the base config says.
+        for base in (None, {"prometheus": {"listen_addr": "0.0.0.0:9187", "serve_on_api": False,
+                                           "refresh_interval_seconds": 60}}):
+            with self.subTest(base=base):
+                config = launcher.runtime_config(self.env(), base)
+                self.assertIs(config["prometheus"]["serve_on_api"], True)
+                self.assertEqual(config["prometheus"]["listen_addr"], "")
+                if base:
+                    self.assertEqual(config["prometheus"]["refresh_interval_seconds"], 60)
+                    self.assertEqual(base["prometheus"]["listen_addr"], "0.0.0.0:9187")
+
+    def test_separate_metrics_listener_variables_are_refused(self):
+        for name in ("SAGE_PROMETHEUS_ADDR", "SAGE_PROMETHEUS_PORT"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "serve_on_api"):
+                    launcher.runtime_config(self.env() | {name: "9300"})
+
     def test_shared_postgres_pool_default_preserves_explicit_size_and_base(self):
         for postgres, expected in (({"port": 5432}, 5), ({"port": 5432, "max_connections": 2}, 2)):
             with self.subTest(postgres=postgres):
