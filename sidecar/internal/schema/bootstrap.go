@@ -451,7 +451,8 @@ func migrationStatements() []string {
 		ddlSessionsTokenHash,        // apiauth-04: hashed session cookies
 		ddlUsersDisabledAt,          // apiauth-01: user deactivation
 		ddlApprovalCardNextCheck,    // policy-06: follow-up queue order
-		ddlActionQueueRevertsAction) // policy-05: withheld reverts reach a person
+		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
+		ddlDecisionCandidateKey())   // policy-02: a withheld verdict is one row per episode
 }
 
 // ---------------------------------------------------------------------------

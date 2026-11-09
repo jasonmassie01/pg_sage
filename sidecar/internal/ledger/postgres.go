@@ -16,6 +16,7 @@ import (
 type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
 type PostgresRepository struct{ pool querier }
@@ -39,14 +40,12 @@ func (r *PostgresRepository) InsertDecision(
 	if err != nil {
 		return 0, err
 	}
+	statement := insertDecisionSQL
+	if input.Verdict == VerdictExecute {
+		statement = insertExecuteDecisionSQL
+	}
 	var id int64
-	err = r.pool.QueryRow(ctx, `INSERT INTO sage.decision
-		(database_id, feature, intent, target_objects, policy_version, verdict,
-		 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
-		 fingerprint, principal_id, task_id, artifact_hash)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
-		        NULLIF($14,''),NULLIF($15,''),NULLIF($16,'')) RETURNING id`,
-		values...).Scan(&id)
+	err = r.pool.QueryRow(ctx, statement, values...).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -57,9 +56,48 @@ func (r *PostgresRepository) InsertDecision(
 	return id, nil
 }
 
-// decisionValues encodes a decision as the 16 INSERT parameters. An insert
+const insertDecisionColumns = `INSERT INTO sage.decision
+	(database_id, feature, intent, target_objects, policy_version, verdict,
+	 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
+	 fingerprint, principal_id, task_id, artifact_hash, candidate_key)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
+	        NULLIF($14,''),NULLIF($15,''),NULLIF($16,''),$17)`
+
+const insertDecisionSQL = insertDecisionColumns + ` RETURNING id`
+
+// insertExecuteDecisionSQL records an execute verdict and, in the same
+// statement, resolves the candidate's open withheld (fingerprinted) rows:
+// the episode they counted is over, and the next withheld verdict starts
+// a new row (policy-02). One statement, so the execute is never recorded
+// without the resolution, inside a transaction or not.
+const insertExecuteDecisionSQL = `WITH resolved AS (
+	UPDATE sage.decision SET resolved_at = now()
+	 WHERE candidate_key = $17 AND resolved_at IS NULL AND fingerprint IS NOT NULL)
+	` + insertDecisionColumns + ` RETURNING id`
+
+// LinkQueue records which queue item a decision queued and resolves the
+// decision: the queue item owns that verdict, and the gate's next equal
+// verdict is a new row for the next queue item (policy-02). A decision
+// already linked keeps its link. It reports whether the link was made.
+func (r *PostgresRepository) LinkQueue(
+	ctx context.Context, decisionID int64, queueID int,
+) (bool, error) {
+	if decisionID <= 0 || queueID <= 0 {
+		return false, nil
+	}
+	tag, err := r.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.decision
+		SET queue_id = $2, resolved_at = COALESCE(resolved_at, now())
+		WHERE id = $1 AND queue_id IS NULL`, decisionID, queueID)
+	if err != nil {
+		return false, fmt.Errorf("link decision %d to queue item %d: %w",
+			decisionID, queueID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// decisionValues encodes a decision as the 17 INSERT parameters. An insert
 // that is not an upsert stores no fingerprint, so it can never collide
-// with an open fingerprinted row.
+// with an open fingerprinted row. Every row carries its candidate key.
 func decisionValues(input DecisionInput) ([]any, error) {
 	targets, err := json.Marshal(input.TargetObjects)
 	if err != nil {
@@ -76,7 +114,7 @@ func decisionValues(input DecisionInput) ([]any, error) {
 	return []any{input.DatabaseID, input.Feature, input.Intent, targets,
 		input.PolicyVersion, input.Verdict, input.RiskTier, input.Reason, evidenceJSON,
 		input.EvidenceID, input.DeadlineKind, input.DeadlineHardAt, nil,
-		input.PrincipalID, input.TaskID, input.ArtifactHash}, nil
+		input.PrincipalID, input.TaskID, input.ArtifactHash, CandidateKey(input)}, nil
 }
 
 // FindAuditViolations reports recent actions that lack a decision or a

@@ -75,16 +75,21 @@ const ddlDecisionLedgerIndexLoop = `
 
 // ddlDecisionLedger is the ledger migration: columns, then indexes.
 func ddlDecisionLedger() string {
-	values := make([]string, 0, len(ledgerIndexes))
-	for _, index := range ledgerIndexes {
+	return ledgerIndexBlock(ddlDecisionLedgerColumns, ledgerIndexes)
+}
+
+// ledgerIndexBlock is one DO block: the columns step, then each index
+// built (or an INVALID one rebuilt) by the index loop.
+func ledgerIndexBlock(columns string, indexes []ledgerIndex) string {
+	values := make([]string, 0, len(indexes))
+	for _, index := range indexes {
 		values = append(values, "("+sqlLiteral(index.name)+", "+sqlLiteral(index.table)+
 			", "+sqlLiteral(index.definition)+")")
 	}
 	loop := strings.Replace(ddlDecisionLedgerIndexLoop, "%s",
 		strings.Join(values, ",\n            "), 1)
 	loop = strings.ReplaceAll(loop, "%%", "%")
-	return "DO $$\nDECLARE spec record;\nBEGIN" + ddlDecisionLedgerColumns + loop +
-		"\nEND $$;"
+	return "DO $$\nDECLARE spec record;\nBEGIN" + columns + loop + "\nEND $$;"
 }
 
 func sqlLiteral(value string) string {
