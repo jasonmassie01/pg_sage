@@ -8,19 +8,32 @@ import (
 )
 
 func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
-	sql := systemStatsSQL14
-	if c.pgVersionNum >= 170000 {
-		sql = systemStatsSQL17
-	}
-	s, err := c.scanSystemStats(ctx, sql)
-	var pgErr *pgconn.PgError
-	if c.pgVersionNum >= 170000 && errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-		s, err = c.scanSystemStats(ctx, systemStatsSQL14)
+	s, err := c.scanSystemStats(ctx, systemStatsSQLFor(c.pgVersionNum))
+	if fallback := systemStatsFallback(c.pgVersionNum, err); fallback != "" {
+		s, err = c.scanSystemStats(ctx, fallback)
 	}
 	if err == nil {
 		s.DBSizeBytes = c.databaseSize(ctx)
 	}
 	return s, err
+}
+
+// systemStatsFallback is the older read to retry when a server lacks the
+// version's view or column: pg_stat_bgwriter's columns when
+// pg_stat_checkpointer is missing (42P01), PG 17's when num_done is
+// (42703). "" when there is nothing to retry.
+func systemStatsFallback(versionNum int, err error) string {
+	var pgErr *pgconn.PgError
+	if versionNum < 170000 || !errors.As(err, &pgErr) {
+		return ""
+	}
+	switch {
+	case pgErr.Code == "42P01":
+		return systemStatsSQL14
+	case pgErr.Code == "42703" && versionNum >= 180000:
+		return systemStatsSQL17
+	}
+	return ""
 }
 
 // scanSystemStats reads one system stats row. A NULL cache hit ratio (no
@@ -33,7 +46,8 @@ func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStat
 		&s.TotalBackends, &s.MaxConnections,
 		&ratio, &s.Deadlocks,
 		&s.BlkReadTime, &s.BlkWriteTime,
-		&s.TotalCheckpoints, &s.IsReplica,
+		&s.TotalCheckpoints, &s.CheckpointsTimed, &s.CheckpointsRequested,
+		&s.CheckpointsDone, &s.IsReplica,
 	)
 	s.CacheHitRatio = CacheHitRatioUnknown
 	if ratio != nil {

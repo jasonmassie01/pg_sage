@@ -173,29 +173,30 @@ func TestConnectionSaturation_UnknownBackendsDaySkipped(t *testing.T) {
 	}
 }
 
+// forecast-03: these forecast-07 cases read the split requested counter;
+// a day without it is skipped, never read as 0.
 func TestCheckpointPressure_UnknownDayIsNotACounterReset(t *testing.T) {
-	// 96 checkpoints/day (4/hr) on a counter already at 1e6. Read as 0,
-	// the unknown day turns the next delta into a 41,000/hr spike.
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		return DaySystemAgg{TotalCheckpoints: 1e6 + float64(i)*96}
-	})
+	// 24 requested checkpoints/day (1/hr) on a counter already at 1e6.
+	// Read as 0, the unknown day turns the next delta into a 41,000/hr spike.
+	aggs := ckptHistory(10, 288, 24)
+	for i := range aggs {
+		aggs[i].CheckpointsRequested += 1e6
+	}
 	aggs[8] = DaySystemAgg{Day: aggs[8].Day, CheckpointsUnknown: true}
 	if f := forecastCheckpointPressure(aggs, ForecasterConfig{}); len(f) != 0 {
 		t.Fatalf("an unknown checkpoint day must not read as a reset: %+v", f)
 	}
 }
 
-func TestCheckpointPressure_RateAcrossGapUsesElapsedDays(t *testing.T) {
-	// 480 checkpoints/day = 20/hr, over the 12/hr threshold.
-	aggs := makeSysAggs(11, func(i int) DaySystemAgg {
-		return DaySystemAgg{TotalCheckpoints: float64(i) * 480}
-	})
+func TestCheckpointPressure_RateAcrossGapUsesElapsedHours(t *testing.T) {
+	// 480 requested checkpoints/day = 20/hr, over the 2/hr threshold.
+	aggs := ckptHistory(11, 288, 480)
 	aggs[5] = DaySystemAgg{Day: aggs[5].Day, CheckpointsUnknown: true}
 	f := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(f) != 1 {
 		t.Fatalf("want one checkpoint finding, got %+v", f)
 	}
-	rates := f[0].Detail["daily_rates"].([]float64)
+	rates := f[0].Detail["hourly_rates"].([]float64)
 	if len(rates) != 9 {
 		t.Fatalf("want 9 rates between 10 known days, got %v", rates)
 	}
@@ -207,9 +208,7 @@ func TestCheckpointPressure_RateAcrossGapUsesElapsedDays(t *testing.T) {
 }
 
 func TestCheckpointPressure_TooFewKnownDays(t *testing.T) {
-	aggs := makeSysAggs(8, func(i int) DaySystemAgg {
-		return DaySystemAgg{TotalCheckpoints: float64(i) * 480}
-	})
+	aggs := ckptHistory(8, 288, 480)
 	aggs[3].CheckpointsUnknown = true
 	if f := forecastCheckpointPressure(aggs, ForecasterConfig{}); len(f) != 0 {
 		t.Fatalf("7 known checkpoint days (< minDataPoints+1) must not fire: %+v", f)

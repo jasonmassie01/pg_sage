@@ -42,17 +42,50 @@ SELECT
     WHERE datname = current_database()), 0) AS blk_write_time,
 `
 
+// The checkpoint counters are read split (forecast-03): a timed
+// checkpoint is counted every checkpoint_timeout even when it is skipped
+// on an idle server, so only the requested (WAL-triggered or explicit)
+// count measures checkpoint pressure. total_checkpoints stays for its
+// readers. checkpoints_done (num_done, performed checkpoints) is PG 18+.
+
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
 var systemStatsSQL14 = systemStatsSQLBase + `
-  (SELECT checkpoints_timed + checkpoints_req
-    FROM pg_stat_bgwriter) AS total_checkpoints,
-  pg_is_in_recovery() AS is_replica`
+  b.checkpoints_timed + b.checkpoints_req AS total_checkpoints,
+  b.checkpoints_timed AS checkpoints_timed,
+  b.checkpoints_req AS checkpoints_requested,
+  NULL::bigint AS checkpoints_done,
+  pg_is_in_recovery() AS is_replica
+FROM pg_stat_bgwriter b`
 
-// systemStatsSQL17 uses pg_stat_checkpointer (PG 17+).
+// systemStatsSQL17 uses pg_stat_checkpointer (PG 17).
 var systemStatsSQL17 = systemStatsSQLBase + `
-  (SELECT num_timed + num_requested
-    FROM pg_stat_checkpointer) AS total_checkpoints,
-  pg_is_in_recovery() AS is_replica`
+  k.num_timed + k.num_requested AS total_checkpoints,
+  k.num_timed AS checkpoints_timed,
+  k.num_requested AS checkpoints_requested,
+  NULL::bigint AS checkpoints_done,
+  pg_is_in_recovery() AS is_replica
+FROM pg_stat_checkpointer k`
+
+// systemStatsSQL18 adds pg_stat_checkpointer.num_done (PG 18+).
+var systemStatsSQL18 = systemStatsSQLBase + `
+  k.num_timed + k.num_requested AS total_checkpoints,
+  k.num_timed AS checkpoints_timed,
+  k.num_requested AS checkpoints_requested,
+  k.num_done AS checkpoints_done,
+  pg_is_in_recovery() AS is_replica
+FROM pg_stat_checkpointer k`
+
+// systemStatsSQLFor picks the system stats read of a server version.
+func systemStatsSQLFor(versionNum int) string {
+	switch {
+	case versionNum >= 180000:
+		return systemStatsSQL18
+	case versionNum >= 170000:
+		return systemStatsSQL17
+	default:
+		return systemStatsSQL14
+	}
+}
 
 // locksSQL is the lock wait graph of the current database (collection-01),
 // bounded: pg_locks holds every lock of every session (thousands of

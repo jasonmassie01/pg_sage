@@ -161,9 +161,16 @@ type SystemStats struct {
 	BlkReadTime       float64 `json:"blk_read_time"`
 	BlkWriteTime      float64 `json:"blk_write_time"`
 	TotalCheckpoints  int64   `json:"total_checkpoints"`
-	IsReplica         bool    `json:"is_replica"`
-	DBSizeBytes       int64   `json:"db_size_bytes"`
-	StatStatementsMax int     `json:"stat_statements_max"`
+	// The checkpoint counters split (forecast-03): timed ones count every
+	// checkpoint_timeout, skipped or not; requested ones are WAL-triggered
+	// (max_wal_size) or explicit. CheckpointsDone is the performed count,
+	// PG 18+ (nil before). Legacy rows lack all three.
+	CheckpointsTimed     int64  `json:"checkpoints_timed"`
+	CheckpointsRequested int64  `json:"checkpoints_requested"`
+	CheckpointsDone      *int64 `json:"checkpoints_done,omitempty"`
+	IsReplica            bool   `json:"is_replica"`
+	DBSizeBytes          int64  `json:"db_size_bytes"`
+	StatStatementsMax    int    `json:"stat_statements_max"`
 	// StatStatements is how full pg_stat_statements is and with what;
 	// nil when it was not read.
 	StatStatements *StatStatementsUsage `json:"stat_statements_usage,omitempty"`

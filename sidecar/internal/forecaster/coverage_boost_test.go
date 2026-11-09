@@ -87,27 +87,6 @@ func TestCoverage_ConnectionSaturation_ZeroMaxConns(t *testing.T) {
 	}
 }
 
-// --- forecastCheckpointPressure: stats reset (delta < 0) ---
-
-func TestCoverage_CheckpointPressure_StatsReset(t *testing.T) {
-	// Create data where total checkpoints drop mid-series
-	// to exercise the delta < 0 branch (stats reset).
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		checkpoints := float64(i) * 400
-		// Simulate a stats reset at day 5
-		if i >= 5 {
-			checkpoints = float64(i-5) * 400
-		}
-		return DaySystemAgg{
-			TotalCheckpoints: checkpoints,
-		}
-	})
-	cfg := ForecasterConfig{}
-	// We just need this to exercise the delta < 0 branch;
-	// the result depends on the actual EWMA smoothed rate.
-	_ = forecastCheckpointPressure(aggs, cfg)
-}
-
 // --- LinearRegression: denom == 0 (all same X) ---
 
 func TestCoverage_LinearRegression_SameX(t *testing.T) {

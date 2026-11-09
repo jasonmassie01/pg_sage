@@ -81,8 +81,13 @@ func TestAuditSystemAggsNullableSnapshots(t *testing.T) {
 		if a.DBSizeUnknown != (i == nullDay) {
 			t.Errorf("day %d: DBSizeUnknown = %v", i, a.DBSizeUnknown)
 		}
-		if a.MaxConnectionsUnknown || a.BackendsUnknown || a.CheckpointsUnknown {
+		if a.MaxConnectionsUnknown || a.BackendsUnknown {
 			t.Errorf("day %d: known inputs marked unknown: %+v", i, a)
+		}
+		// forecast-03: the seed is legacy rows (total_checkpoints only),
+		// which carry no requested count.
+		if !a.CheckpointsUnknown {
+			t.Errorf("day %d: legacy rows read as split checkpoint counters: %+v", i, a)
 		}
 		if a.MaxConnections != 100 {
 			t.Errorf("day %d: MaxConnections = %v, want 100", i, a.MaxConnections)
@@ -119,8 +124,9 @@ func TestAuditForecastNullSizeDayKeepsSystemCategories(t *testing.T) {
 	}
 	cats := f.LastEvaluatedCategories()
 	for _, c := range systemForecastCategories {
-		if !hasCategory(cats, c) {
-			t.Errorf("%s not evaluated: %v", c, cats)
+		// forecast-03: legacy rows leave the checkpoint rule unevaluated.
+		if want := c != "forecast_checkpoint_pressure"; hasCategory(cats, c) != want {
+			t.Errorf("%s evaluated = %v, want %v: %v", c, !want, want, cats)
 		}
 	}
 	var disk map[string]any

@@ -192,14 +192,13 @@ func TestForecastQueryVolume_Insufficient(t *testing.T) {
 
 // --- checkpoint pressure ---
 
+// forecast-03 replaced the fixtures below: they gave only a total count
+// (10 a day is impossible: the timed counter alone adds 288 a day at the
+// default checkpoint_timeout), and the rule now reads the requested count.
+
 func TestForecastCheckpointPressure_High(t *testing.T) {
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		return DaySystemAgg{
-			TotalCheckpoints: float64(i) * 400,
-		}
-	})
-	cfg := ForecasterConfig{}
-	findings := forecastCheckpointPressure(aggs, cfg)
+	aggs := ckptHistory(10, 288, 120) // 5 requested per hour
+	findings := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(findings) == 0 {
 		t.Fatal("expected checkpoint pressure finding")
 	}
@@ -210,26 +209,16 @@ func TestForecastCheckpointPressure_High(t *testing.T) {
 }
 
 func TestForecastCheckpointPressure_Low(t *testing.T) {
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		return DaySystemAgg{
-			TotalCheckpoints: float64(i) * 10,
-		}
-	})
-	cfg := ForecasterConfig{}
-	findings := forecastCheckpointPressure(aggs, cfg)
+	aggs := ckptHistory(10, 288, 0)
+	findings := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(findings) != 0 {
-		t.Error("expected no findings for low checkpoint rate")
+		t.Error("expected no findings for timed-only checkpoints")
 	}
 }
 
 func TestForecastCheckpointPressure_Insufficient(t *testing.T) {
-	aggs := makeSysAggs(3, func(i int) DaySystemAgg {
-		return DaySystemAgg{
-			TotalCheckpoints: float64(i) * 1000,
-		}
-	})
-	cfg := ForecasterConfig{}
-	findings := forecastCheckpointPressure(aggs, cfg)
+	aggs := ckptHistory(3, 288, 1000)
+	findings := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(findings) != 0 {
 		t.Error("expected no findings for insufficient data")
 	}
