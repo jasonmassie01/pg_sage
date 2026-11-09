@@ -64,6 +64,23 @@ The `tables`, `indexes`, `foreign_keys`, `partitions` and reloptions reads leave
 relations (`relpersistence = 't'`: other sessions' and pg_sage's own), which no other session
 can vacuum, analyze or index; unlogged tables are still collected.
 
+`queries` ranks this database's top 2 x `collector.max_queries` statements on their
+`pg_stat_statements(false)` counters, without texts. `pg_stat_statements(true)` loads the
+whole query-text file whatever rows are kept, so each collector keeps the texts in a cache
+of its own, keyed by `queryid` of its own database (no sharing between databases, also in
+fleet mode). The cache is bounded at 4 x `collector.max_queries` entries and 32 MiB of text
+per collector, evicting the least recently seen. A cycle reads texts, in one statement
+tagged `/* pg_sage text */` for exactly the missing ids, only when a candidate is new to the
+cache or its text is an hour old: a steady workload reads them about once an hour. A new
+statistics epoch (`pg_stat_statements_reset()`, a restart) clears the cache, and rising
+`pg_stat_statements_info.dealloc` refreshes it on the next cycle. pg_sage's own statements
+are left out in Go on the texts (`selfmonitor.IsStatementText`, the same predicate as the
+SQL filter), then the list is cut to `collector.max_queries`; a candidate whose text is NULL
+or gone cannot be attributed and is left out. A failed text read makes `queries`
+unavailable: its counters are never published without their texts. Near
+`pg_stat_statements.max`, the utility and `COPY ... TO STDOUT` classification (which reads
+every text) runs at most hourly, and only when the entry or deallocation count moved.
+
 The catalog categories and the extras (`io`, `prepared_xacts`, `partitions`, `config_data`)
 share one retry budget per cycle: a read that hit a statement or lock timeout is read once
 more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
