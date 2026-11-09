@@ -117,14 +117,14 @@ type Options struct {
 	WarehouseID string
 	// SourceObjects permits explicitly governed views with the same contract.
 	// Every identifier is validated and quoted; no SQL expressions are allowed.
-	SourceObjects  map[Stream]string
-	AllowPayload   bool
-	MaxRows        int
-	MaxBytes       int
-	QueryTimeout   time.Duration
-	PollInterval   time.Duration
-	Window         time.Duration
-	Retention      time.Duration
+	SourceObjects map[Stream]string
+	AllowPayload  bool
+	MaxRows       int
+	MaxBytes      int
+	QueryTimeout  time.Duration
+	PollInterval  time.Duration
+	Window        time.Duration
+	Retention     time.Duration
 	// QueriesPerPoll bounds warehouse reads per poll; zero means
 	// 2*len(Streams)+4: a forward and a short reconcile read per stream,
 	// plus four for the daily deep sweep.

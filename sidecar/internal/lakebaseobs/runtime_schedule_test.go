@@ -38,7 +38,15 @@ func TestScheduleBusyStreamsKeepForwardWithinSettleLag(t *testing.T) {
 		}
 		now = now.Add(o.PollInterval)
 	}
-	last := now.Add(-o.PollInterval)
+	assertForwardSteady(t, rt, mem, f, now.Add(-o.PollInterval))
+}
+
+// assertForwardSteady checks every stream trails last by SettleLag up to one
+// poll, adapted its width below MaxRows, and read every row it passed.
+func assertForwardSteady(t *testing.T, rt *Runtime, mem *memCursors, f *rateReader,
+	last time.Time) {
+	t.Helper()
+	o := rt.options
 	limit := o.SettleLag + o.PollInterval
 	for _, st := range rt.Status() {
 		c := mem.cursor(st.Stream)
