@@ -62,3 +62,17 @@ func TestProbe_Disabled(t *testing.T) {
 		t.Fatalf("nil probe = %+v, want disabled", res)
 	}
 }
+
+// Nil/empty: a nil context (allowed by ChatResult) is not a forced probe.
+func TestForcedProbe_NilContext(t *testing.T) {
+	//nolint:staticcheck // nil is what a careless caller passes.
+	if forcedProbe(nil) {
+		t.Fatal("nil context reported a forced probe")
+	}
+	if !forcedProbe(withForcedProbe(context.Background())) {
+		t.Fatal("forced probe context not recognised")
+	}
+	if forcedProbe(context.Background()) {
+		t.Fatal("plain context reported a forced probe")
+	}
+}

@@ -179,6 +179,9 @@ func withForcedProbe(ctx context.Context) context.Context {
 }
 
 func forcedProbe(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
 	forced, _ := ctx.Value(probeKey{}).(bool)
 	return forced
 }

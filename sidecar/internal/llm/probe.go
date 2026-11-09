@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,6 +23,11 @@ type ProbeResult struct {
 // probeMaxTokens keeps the connection test tiny.
 const probeMaxTokens = 16
 
+// probeSeq makes every probe prompt unique: two probes inside one clock
+// tick (about 0.5 ms on Windows) would otherwise share a prompt and the
+// second would be refused by the duplicate-prompt cooldown.
+var probeSeq atomic.Uint64
+
 // Probe sends one tiny chat request through the normal path: it is
 // charged to the budgets and, when the breaker is open, admitted as the
 // half-open probe even inside the cooldown, so a success closes the
@@ -31,7 +37,8 @@ func (c *Client) Probe(ctx context.Context) ProbeResult {
 	if c == nil || !c.IsEnabled() {
 		return ProbeResult{Class: "disabled", CircuitState: breakerClosed.String()}
 	}
-	user := fmt.Sprintf("Connection test %d. Reply with OK.", time.Now().UnixNano())
+	user := fmt.Sprintf("Connection test %d-%d. Reply with OK.",
+		time.Now().UnixNano(), probeSeq.Add(1))
 	start := time.Now()
 	r, err := c.ChatResult(withForcedProbe(ctx), "Reply with the single word OK.",
 		user, probeMaxTokens)
