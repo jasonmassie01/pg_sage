@@ -418,6 +418,32 @@ These families are deprecated and keep emitting in v2.6.0; they are removed in v
 | `pg_sage_connections_total{state}` | postgres_exporter (`pg_stat_activity_count`) |
 | `pg_sage_cache_hit_ratio` | postgres_exporter (`pg_stat_database_blks_hit` / `blks_read`) |
 
+### Exposition contract
+
+`/metrics` is Prometheus text format 0.0.4 (`text/plain; version=0.0.4; charset=utf-8`).
+Since v2.6.0:
+
+- Label values are escaped as the format requires: only `\\`, `\"` and `\n`. Other
+  characters, a tab or a control character included, are written as they are, and invalid
+  UTF-8 becomes U+FFFD. A database or SLO name with an odd character no longer makes the
+  whole scrape unparseable.
+- `pg_sage_build_info{version,commit} 1` names the running build, and
+  `process_start_time_seconds` is the process start time (Unix seconds), so restarts show as
+  `changes(process_start_time_seconds[1h])`.
+- When a database leaves the sidecar (removed by a fleet reload, deleted or renamed in meta
+  mode) its series disappear, the process-wide counters
+  (`pg_sage_policy_parks_total`, `pg_sage_verification_wait_releases_total`,
+  `pg_sage_policy_record_failures_total`, `pg_sage_shadow_*_total`) included. A database
+  added again under the same name counts from zero, which `rate()` treats as a counter reset.
+- Series are written in the same order on every scrape, and every family has one `HELP` and
+  one `TYPE` line.
+
+Four gauges still carry the counter suffix `_total`: `pg_sage_findings_total`,
+`pg_sage_connections_total`, `pg_sage_fleet_findings_total` and
+`pg_sage_optimizer_recommendations_total`. They keep their names in v2.6.0; v2.7.0 removes
+the first two and renames the others, with `pg_sage_collector_last_run_timestamp`, in one
+coordinated rename release. Do not apply `rate()` or `increase()` to them.
+
 ### Grafana Dashboard
 
 Import the included dashboard from `grafana/pg_sage_dashboard.json`.
