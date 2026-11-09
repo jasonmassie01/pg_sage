@@ -83,6 +83,15 @@ catalog evidence it rests on, for example `pg_index.indisvalid = false`:
 - indexes never scanned. The caveat states the statistics window: since the last reset or
   the server start. Scans on replicas are not counted;
 - foreign keys whose columns lead no index;
+- on partitioned tables, the index on the parent stands for its partitions. It is
+  "never scanned" only when its partitions' indexes have no scans in total; a parent
+  with no partitions is not reported. A duplicate or redundant parent is reported once,
+  not once per partition, and the indexes attached to it are never reported on their
+  own. PostgreSQL cannot drop a partitioned index concurrently, so the SQL is
+  `DROP INDEX` and the caveat states the lock it takes on every partition. A parent
+  index created `ON ONLY` stays invalid until every partition has an index attached; the
+  finding names those partitions and gives `CREATE INDEX CONCURRENTLY` plus
+  `ALTER INDEX ... ATTACH PARTITION` for each, not a `REINDEX`;
 - transaction ID and multixact runway, and sequence runway, including a bigint sequence
   that feeds an integer column;
 - tables of at least 100 MB with a high share of dead tuples. This is an estimate from
