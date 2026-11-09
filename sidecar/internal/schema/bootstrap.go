@@ -116,12 +116,20 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateSIEMCursorAnchor(ctx, conn); err != nil { // audit-01
 				return err
 			}
-			if err := migrateLocksCleanup(ctx, conn); err != nil { // locks_cleanup_migration.go
-				return err
-			}
-			return migrateUsersEmailCase(ctx, conn) // apiauth-05
+			return migrateLateSteps(ctx, conn)
 		},
 	)
+}
+
+// migrateLateSteps runs the newest migrations, in order, after the rest.
+func migrateLateSteps(ctx context.Context, conn bootstrapDB) error {
+	if err := migrateLocksCleanup(ctx, conn); err != nil { // locks_cleanup_migration.go
+		return err
+	}
+	if err := migrateUsersEmailCase(ctx, conn); err != nil { // apiauth-05
+		return err
+	}
+	return migrateCryptoMetaKeyID(ctx, conn) // security-08
 }
 
 // PersistTrustRampStart reads or initialises the trust_ramp_start
