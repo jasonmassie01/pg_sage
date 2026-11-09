@@ -60,3 +60,46 @@ func (t *fkTables) leaves(table tableKey) []tableKey {
 	}
 	return out
 }
+
+// supportTables returns the tables whose indexes may support a key on
+// table, for protection from unused-index drops. Unlike leaves it
+// guesses in the safe direction: table itself unless it is known to be
+// partitioned, and every partition below it, whether or not the
+// partition is in the snapshot's table list.
+func (t *fkTables) supportTables(table tableKey) []tableKey {
+	var out []tableKey
+	seen := map[tableKey]bool{table: true}
+	queue := []tableKey{table}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if t.kind[cur] != "p" {
+			out = append(out, cur)
+		}
+		for _, child := range t.children[cur] {
+			if !seen[child] {
+				seen[child] = true
+				queue = append(queue, child)
+			}
+		}
+	}
+	return out
+}
+
+// fkKeysPlaced reports whether every key's supporting tables are known:
+// the partition list was read, or each key is on a table known not to be
+// partitioned. A key on a partitioned (or unknown) table whose partitions
+// could not be read leaves its supporting indexes unknown.
+func fkKeysPlaced(snap *collector.Snapshot) bool {
+	if snap.Available("partitions") {
+		return true
+	}
+	kinds := newFKTables(snap).kind
+	for _, fk := range snap.ForeignKeys {
+		kind, known := kinds[tableKey{fk.Schema, fk.TableName}]
+		if !known || kind == "p" {
+			return false
+		}
+	}
+	return true
+}

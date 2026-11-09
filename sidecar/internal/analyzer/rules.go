@@ -96,9 +96,11 @@ var AllRules = []RuleSpec{
 func cats(c ...string) []string { return c }
 
 // hasIndexes needs the index list and the foreign keys: an index that
-// supports a key must not look unused when the keys could not be read.
+// supports a key must not look unused when the keys could not be read, or
+// when the partitions a key is enforced on are unknown (fkKeysPlaced).
 func hasIndexes(cur, _ *collector.Snapshot) bool {
-	return len(cur.Indexes) > 0 && cur.Available("indexes") && cur.Available("foreign_keys")
+	return len(cur.Indexes) > 0 && cur.Available("indexes") &&
+		cur.Available("foreign_keys") && fkKeysPlaced(cur)
 }
 
 // hasIndexList needs only the index list.

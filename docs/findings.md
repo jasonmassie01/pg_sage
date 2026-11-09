@@ -117,7 +117,9 @@ order supports it; the recommended index lists a composite key's columns in decl
 A key on a partitioned table is checked on each leaf partition (PostgreSQL enforces it there,
 and only the leaves' indexes are visible), and the finding names the partition. Nothing is
 guessed: a key whose table is not in the snapshot gives no finding. An index that is the only
-support of a key is never recommended for drop by `unused_index`.
+support of a key is never recommended for drop by `unused_index`. That includes a partition's index
+for a key on its partitioned parent; when the partition list could not be read, `unused_index`
+does not run while a key is on a partitioned table or one missing from the snapshot.
 
 **Example output:**
 

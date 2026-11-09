@@ -119,7 +119,7 @@ func missingFKFinding(
 // before collection-04) is attributed to every schema holding a table of
 // that name, so an index that might be the only FK support is protected
 // from unused-index drops (fail closed). A key on a partitioned table is
-// also a requirement on each of its leaf partitions.
+// also a requirement on each of its partitions (fkTables.supportTables).
 func buildFKRequirements(
 	snap *collector.Snapshot,
 ) map[tableKey][][]string {
@@ -137,7 +137,7 @@ func buildFKRequirements(
 		for _, schema := range schemas {
 			key := tableKey{schema, fk.TableName}
 			out[key] = append(out[key], fk.Columns)
-			for _, leaf := range tables.leaves(key) {
+			for _, leaf := range tables.supportTables(key) {
 				if leaf != key {
 					out[leaf] = append(out[leaf], fk.Columns)
 				}
