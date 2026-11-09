@@ -121,9 +121,12 @@ func (x *StatementExplainer) ExplainStatement(ctx context.Context,
 		res = x.explainOn(ctx, pool, queryID, res)
 		return nil
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, probes.ErrConcurrencyLimit):
 		res = failedRead(res, probes.StatusError, "concurrency_limit", err)
 		res.Phase = probes.PhaseQueue
+	case err != nil:
+		res = failedRead(res, probes.StatusError, "not_configured", err)
 	}
 	res.ElapsedMS = time.Since(start).Milliseconds()
 	return res
@@ -137,7 +140,7 @@ func (x *StatementExplainer) explainOn(ctx context.Context, pool *pgxpool.Pool,
 	conn, err := pool.Acquire(actx)
 	cancelAcquire()
 	if err != nil {
-		res = explainFailure(res, err)
+		res = readFailure(res, err)
 		res.Phase = probes.PhasePoolAcquire
 		return res
 	}
@@ -146,7 +149,7 @@ func (x *StatementExplainer) explainOn(ctx context.Context, pool *pgxpool.Pool,
 	defer cancel()
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return explainFailure(res, err)
+		return readFailure(res, err)
 	}
 	name := statementName()
 	defer func() {
@@ -176,12 +179,12 @@ func (x *StatementExplainer) explainIn(ctx context.Context, tx pgx.Tx, name stri
 	queryID int64, res probes.Result) probes.Result {
 	if _, err := tx.Exec(ctx, explainSettingsSQL,
 		fmt.Sprintf("%dms", probes.MaxStatementTimeout.Milliseconds()), "100ms"); err != nil {
-		return explainFailure(res, err)
+		return readFailure(res, err)
 	}
 	known, err := statementKnown(ctx, tx, queryID)
 	switch {
 	case err != nil:
-		return explainFailure(res, err)
+		return readFailure(res, err)
 	case !known:
 		res.Status, res.Reason = probes.StatusEmpty, ReasonUnknownStatement
 		return res
@@ -280,16 +283,22 @@ func planRows(node map[string]any, depth int, out *[]probes.Row) {
 	}
 }
 
-// explainFailure types a failed read: the probe classification, except
-// that a missing privilege (42501, on PREPARE or EXPLAIN: the role cannot
-// read a relation the statement reads) is missing_select.
-func explainFailure(res probes.Result, err error) probes.Result {
+// readFailure types a failed read by the probe classification.
+func readFailure(res probes.Result, err error) probes.Result {
 	st, reason := probes.Classify(err)
+	return failedRead(res, st, reason, err)
+}
+
+// explainFailure types a failed PREPARE or EXPLAIN: the probe
+// classification, except that a missing privilege (42501: the role cannot
+// read a relation the statement reads) is missing_select. A 42501 anywhere
+// else (no CONNECT on the database, say) is not a missing SELECT.
+func explainFailure(res probes.Result, err error) probes.Result {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "42501" {
-		st, reason = probes.StatusNoPrivilege, ReasonMissingSelect
+		return failedRead(res, probes.StatusNoPrivilege, ReasonMissingSelect, err)
 	}
-	return failedRead(res, st, reason, err)
+	return readFailure(res, err)
 }
 
 // failedRead marks res as not observed, with a bounded error.

@@ -79,10 +79,16 @@ func TestStatementExplainer_PoolWaitHasItsOwnBudget(t *testing.T) {
 		t.Fatalf("explain on a full pool = %+v, want an error in %s", res,
 			probes.PhasePoolAcquire)
 	}
-	// The pool wait is not the statement's 1.5 s budget.
+	// The pool wait is the runner's acquire budget, not the statement's
+	// 1.5 s budget.
 	if limit := probes.MaxStatementTimeout + time.Second; waited <= limit {
 		t.Fatalf("pool wait ended after %s, want the acquire budget (over %s)",
 			waited, limit)
+	}
+	budget := probes.NewRunner(one, probes.Catalog(), nil).AcquireWait()
+	if waited < budget-250*time.Millisecond || waited > budget+2*time.Second {
+		t.Fatalf("pool wait ended after %s, want about the acquire budget %s",
+			waited, budget)
 	}
 }
 
