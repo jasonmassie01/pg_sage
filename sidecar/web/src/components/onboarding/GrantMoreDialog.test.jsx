@@ -112,4 +112,23 @@ describe('GrantMoreDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalled()
   })
+
+  it('states a failed trust read with Retry instead of loading forever', () => {
+    const refetch = vi.fn()
+    api.useAPI.mockImplementation(() => ({
+      data: null, loading: false, error: 'HTTP 500', refetch,
+    }))
+    render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
+    expect(screen.getByRole('alert')).toHaveTextContent(/Trust levels unavailable: HTTP 500/)
+    expect(screen.queryByText(/Loading trust levels/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('says it is loading before the first answer', () => {
+    respond(null)
+    render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading trust levels')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
 })
