@@ -1283,7 +1283,10 @@ has scored the hypotheses. Every tool only reads:
 - three pg_stat views (`database`, `tables`, `statements`), registered as catalog probes;
 - a plan-only `EXPLAIN` of a statement by its `pg_stat_statements` queryid (the broad plan, and the narrow plan of a plan-regression investigation).
   It is never `ANALYZE` and never runs the statement. It plans the generic plan in a
-  read-only transaction and returns node shapes only, never query text;
+  read-only transaction and returns node shapes only, never query text. The text comes
+  from the collector's latest snapshot, never the query-text file (a statement outside its
+  top queries is `unsupported` / `text_not_cached`), and the `EXPLAIN` holds the database's
+  probe slot like any probe;
 - the graph's current state and operator-confirmed facts.
 
 No tool can change anything. Remediation stays a typed proposal through the policy gate.

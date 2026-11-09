@@ -2,6 +2,9 @@ package srebench
 
 import (
 	"context"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -33,7 +36,8 @@ func (a InvestigatorArm) Investigate(ctx context.Context, e *Env, sc Scenario) (
 		return Trace{}, err
 	}
 	defer done()
-	cfg := &sre.InvestigatorConfig{Explainer: sre.NewStatementExplainer(e.Pool)}
+	cfg := &sre.InvestigatorConfig{Explainer: sre.NewStatementExplainer(e.Runner,
+		benchStatementTexts(e.Pool))}
 	tr, err := e.investigate(ctx, sc, client, cfg)
 	if err == nil && tr.Outcome.Model != nil {
 		tr.Outcome.Model.Usage = tap.Usage()
@@ -56,3 +60,19 @@ func (InvestigatorArm) replayInvestigator() *sre.InvestigatorConfig {
 // UnmodeledPick is what the lift reads as the investigator's pick when it
 // names a cause outside the graph: never a gold root.
 const UnmodeledPick = "(unmodeled)"
+
+// benchStatementTexts stands in for the sidecar's collector snapshot: the
+// bench runs no collector, so it reads one statement's text from its own
+// small fault database.
+func benchStatementTexts(pool *pgxpool.Pool) sre.StatementTexts {
+	return func(queryID int64) (string, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var text string
+		err := pool.QueryRow(ctx, `SELECT query FROM pg_stat_statements
+			WHERE queryid = $1 AND dbid = (SELECT oid FROM pg_database
+			      WHERE datname = current_database())
+			ORDER BY calls DESC LIMIT 1`, queryID).Scan(&text)
+		return text, err == nil && text != ""
+	}
+}

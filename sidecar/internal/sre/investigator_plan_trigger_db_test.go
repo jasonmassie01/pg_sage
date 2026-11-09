@@ -23,7 +23,7 @@ func TestInvestigator_PlanRegressionNarrowPlanOffersExplain(t *testing.T) {
 	for kind, want := range map[TriggerKind]bool{TriggerPlan: true, TriggerLock: false} {
 		m := newFakeModel(t, submitFixed(invFinal{Outcome: "inconclusive"}))
 		c, _ := investigatorCoordinator(t, ctx, st, idleChainRunner(), m.client(),
-			invOptions{config: InvestigatorConfig{Explainer: NewStatementExplainer(pool)}})
+			invOptions{config: InvestigatorConfig{Explainer: newExplainer(pool, nil)}})
 		inv := startAndRun(t, ctx, c, Trigger{CaseID: "trigger-tools:" + string(kind),
 			Kind: kind, Subject: "queryid 42", IdempotencyKey: "tt:" + string(kind)})
 		run := transcriptOf(t, inv)

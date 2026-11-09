@@ -91,6 +91,7 @@ The probes read these sources:
 | `temp_file_holders` (M6) | `pg_ls_tmpdir()`, `pg_stat_activity` | `pg_monitor` (`no_privilege` without it) |
 | `xid_runway`, `xmin_horizon` (M6) | `pg_database`, `pg_stat_activity` (busy autovacuum workers, xmin holders), `pg_prepared_xacts`, `pg_replication_slots` | `pg_read_all_stats` |
 | `wal_directory` (M6) | `pg_ls_waldir()`, `pg_ls_archive_statusdir()` | `pg_monitor` (`no_privilege` without it) |
+| `explain_statement` (investigator) | `pg_stat_statements(showtext => false)` to confirm the queryid; the statement text from the collector's in-memory snapshot, never the query-text file; a plan-only `EXPLAIN` of the statement | `pg_read_all_stats` for the queryid, and `SELECT` on the tables and views the statement reads: without it the result is `no_privilege` / `missing_select` (`pg_monitor` alone is not enough). A statement outside the collector's top queries is `unsupported` / `text_not_cached`; a write, row-locking or `SELECT INTO` statement, data-modifying CTEs included, is `unsupported` / `not_a_read_statement` before it is prepared |
 
 **Grant `pg_monitor`.** It includes `pg_read_all_stats` and `pg_read_all_settings`. This is
 the same grant [installation](installation.md#database-user-setup) and
@@ -176,7 +177,8 @@ calls (narrow plan) or 10 (broad plan) instead of 2. It also receives the result
 it asks for, as the next message. A result is the probe's rows, **redacted, fenced and capped
 at 20 rows and 4000 characters**. The reads are catalog probes, the three pg_stat views and,
 in the broad plan, a plan-only `EXPLAIN`, whose result is plan node shapes (node type,
-relation, index, costs, row estimates), never query text. Confirmed facts and the graph's
+relation, index, costs, row estimates), never query text. The `EXPLAIN` waits for the
+database's probe slot like any probe (`concurrency_limit` when the queue is full). Confirmed facts and the graph's
 state are sent the same way. Every read is stored as evidence with its digest, and the
 transcript is redacted on every read like the rest of the investigation.
 

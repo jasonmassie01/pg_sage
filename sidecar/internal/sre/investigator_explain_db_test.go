@@ -58,12 +58,37 @@ func statementID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql, mar
 	return id
 }
 
+// cachedTexts serves the statements' texts the way the collector's latest
+// snapshot does (the test reads them from the pg_stat_statements view).
+func cachedTexts(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	ids ...int64) StatementTexts {
+	t.Helper()
+	texts := map[int64]string{}
+	for _, id := range ids {
+		var q string
+		if err := pool.QueryRow(ctx, `SELECT query FROM pg_stat_statements
+			WHERE queryid = $1 LIMIT 1`, id).Scan(&q); err != nil {
+			t.Fatalf("text of %d: %v", id, err)
+		}
+		texts[id] = q
+	}
+	return func(id int64) (string, bool) {
+		q, ok := texts[id]
+		return q, ok
+	}
+}
+
+// newExplainer explains pool's statements on a runner of its own.
+func newExplainer(pool *pgxpool.Pool, texts StatementTexts) *StatementExplainer {
+	return NewStatementExplainer(probes.NewRunner(pool, probes.Catalog(), nil), texts)
+}
+
 func TestStatementExplainer_ExplainsAReadStatementPlanOnly(t *testing.T) {
 	_, pool, ctx := liveStore(t, DefaultLimits())
 	tbl := explainTable(t, ctx, pool)
 	id := statementID(t, ctx, pool, "SELECT v FROM "+tbl+" WHERE v LIKE 'v1%'",
 		"FROM "+tbl+" WHERE v LIKE")
-	res := NewStatementExplainer(pool).ExplainStatement(ctx, id)
+	res := newExplainer(pool, cachedTexts(t, ctx, pool, id)).ExplainStatement(ctx, id)
 	if res.Status != probes.StatusOK || res.ProbeID != ExplainProbeID || len(res.Rows) == 0 {
 		t.Fatalf("explain = %+v", res)
 	}
@@ -86,7 +111,7 @@ func TestStatementExplainer_RefusesWritesAndNeverRunsThem(t *testing.T) {
 	tbl := explainTable(t, ctx, pool)
 	id := statementID(t, ctx, pool, "DELETE FROM "+tbl+" WHERE id = 999999",
 		"DELETE FROM "+tbl)
-	res := NewStatementExplainer(pool).ExplainStatement(ctx, id)
+	res := newExplainer(pool, cachedTexts(t, ctx, pool, id)).ExplainStatement(ctx, id)
 	if res.Status != probes.StatusUnsupported || res.Reason != ReasonNotReadStatement ||
 		len(res.Rows) != 0 {
 		t.Fatalf("explain of a DELETE = %+v, want unsupported %s", res,
@@ -100,7 +125,7 @@ func TestStatementExplainer_RefusesWritesAndNeverRunsThem(t *testing.T) {
 
 func TestStatementExplainer_UnknownAndInvalidQueryIDs(t *testing.T) {
 	_, pool, ctx := liveStore(t, DefaultLimits())
-	ex := NewStatementExplainer(pool)
+	ex := newExplainer(pool, nil)
 	if res := ex.ExplainStatement(ctx, 0); res.Status != probes.StatusError ||
 		res.Reason != "invalid_args" {
 		t.Fatalf("queryid 0 = %+v", res)
@@ -115,14 +140,30 @@ func TestStatementExplainer_UnknownAndInvalidQueryIDs(t *testing.T) {
 	}
 }
 
+// The plan-only EXPLAIN runs under the probe statement timeout: an
+// IMMUTABLE function is folded while planning, so its pg_sleep runs at
+// plan time and the server cancels it. (This replaces a test that only
+// passed a canceled context and never reached the server.)
 func TestStatementExplainer_IsBoundedByTheProbeTimeout(t *testing.T) {
 	_, pool, ctx := liveStore(t, DefaultLimits())
-	ex := NewStatementExplainer(pool)
-	cctx, cancel := context.WithCancel(ctx)
-	cancel()
-	res := ex.ExplainStatement(cctx, 42)
-	if res.Status != probes.StatusError || !strings.Contains(res.Reason, "cancel") {
-		t.Fatalf("canceled explain = %+v", res)
+	tbl := explainTable(t, ctx, pool)
+	fn := tbl + "_slow"
+	if _, err := pool.Exec(ctx, "CREATE FUNCTION "+fn+`() RETURNS int LANGUAGE plpgsql
+		IMMUTABLE AS $$ BEGIN PERFORM pg_sleep(1.5); RETURN 1; END $$`); err != nil {
+		t.Fatalf("create function: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP FUNCTION "+fn+"()") })
+	id := statementID(t, ctx, pool, "SELECT v FROM "+tbl+" WHERE id = "+fn+"()",
+		"WHERE id = "+fn)
+	start := time.Now()
+	res := newExplainer(pool, cachedTexts(t, ctx, pool, id)).ExplainStatement(ctx, id)
+	took := time.Since(start)
+	if res.Status != probes.StatusError || res.Reason != "statement_timeout" ||
+		len(res.Rows) != 0 {
+		t.Fatalf("explain of a 1.5 s plan = %+v, want error statement_timeout", res)
+	}
+	if limit := probes.MaxStatementTimeout + time.Second; took >= limit {
+		t.Fatalf("explain took %s, want under %s", took, limit)
 	}
 }
 
@@ -135,7 +176,8 @@ func TestInvestigator_ExplainToolStoresPlanEvidence(t *testing.T) {
 		call(ToolExplain, fmt.Sprintf(`{"queryid":%d}`, id)),
 		submitFixed(invFinal{Outcome: "inconclusive"}))
 	c, _ := investigatorCoordinator(t, ctx, st, idleChainRunner(), m.client(),
-		invOptions{config: InvestigatorConfig{Explainer: NewStatementExplainer(pool)}})
+		invOptions{config: InvestigatorConfig{Explainer: newExplainer(pool,
+			cachedTexts(t, ctx, pool, id))}})
 	inv := startAndRun(t, ctx, c, Trigger{CaseID: "operator:explain", Kind: TriggerOperator,
 		Subject: "slow lookup"})
 	steps := stepsOf(transcriptOf(t, inv), ToolExplain)
