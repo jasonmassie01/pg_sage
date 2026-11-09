@@ -55,7 +55,9 @@ const sequenceSampleSize = 250
 const evidenceDeadline = 5 * time.Second
 
 const (
-	catalogScanSQL = `/* pg_sage */ SELECT count(*)::float8
+	// CatalogScanSQL is the catalog-size read (exported: the performance
+	// gate proves a live derivation pass ran by finding it).
+	CatalogScanSQL = `/* pg_sage */ SELECT count(*)::float8
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid`
@@ -106,7 +108,7 @@ func Gather(ctx context.Context, pool *pgxpool.Pool) (Evidence, error) {
 
 func (ev *Evidence) readCatalog(ctx context.Context, r catalogread.Reader) error {
 	var n float64
-	ms, err := timed(func() error { return r.QueryRow(ctx, catalogScanSQL).Scan(&n) })
+	ms, err := timed(func() error { return r.QueryRow(ctx, CatalogScanSQL).Scan(&n) })
 	if timedOut(err) {
 		ev.CatalogScanMs = Known(float64(evidenceDeadline.Milliseconds()))
 		return nil

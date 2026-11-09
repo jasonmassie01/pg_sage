@@ -28,13 +28,16 @@ type perfCounters struct {
 
 // runPerfRuntime runs the standalone runtime through a warmup phase
 // (startup, first cycles, keyframes, baselines) and a steady phase, and
-// returns both phases' measurements with generic plans attached.
+// returns both phases' measurements with generic plans attached. The
+// steady phase carries the product meter's readings (gate H), and the
+// live derivation pass runs in it (compressSelfConfig).
 func runPerfRuntime(
 	t *testing.T, ctx context.Context, harness *pgxpool.Pool, dsn string,
 	scale perfgate.Scale, timing perfgate.Timing,
 ) []perfgate.Phase {
 	t.Helper()
 	preserveParityGlobals(t, perfConfig(t, dsn, timing))
+	compressSelfConfig(t, timing)
 	cfg.Mode = "standalone"
 	// pg_sage no longer silences pg_stat_statements on its own sessions
 	// (perf v1.8.3): the gate measures the shipped behaviour as is.
@@ -51,6 +54,7 @@ func runPerfRuntime(
 	setupPerfPosture(t, ctx, harness)
 	base := readPerfCounters(t, ctx, harness, logs, true)
 	initStandalone()
+	meter, stopMeter := startPerfMeter(t, timing)
 	router := perfRouter(t)
 	stopWorkload := startPerfWorkload(t, dsn, scale.HotTables())
 	stopShadowSeen := startPerfShadowSeen(t, dsn)
@@ -59,15 +63,10 @@ func runPerfRuntime(
 
 	steadyStart := time.Now()
 	triggerPerfPosture(t, ctx, harness)
-	cpuStart := perfProcessCPU(t)
-	time.Sleep(timing.Window / 2)
-	apiStart := perfProcessCPU(t)
-	endpoints := callPerfEndpoints(router, session, perfEndpointSamples(t))
-	apiCPU := perfProcessCPU(t) - apiStart
-	time.Sleep(time.Until(steadyStart.Add(timing.Window)))
-	cpu := perfProcessCPU(t) - cpuStart - apiCPU
+	endpoints, cpu, steadyEnd := perfSteadyWindow(t, router, session, steadyStart, timing)
 	stopWorkload()
 	stopShadowSeen()
+	stopMeter()
 	stopPerfRuntime(t, monitored)
 	end := readPerfCounters(t, ctx, harness, logs, false)
 
@@ -75,9 +74,11 @@ func runPerfRuntime(
 	steady := perfPhase("steady", true, timing.Window, timing.Cycles(), warm, end)
 	steady.Endpoints = endpoints
 	steady.ProcessCPU, steady.CPUKnown = cpu, true
+	meterPerfPhase(&steady, meter, steadyStart, steadyEnd)
 	explainPerfPhases(t, ctx, harness, &warmup, &steady)
 	requirePostureMeasured(t, warmup)
 	requirePostureMeasured(t, steady)
+	requireLiveDerivation(t, steady)
 	return []perfgate.Phase{warmup, steady}
 }
 
