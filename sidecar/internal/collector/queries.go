@@ -1,12 +1,16 @@
 package collector
 
-import (
-	"strings"
-
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
-)
-
 // SQL constants for each collection category.
+
+// notTempRel is the catalog reads' predicate that leaves out temporary
+// relations (collection-03): other sessions' and pg_sage's own. No other
+// session can vacuum, analyze or index them, and they vanish with their
+// session, so they are not the application's objects. Unlogged relations
+// ('u') are, and stay. Every relation read carries it, so the reads
+// cannot drift apart.
+func notTempRel(alias string) string {
+	return alias + ".relpersistence <> 't'"
+}
 
 // sageTag marks every collector query so pg_sage's own catalog reads
 // (pg_stat_activity, pg_stat_user_tables, pg_replication_slots, …) are
@@ -23,33 +27,17 @@ const sageTag = "/* pg_sage */ "
 // produce duplicate query_store samples with one captured_at (G1-B05).
 // Means and the population stddev are recombined from per-row calls.
 // The %[1]s and %[2]s verbs are the block read/write time expressions
-// chosen by blockTimeColumns (PG17 renamed blk_*_time to
-// shared_/local_blk_*_time); %[3]d, and the final %d after them, is the
-// row limit.
+// chosen by the capability probe (blockTimeFor) (PG17 renamed blk_*_time to
+// shared_/local_blk_*_time); the final %d is the candidate count.
 //
-// The candidates are ranked on the counters alone (showtext false), and
-// only their texts are matched against the self-exclusion and aggregated
-// (coordinator audit, 2026-10-04): on a 45k-entry server with 14 MB of
-// text, sorting every entry with its text spilled 16 MB to disk and the
-// regex ran on all of them (265-325 ms of the 500 ms budget); ranking
-// first took 156-178 ms. Twice the limit leaves room for pg_sage's own
-// statements among the top ones.
-const queryStatsWith = sageTag + `
-WITH ranked AS (
-    SELECT queryid FROM pg_stat_statements(false)
-     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-       AND queryid IS NOT NULL
-     GROUP BY queryid
-     ORDER BY sum(total_exec_time) DESC
-     LIMIT 2 * %[3]d
-), candidates AS MATERIALIZED (
-    SELECT s.* FROM pg_stat_statements(true) s JOIN ranked r ON r.queryid = s.queryid
-     WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-)`
-
-const queryStatsSelect = queryStatsWith + `
+// It reads the counters only (showtext false): pg_stat_statements(true)
+// loads the whole query-text file whatever rows are kept (14 MB on
+// lifeos), so texts come from the collector's cache and are read only for
+// the candidates it lacks (statementTextsSQL, collection-11). It ranks
+// candidateHeadroom x MaxQueries: room for pg_sage's own statements, which
+// are left out in Go once their texts are known (IsStatementText).
+const queryStatsSelect = sageTag + `
 SELECT COALESCE(queryid, 0) AS queryid,
-       (array_agg(query ORDER BY calls DESC))[1] AS query,
        sum(calls)::bigint AS calls,
        sum(total_exec_time)::float8 AS total_exec_time,
        COALESCE(sum(total_exec_time) / NULLIF(sum(calls), 0), 0)::float8 AS mean_exec_time,
@@ -74,32 +62,22 @@ const queryStatsPlanColumns = `,
        COALESCE(sum(total_plan_time) / NULLIF(sum(plans), 0), 0)::float8
          AS mean_plan_time`
 
-// queryStatsFrom leaves pg_sage's own statements out of the candidates (a
-// format string: the predicate's % are doubled).
-var queryStatsFrom = `
-  FROM candidates
- WHERE ` + strings.ReplaceAll(selfmonitor.StatementExclusionSQL("query"), "%", "%%") + `
+const queryStatsFrom = `
+  FROM pg_stat_statements(false)
+ WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+   AND queryid IS NOT NULL
  GROUP BY queryid
  ORDER BY sum(total_exec_time) DESC
  LIMIT %d`
 
-var queryStatsSQL = queryStatsSelect + queryStatsFrom
+const queryStatsSQL = queryStatsSelect + queryStatsFrom
 
-var queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
+const queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
 
-var queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
+const queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
 
-var queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
+const queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
 	queryStatsPlanColumns + queryStatsFrom
-
-// blockTimeColumnsSQL finds which block-time columns the installed
-// pg_stat_statements view exposes (depends on the extension version, not
-// only the server version).
-const blockTimeColumnsSQL = sageTag + `
-SELECT attname::text FROM pg_attribute
- WHERE attrelid = to_regclass('pg_stat_statements')
-   AND attnum > 0 AND NOT attisdropped
-   AND attname IN ('shared_blk_read_time', 'blk_read_time')`
 
 // tableStatsSQL pages pg_class by oid and reads each table's counters
 // with the pg_stat_get_* functions pg_stat_user_tables is built from
@@ -114,7 +92,7 @@ SELECT attname::text FROM pg_attribute
 // reloptions rides on the same page: the deterministic rules need each
 // table's own storage parameters whether or not the advisor's
 // configuration snapshot runs (rules-02).
-const tableStatsSQL = sageTag + `
+var tableStatsSQL = sageTag + `
 SELECT n.nspname, c.relname,
        pg_stat_get_numscans(c.oid), pg_stat_get_tuples_returned(c.oid),
        COALESCE(ix.idx_scan, 0),
@@ -151,6 +129,7 @@ SELECT n.nspname, c.relname,
    AND c.relkind IN ('r', 'm', 'p')
    AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
    AND n.nspname !~ '^pg_toast'
+   AND ` + notTempRel("c") + `
  ORDER BY c.oid
  LIMIT $2`
 
@@ -159,7 +138,7 @@ SELECT n.nspname, c.relname,
 // 35k definitions re-derived every minute). Sizes are relpages estimates;
 // def_version identifies the catalog rows a cached definition was read
 // from (index row and file, table row, schema row).
-const indexStatsSQL = sageTag + `
+var indexStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(s.idx_scan, 0), COALESCE(s.idx_tup_read, 0),
        COALESCE(s.idx_tup_fetch, 0),
@@ -178,24 +157,34 @@ SELECT s.schemaname, s.relname, s.indexrelname,
   JOIN pg_namespace n ON n.oid = tc.relnamespace
   JOIN pg_am am ON am.oid = ic.relam
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ` + notTempRel("ic") + ` AND ` + notTempRel("tc") + `
    AND s.indexrelid > $1
  ORDER BY s.indexrelid
  LIMIT $2`
 
-const foreignKeysSQL = sageTag + `
-SELECT cl.relname AS table_name,
-       cl2.relname AS referenced_table,
-       a.attname AS fk_column,
-       con.conname AS constraint_name
+// foreignKeysSQL reads one row per constraint (collection-04): the schema
+// of both sides, the referencing columns in conkey order, and the oid.
+// Partition clones (conparentid <> 0, one per partition on either side)
+// are left out: the constraint on the partitioned parent stands for them.
+var foreignKeysSQL = sageTag + `
+SELECT n.nspname AS schemaname, cl.relname AS table_name,
+       rn.nspname AS ref_schemaname, cl2.relname AS referenced_table,
+       con.conname AS constraint_name, con.oid,
+       ARRAY(SELECT a.attname::text
+               FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = con.conrelid
+                    AND a.attnum = k.attnum
+              ORDER BY k.ord) AS columns
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
-  JOIN pg_class cl2 ON cl2.oid = con.confrelid
   JOIN pg_namespace n ON n.oid = cl.relnamespace
-  JOIN pg_attribute a ON a.attrelid = con.conrelid
-       AND a.attnum = ANY(con.conkey)
+  JOIN pg_class cl2 ON cl2.oid = con.confrelid
+  JOIN pg_namespace rn ON rn.oid = cl2.relnamespace
  WHERE con.contype = 'f'
+   AND con.conparentid = 0
    AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
- ORDER BY cl.relname, con.conname`
+   AND ` + notTempRel("cl") + ` AND ` + notTempRel("cl2") + `
+ ORDER BY cl.relname, con.conname, n.nspname`
 
 // cacheHitRatioExpr is the buffer cache hit ratio as a FRACTION in
 // [0,1] (G1-B08/C01: it used to be a percent compared against fractional
@@ -242,7 +231,7 @@ SELECT backend_type, object, context,
  LIMIT 100`
 
 // Partition inheritance: maps child tables to their parent.
-const partitionInheritanceSQL = sageTag + `
+var partitionInheritanceSQL = sageTag + `
 SELECT c.relname AS child_table,
        n.nspname AS child_schema,
        p.relname AS parent_table,
@@ -253,6 +242,7 @@ SELECT c.relname AS child_table,
   JOIN pg_class p ON p.oid = i.inhparent
   JOIN pg_namespace pn ON pn.oid = p.relnamespace
  WHERE n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ` + notTempRel("c") + ` AND ` + notTempRel("p") + `
  ORDER BY parent_schema, parent_table, child_schema, child_table`
 
 // pg_prepared_xacts: two-phase commit transactions that survive

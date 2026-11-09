@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -120,7 +121,7 @@ func TestPhase2_CollectForeignKeys_WithData(t *testing.T) {
 	for _, fk := range fks {
 		if fk.TableName == "phase2_orders" &&
 			fk.ReferencedTable == "phase2_users" &&
-			fk.FKColumn == "user_id" {
+			reflect.DeepEqual(fk.Columns, []string{"user_id"}) {
 			found = true
 			if fk.ConstraintName == "" {
 				t.Error("ConstraintName should not be empty")

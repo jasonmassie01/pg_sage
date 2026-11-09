@@ -33,13 +33,31 @@ type StatStatementsUsage struct {
 const classifyPercent = 80
 
 // classifyEvery spaces the classifications, which read every entry's
-// text; the entry count is read every cycle.
-const classifyEvery = 15 * time.Minute
+// text; the entry count is read every cycle. Past it, the texts are
+// classified again only when the entry count or the deallocations moved
+// (collection-11).
+const classifyEvery = time.Hour
 
-// classCache is the last classification's counts and when it was read.
+// classCache is the last classification's counts, when it was read and
+// the entry and deallocation counts it saw.
 type classCache struct {
 	at               time.Time
 	utility, copyOut int
+	entries          int
+	dealloc          int64
+}
+
+// classificationCurrent reports whether cached still describes the
+// entries u reports: inside classifyEvery, or past it with the same entry
+// count and the same known deallocation count.
+func classificationCurrent(cached classCache, now time.Time, u *StatStatementsUsage) bool {
+	switch {
+	case cached.at.IsZero():
+		return false
+	case now.Sub(cached.at) < classifyEvery:
+		return true
+	}
+	return u.Dealloc >= 0 && u.Dealloc == cached.dealloc && u.Entries == cached.entries
 }
 
 // nearStatementsCapacity reports entries at or above classifyPercent of max.
@@ -100,24 +118,29 @@ func (c *Collector) collectStatStatementsUsage(ctx context.Context,
 			err)
 		return nil
 	}
+	c.stmtTexts.observeDealloc(u.Dealloc)
 	return u
 }
 
-// classifiedUsage classifies the texts at most every classifyEvery and
-// reuses the last counts in between, with the fresh entry count.
+// classifiedUsage classifies the texts while classificationCurrent is
+// false and reuses the last counts otherwise, with the fresh entry count.
 func (c *Collector) classifiedUsage(ctx context.Context,
 	entries int) (*StatStatementsUsage, error) {
 	now := c.clock()
-	if cached := c.pgssClass; !cached.at.IsZero() && now.Sub(cached.at) < classifyEvery {
-		u := &StatStatementsUsage{Entries: entries, Classified: true, Dealloc: -1,
-			Utility: min(cached.utility, entries), CopyOut: min(cached.copyOut, entries)}
-		return u, c.readStatementsSettings(ctx, u)
+	u := &StatStatementsUsage{Entries: entries, Classified: true, Dealloc: -1}
+	if err := c.readStatementsSettings(ctx, u); err != nil {
+		return nil, err
+	}
+	if cached := c.pgssClass; classificationCurrent(cached, now, u) {
+		u.Utility, u.CopyOut = min(cached.utility, entries), min(cached.copyOut, entries)
+		return u, nil
 	}
 	u, err := c.readStatStatementsUsage(ctx, true)
 	if err != nil {
 		return nil, err
 	}
-	c.pgssClass = classCache{at: now, utility: u.Utility, copyOut: u.CopyOut}
+	c.pgssClass = classCache{at: now, utility: u.Utility, copyOut: u.CopyOut,
+		entries: u.Entries, dealloc: u.Dealloc}
 	return u, nil
 }
 

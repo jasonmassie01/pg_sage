@@ -90,6 +90,22 @@ privilege on application schemas.
 GRANT pg_monitor TO sage_agent;
 ```
 
+**Plan fingerprints and partitions.** `plan_regressions` reports a plan flip when a
+statement's `query_store.plan_hash` changes. Since planhash v2 a captured plan names each
+partition by its partition root, so a query pinned to one day that scans
+`events_p20261105` one day and `events_p20261106` the next keeps one fingerprint. Under
+`Append` and `Merge Append` only the set of child shapes, a child-count bucket (`1`,
+`2-10`, `>10`, or `all` partitions) and whether runtime pruning removed subplans count;
+losing a partition prune still changes the fingerprint. To find the roots, pg_sage runs one
+read-only catalog query per capture (`pg_class`, `pg_namespace`, `pg_inherits` and
+`pg_partition_root()`, which `CONNECT` alone allows) under a 2 s statement timeout and a
+100 ms lock timeout; it takes no relation locks. A fingerprint whose relations were all
+resolved starts with `v2:`. One that could not be resolved (no database, a failed read, a
+name that is ambiguous without `EXPLAIN VERBOSE`, more than 256 relations) starts with
+`v2u:`. `plan_regressions` v2 compares a fingerprint only with the previous one of the same
+version, so the upgrade from v1 and unresolved captures never report a flip. No migration
+is needed: old `v1:` values age out with the query store.
+
 The coordination tables (`sage.sre_investigations`, `sage.sre_evidence`, `sage.sre_events`,
 `sage.sre_hypotheses`, the budget ledger and the rest) are created at startup by the schema
 bootstrap, in the meta database when one is configured and in the monitored database

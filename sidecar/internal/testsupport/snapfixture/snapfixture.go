@@ -198,12 +198,13 @@ func foreignKeys(tables int) []collector.ForeignKey {
 		name := fmt.Sprintf("t%03d_parent_fkey", t)
 		parent := fmt.Sprintf("t%03d", t-1)
 		child := fmt.Sprintf("t%03d", t)
-		out = append(out, collector.ForeignKey{TableName: child, ReferencedTable: parent,
-			FKColumn: "parent_id", ConstraintName: name})
-		if t%3 == 0 { // a two-column key: two rows for one constraint
-			out = append(out, collector.ForeignKey{TableName: child,
-				ReferencedTable: parent, FKColumn: "tenant_id", ConstraintName: name})
+		cols := []string{"parent_id"}
+		if t%3 == 0 { // a two-column key
+			cols = append(cols, "tenant_id")
 		}
+		out = append(out, collector.ForeignKey{Schema: "app", TableName: child,
+			RefSchema: "app", ReferencedTable: parent, ConstraintName: name,
+			Columns: cols, OID: uint32(40000 + t)})
 	}
 	return out
 }

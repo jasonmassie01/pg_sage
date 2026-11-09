@@ -185,3 +185,24 @@ func TestWithLibraryKeepsTheListAndAvoidsDuplicates(t *testing.T) {
 		t.Errorf("unknown list = %q", got)
 	}
 }
+
+// collection-02: the collector re-checks pg_stat_statements every cycle, so
+// the copy promises no pg_sage restart (PostgreSQL's own restart for
+// shared_preload_libraries stays in the steps).
+func TestStatStatementsCopyNeedsNoSageRestart(t *testing.T) {
+	loaded := allReady()
+	loaded.StatStatementsInstalled = false
+	notLoaded := allReady()
+	notLoaded.StatStatementsInstalled, notLoaded.StatStatementsLoaded = false, boolp(false)
+	for name, e := range map[string]Extensions{"loaded": loaded, "not loaded": notLoaded} {
+		caps, _ := ExtensionCapabilities(e, "self-managed")
+		c := capability(caps, CapStatStatements)
+		if !strings.Contains(c.Detail, "no pg_sage restart is needed") {
+			t.Errorf("%s: detail %q does not say no pg_sage restart is needed", name, c.Detail)
+		}
+	}
+	ready, _ := ExtensionCapabilities(allReady(), "self-managed")
+	if c := capability(ready, CapStatStatements); strings.Contains(c.Detail, "restart") {
+		t.Errorf("ready detail %q mentions a restart", c.Detail)
+	}
+}

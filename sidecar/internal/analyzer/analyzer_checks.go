@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -94,33 +95,53 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	return ruleConnectionLeaks(leaked)
 }
 
-// computeIOUtilPct estimates I/O utilization as the ratio of
-// combined I/O wait time (blk_read_time + blk_write_time from
-// pg_stat_database) to total query execution time. Returns 0-100.
+// computeIOUtilPct estimates I/O utilization over the last collector
+// interval (collection-06): the interval's database I/O wait
+// (blk_read_time + blk_write_time of pg_stat_database) over the
+// interval's execution time of the statements present in both snapshots
+// under the same pg_stat_statements epoch. Returns 0-100, and 0 when
+// either side is unknown; lifetime totals from two different resets are
+// not a ratio.
 //
 // When I/O wait dominates execution time, aggressive vacuum
 // recommendations would make things worse on an already I/O-bound
 // system.
-func computeIOUtilPct(snap *collector.Snapshot) float64 {
-	if snap == nil {
+func computeIOUtilPct(cur, prev *collector.Snapshot) float64 {
+	if cur == nil || cur.System.Interval == nil {
 		return 0
 	}
-	ioWait := snap.System.BlkReadTime + snap.System.BlkWriteTime
-	if ioWait <= 0 {
+	iv := cur.System.Interval
+	if iv.BlkReadTimeMs == nil || iv.BlkWriteTimeMs == nil {
 		return 0
 	}
-	var totalExecTime float64
-	for _, q := range snap.Queries {
-		totalExecTime += q.TotalExecTime
-	}
-	if totalExecTime <= 0 {
+	ioWait := *iv.BlkReadTimeMs + *iv.BlkWriteTimeMs
+	execDelta := intervalExecTime(cur, prev)
+	if ioWait <= 0 || execDelta <= 0 {
 		return 0
 	}
-	pct := ioWait / totalExecTime * 100
-	if pct > 100 {
-		pct = 100
+	return math.Min(ioWait/execDelta*100, 100)
+}
+
+// intervalExecTime is the total_exec_time the statements present in both
+// snapshots added between them; 0 across a statements reset or an
+// unknown epoch. A statement whose total fell was evicted and re-entered,
+// so it is left out.
+func intervalExecTime(cur, prev *collector.Snapshot) float64 {
+	if prev == nil || cur.StatsReset || cur.StatsEpoch.IsZero() ||
+		!cur.StatsEpoch.Equal(prev.StatsEpoch) {
+		return 0
 	}
-	return pct
+	before := make(map[int64]float64, len(prev.Queries))
+	for _, q := range prev.Queries {
+		before[q.QueryID] = q.TotalExecTime
+	}
+	var delta float64
+	for _, q := range cur.Queries {
+		if was, ok := before[q.QueryID]; ok && q.TotalExecTime >= was {
+			delta += q.TotalExecTime - was
+		}
+	}
+	return delta
 }
 
 // canonicalTable normalizes a table reference (e.g. "orders" or

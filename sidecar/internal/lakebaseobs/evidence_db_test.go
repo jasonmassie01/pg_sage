@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -180,34 +181,34 @@ func TestHistoricalMetadataHandlesMaskedLogsAndRejectsPayloadTags(t *testing.T) 
 	scope := testScope()
 	now := time.Now().UTC()
 	e := scopedEvent(t, scope, Logs, now, now, map[string]string{"message": "<REDACTED>", "sqlstate": "40P01", "severity": "ERROR"})
-	r, err := historicalRow(e, 0)
+	r, err := historicalRow(e, 0, planhash.Compute)
 	if err != nil || r["rca_signal"] != "log_deadlock_detected" || r["sqlstate"] != "40P01" {
 		t.Fatalf("typed masked-log diagnostic lost: %+v %v", r, err)
 	}
 	e.Fields["severity"] = ""
-	r, err = historicalRow(e, 0)
+	r, err = historicalRow(e, 0, planhash.Compute)
 	if err != nil || r["sqlstate"] != "40P01" || r["rca_signal"] != nil {
 		t.Fatalf("unknown severity was inferred: %+v %v", r, err)
 	}
 	e.Fields["sqlstate"], e.Fields["severity"] = "", "ERROR"
-	r, err = historicalRow(e, 0)
+	r, err = historicalRow(e, 0, planhash.Compute)
 	if err != nil || r["severity"] != "ERROR" || r["rca_signal"] != nil {
 		t.Fatalf("unknown SQLSTATE was inferred: %+v %v", r, err)
 	}
 	e.Fields["sqlstate"], e.Fields["severity"] = "", ""
-	if _, err := historicalRow(e, 0); err != ErrMasked {
+	if _, err := historicalRow(e, 0, planhash.Compute); err != ErrMasked {
 		t.Fatalf("unknown masked log became diagnostic: %v", err)
 	}
 	e = scopedEvent(t, scope, DDL, now, now, map[string]string{"command_tag": "ALTER TABLE secret ADD sensitive text"})
-	if _, err := historicalRow(e, 0); err != ErrMalformed {
+	if _, err := historicalRow(e, 0, planhash.Compute); err != ErrMalformed {
 		t.Fatalf("SQL payload escaped through command tag: %v", err)
 	}
 	e.Fields["command_tag"], e.Fields["object_type"] = "ALTER TABLE", "TABLE 'secret'"
-	if _, err := historicalRow(e, 0); err != ErrMalformed {
+	if _, err := historicalRow(e, 0, planhash.Compute); err != ErrMalformed {
 		t.Fatalf("payload escaped through object type: %v", err)
 	}
 	e.Fields["object_type"], e.Fields["application_name"] = "TABLE", "pg_sage"
-	if _, err := historicalRow(e, 0); err != ErrSelfStatement {
+	if _, err := historicalRow(e, 0, planhash.Compute); err != ErrSelfStatement {
 		t.Fatalf("self DDL was not excluded: %v", err)
 	}
 }

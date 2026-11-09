@@ -18,8 +18,9 @@ pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. 
 pg_sage sidecar (single Go binary)
   ├── Collector        [every 60s]
   │     pg_stat_statements, pg_stat_user_tables, pg_stat_user_indexes,
-  │     pg_sequences, pg_locks, pg_stat_replication, pg_stat_bgwriter,
-  │     pg_stat_checkpointer, pg_stat_activity, pg_database_size()
+  │     pg_sequence (paged), pg_locks, pg_stat_replication,
+  │     pg_stat_bgwriter, pg_stat_checkpointer, pg_stat_activity,
+  │     pg_stat_io (PG16+), pg_database_size() (every 15 min)
   │
   ├── Analyzer         [every 600s]
   │   ├── Tier 1: Rules engine (25+ deterministic checks)
@@ -47,7 +48,103 @@ pg_sage sidecar (single Go binary)
 
 ### Collector
 
-Gathers snapshots every 60s (configurable) from 10+ catalog views. Stores raw data in `sage.snapshots` as JSONB. Uses a circuit breaker to back off during database crises.
+Gathers a snapshot every 60s (configurable) from the catalog and statistics views, under a
+circuit breaker that skips cycles while the database is in trouble (CPU over
+`safety.cpu_ceiling_pct`). A cycle reads the catalog categories in order (`catalogSteps`:
+`queries`, `tables`, `indexes`, `foreign_keys`, `system`, `locks`, `sequences`), then
+`replication` and the extra categories (`extraSteps`: `io`, `prepared_xacts`, `partitions`,
+`config_data`).
+
+**Bounded reads.** Every catalog read runs under a statement and lock timeout and is
+bounded by the size of the catalog it reads, not by the cycle:
+
+- `tables` and `indexes` page through `pg_stat_user_tables` and `pg_stat_user_indexes` by
+  oid. Index definitions (`pg_get_indexdef`) come from a cache and are read only for new
+  or changed indexes, with a full refresh at least hourly.
+- Only the 100 largest relations and the 100 largest indexes are sized exactly each cycle
+  (`ExactSizeTopN`); every other size is `relpages` x block size.
+- `sequences` reads `pg_sequence` in pages of 1,000 sequences per catalog transaction, never
+  more than a quarter of the server's lock table, and at most 20,000 sequences a cycle;
+  past that it rotates through the catalog across cycles (reading every sequence in one
+  transaction held one lock per sequence and exhausted the lock table).
+- `pg_database_size()` (a `stat()` of every file of the database) is measured every 15
+  minutes and carried between measurements.
+
+**Storage.** Snapshots are written through `internal/snapstore`: a category is stored as a
+full row (a keyframe) when it has no usable keyframe, the keyframe is 6 hours old, or the
+change is too large, and otherwise as a delta row on its keyframe or on the latest
+checkpoint (changed fields by element identity, counters as increments). Every reader goes
+through `sage.snapshot_data()`, which returns the document as the collector wrote it.
+`sage.snapshots` and `sage.query_store` are range-partitioned by UTC day; the collector
+creates each day's partition ahead, and retention (`retention.snapshots_days`,
+`retention.query_store_days`, `retention.snapshots_max_pct`) drops whole days.
+
+**Query store.** Each cycle the collector also writes per-query samples (calls, total time,
+rows, statistics epoch, plan fingerprint) to `sage.query_store` through a
+`querystore.Recorder`, which writes a query only when its counters or epoch moved since its
+last sample, and at least once an hour (a keyframe). Readers take an absent sample as
+"unchanged": a window starts at the query's newest sample before it, within two hours
+(`AnchorLookback`). Samples of different statistics epochs (a counter decrease, a changed
+`pg_stat_statements_info.stats_reset`, or an unknown epoch next to a known one) are never
+differenced (R10). Both rules live once, in `internal/querystore` (`QueryIntervals` for
+verification, `CaptureDeltas` for the SLO latency proxy).
+
+**The workload rule.** The collector keeps every statement. Advice paths (findings, the
+tuning agent, plan capture, verification targets, the briefing) read only application
+workload as `internal/workload` classifies it: pg_sage's own tagged statements,
+`EXPLAIN`, maintenance, statistics resets and backup `COPY ... TO` are not workload.
+
+Each snapshot holds one row per category: `queries`, `tables`, `indexes`, `foreign_keys`,
+`system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
+`prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`) and
+`config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only
+when an advisor will consume it). A category that could not be read in a cycle is
+**unknown, not empty**: it is listed in the snapshot's `unavailable` map with the error, no
+row is written for it, and rules that would read its absence as a fact stay quiet for that
+cycle. Only the `system` category, the snapshot's spine, fails the whole snapshot. A category
+pg_sage does not collect (`io` below PostgreSQL 16, `config_data` without an advisor) is not
+collected, which is different from unavailable.
+
+The `tables`, `indexes`, `foreign_keys`, `partitions` and reloptions reads leave out temporary
+relations (`relpersistence = 't'`: other sessions' and pg_sage's own), which no other session
+can vacuum, analyze or index; unlogged tables are still collected.
+
+`queries` ranks this database's top 2 x `collector.max_queries` statements on their
+`pg_stat_statements(false)` counters, without texts. `pg_stat_statements(true)` loads the
+whole query-text file whatever rows are kept, so each collector keeps the texts in a cache
+of its own, keyed by `queryid` of its own database (no sharing between databases, also in
+fleet mode). The cache is bounded at 4 x `collector.max_queries` entries and 32 MiB of text
+per collector, evicting the least recently seen. A cycle reads texts, in one statement
+tagged `/* pg_sage text */` for exactly the missing ids, only when a candidate is new to the
+cache or its text is an hour old: a steady workload reads them about once an hour. A new
+statistics epoch (`pg_stat_statements_reset()`, a restart) clears the cache, and rising
+`pg_stat_statements_info.dealloc` refreshes it on the next cycle. pg_sage's own statements
+are left out in Go on the texts (`selfmonitor.IsStatementText`, the same predicate as the
+SQL filter), then the list is cut to `collector.max_queries`; a candidate whose text is NULL
+or gone cannot be attributed and is left out. A failed text read makes `queries`
+unavailable: its counters are never published without their texts. Near
+`pg_stat_statements.max`, the utility and `COPY ... TO STDOUT` classification (which reads
+every text) runs at most hourly, and only when the entry or deallocation count moved.
+
+The catalog categories and the extras (`io`, `prepared_xacts`, `partitions`, `config_data`)
+share one retry budget per cycle: a read that hit a statement or lock timeout is read once
+more, and at most two reads are retried per cycle. `config_data` is all or nothing: if any of
+its sub-reads (`pg_settings`, `reloptions`, `connection_states`, `wal_position`, `extensions`,
+`connection_churn`) fails or returns a row that does not scan, the whole category is
+unavailable and the reason names the sub-read. On a hot standby the WAL position is the last
+WAL received (or replayed), since `pg_current_wal_lsn()` fails there.
+
+`prepared_xacts` is stored as changes on a keyframe, paired by `gid`; a database with no
+prepared transaction stores `[]`, which differs from the missing row of an unknown cycle.
+
+`foreign_keys` holds one element per constraint: `schemaname`, `table_name`,
+`ref_schemaname`, `referenced_table`, `constraint_name`, the constraint `oid` and `columns`,
+the referencing columns in declared (`conkey`) order. Partition clones (`conparentid <> 0`)
+are left out, so a key on a partitioned table, or one referencing a partitioned table, is one
+element naming the partitioned parent. The category is stored as changes on a keyframe,
+paired by schema, table and constraint name; no keys stores `[]`. Rows written before this
+shape held one element per column with no schema; `/api/v1/snapshots/latest` regroups such a
+row per constraint, with an empty schema.
 
 ### Analyzer (Tier 1 -- Rules Engine)
 
@@ -240,8 +337,10 @@ metadata database, each row tagged with the database's meta-db record id.
   fails instead of reading an empty or mixed history; a static test checks that every
   statement naming the two tables carries a marker.
 - Each runtime resolves its store before it starts and registers it for its monitored
-  pool; readers find the store from the pool they already hold
-  (`histstore.Resolve`), so no reader can be wired to the wrong database.
+  pool; readers find the store from the pool they already hold (`histstore.Resolve`).
+  With `history.store: meta` the process refuses a pool no runtime registered: every
+  statement on it fails with `histstore.ErrNotRegistered` instead of reading that
+  database's own (wrong) history, so no reader can be wired to the wrong database.
 - Reads that joined history with the monitored database's catalog are split: the
   query store's plan fingerprints are read from the monitored `sage.explain_cache`
   and stored with the samples; verification reads history in the store and
@@ -254,7 +353,7 @@ metadata database, each row tagged with the database's meta-db record id.
 
 ### Prometheus Exporter
 
-Metrics endpoint on `:9187`. Exports findings count by severity, circuit breaker state, connection stats, cache hit ratio, database size, and LLM usage.
+Metrics endpoint on `:9187`. Exports findings count by severity, the LLM circuit breaker state (`pg_sage_llm_circuit_open`), connection stats, cache hit ratio, database size, and LLM usage.
 
 ---
 

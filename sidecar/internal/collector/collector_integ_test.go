@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -736,12 +737,18 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	cfg.Safety.LockTimeoutMs = 1234
 	c := New(pool, cfg, 170000, noopLog)
 	var seen []string
-	c.onCatalogQuery = timeoutsIn("candidates", &seen)
+	counters := timeoutsIn(queryCountersMarker, &seen)
+	texts := timeoutsIn(statementTextsTag, &seen)
+	c.onCatalogQuery = func(ctx context.Context, tx pgx.Tx, sql string, args []any) {
+		counters(ctx, tx, sql, args)
+		texts(ctx, tx, sql, args)
+	}
 	if _, err := c.collectQueries(context.Background()); err != nil {
 		t.Fatalf("collect queries: %v", err)
 	}
-	if len(seen) != 1 || seen[0] != "4321ms/1234ms" {
-		t.Fatalf("collector query timeouts = %v, want [4321ms/1234ms]", seen)
+	// The counters read, then the text read of the uncached candidates.
+	if !slices.Equal(seen, []string{"4321ms/1234ms", "4321ms/1234ms"}) {
+		t.Fatalf("collector query timeouts = %v, want [4321ms/1234ms 4321ms/1234ms]", seen)
 	}
 	var statementTimeout string
 	var lockTimeout string

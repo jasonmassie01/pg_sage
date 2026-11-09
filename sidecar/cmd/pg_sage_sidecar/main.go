@@ -106,6 +106,7 @@ func main() {
 	// sigCh is package-level so the /restart endpoint can trigger shutdown.
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	loadStartupConfigOrExit()
+	setHistoryProcessMode() // history_store_wiring.go
 
 	// Meta-DB mode: connect to dedicated metadata database first.
 	metaState, closeMetaPool := connectMetaDatabaseOrExit()
