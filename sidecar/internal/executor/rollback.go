@@ -335,7 +335,7 @@ func (c RollbackMonitorConfig) exec(
 		return c.execRollback
 	}
 	return func(ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption) error {
-		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
+		if statementRunsTopLevel(sql) {
 			// A failed restore build is cleaned up by the remnant handler;
 			// its outcome is named in the rollback's error.
 			run := remnantRun{pool: pool, timeout: timeout, dropTimeout: timeout, opts: opts}

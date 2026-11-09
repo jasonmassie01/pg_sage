@@ -46,13 +46,23 @@ func (e *Executor) evaluateRollbackPolicy(
 		contract, _ := contractForFinding(f)
 		return noStandingPolicyDecision(contract)
 	}
-	request := findingRequest(f, false)
+	// A rollback re-runs pg_sage's recorded inverse, which names another
+	// object than the forward finding (a dropped index's table): it is not
+	// target-bound.
+	request := unboundFindingRequest(f, false)
 	request.Rollback = true
 	return standingPolicyDecision(gate.Authorize(ctx, request))
 }
 
-// findingRequest is the standing-gate request for a background finding.
+// findingRequest is the standing-gate request for a background finding,
+// its statement bound to the object the finding names (executor-08).
 func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
+	request := unboundFindingRequest(finding, isReplica)
+	bindFindingRequest(&request, finding)
+	return request
+}
+
+func unboundFindingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
 	request := policy.ActionRequest{
 		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
 		TargetObjs:            targetObjectsForFinding(finding),

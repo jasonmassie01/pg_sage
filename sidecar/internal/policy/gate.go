@@ -213,6 +213,11 @@ func (gate *authorizationGate) validateRequest(req ActionRequest) (Decision, boo
 		decision.Detail = string(guardrail)
 		return decision, true
 	}
+	if req.TargetMismatch != "" {
+		decision := gate.decision(req, VerdictBlocked, ReasonTargetMismatch)
+		decision.Detail = req.TargetMismatch
+		return decision, true
+	}
 	if trustedInternalControl(req) || (req.ExplainFamily && req.SQL == "") {
 		return Decision{}, false
 	}

@@ -464,7 +464,7 @@ func (e *Executor) execManualSQLWithRetry(
 			time.Sleep(time.Duration(i) * 500 * time.Millisecond)
 		}
 		var err error
-		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
+		if statementRunsTopLevel(sql) {
 			err = e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 		} else {
 			err = ExecInTransaction(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)

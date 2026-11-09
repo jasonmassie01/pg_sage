@@ -353,7 +353,7 @@ func (e *Executor) runFindingSQLRecorded(
 		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)
 	case categorizeAction(sql) == "analyze":
 		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(sql, decision))
-	case NeedsConcurrently(sql) || NeedsTopLevel(sql):
+	case statementRunsTopLevel(sql):
 		return e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 	default:
 		return ExecInTransaction(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)

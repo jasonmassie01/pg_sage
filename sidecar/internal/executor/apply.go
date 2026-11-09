@@ -246,5 +246,5 @@ func (e *Executor) lockTimeoutMS(sql string, decision ActionPolicyDecision) int 
 	if cfg, _, _ := e.policySnapshot(); cfg != nil {
 		safety = cfg.Safety.LockTimeout()
 	}
-	return ddlLockTimeoutMS(sql, safety, decision.LockCeilingMS)
+	return ddlLockTimeoutMS(actionTypeForProposalSQL(sql), safety, decision.LockCeilingMS)
 }

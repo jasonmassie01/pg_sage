@@ -68,9 +68,10 @@ func leaseSpecFor(intent ActionIntent) (TargetLease, bool) {
 	if len(targets) == 0 {
 		targets = targetObjectsForFinding(*intent.Lease)
 	}
-	if intent.Lease.Category == optimizer.OptimizerCategory && len(targets) > 0 {
+	if table := analyzer.OptimizerFindingTable(*intent.Lease); intent.Lease.Category ==
+		optimizer.OptimizerCategory && len(targets) > 0 && table != "" {
 		// "schema.table|<index definition>" (C05) names no catalog object.
-		targets = []string{analyzer.OptimizerFindingTable(*intent.Lease)}
+		targets = []string{table}
 	}
 	return TargetLease{Kind: kind, Actor: actor, Targets: append([]string(nil), targets...),
 		Intent: intent.Lease.RecommendedSQL}, true

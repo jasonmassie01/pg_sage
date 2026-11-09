@@ -261,34 +261,34 @@ func TestNonReversibleActionsSkipRollback(t *testing.T) {
 	// Verify the preconditions that cause RunCycle to skip rollback
 	// monitoring for non-reversible actions (VACUUM, ANALYZE, terminate).
 	tests := []struct {
-		name           string
-		sql            string
-		wantCategory   string
-		wantConcurrent bool
+		name         string
+		sql          string
+		wantCategory string
+		wantTopLevel bool
 	}{
 		{
-			name:           "VACUUM has empty rollback and no concurrently",
-			sql:            "VACUUM t",
-			wantCategory:   "vacuum",
-			wantConcurrent: false,
+			name:         "VACUUM has empty rollback and runs top-level",
+			sql:          "VACUUM t",
+			wantCategory: "vacuum",
+			wantTopLevel: true,
 		},
 		{
-			name:           "ANALYZE has empty rollback and no concurrently",
-			sql:            "ANALYZE t",
-			wantCategory:   "analyze",
-			wantConcurrent: false,
+			name:         "ANALYZE has empty rollback and runs in a transaction",
+			sql:          "ANALYZE t",
+			wantCategory: "analyze",
+			wantTopLevel: false,
 		},
 		{
-			name:           "pg_terminate_backend has empty rollback",
-			sql:            "SELECT pg_terminate_backend(12345)",
-			wantCategory:   "terminate_backend",
-			wantConcurrent: false,
+			name:         "pg_terminate_backend has empty rollback",
+			sql:          "SELECT pg_terminate_backend(12345)",
+			wantCategory: "terminate_backend",
+			wantTopLevel: false,
 		},
 		{
-			name:           "VACUUM FULL also non-reversible",
-			sql:            "VACUUM FULL public.large_table",
-			wantCategory:   "vacuum",
-			wantConcurrent: false,
+			name:         "VACUUM FULL also non-reversible, uncontracted, in a transaction",
+			sql:          "VACUUM FULL public.large_table",
+			wantCategory: "vacuum",
+			wantTopLevel: false,
 		},
 	}
 
@@ -309,10 +309,10 @@ func TestNonReversibleActionsSkipRollback(t *testing.T) {
 					tc.sql, gotCat, tc.wantCategory)
 			}
 
-			gotConc := NeedsConcurrently(f.RecommendedSQL)
-			if gotConc != tc.wantConcurrent {
-				t.Errorf("NeedsConcurrently(%q) = %v, want %v",
-					tc.sql, gotConc, tc.wantConcurrent)
+			gotTop := statementRunsTopLevel(f.RecommendedSQL)
+			if gotTop != tc.wantTopLevel {
+				t.Errorf("statementRunsTopLevel(%q) = %v, want %v",
+					tc.sql, gotTop, tc.wantTopLevel)
 			}
 		})
 	}
@@ -439,12 +439,12 @@ func TestActionOrdering_CreateBeforeDrop(t *testing.T) {
 			secondCat, "drop_index")
 	}
 
-	// Both should need CONCURRENTLY
-	if !NeedsConcurrently(stmts[0]) {
-		t.Error("CREATE statement should need CONCURRENTLY")
+	// Both run top-level (CONCURRENTLY index actions)
+	if !statementRunsTopLevel(stmts[0]) {
+		t.Error("CREATE statement should run top-level")
 	}
-	if !NeedsConcurrently(stmts[1]) {
-		t.Error("DROP statement should need CONCURRENTLY")
+	if !statementRunsTopLevel(stmts[1]) {
+		t.Error("DROP statement should run top-level")
 	}
 }
 

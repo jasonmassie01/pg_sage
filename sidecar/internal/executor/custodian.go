@@ -122,6 +122,7 @@ func custodianRequest(proposal CustodianProposal) policy.ActionRequest {
 	} else if contract, ok := contractForCustodianProposal(proposal.SQL); ok {
 		request.Contract = policyContract(contract)
 	}
+	bindCustodianRequest(&request, proposal)
 	return request
 }
 
@@ -372,7 +373,7 @@ func (e *Executor) executeCustodianSQL(
 	timeout := e.ddlTimeoutFor(sql)
 	lockOpt := e.lockOption(sql, decision)
 	var err error
-	if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
+	if statementRunsTopLevel(sql) {
 		err = e.execConcurrentDDL(ctx, sql, nil, lockOpt)
 	} else {
 		err = ExecInTransaction(ctx, e.pool, sql, timeout, lockOpt)
