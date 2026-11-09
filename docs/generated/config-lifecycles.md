@@ -77,7 +77,7 @@
 | `analyzer.table_bloat_min_rows` | `restart` | `-` | `derivable` |
 | `analyzer.unused_index_window_days` | `restart` | `-` | `derivable` |
 | `analyzer.work_mem_promotion_threshold` | `restart` | `-` | `derivable` |
-| `analyzer.wraparound_freeze_xid_age` | `restart` | `-` | `derivable` |
+| `analyzer.wraparound_freeze_share` | `restart` | `-` | `derivable` |
 | `analyzer.xid_wraparound_critical` | `restart` | `-` | `derivable` |
 | `analyzer.xid_wraparound_warning` | `restart` | `-` | `derivable` |
 | `api.listen_addr` | `restart` | `-` | `safety_critical` |

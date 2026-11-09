@@ -34,7 +34,7 @@ const (
 	DefaultAutovacuumTuneMinRows        = 1000000
 	DefaultAnalyzeStaleMinRows          = 10000
 	DefaultAnalyzeStaleDays             = 7
-	DefaultWraparoundFreezeXIDAge       = 150000000
+	DefaultWraparoundFreezeShare        = 0.75
 	DefaultCheckpointFreqWarningPerHour = 12
 
 	DefaultCPUCeilingPct            = 90

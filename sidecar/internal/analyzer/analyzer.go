@@ -112,6 +112,9 @@ type Analyzer struct {
 	historyBytes historyStorageCache
 	// factFilter applies the confirmed facts (roadmap 2.3); nil: none.
 	factFilter FactFilter
+
+	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
+	freezeHorizons FreezeHorizonSource
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

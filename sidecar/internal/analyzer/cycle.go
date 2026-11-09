@@ -36,8 +36,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	a.eval = newCycleEval()
 	// Load recently created indexes to prevent cooldown violations.
 	a.loadRecentlyCreatedIndexes(ctx)
-	a.loadStatsEpoch(ctx)
-	a.loadIndexBuilds(ctx)
+	a.loadCycleCatalogState(ctx)
 
 	// Skip query-based rules when pg_stat_statements was reset.
 	skipQueryRules := current.StatsReset

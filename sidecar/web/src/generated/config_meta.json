@@ -444,10 +444,10 @@
     "doc": "How many active work_mem hints a single role must accumulate before the analyzer recommends promoting work_mem at the role level via ALTER ROLE. Set 0 to disable the advisor.",
     "class": "derivable"
   },
-  "analyzer.wraparound_freeze_xid_age": {
-    "type": "int",
-    "default": 150000000,
-    "doc": "Per-table transaction age (age(relfrozenxid)) at which to recommend VACUUM (FREEZE) to prevent XID wraparound. Default: 150000000.",
+  "analyzer.wraparound_freeze_share": {
+    "type": "float64",
+    "default": 0.75,
+    "doc": "Share (0-1] of a table's effective freeze maximum (setting or lower reloption) at which the analyzer reports wraparound risk; the freeze custodian decides the VACUUM. Default: 0.75.",
     "class": "derivable"
   },
   "analyzer.xid_wraparound_critical": {

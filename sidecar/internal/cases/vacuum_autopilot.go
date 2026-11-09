@@ -11,10 +11,10 @@ func vacuumAutopilotCandidate(f SourceFinding) (ActionCandidate, bool) {
 	switch f.Category {
 	case "table_bloat", "schema_lint:lint_bloated_table":
 		return tableBloatCandidate(f), true
-	case "xid_wraparound", "schema_lint:lint_txid_age",
+	case "xid_wraparound", "wraparound_freeze", "schema_lint:lint_txid_age",
 		"schema_lint:lint_mxid_age":
 		return freezeDiagnosticCandidate(f), true
-	case "vacuum_tuning":
+	case "vacuum_tuning", "autovacuum_tuning":
 		return autovacuumTuningCandidate(f), true
 	case "bloat_remediation":
 		return bloatRemediationCandidate(f), true
@@ -152,7 +152,43 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 		VerificationPlan: verificationPlanForAction("set_table_autovacuum"),
 	}
 	candidate.ScriptOutput = scriptOutputFromFinding(f, candidate)
+	if rollback, ok := capturedReloptionRollback(sql, f.RollbackSQL); ok {
+		candidate.RollbackClass = "reversible"
+		candidate.RecoveryDetail = "The finding captured the table's previous storage " +
+			"parameters; the rollback restores them."
+		candidate.ScriptOutput.RollbackSQL = rollback
+	}
 	return candidate
+}
+
+// capturedReloptionRollback trusts a finding's rollback (vacuum-07) only
+// when it is an ALTER TABLE of the same table as the change.
+func capturedReloptionRollback(change, rollback string) (string, bool) {
+	rollback = strings.TrimSpace(rollback)
+	target, ok := alterTableTarget(change)
+	if !ok || rollback == "" {
+		return "", false
+	}
+	if other, ok := alterTableTarget(rollback); !ok || other != target {
+		return "", false
+	}
+	return rollback, true
+}
+
+// alterTableTarget is the table a single ALTER TABLE ... SET/RESET (...)
+// names; anything else (or a second statement) has none.
+func alterTableTarget(sql string) (string, bool) {
+	sql = strings.TrimSuffix(strings.TrimSpace(sql), ";")
+	rest, ok := strings.CutPrefix(sql, "ALTER TABLE ")
+	if !ok || strings.Contains(rest, ";") {
+		return "", false
+	}
+	for _, verb := range []string{" SET (", " RESET ("} {
+		if target, _, found := strings.Cut(rest, verb); found && target != "" {
+			return strings.TrimSpace(target), true
+		}
+	}
+	return "", false
 }
 
 func diagnoseFreezeBlockersSQL() string {

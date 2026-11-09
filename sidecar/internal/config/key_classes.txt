@@ -165,7 +165,7 @@ derivable analyzer.table_bloat_min_bytes
 derivable analyzer.table_bloat_min_rows
 derivable analyzer.unused_index_window_days
 derivable analyzer.work_mem_promotion_threshold
-derivable analyzer.wraparound_freeze_xid_age
+derivable analyzer.wraparound_freeze_share
 derivable analyzer.xid_wraparound_critical
 derivable analyzer.xid_wraparound_warning
 operator_preference advisor.bloat_enabled

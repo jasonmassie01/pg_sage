@@ -26,7 +26,7 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.autovacuum_tune_min_rows":   "int_pos",
 	"analyzer.analyze_stale_min_rows":     "int_pos",
 	"analyzer.analyze_stale_days":         "int_pos",
-	"analyzer.wraparound_freeze_xid_age":  "int_pos",
+	"analyzer.wraparound_freeze_share":    "float01",
 	"analyzer.regression_threshold_pct":   "pct",
 	"analyzer.cache_hit_ratio_warning":    "float01",
 	"trust.level":                         "trust_level",
@@ -508,8 +508,8 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.AnalyzeStaleMinRows, "yaml")
 	addField(m, "analyzer.analyze_stale_days",
 		a.AnalyzeStaleDays, "yaml")
-	addField(m, "analyzer.wraparound_freeze_xid_age",
-		a.WraparoundFreezeXIDAge, "yaml")
+	addField(m, "analyzer.wraparound_freeze_share",
+		a.WraparoundFreezeShare, "yaml")
 	addField(m, "analyzer.regression_threshold_pct",
 		a.RegressionThresholdPct, "yaml")
 	addField(m, "analyzer.cache_hit_ratio_warning",

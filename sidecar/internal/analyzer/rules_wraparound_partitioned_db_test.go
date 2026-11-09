@@ -11,14 +11,16 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // vacuum-01 integration (real PostgreSQL, own database): a partitioned
 // parent with two leaves. The collector reads the parent's XID age as
-// unknown (-1) instead of 2147483647, the wraparound rule flags only the
-// leaves, and a leaf frozen with VACUUM (FREEZE) drops out on the next
-// cycle while its sibling stays. No stored snapshot carries 2147483647.
+// unknown (-1) instead of 2147483647, the wraparound rule (vacuum-08: on
+// the shared horizon reader) flags only the leaves, and a leaf frozen
+// with VACUUM (FREEZE) drops out on the next cycle while its sibling
+// stays. No stored snapshot carries 2147483647.
 func TestWraparoundFreeze_PartitionedTreeOnRealPostgres(t *testing.T) {
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "wrap_parted"))
@@ -32,9 +34,9 @@ func TestWraparoundFreeze_PartitionedTreeOnRealPostgres(t *testing.T) {
 	for _, sql := range []string{
 		"CREATE TABLE public.wp (id int, k int) PARTITION BY RANGE (k)",
 		`CREATE TABLE public.wp_1 PARTITION OF public.wp FOR VALUES FROM (0) TO (10)
-		   WITH (autovacuum_enabled = off)`,
+		   WITH (autovacuum_enabled = off, autovacuum_freeze_max_age = 100000)`,
 		`CREATE TABLE public.wp_2 PARTITION OF public.wp FOR VALUES FROM (10) TO (20)
-		   WITH (autovacuum_enabled = off)`,
+		   WITH (autovacuum_enabled = off, autovacuum_freeze_max_age = 100000)`,
 		"INSERT INTO public.wp SELECT g, g % 20 FROM generate_series(1, 400) g",
 	} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
@@ -49,7 +51,8 @@ func TestWraparoundFreeze_PartitionedTreeOnRealPostgres(t *testing.T) {
 		t.Fatalf("parent row = %+v (collected %v), want relkind p and xid_age -1",
 			parent, ok)
 	}
-	got := wraparoundObjects(ruleWraparoundFreeze(first, nil, cfg, nil))
+	got := wraparoundObjects(ruleWraparoundFreeze(first, nil, cfg,
+		&RuleExtras{FreezeHorizons: readHorizons(t, ctx, pool)}))
 	if _, flagged := got["public.wp"]; flagged || got["public.wp_1"] == "" ||
 		got["public.wp_2"] == "" {
 		t.Fatalf("first cycle findings = %v, want both leaves and never the parent", got)
@@ -58,7 +61,8 @@ func TestWraparoundFreeze_PartitionedTreeOnRealPostgres(t *testing.T) {
 		t.Fatalf("freeze leaf: %v", err)
 	}
 	second := collectOneSnapshot(t, pool, cfg)
-	got = wraparoundObjects(ruleWraparoundFreeze(second, nil, cfg, nil))
+	got = wraparoundObjects(ruleWraparoundFreeze(second, nil, cfg,
+		&RuleExtras{FreezeHorizons: readHorizons(t, ctx, pool)}))
 	if _, stays := got["public.wp_1"]; stays || got["public.wp_2"] == "" {
 		t.Fatalf("after freezing wp_1 findings = %v, want wp_2 only", got)
 	}
@@ -94,14 +98,25 @@ func burnXIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
 	}
 }
 
-// wraparoundDBConfig flags any table older than 1,500 transactions: the
-// fixture burns 3,000, and a freshly frozen leaf is far younger.
+// wraparoundDBConfig flags a leaf past 2% of its 100,000 freeze maximum
+// (2,000 XIDs): the fixture burns 3,000, and a freshly frozen leaf is far
+// younger.
 func wraparoundDBConfig() *config.Config {
 	cfg := phase2Config()
 	cfg.Collector.IntervalSeconds = 3600
 	cfg.Safety.CPUCeilingPct = 100
-	cfg.Analyzer.WraparoundFreezeXIDAge = 1500
+	cfg.Analyzer.WraparoundFreezeShare = 0.02
 	return cfg
+}
+
+// readHorizons reads the database's horizons as the freeze sampler does.
+func readHorizons(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []probes.FreezeHorizon {
+	t.Helper()
+	horizons, err := probes.ReadFreezeHorizons(ctx, pool, 500, 0)
+	if err != nil {
+		t.Fatalf("read freeze horizons: %v", err)
+	}
+	return horizons
 }
 
 // collectOneSnapshot runs a fresh collector until its startup snapshot

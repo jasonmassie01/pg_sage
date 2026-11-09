@@ -2,16 +2,23 @@ package config
 
 import (
 	"fmt"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
 
-// retiredTunerKeys are tuner keys that were removed because they never had
-// an effect. A config that still sets one loads: the key is dropped before
-// the strict decode and a warning tells the operator to remove it.
-var retiredTunerKeys = map[string]string{
-	"analyze_maintenance_threshold_mb": "tuner.analyze_maintenance_threshold_mb " +
-		"is no longer used and is ignored; remove it from the config file",
+// retiredKeys are keys, by section, that were removed (tuner keys that
+// never had an effect; the analyzer's absolute freeze age, which vacuum-08
+// replaced with a share of each table's effective maximum). A config that
+// still sets one loads: the key is dropped before the strict decode and a
+// warning tells the operator what to do.
+var retiredKeys = map[string]map[string]string{
+	"tuner": {"analyze_maintenance_threshold_mb": "tuner.analyze_maintenance_threshold_mb " +
+		"is no longer used and is ignored; remove it from the config file"},
+	"analyzer": {"wraparound_freeze_xid_age": "analyzer.wraparound_freeze_xid_age " +
+		"is retired and ignored: the analyzer now reports wraparound at " +
+		"analyzer.wraparound_freeze_share of each table's effective freeze maximum " +
+		"(default 0.75) and the freeze custodian decides the VACUUM; remove it"},
 }
 
 // stripRetiredKeys removes retired keys from raw and returns the YAML to
@@ -22,28 +29,37 @@ func stripRetiredKeys(raw string) (string, []string, error) {
 	if err := yaml.Unmarshal([]byte(raw), &document); err != nil {
 		return "", nil, err
 	}
-	tuner := mappingValue(&document, "tuner")
-	if tuner == nil || tuner.Kind != yaml.MappingNode {
-		return raw, nil, nil
-	}
 	var warnings []string
-	kept := tuner.Content[:0]
-	for i := 0; i+1 < len(tuner.Content); i += 2 {
-		if warning, retired := retiredTunerKeys[tuner.Content[i].Value]; retired {
-			warnings = append(warnings, "WARNING: "+warning)
-			continue
-		}
-		kept = append(kept, tuner.Content[i], tuner.Content[i+1])
+	for section, keys := range retiredKeys {
+		warnings = append(warnings, dropKeys(mappingValue(&document, section), keys)...)
 	}
 	if len(warnings) == 0 {
 		return raw, nil, nil
 	}
-	tuner.Content = kept
+	sort.Strings(warnings)
 	stripped, err := yaml.Marshal(&document)
 	if err != nil {
 		return "", nil, fmt.Errorf("drop retired config keys: %w", err)
 	}
 	return string(stripped), warnings, nil
+}
+
+// dropKeys removes keys from section and returns their warnings.
+func dropKeys(section *yaml.Node, keys map[string]string) []string {
+	if section == nil || section.Kind != yaml.MappingNode {
+		return nil
+	}
+	var warnings []string
+	kept := section.Content[:0]
+	for i := 0; i+1 < len(section.Content); i += 2 {
+		if warning, retired := keys[section.Content[i].Value]; retired {
+			warnings = append(warnings, "WARNING: "+warning)
+			continue
+		}
+		kept = append(kept, section.Content[i], section.Content[i+1])
+	}
+	section.Content = kept
+	return warnings
 }
 
 // ignoredOptimizerKeys are llm.optimizer keys that still decode but have no

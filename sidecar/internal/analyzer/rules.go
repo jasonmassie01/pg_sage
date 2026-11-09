@@ -5,6 +5,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // RuleExtras carries cross-cycle state for rules that need historical context.
@@ -26,6 +27,9 @@ type RuleExtras struct {
 	// IndexOID records the object (oid) each FirstSeen clock belongs to: a
 	// dropped and recreated index under the same name is a new object.
 	IndexOID map[string]uint32
+	// FreezeHorizons is this cycle's reading of the database's freeze
+	// sampler (the custodian's horizon reader); nil when it could not run.
+	FreezeHorizons []probes.FreezeHorizon
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
 }
