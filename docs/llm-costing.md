@@ -121,7 +121,9 @@ llm:
 3. **Lower `tuning.max_requests_per_cycle` / `tuning.max_tokens_per_cycle`** — the tuning agent's per-database, per-cycle budget
 4. **Use Flash/Haiku for general**, Pro/Sonnet only for `optimizer_llm`
 5. **Disable unused proposal types** — e.g. `advisor.vacuum_enabled: false` stops storage-parameter proposals
-6. **Set `context_budget_tokens`** lower (2048) if your schema is simple
+6. **Lower `context_budget_tokens`** (for example 2048) if your schema is simple. It is the
+   trim target for attached context: lowering it shrinks advisor, tuning and explain prompts.
+   It does not cap answers (the briefing has its own 4096-token cap) or agent conversations
 7. **Increase analyzer interval** to 1,200s+ for stable workloads — fewer tuning cycles
 
 ## Circuit Breaker
