@@ -19,7 +19,8 @@ var allowedFrom = map[bool][]Status{
 
 // Decide records an operator's confirm or reject. With ExpectHash the
 // decision applies only to the fact as it was shown. A slot consumer's
-// registry row follows the decision in the same transaction.
+// registry row follows the decision in the same transaction. A decision
+// starts any absence of the fact's subject afresh (missing_since).
 func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) {
 	actor, err := validActor(d.Actor)
 	if err != nil {
@@ -49,8 +50,8 @@ func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) 
 		next = StatusConfirmed
 	}
 	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts SET status = $2,
-		decided_by = $3, decided_at = now(), decision_note = $4, updated_at = now()
-		WHERE id = $1 RETURNING `+factColumns, id, next, actor,
+		decided_by = $3, decided_at = now(), decision_note = $4, updated_at = now(),
+		missing_since = NULL WHERE id = $1 RETURNING `+factColumns, id, next, actor,
 		clip(cleanText(d.Note), 1000)))
 	if err != nil {
 		return Fact{}, fmt.Errorf("record decision on fact %d: %w", id, err)

@@ -150,12 +150,13 @@ ON CONFLICT (fact_type, subject_kind, subject) DO UPDATE SET
     value = EXCLUDED.value, source = 'operator', proposed_by = EXCLUDED.proposed_by,
     rationale = EXCLUDED.rationale, expires_at = EXCLUDED.expires_at,
     status = 'confirmed', decided_by = EXCLUDED.decided_by, decided_at = now(),
-    decision_note = EXCLUDED.decision_note, expired_reason = '',
+    decision_note = EXCLUDED.decision_note, expired_reason = '', missing_since = NULL,
     proposals = f.proposals + 1, updated_at = now()
 RETURNING ` + factColumns
 
 // Declare records an operator's own fact, confirmed by the declaration
-// (over any earlier proposal or rejection of the same fact).
+// (over any earlier proposal or rejection of the same fact). The
+// declaration starts any absence of its subject afresh (missing_since).
 func (s *Store) Declare(ctx context.Context, p Proposal, actor, note string) (Fact, error) {
 	actor, err := validActor(actor)
 	if err != nil {

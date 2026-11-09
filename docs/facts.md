@@ -248,8 +248,10 @@ gains "subject reappeared; confirmation by ... kept", and no card is sent. A dif
 a proposal after that window, a fact you expired yourself and a fact whose expiry date passed
 reopen as a proposal for you to decide; a rejected fact never reopens. A confirmed fact whose
 subject no longer parses (after an upgrade changed the subject rules) is reported and kept
-confirmed; one fact that cannot be checked never stops the others being checked. A fact with
-an expiry date expires on that date, and stops binding from that moment. Expired facts are purged after
+confirmed; one fact that cannot be checked never stops the others being checked. Declaring,
+confirming or rejecting a fact starts any absence of its subject afresh, so a fact you declare
+again while its subject is still absent gets its full grace. A fact with an expiry date
+expires on that date, and stops binding from that moment. Expired facts are purged after
 `retention.actions_days`; proposed, confirmed and rejected facts are kept (a rejected fact is
 the record that you said no). Expiring a slot consumer fact yourself unregisters its slot, and
 so does the expiry date of a fact you confirmed. A slot that is gone keeps its registration
