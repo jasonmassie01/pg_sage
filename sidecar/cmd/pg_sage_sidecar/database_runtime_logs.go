@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"net"
-	"strconv"
 	"sync"
 	"time"
 
@@ -55,7 +53,7 @@ func (s *logFanoutSet) forCluster(
 		logWarn("logwatch", "[%s] start failed: %v", key, err)
 		return nil
 	}
-	fanout := logwatch.NewLogFanout(watcher)
+	fanout := logwatch.NewLogFanout(watcher).WithClusterKey(key)
 	s.fanouts[key] = fanout
 	go runFanoutDrain(ctx, key, fanout, logwatchPollInterval())
 	logInfo("logwatch", "[%s] started (dir=%s format=%s)",
@@ -145,8 +143,7 @@ func (rt *databaseRuntime) clusterLogFanout() *logwatch.LogFanout {
 	if !cfg.LogWatch.Enabled || !logConsumer {
 		return nil
 	}
-	conn := rt.spec.Pool.Config().ConnConfig
-	key := net.JoinHostPort(conn.Host, strconv.Itoa(int(conn.Port)))
+	key := poolHostPort(rt.spec.Pool)
 	parent := shutdownCtx
 	if parent == nil {
 		parent = context.Background()
@@ -165,11 +162,13 @@ func (rt *databaseRuntime) wireRCA() {
 		rt.rca.WithLLM(rt.generalLLM)
 	}
 	var critical rca.CriticalLogSource
+	var logSub rca.LogSource
 	if rt.logFanout != nil {
 		sub := rt.logFanout.Subscribe(rt.spec.Name)
 		rt.rca.SetLogSource(sub)
-		critical = sub
+		critical, logSub = sub, sub
 	}
+	rt.joinClusterScope(logSub)
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
