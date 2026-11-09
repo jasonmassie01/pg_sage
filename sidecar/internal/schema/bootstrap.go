@@ -455,7 +455,8 @@ func migrationStatements() []string {
 		ddlUsersDisabledAt,        // apiauth-01: user deactivation
 		ddlUnusedIndexClock,       // rules-04: unused_index clock survives restarts
 		ddlSelfConfigDerivations,  // footprint-04: soak derivations, clamped events
-		ddlPreTaggingSelfFindings) // footprint-06: resolve pre-tagging self findings
+		ddlPreTaggingSelfFindings, // footprint-06: resolve pre-tagging self findings
+		ddlQueryHintsStatusCheck)  // tuning-06: rejected and expired hints
 }
 
 // ---------------------------------------------------------------------------

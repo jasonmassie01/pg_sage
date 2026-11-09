@@ -856,9 +856,6 @@ tuner:
   verify_after_apply: true
   hint_retirement_days: 14
   revalidation_interval_hours: 24
-  revalidation_keep_ratio: 1.2
-  revalidation_rollback_ratio: 0.8
-  revalidation_explain_timeout_ms: 10000
   stale_stats_estimate_skew: 10.0
   stale_stats_mod_ratio: 0.1
   stale_stats_age_minutes: 60
@@ -1048,20 +1045,17 @@ func TestYAMLRoundTrip_FleetFields(t *testing.T) {
 func TestYAMLRoundTrip_TunerV085Fields(t *testing.T) {
 	original := Config{
 		Tuner: TunerConfig{
-			Enabled:                      true,
-			VerifyAfterApply:             true,
-			HintRetirementDays:           14,
-			RevalidationIntervalHours:    24,
-			RevalidationKeepRatio:        1.2,
-			RevalidationRollbackRatio:    0.8,
-			RevalidationExplainTimeoutMs: 10000,
-			StaleStatsEstimateSkew:       10.0,
-			StaleStatsModRatio:           0.1,
-			StaleStatsAgeMinutes:         60,
-			AnalyzeMaxTableMB:            10240,
-			AnalyzeCooldownMinutes:       60,
-			AnalyzeTimeoutMs:             600000,
-			MaxConcurrentAnalyze:         1,
+			Enabled:                   true,
+			VerifyAfterApply:          true,
+			HintRetirementDays:        14,
+			RevalidationIntervalHours: 24,
+			StaleStatsEstimateSkew:    10.0,
+			StaleStatsModRatio:        0.1,
+			StaleStatsAgeMinutes:      60,
+			AnalyzeMaxTableMB:         10240,
+			AnalyzeCooldownMinutes:    60,
+			AnalyzeTimeoutMs:          600000,
+			MaxConcurrentAnalyze:      1,
 		},
 	}
 
@@ -1079,12 +1073,6 @@ func TestYAMLRoundTrip_TunerV085Fields(t *testing.T) {
 		rt.Tuner.HintRetirementDays, 14)
 	assertEqualInt(t, "Tuner.RevalidationIntervalHours",
 		rt.Tuner.RevalidationIntervalHours, 24)
-	assertEqualFloat(t, "Tuner.RevalidationKeepRatio",
-		rt.Tuner.RevalidationKeepRatio, 1.2)
-	assertEqualFloat(t, "Tuner.RevalidationRollbackRatio",
-		rt.Tuner.RevalidationRollbackRatio, 0.8)
-	assertEqualInt(t, "Tuner.RevalidationExplainTimeoutMs",
-		rt.Tuner.RevalidationExplainTimeoutMs, 10000)
 	assertEqualFloat(t, "Tuner.StaleStatsEstimateSkew",
 		rt.Tuner.StaleStatsEstimateSkew, 10.0)
 	assertEqualFloat(t, "Tuner.StaleStatsModRatio",

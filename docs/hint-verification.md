@@ -127,6 +127,11 @@ All tests run against PostgreSQL 17 with pg_hint_plan 1.7.1 on a local Docker co
 ## 4. Bad Nested Loop &rarr; `HashJoin(alias)`
 
 **Symptom:** Planner picks Nested Loop with inaccurate row estimate, causing excessive iterations.
+The tuner flags it only when the row estimate is off by more than 10x (on the join or its outer
+side) **and** the inner side read at least `tuner.nested_loop_row_threshold` rows in total
+(`Actual Rows` x `Actual Loops`, default 10,000). A small nested loop with a bad estimate is cheap
+either way and gets no hint (or, on a stale table, no ANALYZE). The rule needs a plan with actual
+row counts (auto_explain with `log_analyze`); a plain EXPLAIN plan never triggers it.
 
 **Hint:** `/*+ HashJoin(c o) */`
 
@@ -385,7 +390,35 @@ pg_hint_plan 1.7.1 supports table-driven hints via `hint_plan.hints`, keyed by `
       Index Cond: (status = 'shipped'::text)
     ```
 
-**Verdict:** Table-driven hints work. No application code changes needed &mdash; pg_sage inserts the hint, pg_hint_plan applies it automatically on matching queries.
+**Verdict:** Table-driven hints work without application code changes, but only in sessions
+where pg_hint_plan reads its table. `pg_hint_plan.enable_hint_table` defaults to `off`, and
+with it off pg_hint_plan ignores `hint_plan.hints` entirely. The test above turns it on for its
+own session; application sessions need it set for the database or their role.
+
+### Prerequisites pg_sage checks before it offers an executable hint
+
+A hint in `hint_plan.hints` changes an application's plan only when all four hold for the
+sessions that run the statement. pg_sage reads each from the catalog (`pg_settings`,
+`pg_db_role_setting`, `pg_class`/`pg_index`, `has_table_privilege`), never with `SET`, `ALTER`
+or `LOAD`, at startup and again at the start of every tuner cycle, so a change takes effect
+at the next cycle without a restart.
+
+| Fact | Holds when | `hint_readiness` when missing | Fix |
+|---|---|---|---|
+| Preload | `shared_preload_libraries`, or `session_preload_libraries` for the server, the database or a login role, lists `pg_hint_plan` | `not preloaded` (`shared_preload_libraries unreadable` when pg_sage's role may not see it: grant `pg_read_all_settings`, part of `pg_monitor`) | add `pg_hint_plan` to `shared_preload_libraries` and restart |
+| Hint table on | `pg_hint_plan.enable_hint_table`, and the master switch `pg_hint_plan.enable_hint` (on by default), are on for the same sessions: server setting, `ALTER DATABASE ... SET` or `ALTER ROLE ... [IN DATABASE ...] SET`, with PostgreSQL's precedence | `enable_hint_table off`; `enable_hint off` when the table setting is on but the master switch is off; or `preload and enable_hint_table differ by role` when one role preloads and another has the table on | `ALTER DATABASE mydb SET pg_hint_plan.enable_hint_table = on;` (new sessions pick it up); `ALTER DATABASE mydb RESET pg_hint_plan.enable_hint;` when it was turned off |
+| Table layout | `hint_plan.hints` has the pg_hint_plan 1.7 layout (`query_id`, `application_name`, `hints`) with its unique index, and pg_sage can read it | `hint table layout` | `CREATE EXTENSION pg_hint_plan;` at 1.7 or later (PG17+) |
+| Privilege | pg_sage's role holds `INSERT` and `DELETE` on `hint_plan.hints` (and `USAGE` on schema `hint_plan`, `SELECT` on the table) | `privilege` | `GRANT USAGE ON SCHEMA hint_plan TO sage_agent; GRANT SELECT, INSERT, DELETE ON hint_plan.hints TO sage_agent;` |
+
+When any is missing, `query_tuning` findings stay advisory: they keep the proposed
+`hint_directive` but carry no `recommended_sql`, and their `hint_readiness` detail names what
+is missing (several joined with `; `). The tuning agent proposes no hints. A failed catalog
+read counts as not ready (`probe failed`). The fleet capability report (`hint_plan`) shows the
+same facts, with a limitation line while hints have no effect.
+
+On RDS, Aurora and Cloud SQL, `shared_preload_libraries` is set through the parameter group or
+database flag; `ALTER DATABASE ... SET pg_hint_plan.enable_hint_table = on` works as the
+database owner. pg_sage only reads these settings.
 
 ---
 
@@ -488,6 +521,8 @@ the hint), so it never removes a hint for working or for being old.
 | `retired` | The query case's retire action retired the hint. Revalidation no longer retires. | removed through the `retire_query_hint` action |
 | `broken` | An index the hint names no longer exists. | removed through the `retire_query_hint` action |
 | `rolled_back` | The installed hint of an `active` or `dormant` row was removed (rollback or operator). | no |
+| `rejected` | An operator rejected the approval of the proposal's `query_tuning` finding. | no |
+| `expired` | The proposal waited 30 days without an answer. | no |
 
 Transitions:
 
@@ -498,6 +533,47 @@ Transitions:
 | `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
 | `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
 | `active`, `dormant` | `rolled_back` | The row for the query no longer holds this hint's text: it was removed, or an operator replaced it with their own hint (reconciled at the start of each tuner cycle). |
+| `proposed` | `rejected` | An operator (`decided_by` set) rejected an approval of the statement's `query_tuning` finding after the proposal was made. A system expiry of the queue item rejects nothing. Reconciled at the start of each tuner cycle, with or without a hint table. |
+| `proposed` | `expired` | The proposal is older than 30 days (the same window the tuning agent keeps operator rejections). Reconciled at the start of each tuner cycle. |
+
+`rejected` and `expired` free the statement: it may take a new proposal
+(one per statement still applies). The tuner's deterministic rules do not
+propose again, within 30 days of the operator's decision, the exact hint
+text an operator rejected for the statement. No `proposed` row is written while hints cannot reach
+application sessions (see `hint_readiness`): such a proposal could only wait
+until it expired. `sage.query_hints.status` carries a `NOT VALID` CHECK on
+these eight values; rows earlier releases wrote are not rescanned.
+
+### When a query_tuning finding resolves
+
+The tuning agent keeps every open finding it did not judge, so a
+`query_tuning` finding (the tuner's or the agent's) resolves only on
+deterministic evidence, checked once per analyzer cycle:
+
+- for a finding that carries installable hint SQL, its statement's latest
+  `sage.query_hints` row left `proposed` (it is `active`, `dormant`,
+  `broken`, `retired`, `rolled_back`, `rejected` or `expired`): at once. An
+  operator-hint or advisory finding recorded no row of its own, so an older
+  row does not resolve it;
+- its queryid has been absent from `pg_stat_statements` in this database
+  for `tuner.hint_absent_cycles` consecutive cycles (default 3);
+- it has stayed below the tuner's admission for `tuner.hint_absent_cycles`
+  consecutive cycles: the cumulative counters no longer pass
+  `tuner.min_query_calls` with a mean above 100 ms, temp blocks written or
+  planning above `tuner.plan_time_ratio`, and the interval between two
+  snapshots shows no calls, or a mean of at most 100 ms with no temp blocks
+  written.
+
+The counts are stored on the finding (`absent_cycles`, `quiet_cycles` in its
+detail), so a restart keeps them; a statement seen again, or seen slow,
+resets them. N cycles is N analyzer intervals: with the default 3 and a
+5-minute interval a finding resolves 15 minutes after its statement left
+`pg_stat_statements`. Nothing unknown resolves a finding: if
+`pg_stat_statements` cannot be read, or the snapshots cannot measure the
+statement's interval, the finding and its counts stay as they were. An open
+hint finding no longer keeps the agent from asking about the rest of its
+case (index and statistics answers); a second hint for the statement is
+still refused.
 
 Two revalidation outcomes keep the status:
 
@@ -517,15 +593,53 @@ current database (one row per role and toplevel flag), so two roles running
 the same statement cannot make the hint look idle. If `pg_stat_statements`
 or `pg_stat_statements_info` cannot be read, the pass counts an error and
 leaves the hint untouched (fail closed). Dormant hints count as covered:
-the tuner does not propose a hint again for their query.
+the tuner does not propose a hint again for their query (see
+[One hint per statement](#one-hint-per-statement)).
+
+## One hint per statement
+
+pg_sage proposes at most one hint per statement, and it checks this against
+the database on every proposal, not only against its in-memory cooldown
+(which now only spaces out repeat proposals for `trust.cascade_cooldown_cycles`
+cycles). Before the tuner or the tuning agent proposes a hint for a queryid
+it reads `sage.query_hints` and `hint_plan.hints` for it:
+
+| What it finds | Deterministic tuner pass | Tuning agent hint |
+|---------------|--------------------------|-------------------|
+| Nothing | proposes the hint | proposes the hint |
+| An open `proposed` row, nothing installed | refreshes that proposal in place (never a second row) | refused as a duplicate |
+| pg_sage's own hint installed, or an `active` / `dormant` row | proposes nothing | refused as a duplicate |
+| A `hint_plan.hints` row whose text no pg_sage record carries (an operator's own hint, for any `application_name`) | an informational finding, "operator hint present", with no SQL | refused (`ErrForeignHint`), rejected as a duplicate |
+
+If that read fails, nothing is proposed (fail closed): the tuner pass reports
+the error and the agent's hint is refused.
+
+The apply SQL is a plain insert:
+
+```sql
+INSERT INTO hint_plan.hints (query_id, application_name, hints)
+VALUES (4242, '', $sageqh$HashJoin(o l)$sageqh$)
+```
+
+If a row for the query appeared between the proposal and its approval,
+pg_hint_plan 1.7's unique index on `(query_id, application_name)` rejects the
+insert (SQLSTATE 23505). The action ends `failed`, no rollback is monitored,
+and the existing row is untouched. pg_sage treats the hint table as ready
+only when it has that unique index (valid, without a predicate, on
+`query_id` and `application_name`); without it, as with pg_hint_plan below
+1.7 (the PG14-16 builds), hint findings stay advisory and carry no SQL. In
+fleet mode the check runs per database. Replacing an installed hint is not
+something pg_sage does; change or remove an operator hint by hand.
 
 ## Rollback and removal touch only pg_sage's own hint
 
-pg_sage's apply INSERT is a no-op when a `hint_plan.hints` row already exists
-for the query (for example an operator's own hint). So every DELETE pg_sage
-builds for `hint_plan.hints` (an action's rollback, and the
-`query_hint_retirement` removal of a `retired` or `broken` hint) matches the
-query id, `application_name = ''` and the exact hint text pg_sage recorded:
+Releases before the one-hint check used an apply INSERT that was a silent
+no-op when a `hint_plan.hints` row already existed for the query (for example
+an operator's own hint), and actions they recorded may still be rolled back.
+So every DELETE pg_sage builds for `hint_plan.hints` (an action's rollback,
+and the `query_hint_retirement` removal of a `retired` or `broken` hint)
+matches the query id, `application_name = ''` and the exact hint text pg_sage
+recorded:
 
 ```sql
 DELETE FROM hint_plan.hints
@@ -533,12 +647,15 @@ DELETE FROM hint_plan.hints
    AND hints = $sageqh$HashJoin(o l)$sageqh$
 ```
 
-Rolling back an action whose INSERT changed nothing deletes nothing, and the
+Rolling back an older action whose INSERT changed nothing deletes nothing, and the
 operator's row stays. The removal finding is emitted only while the installed
 row still holds the retired hint's text.
 
-Actions recorded by earlier releases carry a rollback DELETE without the
-hint-text predicate. At rollback time (manual or automatic) the executor
+Actions recorded by earlier releases keep the SQL they were recorded with.
+Their apply INSERT may carry the old `INSERT ... SELECT ... WHERE NOT EXISTS`
+form; pg_sage still reads the hint text from it. Their rollback DELETE may
+lack the hint-text predicate, so rolling such an action back now deletes only
+a row whose text matches pg_sage's own. At rollback time (manual or automatic) the executor
 rewrites it to the scoped form, using the text in `sage.query_hints` for that
 query: the text the action's own INSERT installed, or, when the INSERT cannot
 be read, the query's only recorded text. If no single recorded text matches,

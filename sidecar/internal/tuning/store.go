@@ -62,6 +62,11 @@ type Store interface {
 	// Relations reports which of the tables and indexes exist and the valid
 	// index definitions of the existing tables, in one catalog read.
 	Relations(ctx context.Context, tables, indexes []string) (CatalogState, error)
+	// QueryStates reports, for each queryid, whether pg_stat_statements
+	// holds it in this database, whether the query tuner would admit it now
+	// and its latest sage.query_hints status, in one bounded read.
+	QueryStates(ctx context.Context, ids []int64, adm HintAdmission) (
+		map[int64]QueryState, error)
 	// SettingActions are the setting and storage-parameter changes executed
 	// since then, oldest first, with their verification verdicts.
 	SettingActions(ctx context.Context, since time.Time) ([]SettingAction, error)
@@ -81,6 +86,20 @@ type CatalogState struct {
 	Tables    map[string]bool
 	Indexes   map[string]bool
 	IndexDefs map[string][]string
+}
+
+// HintAdmission is the query tuner's admission of a statement
+// (tuner.min_query_calls, tuner.plan_time_ratio).
+type HintAdmission struct {
+	MinCalls      int
+	PlanTimeRatio float64
+}
+
+// QueryState is one statement's state for its open query_tuning finding.
+type QueryState struct {
+	Present    bool   // pg_stat_statements holds the queryid in this database
+	Admitted   bool   // the query tuner would admit it now (cumulative counters)
+	HintStatus string // the latest sage.query_hints status; "" when none
 }
 
 // Plan sources.

@@ -441,6 +441,7 @@
 | `tuner.analyze_max_table_mb` | `restart` | `-` | `safety_critical` |
 | `tuner.analyze_timeout_ms` | `restart` | `-` | `derivable` |
 | `tuner.enabled` | `restart` | `-` | `safety_critical` |
+| `tuner.hint_absent_cycles` | `restart` | `-` | `derivable` |
 | `tuner.hint_retirement_days` | `restart` | `-` | `derivable` |
 | `tuner.llm_enabled` | `restart` | `-` | `safety_critical` |
 | `tuner.max_concurrent_analyze` | `restart` | `-` | `safety_critical` |
@@ -448,10 +449,7 @@
 | `tuner.nested_loop_row_threshold` | `restart` | `-` | `derivable` |
 | `tuner.parallel_min_table_rows` | `restart` | `-` | `derivable` |
 | `tuner.plan_time_ratio` | `restart` | `-` | `derivable` |
-| `tuner.revalidation_explain_timeout_ms` | `restart` | `-` | `derivable` |
 | `tuner.revalidation_interval_hours` | `reconfigure` | `tuner` | `derivable` |
-| `tuner.revalidation_keep_ratio` | `restart` | `-` | `derivable` |
-| `tuner.revalidation_rollback_ratio` | `restart` | `-` | `safety_critical` |
 | `tuner.stale_stats_age_minutes` | `restart` | `-` | `derivable` |
 | `tuner.stale_stats_estimate_skew` | `restart` | `-` | `derivable` |
 | `tuner.stale_stats_mod_ratio` | `restart` | `-` | `derivable` |

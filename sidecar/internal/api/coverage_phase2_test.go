@@ -1004,7 +1004,7 @@ func TestPhase2_QueryQueryHints_WithData(t *testing.T) {
 		 (12345, 'Use index scan', 'seq_scan', 'active',
 		  100.0, 10.0),
 		 (67890, 'Use hash join', 'nested_loop',
-		  'inactive', NULL, NULL)`)
+		  'retired', NULL, NULL)`)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}

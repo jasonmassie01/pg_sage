@@ -288,7 +288,7 @@ func TestStatSpillDB_PlanHintIsCappedByHostMemory(t *testing.T) {
 		VALUES ($1, $2::jsonb, 'test')`, qid, plan); err != nil {
 		t.Fatalf("seed plan: %v", err)
 	}
-	tu := New(pool, TunerConfig{WorkMemMaxMB: 1024}, &HintPlanAvailability{Available: true,
+	tu := New(pool, TunerConfig{WorkMemMaxMB: 1024}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLogFn)
 	tu.WithHostMemory(hostOf(4 << 30))
 	fs := tu.processCandidate(ctx, candidate{QueryID: qid, Query: "SELECT * FROM t ORDER BY x",

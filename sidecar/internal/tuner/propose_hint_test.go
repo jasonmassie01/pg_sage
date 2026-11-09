@@ -17,7 +17,7 @@ import (
 // that survive the agent's per-cycle cap, records and cools down.
 
 func hintTuner(available bool) *Tuner {
-	hp := &HintPlanAvailability{Available: available, HintTableReady: available}
+	hp := &HintPlanAvailability{ApplicationEffect: available, HintTableReady: available}
 	return New(nil, TunerConfig{WorkMemMaxMB: 256, CascadeCooldownCycles: 3}, hp,
 		noopLogFn)
 }
@@ -123,11 +123,14 @@ func TestCheckHint_Refusals(t *testing.T) {
 
 func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
+	// The tuner below claims a ready hint table, and since tuning-02 every
+	// check reads it: that claim holds only for the pg_hint_plan 1.7 layout.
+	requireQueryIDHintTable(t, pool)
 	if _, err := pool.Exec(ctx, "DELETE FROM sage.query_hints WHERE queryid = 4242"); err != nil {
 		t.Fatalf("clean: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, "DELETE FROM sage.query_hints WHERE queryid = 4242") })
-	tu := New(pool, TunerConfig{WorkMemMaxMB: 256}, &HintPlanAvailability{Available: true,
+	tu := New(pool, TunerConfig{WorkMemMaxMB: 256}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLogFn)
 	if _, err := tu.CheckHint(ctx, agentHint("SeqScan(orders)")); err != nil {
 		t.Fatalf("check: %v", err)
@@ -148,8 +151,8 @@ func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 	if hint != "SeqScan(orders)" || symptom != "tuning_agent" || status != "proposed" {
 		t.Fatalf("row = %q %q %q", hint, symptom, status)
 	}
-	other := New(pool, TunerConfig{WorkMemMaxMB: 256}, &HintPlanAvailability{Available: true,
-		HintTableReady: true}, noopLogFn)
+	other := New(pool, TunerConfig{WorkMemMaxMB: 256},
+		&HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}, noopLogFn)
 	if _, err := other.CheckHint(ctx, agentHint("IndexScan(orders)")); !errors.Is(err,
 		ErrHintExists) {
 		t.Fatalf("a proposed hint survives a restart (loaded from sage.query_hints): %v", err)
@@ -161,7 +164,7 @@ func TestRecordHint_RecordsOnlyWhenAsked(t *testing.T) {
 
 func hostTuner(maxMB int, hostBytes int64) *Tuner {
 	tu := New(nil, TunerConfig{WorkMemMaxMB: maxMB, CascadeCooldownCycles: 3},
-		&HintPlanAvailability{Available: true, HintTableReady: true}, noopLogFn)
+		&HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}, noopLogFn)
 	tu.WithHostMemory(hostOf(hostBytes))
 	return tu
 }

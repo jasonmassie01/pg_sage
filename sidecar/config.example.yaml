@@ -169,7 +169,7 @@ tuner:
   llm_enabled: true              # Use LLM for advanced query tuning (default on)
   work_mem_max_mb: 512           # max per-query work_mem hint
   plan_time_ratio: 3.0           # plan/exec ratio threshold for generic plan
-  nested_loop_row_threshold: 10000
+  nested_loop_row_threshold: 10000 # inner rows x loops a misestimated nested loop must read
   parallel_min_table_rows: 1000000
   min_query_calls: 100           # ignore rarely-called queries
   verify_after_apply: true       # Enables the hint revalidation loop below
@@ -182,9 +182,9 @@ tuner:
   # removes a working hint. See docs/hint-verification.md "Hint lifecycle".
   hint_retirement_days: 14              # Mark hints due for re-verification after this (0 disables)
   revalidation_interval_hours: 24       # How often the loop runs (0 disables)
-  # revalidation_keep_ratio / revalidation_rollback_ratio /
-  # revalidation_explain_timeout_ms are accepted for compatibility but have
-  # no effect: the loop performs no hinted-vs-unhinted cost comparison.
+  # Cycles an open query_tuning finding's statement must be absent from
+  # pg_stat_statements, or below the admission thresholds, before it resolves.
+  hint_absent_cycles: 3
 
   # Stale-statistics detection + ANALYZE action.
   # Detects row-estimate skew in plans, cross-references pg_stat_user_tables,

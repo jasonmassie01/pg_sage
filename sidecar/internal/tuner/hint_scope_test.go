@@ -85,14 +85,33 @@ func TestHintScope_InsertedHintTextRejects(t *testing.T) {
 // installs, so an action whose apply was a no-op over another row deletes
 // nothing when it is rolled back.
 func TestHintScope_BuildFindingRollbackMatchesInsert(t *testing.T) {
-	tu := &Tuner{hintPlan: &HintPlanAvailability{Available: true, HintTableReady: true}}
+	tu := &Tuner{hintPlan: &HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}}
 	c := candidate{QueryID: 777, Query: "SELECT 1", MeanExecTime: 150, Calls: 100}
 	hint := "IndexScan(orders orders_pkey)"
-	f := tu.buildFinding(context.Background(), c, nil, hint, "t", "r", "", "")
+	f := tu.buildFinding(context.Background(), c, nil, hint, "t", "r")
 	if f.RollbackSQL != BuildDeleteSQL(777, hint) {
 		t.Fatalf("RollbackSQL = %q, want the delete scoped to %q", f.RollbackSQL, hint)
 	}
 	if got, ok := InsertedHintText(f.RecommendedSQL, 777); !ok || got != hint {
 		t.Fatalf("InsertedHintText(RecommendedSQL) = %q, %t; want %q", got, ok, hint)
+	}
+}
+
+// tuning-02: actions recorded before the apply INSERT dropped its WHERE NOT
+// EXISTS guard carry the INSERT ... SELECT form; their hint text must still
+// parse, or their legacy rollback could not be scoped.
+func TestHintScope_InsertedHintTextLegacySelectForm(t *testing.T) {
+	legacy := "INSERT INTO hint_plan.hints (query_id, application_name, hints) " +
+		"SELECT 42, '', $sageqh$HashJoin(a b)$sageqh$ WHERE NOT EXISTS (" +
+		"SELECT 1 FROM hint_plan.hints WHERE query_id = 42 AND application_name = '')"
+	if got, ok := InsertedHintText(legacy, 42); !ok || got != "HashJoin(a b)" {
+		t.Fatalf("InsertedHintText(legacy) = %q, %t; want HashJoin(a b)", got, ok)
+	}
+	if got, ok := InsertedHintText(legacy, 4); ok {
+		t.Fatalf("legacy INSERT of query 42 parsed for query 4: %q", got)
+	}
+	current := BuildInsertSQL(42, "HashJoin(a b)")
+	if !strings.Contains(current, "VALUES (42, '', ") {
+		t.Fatalf("apply INSERT is not the plain VALUES form: %s", current)
 	}
 }

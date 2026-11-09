@@ -8,7 +8,7 @@ import (
 )
 
 // retiredKeys are keys of a top-level section that were removed: the tuner
-// key never had an effect, and the forecaster's sequence thresholds went
+// keys never had an effect, and the forecaster's sequence thresholds went
 // with its sequence rule (forecast-05: the runway forecasts sequences,
 // sre.runways.sequence_horizon_days and sequence_critical_days). A config
 // that still sets one loads: the key is dropped before the strict decode
@@ -17,6 +17,17 @@ var retiredKeys = map[string]map[string]string{
 	"tuner": {
 		"analyze_maintenance_threshold_mb": "tuner.analyze_maintenance_threshold_mb " +
 			"is no longer used and is ignored; remove it from the config file",
+		// tuning-09: revalidation does no hinted-vs-unhinted cost comparison
+		// and issues no EXPLAIN, so these three never had a reader.
+		"revalidation_keep_ratio": "tuner.revalidation_keep_ratio is no longer used " +
+			"and is ignored; remove it from the config file (revalidation compares " +
+			"no plan costs)",
+		"revalidation_rollback_ratio": "tuner.revalidation_rollback_ratio is no " +
+			"longer used and is ignored; remove it from the config file (revalidation " +
+			"never rolls a hint back on a cost ratio)",
+		"revalidation_explain_timeout_ms": "tuner.revalidation_explain_timeout_ms is " +
+			"no longer used and is ignored; remove it from the config file " +
+			"(revalidation runs no EXPLAIN)",
 	},
 	"forecaster": {
 		"sequence_warn_days": retiredSequenceKey("sequence_warn_days",

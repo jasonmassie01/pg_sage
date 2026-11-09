@@ -2,9 +2,11 @@ package explain
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
+	"io"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -86,16 +88,35 @@ func (ex *Explainer) saveCache(
 	return nil
 }
 
-// cacheKey is the explain_results key: the query hash mixed with the mode,
-// so a plan-only result never answers an ANALYZE request or vice versa.
-func cacheKey(query string, params []string, planOnly bool) int64 {
-	h := fnv.New64a()
+// cacheKeyVersion tags the key layout, so rows written under an older
+// layout never match and simply expire.
+const cacheKeyVersion = "v2"
+
+// cacheKey is the explain_results key for the exact statement body that
+// explainBody returned. Literals, comments and planner hints all change the
+// plan, so none of them is normalised away. The mode separates plan-only
+// from ANALYZE results, and every field is length-prefixed so a parameter
+// can never stand in for body bytes or for another parameter. The hash is
+// SHA-256 cut to 64 bits: callers choose the body and params, and a
+// non-cryptographic hash would let one caller craft a statement whose
+// key matches another statement and plant a plan for it.
+func cacheKey(body string, params []string, planOnly bool) int64 {
+	h := sha256.New()
 	mode := "analyze"
 	if planOnly {
 		mode = "plan_only"
 	}
-	_, _ = h.Write([]byte(mode))
-	_, _ = h.Write([]byte{0})
-	_, _ = fmt.Fprint(h, queryHash(query, params))
-	return int64(h.Sum64())
+	writeKeyField(h, cacheKeyVersion)
+	writeKeyField(h, mode)
+	writeKeyField(h, body)
+	_, _ = fmt.Fprintf(h, "%d;", len(params))
+	for _, p := range params {
+		writeKeyField(h, p)
+	}
+	return int64(binary.BigEndian.Uint64(h.Sum(nil)[:8]))
+}
+
+// writeKeyField writes s as "<len>:<s>"; a hash never fails to write.
+func writeKeyField(w io.Writer, s string) {
+	_, _ = fmt.Fprintf(w, "%d:%s", len(s), s)
 }

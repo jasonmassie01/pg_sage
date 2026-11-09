@@ -3,7 +3,6 @@ package tuner
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 )
@@ -102,7 +101,7 @@ func checkNode(node planNode, depth int, underGather bool, sc *scanContext) []Pl
 	if s := checkHashSpill(node, depth); s != nil {
 		out = append(out, *s)
 	}
-	if s := checkBadNestedLoop(node, depth); s != nil {
+	if s := checkBadNestedLoop(node, depth, sc); s != nil {
 		out = append(out, *s)
 	}
 	if s := checkSeqScan(node, depth, sc); s != nil {
@@ -145,30 +144,6 @@ func checkHashSpill(n planNode, depth int) *PlanSymptom {
 		NodeType:  n.NodeType,
 		NodeDepth: depth,
 		Detail:    detail,
-	}
-}
-
-func checkBadNestedLoop(
-	n planNode, depth int,
-) *PlanSymptom {
-	if n.NodeType != "Nested Loop" {
-		return nil
-	}
-	if n.ActualRows == nil || n.PlanRows <= 0 {
-		return nil
-	}
-	if *n.ActualRows <= float64(n.PlanRows*10) {
-		return nil
-	}
-	return &PlanSymptom{
-		Kind:        SymptomBadNestedLoop,
-		NodeType:    n.NodeType,
-		NodeDepth:   depth,
-		JoinAliases: joinAliases(n),
-		Detail: map[string]any{
-			"plan_rows":   n.PlanRows,
-			"actual_rows": int64(math.Round(*n.ActualRows)),
-		},
 	}
 }
 

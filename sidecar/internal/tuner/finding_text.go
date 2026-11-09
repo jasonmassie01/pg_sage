@@ -100,16 +100,3 @@ func buildRationale(prescriptions []Prescription) string {
 	}
 	return strings.Join(parts, "; ")
 }
-
-// extractRewrite returns the first non-empty suggested rewrite
-// from the prescription list.
-func extractRewrite(
-	prescriptions []Prescription,
-) (rewrite, rationale string) {
-	for _, p := range prescriptions {
-		if p.SuggestedRewrite != "" {
-			return p.SuggestedRewrite, p.RewriteRationale
-		}
-	}
-	return "", ""
-}

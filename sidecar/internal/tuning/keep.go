@@ -15,16 +15,22 @@ import (
 // deterministic catalog evidence drops one here: its table is gone, the
 // index it would create exists or is covered, the index it would drop is
 // gone. An open index drop also keeps what binds every tuning drop
-// (keepDrop). It also returns the live cases an open finding already
-// answers; they are not asked again while it is open.
-func (a *Agent) keepOpen(ctx context.Context, cur *collector.Snapshot,
+// (keepDrop); an open query_tuning finding resolves on its statement's
+// state over the interval prev..cur (keepQueryHint). It also returns the
+// live cases an open finding already answers; they are not asked again
+// while it is open.
+func (a *Agent) keepOpen(ctx context.Context, cur, prev *collector.Snapshot,
 	open []analyzer.Finding, cases []Case) ([]analyzer.Finding, map[string]bool) {
 	stale := a.staleFindings(ctx, open)
+	states, quiet := a.queryStates(ctx, open), intervalQuiet(cur, prev)
 	kept := make([]analyzer.Finding, 0, len(open))
 	for i, f := range open {
 		why, ok := stale[i]
 		if !ok {
 			f, why = keepDrop(f, cur)
+		}
+		if why == "" {
+			f, why = a.keepQueryHint(f, states, quiet)
 		}
 		if why != "" {
 			a.logFn("INFO", "tuning: open finding %s %s resolves: %s", f.Category,
@@ -55,7 +61,10 @@ func keepDrop(f analyzer.Finding, cur *collector.Snapshot) (analyzer.Finding, st
 }
 
 // busyCases are the live cases an open finding answers: the agent's own
-// by case, earlier index advice by its table.
+// by case, earlier index advice by its table. An open hint answers only the
+// hint question of its case: the tuner's one-hint-per-statement check
+// refuses a second hint, while the case's index and statistics answers are
+// still asked for (tuning-06).
 func busyCases(open []analyzer.Finding, cases []Case) map[string]bool {
 	live := map[string]bool{}
 	byTable := map[string][]string{}
@@ -67,6 +76,9 @@ func busyCases(open []analyzer.Finding, cases []Case) map[string]bool {
 	}
 	busy := map[string]bool{}
 	for _, f := range open {
+		if f.Category == categoryQueryTuning {
+			continue
+		}
 		if producer, _ := f.Detail["producer"].(string); producer == Producer {
 			if id, _ := f.Detail["case_id"].(string); live[id] {
 				busy[id] = true

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
 func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities) {
@@ -19,7 +20,38 @@ func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *Provi
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	collectExtensionEvidence(ctx, pool, caps)
+	collectHintReadiness(ctx, pool, caps)
 	collectStatsPrivilege(ctx, pool, caps)
+}
+
+// collectHintReadiness reads, catalog only, whether pg_hint_plan hints
+// reach application sessions, and names the missing prerequisite as a
+// limitation. A loaded module with enable_hint_table off ignores
+// hint_plan.hints entirely.
+func collectHintReadiness(ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities) {
+	switch caps.Extensions["pg_hint_plan"] {
+	case "not_installed", "unknown", "":
+		return
+	}
+	avail, err := tuner.ProbeHintReadiness(ctx, pool)
+	if err != nil {
+		caps.Limitations = append(caps.Limitations,
+			"pg_hint_plan readiness probe failed; check catalog access")
+	}
+	caps.HintPlan = avail
+	if l := hintPlanLimitation(avail); l != "" {
+		caps.Limitations = append(caps.Limitations, l)
+	}
+}
+
+// hintPlanLimitation is the limitation line for facts without application
+// effect ("" when hints take effect or nothing was probed).
+func hintPlanLimitation(a *tuner.HintPlanAvailability) string {
+	if a == nil || a.ApplicationEffect {
+		return ""
+	}
+	return "pg_hint_plan hints do not reach application sessions (" + a.Readiness() +
+		"); query hints stay advisory"
 }
 
 // A loaded module does not imply its product integration is usable. Lakebase

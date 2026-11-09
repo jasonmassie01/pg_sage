@@ -22,7 +22,7 @@ const HintRemovalCategory = "query_hint_retirement"
 // is retried until the row is gone). Rows whose text pg_sage never recorded,
 // such as an operator's later replacement, are left alone (tuning-02a).
 func (t *Tuner) hintRemovalFindings(ctx context.Context) []analyzer.Finding {
-	if t.pool == nil || t.hintPlan == nil || !t.hintPlan.HintTableReady {
+	if h := t.hints(); t.pool == nil || h == nil || !h.HintTableReady {
 		return nil
 	}
 	rows, err := t.pool.Query(ctx, `/* pg_sage */

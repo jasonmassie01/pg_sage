@@ -181,7 +181,7 @@ func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 	switch {
 	case errors.Is(err, tuner.ErrHintsUnavailable):
 		return reject(p, ReasonDisabled, "%v", err)
-	case errors.Is(err, tuner.ErrHintExists):
+	case errors.Is(err, tuner.ErrHintExists), errors.Is(err, tuner.ErrForeignHint):
 		return reject(p, ReasonDuplicate, "%v", err)
 	case err != nil:
 		return reject(p, ReasonInvalid, "the tuner refused the hint: %v", err)

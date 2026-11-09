@@ -2973,6 +2973,12 @@
     "doc": "Master switch for the per-query tuner. When false, no hints are written and Tune() is a no-op — the analyzer still runs.",
     "class": "safety_critical"
   },
+  "tuner.hint_absent_cycles": {
+    "type": "int",
+    "default": 3,
+    "doc": "Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3.",
+    "class": "derivable"
+  },
   "tuner.hint_retirement_days": {
     "type": "int",
     "default": 14,
@@ -3000,7 +3006,7 @@
   "tuner.nested_loop_row_threshold": {
     "type": "int64",
     "default": 10000,
-    "doc": "Minimum actual-row count on a nested-loop inner that triggers the bad-nested-loop symptom. Smaller values increase sensitivity.",
+    "doc": "Total rows (Actual Rows x Actual Loops) a misestimated (\u003e10x) nested loop's inner side must read before the tuner prescribes HashJoin or ANALYZE. 0 or less means 10000.",
     "class": "derivable"
   },
   "tuner.parallel_min_table_rows": {
@@ -3015,29 +3021,11 @@
     "doc": "When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints.",
     "class": "derivable"
   },
-  "tuner.revalidation_explain_timeout_ms": {
-    "type": "int",
-    "default": 10000,
-    "doc": "Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load.",
-    "class": "derivable"
-  },
   "tuner.revalidation_interval_hours": {
     "type": "int",
     "default": 24,
     "doc": "How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours.",
     "class": "derivable"
-  },
-  "tuner.revalidation_keep_ratio": {
-    "type": "float64",
-    "default": 1.2,
-    "doc": "Reserved; no effect. Revalidation does no hinted-vs-unhinted cost comparison (it uses age, missing objects, stale queryids, latency). Kept so existing configs load.",
-    "class": "derivable"
-  },
-  "tuner.revalidation_rollback_ratio": {
-    "type": "float64",
-    "default": 0.8,
-    "doc": "Reserved; currently has no effect. No hinted-vs-unhinted cost comparison is performed. Kept so existing config files still load.",
-    "class": "safety_critical"
   },
   "tuner.stale_stats_age_minutes": {
     "type": "int",

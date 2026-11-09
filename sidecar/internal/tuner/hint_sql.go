@@ -19,17 +19,20 @@ import (
 // surface is a literal that itself contains the tag; we pick a
 // unique tag for each call to eliminate that case and strip NUL
 // bytes as extra defense-in-depth.
+//
+// One hint per statement (tuning-02): the INSERT has no NOT EXISTS
+// guard. Over an existing row for the query, pg_hint_plan 1.7's unique
+// index on (query_id, application_name) raises 23505, so the action fails
+// loudly instead of succeeding as a no-op whose rollback could later
+// delete a row pg_sage did not install. checkHintTable requires that index.
 func BuildInsertSQL(queryID int64, hint string) string {
 	hint = stripNULs(hint)
 	tag := chooseDollarTag(hint)
 	return fmt.Sprintf(
 		"INSERT INTO hint_plan.hints "+
 			"(query_id, application_name, hints) "+
-			"SELECT %d, '', %s%s%s "+
-			"WHERE NOT EXISTS ("+
-			"SELECT 1 FROM hint_plan.hints "+
-			"WHERE query_id = %d AND application_name = '')",
-		queryID, tag, hint, tag, queryID,
+			"VALUES (%d, '', %s%s%s)",
+		queryID, tag, hint, tag,
 	)
 }
 
@@ -52,15 +55,23 @@ func BuildDeleteSQL(queryID int64, hint string) string {
 }
 
 // InsertedHintText returns the hint text an INSERT built by BuildInsertSQL
-// installs for queryID, or false when sql is not such an INSERT.
+// installs for queryID, or false when sql is not such an INSERT. Actions
+// recorded before tuning-02 carry the INSERT ... SELECT form, which still
+// parses so their legacy rollback can be scoped.
 func InsertedHintText(sql string, queryID int64) (string, bool) {
-	prefix := fmt.Sprintf("INSERT INTO hint_plan.hints "+
-		"(query_id, application_name, hints) SELECT %d, '', ", queryID)
-	i := strings.Index(sql, prefix)
-	if i < 0 {
-		return "", false
+	const head = "INSERT INTO hint_plan.hints (query_id, application_name, hints) "
+	for _, form := range []string{"VALUES (%d, '', ", "SELECT %d, '', "} {
+		prefix := head + fmt.Sprintf(form, queryID)
+		if i := strings.Index(sql, prefix); i >= 0 {
+			return dollarQuotedPrefix(sql[i+len(prefix):])
+		}
 	}
-	rest := sql[i+len(prefix):]
+	return "", false
+}
+
+// dollarQuotedPrefix returns the body of the dollar-quoted literal rest
+// starts with, or false when rest does not start with a complete one.
+func dollarQuotedPrefix(rest string) (string, bool) {
 	if !strings.HasPrefix(rest, "$") {
 		return "", false
 	}

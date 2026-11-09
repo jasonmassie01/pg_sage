@@ -112,10 +112,14 @@ func prescribeBadNestedLoop(s PlanSymptom) *Prescription {
 			return nil
 		}
 	}
+	innerRows, _ := s.Detail["inner_rows_total"].(int64)
+	loops, _ := s.Detail["loops"].(int64)
 	return &Prescription{
 		Symptom:       SymptomBadNestedLoop,
 		HintDirective: "HashJoin(" + strings.Join(s.JoinAliases, " ") + ")",
-		Rationale:     "nested loop row estimate off by >10x",
+		Rationale: fmt.Sprintf(
+			"nested loop row estimate off by >10x; inner side read %d rows over %d loops",
+			innerRows, loops),
 	}
 }
 
