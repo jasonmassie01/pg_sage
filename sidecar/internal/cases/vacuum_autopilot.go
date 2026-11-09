@@ -161,36 +161,6 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 	return candidate
 }
 
-// capturedReloptionRollback trusts a finding's rollback (vacuum-07) only
-// when it is an ALTER TABLE of the same table as the change.
-func capturedReloptionRollback(change, rollback string) (string, bool) {
-	rollback = strings.TrimSpace(rollback)
-	target, ok := alterTableTarget(change)
-	if !ok || rollback == "" {
-		return "", false
-	}
-	if other, ok := alterTableTarget(rollback); !ok || other != target {
-		return "", false
-	}
-	return rollback, true
-}
-
-// alterTableTarget is the table a single ALTER TABLE ... SET/RESET (...)
-// names; anything else (or a second statement) has none.
-func alterTableTarget(sql string) (string, bool) {
-	sql = strings.TrimSuffix(strings.TrimSpace(sql), ";")
-	rest, ok := strings.CutPrefix(sql, "ALTER TABLE ")
-	if !ok || strings.Contains(rest, ";") {
-		return "", false
-	}
-	for _, verb := range []string{" SET (", " RESET ("} {
-		if target, _, found := strings.Cut(rest, verb); found && target != "" {
-			return strings.TrimSpace(target), true
-		}
-	}
-	return "", false
-}
-
 func diagnoseFreezeBlockersSQL() string {
 	return `SELECT datname,
        age(datfrozenxid) AS database_xid_age
