@@ -89,7 +89,7 @@ func (b *Binder) Bind(ctx context.Context, req policy.ActionRequest) (
 		return nil, err
 	}
 	if b.resolver != nil && needsResolution(refs) {
-		if refs, err = b.resolver.ResolveCatalog(ctx, refs); err != nil {
+		if refs, err = resolveCatalog(ctx, b.resolver, refs); err != nil {
 			return nil, fmt.Errorf("resolve index tables and partition roots: %w", err)
 		}
 	}

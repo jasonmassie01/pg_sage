@@ -2,7 +2,6 @@ package facts
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -294,10 +293,7 @@ func (f *FindingFilter) resolveRefs(ctx context.Context, facts []Fact,
 	if !needsResolution(all) {
 		return nil
 	}
-	got, err := f.resolver.ResolveCatalog(ctx, all)
-	if err == nil && len(got) != len(all) {
-		err = fmt.Errorf("resolver returned %d refs for %d", len(got), len(all))
-	}
+	got, err := resolveCatalog(ctx, f.resolver, all)
 	if err != nil {
 		f.logFn("WARN", "facts: refs of %d findings matched as written (partitions not "+
 			"covered by their parent's facts this cycle): %v", len(findings), err)

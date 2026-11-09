@@ -78,24 +78,51 @@ func (c *CatalogResolver) ResolveCatalog(ctx context.Context, refs []ObjectRef) 
 
 // applyRelkind completes r from the catalog: a relation of unknown kind
 // gets its kind, an index without a table its table, and a table or index
-// the root of its partition tree. A ref's written kind and table never
-// change, so a resolved ref matches every pattern it matched before (a
-// fact can only narrow).
+// the root of its partition tree. A ref keeps its written kind and table:
+// a resolved ref matches every pattern it matched before, so a fact can
+// only narrow.
 func applyRelkind(r *ObjectRef, relkind string, table, root [2]string) {
+	var kind Kind
 	switch relkind {
 	case "i", "I":
-		if r.Kind == KindRelation {
-			r.Kind = KindIndex
-		}
+		kind = KindIndex
 		if r.TableName == "" {
 			r.TableSchema, r.TableName = table[0], table[1]
 		}
 	case "r", "p", "m", "f":
-		if r.Kind == KindRelation {
-			r.Kind = KindTable
-		}
+		kind = KindTable
 	default:
 		return
 	}
+	r.Kind = mergeKind(r.Kind, kind)
 	r.RootSchema, r.RootName = root[0], root[1]
+}
+
+// mergeKind is a ref's kind once the catalog's is known. PostgreSQL runs
+// ALTER INDEX <table> RENAME and ALTER TABLE <index> ..., so a ref written
+// as the other kind becomes KindRelation and matches both kinds' patterns.
+func mergeKind(written, catalog Kind) Kind {
+	switch written {
+	case KindRelation:
+		return catalog
+	case KindTable, KindIndex:
+		if written != catalog {
+			return KindRelation
+		}
+	}
+	return written
+}
+
+// resolveCatalog completes refs with resolver, which must answer one ref
+// per ref: a short or long answer is an error, never a dropped ref.
+func resolveCatalog(ctx context.Context, resolver RefResolver, refs []ObjectRef) (
+	[]ObjectRef, error) {
+	got, err := resolver.ResolveCatalog(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	if len(got) != len(refs) {
+		return nil, fmt.Errorf("resolver returned %d refs for %d", len(got), len(refs))
+	}
+	return got, nil
 }
