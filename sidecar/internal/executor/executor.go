@@ -259,20 +259,11 @@ func (e *Executor) WithDatabaseName(name string) {
 	e.databaseName = name
 }
 
-// validTrustLevels enumerates the accepted trust level strings.
-// Empty string is allowed to clear an override.
-var validTrustLevels = map[string]bool{
-	"observation": true,
-	"advisory":    true,
-	"autonomous":  true,
-	"":            true,
-}
-
 // SetTrustLevel overrides the global trust level for this
 // executor instance. Empty string clears the override.
-// Returns an error if the level is not recognized.
+// Returns an error if the level is not one of config.TrustLevels.
 func (e *Executor) SetTrustLevel(level string) error {
-	if !validTrustLevels[level] {
+	if level != "" && !config.IsTrustLevel(level) {
 		return fmt.Errorf("invalid trust level: %q", level)
 	}
 	e.policyMu.Lock()
