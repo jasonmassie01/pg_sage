@@ -17,7 +17,7 @@ const DefaultPrometheusRefreshSeconds = 30
 // metrics-scoped token (observability-08).
 type PrometheusConfig struct {
 	ListenAddr             string `yaml:"listen_addr" doc:"Address of the separate, unauthenticated /metrics listener; empty opens none. Requires restart."`
-	ServeOnAPI             bool   `yaml:"serve_on_api" doc:"Also serve GET /metrics on the API listener (and its TLS), to a token with the metrics scope or, in a Databricks App, an admin or operator. Requires restart."`
+	ServeOnAPI             bool   `yaml:"serve_on_api" doc:"Also serve GET /metrics on the API listener (and its TLS), to a token with the metrics scope or, in a Databricks App, any signed-in pg_sage role. Requires restart."`
 	RefreshIntervalSeconds int    `yaml:"refresh_interval_seconds" doc:"Seconds between re-reads of each database's /metrics values; scrapes render the last read, up to one interval old. 0 means 30; never faster than collector.interval_seconds. Requires restart."`
 }
 

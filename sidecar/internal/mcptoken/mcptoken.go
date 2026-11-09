@@ -163,7 +163,9 @@ func roleScopes(role string) map[string]bool {
 		return map[string]bool{ScopeRead: true, ScopePropose: true, ScopeApprove: true,
 			ScopeMetrics: true}
 	case "viewer":
-		return map[string]bool{ScopeRead: true}
+		// metrics is read-level: a viewer already sees these values in
+		// the dashboard.
+		return map[string]bool{ScopeRead: true, ScopeMetrics: true}
 	default:
 		return nil
 	}

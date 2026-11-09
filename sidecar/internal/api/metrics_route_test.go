@@ -19,7 +19,7 @@ import (
 
 // observability-08: with prometheus.serve_on_api, GET /metrics on the API
 // listener serves the Prometheus exposition to a metrics-scoped token (or,
-// in a Databricks App, to the platform identity of an admin or operator)
+// in a Databricks App, to the platform identity of any pg_sage role)
 // and refuses everything else without leaking a metric name.
 
 const metricsStubBody = "# HELP pg_sage_info pg_sage version\n" +
@@ -162,8 +162,9 @@ func asUser(h http.Handler, user *auth.User) http.Handler {
 	})
 }
 
-// Databricks App: the platform identity authenticates; admins and
-// operators hold metrics, viewers do not; a bearer token is not consulted.
+// Databricks App: the platform identity authenticates; every pg_sage role
+// holds the read-level metrics grant (least privilege for a scraper is a
+// viewer); an unknown role is refused; a bearer token is not consulted.
 func TestMetricsRouteDatabricksIdentity(t *testing.T) {
 	tokens := &fakeMetricsTokens{}
 	for _, tc := range []struct {
@@ -172,7 +173,8 @@ func TestMetricsRouteDatabricksIdentity(t *testing.T) {
 	}{
 		{&auth.User{ID: 1, Email: "a@x", Role: auth.RoleAdmin}, http.StatusOK},
 		{&auth.User{ID: 2, Email: "o@x", Role: auth.RoleOperator}, http.StatusOK},
-		{&auth.User{ID: 3, Email: "v@x", Role: auth.RoleViewer}, http.StatusForbidden},
+		{&auth.User{ID: 3, Email: "v@x", Role: auth.RoleViewer}, http.StatusOK},
+		{&auth.User{ID: 5, Email: "e@x", Role: ""}, http.StatusForbidden},
 		{&auth.User{ID: 4, Email: "?@x", Role: "robot"}, http.StatusForbidden},
 		{nil, http.StatusUnauthorized},
 	} {

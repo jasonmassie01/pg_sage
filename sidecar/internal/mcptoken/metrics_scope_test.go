@@ -11,8 +11,9 @@ import (
 
 // observability-08: the metrics scope authorizes a Prometheus scrape of
 // /metrics and nothing else. It is a token's only scope, on an operator
-// token (bound to an operator or admin), so a scrape credential never
-// reads or proposes through MCP. Pure validation; no Postgres.
+// token (created for an operator or admin; metrics is read-level, so a
+// viewer owner keeps it), so a scrape credential never reads or proposes
+// through MCP. Pure validation; no Postgres.
 
 // No concurrent access tests here: validation is stateless.
 

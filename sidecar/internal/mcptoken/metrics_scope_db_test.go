@@ -58,8 +58,8 @@ func TestMetricsValidateRefusesReadTokens(t *testing.T) {
 	require.ErrorIs(t, err, mcptoken.ErrScopeMissing)
 }
 
-// State transitions: revocation, an owner demoted to viewer and a
-// deactivated owner each end the token's scrapes.
+// State transitions: an owner demoted to viewer keeps the read-level
+// metrics scope; a deactivated owner and revocation end the scrapes.
 func TestMetricsTokenFollowsRevocationAndOwner(t *testing.T) {
 	pool := livePool(t)
 	s := mcptoken.NewStore(pool)
@@ -68,8 +68,13 @@ func TestMetricsTokenFollowsRevocationAndOwner(t *testing.T) {
 	owner := createUser(t, pool, auth.RoleOperator)
 	tok := mustCreate(t, s, metricsReq(uniq("demote"), owner))
 	setRole(t, pool, owner, auth.RoleViewer)
-	_, err := s.ValidateMetrics(ctx, tok.Secret)
-	require.ErrorIs(t, err, mcptoken.ErrUnauthorized, "a viewer owner grants no metrics")
+	grant, err := s.ValidateMetrics(ctx, tok.Secret)
+	require.NoError(t, err, "metrics is read-level: a viewer owner keeps it")
+	require.Equal(t, auth.RoleViewer, grant.OwnerRole)
+	require.Equal(t, []string{"metrics"}, grant.Scopes)
+	setRole(t, pool, owner, "robot")
+	_, err = s.ValidateMetrics(ctx, tok.Secret)
+	require.ErrorIs(t, err, mcptoken.ErrUnauthorized, "an unknown role grants nothing")
 	setRole(t, pool, owner, auth.RoleAdmin)
 	_, err = s.ValidateMetrics(ctx, tok.Secret)
 	require.NoError(t, err)

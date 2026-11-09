@@ -14,7 +14,7 @@ import (
 // MetricsRoute serves GET /metrics on the API listener when
 // prometheus.serve_on_api is set (observability-08): the Prometheus
 // exposition, guarded by a token holding the metrics scope or, in a
-// Databricks App, by the platform identity of an admin or operator.
+// Databricks App, by the platform identity of any pg_sage role.
 type MetricsRoute struct {
 	// Handler renders the exposition (the separate listener's handler).
 	Handler http.Handler
@@ -47,10 +47,10 @@ func registerMetricsRoute(root *http.ServeMux, route *MetricsRoute, pool *pgxpoo
 }
 
 // metricsAuth admits a scrape to next. In a Databricks App the platform
-// identity (set by DatabricksAppAuthMiddleware) must be an admin or
-// operator, and no token is consulted; elsewhere the request needs
-// `Authorization: Bearer` with a valid, unrevoked metrics token. Refusals
-// carry no metric names.
+// identity (set by DatabricksAppAuthMiddleware) must hold a pg_sage role
+// (viewer is enough: metrics is read-level), and no token is consulted;
+// elsewhere the request needs `Authorization: Bearer` with a valid,
+// unrevoked metrics token. Refusals carry no metric names.
 func metricsAuth(next http.Handler, tokens metricsTokens, appMode bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -87,14 +87,15 @@ func metricsAuth(next http.Handler, tokens metricsTokens, appMode bool) http.Han
 	})
 }
 
-// serveMetricsForIdentity admits an admin or operator platform identity.
+// serveMetricsForIdentity admits a platform identity with a pg_sage role.
 func serveMetricsForIdentity(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	user := UserFromContext(r.Context())
 	switch {
 	case user == nil:
 		jsonError(w, "Databricks authentication required", http.StatusUnauthorized)
-	case user.Role != auth.RoleAdmin && user.Role != auth.RoleOperator:
-		jsonError(w, "metrics require the admin or operator role", http.StatusForbidden)
+	case user.Role != auth.RoleAdmin && user.Role != auth.RoleOperator &&
+		user.Role != auth.RoleViewer:
+		jsonError(w, "metrics require a pg_sage role", http.StatusForbidden)
 	default:
 		next.ServeHTTP(w, r)
 	}
