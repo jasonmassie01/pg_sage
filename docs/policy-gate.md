@@ -75,7 +75,7 @@ withheld verdict into `execute`.
     `change_class_not_allowed`; the `approval_required` guardrail, a backend cancel or
     terminate, or a class in `approval_required_classes` queues with `approval_required`;
     the usage limits park with `budget_exceeded`, `blast_radius_exceeded` or
-    `rate_limit_exceeded`. Read-only diagnostics skip this step.
+    `rate_limit_exceeded`. Read-only diagnostics need a readable policy and skip the rest.
 13. **Trust and tier.** `execution_mode: approval` queues with `approval_required`. Then by
     risk tier: `read_only` runs (`authorized`); `safe` runs when `trust.tier3_safe` is on
     and the trust ramp has elapsed, otherwise `trust_ramp_not_satisfied`; `moderate` runs
