@@ -114,7 +114,10 @@ func (a *Agent) keepQueryHint(f analyzer.Finding, states map[int64]QueryState,
 	if !known {
 		return f, ""
 	}
-	if st.HintStatus != "" && st.HintStatus != "proposed" {
+	// Only a finding with installable SQL recorded its hint in query_hints;
+	// an operator-hint or advisory finding must not resolve on an older,
+	// unrelated row (the tuner would re-open it after its cooldown).
+	if f.RecommendedSQL != "" && st.HintStatus != "" && st.HintStatus != "proposed" {
 		return f, "its hint is " + st.HintStatus
 	}
 	n := a.hintAbsentCycles()

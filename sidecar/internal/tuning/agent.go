@@ -162,7 +162,11 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 		return analyzer.TuningOutput{Failed: cats}, err
 	}
 	kept, busy := a.keepOpen(ctx, cur, prev, open, cases)
-	out := analyzer.TuningOutput{Evaluated: cats, Findings: kept}
+	// Every open query_tuning finding was judged above: kept ones are
+	// re-emitted, so only the ones keepOpen let go resolve. Without the
+	// category the last of them could never resolve (tuning-06).
+	evaluated := append(append([]string{}, cats...), categoryQueryTuning)
+	out := analyzer.TuningOutput{Evaluated: evaluated, Findings: kept}
 	var ask []Case
 	for _, c := range cases {
 		if !busy[c.ID] {
