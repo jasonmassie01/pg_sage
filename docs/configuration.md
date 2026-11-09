@@ -1659,9 +1659,19 @@ run inside its budget. The bench report comes through the same path as promotion
 (signed release or nightly report, local run or upload, for the running build, at most 30
 days old), and the newest live measurement of each family decides. A model's own confidence
 never counts. Actions that follow an adopted root still pass the family's earned levels.
+The authority belongs to the model that earned it: a measurement counts only while the
+database's `llm.model` is the model the report's `llm.model` names (compared trimmed,
+lowercased and without a provider prefix, so `OpenAI/GPT-6` is `gpt-6`; `gpt-6-mini` is
+another model), and the newest measurement of the running model decides even when a newer
+report measured another one. A report that names no model grants nothing. After a hot
+reload to another model, the next investigation is advisory and the change is recorded as
+`root_authority_revoked`. The endpoint is not identified: what `llm.endpoint` serves under
+that model name is part of what you trust.
 The Trust page's "Model lift over deterministic" card and `GET /api/v1/model-lift[?database=]`
 show each family's lift (Safe Pass against the graph, override precision, inconclusive-case
-lift), whether the model may override, and how many more correct held-out overrides the
+lift), the model it was measured with and the model the investigator runs (`measured_model`,
+`running_model`), whether the model may override, and how many more correct held-out
+overrides the
 family needs (`overrides_needed`; families are never pooled). A family earning or losing
 the authority is recorded in the trust history (`root_authority_granted` /
 `root_authority_revoked`, with the deciding report's id) and told through your notification
