@@ -1172,6 +1172,32 @@ and the catalog, never from evidence or an LLM.
   unknown tier. A statement that maps to no change class (`TRUNCATE`, for
   one) records under the feature `unclassified`. No verdict changes: such a
   candidate never runs unattended.
+- **Unscoped VACUUM and REINDEX have no contract.** `vacuum_table` is a VACUUM
+  of exactly one named relation (an optional column list allowed); a bare
+  `VACUUM`, `VACUUM (FREEZE)` with no table and a comma list
+  (`VACUUM a, b`) classify as nothing and park as `no_typed_contract`, as
+  does `VACUUM FULL`. `reindex_concurrently` is `REINDEX INDEX|TABLE
+  CONCURRENTLY`; `REINDEX SCHEMA|DATABASE|SYSTEM CONCURRENTLY` parks as
+  `no_typed_contract`. A statement with no contract also has no top-level
+  route: were it ever to run, it would fail inside a transaction block.
+- **Execution route by typed action.** Only `create_index_concurrently`,
+  `reindex_concurrently`, `drop_unused_index`, `revert_created_index`,
+  `vacuum_table` and `alter_system_guc` run outside a transaction and keep
+  `safety.lock_timeout_ms`; every other statement, including an unclassified
+  rollback, runs in a transaction under the policy's
+  `lock_duration_ceiling_ms`. A keyword in a table name (`concurrently_log`)
+  no longer changes the route.
+- **`target_mismatch`.** A self-initiated finding whose object type names a
+  relation (`table`, `index`, `view`, `materialized_view`,
+  `partitioned_table`), and a custodian proposal, must change the object it
+  names: its statement target is compared with the finding's identifier
+  (an optimizer finding's table; a trailing column list is ignored) with
+  `public` as the default schema and unquoted names folded to lower case. A
+  difference is `blocked` with the reason `target_mismatch` before any lease
+  is taken; the detail names both objects, and an approval does not lift it.
+  A finding with no identifier leases its statement's target. Rollbacks of
+  pg_sage's own changes, findings that name a setting, the instance or a
+  query, and index replacements are not compared.
 - **Record failures.** A decision the gate cannot record in `sage.decision`
   is answered `blocked policy_unavailable` (fail closed); its detail names the
   verdict and reason it meant to record (for example
