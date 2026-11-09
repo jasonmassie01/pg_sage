@@ -104,6 +104,17 @@ pass, and the next fingerprint cycle regroups the database. At startup
 pg_sage logs the count of databases per boundary, for example
 `fleet-learning boundaries: shared=1 tenant:acme=2`.
 
+Fleet learning idles until two connected databases share a boundary: a
+database is never its own look-alike, so a standalone sidecar, a one-database
+fleet, or a fleet whose every database is in a different tenant has nothing
+to compare. While it idles, the fingerprint cycle reads no catalog and no
+`pg_stat_statements` and writes nothing, and pg_sage logs
+`fleet learning: skipped, no peer in boundary` once each time it starts
+idling. Within a minute of a second database joining a boundary, the next
+cycle runs at once instead of waiting for `fleet_learning.interval_minutes`.
+Fingerprints left from a fleet that shrank stay readable until the next
+cycle that runs.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |
