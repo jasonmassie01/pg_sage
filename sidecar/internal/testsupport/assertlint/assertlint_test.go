@@ -50,7 +50,8 @@ func TestScanFlagsHollowTests(t *testing.T) {
 	var want []Finding
 	for _, name := range []string{"TestNoCall", "TestEmpty", "TestErrString",
 		"TestSubtestHollow", "TestQuietHelper", "TestExternalQuiet",
-		"TestGoroutineNoWait"} {
+		"TestGoroutineNoWait", "TestProductionMethodClash", "TestLocalShadowsHelper",
+		"TestFieldNamedLikeHelper"} {
 		want = append(want, Finding{Rule: RuleNoAssert, Path: "pkg/basic_test.go",
 			Line: lineOf(t, src, "func "+name+"("), Func: name})
 	}

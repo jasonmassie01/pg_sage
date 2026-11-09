@@ -2,6 +2,7 @@ package assertlint
 
 import (
 	"go/ast"
+	"go/token"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -58,13 +59,13 @@ func (g *group) solve() {
 	for changed := true; changed; {
 		changed = false
 		for name, fd := range g.funcs {
-			if !g.failing["f:"+name] && g.bodyFails(fd) {
+			if !g.failing["f:"+name] && g.canFail(fd) && g.bodyFails(fd) {
 				g.failing["f:"+name], changed = true, true
 			}
 		}
 		for name, fds := range g.methods {
 			for _, fd := range fds {
-				if !g.failing["m:"+name] && g.bodyFails(fd) {
+				if !g.failing["m:"+name] && g.canFail(fd) && g.bodyFails(fd) {
 					g.failing["m:"+name], changed = true, true
 				}
 			}
@@ -75,14 +76,16 @@ func (g *group) solve() {
 func (g *group) bodyFails(fd *ast.FuncDecl) bool {
 	f := g.fileOf[fd]
 	tnames := testingNames(fd, f)
+	locals, fields := localNames(fd)
 	found := false
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.CallExpr:
 			found = found || g.callFails(f, x, tnames)
 		case *ast.Ident:
-			// A failing helper passed as a value, as in t.Run(name, check).
-			found = found || g.failing["f:"+x.Name]
+			// A call of a failing helper, or one passed as a value, as in
+			// t.Run(name, check); not a local or a field of the same name.
+			found = found || (!locals[x.Name] && !fields[x] && g.failing["f:"+x.Name])
 		}
 		return !found
 	})
@@ -140,6 +143,65 @@ func (l *linter) externalGroup(path string) *group {
 	g := newGroup(l, files)
 	l.external[path] = g
 	return g
+}
+
+// canFail reports whether fd may fail a test at all: it is declared in a
+// _test.go file or in a file that imports testing (a testsupport helper).
+// Production code cannot, so a production method that calls a mock's
+// failing method of the same name does not make its callers assert.
+func (g *group) canFail(fd *ast.FuncDecl) bool {
+	f := g.fileOf[fd]
+	if f.test {
+		return true
+	}
+	for _, path := range f.imports {
+		if path == "testing" {
+			return true
+		}
+	}
+	return false
+}
+
+// localNames collects the names fd declares (parameters, results, :=, var
+// and range variables) and the identifiers used as a field, method or
+// composite-literal key. Neither refers to a package-level helper, even
+// when one of that name exists.
+func localNames(fd *ast.FuncDecl) (map[string]bool, map[*ast.Ident]bool) {
+	locals := map[string]bool{}
+	fields := map[*ast.Ident]bool{}
+	define := func(exprs ...ast.Expr) {
+		for _, e := range exprs {
+			if id, ok := e.(*ast.Ident); ok {
+				locals[id.Name] = true
+			}
+		}
+	}
+	ast.Inspect(fd, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.SelectorExpr:
+			fields[x.Sel] = true
+		case *ast.KeyValueExpr:
+			if id, ok := x.Key.(*ast.Ident); ok {
+				fields[id] = true
+			}
+		case *ast.AssignStmt:
+			if x.Tok == token.DEFINE {
+				define(x.Lhs...)
+			}
+		case *ast.RangeStmt:
+			define(x.Key, x.Value)
+		case *ast.ValueSpec:
+			for _, id := range x.Names {
+				locals[id.Name] = true
+			}
+		case *ast.Field:
+			for _, id := range x.Names {
+				locals[id.Name] = true
+			}
+		}
+		return true
+	})
+	return locals, fields
 }
 
 // testingNames collects the parameter names of fd and of its closures whose

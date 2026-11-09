@@ -106,3 +106,26 @@ func quiet(t *testing.T) {
 type harness struct{ t *testing.T }
 
 func (h harness) check() { h.t.Errorf("x") }
+
+type mockDB struct{ t *testing.T }
+
+func (m mockDB) Exec() { m.t.Fatal("unexpected Exec") }
+
+// TestProductionMethodClash only calls production code; the mock's failing
+// Exec shares a name with a call inside it.
+func TestProductionMethodClash(t *testing.T) {
+	s := &svc{db: mockDB{}}
+	s.Run()
+}
+
+// TestLocalShadowsHelper names a local after the failing helper inner.
+func TestLocalShadowsHelper(t *testing.T) {
+	inner := 1
+	_ = inner
+}
+
+// TestFieldNamedLikeHelper uses a field and a key named after mustFail.
+func TestFieldNamedLikeHelper(t *testing.T) {
+	o := struct{ mustFail int }{mustFail: 1}
+	_ = o.mustFail
+}

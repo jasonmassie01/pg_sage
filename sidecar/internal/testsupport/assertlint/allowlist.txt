@@ -9,6 +9,7 @@
 #             use testdb.SkipUnlessLive(t) so a run without a server skips
 
 noassert cmd/pg_sage_sidecar/audit_wiring_test.go TestRunChainVerificationWithoutSources
+noassert cmd/pg_sage_sidecar/main_process_char_test.go TestMainProcessChild
 noassert internal/analyzer/analyzer_test.go TestDispatchRewriteFindings_NilDispatcher
 noassert internal/api/auth_handlers_test.go TestLogoutHandler_WithCookie
 noassert internal/api/config_handlers_test.go TestConfigGlobalGetHandler_NilStore
@@ -28,6 +29,7 @@ noassert internal/executor/coverage_phase2_test.go TestPhase2_CheckSchemaCreate_
 noassert internal/executor/coverage_phase2_test.go TestPhase2_CheckSignalBackend_PostgresUser
 noassert internal/executor/coverage_phase2_test.go TestPhase2_VerifyGrants_FullIntegration
 noassert internal/executor/dispatcher_test.go TestDispatchEvent_NilDispatcher
+noassert internal/executor/mode_test.go TestManualMode_SkipsRunCycle
 noassert internal/logwatch/fanout_test.go TestFanoutSubscriber_ImplementsLogSource
 noassert internal/logwatch/fanout_test.go TestFanoutSubscriber_StopIsNoop
 noassert internal/logwatch/tailer_test.go TestTailer_Stop_NilFile
