@@ -139,7 +139,9 @@ type WALDirectory struct {
 	ReadyFiles float64
 }
 
-// SequenceRunway is one ascending sequence against its effective limit.
+// SequenceRunway is one sequence against its effective limit in its
+// direction of travel: the maximum side for an ascending sequence, the
+// minimum side for a descending one (Limit is then negative).
 type SequenceRunway struct {
 	Sequence     string
 	DataType     string
@@ -149,17 +151,33 @@ type SequenceRunway struct {
 	MinValue     float64
 	MaxValue     float64
 	TypeMax      float64
+	TypeMin      float64
 	OwnerColumn  string
 	OwnerType    string
 	OwnerTypeMax float64
+	OwnerTypeMin float64
 	Limit        float64
 	Fraction     float64
 }
 
+// Descending reports a sequence that counts down (a negative increment).
+func (s SequenceRunway) Descending() bool { return s.Increment < 0 }
+
 // BindingLimit names the limit the sequence reaches first: an owning
-// column narrower than the sequence, an explicit MAXVALUE below the
-// sequence's type, or the sequence's own type.
+// column narrower than the sequence, an explicit bound inside the
+// sequence's type (MAXVALUE; MINVALUE for a descending sequence, also
+// reported as LimitExplicitMax), or the sequence's own type.
 func (s SequenceRunway) BindingLimit() string {
+	if s.Descending() {
+		switch {
+		case Known(s.OwnerTypeMin) && s.OwnerTypeMin > s.MinValue:
+			return LimitColumnType
+		case Known(s.TypeMin) && s.MinValue > s.TypeMin:
+			return LimitExplicitMax
+		default:
+			return LimitSequenceType
+		}
+	}
 	switch {
 	case Known(s.OwnerTypeMax) && s.OwnerTypeMax < s.MaxValue:
 		return LimitColumnType
@@ -362,9 +380,11 @@ func Sequences(res Result) ([]SequenceRunway, error) {
 			DataType: strField(r, "data_type"), Increment: floatField(r, "increment_by"),
 			Cycle: boolField(r, "cycle"), LastValue: floatField(r, "last_value"),
 			MinValue: floatField(r, "min_value"), MaxValue: floatField(r, "max_value"),
-			TypeMax: floatField(r, "type_max"), OwnerColumn: strField(r, "owner_column"),
-			OwnerType: strField(r, "owner_type"), OwnerTypeMax: floatField(r, "owner_type_max"),
-			Limit: floatField(r, "effective_limit"), Fraction: floatField(r, "fraction_used")})
+			TypeMax: floatField(r, "type_max"), TypeMin: floatField(r, "type_min"),
+			OwnerColumn: strField(r, "owner_column"), OwnerType: strField(r, "owner_type"),
+			OwnerTypeMax: floatField(r, "owner_type_max"),
+			OwnerTypeMin: floatField(r, "owner_type_min"),
+			Limit:        floatField(r, "effective_limit"), Fraction: floatField(r, "fraction_used")})
 	}
 	return out, nil
 }

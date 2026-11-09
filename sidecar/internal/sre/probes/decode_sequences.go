@@ -49,7 +49,8 @@ func SequenceCoverageOf(res Result) (SequenceCoverage, error) {
 			c.Reported++
 		}
 	}
-	c.Truncated = res.Truncated
+	cut, _ := rows[0]["listing_cut"].(bool) // v4: the listing left one out
+	c.Truncated = res.Truncated || cut
 	return c, nil
 }
 

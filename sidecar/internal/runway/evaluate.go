@@ -99,7 +99,7 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 		r = walRunway(tr)
 		horizon, critical = opts.DiskHorizon, opts.DiskCritical
 	case probes.RunwaySequence:
-		if cycles(in.Sequences, tr.Subject) {
+		if sq, _ := sequenceOf(in.Sequences, tr.Subject); sq.Cycle {
 			return Runway{}, false
 		}
 		r = Runway{Category: CategorySequence, ObjectType: "sequence",
@@ -114,6 +114,9 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 	}
 	r.Detail = trendDetail(tr, horizon)
 	r.Title, r.Recommendation = trendWords(r, tr)
+	if sq, ok := sequenceOf(in.Sequences, tr.Subject); ok && sq.Descending() {
+		describeDescending(&r, tr)
+	}
 	return r, true
 }
 
@@ -141,13 +144,25 @@ func walRunway(tr probes.RunwayTrend) Runway {
 		Subject: "slot " + tr.Subject}
 }
 
-func cycles(ss []probes.SequenceRunway, name string) bool {
+// sequenceOf returns the sequence name of the current reading.
+func sequenceOf(ss []probes.SequenceRunway, name string) (probes.SequenceRunway, bool) {
 	for _, s := range ss {
 		if s.Sequence == name {
-			return s.Cycle
+			return s, true
 		}
 	}
-	return false
+	return probes.SequenceRunway{}, false
+}
+
+// describeDescending shows a descending sequence's own values (its series
+// is sampled negated, see sequenceSeries) and says that it falls.
+func describeDescending(r *Runway, tr probes.RunwayTrend) {
+	r.Detail["limit"], r.Detail["last_value"] = -tr.Limit, -tr.LastValue
+	r.Detail["direction"] = "descending"
+	r.Recommendation = fmt.Sprintf("Sequence %s falls at %s per second (measured over "+
+		"%d samples). A read-only pre-incident investigation explains what drives it; "+
+		"act before its binding limit is reached.", tr.Subject,
+		probes.FormatValue(round2(tr.RatePerS)), tr.Samples)
 }
 
 func trendDetail(tr probes.RunwayTrend, horizon time.Duration) map[string]any {

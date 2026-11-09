@@ -34,6 +34,10 @@ type Monitor struct {
 	// seqMu serializes sequence reads; seq is the last reading.
 	seqMu sync.Mutex
 	seq   sequenceReading
+	// keepMu guards seqKeep, the sequences with samples in the lookback
+	// that the next sequence reading lists whatever their rank.
+	keepMu  sync.Mutex
+	seqKeep []string
 	// sizeMu guards sizeAt, when the last size this monitor sampled was
 	// measured.
 	sizeMu sync.Mutex
@@ -112,6 +116,7 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 		problems = append(problems, fmt.Errorf("runway_trends: %w", err))
 	} else {
 		m.noteTruncation(set)
+		m.noteSequenceSeries(set)
 	}
 	in := EvalInput{XID: snap.XID, Trends: set.Trends, TrendsOK: err == nil,
 		TrendsTruncated: set.Truncated, TrendsLastKind: set.LastKind, Tables: snap.Tables,

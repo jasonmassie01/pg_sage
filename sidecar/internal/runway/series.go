@@ -80,10 +80,21 @@ func BuildSamples(s Snapshot, opts Options) []Sample {
 	for _, sq := range s.Sequences {
 		if s.SequencesOK && s.SequencesFresh && !sq.Cycle && probes.Known(sq.LastValue) &&
 			probes.Known(sq.Limit) {
-			add(probes.RunwaySequence, sq.Sequence, sq.LastValue, sq.LastValue, sq.Limit)
+			v, limit := sequenceSeries(sq)
+			add(probes.RunwaySequence, sq.Sequence, v, v, limit)
 		}
 	}
 	return out
+}
+
+// sequenceSeries is a sequence's sampled value and limit: as read for an
+// ascending sequence, negated for a descending one (-last_value rising
+// toward -limit), so one projection serves both directions.
+func sequenceSeries(sq probes.SequenceRunway) (value, limit float64) {
+	if sq.Descending() {
+		return -sq.LastValue, -sq.Limit
+	}
+	return sq.LastValue, sq.Limit
 }
 
 func capacity(opts Options) float64 {

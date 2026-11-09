@@ -92,7 +92,12 @@ func readSequence(obs []Observation, samples walEvidence,
 	e := seqEvidence{last: last, ev: samples.last.EvidenceID}
 	if first, ok := sequenceIn(samples.first, last.Sequence); ok && samples.n > 1 &&
 		probes.Known(first.LastValue) {
+		// Measured in the direction of travel: a descending sequence
+		// advances as its value falls.
 		e.delta, e.deltaKnown = last.LastValue-first.LastValue, true
+		if last.Descending() {
+			e.delta = -e.delta
+		}
 		e.span = samples.last.Result.ObservedAt.Sub(samples.first.Result.ObservedAt).Seconds()
 		e.consumeFact = Fact{EvidenceID: e.ev, Text: fmt.Sprintf("the sequence advanced "+
 			"from %s to %s in %s s", probes.FormatValue(first.LastValue),
@@ -162,6 +167,9 @@ func limitText(limit string, s probes.SequenceRunway) string {
 	case probes.LimitColumnType:
 		return fmt.Sprintf("the owning column %s's type %s", s.OwnerColumn, s.OwnerType)
 	case probes.LimitExplicitMax:
+		if s.Descending() {
+			return "the sequence's explicit MINVALUE"
+		}
 		return "the sequence's explicit MAXVALUE"
 	default:
 		return fmt.Sprintf("the sequence's type %s", s.DataType)
