@@ -99,7 +99,7 @@ func ruleSageFootprint(fp sageFootprint, dbBytes int64, limitPct int) []Finding 
 		Severity:         "warning",
 		ObjectType:       "database",
 		ObjectIdentifier: fp.database,
-		Title: fmt.Sprintf("Sage data uses %.1f%% of database %s (limit %d%%)",
+		Title: fmt.Sprintf("pg_sage data uses %.1f%% of database %s (limit %d%%)",
 			share, fp.database, limitPct),
 		Detail: map[string]any{
 			"sage_bytes":     fp.total,

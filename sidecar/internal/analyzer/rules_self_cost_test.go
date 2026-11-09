@@ -53,7 +53,8 @@ func TestRuleSelfCost_FindingSurvivesSelfMonitorFilter(t *testing.T) {
 	if isSelfMonitoringFinding(f) {
 		t.Fatalf("self-cost finding is dropped as self-monitoring: %+v", f)
 	}
-	if selfmonitor.IsFinding(selfmonitor.FindingFields{ObjectIdentifier: f.ObjectIdentifier,
+	if selfmonitor.IsFinding(selfmonitor.FindingFields{Category: f.Category,
+		ObjectType: f.ObjectType, ObjectIdentifier: f.ObjectIdentifier,
 		Title: f.Title, Detail: f.Detail}) {
 		t.Fatal("self-cost finding matches the list API's self-monitoring exclusion")
 	}

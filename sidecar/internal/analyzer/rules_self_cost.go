@@ -79,9 +79,9 @@ func (a *Analyzer) collectorPeriod() time.Duration {
 }
 
 // ruleSelfCost raises a warning when the known DB time per collector
-// cycle exceeds budgetMs. The finding is about the database's bill, not a
-// sage object, so it names neither pg_sage nor a sage table (the
-// self-monitoring filter would drop it).
+// cycle exceeds budgetMs. The finding is about pg_sage's bill on the
+// database, keyed by the database name; the self-monitoring filter exempts
+// its category, so it may name pg_sage (and a database named sage).
 func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
 	if !selfcost.OverBudget(c, budgetMs) {
 		return nil
@@ -91,7 +91,7 @@ func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
 		Severity:         "warning",
 		ObjectType:       "database",
 		ObjectIdentifier: c.Database,
-		Title: fmt.Sprintf("Sage monitoring used %.0f ms of database time per collector "+
+		Title: fmt.Sprintf("pg_sage monitoring used %.0f ms of database time per collector "+
 			"cycle on %s (budget %d ms)", c.DBTimeMsPerCycle, c.Database, budgetMs),
 		Detail: map[string]any{
 			"db_time_ms_per_cycle":   c.DBTimeMsPerCycle,
