@@ -201,7 +201,8 @@ func importNames(f *ast.File) map[string]string {
 	return names
 }
 
-// getenvReads flags os.Getenv or os.LookupEnv of DSNEnv outside testdb.
+// getenvReads flags os.Getenv or os.LookupEnv of DSNEnv, spelled as the
+// literal or as testdb.EnvName, outside testdb.
 func (l *linter) getenvReads(f *parsedFile) []Finding {
 	if strings.HasPrefix(f.rel, testdbDir) {
 		return nil
@@ -229,8 +230,14 @@ func readsDSN(f *parsedFile, call *ast.CallExpr) bool {
 		len(call.Args) != 1 {
 		return false
 	}
-	lit, ok := call.Args[0].(*ast.BasicLit)
-	return ok && lit.Value == `"`+DSNEnv+`"`
+	switch arg := call.Args[0].(type) {
+	case *ast.BasicLit:
+		return arg.Value == `"`+DSNEnv+`"`
+	case *ast.SelectorExpr:
+		return arg.Sel.Name == "EnvName" &&
+			strings.HasSuffix(f.imports[identName(arg.X)], "/internal/testdb")
+	}
+	return false
 }
 
 // pkgCall splits a call of the form x.F(...) into x and F.

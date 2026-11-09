@@ -93,7 +93,10 @@ func TestScanFlagsDSNReadsOutsideTestdb(t *testing.T) {
 	}
 	store := filepath.Join(root, "internal", "store", "store_test.go")
 	x := filepath.Join(root, "internal", "testdbx", "x_test.go")
+	queue := filepath.Join(root, "internal", "queue", "queue_test.go")
 	want := []string{
+		Finding{RuleGetenv, "internal/queue/queue_test.go",
+			lineOf(t, queue, "os.Getenv(tdb.EnvName)"), "openPool"}.String(),
 		Finding{RuleGetenv, "internal/store/store_test.go",
 			lineOf(t, store, "var pkgDSN"), "<package>"}.String(),
 		Finding{RuleGetenv, "internal/store/store_test.go",

@@ -5,8 +5,9 @@
 #
 # Format: <rule> <path from sidecar/> <function>
 #   noassert  a Test function with no failing call
-#   getenv    a test-file read of SAGE_TEST_DATABASE_URL outside internal/testdb;
-#             use testdb.SkipUnlessLive(t) so a run without a server skips
+#   getenv    a test-file read of SAGE_TEST_DATABASE_URL (or testdb.EnvName)
+#             outside internal/testdb; use testdb.SkipUnlessLive(t) so a
+#             run without a server skips
 
 noassert cmd/pg_sage_sidecar/audit_wiring_test.go TestRunChainVerificationWithoutSources
 noassert cmd/pg_sage_sidecar/main_process_char_test.go TestMainProcessChild
@@ -48,6 +49,7 @@ getenv e2e/fleet_test.go adminDSN
 getenv e2e/fleet_test.go dbDSN
 getenv e2e/pipeline_helpers_test.go pipelineURL
 getenv e2e/smoke_test.go databaseURL
+getenv internal/agentguard/helpers_db_test.go leakedRoles
 getenv internal/api/coverage_phase2_test.go phase2DSN
 getenv internal/api/preflight_surface_helpers_test.go surfacePool
 getenv internal/auth/integration_test.go setupTestPool
@@ -76,11 +78,13 @@ getenv internal/forecaster/coverage_phase2_test.go phase2DSN
 getenv internal/forecaster/growth_integration_test.go testDSN
 getenv internal/ha/ha_test.go testDSN
 getenv internal/ha/preflight_evidence_test.go TestPreflightEvidenceUnknownHAWithholdsPolicyAdmission
+getenv internal/leader/postgres_db_test.go dbPool
 getenv internal/ledger/postgres_test.go requireLedgerPostgres
 getenv internal/migration/detector_regression_test.go fixtureDSN
 getenv internal/migration/integration_test.go requireDB
 getenv internal/migration/runtime/postgres_test.go TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN
 getenv internal/migration/self_exclusion_test.go selfloadDSN
+getenv internal/optimizer/admission_test.go TestTableContext_FromTheSnapshot
 getenv internal/querystore/preflight_evidence_test.go TestPreflightEvidenceInteriorResetWindow
 getenv internal/rca/fastpath_db_test.go dialTest
 getenv internal/rca/lifecycle_db_test.go lifecycleDB
@@ -89,16 +93,30 @@ getenv internal/rca/preflight_process_test.go preflightRCAChild
 getenv internal/rca/rca_integration_test.go requireDB
 getenv internal/rca/subject_gone_db_test.go holdBackend
 getenv internal/retention/cleanup_test.go testDSN
+getenv internal/runway/measure_db_test.go TestMeasureDisk_WithoutPGMonitorMeasuresNothing
 getenv internal/schema/bootstrap_lock_test.go requireMultiConnDB
 getenv internal/schema/lint/integration_test.go requireDB
 getenv internal/schema/schema_test.go testDSN
 getenv internal/smoke/smoke_test.go smokeDSN
+getenv internal/sre/action/live_db_test.go startLiveChain
+getenv internal/sre/coordinator_live_db_test.go holdSession
+getenv internal/sre/probes/catalog_actions_db_test.go startActiveChain
+getenv internal/sre/probes/catalog_db_test.go TestCatalog_ConnectionSaturationCountsRealSessions
+getenv internal/sre/probes/catalog_db_test.go TestCatalog_IdleInTransactionSession
+getenv internal/sre/probes/catalog_db_test.go TestCatalog_ReplicationProbesOnAPrimaryWithoutReplicas
+getenv internal/sre/probes/catalog_db_test.go startChain
+getenv internal/sre/probes/catalog_runway_db_test.go TestCatalog_XminHorizonListsHolders
+getenv internal/sre/probes/catalog_runway_db_test.go runwayRestrictedPool
+getenv internal/sre/probes/runner_db_test.go TestRunner_NoPrivilegeIsTyped
+getenv internal/sre/probes/self_exclusion_db_test.go otherRolePool
+getenv internal/sre/probes/visibility_db_test.go restrictedPool
 getenv internal/startup/coverage_boost_test.go coverageDSN
 getenv internal/startup/startup_test.go testDSN
 getenv internal/store/config_store_integration_test.go setupConfigTestDB
 getenv internal/store/integration_helpers_test.go testDSN
 getenv internal/store/migration_safety_findings_test.go requireMigrationSafetyDB
 getenv internal/tuner/db_coverage_test.go tunerTestDSN
+getenv internal/tuning/testmain_test.go dbPool
 getenv internal/value/postgres_test.go requireValuePostgres
 getenv internal/verify/postgres_integration_test.go verifyIntegrationPool
 getenv internal/workload/workload_db_test.go testPool
