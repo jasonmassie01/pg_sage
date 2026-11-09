@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 // DetailKey is the finding Detail key that carries an Intent.
@@ -51,15 +53,14 @@ type Intent struct {
 }
 
 // NormalizeProvider maps the cloud environment names pg_sage detects to
-// the providers this package supports ("" when unsupported).
+// the providers this package supports ("" when unsupported): those whose
+// settings change through a parameter group or Cloud SQL database flags.
 func NormalizeProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "rds", "aws":
-		return "rds"
-	case "aurora":
-		return "aurora"
-	case "cloud-sql", "cloudsql", "gcp":
-		return "cloud-sql"
+	profile, _ := prov.Lookup(provider)
+	switch profile.ConfigMechanism {
+	case prov.ConfigParameterGroup, prov.ConfigClusterParameterGroup,
+		prov.ConfigCloudSQLFlags:
+		return profile.Name
 	}
 	return ""
 }
