@@ -1211,7 +1211,7 @@
   "llm.cooldown_seconds": {
     "type": "int",
     "default": 300,
-    "doc": "Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit.",
+    "doc": "Dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 failures in a row (or one 401/403) calls pause this long, then one probe decides.",
     "class": "derivable"
   },
   "llm.enabled": {
@@ -1458,7 +1458,7 @@
   "llm.timeout_seconds": {
     "type": "int",
     "default": 30,
-    "doc": "HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency.",
+    "doc": "Timeout of each LLM request attempt; 429 and 5xx replies are retried, up to 4 attempts. Reasoning models get at least 120 s per attempt. Low values protect the analyzer cycle.",
     "class": "derivable"
   },
   "llm.token_budget_daily": {

@@ -714,7 +714,8 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.model` | (none) | Model name |
 | `llm.api_key` | (none) | API key (supports `${ENV_VAR}` expansion) |
 | `llm.auth` | `api_key` | `databricks` authenticates each request using the official SDK and restricts credentials to the configured workspace HTTPS origin |
-| `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
+| `llm.timeout_seconds` | `30` | Timeout of each request attempt (see [provider errors and the circuit breaker](#llm-provider-errors-and-the-circuit-breaker)). Reasoning models (o-series, gpt-5+, Gemini 2.5+/3, DeepSeek R1, QwQ) get at least 120 s per attempt |
+| `llm.cooldown_seconds` | `300` | Duplicate-prompt window and circuit-breaker cooldown |
 | `llm.token_budget_daily` | `500000` | Maximum tokens per day for each LLM client (every per-database general and optimizer client gets its own copy) unless `fleet_token_budget_daily` is set; `0` means no cap. A stricter policy `budgets.llm_tokens_daily` wins |
 | `llm.global_token_budget_daily` | `0` | Process-wide daily cap across every LLM client (Ask Sage keeps its own). `0` derives today's effective total: the sum of every client's `token_budget_daily`, where a running fleet budget (`fleet_token_budget_daily` in fleet mode) stands in for the per-database clients it scopes; unlimited if any counted client is, so the default changes no spend. Hot-reloadable; reported as `global` in `GET /api/v1/llm/status` |
 | `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of indexes another valid index covers, each marked for approval when the database has standbys (primary statistics miss replica reads). Never-scanned indexes are proposed only by the `unused_index` rule, with its first-seen clock and its recently-created, FK-only and standby guards |
@@ -733,6 +734,45 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `tuner.llm_enabled` | `true` | Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way |
 | `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |
 | `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
+
+### LLM provider errors and the circuit breaker
+
+Each LLM client classifies every provider error and reports the class as
+`last_error_class` in `GET /api/v1/llm/status`:
+
+| Class | Replies | Retried | Counts toward the breaker |
+|---|---|---|---|
+| `caller` | 400, 404, 413, 422 and other 4xx (for example a prompt over the context length; Databricks and Gemini's OpenAI-compatible endpoint answer 400) | no | never |
+| `auth` | 401, 403 | no | opens the breaker at once |
+| `rate` | 429 | yes, after `Retry-After` | once, when the last attempt is still 429 |
+| `server` | 500, 502, 503, 504 (other statuses are not retried) | yes | once per request |
+| `timeout`, `transport` | an attempt that ran out of time, a refused or reset connection | no | once per request |
+| `malformed` | a 200 whose body is not a completion | no | once per request |
+
+A chat request makes at most 4 attempts. It waits the provider's `Retry-After` (delay
+seconds or an HTTP date, capped at 30 s; Ollama sends none) or else 1, 4 and 16 s, and
+never waits past the caller's deadline: a wait that would end after it returns the
+provider's error at once. Each attempt has its own `llm.timeout_seconds` deadline,
+raised to 120 s for reasoning models. The request is charged to the budgets once, however
+many attempts it takes. Tool calls (incident narration, Ask Sage, the tuning agent) make
+one attempt, and their 429 returns at once without counting. A request-shape rejection
+that pg_sage adapts to (`llm.token_parameter`, `llm.tool_reasoning_effort`) is re-sent and
+never counts, and an empty answer is charged but never counts.
+
+The breaker is per client (in fleet mode, per database and purpose). Three counted
+failures in a row, or one `auth` failure, open it: requests fail fast for
+`llm.cooldown_seconds`. After the cooldown the next request is the single half-open
+probe while every other request still fails fast; the probe's success closes the
+breaker and its failure reopens it for another cooldown. A probe that ends without a
+verdict (a `caller` rejection, a cancellation, a budget refusal) lets the next request
+probe. Changing `llm.endpoint`, `llm.api_key`, `llm.auth` or `llm.model` at runtime
+closes the breaker, since the failures were the old provider's. Each client in the status
+reports `circuit_state` (`closed`, `open`, `half_open`; `circuit_open` stays true only
+while requests are refused), `last_error_class`, `last_error_at`, `last_success_at` and
+`consecutive_failures`. `POST /api/v1/llm/test` (admin) sends one tiny request through
+the normal path, charged to the budget and admitted as the half-open probe even inside
+the cooldown, and returns `class` (`ok` or an error class), `latency_ms`, `tokens` and
+`circuit_state`, so a fixed key or endpoint can close the breaker at once.
 
 ### Tuning agent
 

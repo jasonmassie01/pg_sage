@@ -161,6 +161,7 @@ All under `/api/v1/`. **Auth = session cookie unless noted.** "Role" = extra
 | POST | `/llm/models` | — | Discover models from provider |
 | GET | `/llm/status` | — | LLM manager status / circuit / budget |
 | POST | `/llm/budget/reset` | **admin** | Reset daily token budget |
+| POST | `/llm/test` | **admin** | Send one charged test request (the breaker's half-open probe); returns class and latency |
 | POST | `/explain` | operator+ | LLM EXPLAIN narrative (v0.9) |
 
 ### 4.3 Incidents (`router.go:270-292`)

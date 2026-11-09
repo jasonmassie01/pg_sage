@@ -42,6 +42,13 @@ A call holds its `max_tokens` against each budget while it is in flight. A UTC d
 or `POST /api/v1/llm/budget/reset` restarts spend at zero but keeps those holds, so a
 call that straddles a reset is charged in full to the new day.
 
+Retries do not multiply the charge: a call retried after a 429 or a 5xx (up to 4
+attempts, see [provider errors and the circuit
+breaker](configuration.md#llm-provider-errors-and-the-circuit-breaker)) is reserved and
+charged once. A provider bills each attempt it served, so a flapping provider can still
+cost more on its own invoice than pg_sage counts. `POST /api/v1/llm/test` is a real
+request of a few tokens, charged like any other.
+
 ## Token-Consuming Features
 
 | Feature | Default Interval | Avg Tokens/Call | Calls/Day (default) | Daily Estimate |
