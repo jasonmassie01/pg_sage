@@ -15,6 +15,9 @@ const (
 	ByPGSage      = "pg_sage"          // pg_sage's own connection
 	ByStatement   = "statement"        // pg_sage's own, linked to an action by its SQL
 	ByRole        = "role"             // an agent role connected directly
+	// ByActionTag is pg_sage's own session running one decided action,
+	// named 'pg_sage action:<decision id>' by the executor (audit-06).
+	ByActionTag = "action_tag"
 	// ByApplicationUnverified is an agent's application_name set by a role
 	// that is not an agent role: kept for forensics, attributed to no one.
 	ByApplicationUnverified = "application_name_unverified"
@@ -33,6 +36,8 @@ type Attribution struct {
 	Principal string // id or name from application_name
 	Role      string // the agent role, when attributed by role
 	ActionID  int64
+	// DecisionID is the decision an action tag names (ByActionTag only).
+	DecisionID int64
 }
 
 // Attribute decides whether e belongs to an agent principal or to pg_sage.
@@ -51,6 +56,10 @@ func Attribute(e logwatch.LogEntry, ownRole string) (Attribution, bool) {
 			a.ActionID, _ = strconv.ParseInt(m[2], 10, 64)
 		}
 		return a, true
+	}
+	if id, ok := selfmonitor.ParseActionApplicationName(e.Application); ok &&
+		ownRole != "" && e.User == ownRole {
+		return Attribution{By: ByActionTag, DecisionID: id}, true
 	}
 	if e.Application == selfmonitor.ApplicationName && ownRole != "" && e.User == ownRole {
 		return Attribution{By: ByPGSage}, true
