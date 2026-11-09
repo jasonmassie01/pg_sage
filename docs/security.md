@@ -286,6 +286,34 @@ again deletes the unhashed sessions and restores the constraint.
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
 
+### Route Authorization
+
+Signing in proves who the caller is; each route then decides which roles may
+use it. Every API route declares one gate when it is registered, and the
+router refuses a route that declares none:
+
+| Gate | Who may call it |
+|---|---|
+| Public | Anyone: login, OAuth sign-in, `auth/mode`, `/health`, `/ready`, the dashboard |
+| Self-authenticating | The handler checks its own credential: MCP bearer tokens, signed change events and SLI pushes, signed ChatOps callbacks, the specialist contract, break-glass, OIDC link grants |
+| Viewer | Any signed-in role (admin, operator, viewer); reads only |
+| Viewer write | Any signed-in role, on a short documented list of writes: logout, "sign out everywhere else", Ask Sage |
+| Operator | Operators and admins |
+| Admin | Admins only |
+
+A signed-in user whose role is none of admin, operator or viewer is refused
+everywhere except public and self-authenticating routes. The gate sits on the
+route itself, not only in front of the router, so a route answers `401`
+without a session and `403` for a role it does not allow even if the session
+middleware is bypassed.
+
+Only a canonical path can skip session authentication. A path with `.` or
+`..` segments, doubled slashes or their percent-encoded spellings
+(`/api/v1/specialist/../users`, `/api/v1/specialist/%2e%2e/users`,
+`/api/v1/mcp%2F..%2Fusers`) needs a session even when it starts like a public
+or self-authenticating route; the router redirects `..` paths to their clean
+form first, and that form is checked again.
+
 ### User Offboarding
 
 Deactivate a user rather than deleting them: **Deactivate** on the Users page,
