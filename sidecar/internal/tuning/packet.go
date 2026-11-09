@@ -74,13 +74,24 @@ func (p *packetBuilder) text() string {
 	return p.b.String()
 }
 
+// packetLimit is the packet's byte cap: maxPacketBytes, or the context
+// budget (llm.context_budget_tokens in bytes) when that is smaller. A
+// budget of 0 adds no trim (llm-05).
+func packetLimit(budgetBytes int) int {
+	if budgetBytes > 0 && budgetBytes < maxPacketBytes {
+		return budgetBytes
+	}
+	return maxPacketBytes
+}
+
 // packetFor builds the packet of case c on snapshot cur.
 func (a *Agent) packetFor(ctx context.Context, c Case, cur *collector.Snapshot, w Workload,
 	confirmed []facts.Fact, inflight map[string][]string) packet {
 	header := fmt.Sprintf("Case %s (%s): %s\n", c.ID, c.Kind, c.Reason)
 	instructions := answerInstructions(a.allowedTypes())
-	p := &packetBuilder{evidence: evidenceSet{},
-		limit: maxPacketBytes - len(header) - len(instructions) - 128}
+	limit := packetLimit(a.settings.ContextBudgetBytes) - len(header) -
+		len(instructions) - 128
+	p := &packetBuilder{evidence: evidenceSet{}, limit: max(limit, 0)}
 	p.line("Case %s, %s: %s", c.ID, c.Kind, c.Reason)
 	writeStatements(p, c)
 	a.writeTables(ctx, p, c, cur, w)

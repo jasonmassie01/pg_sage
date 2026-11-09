@@ -50,6 +50,9 @@ type Settings struct {
 	// DailyTokenLimit caps the model tokens per UTC day, charged durably
 	// to the database (0 = no daily cap; the spend is still recorded).
 	DailyTokenLimit int64
+	// ContextBudgetBytes is llm.context_budget_tokens in bytes: the case
+	// packet trims to it when it is below maxPacketBytes (0: no trim).
+	ContextBudgetBytes int
 }
 
 // Deps are the agent's collaborators. Model may be nil (the agent then

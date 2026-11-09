@@ -3,6 +3,7 @@ package explain
 import (
 	"context"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/pg-sage/sidecar/internal/llm"
 )
@@ -38,9 +39,8 @@ func (ex *Explainer) enhanceWithLLM(
 		maxTokens = 4096
 	}
 
-	raw, _, err := ex.llmClient.Chat(
-		ctx, explainSystemPrompt, explainUserPrompt(result), maxTokens,
-	)
+	user := explainUserPrompt(result, ex.llmClient.ContextBudgetBytes())
+	raw, _, err := ex.llmClient.Chat(ctx, explainSystemPrompt, user, maxTokens)
 	if err != nil {
 		ex.logFn(
 			"WARN", "explain: LLM enhancement failed: %v", err,
@@ -51,12 +51,45 @@ func (ex *Explainer) enhanceWithLLM(
 	return !ex.applyLLMResponse(raw, result)
 }
 
+// maxExplainPlanBytes is explain's own cap on the plan text it sends.
+const maxExplainPlanBytes = 65536
+
+// explainPlanLimit is the plan's byte cap: maxExplainPlanBytes, or the
+// context budget (llm.context_budget_tokens in bytes) when that is
+// smaller. A budget of 0 adds no trim (llm-05).
+func explainPlanLimit(budgetBytes int) int {
+	if budgetBytes > 0 && budgetBytes < maxExplainPlanBytes {
+		return budgetBytes
+	}
+	return maxExplainPlanBytes
+}
+
 // explainUserPrompt delimits the query and plan as untrusted data with
 // literals and comments redacted: plan filters carry row values (G3-B07).
-func explainUserPrompt(result *ExplainResult) string {
+// The plan is clipped after redaction, so a cut never exposes a literal.
+func explainUserPrompt(result *ExplainResult, budgetBytes int) string {
+	plan := clipPlan(llm.SanitizeForLLM(string(result.PlanJSON)),
+		explainPlanLimit(budgetBytes))
 	return fmt.Sprintf("Query:\n%s\n\nEXPLAIN plan:\n%s",
 		llm.SanitizePromptSQL("query", result.Query),
-		llm.SanitizePromptSQL("plan", string(result.PlanJSON)))
+		llm.UntrustedData("plan", plan))
+}
+
+// clipPlan cuts plan to limit bytes on a rune boundary and says so.
+func clipPlan(plan string, limit int) string {
+	if len(plan) <= limit {
+		return plan
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(plan[cut]) {
+		cut--
+	}
+	return plan[:cut] + planClipNote(cut, len(plan))
+}
+
+// planClipNote tells the model the plan JSON was cut.
+func planClipNote(kept, total int) string {
+	return fmt.Sprintf("\n... plan truncated: %d of %d bytes kept", kept, total)
 }
 
 // llmExplainResponse is the expected JSON shape from the LLM.

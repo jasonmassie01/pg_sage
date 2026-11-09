@@ -93,6 +93,8 @@ func tuningSettings(c *config.Config, cloudEnv, dbName string, hostMem int64) tu
 		Thresholds:      tuning.DefaultThresholds(),
 		MaxNewPerTable:  c.LLM.Optimizer.MaxNewPerTable,
 		DailyTokenLimit: tuningDailyTokens(c),
+		// llm.context_budget_tokens trims the case packet (llm-05).
+		ContextBudgetBytes: llm.ContextBudgetBytes(c.LLM),
 	}
 }
 
