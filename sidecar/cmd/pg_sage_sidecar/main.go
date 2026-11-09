@@ -128,6 +128,8 @@ func main() {
 	// Config hot-reload.
 	stopConfigWatcher := startConfigWatcher()
 	defer stopConfigWatcher()
+	// Global settings another replica saves converge here (config-05).
+	startConfigResync(shutdownCtx)
 
 	// Prometheus server.
 	promServer := startPrometheusServer(cfg.Prometheus.ListenAddr)

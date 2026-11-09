@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,6 +17,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		return nil
 	}
 	generation := uint64(1)
+	var durable config.DurableSource
 	if controlPool != nil {
 		// Before any ConfigStore exists: they capture the keyring (CG-01).
 		if err := initConfigSecrets(context.Background(), controlPool); err != nil {
@@ -31,6 +33,8 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 			return err
 		}
 		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
+		// Replicas sharing this database converge on its generation.
+		durable = api.GlobalDurableSource{Store: configStore, Base: loadFileConfigBase}
 	}
 	// After persisted overrides: the notices describe the effective values.
 	noticeWindowMeaningChange(cfg.Trust.MaintenanceWindow, logWarn)
@@ -44,6 +48,9 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, owners...,
 	)
+	if durable != nil {
+		configController.SetDurableSource(durable)
+	}
 	return nil
 }
 
@@ -84,6 +91,14 @@ func applyWatchedConfig(updated *config.Config) error {
 		)
 	}
 	if applyErr != nil {
+		// Another replica saved first. The resync re-reads this file with
+		// the durable overrides, so the reload takes effect (config-05).
+		if errors.Is(applyErr, store.ErrConfigGenerationConflict) &&
+			resyncConfigFromStore(shutdownCtx) {
+			logInfo("config", "hot-reload applied through a resync to generation %d",
+				configController.Desired().Generation)
+			return nil
+		}
 		return applyErr
 	}
 	logInfo("config", "hot-reload desired=%d active=%d pending_restart=%d",
