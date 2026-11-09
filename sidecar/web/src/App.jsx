@@ -160,10 +160,9 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     return () => { cancelled = true }
   }, [authAttempt])
 
+  const fleetQuery = useAPI(user ? '/api/v1/databases' : null, 30000)
   const { data: fleetData, loading: fleetLoading, error: fleetError,
-    refetch: refetchFleet, updatedAt: fleetUpdatedAt } = useAPI(
-    user ? '/api/v1/databases' : null, 30000
-  )
+    refetch: refetchFleet, updatedAt: fleetUpdatedAt } = fleetQuery
 
   useEffect(() => {
     const linked = new URLSearchParams(route.split('?')[1] || '').get('database')
@@ -278,7 +277,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
       case '/advanced':
         return { title: 'Snapshot & metrics',
           node: <Dashboard database={effectiveDB}
-            onSelectDB={setSelectedDB} user={user} /> }
+            onSelectDB={setSelectedDB} user={user} fleet={fleetQuery} /> }
       case '/advanced/findings':
         return { title: 'Findings explorer',
           node: <CasesPage key={route} database={effectiveDB} user={user} /> }

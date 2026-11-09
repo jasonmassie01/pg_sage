@@ -355,18 +355,23 @@ function RecentRecommendationsPanel({ findings, error, onRetry }) {
   )
 }
 
-export function Dashboard({ database, onSelectDB, user }) {
+// FLEET_LOADING stands in for App's fleet query before it is passed.
+const FLEET_LOADING = { data: null, loading: true, error: null, refetch: null }
+
+// Dashboard renders App's /api/v1/databases query (`fleet`, the useAPI
+// result) instead of polling the fleet a second time (dashboard-08).
+export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING }) {
   const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
-  const fleet = useAPI('/api/v1/databases')
   const { data, loading, refetch } = fleet
   const sep = dbParam ? '&' : '?'
   // Newest first: the API default sort is severity (G9-B08).
   const findings = useAPI(
     `/api/v1/findings${dbParam}${sep}limit=5&sort=last_seen&order=desc`)
+  // The fleet summary covers every database, so any database's event counts.
   useLiveRefetch(['findings', 'health'], refetch)
-  useLiveRefetch(['findings'], findings.refetch)
+  useLiveRefetch(['findings'], findings.refetch, { database })
 
   const [lastVisitAt, setLastVisitAt] = useState(() => {
     const v = readPref('pg_sage_findings_visit', null)

@@ -10,6 +10,7 @@ import { ShadowModePage } from './ShadowModePage'
 import { TrustPage } from './TrustPage'
 import { ValuePage } from './ValuePage'
 import { DerivedSettings } from './settings/DerivedSettings'
+import { useAPI } from '../hooks/useAPI'
 
 // dashboard-01: every page that used to swap itself for an ErrorBanner on
 // any error keeps its content under a failed refresh and shows the strip,
@@ -34,11 +35,17 @@ vi.mock('../hooks/useAPI', () => ({
   },
 }))
 
+// App owns the fleet poll and hands Dashboard its query (dashboard-08).
+function DashboardWithFleet() {
+  return <Dashboard database="all" onSelectDB={() => {}} user={user}
+    fleet={useAPI('/api/v1/databases')} />
+}
+
 const user = { role: 'admin' }
 const pages = [
   ['AlertLogPage', <AlertLogPage database="all" />, /Disk filling/],
   ['AutonomyPage', <AutonomyPage database="prod" user={user} />, null],
-  ['Dashboard', <Dashboard database="all" onSelectDB={() => {}} user={user} />, null],
+  ['Dashboard', <DashboardWithFleet />, null],
   ['DatabasePage', <DatabasePage database="prod" />, /Database: prod/],
   ['FactsPage', <FactsPage database="prod" user={user} />, null],
   ['SettingsPage', <SettingsPage database="all" />, null],

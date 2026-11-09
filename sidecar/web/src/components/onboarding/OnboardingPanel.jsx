@@ -12,6 +12,27 @@ function onboardingURL(database) {
   return `/api/v1/onboarding?database=${encodeURIComponent(database)}`
 }
 
+// A checklist with open steps refreshes every 10 s while the operator works
+// through it; a finished one every 60 s (dashboard-08).
+const SETUP_POLL_MS = 10000
+const DONE_POLL_MS = 60000
+
+// visibleSteps drops the MCP token step, which Databricks Apps cannot use.
+function visibleSteps(entry, platformManaged) {
+  return (entry?.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
+}
+
+function entryComplete(entry, platformManaged) {
+  const required = visibleSteps(entry, platformManaged).filter(s => !s.optional)
+  return required.length > 0 && required.every(s => s.done)
+}
+
+function setupComplete(data, platformManaged) {
+  const entries = data?.databases
+  return Array.isArray(entries) && entries.length > 0 &&
+    entries.every(entry => entryComplete(entry, platformManaged))
+}
+
 function formatSeconds(s) {
   return `${Math.round(Number(s) * 10) / 10} s`
 }
@@ -40,9 +61,8 @@ function StepItem({ step }) {
 }
 
 function DatabaseChecklist({ entry, onGrant, platformManaged }) {
-  const steps = (entry.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
-  const required = steps.filter(s => !s.optional)
-  const complete = required.length > 0 && required.every(s => s.done)
+  const steps = visibleSteps(entry, platformManaged)
+  const complete = entryComplete(entry, platformManaged)
   const grantStep = steps.find(s => s.id === 'grant_more')
   return (
     <div className="space-y-2">
@@ -73,7 +93,13 @@ function DatabaseChecklist({ entry, onGrant, platformManaged }) {
 }
 
 export function OnboardingPanel({ database, authMode }) {
-  const { data, error, refetch } = useAPI(onboardingURL(database), 10000)
+  const platformManaged = authMode === 'databricks_app'
+  const [done, setDone] = useState(false)
+  const { data, error, refetch } = useAPI(onboardingURL(database),
+    done ? DONE_POLL_MS : SETUP_POLL_MS)
+  // The cadence follows the latest answer (state adjusted during render).
+  const nowDone = setupComplete(data, platformManaged)
+  if (nowDone !== done) setDone(nowDone)
   const [granting, setGranting] = useState(null)
   if (error && !data) {
     return (
@@ -90,7 +116,7 @@ export function OnboardingPanel({ database, authMode }) {
       <h2 id="getting-started" className="text-lg font-semibold">Getting started</h2>
       {entries.map(entry => (
         <DatabaseChecklist key={entry.database} entry={entry} onGrant={setGranting}
-          platformManaged={authMode === 'databricks_app'} />
+          platformManaged={platformManaged} />
       ))}
       {granting && (
         <GrantMoreDialog database={granting} onClose={() => setGranting(null)}

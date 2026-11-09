@@ -109,3 +109,64 @@ describe('OnboardingPanel', () => {
     expect(screen.getAllByRole('list', { name: 'Setup checklist' })).toHaveLength(2)
   })
 })
+
+// dashboard-08: a finished checklist changes rarely, so it polls every 60 s.
+// No concurrent access tests: pure renders over a mocked hook.
+describe('OnboardingPanel poll cadence', () => {
+  const doneSteps = steps.map(s => ({ ...s, done: s.optional ? s.done : true }))
+  const entry = extra => ({ ...onboarding.databases[0], ...extra })
+  const lastInterval = () => api.useAPI.mock.calls.at(-1)[1]
+
+  beforeEach(() => {
+    api.useAPI.mockReset()
+  })
+
+  it('polls every 10 s while a required step is open', () => {
+    respond(() => onboarding)
+    render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(10000)
+  })
+
+  it('polls every 60 s once every required step is done', () => {
+    respond(() => ({ databases: [entry({ steps: doneSteps })] }))
+    render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+  })
+
+  it('keeps 10 s while any database still has an open step', () => {
+    respond(() => ({ databases: [entry({ steps: doneSteps }), entry({ database: 'b' })] }))
+    render(<OnboardingPanel database="all" />)
+    expect(lastInterval()).toBe(10000)
+  })
+
+  it('keeps 10 s with no data, no databases or no steps', () => {
+    respond(() => null)
+    const first = render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(10000)
+    first.unmount()
+    respond(() => ({ databases: [] }))
+    const second = render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(10000)
+    second.unmount()
+    respond(() => ({ databases: [entry({ steps: [] })] }))
+    render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(10000)
+  })
+
+  it('ignores the MCP token step in Databricks Apps when judging done', () => {
+    const managed = doneSteps.map(s => (s.id === 'mcp_token'
+      ? { ...s, optional: false, done: false } : s))
+    respond(() => ({ databases: [entry({ steps: managed })] }))
+    render(<OnboardingPanel database="app" authMode="databricks_app" />)
+    expect(lastInterval()).toBe(60000)
+  })
+
+  it('returns to 10 s when a step reopens', () => {
+    respond(() => ({ databases: [entry({ steps: doneSteps })] }))
+    const { rerender } = render(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(60000)
+    respond(() => onboarding)
+    rerender(<OnboardingPanel database="app" />)
+    expect(lastInterval()).toBe(10000)
+  })
+})
