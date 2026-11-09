@@ -76,26 +76,31 @@ func statusIn(st Status, set []Status) bool {
 
 // Expire ends, by a person's choice, a proposed or confirmed fact that is
 // no longer true. An expired slot consumer is unregistered in the same
-// transaction.
+// transaction. The fact never comes back by itself (missing_since is
+// cleared).
 func (s *Store) Expire(ctx context.Context, id int64, reason string) (Fact, error) {
-	return s.expire(ctx, id, reason, true)
+	return s.expire(ctx, id, reason, true, false)
 }
 
 // expire ends fact id. With unregister false the slot registry is left as
 // it is: an automatic expiry is nobody's decision, and unregistering would
-// widen what the WAL custodian may do.
+// widen what the WAL custodian may do. byAbsence expires only a fact still
+// marked absent and keeps missing_since, so the same confirmation can come
+// back with its subject; every other expiry clears it.
 func (s *Store) expire(ctx context.Context, id int64, reason string,
-	unregister bool) (Fact, error) {
+	unregister, byAbsence bool) (Fact, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
 	}
 	defer rollbackQuietly(ctx, tx)
 	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts
-		SET status = 'expired', expired_reason = $2, updated_at = now()
+		SET status = 'expired', expired_reason = $2, updated_at = now(),
+		    missing_since = CASE WHEN $3::boolean THEN missing_since END
 		WHERE id = $1 AND `+ownTypes+` AND status IN ('proposed', 'confirmed')
+		  AND (NOT $3::boolean OR missing_since IS NOT NULL)
 		RETURNING `+factColumns,
-		id, clip(cleanText(reason), 500)))
+		id, clip(cleanText(reason), 500), byAbsence))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, expireRefusal(ctx, tx, id)
 	}

@@ -23,8 +23,11 @@ type WorkerOptions struct {
 	ModelInterval time.Duration
 	// Notify is told about every new or reopened proposal (a fact card).
 	Notify func(context.Context, Fact)
-	LogFn  func(string, string, ...any)
-	Now    func() time.Time
+	// NotifyExpired is told about every confirmed fact re-verification
+	// expired: a person's decision that no longer binds (facts-08).
+	NotifyExpired func(context.Context, Fact)
+	LogFn         func(string, string, ...any)
+	Now           func() time.Time
 }
 
 // Worker imports declared contracts, runs the detectors (and the model),
@@ -104,6 +107,14 @@ func (w *Worker) RunOnce(ctx context.Context) RunStats {
 		w.proposeAll(ctx, props, fresh, &stats)
 	}
 	w.askModel(ctx, fresh, &stats, fail)
+	w.reverify(ctx, fresh, &stats, fail)
+	return stats
+}
+
+// reverify re-checks the facts; every confirmed fact it expires is logged
+// and notified, since it stops binding without anyone deciding so.
+func (w *Worker) reverify(ctx context.Context, fresh map[int64]bool, stats *RunStats,
+	fail func(string, ...any)) {
 	ids := make([]int64, 0, len(fresh))
 	for id := range fresh {
 		ids = append(ids, id)
@@ -113,7 +124,16 @@ func (w *Worker) RunOnce(ctx context.Context) RunStats {
 		fail("re-verify facts: %v", err)
 	}
 	stats.Expired = len(expired)
-	return stats
+	for _, f := range expired {
+		if !f.ConfirmationLost() {
+			continue
+		}
+		w.opts.LogFn("WARN", "facts: confirmed fact #%d (%s, confirmed by %s) expired and "+
+			"no longer binds: %s", f.ID, f.Describe(), f.DecidedBy, f.ExpiredReason)
+		if w.opts.NotifyExpired != nil {
+			w.opts.NotifyExpired(ctx, f)
+		}
+	}
 }
 
 func (w *Worker) askModel(ctx context.Context, fresh map[int64]bool, stats *RunStats,

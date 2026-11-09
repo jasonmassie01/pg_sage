@@ -126,6 +126,9 @@ type Fact struct {
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	LastVerifiedAt *time.Time        `json:"last_verified_at,omitempty"`
+	// MissingSince is when re-verification first found the subject absent
+	// (nil while it exists). An absent confirmed fact keeps binding.
+	MissingSince *time.Time `json:"missing_since,omitempty"`
 }
 
 // Decision is an operator's confirm or reject of a fact. ExpectHash, when
@@ -198,6 +201,13 @@ func (f Fact) Hash() string {
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:16])
+}
+
+// ConfirmationLost reports whether an expired fact had been confirmed: a
+// person's decision stopped binding. Only a decision sets decided_by, and
+// a reopened proposal clears it, so a proposal's expiry never qualifies.
+func (f Fact) ConfirmationLost() bool {
+	return f.Status == StatusExpired && f.DecidedBy != "" && f.DecidedAt != nil
 }
 
 // binds reports whether the fact is confirmed and unexpired at now.

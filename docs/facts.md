@@ -225,14 +225,31 @@ withheld for the cycle (logged) and the earlier batch stays open.
 
 ## Expiry and re-verification
 
-Every 15 minutes pg_sage re-checks proposed and confirmed facts. A fact whose subject no
-longer names anything (the schema was dropped, the slot removed) expires after an hour of
-absence, so in practice at the first re-check an hour or more after the absence was first
-seen. A fact that a detector or the model proposes again in the same pass counts as present.
-The absence clock is kept in memory, per pg_sage process: a restart, or the subject coming
-back, starts it over, so a sidecar restarted more often than hourly never expires an absent
-fact (it keeps binding, which is the safe side). A fact with an expiry date expires on that
-date, and stops binding from that moment. Expired facts are purged after
+Every 15 minutes pg_sage re-checks proposed and confirmed facts. A fact that a detector or the
+model proposes again in the same pass counts as present. When a fact's subject no longer names
+anything (the schema was dropped, the slot removed), pg_sage records when it was first seen
+absent (`missing_since`, kept in `sage.facts`, so a restart does not reset it) and clears it
+when the subject is back. The fact expires once the absence has lasted its grace:
+
+| Fact | Absence grace |
+|---|---|
+| Confirmed, proposed by an operator or the model | `facts.confirmed_absence_days` (default 7, 1-90) |
+| Proposed (not yet decided), or proposed by a detector | 1 hour |
+
+A confirmed fact keeps binding while its subject is absent (it matches nothing until the
+subject is back), so a table rebuilt and swapped in, a blue/green schema swap or a Debezium
+slot recreated after a connector reset keeps its confirmation. The Facts page and the API show
+`missing_since` ("absent since"). When a confirmed fact expires this way, pg_sage logs a
+warning and sends a `fact_expired` notification (warning severity) naming the fact and who
+confirmed it. If the same subject then comes back and a detector or the model proposes the
+same value within `facts.confirmed_absence_days` of the expiry, the confirmation is restored:
+the fact is confirmed again with its original `decided_by` and `decided_at`, the decision note
+gains "subject reappeared; confirmation by ... kept", and no card is sent. A different value,
+a proposal after that window, a fact you expired yourself and a fact whose expiry date passed
+reopen as a proposal for you to decide; a rejected fact never reopens. A confirmed fact whose
+subject no longer parses (after an upgrade changed the subject rules) is reported and kept
+confirmed; one fact that cannot be checked never stops the others being checked. A fact with
+an expiry date expires on that date, and stops binding from that moment. Expired facts are purged after
 `retention.actions_days`; proposed, confirmed and rejected facts are kept (a rejected fact is
 the record that you said no). Expiring a slot consumer fact yourself unregisters its slot, and
 so does the expiry date of a fact you confirmed. A slot that is gone keeps its registration

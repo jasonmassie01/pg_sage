@@ -83,6 +83,7 @@ function FactEvidence({ fact }) {
 
 function FactDecisionInfo({ fact }) {
   const expires = formatFactDate(fact.expires_at)
+  const absent = formatFactDate(fact.missing_since)
   return (
     <div className="text-xs space-y-0.5" style={muted}>
       {fact.provenance && (
@@ -93,6 +94,12 @@ function FactDecisionInfo({ fact }) {
       {fact.decision_note && <div>Note: {fact.decision_note}</div>}
       {expires && <div data-testid={`fact-expires-${fact.id}`}>Expires: {expires}</div>}
       {fact.expired_reason && <div>Expired: {fact.expired_reason}</div>}
+      {absent && (
+        <div data-testid={`fact-absent-${fact.id}`}>
+          Absent since {absent}
+          {fact.status === 'confirmed' && ' (still binds until the absence grace ends)'}
+        </div>
+      )}
     </div>
   )
 }
