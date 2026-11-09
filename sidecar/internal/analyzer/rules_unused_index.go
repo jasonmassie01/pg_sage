@@ -136,6 +136,9 @@ func unusedSince(
 		since = now
 	}
 	extras.FirstSeen[ident] = since
+	if extras.zeroScanSeen != nil {
+		extras.zeroScanSeen[ident] = true
+	}
 	if idx.IndexRelID != 0 {
 		extras.IndexOID[ident] = idx.IndexRelID
 	}

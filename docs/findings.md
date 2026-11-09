@@ -46,7 +46,18 @@ A statistics reset makes zero scans meaningless, so it restarts the clock. Reset
 database's statistics epoch (`pg_stat_database.stats_reset` or the postmaster start). The
 window never starts before the last reset. A counter that went down, or an index dropped
 and recreated under the same name (new oid), also restarts it. The finding shows
-`unused_since` and `stats_epoch`. Before an autonomous `DROP INDEX`, the executor re-checks
+`unused_since` and `stats_epoch`.
+
+The clock survives sidecar restarts. The window is measured from the first persisted
+zero-scan sighting, kept in `sage.unused_index_clock` (one row per index at zero scans, in
+each database's own sage schema in fleet mode; PG 14-18). A row counts only while the
+index has the same oid. Until the analyzer has read that table, no `unused_index` finding
+resolves. An open zero-scan finding from before the table existed gets its clock from the
+earliest day of snapshot history that shows the same index continuously at zero scans
+(one document a day, at most window + 1 days). Without such history the clock starts at
+the restart and the finding stays open until the clock reaches the window. A scan, a
+dropped or recreated index, a counter that went down or a statistics reset still resolve
+it. Before an autonomous `DROP INDEX`, the executor re-checks
 live that the index still has zero scans and that no reset happened inside the window.
 If either check fails, it does not drop the index.
 

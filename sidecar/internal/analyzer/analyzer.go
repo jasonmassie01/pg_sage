@@ -112,6 +112,9 @@ type Analyzer struct {
 	historyBytes historyStorageCache
 	// factFilter applies the confirmed facts (roadmap 2.3); nil: none.
 	factFilter FactFilter
+	// unusedClock persists the unused_index zero-scan clock (rules-04);
+	// only touched by the cycle goroutine.
+	unusedClock *unusedClockStore
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
@@ -149,10 +152,11 @@ func New(
 			IndexOID:          make(map[string]uint32),
 			InactiveSlotSince: make(map[string]time.Time),
 		},
-		logFn:      logFn,
-		recs:       newRecommendationStore(pool),
-		selfCost:   selfcost.NewMeter(),
-		selfBudget: newSelfBudgetMeter(),
+		logFn:       logFn,
+		recs:        newRecommendationStore(pool),
+		selfCost:    selfcost.NewMeter(),
+		selfBudget:  newSelfBudgetMeter(),
+		unusedClock: newUnusedClockStore(newPGUnusedClockDB(pool)),
 	}
 }
 

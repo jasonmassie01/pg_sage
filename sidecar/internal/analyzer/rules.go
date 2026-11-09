@@ -37,6 +37,9 @@ type RuleExtras struct {
 	InactiveSlotPending bool
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
+	// zeroScanSeen records the identities whose zero-scan clock the
+	// unused_index rule read this cycle (rules-04); nil outside a cycle.
+	zeroScanSeen map[string]bool
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.
