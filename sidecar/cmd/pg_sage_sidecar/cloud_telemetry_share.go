@@ -47,12 +47,19 @@ var processCloudTelemetry = newCloudTelemetryShare()
 // acquire returns key's shared runtime and resolver for database, building
 // it under the share's own context and starting its poller when it is the
 // first; release (idempotent) gives it back, and the last release stops
-// the poller and waits for it.
+// the poller and waits for it. A new generation of the instance's only
+// database (a reload) builds a fresh runtime, replacing the entry while
+// the old generation still holds the old one; with other members the
+// runtime is kept and polls at once.
 func (s *cloudTelemetryShare) acquire(key, database string, build cloudBuild) (
 	*cloudtel.Runtime, managedparam.Resolver, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e := s.entries[key]
+	reload := e != nil && e.members[database] > 0
+	if reload && len(e.members) == 1 {
+		e = nil // its only database reloads: rebuild it, as before sharing
+	}
 	if e == nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		rt, resolver := build(ctx)
@@ -64,6 +71,8 @@ func (s *cloudTelemetryShare) acquire(key, database string, build cloudBuild) (
 			cancel: cancel, done: make(chan struct{})}
 		s.entries[key] = e
 		go s.run(ctx, key, e)
+	} else if reload {
+		e.rt.PollNow() // other members hold it: poll at once instead
 	}
 	e.refs++
 	e.members[database]++

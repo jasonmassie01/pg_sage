@@ -26,7 +26,7 @@ const (
 // nextDelay). report is called when a failure begins or its class or
 // reason changes, and onRecover when a poll succeeds after a reported
 // failure; either may be nil. An Unavailable runtime has nothing to
-// poll: Run waits for ctx and reports nothing.
+// poll: Run waits for ctx and reports nothing. PollNow ends a wait early.
 func (r *Runtime) Run(ctx context.Context, report func(error), onRecover func()) {
 	defer r.invalidate()
 	if r.src == nil {
@@ -44,6 +44,7 @@ func (r *Runtime) Run(ctx context.Context, report func(error), onRecover func())
 		case <-ctx.Done():
 			return
 		case <-r.after(r.schedule(err)):
+		case <-r.wake:
 		}
 	}
 }

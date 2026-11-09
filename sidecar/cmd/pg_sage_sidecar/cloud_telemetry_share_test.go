@@ -194,15 +194,42 @@ func TestCloudTelemetryShareLastReleaseStops(t *testing.T) {
 }
 
 // A reload builds the database's next runtime generation before the old
-// one stops: the member stays registered until both release.
-func TestCloudTelemetryShareSameDatabaseTwice(t *testing.T) {
+// one stops. When the database is the instance's only member, the new
+// generation rebuilds the runtime (fresh credentials, an immediate poll),
+// as before sharing; the old one stops with the old generation.
+func TestCloudTelemetryShareReloadOfOnlyMemberRebuilds(t *testing.T) {
 	share, f := newCloudTelemetryShare(), newShareFixture()
-	rt, _, gen1 := share.acquire("rds|gen", "share-gen", f.build("share-gen"))
-	_, _, gen2 := share.acquire("rds|gen", "share-gen", f.build("share-gen"))
+	old, _, gen1 := share.acquire("rds|gen", "share-gen", f.build("share-gen"))
+	waitPoll(t, f)
+	fresh, _, gen2 := share.acquire("rds|gen", "share-gen", f.build("share-gen"))
 	t.Cleanup(gen2)
+	waitPoll(t, f) // the rebuilt runtime polls at once
+	if fresh == old || f.buildCount() != 2 || cloudtel.Lookup("share-gen") != fresh {
+		t.Fatalf("reload reused the runtime: builds %d", f.buildCount())
+	}
 	gen1()
-	if cloudtel.Lookup("share-gen") != rt || share.size() != 1 {
+	if cloudtel.Lookup("share-gen") != fresh || share.size() != 1 {
 		t.Fatal("the old generation's release dropped the new one")
+	}
+}
+
+// With other members the runtime is kept (they hold it), and the reloaded
+// member's new generation makes it poll at once.
+func TestCloudTelemetryShareReloadOfOneMemberPollsNow(t *testing.T) {
+	share, f := newCloudTelemetryShare(), newShareFixture()
+	rt, _, a := share.acquire("rds|genm", "share-genm-a", f.build("share-genm-a"))
+	_, _, b1 := share.acquire("rds|genm", "share-genm-b", f.build("share-genm-b"))
+	t.Cleanup(a)
+	waitPoll(t, f)
+	again, _, b2 := share.acquire("rds|genm", "share-genm-b", f.build("share-genm-b"))
+	t.Cleanup(b2)
+	waitPoll(t, f) // no tick: the reload woke the poller
+	if again != rt || f.buildCount() != 1 {
+		t.Fatalf("a member's reload rebuilt a shared runtime: builds %d", f.buildCount())
+	}
+	b1()
+	if cloudtel.Lookup("share-genm-b") != rt {
+		t.Fatal("the old generation's release unregistered the member")
 	}
 }
 

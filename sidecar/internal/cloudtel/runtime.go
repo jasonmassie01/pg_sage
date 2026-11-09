@@ -41,6 +41,7 @@ type Runtime struct {
 	limits   Limits
 	now      func() time.Time
 	after    func(time.Duration) <-chan time.Time
+	wake     chan struct{} // PollNow: end Run's wait (nil: nothing to poll)
 	pollMu   sync.Mutex
 
 	mu          sync.RWMutex
@@ -73,7 +74,8 @@ func NewRuntime(src Source, opts RuntimeOptions) (*Runtime, error) {
 		opts.After = time.After
 	}
 	return &Runtime{src: src, database: opts.Database, interval: opts.Interval,
-		limits: opts.Limits, now: opts.Now, after: opts.After}, nil
+		limits: opts.Limits, now: opts.Now, after: opts.After,
+		wake: make(chan struct{}, 1)}, nil
 }
 
 // Unavailable is a runtime that only reports why telemetry cannot be
@@ -81,6 +83,18 @@ func NewRuntime(src Source, opts RuntimeOptions) (*Runtime, error) {
 func Unavailable(database, provider, reason string) *Runtime {
 	return &Runtime{database: database, provider: provider, reason: reason,
 		interval: DefaultInterval, now: time.Now, after: time.After}
+}
+
+// PollNow ends Run's current wait, so the next poll runs at once (a reload
+// of a database that shares the runtime). Wakes coalesce; it never blocks.
+func (r *Runtime) PollNow() {
+	if r.wake == nil {
+		return
+	}
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Database is the runtime's database name.
