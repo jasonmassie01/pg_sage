@@ -63,13 +63,15 @@ type Output struct {
 }
 
 // Evidence is a citable result: ID is its durable id, Digest the hash of
-// the stored result, Label a short "what and status" line, Text the
-// grounding text claims are checked against.
+// the stored result, Label a short "what and status" line, Text what the
+// model is shown. Values, when set, are the result's typed values as
+// exact tokens, and claims are grounded against them instead of Text.
 type Evidence struct {
 	ID     string
 	Digest string
 	Label  string
 	Text   string
+	Values []string
 }
 
 // Errors.

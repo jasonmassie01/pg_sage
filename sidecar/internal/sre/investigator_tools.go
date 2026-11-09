@@ -267,10 +267,11 @@ func (s *investigatorSession) collect(ctx context.Context,
 	if err != nil {
 		return agentloop.Output{}, agentloop.Abort(err)
 	}
-	text := resultForModel(res)
+	text, values := resultForModel(res)
 	return agentloop.Output{Status: string(res.Status), Text: text,
 		Evidence: &agentloop.Evidence{ID: string(ev.ID), Digest: hex.EncodeToString(ev.SHA256),
-			Label: string(res.ProbeID) + " " + string(res.Status), Text: text}}, nil
+			Label: string(res.ProbeID) + " " + string(res.Status), Text: text,
+			Values: values}}, nil
 }
 
 // commit stores one result as a step (evaluating -> needs_evidence ->
@@ -303,7 +304,9 @@ func (s *investigatorSession) commit(ctx context.Context, res probes.Result) (Ev
 
 // resultForModel is a result as the model sees it: every text value
 // scrubbed of secrets and PII-like literals, at most maxResultRows rows.
-func resultForModel(res probes.Result) string {
+// It returns the text and the typed values of the same rows, which
+// ground the claims that cite the read (sre-03).
+func resultForModel(res probes.Result) (string, []string) {
 	clean := res
 	clean.Reason, clean.Error = scrub(res.Reason), scrub(res.Error)
 	clean.Rows = make([]probes.Row, 0, len(res.Rows))
@@ -321,5 +324,5 @@ func resultForModel(res probes.Result) string {
 	if res.Error != "" {
 		text += "\nerror: " + clean.Error
 	}
-	return truncateRunes(text, maxResultRunes)
+	return truncateRunes(text, maxResultRunes), clean.GroundingValues(maxResultRows)
 }
