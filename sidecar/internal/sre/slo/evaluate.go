@@ -51,6 +51,9 @@ type Status struct {
 	StateSince      time.Time    `json:"state_since"`
 	BurnStartedAt   *time.Time   `json:"burn_started_at,omitempty"`
 	DefinitionHash  string       `json:"definition_hash"`
+	// CoverageUnverified is true for a Prometheus SLI without a coverage
+	// query: its windows are taken as fully covered and fresh.
+	CoverageUnverified bool `json:"coverage_unverified"`
 }
 
 // Burning reports whether any rule fires (page or ticket).
@@ -97,6 +100,7 @@ func Evaluate(o Objective, rules []Rule, windows map[time.Duration]Window, budge
 	}
 	sort.Strings(st.Unknown)
 	st.CustomerImpact = o.Kind == KindApp && st.Burning()
+	st.CoverageUnverified = o.Source == SourcePrometheus && o.CoverageQuery == ""
 	budget = classify(budget, o)
 	if b, ok := budget.BurnRate(o.Target); ok {
 		left := 1 - b

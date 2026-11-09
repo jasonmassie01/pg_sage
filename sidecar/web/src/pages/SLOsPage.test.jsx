@@ -79,6 +79,22 @@ describe('SLOs page', () => {
     expect(within(row).getByTestId('slo-budget')).toHaveTextContent('unknown')
   })
 
+  it('badges a Prometheus SLO whose window coverage is unverified', () => {
+    const unverified = { ...pageSLO, name: 'search', state: 'ok', fast_burning: false,
+      customer_impact: false, coverage_unverified: true }
+    responses['/api/v1/sre/slos'] = {
+      data: { slos: [pageSLO, unverified, unknownProxy], unavailable: [] },
+    }
+    render(<SLOsPage database="all" />)
+    const row = screen.getByText('search').closest('tr')
+    expect(within(row).getByTestId('slo-coverage-unverified'))
+      .toHaveTextContent('coverage unverified')
+    const paged = screen.getByText('checkout').closest('tr')
+    expect(within(paged).queryByTestId('slo-coverage-unverified')).toBeNull()
+    const proxy = screen.getByText('db_latency').closest('tr')
+    expect(within(proxy).queryByTestId('slo-coverage-unverified')).toBeNull()
+  })
+
   it('shows the change feed only for one selected database', () => {
     const { unmount } = render(<SLOsPage database="all" />)
     expect(screen.queryByTestId('change-feed')).toBeNull()

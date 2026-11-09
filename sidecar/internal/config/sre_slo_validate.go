@@ -117,13 +117,15 @@ func (s SRESLOConfig) validateSource(prefix string, o SREObjectiveConfig) error 
 			{hasWindow(o.BadQuery) && hasWindow(o.EligibleQuery),
 				"bad_query and eligible_query must use $window"},
 			{o.ResetsQuery == "" || hasWindow(o.ResetsQuery), "resets_query must use $window"},
+			{o.CoverageQuery == "" || hasWindow(o.CoverageQuery),
+				"coverage_query must use $window"},
 		})
 	case "push":
 		return firstProblem(prefix, []check{
 			{s.Push.HMACSecret != "" || DatabricksAppMode(), "a push source needs sre.slo.push.hmac_secret outside Databricks Apps"},
 			{!DatabricksAppMode() || o.Database != "", "a Databricks App push source needs an explicit database"},
-			{o.BadQuery == "" && o.EligibleQuery == "" && o.ResetsQuery == "",
-				"a push source takes no queries"},
+			{o.BadQuery == "" && o.EligibleQuery == "" && o.ResetsQuery == "" &&
+				o.CoverageQuery == "", "a push source takes no queries"},
 		})
 	}
 	return fmt.Errorf("%ssource must be prometheus or push, got %q", prefix, o.Source)

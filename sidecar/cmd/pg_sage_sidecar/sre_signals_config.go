@@ -19,7 +19,8 @@ func sloObjectives(cfg config.SRESLOConfig, database string) ([]slo.Objective, e
 			Owner: o.Owner, Kind: slo.KindApp, Source: slo.SourceKind(o.Source),
 			Target: o.Target, Window: o.Window(), BadQuery: o.BadQuery,
 			EligibleQuery: o.EligibleQuery, ResetsQuery: o.ResetsQuery,
-			MinEligible: o.MinEligible(), StaleAfter: o.StaleAfter()}
+			CoverageQuery: o.CoverageQuery, MinEligible: o.MinEligible(),
+			StaleAfter: o.StaleAfter()}
 		if err := obj.Validate(); err != nil {
 			return nil, err
 		}

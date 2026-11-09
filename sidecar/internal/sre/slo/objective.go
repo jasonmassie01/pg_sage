@@ -157,6 +157,9 @@ type Objective struct {
 	BadQuery      string
 	EligibleQuery string
 	ResetsQuery   string
+	// CoverageQuery, optional, returns the earliest sample time (Unix
+	// seconds) over $window; without it coverage is unverified.
+	CoverageQuery string
 	// MinEligible is the least eligible events a window needs to be known.
 	MinEligible float64
 	// StaleAfter is how old the newest stored sample may be (zero: 5m).
@@ -193,7 +196,8 @@ func (o Objective) Validate() error {
 }
 
 func (o Objective) validateSource() error {
-	queries := o.BadQuery != "" || o.EligibleQuery != "" || o.ResetsQuery != ""
+	queries := o.BadQuery != "" || o.EligibleQuery != "" || o.ResetsQuery != "" ||
+		o.CoverageQuery != ""
 	var problem string
 	switch {
 	case o.Kind == KindApp && strings.HasPrefix(o.Name, ProxyPrefix):
@@ -225,6 +229,9 @@ func promQueryProblem(o Objective) string {
 	}
 	if o.ResetsQuery != "" && !strings.Contains(o.ResetsQuery, "$window") {
 		return "the resets query must use $window"
+	}
+	if o.CoverageQuery != "" && !strings.Contains(o.CoverageQuery, "$window") {
+		return "the coverage query must use $window"
 	}
 	return ""
 }
