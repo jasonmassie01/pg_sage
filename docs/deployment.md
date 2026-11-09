@@ -324,8 +324,9 @@ curl -b cookies.txt https://pg-sage.example.com/api/v1/cases
 ```
 
 Expose the API/dashboard only on trusted networks or behind your normal
-identity-aware proxy. Prometheus metrics remain on the separate
-`prometheus.listen_addr`.
+identity-aware proxy. Prometheus metrics stay on the separate
+`prometheus.listen_addr` unless you also
+[serve them on the API listener](#scraping-through-the-api-listener).
 
 ---
 
@@ -341,6 +342,55 @@ scrape_configs:
       - targets: ["pg-sage:9187"]
 ```
 
+The separate listener (`prometheus.listen_addr`, default `127.0.0.1:9187`) has
+no authentication and no TLS. Port 9187 is also postgres_exporter's default:
+when both run on one host, move one of them (`SAGE_PROMETHEUS_ADDR=127.0.0.1:9188`,
+say). If pg_sage cannot bind the address it logs an ERROR, keeps running, and
+exports `pg_sage_metrics_listener_up 0` where it still serves `/metrics` (the API
+route below). `prometheus.listen_addr: ""` opens no separate listener.
+
+### Scraping through the API listener
+
+Set `prometheus.serve_on_api: true` to serve `GET /metrics` on the API listener,
+with its TLS and rate limit, behind a token holding the `metrics` scope. Use it
+when only the API port is reachable or when scrapes must be encrypted;
+optionally set `prometheus.listen_addr: ""` to close the separate listener. The
+route needs the control database (pg_sage refuses to start without one) and
+serves the same snapshot as the separate listener, so a scrape adds no
+database load.
+
+An admin creates the scrape token (the secret is shown once). `metrics` must
+be the token's only scope, and it is an operator token owned by an operator
+or admin; it grants no MCP tool, and the MCP endpoint refuses it:
+
+```bash
+curl -b cookies.txt -X POST https://pg-sage.example.com/api/v1/mcp/tokens \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"prometheus","kind":"operator","scopes":["metrics"],
+           "databases":["*"],"expires_in_days":90,"owner_user_id":OWNER_ID}'
+```
+
+Store the `token` value in a file readable only by Prometheus, and rotate it
+before it expires (90 days at most): create the next token, switch the file,
+then revoke the old one with `DELETE /api/v1/mcp/tokens/{id}`.
+
+```yaml
+scrape_configs:
+  - job_name: pg_sage
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/pg_sage_metrics_token
+    static_configs:
+      - targets: ["pg-sage.example.com:8080"]
+```
+
+A request without a valid token gets 401, a valid token without the `metrics`
+scope 403, and 503 when tokens cannot be checked; none of these carries metric
+names. Revoking the token, or deactivating its owner, ends its scrapes at once.
+Fleet and meta mode serve one `/metrics` per sidecar, on either listener.
+
 ### Key Metrics to Alert On
 
 | Metric | Alert Condition | Description |
@@ -355,6 +405,7 @@ scrape_configs:
 | `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 | `pg_sage_metrics_refresh_success{database,source}` | == 0 for 5m | A database's metrics could not be read (its series are omitted) |
 | `time() - pg_sage_metrics_refresh_timestamp_seconds` | > 3 x refresh interval | A database's exported values are stale |
+| `pg_sage_metrics_listener_up` | == 0 | The separate `/metrics` listener failed to bind (scraped through the API route) |
 
 ### Metrics freshness
 
