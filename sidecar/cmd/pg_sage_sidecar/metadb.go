@@ -377,7 +377,7 @@ func registerStoreDatabase(
 		context.Background(), state, rec,
 	)
 	if err != nil {
-		logError("meta-db", "db %q: prepare: %v", rec.Name, err)
+		logStorePrepareFailure(rec.Name, err)
 		registerFailedInstance(rec, err.Error())
 		return
 	}
