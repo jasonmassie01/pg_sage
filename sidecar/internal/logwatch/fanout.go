@@ -71,6 +71,11 @@ func (f *LogFanout) DrainSource() {
 	}
 }
 
+// DroppedLines reports the lines the shared watcher lost since it started.
+func (f *LogFanout) DroppedLines() DropCounts {
+	return f.source.DroppedLines()
+}
+
 // Stop shuts down the underlying FileWatcher.
 func (f *LogFanout) Stop() {
 	f.source.Stop()
@@ -83,6 +88,28 @@ func (f *LogFanout) drain(id string) []*rca.Signal {
 	buf := f.buffers[id]
 	f.buffers[id] = nil
 	return buf
+}
+
+// drainCritical returns and removes the subscriber's critical signals, in
+// order, leaving the others buffered for the analyzer cycle.
+func (f *LogFanout) drainCritical(id string) []*rca.Signal {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	buf := f.buffers[id]
+	var critical []*rca.Signal
+	rest := buf[:0]
+	for _, s := range buf {
+		if signalPriority(s) >= 3 {
+			critical = append(critical, s)
+			continue
+		}
+		rest = append(rest, s)
+	}
+	clear(buf[len(rest):])
+	if _, ok := f.buffers[id]; ok {
+		f.buffers[id] = rest
+	}
+	return critical
 }
 
 // signalPriority returns a numeric priority for a signal's severity.
@@ -145,8 +172,11 @@ type FanoutSubscriber struct {
 	id     string
 }
 
-// compile-time interface check
-var _ rca.LogSource = (*FanoutSubscriber)(nil)
+// compile-time interface checks
+var (
+	_ rca.LogSource         = (*FanoutSubscriber)(nil)
+	_ rca.CriticalLogSource = (*FanoutSubscriber)(nil)
+)
 
 // Start is a no-op — the source FileWatcher is already started by
 // the LogFanout owner.
@@ -158,6 +188,13 @@ func (s *FanoutSubscriber) Start(_ context.Context) error {
 // this subscriber.
 func (s *FanoutSubscriber) Drain() []*rca.Signal {
 	return s.fanout.drain(s.id)
+}
+
+// DrainCritical returns the critical signals buffered since the last
+// drain and leaves the rest for Drain: the RCA log fast path takes these
+// between analyzer cycles (rca-06).
+func (s *FanoutSubscriber) DrainCritical() []*rca.Signal {
+	return s.fanout.drainCritical(s.id)
 }
 
 // Stop is a no-op — the source FileWatcher is stopped by the

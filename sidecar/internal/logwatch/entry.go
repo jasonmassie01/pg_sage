@@ -16,6 +16,7 @@ type LogEntry struct {
 	Hint        string    // hint
 	Query       string    // query (if available)
 	Application string    // application_name
+	BackendType string    // backend_type (csvlog column 23, PG13+); "" when absent
 }
 
 // Truncation constants — not configurable by design.

@@ -355,21 +355,22 @@ type ForecasterConfig struct {
 
 // RCAConfig controls the root cause analysis engine (v0.9).
 type RCAConfig struct {
-	Enabled                   bool    `yaml:"enabled" doc:"Enable the root cause analysis engine. Correlates multiple signals into unified incident narratives."`
-	LLMCorrelationThreshold   int     `yaml:"llm_correlation_threshold" doc:"Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."`
-	DedupWindowMinutes        int     `yaml:"dedup_window_minutes" doc:"Time window for deduplicating incidents with the same signals and root object. Default: 30."`
-	EscalationCycles          int     `yaml:"escalation_cycles" doc:"Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5."`
-	ResolutionCycles          int     `yaml:"resolution_cycles" doc:"Consecutive clear cycles before an incident auto-resolves. Default: 2."`
-	StaleAfterHours           int     `yaml:"stale_after_hours" doc:"Hours an open incident may go unseen before pg_sage resolves it as stale (no notification when it was last seen that long ago). 1-8760, at least the dedup window. Default: 24."`
-	VacuumMinDeadTuples       int     `yaml:"vacuum_min_dead_tuples" doc:"Fewest dead tuples a table needs before its dead-tuple ratio counts toward the vacuum_blocked (autovacuum falling behind) incident. 1-1000000000. Default: 1000."`
-	VacuumMinTableMB          int     `yaml:"vacuum_min_table_mb" doc:"Smallest heap, in MB, a table needs before its dead-tuple ratio counts toward the vacuum_blocked incident. 1-1048576. Default: 8."`
-	XminHolderMinMinutes      int     `yaml:"xmin_holder_min_minutes" doc:"Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5."`
-	PreparedXactMinAgeMinutes int     `yaml:"prepared_xact_min_age_minutes" doc:"Minutes a prepared transaction of this database must be old before it opens orphaned_prepared_tx or is named the vacuum_blocked holder. 1-10080. Default: 30."`
-	ConnectionSaturationPct   int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
-	ReplicationLagThresholdS  int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
-	WALSpikeMultiplier        float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
-	LockChainIntervalSeconds  int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
-	NarrationEnabled          bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."`
+	Enabled                    bool    `yaml:"enabled" doc:"Enable the root cause analysis engine. Correlates multiple signals into unified incident narratives."`
+	LLMCorrelationThreshold    int     `yaml:"llm_correlation_threshold" doc:"Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."`
+	DedupWindowMinutes         int     `yaml:"dedup_window_minutes" doc:"Time window for deduplicating incidents with the same signals and root object. Default: 30."`
+	EscalationCycles           int     `yaml:"escalation_cycles" doc:"Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5."`
+	ResolutionCycles           int     `yaml:"resolution_cycles" doc:"Consecutive clear cycles before an incident auto-resolves. Default: 2."`
+	StaleAfterHours            int     `yaml:"stale_after_hours" doc:"Hours an open incident may go unseen before pg_sage resolves it as stale (no notification when it was last seen that long ago). 1-8760, at least the dedup window. Default: 24."`
+	VacuumMinDeadTuples        int     `yaml:"vacuum_min_dead_tuples" doc:"Fewest dead tuples a table needs before its dead-tuple ratio counts toward the vacuum_blocked (autovacuum falling behind) incident. 1-1000000000. Default: 1000."`
+	VacuumMinTableMB           int     `yaml:"vacuum_min_table_mb" doc:"Smallest heap, in MB, a table needs before its dead-tuple ratio counts toward the vacuum_blocked incident. 1-1048576. Default: 8."`
+	XminHolderMinMinutes       int     `yaml:"xmin_holder_min_minutes" doc:"Minutes a session's transaction must be open before the vacuum_blocked incident names it as the holder of the oldest xmin. 1-1440. Default: 5."`
+	PreparedXactMinAgeMinutes  int     `yaml:"prepared_xact_min_age_minutes" doc:"Minutes a prepared transaction of this database must be old before it opens orphaned_prepared_tx or is named the vacuum_blocked holder. 1-10080. Default: 30."`
+	ConnectionSaturationPct    int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
+	ReplicationLagThresholdS   int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
+	WALSpikeMultiplier         float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
+	LockChainIntervalSeconds   int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
+	NarrationEnabled           bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."`
+	LogFastPathIntervalSeconds int     `yaml:"log_fast_path_interval_seconds" doc:"Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -1053,21 +1054,22 @@ func newDefaults() *Config {
 		},
 		Tuning: DefaultTuning(),
 		RCA: RCAConfig{
-			Enabled:                   true,
-			LLMCorrelationThreshold:   DefaultRCALLMCorrelationThreshold,
-			DedupWindowMinutes:        DefaultRCADedupWindowMinutes,
-			EscalationCycles:          DefaultRCAEscalationCycles,
-			ResolutionCycles:          DefaultRCAResolutionCycles,
-			StaleAfterHours:           DefaultRCAStaleAfterHours,
-			VacuumMinDeadTuples:       DefaultRCAVacuumMinDeadTuples,
-			VacuumMinTableMB:          DefaultRCAVacuumMinTableMB,
-			XminHolderMinMinutes:      DefaultRCAXminHolderMinMinutes,
-			PreparedXactMinAgeMinutes: DefaultRCAPreparedXactMinAgeMinutes,
-			ConnectionSaturationPct:   DefaultRCAConnectionSaturationPct,
-			ReplicationLagThresholdS:  DefaultRCAReplicationLagThresholdS,
-			WALSpikeMultiplier:        DefaultRCAWALSpikeMultiplier,
-			LockChainIntervalSeconds:  DefaultRCALockChainIntervalSeconds,
-			NarrationEnabled:          DefaultRCANarrationEnabled,
+			Enabled:                    true,
+			LLMCorrelationThreshold:    DefaultRCALLMCorrelationThreshold,
+			DedupWindowMinutes:         DefaultRCADedupWindowMinutes,
+			EscalationCycles:           DefaultRCAEscalationCycles,
+			ResolutionCycles:           DefaultRCAResolutionCycles,
+			StaleAfterHours:            DefaultRCAStaleAfterHours,
+			VacuumMinDeadTuples:        DefaultRCAVacuumMinDeadTuples,
+			VacuumMinTableMB:           DefaultRCAVacuumMinTableMB,
+			XminHolderMinMinutes:       DefaultRCAXminHolderMinMinutes,
+			PreparedXactMinAgeMinutes:  DefaultRCAPreparedXactMinAgeMinutes,
+			ConnectionSaturationPct:    DefaultRCAConnectionSaturationPct,
+			ReplicationLagThresholdS:   DefaultRCAReplicationLagThresholdS,
+			WALSpikeMultiplier:         DefaultRCAWALSpikeMultiplier,
+			LockChainIntervalSeconds:   DefaultRCALockChainIntervalSeconds,
+			NarrationEnabled:           DefaultRCANarrationEnabled,
+			LogFastPathIntervalSeconds: DefaultRCALogFastPathIntervalSeconds,
 		},
 		SRE:        defaultSREConfig(),
 		Specialist: defaultSpecialistConfig(),

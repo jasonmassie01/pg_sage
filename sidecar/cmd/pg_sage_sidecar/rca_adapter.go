@@ -30,8 +30,9 @@ type rcaAdapter struct {
 	pool  *pgxpool.Pool
 	logFn func(string, string, ...any)
 
-	fastPath *rca.LockChainTicker
-	probes   *probes.Runner
+	fastPath    *rca.LockChainTicker
+	logFastPath *rca.LogSignalTicker
+	probes      *probes.Runner
 }
 
 var _ analyzer.RCAEngine = (*rcaAdapter)(nil)
@@ -52,6 +53,9 @@ type rcaAdapterDeps struct {
 	// Sage SRE investigator (one probe at a time per database). Nil
 	// leaves narration without probe evidence.
 	probes *probes.Runner
+	// logSource hands critical log signals to the log fast path; nil
+	// (no log watcher) leaves log signals to the analyzer cycle.
+	logSource rca.CriticalLogSource
 }
 
 // newRCAAdapter binds the engine to its database identity, store and
@@ -64,6 +68,7 @@ func newRCAAdapter(d rcaAdapterDeps) *rcaAdapter {
 		d.eng.WithProbes(a.probes)
 	}
 	a.startFastPath(d.cfg, d.workers)
+	a.startLogFastPath(d.cfg, d.workers, d.logSource)
 	return a
 }
 
@@ -111,4 +116,28 @@ func (a *rcaAdapter) startFastPath(cfg *config.Config, workers *sync.WaitGroup) 
 	a.fastPath = rca.NewLockChainTicker(a.e, a.pool, probe, interval, a.logFn)
 	startInstanceWorker(workers, func() { a.fastPath.Run(a.ctx) })
 	a.logFn("INFO", "rca: lock-chain fast path every %s", interval)
+}
+
+// startLogFastPath runs the log fast path (rca-06) on the instance worker
+// group: critical log lines open incidents and notify within
+// rca.log_fast_path_interval_seconds instead of the analyzer interval.
+// No log source, or an interval of 0, leaves it off.
+func (a *rcaAdapter) startLogFastPath(
+	cfg *config.Config, workers *sync.WaitGroup, src rca.CriticalLogSource,
+) {
+	interval := cfg.RCA.LogFastPathInterval()
+	switch {
+	case src == nil:
+		return
+	case interval <= 0:
+		a.logFn("INFO", "rca: log fast path disabled")
+		return
+	case a.pool == nil || workers == nil:
+		a.logFn("WARN", "rca: log fast path not started: no store or "+
+			"worker group")
+		return
+	}
+	a.logFastPath = rca.NewLogSignalTicker(a.e, a.pool, src, interval, a.logFn)
+	startInstanceWorker(workers, func() { a.logFastPath.Run(a.ctx) })
+	a.logFn("INFO", "rca: log fast path every %s", interval)
 }

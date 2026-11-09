@@ -276,6 +276,7 @@
 | `rca.escalation_cycles` | `restart` | `-` | `derivable` |
 | `rca.llm_correlation_threshold` | `restart` | `-` | `derivable` |
 | `rca.lock_chain_interval_seconds` | `restart` | `-` | `derivable` |
+| `rca.log_fast_path_interval_seconds` | `restart` | `-` | `derivable` |
 | `rca.narration_enabled` | `restart` | `-` | `operator_preference` |
 | `rca.prepared_xact_min_age_minutes` | `restart` | `-` | `safety_critical` |
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` | `derivable` |

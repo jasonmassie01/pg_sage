@@ -206,6 +206,9 @@ var excludedExactKeys = map[string]bool{
 	// Sage SRE M0: the fast-path period is read once at startup and must
 	// be 0 or 10-3600 (validated at load), so it is YAML-only.
 	"rca.lock_chain_interval_seconds": true,
+	// rca-06: the log fast-path period, read once at startup like the
+	// lock-chain fast path and validated at load (0 or 1-3600).
+	"rca.log_fast_path_interval_seconds": true,
 
 	// Dogfood lifeos-1: validated at load against other keys
 	// (rca.dedup_window_minutes; sre.runways.interval_seconds,

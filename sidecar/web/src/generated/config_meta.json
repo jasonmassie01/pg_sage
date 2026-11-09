@@ -1824,6 +1824,12 @@
     "doc": "Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60.",
     "class": "derivable"
   },
+  "rca.log_fast_path_interval_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Seconds between log fast-path passes, which open incidents for critical log lines (PANIC, disk full, OOM, wraparound) between analyzer cycles. 0 disables; otherwise 1-3600. Default: 5.",
+    "class": "derivable"
+  },
   "rca.narration_enabled": {
     "type": "bool",
     "default": true,

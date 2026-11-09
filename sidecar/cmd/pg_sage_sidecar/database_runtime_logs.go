@@ -60,7 +60,31 @@ func (s *logFanoutSet) forCluster(
 	go runFanoutDrain(ctx, key, fanout, logwatchPollInterval())
 	logInfo("logwatch", "[%s] started (dir=%s format=%s)",
 		key, settings.LogDirectory, settings.Format)
+	warnLogLocale(ctx, key, pool)
 	return fanout
+}
+
+// logLocaleProbeTimeout bounds the one pg_settings read of lc_messages.
+const logLocaleProbeTimeout = 5 * time.Second
+
+// warnLogLocale warns once per cluster when lc_messages is not C or
+// English: the text-matched log signals would then never fire. Without a
+// pool (an explicitly configured log path needs none) there is nothing
+// to read.
+func warnLogLocale(ctx context.Context, key string, pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, logLocaleProbeTimeout)
+	defer cancel()
+	setting, err := logwatch.DetectLCMessages(ctx, pool)
+	if err != nil {
+		logWarn("logwatch", "[%s] %v", key, err)
+		return
+	}
+	if msg := logwatch.LCMessagesWarning(setting); msg != "" {
+		logWarn("logwatch", "[%s] %s", key, msg)
+	}
 }
 
 // resolvedLogWatchConfig fills an unset log directory or format from the
@@ -140,18 +164,24 @@ func (rt *databaseRuntime) wireRCA() {
 	if rt.llmOn {
 		rt.rca.WithLLM(rt.generalLLM)
 	}
+	var critical rca.CriticalLogSource
 	if rt.logFanout != nil {
-		rt.rca.SetLogSource(rt.logFanout.Subscribe(rt.spec.Name))
+		sub := rt.logFanout.Subscribe(rt.spec.Name)
+		rt.rca.SetLogSource(sub)
+		critical = sub
 	}
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
-		probes: rt.probes,
+		probes: rt.probes, logSource: critical,
 	})
 	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
 	rt.note("rca")
 	if rt.rcaAdapter.fastPath != nil {
 		rt.note("sre_fast_path")
+	}
+	if rt.rcaAdapter.logFastPath != nil {
+		rt.note("log_fast_path")
 	}
 }
 
