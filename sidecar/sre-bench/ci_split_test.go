@@ -1,8 +1,10 @@
 package srebench
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -33,7 +35,8 @@ type ciStep struct {
 
 type ciWorkflow struct {
 	Jobs map[string]struct {
-		Steps []ciStep `yaml:"steps"`
+		Env   map[string]string `yaml:"env"`
+		Steps []ciStep          `yaml:"steps"`
 	} `yaml:"jobs"`
 }
 
@@ -129,6 +132,102 @@ func TestCISplit_EveryShardIsGatedAndBounded(t *testing.T) {
 			if b := benchBudget(1, n, LLMConfig{Mode: LLMFake}); b >= benchTimeout {
 				t.Errorf("%s / %s: bench budget %s for %d scenarios is not under %s",
 					job, st.Name, b, n, benchTimeout)
+			}
+		}
+	}
+}
+
+// quotedInt matches the integer literals of a workflow expression.
+var quotedInt = regexp.MustCompile(`'([^']*)'`)
+
+// worstCaseRepeats is the largest repeat count a SAGE_BENCH_REPEATS value
+// can take: a literal, or every quoted literal of a ${{ }} expression
+// (a v* tag picks the larger one).
+func worstCaseRepeats(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if !strings.HasPrefix(v, "${{") {
+		return ParseRepeats(v)
+	}
+	lits := quotedInt.FindAllStringSubmatch(v, -1)
+	worst := 0
+	for _, m := range lits {
+		if strings.HasPrefix(m[1], "refs/") {
+			continue // a ref the expression compares, not a repeat count
+		}
+		n, err := ParseRepeats(m[1])
+		if err != nil || m[1] == "" {
+			return 0, fmt.Errorf("%s: literal %q is not a repeat count: %v", v, m[1], err)
+		}
+		worst = max(worst, n)
+	}
+	if worst == 0 {
+		return 0, fmt.Errorf("%s=%q names no repeat count", EnvRepeats, v)
+	}
+	return worst, nil
+}
+
+func TestWorstCaseRepeats(t *testing.T) {
+	ok := map[string]int{"": 1, "1": 1, " 4 ": 4,
+		"${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}": 4,
+		"${{ github.event_name == 'schedule' && '2' || '3' }}":       0}
+	for v, want := range ok {
+		got, err := worstCaseRepeats(v)
+		if want == 0 {
+			if err == nil {
+				t.Errorf("worstCaseRepeats(%q) = %d, want an error (schedule is no count)",
+					v, got)
+			}
+			continue
+		}
+		if err != nil || got != want {
+			t.Errorf("worstCaseRepeats(%q) = %d, %v; want %d", v, got, err, want)
+		}
+	}
+	for _, v := range []string{"0", "-1", "four", "${{ true }}",
+		"${{ startsWith(github.ref, 'refs/tags/v') && 'x' || '1' }}",
+		fmt.Sprintf("${{ '%d' }}", MaxRepeats+1)} {
+		if n, err := worstCaseRepeats(v); err == nil {
+			t.Errorf("worstCaseRepeats(%q) = %d, want an error", v, n)
+		}
+	}
+}
+
+// The bench budget's edge at 4 repeats: 18 fake-model scenarios fit the
+// 2400 s step, 19 do not.
+func TestBenchBudgetEdgeAtFourRepeats(t *testing.T) {
+	fake := LLMConfig{Mode: LLMFake}
+	if b := benchBudget(4, 18, fake); b != 2340*time.Second || b >= benchTimeout {
+		t.Fatalf("benchBudget(4, 18) = %s, want 39m0s, under %s", b, benchTimeout)
+	}
+	if b := benchBudget(4, 19, fake); b < benchTimeout {
+		t.Fatalf("benchBudget(4, 19) = %s, want at least %s", b, benchTimeout)
+	}
+	if b := benchBudget(4, 0, fake); b != replayBudget {
+		t.Fatalf("benchBudget(4, 0) = %s, want the replay budget %s", b, replayBudget)
+	}
+}
+
+// A v* tag sets SAGE_BENCH_REPEATS=4 for the promotion bar's n >= 10, so
+// every shard must fit its 2400 s timeout at its worst-case repeat count,
+// not only at the single pass of a pull request.
+func TestBenchShardsFitTheirTimeoutOnTags(t *testing.T) {
+	wf := readCIWorkflow(t)
+	for _, job := range []string{"test", "integration-matrix"} {
+		for _, st := range benchSteps(wf, job) {
+			v, set := st.Env[EnvRepeats]
+			if !set {
+				v = wf.Jobs[job].Env[EnvRepeats]
+			}
+			repeats, err := worstCaseRepeats(v)
+			if err != nil {
+				t.Errorf("%s / %s: %v", job, st.Name, err)
+				continue
+			}
+			fams, _ := ParseFamilies(st.Env[EnvFamilies])
+			n := len(FilterScenarios(Scenarios(), fams))
+			if b := benchBudget(repeats, n, LLMConfig{Mode: LLMFake}); b >= benchTimeout {
+				t.Errorf("%s / %s: %d scenarios x %d repeats need %s, not under %s",
+					job, st.Name, n, repeats, b, benchTimeout)
 			}
 		}
 	}

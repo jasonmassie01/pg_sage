@@ -18,6 +18,15 @@ on:
 permissions:
   contents: read
 
+# ci-03: a newer push to a pull request cancels the older run. Master, tag,
+# nightly and manual runs get a group of their own (the run id), so they are
+# never cancelled and never queue behind another run: bench-sign always
+# signs the reports of a finished run. (Keyed by ref alone, a third master
+# push would cancel the second one while it waited.)
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -56,13 +65,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # There is no root go.sum or package-lock.json, so each cache names its
+      # lockfile or it never restores.
       - uses: actions/setup-go@v5
         with:
           go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: sidecar/web/package-lock.json
 
       - name: Prepare PostgreSQL (HypoPG, pg_hint_plan, pg_stat_statements)
         run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} 17
@@ -90,22 +104,16 @@ jobs:
         run: python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
 
       # Each suite writes go test -json for the skip budget and prints the
-      # verbose log; the step fails with the suite's own exit status.
-      - name: Unit tests (race detector)
+      # verbose log; the step fails with the suite's own exit status. One run
+      # covers the untagged and the integration-tagged tests, both under the
+      # race detector (ci-03: a second, untagged run only repeated them).
+      - name: Unit and integration tests (race detector)
         working-directory: sidecar
         run: |
           status=0
-          go test ./... -race -cover -count=1 -timeout 900s -json > ../unit.json || status=$?
+          go test ./... -race -cover -tags=integration -count=1 -timeout 1500s -json \
+            > ../unit.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../unit.json
-          exit $status
-
-      - name: Integration tests
-        working-directory: sidecar
-        run: |
-          status=0
-          go test ./... -cover -tags=integration -count=1 -timeout 600s -json \
-            > ../integration.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../integration.json
           exit $status
 
       - name: Sidecar end-to-end tests
@@ -173,18 +181,19 @@ jobs:
           if-no-files-found: warn
 
       # The bench runs in shards by incident family (SAGE_BENCH_FAMILIES), each
-      # its own step under 20 minutes, so it neither crowds the ./... suites
-      # nor needs one long timeout. Every bench family must be in exactly one
-      # shard (sre-bench/ci_split_test.go). The later shards run even when
-      # an earlier shard failed.
-      - name: PGIncidentBench (core families)
-        id: bench-core
+      # its own step, so it neither crowds the ./... suites nor needs one long
+      # timeout. Every bench family must be in exactly one shard, and every
+      # shard must fit its 2400 s timeout at a tag's 4 repeats: at most 18
+      # scenarios (sre-bench/ci_split_test.go). The later shards run even
+      # when an earlier shard failed.
+      - name: PGIncidentBench (core families, part A)
+        id: bench-core-a
         working-directory: sidecar
         timeout-minutes: 40
         env:
           SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
-          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core
+          SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core-a
           # A release report must meet the promotion bar's n >= 10 per
           # family (the smallest family has 3 scored scenarios).
           SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
@@ -192,20 +201,20 @@ jobs:
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-core.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
+            > ../bench-core-a.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-core-a.json
           go run ./cmd/skipbudget -pg 17 -stale=off \
-            -require 'sre-bench TestPGIncidentBench' < ../bench-core.json || status=1
+            -require 'sre-bench TestPGIncidentBench' < ../bench-core-a.json || status=1
           exit $status
 
-      - name: PGIncidentBench (M6 reactive families)
-        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
+      - name: PGIncidentBench (core families, part B)
+        if: ${{ !cancelled() && steps.bench-core-a.conclusion != 'skipped' }}
         working-directory: sidecar
         timeout-minutes: 40
         env:
           SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
-          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive
+          SAGE_BENCH_FAMILIES: wal_retention,plan_regression
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core-b
           # A release report must meet the promotion bar's n >= 10 per
           # family (the smallest family has 3 scored scenarios).
           SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
@@ -213,20 +222,20 @@ jobs:
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-reactive.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
+            > ../bench-core-b.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-core-b.json
           go run ./cmd/skipbudget -pg 17 -stale=off \
-            -require 'sre-bench TestPGIncidentBench' < ../bench-reactive.json || status=1
+            -require 'sre-bench TestPGIncidentBench' < ../bench-core-b.json || status=1
           exit $status
 
-      - name: PGIncidentBench (M6 runway families)
-        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
+      - name: PGIncidentBench (M6 reactive families, part A)
+        if: ${{ !cancelled() && steps.bench-core-a.conclusion != 'skipped' }}
         working-directory: sidecar
         timeout-minutes: 40
         env:
           SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
-          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway
+          SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive-a
           # A release report must meet the promotion bar's n >= 10 per
           # family (the smallest family has 3 scored scenarios).
           SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
@@ -234,10 +243,73 @@ jobs:
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-runway.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
+            > ../bench-reactive-a.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive-a.json
           go run ./cmd/skipbudget -pg 17 -stale=off \
-            -require 'sre-bench TestPGIncidentBench' < ../bench-runway.json || status=1
+            -require 'sre-bench TestPGIncidentBench' < ../bench-reactive-a.json || status=1
+          exit $status
+
+      - name: PGIncidentBench (M6 reactive families, part B)
+        if: ${{ !cancelled() && steps.bench-core-a.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: replication_lag,lwlock_contention
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive-b
+          # A release report must meet the promotion bar's n >= 10 per
+          # family (the smallest family has 3 scored scenarios).
+          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+        shell: bash
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-reactive-b.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive-b.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-reactive-b.json || status=1
+          exit $status
+
+      - name: PGIncidentBench (M6 runway families, part A)
+        if: ${{ !cancelled() && steps.bench-core-a.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway-a
+          # A release report must meet the promotion bar's n >= 10 per
+          # family (the smallest family has 3 scored scenarios).
+          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+        shell: bash
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-runway-a.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-runway-a.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-runway-a.json || status=1
+          exit $status
+
+      - name: PGIncidentBench (M6 runway families, part B)
+        if: ${{ !cancelled() && steps.bench-core-a.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: sequence_runway
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway-b
+          # A release report must meet the promotion bar's n >= 10 per
+          # family (the smallest family has 3 scored scenarios).
+          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
+        shell: bash
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-runway-b.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-runway-b.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench-runway-b.json || status=1
           exit $status
 
       # PGIncidentBench writes its JSON result and Markdown summary here.
@@ -292,7 +364,7 @@ jobs:
         working-directory: sidecar
         shell: bash
         run: |
-          cat ../unit.json ../integration.json ../e2e.json | go run ./cmd/skipbudget -pg 17 \
+          cat ../unit.json ../e2e.json | go run ./cmd/skipbudget -pg 17 \
             -require 'internal/alerting TestEvaluate_.*' \
             -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*'
 
@@ -657,7 +729,7 @@ jobs:
           # evidence and would be refused at every ingest).
           find . -maxdepth 1 -type f ! -name README.md -delete
           reports=(*/pgincidentbench.json)
-          test "${#reports[@]}" -eq 3
+          test "${#reports[@]}" -eq 6
           for f in "${reports[@]}"; do
             cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
@@ -689,7 +761,7 @@ jobs:
 
   # G0-08: sign the PG17 AgentSafetyBench report keyless (Sigstore, GitHub
   # OIDC), the same pattern as bench-sign but a separate job so it never
-  # touches the PGIncidentBench 3-shard check. The report is not sidecar
+  # touches the PGIncidentBench shard-count check. The report is not sidecar
   # ledger evidence, so it is verified by cosign only (no pg_sage verifier).
   safety-bench-sign:
     runs-on: ubuntu-latest
@@ -1014,6 +1086,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: sidecar/web/package-lock.json
 
       # Rebuild the embedded dashboard from the tagged sources so the shipped UI
       # always matches them. The rebuild changes asset hashes versus the
@@ -1046,7 +1120,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          for shard in core reactive runway; do
+          for shard in core-a core-b reactive-a reactive-b runway-a runway-b; do
             for ext in json json.sigstore.json md; do
               cp "bench/$shard/pgincidentbench.$ext" "release-assets/pgincidentbench-$shard.$ext"
             done
