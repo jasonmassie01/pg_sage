@@ -138,13 +138,15 @@ func (autonomyLogReporter) Report(level, message string, fields map[string]any) 
 	logInfo("autonomy", "%s fields=%v", message, fields)
 }
 
+// newDatabaseAutonomy builds the database's autonomy workers around its
+// one freeze custodian (shared with the runway advisor and the analyzer).
 func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
+	freezeWorker *autonomy.PostgresFreezeCustodian,
 ) (*autonomy.Supervisor, error) {
-	if pool == nil || cfg == nil || exec == nil {
+	if pool == nil || cfg == nil || exec == nil || freezeWorker == nil {
 		return nil, fmt.Errorf("autonomy runtime dependencies are incomplete")
 	}
-	freezeWorker := newFreezeCustodian(pool, cfg, database)
 	walWorker := newWALCustodian(pool, cfg, database)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
 	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool),
@@ -183,8 +185,9 @@ func autonomyInterval(cfg *config.Config) time.Duration {
 func startInstanceAutonomy(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, database string, exec *executor.Executor,
+	freeze *autonomy.PostgresFreezeCustodian,
 ) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec)
+	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, freeze)
 	if err != nil {
 		return err
 	}
