@@ -38,10 +38,11 @@ func (h *maintenanceHarness) age(t *testing.T, id sre.UUID, at time.Time) {
 	}
 }
 
-// pastBound ages the proposal one second past the stranded bound.
+// pastBound ages the proposal one second past the stranded bound on the
+// database clock, which the sweeper ages proposals by.
 func (h *maintenanceHarness) pastBound(t *testing.T, id sre.UUID) {
 	t.Helper()
-	h.age(t, id, time.Now().Add(-h.m.strandedAfter()-time.Second))
+	h.ageBy(t, id, h.m.strandedAfter()+time.Second)
 }
 
 // failLeaving injects a control-database failure into any update that moves

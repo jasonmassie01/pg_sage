@@ -26,6 +26,19 @@ func (m *MaintenanceService) strandedAfter() time.Duration {
 	return 2*m.Executor.ApplyTimeout() + maintenanceStrandedMargin
 }
 
+// strandedCutoff is the last updated_at a stranded proposal can have. It is
+// measured on the clock that stamps updated_at unless a test injects Now.
+func (m *MaintenanceService) strandedCutoff(ctx context.Context) (time.Time, error) {
+	if m.Now != nil {
+		return m.Now().Add(-m.strandedAfter()), nil
+	}
+	var now time.Time
+	if err := m.st.Pool().QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return time.Time{}, fmt.Errorf("read database clock: %w", err)
+	}
+	return now.Add(-m.strandedAfter()), nil
+}
+
 // Reconcile settles maintenance runs that ended without recording their
 // outcome: a crash or a control-database failure between the claim and the
 // record. It reads the bound table's statistics catalog under that table's
@@ -36,7 +49,10 @@ func (m *MaintenanceService) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("maintenance reconcile: %w", err)
 	}
-	cutoff := m.Now().Add(-m.strandedAfter())
+	cutoff, err := m.strandedCutoff(ctx)
+	if err != nil {
+		return fmt.Errorf("maintenance reconcile: %w", err)
+	}
 	rows, err := m.st.Pool().Query(ctx, `SELECT id::text FROM sage.sre_maintenance_proposals
 		WHERE deployment_id=$1 AND database_id=$2 AND state IN ('executing','rolling_back')
 		  AND updated_at <= $3 ORDER BY updated_at LIMIT 10`,

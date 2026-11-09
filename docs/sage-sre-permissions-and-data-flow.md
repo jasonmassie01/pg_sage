@@ -217,6 +217,8 @@ A run that dies between its claim and its record (a crash, or a failed write to 
 control database) is settled by the action pass once it is older than twice the executor's
 apply timeout plus one minute (13 minutes with the default `safety.ddl_timeout_seconds`;
 the wait for a DDL slot is bounded to one apply timeout, so a live run never reaches it).
+Its age is measured on the database clock that stamps the proposal, so a skewed sidecar
+host clock cannot settle a live run early.
 The pass takes the table lock the executor takes, reads the catalog for the proposal's
 `sage_stx_<id>` object on the bound table and the exact `action_log` record, and never
 re-runs the forward SQL or the DROP:
