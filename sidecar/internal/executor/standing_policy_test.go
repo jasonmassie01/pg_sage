@@ -64,7 +64,7 @@ func TestExecutorStandingPolicyParksUnknownContract(t *testing.T) {
 }
 
 func TestLedgerInputPreservesCustodianEvidence(t *testing.T) {
-	input := ledgerInput(nil, 1, policy.ActionRequest{
+	input := ledgerInputAt(nil, 1, policy.ActionRequest{
 		Feature: "freeze", Evidence: map[string]any{
 			"pid": 42, "xmin_age": int64(900),
 		},

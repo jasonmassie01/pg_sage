@@ -1,0 +1,265 @@
+# Policy gate: verdicts and reasons
+
+Every change pg_sage could make passes one policy gate before it runs: index builds and
+drops, setting changes, vacuums, Sage SRE cancels, reverts, operator-approved actions and
+agent requests alike. The gate answers with a **verdict** and a **reason**, records both in
+the decision ledger (`sage.decision`), and the executor acts only on an `execute` verdict.
+
+This page is the reference for what each verdict and reason means, what clears it and where
+you see it. Configuration lives in [Configuration](configuration.md): the trust settings in
+[Trust & Actions](configuration.md#trust-actions), the standing policy in
+[Agent-native autonomy](configuration.md#agent-native-autonomy), budgets in
+[Blast-radius budgets](configuration.md#blast-radius-budgets) and the verification wait in
+[One change per object](configuration.md#one-change-per-object). Agent posture, which
+reports how exposed a database is to AI agents, is a separate check: see
+[Agent governance](agent-governance.md).
+
+The gate fails closed. Whatever it cannot read (the runtime state, the standing policy, the
+usage counters, the confirmed facts, the autonomy ledger, the in-flight verifications) turns
+into a `blocked` verdict, never into an `execute`.
+
+## Verdicts
+
+| Verdict | Ledger spelling | Meaning | What happens next |
+|---|---|---|---|
+| `execute` | `execute` | The action may run now. | The executor takes the change lease and runs it. Each execute keeps its own ledger row. |
+| `queue_approval` | `queue_approval` | A person must decide. | The action gets one item in the approval queue, with an approval card in the UI and in ChatOps. |
+| `park` | `parked` | Not now; retry on a later cycle. | Nothing runs. A park is not a failure: it does not count toward the retry limit or the self-initiated rate budget. |
+| `blocked` | `blocked` | Refused until the condition in the reason changes. | Nothing runs. The reason and detail say what to change. |
+| `observe_only` | `observe_only` | pg_sage only watches and proposes. | Nothing runs. The proposal is shown as a manual script. |
+
+The ledger spells the park verdict `parked`; everywhere else (API, logs, metrics labels) the
+verdict is `park`. A recorded decision is often written `verdict/reason`, for example
+`parked/no_typed_contract`.
+
+## Evaluation order
+
+The gate evaluates in this order and stops at the first step that decides. Later steps can
+only restrict an earlier `execute` or `queue_approval`; nothing after step 1 turns a
+withheld verdict into `execute`.
+
+1. **Runtime state.** Trust level, execution mode, emergency stop and replica status are
+   read first. If they cannot be read: `blocked` `policy_unavailable`.
+2. **Hard stops.** A disabled executor (`executor_disabled`), the emergency stop
+   (`emergency_stop`) and a mutation on a replica (`replica_mutation`) block everything,
+   except a narrowing contract (step 6).
+3. **Request validation.** No typed contract, or SQL that fails parse-tree validation,
+   parks with `no_typed_contract`. A guardrail the gate does not know blocks with
+   `unknown_guardrail`.
+4. **Provider.** A contract that lists the providers it supports blocks on any other with
+   `provider_unsupported`.
+5. **Confirmed facts.** A mutation that a confirmed fact binds blocks with `bound_by_fact`;
+   facts that cannot be read block with `facts_unavailable`. Read-only diagnostics and
+   reverts of pg_sage's own changes are never bound. See [Binding facts](facts.md).
+6. **Narrowing.** A contract that only takes access away runs at any trust level, outside
+   the standing policy, budgets and windows: `execute` `narrowing`, or
+   `narrowing_during_stop` when a hard stop holds everything else back.
+7. **Agent requests.** A request an agent made (through MCP) takes the agent path: the
+   agent decider's checks, then the agent's level mapped to a verdict (see
+   [Agent requests](#agent-requests)).
+8. **Reverts.** The revert of a change that already ran is a mitigation: `execute`
+   `rollback_mitigation`, outside windows, budgets, per-class autonomy and the change-class
+   allowlist. The observation trust level, the rollback contract's approval guardrail and,
+   for an automatic revert, the approval classes and refusal set still apply.
+9. **Operator-approved actions.** A person's approval replaces the tier flags, the trust
+   ramp, the execution mode and the self-initiated budgets. Trust, the change-class
+   allowlist and the maintenance windows still bind: `execute` `operator_approved`.
+10. **Soft-drop restore.** Re-creating an index pg_sage dropped itself runs past a trust
+    downgrade: `execute` `drop_restore_bypass`. The standing policy, the refusal set and
+    degraded SQL validation still bind.
+11. **Observation.** `trust.level: observation` or `execution_mode: manual` gives
+    `observe_only` `observe_only`. Any trust level other than `observation`, `advisory` or
+    `autonomous` blocks with `unknown_trust_level`.
+12. **Standing policy.** An unreadable or invalid policy document blocks with
+    `policy_unavailable`. Then: a change class outside `allowed_change_classes` blocks with
+    `change_class_not_allowed`; the `approval_required` guardrail, a backend cancel or
+    terminate, or a class in `approval_required_classes` queues with `approval_required`;
+    the usage limits park with `budget_exceeded`, `blast_radius_exceeded` or
+    `rate_limit_exceeded`. Read-only diagnostics need a readable policy and skip the rest.
+13. **Trust and tier.** `execution_mode: approval` queues with `approval_required`. Then by
+    risk tier: `read_only` runs (`authorized`); `safe` runs when `trust.tier3_safe` is on
+    and the trust ramp has elapsed, otherwise `trust_ramp_not_satisfied`; `moderate` runs
+    under `autonomous` trust with `trust.tier3_moderate` on and the ramp elapsed, and
+    queues under `advisory`; `high` always queues. A tier outside the four blocks with
+    `unknown_risk_tier`.
+14. **Restrictions on an execute.** The refusal set queues with `refused_by_policy`; a build
+    without parse-tree SQL validation queues with `sql_validation_degraded`; a `moderate` or
+    `high` action outside every maintenance window blocks with `outside_maintenance_window`,
+    unless an allowed XID or disk deadline overrides it (`execute` `deadline_override`).
+15. **Earned autonomy.** For an action class the autonomy ledger governs, the earned level
+    restricts an execute or approval verdict: `autonomy_level` and `autonomy_downgraded`
+    (observe only), `autonomy_handoff` (approval), `autonomy_l3` (execute, a human is
+    notified). A ledger that cannot answer blocks with `autonomy_unavailable`. A critical XID
+    or disk deadline the policy lets override skips this step.
+16. **One change per object.** A self-initiated execute on an object whose previous change
+    is still being verified parks with `awaiting_verification`; an approval stays queued with
+    the wait in its detail; an operator approval runs and records the override.
+17. **Record.** The decision is written to `sage.decision`. If it cannot be: `blocked`
+    `policy_unavailable`, with a detail naming the decision it meant to record.
+
+After an `execute`, the executor takes the change lease on the action's objects. A lease
+another writer holds parks a self-initiated action with `ddl_conflict` and refuses an
+operator action (`blocked` `ddl_conflict`); see `serialize_mode` in
+[Agent-native autonomy](configuration.md#agent-native-autonomy).
+
+## Reasons
+
+"Shows" says where the reason appears:
+
+- **Ledger**: every decision, in `sage.decision.reason`, with the free-text `detail` in its
+  evidence. Every reason below is recorded there.
+- **Card**: the approval card of a queued action lists the reason as `gate:<reason>`
+  ("Policy gate: ...").
+- **Metric**: `pg_sage_policy_parks_total{database,reason}` counts recorded parks;
+  `pg_sage_policy_record_failures_total{database,reason}` counts decisions that could not
+  be recorded, labelled with the reason they meant to record (any reason can appear there).
+
+### Allowed to run
+
+| Reason | Verdict | Meaning | Shows |
+|---|---|---|---|
+| `authorized` | `execute` | Trust, tier and ramp allow the action unattended. | Ledger |
+| `operator_approved` | `execute` | A person approved the action. | Ledger |
+| `deadline_override` | `execute` | Outside every window, but an XID or disk deadline the policy lets override is near. | Ledger |
+| `narrowing` | `execute` | The contract only takes access away. | Ledger |
+| `narrowing_during_stop` | `execute` | A narrowing contract ran while a hard stop held everything else. | Ledger |
+| `rollback_mitigation` | `execute` | The revert of a change that already ran. | Ledger |
+| `drop_restore_bypass` | `execute` | The soft-drop restore of an index pg_sage dropped itself ran past a trust downgrade; the detail names each downgrade it passed. | Ledger |
+| `autonomy_l3` | `execute` | The class has earned L3: a reversible, single-object action inside the window; a human is notified. | Ledger |
+
+### Withheld until a person decides
+
+| Reason | Verdict | Meaning | What clears it | Shows |
+|---|---|---|---|---|
+| `approval_required` | `queue_approval` | The tier, `execution_mode: approval`, the `approval_required` guardrail, an approval class or a backend signal needs a human. | Approve or reject the card. | Ledger, Card |
+| `refused_by_policy` | `queue_approval` | The statement matches a `refusal_set` token; the detail names it. | Approve the card, or remove the token. | Ledger, Card |
+| `sql_validation_degraded` | `queue_approval` | The build lacks parse-tree SQL validation, so unattended mutations go to a person. | Approve the card, or run a cgo build. | Ledger, Card |
+| `autonomy_handoff` | `queue_approval` | The class is at L2, or an L3 condition does not hold; the detail says which. | Approve the card; approvals earn the class trust. | Ledger, Card |
+
+### Parked: retried on a later cycle
+
+| Reason | Meaning | What clears it | Shows |
+|---|---|---|---|
+| `no_typed_contract` | No typed contract, or the SQL failed validation; recorded at risk tier `high`. | Nothing unattended: such a candidate never runs on its own. | Ledger, Metric |
+| `budget_exceeded` | The storage budget is spent. | Usage falling below `budgets.storage_bytes`. | Ledger, Metric |
+| `blast_radius_exceeded` | Rows rewritten, or tables changed in the window, are at the limit; the detail says when a slot frees. | The rolling window moving on. | Ledger, Metric |
+| `rate_limit_exceeded` | Self-initiated changes in the window are at the limit; the detail says when a slot frees. | The rolling window moving on. | Ledger, Metric |
+| `awaiting_verification` | Another change to the same object is still being verified; the detail names it and until when. | Its verdict, its hard deadline, or an operator approval. | Ledger, Metric |
+| `ddl_conflict` | Another writer holds the change lease on the object; `evidence.lease_queue` says how a queue wait ended. | The holder finishing. | Ledger |
+
+`ddl_conflict` is recorded by the executor after the gate, so it is not counted in
+`pg_sage_policy_parks_total`. The same reason refuses an operator action (`blocked`), with
+`evidence.refused_decision_id` naming the decision it replaced.
+
+### Blocked: refused until the condition changes
+
+| Reason | Meaning | What clears it | Shows |
+|---|---|---|---|
+| `executor_disabled` | The executor is off. | Enabling the executor. | Ledger |
+| `emergency_stop` | The emergency stop is engaged. | Releasing it ([Emergency stop](security.md#emergency-stop)). | Ledger |
+| `replica_mutation` | The target is a replica; only read-only diagnostics run there. | Nothing: mutations run on the primary. | Ledger |
+| `policy_unavailable` | Something the gate must read could not be read, or the decision could not be recorded; the detail says which. | Fixing the read (connection, `sage` schema, policy document). | Ledger, Metric |
+| `unknown_guardrail` | The contract names a guardrail the gate does not know; the detail names it. | A contract fix (a pg_sage bug). | Ledger |
+| `unknown_trust_level` | `trust.level` is not `observation`, `advisory` or `autonomous`; the detail has the value. | Setting a valid trust level. | Ledger |
+| `unknown_risk_tier` | The contract's tier is not `read_only`, `safe`, `moderate` or `high`. | A contract fix (a pg_sage bug). | Ledger |
+| `change_class_not_allowed` | The change class is not in `allowed_change_classes`. | Adding the class to the standing policy. | Ledger |
+| `trust_ramp_not_satisfied` | `trust.tier3_safe` or `trust.tier3_moderate` is off, or the trust ramp has not elapsed. | The flag on and the ramp elapsed. | Ledger |
+| `outside_maintenance_window` | A `moderate` or `high` action outside every maintenance window. | The next window. | Ledger |
+| `provider_unsupported` | The action does not support the database's provider; the detail names it. | Nothing on this provider. | Ledger |
+| `target_mismatch` | A self-initiated finding or custodian proposal whose statement changes another relation than the one it names; the detail names both. | Nothing: such a statement never runs unattended (a pg_sage bug or a tampered proposal). | Ledger |
+| `bound_by_fact` | A confirmed fact binds the request; the detail names the fact, who confirmed it and where the work goes instead. | Rejecting or expiring the fact. | Ledger |
+| `facts_unavailable` | The confirmed facts could not be read. | Fixing the read. | Ledger |
+| `autonomy_unavailable` | The autonomy ledger could not answer. | Fixing the read. | Ledger |
+
+### Observe only
+
+| Reason | Meaning | What clears it | Shows |
+|---|---|---|---|
+| `observe_only` | `trust.level: observation` or `execution_mode: manual`. | Raising trust or the mode. | Ledger |
+| `autonomy_level` | The class has not earned L2; the proposal is shown as a manual script. | The class earning its level. | Ledger |
+| `autonomy_downgraded` | A downgrade signal holds (error budget, failover, stale evidence, concurrency). | The signal clearing. | Ledger |
+
+### Agent requests
+
+An agent's request runs the agent decider first. Its own reasons (`agent_frozen`,
+`agent_capability`, `agent_rate` and the rest) are recorded the same way; see
+[Agent governance](agent-governance.md). The gate then maps the agent's level, capped by the
+operator's trust level and the action's rollback class, to a verdict:
+
+| Reason | Verdict | Meaning | Shows |
+|---|---|---|---|
+| `agent_level0` | `blocked` | The agent's level for this request is L0. | Ledger |
+| `agent_proposal_recorded` | `observe_only` | L1: the request is recorded as a proposal. | Ledger |
+| `approval_required` | `queue_approval` | L2 or above: a person approves it. | Ledger, Card |
+| `agent_l3_envelope` | `execute` | L3 inside its envelope. Reserved: this release has no L3 envelope, so an L3 request queues as L2. | Ledger |
+
+`change_class_not_allowed`, `policy_unavailable` and `unknown_trust_level` apply to agents
+as above. An operator-approved agent request at L2 or above takes the operator path.
+
+## The decision ledger
+
+Each decision is one row in `sage.decision`:
+
+| Column | Holds |
+|---|---|
+| `verdict`, `reason` | The verdict (ledger spelling) and reason. |
+| `risk_tier` | The contract's tier; `high` for a request with no contract or an unknown tier. |
+| `feature`, `intent`, `target_objects` | What the action is and which objects it touches. A statement that maps to no change class records under `unclassified`. |
+| `evidence`, `evidence_id` | The decision's evidence (detail, budget kind, lease outcome, verification wait) and its stable ID. |
+| `policy_version`, `policy_doc_sha256` | The standing policy the gate decided under. |
+| `guardrails`, `off_window_ok` | The contract's guardrails, and whether a deadline let it run off-window. |
+| `deadline_kind`, `deadline_hard_at` | The XID or disk deadline that drove the request, if any. |
+| `principal_id`, `task_id`, `artifact_hash` | The agent and task an agent request came from. |
+| `fingerprint`, `repeat_count`, `last_seen_at` | Repeat folding (below). |
+| `candidate_key`, `resolved_at` | The episode a withheld decision belongs to (below). |
+| `action_log_id`, `queue_id` | The action that ran, or the approval queue item. |
+
+**Fingerprint folding.** The gate evaluates every candidate every cycle. A withheld verdict
+(`queue_approval`, `park`, `blocked`, `observe_only`) carries a fingerprint: a hash of the
+database, feature, intent, targets (in any order), verdict, policy version, proposed SQL and,
+for an agent, the principal. A repeat of an open fingerprint updates the one row: it adds to
+`repeat_count`, stamps `last_seen_at` and records the latest reason, risk tier, evidence,
+guardrails and deadline. The reason is not part of the fingerprint, so a candidate that
+moves from `rate_limit_exceeded` to `blast_radius_exceeded` keeps its row and shows the
+latest reason. An `execute` has no fingerprint: each one backs its own action and row.
+
+**Episodes.** `candidate_key` identifies the candidate whatever the verdict (database,
+feature, targets, SQL and principal). When the candidate executes, its open withheld rows
+are resolved (`resolved_at`) in the same statement, and the next withheld verdict starts a
+new row.
+
+**Metrics.** `pg_sage_policy_parks_total{database,reason}` counts each park the gate
+records, one per evaluation, so repeats folded into one row each count and a rate shows how
+long candidates wait. A park that fails to record is answered `blocked`
+`policy_unavailable` and counted in `pg_sage_policy_record_failures_total` instead; any
+series there above zero means the ledger is missing decisions.
+
+## Approval flow
+
+1. A `queue_approval` verdict creates one item in the database's approval queue. Its
+   approval card shows the SQL, rollback, evidence, risk, blast radius and why a person must
+   decide (including `gate:<reason>`), and expires.
+2. A person approves or rejects it on the Actions page, in the Cases panel (Sage SRE) or
+   with a ChatOps button. The approval is single use, records who approved, and is bound to
+   the card's content: an item whose SQL changed since the card was shown is not approved.
+3. The executor asks the gate again with the approval (step 9 of the evaluation order).
+   Trust, the change-class allowlist and the maintenance windows still bind, so an approved
+   action can still be `blocked` `outside_maintenance_window` until the window opens.
+   Approved incident mitigations (a Sage SRE cancel, a revert) are not held by windows.
+4. The executor takes the change lease and runs the action. An operator action that cannot
+   get the lease is refused (`blocked` `ddl_conflict`) rather than parked: a person is
+   waiting on it.
+
+An approval that overrides a pending verification says so on the card first ("approving
+overrides pending verification of action N") and records `evidence.verification_override`.
+
+**Chat.** Slack and Telegram approval cards carry the same content as the UI card, with
+one-click buttons that go through the same approval path. A Sage SRE cancel is decided
+through its approval card only, and a signed Slack callback older than
+`sre.actions.chatops_tolerance_seconds` is refused; see
+[Sage SRE approved actions](configuration.md#sage-sre-approved-actions).
+
+**Agent policy proposals.** An agent can only propose a change to its own policy. A
+proposal that widens the current policy needs two different people to approve it, and the
+agent's sponsor is not one of them, unless `agents.single_operator_mode` lets one person
+approve with a recorded reason, queued for review afterwards.

@@ -3,10 +3,13 @@ package approvalcard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/chatops"
 	"github.com/pg-sage/sidecar/internal/notify"
@@ -174,5 +177,183 @@ func TestTokenIssuerMintsChannelScopedTokens(t *testing.T) {
 	expired.ExpiresAt = time.Now().Add(-time.Minute)
 	if _, err := iss.Issue(ctx, notify.Channel{ID: 3}, expired); err == nil {
 		t.Fatal("issued a token for an expired card")
+	}
+}
+
+// queueDispatch counts the re-sends of each queue item and fails the ones
+// in fail; delay widens the window two racing runs overlap in.
+type queueDispatch struct {
+	mu     sync.Mutex
+	counts map[int]int
+	fail   map[int]bool
+	delay  time.Duration
+}
+
+func (q *queueDispatch) Dispatch(_ context.Context, evt notify.Event) error {
+	id, _ := evt.Data["queue_id"].(int)
+	time.Sleep(q.delay)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.counts == nil {
+		q.counts = map[int]int{}
+	}
+	q.counts[id]++
+	if q.fail[id] {
+		return fmt.Errorf("slack 503 for item %d", id)
+	}
+	return nil
+}
+
+func (q *queueDispatch) count(id int) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.counts[id]
+}
+
+// clearSnoozes ends every snooze other tests left behind, so a run sees
+// only this test's items.
+func clearSnoozes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `UPDATE sage.action_queue SET snoozed_until = NULL
+		WHERE snoozed_until IS NOT NULL`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// endedSnoozes queues n items whose snooze ran out a second ago.
+func endedSnoozes(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) []int {
+	t.Helper()
+	ids := make([]int, n)
+	for i := range ids {
+		ids[i], _ = queueOptimizerIndex(t, ctx, pool)
+		endSnooze(t, ctx, pool, ids[i])
+	}
+	return ids
+}
+
+func endSnooze(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id int) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `UPDATE sage.action_queue SET snoozed_until =
+		now() - interval '1 second' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// snoozeState reads whether the item's snooze is cleared, and whether it
+// is held for the 5-minute retry.
+func snoozeState(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	id int) (cleared, retry bool) {
+	t.Helper()
+	if err := pool.QueryRow(ctx, `SELECT snoozed_until IS NULL,
+		COALESCE(snoozed_until > now() + interval '4 minutes'
+		     AND snoozed_until <= now() + interval '5 minutes', false)
+		FROM sage.action_queue WHERE id = $1`, id).Scan(&cleared, &retry); err != nil {
+		t.Fatal(err)
+	}
+	return cleared, retry
+}
+
+func TestRenotifySnoozedContinuesPastAFailedResend(t *testing.T) {
+	pool, ctx := livePool(t)
+	clearSnoozes(t, ctx, pool)
+	ids := endedSnoozes(t, ctx, pool, 3)
+	d := &queueDispatch{fail: map[int]bool{ids[1]: true}}
+	l := Loader{Pool: pool, Database: "orders"}
+	n, err := RenotifySnoozed(ctx, l, d)
+	if n != 2 || err == nil {
+		t.Fatalf("renotify = %d, %v; want 2 sent and an error", n, err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, fmt.Sprintf("card %d:", ids[1])) ||
+		strings.Contains(msg, fmt.Sprintf("card %d:", ids[0])) ||
+		strings.Contains(msg, fmt.Sprintf("card %d:", ids[2])) ||
+		!strings.Contains(msg, "slack 503") {
+		t.Fatalf("error %q must name queue item %d only", msg, ids[1])
+	}
+	for _, id := range ids {
+		if d.count(id) != 1 {
+			t.Fatalf("item %d dispatched %d times, want 1", id, d.count(id))
+		}
+	}
+	for i, id := range []int{ids[0], ids[2]} {
+		if cleared, _ := snoozeState(t, ctx, pool, id); !cleared {
+			t.Fatalf("sent item %d (#%d) kept its snooze", id, i)
+		}
+	}
+	if cleared, retry := snoozeState(t, ctx, pool, ids[1]); cleared || !retry {
+		t.Fatalf("failed item: cleared %v, 5-minute retry %v", cleared, retry)
+	}
+	// The retry waits its 5 minutes: an immediate run sends nothing.
+	if n, err := RenotifySnoozed(ctx, l, d); n != 0 || err != nil || d.count(ids[1]) != 1 {
+		t.Fatalf("immediate rerun = %d, %v, item sent %d times", n, err, d.count(ids[1]))
+	}
+	endSnooze(t, ctx, pool, ids[1])
+	d.fail = nil
+	if n, err := RenotifySnoozed(ctx, l, d); n != 1 || err != nil || d.count(ids[1]) != 2 {
+		t.Fatalf("retry = %d, %v, item sent %d times", n, err, d.count(ids[1]))
+	}
+	if cleared, _ := snoozeState(t, ctx, pool, ids[1]); !cleared {
+		t.Fatal("the retried item kept its snooze")
+	}
+}
+
+func TestRenotifySnoozedRacingRunsSendEachOnce(t *testing.T) {
+	pool, ctx := livePool(t)
+	clearSnoozes(t, ctx, pool)
+	ids := endedSnoozes(t, ctx, pool, 3)
+	d := &queueDispatch{delay: 30 * time.Millisecond}
+	l := Loader{Pool: pool, Database: "orders"}
+	const runs = 4
+	var wg sync.WaitGroup
+	sent := make([]int, runs)
+	errs := make([]error, runs)
+	for i := 0; i < runs; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sent[i], errs[i] = RenotifySnoozed(ctx, l, d)
+		}(i)
+	}
+	wg.Wait()
+	total := 0
+	for i := 0; i < runs; i++ {
+		if errs[i] != nil {
+			t.Fatalf("run %d: %v", i, errs[i])
+		}
+		total += sent[i]
+	}
+	for _, id := range ids {
+		if d.count(id) != 1 {
+			t.Fatalf("item %d dispatched %d times by racing runs, want 1", id, d.count(id))
+		}
+	}
+	if total != len(ids) {
+		t.Fatalf("runs report %d sent, want %d", total, len(ids))
+	}
+}
+
+func TestRenotifySnoozedNothingDueAndNoDispatcher(t *testing.T) {
+	pool, ctx := livePool(t)
+	clearSnoozes(t, ctx, pool)
+	l := Loader{Pool: pool, Database: "orders"}
+	d := &queueDispatch{}
+	if n, err := RenotifySnoozed(ctx, l, d); n != 0 || err != nil || len(d.counts) != 0 {
+		t.Fatalf("nothing due = %d, %v, dispatched %v", n, err, d.counts)
+	}
+	id := endedSnoozes(t, ctx, pool, 1)[0]
+	t.Cleanup(func() { clearSnoozes(t, context.Background(), pool) })
+	// A typed nil notifier (notifications off) is no dispatcher either.
+	for i, none := range []Dispatcher{nil, NewNotifier(nil, l)} {
+		n, err := RenotifySnoozed(ctx, l, none)
+		if n != 0 || err == nil || !strings.Contains(err.Error(), "dispatcher") {
+			t.Fatalf("dispatcher #%d: %d, %v", i, n, err)
+		}
+		if cleared, retry := snoozeState(t, ctx, pool, id); cleared || retry {
+			t.Fatalf("dispatcher #%d touched the snooze: cleared %v, retry %v", i,
+				cleared, retry)
+		}
+	}
+	if n, err := RenotifySnoozed(ctx, Loader{}, d); n != 0 || err == nil {
+		t.Fatalf("no pool: %d, %v", n, err)
 	}
 }

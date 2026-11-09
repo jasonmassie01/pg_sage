@@ -243,7 +243,7 @@ func TestRollbackNotTargetBound(t *testing.T) {
 	f := analyzer.Finding{Category: "unused_index", ObjectType: "index",
 		ObjectIdentifier: "public.idx_a",
 		RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_a ON public.t (a)"}
-	d := bindingExecutor().evaluateRollbackPolicy(context.Background(), f)
+	d := bindingExecutor().evaluateRollbackPolicy(context.Background(), f, 0)
 	if d.BlockedReason == "target_mismatch" {
 		t.Fatalf("rollback refused as target_mismatch: %+v", d)
 	}

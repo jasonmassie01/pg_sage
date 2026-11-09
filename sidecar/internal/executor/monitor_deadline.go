@@ -23,7 +23,7 @@ func (e *Executor) MonitorDeadline(ctx context.Context, actionID int64) (time.Ti
 		return time.Time{}, fmt.Errorf("read action %d for its monitor deadline: %w",
 			actionID, err)
 	}
-	cfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	cfg := e.rollbackMonitorConfig(nil) // only the windows are read
 	_, capW, _ := monitorWindows(verificationClass(sql), cfg)
 	return executedAt.Add(capW), nil
 }

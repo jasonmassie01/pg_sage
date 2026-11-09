@@ -17,7 +17,38 @@ import (
 func approvalItem(id sre.UUID) ApprovalItem {
 	return ApprovalItem{ProposalID: id, InvestigationID: sre.NewUUID(), PID: 5151,
 		SQL: "SELECT pg_cancel_backend(5151)", Title: "Cancel blocking backend pid 5151",
-		Detail: "pid 5151 blocks 2 sessions", ExpiresAt: time.Now().Add(15 * time.Minute)}
+		Detail: "pid 5151 blocks 2 sessions", ExpiresAt: time.Now().Add(15 * time.Minute),
+		BackendStart: time.Date(2026, 11, 9, 8, 30, 0, 123456000, time.UTC)}
+}
+
+// The item's finding names the exact backend incarnation the proposal
+// targets, so an approval card's hash covers it (policy-08): a reused pid
+// with another backend_start is another card.
+func TestPGApprovalQueueRecordsTheSignalTarget(t *testing.T) {
+	_, pool, ctx := liveStore(t, sre.DefaultLimits())
+	item := approvalItem(sre.NewUUID())
+	got, err := NewPGApprovalQueue(pool, nil).Enqueue(ctx, item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid float64
+	var start, summary, source string
+	if err := pool.QueryRow(ctx, `SELECT (detail->'signal_target'->>'pid')::float8,
+		detail->'signal_target'->>'backend_start', detail->>'summary', detail->>'source'
+		FROM sage.findings WHERE id = $1`, got.FindingID).
+		Scan(&pid, &start, &summary, &source); err != nil {
+		t.Fatalf("finding: %v", err)
+	}
+	if pid != 5151 || start != "2026-11-09T08:30:00.123456Z" ||
+		summary != "pid 5151 blocks 2 sessions" || source != "sage_sre" {
+		t.Fatalf("signal target = %v %q, summary %q, source %q", pid, start, summary, source)
+	}
+	missing := approvalItem(sre.NewUUID())
+	missing.BackendStart = time.Time{}
+	if _, err := NewPGApprovalQueue(pool, nil).Enqueue(ctx, missing); !errors.Is(err,
+		sre.ErrInvalidRequest) {
+		t.Fatalf("an item without the backend start = %v, want ErrInvalidRequest", err)
+	}
 }
 
 func TestPGApprovalQueueEnqueueIsIdempotent(t *testing.T) {

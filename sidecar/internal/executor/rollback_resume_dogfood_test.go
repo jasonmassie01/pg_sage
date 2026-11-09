@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // Dogfood lifeos-1 finding 9a: at startup v1.8.0 resumed monitors for
@@ -56,6 +57,9 @@ func resumeExecutor(t *testing.T, pool *pgxpool.Pool) *Executor {
 	cfg.Trust.RollbackWindowMinutes = 15
 	exec := New(pool, cfg, time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
+	// A resumed monitor's revert is a standing-gate decision (policy-05), and
+	// production always installs the gate before monitors resume.
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	return exec
 }
 

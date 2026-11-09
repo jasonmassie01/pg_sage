@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -90,12 +91,14 @@ func validateDecision(input DecisionInput) error {
 		{strings.TrimSpace(input.Feature) == "", "feature"},
 		{strings.TrimSpace(input.Intent) == "", "intent"},
 		{strings.TrimSpace(input.Reason) == "", "reason"},
-		{input.PolicyVersion <= 0, "policy_version"},
 	}
 	for _, check := range checks {
 		if check.missing {
 			return fmt.Errorf("decision %s is required", check.name)
 		}
+	}
+	if err := validatePolicyProvenance(input); err != nil {
+		return err
 	}
 	if !validVerdict(input.Verdict) {
 		return fmt.Errorf("decision verdict %q is invalid", input.Verdict)
@@ -109,6 +112,26 @@ func validateDecision(input DecisionInput) error {
 	}
 	return nil
 }
+
+// validatePolicyProvenance mirrors sage.decision's CHECK on the hash. A
+// decision made before any policy read has version 0 and no hash; a hash
+// always names the version it is the hash of.
+func validatePolicyProvenance(input DecisionInput) error {
+	switch {
+	case input.PolicyVersion < 0:
+		return fmt.Errorf("decision policy_version %d is negative", input.PolicyVersion)
+	case input.PolicySHA256 == "":
+		return nil
+	case !policyHashPattern.MatchString(input.PolicySHA256):
+		return fmt.Errorf("decision policy_doc_sha256 %q is not 64 lower-case hex digits",
+			input.PolicySHA256)
+	case input.PolicyVersion == 0:
+		return errors.New("decision policy_doc_sha256 requires the policy_version it hashes")
+	}
+	return nil
+}
+
+var policyHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func validVerdict(verdict Verdict) bool {
 	switch verdict {

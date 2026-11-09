@@ -458,7 +458,11 @@ func migrationStatements() []string {
 		ddlPreTaggingSelfFindings, // footprint-06: resolve pre-tagging self findings
 		ddlQueryHintsStatusCheck, // tuning-06: rejected and expired hints
 		ddlAdvisorRuns, // advisors-02: persisted sub-advisor schedule
-		ddlRolloutInstanceStatus) // executor-04: canary pending and unverified states
+		ddlRolloutInstanceStatus, // executor-04: canary pending and unverified states
+		ddlApprovalCardNextCheck, // policy-06: follow-up queue order
+		ddlActionQueueRevertsAction, // policy-05: withheld reverts reach a person
+		ddlDecisionCandidateKey(), // policy-02: a withheld verdict is one row per episode
+		ddlDecisionPolicyProvenance) // policy-03: the policy hash, not a cross-database FK
 }
 
 // ---------------------------------------------------------------------------

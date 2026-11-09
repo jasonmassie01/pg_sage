@@ -91,15 +91,17 @@ func (d *chatopsDeps) callbackHandler(provider string) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		if a.CardToken != "" {
+		switch {
+		case a.CardToken != "":
 			d.decideCard(w, r, ch, a, user)
-			return
-		}
-		if a.FactToken != "" {
+		case a.FactToken != "":
 			d.decideFactCard(w, r, ch, a, user)
-			return
+		case a.Outdated:
+			answerOutdated(w, ch, a)
+		default:
+			sreErrorCode(w, "the callback names no card", "invalid_request",
+				http.StatusBadRequest)
 		}
-		d.decide(w, r, ch, a, user)
 	}
 }
 

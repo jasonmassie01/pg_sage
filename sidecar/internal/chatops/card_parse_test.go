@@ -23,7 +23,7 @@ func TestParseSlackCardDecisions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", actionID, err)
 		}
-		if got.Decision != want || got.CardToken != cardToken || got.ProposalID != "" ||
+		if got.Decision != want || got.CardToken != cardToken || got.Outdated ||
 			got.TeamID != "T0001" || got.UserID != "U0042" ||
 			got.Nonce != "T0001:U0042:1759320000.123456" {
 			t.Fatalf("%s parsed as %+v", actionID, got)
@@ -46,7 +46,7 @@ func TestParseSlackCardRejectsBadTokens(t *testing.T) {
 		}
 	}
 	// A card token on a legacy proposal button is not a proposal id.
-	if _, err := ParseSlack(slackForm(t, slackPayload(SlackApproveAction,
+	if _, err := ParseSlack(slackForm(t, slackPayload(LegacySlackApproveAction,
 		cardToken))); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("legacy button with a card token: err = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestParseTelegramCardDecisions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", d, err)
 		}
-		if got.Decision != want || got.CardToken != cardToken || got.ProposalID != "" ||
+		if got.Decision != want || got.CardToken != cardToken || got.Outdated ||
 			got.ChatID != "-1001" || got.MessageID != 9001 || got.UserID != "4242" ||
 			got.Nonce != "update:77" || got.CallbackID != "cbq-1" {
 			t.Fatalf("%s parsed as %+v", d, got)

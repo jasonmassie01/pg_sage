@@ -2,7 +2,6 @@ package approvalcard
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/chatops"
@@ -65,14 +64,11 @@ func (n *Notifier) Dispatch(ctx context.Context, evt notify.Event) error {
 	return n.inner.Dispatch(ctx, evt)
 }
 
-// enrich attaches the card. A Sage SRE proposal keeps its own buttons; a
-// card that cannot be built is logged and the plain request goes out.
+// enrich attaches the card; a card that cannot be built is logged and the
+// plain request goes out (without buttons: it is decided in the UI).
 func (n *Notifier) enrich(ctx context.Context, evt notify.Event) notify.Event {
 	id, ok := evt.Data["queue_id"].(int)
 	if !ok || id <= 0 {
-		return evt
-	}
-	if _, sre := evt.Data["approval_proposal_id"]; sre {
 		return evt
 	}
 	l := n.loader
@@ -84,53 +80,7 @@ func (n *Notifier) enrich(ctx context.Context, evt notify.Event) notify.Event {
 		n.logFn("approvalcard", "queue item %d sent without its card: %v", id, err)
 		return evt
 	}
-	ref := notify.CardRef{Database: c.Database, QueueID: c.QueueID, CardHash: c.CardHash,
-		Title: c.Title, Summary: Summary(c), ExpiresAt: c.ExpiresAt}
-	return notify.WithApprovalCard(evt, ref, Text(c, n.loader.now()))
-}
-
-// RenotifySnoozed ends the snoozes that ran out and sends those cards
-// again, once per snooze.
-func RenotifySnoozed(ctx context.Context, l Loader, d Dispatcher) (int, error) {
-	if l.Pool == nil || d == nil {
-		return 0, fmt.Errorf("approvalcard: re-notify needs a pool and a dispatcher")
-	}
-	rows, err := l.Pool.Query(ctx, `/* pg_sage */ UPDATE sage.action_queue q
-		SET snoozed_until = NULL
-		WHERE q.snoozed_until IS NOT NULL AND q.snoozed_until <= now()
-		  AND q.status = 'pending' AND q.expires_at > now()
-		RETURNING q.id, q.proposed_sql, q.action_risk,
-		  (SELECT COALESCE(f.title, '') FROM sage.findings f WHERE f.id = q.finding_id)`)
-	if err != nil {
-		return 0, fmt.Errorf("approvalcard: end snoozes: %w", err)
-	}
-	type ended struct {
-		id               int
-		sql, risk, title string
-	}
-	var items []ended
-	for rows.Next() {
-		var e ended
-		var title *string
-		if err := rows.Scan(&e.id, &e.sql, &e.risk, &title); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("approvalcard: end snoozes: %w", err)
-		}
-		if title != nil {
-			e.title = *title
-		}
-		items = append(items, e)
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("approvalcard: end snoozes: %w", err)
-	}
-	for _, e := range items {
-		evt := notify.QueuedApprovalEvent(e.title, e.sql, l.Database, e.risk, e.id)
-		if err := d.Dispatch(ctx, evt); err != nil {
-			return len(items), fmt.Errorf("approvalcard: re-send card %d: %w", e.id, err)
-		}
-	}
-	return len(items), nil
+	return notify.WithApprovalCard(evt, CardRefOf(c), Text(c, n.loader.now()))
 }
 
 // TokenIssuer mints card tokens in the control database
@@ -141,12 +91,15 @@ type TokenIssuer struct {
 }
 
 // Issue records the card for a channel; its buttons work until the
-// earlier of the TTL and the queue item's expiry.
+// earliest of the TTL, the card's own MaxTTL and the queue item's expiry.
 func (t TokenIssuer) Issue(ctx context.Context, ch notify.Channel,
 	ref notify.CardRef) (string, error) {
 	ttl := t.TTL
 	if ttl <= 0 {
 		ttl = DefaultCardTTL
+	}
+	if ref.MaxTTL > 0 && ref.MaxTTL < ttl {
+		ttl = ref.MaxTTL
 	}
 	expires := time.Now().Add(ttl)
 	if !ref.ExpiresAt.IsZero() && ref.ExpiresAt.Before(expires) {

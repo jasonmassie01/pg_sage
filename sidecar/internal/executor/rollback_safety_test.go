@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -139,24 +140,35 @@ func TestMonitorWithoutAuthorizerWithholdsRollback(t *testing.T) {
 	}
 }
 
-func TestManualRollbackAuthorizerHonorsExecutorAndTrust(t *testing.T) {
+// policy-05: the approved/manual monitor's authorizer is the standing
+// gate's rollback decision (the unrecorded authorizer is gone). It still
+// refuses a disabled executor and observation trust, and names why.
+func TestRollbackDeciderHonorsExecutorAndTrust(t *testing.T) {
 	cfg := wave1PolicyConfig("advisory")
 	exec := New(nil, cfg, time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
-	authorize := exec.manualRollbackAuthorizer()
-	if !authorize(context.Background(), "DROP INDEX CONCURRENTLY public.x") {
-		t.Fatal("enabled advisory executor refused rollback")
+	exec.EnableStandingPolicyDocument(policy.StaffedProfile(), nil)
+	decide := exec.rollbackDecider(0)
+	const sql = "DROP INDEX CONCURRENTLY IF EXISTS public.x"
+	if v := decide(context.Background(), sql); !v.Allowed {
+		t.Fatalf("enabled advisory executor refused rollback: %s", v.Reason)
 	}
 	exec.SetExecutorEnabled(false)
-	if authorize(context.Background(), "DROP INDEX CONCURRENTLY public.x") {
-		t.Fatal("disabled executor authorized rollback")
+	if v := decide(context.Background(), sql); v.Allowed ||
+		!strings.Contains(v.Reason, "executor_disabled") {
+		t.Fatalf("disabled executor: %+v", v)
 	}
 	exec.SetExecutorEnabled(true)
 	if err := exec.SetTrustLevel("observation"); err != nil {
 		t.Fatal(err)
 	}
-	if authorize(context.Background(), "DROP INDEX CONCURRENTLY public.x") {
-		t.Fatal("observation trust authorized rollback")
+	if v := decide(context.Background(), sql); v.Allowed ||
+		!strings.Contains(v.Reason, "observe_only") {
+		t.Fatalf("observation trust: %+v", v)
+	}
+	if v := decide(context.Background(), "TRUNCATE public.x"); v.Allowed ||
+		!strings.HasPrefix(v.Reason, rollbackNoContract) {
+		t.Fatalf("unclassified rollback: %+v", v)
 	}
 }
 

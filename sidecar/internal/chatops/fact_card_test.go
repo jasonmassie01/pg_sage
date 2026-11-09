@@ -20,7 +20,7 @@ func TestParseSlackFactDecisions(t *testing.T) {
 			t.Fatalf("%s: %v", actionID, err)
 		}
 		if got.Decision != want || got.FactToken != cardToken || got.CardToken != "" ||
-			got.ProposalID != "" || got.UserID != "U0042" {
+			got.Outdated || got.UserID != "U0042" {
 			t.Fatalf("%s parsed as %+v", actionID, got)
 		}
 	}

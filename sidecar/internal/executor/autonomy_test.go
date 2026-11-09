@@ -102,13 +102,13 @@ func TestWithoutAutonomyTheGateIsUnchanged(t *testing.T) {
 
 func TestDecisionEvidenceNamesFamilyAndClass(t *testing.T) {
 	req := custodianRequest(freezeProposal())
-	in := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
+	in := ledgerInputAt(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonAutonomyL3, RiskTier: policy.RiskSafe})
 	if in.Evidence["incident_family"] != "wraparound_runway" ||
 		in.Evidence["autonomy_class"] != "freeze" {
 		t.Fatalf("decision evidence = %#v", in.Evidence)
 	}
-	plain := ledgerInput(nil, 1, policy.ActionRequest{Feature: "index"},
+	plain := ledgerInputAt(nil, 1, policy.ActionRequest{Feature: "index"},
 		policy.Decision{Verdict: policy.VerdictExecute})
 	if _, ok := plain.Evidence["incident_family"]; ok {
 		t.Fatalf("a request without a family names one: %#v", plain.Evidence)

@@ -19,7 +19,7 @@ func Assemble(in Inputs) Card {
 	a := in.Action
 	c := Card{QueueID: a.ID, Database: in.Database, ActionType: actionTypeOf(a),
 		Status: a.Status, SQL: a.ProposedSQL, ProposedAt: a.ProposedAt,
-		ExpiresAt: a.ExpiresAt, CardHash: ContentHash(a)}
+		ExpiresAt: a.ExpiresAt, CardHash: cardHash(a, in.Finding)}
 	c.Title = cardTitle(in, c.ActionType)
 	c.Finding = findingRef(in.Finding)
 	c.Recommendation = recommendationRef(a)
@@ -107,6 +107,14 @@ func targetsOf(f *FindingRow) []string {
 	if f == nil {
 		return out
 	}
+	// A Sage SRE finding's object is its proposal key; its target is the
+	// backend incarnation.
+	if t, ok := signalTargetOf(f); ok {
+		return []string{t.String()}
+	}
+	if f.Category == "sre_action" {
+		return out
+	}
 	add := func(s string) {
 		s = strings.TrimSpace(s)
 		for _, have := range out {
@@ -138,6 +146,9 @@ func rationaleOf(in Inputs) *Rationale {
 	recommendation := ""
 	if in.Finding != nil {
 		detail, recommendation = in.Finding.Detail, in.Finding.Recommendation
+	}
+	if r := sreRationale(detail); r != nil {
+		return r
 	}
 	for _, key := range []string{"llm_rationale", "rationale", "narrative",
 		"rewrite_rationale"} {

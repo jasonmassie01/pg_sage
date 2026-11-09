@@ -18,7 +18,7 @@ func TestLedgerInputStampsContractNone(t *testing.T) {
 	decision := policy.Decision{Verdict: policy.VerdictPark,
 		Reason: policy.ReasonNoTypedContract, RiskTier: policy.RiskHigh}
 
-	input := ledgerInput(nil, 1, request, decision)
+	input := ledgerInputAt(nil, 1, request, decision)
 	if input.Evidence["contract"] != "none" || input.RiskTier != "high" ||
 		input.Reason != "no_typed_contract" || input.Verdict != ledger.VerdictPark {
 		t.Fatalf("input = %#v, want contract=none at high", input)
@@ -34,7 +34,7 @@ func TestLedgerInputStampsContractNone(t *testing.T) {
 func TestLedgerInputOmitsContractNoneForTypedRequests(t *testing.T) {
 	request := policy.ActionRequest{Feature: "analyze", SQL: "ANALYZE public.t",
 		Contract: &policy.ActionContract{ActionType: "analyze_table", RiskTier: policy.RiskSafe}}
-	input := ledgerInput(nil, 1, request, policy.Decision{Verdict: policy.VerdictPark,
+	input := ledgerInputAt(nil, 1, request, policy.Decision{Verdict: policy.VerdictPark,
 		Reason: policy.ReasonTrustRampNotSatisfied, RiskTier: policy.RiskSafe})
 	if _, ok := input.Evidence["contract"]; ok || input.RiskTier != "safe" {
 		t.Fatalf("input = %#v, a typed request carries no contract marker", input)
@@ -48,7 +48,7 @@ func TestLedgerInputNamesUnclassifiedWithheldFeature(t *testing.T) {
 	request := policy.ActionRequest{SQL: "TRUNCATE public.t", TargetObjs: []string{"public.t"}}
 	for _, verdict := range []policy.Verdict{policy.VerdictPark, policy.VerdictBlocked,
 		policy.VerdictQueueApproval, policy.VerdictObserveOnly} {
-		input := ledgerInput(nil, 1, request, policy.Decision{Verdict: verdict,
+		input := ledgerInputAt(nil, 1, request, policy.Decision{Verdict: verdict,
 			Reason: policy.ReasonNoTypedContract, RiskTier: policy.RiskHigh})
 		if input.Feature != unclassifiedFeature || input.Intent != unclassifiedFeature {
 			t.Fatalf("%s: feature=%q intent=%q, want %q", verdict, input.Feature,
@@ -64,7 +64,7 @@ func TestLedgerInputNamesUnclassifiedWithheldFeature(t *testing.T) {
 // keeps failing ledger validation (fail closed) as before.
 func TestLedgerInputKeepsEmptyFeatureOnExecute(t *testing.T) {
 	request := policy.ActionRequest{SQL: "SELECT 1"}
-	input := ledgerInput(nil, 1, request, policy.Decision{Verdict: policy.VerdictExecute,
+	input := ledgerInputAt(nil, 1, request, policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonAuthorized, RiskTier: policy.RiskReadOnly})
 	if input.Feature != "" || input.Intent != "" {
 		t.Fatalf("execute input = %#v, want the empty feature kept", input)

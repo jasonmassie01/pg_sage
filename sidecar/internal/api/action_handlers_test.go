@@ -938,6 +938,9 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 		Trust: config.TrustConfig{Level: "advisory"},
 	}, time.Now(),
 		func(string, string, ...any) {})
+	// The operator rollback is a standing-gate decision (policy-05); production
+	// always installs the gate.
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	handler := rollbackActionHandler(exec)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/actions/{id}/rollback", handler)
@@ -956,8 +959,9 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 		t.Fatalf("already rolled back status: got %d, want 400", w.Code)
 	}
 
+	// A rollback the standing gate can type (policy-05).
 	successID := insertActionLogForRollback(t, pool, ctx,
-		stringPtr("ANALYZE"), "success")
+		stringPtr("ANALYZE "+rollbackProbeTable(t, pool, ctx)), "success")
 	w = rollbackRequest(t, mux, successID, `{"reason":"   "}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("success status: got %d, body %s",

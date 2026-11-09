@@ -50,6 +50,25 @@ func DecisionFingerprint(input DecisionInput) string {
 	return "fp_" + hex.EncodeToString(sum[:16])
 }
 
+// CandidateKey identifies the candidate a decision is about, whatever the
+// gate decided: database, feature, targets (in any order), the proposed SQL
+// and the principal. Verdict, intent and policy version are not part of
+// it, so an operator's execute and an autonomous park of the same change
+// share it. An execute ends the candidate's open withheld rows (an
+// episode); the next withheld verdict starts a new row.
+func CandidateKey(input DecisionInput) string {
+	database := ""
+	if input.DatabaseID != nil {
+		database = strconv.Itoa(*input.DatabaseID)
+	}
+	targets := append([]string(nil), input.TargetObjects...)
+	sort.Strings(targets)
+	parts := []string{database, input.Feature, strings.Join(targets, "\x1e"),
+		input.ProposedSQL, input.PrincipalID}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
+	return "ck_" + hex.EncodeToString(sum[:16])
+}
+
 // missingConflictIndex reports PostgreSQL's 42P10: ON CONFLICT names no
 // usable unique index (idx_decision_fingerprint dropped or INVALID).
 func missingConflictIndex(err error) bool {
@@ -83,19 +102,21 @@ func (r *PostgresRepository) UpsertDecision(
 }
 
 // upsertDecisionSQL bumps only unindexed columns on a repeat, so the
-// update stays HOT unless the deadline changed.
-const upsertDecisionSQL = `INSERT INTO sage.decision
-	(database_id, feature, intent, target_objects, policy_version, verdict,
-	 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
-	 fingerprint, principal_id, task_id, artifact_hash)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
-	        NULLIF($14,''),NULLIF($15,''),NULLIF($16,''))
+// update stays HOT unless the deadline changed. candidate_key is indexed
+// but unchanged on a repeat (it is derived from the fingerprint's inputs),
+// except on a row written before policy-02, which gains its key here. A
+// repeat records the latest guardrails and deadline override; the policy
+// hash is the version's (the version is in the fingerprint), so it stays.
+const upsertDecisionSQL = insertDecisionColumns + `
 	ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL AND resolved_at IS NULL
 	DO UPDATE SET repeat_count = sage.decision.repeat_count + 1,
 	              last_seen_at = now(), reason = EXCLUDED.reason,
 	              risk_tier = EXCLUDED.risk_tier, evidence = EXCLUDED.evidence,
 	              deadline_kind = EXCLUDED.deadline_kind,
-	              deadline_hard_at = EXCLUDED.deadline_hard_at
+	              deadline_hard_at = EXCLUDED.deadline_hard_at,
+	              candidate_key = EXCLUDED.candidate_key,
+	              guardrails = EXCLUDED.guardrails,
+	              off_window_ok = EXCLUDED.off_window_ok
 	RETURNING id, evidence_id`
 
 // fingerprintParam is the index of $13, fingerprint, in decisionValues.

@@ -172,6 +172,6 @@ func (e *Executor) findingMonitorConfig(
 		e.withDropRestore(&cfg, actionID)
 		return cfg
 	}
-	cfg.Decide = e.standingRollbackDecider(f)
+	cfg.Decide = e.findingRollbackDecider(f, actionID)
 	return cfg
 }

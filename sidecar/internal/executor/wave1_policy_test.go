@@ -327,15 +327,6 @@ func TestWave1ManualMutationsHonorHardGates(t *testing.T) {
 	}
 }
 
-func TestWave1RollbackHonorsExecutorDisabled(t *testing.T) {
-	e := newWave1Executor("advisory", "manual")
-	e.SetExecutorEnabled(false)
-	err := e.RollbackAction(context.Background(), 1, "test")
-	if err == nil || err.Error() != "executor is disabled" {
-		t.Fatalf("error = %v, want executor is disabled", err)
-	}
-}
-
 func wave1PolicyConfig(level string) *config.Config {
 	return &config.Config{Trust: config.TrustConfig{
 		Level:             level,

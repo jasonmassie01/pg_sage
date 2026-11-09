@@ -221,6 +221,14 @@ type Decision struct {
 	// object that parked it, that an operator approval overrode, or that
 	// was released at its hard deadline (one change per object).
 	VerificationWait *VerificationWait
+	// PolicyReadError is why the standing policy could not be read when a
+	// revert ran anyway (policy-05): it ran under safety.lock_timeout_ms.
+	PolicyReadError string
+	// PolicyVersion and PolicySHA256 name the standing-policy document the
+	// gate evaluated (policy-03). A decision made before the gate read one
+	// (a hard stop, a failed read) carries 0 and "".
+	PolicyVersion int64
+	PolicySHA256  string
 }
 
 // RuntimeState is the live authority snapshot for one authorization.

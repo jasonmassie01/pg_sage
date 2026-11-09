@@ -143,7 +143,7 @@ func (e *Executor) watchIndexReplace(ctx context.Context, actionID int64) {
 	if actionID <= 0 || !e.replaceWatch.claim(actionID) {
 		return
 	}
-	cfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	cfg := e.rollbackMonitorConfig(e.replaceUndoAuthorizer(actionID))
 	if !e.startRollbackMonitor(func() {
 		defer e.replaceWatch.release(actionID)
 		e.runReplaceWatch(context.WithoutCancel(ctx), actionID, cfg)

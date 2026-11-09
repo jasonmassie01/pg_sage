@@ -748,6 +748,35 @@ The soft-drop restore runs under its own typed contract:
   automatic rollback (<verdict>: <reason>)`). At startup the executor checks that every
   reversible forward contract's rollback classifies to a contract and logs each one that
   does not at ERROR.
+- **Every revert is a recorded decision.** The automatic revert of any action (pg_sage's
+  own, one an operator approved or ran by hand, one whose monitor resumed after a restart)
+  and the operator's rollback button go through the standing policy gate as a typed
+  rollback request, judged on the statement that runs (an index rollback in its
+  `CONCURRENTLY` form). Each leaves one `sage.decision` row with `evidence.rollback = true`,
+  `evidence.rolled_back_action_id` and `evidence.source` (`automatic_rollback` or
+  `operator_rollback`).
+- **A revert is a mitigation.** Undoing a change that already ran is not maintenance:
+  maintenance windows, the kind budgets, earned per-class autonomy, the trust tiers and
+  ramp and the change-class allowlist do not bind it, and its decision reads `execute` with
+  the reason `rollback_mitigation`. The executor-disabled switch, the emergency stop, a
+  replica, the provider list, `trust.level: observation` and the lock ceiling still bind; a
+  rollback no contract classifies is parked as `no_typed_contract`. An approval-required
+  rollback contract (for example an `ALTER TABLE ... RESET`) and, for an automatic revert,
+  the standing policy's `approval_required_classes` and `refusal_set` send it to a person
+  (`queue_approval`); an operator's revert already has one. If the standing policy cannot be
+  read, the revert still runs, under `safety.lock_timeout_ms` with no ceiling, and the
+  decision's `evidence.policy_read_error` names the error. The soft-drop restore keeps its
+  own `drop_restore_bypass` decision above.
+- **A withheld revert reaches a person.** An automatic revert the gate or an emergency stop
+  withholds is recorded as `rollback_skipped` (its `rollback_reason` names the verdict) and
+  one approval item, "Revert action N", is queued (`sage.action_queue.reverts_action_id`,
+  action type `revert_action`). Its card says why the revert was withheld; after an
+  emergency stop, that it is approvable once the stop is lifted. While the gate would still
+  refuse a person's revert the item stays pending and not approvable. Approving it runs the
+  action's recorded rollback through the operator rollback, once. It is superseded when the
+  action is rolled back another way, and expires like any queue item (7 days); the
+  action's rollback button stays available after that. The index-replace watch keeps its
+  own undo path and queues no item.
 
 A rollback interrupted by a crash or restart no longer stays `rolling_back`. Each cycle on
 the primary, a `rolling_back` action (other than an index replacement, which resumes its own
@@ -1084,15 +1113,25 @@ The standing policy document also carries three safety fields, all enforced:
   the owner declared as the contract's `retention.column`; see [Retention
   contracts](#retention-contracts)). Unknown tokens are rejected.
 - `lock_duration_ceiling_ms`: caps `lock_timeout` for DDL that runs inside a
-  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`.
+  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`, reverts
+  included.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
   older transactions by design. `0` means no ceiling.
-- `serialize_mode`: `park` (both profiles). When another writer holds the
-  DDL lease for the same object, the action is parked with reason
-  `ddl_conflict` and retried next cycle. A park is not a failure: it does not
-  count toward the retry limit or the self-initiated rate limit. `queue` is
-  accepted and currently behaves like `park` (the action waits for the next
-  cycle, not for the lease holder).
+- `serialize_mode`: what happens when another writer holds the DDL lease on
+  the same object. `park` (both profiles): a self-initiated action is parked
+  with reason `ddl_conflict` and retried next cycle. A park is not a failure:
+  it does not count toward the retry limit or the self-initiated rate limit.
+  `queue`: the action waits its turn in a durable FIFO queue per object
+  (`sage.lease_queue`), so leases are granted in request order, and a waiter
+  that restarts resumes its place. The wait is bounded: a self-initiated
+  action waits at most 2 minutes, then parks with `ddl_conflict` and
+  `evidence.lease_queue = timeout`; an operator action waits at most
+  30 seconds, then is refused. At most 8 actions wait per object and 64 per
+  database; a request beyond that is not queued (a self-initiated one parks
+  with `evidence.lease_queue = full`, an operator one is refused). In both
+  modes an operator action that cannot get the lease is refused (recorded as
+  `blocked` `ddl_conflict`), not parked. See [Policy gate](policy-gate.md)
+  for every verdict and reason.
 
 #### Blast-radius budgets
 
@@ -1216,8 +1255,11 @@ and the catalog, never from evidence or an LLM.
   object waits; the approval card says so first ("approving overrides pending
   verification of action N") and the decision records
   `evidence.verification_override`.
-- **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts every park
-  by reason (one per evaluation), and
+- **Metrics.** `pg_sage_policy_parks_total{database,reason}` counts the parks
+  the gate records in `sage.decision`, by reason (one per evaluation, so
+  repeats folded into one ledger row each count). A park that fails to record
+  is counted in `pg_sage_policy_record_failures_total` instead (below), and a
+  `ddl_conflict` lease park, recorded after the gate, is not counted. And
   `pg_sage_verification_wait_releases_total{database,cause}` the waits that
   ended without a verdict (`operator_override`, `hard_deadline`,
   `drop_first_window`).
@@ -1264,6 +1306,18 @@ and the catalog, never from evidence or an LLM.
   failure by the decision's reason, and the sidecar logs each failing
   decision at most once an hour. Any series above zero means the ledger is
   missing decisions.
+- **Episodes.** A withheld verdict (parked, queued, blocked, observe-only)
+  that repeats every cycle is one `sage.decision` row per episode: repeats
+  count in `repeat_count` and stamp `last_seen_at`. An episode ends, and
+  `resolved_at` is set, when its decision is linked to the approval-queue item
+  it queued (`queue_id`), or when the same candidate executes. The candidate is
+  `candidate_key`: database, feature, targets, SQL and principal, without the
+  verdict, intent or policy version, so an operator's approved execute also
+  ends an autonomous park. The next withheld verdict starts a new row, so a
+  change re-queued after a rejection has its own decision and its approval
+  card keeps the gate's reason and tier. A park that stays parked stays one
+  episode. Rows written before the upgrade gain `candidate_key` at their next
+  repeat. Per database; PostgreSQL 14 to 18 behave the same.
 
 #### Retention contracts
 
@@ -1595,6 +1649,29 @@ The pg_sage user's current role must be operator or admin. Each callback is proc
 and the decision goes through the same approval as the browser, attributed to the mapped
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
 secrets.
+
+*One protocol: the approval card.* A Sage SRE cancel is sent as an approval card, like every
+other queued action. Its Approve and Reject buttons carry a single-use card token that works
+only in the channel the card was sent to, only while the card is unchanged, and only until
+the earlier of 15 minutes and the approval request's expiry. The card is bound to the exact
+backend (pid and backend start), so a reused pid is a different card and an old card is
+refused as changed. A backend cancel has no Snooze button, and a snooze press for one is
+refused. A chat Reject records the denial on the proposal at once. The Approve / Deny
+buttons of releases before this one no longer act: for one release, pressing one replies
+"This button is outdated; open pg_sage to decide" and changes nothing (the callback still
+passes the signature, workspace or chat, replay and role checks first). Decide such requests
+in pg_sage or on a newer card.
+
+*Snooze and follow-ups.* Snoozing a card keeps the action pending; autonomy does not take it
+over while the snooze runs. When the snooze ends, pg_sage sends the card again, once per
+snooze. If that re-send fails, the other ended snoozes are still sent, and the failed one is
+retried 5 minutes later; the warning log names each queue item that failed. A re-sent card
+replaces the older cards of the same action in the same channel (closed as `superseded`), so
+the verification verdict is posted once per channel, as a reply to the message the decision
+was made from, even when the decision came from a card sent before the re-send. A card whose
+action has no verdict yet is checked again after an eighth of its age (at least 1 minute, at
+most 1 hour), so cards still waiting do not hold up newer ones; a card with no verdict after
+14 days is closed.
 
 #### Runways and pre-incident investigations
 
