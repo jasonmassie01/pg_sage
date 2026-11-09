@@ -756,7 +756,7 @@ Both tables are subject to retention policies (configurable via `retention.actio
 ### Tamper-Evident Chains and SIEM Export
 
 Each audit table (`action_log`, `auth_audit`, `config_audit`,
-`guard_query_audit`, `guard_pgaudit_events`) is hash-chained: every write
+`guard_query_audit`, `guard_pgaudit_events`, `fact_events`) is hash-chained: every write
 appends a link to `sage.audit_chain_link`, and every inserted row carries
 its own link. `GET /api/v1/audit/verify?database=<name>` (admin) checks a
 chain; the scheduled verification (`audit.verify_interval_hours`) raises a

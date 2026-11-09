@@ -88,6 +88,36 @@ purges them, so the rejection is remembered for as long as the database is monit
   Viewers read; operators and admins decide.
 * **MCP**: `list_facts`, `propose_fact` (stays proposed), `decide_fact` (operator or admin).
 
+Revoking (Reject) or expiring a confirmed fact lifts a guard, so the Facts page asks first:
+it names the fact and says that pg_sage and operator approvals may then act on its subject
+again. Cancel sends nothing. Confirming or rejecting a proposal is one click.
+
+## History
+
+Every change of a fact's status or decision appends one row to `sage.fact_events`: when, who
+(`actor`), what (`verb`: `proposed`, `declared`, `confirmed`, `rejected`, `expired`,
+`reopened` or `restored`), the status before and after, the fact's hash after the change (the
+one a chat card binds to) and the note or expiry reason. A trigger on `sage.facts` writes it
+in the same transaction as the change, so every path is recorded (the UI and API, chat cards,
+MCP `decide_fact`, re-verification, and agent column classes), and a change whose event cannot
+be written fails. Re-proposing a fact (its proposal count and evidence) and re-verification
+marks (`last_verified_at`, `missing_since`) are not decisions and add no event.
+
+* The row in `sage.facts` keeps only the latest decision; the history keeps every one, so the
+  person who first confirmed a fact can still be read after someone revokes it.
+* `expired_by` names who expired a fact: the signed-in user for an expiry through the UI or
+  API, `pg_sage:verifier` for re-verification. A restored confirmation is recorded as
+  `pg_sage`'s.
+* The history is append-only (an update is refused) and is an audit chain (`fact_events`):
+  `GET /api/v1/audit/verify` checks it and SIEM export ships it, like `config_audit`.
+* It outlives its fact: retention purges expired facts after `retention.actions_days`, and
+  keeps their events. Events have no age retention.
+
+```sql
+SELECT at, actor, verb, from_status, to_status, note
+FROM sage.fact_events WHERE fact_id = 12 ORDER BY id;
+```
+
 ## How a fact binds
 
 The policy gate checks every action against the confirmed facts by typed matching (the
