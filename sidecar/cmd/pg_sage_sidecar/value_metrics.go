@@ -17,14 +17,16 @@ import (
 //
 // Net verified toil can decrease when a rollback zeroes an action's
 // credit, so it is a gauge (SURF-18); a counter would make rate()
-// report a reset spike. pg_sage_value_metrics_up{database} reports
-// whether that database's ledger was read on this scrape, so a partial
-// scrape is visible instead of silently missing a database.
+// report a reset spike. Incidents avoided decrease the same way when a
+// rollback voids an incident credit (earned-09), so they are a gauge too;
+// the name keeps its _total suffix so existing queries keep working.
+// pg_sage_value_metrics_up{database} reports whether that database's
+// ledger was read, so a partial scrape is visible instead of silently
+// missing a database. A complete read is reused for valueMetricsTTL.
 func writeValueMetrics(
 	b *strings.Builder, ctx context.Context, sources []value.Source,
 ) {
-	reader := value.NewFleetService(func() []value.Source { return sources })
-	results, err := reader.Read(ctx, value.Filter{})
+	results, err := valueMetrics.get(ctx, sources)
 	if err != nil {
 		logWarn("metrics", "value metrics read failed: %v", err)
 	}
@@ -35,13 +37,13 @@ func writeValueMetrics(
 		writeToilSeries(b, result)
 	}
 	b.WriteString("\n# HELP pg_sage_incidents_avoided_total " +
-		"Incidents avoided by kind\n" +
-		"# TYPE pg_sage_incidents_avoided_total counter\n")
+		"Incidents avoided by kind (decreases on rollback)\n" +
+		"# TYPE pg_sage_incidents_avoided_total gauge\n")
 	for _, result := range results {
 		writeIncidentSeries(b, result)
 	}
 	b.WriteString("\n# HELP pg_sage_value_metrics_up " +
-		"1 if the database's value ledger was read on this scrape\n" +
+		"1 if the database's value ledger was read (reused up to 60s)\n" +
 		"# TYPE pg_sage_value_metrics_up gauge\n")
 	for _, result := range results {
 		up := 1
