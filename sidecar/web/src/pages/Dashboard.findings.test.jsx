@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { Dashboard } from './Dashboard'
+import { useAPI } from '../hooks/useAPI'
 
 // G9-B08: a findings error must not read as "no recommendations", and
 // "Newest recommendations" must request recency order.
@@ -36,14 +37,16 @@ vi.mock('../hooks/useAPI', () => ({
 
 describe('Dashboard recent recommendations', () => {
   it('shows the findings error instead of an empty state', () => {
-    render(<Dashboard database="all" onSelectDB={vi.fn()} />)
+    render(<Dashboard database="all" onSelectDB={vi.fn()}
+      fleet={useAPI('/api/v1/databases')} />)
     fireEvent.click(screen.getByTestId('overview-tab-recent-recos'))
     expect(screen.getByText(/500 Internal Server Error/)).toBeInTheDocument()
     expect(screen.queryByText(/No recent recommendations/)).toBeNull()
   })
 
   it('requests findings ordered by recency', () => {
-    render(<Dashboard database="prod db" onSelectDB={vi.fn()} />)
+    render(<Dashboard database="prod db" onSelectDB={vi.fn()}
+      fleet={useAPI('/api/v1/databases')} />)
     const findingsURL = urls.filter(u => u.startsWith('/api/v1/findings'))
       .at(-1)
     expect(findingsURL).toContain('sort=last_seen')
