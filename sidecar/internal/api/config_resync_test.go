@@ -119,3 +119,20 @@ func TestConfigGetReportsLastResync(t *testing.T) {
 		t.Fatalf("last_resync_at = %q (%v), want a time after %v", raw, err, before)
 	}
 }
+
+// Nil/empty: a source without a store or a file base fails with context
+// instead of panicking, and no query is attempted.
+func TestGlobalDurableSourceWithoutStoreOrBase(t *testing.T) {
+	ctx := context.Background()
+	if _, err := (GlobalDurableSource{}).DurableGeneration(ctx); err == nil {
+		t.Fatal("DurableGeneration without a store returned no error")
+	}
+	if _, err := (GlobalDurableSource{}).DurableCandidate(ctx); err == nil {
+		t.Fatal("DurableCandidate without a store returned no error")
+	}
+	noBase := GlobalDurableSource{Store: store.NewConfigStore(nil)}
+	candidate, err := noBase.DurableCandidate(ctx)
+	if err == nil || candidate != nil {
+		t.Fatalf("DurableCandidate without a base = %v, %v; want an error", candidate, err)
+	}
+}
