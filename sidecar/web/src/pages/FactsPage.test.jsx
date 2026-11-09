@@ -196,6 +196,9 @@ describe('FactsPage decisions', () => {
     expect(screen.queryByTestId('fact-confirm-7')).toBeNull()
     fireEvent.change(screen.getByTestId('fact-note-7'), { target: { value: 'app moved' } })
     fireEvent.click(screen.getByTestId('fact-revoke-7'))
+    // facts-07: revoking lifts a guard, so it asks first.
+    expect(posts(mock)).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('fact-widen-confirm-7'))
     await waitFor(() => expect(posts(mock)).toHaveLength(1))
     expect(posts(mock)[0][0]).toBe('/api/v1/facts/7/reject?database=orders')
     expect(JSON.parse(posts(mock)[0][1].body)).toEqual({ note: 'app moved' })
@@ -203,6 +206,7 @@ describe('FactsPage decisions', () => {
     // click before then is ignored (CI: only one POST was sent).
     await waitFor(() => expect(screen.getByTestId('fact-expire-7').disabled).toBe(false))
     fireEvent.click(screen.getByTestId('fact-expire-7'))
+    fireEvent.click(screen.getByTestId('fact-widen-confirm-7'))
     await waitFor(() => expect(posts(mock)).toHaveLength(2))
     expect(posts(mock)[1][0]).toBe('/api/v1/facts/7/expire?database=orders')
   })
