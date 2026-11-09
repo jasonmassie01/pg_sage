@@ -130,3 +130,5 @@ gracefully degrade to deterministic-only mode until midnight UTC.
 - Prometheus metric: `pg_sage_llm_tokens_used_today`
 - REST API: `GET /api/v1/metrics` includes `llm_tokens_used_today`
 - Logs: each LLM call logs token count at INFO level
+- Restarts: today's usage is kept in `sage.llm_usage` in the control database and restored
+  at startup; `GET /api/v1/llm/status` reports `usage_restored_at` and `ledger_last_flush_at`

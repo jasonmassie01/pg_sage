@@ -707,6 +707,19 @@ stricter policy `budgets.llm_tokens_daily` also applies (see the
 [LLM costing guide](llm-costing.md#global-ceiling-and-policy-cap)). Turning a feature on grants no autonomy: what an LLM proposes executes only
 through the policy gate, trust level and execution mode, like any other recommendation.
 
+Daily LLM usage survives restarts. The sidecar writes today's spend of every client, the
+global ceiling and each database's `fleet_token_budget_daily` share to
+[`sage.llm_usage`](sql-reference.md#sagellm_usage) in the control database every 60 s and on
+shutdown, and adds it back at startup, so a deploy, a crash loop or `/restart` mid-day does
+not grant the full daily budget again. `GET /api/v1/llm/status` reports `usage_restored_at`
+and `ledger_last_flush_at` (null until the first restore or flush). If the control database
+is unreachable, LLM calls keep running on local accounting and one warning is logged per
+outage; a restart during the outage starts from the last flushed usage. A meta-DB database
+keeps its usage across a rename (its row is keyed by id); renaming a YAML database in
+`databases[]` starts the new name at zero for the rest of the day. Each
+sidecar keeps its own counts: two sidecars sharing one control database do not share one
+budget.
+
 | Parameter | Default | Description |
 |---|---|---|
 | `llm.enabled` | `true` | Master switch for every LLM feature; `false` is a hot kill switch |
