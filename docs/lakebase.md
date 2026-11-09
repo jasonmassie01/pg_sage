@@ -342,6 +342,8 @@ The forward read width adapts to each stream. A read that exceeds
 the cursor, so it survives a restart. After three reads projected under a
 quarter of `max_rows`, the width doubles, up to `window_seconds`. A stream that
 stays that sparse at the full window also reconciles four windows per read.
+A reconcile read that is split keeps its narrower width for later polls, so a
+dense stretch of old history is read in pieces rather than retried whole.
 History that leaves the source horizon before it is read still counts as a gap.
 
 `GET /api/v1/lakebase-observability/status` reports each stream's
