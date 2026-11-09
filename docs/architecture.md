@@ -155,11 +155,30 @@ the root reader. An unqualified table name resolves through the DDL role's
 then `public`, then a unique relation name; several matches are reported as
 ambiguous with statistics unknown. These artifacts are shown in Cases and
 Actions so teams can review
-schema work through their normal change-control process. A model-written
-script replaces the deterministic one only after pg_sage validates it;
-otherwise it is shown as labelled, unvalidated model text, and RCA Tier 2
-diagnostic SQL is kept only once proven read-only (see
-[Model-authored SQL](security.md#model-authored-sql)).
+schema work through their normal change-control process.
+
+Migration enrichment is asynchronous. Detection never waits for a model:
+both detectors store the deterministic finding first, then queue the model
+work on one worker per database, with a queue of 16 that drops the oldest
+request when full (`pg_sage_migration_enrich_dropped_total{database}`). The
+worker asks for a migration script for a classified statement, or runs the
+LLM fallback for one no rule classified; the fallback's finding is stored only
+when it scores above the 0.3 threshold. One answer per statement identity
+(sha256 of the rule, the sanitized statement and the table's schema text) is
+cached for 24 h, up to 256 entries, so the activity and log detectors share
+one call and a schema change asks again. Schema context is read through the
+bounded catalog reader with `to_regclass(format('%I.%I', ...))`, so
+mixed-case names resolve.
+
+Model text is shown as model output and is never `recommended_sql`: only a
+rule's deterministic template (`RecommendedSQLSource = deterministic`) is,
+and only as one statement the executor runs alone. A model script that
+pg_sage validates is `detail.llm_script` (the fallback's alternative is
+`detail.llm_safe_alternative`); one it cannot validate, including one that
+runs `CONCURRENTLY` inside `BEGIN`/`COMMIT`, is `detail.llm_unvalidated_text`
+with the reason in `detail.llm_script_invalid`. A re-detection keeps these
+`llm_` keys. RCA Tier 2 diagnostic SQL is kept only once proven read-only
+(see [Model-authored SQL](security.md#model-authored-sql)).
 
 Incident playbooks follow the same typed-action model. Read-only diagnostics
 can inspect blocker graphs, runaway queries, connection pressure,

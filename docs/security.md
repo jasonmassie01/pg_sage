@@ -212,15 +212,19 @@ pg_sage has checked it. None of it runs through the executor.
   `lock_timeout`. Otherwise the incident has no recommended SQL and its causal
   chain says "model SQL withheld" and why. The incident itself is still raised.
 - **Migration advisor** scripts and the LLM DDL fallback's `safe_alternative`
-  are kept only when every statement is `ALTER TABLE` (column, default,
-  constraint and statistics changes), a column or constraint rename, `CREATE
-  [UNIQUE] INDEX [CONCURRENTLY]`, `UPDATE`, `ANALYZE`, `SET`/`RESET` of
-  `lock_timeout` or `statement_timeout`, `BEGIN` or `COMMIT`, and every table
-  it names is the table under review. Administrative functions (`pg_*`,
-  `set_config`, `dblink*`, `lo_*`) are refused. Otherwise the recommendation
-  falls back to pg_sage's deterministic safe alternative (none for the DDL
-  fallback), and the model's text appears in the causal chain as
-  `model_text_unvalidated`, labelled "Model text, not validated by pg_sage".
+  are never the recommendation: `recommended_sql` holds only pg_sage's
+  deterministic template. The model's text is validated when every statement
+  is `ALTER TABLE` (column, default, constraint and statistics changes), a
+  column or constraint rename, `CREATE [UNIQUE] INDEX [CONCURRENTLY]`,
+  `UPDATE`, `ANALYZE`, `SET`/`RESET` of `lock_timeout` or
+  `statement_timeout`, `BEGIN` or `COMMIT`, every table it names is the table
+  under review, and no `CONCURRENTLY` statement sits inside `BEGIN`/`COMMIT`.
+  Administrative functions (`pg_*`, `set_config`, `dblink*`, `lo_*`) are
+  refused. Validated text is shown as model output in `detail.llm_script`
+  (`detail.llm_safe_alternative` for the fallback); otherwise it is
+  `detail.llm_unvalidated_text` with the reason in `detail.llm_script_invalid`,
+  and the fallback's causal chain shows it as `model_text_unvalidated`,
+  labelled "Model text, not validated by pg_sage".
 - Both checks use the PostgreSQL parser that release binaries and images are
   built with. A build without cgo has no parser, so it withholds all model SQL.
 
