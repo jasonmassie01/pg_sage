@@ -10,9 +10,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/managedparam"
 )
 
-// Status is a database's telemetry as served to operators.
+// Status is a database's telemetry as served to operators. Databases on
+// one provider instance share its runtime: Statuses lists the instance
+// once, Database is the first of its member Databases.
 type Status struct {
 	Database      string     `json:"database"`
+	Databases     []string   `json:"databases,omitempty"`
 	Provider      string     `json:"provider"`
 	Cluster       string     `json:"cluster,omitempty"`       // Aurora
 	InstanceRole  string     `json:"instance_role,omitempty"` // writer|reader|unknown
@@ -104,6 +107,8 @@ type StatusSource interface {
 	Status() Status
 }
 
+// registry maps each member database to its status source; databases on
+// one provider instance map to the same shared runtime.
 var registry = struct {
 	sync.RWMutex
 	m map[string]StatusSource
@@ -123,9 +128,7 @@ func Register(s StatusSource) {
 	if isNil(s) {
 		return
 	}
-	registry.Lock()
-	defer registry.Unlock()
-	registry.m[s.Database()] = s
+	RegisterMember(s.Database(), s)
 }
 
 // Unregister removes s if it is still the registered source.
@@ -133,10 +136,29 @@ func Unregister(s StatusSource) {
 	if isNil(s) {
 		return
 	}
+	UnregisterMember(s.Database(), s)
+}
+
+// RegisterMember publishes s as database's source; databases that share
+// one instance's runtime each register it under their own name.
+func RegisterMember(database string, s StatusSource) {
+	if database == "" || isNil(s) {
+		return
+	}
 	registry.Lock()
 	defer registry.Unlock()
-	if registry.m[s.Database()] == s {
-		delete(registry.m, s.Database())
+	registry.m[database] = s
+}
+
+// UnregisterMember removes database's source if it is still s.
+func UnregisterMember(database string, s StatusSource) {
+	if isNil(s) {
+		return
+	}
+	registry.Lock()
+	defer registry.Unlock()
+	if registry.m[database] == s {
+		delete(registry.m, database)
 	}
 }
 
@@ -149,17 +171,37 @@ func Lookup(database string) *Runtime {
 	return rt
 }
 
-// Statuses reports every registered source, sorted by database.
+// sharedSource is one registered source and the databases it serves.
+type sharedSource struct {
+	src     StatusSource
+	members []string
+}
+
+// Statuses reports every registered source once, sorted by database: a
+// runtime shared by several databases is one status naming them all.
 func Statuses() []Status {
 	registry.RLock()
-	srcs := make([]StatusSource, 0, len(registry.m))
-	for _, s := range registry.m {
-		srcs = append(srcs, s)
+	groups := make([]*sharedSource, 0, len(registry.m))
+	bySource := map[StatusSource]*sharedSource{}
+	for db, s := range registry.m {
+		g := &sharedSource{src: s, members: []string{db}}
+		if !reflect.TypeOf(s).Comparable() { // a map key would panic
+			groups = append(groups, g)
+			continue
+		}
+		if shared := bySource[s]; shared != nil {
+			shared.members = append(shared.members, db)
+			continue
+		}
+		groups, bySource[s] = append(groups, g), g
 	}
 	registry.RUnlock()
-	out := make([]Status, 0, len(srcs))
-	for _, s := range srcs {
-		out = append(out, s.Status())
+	out := make([]Status, 0, len(groups))
+	for _, g := range groups {
+		sort.Strings(g.members)
+		st := g.src.Status()
+		st.Database, st.Databases = g.members[0], g.members
+		out = append(out, st)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Database < out[j].Database })
 	return out
