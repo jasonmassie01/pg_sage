@@ -51,9 +51,9 @@ pg_sage sidecar (single Go binary)
 Gathers a snapshot every 60s (configurable) from the catalog and statistics views, under a
 circuit breaker that skips cycles while the database is in trouble (CPU over
 `safety.cpu_ceiling_pct`). A cycle reads the catalog categories in order (`catalogSteps`:
-`queries`, `tables`, `indexes`, `foreign_keys`, `system`, `locks`, `sequences`), then
-`replication` and the extra categories (`extraSteps`: `io`, `prepared_xacts`, `partitions`,
-`config_data`).
+`queries`, `tables`, `indexes`, `partitioned_indexes`, `foreign_keys`, `system`, `locks`,
+`sequences`), then `replication` and the extra categories (`extraSteps`: `io`,
+`prepared_xacts`, `partitions`, `config_data`).
 
 **Bounded reads.** Every catalog read runs under a statement and lock timeout and is
 bounded by the size of the catalog it reads, not by the cycle:
@@ -94,7 +94,8 @@ tuning agent, plan capture, verification targets, the briefing) read only applic
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,
 `EXPLAIN`, maintenance, statistics resets and backup `COPY ... TO` are not workload.
 
-Each snapshot holds one row per category: `queries`, `tables`, `indexes`, `foreign_keys`,
+Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
+`partitioned_indexes` (the partitioned tables' own indexes, relkind `I`), `foreign_keys`,
 `system`, `locks`, `sequences`, `replication`, `io` (PostgreSQL 16 and later), `partitions`,
 `prepared_xacts` (this database's two-phase-commit transactions from `pg_prepared_xacts`) and
 `config_data` (the advisor's settings, reloptions, connection and WAL snapshot, collected only

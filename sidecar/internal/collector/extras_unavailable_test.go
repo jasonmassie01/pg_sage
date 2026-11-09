@@ -348,8 +348,8 @@ func TestSnapshotRows_UnavailableExtrasLeaveNoRow(t *testing.T) {
 		if _, ok := got[cat]; ok {
 			t.Errorf("%s unavailable: a row was persisted (%s)", cat, got[cat])
 		}
-		if _, ok := got["system"]; !ok || len(got) != 11 {
-			t.Errorf("%s unavailable: rows %v, want the 11 other categories", cat, keys(got))
+		if _, ok := got["system"]; !ok || len(got) != 12 {
+			t.Errorf("%s unavailable: rows %v, want the 12 other categories", cat, keys(got))
 		}
 	}
 }
