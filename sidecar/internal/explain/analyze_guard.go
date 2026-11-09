@@ -96,9 +96,9 @@ func (g *analyzeGuard) check(ctx context.Context, sql string, depth int) (string
 	return g.checkRelations(ctx, shape, depth)
 }
 
-// structuralRefusal covers what needs no catalog: row locks, writes,
-// table creation and functions that run SQL text.
-func structuralRefusal(q sqlast.ReadQuery) string {
+// writeRefusal covers what writes, creates or locks rows: refused even
+// for a plan-only EXPLAIN, whose PREPARE takes the statement's locks.
+func writeRefusal(q sqlast.ReadQuery) string {
 	switch {
 	case q.LockingClause:
 		return "uses FOR UPDATE/SHARE row locking"
@@ -106,6 +106,15 @@ func structuralRefusal(q sqlast.ReadQuery) string {
 		return "contains a data-modifying statement (INSERT/UPDATE/DELETE/MERGE)"
 	case q.SelectInto:
 		return "uses SELECT INTO, which creates a table"
+	}
+	return ""
+}
+
+// structuralRefusal covers what needs no catalog: row locks, writes,
+// table creation and functions that run SQL text.
+func structuralRefusal(q sqlast.ReadQuery) string {
+	if reason := writeRefusal(q); reason != "" {
+		return reason
 	}
 	for _, list := range [][]sqlast.QualifiedName{q.Functions, q.AttributeCalls} {
 		for _, fn := range list {
