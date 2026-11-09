@@ -99,7 +99,7 @@ func TestRecord_StampsLatestPlanHashPerQuery(t *testing.T) {
 		_, _ = pool.Exec(context.Background(),
 			`DELETE FROM sage.explain_cache WHERE queryid = $1`, withPlan)
 	})
-	if err := Record(ctx, pool, []Sample{idle(withPlan), idle(withoutPlan)}); err != nil {
+	if err := recordNow(ctx, pool, []Sample{idle(withPlan), idle(withoutPlan)}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 	rows, err := pool.Query(ctx, `SELECT queryid, plan_hash FROM sage.query_store
@@ -146,18 +146,13 @@ func TestEvidence_AnchorsOnLastSampleBeforeWindow(t *testing.T) {
 	now := time.Now().UTC()
 	insertAt(t, ctx, pool, qid, now.Add(-50*time.Minute), 100, 1000, &epoch)
 	insertAt(t, ctx, pool, qid, now.Add(-10*time.Minute), 200, 4000, &epoch)
-	ev, err := WindowedLatencyEvidence(ctx, pool, qid, now.Add(-30*time.Minute), now)
-	if err != nil {
-		t.Fatal(err)
+	w := windowOf(t, ctx, pool, qid, now.Add(-30*time.Minute), now)
+	if ms, ok := w.measured(); !ok || w.intervals != 1 || ms < 29.9 || ms > 30.1 {
+		t.Fatalf("window = %+v, want 30 ms measured from the anchor", w)
 	}
-	if ev.Status != EvidenceMeasured || ev.Samples != 2 || ev.LatencyMs < 29.9 ||
-		ev.LatencyMs > 30.1 {
-		t.Fatalf("evidence = %+v, want 30 ms measured from the anchor", ev)
-	}
-	// No movement inside the window: the anchor alone says "no new calls".
-	ev, err = WindowedLatencyEvidence(ctx, pool, qid, now.Add(-5*time.Minute), now)
-	if err != nil || ev.Status != EvidenceInsufficientSamples {
-		t.Fatalf("idle window = %+v, %v; want insufficient (anchor only)", ev, err)
+	// No movement inside the window: the anchor alone is no interval.
+	if w := windowOf(t, ctx, pool, qid, now.Add(-5*time.Minute), now); w != (window{}) {
+		t.Fatalf("idle window = %+v; want no interval (anchor only)", w)
 	}
 }
 
@@ -172,9 +167,8 @@ func TestEvidence_IgnoresAnchorBeyondLookback(t *testing.T) {
 	from := now.Add(-30 * time.Minute)
 	insertAt(t, ctx, pool, qid, from.Add(-AnchorLookback-time.Minute), 100, 1000, nil)
 	insertAt(t, ctx, pool, qid, now.Add(-10*time.Minute), 200, 4000, nil)
-	ev, err := WindowedLatencyEvidence(ctx, pool, qid, from, now)
-	if err != nil || ev.Status != EvidenceInsufficientSamples || ev.Samples != 1 {
-		t.Fatalf("evidence = %+v, %v; want one sample, insufficient", ev, err)
+	if w := windowOf(t, ctx, pool, qid, from, now); w != (window{}) {
+		t.Fatalf("window = %+v; want one sample, no interval", w)
 	}
 }
 
@@ -189,8 +183,7 @@ func TestEvidence_AnchorFromAnotherEpochIsAReset(t *testing.T) {
 		Truncate(time.Second)
 	insertAt(t, ctx, pool, qid, now.Add(-50*time.Minute), 100, 1000, &old)
 	insertAt(t, ctx, pool, qid, now.Add(-10*time.Minute), 500, 9000, &cur)
-	ev, err := WindowedLatencyEvidence(ctx, pool, qid, now.Add(-30*time.Minute), now)
-	if err != nil || ev.Status != EvidenceCountersReset {
-		t.Fatalf("evidence = %+v, %v; want counters_reset", ev, err)
+	if w := windowOf(t, ctx, pool, qid, now.Add(-30*time.Minute), now); !w.broken {
+		t.Fatalf("window = %+v; want an epoch break", w)
 	}
 }
