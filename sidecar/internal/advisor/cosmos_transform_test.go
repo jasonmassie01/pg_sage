@@ -99,3 +99,20 @@ func TestTransformForCloudAzureCosmosEmpty(t *testing.T) {
 		t.Fatalf("nil findings gave %d", len(out))
 	}
 }
+
+// Aliases resolve through the provider registry: "aws" is RDS and "gcp"
+// is Cloud SQL, so neither keeps ALTER SYSTEM.
+func TestTransformForCloudAliasesUseCanonicalProfile(t *testing.T) {
+	in := []analyzer.Finding{{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"}}
+	out := TransformForCloud(in, "AWS", "app")
+	if out[0].RecommendedSQL != `ALTER DATABASE "app" SET work_mem = '64MB'` ||
+		out[0].RollbackSQL != `ALTER DATABASE "app" RESET work_mem` {
+		t.Fatalf("aws: %q / %q", out[0].RecommendedSQL, out[0].RollbackSQL)
+	}
+	in = []analyzer.Finding{{RecommendedSQL: "ALTER SYSTEM SET checkpoint_timeout = '15min'"}}
+	out = TransformForCloud(in, "gcp", "app")
+	if out[0].RecommendedSQL != "" || out[0].Severity != "info" ||
+		!strings.Contains(out[0].Recommendation, "cloud-sql") {
+		t.Fatalf("gcp restricted setting: %+v", out[0])
+	}
+}

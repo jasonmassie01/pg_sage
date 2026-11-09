@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/pgconf"
+	"github.com/pg-sage/sidecar/internal/provider"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
@@ -39,104 +40,98 @@ func RequiresRestart(settingName string) bool {
 }
 
 // IsManagedService returns true if the platform is a managed cloud
-// service where ALTER SYSTEM is unavailable.
+// service where ALTER SYSTEM is unavailable (the provider registry).
 func IsManagedService(platform string) bool {
-	switch strings.ToLower(strings.TrimSpace(platform)) {
-	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "azure-cosmos", "neon",
-		"supabase", "lakebase":
-		return true
-	}
-	return false
+	return provider.IsManaged(platform)
 }
 
 // TransformForCloud rewrites advisor findings for cloud platforms.
 // On managed services: ALTER SYSTEM SET → ALTER DATABASE dbname SET,
 // and restart-requiring GUCs are downgraded to info-only (no SQL).
+// Tenant providers keep only database-level settings, and guidance-only
+// providers keep no executable SQL.
 func TransformForCloud(
 	findings []analyzer.Finding,
 	platform, dbName string,
 	settings ...[]collector.PGSetting,
 ) []analyzer.Finding {
-	platform = strings.ToLower(strings.TrimSpace(platform))
-	if platform == "neon" || platform == "supabase" || platform == "lakebase" {
-		return transformTenantConfig(findings, platform, dbName, settings)
-	}
-	if !IsManagedService(platform) {
+	profile, ok := provider.Lookup(platform)
+	if !ok || !profile.Managed {
 		return findings
 	}
-	if platform == "azure-cosmos" {
+	switch profile.ConfigMechanism {
+	case provider.ConfigTenant:
+		return transformTenantConfig(findings, profile.Name, dbName, settings)
+	case provider.ConfigGuidanceOnly:
 		return transformGuidanceOnly(findings)
 	}
-
 	out := make([]analyzer.Finding, 0, len(findings))
 	for _, f := range findings {
-		sql := strings.TrimSpace(f.RecommendedSQL)
-		if sql == "" {
-			out = append(out, f)
-			continue
-		}
-
-		settingName := extractSettingName(sql)
-
-		// Drop executable SQL for restart-requiring or
-		// platform-restricted GUCs — managed services
-		// control these via their console, not SQL.
-		if settingName != "" && RequiresRestart(settingName) {
-			f = withManagedIntent(f, platform, sql, "requires a restart")
-			f.RecommendedSQL = ""
-			f.RollbackSQL = ""
-			f.Recommendation += fmt.Sprintf(
-				" (Note: %s requires a restart and must "+
-					"be changed via %s console, not SQL.)",
-				settingName, platform,
-			)
-			f.Severity = "info"
-			out = append(out, f)
-			continue
-		}
-		if settingName != "" {
-			if restricted, ok := restrictedSettings[platform]; ok {
-				if restricted[settingName] {
-					f = withManagedIntent(f, platform, sql,
-						"not adjustable through SQL on "+platform)
-					f.RecommendedSQL = ""
-					f.RollbackSQL = ""
-					f.Recommendation += fmt.Sprintf(
-						" (Note: %s is not adjustable via SQL "+
-							"on %s — change via platform console.)",
-						settingName, platform,
-					)
-					f.Severity = "info"
-					out = append(out, f)
-					continue
-				}
-			}
-		}
-
-		// Rewrite ALTER SYSTEM → ALTER DATABASE.
-		upper := strings.ToUpper(sql)
-		quoted := sanitize.QuoteIdentifier(dbName)
-		if strings.HasPrefix(upper, "ALTER SYSTEM SET ") {
-			rest := sql[len("ALTER SYSTEM SET "):]
-			f.RecommendedSQL = fmt.Sprintf(
-				"ALTER DATABASE %s SET %s", quoted, rest,
-			)
-			if settingName != "" {
-				f.RollbackSQL = fmt.Sprintf(
-					"ALTER DATABASE %s RESET %s",
-					quoted, settingName,
-				)
-			}
-		} else if strings.HasPrefix(upper, "ALTER SYSTEM RESET ") {
-			rest := sql[len("ALTER SYSTEM RESET "):]
-			f.RecommendedSQL = fmt.Sprintf(
-				"ALTER DATABASE %s RESET %s", quoted, rest,
-			)
-		}
-
-		out = append(out, f)
+		out = append(out, transformManagedFinding(f, profile.Name, dbName))
 	}
 	return out
+}
+
+// transformManagedFinding rewrites one finding for a managed platform.
+func transformManagedFinding(f analyzer.Finding, platform, dbName string) analyzer.Finding {
+	sql := strings.TrimSpace(f.RecommendedSQL)
+	if sql == "" {
+		return f
+	}
+	settingName := extractSettingName(sql)
+
+	// Drop executable SQL for restart-requiring or platform-restricted
+	// GUCs — managed services control these via their console, not SQL.
+	if settingName != "" && RequiresRestart(settingName) {
+		f = withManagedIntent(f, platform, sql, "requires a restart")
+		f.RecommendedSQL = ""
+		f.RollbackSQL = ""
+		f.Recommendation += fmt.Sprintf(
+			" (Note: %s requires a restart and must "+
+				"be changed via %s console, not SQL.)",
+			settingName, platform,
+		)
+		f.Severity = "info"
+		return f
+	}
+	if settingName != "" && restrictedSettings[platform][settingName] {
+		f = withManagedIntent(f, platform, sql,
+			"not adjustable through SQL on "+platform)
+		f.RecommendedSQL = ""
+		f.RollbackSQL = ""
+		f.Recommendation += fmt.Sprintf(
+			" (Note: %s is not adjustable via SQL "+
+				"on %s — change via platform console.)",
+			settingName, platform,
+		)
+		f.Severity = "info"
+		return f
+	}
+	return rewriteAlterSystem(f, sql, settingName, dbName)
+}
+
+// rewriteAlterSystem turns ALTER SYSTEM SET/RESET into ALTER DATABASE.
+func rewriteAlterSystem(f analyzer.Finding, sql, settingName, dbName string) analyzer.Finding {
+	upper := strings.ToUpper(sql)
+	quoted := sanitize.QuoteIdentifier(dbName)
+	if strings.HasPrefix(upper, "ALTER SYSTEM SET ") {
+		rest := sql[len("ALTER SYSTEM SET "):]
+		f.RecommendedSQL = fmt.Sprintf(
+			"ALTER DATABASE %s SET %s", quoted, rest,
+		)
+		if settingName != "" {
+			f.RollbackSQL = fmt.Sprintf(
+				"ALTER DATABASE %s RESET %s",
+				quoted, settingName,
+			)
+		}
+	} else if strings.HasPrefix(upper, "ALTER SYSTEM RESET ") {
+		rest := sql[len("ALTER SYSTEM RESET "):]
+		f.RecommendedSQL = fmt.Sprintf(
+			"ALTER DATABASE %s RESET %s", quoted, rest,
+		)
+	}
+	return f
 }
 
 // extractSettingName parses the GUC name from ALTER SYSTEM SET name
