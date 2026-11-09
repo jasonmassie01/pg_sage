@@ -157,4 +157,3 @@ func TestRuleResult_PartialJSON(t *testing.T) {
 		t.Fatalf("decided rule carries unknown: %s", raw)
 	}
 }
-
