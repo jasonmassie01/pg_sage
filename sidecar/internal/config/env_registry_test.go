@@ -1,6 +1,7 @@
 package config
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,9 +16,16 @@ import (
 // No concurrent-access tests: the registry is an immutable package value
 // and the renderer is a pure function of it.
 
-// envRegistrySources are the directories (relative to this package) whose
-// non-test Go sources must only read registered variables.
-var envRegistrySources = []string{".", filepath.Join("..", "..", "cmd", "pg_sage_sidecar")}
+// envRegistrySources are the trees (relative to this package) whose non-test
+// Go sources must only read registered variables (ci-10 widened them from
+// internal/config and cmd/pg_sage_sidecar to every runtime and contributor
+// reader).
+var envRegistrySources = []string{
+	filepath.Join("..", "..", "internal"),
+	filepath.Join("..", "..", "cmd"),
+	filepath.Join("..", "..", "sre-bench"),
+	filepath.Join("..", "..", "safety-bench"),
+}
 
 var sageEnvLiteral = regexp.MustCompile(`"(SAGE_[A-Z0-9_]+)"`)
 
@@ -26,19 +34,15 @@ var sageEnvLiteral = regexp.MustCompile(`"(SAGE_[A-Z0-9_]+)"`)
 func sourceEnvLiterals(t *testing.T) []string {
 	t.Helper()
 	seen := map[string]bool{}
-	for _, dir := range envRegistrySources {
-		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	for _, root := range envRegistrySources {
+		files, err := envSourceFiles(root)
 		if err != nil {
-			t.Fatalf("glob %s: %v", dir, err)
+			t.Fatalf("list Go sources under %s: %v", root, err)
 		}
 		if len(files) == 0 {
-			t.Fatalf("no Go sources under %s", dir)
+			t.Fatalf("no Go sources under %s", root)
 		}
 		for _, file := range files {
-			base := filepath.Base(file)
-			if strings.HasSuffix(base, "_test.go") || base == "env_registry.go" {
-				continue
-			}
 			body, err := os.ReadFile(file)
 			if err != nil {
 				t.Fatalf("read %s: %v", file, err)
@@ -54,6 +58,31 @@ func sourceEnvLiterals(t *testing.T) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// envSourceFiles lists the non-test Go files under root, skipping testdata
+// trees and the registry file itself.
+func envSourceFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "testdata" || d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		base := d.Name()
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") ||
+			base == "env_registry.go" {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	return files, err
 }
 
 func TestEnvRegistryCoversEverySourceLiteral(t *testing.T) {
@@ -148,6 +177,9 @@ func TestEnvVarsMarkdownRendersEveryEntry(t *testing.T) {
 		t.Fatalf("table header = %q", strings.SplitN(doc, "\n", 3)[:2])
 	}
 	for _, entry := range EnvVars() {
+		if entry.Kind != EnvRuntime {
+			continue // ci-10: contributor entries render into CONTRIBUTING.md
+		}
 		row := "| `" + entry.Name + "`"
 		if entry.File {
 			row += " / `_FILE`"

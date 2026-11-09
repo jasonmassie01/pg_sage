@@ -200,6 +200,8 @@ YAML value. Booleans accept `true`/`false`, `1`/`0`, `t`/`f`.
 | `SAGE_LAKEBASE_ENDPOINT` | (none) | Lakebase endpoint resource path for OAuth; applies to target and metadata pools |
 | `SAGE_LAKEBASE_ENDPOINTS` | (none) | JSON hostname-to-endpoint map for a fleet spanning Lakebase endpoints; use instead of the singular variable |
 | `SAGE_AUTH_MODE` | (none) | `databricks_app` selects Databricks Apps authentication (see Web UI and API Authentication) |
+| `SAGE_DATABRICKS_ADMIN_EMAIL` | (none) | Administrator email under `SAGE_AUTH_MODE=databricks_app`; startup fails without a plain address |
+| `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` | (none) | Comma-separated exact DNS domains allowed under `databricks_app` auth; the administrator must match |
 | `SAGE_OAUTH_PROVIDER` | (none) | OAuth provider (`oauth.provider`): google, github, okta or generic OIDC |
 | `SAGE_OAUTH_CLIENT_ID` | (none) | OAuth client ID (`oauth.client_id`) |
 | `SAGE_OAUTH_CLIENT_SECRET` / `_FILE` | (none) | OAuth client secret (`oauth.client_secret`) |

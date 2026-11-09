@@ -2,10 +2,11 @@ package config
 
 import "fmt"
 
-// EnvVar documents one SAGE_* environment variable the sidecar reads
-// (config-08). cmd/gen_config_meta renders the registry into
-// docs/configuration.md, and a drift test fails when a "SAGE_..." literal
-// in internal/config or cmd/pg_sage_sidecar is not registered here.
+// EnvVar documents one SAGE_* environment variable pg_sage reads
+// (config-08). cmd/gen_config_meta renders the runtime entries into
+// docs/configuration.md and the contributor entries into CONTRIBUTING.md,
+// and a drift test fails when a "SAGE_..." literal in a non-test file under
+// internal/, cmd/ or the bench harnesses is not registered here (ci-10).
 type EnvVar struct {
 	Name string
 	// Default is what applies when the variable is unset, as Markdown.
@@ -14,7 +15,21 @@ type EnvVar struct {
 	Doc string
 	// File is true when NAME_FILE may hold the value instead.
 	File bool
+	// Kind says who sets the variable.
+	Kind EnvKind
 }
+
+// EnvKind says who sets a variable and so which table documents it.
+type EnvKind string
+
+const (
+	// EnvRuntime variables configure a running sidecar or one of its
+	// subcommands; docs/configuration.md lists them.
+	EnvRuntime EnvKind = "runtime"
+	// EnvContributor variables steer the test suites and benches;
+	// CONTRIBUTING.md lists them.
+	EnvContributor EnvKind = "contributor"
+)
 
 const (
 	envNone  = "(none)"
@@ -25,7 +40,21 @@ func envCode(v any) string {
 	return fmt.Sprintf("`%v`", v)
 }
 
-var envRegistry = []EnvVar{
+// envRegistry is every entry, runtime first, in documentation order.
+var envRegistry = append(withKind(EnvRuntime, runtimeEnvVars),
+	withKind(EnvContributor, contributorEnvVars)...)
+
+// withKind returns a copy of vars with Kind set to kind.
+func withKind(kind EnvKind, vars []EnvVar) []EnvVar {
+	out := make([]EnvVar, len(vars))
+	for i, v := range vars {
+		v.Kind = kind
+		out[i] = v
+	}
+	return out
+}
+
+var runtimeEnvVars = []EnvVar{
 	{Name: "SAGE_CONFIG_PATH", Default: envNone, Doc: "Path to the YAML config file when " +
 		"`--config` is not given; otherwise `config.yaml` in the working directory is used " +
 		"if present"},
@@ -100,6 +129,10 @@ var envRegistry = []EnvVar{
 		"for a fleet spanning Lakebase endpoints; use instead of the singular variable"},
 	{Name: "SAGE_AUTH_MODE", Default: envNone, Doc: "`databricks_app` selects Databricks Apps " +
 		"authentication (see Web UI and API Authentication)"},
+	{Name: "SAGE_DATABRICKS_ADMIN_EMAIL", Default: envNone, Doc: "Administrator email under " +
+		"`SAGE_AUTH_MODE=databricks_app`; startup fails without a plain address"},
+	{Name: "SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS", Default: envNone, Doc: "Comma-separated " +
+		"exact DNS domains allowed under `databricks_app` auth; the administrator must match"},
 	{Name: "SAGE_OAUTH_PROVIDER", Default: envNone, Doc: "OAuth provider (`oauth.provider`): " +
 		"google, github, okta or generic OIDC"},
 	{Name: "SAGE_OAUTH_CLIENT_ID", Default: envNone, Doc: "OAuth client ID (`oauth.client_id`)"},
@@ -166,6 +199,41 @@ var envRegistry = []EnvVar{
 		"of the `history` subcommand's copy into the metadata database (only read)"},
 	{Name: "SAGE_VECTORLAB_DATABASE_URL", Default: envNone, File: true,
 		Doc: "Database of the `vector-lab` subcommand"},
+}
+
+// contributorEnvVars are read only by tests (internal/testdb) and benches.
+var contributorEnvVars = []EnvVar{
+	{Name: "SAGE_TEST_DATABASE_URL", Default: envNone, Doc: "Disposable PostgreSQL server " +
+		"for database tests; each test package creates and drops its own database on it. " +
+		"Unset, database tests skip. Never point it at a shared server"},
+	{Name: "SAGE_TEST_SECOND_CLUSTER_URL", Default: envNone, Doc: "A second disposable " +
+		"PostgreSQL server, for tests that need a database on another cluster; unset, they skip"},
+	{Name: "SAGE_TEST_REPLICA_URL", Default: envNone, Doc: "Streaming replica of the " +
+		"`SAGE_TEST_DATABASE_URL` server, for replica tests; unset, they skip"},
+	{Name: "SAGE_TEST_DSN", Default: "(set by the fixture)", Doc: "Legacy test DSN name; " +
+		"the fixture overwrites it with the package database, so do not set it"},
+	{Name: "SAGE_BENCH_RUN", Default: envUnset,
+		Doc: "`1` runs `TestPGIncidentBench` in `sre-bench`"},
+	{Name: "SAGE_BENCH_REPEATS", Default: envCode(1),
+		Doc: "Runs of every PGIncidentBench scenario, 1 to 10"},
+	{Name: "SAGE_BENCH_REPORT_DIR", Default: "(a temporary directory)",
+		Doc: "Directory that receives the PGIncidentBench JSON and Markdown reports"},
+	{Name: "SAGE_BENCH_FAMILIES", Default: "(all)", Doc: "Comma-separated trigger kinds a " +
+		"bench run is limited to, such as `checkpoint_storm,lwlock_contention`"},
+	{Name: "SAGE_BENCH_SPLIT", Default: envCode("all"), Doc: "Replayed cases: `all`, " +
+		"`held_out` or `tuning`"},
+	{Name: "SAGE_BENCH_LIVE_ARM", Default: envUnset, Doc: "`1` runs `TestLiveModelArm`, " +
+		"which calls the configured LLM"},
+	{Name: "SAGE_BENCH_LIVE_MODEL_ARM", Default: envCode("causal-graph+llm"), Doc: "Model " +
+		"arm a live run measures: `causal-graph+llm` or `causal-graph+investigator`"},
+	{Name: "SAGE_BENCH_PG_SAGE_VERSION", Default: envNone, Doc: "Release tag stamped into " +
+		"bench reports (a leading `v` is dropped); CI sets it on tags"},
+	{Name: "SAGE_BENCH_PG_SAGE_COMMIT", Default: envNone, Doc: "Commit stamped into bench " +
+		"reports, so a sidecar refuses a report made for another build"},
+	{Name: "SAGE_SAFETY_BENCH_RUN", Default: envUnset,
+		Doc: "`1` runs the full `TestAgentSafetyBench` in `safety-bench`"},
+	{Name: "SAGE_SAFETY_BENCH_REPORT_DIR", Default: "(a temporary directory)",
+		Doc: "Directory that receives the agent-safety bench JSON and Markdown reports"},
 }
 
 // EnvVars returns a copy of the registry, in documentation order.
