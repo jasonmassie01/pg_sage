@@ -124,7 +124,7 @@ describe('Executed actions paging', () => {
     const source = FakeEventSource.instances.at(-1)
     act(() => source.open())
     act(() => source.emit('actions', { type: 'actions' }))
-    await tick(0)
+    await tick(2000) // live refetches wait out a 2 s debounce (dashboard-08)
     // Each row shows its summary once: the merge adds the new head row and
     // duplicates nothing.
     expect(screen.getAllByText('Created index on gamma')).toHaveLength(1)

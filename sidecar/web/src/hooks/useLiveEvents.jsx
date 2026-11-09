@@ -117,15 +117,61 @@ export function useLiveEvents() {
   return useContext(LiveEventsContext) ?? NO_PROVIDER
 }
 
-// useLiveRefetch calls `refetch` whenever the server pushes an
-// event of any of the supplied types. Useful to layer on top of
-// useAPI for pages that want live updates without hard-coding the
-// polling interval down.
-export function useLiveRefetch(types, refetch) {
+// LIVE_DEBOUNCE_MS coalesces a burst of events into one refetch.
+export const LIVE_DEBOUNCE_MS = 2000
+
+// inScope: with one database selected, an event that names another
+// database does not concern the page; an event naming none concerns all.
+function inScope(evt, database) {
+  if (!database || database === 'all' || !evt.database) return true
+  return evt.database === database
+}
+
+// useLiveRefetch calls `refetch` when the server pushes an event of any of
+// the supplied types, layered on top of useAPI's polling. It is bounded
+// (dashboard-08): with `database` selected, other databases' events are
+// ignored; a burst refetches once, LIVE_DEBOUNCE_MS after its last event;
+// and a hidden tab only notes that the data is dirty and refetches once
+// when shown. Pass no database for fleet-wide data.
+export function useLiveRefetch(types, refetch, { database } = {}) {
   const { subscribe } = useLiveEvents()
+  const refetchRef = useRef(refetch)
+  const typesRef = useRef(types)
   useEffect(() => {
-    if (!refetch) return undefined
-    return subscribe(types, () => refetch())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subscribe, refetch, JSON.stringify(types)])
+    refetchRef.current = refetch
+    typesRef.current = types
+  })
+  const enabled = Boolean(refetch)
+  const typesKey = JSON.stringify(types)
+  useEffect(() => {
+    if (!enabled) return undefined
+    let timer = null
+    let dirty = false
+    const run = () => {
+      timer = null
+      if (document.hidden) dirty = true
+      else refetchRef.current?.()
+    }
+    const later = () => {
+      clearTimeout(timer)
+      timer = setTimeout(run, LIVE_DEBOUNCE_MS)
+    }
+    const onVisibility = () => {
+      if (document.hidden || !dirty) return
+      dirty = false
+      later()
+    }
+    const unsubscribe = subscribe(typesRef.current, evt => {
+      if (!inScope(evt, database)) return
+      if (document.hidden) dirty = true
+      else later()
+    })
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      unsubscribe()
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+    // typesKey stands for types, so an inline array literal does not resubscribe.
+  }, [subscribe, enabled, database, typesKey])
 }

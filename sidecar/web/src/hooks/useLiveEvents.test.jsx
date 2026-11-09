@@ -1,7 +1,9 @@
 import { act, render, renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeEventSource } from '../test/fakeEventSource'
-import { LiveEventsProvider, useLiveEvents, useLiveRefetch } from './useLiveEvents'
+import {
+  LIVE_DEBOUNCE_MS, LiveEventsProvider, useLiveEvents, useLiveRefetch,
+} from './useLiveEvents'
 import { useLiveStatus } from './liveEventsContext'
 
 // These tests run the real provider against FakeEventSource (installed
@@ -10,6 +12,11 @@ import { useLiveStatus } from './liveEventsContext'
 function wrapper({ children }) {
   return <LiveEventsProvider>{children}</LiveEventsProvider>
 }
+
+afterEach(() => vi.useRealTimers())
+
+// useLiveRefetch refetches LIVE_DEBOUNCE_MS after the last event (dashboard-08).
+const settle = () => act(() => { vi.advanceTimersByTime(LIVE_DEBOUNCE_MS) })
 
 function onlySource() {
   expect(FakeEventSource.instances).toHaveLength(1)
@@ -36,6 +43,7 @@ describe('LiveEventsProvider', () => {
   })
 
   it('delivers an actions event to an actions subscriber only', () => {
+    vi.useFakeTimers()
     const onActions = vi.fn()
     const onFindings = vi.fn()
     render(
@@ -45,6 +53,7 @@ describe('LiveEventsProvider', () => {
       </LiveEventsProvider>,
     )
     act(() => onlySource().emit('actions', { type: 'actions', ts: '2026-11-08T10:00:00Z' }))
+    settle()
     expect(onActions).toHaveBeenCalledTimes(1)
     expect(onFindings).not.toHaveBeenCalled()
   })
@@ -159,6 +168,7 @@ describe('useLiveStatus inside a provider', () => {
 
 describe('useLiveRefetch', () => {
   it('starts refetching once a missing refetch arrives', () => {
+    vi.useFakeTimers()
     const refetch = vi.fn()
     const { rerender } = render(
       <LiveEventsProvider><Refetcher types={['actions']} refetch={null} /></LiveEventsProvider>,
@@ -167,12 +177,15 @@ describe('useLiveRefetch', () => {
     rerender(
       <LiveEventsProvider><Refetcher types={['actions']} refetch={refetch} /></LiveEventsProvider>,
     )
+    settle()
     expect(refetch).not.toHaveBeenCalled()
     act(() => onlySource().emit('actions', { type: 'actions' }))
+    settle()
     expect(refetch).toHaveBeenCalledTimes(1)
   })
 
   it('follows a change of the type list', () => {
+    vi.useFakeTimers()
     const refetch = vi.fn()
     const { rerender } = render(
       <LiveEventsProvider><Refetcher types={['actions']} refetch={refetch} /></LiveEventsProvider>,
@@ -181,8 +194,10 @@ describe('useLiveRefetch', () => {
       <LiveEventsProvider><Refetcher types={['findings']} refetch={refetch} /></LiveEventsProvider>,
     )
     act(() => onlySource().emit('actions', { type: 'actions' }))
+    settle()
     expect(refetch).not.toHaveBeenCalled()
     act(() => onlySource().emit('findings', { type: 'findings' }))
+    settle()
     expect(refetch).toHaveBeenCalledTimes(1)
   })
 })

@@ -128,6 +128,8 @@ export function Layout({
   const { data: countData, refetch: refetchPending } = useAPI(
     canReviewActions ? '/api/v1/actions/pending/count' : null, 30000,
   )
+  // The badge counts approvals across the fleet, so it takes every database's
+  // events (no database scope); a hidden tab refreshes it when shown.
   useLiveRefetch(['actions'], refetchPending)
   const pendingCount = countData?.count || 0
 

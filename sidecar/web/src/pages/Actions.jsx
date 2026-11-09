@@ -92,10 +92,11 @@ export function Actions({ database, user, fleetData }) {
   const recommendations = useAPI(single
     ? `/api/v1/recommendations?database=${encodeURIComponent(database)}` : null)
   const managed = useAPI(`/api/v1/managed-changes${dbParam}`)
-  useLiveRefetch(['actions'], refetch)
-  useLiveRefetch(['actions'], canReview ? pending.refetch : null)
-  useLiveRefetch(['actions'], canReview ? cards.refetch : null)
-  useLiveRefetch(['actions'], recommendations.refetch)
+  const scope = { database }
+  useLiveRefetch(['actions'], refetch, scope)
+  useLiveRefetch(['actions'], canReview ? pending.refetch : null, scope)
+  useLiveRefetch(['actions'], canReview ? cards.refetch : null, scope)
+  useLiveRefetch(['actions'], recommendations.refetch, scope)
 
   const cases = caseData.data?.cases || []
   const selectedCase = caseScope ? cases.find(c => String(caseID(c)) === caseScope) : null
