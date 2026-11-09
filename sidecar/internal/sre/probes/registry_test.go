@@ -39,9 +39,11 @@ func specVersion(id ID) string {
 	case ConnectionSaturation:
 		return "v3"
 	case SequenceRunwayProbe:
-		return "v3" // v3: per-statement cap, catalog slices
+		return "v4" // v3: per-statement cap, slices; v4: descending, keep-list
+	case RunwayTrendsProbe:
+		return "v3" // v3: value_rate_per_s, the net age slope (forecast-01)
 	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe,
-		WraparoundTablesProbe, RunwayTrendsProbe:
+		WraparoundTablesProbe:
 		return "v2"
 	case LockChains, LockGraph, LongTransactions, LWLockWaits:
 		return "v2" // v2: pg_sage's own sessions and statements left out

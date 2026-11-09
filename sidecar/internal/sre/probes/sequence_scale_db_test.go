@@ -104,9 +104,10 @@ func TestCatalog_SequenceRunwayAtScale(t *testing.T) {
 	t.Logf("sequence_runway over the scale fixture: %d ms (incident budget %s)",
 		res.ElapsedMS, MaxStatementTimeout)
 	ss, err := Sequences(res)
-	if err != nil || len(ss) != 50 || !res.Truncated {
-		t.Fatalf("sequences = %d (truncated %v, %v), want the 50 nearest", len(ss),
-			res.Truncated, err)
+	// v4 reports the cut listing in its listing_cut column, checked through
+	// the coverage (checkScaleCoverage), not through the runner's row cap.
+	if err != nil || len(ss) != 50 {
+		t.Fatalf("sequences = %d (%v), want the 50 nearest", len(ss), err)
 	}
 	for i, s := range ss {
 		if math.IsNaN(s.LastValue) || math.IsNaN(s.Fraction) {
@@ -314,7 +315,7 @@ func checkLockFootprint(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		t.Fatalf("begin: %v", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	rows, err := tx.Query(ctx, sequenceRunwaySQL, 51, 0, 0)
+	rows, err := tx.Query(ctx, sequenceRunwaySQL, 101, 0, 0, []string{})
 	if err != nil {
 		t.Fatalf("probe sql: %v", err)
 	}

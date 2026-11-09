@@ -14,7 +14,7 @@ import (
 )
 
 // history.store: meta. The forecaster's daily aggregates (system metrics,
-// query volume, sequence use) must be identical in both placements, with
+// query volume) must be identical in both placements, with
 // another database's snapshots in the store.
 
 func persistDay(t *testing.T, p *histfixture.Pair, w *snapstore.Writer, at time.Time, i int) {
@@ -54,13 +54,8 @@ func TestDailyAggregatesIdenticalInBothPlacements(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s query aggs: %v", mode, err)
 		}
-		s, err := QueryDailySeqAggs(ctx, p.Monitored, 14)
-		if err != nil {
-			t.Fatalf("%s seq aggs: %v", mode, err)
-		}
-		if len(sys) == 0 || len(q) == 0 || len(s) == 0 {
-			t.Fatalf("%s: empty aggregates (system %d, queries %d, sequences %d)", mode,
-				len(sys), len(q), len(s))
+		if len(sys) == 0 || len(q) == 0 {
+			t.Fatalf("%s: empty aggregates (system %d, queries %d)", mode, len(sys), len(q))
 		}
 		for _, a := range sys {
 			if a.MaxConnections != 100 {
@@ -68,13 +63,7 @@ func TestDailyAggregatesIdenticalInBothPlacements(t *testing.T) {
 					mode, a.MaxConnections)
 			}
 		}
-		for _, a := range s {
-			if a.SeqName != "public.s1" {
-				t.Fatalf("%s: sequence %q: another database's snapshot leaked in", mode,
-					a.SeqName)
-			}
-		}
-		got[mode] = fmt.Sprintf("%+v|%+v|%+v", sys, q, s)
+		got[mode] = fmt.Sprintf("%+v|%+v", sys, q)
 	}
 	if got[histstore.ModeMonitored] != got[histstore.ModeMeta] {
 		t.Fatalf("aggregates differ:\nmonitored %s\nmeta      %s",

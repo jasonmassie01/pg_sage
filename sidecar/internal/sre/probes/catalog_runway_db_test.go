@@ -375,8 +375,10 @@ func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	if c := got["cycle_seq"]; !c.Cycle || c.DataType != "smallint" {
 		t.Fatalf("cycle_seq = %+v", c)
 	}
-	if _, ok := got["down_seq"]; ok {
-		t.Fatal("a descending sequence is listed; the runway covers ascending ones")
+	// v4 (forecast-05): a descending sequence is covered, toward its minimum.
+	if d, ok := got["down_seq"]; !ok || !d.Descending() || d.Limit != d.MinValue ||
+		d.Fraction != 0 {
+		t.Fatalf("down_seq = %+v (%v), want it listed toward its minimum", d, ok)
 	}
 	// v2 (dogfood lifeos-1): a never-called sequence has no runway to
 	// measure and is no longer listed (lifeos: 10,892 of 12,038).

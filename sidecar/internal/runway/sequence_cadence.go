@@ -3,15 +3,17 @@ package runway
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
-// maxSequencesReported is how many sequences a reading keeps, nearest
-// their limit first: sequence_runway's own row cap per statement.
-const maxSequencesReported = 50
+// maxSequencesReported is how many sequences a reading lists by their
+// nearness to their limit (sequence_runway's own top per statement); the
+// kept sequences (sequenceKeep) are listed beside them.
+const maxSequencesReported = probes.SequenceTopN
 
 // sequenceReading is the last sequence_runway reading: when it was
 // attempted, what it read (when it succeeded), the coverage last logged,
@@ -70,7 +72,8 @@ func (m *Monitor) readSequencePass(ctx context.Context) ([]probes.SequenceRunway
 		m.seq.perRead = probes.SequenceScanCap
 	}
 	slices := max(m.seq.slices, 1)
-	list, cov, perRead, err := m.readSlices(ctx, slices)
+	keep := m.sequenceKeep()
+	list, cov, perRead, err := m.readSlices(ctx, slices, keep)
 	if err != nil {
 		return nil, cov, err
 	}
@@ -79,7 +82,7 @@ func (m *Monitor) readSequencePass(ctx context.Context) ([]probes.SequenceRunway
 	}
 	if want := sliceCount(cov.Total, m.seq.perRead); cov.ScanCapped() && want > slices {
 		slices = want
-		if list, cov, perRead, err = m.readSlices(ctx, slices); err != nil {
+		if list, cov, perRead, err = m.readSlices(ctx, slices, keep); err != nil {
 			return nil, cov, err
 		}
 		if perRead > 0 {
@@ -104,17 +107,18 @@ func sliceCount(total, perRead int64) int {
 }
 
 // readSlices reads the catalog in slices statements and merges them: the
-// sequences nearest their limit first, the coverage summed. perRead is
-// the most a capped statement read (0 when none was capped).
-func (m *Monitor) readSlices(ctx context.Context, slices int) ([]probes.SequenceRunway,
-	probes.SequenceCoverage, int64, error) {
+// sequences nearest their limit first, then the kept ones past them, the
+// coverage summed. perRead is the most a capped statement read (0 when
+// none was capped).
+func (m *Monitor) readSlices(ctx context.Context, slices int,
+	keep []string) ([]probes.SequenceRunway, probes.SequenceCoverage, int64, error) {
 	var list []probes.SequenceRunway
 	var cov probes.SequenceCoverage
 	var perRead int64
 	for i := 0; i < slices; i++ {
-		args := probes.Args{}
+		args := probes.Args{Keep: keep}
 		if slices > 1 {
-			args = probes.Args{Slices: slices, Slice: i}
+			args.Slices, args.Slice = slices, i
 		}
 		res := m.runner.RunBackground(ctx, probes.SequenceRunwayProbe, args)
 		ss, err := probes.Sequences(res)
@@ -137,11 +141,89 @@ func (m *Monitor) readSlices(ctx context.Context, slices int) ([]probes.Sequence
 		return list[i].Fraction > list[j].Fraction ||
 			(list[i].Fraction == list[j].Fraction && list[i].Sequence < list[j].Sequence)
 	})
-	if len(list) > maxSequencesReported {
-		list, cov.Truncated = list[:maxSequencesReported], true
-	}
+	list, cut := topAndKept(list, keep)
+	cov.Truncated = cov.Truncated || cut
 	cov.Reported = int64(len(list))
 	return list, cov, perRead, nil
+}
+
+// topAndKept keeps the first maxSequencesReported of a sorted list and,
+// past them, the kept sequences; cut reports a sequence left out.
+func topAndKept(list []probes.SequenceRunway, keep []string) ([]probes.SequenceRunway,
+	bool) {
+	if len(list) <= maxSequencesReported {
+		return list, false
+	}
+	kept := make(map[string]bool, len(keep))
+	for _, k := range keep {
+		kept[k] = true
+	}
+	out := list[:maxSequencesReported:maxSequencesReported]
+	for _, s := range list[maxSequencesReported:] {
+		if kept[s.Sequence] {
+			out = append(out, s)
+		}
+	}
+	return out, len(out) < len(list)
+}
+
+// noteSequenceSeries remembers the sequences with samples in the
+// lookback (the sequence series of a runway_trends read), at most
+// probes.MaxSequenceKeep, soonest to their limit first: the next reading
+// lists them whatever their rank, so a sampled sequence keeps its series
+// (forecast-10).
+func (m *Monitor) noteSequenceSeries(set probes.RunwayTrendSet) {
+	var ts []probes.RunwayTrend
+	for _, tr := range set.Trends {
+		if tr.Kind == probes.RunwaySequence && tr.Subject != "" {
+			ts = append(ts, tr)
+		}
+	}
+	soon := func(tr probes.RunwayTrend) float64 {
+		if s := tr.SecondsToLimit(); !math.IsNaN(s) {
+			return s
+		}
+		return math.Inf(1)
+	}
+	sort.SliceStable(ts, func(i, j int) bool {
+		a, b := soon(ts[i]), soon(ts[j])
+		return a < b || (a == b && ts[i].Subject < ts[j].Subject)
+	})
+	keep := make([]string, 0, min(len(ts), probes.MaxSequenceKeep))
+	for _, tr := range ts[:min(len(ts), probes.MaxSequenceKeep)] {
+		keep = append(keep, tr.Subject)
+	}
+	m.keepMu.Lock()
+	defer m.keepMu.Unlock()
+	if !set.Complete(probes.RunwaySequence) { // a cut read: forget no series
+		keep = mergeKeep(keep, m.seqKeep)
+	}
+	m.seqKeep = keep
+}
+
+// mergeKeep is fresh then the earlier names not in it, capped at
+// probes.MaxSequenceKeep.
+func mergeKeep(fresh, earlier []string) []string {
+	seen := make(map[string]bool, len(fresh))
+	for _, k := range fresh {
+		seen[k] = true
+	}
+	for _, k := range earlier {
+		if len(fresh) >= probes.MaxSequenceKeep {
+			break
+		}
+		if !seen[k] {
+			fresh = append(fresh, k)
+		}
+	}
+	return fresh
+}
+
+// sequenceKeep is a copy of the sequences the next reading keeps.
+func (m *Monitor) sequenceKeep() []string {
+	m.keepMu.Lock()
+	defer m.keepMu.Unlock()
+	return append([]string(nil), m.seqKeep...)
 }
 
 // noteCoverage logs the reading's coverage when it changed: a scan cap

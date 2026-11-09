@@ -62,11 +62,7 @@ func TestForecaster_DecodesEachDailySampleOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query aggs: %v", err)
 	}
-	s1, err := f.dailySeqAggs(ctx)
-	if err != nil {
-		t.Fatalf("seq aggs: %v", err)
-	}
-	// Per day: the first and last query sample and the last sequence one.
+	// Per day: the first and last query sample.
 	if n := decoded(t, rec); n < boundedDays || n > 3*boundedDays {
 		t.Fatalf("cold run decoded %d snapshots, want at most %d", n, 3*boundedDays)
 	}
@@ -77,10 +73,6 @@ func TestForecaster_DecodesEachDailySampleOnce(t *testing.T) {
 	q2, err := f.dailyQueryAggs(ctx)
 	if err != nil || !reflect.DeepEqual(q2, q1) {
 		t.Fatalf("second run = %+v (%v), want %+v", q2, err, q1)
-	}
-	s2, err := f.dailySeqAggs(ctx)
-	if err != nil || !reflect.DeepEqual(s2, s1) {
-		t.Fatalf("second seq run = %+v (%v), want %+v", s2, err, s1)
 	}
 	if n := decoded(t, rec); n != 0 {
 		t.Fatalf("a run with no new snapshot decoded %d, want 0", n)

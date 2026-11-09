@@ -1473,19 +1473,51 @@ each series and projects when the series reaches its limit:
 
 | Runway | Limit | Finding (category) | Investigation |
 |---|---|---|---|
-| XID or multixact age | the wraparound warning limit (2^31 - 1 - 40,000,000) | `forecast_wraparound_runway` (`xid`, `mxid`) | wraparound runway |
+| XID or multixact age, only at or past the cluster's `autovacuum_freeze_max_age` (`autovacuum_multixact_freeze_max_age`) | the wraparound warning limit (2^31 - 1 - 40,000,000) | `forecast_wraparound_runway` (`xid`, `mxid`) | wraparound runway |
 | A table 1.25 times past its freeze maximum | its effective `autovacuum_freeze_max_age` (the table's own setting when lower) | `forecast_wraparound_runway` (the table) | wraparound runway |
 | Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it; `0`, the default, means undeclared: nothing auto-detects capacity, so there is no disk runway and no disk-full credit) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
 | WAL a slot retains | `max_slot_wal_keep_size` when it is set, else the WAL custodian's 10 GiB ceiling | `forecast_wal_runway` (`slot:<name>`) | disk/WAL runway |
-| A sequence's last value | the lower of its maximum and its owning integer column's maximum | `forecast_sequence_runway` (the sequence) | sequence runway |
+| A sequence's last value | ascending: the lower of its maximum and its owning integer column's maximum; descending: the higher of its minimum and the column's minimum (a `CYCLE` sequence wraps and is never projected) | `forecast_sequence_runway` (the sequence) | sequence runway |
+
+The sequence runway is pg_sage's only sequence forecast: the forecaster's
+`forecast_sequence_exhaustion` rule, which measured each sequence against its own range
+and so missed a bigint sequence feeding an int4 column, is retired, and upgrading resolves
+its open findings (`detail.resolved_reason`: superseded by `forecast_sequence_runway`).
+Each reading lists the 50 used sequences nearest their limit plus up to 50 more that
+already have samples in the lookback, so a sampled sequence keeps its series when others
+overtake it.
 
 A projection needs `sre.runways.min_samples` samples over at least
 `sre.runways.min_span_minutes`. Disk and slot projections also need a steady trend (a line
 that fits, r² at least 0.5), so a sawtooth never alarms. A runway inside its horizon opens a
 forecast finding (critical inside the critical horizon) and, with `sre.runways.investigate`,
 one read-only pre-incident investigation per finding and severity, whatever
-`sre.automatic_start` says. A finding resolves when its runway clears. A standby samples
-nothing (it is read-only).
+`sre.automatic_start` says. A finding resolves when its runway clears and its series is
+measured; an unmeasured series keeps its finding open, marked stale. A series is unmeasured
+when the lookback holds too few samples, too short a span or an unknown rate, or none at all
+(for example after a gap longer than `sre.runways.lookback_hours`). The finding keeps its id
+and gains `detail.stale = true`, `detail.stale_reason` (`unmeasured` or `no_samples`) and
+`detail.stale_since`; the next measured projection replaces the detail and clears them. A
+replication slot or sequence is held only while the current reading still lists it, so the
+finding of a dropped slot or sequence (or one past the 50 kept sequences) resolves.
+While the slots cannot be read, an open slot finding without samples is held too.
+When the trends read reaches its row cap, the categories it may have cut are not resolved
+until it fits again (logged once). A standby samples nothing (it is read-only).
+
+Anti-wraparound autovacuum freezes a table once its age passes `autovacuum_freeze_max_age`,
+which resets the age, so below that setting the XID runway is bounded by freezing however
+fast transactions consume XIDs: a busy, healthy cluster opens no wraparound finding. The
+XID (multixact) trend is projected only once the cluster's oldest age is at or past
+`autovacuum_freeze_max_age` (`autovacuum_multixact_freeze_max_age`), read with
+`current_setting` (postmaster-level on PostgreSQL 14-18; managed providers expose it the same
+way). Past it, the projection uses the net age slope (the age's own trend, freezing included)
+when it is known and rising, else the consumption rate; the finding's detail records
+`freeze_max_age`, `age`, `gate`, `projection_basis` (`net_age_slope` or `consumption_rate`),
+`age_rate_per_s` and `consumption_rate_per_s`. Below the setting, a stuck xmin holder is the
+xmin-horizon probe's and the overdue-table rule's (a table 1.25 times past its maximum). When
+the cluster's age or freeze maximum cannot be read, the XID finding is held, marked stale with
+`stale_reason` `freeze_gate_unknown`. On upgrade, an open XID or multixact finding on a
+cluster below the setting resolves on its first measured tick.
 
 A pre-incident investigation explains what drives the runway. Wraparound: a session,
 prepared transaction or replication slot holding the xmin horizon, busy, disabled or
@@ -1818,6 +1850,47 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.daily_tokens_per_user` | `100000` | Daily tokens for one user or MCP token; at most the database's. Restart to change |
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
+
+### Forecaster
+
+The forecaster (`forecaster.*`, see `sidecar/config.example.yaml`) fits daily trends
+over `lookback_days` of system snapshots and needs 7 days of data for each trend
+(8 closed days for the checkpoint rate, which is a difference between days).
+
+- Days without a measured database size (`pg_database_size` had not yet succeeded,
+  timed out, or is refused by the provider) are left out of the disk growth trend
+  (`forecast_disk_growth`); they are not read as a size of 0. With 7 or more days of
+  history but fewer than 7 measured sizes, the disk trend is not evaluated: no disk
+  finding opens, and an open one is neither refreshed nor resolved until 7 measured
+  days exist again. The connection, cache and checkpoint trends still run.
+- Days without backend counts or `max_connections` are left out of the connection
+  trend.
+- The checkpoint trend (`forecast_checkpoint_pressure`) counts requested checkpoints
+  only: WAL-triggered ones (WAL reached `max_wal_size` before `checkpoint_timeout`) and
+  explicit ones (`CHECKPOINT`, base backups). Timed checkpoints are counted by
+  PostgreSQL every `checkpoint_timeout` even when skipped on an idle server (288 a day
+  at the default 5 minutes), so they are not pressure. The rate of a day is the growth
+  of `checkpoints_req` (PG 14-16, `pg_stat_bgwriter`) or `num_requested` (PG 17+,
+  `pg_stat_checkpointer`) between the last snapshots of two closed days, divided by the
+  hours between them, so a missing day does not inflate it and the current, partial
+  day never moves the result. A day whose counters drop (a stats reset) is skipped, not
+  read as 0. The finding warns when the EWMA of those hourly rates is at or above
+  `forecaster.checkpoint_requested_per_hour` (default `2`, above `0` and at most
+  `3600`); its detail carries the requested share of all checkpoints, and the advice
+  is to raise `max_wal_size` (with `advisor.enabled`, the configuration advisor reviews
+  it in its `wal_tuning` findings).
+- The checkpoint trend needs 7 usable day-to-day rates (8 closed days). Snapshots
+  written before this version carry only the total count, so after an upgrade the
+  category is not evaluated until 8 closed days of new snapshots exist: an open
+  checkpoint finding is neither refreshed nor resolved until then, and resolves when
+  the new rule first evaluates without warning. On PG 18+ the snapshot also records
+  `num_done` (checkpoints performed) as `checkpoints_done`. In fleet mode the counters
+  are cluster-wide, so every database on one cluster reports the same rate.
+- Sequences are forecast by the runway monitor (`sre.runways.sequence_horizon_days`
+  and `sequence_critical_days`, see
+  [Runways and pre-incident investigations](#runways-and-pre-incident-investigations)).
+  The retired `forecaster.sequence_warn_days` and `forecaster.sequence_critical_days`
+  still load, with a warning each, and have no effect; remove them.
 
 ### Retention
 

@@ -139,7 +139,9 @@ type WALDirectory struct {
 	ReadyFiles float64
 }
 
-// SequenceRunway is one ascending sequence against its effective limit.
+// SequenceRunway is one sequence against its effective limit in its
+// direction of travel: the maximum side for an ascending sequence, the
+// minimum side for a descending one (Limit is then negative).
 type SequenceRunway struct {
 	Sequence     string
 	DataType     string
@@ -149,17 +151,33 @@ type SequenceRunway struct {
 	MinValue     float64
 	MaxValue     float64
 	TypeMax      float64
+	TypeMin      float64
 	OwnerColumn  string
 	OwnerType    string
 	OwnerTypeMax float64
+	OwnerTypeMin float64
 	Limit        float64
 	Fraction     float64
 }
 
+// Descending reports a sequence that counts down (a negative increment).
+func (s SequenceRunway) Descending() bool { return s.Increment < 0 }
+
 // BindingLimit names the limit the sequence reaches first: an owning
-// column narrower than the sequence, an explicit MAXVALUE below the
-// sequence's type, or the sequence's own type.
+// column narrower than the sequence, an explicit bound inside the
+// sequence's type (MAXVALUE; MINVALUE for a descending sequence, also
+// reported as LimitExplicitMax), or the sequence's own type.
 func (s SequenceRunway) BindingLimit() string {
+	if s.Descending() {
+		switch {
+		case Known(s.OwnerTypeMin) && s.OwnerTypeMin > s.MinValue:
+			return LimitColumnType
+		case Known(s.TypeMin) && s.MinValue > s.TypeMin:
+			return LimitExplicitMax
+		default:
+			return LimitSequenceType
+		}
+	}
 	switch {
 	case Known(s.OwnerTypeMax) && s.OwnerTypeMax < s.MaxValue:
 		return LimitColumnType
@@ -181,6 +199,10 @@ type RunwayTrend struct {
 	Limit     float64
 	RatePerS  float64
 	R2        float64
+	// ValueRatePerS is the slope of the value alone: for xid and mxid the
+	// net age slope (freezing lowers it), RatePerS being the consumption
+	// rate; equal to RatePerS for a series without a counter.
+	ValueRatePerS float64
 }
 
 // SpanS is the seconds between the first and last sample.
@@ -358,11 +380,45 @@ func Sequences(res Result) ([]SequenceRunway, error) {
 			DataType: strField(r, "data_type"), Increment: floatField(r, "increment_by"),
 			Cycle: boolField(r, "cycle"), LastValue: floatField(r, "last_value"),
 			MinValue: floatField(r, "min_value"), MaxValue: floatField(r, "max_value"),
-			TypeMax: floatField(r, "type_max"), OwnerColumn: strField(r, "owner_column"),
-			OwnerType: strField(r, "owner_type"), OwnerTypeMax: floatField(r, "owner_type_max"),
-			Limit: floatField(r, "effective_limit"), Fraction: floatField(r, "fraction_used")})
+			TypeMax: floatField(r, "type_max"), TypeMin: floatField(r, "type_min"),
+			OwnerColumn: strField(r, "owner_column"), OwnerType: strField(r, "owner_type"),
+			OwnerTypeMax: floatField(r, "owner_type_max"),
+			OwnerTypeMin: floatField(r, "owner_type_min"),
+			Limit:        floatField(r, "effective_limit"),
+			Fraction:     floatField(r, "fraction_used")})
 	}
 	return out, nil
+}
+
+// RunwayTrendSet is a decoded runway_trends result with what its row cap
+// cut: the series come in (kind, subject) order, so a truncated read
+// holds every series of the kinds before the last one returned and may
+// lack the rest.
+type RunwayTrendSet struct {
+	Trends      []RunwayTrend
+	Truncated   bool
+	LastKind    string // of the last series returned ("" when none was)
+	LastSubject string
+}
+
+// RunwayTrendsOf decodes a runway_trends result and where it was cut.
+func RunwayTrendsOf(res Result) (RunwayTrendSet, error) {
+	ts, err := RunwayTrends(res)
+	if err != nil {
+		return RunwayTrendSet{}, err
+	}
+	set := RunwayTrendSet{Trends: ts, Truncated: res.Truncated}
+	if n := len(ts); n > 0 {
+		set.LastKind, set.LastSubject = ts[n-1].Kind, ts[n-1].Subject
+	}
+	return set, nil
+}
+
+// Complete reports whether the set holds every series of kind: always
+// when it was not truncated, else only for kinds before the last one
+// returned (that kind itself may have been cut part way).
+func (s RunwayTrendSet) Complete(kind string) bool {
+	return !s.Truncated || kind < s.LastKind
 }
 
 // RunwayTrends decodes a runway_trends result.
@@ -382,7 +438,8 @@ func RunwayTrends(res Result) ([]RunwayTrend, error) {
 		out = append(out, RunwayTrend{Kind: kind, Subject: subject, Samples: n,
 			FirstAt: timeField(r, "first_at"), LastAt: timeField(r, "last_at"),
 			LastValue: floatField(r, "last_value"), Limit: floatField(r, "last_limit"),
-			RatePerS: floatField(r, "rate_per_s"), R2: floatField(r, "r2")})
+			RatePerS: floatField(r, "rate_per_s"), R2: floatField(r, "r2"),
+			ValueRatePerS: floatField(r, "value_rate_per_s")})
 	}
 	return out, nil
 }

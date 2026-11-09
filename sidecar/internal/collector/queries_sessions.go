@@ -57,27 +57,55 @@ const systemCountersSQL = `
     WHERE datname = current_database()), 0) AS temp_bytes,
 `
 
-// checkpointEpochExpr is the checkpoint counters' epoch over the view the
-// variant names: the later of its stats_reset and the postmaster start
-// (a crash discards the counters without touching stats_reset).
-const checkpointEpochExpr = `GREATEST(COALESCE(stats_reset, '-infinity'::timestamptz),
-    pg_postmaster_start_time())`
+// checkpointEpochSQL is the checkpoint counters' epoch over the view the
+// variant reads (alias v): the later of its stats_reset and the postmaster
+// start (a crash discards the counters without touching stats_reset).
+const checkpointEpochSQL = `
+  GREATEST(COALESCE(v.stats_reset, '-infinity'::timestamptz),
+    pg_postmaster_start_time()) AS checkpoint_stats_epoch,
+  pg_is_in_recovery() AS is_replica`
+
+// The checkpoint counters are read split (forecast-03): a timed
+// checkpoint is counted every checkpoint_timeout even when it is skipped
+// on an idle server, so only the requested (WAL-triggered or explicit)
+// count measures checkpoint pressure. total_checkpoints stays for its
+// readers. checkpoints_done (num_done, performed checkpoints) is PG 18+.
 
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
 var systemStatsSQL14 = systemStatsSQLBase + systemCountersSQL + `
-  (SELECT checkpoints_timed + checkpoints_req
-    FROM pg_stat_bgwriter) AS total_checkpoints,
-  (SELECT ` + checkpointEpochExpr + `
-    FROM pg_stat_bgwriter) AS checkpoint_stats_epoch,
-  pg_is_in_recovery() AS is_replica`
+  v.checkpoints_timed + v.checkpoints_req AS total_checkpoints,
+  v.checkpoints_timed AS checkpoints_timed,
+  v.checkpoints_req AS checkpoints_requested,
+  NULL::bigint AS checkpoints_done,` + checkpointEpochSQL + `
+FROM pg_stat_bgwriter v`
 
-// systemStatsSQL17 uses pg_stat_checkpointer (PG 17+).
+// systemStatsSQL17 uses pg_stat_checkpointer (PG 17).
 var systemStatsSQL17 = systemStatsSQLBase + systemCountersSQL + `
-  (SELECT num_timed + num_requested
-    FROM pg_stat_checkpointer) AS total_checkpoints,
-  (SELECT ` + checkpointEpochExpr + `
-    FROM pg_stat_checkpointer) AS checkpoint_stats_epoch,
-  pg_is_in_recovery() AS is_replica`
+  v.num_timed + v.num_requested AS total_checkpoints,
+  v.num_timed AS checkpoints_timed,
+  v.num_requested AS checkpoints_requested,
+  NULL::bigint AS checkpoints_done,` + checkpointEpochSQL + `
+FROM pg_stat_checkpointer v`
+
+// systemStatsSQL18 adds pg_stat_checkpointer.num_done (PG 18+).
+var systemStatsSQL18 = systemStatsSQLBase + systemCountersSQL + `
+  v.num_timed + v.num_requested AS total_checkpoints,
+  v.num_timed AS checkpoints_timed,
+  v.num_requested AS checkpoints_requested,
+  v.num_done AS checkpoints_done,` + checkpointEpochSQL + `
+FROM pg_stat_checkpointer v`
+
+// systemStatsSQLFor picks the system stats read of a server version.
+func systemStatsSQLFor(versionNum int) string {
+	switch {
+	case versionNum >= 180000:
+		return systemStatsSQL18
+	case versionNum >= 170000:
+		return systemStatsSQL17
+	default:
+		return systemStatsSQL14
+	}
+}
 
 // locksSQL is the lock wait graph of the current database (collection-01),
 // bounded: pg_locks holds every lock of every session (thousands of

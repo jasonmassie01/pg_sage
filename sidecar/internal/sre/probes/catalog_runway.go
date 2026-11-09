@@ -218,16 +218,19 @@ SELECT (SELECT COALESCE(sum(w.size), 0)::int8 FROM pg_catalog.pg_ls_waldir() w)
         WHERE a.name LIKE '%.ready') AS archive_ready_files
 LIMIT $1`
 
-// runwayTrendsSQL (v2) regresses each sampled series over the window:
+// runwayTrendsSQL (v3) regresses each sampled series over the window:
 // only its current epoch (a counter reset or a recreated object starts a
-// new one), by its monotonic counter when it has one, else by its value.
+// new one), by its monotonic counter when it has one, else by its value
+// (rate_per_s), and by its value alone (value_rate_per_s: for xid and
+// mxid the net age slope, which freezing bends, beside the consumption
+// rate; v3 added it to the same scan).
 // Series are walked in (kind, subject) order by a skip scan of
 // runway_samples_series_idx and each reads only its own window, so a call
 // reads the samples of the series it returns and nothing is sorted (v1
 // sorted every sample of every series to return 200: 108 ms at 150,000
 // samples). The recursion yields the series in index order, which is the
 // order returned.
-const runwayTrendsSQL = `/* pg_sage sre:runway_trends v2 */
+const runwayTrendsSQL = `/* pg_sage sre:runway_trends v3 */
 WITH RECURSIVE series AS (
     (SELECT r.kind, r.subject FROM sage.runway_samples r
      ORDER BY r.kind, r.subject LIMIT 1)
@@ -239,7 +242,7 @@ WITH RECURSIVE series AS (
         ORDER BY r.kind, r.subject LIMIT 1) n
 )
 SELECT s.kind, s.subject, a.samples, a.first_at, c.last_at, c.last_value, c.last_limit,
-       a.rate_per_s, a.r2
+       a.rate_per_s, a.r2, a.value_rate_per_s
 FROM series s
 CROSS JOIN LATERAL (
     SELECT r.epoch, r.sampled_at AS last_at, r.value AS last_value,
@@ -253,7 +256,9 @@ CROSS JOIN LATERAL (
            pg_catalog.regr_slope(COALESCE(r.counter, r.value),
                EXTRACT(EPOCH FROM r.sampled_at)::float8) AS rate_per_s,
            pg_catalog.regr_r2(COALESCE(r.counter, r.value),
-               EXTRACT(EPOCH FROM r.sampled_at)::float8) AS r2
+               EXTRACT(EPOCH FROM r.sampled_at)::float8) AS r2,
+           pg_catalog.regr_slope(r.value, EXTRACT(EPOCH FROM r.sampled_at)::float8)
+               AS value_rate_per_s
     FROM sage.runway_samples r
     WHERE r.kind = s.kind AND r.subject = s.subject AND r.epoch = c.epoch
       AND r.sampled_at >= pg_catalog.now() - pg_catalog.make_interval(secs => $2)) a
@@ -278,7 +283,7 @@ func runwaySpecs() []Spec {
 			Variant{MinVersion: 140000, SQL: walDirectorySQL}),
 		sequenceRunwaySpec(),
 		versioned(capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
-			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200), "v2"),
+			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200), "v3"),
 	}
 }
 

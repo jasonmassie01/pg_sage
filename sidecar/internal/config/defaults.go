@@ -153,8 +153,9 @@ const (
 	DefaultForecasterDiskWarnGBDay  = 5.0
 	DefaultForecasterConnectionPct  = 80.0
 	DefaultForecasterCacheThreshold = 0.95
-	DefaultForecasterSeqWarnDays    = 90
-	DefaultForecasterSeqCritDays    = 30
+	// DefaultForecasterCheckpointRequestedPerHour is the requested
+	// checkpoint rate that warns (forecast-03).
+	DefaultForecasterCheckpointRequestedPerHour = 2.0
 
 	// v0.9 — RCA defaults.
 	DefaultRCALLMCorrelationThreshold  = 3

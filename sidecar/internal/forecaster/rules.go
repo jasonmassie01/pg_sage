@@ -10,15 +10,17 @@ import (
 const minDataPoints = 7
 
 // forecastDiskGrowth warns when database size is growing faster
-// than the configured threshold in GB/day.
+// than the configured threshold in GB/day. Only days with a measured
+// size count, and minDataPoints of them are needed (forecast-07).
 func forecastDiskGrowth(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
-	if len(aggs) < minDataPoints {
+	known := knownSizeDays(aggs)
+	if len(known) < minDataPoints {
 		return nil
 	}
 
-	points := sysToDataPoints(aggs, func(a DaySystemAgg) float64 {
+	points := sysToDataPoints(known, func(a DaySystemAgg) float64 {
 		return a.MaxDBSizeBytes
 	})
 	reg := LinearRegression(points)
@@ -28,7 +30,7 @@ func forecastDiskGrowth(
 		return nil
 	}
 
-	currentGB := aggs[len(aggs)-1].MaxDBSizeBytes / 1e9
+	currentGB := known[len(known)-1].MaxDBSizeBytes / 1e9
 	return []analyzer.Finding{{
 		Category:   "forecast_disk_growth",
 		Severity:   "warning",
@@ -58,18 +60,19 @@ func connectionsInUse(a DaySystemAgg) float64 {
 }
 
 // forecastConnectionSaturation projects when connections in use
-// will reach a dangerous fraction of max_connections.
+// will reach a dangerous fraction of max_connections. Days without
+// backend counts or max_connections are skipped (forecast-07).
 func forecastConnectionSaturation(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
-	if len(aggs) < minDataPoints {
+	known := knownConnectionDays(aggs)
+	if len(known) < minDataPoints {
 		return nil
 	}
 
-	points := sysToDataPoints(aggs, connectionsInUse)
-	reg := LinearRegression(points)
+	reg := LinearRegression(sysToDataPoints(known, connectionsInUse))
 
-	latest := aggs[len(aggs)-1]
+	latest := known[len(known)-1]
 	maxConns := latest.MaxConnections
 	if maxConns == 0 {
 		return nil
@@ -180,56 +183,6 @@ func cacheDecliningFinding(smoothed float64, reg RegressionResult) analyzer.Find
 	}
 }
 
-// forecastSequenceExhaustion projects when sequences will reach
-// 100% usage based on linear trend.
-func forecastSequenceExhaustion(
-	seqAggs []DaySeqAgg, cfg ForecasterConfig,
-) []analyzer.Finding {
-	grouped := groupSeqAggs(seqAggs)
-
-	var findings []analyzer.Finding
-	for name, aggs := range grouped {
-		if len(aggs) < minDataPoints {
-			continue
-		}
-
-		points := seqToDataPoints(aggs)
-		reg := LinearRegression(points)
-		current := aggs[len(aggs)-1].PctUsed
-		days := DaysUntilThreshold(current, reg.Slope, 100.0)
-
-		severity := seqSeverity(days, cfg)
-		if severity == "" {
-			continue
-		}
-
-		findings = append(findings, analyzer.Finding{
-			Category:         "forecast_sequence_exhaustion",
-			Severity:         severity,
-			ObjectType:       "sequence",
-			ObjectIdentifier: name,
-			Title: fmt.Sprintf(
-				"Sequence %s will exhaust in %.0f days",
-				name, days,
-			),
-			Detail: map[string]any{
-				"forecast_type": "sequence_exhaustion",
-				"current_pct":   current,
-				"slope_per_day": reg.Slope,
-				"days_until":    days,
-				"r_squared":     reg.R2,
-			},
-			Recommendation: fmt.Sprintf(
-				"Sequence %s is projected to exhaust. "+
-					"Consider ALTER SEQUENCE ... MAXVALUE "+
-					"or switching to bigint.",
-				name,
-			),
-		})
-	}
-	return findings
-}
-
 // forecastQueryVolume flags rapid week-over-week query growth.
 func forecastQueryVolume(
 	qAggs []DayQueryAgg, cfg ForecasterConfig,
@@ -272,48 +225,6 @@ func forecastQueryVolume(
 	}}
 }
 
-// forecastCheckpointPressure warns when the checkpoint rate is
-// trending upward.
-func forecastCheckpointPressure(
-	aggs []DaySystemAgg, cfg ForecasterConfig,
-) []analyzer.Finding {
-	if len(aggs) < minDataPoints+1 {
-		return nil
-	}
-
-	rates := make([]float64, 0, len(aggs)-1)
-	for i := 1; i < len(aggs); i++ {
-		delta := aggs[i].TotalCheckpoints -
-			aggs[i-1].TotalCheckpoints
-		if delta < 0 {
-			delta = 0 // stats reset
-		}
-		rates = append(rates, delta/24) // per hour
-	}
-
-	smoothed := EWMA(rates, 0.1)
-	if smoothed <= 12 {
-		return nil
-	}
-
-	return []analyzer.Finding{{
-		Category:   "forecast_checkpoint_pressure",
-		Severity:   "warning",
-		ObjectType: "database",
-		Title: fmt.Sprintf(
-			"Checkpoint rate trending to %.1f/hr", smoothed,
-		),
-		Detail: map[string]any{
-			"forecast_type": "checkpoint_pressure",
-			"ewma_rate_hr":  smoothed,
-			"daily_rates":   rates,
-		},
-		Recommendation: "Checkpoint rate is high. Consider " +
-			"increasing checkpoint_completion_target or " +
-			"max_wal_size to reduce checkpoint frequency.",
-	}}
-}
-
 // --- helpers ---
 
 // sysToDataPoints converts system aggregates to regression points
@@ -336,33 +247,6 @@ func sysToDataPoints(
 	return points
 }
 
-// seqToDataPoints converts sequence aggregates to regression points.
-func seqToDataPoints(aggs []DaySeqAgg) []DataPoint {
-	if len(aggs) == 0 {
-		return nil
-	}
-	origin := aggs[0].Day
-	points := make([]DataPoint, len(aggs))
-	for i, a := range aggs {
-		points[i] = DataPoint{
-			X: a.Day.Sub(origin).Hours() / 24,
-			Y: a.PctUsed,
-		}
-	}
-	return points
-}
-
-// groupSeqAggs groups sequence aggregates by sequence name.
-func groupSeqAggs(
-	aggs []DaySeqAgg,
-) map[string][]DaySeqAgg {
-	m := make(map[string][]DaySeqAgg)
-	for _, a := range aggs {
-		m[a.SeqName] = append(m[a.SeqName], a)
-	}
-	return m
-}
-
 // severityByDays returns severity based on projected days until
 // threshold. Empty string means no finding needed.
 func severityByDays(days float64) string {
@@ -375,19 +259,5 @@ func severityByDays(days float64) string {
 		return "critical"
 	default:
 		return "warning"
-	}
-}
-
-// seqSeverity determines severity for sequence exhaustion.
-func seqSeverity(days float64, cfg ForecasterConfig) string {
-	switch {
-	case math.IsInf(days, 1):
-		return ""
-	case days <= float64(cfg.SequenceCriticalDays):
-		return "critical"
-	case days <= float64(cfg.SequenceWarnDays):
-		return "warning"
-	default:
-		return ""
 	}
 }

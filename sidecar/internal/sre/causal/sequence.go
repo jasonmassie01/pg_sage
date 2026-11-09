@@ -92,7 +92,12 @@ func readSequence(obs []Observation, samples walEvidence,
 	e := seqEvidence{last: last, ev: samples.last.EvidenceID}
 	if first, ok := sequenceIn(samples.first, last.Sequence); ok && samples.n > 1 &&
 		probes.Known(first.LastValue) {
+		// Measured in the direction of travel: a descending sequence
+		// advances as its value falls.
 		e.delta, e.deltaKnown = last.LastValue-first.LastValue, true
+		if last.Descending() {
+			e.delta = -e.delta
+		}
 		e.span = samples.last.Result.ObservedAt.Sub(samples.first.Result.ObservedAt).Seconds()
 		e.consumeFact = Fact{EvidenceID: e.ev, Text: fmt.Sprintf("the sequence advanced "+
 			"from %s to %s in %s s", probes.FormatValue(first.LastValue),
@@ -127,7 +132,8 @@ func (e *seqEvidence) classify() {
 		e.nearFact = Fact{EvidenceID: e.ev, Text: fractionText(e.last)}
 	case e.trendOK && e.trend.SecondsToLimit() <= SequenceNearHorizon.Seconds():
 		e.near = true
-		e.nearFact = Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend)}
+		e.nearFact = Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend,
+			e.last.Descending())}
 	}
 }
 
@@ -162,6 +168,9 @@ func limitText(limit string, s probes.SequenceRunway) string {
 	case probes.LimitColumnType:
 		return fmt.Sprintf("the owning column %s's type %s", s.OwnerColumn, s.OwnerType)
 	case probes.LimitExplicitMax:
+		if s.Descending() {
+			return "the sequence's explicit MINVALUE"
+		}
 		return "the sequence's explicit MAXVALUE"
 	default:
 		return fmt.Sprintf("the sequence's type %s", s.DataType)
@@ -174,17 +183,25 @@ func fractionText(s probes.SequenceRunway) string {
 		limitText(s.BindingLimit(), s), probes.FormatValue(s.LastValue))
 }
 
-func seqTrendText(tr probes.RunwayTrend) string {
-	return fmt.Sprintf("at %s values per second (%d samples over %s s) %s reaches its "+
-		"limit %s in %s s", probes.FormatValue(tr.RatePerS), tr.Samples,
-		probes.FormatValue(tr.SpanS()), tr.Subject, probes.FormatValue(tr.Limit),
+// seqTrendText states the trend's projection; a descending sequence's
+// series is sampled negated (runway.sequenceSeries), so its limit is
+// negated back and its rate is a fall.
+func seqTrendText(tr probes.RunwayTrend, descending bool) string {
+	limit, verb := tr.Limit, ""
+	if descending {
+		limit, verb = -tr.Limit, "falling "
+	}
+	return fmt.Sprintf("%sat %s values per second (%d samples over %s s) %s reaches "+
+		"its limit %s in %s s", verb, probes.FormatValue(tr.RatePerS), tr.Samples,
+		probes.FormatValue(tr.SpanS()), tr.Subject, probes.FormatValue(limit),
 		probes.FormatValue(tr.SecondsToLimit()))
 }
 
 func (e seqEvidence) observed() []Fact {
 	out := []Fact{{EvidenceID: e.ev, Text: fractionText(e.last)}}
 	if s := e.trend.SecondsToLimit(); e.trendOK && !math.IsNaN(s) && !math.IsInf(s, 0) {
-		out = append(out, Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend)})
+		out = append(out, Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend,
+			e.last.Descending())})
 	}
 	return out
 }

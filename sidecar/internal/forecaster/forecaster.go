@@ -11,13 +11,14 @@ import (
 
 // ForecasterConfig holds thresholds for workload forecasting.
 type ForecasterConfig struct {
-	Enabled              bool
-	LookbackDays         int
-	DiskWarnGrowthGBDay  float64
-	ConnectionWarnPct    float64
-	CacheWarnThreshold   float64
-	SequenceWarnDays     int
-	SequenceCriticalDays int
+	Enabled             bool
+	LookbackDays        int
+	DiskWarnGrowthGBDay float64
+	ConnectionWarnPct   float64
+	CacheWarnThreshold  float64
+	// CheckpointRequestedPerHour is the requested-checkpoint rate at
+	// which the checkpoint forecast warns (forecast-03); 0 means 2.
+	CheckpointRequestedPerHour float64
 	// v0.9: storage growth forecasting fields.
 	MinDataPoints     int
 	AlertHorizons     []int
@@ -53,8 +54,7 @@ var (
 		"forecast_disk_growth", "forecast_connection_saturation",
 		"forecast_cache_pressure", "forecast_checkpoint_pressure",
 	}
-	queryForecastCategories    = []string{"forecast_query_volume"}
-	sequenceForecastCategories = []string{"forecast_sequence_exhaustion"}
+	queryForecastCategories = []string{"forecast_query_volume"}
 )
 
 // Forecast runs all forecast rules and returns findings. A data source
@@ -73,7 +73,7 @@ func (f *Forecaster) Forecast(
 		all = append(all, forecastConnectionSaturation(sysAggs, f.cfg)...)
 		all = append(all, forecastCachePressure(sysAggs, f.cfg)...)
 		all = append(all, forecastCheckpointPressure(sysAggs, f.cfg)...)
-		evaluated = append(evaluated, systemForecastCategories...)
+		evaluated = append(evaluated, evaluatedSystemCategories(sysAggs)...)
 	}
 	if qAggs, err := f.dailyQueryAggs(ctx); err != nil {
 		f.logFn("WARN", "forecaster: query aggs: %v", err)
@@ -81,17 +81,32 @@ func (f *Forecaster) Forecast(
 		all = append(all, forecastQueryVolume(qAggs, f.cfg)...)
 		evaluated = append(evaluated, queryForecastCategories...)
 	}
-	if seqAggs, err := f.dailySeqAggs(ctx); err != nil {
-		f.logFn("WARN", "forecaster: seq aggs: %v", err)
-	} else {
-		all = append(all, forecastSequenceExhaustion(seqAggs, f.cfg)...)
-		evaluated = append(evaluated, sequenceForecastCategories...)
-	}
 
 	f.mu.Lock()
 	f.lastEvaluated = evaluated
 	f.mu.Unlock()
 	return all, nil
+}
+
+// evaluatedSystemCategories lists the system categories a read of aggs
+// evaluates. With minDataPoints days of history but fewer days of
+// measured size, the disk trend is unknown rather than flat, so an open
+// disk finding must not be resolved on missing data (forecast-07). The
+// checkpoint rate needs minDataPoints usable intervals of the split
+// counters (forecast-03); legacy rows carry none.
+func evaluatedSystemCategories(aggs []DaySystemAgg) []string {
+	diskUnknown := len(aggs) >= minDataPoints &&
+		len(knownSizeDays(aggs)) < minDataPoints
+	checkpointUnknown := !checkpointEvaluable(aggs)
+	cats := make([]string, 0, len(systemForecastCategories))
+	for _, c := range systemForecastCategories {
+		if diskUnknown && c == "forecast_disk_growth" ||
+			checkpointUnknown && c == "forecast_checkpoint_pressure" {
+			continue
+		}
+		cats = append(cats, c)
+	}
+	return cats
 }
 
 // LastEvaluatedCategories reports the forecast categories whose data

@@ -1045,6 +1045,12 @@
     "doc": "",
     "class": "derivable"
   },
+  "forecaster.checkpoint_requested_per_hour": {
+    "type": "float64",
+    "default": 2,
+    "doc": "Requested (WAL-triggered or explicit) checkpoints per hour, as an EWMA over closed days, at which forecast_checkpoint_pressure warns. Timed checkpoints are not counted. 0 \u003c value \u003c= 3600. Default: 2.",
+    "class": "derivable"
+  },
   "forecaster.connection_warn_pct": {
     "type": "float64",
     "default": 80,
@@ -1085,18 +1091,6 @@
     "type": "float64",
     "default": 0.5,
     "doc": "Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5.",
-    "class": "derivable"
-  },
-  "forecaster.sequence_critical_days": {
-    "type": "int",
-    "default": 30,
-    "doc": "",
-    "class": "derivable"
-  },
-  "forecaster.sequence_warn_days": {
-    "type": "int",
-    "default": 90,
-    "doc": "",
     "class": "derivable"
   },
   "history.store": {
