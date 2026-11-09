@@ -82,10 +82,17 @@ func hasControl(value string) bool {
 func normalizeScopes(scopes []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, s := range scopes {
-		if _, ok := scopeOrder[s]; !ok {
-			return nil, invalid("unknown scope %q (want read, propose, approve)", s)
+		if _, ok := scopeOrder[s]; !ok && s != ScopeMetrics {
+			return nil, invalid("unknown scope %q (want read, propose, approve, or metrics "+
+				"alone)", s)
 		}
 		seen[s] = true
+	}
+	if seen[ScopeMetrics] {
+		if len(seen) != 1 {
+			return nil, invalid("the metrics scope must be the token's only scope")
+		}
+		return []string{ScopeMetrics}, nil
 	}
 	if !seen[ScopeRead] {
 		return nil, invalid("scopes must include read")
@@ -101,6 +108,8 @@ func normalizeScopes(scopes []string) ([]string, error) {
 func checkOwner(req CreateRequest, scopes []string) error {
 	approve := scopes[len(scopes)-1] == ScopeApprove
 	switch {
+	case req.Kind == KindAgent && scopes[0] == ScopeMetrics:
+		return invalid("the metrics scope is only for operator tokens")
 	case req.Kind == KindAgent && approve:
 		return ErrApproveForAgent
 	case req.Kind == KindOperator && req.OwnerUserID <= 0:

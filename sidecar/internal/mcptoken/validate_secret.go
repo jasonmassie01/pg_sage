@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -14,8 +15,34 @@ import (
 // narrowed to the owner's current role. last_used_at is recorded at most
 // once a minute per token. An agent token authenticates only while it is
 // bound to a principal that is not retired; a legacy agent token without
-// one fails closed until the G1 migration binds it.
+// one fails closed until the G1 migration binds it. A metrics token is a
+// scrape credential, never an MCP one: Validate refuses it.
 func (s *Store) Validate(ctx context.Context, secret string) (Grant, error) {
+	g, err := s.validate(ctx, secret)
+	if err != nil {
+		return Grant{}, err
+	}
+	if slices.Contains(g.Scopes, ScopeMetrics) {
+		return Grant{}, ErrUnauthorized
+	}
+	return g, nil
+}
+
+// ValidateMetrics authenticates a scrape of /metrics: secret must be a
+// valid token holding the metrics scope (ErrUnauthorized otherwise, or
+// ErrScopeMissing for a valid token without it).
+func (s *Store) ValidateMetrics(ctx context.Context, secret string) (Grant, error) {
+	g, err := s.validate(ctx, secret)
+	if err != nil {
+		return Grant{}, err
+	}
+	if !slices.Contains(g.Scopes, ScopeMetrics) {
+		return Grant{}, ErrScopeMissing
+	}
+	return g, nil
+}
+
+func (s *Store) validate(ctx context.Context, secret string) (Grant, error) {
 	if !wellFormedSecret(secret) {
 		return Grant{}, ErrUnauthorized
 	}

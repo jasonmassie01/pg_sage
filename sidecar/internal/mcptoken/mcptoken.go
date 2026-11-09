@@ -42,11 +42,14 @@ const (
 	KindOperator Kind = "operator"
 )
 
-// Scopes, in canonical order.
+// Scopes, in canonical order. ScopeMetrics authorizes a Prometheus scrape
+// of /metrics on the API listener and grants no MCP tool: it is a token's
+// only scope, on an operator token (observability-08).
 const (
 	ScopeRead    = "read"
 	ScopePropose = "propose"
 	ScopeApprove = "approve"
+	ScopeMetrics = "metrics"
 )
 
 var (
@@ -60,6 +63,9 @@ var (
 		"mcptoken: an agent token is issued for an agent principal")
 	ErrNotFound     = errors.New("mcptoken: token not found")
 	ErrUnauthorized = errors.New("mcptoken: token invalid, expired or revoked")
+	// ErrScopeMissing: the token is valid but lacks the scope the caller
+	// needs (ValidateMetrics with a read token, say).
+	ErrScopeMissing = errors.New("mcptoken: token lacks the required scope")
 )
 
 // CreateRequest describes a token to issue.
@@ -154,7 +160,8 @@ func isBase64URL(c rune) bool {
 func roleScopes(role string) map[string]bool {
 	switch role {
 	case "admin", "operator":
-		return map[string]bool{ScopeRead: true, ScopePropose: true, ScopeApprove: true}
+		return map[string]bool{ScopeRead: true, ScopePropose: true, ScopeApprove: true,
+			ScopeMetrics: true}
 	case "viewer":
 		return map[string]bool{ScopeRead: true}
 	default:
