@@ -380,7 +380,7 @@ briefing:
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
 | `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
 | `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
-| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. `0`-`3600000` |
+| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. That inherited budget is per cycle of each database's own collector: `analyzer.self_cost_budget_ms` x 3600 / its period in seconds (in fleet mode a database whose collector runs every 120 s inherits half the hourly budget of one at 60 s). `/metrics` exports it per database as `pg_sage_self_budget_database{database,resource="db_time"}` and compares `pg_sage_self_budget_exceeded{database,resource="db_time"}` with it; `pg_sage_self_budget{resource="db_time"}` stays the value at the configured `collector.interval_seconds`. An explicit value applies to every database as-is. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
 | `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
@@ -389,6 +389,42 @@ briefing:
 | `rca.vacuum_min_table_mb` | `8` | Smallest heap (MB, from `pg_class.relpages`) a table needs before its dead-tuple ratio counts toward the `vacuum_blocked` incident. `1`-`1048576` |
 | `rca.xmin_holder_min_minutes` | `5` | Minutes a session's transaction must be open before the `vacuum_blocked` incident names it as the holder of the oldest xmin. Younger sessions are never named, so a briefly idle session opens no incident. A holder idle in transaction for at least `analyzer.lock_chain.idle_in_tx_terminate_minutes` gets `pg_terminate_backend` proposed for approval; an active one gets a diagnostic. `1`-`1440` |
 | `rca.prepared_xact_min_age_minutes` | `30` | Minutes a prepared transaction of this database must be old before it opens the `orphaned_prepared_tx` incident or is named as the `vacuum_blocked` holder (with `ROLLBACK PREPARED` of its quoted GID proposed for approval). Other databases' prepared transactions are never blamed. `1`-`10080` |
+
+**How pg_sage measures its own cost.** Once per analyzer cycle pg_sage reads the sage
+tables' sizes and statistics in one bounded, read-only statement (`safety.query_timeout_ms`,
+`safety.lock_timeout_ms`; a sage table locked by a migration fails the reading instead of
+stalling the cycle). The same reading feeds `sage_footprint`, `sage_self_cost` and the
+`self_budget.storage_mb` check. Its statements' counters come from `pg_stat_statements(false)`,
+without the query texts: the texts are read only when entries pg_sage has not classified yet
+appear, when an entry is re-created, or after `pg_stat_statements_reset()` (each database keeps a
+cache of up to 2,000 classified entries). pg_stat_statements 1.8 (no `toplevel` column) is
+measured without the top-level split. Older versions, which some managed providers keep after a
+major upgrade, report the statement figures (`pg_sage_self_db_time_ms_per_cycle`,
+`pg_sage_self_statements_per_cycle`, `pg_sage_self_blocks_per_cycle`) as unknown while the sage
+schema counters are still measured, and pg_sage logs once per database: run
+`ALTER EXTENSION pg_stat_statements UPDATE` in that database.
+
+The per-cycle figures (`pg_sage_self_*_per_cycle`, `pg_sage_self_cpu_ms_per_cycle`, the
+`sage_self_cost` budget and `self_budget.cpu_ms_per_cycle`) are per cycle of that database's
+collector at the period it actually runs: in fleet mode a database's collector can run at its
+own, self-configured `collector.interval_seconds`, and the finding's `cycle_seconds` names that
+period. Until a database's collector has started there is no cycle to normalize to: the
+per-cycle and per-hour figures stay unknown (an open finding stays open) and only the `sage`
+schema's size is measured. In standalone mode the period is the configured interval, so nothing
+changes there.
+
+**Which statements and findings are pg_sage's own.** A statement is pg_sage's when it carries
+the `/* pg_sage */` tag or reads the `sage` schema; nothing else. Reading a statistics view is
+not pg_sage's signature: a Datadog, pganalyze or pgwatch agent's `SELECT ... FROM
+pg_stat_statements` or `pg_stat_activity` is another client's workload, so advice (slow-query
+and top-query findings, the tuner, plan capture) may name it, and it never counts toward
+pg_sage's own cost or budgets. The Go classifier and the SQL predicates apply the same rule.
+Findings about pg_sage's objects (an identifier in the `sage.` schema, or the bare name `sage`
+for a schema) are left out of advice and the finding views. The findings about pg_sage's cost
+on a database (`sage_self_cost`, `sage_self_budget`, `sage_footprint`) are always kept and name
+pg_sage, so a monitored or meta database named `sage` gets them too. On upgrade, a one-time
+migration resolves open findings captured before pg_sage tagged its statements (an untagged
+statistics-view read), with the reason `pre-tagging pg_sage statement` in their detail.
 
 ### Derived settings (self-configuration)
 
@@ -414,6 +450,21 @@ most 10x, because a deadline shorter than the scan fails every cycle). A new val
 recorded in shadow first; it is promoted only after the soak and only when the comparison
 is not worse, otherwise it stays in shadow with the reason. Restart-bound keys take a
 promoted value at the next start and show it as pending restart.
+
+Noisy evidence does not restart the soak. Each pass derives a candidate, rounded up to the
+rule's step; a candidate within one step of the shadow, on the same side of the value in
+force, keeps the soak and its samples, and only a move of two or more steps (or to the
+other side) starts a new one. Every key starts at its default, so a candidate back at the
+default keeps a one-step shadow's soak too; the soak drops that shadow when the 90th
+percentile of its derivations is the default again. A derived value in force is not
+re-derived for a one-step move. The cost-sized keys (collector interval, catalog read timeout, sequence sampling)
+promote the 90th percentile of the soak's derivations, so one cheap pass does not set the
+cadence. The temp-file threshold's soak samples the reactive detector's busiest window
+since the previous pass, so real bursts are judged instead of an hourly average. A hold is
+recorded once per outcome; the latest reason shows on the key. When other keys narrow a
+rule's bounds (for example a larger `sre.runways.min_samples`), the derived value is
+clamped into them on the next pass (a `clamped` ledger row), and dropped when no value
+fits; a new rule version drops the old version's value and soaks its own.
 
 A key you set in the YAML file, in a fleet `defaults`/`databases[]` field or as an API
 override is never derived and shows as `operator`. The Configuration page's **Derived

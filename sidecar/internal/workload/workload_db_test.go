@@ -119,3 +119,29 @@ func TestAdviceSQLOnRealPgStatStatements(t *testing.T) {
 			seen)
 	}
 }
+
+// footprint-06 parity: one corpus (the shared classify cases plus the
+// third-party monitor statements) is classified identically by the Go
+// classifier and the SQL predicate on real PostgreSQL. Before the fix a
+// Datadog or pgwatch catalog read was Self in Go and workload in SQL.
+func TestClassifyAdviceSQLParity_MonitorCorpus(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	corpus := append(append([]classifyCase{}, classifyCases...), monitorCases...)
+	for _, tc := range corpus {
+		var advisable bool
+		err := pool.QueryRow(ctx, `SELECT `+AdviceSQL("q")+
+			` FROM (SELECT $1::text AS q) s`, tc.query).Scan(&advisable)
+		if err != nil {
+			t.Fatalf("%s: evaluate AdviceSQL: %v", tc.name, err)
+		}
+		if advisable != !Excluded(tc.query) {
+			t.Errorf("%s: AdviceSQL advisable = %v, Go Classify = %q", tc.name, advisable,
+				Classify(tc.query))
+		}
+		if advisable != (tc.want == Workload) {
+			t.Errorf("%s: AdviceSQL advisable = %v, want class %q", tc.name, advisable,
+				tc.want)
+		}
+	}
+}

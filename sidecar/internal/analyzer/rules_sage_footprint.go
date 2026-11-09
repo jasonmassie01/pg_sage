@@ -31,13 +31,6 @@ type sageFootprint struct {
 	tables   []sageTableSize // largest first
 }
 
-const sageFootprintSQL = `/* pg_sage */
-SELECT current_database(), n.nspname || '.' || c.relname, pg_total_relation_size(c.oid)
-  FROM pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace
- WHERE n.nspname = 'sage' AND c.relkind IN ('r', 'm')
- ORDER BY 3 DESC, 2`
-
 // checkSageFootprint measures the sage schema against the database size
 // collected this cycle. A disabled guard (0) evaluates without a query so
 // an open finding resolves; an unknown database size or a failed query
@@ -59,7 +52,7 @@ func (a *Analyzer) checkSageFootprint(
 	fp, err := a.measureSageFootprint(ctx)
 	if err != nil {
 		a.evalFail(categorySageFootprint)
-		a.logFn("WARN", "analyzer: measure sage schema size: %v", err)
+		a.logFn("WARN", "analyzer: measure the sage schema's size: %v", err)
 		return nil
 	}
 	a.eval.evaluated(categorySageFootprint)
@@ -67,22 +60,17 @@ func (a *Analyzer) checkSageFootprint(
 		histstore.Resolve(a.pool).Mode())
 }
 
+// measureSageFootprint is the sage schema's size from the cycle's reading.
 func (a *Analyzer) measureSageFootprint(ctx context.Context) (sageFootprint, error) {
-	var fp sageFootprint
-	rows, err := a.catalog().Query(ctx, sageFootprintSQL)
+	sc, err := a.sageSchemaReading(ctx)
 	if err != nil {
-		return fp, err
+		return sageFootprint{}, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var t sageTableSize
-		if err := rows.Scan(&fp.database, &t.name, &t.bytes); err != nil {
-			return fp, fmt.Errorf("scan sage table size: %w", err)
-		}
-		fp.total += t.bytes
-		fp.tables = append(fp.tables, t)
+	fp := sageFootprint{database: sc.Database, total: sc.Bytes}
+	for _, t := range sc.Tables {
+		fp.tables = append(fp.tables, sageTableSize{name: t.Name, bytes: t.Bytes})
 	}
-	return fp, rows.Err()
+	return fp, nil
 }
 
 // ruleSageFootprint raises a warning when the sage schema is more than
@@ -111,7 +99,7 @@ func ruleSageFootprint(fp sageFootprint, dbBytes int64, limitPct int) []Finding 
 		Severity:         "warning",
 		ObjectType:       "database",
 		ObjectIdentifier: fp.database,
-		Title: fmt.Sprintf("Sage data uses %.1f%% of database %s (limit %d%%)",
+		Title: fmt.Sprintf("pg_sage data uses %.1f%% of database %s (limit %d%%)",
 			share, fp.database, limitPct),
 		Detail: map[string]any{
 			"sage_bytes":     fp.total,

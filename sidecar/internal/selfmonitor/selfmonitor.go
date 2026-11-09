@@ -3,6 +3,7 @@ package selfmonitor
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -15,16 +16,17 @@ const QueryTextSQLRegex = `(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.`
 
 var sageSchemaRef = regexp.MustCompile(`(?i)(^|[^a-z0-9_])("?sage"?)[[:space:]]*\.`)
 
-// collectorCatalogRef matches pg_sage's own monitoring reads of the
-// statistics catalogs. Historical findings captured before queries were
-// tagged with /* pg_sage */ carry no marker and never reference the sage
-// schema, so this signature is needed to recognize them as self-queries.
-var collectorCatalogRef = regexp.MustCompile(
-	`(?is)\bfrom[[:space:]]+(pg_stat_statements|pg_stat_user_tables|` +
-		`pg_stat_user_indexes|pg_stat_activity|pg_stat_database|` +
-		`pg_stat_replication|pg_stat_bgwriter|pg_stat_checkpointer)\b`)
+// SelfFindingCategories are the findings about pg_sage's own cost on a
+// database (its database time, budgets and storage footprint). They are
+// pg_sage's subject on purpose, keyed by the database name, and may name
+// pg_sage, so the self-monitoring filters never drop them.
+var SelfFindingCategories = []string{"sage_self_cost", "sage_self_budget", "sage_footprint"}
 
+// FindingFields are the parts of a finding that tell whether it is about
+// pg_sage itself.
 type FindingFields struct {
+	Category         string
+	ObjectType       string
 	ObjectIdentifier string
 	Title            string
 	Detail           map[string]any
@@ -32,29 +34,41 @@ type FindingFields struct {
 	RollbackSQL      string
 }
 
+// IsQueryText reports a statement that is pg_sage's own: it carries the
+// pg_sage tag or reads the sage schema. Reading a statistics view is not
+// pg_sage's signature (a Datadog, pganalyze or pgwatch agent reads the
+// same views), so an untagged catalog read is another client's.
 func IsQueryText(query string) bool {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return false
 	}
 	lower := strings.ToLower(query)
-	return strings.Contains(lower, ApplicationName) ||
-		sageSchemaRef.MatchString(query) ||
-		collectorCatalogRef.MatchString(query)
+	return strings.Contains(lower, ApplicationName) || sageSchemaRef.MatchString(query)
 }
 
-func IsObjectIdentifier(identifier string) bool {
+// IsObjectIdentifier reports an object in the sage schema: a
+// schema-qualified sage. name of any type, or the bare name sage when the
+// object is a schema (a database or a user table may be named sage).
+func IsObjectIdentifier(objectType, identifier string) bool {
 	identifier = strings.TrimSpace(strings.ToLower(identifier))
 	if identifier == "" {
 		return false
 	}
-	return identifier == SchemaName ||
-		strings.HasPrefix(identifier, SchemaName+".") ||
+	if identifier == SchemaName {
+		return strings.EqualFold(strings.TrimSpace(objectType), "schema")
+	}
+	return strings.HasPrefix(identifier, SchemaName+".") ||
 		strings.HasPrefix(identifier, `"`+SchemaName+`".`)
 }
 
+// IsFinding reports a finding about pg_sage itself, which advice and the
+// finding views leave out. The self categories are kept whatever they name.
 func IsFinding(f FindingFields) bool {
-	if IsObjectIdentifier(f.ObjectIdentifier) {
+	if slices.Contains(SelfFindingCategories, f.Category) {
+		return false
+	}
+	if IsObjectIdentifier(f.ObjectType, f.ObjectIdentifier) {
 		return true
 	}
 	if strings.Contains(strings.ToLower(f.Title), ApplicationName) {
@@ -66,10 +80,20 @@ func IsFinding(f FindingFields) bool {
 	return detailHasSelfQuery(f.Detail)
 }
 
+// sqlSpaceChars are the ASCII characters strings.TrimSpace removes, as a
+// btrim set, so the SQL trims identifiers as IsObjectIdentifier does.
+const sqlSpaceChars = `E' \t\n\r\f\v'`
+
+// FindingsSQLExclusionClause is IsFinding as a WHERE fragment over
+// sage.findings (AND-ed onto a clause): the rows to show.
 func FindingsSQLExclusionClause() string {
-	return ` AND NOT (` +
-		`lower(coalesce(object_identifier, '')) = 'sage' OR ` +
-		`lower(coalesce(object_identifier, '')) LIKE 'sage.%' OR ` +
+	ident := `lower(btrim(coalesce(object_identifier, ''), ` + sqlSpaceChars + `))`
+	return ` AND (category IN ('` + strings.Join(SelfFindingCategories, `', '`) +
+		`') OR NOT (` +
+		`(` + ident + ` = 'sage' AND ` +
+		`lower(btrim(coalesce(object_type, ''), ` + sqlSpaceChars + `)) = 'schema') OR ` +
+		ident + ` LIKE 'sage.%' OR ` +
+		ident + ` LIKE '"sage".%' OR ` +
 		`coalesce(title, '') ILIKE '%pg_sage%' OR ` +
 		sqlTextExpr("recommended_sql") + ` OR ` +
 		sqlTextExpr("rollback_sql") + ` OR ` +
@@ -79,7 +103,7 @@ func FindingsSQLExclusionClause() string {
 		sqlJSONTextExpr("sample_query") + ` OR ` +
 		sqlJSONTextExpr("sql") + ` OR ` +
 		sqlJSONTextExpr("statement") +
-		`)`
+		`))`
 }
 
 func sqlTextExpr(column string) string {

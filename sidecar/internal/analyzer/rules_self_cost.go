@@ -15,11 +15,15 @@ import (
 const categorySelfCost = "sage_self_cost"
 
 // checkSelfCost measures pg_sage's own cost once per analyzer cycle,
-// normalized to one collector cycle, keeps it for /metrics, and raises a
-// finding above the budget. The first cycle after a start has no window
-// and a failed reading proves nothing: both leave the category unknown,
-// so an open finding stays open. A disabled budget (0) still measures and
-// resolves the finding. The same reading feeds the declared self-budget
+// normalized to one cycle of this database's collector (collectorPeriod),
+// keeps it for /metrics, and raises a finding above the budget. Every
+// read is bounded (the catalog reader) and the sage schema's reading is
+// the cycle's one (sageSchemaReading). The first cycle after a start has
+// no window, an unknown collector period has no cycle and a failed
+// reading proves nothing: each leaves the category unknown, so an open
+// finding stays open; failed statements alone leave the schema counters
+// measured. A disabled budget (0) still measures and resolves the
+// finding. The same reading feeds the declared self-budget
 // (checkSelfBudget).
 func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 	if a.pool == nil {
@@ -27,14 +31,19 @@ func (a *Analyzer) checkSelfCost(ctx context.Context) []Finding {
 		a.evalFail(categorySelfBudget)
 		return nil
 	}
-	reading, err := selfcost.Read(ctx, a.pool)
+	sc, err := a.sageSchemaReading(ctx)
 	if err != nil {
 		a.evalFail(categorySelfCost)
 		a.evalFail(categorySelfBudget)
 		a.logFn("WARN", "analyzer: measure pg_sage's own cost: %v", err)
 		return nil
 	}
-	cost := a.selfCost.Observe(reading, a.collectorInterval())
+	reading := a.selfStatements.Sample(ctx, a.catalog(), sc)
+	if reading.StatementsErr != nil {
+		a.logFn("WARN", "analyzer: measure pg_sage's own statements: %v",
+			reading.StatementsErr)
+	}
+	cost := a.selfCost.Observe(reading, a.collectorPeriod())
 	return append(a.checkSelfCostBudget(cost), a.checkSelfBudget(ctx, cost)...)
 }
 
@@ -58,19 +67,21 @@ func (a *Analyzer) SelfCost() selfcost.Cost {
 	return a.selfCost.Last()
 }
 
-// collectorInterval is the cycle the cost is normalized to.
-func (a *Analyzer) collectorInterval() time.Duration {
-	secs := a.cfg.Collector.IntervalSeconds
-	if secs <= 0 {
-		secs = 60
+// collectorPeriod is the cycle the cost is normalized to: the period this
+// database's collector runs at (in fleet mode its own, possibly derived,
+// interval, not the global collector.interval_seconds). It is 0 (unknown)
+// without a collector or before it starts; the cost is then unknown.
+func (a *Analyzer) collectorPeriod() time.Duration {
+	if a.collector == nil {
+		return 0
 	}
-	return time.Duration(secs) * time.Second
+	return a.collector.Interval()
 }
 
 // ruleSelfCost raises a warning when the known DB time per collector
-// cycle exceeds budgetMs. The finding is about the database's bill, not a
-// sage object, so it names neither pg_sage nor a sage table (the
-// self-monitoring filter would drop it).
+// cycle exceeds budgetMs. The finding is about pg_sage's bill on the
+// database, keyed by the database name; the self-monitoring filter exempts
+// its category, so it may name pg_sage (and a database named sage).
 func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
 	if !selfcost.OverBudget(c, budgetMs) {
 		return nil
@@ -80,7 +91,7 @@ func ruleSelfCost(c selfcost.Cost, budgetMs int) []Finding {
 		Severity:         "warning",
 		ObjectType:       "database",
 		ObjectIdentifier: c.Database,
-		Title: fmt.Sprintf("Sage monitoring used %.0f ms of database time per collector "+
+		Title: fmt.Sprintf("pg_sage monitoring used %.0f ms of database time per collector "+
 			"cycle on %s (budget %d ms)", c.DBTimeMsPerCycle, c.Database, budgetMs),
 		Detail: map[string]any{
 			"db_time_ms_per_cycle":   c.DBTimeMsPerCycle,

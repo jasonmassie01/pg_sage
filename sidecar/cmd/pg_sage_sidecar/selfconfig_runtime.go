@@ -33,14 +33,17 @@ type selfConfigRunner struct {
 	operator    func() *config.Config
 	engine      *selfconfig.Engine
 	gather      func(context.Context) (selfconfig.Evidence, error)
-	prev        selfconfig.Evidence
-	logInfo     func(component, msg string, args ...any)
-	logWarn     func(component, msg string, args ...any)
+	// tempPeak takes the reactive detector's largest temp-file window
+	// since the previous pass (nil: no detector).
+	tempPeak func() (float64, bool)
+	prev     selfconfig.Evidence
+	logInfo  func(component, msg string, args ...any)
+	logWarn  func(component, msg string, args ...any)
 }
 
 func (rt *databaseRuntime) newSelfConfigRunner() *selfConfigRunner {
 	pool := rt.spec.Pool
-	return &selfConfigRunner{
+	r := &selfConfigRunner{
 		name: rt.spec.Name, databaseID: rt.spec.DatabaseID, pool: pool,
 		controlPool: configControlPool(), configPath: rt.cfg.ConfigPath, cfg: rt.cfg,
 		operator: desiredOperatorConfig,
@@ -50,6 +53,10 @@ func (rt *databaseRuntime) newSelfConfigRunner() *selfConfigRunner {
 		},
 		logInfo: logInfo, logWarn: logWarn,
 	}
+	if rt.tempDetector != nil {
+		r.tempPeak = rt.tempDetector.TakeTempPeak
+	}
+	return r
 }
 
 // desiredOperatorConfig is the configuration as the operator declared it
@@ -133,12 +140,11 @@ func (s *selfConfigRunner) pass(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("read which keys the operator set: %w", err)
 	}
-	ev, gerr := s.gather(ctx)
+	ev, gerr := s.evidence(ctx)
 	if gerr != nil {
 		s.logWarn("selfconfig", "db %q: some evidence could not be read: %v", s.name, gerr)
 	}
-	in := selfconfig.Input{Cfg: s.cfg, OperatorSet: set, Phase: phase,
-		Evidence: ev.WithTempRateSince(s.prev)}
+	in := selfconfig.Input{Cfg: s.cfg, OperatorSet: set, Phase: phase, Evidence: ev}
 	if s.operator != nil {
 		in.Operator = s.operator()
 	}
@@ -150,6 +156,14 @@ func (s *selfConfigRunner) pass(ctx context.Context,
 		s.prev = ev
 	}
 	return results, nil
+}
+
+// evidence is this pass's evidence: what was gathered (with the read
+// errors), the temp-file rate since the previous pass and the detector's
+// peak window since then.
+func (s *selfConfigRunner) evidence(ctx context.Context) (selfconfig.Evidence, error) {
+	ev, err := s.gather(ctx)
+	return ev.WithTempRateSince(s.prev).WithTempPeak(s.tempPeak), err
 }
 
 // operatorSet is every key the operator set for this database.

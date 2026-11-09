@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
@@ -21,23 +23,38 @@ func writeSelfBudgetFromFleet(b *strings.Builder, mgr *fleet.DatabaseManager) {
 			usages[name] = inst.Analyzer.SelfBudgetUsage()
 		}
 	}
-	dbPerHour, _ := cfg.EffectiveSelfDBTimeMsPerHour()
-	budget := selfbudget.Budget{CPUMsPerCycle: float64(cfg.SelfBudget.CPUMsPerCycle),
-		DBTimeMsPerHour: dbPerHour, BlocksPerHour: float64(cfg.SelfBudget.BlocksPerHour),
-		StorageBytes: int64(cfg.SelfBudget.StorageMB) << 20}
-	writeSelfBudgetMetrics(b, usages, budget, selfbudget.Process().Snapshot())
+	budget, inheritedMs := selfBudgetFromConfig(cfg)
+	writeSelfBudgetMetrics(b, usages, budget, inheritedMs, selfbudget.Process().Snapshot())
+}
+
+// selfBudgetFromConfig is the declared budget at the configured collector
+// interval and, when self_budget does not set database time, the per-cycle
+// analyzer.self_cost_budget_ms each database inherits (0 otherwise): a
+// database then has that budget at its own collector's period.
+func selfBudgetFromConfig(c *config.Config) (selfbudget.Budget, int) {
+	dbPerHour, explicit := c.EffectiveSelfDBTimeMsPerHour()
+	budget := selfbudget.Budget{CPUMsPerCycle: float64(c.SelfBudget.CPUMsPerCycle),
+		DBTimeMsPerHour: dbPerHour, BlocksPerHour: float64(c.SelfBudget.BlocksPerHour),
+		StorageBytes: int64(c.SelfBudget.StorageMB) << 20}
+	inheritedMs := 0
+	if !explicit && c.Analyzer.SelfCostBudgetMs > 0 {
+		inheritedMs = c.Analyzer.SelfCostBudgetMs
+	}
+	return budget, inheritedMs
 }
 
 // writeSelfBudgetMetrics writes the usage (known values only), the
 // budgets of enabled resources, an exceeded flag per database and known
-// resource, and each loop's busy time and runs.
+// resource, and each loop's busy time and runs. inheritedMs (0: none) is
+// the per-cycle database-time budget each database inherits at its own
+// collector period.
 func writeSelfBudgetMetrics(b *strings.Builder, usages map[string]selfbudget.Usage,
-	budget selfbudget.Budget, loops map[string]selfbudget.LoopStat) {
+	budget selfbudget.Budget, inheritedMs int, loops map[string]selfbudget.LoopStat) {
 	dbs := sortedKeys(usages)
 	var body strings.Builder
 	writeSelfCPU(&body, dbs, usages)
 	writeSelfDBRates(&body, dbs, usages)
-	writeSelfBudgets(&body, dbs, usages, budget)
+	writeSelfBudgets(&body, dbs, usages, budget, inheritedMs)
 	writeSelfLoops(&body, loops)
 	if body.Len() == 0 {
 		return
@@ -115,34 +132,70 @@ func selfResources(budget selfbudget.Budget) []selfResource {
 	}
 }
 
+// dbLimit is the resource's limit on one database and whether it is
+// inherited: database time inherited from analyzer.self_cost_budget_ms
+// follows that database's collector period (0 while it is unknown).
+func (r selfResource) dbLimit(u selfbudget.Usage, inheritedMs int) (float64, bool) {
+	if r.name != selfbudget.ResourceDBTime || inheritedMs <= 0 {
+		return r.limit, false
+	}
+	period := time.Duration(u.CycleSeconds * float64(time.Second))
+	return config.InheritedDBTimeMsPerHour(inheritedMs, period), true
+}
+
+// selfBudgetSeries collects the budget series of every resource.
+type selfBudgetSeries struct {
+	limits, perDB, exceeded strings.Builder
+}
+
+// addDatabases writes r's inherited budget and exceeded flag per database.
+func (s *selfBudgetSeries) addDatabases(r selfResource, dbs []string,
+	usages map[string]selfbudget.Usage, inheritedMs int) {
+	for _, db := range dbs {
+		u := usages[db]
+		limit, inherited := r.dbLimit(u, inheritedMs)
+		if limit <= 0 {
+			continue // period unknown: no inherited budget to compare with
+		}
+		if inherited {
+			fmt.Fprintf(&s.perDB, "pg_sage_self_budget_database{database=%q,"+
+				"resource=%q} %s\n", db, r.name, formatGauge(limit))
+		}
+		if used, ok := r.used(u); ok {
+			flag := 0
+			if used > limit {
+				flag = 1
+			}
+			fmt.Fprintf(&s.exceeded, "pg_sage_self_budget_exceeded{database=%q,"+
+				"resource=%q} %d\n", db, r.name, flag)
+		}
+	}
+}
+
 func writeSelfBudgets(b *strings.Builder, dbs []string, usages map[string]selfbudget.Usage,
-	budget selfbudget.Budget) {
-	var limits, exceeded strings.Builder
+	budget selfbudget.Budget, inheritedMs int) {
+	var s selfBudgetSeries
 	for _, r := range selfResources(budget) {
 		if r.limit <= 0 {
 			continue
 		}
-		fmt.Fprintf(&limits, "pg_sage_self_budget{resource=%q} %s\n", r.name,
+		fmt.Fprintf(&s.limits, "pg_sage_self_budget{resource=%q} %s\n", r.name,
 			formatGauge(r.limit))
-		for _, db := range dbs {
-			if used, ok := r.used(usages[db]); ok {
-				flag := 0
-				if used > r.limit {
-					flag = 1
-				}
-				fmt.Fprintf(&exceeded, "pg_sage_self_budget_exceeded{database=%q,"+
-					"resource=%q} %d\n", db, r.name, flag)
-			}
-		}
+		s.addDatabases(r, dbs, usages, inheritedMs)
 	}
-	if exceeded.Len() == 0 {
+	if s.exceeded.Len() == 0 {
 		return // nothing measured: no budget series without usage
 	}
 	b.WriteString("# HELP pg_sage_self_budget pg_sage's declared budget for itself " +
-		"(self_budget)\n# TYPE pg_sage_self_budget gauge\n" + limits.String())
+		"(self_budget)\n# TYPE pg_sage_self_budget gauge\n" + s.limits.String())
+	if s.perDB.Len() > 0 {
+		b.WriteString("# HELP pg_sage_self_budget_database Budget a database inherits " +
+			"from analyzer.self_cost_budget_ms at its own collector period\n" +
+			"# TYPE pg_sage_self_budget_database gauge\n" + s.perDB.String())
+	}
 	b.WriteString("# HELP pg_sage_self_budget_exceeded 1 when pg_sage used more than its " +
 		"budget of the resource\n# TYPE pg_sage_self_budget_exceeded gauge\n" +
-		exceeded.String())
+		s.exceeded.String())
 }
 
 func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {

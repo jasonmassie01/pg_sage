@@ -107,7 +107,7 @@ func TestPromotionWaitsForTheWholeSoak(t *testing.T) {
 	}
 }
 
-func TestWorseComparisonHoldsTheShadowWithItsReasonOnce(t *testing.T) {
+func TestWorseComparisonHoldsTheShadowOnce(t *testing.T) {
 	worse := Verdict{Outcome: OutcomeWorse, Reason: "the active value is within budget"}
 	r := testRule(&worse)
 	prev := shadowState(120, t0)
@@ -123,10 +123,12 @@ func TestWorseComparisonHoldsTheShadowWithItsReasonOnce(t *testing.T) {
 	if len(again.Events) != 0 {
 		t.Fatalf("the same hold reason was recorded twice: %+v", again.Events)
 	}
+	// footprint-04: a new reason with the same outcome updates the state's
+	// reason for the UI but writes no ledger row (promote_hysteresis_test.go).
 	worse.Reason = "now a different reason"
 	changed := Step(baseInput(r, again.Next, proposal(120), t0.Add(soak+2*time.Hour)))
-	if kinds(changed.Events) != "held" || changed.Next.ShadowReason != worse.Reason {
-		t.Fatalf("a new hold reason was not recorded: %+v", changed.Events)
+	if len(changed.Events) != 0 || changed.Next.ShadowReason != worse.Reason {
+		t.Fatalf("a new hold reason with the same outcome: %+v", changed)
 	}
 }
 
@@ -158,20 +160,6 @@ func TestSamplesAreCapped(t *testing.T) {
 	s := res.Next.Samples
 	if len(s) != MaxSoakSamples || s[len(s)-1] != -7 || s[0] != 1 {
 		t.Fatalf("samples len %d first %v last %v", len(s), s[0], s[len(s)-1])
-	}
-}
-
-func TestChangedCandidateRestartsTheSoak(t *testing.T) {
-	prev := shadowState(120, t0)
-	prev.Samples = []float64{1, 2, 3}
-	res := Step(baseInput(testRule(nil), prev, proposal(150), t0.Add(soak+time.Hour)))
-	n := res.Next
-	if n.Shadow == nil || *n.Shadow != 150 || !n.ShadowSince.Equal(t0.Add(soak+time.Hour)) ||
-		len(n.Samples) != 0 || n.Active != nil {
-		t.Fatalf("soak not restarted: %+v", n)
-	}
-	if kinds(res.Events) != "shadow" || *res.Events[0].Value != 150 {
-		t.Fatalf("events %+v", res.Events)
 	}
 }
 

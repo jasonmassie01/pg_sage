@@ -40,6 +40,10 @@ type Evidence struct {
 	// catalog scan plus the statements read. Both are per cycle, so the
 	// estimate does not grow with the interval it is used to size.
 	CollectorCycleMs Measure
+	// TempWindowPeakBytes is the largest temp-file growth the reactive
+	// detector measured within one detector window since the previous pass
+	// (unknown when the detector did not poll).
+	TempWindowPeakBytes Measure
 }
 
 // sequenceSampleSize is how many last values the sequence evidence reads;
@@ -51,7 +55,9 @@ const sequenceSampleSize = 250
 const evidenceDeadline = 5 * time.Second
 
 const (
-	catalogScanSQL = `/* pg_sage */ SELECT count(*)::float8
+	// CatalogScanSQL is the catalog-size read (exported: the performance
+	// gate proves a live derivation pass ran by finding it).
+	CatalogScanSQL = `/* pg_sage */ SELECT count(*)::float8
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid`
@@ -102,7 +108,7 @@ func Gather(ctx context.Context, pool *pgxpool.Pool) (Evidence, error) {
 
 func (ev *Evidence) readCatalog(ctx context.Context, r catalogread.Reader) error {
 	var n float64
-	ms, err := timed(func() error { return r.QueryRow(ctx, catalogScanSQL).Scan(&n) })
+	ms, err := timed(func() error { return r.QueryRow(ctx, CatalogScanSQL).Scan(&n) })
 	if timedOut(err) {
 		ev.CatalogScanMs = Known(float64(evidenceDeadline.Milliseconds()))
 		return nil
@@ -224,6 +230,18 @@ func (ev Evidence) WithTempRateSince(prev Evidence) Evidence {
 	return ev
 }
 
+// WithTempPeak adds the detector's peak window (take: nil or false when
+// there is no detector reading).
+func (ev Evidence) WithTempPeak(take func() (float64, bool)) Evidence {
+	if take == nil {
+		return ev
+	}
+	if bytes, ok := take(); ok {
+		ev.TempWindowPeakBytes = Known(bytes)
+	}
+	return ev
+}
+
 type namedMeasure struct {
 	name, unit string
 	m          Measure
@@ -241,6 +259,7 @@ func (ev Evidence) measures() []namedMeasure {
 		{"stats_age_seconds", "s", ev.StatsAgeSeconds},
 		{"temp_bytes_per_second", "bytes/s", ev.TempBytesPerSecond},
 		{"collector_cycle_ms", "ms", ev.CollectorCycleMs},
+		{"temp_window_peak_bytes", "bytes", ev.TempWindowPeakBytes},
 	}
 }
 

@@ -107,6 +107,12 @@ type Analyzer struct {
 	// selfCost meters pg_sage's own cost on this database (perf v1.8.3);
 	// read concurrently by /metrics.
 	selfCost *selfcost.Meter
+	// selfStatements samples pg_sage's pg_stat_statements entries with a
+	// key cache; readSageSchema reads the sage schema, once per cycle
+	// (sageSchemaReading keeps the cycle's reading in schemaMemo).
+	selfStatements *selfcost.Sampler
+	readSageSchema func(context.Context, selfcost.Querier) (selfcost.Schema, error)
+	schemaMemo     *cycleSchema
 	// selfBudget meters the declared self-budget (CPU, loops); read
 	// concurrently by /metrics.
 	selfBudget *selfBudgetMeter
@@ -160,6 +166,9 @@ func New(
 		selfCost:    selfcost.NewMeter(),
 		selfBudget:  newSelfBudgetMeter(),
 		unusedClock: newUnusedClockStore(newPGUnusedClockDB(pool)),
+
+		selfStatements: selfcost.NewSampler(logFn),
+		readSageSchema: selfcost.ReadSchema,
 	}
 }
 

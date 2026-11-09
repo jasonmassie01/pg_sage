@@ -102,10 +102,10 @@ func queryProjectedCases(
 		selectedCases := make([]cases.Case, 0, len(rows))
 		findingIDs := make([]int, 0, len(rows))
 		for _, row := range rows {
-			// Never surface pg_sage's own monitoring queries as cases —
-			// including historical findings captured before queries were
-			// tagged (recognized by their catalog-read signature).
+			// Never surface findings about pg_sage's own objects or queries.
 			if selfmonitor.IsFinding(selfmonitor.FindingFields{
+				Category:         stringValue(row["category"]),
+				ObjectType:       stringValue(row["object_type"]),
 				ObjectIdentifier: stringValue(row["object_identifier"]),
 				Title:            stringValue(row["title"]),
 				Detail:           detailMap(row["detail"]),

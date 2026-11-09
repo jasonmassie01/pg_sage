@@ -451,9 +451,11 @@ func migrationStatements() []string {
 		ddlEmergencyStopSeed,
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt,   // apiauth-01: user deactivation
-		ddlUnusedIndexClock)  // rules-04: unused_index clock survives restarts
+		ddlSessionsTokenHash,      // apiauth-04: hashed session cookies
+		ddlUsersDisabledAt,        // apiauth-01: user deactivation
+		ddlUnusedIndexClock,       // rules-04: unused_index clock survives restarts
+		ddlSelfConfigDerivations,  // footprint-04: soak derivations, clamped events
+		ddlPreTaggingSelfFindings) // footprint-06: resolve pre-tagging self findings
 }
 
 // ---------------------------------------------------------------------------

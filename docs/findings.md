@@ -528,7 +528,7 @@ finding is kept, not resolved.
 **Example output:**
 
 ```
-Sage data uses 23.4% of database lifeos (limit 10%)
+pg_sage data uses 23.4% of database lifeos (limit 10%)
 ```
 
 **Recommended action:** Shorten `retention.snapshots_days` (or the retention of the
@@ -559,7 +559,7 @@ disables it. The same figures are exported as `pg_sage_self_*` Prometheus metric
 **Example output:**
 
 ```
-Sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
+pg_sage monitoring used 4200 ms of database time per collector cycle on lifeos (budget 3000 ms)
 ```
 
 **Recommended action:** Look at the `pg_stat_statements` entries that contain
@@ -592,12 +592,17 @@ start, no `pg_stat_statements`) keeps the open finding open; `0` disables a reso
 The same figures are exported as `pg_sage_self_cpu_ms_per_cycle`,
 `pg_sage_self_db_time_ms_per_hour`, `pg_sage_self_blocks_per_hour`,
 `pg_sage_self_budget{resource}`, `pg_sage_self_budget_exceeded{database,resource}` and
-`pg_sage_self_loop_busy_seconds_total{loop}`.
+`pg_sage_self_loop_busy_seconds_total{loop}`. Per-cycle figures are per cycle of the
+database's own collector (its period in fleet mode, which self-configuration may lengthen).
+When the database-time budget is inherited from `analyzer.self_cost_budget_ms`, each database
+inherits it at its own collector period, exported as
+`pg_sage_self_budget_database{database,resource="db_time"}`, and that database's `db_time`
+exceeded flag compares with it.
 
 **Example output:**
 
 ```
-Sage monitoring exceeded its own cpu, storage budget on lifeos
+pg_sage monitoring exceeded its own cpu, storage budget on lifeos
 ```
 
 **Recommended action:** Start with the top statements and loops in the finding.

@@ -53,7 +53,8 @@ func TestRuleSelfCost_FindingSurvivesSelfMonitorFilter(t *testing.T) {
 	if isSelfMonitoringFinding(f) {
 		t.Fatalf("self-cost finding is dropped as self-monitoring: %+v", f)
 	}
-	if selfmonitor.IsFinding(selfmonitor.FindingFields{ObjectIdentifier: f.ObjectIdentifier,
+	if selfmonitor.IsFinding(selfmonitor.FindingFields{Category: f.Category,
+		ObjectType: f.ObjectType, ObjectIdentifier: f.ObjectIdentifier,
 		Title: f.Title, Detail: f.Detail}) {
 		t.Fatal("self-cost finding matches the list API's self-monitoring exclusion")
 	}
@@ -94,7 +95,7 @@ func TestCheckSelfCost_TwoCyclesAgainstPostgres(t *testing.T) {
 	cfg := phase2Config()
 	cfg.Analyzer.SelfCostBudgetMs = 1
 	cfg.Collector.IntervalSeconds = 60
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	a.eval = newCycleEval()
 	if got := a.checkSelfCost(ctx); len(got) != 0 {
 		t.Fatalf("first cycle raised %+v without a window", got)
@@ -160,5 +161,44 @@ func TestCheckSelfCost_ReadErrorKeepsCategoryUnknown(t *testing.T) {
 	}
 	if !a.eval.failed[categorySelfCost] {
 		t.Fatal("a failed read must leave the category unknown")
+	}
+}
+
+// Error propagation: pg_sage's meter of its own cost is a bounded read. A
+// sage table held under AccessExclusiveLock (a migration, a retention job)
+// makes the cycle's reading fail at safety.lock_timeout_ms, keeping both
+// categories unknown, instead of stalling the analyzer.
+func TestCheckSelfCost_LockedSageTableIsBounded(t *testing.T) {
+	pool := phase2Pool(t)
+	cfg := phase2Config()
+	cfg.Safety.LockTimeoutMs = 300
+	cfg.Safety.QueryTimeoutMs = 20000
+	logs := &timeoutLog{}
+	a := New(pool, cfg, nil, nil, nil, nil, nil, logs.log)
+	a.eval = newCycleEval()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(context.Background()) }()
+	if _, err := holder.Exec(ctx,
+		"LOCK TABLE sage.health_history IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	got := a.checkSelfCost(ctx)
+	if elapsed := time.Since(start); elapsed > 1300*time.Millisecond {
+		t.Fatalf("checkSelfCost took %v under a held lock, want lock_timeout 300 ms + 1 s",
+			elapsed)
+	}
+	if len(got) != 0 || !a.eval.failed[categorySelfCost] ||
+		!a.eval.failed[categorySelfBudget] {
+		t.Fatalf("locked read: findings %v, eval %+v, want both categories unknown", got,
+			a.eval)
+	}
+	if logs.count("read sage schema") != 1 {
+		t.Fatalf("logs = %v, want one WARN naming the sage schema read", logs.lines)
 	}
 }

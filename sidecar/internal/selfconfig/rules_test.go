@@ -231,3 +231,95 @@ func TestClamp(t *testing.T) {
 		}
 	}
 }
+
+// tempEvidence is avgMiB of temp files per 300 s detector window on
+// average, and the detector's largest window since the previous pass
+// (peakMiB < 0: the detector measured none).
+func tempEvidence(avgMiB, peakMiB float64) Evidence {
+	ev := Evidence{TempBytesPerSecond: Known(avgMiB * (1 << 20) / 300)}
+	if peakMiB >= 0 {
+		ev.TempWindowPeakBytes = Known(peakMiB * (1 << 20))
+	}
+	return ev
+}
+
+// footprint-04: the soak samples the detector's real per-window peaks.
+// 400 MiB per window on average derives 4x = 1600, rounded to 1792; the
+// average never crosses the 1024 default, but the peaks of 1 pass in 5 do.
+func TestTempPeaksAboveTheThresholdPromote(t *testing.T) {
+	sim := newSimulation(rule(t, "sre.detectors.temp_file_mb"), defaults())
+	sim.run(soakPasses+1, func(i int) Evidence {
+		if i%5 == 0 {
+			return tempEvidence(400, 1500)
+		}
+		return tempEvidence(400, 450)
+	})
+	st := sim.state
+	if sim.promotedAt != soakPasses || st.Active == nil || *st.Active != 1792 {
+		t.Fatalf("peaks over the threshold in 20%% of windows did not promote 1792 "+
+			"at pass %d: promoted at %d, state %+v, ledger %+v", soakPasses,
+			sim.promotedAt, st, sim.events)
+	}
+	if st.Pending == nil || *st.Pending != 1792 || st.Value != 1024 {
+		t.Fatalf("restart-bound temp threshold changed live: %+v", st)
+	}
+}
+
+func TestFlatTempTrafficDoesNotPromote(t *testing.T) {
+	for name, peak := range map[string]float64{"flat peaks": 400, "no detector": -1} {
+		sim := newSimulation(rule(t, "sre.detectors.temp_file_mb"), defaults())
+		sim.run(soakPasses+24, func(int) Evidence { return tempEvidence(400, peak) })
+		st := sim.state
+		if st.Active != nil || sim.promotedAt >= 0 || st.Shadow == nil || *st.Shadow != 1792 {
+			t.Fatalf("%s: promoted without noise: %+v", name, st)
+		}
+		if sim.count(EventHeld) != 1 || st.ShadowOutcome != OutcomeWorse ||
+			!strings.Contains(st.ShadowReason, "0% of soak windows crossed 1024 MiB") {
+			t.Fatalf("%s: hold not recorded once with its reason: %+v %+v", name,
+				st, sim.events)
+		}
+	}
+}
+
+func TestTempObservationPrefersTheDetectorPeak(t *testing.T) {
+	r, cfg := rule(t, "sre.detectors.temp_file_mb"), defaults()
+	for _, c := range []struct {
+		name string
+		ev   Evidence
+		want float64
+		ok   bool
+	}{
+		{"peak", tempEvidence(100, 700), 700, true},
+		{"no peak: the average", tempEvidence(100, -1), 100, true},
+		{"zero peak", tempEvidence(100, 0), 0, true},
+		{"unusable peak: the average", Evidence{TempBytesPerSecond: Known(float64(1<<20) / 3),
+			TempWindowPeakBytes: Known(math.NaN())}, 100, true},
+		{"negative peak: the average", Evidence{TempBytesPerSecond: Known(float64(1<<20) / 3),
+			TempWindowPeakBytes: Known(-5)}, 100, true},
+		{"peak without an average", Evidence{TempWindowPeakBytes: Known(256 << 20)}, 256, true},
+		{"nothing", Evidence{}, 0, false},
+	} {
+		got, ok := r.Observe(c.ev, cfg)
+		if ok != c.ok || math.Abs(got-c.want) > 1e-6 {
+			t.Errorf("%s: observed %v (%v), want %v (%v)", c.name, got, ok, c.want, c.ok)
+		}
+	}
+	// The derivation stays 4x the average, whatever the peak.
+	p := r.Evaluate(tempEvidence(400, 5000), cfg)
+	if !p.OK || p.Value != 1792 {
+		t.Fatalf("the peak moved the derivation: %+v", p)
+	}
+	if !strings.Contains(rule(t, "sre.detectors.temp_file_mb").EvidenceDoc, "peak") {
+		t.Fatal("the generated docs do not describe the peak sample")
+	}
+}
+
+func TestTempPeakIsCited(t *testing.T) {
+	p := rule(t, "sre.detectors.temp_file_mb").Evaluate(tempEvidence(400, 1500), defaults())
+	for _, c := range p.Evidence {
+		if c.Name == "temp_window_peak_bytes" && c.Value == 1500*(1<<20) && c.Unit == "bytes" {
+			return
+		}
+	}
+	t.Fatalf("the window peak is not cited: %+v", p.Evidence)
+}

@@ -86,9 +86,9 @@ func TestRuleSelfBudget_FindingNamesResourcesAndConsumers(t *testing.T) {
 	}
 }
 
-// The self-monitoring filter drops any finding that mentions pg_sage;
-// this one is about pg_sage on purpose and must survive, so no field
-// (statement texts included) may carry the name.
+// The finding is about pg_sage on purpose: the self-monitoring filter
+// exempts its category (footprint-06), so it survives while naming pg_sage
+// and its statement texts are shown as they are, not redacted.
 func TestRuleSelfBudget_SurvivesSelfMonitoringFilter(t *testing.T) {
 	top := append(sampleTop(), selfcost.StatementCost{
 		Text: "SET application_name = 'pg_sage'", TimeMs: 1, Calls: 1})
@@ -101,8 +101,11 @@ func TestRuleSelfBudget_SurvivesSelfMonitoringFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(strings.ToLower(string(b)+f.Title+f.Recommendation), "pg_sage") {
-		t.Fatalf("finding mentions pg_sage: %s", b)
+	if !strings.Contains(string(b), "SET application_name = 'pg_sage'") {
+		t.Fatalf("statement text is not shown as it is: %s", b)
+	}
+	if !strings.Contains(f.Title, "pg_sage") {
+		t.Fatalf("title %q does not name pg_sage", f.Title)
 	}
 }
 
@@ -153,7 +156,7 @@ func TestCheckSelfBudget_TwoCyclesAgainstPostgres(t *testing.T) {
 	cfg.SelfBudget.CPUMsPerCycle = 100
 	cfg.SelfBudget.StorageMB = 0
 	cfg.SelfBudget.BlocksPerHour = 0
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
 	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
 	a.eval = newCycleEval()
@@ -193,7 +196,7 @@ func TestCheckSelfBudget_DisabledStillMeasures(t *testing.T) {
 	cfg := phase2Config()
 	cfg.Analyzer.SelfCostBudgetMs = 0
 	cfg.SelfBudget = config.SelfBudgetConfig{}
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
 	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
 	a.eval = newCycleEval()
@@ -266,7 +269,7 @@ func TestCheckSelfBudget_NamesTheBusiestLoop(t *testing.T) {
 	cfg.Collector.IntervalSeconds = 60
 	cfg.Analyzer.SelfCostBudgetMs = 0
 	cfg.SelfBudget = config.SelfBudgetConfig{CPUMsPerCycle: 100}
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
 	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
 	a.eval = newCycleEval()

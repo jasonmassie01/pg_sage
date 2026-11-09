@@ -15,7 +15,7 @@ pg_sage derives these keys per database when the operator leaves them unset. Eve
 | `collector.interval_seconds` | live | 60-600 s (default 60) | lower | measured time of the catalog scan plus the pg_stat_statements read a collector cycle makes; relation count for context. | mean measured cycle cost against the 1% budget |
 | `safety.query_timeout_ms` | restart | 500-5000 ms (default 500) | higher | measured time of one pass over pg_class with its statistics; relation count. | largest catalog scan during the soak needs 2x headroom |
 | `sre.runways.sequence_interval_seconds` | restart | 600-2400 s (default 600) | lower | measured time to read every sequence's last value; sequence count. | mean measured scan time against the 0.1% budget |
-| `sre.detectors.temp_file_mb` | restart | 1024-65536 MiB (default 1024) | lower | pg_stat_database.temp_bytes rate (since the previous sample, or since the statistics reset) over sre.detectors.window_seconds. | share of soak windows over each threshold: raise only when >=10% cross the active one and <=5% cross the candidate |
+| `sre.detectors.temp_file_mb` | restart | 1024-65536 MiB (default 1024) | lower | pg_stat_database.temp_bytes rate (since the previous sample, or since the statistics reset) over sre.detectors.window_seconds; each soak sample is the reactive detector's peak window since the previous pass (the average when the detector has not polled). | share of soak windows over each threshold: raise only when >=10% cross the active one and <=5% cross the candidate |
 | `sre.detectors.lwlock_waiters` | restart | 8-64 backends (default 8) | lower | the server's max_connections. | none measurable (real contention is rare); the soak is the test |
 
 ## Rules

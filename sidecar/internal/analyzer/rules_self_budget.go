@@ -3,7 +3,6 @@ package analyzer
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +98,7 @@ func (a *Analyzer) checkSelfBudget(ctx context.Context, cost selfcost.Cost) []Fi
 			err)
 	}
 	u, loops := a.selfBudget.observe(withHistoryStorage(selfbudget.FromCost(cost), hist, err),
-		a.collectorInterval())
+		a.collectorPeriod())
 	if !budgetDecidable(b, u) {
 		a.evalFail(categorySelfBudget)
 		return nil
@@ -116,10 +115,9 @@ func budgetDecidable(b selfbudget.Budget, u selfbudget.Usage) bool {
 }
 
 // ruleSelfBudget raises one warning naming every resource over budget and
-// the top consumers. Like sage_self_cost it is about the database's bill:
-// nothing in it may name pg_sage (the self-monitoring filter would drop
-// it), so statement texts are shown with the tag removed and the name
-// redacted.
+// the top consumers. Like sage_self_cost it is about pg_sage's bill on the
+// database; the self-monitoring filter exempts its category, so it names
+// pg_sage and shows statement texts as selfcost reports them.
 func ruleSelfBudget(database string, breaches []selfbudget.Breach,
 	top []selfcost.StatementCost, loops []selfbudget.LoopCost) []Finding {
 	if len(breaches) == 0 {
@@ -135,7 +133,7 @@ func ruleSelfBudget(database string, breaches []selfbudget.Breach,
 	return []Finding{{
 		Category: categorySelfBudget, Severity: "warning",
 		ObjectType: "database", ObjectIdentifier: database,
-		Title: fmt.Sprintf("Sage monitoring exceeded its own %s budget on %s",
+		Title: fmt.Sprintf("pg_sage monitoring exceeded its own %s budget on %s",
 			strings.Join(names, ", "), database),
 		Detail: map[string]any{"breaches": rows,
 			"top_statements": statementRows(top), "top_loops": loopRows(loops)},
@@ -146,7 +144,7 @@ func ruleSelfBudget(database string, breaches []selfbudget.Breach,
 func statementRows(top []selfcost.StatementCost) []map[string]any {
 	out := make([]map[string]any, 0, len(top))
 	for _, s := range top {
-		out = append(out, map[string]any{"text": redactSelf(s.Text),
+		out = append(out, map[string]any{"text": s.Text,
 			"db_time_ms": s.TimeMs, "calls": s.Calls, "blocks": s.Blocks})
 	}
 	return out
@@ -155,25 +153,17 @@ func statementRows(top []selfcost.StatementCost) []map[string]any {
 func loopRows(loops []selfbudget.LoopCost) []map[string]any {
 	out := make([]map[string]any, 0, len(loops))
 	for _, l := range loops {
-		out = append(out, map[string]any{"loop": redactSelf(l.Name), "busy_ms": l.BusyMs,
+		out = append(out, map[string]any{"loop": l.Name, "busy_ms": l.BusyMs,
 			"runs": l.Runs})
 	}
 	return out
-}
-
-// selfName is the sidecar's own name in any case.
-var selfName = regexp.MustCompile(`(?i)pg_sage`)
-
-// redactSelf keeps the finding clear of the self-monitoring filter.
-func redactSelf(s string) string {
-	return selfName.ReplaceAllString(s, "sidecar")
 }
 
 func selfBudgetAdvice(loops []selfbudget.LoopCost) string {
 	busiest := ""
 	if len(loops) > 0 {
 		busiest = fmt.Sprintf("The busiest loop was %s (%.0f ms over %d runs). ",
-			redactSelf(loops[0].Name), loops[0].BusyMs, loops[0].Runs)
+			loops[0].Name, loops[0].BusyMs, loops[0].Runs)
 	}
 	return busiest + "top_statements and top_loops show where the cost went. " +
 		"Lengthen collector.interval_seconds or analyzer.interval_seconds, turn off " +

@@ -96,6 +96,9 @@ type databaseRuntime struct {
 	// sreActions proposes, hands off and verifies Sage SRE actions (M5).
 	sreActions *sreaction.ActionService
 	sreStarted bool
+	// tempDetector is the investigator's reactive detector (nil without
+	// one); self-configuration samples its temp-file window peaks.
+	tempDetector *sre.ReactiveDetector
 	// sloEngine and changeFeed are the M5 signals (nil when off).
 	sloEngine  *slo.Engine
 	changeFeed *changefeed.Feed

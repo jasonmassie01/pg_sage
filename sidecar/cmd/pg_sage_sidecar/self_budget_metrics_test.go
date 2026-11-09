@@ -19,7 +19,7 @@ func TestWriteSelfBudgetMetrics(t *testing.T) {
 			BlocksPerHour: 70_000, StorageKnown: true, StorageBytes: 2 << 30},
 		"alpha": {StorageKnown: true, StorageBytes: 4096}, // first cycle
 	}, selfbudget.Budget{CPUMsPerCycle: 600, DBTimeMsPerHour: 180_000,
-		BlocksPerHour: 18_000_000, StorageBytes: 1 << 30},
+		BlocksPerHour: 18_000_000, StorageBytes: 1 << 30}, 0,
 		map[string]selfbudget.LoopStat{
 			"collector": {Busy: 90 * time.Second, Runs: 30},
 			"analyzer":  {Busy: 1500 * time.Millisecond, Runs: 3},
@@ -66,7 +66,7 @@ func TestWriteSelfBudgetMetrics_DisabledResources(t *testing.T) {
 	var b strings.Builder
 	writeSelfBudgetMetrics(&b, map[string]selfbudget.Usage{
 		"app": {CPUKnown: true, CPUMsPerCycle: 1e9, StorageKnown: true, StorageBytes: 1 << 40},
-	}, selfbudget.Budget{}, nil)
+	}, selfbudget.Budget{}, 0, nil)
 	out := b.String()
 	if strings.Contains(out, "pg_sage_self_budget{") ||
 		strings.Contains(out, "pg_sage_self_budget_exceeded{") {
@@ -79,7 +79,7 @@ func TestWriteSelfBudgetMetrics_DisabledResources(t *testing.T) {
 
 func TestWriteSelfBudgetMetrics_NothingKnownWritesNothing(t *testing.T) {
 	var b strings.Builder
-	writeSelfBudgetMetrics(&b, nil, selfbudget.Budget{CPUMsPerCycle: 600}, nil)
+	writeSelfBudgetMetrics(&b, nil, selfbudget.Budget{CPUMsPerCycle: 600}, 0, nil)
 	if b.Len() != 0 {
 		t.Fatalf("nothing measured wrote %q", b.String())
 	}

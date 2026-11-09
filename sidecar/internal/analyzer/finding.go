@@ -43,6 +43,8 @@ type Finding struct {
 
 func isSelfMonitoringFinding(f Finding) bool {
 	return selfmonitor.IsFinding(selfmonitor.FindingFields{
+		Category:         f.Category,
+		ObjectType:       f.ObjectType,
 		ObjectIdentifier: f.ObjectIdentifier,
 		Title:            f.Title,
 		Detail:           f.Detail,

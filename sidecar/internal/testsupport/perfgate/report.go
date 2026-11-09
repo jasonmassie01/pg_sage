@@ -11,7 +11,8 @@ const topStatements = 15
 
 // RenderMarkdown is the gate's report: verdict, scale, budgets, ranked
 // offenders, unconfirmed generic-plan suspects, statements that could not
-// be planned, the costliest statements, table activity and endpoints.
+// be planned, the costliest statements, the product meter (gate H), table
+// activity and endpoints.
 func RenderMarkdown(s Scale, b Budgets, phases []Phase, offenders []Offender) string {
 	var sb strings.Builder
 	verdict := "PASS"
@@ -32,6 +33,7 @@ func RenderMarkdown(s Scale, b Budgets, phases []Phase, offenders []Offender) st
 	writeSuspects(&sb, phases, b)
 	writeUnexplainable(&sb, phases)
 	writeTopStatements(&sb, phases)
+	writeMeter(&sb, phases)
 	writeTables(&sb, phases)
 	writeEndpoints(&sb, phases)
 	return sb.String()
@@ -51,6 +53,7 @@ func writeBudgets(sb *strings.Builder, b Budgets) {
 	fmt.Fprintf(sb, "| %s | at least %.0f%% of updates for a table updated %d+ times "+
 		"(steady phase) |\n", GateHotUpdates, b.HotUpdateMinPct, b.HotMinUpdates)
 	fmt.Fprintf(sb, "| %s | %.0f ms (steady phase) |\n", GateSidecarCPU, b.SidecarCPUMsPerCycle)
+	writeMeterBudgets(sb)
 	writeHotExempt(sb, b)
 	writeMeanExempt(sb, b)
 }
