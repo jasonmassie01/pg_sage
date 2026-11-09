@@ -108,6 +108,14 @@ and from Prometheus as `pg_sage_time_to_first_finding_seconds`,
 `pg_sage_first_look_items` and `pg_sage_first_look_duration_seconds` (one series per
 database).
 
+In a fleet, a database pg_sage cannot read does not hide the others. Getting started and
+First look name it ("pg_sage cannot reach the database ...") and show every other database
+in full. Both endpoints mark it with an `error` field on its entry: `unreachable` (it
+refused the connection or gave no answer within 3 s), `no_runtime` (its connection failed
+at startup) or `read_failed` (it answered, but reading pg_sage's state failed). The cause
+is in the pg_sage log, with the database name. The checklist polls once a minute until
+setup is complete, then stops.
+
 ### Minute 5: the analyzer
 
 The collector takes its first snapshot at startup, and then every
