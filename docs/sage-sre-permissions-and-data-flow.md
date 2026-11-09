@@ -206,6 +206,31 @@ for a live model.
 Each change is recorded, with the user, in the investigation's append-only event chain. No
 role can make an investigation execute anything: R1 has no actions.
 
+## Operator maintenance (extended statistics)
+
+An operator can propose `CREATE STATISTICS` from a concluded investigation's retained
+`stat_tables` evidence. It runs only after human approval, only where the coordination
+and target databases are the same database (colocated topology), and a rollback drops only
+the object it created; prior `ANALYZE` statistics cannot be restored.
+
+A run that dies between its claim and its record (a crash, or a failed write to the
+control database) is settled by the action pass once it is older than twice the executor's
+apply timeout plus one minute (13 minutes with the default `safety.ddl_timeout_seconds`;
+the wait for a DDL slot is bounded to one apply timeout, so a live run never reaches it).
+The pass takes the table lock the executor takes, reads the catalog for the proposal's
+`sage_stx_<id>` object on the bound table and the exact `action_log` record, and never
+re-runs the forward SQL or the DROP:
+
+| Stranded in | Found | Settled as |
+|---|---|---|
+| `executing` | the action record and the object on the bound table | `uncertain` with both; typed rollback works |
+| `executing` | neither (or only a failed action record) | `failed` |
+| `executing` | anything else (object without a record, a record without the object, the name on another table) | `uncertain` without an object; rollback is refused and an operator must review |
+| `rolling_back` | the created object is gone | `rolled_back` |
+| `rolling_back` | the created object still exists | `rollback_failed`; the rollback can be retried |
+
+Each settlement adds an `action_failed` or `action_executed` event marked `reconciled`.
+
 ## Retention
 
 | Data | Kept | Setting |
