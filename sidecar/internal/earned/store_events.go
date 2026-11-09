@@ -150,14 +150,3 @@ func scanEvent(row pgx.Row) (Event, error) {
 	}
 	return e, err
 }
-
-// autoExecutedRecorded reports whether an L3 execution was notified.
-func (s *PostgresStore) autoExecutedRecorded(ctx context.Context,
-	actionLogID int64) (bool, error) {
-	var found bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_autonomy_events
-		WHERE deployment_id = $1 AND event_type = 'auto_executed'
-		  AND database_name = $2 AND action_log_id = $3)`,
-		s.deployment, s.database, actionLogID).Scan(&found)
-	return found, storeErr("read auto-execution notice", err)
-}

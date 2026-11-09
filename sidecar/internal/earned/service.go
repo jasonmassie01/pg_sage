@@ -53,6 +53,9 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[pairKey]cachedLevel
+	// invalidations counts the cache drops: an idle reconcile pass makes
+	// none (earned-02).
+	invalidations int64
 	// ramp is the trust ramp, the promotion floor of self-initiated
 	// classes (WithRamp); nil: unknown.
 	ramp func() RampFloor
@@ -198,6 +201,7 @@ func (s *Service) supportedLevel(ctx context.Context, f Family, c ActionClass) (
 func (s *Service) invalidate() {
 	s.mu.Lock()
 	s.cache = map[pairKey]cachedLevel{}
+	s.invalidations++
 	s.mu.Unlock()
 }
 

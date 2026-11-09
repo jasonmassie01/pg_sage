@@ -27,6 +27,15 @@ const selfBatch = 500
 // selfCursors are the last observation times read, per kind.
 type selfCursors struct{ verdict, rollback, rejection *time.Time }
 
+func (c selfCursors) equal(o selfCursors) bool {
+	return sameTime(c.verdict, o.verdict) && sameTime(c.rollback, o.rollback) &&
+		sameTime(c.rejection, o.rejection)
+}
+
+func sameTime(a, b *time.Time) bool {
+	return (a == nil) == (b == nil) && (a == nil || a.Equal(*b))
+}
+
 // selfFact is one observed action or proposal with the outcome it makes.
 type selfFact struct {
 	outcome Outcome
@@ -34,10 +43,11 @@ type selfFact struct {
 }
 
 func (r *Reconciler) selfInitiated(ctx context.Context, res *ReconcileResult) error {
-	cur, err := r.svc.store.cursors(ctx)
+	loaded, err := r.svc.store.cursors(ctx)
 	if err != nil {
 		return err
 	}
+	cur := loaded
 	var notifyErrs []error
 	for _, kind := range []struct {
 		read   func(context.Context, *time.Time) ([]selfFact, *time.Time, error)
@@ -59,8 +69,10 @@ func (r *Reconciler) selfInitiated(ctx context.Context, res *ReconcileResult) er
 			*kind.cursor = last
 		}
 	}
-	if err := r.svc.store.saveCursors(ctx, cur); err != nil {
-		return err
+	if !cur.equal(loaded) { // an idle pass writes nothing (earned-02)
+		if err := r.svc.store.saveCursors(ctx, cur); err != nil {
+			return err
+		}
 	}
 	return errors.Join(notifyErrs...)
 }
