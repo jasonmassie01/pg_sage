@@ -62,7 +62,8 @@ func TestHintApply_ManualActionOverOperatorRowFails(t *testing.T) {
 		(category, severity, object_type, object_identifier, title, detail,
 		 recommendation, recommended_sql, rollback_sql)
 		VALUES ('query_tuning', 'warning', 'query', $1, 'hint', '{}', 'rec', $2, $3)
-		RETURNING id`, fmt.Sprintf("queryid:%d", fx.qid), sql, rollback).Scan(&findingID); err != nil {
+		RETURNING id`, fmt.Sprintf("queryid:%d", fx.qid), sql, rollback,
+	).Scan(&findingID); err != nil {
 		t.Fatalf("insert finding: %v", err)
 	}
 	t.Cleanup(func() {
