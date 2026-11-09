@@ -132,7 +132,8 @@ func (e *seqEvidence) classify() {
 		e.nearFact = Fact{EvidenceID: e.ev, Text: fractionText(e.last)}
 	case e.trendOK && e.trend.SecondsToLimit() <= SequenceNearHorizon.Seconds():
 		e.near = true
-		e.nearFact = Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend)}
+		e.nearFact = Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend,
+			e.last.Descending())}
 	}
 }
 
@@ -182,17 +183,25 @@ func fractionText(s probes.SequenceRunway) string {
 		limitText(s.BindingLimit(), s), probes.FormatValue(s.LastValue))
 }
 
-func seqTrendText(tr probes.RunwayTrend) string {
-	return fmt.Sprintf("at %s values per second (%d samples over %s s) %s reaches its "+
-		"limit %s in %s s", probes.FormatValue(tr.RatePerS), tr.Samples,
-		probes.FormatValue(tr.SpanS()), tr.Subject, probes.FormatValue(tr.Limit),
+// seqTrendText states the trend's projection; a descending sequence's
+// series is sampled negated (runway.sequenceSeries), so its limit is
+// negated back and its rate is a fall.
+func seqTrendText(tr probes.RunwayTrend, descending bool) string {
+	limit, verb := tr.Limit, ""
+	if descending {
+		limit, verb = -tr.Limit, "falling "
+	}
+	return fmt.Sprintf("%sat %s values per second (%d samples over %s s) %s reaches "+
+		"its limit %s in %s s", verb, probes.FormatValue(tr.RatePerS), tr.Samples,
+		probes.FormatValue(tr.SpanS()), tr.Subject, probes.FormatValue(limit),
 		probes.FormatValue(tr.SecondsToLimit()))
 }
 
 func (e seqEvidence) observed() []Fact {
 	out := []Fact{{EvidenceID: e.ev, Text: fractionText(e.last)}}
 	if s := e.trend.SecondsToLimit(); e.trendOK && !math.IsNaN(s) && !math.IsInf(s, 0) {
-		out = append(out, Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend)})
+		out = append(out, Fact{EvidenceID: e.trendEv, Text: seqTrendText(e.trend,
+			e.last.Descending())})
 	}
 	return out
 }
