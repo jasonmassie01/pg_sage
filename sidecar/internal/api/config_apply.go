@@ -23,12 +23,8 @@ func applyConfigOverrides(
 	userID int,
 ) []string {
 	config.RLockForHotReload()
-	bindErr := bindSecretDestinations(body, cfg)
+	overrides, errs := boundConfigWrites(body, cfg)
 	config.RUnlockForHotReload()
-	if bindErr != nil {
-		return []string{bindErr.Error()}
-	}
-	overrides, errs := validatedConfigWrites(body)
 	if len(errs) > 0 {
 		return errs
 	}

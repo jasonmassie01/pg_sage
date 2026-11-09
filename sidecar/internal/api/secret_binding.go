@@ -5,6 +5,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/egress"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // secretBinding ties a stored secret to the endpoint it was saved for. The
@@ -32,6 +33,17 @@ var secretBindings = []secretBinding{
 		endpoint: func(c *config.Config) string { return c.Clone.DLEEndpoint },
 		secret:   func(c *config.Config) string { return c.Clone.DLEToken },
 	},
+}
+
+// boundConfigWrites is validatedConfigWrites for a global write: it first
+// refuses a write that would send a stored secret to a new origin.
+func boundConfigWrites(
+	body map[string]any, current *config.Config,
+) ([]store.ConfigOverrideWrite, []string) {
+	if err := bindSecretDestinations(body, current); err != nil {
+		return nil, []string{err.Error()}
+	}
+	return validatedConfigWrites(body)
 }
 
 // bindSecretDestinations refuses a config write that moves an endpoint to a
