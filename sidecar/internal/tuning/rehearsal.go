@@ -11,6 +11,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Clone rehearsal: with a clone provider configured, an index is built
@@ -193,7 +194,7 @@ func planCost(ctx context.Context, conn *pgx.Conn, text string, version int) (fl
 		return 0, errMultiStatement
 	}
 	explain := "EXPLAIN (FORMAT JSON) "
-	if paramRef.MatchString(blankLiteralsAndComments(body)) {
+	if paramRef.MatchString(workload.BlankLiteralsAndComments(body)) {
 		if version < 160000 {
 			return 0, errNoGenericPlanning
 		}

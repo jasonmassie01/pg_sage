@@ -79,7 +79,7 @@ func ClassifyWorkload(snap *collector.Snapshot, all []facts.Fact, now time.Time)
 		}
 		w.Tables[info.Name] = info
 	}
-	known := tableIndex(snap)
+	known := workload.KnownTables(snap)
 	for _, q := range snap.Queries {
 		s := classifyStatement(q, known, w.Tables, families)
 		w.Statements[q.QueryID] = s
@@ -152,12 +152,18 @@ func bindings(name string, confirmed []facts.Fact, action string,
 	return facts.Bind(confirmed, facts.ResolveRefs(req), req)
 }
 
-// tableIndex maps a relation name to the schemas holding a table of it.
-func tableIndex(snap *collector.Snapshot) map[string][]string {
-	out := map[string][]string{}
-	for _, t := range snap.Tables {
-		out[t.RelName] = append(out[t.RelName], t.SchemaName)
+// referencedTables is workload.ReferencedTables in the agent's canonical
+// "schema.name" form, sorted.
+func referencedTables(query string, known map[string][]string) []string {
+	refs := workload.ReferencedTables(query, known)
+	if len(refs) == 0 {
+		return nil
 	}
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, qualified(r.Schema, r.Name))
+	}
+	slices.Sort(out)
 	return out
 }
 

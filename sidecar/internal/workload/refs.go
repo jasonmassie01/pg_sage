@@ -1,18 +1,46 @@
-package tuning
+package workload
 
 import (
+	"cmp"
 	"slices"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/collector"
 )
 
-// referencedTables names the snapshot tables a statement reads or writes:
-// the relations after FROM, JOIN, UPDATE and INTO (comma lists included),
-// resolved against the snapshot. An unqualified name resolves to its only
-// schema, else to public when public has it; anything else (functions,
-// CTE names, unknown relations) is left out.
-func referencedTables(query string, known map[string][]string) []string {
-	text := blankLiteralsAndComments(query)
-	var out []string
+// Relation is a table a statement names, by its catalog names (quoted
+// identifiers keep their case, bare ones are folded to lower case).
+type Relation struct {
+	Schema string
+	Name   string
+}
+
+// KnownTables maps each table name in the snapshot to the schemas holding
+// a table of that name, in snapshot order: the catalog ReferencedTables
+// resolves statements against.
+func KnownTables(snap *collector.Snapshot) map[string][]string {
+	out := map[string][]string{}
+	if snap == nil {
+		return out
+	}
+	for _, t := range snap.Tables {
+		out[t.RelName] = append(out[t.RelName], t.SchemaName)
+	}
+	return out
+}
+
+// ReferencedTables names the known tables a statement reads or writes:
+// the relations after FROM, JOIN, UPDATE and INTO (comma lists and ONLY
+// included), sorted and without duplicates. A qualified name must be
+// known in its schema. An unqualified name resolves to its only schema,
+// else to public when public has it: pg_stat_statements' text carries no
+// search_path, so a name held by public and another schema is taken as
+// public's, and one held only by other schemas is left out. Functions,
+// CTE names and unknown relations are left out; string literals and
+// comments are never read.
+func ReferencedTables(query string, known map[string][]string) []Relation {
+	text := BlankLiteralsAndComments(query)
+	var out []Relation
 	for i := 0; i < len(text); {
 		word, next := nextWord(text, i)
 		if word == "" {
@@ -21,28 +49,30 @@ func referencedTables(query string, known map[string][]string) []string {
 		i = next
 		switch strings.ToLower(word) {
 		case "from", "join", "update", "into":
-			var refs []string
+			var refs []Relation
 			refs, i = readRelationList(text, i, known)
 			out = append(out, refs...)
 		}
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b Relation) int {
+		return cmp.Or(cmp.Compare(a.Schema, b.Schema), cmp.Compare(a.Name, b.Name))
+	})
 	return slices.Compact(out)
 }
 
 // readRelationList reads "rel [alias] {, rel [alias]}" at text[i:].
-func readRelationList(text string, i int, known map[string][]string) ([]string, int) {
-	var out []string
+func readRelationList(text string, i int, known map[string][]string) ([]Relation, int) {
+	var out []Relation
 	for {
 		i = skipSpace(text, i)
 		if w, next := wordAt(text, i); strings.EqualFold(w, "only") {
 			i = skipSpace(text, next)
 		}
-		schema, name, next, err := readQualified(text, i)
+		schema, name, next, err := ReadQualified(text, i)
 		if err != nil {
 			return out, i
 		}
-		if ref := resolveRelation(schema, name, known); ref != "" {
+		if ref, ok := resolveRelation(schema, name, known); ok {
 			out = append(out, ref)
 		}
 		i = skipAlias(text, next)
@@ -75,21 +105,19 @@ var aliasStop = map[string]bool{"where": true, "join": true, "inner": true, "lef
 	"intersect": true, "having": true, "window": true, "for": true, "default": true,
 	"lateral": true, "tablesample": true, "fetch": true}
 
-func resolveRelation(schema, name string, known map[string][]string) string {
+// resolveRelation applies ReferencedTables' resolution rule to one name.
+func resolveRelation(schema, name string, known map[string][]string) (Relation, bool) {
 	schemas := known[name]
 	if schema != "" {
-		if slices.Contains(schemas, schema) {
-			return qualified(schema, name)
-		}
-		return ""
+		return Relation{Schema: schema, Name: name}, slices.Contains(schemas, schema)
 	}
 	switch {
 	case len(schemas) == 1:
-		return qualified(schemas[0], name)
+		return Relation{Schema: schemas[0], Name: name}, true
 	case slices.Contains(schemas, "public"):
-		return qualified("public", name)
+		return Relation{Schema: "public", Name: name}, true
 	}
-	return ""
+	return Relation{}, false
 }
 
 // nextWord returns the next bare word at or after i (skipping anything
@@ -98,7 +126,7 @@ func nextWord(text string, i int) (string, int) {
 	for i < len(text) {
 		c := text[i]
 		if c == '"' {
-			_, next, _ := readIdent(text, i)
+			_, next, _ := ReadIdent(text, i)
 			i = max(next, i+1)
 			continue
 		}
@@ -122,9 +150,10 @@ func wordAt(text string, i int) (string, int) {
 	return nextWord(text, i)
 }
 
-// blankLiteralsAndComments replaces string literals and comments with
-// spaces so they never read as keywords or relations.
-func blankLiteralsAndComments(q string) string {
+// BlankLiteralsAndComments replaces string literals and comments with
+// spaces (newlines kept, so the length and line numbers stay) so they
+// never read as keywords or relations. Quoted identifiers are kept.
+func BlankLiteralsAndComments(q string) string {
 	b := []byte(q)
 	for i := 0; i < len(b); {
 		switch {
@@ -135,7 +164,7 @@ func blankLiteralsAndComments(q string) string {
 		case strings.HasPrefix(q[i:], "/*"):
 			i = blankUntil(b, i, i+2, "*/")
 		case b[i] == '"':
-			_, next, _ := readIdent(q, i)
+			_, next, _ := ReadIdent(q, i)
 			i = max(next, i+1)
 		default:
 			i++

@@ -14,6 +14,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // postgresStore is the agent's Store on PostgreSQL. Every read is one bounded
@@ -149,7 +150,7 @@ func (s *postgresStore) Plan(ctx context.Context, queryID int64, text string) (P
 		return Plan{}, errMultiStatement
 	}
 	source, explain := PlanSourceExplain, "EXPLAIN (FORMAT JSON) "
-	if paramRef.MatchString(blankLiteralsAndComments(body)) {
+	if paramRef.MatchString(workload.BlankLiteralsAndComments(body)) {
 		if s.version < 160000 {
 			return Plan{Source: PlanSourceNone}, nil
 		}

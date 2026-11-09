@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/verify"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // singleStatement returns sql without one trailing semicolon, or false
@@ -22,11 +23,11 @@ func singleStatement(sql string) (string, bool) {
 // hasSemicolon reports a semicolon outside literals, comments and quoted
 // identifiers.
 func hasSemicolon(sql string) bool {
-	t := blankLiteralsAndComments(sql)
+	t := workload.BlankLiteralsAndComments(sql)
 	for i := 0; i < len(t); i++ {
 		switch t[i] {
 		case '"':
-			_, next, _ := readIdent(t, i)
+			_, next, _ := workload.ReadIdent(t, i)
 			i = max(next, i+1) - 1
 		case ';':
 			return true
