@@ -682,6 +682,22 @@ outcome ledger (`sage.action_outcome`).
 | `verify.window_max_minutes` | `4320` | Longest a non-drop action is watched for evidence |
 | `verify.drop_window_hours` | `168` | Business cycle an index drop is verified over, `1`-`8760`. See [Fast elevation](#fast-elevation-dogfood-databases) |
 
+#### Value report
+
+`GET /api/v1/value?database=<name|all>&since=YYYY-MM-DD&until=YYYY-MM-DD` reports the DBA
+hours saved, read from each monitored database's own ledger. Days are UTC. `since` and `until`
+are both inclusive: `until` covers its whole day (the bound is the next midnight, exclusive), so
+`since=2026-08-01&until=2026-08-01` is the report for 1 August. An `until` before `since` is a
+400.
+
+Only an action whose current verification (the row `sage.action_log.verification_id` links)
+is a completed success earns toil credit; an older success never outweighs a newer revert.
+Rolling an action back zeroes its toil credit and, in the same statement, stamps
+`reverted_at` on the incident credits it earned: the row stays as evidence and the report and
+`pg_sage_incidents_avoided_total` stop counting it. Both value series on `/metrics` are gauges,
+since both go down on a rollback, and are read at most once a minute (a read in which any
+database failed is retried on the next scrape).
+
 ### Maintenance windows
 
 `trust.maintenance_window` and the standing policy's `maintenance_windows`
