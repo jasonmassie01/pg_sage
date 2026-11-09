@@ -1183,16 +1183,18 @@ and the catalog, never from evidence or an LLM.
 - **Execution route by typed action.** Only `create_index_concurrently`,
   `reindex_concurrently`, `drop_unused_index`, `revert_created_index`,
   `vacuum_table` and `alter_system_guc` run outside a transaction and keep
-  `safety.lock_timeout_ms`; every other statement, including an unclassified
-  rollback, runs in a transaction under the policy's
-  `lock_duration_ceiling_ms`. A keyword in a table name (`concurrently_log`)
-  no longer changes the route.
+  `safety.lock_timeout_ms`; every other statement runs in a transaction under
+  the tighter of the policy's `lock_duration_ceiling_ms` and
+  `safety.lock_timeout_ms`. An automatic rollback routes the same way, but
+  always under `safety.lock_timeout_ms` (it carries no policy ceiling). A
+  keyword in a table name (`concurrently_log`) no longer changes the route.
 - **`target_mismatch`.** A self-initiated finding whose object type names a
   relation (`table`, `index`, `view`, `materialized_view`,
   `partitioned_table`), and a custodian proposal, must change the object it
   names: its statement target is compared with the finding's identifier
   (an optimizer finding's table; a trailing column list is ignored) with
-  `public` as the default schema and unquoted names folded to lower case. A
+  `public` as the default schema and unquoted names folded to lower case (a
+  catalog-form name such as `public.my table` matches its quoted spelling). A
   difference is `blocked` with the reason `target_mismatch` before any lease
   is taken; the detail names both objects, and an approval does not lift it.
   A finding with no identifier leases its statement's target. Rollbacks of
