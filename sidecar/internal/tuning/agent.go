@@ -50,6 +50,12 @@ type Settings struct {
 	// DailyTokenLimit caps the model tokens per UTC day, charged durably
 	// to the database (0 = no daily cap; the spend is still recorded).
 	DailyTokenLimit int64
+	// HintAbsentCycles is tuner.hint_absent_cycles: the cycles an open
+	// query_tuning finding's statement must be absent, or below the tuner's
+	// admission, before it resolves (0 or less means 3).
+	HintAbsentCycles int
+	// HintAdmission is the query tuner's admission of a statement.
+	HintAdmission HintAdmission
 }
 
 // Deps are the agent's collaborators. Model may be nil (the agent then
@@ -155,7 +161,7 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 	if err != nil {
 		return analyzer.TuningOutput{Failed: cats}, err
 	}
-	kept, busy := a.keepOpen(ctx, cur, open, cases)
+	kept, busy := a.keepOpen(ctx, cur, prev, open, cases)
 	out := analyzer.TuningOutput{Evaluated: cats, Findings: kept}
 	var ask []Case
 	for _, c := range cases {

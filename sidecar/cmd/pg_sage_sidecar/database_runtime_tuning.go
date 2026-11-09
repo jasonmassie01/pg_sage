@@ -93,6 +93,11 @@ func tuningSettings(c *config.Config, cloudEnv, dbName string, hostMem int64) tu
 		Thresholds:      tuning.DefaultThresholds(),
 		MaxNewPerTable:  c.LLM.Optimizer.MaxNewPerTable,
 		DailyTokenLimit: tuningDailyTokens(c),
+		// tuning-06: open query_tuning findings resolve against the tuner's
+		// own admission.
+		HintAbsentCycles: c.Tuner.HintAbsentCycles,
+		HintAdmission: tuning.HintAdmission{MinCalls: c.Tuner.MinQueryCalls,
+			PlanTimeRatio: c.Tuner.PlanTimeRatio},
 	}
 }
 

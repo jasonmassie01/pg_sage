@@ -451,6 +451,8 @@ type TunerConfig struct {
 	// v0.8.5 Feature 1 — Hint revalidation loop.
 	HintRetirementDays        int `yaml:"hint_retirement_days" doc:"Hints older than this many days are stamped due for re-verification (reverify_due); they stay installed. 0 disables the age rule. Default 14."`
 	RevalidationIntervalHours int `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
+	// tuning-06: open query_tuning findings resolve.
+	HintAbsentCycles int `yaml:"hint_absent_cycles" doc:"Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3."`
 
 	// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE action.
 	StaleStatsEstimateSkew float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
@@ -1029,6 +1031,7 @@ func newDefaults() *Config {
 			// Feature 1 — Hint revalidation loop.
 			HintRetirementDays:        DefaultTunerHintRetirementDays,
 			RevalidationIntervalHours: DefaultTunerRevalidationIntervalHours,
+			HintAbsentCycles:          DefaultTunerHintAbsentCycles,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
 			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,

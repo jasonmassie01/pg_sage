@@ -35,7 +35,8 @@ func runStatement(t *testing.T, pool *pgxpool.Pool, sql, fragment string, n int)
 	}
 	var qid int64
 	if err := pool.QueryRow(ctx, `SELECT queryid FROM pg_stat_statements
-		WHERE strpos(query, $1) > 0 AND query NOT LIKE '%pg_stat_statements%' AND dbid = (SELECT oid FROM pg_database
+		WHERE strpos(query, $1) > 0 AND query NOT LIKE '%pg_stat_statements%'
+		  AND dbid = (SELECT oid FROM pg_database
 		                             WHERE datname = current_database())
 		LIMIT 1`, fragment).Scan(&qid); err != nil {
 		t.Fatalf("queryid of %q: %v", sql, err)

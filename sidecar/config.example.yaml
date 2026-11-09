@@ -182,6 +182,9 @@ tuner:
   # removes a working hint. See docs/hint-verification.md "Hint lifecycle".
   hint_retirement_days: 14              # Mark hints due for re-verification after this (0 disables)
   revalidation_interval_hours: 24       # How often the loop runs (0 disables)
+  # Cycles an open query_tuning finding's statement must be absent from
+  # pg_stat_statements, or below the admission thresholds, before it resolves.
+  hint_absent_cycles: 3
 
   # Stale-statistics detection + ANALYZE action.
   # Detects row-estimate skew in plans, cross-references pg_stat_user_tables,

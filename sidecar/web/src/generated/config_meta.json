@@ -2973,6 +2973,12 @@
     "doc": "Master switch for the per-query tuner. When false, no hints are written and Tune() is a no-op — the analyzer still runs.",
     "class": "safety_critical"
   },
+  "tuner.hint_absent_cycles": {
+    "type": "int",
+    "default": 3,
+    "doc": "Analyzer cycles a query_tuning finding's statement must be absent from pg_stat_statements, or below the tuner's admission thresholds, before it resolves. 0 or less means 3. Default 3.",
+    "class": "derivable"
+  },
   "tuner.hint_retirement_days": {
     "type": "int",
     "default": 14,

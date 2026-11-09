@@ -29,7 +29,6 @@ func queryHintFinding(qid int64) analyzer.Finding {
 		RecommendedSQL: "INSERT INTO hint_plan.hints ...", ActionRisk: "safe"}
 }
 
-
 // stmtSnap is a snapshot holding one statement's cumulative counters.
 func stmtSnap(qid, calls int64, totalMs float64, temp int64) *collector.Snapshot {
 	return &collector.Snapshot{Queries: []collector.QueryStats{{QueryID: qid,
