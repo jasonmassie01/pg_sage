@@ -13,8 +13,10 @@ turns setting changes that SQL cannot make into proposals with the exact provide
 
 pg_sage names the provider of each database from its host name or, failing that, from SQL
 probes (`aurora_version()` and the `rds.*`, `alloydb.*`, `cloudsql.*` and `azure.*`
-settings). Each probe has its own 2 second timeout. "Function does not exist" or an unset
-setting means "not this provider"; no match means `self-managed`.
+settings). The last probe statement also recognizes Neon (a `neon.tenant_id` or
+`neon.timeline_id` setting) and Supabase (the `supabase_admin` role) behind a custom domain,
+so detection stays at five statements. Each probe has its own 2 second timeout. "Function
+does not exist" or an unset setting means "not this provider"; no match means `self-managed`.
 
 A probe that fails (a timeout, a dropped connection, a permission error) makes the provider
 `unknown`, never `self-managed`. At startup the probes retry after 1, 2 and 4 seconds. An
@@ -25,6 +27,23 @@ change and rebuilds that database's runtime (YAML fleet and meta-db databases). 
 standalone mode, and for the control database of a YAML fleet, it cannot rebuild one
 runtime, so readiness shows `provider re-probe found <provider>; restart pg_sage to apply`
 until you restart.
+
+### Provider override
+
+`postgres.provider` (standalone) and `databases[].provider` (fleet) name the provider
+yourself: `rds`, `aurora`, `cloud-sql`, `alloydb`, `azure`, `azure-cosmos`, `lakebase`,
+`neon`, `supabase` or `self-managed`. Any other value fails validation. The override can
+only narrow what detection says:
+
+- While the probes say `unknown`, the override is used. The re-probe keeps running; when it
+  agrees, nothing changes, and when it disagrees, the runtime is rebuilt with the detected
+  provider.
+- When it agrees with detection, it changes nothing.
+- When it disagrees, pg_sage keeps the detected provider and logs a warning. In particular
+  `self-managed` never replaces a detected managed provider, so it cannot unlock
+  `ALTER SYSTEM` on RDS, Cloud SQL or Azure.
+
+Meta-db (store) databases have no override key; their provider always comes from detection.
 
 ## What the telemetry is used for
 
@@ -149,10 +168,57 @@ privilege)", not as a neutral result.
 ## Identity and credentials
 
 The resource is named by the connection host: an RDS instance endpoint, an Aurora cluster
-(writer) endpoint, or a Cloud SQL IP address (matched through the Admin API). Reader endpoints,
-RDS Proxy and custom DNS are not resolved; in standalone mode set
-`cloud_telemetry.aws.db_instance_identifier` (or `db_cluster_identifier`) and `region`, or
-`cloud_telemetry.gcp.instance`. Fleet databases are always identified from their hosts.
+(writer) endpoint, a Cloud SQL Auth Proxy socket (`/cloudsql/<project>:<region>:<instance>`),
+or a Cloud SQL IP address (matched through the Admin API). A host that names the resource
+always wins. When it does not, name the resource with `cloud_resource` on `postgres:`
+(standalone) or on each `databases[]` entry (fleet). The older standalone-only
+`cloud_telemetry.aws.*` and `cloud_telemetry.gcp.instance` names still work when
+`cloud_resource` is empty.
+
+```yaml
+databases:
+  - name: orders                 # RDS Proxy, an IP or custom DNS
+    host: orders-proxy.proxy-abc123.us-east-1.rds.amazonaws.com
+    provider: rds
+    cloud_resource:
+      aws:
+        db_instance_identifier: orders-prod   # or cluster_identifier for Aurora
+        region: us-east-1
+  - name: billing                # Cloud SQL Auth Proxy on TCP
+    host: 127.0.0.1
+    provider: cloud-sql
+    cloud_resource:
+      gcp:
+        project: my-project
+        instance: billing-main
+  - name: ledger                 # Azure flexible server behind private DNS
+    host: ledger.db.internal
+    provider: azure
+    cloud_resource:
+      azure:
+        subscription: 00000000-0000-0000-0000-000000000000
+        resource_group: rg-ledger
+        server: ledger-flex
+```
+
+- **Cloud SQL Auth Proxy.** Through the unix socket (`host=/cloudsql/<project>:<region>:<instance>`)
+  the socket names the instance: it is read directly and never listed. Through TCP on
+  `127.0.0.1` (or any loopback address, or `localhost`) the address never matches an
+  instance. Without `cloud_resource.gcp.instance` telemetry reports unavailable, names the
+  Auth Proxy, and makes no Google API call.
+- **RDS Proxy.** A proxy endpoint (`<proxy>.proxy-<id>.<region>.rds.amazonaws.com`) does not
+  name the instance behind it. Set `cloud_resource.aws.db_instance_identifier` (or
+  `cluster_identifier` for Aurora) and `region`. The SQL probes still see the real server, so
+  the provider is detected as usual.
+- **Custom DNS or an IP.** Set the `cloud_resource` block of the cloud. For Cloud SQL by IP the
+  instance is found by its IP once through `instances.list`; naming it skips that call.
+- **Azure.** `cloud_resource.azure` (`subscription`, `resource_group` and `server`, all three)
+  wins over `azure.*` for that database. A `<name>.postgres.database.azure.com` host still
+  names the server.
+
+A `cloud_resource` block names one cloud, and when `provider` is set it must match it: `aws`
+for `rds` or `aurora`, `gcp` for `cloud-sql`, `azure` for `azure`. The block identifies the
+resource only; it never changes the detected provider.
 
 An Aurora instance endpoint (`writer-1.abc.us-east-1.rds.amazonaws.com`) is Aurora, not
 RDS, when PostgreSQL reports Aurora (`aurora_version()`) or `DescribeDBInstances` reports an
@@ -173,8 +239,9 @@ Credentials come only from the standard chains and are never stored, logged or p
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
-  `roles/cloudsql.viewer`. The project comes from `cloud_telemetry.gcp.project` or the
-  credentials.
+    roles/cloudsql.viewer`. The project comes from the Auth Proxy socket,
+  `cloud_resource.gcp.project`, `cloud_telemetry.gcp.project` or the credentials, in that
+  order.
 
 Without credentials telemetry reports `unavailable: <reason>` (see
 `GET /api/v1/cloud-telemetry`) and pg_sage behaves as before.

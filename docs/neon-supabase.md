@@ -29,7 +29,10 @@ SAGE_PG_DATABASE and SAGE_PG_SSLMODE. SAGE_PG_MAX_CONNS bounds the sidecar pool.
 pool on Free plans and leave capacity for your application and provider services.
 
 For a fleet, register each database endpoint independently and preserve its provider, database name,
-trust level and connection settings. Provider detection recognizes the hosted endpoint domains.
+trust level and connection settings. Provider detection recognizes the hosted endpoint domains and,
+behind a custom domain, a `neon.*` setting (Neon) or the `supabase_admin` role (Supabase). To pin
+the provider anyway, set `databases[].provider: neon` (or `supabase`); the override applies while
+detection cannot tell and never replaces what it detects (see docs/managed-clouds.md).
 Keep observation mode until findings and permissions have been reviewed.
 
 ## Capabilities and configuration
