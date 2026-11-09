@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // vacuum-02 on real PostgreSQL: every kind of xmin-horizon holder is
@@ -33,14 +34,6 @@ func burnForRed(t *testing.T, pool *pgxpool.Pool) int {
 		t.Fatalf("read autovacuum_freeze_max_age: %v", err)
 	}
 	return int(float64(maxAge)*(100-holderRedBuffer)/100) + 600
-}
-
-// burnXIDs consumes n XIDs, one committed transaction each.
-func burnXIDs(t *testing.T, pool *pgxpool.Pool, n int) {
-	t.Helper()
-	bloatTestExec(t, pool, fmt.Sprintf(`DO $$ BEGIN
-		FOR i IN 1..%d LOOP PERFORM pg_catalog.pg_current_xact_id(); COMMIT; END LOOP;
-		END $$`, n))
 }
 
 // holderTables creates hfx.<prefix>NN (one row each, autovacuum off,
@@ -134,7 +127,7 @@ func TestFreezeHoldersNameAnIdleWriterByItsXID(t *testing.T) {
 	holderSchema(t, pool)
 	tables := holderTables(t, pool, "w", 2, "")
 	pid := idleWriter(t, pool, tables[0])
-	burnXIDs(t, pool, burnForRed(t, pool))
+	testdb.BurnXIDs(t, context.Background(), pool, burnForRed(t, pool))
 	settleShares(t, pool, "SELECT age(backend_xid) FROM pg_stat_activity WHERE pid = $2", pid,
 		map[string]shareBand{tables[0]: pinsAll, tables[1]: pinsAll})
 
@@ -162,7 +155,7 @@ func TestFreezeHoldersOneProposalForFiftyRedTablesLive(t *testing.T) {
 	holderSchema(t, pool)
 	tables := holderTables(t, pool, "f", 50, "")
 	pid := holdSnapshot(t, pool, "orders_api")
-	burnXIDs(t, pool, burnForRed(t, pool))
+	testdb.BurnXIDs(t, context.Background(), pool, burnForRed(t, pool))
 	// A writer another package holds in this database while a table is
 	// created dates its relfrozenxid back; the holder must still pin all 50.
 	bands := map[string]shareBand{}
@@ -262,7 +255,7 @@ func settleShares(t *testing.T, pool *pgxpool.Pool, holderSQL string, arg any,
 			t.Fatalf("holder cannot reach every band %v: needs %d XIDs, at most %d fit",
 				bands, need, ceiling)
 		}
-		burnXIDs(t, pool, min(need+settleMargin, ceiling))
+		testdb.BurnXIDs(t, context.Background(), pool, min(need+settleMargin, ceiling))
 	}
 	t.Fatalf("holder never reached its share bands %v", bands)
 }
@@ -288,10 +281,10 @@ func TestFreezeHoldersEscalatePreparedTransactions(t *testing.T) {
 	holderSchema(t, pool)
 	burn := burnForRed(t, pool)
 	older := holderTables(t, pool, "old", 1, "")
-	burnXIDs(t, pool, 3*burn)
+	testdb.BurnXIDs(t, context.Background(), pool, 3*burn)
 	younger := holderTables(t, pool, "new", 1, "")
 	hash := preparedGID(t, pool, younger[0])
-	burnXIDs(t, pool, burn)
+	testdb.BurnXIDs(t, context.Background(), pool, burn)
 	settleShares(t, pool, "SELECT age(transaction) FROM pg_prepared_xacts WHERE md5(gid) = $2",
 		hash, map[string]shareBand{older[0]: pinsAndFreezes, younger[0]: pinsAll})
 
@@ -350,7 +343,7 @@ func TestFreezeHoldersNameALogicalSlotOnCatalogTables(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "SELECT pg_drop_replication_slot($1)", slot)
 	})
-	burnXIDs(t, pool, burnForRed(t, pool))
+	testdb.BurnXIDs(t, context.Background(), pool, burnForRed(t, pool))
 	settleShares(t, pool, "SELECT age(catalog_xmin) FROM pg_replication_slots "+
 		"WHERE slot_name = $2", slot, map[string]shareBand{catalog[0]: pinsAll})
 
@@ -402,7 +395,7 @@ func TestXminHoldersSkipALazyVacuum(t *testing.T) {
 		SELECT g AS id FROM generate_series(1, 200000) g; DELETE FROM hfx.slow WHERE id % 2 = 0`)
 	pid := slowVacuum(t, pool, "hfx.slow")
 
-	holders, err := NewPostgresFreezeCustodian(pool, "testdb", 25).xminHolders(ctx, pool)
+	holders, err := readXminHolders(ctx, pool)
 
 	if err != nil {
 		t.Fatalf("xminHolders: %v", err)

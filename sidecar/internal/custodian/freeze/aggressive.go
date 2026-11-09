@@ -30,9 +30,8 @@ func AggressiveVacuumAges(
 // XID or multixact age is at or above its aggressive age, VACUUM (FREEZE)
 // otherwise or when the ages are unknown.
 func VacuumSQL(schema, table string, xidAge, mxidAge int64, at AggressiveAges) string {
-	target := quoteIdent(schema) + "." + quoteIdent(table)
 	if at.Known && (xidAge >= at.XID || mxidAge >= at.MultiXact) {
-		return "VACUUM " + target
+		return "VACUUM " + quoteIdent(schema) + "." + quoteIdent(table)
 	}
-	return "VACUUM (FREEZE) " + target
+	return VacuumFreezeSQL(schema, table)
 }

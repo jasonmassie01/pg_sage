@@ -90,10 +90,11 @@ func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 			t.Fatalf("unsafe or unscoped freeze proposal: %#v", proposal)
 		}
 	}
-	if _, err := custodian.transactionRates(ctx); err != nil {
-		t.Fatalf("first transactionRates: %v", err)
+	if _, err := custodian.Sampler().Read(ctx); err != nil {
+		t.Fatalf("first sampler read: %v", err)
 	}
-	rates, err := custodian.transactionRates(ctx)
+	reading, err := custodian.Sampler().Read(ctx)
+	rates := reading.rates
 	if err != nil || !rates.known || rates.xid <= 0 || rates.mxid <= 0 {
 		t.Fatalf("transactionRates = %#v, %v", rates, err)
 	}

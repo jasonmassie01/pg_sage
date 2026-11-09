@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // custodianBloatConfirmPerCycle bounds the pgstattuple confirmations of one
@@ -20,7 +21,7 @@ const custodianBloatConfirmPerCycle = 3
 // bloatConfirmer measures one heap's bloat ratio (table oid).
 type bloatConfirmer func(ctx context.Context, oid int64) (float64, error)
 
-// freezeRow is one table of freezeHorizonSQL with its bloat estimate.
+// freezeRow is one table horizon with its bloat estimate.
 type freezeRow struct {
 	sample       freeze.HorizonSample
 	deadRatio    float64
@@ -32,24 +33,24 @@ type freezeRow struct {
 	confirmError string
 	// userCatalog is a user_catalog_table: a slot's catalog_xmin holds it.
 	userCatalog bool
+	// catalog is a system catalog: planned for an operator, never vacuumed
+	// by the custodian.
+	catalog bool
 }
 
-func scanHorizonRow(row interface{ Scan(...any) error }) (freezeRow, error) {
-	var out freezeRow
-	var pages int64
-	var expected *float64
-	var xidTableAge, mxidTableAge *int64
-	s := &out.sample
-	if err := row.Scan(&s.Schema, &s.Table, &s.XIDAge, &s.XIDMaxAge,
-		&s.MultiXactAge, &s.MultiXactMaxAge, &out.deadRatio,
-		&out.oid, &pages, &out.heapBytes, &expected, &out.userCatalog,
-		&xidTableAge, &mxidTableAge); err != nil {
-		return freezeRow{}, fmt.Errorf("scan freeze response: %w", err)
-	}
-	s.Aggressive = aggressiveAges(xidTableAge, mxidTableAge, s.XIDMaxAge, s.MultiXactMaxAge)
-	out.bloat, out.bloatKnown = freeze.EstimatedBloat(pages, expected)
+// newFreezeRow answers one horizon of the shared reader. A manual VACUUM
+// is aggressive from the settings' maxima, not the table's reloption.
+func newFreezeRow(h probes.FreezeHorizon) freezeRow {
+	out := freezeRow{deadRatio: h.DeadTupleRatio, oid: h.OID, heapBytes: h.HeapBytes,
+		userCatalog: h.UserCatalog, catalog: h.Catalog,
+		sample: freeze.HorizonSample{Schema: h.Schema, Table: h.Table, XIDAge: h.XIDAge,
+			XIDMaxAge: h.XIDMaxAge, MultiXactAge: h.MultiXactAge,
+			MultiXactMaxAge: h.MultiXactMaxAge}}
+	out.sample.Aggressive = aggressiveAges(h.FreezeTableAge, h.MultiXactFreezeTableAge,
+		h.SettingXIDMaxAge, h.SettingMultiXactMax)
+	out.bloat, out.bloatKnown = freeze.EstimatedBloat(h.Pages, h.ExpectedPages)
 	out.bloatSource = freeze.BloatSourceEstimate
-	return out, nil
+	return out
 }
 
 // aggressiveAges derives the ages at which a plain VACUUM is aggressive; a
@@ -71,6 +72,7 @@ func (c *PostgresFreezeCustodian) WithBloatBounds(
 ) *PostgresFreezeCustodian {
 	if minBytes > 0 {
 		c.bloatMinBytes = minBytes
+		c.sampler.bloatMinBytes = minBytes
 	}
 	defaults := catalogread.Default()
 	if confirm.Statement <= 0 {
@@ -86,7 +88,7 @@ func (c *PostgresFreezeCustodian) WithBloatBounds(
 // isBloatCandidate reports a heap whose catalog estimate already plans a
 // rebuild: only those are worth a pgstattuple confirmation.
 func (c *PostgresFreezeCustodian) isBloatCandidate(row freezeRow) bool {
-	return row.bloatKnown && row.bloat >= freeze.BloatPlanThreshold &&
+	return !row.catalog && row.bloatKnown && row.bloat >= freeze.BloatPlanThreshold &&
 		row.heapBytes >= c.bloatMinBytes
 }
 

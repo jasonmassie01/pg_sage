@@ -45,9 +45,8 @@ func holdSnapshot(t *testing.T, pool *pgxpool.Pool, appName string) int {
 func TestXminHoldersMarkProtectedApplications(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	protected := holdSnapshot(t, pool, "pg_dump")
-	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
 
-	holders, err := custodian.xminHolders(context.Background(), pool)
+	holders, err := readXminHolders(context.Background(), pool)
 
 	if err != nil {
 		t.Fatalf("xminHolders: %v", err)
@@ -65,9 +64,8 @@ func TestXminHoldersMarkProtectedApplications(t *testing.T) {
 func TestXminHoldersCaptureBackendIdentity(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	pid := holdSnapshot(t, pool, "xmin_holder_app")
-	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
 
-	holders, err := custodian.xminHolders(context.Background(), pool)
+	holders, err := readXminHolders(context.Background(), pool)
 
 	if err != nil {
 		t.Fatalf("xminHolders: %v", err)

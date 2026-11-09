@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // No unit-only variant: age() references exist only on a real server.
@@ -81,7 +82,7 @@ func TestFreezeScanReadsHoldersAndHorizonsAtOneAgeReference(t *testing.T) {
 	holderSchema(t, pool)
 	tables := holderTables(t, pool, "r", 1, "")
 	pid := idleWriter(t, pool, tables[0])
-	burnXIDs(t, pool, burnForRed(t, pool))
+	testdb.BurnXIDs(t, context.Background(), pool, burnForRed(t, pool))
 	settleShares(t, pool, "SELECT age(backend_xid) FROM pg_stat_activity WHERE pid = $2", pid,
 		map[string]shareBand{tables[0]: pinsAll})
 	var tableAge int
@@ -103,7 +104,7 @@ func TestFreezeScanReadsHoldersAndHorizonsAtOneAgeReference(t *testing.T) {
 	waitForGate(t, pool)
 	// A quarter of the table's age: measured against a fresh reference the
 	// writer would hold under 0.8 of it, and a freeze would look useful.
-	burnXIDs(t, pool, tableAge/4)
+	testdb.BurnXIDs(t, context.Background(), pool, tableAge/4)
 	release()
 	r := <-done
 
