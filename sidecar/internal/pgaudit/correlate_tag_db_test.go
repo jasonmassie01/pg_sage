@@ -18,13 +18,15 @@ const cicSQL = "CREATE INDEX CONCURRENTLY orders_status ON orders (status)"
 const cicRecord = `AUDIT: SESSION,1,1,DDL,CREATE INDEX,INDEX,public.orders_status,"` +
 	cicSQL + `",<not logged>`
 
-// seedDecision records one standing-gate decision and returns its id.
+// seedDecision records one standing-gate decision, with its own evidence
+// id (evidence ids are unique), and returns its id.
 func seedDecision(t *testing.T, pool *pgxpool.Pool) int64 {
 	t.Helper()
 	var id int64
 	if err := pool.QueryRow(context.Background(), `INSERT INTO sage.decision (feature,
 		intent, verdict, risk_tier, reason, evidence_id, policy_version) VALUES
-		('executor', 'create_index', 'execute', 'safe', 'missing index', 'ev-1', 3)
+		('executor', 'create_index', 'execute', 'safe', 'missing index',
+		 'ev-' || gen_random_uuid(), 3)
 		RETURNING id`).Scan(&id); err != nil {
 		t.Fatalf("seed decision: %v", err)
 	}
