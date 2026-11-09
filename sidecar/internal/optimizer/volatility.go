@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -99,47 +100,98 @@ func functionCalls(frag string) []funcCall {
 	return calls
 }
 
-// volatilitySQL reads the overloads of a function name that an index
-// expression may bind to: pg_catalog's, and members of allowlisted
-// extensions, restricted to the call's schema when it is qualified ($3).
-// A name in any other schema (a planted public.lower) is never counted.
-const volatilitySQL = `SELECT bool_and(p.provolatile = 'i'), count(*)
-FROM pg_catalog.pg_proc p
-JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-WHERE p.proname = $1
-  AND ($3::text = '' OR n.nspname = $3::text)
-  AND (n.nspname = 'pg_catalog' OR EXISTS (
-    SELECT 1 FROM pg_catalog.pg_depend d
-    JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
-    WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
-      AND d.objid = p.oid
-      AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
-      AND d.deptype = 'e'
-      AND e.extnamespace = p.pronamespace
-      AND e.extname = ANY($2::text[])))`
+// functionSchemasSQL reads, per schema, the functions of a name an index
+// expression may call (restricted to the call's schema when it is
+// qualified, $3): whether every one is IMMUTABLE, and whether every one is
+// trusted, that is in pg_catalog or a member (pg_depend, deptype 'e') of an
+// allowlisted extension in that extension's own schema. A function another
+// role plants (public.lower, or an overload beside an extension's own)
+// leaves its schema untrusted.
+const functionSchemasSQL = `SELECT COALESCE(array_agg(x.nspname ORDER BY x.nspname), '{}'),
+  COALESCE(array_agg(x.immutable ORDER BY x.nspname), '{}'),
+  COALESCE(array_agg(x.trusted ORDER BY x.nspname), '{}')
+FROM (SELECT n.nspname::text AS nspname, bool_and(p.provolatile = 'i') AS immutable,
+    bool_and(n.nspname = 'pg_catalog' OR EXISTS (
+      SELECT 1 FROM pg_catalog.pg_depend d
+      JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid
+      WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+        AND d.objid = p.oid
+        AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+        AND d.deptype = 'e'
+        AND e.extnamespace = p.pronamespace
+        AND e.extname = ANY($2::text[]))) AS trusted
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  WHERE p.proname = $1
+    AND ($3::text = '' OR n.nspname = $3::text)
+  GROUP BY n.nspname) x`
 
-// functionVolatility checks one function call in a bounded read-only
-// catalog transaction. It returns a refusal reason, or "" when every
-// overload pg_sage may bind to is IMMUTABLE.
-func (v *Validator) functionVolatility(ctx context.Context, fn funcCall) string {
+// schemaFunctions describes the functions of one name in one schema.
+type schemaFunctions struct {
+	schema             string
+	immutable, trusted bool
+}
+
+// functionSchemas reads where fn's name is defined, in a bounded
+// read-only catalog transaction.
+func (v *Validator) functionSchemas(ctx context.Context, fn funcCall) ([]schemaFunctions, error) {
 	reader := catalogread.New(v.catalog, v.timeouts)
-	var immutable *bool
-	var overloads int64
 	extensions := v.extensions
 	if extensions == nil {
 		extensions = []string{}
 	}
-	err := reader.QueryRow(ctx, volatilitySQL, fn.name, extensions, fn.schema).
-		Scan(&immutable, &overloads)
+	var schemas []string
+	var immutable, trusted []bool
+	err := reader.QueryRow(ctx, functionSchemasSQL, fn.name, extensions, fn.schema).
+		Scan(&schemas, &immutable, &trusted)
+	if err != nil {
+		return nil, err
+	}
+	if len(immutable) != len(schemas) || len(trusted) != len(schemas) {
+		return nil, fmt.Errorf("catalog returned %d schemas, %d volatility and %d trust flags",
+			len(schemas), len(immutable), len(trusted))
+	}
+	out := make([]schemaFunctions, len(schemas))
+	for i := range schemas {
+		out[i] = schemaFunctions{schema: schemas[i], immutable: immutable[i], trusted: trusted[i]}
+	}
+	return out, nil
+}
+
+// bindFunction chooses the schema a call binds to and returns it, or a
+// refusal reason. A qualified call binds its own schema, which must be
+// trusted. A bare call binds pg_catalog when pg_catalog has the name (the
+// only schema the executor's pinned search_path searches for functions),
+// otherwise the one trusted extension schema that defines it. Every
+// function of the name in the bound schema must be IMMUTABLE.
+func bindFunction(fn funcCall, found []schemaFunctions) (string, string) {
+	var bound *schemaFunctions
+	var trusted []string
+	for i := range found {
+		f := &found[i]
+		if f.schema == fn.schema || (fn.schema == "" && f.schema == "pg_catalog") {
+			bound = f
+			break
+		}
+		if fn.schema == "" && f.trusted {
+			trusted = append(trusted, f.schema)
+			bound = f
+		}
+	}
 	switch {
-	case err != nil:
-		return fmt.Sprintf("volatility lookup for %s failed, index refused: %v", fn, err)
-	case overloads == 0:
-		return "function_schema_not_allowed: " + fn.String() +
+	case fn.schema == "" && bound != nil && bound.schema != "pg_catalog" && len(trusted) > 1:
+		return "", "function_schema_not_allowed: " + fn.String() + " is defined by several " +
+			"allowlisted extensions (" + strings.Join(trusted, ", ") + "); name its schema"
+	case bound == nil:
+		return "", "function_schema_not_allowed: " + fn.String() +
 			" has no function in pg_catalog or an allowlisted extension"
-	case immutable == nil || !*immutable:
-		return "function " + fn.String() + " is not IMMUTABLE in every pg_catalog or " +
+	case !bound.trusted:
+		return "", "function_schema_not_allowed: " + fn.String() + " resolves to " +
+			bound.schema + ", which holds a function of that name outside pg_catalog " +
+			"and the allowlisted extensions"
+	case !bound.immutable:
+		return "", "function " + fn.String() + " is not IMMUTABLE in every pg_catalog or " +
 			"allowlisted extension overload"
 	}
-	return ""
+	return bound.schema, ""
 }

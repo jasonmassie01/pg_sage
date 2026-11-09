@@ -414,7 +414,7 @@ func TestCoverage_LookupFindingID_WithMatch(t *testing.T) {
 		         'public.coverage_test_obj',
 		         'test finding for coverage',
 		         '{}', 'test recommendation',
-		         'CREATE INDEX idx_cov ON t (c)')
+		         'CREATE INDEX idx_cov ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -496,7 +496,7 @@ func TestCoverage_LogAction_Success(t *testing.T) {
 		 VALUES ('test_logaction_cat', 'warning', 'index',
 		         'public.logaction_obj',
 		         'test finding for logAction',
-		         '{}', 'rec', 'CREATE INDEX idx_la ON t (c)')
+		         '{}', 'rec', 'CREATE INDEX idx_la ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -527,7 +527,7 @@ func TestCoverage_LogAction_Success(t *testing.T) {
 
 	f := analyzer.Finding{
 		Title:          "test finding for logAction",
-		RecommendedSQL: "CREATE INDEX idx_la ON t (c)",
+		RecommendedSQL: "CREATE INDEX idx_la ON public.t (c)",
 		RollbackSQL:    "DROP INDEX idx_la",
 		ActionRisk:     "safe",
 	}
@@ -592,7 +592,7 @@ func TestCoverage_LogAction_Failed(t *testing.T) {
 		 VALUES ('test_logaction_fail_cat', 'warning', 'index',
 		         'public.logaction_fail_obj',
 		         'test finding for failed logAction',
-		         '{}', 'rec', 'CREATE INDEX idx_laf ON t (c)')
+		         '{}', 'rec', 'CREATE INDEX idx_laf ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -621,7 +621,7 @@ func TestCoverage_LogAction_Failed(t *testing.T) {
 
 	f := analyzer.Finding{
 		Title:          "test finding for failed logAction",
-		RecommendedSQL: "CREATE INDEX idx_laf ON t (c)",
+		RecommendedSQL: "CREATE INDEX idx_laf ON public.t (c)",
 		RollbackSQL:    "DROP INDEX idx_laf",
 		ActionRisk:     "safe",
 	}
@@ -883,7 +883,7 @@ func TestCoverage_ExecuteManual_EmergencyStop(t *testing.T) {
 
 	withTestStandingGate(e)
 	_, err := e.ExecuteManual(ctx, 1,
-		"CREATE INDEX idx_em ON t (c)", "", nil)
+		"CREATE INDEX idx_em ON public.t (c)", "", nil)
 	if err == nil {
 		t.Fatal("expected error for emergency stop, got nil")
 	}
@@ -1973,7 +1973,7 @@ func TestCoverage_RunCycle_InfoSeverityProcessed(t *testing.T) {
 			Severity:         "info",
 			ObjectIdentifier: "public.rc_info_sev",
 			Title:            "info finding",
-			RecommendedSQL:   "CREATE INDEX idx_info ON t (c)",
+			RecommendedSQL:   "CREATE INDEX idx_info ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2003,7 +2003,7 @@ func TestCoverage_RunCycle_ShouldExecuteFalse(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_obs_block",
 			Title:            "blocked by observation",
-			RecommendedSQL:   "CREATE INDEX idx_obs ON t (c)",
+			RecommendedSQL:   "CREATE INDEX idx_obs ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2033,7 +2033,7 @@ func TestCoverage_RunCycle_CascadeCooldownSkips(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_cascade_obj",
 			Title:            "cascade test",
-			RecommendedSQL:   "CREATE INDEX idx_casc ON t (c)",
+			RecommendedSQL:   "CREATE INDEX idx_casc ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2081,7 +2081,7 @@ func TestCoverage_RunCycle_NoDBFinding(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.no_db_finding_xyz",
 			Title:            "no db finding",
-			RecommendedSQL:   "CREATE INDEX idx_nodb ON t (c)",
+			RecommendedSQL:   "CREATE INDEX idx_nodb ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2115,7 +2115,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 		         'public.rc_approval_obj',
 		         'approval mode test',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_appr ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_appr ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2137,7 +2137,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_approval_obj",
 			Title:            "approval mode test",
-			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr ON public.t (c)",
 			RollbackSQL:      "DROP INDEX idx_appr",
 			ActionRisk:       "safe",
 		},
@@ -2167,7 +2167,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 		t.Errorf("proposed findingID = %d, want %d",
 			mp.calls[0].findingID, findingID)
 	}
-	if mp.calls[0].sql != "CREATE INDEX CONCURRENTLY idx_appr ON t (c)" {
+	if mp.calls[0].sql != "CREATE INDEX CONCURRENTLY idx_appr ON public.t (c)" {
 		t.Errorf("proposed sql = %q", mp.calls[0].sql)
 	}
 }
@@ -2185,7 +2185,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 		         'public.rc_appr_pending_obj',
 		         'approval pending test',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_appr_pending ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_appr_pending ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2207,7 +2207,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_pending_obj",
 			Title:            "approval pending test",
-			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr_pending ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr_pending ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2315,7 +2315,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 		         'public.rc_appr_reject_obj',
 		         'approval rejected test',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_appr_reject ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_appr_reject ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2337,7 +2337,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_reject_obj",
 			Title:            "approval rejected test",
-			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr_reject ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr_reject ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2382,7 +2382,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 		         'public.rc_appr_disp_obj',
 		         'approval dispatch test',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_ad ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_ad ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2404,7 +2404,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_disp_obj",
 			Title:            "approval dispatch test",
-			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_ad ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_ad ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2452,7 +2452,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 		         'public.rc_appr_err_obj',
 		         'approval error test',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_ae ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_ae ON public.t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2474,7 +2474,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_err_obj",
 			Title:            "approval error test",
-			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_ae ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_ae ON public.t (c)",
 			ActionRisk:       "safe",
 		},
 	})

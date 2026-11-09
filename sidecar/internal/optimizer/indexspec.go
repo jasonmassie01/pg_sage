@@ -114,10 +114,13 @@ func (s *ddlScanner) parseBody(spec *IndexSpec) error {
 		}
 		spec.Method = strings.ToLower(m)
 	}
+	s.skipSpace()
+	s.keysAt = s.pos + 1
 	keys, err := s.parens()
 	if err != nil {
 		return fmt.Errorf("key list: %w", err)
 	}
+	s.keysEnd = s.pos - 1
 	spec.Keys = normalizeFragment(keys)
 	if s.keyword("INCLUDE") {
 		inc, err := s.parens()
@@ -147,6 +150,8 @@ func (s *ddlScanner) parseTail(spec *IndexSpec) error {
 		}
 	}
 	if s.keyword("WHERE") {
+		s.skipSpace()
+		s.whereAt = s.pos
 		spec.Where = normalizeFragment(s.consumeRest())
 		if spec.Where == "" {
 			return fmt.Errorf("empty WHERE predicate")
@@ -159,15 +164,15 @@ func (s *ddlScanner) parseTail(spec *IndexSpec) error {
 }
 
 // Fingerprint is the normalized index definition, independent of the
-// index name and formatting.
+// index name, formatting and pg_catalog qualifiers on its calls.
 func (spec IndexSpec) Fingerprint() string {
 	var b strings.Builder
-	b.WriteString(spec.Method + "(" + spec.Keys + ")")
+	b.WriteString(spec.Method + "(" + dropCatalogQualifiers(spec.Keys) + ")")
 	if spec.Include != "" {
 		b.WriteString(" include(" + spec.Include + ")")
 	}
 	if spec.Where != "" {
-		b.WriteString(" where " + spec.Where)
+		b.WriteString(" where " + dropCatalogQualifiers(spec.Where))
 	}
 	return b.String()
 }

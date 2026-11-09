@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -171,15 +170,17 @@ func TestSearchPathPinBlocksPlantedFunction(t *testing.T) {
 	}
 }
 
-func isUndefinedTable(err error, table string) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "42P01" &&
-		strings.Contains(err.Error(), `relation "`+table+`" does not exist`)
+// isUnqualifiedIndexTarget reports the validation refusal of a CREATE
+// INDEX whose table names no schema (security-01).
+func isUnqualifiedIndexTarget(err error) bool {
+	return errors.Is(err, ErrDisallowedSQL) &&
+		strings.Contains(err.Error(), "INDEX target must be schema-qualified")
 }
 
 // Invalid input: an unqualified target no longer resolves through public;
-// it fails with "relation does not exist" and builds nothing. The same
-// statement qualified still succeeds (the generators qualify targets).
+// since security-01 it is refused at validation, before PostgreSQL sees
+// it, and builds nothing. The same statement qualified still succeeds (the
+// generators qualify targets).
 func TestSearchPathPinRejectsUnqualifiedTarget(t *testing.T) {
 	pool, ctx := requireDB(t)
 	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS public.sp_unq_t;
@@ -191,12 +192,12 @@ func TestSearchPathPinRejectsUnqualifiedTarget(t *testing.T) {
 	})
 	err := ExecConcurrently(ctx, pool,
 		"CREATE INDEX CONCURRENTLY sp_unq_cic ON sp_unq_t (id)", time.Minute)
-	if !isUndefinedTable(err, "sp_unq_t") {
-		t.Fatalf("unqualified CONCURRENTLY error = %v, want relation does not exist", err)
+	if !isUnqualifiedIndexTarget(err) {
+		t.Fatalf("unqualified CONCURRENTLY error = %v, want refused at validation", err)
 	}
 	err = ExecInTransaction(ctx, pool, "CREATE INDEX sp_unq_tx ON sp_unq_t (id)", time.Minute)
-	if !isUndefinedTable(err, "sp_unq_t") {
-		t.Fatalf("unqualified transactional error = %v, want relation does not exist", err)
+	if !isUnqualifiedIndexTarget(err) {
+		t.Fatalf("unqualified transactional error = %v, want refused at validation", err)
 	}
 	var built int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_class
@@ -212,8 +213,9 @@ func TestSearchPathPinRejectsUnqualifiedTarget(t *testing.T) {
 	}
 }
 
-// Invalid input through the action path: the operator action on an
-// unqualified target is recorded failed with PostgreSQL's text.
+// Invalid input through the action path: since security-01 the operator
+// action on an unqualified target is refused at validation, so it never
+// reaches PostgreSQL and records no action.
 func TestSearchPathPinFailsUnqualifiedManualAction(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false, "test")
@@ -245,16 +247,15 @@ func TestSearchPathPinFailsUnqualifiedManualAction(t *testing.T) {
 	withTestStandingGate(e)
 
 	_, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
-	if !isUndefinedTable(err, "sp_unq_manual_t") {
-		t.Fatalf("ExecuteManual error = %v, want relation does not exist", err)
+	if !isUnqualifiedIndexTarget(err) {
+		t.Fatalf("ExecuteManual error = %v, want refused at validation", err)
 	}
-	var outcome, executed string
-	if err := pool.QueryRow(ctx, `SELECT outcome, sql_executed FROM sage.action_log
-		WHERE finding_id = $1 ORDER BY id DESC LIMIT 1`, findingID).Scan(
-		&outcome, &executed); err != nil {
+	var actions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.action_log
+		WHERE finding_id = $1`, findingID).Scan(&actions); err != nil {
 		t.Fatalf("read action_log: %v", err)
 	}
-	if outcome != "failed" || executed != sql {
-		t.Fatalf("action outcome=%q sql=%q, want failed for %q", outcome, executed, sql)
+	if actions != 0 {
+		t.Fatalf("%d actions recorded for SQL refused at validation, want 0", actions)
 	}
 }

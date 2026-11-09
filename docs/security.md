@@ -73,9 +73,27 @@ All data sources are read-only catalog views and statistics:
 - **Never resolves its own DDL through `public`.** Every executor DDL session (transactional
   and `CONCURRENTLY`) runs with `search_path = pg_catalog, pg_temp`, so a function or
   operator another role plants in `public` cannot bind into an index pg_sage builds (the
-  CVE-2018-1058 class). Targets must be schema-qualified: an unqualified table fails with
-  `relation "..." does not exist` and the action is recorded `failed`; the optimizer names
-  the analyzed table's schema in every index it recommends. Operator classes are the one
+  CVE-2018-1058 class). Targets must be schema-qualified: an unqualified `CREATE INDEX`
+  table is refused at validation (`CREATE INDEX target must be schema-qualified`) before
+  PostgreSQL sees it, and other unqualified tables fail with `relation "..." does not
+  exist`; the optimizer names the analyzed table's schema in every index it recommends.
+  Before a `CREATE INDEX` builds, pg_sage checks every function its keys and predicate call
+  and refuses with `function_schema_not_allowed`: a bare call must be a `pg_catalog`
+  function (the only schema a bare name resolves in under the pin; PostgreSQL never
+  searches `pg_temp` for functions), and a call that names another schema
+  (`public.lower(email)`) needs every function of that name there to be a member of an
+  extension installed in that schema. A call qualified by `sage`, `google_ml`,
+  `information_schema` or another protected schema is refused without a catalog read. The
+  check runs before the build because a planted function would already have run, as the
+  table owner, during it. A type or operator named with a schema other than `pg_catalog`
+  (`email::public.d`, `CAST(x AS public.d)`, `public.d 'v'`, `OPERATOR(public.===)`) binds
+  that schema the same way, so it is checked too: a type must be an extension's member, or
+  an enum or domain (down its whole domain chain) whose `CHECK` constraints and casts call
+  only `pg_catalog` and extension functions, and an operator must be an extension's member
+  or run a `pg_catalog` function. A domain whose `CHECK` calls a planted function is
+  refused with `function_schema_not_allowed`; the application's own enum
+  (`'open'::public.state`, as `pg_get_indexdef` prints it under the pin) still restores.
+  Operator classes are the one
   exception, because creating one takes a superuser or a trusted extension, so another role
   cannot plant one. A bare operator class in a `CREATE INDEX` (`gin_trgm_ops`,
   `vector_l2_ops`) runs with its schema named: pg_catalog's class when there is one, else
@@ -99,7 +117,7 @@ All data sources are read-only catalog views and statistics:
   PostgreSQL settings. Lakebase system settings are provider-managed, and
   `ALTER SYSTEM` procedures are withheld. Supported database-level settings
   require database ownership and parameter-specific validation.
-- **Never trusts a function outside `pg_catalog` or an allowlisted extension in an expression index.** Before recommending an index whose keys or predicate call a function, pg_sage checks every overload of that name in `pg_catalog` and every member function of an allowlisted extension (`btree_gin`, `btree_gist`, `citext`, `cube`, `earthdistance`, `fuzzystrmatch`, `hstore`, `intarray`, `ltree`, `pg_trgm`, `postgis`). A function another role planted in `public` (or beside an extension in its schema) is never counted: a name with no such overload is refused with `function_schema_not_allowed`, a call qualified by another schema (`public.lower(...)`) is looked up only in that schema, a quoted function or schema name, a comment, or a character that pg_sage and PostgreSQL read differently (such as a no-break space before `(`) in the expression is refused because it cannot be verified, a name with any non-IMMUTABLE overload (such as `date_trunc`) is refused, and a failed catalog read refuses the index.
+- **Never trusts a function outside `pg_catalog` or an allowlisted extension in an expression index.** Before recommending an index whose keys or predicate call a function, pg_sage binds each call to one schema and names that schema in the recommended DDL (`pg_catalog.lower(email)`), so the index means the same on any `search_path`, including the application's. A bare call binds `pg_catalog` when `pg_catalog` has the name, otherwise the one allowlisted extension (`btree_gin`, `btree_gist`, `citext`, `cube`, `earthdistance`, `fuzzystrmatch`, `hstore`, `intarray`, `ltree`, `pg_trgm`, `postgis`) that defines it in its own schema; a qualified call binds its own schema. The call is refused with `function_schema_not_allowed` when no such schema has the name, when two allowlisted extensions do, or when the bound schema holds a function of that name outside `pg_catalog` and the allowlisted extensions' members (one another role planted in `public`, or beside an extension in its schema). It is refused when any function of the name in the bound schema is not IMMUTABLE (such as `date_trunc`, whose `timestamptz` overload is STABLE), when the expression holds a quoted function or schema name, a comment, or a character that pg_sage and PostgreSQL read differently (such as a no-break space before `(`), and when the catalog read fails. Grammar forms (`EXTRACT(... FROM ...)`, `SUBSTRING(... FROM ...)`, `NORMALIZE`, `POSITION`, `OVERLAY`) stay bare: the grammar binds them to `pg_catalog` itself. The qualifier does not change a finding's identity or its rejection-memory shape.
 - **Never phones home.** Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.
 
 ---
