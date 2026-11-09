@@ -112,7 +112,8 @@ func TestCheckWithoutFlagsAlsoChecksContributing(t *testing.T) {
 	contrib := func(table string) {
 		t.Helper()
 		body := config.ContributorEnvDocsStart + "\n" + table + config.ContributorEnvDocsEnd + "\n"
-		if err := os.WriteFile(filepath.Join(root, "CONTRIBUTING.md"), []byte(body), 0o644); err != nil {
+		path := filepath.Join(root, "CONTRIBUTING.md")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
