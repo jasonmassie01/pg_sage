@@ -1,6 +1,6 @@
 // vitest.config.js — Vitest configuration for component unit tests.
 //
-// Plan reference: docs/plan_v0.8.5.md §7.5 CHECK-T18/T19.
+// Plan reference: reviews/archive/docs-internal/plan_v0.8.5.md §7.5 CHECK-T18/T19.
 // Runs under jsdom so Radix Tooltip's portal/DOM APIs work; the
 // `test` subtree is segregated from vite.config.js so the build
 // pipeline ignores it.

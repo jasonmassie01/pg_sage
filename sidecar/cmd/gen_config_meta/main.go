@@ -2,7 +2,7 @@
 // by reflecting over config.DefaultConfig(). It is a build tool, not part of
 // the shipped sidecar binary.
 //
-// Plan reference: docs/plan_v0.8.5.md §7.3.2.
+// Plan reference: reviews/archive/docs-internal/plan_v0.8.5.md §7.3.2.
 package main
 
 import (

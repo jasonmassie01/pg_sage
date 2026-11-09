@@ -11,7 +11,7 @@ import (
 )
 
 // tier1Fields lists the v0.8.5 Tier 1 config keys per
-// docs/plan_v0.8.5.md §7.3.4. Every key here must have a non-empty
+// reviews/archive/docs-internal/plan_v0.8.5.md §7.3.4. Every key here must have a non-empty
 // doc string in config_meta.json and match the live config tags.
 //
 // Tier 2 coverage is verified by a non-fatal log line so that future
