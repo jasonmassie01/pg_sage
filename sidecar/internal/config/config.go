@@ -799,7 +799,7 @@ func (c *Config) validate() error {
 	if err := c.SelfConfig.validate(); err != nil {
 		return err
 	}
-	if err := c.FleetLearning.validate(); err != nil {
+	if err := c.validateFleetLearning(); err != nil {
 		return err
 	}
 	if err := c.Agents.validate(); err != nil {

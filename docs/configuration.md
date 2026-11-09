@@ -60,10 +60,18 @@ pg_sage bootstraps the `sage` schema in every monitored database and, with
 
 | Data | Standalone / YAML fleet | Meta-db mode |
 |---|---|---|
-| Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: the first database that started) | metadata database |
+| Logins, sessions, MCP tokens, notification channels and rules, standing policy | the control database (standalone: the monitored database; YAML fleet: `fleet_learning.control_database` when it connected, else the first database that started) | metadata database |
+| Leader lease and fleet learning state | the control database; with `fleet_learning.control_database` set, only that database (while it is down every sidecar follows) | metadata database |
 | Sage SRE investigations, SLOs, change events; the earned-trust ledger (levels, outcomes, proposals, shadow evidence) | control database | metadata database |
 | Telemetry history: snapshots, query store | each monitored database | each monitored database; with `history.store: meta`, the metadata database |
 | Other history: explain cache, findings, incidents, recommendations, action log, verification outcomes, decision ledger, shadow decisions, runway and size samples | each monitored database | each monitored database |
+
+Running more than one sidecar for a fleet (HA) needs a pinned control database:
+`meta_db`, or `fleet_learning.control_database` set to the same `databases:` entry on
+every sidecar. Without a pin, a sidecar that starts while the first database is down
+uses another one, and two sidecars can lead at once; such a sidecar logs a WARN at
+startup and refuses leadership once it sees another live sidecar on its lease (see
+[Leader election](fleet.md#leader-election)).
 
 Telemetry history is what makes pg_sage heavy: the collector's snapshots and the
 per-query samples (on a busy database, gigabytes before delta storage). In meta-db

@@ -985,6 +985,12 @@
     "doc": "How llm.fleet_token_budget_daily is split: need (by open findings and incidents, within the floor and ceiling) or even. The cap itself is never exceeded. Default: need.",
     "class": "operator_preference"
   },
+  "fleet_learning.control_database": {
+    "type": "string",
+    "default": "",
+    "doc": "YAML fleet database that holds the leader lease; pin it to run several sidecars on one fleet. While it is down every sidecar follows, never leading elsewhere. Not with meta_db. Default: empty.",
+    "class": "operator_preference"
+  },
   "fleet_learning.enabled": {
     "type": "bool",
     "default": true,

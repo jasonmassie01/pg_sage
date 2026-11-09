@@ -140,6 +140,7 @@ widens what pg_sage may do or spend.
 | `fleet_learning.budget_floor_pct` | `50` | Smallest share under the need split, as % of the even share, 0-100 |
 | `fleet_learning.budget_ceiling_pct` | `300` | Largest share under the need split, as % of the even share, 100-1000 |
 | `fleet_learning.leader_lease_seconds` | `30` | Leader lease, 10-600; `0` turns election off |
+| `fleet_learning.control_database` | empty | YAML fleet database that holds the leader lease; must name an entry under `databases:`; not used with `meta_db` (see [Leader election](#leader-election)) |
 
 ## Leader election
 
@@ -168,14 +169,33 @@ in different databases.
 - A follower logs once per job that the job `runs on the leader sidecar of
   this fleet, not here (see /api/v1/fleet/leader)`.
 
-To run a second sidecar for the same fleet, point both at the same meta
-database (`--meta-db`) with the same `encryption_key`, and give both
-network access to every monitored database. Two YAML-fleet sidecars only
-agree on a leader when they happen to use the same control database (each
-uses the first of its databases that started), so run a meta database for
-more than one sidecar. `fleet_learning.leader_lease_seconds: 0` turns
-election off, and every sidecar then runs every fleet-wide job: only do that
-with a single sidecar.
+Multi-sidecar HA needs a pinned control database. Without one, a YAML
+fleet's control database is the first of its databases to connect, so a
+sidecar that starts while that database is down takes its lease in another
+database, where no other sidecar sees it, and two sidecars lead at once.
+Pin it in one of two ways:
+
+- point every sidecar at the same meta database (`--meta-db`) with the same
+  `encryption_key`; or
+- set `fleet_learning.control_database` to the same entry of `databases:` on
+  every sidecar. The lease (and fleet learning state) then lives only in
+  that database. While it is down every sidecar follows: none leads from
+  another database, and fleet-wide jobs wait. A sidecar that started while
+  it was down follows for its whole run (`/api/v1/fleet/leader` shows
+  `leadership_refused` and why); restart it once the database is back.
+  Logins still fall back to the first database that connects.
+
+Give every sidecar network access to every monitored database. A YAML fleet
+with election on and neither pin logs a WARN at startup (`multi-sidecar HA
+needs a pinned control database`). If such a sidecar then sees another live
+sidecar take or renew the lease, it refuses leadership for the rest of its
+run and logs an ERROR naming the other holder; a lease left by a sidecar
+that crashed is not live, and is taken over once it expires.
+`/api/v1/fleet/leader` reports the control database the lease lives in
+(`control_datname`, and `control_system_identifier` where the provider
+allows `pg_control_system()`). `fleet_learning.leader_lease_seconds: 0`
+turns election off, and every sidecar then runs every fleet-wide job: only
+do that with a single sidecar.
 
 The metrics `pg_sage_leader`, `pg_sage_leader_transitions_total` and
 `pg_sage_leader_last_renew_age_seconds` show the election per scope; see

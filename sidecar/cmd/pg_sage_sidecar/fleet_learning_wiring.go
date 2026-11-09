@@ -109,8 +109,7 @@ func fleetLearningSources(mgr *fleet.DatabaseManager) func() []fleetlearn.Databa
 }
 
 // startFleetLearning starts leader election, the fingerprint cycle and the
-// need-based budget split on the control database. Election runs its first
-// tick synchronously so leader-only loops started after it see the result.
+// need-based budget split on the control database.
 func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 	mgr *fleet.DatabaseManager) {
 	if cfg == nil || control == nil {
@@ -119,14 +118,7 @@ func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 	fl := cfg.FleetLearning
 	scope := fleetLearningScope(cfg)
 	if fl.LeaderLeaseSeconds > 0 {
-		fleetLeader = leader.NewElector(leader.NewPostgresStore(control), scope,
-			leader.HolderID(), fl.LeaderLease(), leader.WithLogger(logStructuredWrapper))
-		tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		if err := fleetLeader.Tick(tctx); err != nil {
-			logWarn("leader", "first lease attempt failed, retrying: %v", err)
-		}
-		cancel()
-		go fleetLeader.Run(ctx)
+		fleetLeader = startFleetElector(ctx, control, mgr, scope) // fleet_control.go
 	}
 	if fl.Enabled {
 		fleetLearning = fleetlearn.NewService(fleetlearn.NewStore(control, scope),

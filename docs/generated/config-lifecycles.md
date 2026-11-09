@@ -143,6 +143,7 @@
 | `fleet_learning.budget_ceiling_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_floor_pct` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.budget_split` | `restart` | `-` | `operator_preference` |
+| `fleet_learning.control_database` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.enabled` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.fleet_finding_min_databases` | `restart` | `-` | `operator_preference` |
 | `fleet_learning.include_names` | `restart` | `-` | `operator_preference` |

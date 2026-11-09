@@ -178,6 +178,14 @@ curl -b cookies.txt 'http://localhost:8080/api/v1/fleet/lookalikes?database=prod
 curl -b cookies.txt http://localhost:8080/api/v1/fleet/leader
 ```
 
+The leader route names the control database the lease lives in
+(`control_datname`, and `control_system_identifier` where the provider allows
+`pg_control_system()`), and `leadership_refused` with its reason when this
+sidecar refused to lead. A second sidecar for this fleet must use the same
+`--meta-db`; a YAML fleet without a meta database needs
+`fleet_learning.control_database` pinned on every sidecar instead (see
+[Leader election](fleet.md#leader-election)).
+
 Metrics:
 
 ```bash
