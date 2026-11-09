@@ -63,7 +63,11 @@ func (rc *RegexClassifier) matchAlterColumnRules(sql string) []DDLClassification
 		c := newClassification(rc.ruleByID("ddl_alter_type_rewrite"), sql)
 		fillTableFromAlter(sql, &c)
 		c.ColumnName = unquoteIdent(m[1])
-		c.TargetType = strings.TrimSpace(m[2])
+		// A USING expression can compute any value, so the change stays
+		// a rewrite: no TargetType for refineAlterType to clear it with.
+		if !reUsingClause.MatchString(m[0]) {
+			c.TargetType = strings.TrimSpace(m[2])
+		}
 		results = append(results, c)
 	}
 	return results

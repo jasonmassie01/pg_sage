@@ -104,7 +104,11 @@ func (m astMapper) alterCmd(cmd *pg_query.AlterTableCmd) ([]DDLClassification, s
 	case pg_query.AlterTableType_AT_AlterColumnType:
 		c := m.rule("ddl_alter_type_rewrite", nil)
 		c.ColumnName = cmd.GetName()
-		c.TargetType = typeText(cmd.GetDef().GetColumnDef().GetTypeName())
+		// A USING expression (the ColumnDef's raw default here) can compute
+		// any value, so the change stays a rewrite: no TargetType to refine.
+		if def := cmd.GetDef().GetColumnDef(); def.GetRawDefault() == nil {
+			c.TargetType = typeText(def.GetTypeName())
+		}
 		return []DDLClassification{c}, lockAccessExclusive, true
 	case pg_query.AlterTableType_AT_SetNotNull:
 		c := m.rule("ddl_set_not_null", nil)

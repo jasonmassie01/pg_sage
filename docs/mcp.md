@@ -174,7 +174,7 @@ matched and the form is not proven safe, or it did not parse).
 | `ddl_add_exclusion_builds_index` | `ADD ... EXCLUDE` | ACCESS EXCLUSIVE | no (index build) |
 | `ddl_set_not_null` | `ALTER COLUMN ... SET NOT NULL` | ACCESS EXCLUSIVE | no (scan) |
 | `ddl_not_null_constraint_scan` | PG 18 `ADD CONSTRAINT n NOT NULL col` without `NOT VALID` | ACCESS EXCLUSIVE | no (scan) |
-| `ddl_alter_type_rewrite` | `ALTER COLUMN ... TYPE` (no rewrite when binary coercible, read from the catalog) | ACCESS EXCLUSIVE | yes |
+| `ddl_alter_type_rewrite` | `ALTER COLUMN ... TYPE` (no rewrite when binary coercible, read from the catalog, and without `USING`) | ACCESS EXCLUSIVE | yes |
 | `ddl_add_column_volatile_default` | `ADD COLUMN` with a volatile default, serial, identity or stored generated column | ACCESS EXCLUSIVE | yes |
 | `ddl_set_logged` | `SET LOGGED` / `SET UNLOGGED` | ACCESS EXCLUSIVE | yes |
 | `ddl_set_access_method` | `SET ACCESS METHOD` (PG 15+) | ACCESS EXCLUSIVE | yes |
@@ -200,7 +200,8 @@ at the gate `ddl_locking`, or `ddl_destructive` for a drop), never safe.
 ### What counts as additive DDL
 
 The agent gate classes DDL additive only when every statement is known and on a short
-allowlist; anything else is not proven safe. The allowlist is `CREATE INDEX CONCURRENTLY`, `CREATE TABLE` (not `AS`,
+allowlist; anything else is not proven safe. The allowlist is `CREATE INDEX CONCURRENTLY`,
+`CREATE TABLE` (not `AS`,
 `PARTITION OF` or `INHERITS`), `CREATE [OR REPLACE] VIEW`, `CREATE SCHEMA`, `COMMENT ON`,
 `CREATE SEQUENCE`, and `ALTER TABLE ... ADD [COLUMN] name type` with a built-in type and at
 most a constant or stable default (`now()`, `current_timestamp`). `SET lock_timeout`,

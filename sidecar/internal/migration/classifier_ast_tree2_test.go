@@ -171,3 +171,28 @@ func TestNotNullConstraintText(t *testing.T) {
 		t.Fatal("ADD COLUMN ... NOT NULL read as a NOT NULL constraint")
 	}
 }
+
+// ALTER COLUMN ... TYPE names its target type for refineAlterType, except
+// with USING (the ColumnDef's raw default), which can compute any value:
+// that change stays a rewrite, so no target type is given to clear it.
+func TestASTTreeAlterTypeUsingKeepsRewrite(t *testing.T) {
+	alter := func(using *pg_query.Node) DDLClassification {
+		def := &pg_query.ColumnDef{TypeName: typeName("text"), RawDefault: using}
+		c := cmd(pg_query.AlterTableType_AT_AlterColumnType,
+			&pg_query.Node{Node: &pg_query.Node_ColumnDef{ColumnDef: def}})
+		c.Name = "v"
+		found, known := testMapper.statement(alterStmt(c))
+		if !known {
+			t.Fatal("ALTER COLUMN TYPE is unrecognized")
+		}
+		return requireOneRule(t, found, "ddl_alter_type_rewrite", lockAccessExclusive)
+	}
+	if c := alter(nil); c.TargetType != "text" || c.ColumnName != "v" || !c.RequiresRewrite {
+		t.Fatalf("plain TYPE text: %+v", c)
+	}
+	lower := &pg_query.Node{Node: &pg_query.Node_FuncCall{FuncCall: &pg_query.FuncCall{
+		Funcname: []*pg_query.Node{strNode("lower")}}}}
+	if c := alter(lower); c.TargetType != "" || !c.RequiresRewrite {
+		t.Fatalf("TYPE text USING lower(v): %+v, want no target type", c)
+	}
+}

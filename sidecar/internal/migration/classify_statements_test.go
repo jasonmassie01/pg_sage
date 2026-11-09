@@ -225,3 +225,22 @@ func TestClassifyStatementsConcurrentCallers(t *testing.T) {
 		t.Error(e)
 	}
 }
+
+// A USING expression can compute any value: even varchar(20) -> text
+// stays a rewrite, and no catalog read is spent on it.
+func TestClassifyStatementsAlterTypeUsingStaysRewrite(t *testing.T) {
+	for _, sql := range []string{
+		"ALTER TABLE app.t ALTER COLUMN v TYPE text USING lower(v)",
+		`ALTER TABLE app.t ALTER COLUMN v TYPE text COLLATE "C" USING upper(v)`,
+		"ALTER TABLE app.t ALTER COLUMN v SET DATA TYPE varchar USING v || 'x'",
+	} {
+		q := &fakeQuerier{typ: "character varying(20)"}
+		res, err := ClassifyStatements(context.Background(), q, sql, 170000)
+		if err != nil || q.calls != 0 {
+			t.Fatalf("%q: err %v, %d lookups, want none", sql, err, q.calls)
+		}
+		if c := alterTypeRule(t, res); !c.RequiresRewrite || c.ColumnName != "v" {
+			t.Fatalf("%q: %+v, want a rewrite of v", sql, c)
+		}
+	}
+}
