@@ -358,3 +358,34 @@ func TestCloudTelemetryShareKeys(t *testing.T) {
 		}
 	}
 }
+
+// A reload whose candidate is discarded (another database of the reload
+// failed) releases the rebuilt runtime first: the running generation's
+// runtime must come back as the instance's entry and status, or the next
+// member would start a second poller and the API would lose the database.
+func TestCloudTelemetryShareDiscardedReloadRestoresTheRunningRuntime(t *testing.T) {
+	share, f := newCloudTelemetryShare(), newShareFixture()
+	old, _, gen1 := share.acquire("rds|discard", "share-discard", f.build("share-discard"))
+	waitPoll(t, f)
+	fresh, _, gen2 := share.acquire("rds|discard", "share-discard",
+		f.build("share-discard"))
+	waitPoll(t, f)
+	if fresh == old {
+		t.Fatal("the reload did not rebuild the only member's runtime")
+	}
+	gen2() // the candidate is discarded
+	if cloudtel.Lookup("share-discard") != old || share.size() != 1 {
+		t.Fatalf("after the discard: lookup is the running runtime %v, entries %d",
+			cloudtel.Lookup("share-discard") == old, share.size())
+	}
+	joined, _, other := share.acquire("rds|discard", "share-discard-b",
+		f.build("share-discard-b"))
+	if joined != old || f.buildCount() != 2 {
+		t.Fatalf("a new member got its own runtime (builds %d)", f.buildCount())
+	}
+	gen1()
+	other()
+	if share.size() != 0 || cloudtel.Lookup("share-discard") != nil {
+		t.Fatalf("after every release: entries %d", share.size())
+	}
+}

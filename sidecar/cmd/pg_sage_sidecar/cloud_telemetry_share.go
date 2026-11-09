@@ -29,6 +29,9 @@ type cloudShareEntry struct {
 	refs     int
 	cancel   context.CancelFunc
 	done     chan struct{}
+	// prev is the entry a reload replaced while the old generation still
+	// holds it; a discarded reload restores it.
+	prev *cloudShareEntry
 }
 
 // cloudTelemetryShare holds the shared runtimes by provider resource key.
@@ -57,8 +60,9 @@ func (s *cloudTelemetryShare) acquire(key, database string, build cloudBuild) (
 	defer s.mu.Unlock()
 	e := s.entries[key]
 	reload := e != nil && e.members[database] > 0
+	var prev *cloudShareEntry
 	if reload && len(e.members) == 1 {
-		e = nil // its only database reloads: rebuild it, as before sharing
+		prev, e = e, nil // its only database reloads: rebuild it, as before sharing
 	}
 	if e == nil {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -68,7 +72,7 @@ func (s *cloudTelemetryShare) acquire(key, database string, build cloudBuild) (
 			return nil, nil, func() {}
 		}
 		e = &cloudShareEntry{rt: rt, resolver: resolver, members: map[string]int{},
-			cancel: cancel, done: make(chan struct{})}
+			cancel: cancel, done: make(chan struct{}), prev: prev}
 		s.entries[key] = e
 		go s.run(ctx, key, e)
 	} else if reload {
@@ -89,13 +93,32 @@ func (s *cloudTelemetryShare) release(key, database string, e *cloudShareEntry) 
 		cloudtel.UnregisterMember(database, e.rt)
 	}
 	last := e.refs <= 0
-	if last && s.entries[key] == e {
-		delete(s.entries, key)
+	if last {
+		s.retire(key, e)
 	}
 	s.mu.Unlock()
 	if last {
 		e.cancel()
 		<-e.done
+	}
+}
+
+// retire drops e, whose last holder released it (s.mu held). When e had
+// replaced a runtime the database's running generation still holds (its
+// reload was discarded), that runtime is the instance's entry again.
+func (s *cloudTelemetryShare) retire(key string, e *cloudShareEntry) {
+	if cur := s.entries[key]; cur != nil && cur.prev == e {
+		cur.prev = nil // e is gone: nothing to restore
+	}
+	if s.entries[key] != e {
+		return
+	}
+	delete(s.entries, key)
+	if p := e.prev; p != nil && p.refs > 0 {
+		s.entries[key] = p
+		for db := range p.members {
+			cloudtel.RegisterMember(db, p.rt)
+		}
 	}
 }
 

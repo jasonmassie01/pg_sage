@@ -102,3 +102,29 @@ func TestPeerConcurrentJoinLeave(t *testing.T) {
 		t.Fatal("every member left but the group remains")
 	}
 }
+
+// A reload builds a database's next generation (joining its new store)
+// before the old one stops. When that reload is discarded, the new store
+// leaves first: the running generation's store must stay the member, or
+// its peers would propose the changes it holds a second time.
+func TestPeerDiscardedReplacementKeepsTheRunningStore(t *testing.T) {
+	running, candidate, b := NewStore(nil), NewStore(nil), NewStore(nil)
+	leaveRunning := JoinPeers("rds|peer-discard", "peer-discard-a", running)
+	leaveCandidate := JoinPeers("rds|peer-discard", "peer-discard-a", candidate)
+	leaveB := JoinPeers("rds|peer-discard", "peer-discard-b", b)
+	t.Cleanup(func() { leaveRunning(); leaveB() })
+	if others := otherPeers("rds|peer-discard", "peer-discard-b"); len(others) != 1 ||
+		others[0].store != candidate {
+		t.Fatalf("the newest generation is not the member: %+v", others)
+	}
+	leaveCandidate()
+	others := otherPeers("rds|peer-discard", "peer-discard-b")
+	if len(others) != 1 || others[0].database != "peer-discard-a" ||
+		others[0].store != running {
+		t.Fatalf("after the discard, peers of b = %+v, want a's running store", others)
+	}
+	if got := PeerDatabases("peer-discard-b"); !slices.Equal(got,
+		[]string{"peer-discard-a", "peer-discard-b"}) {
+		t.Fatalf("after the discard, members = %v", got)
+	}
+}

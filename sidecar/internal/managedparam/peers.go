@@ -3,6 +3,7 @@ package managedparam
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -24,12 +25,14 @@ type peer struct {
 	store    *Store
 }
 
-// peerGroup is the member databases of one provider resource. propose
+// peerGroup is the member databases of one provider resource, each with
+// the stores of its running generations (a reload joins the next one
+// before the old one leaves; the newest is the member). propose
 // serializes each member's peer check and upsert, so members cycling at
 // the same moment store a change once.
 type peerGroup struct {
 	propose sync.Mutex
-	members map[string]*Store
+	members map[string][]*Store
 }
 
 var peerRegistry = struct {
@@ -38,9 +41,10 @@ var peerRegistry = struct {
 }{groups: map[string]*peerGroup{}}
 
 // JoinPeers registers database's store as a member of resource (the
-// provider instance's key); leave removes it, unless a newer store has
-// replaced it. An empty resource or database, or a nil store, joins
-// nothing.
+// provider instance's key); leave removes it. The newest joined store of
+// a database is its member, so a discarded reload's leave gives the
+// membership back to the running generation. An empty resource or
+// database, or a nil store, joins nothing.
 func JoinPeers(resource, database string, store *Store) (leave func()) {
 	if resource == "" || database == "" || store == nil {
 		return func() {}
@@ -48,10 +52,10 @@ func JoinPeers(resource, database string, store *Store) (leave func()) {
 	peerRegistry.Lock()
 	g := peerRegistry.groups[resource]
 	if g == nil {
-		g = &peerGroup{members: map[string]*Store{}}
+		g = &peerGroup{members: map[string][]*Store{}}
 		peerRegistry.groups[resource] = g
 	}
-	g.members[database] = store
+	g.members[database] = append(g.members[database], store)
 	peerRegistry.Unlock()
 	var once sync.Once
 	return func() { once.Do(func() { leavePeers(resource, database, store) }) }
@@ -61,10 +65,19 @@ func leavePeers(resource, database string, store *Store) {
 	peerRegistry.Lock()
 	defer peerRegistry.Unlock()
 	g := peerRegistry.groups[resource]
-	if g == nil || g.members[database] != store {
+	if g == nil {
 		return
 	}
-	delete(g.members, database)
+	gens := g.members[database]
+	i := slices.Index(gens, store)
+	if i < 0 {
+		return
+	}
+	if gens = slices.Delete(gens, i, i+1); len(gens) > 0 {
+		g.members[database] = gens
+	} else {
+		delete(g.members, database)
+	}
 	if len(g.members) == 0 {
 		delete(peerRegistry.groups, resource)
 	}
@@ -104,9 +117,9 @@ func otherPeers(resource, database string) []peer {
 		return nil
 	}
 	var out []peer
-	for db, s := range g.members {
+	for db, gens := range g.members {
 		if db != database {
-			out = append(out, peer{database: db, store: s})
+			out = append(out, peer{database: db, store: gens[len(gens)-1]})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].database < out[j].database })
