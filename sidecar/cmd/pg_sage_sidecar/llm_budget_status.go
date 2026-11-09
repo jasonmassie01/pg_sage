@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/api"
@@ -38,6 +39,20 @@ func (r *llmClientRegistry) ResetBudgets() {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.ResetDaily()
 	}
+}
+
+// ProbeLLM tests the process-wide general client (POST /api/v1/llm/test).
+func (r *llmClientRegistry) ProbeLLM(ctx context.Context) llm.ProbeResult {
+	r.mu.Lock()
+	var general *llm.Client
+	for _, entry := range r.entries {
+		if entry.role == llmRoleGeneral && entry.database == "" {
+			general = entry.client
+			break
+		}
+	}
+	r.mu.Unlock()
+	return general.Probe(ctx)
 }
 
 func llmStatusKey(entry llmRegistryEntry) string {

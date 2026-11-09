@@ -1,11 +1,9 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -27,12 +25,18 @@ type Client struct {
 	inflightID          uint64
 	inflight            map[uint64]context.CancelFunc
 
-	// Circuit breaker state.
+	// Circuit breaker state (breaker.go). failures counts consecutive
+	// counted failures; lastClass, lastErrorAt and lastSuccessAt feed the
+	// status. retryDelays is the ladder when no Retry-After is sent.
 	mu            sync.Mutex
+	state         breakerState
 	failures      int
-	circuitOpen   bool
-	circuitOpened time.Time
+	openedAt      time.Time
 	cooldown      time.Duration
+	lastClass     errClass
+	lastErrorAt   time.Time
+	lastSuccessAt time.Time
+	retryDelays   []time.Duration
 
 	// Token budget tracking. Both fields are atomic because Chat is
 	// called concurrently from per-database analyzers/optimizers/advisors
@@ -118,6 +122,7 @@ func New(cfg *config.LLMConfig, logFn func(string, string, ...any)) *Client {
 		logFn:               logFn,
 		authorizeDatabricks: databricksauth.Authorize,
 		cooldown:            circuitCooldown(cfg.CooldownSeconds),
+		retryDelays:         defaultRetryDelays(),
 		generation:          1,
 		inflight:            make(map[uint64]context.CancelFunc),
 		activeKeys:          make(map[string]struct{}),
@@ -129,22 +134,6 @@ func New(cfg *config.LLMConfig, logFn func(string, string, ...any)) *Client {
 func (c *Client) IsEnabled() bool {
 	cfg, _ := c.configSnapshot()
 	return configEnabled(cfg)
-}
-
-// IsCircuitOpen returns true if the circuit breaker is open.
-func (c *Client) IsCircuitOpen() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.circuitOpen {
-		return false
-	}
-	if time.Since(c.circuitOpened) > c.cooldown {
-		c.circuitOpen = false
-		c.failures = 0
-		c.logFn("llm", "circuit breaker closed (cooldown expired)")
-		return false
-	}
-	return true
 }
 
 // Chat sends a chat completion request and returns the content and the
@@ -160,14 +149,16 @@ func (c *Client) Chat(
 	return r.Content, r.Tokens, err
 }
 
-func (c *Client) checkAvailable(cfg config.LLMConfig) error {
+// checkAvailable admits a request: the client must be enabled and the
+// breaker must let it through. probe is the half-open probe flag the
+// caller passes to endProbe.
+func (c *Client) checkAvailable(
+	ctx context.Context, cfg config.LLMConfig,
+) (probe bool, err error) {
 	if !configEnabled(cfg) {
-		return fmt.Errorf("LLM not enabled")
+		return false, fmt.Errorf("LLM not enabled")
 	}
-	if c.IsCircuitOpen() {
-		return fmt.Errorf("LLM circuit breaker open")
-	}
-	return nil
+	return c.admit(forcedProbe(ctx))
 }
 
 // usageTokens returns provider-reported usage, estimating it when the
@@ -181,7 +172,8 @@ func usageTokens(resp *ChatResponse, system, user string) int {
 
 // sendChat performs the HTTP exchange, adapting the request shape when
 // the provider asks (wire_compat.go), and returns a decoded response with
-// at least one choice. Provider-side failures feed the breaker.
+// at least one choice. Provider failures are classified (errclass.go);
+// the caller feeds them to the breaker once.
 func (c *Client) sendChat(
 	ctx, requestCtx context.Context,
 	cfg config.LLMConfig,
@@ -206,53 +198,25 @@ func (c *Client) sendChatOnce(
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(
-		requestCtx, "POST", chatEndpoint(cfg.Endpoint), bytes.NewReader(body),
-	)
+	reply, err := c.post(ctx, requestCtx, cfg, body, maxAttempts, "LLM request")
 	if err != nil {
-		return nil, fmt.Errorf("request: %w", err)
+		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	if cfg.Auth == "databricks" {
-		if err := c.authorizeDatabricks(httpReq); err != nil {
-			return nil, err
-		}
-	}
-
-	resp, err := c.doWithRetry(requestCtx, httpReq, body, cfg)
-	if err != nil {
-		if shouldRecordProviderFailure(ctx, requestCtx) {
-			c.recordFailure()
-		}
-		return nil, providerRequestError("LLM request", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return c.decodeChatResponse(resp, cfg, shape)
+	return c.decodeChatResponse(reply, cfg, shape)
 }
 
 func (c *Client) decodeChatResponse(
-	resp *http.Response, cfg config.LLMConfig, shape wireShape,
+	reply providerReply, cfg config.LLMConfig, shape wireShape,
 ) (*ChatResponse, error) {
-	// Cap response body at 1MB to prevent memory exhaustion.
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		c.recordFailure()
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, c.statusError(cfg, shape, false, resp.StatusCode, respBody,
-			fmt.Errorf("LLM API error %d: %s", resp.StatusCode,
-				redactProviderText(string(respBody))))
+	if reply.status != http.StatusOK {
+		return nil, c.statusError(cfg, shape, false, reply)
 	}
 	var chatResp ChatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		c.recordFailure()
-		return nil, fmt.Errorf("unmarshal: %w", err)
+	if err := json.Unmarshal(reply.body, &chatResp); err != nil {
+		return nil, malformed(fmt.Errorf("unmarshal: %w", err))
 	}
 	if len(chatResp.Choices) == 0 {
-		c.recordFailure()
-		return nil, fmt.Errorf("no choices in response")
+		return nil, malformed(fmt.Errorf("no choices in response"))
 	}
 	return &chatResp, nil
 }
@@ -310,49 +274,6 @@ func shouldRecordProviderFailure(
 	return requestCtx.Err() == context.DeadlineExceeded
 }
 
-func (c *Client) doWithRetry(
-	ctx context.Context,
-	req *http.Request,
-	body []byte,
-	cfg config.LLMConfig,
-) (*http.Response, error) {
-	delays := []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second}
-	var lastErr error
-
-	for i := 0; i <= len(delays); i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(delays[i-1]):
-			}
-			// Recreate request with fresh body.
-			req = req.Clone(ctx)
-			req.Body = io.NopCloser(bytes.NewReader(body))
-			if cfg.Auth == "databricks" {
-				if err := c.authorizeDatabricks(req); err != nil {
-					return nil, err
-				}
-			} else {
-				req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-			}
-		}
-
-		resp, err := c.doRequest(req, cfg)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if resp.StatusCode == 429 || resp.StatusCode == 503 {
-			_ = resp.Body.Close()
-			lastErr = fmt.Errorf("server error %d", resp.StatusCode)
-			continue
-		}
-		return resp, nil
-	}
-	return nil, fmt.Errorf("all retries failed: %w", lastErr)
-}
-
 // doRequest keeps native workspace credentials on the request's validated
 // origin. net/http's default redirect policy can forward Authorization to
 // subdomains and other ports, so native requests must not follow redirects.
@@ -369,23 +290,6 @@ func (c *Client) doRequest(req *http.Request, cfg config.LLMConfig) (*http.Respo
 		client = &nativeClient
 	}
 	return client.Do(req)
-}
-
-func (c *Client) recordFailure() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.failures++
-	if c.failures >= 3 {
-		c.circuitOpen = true
-		c.circuitOpened = time.Now()
-		c.logFn("llm", "circuit breaker opened after %d failures", c.failures)
-	}
-}
-
-func (c *Client) recordSuccess() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.failures = 0
 }
 
 // NewOptimizerClient creates an independent LLM client for the optimizer.

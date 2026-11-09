@@ -98,13 +98,9 @@ func (c *Client) beginRequest(
 	if c.cfg != nil {
 		cfg = *c.cfg
 	}
-	timeoutSeconds := cfg.TimeoutSeconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = config.DefaultLLMTimeoutSeconds
-	}
-	requestCtx, cancel := context.WithTimeout(
-		ctx, time.Duration(timeoutSeconds)*time.Second,
-	)
+	// Each provider attempt has its own deadline (attemptTimeout); the
+	// request as a whole is bounded by the caller and by Reconfigure.
+	requestCtx, cancel := context.WithCancel(ctx)
 	c.inflight[id] = cancel
 	generation := c.generation
 	c.stateMu.Unlock()
@@ -124,13 +120,18 @@ func (c *Client) generationCurrent(generation uint64) bool {
 }
 
 // Reconfigure atomically installs a detached config and cancels requests
-// authorized by the previous endpoint, credential, or enabled state.
+// authorized by the previous endpoint, credential, or enabled state. A new
+// endpoint, key, auth mode or model also closes the circuit breaker.
 func (c *Client) Reconfigure(next *config.LLMConfig) {
 	if next == nil {
 		next = &config.LLMConfig{}
 	}
 	snapshot := *next
 	c.stateMu.Lock()
+	prev := config.LLMConfig{}
+	if c.cfg != nil {
+		prev = *c.cfg
+	}
 	c.cfg = &snapshot
 	c.generation++
 	for _, cancel := range c.inflight {
@@ -140,6 +141,7 @@ func (c *Client) Reconfigure(next *config.LLMConfig) {
 	c.mu.Lock()
 	c.cooldown = circuitCooldown(snapshot.CooldownSeconds)
 	c.mu.Unlock()
+	c.resetBreakerOnProviderChange(prev, snapshot)
 }
 
 func requestThrottleKey(cfg config.LLMConfig, system, user string) string {

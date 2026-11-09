@@ -228,6 +228,32 @@ func registerLLMBudgetRoutes(mux *http.ServeMux, budgets LLMBudgetRegistry) {
 	mux.HandleFunc("GET /api/v1/llm/status", llmStatusHandler(budgets))
 	mux.Handle("POST /api/v1/llm/budget/reset", RequireRole("admin")(
 		http.HandlerFunc(llmBudgetResetHandler(budgets))))
+	mux.Handle("POST /api/v1/llm/test", RequireRole("admin")(
+		http.HandlerFunc(llmTestHandler(budgets))))
+}
+
+// LLMProber is a registry that can test its general client's connection
+// (llm.Client.Probe). *llm.Manager and the sidecar registry satisfy it.
+type LLMProber interface {
+	ProbeLLM(ctx context.Context) llm.ProbeResult
+}
+
+// llmTestHandler sends one tiny request through the normal path: charged
+// to the budget and admitted as the circuit breaker's half-open probe, so
+// a fixed provider closes the breaker now. It answers with the error
+// class and latency. Admin-only.
+func llmTestHandler(budgets LLMBudgetRegistry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		prober, ok := budgets.(LLMProber)
+		if !ok || prober == nil {
+			jsonError(w, "LLM not configured", http.StatusServiceUnavailable)
+			return
+		}
+		res := prober.ProbeLLM(r.Context())
+		slog.Info("LLM connection test", "class", res.Class,
+			"latency_ms", res.LatencyMS, "model", res.Model)
+		jsonResponse(w, res)
+	}
 }
 
 // llmBudgetResetHandler zeroes the daily token counter on all

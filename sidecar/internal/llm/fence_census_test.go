@@ -52,6 +52,9 @@ var fenceCensus = map[string]fenceSite{
 	"internal/llm/manager.go:Manager.ChatForPurpose": {
 		exempt: "forwarding wrapper: it sends the system prompt its caller built, " +
 			"and every caller is a site of its own in this table"},
+	"internal/llm/probe.go:Client.Probe": {
+		exempt: "connection test: a fixed system prompt and a nonce, with no " +
+			"database text, so there is nothing untrusted to fence"},
 	"internal/migration/llm_fallback.go:Advisor.llmFallback": {
 		prompt: "internal/migration/llm_fallback.go"},
 	"internal/migration/llm_scripts.go:ScriptGenerator.modelScript": {

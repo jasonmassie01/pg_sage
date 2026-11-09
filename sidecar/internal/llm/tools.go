@@ -114,9 +114,11 @@ func (c *Client) ChatWithTools(
 	if !configEnabled(cfg) {
 		return ToolResult{}, ErrLLMDisabled
 	}
-	if err := c.checkAvailable(cfg); err != nil {
+	probe, err := c.checkAvailable(ctx, cfg)
+	if err != nil {
 		return ToolResult{}, err
 	}
+	defer c.endProbe(probe)
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
 		requestCtx, cancel = context.WithTimeout(requestCtx, opts.Timeout)

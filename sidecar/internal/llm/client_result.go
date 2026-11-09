@@ -30,9 +30,11 @@ func (c *Client) ChatResult(
 ) (Response, error) {
 	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
 	defer finish()
-	if err := c.checkAvailable(cfg); err != nil {
+	probe, err := c.checkAvailable(ctx, cfg)
+	if err != nil {
 		return Response{}, err
 	}
+	defer c.endProbe(probe)
 	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
 	throttleKey := requestThrottleKey(cfg, system, user)
 	if err := c.acquireThrottle(throttleKey, cfg.CooldownSeconds); err != nil {
@@ -54,6 +56,7 @@ func (c *Client) ChatResult(
 
 	chatResp, err := c.sendChat(ctx, requestCtx, cfg, system, user, maxTokens)
 	if err != nil {
+		c.noteFailure(generation, err, true)
 		return Response{}, err
 	}
 	if !c.generationCurrent(generation) {
