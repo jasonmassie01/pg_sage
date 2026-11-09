@@ -65,7 +65,6 @@ func telemetryHistoryHandler(rt RuntimeDeps) http.Handler {
 			jsonError(w, "historical telemetry unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		jsonResponse(w, result)
 	})
 }
@@ -126,7 +125,6 @@ func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LL
 		if clients != nil {
 			result["registered_ai_clients"] = clients.TokenStatus()
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		jsonResponse(w, result)
 	})
 }

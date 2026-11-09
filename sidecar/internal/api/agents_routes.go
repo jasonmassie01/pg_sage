@@ -211,7 +211,6 @@ func (a *agentRoutes) mintToken(w http.ResponseWriter, r *http.Request) {
 		agentError(w, r, "mint agent token", err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(tok)

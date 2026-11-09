@@ -67,7 +67,6 @@ func createMCPTokenHandler(store *mcptoken.Store) http.HandlerFunc {
 			mcpTokenError(w, r, "create mcp token", err)
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(tok)

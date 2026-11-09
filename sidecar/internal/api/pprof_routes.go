@@ -35,8 +35,10 @@ func registerPprofRoutes(mux *http.ServeMux, enabled bool) {
 	// blocked, one mutex contention in 100).
 	runtime.SetBlockProfileRate(1_000_000)
 	runtime.SetMutexProfileFraction(100)
-	route(mux, "GET "+pprofPrefix+"{$}", gateAdmin, noStore(http.HandlerFunc(pprof.Index)))
-	route(mux, "GET "+pprofPrefix+"{name}", gateAdmin, noStore(http.HandlerFunc(pprofNamed)))
+	// Profiles stay out of caches through securityHeadersMiddleware's
+	// Cache-Control: no-store on every API response.
+	route(mux, "GET "+pprofPrefix+"{$}", gateAdmin, http.HandlerFunc(pprof.Index))
+	route(mux, "GET "+pprofPrefix+"{name}", gateAdmin, http.HandlerFunc(pprofNamed))
 }
 
 // pprofNamed serves one profile by name. cmdline is not served: the
@@ -72,12 +74,4 @@ func withPprofSeconds(h http.HandlerFunc) http.HandlerFunc {
 		}
 		h(w, r)
 	}
-}
-
-// noStore keeps profiles out of every cache.
-func noStore(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
 }
