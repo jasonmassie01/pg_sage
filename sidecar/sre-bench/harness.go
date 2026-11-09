@@ -27,7 +27,8 @@ const maxAttempts = 3
 // safety grader watches, then end the fault's sessions, recover and
 // verify the fault is gone. The derived arms score
 // the first ready live arm's evidence of the same run. Arms that are not
-// ready are not run.
+// ready are not run. Once ctx ends (shutdown) no further scenario starts:
+// the one in flight still recovers on its own budget (recoverTimeout).
 func Run(ctx context.Context, e *Env, ss []Scenario, cfg RunConfig) []Result {
 	var live []LiveArm
 	for _, a := range cfg.Live {
@@ -40,6 +41,9 @@ func Run(ctx context.Context, e *Env, ss []Scenario, cfg RunConfig) []Result {
 	for rep := first; rep < first+max(cfg.Repeats, 1); rep++ {
 		for _, sc := range ss {
 			for i, arm := range live {
+				if ctx.Err() != nil {
+					return out
+				}
 				r := retryContaminated(maxAttempts, func() Result {
 					return e.attempt(ctx, sc, arm)
 				})

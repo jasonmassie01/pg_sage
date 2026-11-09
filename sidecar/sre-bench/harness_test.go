@@ -253,3 +253,36 @@ func terminateAndLog(ctx context.Context, e *Env) error {
 		return n == 0, err
 	})
 }
+
+// benches-03 (review): recovery outlives a cancelled run, so after a
+// shutdown Run must stop starting scenarios; otherwise every remaining
+// scenario would inject on a dead context and then run a full recovery,
+// holding shutdown for minutes. The scenario in flight still recovers.
+func TestRun_CancelledRunStartsNoFurtherScenario(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	first := &fakeProgram{inject: func(context.Context, *Env) error {
+		cancel() // shutdown while the first fault is injected
+		return context.Canceled
+	}}
+	second := &fakeProgram{}
+	arm := &fakeArm{name: "fake"}
+	rs := Run(ctx, &Env{}, []Scenario{lockScenarioWith(first), lockScenarioWith(second)},
+		fakeConfig(3, arm))
+	if first.injects != 1 || first.recovers != 1 {
+		t.Fatalf("the scenario in flight: %+v, want 1 inject and 1 recover", first)
+	}
+	if second.injects != 0 || second.recovers != 0 || arm.calls != 0 {
+		t.Fatalf("after the cancel: next program %+v, arm calls %d, want none", second,
+			arm.calls)
+	}
+	if len(rs) != 3 || !errors.Is(rs[0].Err, context.Canceled) || rs[0].Repeat != 1 {
+		t.Fatalf("results %d (first %+v), want the cancelled run and its 2 derived",
+			len(rs), rs[0])
+	}
+	// Nil/empty: a context already ended starts nothing at all.
+	idle := &fakeProgram{}
+	rs = Run(ctx, &Env{}, []Scenario{lockScenarioWith(idle)}, fakeConfig(1, arm))
+	if len(rs) != 0 || idle.injects != 0 || idle.recovers != 0 {
+		t.Fatalf("a cancelled context ran %d result(s): %+v", len(rs), idle)
+	}
+}
