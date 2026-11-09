@@ -62,6 +62,24 @@ still goes through the policy gate and the trust ledger.
   headroom) is under `min_free_storage_pct`, storage at its recent rate runs out within
   `min_storage_runway_hours`, or available memory is under the floor. A
   `managed_storage_runway` finding opens a week ahead.
+- **Retained WAL and the disk runway.** PostgreSQL cannot see the volume size on a managed
+  provider, so the WAL custodian's `custodian.wal.retained_wal_disk_pct_ceiling` uses the
+  provider's storage capacity as its denominator. A slot holding more than that share of the
+  volume gets the cluster-wide `max_slot_wal_keep_size` bound proposal (applied through the
+  managed-config adapter, still behind the policy gate), or a plan-only escalation when a safe
+  bound would not fit on the volume. The proposal evidence carries `capacity_source`
+  (`provider_telemetry`), `disk_capacity_bytes` and `disk_pct`. The runway monitor's disk
+  forecast also projects against a fresh provider capacity before `forecaster.disk_capacity_bytes`,
+  and the finding names its `capacity_source` (`provider_telemetry` or `declared`).
+  Capacity only adds proposals. It never admits an action, and replication slots are never
+  dropped. Without fresh telemetry (none configured, unavailable, or a stale sample), the
+  custodian and the runway behave exactly as they do on self-managed PostgreSQL: the byte
+  backstop and the declared capacity.
+  Storage that grows without a bound has no capacity, so there is no disk percentage. That is
+  Aurora (the cluster volume grows to 128 TiB) and Cloud SQL with automatic storage increase and
+  no limit. A bound proposed there by the byte backstop records
+  `capacity_source=capacity_unbounded`. A Cloud SQL auto-resize limit counts as the capacity.
+  In fleet mode each database uses its own telemetry runtime.
 - **Parameter drift.** Values set in the parameter group or flags that PostgreSQL does not run
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
