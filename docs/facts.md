@@ -15,7 +15,7 @@ would not have done anyway.
 |---|---|---|---|
 | `owned_by_app_migrations` | index, table or schema | The application's schema migrations create and change it | Never creates, drops or alters it. The change becomes a **source-fix packet**: the migration pg_sage recommends, attached to the finding, for you or a coding agent to put in a PR. |
 | `test_fixture` | schema pattern | Schemas left by test runs, not workload | Removes them from findings and from the budgets, takes no action on them by itself, and offers one **cleanup batch** (a reviewed script you run; see [The cleanup batch](#the-cleanup-batch)). pg_sage never drops schemas itself. A family pattern such as `test_*` also covers schemas created after you confirm it; the batch re-checks each schema's activity and locks before dropping it. |
-| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting. |
+| `slot_consumer` | replication slot | The slot feeds a named consumer (Debezium, Fivetran, Airbyte...) | Never drops or advances the slot and never bounds WAL in a way that could invalidate it; it alerts instead. `max_slot_wal_keep_size` is cluster-wide, so any finite bound (and `RESET`) is blocked whichever slot it names; only `-1` (unbounded) is allowed. A confirmed slot is also registered in `sage.slot_consumer_registry`, so the WAL custodian escalates instead of acting; rejecting or expiring the fact unregisters the slot again (owner and last confirmation are kept). |
 | `append_only` | table | Rows are only inserted (an archive or a log) | Never deletes its rows, rewrites it (`VACUUM FULL`, bloat plans) or drops its indexes (they look unused because an archive is rarely read). |
 | `table_window` | table | `maintenance` window (act only inside) or `batch` window (never act during) | Holds pg_sage's own work on the table until the window allows it. Your own approvals are not held. |
 
@@ -62,11 +62,15 @@ would not have done anyway.
 * **MCP clients** can propose with `propose_fact`; the fact stays proposed.
 * **You** can declare a fact directly; your declaration confirms it.
 * What you already declared with the MCP tools `register_consumer` and
-  `declare_table_contract` (append-only) is imported as confirmed facts.
+  `declare_table_contract` (append-only) is imported as confirmed facts, once: a fact about
+  the same subject, whatever its status, is kept, so a rejected fact is never re-confirmed
+  by an import. `register_consumer` can still register a slot after you reject its fact
+  (the WAL custodian then escalates again); the fact stays rejected.
 
 Nothing proposed binds anything until a person confirms it, whichever of these proposed it.
 A rejected fact stays rejected when it is proposed again (the proposal count grows); new
-evidence reopens only an expired fact.
+evidence reopens only an expired fact. Rejected facts are kept as tombstones: retention never
+purges them, so the rejection is remembered for as long as the database is monitored.
 
 ## Confirming and rejecting
 
@@ -214,5 +218,19 @@ seen. A fact that a detector or the model proposes again in the same pass counts
 The absence clock is kept in memory, per pg_sage process: a restart, or the subject coming
 back, starts it over, so a sidecar restarted more often than hourly never expires an absent
 fact (it keeps binding, which is the safe side). A fact with an expiry date expires on that
-date, and stops binding from that moment. Expired and rejected facts are purged after
-`retention.actions_days`; proposed and confirmed facts are kept.
+date, and stops binding from that moment. Expired facts are purged after
+`retention.actions_days`; proposed, confirmed and rejected facts are kept (a rejected fact is
+the record that you said no). Expiring a slot consumer fact unregisters its slot.
+
+Slots whose fact was rejected before this release are still registered: pg_sage does not
+unregister them on its own, because that would widen what the WAL custodian may do without a
+fresh decision. Find them, then confirm and reject a rejected fact again (the reject
+unregisters the slot), or unregister the slot yourself with
+`UPDATE sage.slot_consumer_registry SET registered = false WHERE slot_name = '...'`:
+
+```sql
+SELECT f.id, r.slot_name, r.owner_tag
+FROM sage.facts f
+JOIN sage.slot_consumer_registry r ON r.slot_name = f.subject
+WHERE f.fact_type = 'slot_consumer' AND f.status IN ('rejected', 'expired') AND r.registered;
+```
