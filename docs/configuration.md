@@ -321,7 +321,7 @@ llm:
   optimizer_llm:                 # optional second model for optimizer
     endpoint: ""
     model: ""
-    api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
+    api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}  # needed when endpoint is on another origin
 
 tuning:                          # one case-driven tuning agent per database
   enabled: true
@@ -724,7 +724,7 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.optimizer.rejection_memory.row_estimate_ratio` | `2` | Same, for the table's live-row estimate (>1-1000). A target query appearing or disappearing is always a material change |
 | `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the tuning agent's case packet as already measured (1-20) |
 | `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive answers about a tuning case were all wasted (every proposal rejected or already measured, or the answer empty or malformed), the agent stops asking the model about the case until it changes materially (its statements, or a call-volume or mean-time change of `call_volume_ratio`/`mean_time_ratio`) or `max_age_days` passes (1-100). A provider failure neither extends nor breaks the streak. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
-| `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily` |
+| `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily`. It inherits `llm.api_key` only when `llm.optimizer_llm.endpoint` is empty or on the same origin as `llm.endpoint`; otherwise set `llm.optimizer_llm.api_key` |
 | `advisor.enabled` | `true` | LLM configuration advisor (WAL, connections, rewrites, bloat). With `advisor.memory_enabled` / `advisor.vacuum_enabled` it also lets the tuning agent propose server settings / table storage parameters |
 | `tuner.llm_enabled` | `true` | Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way |
 | `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |

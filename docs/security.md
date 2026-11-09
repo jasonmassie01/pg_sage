@@ -214,6 +214,39 @@ What is sent to the LLM:
 
 What is **never** sent: row data, column values, passwords, connection strings, API keys, PII. Query text from `pg_stat_statements` contains parameterized placeholders (`$1`, `$2`), not literal values. Live session text pg_sage stores (the `locks` snapshot, served by `/api/v1/snapshots/latest?metric=locks`) has its string and dollar-quoted literals redacted before it is written and is cut to 256 bytes.
 
+### Egress floor
+
+Every outbound client pg_sage builds (LLM providers and model discovery,
+alerting and notification channels, the briefing webhook, specialist
+notifiers, SIEM sinks, Prometheus, the DLE clone engine, OAuth and MCP OAuth
+identity providers, Azure, Supabase and cloud telemetry) dials through one
+egress floor, `internal/egress`. Right before each connect, the resolved
+address is checked, so a hostname that resolves to a blocked address is
+refused too. Redirects are checked the same way.
+
+The floor always refuses:
+
+- link-local unicast, `169.254.0.0/16` and `fe80::/10`, which hold the cloud
+  instance metadata services (`169.254.169.254`);
+- the AWS IPv6 metadata address `fd00:ec2::254`;
+- unspecified (`0.0.0.0/8`, `::`), multicast and broadcast addresses;
+- the names `metadata.google.internal` and `metadata`, also when an HTTP
+  proxy from `HTTPS_PROXY`/`HTTP_PROXY` would make the connection.
+
+A refused connection fails with `egress: destination blocked` and is not
+retried. Private and loopback addresses stay allowed, so Ollama on
+localhost, an on-prem relay or Prometheus inside the VPC keep working.
+Notification channels keep their stricter default on top of the floor (no
+private addresses unless allowed), and model discovery for an endpoint
+override still requires a public address.
+
+There is one exemption: the GCP metadata token source for cloud telemetry,
+which may reach only the configured metadata host
+(`metadata.google.internal` or `GCE_METADATA_HOST`), with no proxy and no
+redirects. The AWS SDK's own IMDS client is outside pg_sage's code. A
+census test fails the build on any HTTP client, transport or dialer built
+outside `internal/egress`.
+
 ### Model output is data
 
 The configuration advisor's prompts carry query text and table names that any
@@ -688,6 +721,29 @@ ciphertext.
   named password and channel secret in the dashboard or through the API.
   Passwords written by v0.8.x key derivations still open and are re-sealed
   under the current key on first read.
+
+### Secrets Bound to Their Destination
+
+The API never returns a stored secret, so an edit that moved an endpoint and
+kept its secret would send that secret to the new host. pg_sage refuses
+that:
+
+- A global config write that moves `llm.endpoint` or `clone.dle_endpoint` to
+  another origin (scheme, host or effective port, so `https://h` and
+  `https://h:443` are the same) while `llm.api_key` or `clone.dle_token` is
+  stored returns 400, for example `llm.endpoint moves to a new origin:
+  include llm.api_key, or send it empty to clear it`. Send the secret in the
+  same write, or send it empty to clear it. A masked secret does not count.
+  A path-only change, or an edit with the masked secret on the same origin,
+  needs nothing new. `llm.auth: databricks` is exempt, because it pins the
+  workspace origin and sends no API key.
+- Updating an email channel's `smtp_host` or `smtp_port` while sending the
+  masked `smtp_pass` or `smtp_password` fails with a validation error asking
+  for the password again; the stored value is unchanged.
+- The optimizer client sends `llm.api_key` only when
+  `llm.optimizer_llm.endpoint` is empty or on the same origin as
+  `llm.endpoint`. On another origin it sends no key and logs one WARN naming
+  `llm.optimizer_llm.api_key`; set that key for the optimizer provider.
 
 ### CSRF and Cross-Origin Requests
 
