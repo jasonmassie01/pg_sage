@@ -555,9 +555,33 @@
     "doc": "",
     "class": "safety_critical"
   },
+  "audit.siem.sinks[].allow_insecure_http": {
+    "type": "bool",
+    "default": false,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].ca_file": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
   "audit.siem.sinks[].chains": {
     "type": "[]string",
     "default": null,
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].client_cert_file": {
+    "type": "string",
+    "default": "",
+    "doc": "",
+    "class": "safety_critical"
+  },
+  "audit.siem.sinks[].client_key_file": {
+    "type": "string",
+    "default": "",
     "doc": "",
     "class": "safety_critical"
   },
