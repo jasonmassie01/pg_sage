@@ -69,24 +69,26 @@ func TestLLMUsageDB_FlushIsMonotonic(t *testing.T) {
 	row := func(tokens int64) []LLMUsageRow {
 		return []LLMUsageRow{{DatabaseKey: "name:orders", Role: "general", Tokens: tokens}}
 	}
+	// Load after every flush: a lower flush must not lower the row even
+	// for a moment, and repeating a count changes nothing.
 	for _, tokens := range []int64{100, 50, 100} {
 		if err := s.Flush(ctx, llmUsageTestDay, row(tokens)); err != nil {
 			t.Fatalf("flush %d: %v", tokens, err)
 		}
-	}
-	out, err := s.Load(ctx, llmUsageTestDay)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(out) != 1 || out[0].Tokens != 100 {
-		t.Fatalf("after flushing 100, 50, 100: %+v, want one row of 100", out)
+		out, err := s.Load(ctx, llmUsageTestDay)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out) != 1 || out[0].Tokens != 100 {
+			t.Fatalf("after flushing %d: %+v, want one row of 100", tokens, out)
+		}
 	}
 	if err := s.Flush(ctx, llmUsageTestDay, row(160)); err != nil {
 		t.Fatal(err)
 	}
-	out, _ = s.Load(ctx, llmUsageTestDay)
-	if len(out) != 1 || out[0].Tokens != 160 {
-		t.Fatalf("after flushing 160: %+v, want 160", out)
+	out, err := s.Load(ctx, llmUsageTestDay)
+	if err != nil || len(out) != 1 || out[0].Tokens != 160 {
+		t.Fatalf("after flushing 160: %+v (%v), want 160", out, err)
 	}
 }
 
