@@ -49,6 +49,8 @@ func specVersion(id ID) string {
 		return "v3" // v3: no query text; own_role marks pg_sage's role
 	case StatTables:
 		return "v3" // physical database/table identities bind maintenance evidence
+	case PlanRegressions:
+		return "v2" // v2: plan fingerprints compared only within one planhash version
 	}
 	return "v1"
 }
