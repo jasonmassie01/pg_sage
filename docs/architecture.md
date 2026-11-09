@@ -188,6 +188,10 @@ family, the databases that run it unattended. The context strip under the
 header repeats this in words ("Can run without approval now: create_index,
 analyze_table. Everything else queues for approval or is blocked by policy.")
 and, in the all-databases view, says how many databases are emergency-stopped.
+While some databases have not reported their action policy, the strip and the
+fleet tooltip add "2 databases have not reported their action policy" and the
+strip limits its claim to the databases that did, since one that has not
+reported may still auto-execute.
 The pending-approvals badge counts the selected database, or the whole fleet
 in the all-databases view, the same scope as the Actions list. When a
 database could not be counted (not connected, or its read failed) the badge
