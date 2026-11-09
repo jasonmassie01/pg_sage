@@ -406,6 +406,11 @@ sudo systemctl restart pg_sage
 
 The sidecar handles schema migrations automatically on startup (adding new columns or tables as needed).
 
+User emails become case-insensitive on upgrade. If two accounts have emails
+that differ only in case, startup logs an ERROR and opens the critical finding
+`auth_email_case_duplicates` instead; see
+[Email Identity](security.md#email-identity) for how to resolve it.
+
 ### Docker
 
 ```bash

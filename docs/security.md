@@ -342,12 +342,33 @@ not on-behalf-of user permissions. Agent transports and signed machine ingestion
 without an equivalent platform identity/grant contract remain explicitly
 unsupported. See the [App auth contract](databricks-apps.md#what-runs-where).
 
+### Email Identity
+
+An email address is one identity whatever its case. pg_sage stores emails
+trimmed and in lower case, and every comparison is case-insensitive:
+password login, the failed-login audit, the login throttle, SSO first sign-in,
+link grants and the break-glass account. `POST /api/v1/users` answers `400`
+for anything but a single bare address (`name@example.com`), and `409` for an
+email that already exists in any case. `sage.users` enforces this with the
+unique index `users_email_lower` on `lower(email)`.
+
+Upgrading rewrites existing emails in lower case and creates that index, unless
+two accounts have emails that differ only in case (or surrounding spaces).
+Then the upgrade changes nothing, startup still completes, and pg_sage logs an
+ERROR and opens a critical finding (`auth_email_case_duplicates` on
+`sage.users`) naming the colliding user ids. While the duplicates exist, those
+emails fail closed: password login is refused, the failed-login audit names no
+account, and SSO answers `link_required`. Keep one account per email (delete or
+rename the others, then re-grant roles and links to the one you keep) and
+restart pg_sage. The next startup finishes the migration and resolves the
+finding. In fleet mode, each database's `sage` schema is migrated on its own.
+
 ### SSO Account Linking
 
 SSO users are matched on the identity provider's issuer and subject, never on
-email. A first SSO sign-in whose verified email belongs to an existing account
-is refused (HTTP `403`) until the account is linked by one of these explicit
-acts:
+email. A first SSO sign-in whose verified email belongs to an existing account,
+compared case-insensitively, is refused (HTTP `403`) until the account is linked
+by one of these explicit acts:
 
 - **Link SSO (self-service).** A user signed in with a password opens their
   account page (click their email in the sidebar, `#/profile`) and chooses
