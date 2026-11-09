@@ -45,6 +45,13 @@ var retiredKeys = []struct {
 		"over_indexed_ratio_pct": "llm.optimizer.over_indexed_ratio_pct is no longer " +
 			"used and is ignored; remove it from the config file",
 	}},
+	// executor-04: a fleet canary waits for each database's own
+	// verification verdict, not a fixed settle.
+	{[]string{"sre", "autonomy", "canary"}, map[string]string{
+		"settle_seconds": "sre.autonomy.canary.settle_seconds is no longer used and is " +
+			"ignored: a fleet canary waits for each database's own verification verdict; " +
+			"remove it from the config file",
+	}},
 	{[]string{"llm", "index_optimizer"}, map[string]string{
 		"over_indexed_ratio_pct": "llm.index_optimizer.over_indexed_ratio_pct is no " +
 			"longer used and is ignored; remove it from the config file",

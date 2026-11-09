@@ -410,12 +410,20 @@ func TestApplyPrecheckReadsTheWholeTarget(t *testing.T) {
 	first := vpTable(t, ctx, admin, "vp_multi_a")
 	second := vpTable(t, ctx, admin, "vp_multi_b")
 	e := New(admin, config.DefaultConfig(), time.Time{}, nopLog)
-	executed, err := vpApply(ctx, e, "VACUUM "+first+", "+second,
-		vpDecision(t, ctx, admin, first))
+	// executor-08: a two-table VACUUM is no vacuum_table (no contract), so
+	// the gate parks it before the maintenance precheck; here, past a
+	// forced first decision, the precheck no longer applies and the
+	// re-authorization (no standing gate installed) withholds it.
+	multi := "VACUUM " + first + ", " + second
+	if got := actionTypeForProposalSQL(multi); got != "" {
+		t.Fatalf("two tables classify as %q, want no contract", got)
+	}
+	executed, err := vpApply(ctx, e, multi, vpDecision(t, ctx, admin, first))
 	var withheld *WithheldError
-	if executed || !errors.As(err, &withheld) ||
-		withheld.Decision.BlockedReason != reasonCapabilityMissing {
-		t.Fatalf("two tables: executed=%v err=%v, want withheld", executed, err)
+	if executed || !errors.As(err, &withheld) || !withheld.Reauthorized ||
+		withheld.Decision.BlockedReason != reasonNoStandingPolicy {
+		t.Fatalf("two tables: executed=%v err=%v, want withheld at re-authorization "+
+			"(%s), not by the maintenance precheck", executed, err, reasonNoStandingPolicy)
 	}
 	if _, err := admin.Exec(ctx, `DROP TABLE IF EXISTS public."vp spaced"; `+
 		`CREATE TABLE public."vp spaced" (a int)`); err != nil {

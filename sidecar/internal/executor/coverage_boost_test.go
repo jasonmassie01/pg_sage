@@ -1194,7 +1194,10 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 	}
 }
 
-func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
+// executor-05: an INVALID index pg_sage cannot bind to a build of its own
+// (here another session's failed build) is never dropped by name; the
+// approved CREATE INDEX is refused with the command that clears it.
+func TestCoverage_ExecuteManual_RefusesInvalidCreateIndexBlocker(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_, _ = pool.Exec(ctx, `DROP SCHEMA IF EXISTS pgsage_exec_test CASCADE`)
 	_, err := pool.Exec(ctx, `CREATE SCHEMA pgsage_exec_test`)
@@ -1277,14 +1280,12 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		shutdownCh:    make(chan struct{}),
 	}
 	withTestStandingGate(e)
-	actionID, err := e.ExecuteManual(ctx, int(findingID),
+	_, err = e.ExecuteManual(ctx, int(findingID),
 		"CREATE INDEX CONCURRENTLY ON pgsage_exec_test.test_manual_invalid_blocker (id)",
 		"", nil)
-	if err != nil {
-		t.Fatalf("ExecuteManual with invalid blocker: %v", err)
-	}
-	if actionID <= 0 {
-		t.Fatalf("actionID=%d, want > 0", actionID)
+	if err == nil || !strings.Contains(err.Error(), "is INVALID") ||
+		!strings.Contains(err.Error(), "DROP INDEX CONCURRENTLY IF EXISTS") {
+		t.Fatalf("ExecuteManual with invalid blocker = %v, want an actionable refusal", err)
 	}
 
 	var validCount, invalidCount int
@@ -1300,8 +1301,8 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query final indexes: %v", err)
 	}
-	if validCount != 1 || invalidCount != 0 {
-		t.Fatalf("valid/invalid index counts = %d/%d, want 1/0",
+	if validCount != 0 || invalidCount != 1 {
+		t.Fatalf("valid/invalid index counts = %d/%d, want the blocker kept (0/1)",
 			validCount, invalidCount)
 	}
 }

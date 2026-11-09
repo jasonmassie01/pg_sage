@@ -134,6 +134,18 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "2000",
 		reader: func(c *config.Config) string { return itoa(c.Safety.LockTimeoutMs) },
 	},
+	"safety.index_build_timeout_seconds": {
+		input:  "7200",
+		reader: func(c *config.Config) string { return itoa(c.Safety.IndexBuildTimeoutSeconds) },
+	},
+	"safety.reindex_timeout_seconds": {
+		input:  "3600",
+		reader: func(c *config.Config) string { return itoa(c.Safety.ReindexTimeoutSeconds) },
+	},
+	"safety.vacuum_timeout_seconds": {
+		input:  "1800",
+		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumTimeoutSeconds) },
+	},
 
 	// --- llm ---
 	"llm.enabled": {

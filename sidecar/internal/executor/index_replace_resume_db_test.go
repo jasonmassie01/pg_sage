@@ -71,6 +71,10 @@ func TestIndexReplaceCrashDuringTheCreateDropsNothing(t *testing.T) {
 	if exists, valid := f.index(f.newIndex); !exists || valid {
 		t.Fatalf("setup: remnant exists=%v valid=%v", exists, valid)
 	}
+	// executor-05: the build records the OID it registers before it can
+	// fail, so a crash leaves the remnant's OID on the row.
+	f.must(t, "UPDATE sage.index_replace SET new_index_oid = to_regclass('"+f.newIndex+
+		"')::oid WHERE table_name = '"+f.table+"'")
 	f.setState(replaceCreating)
 	if err := f.restarted().ResumeIndexReplaces(f.ctx); err != nil {
 		t.Fatalf("resume: %v", err)

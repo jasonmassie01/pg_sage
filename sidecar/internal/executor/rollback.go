@@ -223,11 +223,11 @@ func rollbackRegressedAction(
 	}
 	if err != nil {
 		logFn("rollback", "rollback failed for action %d: %v", actionID, err)
-		updateActionOutcome(ctx, pool, actionID, "rollback_failed",
+		recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed",
 			"rollback execution failed: "+err.Error())
 		return
 	}
-	updateActionOutcome(ctx, pool, actionID, "rolled_back", reason)
+	recordActionOutcome(ctx, pool, logFn, actionID, "rolled_back", reason)
 	_, _ = finalizeActionVerification(ctx, pool, actionID, "revert", reason)
 	_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }
@@ -335,8 +335,12 @@ func (c RollbackMonitorConfig) exec(
 		return c.execRollback
 	}
 	return func(ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption) error {
-		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-			return ExecConcurrently(ctx, pool, sql, timeout, opts...)
+		if statementRunsTopLevel(sql) {
+			// A failed restore build is cleaned up by the remnant handler;
+			// its outcome is named in the rollback's error.
+			run := remnantRun{pool: pool, timeout: timeout, dropTimeout: timeout, opts: opts}
+			_, err := run.exec(ctx, sql)
+			return err
 		}
 		return ExecInTransaction(ctx, pool, sql, timeout, opts...)
 	}

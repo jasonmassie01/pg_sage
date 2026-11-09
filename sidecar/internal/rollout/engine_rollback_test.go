@@ -153,3 +153,147 @@ func TestRollbacksSurviveCancellation(t *testing.T) {
 	require.Equal(t, "verification_failed", result.HaltReason)
 	require.Equal(t, []string{"b", "a"}, backend.rolledBack)
 }
+
+// executor-04: a step error (apply, measure, cancellation) rolls back
+// every instance already changed; a rollback that fails then leaves the
+// instance applied_unverified with the rollback error, never just applied.
+
+type erroringBackend struct {
+	*rollbackBackend
+	applyErr map[string]error
+}
+
+func newErroringBackend() *erroringBackend {
+	return &erroringBackend{rollbackBackend: newRollbackBackend(), applyErr: map[string]error{}}
+}
+
+func (b *erroringBackend) Apply(ctx context.Context, instance Instance,
+	candidate Reverification) (AppliedChange, error) {
+	if err := b.applyErr[instance.ID]; err != nil {
+		b.events = append(b.events, "apply-failed:"+instance.ID)
+		return AppliedChange{}, err
+	}
+	return b.rollbackBackend.Apply(ctx, instance, candidate)
+}
+
+func TestApplyErrorRollsBackTheChangedInstances(t *testing.T) {
+	backend := newErroringBackend()
+	backend.applyErr["b"] = errors.New("lock_timeout on the target")
+	request := healthyRolloutRequest("a", "b", "c")
+	request.Policy.CanaryInstances = 1
+
+	result, err := NewEngine(backend, backend).Rollout(context.Background(), request)
+
+	require.ErrorContains(t, err, "apply to b")
+	require.ErrorContains(t, err, "lock_timeout on the target")
+	require.Equal(t, []string{"a"}, backend.rolledBack)
+	require.Equal(t, 1, result.RolledBack)
+	require.Equal(t, StatusRolledBack, result.Instances["a"].Status)
+	require.Equal(t, StatusFailed, result.Instances["b"].Status)
+	require.ErrorContains(t, errors.New(result.Instances["b"].Detail), "lock_timeout")
+	require.Zero(t, backend.applyCalls["c"])
+	require.Zero(t, backend.reverifyCalls["c"])
+}
+
+func TestMeasureErrorRollsBackTheMeasuredInstanceToo(t *testing.T) {
+	backend := newErroringBackend()
+	backend.measureFunc = func(_ context.Context, instance Instance,
+		_ AppliedChange) (Outcome, error) {
+		if instance.ID == "b" {
+			return Outcome{}, errors.New("target unreachable")
+		}
+		return Outcome{EvidenceID: "verify-" + instance.ID}, nil
+	}
+	request := healthyRolloutRequest("a", "b", "c")
+	request.Policy.CanaryInstances = 1
+
+	result, err := NewEngine(backend, backend).Rollout(context.Background(), request)
+
+	require.ErrorContains(t, err, "measure b")
+	require.Equal(t, []string{"b", "a"}, backend.rolledBack)
+	require.Equal(t, 2, result.RolledBack)
+	require.Equal(t, StatusRolledBack, result.Instances["a"].Status)
+	require.Equal(t, StatusRolledBack, result.Instances["b"].Status)
+	require.Equal(t, 2, result.AppliedInstances)
+}
+
+func TestRollbackFailureAfterAnErrorRecordsAppliedUnverified(t *testing.T) {
+	backend := newErroringBackend()
+	backend.applyErr["c"] = errors.New("executor disabled")
+	backend.rollbackErr["a"] = errors.New("DROP INDEX timed out")
+	request := healthyRolloutRequest("a", "b", "c")
+	request.Policy.CanaryInstances = 1
+
+	result, err := NewEngine(backend, backend).Rollout(context.Background(), request)
+
+	require.ErrorContains(t, err, "executor disabled")
+	require.Equal(t, []string{"b", "a"}, backend.rolledBack)
+	require.Equal(t, StatusRolledBack, result.Instances["b"].Status)
+	require.Equal(t, StatusAppliedUnverified, result.Instances["a"].Status)
+	require.ErrorContains(t, errors.New(result.Instances["a"].Detail), "DROP INDEX timed out")
+	require.Equal(t, 1, result.RolledBack)
+	require.Len(t, result.RollbackErrors, 1)
+	require.ErrorContains(t, errors.New(result.RollbackErrors[0]), "a: DROP INDEX timed out")
+}
+
+// Cancellation between instances is an engine error too: the changed
+// instances are rolled back on a context that outlives the caller's.
+func TestCancellationBetweenInstancesRollsBack(t *testing.T) {
+	backend := newErroringBackend()
+	ctx, cancel := context.WithCancel(context.Background())
+	backend.measureFunc = func(_ context.Context, instance Instance,
+		_ AppliedChange) (Outcome, error) {
+		if instance.ID == "b" {
+			cancel()
+		}
+		return Outcome{EvidenceID: "verify-" + instance.ID}, nil
+	}
+	request := healthyRolloutRequest("a", "b", "c")
+	request.Policy.CanaryInstances = 1
+
+	result, err := NewEngine(backend, backend).Rollout(ctx, request)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, []string{"b", "a"}, backend.rolledBack)
+	require.Equal(t, StatusRolledBack, result.Instances["a"].Status)
+	require.Equal(t, StatusRolledBack, result.Instances["b"].Status)
+	require.Zero(t, backend.applyCalls["c"])
+}
+
+// A verdict still pending at its deadline halts without judging and
+// without a rollback: the target's own monitor still owns the change.
+func TestPendingVerificationHaltsWithoutRollback(t *testing.T) {
+	backend := newRollbackBackend()
+	backend.outcomes["b"] = Outcome{Pending: true, EvidenceID: "verify-b",
+		Detail: "still monitoring at the deadline"}
+	request := healthyRolloutRequest("a", "b", "c")
+	request.Policy.CanaryInstances = 1
+
+	result, err := NewEngine(backend, backend).Rollout(context.Background(), request)
+
+	require.NoError(t, err)
+	require.True(t, result.Halted)
+	require.Equal(t, "verification_pending", result.HaltReason)
+	require.Empty(t, backend.rolledBack)
+	require.Zero(t, result.RolledBack)
+	require.Equal(t, StatusApplied, result.Instances["a"].Status)
+	require.Equal(t, StatusVerificationPending, result.Instances["b"].Status)
+	require.Equal(t, "still monitoring at the deadline", result.Instances["b"].Detail)
+	require.Zero(t, backend.applyCalls["c"])
+}
+
+// A pending canary is not counted as a canary pass: the aggregate is not
+// computed from it, so the canary list stays empty.
+func TestPendingCanaryIsNotCountedAsACanary(t *testing.T) {
+	backend := newRollbackBackend()
+	backend.outcomes["a"] = Outcome{Pending: true}
+	request := healthyRolloutRequest("a", "b")
+	request.Policy.CanaryInstances = 1
+
+	result, err := NewEngine(backend, backend).Rollout(context.Background(), request)
+
+	require.NoError(t, err)
+	require.Equal(t, "verification_pending", result.HaltReason)
+	require.Empty(t, result.CanaryInstanceIDs)
+	require.Zero(t, backend.applyCalls["b"])
+}

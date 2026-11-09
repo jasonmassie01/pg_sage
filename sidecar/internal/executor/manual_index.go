@@ -4,18 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
-// dropFailedCreateIndexRemnant drops only an INVALID index carrying exactly
-// the name the approved CREATE INDEX will create (the remnant of an earlier
-// failed CONCURRENTLY build). Other invalid indexes on the table are never
-// touched: they are not part of the approved SQL.
-func (e *Executor) dropFailedCreateIndexRemnant(
-	ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption,
-) error {
+// refuseUnboundRemnant refuses an approved CREATE INDEX whose name is
+// held by an INVALID index. pg_sage's own failed builds are cleaned up by
+// the remnant handler, bound to the OID they registered; an INVALID index
+// it cannot bind may be another session's build still running, so it is
+// never dropped by name here (executor-05).
+func (e *Executor) refuseUnboundRemnant(ctx context.Context, sql string) error {
 	schemaName, name, ok := createIndexName(sql)
 	if !ok {
 		return nil
@@ -26,14 +24,14 @@ func (e *Executor) dropFailedCreateIndexRemnant(
 		SELECT 1 FROM pg_index i WHERE i.indexrelid = to_regclass($1)
 		   AND NOT i.indisvalid)`, qualified).Scan(&invalid)
 	if err != nil {
-		return fmt.Errorf("check failed index remnant: %w", err)
+		return fmt.Errorf("check for an INVALID index named %s: %w", qualified, err)
 	}
-	if !invalid {
-		return nil
+	if invalid {
+		return fmt.Errorf("index %s already exists and is INVALID (a failed build's "+
+			"remnant, or a build still running); confirm no build is running, drop it with "+
+			"DROP INDEX CONCURRENTLY IF EXISTS %s, then approve again", qualified, qualified)
 	}
-	e.logFn("executor", "dropping invalid remnant %s before re-creating it", qualified)
-	return ExecConcurrently(ctx, e.pool,
-		"DROP INDEX CONCURRENTLY IF EXISTS "+qualified, timeout, opts...)
+	return nil
 }
 
 // createIndexName is the schema (public when unqualified) and name of the
@@ -90,30 +88,10 @@ func createIndexIdentifier(sql string) string {
 }
 
 func parseCreateIndexTarget(sql string) (string, string, []string, bool) {
-	compact := strings.Join(strings.Fields(strings.TrimSuffix(
-		strings.TrimSpace(sql), ";")), " ")
-	upper := strings.ToUpper(compact)
-	onIdx := strings.Index(upper, " ON ")
-	if onIdx < 0 {
+	schemaName, tableName, afterOn, openParen, ok := createIndexOn(sql)
+	if !ok {
 		return "", "", nil, false
 	}
-	afterOn := strings.TrimSpace(compact[onIdx+4:])
-	if strings.HasPrefix(strings.ToUpper(afterOn), "ONLY ") {
-		afterOn = strings.TrimSpace(afterOn[5:])
-	}
-	openParen := strings.Index(afterOn, "(")
-	if openParen < 0 {
-		return "", "", nil, false
-	}
-	tableSpec := strings.TrimSpace(afterOn[:openParen])
-	if usingIdx := strings.Index(strings.ToUpper(tableSpec), " USING "); usingIdx >= 0 {
-		tableSpec = strings.TrimSpace(tableSpec[:usingIdx])
-	}
-	tableSpec = strings.TrimSpace(tableSpec)
-	if tableSpec == "" {
-		return "", "", nil, false
-	}
-
 	closeParen := matchingCloseParen(afterOn, openParen)
 	if closeParen < 0 {
 		return "", "", nil, false
@@ -122,15 +100,40 @@ func parseCreateIndexTarget(sql string) (string, string, []string, bool) {
 	if len(cols) == 0 {
 		return "", "", nil, false
 	}
+	return schemaName, tableName, cols, true
+}
 
-	parts := splitQualifiedIdentifier(tableSpec)
-	if len(parts) == 1 {
-		return "", parts[0], cols, true
+// createIndexOn is the schema ("" when unqualified) and table of a
+// CREATE INDEX, with the text after ON and where its key list opens; it
+// reads expression indexes too.
+func createIndexOn(sql string) (string, string, string, int, bool) {
+	compact := strings.Join(strings.Fields(strings.TrimSuffix(
+		strings.TrimSpace(sql), ";")), " ")
+	upper := strings.ToUpper(compact)
+	onIdx := strings.Index(upper, " ON ")
+	if onIdx < 0 {
+		return "", "", "", 0, false
 	}
-	if len(parts) == 2 {
-		return parts[0], parts[1], cols, true
+	afterOn := strings.TrimSpace(compact[onIdx+4:])
+	if strings.HasPrefix(strings.ToUpper(afterOn), "ONLY ") {
+		afterOn = strings.TrimSpace(afterOn[5:])
 	}
-	return "", "", nil, false
+	openParen := strings.Index(afterOn, "(")
+	if openParen < 0 {
+		return "", "", "", 0, false
+	}
+	tableSpec := strings.TrimSpace(afterOn[:openParen])
+	if usingIdx := strings.Index(strings.ToUpper(tableSpec), " USING "); usingIdx >= 0 {
+		tableSpec = strings.TrimSpace(tableSpec[:usingIdx])
+	}
+	parts := splitQualifiedIdentifier(strings.TrimSpace(tableSpec))
+	switch {
+	case tableSpec == "" || len(parts) > 2:
+		return "", "", "", 0, false
+	case len(parts) == 1:
+		return "", parts[0], afterOn, openParen, true
+	}
+	return parts[0], parts[1], afterOn, openParen, true
 }
 
 func matchingCloseParen(s string, open int) int {

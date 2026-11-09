@@ -285,6 +285,12 @@ func hotReloadSafety(cfg *config.Config, key, v string) {
 		cfg.Safety.DDLTimeoutSeconds = atoi(v)
 	case "safety.lock_timeout_ms":
 		cfg.Safety.LockTimeoutMs = atoi(v)
+	case "safety.index_build_timeout_seconds":
+		cfg.Safety.IndexBuildTimeoutSeconds = atoi(v)
+	case "safety.reindex_timeout_seconds":
+		cfg.Safety.ReindexTimeoutSeconds = atoi(v)
+	case "safety.vacuum_timeout_seconds":
+		cfg.Safety.VacuumTimeoutSeconds = atoi(v)
 	}
 }
 

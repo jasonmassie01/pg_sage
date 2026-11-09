@@ -43,6 +43,9 @@ var allowedConfigKeys = map[string]string{
 	"safety.query_timeout_ms":             "int_pos",
 	"safety.ddl_timeout_seconds":          "int_pos",
 	"safety.lock_timeout_ms":              "int_pos",
+	"safety.index_build_timeout_seconds":  "int_class_timeout",
+	"safety.reindex_timeout_seconds":      "int_class_timeout",
+	"safety.vacuum_timeout_seconds":       "int_class_timeout",
 	"llm.enabled":                         "bool",
 	"llm.auth":                            "llm_auth",
 	"llm.endpoint":                        "string",
@@ -171,14 +174,15 @@ func ValidateConfigOverride(key, value string) error {
 	return validateConfigValue(key, value)
 }
 
-// intRanges are the inclusive bounds of the integer value types.
+// intRanges are the inclusive bounds of the integer validation types.
 var intRanges = map[string][2]int{
-	"int_pos":          {1, 1 << 30},
-	"int_nonneg":       {0, 1 << 30},
-	"int_min5":         {5, 1 << 30},
-	"int_week_minutes": {1, config.MaxInactiveSlotMinMinutes},
-	"pct":              {0, 100},
-	"pct1_100":         {1, 100},
+	"int_pos":           {1, 1 << 30},
+	"int_nonneg":        {0, 1 << 30},
+	"int_min5":          {5, 1 << 30},
+	"int_week_minutes":  {1, config.MaxInactiveSlotMinMinutes},
+	"int_class_timeout": {config.MinClassTimeoutSeconds, config.MaxClassTimeoutSeconds},
+	"pct":               {0, 100},
+	"pct1_100":          {1, 100},
 }
 
 func validateByType(vtype, key, value string) error {
@@ -552,6 +556,12 @@ func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 	addField(m, "safety.ddl_timeout_seconds",
 		s.DDLTimeoutSeconds, "yaml")
 	addField(m, "safety.lock_timeout_ms", s.LockTimeoutMs, "yaml")
+	addField(m, "safety.index_build_timeout_seconds",
+		s.IndexBuildTimeoutSeconds, "yaml")
+	addField(m, "safety.reindex_timeout_seconds",
+		s.ReindexTimeoutSeconds, "yaml")
+	addField(m, "safety.vacuum_timeout_seconds",
+		s.VacuumTimeoutSeconds, "yaml")
 }
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
@@ -748,7 +758,8 @@ func applyOverrides(
 func coerceValue(key, value string) any {
 	vtype := allowedConfigKeys[key]
 	switch vtype {
-	case "int_pos", "int_nonneg", "int_min5", "int_week_minutes", "pct", "pct1_100":
+	case "int_pos", "int_nonneg", "int_min5", "int_week_minutes", "pct", "pct1_100",
+		"int_class_timeout":
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}

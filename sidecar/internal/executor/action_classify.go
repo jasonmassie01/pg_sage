@@ -18,8 +18,8 @@ func actionTypeForProposalSQL(sql string) string {
 		return "drop_unused_index"
 	case isConcurrentReindexSQL(upper):
 		return "reindex_concurrently"
-	case (strings.HasPrefix(upper, "VACUUM ") || upper == "VACUUM") &&
-		!isVacuumFullSQL(upper):
+	case strings.HasPrefix(upper, "VACUUM ") && !isVacuumFullSQL(upper) &&
+		isSingleRelationVacuum(upper):
 		return "vacuum_table"
 	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
 		return "cancel_backend"
@@ -48,11 +48,12 @@ func actionTypeForProposalSQL(sql string) string {
 	}
 }
 
+// isConcurrentReindexSQL is a REINDEX CONCURRENTLY of one index or one
+// table. A schema- or database-wide REINDEX has no contract (executor-08):
+// it rebuilds every index it reaches, under no lease.
 func isConcurrentReindexSQL(upper string) bool {
 	rest := strings.TrimSpace(strings.TrimPrefix(upper, "REINDEX "))
-	for _, objectType := range []string{
-		"INDEX ", "TABLE ", "SCHEMA ", "DATABASE ", "SYSTEM ",
-	} {
+	for _, objectType := range []string{"INDEX ", "TABLE "} {
 		if strings.HasPrefix(rest, objectType) {
 			rest = strings.TrimSpace(strings.TrimPrefix(rest, objectType))
 			return strings.HasPrefix(rest, "CONCURRENTLY ")

@@ -36,7 +36,11 @@ func TestOneChange_RollbackOfTheInFlightActionIsExempt(t *testing.T) {
 		t.Fatal("the rollback of the in-flight action was not authorized")
 	}
 	// The same statement as a fresh self-initiated change waits.
+	// executor-08: a fresh drop names the index it drops (an optimizer
+	// finding names the table, and its drop would be a target_mismatch).
 	fresh := created
+	fresh.Category, fresh.ObjectIdentifier = "unused_index",
+		"public.idx_memories_live_status_type_quality"
 	fresh.RecommendedSQL = created.RollbackSQL
 	if d := authorizeFinding(t, exec, ctx, fresh); d.Reason !=
 		policy.ReasonAwaitingVerification {

@@ -1992,6 +1992,12 @@
     "doc": "Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed.",
     "class": "safety_critical"
   },
+  "safety.index_build_timeout_seconds": {
+    "type": "int",
+    "default": 14400,
+    "doc": "statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400.",
+    "class": "safety_critical"
+  },
   "safety.lock_timeout_ms": {
     "type": "int",
     "default": 30000,
@@ -2004,6 +2010,18 @@
     "default": 500,
     "doc": "statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection.",
     "class": "derivable"
+  },
+  "safety.reindex_timeout_seconds": {
+    "type": "int",
+    "default": 14400,
+    "doc": "statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400.",
+    "class": "safety_critical"
+  },
+  "safety.vacuum_timeout_seconds": {
+    "type": "int",
+    "default": 14400,
+    "doc": "statement_timeout of a VACUUM (not VACUUM FULL) run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400.",
+    "class": "safety_critical"
   },
   "safety.wal_io_ceiling_pct": {
     "type": "int",
@@ -2252,12 +2270,6 @@
     "type": "float64",
     "default": 10,
     "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10.",
-    "class": "safety_critical"
-  },
-  "sre.autonomy.canary.settle_seconds": {
-    "type": "int",
-    "default": 60,
-    "doc": "Seconds to wait after each change before measuring it, 0-3600. Default: 60.",
     "class": "safety_critical"
   },
   "sre.autonomy.class_promotion.min_success_rate_pct": {

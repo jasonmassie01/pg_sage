@@ -97,7 +97,7 @@ func (e *Executor) prepareVerifiedIndex(ctx context.Context, action *verifiedInd
 		return fmt.Errorf("check index name %s: %w", qualified, err)
 	}
 	if exists {
-		return fmt.Errorf("%w: index %s already exists", ErrVerificationUnavailable, qualified)
+		return &indexNameTakenError{Index: qualified}
 	}
 	action.IndexName = qualified
 	action.RollbackSQL = "DROP INDEX CONCURRENTLY IF EXISTS " + qualified

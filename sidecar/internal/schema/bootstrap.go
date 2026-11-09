@@ -457,7 +457,8 @@ func migrationStatements() []string {
 		ddlSelfConfigDerivations, // footprint-04: soak derivations, clamped events
 		ddlPreTaggingSelfFindings, // footprint-06: resolve pre-tagging self findings
 		ddlQueryHintsStatusCheck, // tuning-06: rejected and expired hints
-		ddlAdvisorRuns) // advisors-02: persisted sub-advisor schedule
+		ddlAdvisorRuns, // advisors-02: persisted sub-advisor schedule
+		ddlRolloutInstanceStatus) // executor-04: canary pending and unverified states
 }
 
 // ---------------------------------------------------------------------------
