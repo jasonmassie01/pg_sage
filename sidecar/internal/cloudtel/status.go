@@ -2,6 +2,7 @@ package cloudtel
 
 import (
 	"math"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -96,51 +97,69 @@ func (r *Runtime) identity() (provider, cluster, role string) {
 	return r.src.Provider(), cluster, role
 }
 
+// StatusSource is anything that reports a database's host telemetry
+// status: a Runtime, or a status-only adapter such as Supabase's.
+type StatusSource interface {
+	Database() string
+	Status() Status
+}
+
 var registry = struct {
 	sync.RWMutex
-	m map[string]*Runtime
-}{m: map[string]*Runtime{}}
+	m map[string]StatusSource
+}{m: map[string]StatusSource{}}
 
-// Register publishes a database's runtime to the API.
-func Register(r *Runtime) {
-	if r == nil {
+// isNil reports a nil source, including a typed nil pointer.
+func isNil(s StatusSource) bool {
+	if s == nil {
+		return true
+	}
+	v := reflect.ValueOf(s)
+	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
+// Register publishes a database's status source to the API.
+func Register(s StatusSource) {
+	if isNil(s) {
 		return
 	}
 	registry.Lock()
 	defer registry.Unlock()
-	registry.m[r.database] = r
+	registry.m[s.Database()] = s
 }
 
-// Unregister removes r if it is still the registered runtime.
-func Unregister(r *Runtime) {
-	if r == nil {
+// Unregister removes s if it is still the registered source.
+func Unregister(s StatusSource) {
+	if isNil(s) {
 		return
 	}
 	registry.Lock()
 	defer registry.Unlock()
-	if registry.m[r.database] == r {
-		delete(registry.m, r.database)
+	if registry.m[s.Database()] == s {
+		delete(registry.m, s.Database())
 	}
 }
 
-// Lookup returns the database's runtime (nil: none).
+// Lookup returns the database's runtime (nil: none, or a status-only
+// source, which has no guards, backup posture or resource identity).
 func Lookup(database string) *Runtime {
 	registry.RLock()
 	defer registry.RUnlock()
-	return registry.m[database]
+	rt, _ := registry.m[database].(*Runtime)
+	return rt
 }
 
-// Statuses reports every registered runtime, sorted by database.
+// Statuses reports every registered source, sorted by database.
 func Statuses() []Status {
 	registry.RLock()
-	rts := make([]*Runtime, 0, len(registry.m))
-	for _, r := range registry.m {
-		rts = append(rts, r)
+	srcs := make([]StatusSource, 0, len(registry.m))
+	for _, s := range registry.m {
+		srcs = append(srcs, s)
 	}
 	registry.RUnlock()
-	out := make([]Status, 0, len(rts))
-	for _, r := range rts {
-		out = append(out, r.Status())
+	out := make([]Status, 0, len(srcs))
+	for _, s := range srcs {
+		out = append(out, s.Status())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Database < out[j].Database })
 	return out

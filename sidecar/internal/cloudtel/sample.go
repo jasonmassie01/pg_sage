@@ -29,6 +29,7 @@ const (
 	MemorySourceInstanceClass       = "instance_class"
 	MemorySourceCloudMonitoring     = "cloud_monitoring"
 	MemorySourceMachineTier         = "machine_tier"
+	MemorySourceSupabaseMetrics     = "supabase_metrics"
 )
 
 var (
