@@ -12,7 +12,7 @@ import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { useLiveStatus } from '../hooks/liveEventsContext'
 import { FreshnessIndicator } from './FreshnessIndicator'
 import { TimeRangePicker } from './TimeRangePicker'
-import { TrustBadge } from './TrustBadge'
+import { HeaderTrustBadge } from './HeaderTrustBadge'
 import { PostgresMeme } from './PostgresMeme'
 import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
@@ -85,7 +85,27 @@ function NavHeading({ children }) {
   )
 }
 
-function NavLink({ item, active, pendingCount }) {
+// pendingBadge turns the count response into the nav badge. A count that
+// skipped a database (errors non-empty) is a lower bound, shown as "N+".
+function pendingBadge(data) {
+  const count = Number.isInteger(data?.count) ? data.count : 0
+  const errors = Array.isArray(data?.errors) ? data.errors : []
+  if (errors.length === 0) {
+    return count > 0 ? { text: String(count), title: undefined } : null
+  }
+  const missed = errors
+    .map(e => `${e?.database || 'unknown'} (${e?.error || 'not counted'})`)
+    .join(', ')
+  return { text: `${count}+`, title: `At least ${count}; not counted: ${missed}` }
+}
+
+function pendingCountURL(selectedDB) {
+  const base = '/api/v1/actions/pending/count'
+  return selectedDB && selectedDB !== 'all'
+    ? `${base}?database=${encodeURIComponent(selectedDB)}` : base
+}
+
+function NavLink({ item, active, pending }) {
   return (
     <a
       href={item.path}
@@ -100,8 +120,9 @@ function NavLink({ item, active, pendingCount }) {
       }}>
       <item.icon size={16} />
       {item.label}
-      {item.path === '#/actions' && pendingCount > 0 && (
+      {item.path === '#/actions' && pending && (
         <span
+          title={pending.title}
           className="ml-auto px-1.5 py-0.5 rounded-full text-xs"
           style={{
             background: 'var(--red, #e53e3e)',
@@ -109,7 +130,7 @@ function NavLink({ item, active, pendingCount }) {
             fontSize: '0.65rem',
             lineHeight: 1,
           }}>
-          {pendingCount}
+          {pending.text}
         </span>
       )}
     </a>
@@ -128,35 +149,16 @@ export function Layout({
   const canReviewActions =
     user?.role === 'admin' || user?.role === 'operator'
   const { data: countData, refetch: refetchPending } = useAPI(
-    canReviewActions ? '/api/v1/actions/pending/count' : null, 30000,
+    canReviewActions ? pendingCountURL(selectedDB) : null, 30000,
   )
-  // The badge counts approvals across the fleet, so it takes every database's
-  // events (no database scope); a hidden tab refreshes it when shown.
+  // The badge counts the approvals of the selected database, or of the fleet
+  // in the all-databases view, like the Actions list. It refetches on any
+  // database's action events; a hidden tab refreshes it when shown.
   useLiveRefetch(['actions'], refetchPending)
-  const pendingCount = countData?.count || 0
+  const pending = pendingBadge(countData)
   const liveStatus = useLiveStatus()
   const emergencyStopped =
     fleetData?.summary?.emergency_stopped === true
-
-  // TrustBadge reflects the selected database's trust_level.
-  // "all" collapses to the worst (least autonomous) across the
-  // fleet so a single observation-mode instance still shows up
-  // on the overview.
-  const trustLevel = (() => {
-    if (!fleetData?.databases?.length) return null
-    if (selectedDB && selectedDB !== 'all') {
-      const d = fleetData.databases.find(x => x.name === selectedDB)
-      return d?.status?.trust_level || null
-    }
-    const order = { observation: 0, advisory: 1, autonomous: 2 }
-    let worst = null
-    for (const d of fleetData.databases) {
-      const t = d.status?.trust_level
-      if (!t) continue
-      if (worst == null || order[t] < order[worst]) worst = t
-    }
-    return worst
-  })()
 
   const isAdmin = user?.role === 'admin'
   const platformManaged = authMode === 'databricks_app'
@@ -214,7 +216,7 @@ export function Layout({
                 key={n.path}
                 item={n}
                 active={hash === n.path || n.aliases?.includes(hash)}
-                pendingCount={pendingCount}
+                pending={pending}
               />
             ))}
           </div>
@@ -357,7 +359,7 @@ export function Layout({
               fleetStop={fleetData?.summary}
               onChanged={onFleetChanged}
             />
-            {trustLevel && <TrustBadge level={trustLevel} />}
+            <HeaderTrustBadge rows={fleetData?.databases} selectedDB={selectedDB} />
             <TimeRangePicker />
             {databases && databases.length > 0 && (
               <DatabasePicker

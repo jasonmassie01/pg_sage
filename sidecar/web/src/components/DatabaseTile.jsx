@@ -2,6 +2,7 @@ import { Server, AlertTriangle, CheckCircle } from 'lucide-react'
 import { StatusDot } from './StatusDot'
 import { TrustBadge } from './TrustBadge'
 import { formatTrustLevel } from '../pages/Dashboard'
+import { rowAutoFamilies } from '../lib/autonomy'
 
 function healthColor(score) {
   if (score === undefined || score === null) return 'var(--text-secondary)'
@@ -106,7 +107,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
             {formatTrustLevel(trust) || trust}
           </span>
           <TrustBadge level={trust} compact
-            autoFamilies={autoFamilies(caps)} />
+            autoFamilies={rowAutoFamilies(db)} />
         </div>
       )}
       <div className="mt-3 pt-2"
@@ -131,11 +132,4 @@ export function DatabaseTile({ db, selected, onSelect }) {
       </div>
     </button>
   )
-}
-
-function autoFamilies(caps) {
-  if (!Array.isArray(caps.action_families)) return undefined
-  return caps.action_families
-    .filter(f => f?.decision === 'execute')
-    .map(f => f.action_type)
 }

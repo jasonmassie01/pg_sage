@@ -1,4 +1,5 @@
 import { Eye, Gavel, Bot } from 'lucide-react'
+import { liveHint } from '../lib/autonomy'
 
 const LEVELS = {
   observation: {
@@ -33,14 +34,16 @@ const LEVELS = {
 
 // autoFamilies: action types whose current policy decision is
 // "execute" (from capabilities.action_families). When supplied, the hint
-// states what would actually auto-run right now (G9-B12).
-export function TrustBadge({ level, compact = false, autoFamilies }) {
+// states what would actually auto-run right now (G9-B12). hint, when given,
+// replaces the tooltip (the fleet badge names databases per family).
+export function TrustBadge({ level, compact = false, autoFamilies, hint: override }) {
   const norm = (level || '').toLowerCase()
   const meta = LEVELS[norm]
   if (!meta) return null
   const { label, Icon, bg, fg, border } = meta
-  const hint = Array.isArray(autoFamilies) && norm !== 'observation'
+  const live = Array.isArray(autoFamilies) && norm !== 'observation'
     ? liveHint(autoFamilies) : meta.hint
+  const hint = override || live
   return (
     <span
       data-testid={`trust-badge-${norm}`}
@@ -58,10 +61,3 @@ export function TrustBadge({ level, compact = false, autoFamilies }) {
   )
 }
 
-function liveHint(autoFamilies) {
-  if (autoFamilies.length === 0) {
-    return 'Nothing auto-executes right now; actions queue for approval'
-      + ' or are observe-only'
-  }
-  return `Auto-executes now: ${autoFamilies.join(', ')}`
-}
