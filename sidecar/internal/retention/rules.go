@@ -3,6 +3,7 @@ package retention
 import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/partition"
+	"github.com/pg-sage/sidecar/internal/sre"
 )
 
 // purgeRule deletes rows of sage.<table> whose timeCol is older than
@@ -47,23 +48,6 @@ func keepSnapshotBases(from string) string {
 // retention in days.
 var keepSnapshotKeyframe = keepSnapshotBases("now() - make_interval(days => $1)")
 
-// maintenanceActionLink identifies the exact durable executor record. An
-// execution can commit before the bridge saves its action ID; preserve that
-// crash window only for an unresolved proposal and the exact bound finding,
-// forward SQL and inverse. Once an ID is recorded, no replacement action can
-// claim its lifetime. The finding expression index bounds the JSON lookup.
-const maintenanceActionLink = `p.proposal->>'finding_id' = al.finding_id::text
-    AND (p.proposal->>'action_log_id' = al.id::text
-         OR (p.state IN ('executing', 'uncertain')
-             AND COALESCE(p.proposal->>'action_log_id', '0') = '0'
-             AND p.proposal->>'sql' = al.sql_executed
-             AND p.proposal->>'rollback_sql' = al.rollback_sql
-             AND EXISTS (SELECT 1 FROM sage.findings f
-                 WHERE f.id = al.finding_id AND f.category = 'sre_maintenance'
-                   AND f.object_identifier = 'sre_maintenance:' || p.id::text
-                   AND f.recommended_sql = al.sql_executed
-                   AND f.rollback_sql = al.rollback_sql)))`
-
 const (
 	// Maintenance retains its exact action and audit dependencies while its
 	// SRE ledger exists. The bridge requires a colocated coordination/target
@@ -79,7 +63,7 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.id = action_log.id
 	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
-	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                         WHERE ` + sre.MaintenanceActionLink + ` OFFSET 0)
 	                   OFFSET 0)`
 	// Only terminal recommendations age out; their revisions and history
 	// go with them (ON DELETE CASCADE). Live ones are kept however old.
@@ -100,7 +84,7 @@ const (
 	                   WHERE (al.id = verification.action_log_id
 	                          OR al.verification_id = verification.id)
 	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
-	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                         WHERE ` + sre.MaintenanceActionLink + ` OFFSET 0)
 	                   OFFSET 0)`
 	keepDecision = `AND (deadline_hard_at IS NULL OR deadline_hard_at < now()
 	                   OR resolved_at IS NOT NULL)
@@ -112,7 +96,7 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.decision_id = decision.id
 	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
-	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                         WHERE ` + sre.MaintenanceActionLink + ` OFFSET 0)
 	                   OFFSET 0)`
 	// Non-execute decisions (withheld gate verdicts, schema guard
 	// observations) are facts about candidates, not the record of a change:
