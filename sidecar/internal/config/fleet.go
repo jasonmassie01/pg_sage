@@ -27,6 +27,11 @@ type DatabaseConfig struct {
 	CollectorIntervalSeconds int      `yaml:"collector_interval_seconds" doc:"Per-database collector interval override. Zero falls back to defaults.collector_interval_seconds." mode:"fleet-only"`
 	AnalyzerIntervalSeconds  int      `yaml:"analyzer_interval_seconds" doc:"Per-database analyzer interval override. Zero falls back to defaults.analyzer_interval_seconds." mode:"fleet-only"`
 
+	Provider string `yaml:"provider" doc:"Optional provider override, e.g. rds, cloud-sql, neon or self-managed. Used only while detection cannot tell; a disagreement with detection keeps the detected provider and warns." mode:"fleet-only"`
+	// CloudResource names this database's provider resource when its host
+	// does not (an IP, the Cloud SQL Auth Proxy, an RDS Proxy, custom DNS).
+	CloudResource CloudResourceConfig `yaml:"cloud_resource"`
+
 	// Verify carries this database's own load-admission attestation (D6).
 	Verify DatabaseVerifyConfig `yaml:"verify"`
 	// Replicas are the standbys the agent kill switch reaches (agents_kill.go).
@@ -139,6 +144,8 @@ func (c *Config) normalize() {
 			Database:       c.Postgres.Database,
 			SSLMode:        c.Postgres.SSLMode,
 			MaxConnections: c.Postgres.MaxConnections,
+			Provider:       c.Postgres.Provider,
+			CloudResource:  c.Postgres.CloudResource,
 		}
 		applyDatabaseURL(&db, c.Postgres.DatabaseURL)
 		db.Name = db.Database

@@ -150,6 +150,9 @@ type PostgresConfig struct {
 	SSLMode        string `yaml:"sslmode" doc:"libpq sslmode string (disable, allow, prefer, require, verify-ca, verify-full). Use verify-full in production."`
 	MaxConnections int    `yaml:"max_connections" doc:"Maximum connections the sidecar pgx pool will open to this target. Keep well below max_connections on the server."`
 	DatabaseURL    string `yaml:"database_url" doc:"Full libpq connection URL. When set, overrides host/port/user/password/database/sslmode."`
+	Provider       string `yaml:"provider" doc:"Optional provider override, e.g. rds, cloud-sql, neon or self-managed. Used only while detection cannot tell; a disagreement with detection keeps the detected provider and warns."`
+	// CloudResource names the provider resource when the host does not.
+	CloudResource CloudResourceConfig `yaml:"cloud_resource"`
 }
 
 type CollectorConfig struct {

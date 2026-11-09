@@ -102,7 +102,10 @@ func (c *Config) validateCloudTelemetry() error {
 	if ct.MinFreeStoragePct > 100 || ct.MinAvailableMemoryPct > 100 {
 		return fmt.Errorf("cloud_telemetry percentages must be at most 100")
 	}
-	return ct.validateIdentity(c.Mode)
+	if err := ct.validateIdentity(c.Mode); err != nil {
+		return err
+	}
+	return c.validateCloudResources()
 }
 
 func (ct CloudTelemetryConfig) validateIdentity(mode string) error {

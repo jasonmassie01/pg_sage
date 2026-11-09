@@ -30,6 +30,15 @@ safety_critical postgres.password
 safety_critical postgres.port
 safety_critical postgres.sslmode
 safety_critical postgres.user
+safety_critical postgres.provider
+safety_critical postgres.cloud_resource.aws.cluster_identifier
+safety_critical postgres.cloud_resource.aws.db_instance_identifier
+safety_critical postgres.cloud_resource.aws.region
+safety_critical postgres.cloud_resource.azure.resource_group
+safety_critical postgres.cloud_resource.azure.server
+safety_critical postgres.cloud_resource.azure.subscription
+safety_critical postgres.cloud_resource.gcp.instance
+safety_critical postgres.cloud_resource.gcp.project
 safety_critical api.listen_addr
 safety_critical api.trusted_proxies
 safety_critical api.trusted_origins
@@ -80,6 +89,15 @@ safety_critical databases[].sslmode
 operator_preference databases[].tags
 safety_critical databases[].trust_level
 safety_critical databases[].user
+safety_critical databases[].provider
+safety_critical databases[].cloud_resource.aws.cluster_identifier
+safety_critical databases[].cloud_resource.aws.db_instance_identifier
+safety_critical databases[].cloud_resource.aws.region
+safety_critical databases[].cloud_resource.azure.resource_group
+safety_critical databases[].cloud_resource.azure.server
+safety_critical databases[].cloud_resource.azure.subscription
+safety_critical databases[].cloud_resource.gcp.instance
+safety_critical databases[].cloud_resource.gcp.project
 operator_preference databases[].verify.io_capacity
 safety_critical databases[].replicas
 
