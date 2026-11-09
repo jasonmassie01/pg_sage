@@ -1410,7 +1410,7 @@
   "llm.optimizer_llm.cooldown_seconds": {
     "type": "int",
     "default": 300,
-    "doc": "Minimum seconds between two optimizer LLM requests.",
+    "doc": "As llm.cooldown_seconds, for the optimizer client: an identical request is not re-sent within this many seconds, and the breaker pauses calls this long after 3 failures. 0 uses llm.cooldown_seconds.",
     "class": "derivable"
   },
   "llm.optimizer_llm.enabled": {

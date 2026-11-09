@@ -282,7 +282,7 @@ type OptimizerLLMConfig struct {
 	Model             string `yaml:"model" doc:"Reasoning-tier model identifier (e.g. o1-mini). Must return JSON when requested."`
 	TimeoutSeconds    int    `yaml:"timeout_seconds" doc:"Per-request timeout for optimizer LLM calls. Reasoning models typically need longer timeouts than chat models."`
 	TokenBudgetDaily  int    `yaml:"token_budget_daily" doc:"Daily token cap for the optimizer LLM — independent of the general llm.token_budget_daily so reasoning spend can be tracked separately."`
-	CooldownSeconds   int    `yaml:"cooldown_seconds" doc:"Minimum seconds between two optimizer LLM requests."`
+	CooldownSeconds   int    `yaml:"cooldown_seconds" doc:"As llm.cooldown_seconds, for the optimizer client: an identical request is not re-sent within this many seconds, and the breaker pauses calls this long after 3 failures. 0 uses llm.cooldown_seconds."`
 	MaxOutputTokens   int    `yaml:"max_output_tokens" doc:"Upper bound on output tokens accepted from the optimizer LLM. Truncates runaway responses."`
 	FallbackToGeneral bool   `yaml:"fallback_to_general" doc:"If true, fall back to the general llm.* client when the optimizer LLM is unavailable or over budget."`
 }
@@ -973,7 +973,7 @@ func newDefaults() *Config {
 		},
 		Advisor: AdvisorConfig{
 			Enabled:           DefaultAdvisorEnabled,
-			IntervalSeconds:   86400,
+			IntervalSeconds:   DefaultAdvisorIntervalSeconds,
 			VacuumEnabled:     true,
 			WALEnabled:        true,
 			ConnectionEnabled: true,
