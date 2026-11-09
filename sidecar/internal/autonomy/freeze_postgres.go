@@ -37,12 +37,16 @@ type PostgresFreezeCustodian struct {
 func NewPostgresFreezeCustodian(
 	pool *pgxpool.Pool, database string, redBufferPct float64,
 ) *PostgresFreezeCustodian {
+	var source txBeginner // a nil pool stays a nil interface: Read then errs
+	if pool != nil {
+		source = pool
+	}
 	c := &PostgresFreezeCustodian{
 		pool: pool, database: database,
 		threshold:     freeze.BufferThresholds(redBufferPct),
 		bloatMinBytes: config.DefaultTableBloatMinBytes,
 		confirmBounds: catalogread.Default(),
-		sampler:       NewFreezeSampler(pool, config.DefaultTableBloatMinBytes, 0),
+		sampler:       NewFreezeSampler(source, config.DefaultTableBloatMinBytes, 0),
 	}
 	c.confirm = c.pgstattupleApprox
 	c.detail = c.readSessionDetail

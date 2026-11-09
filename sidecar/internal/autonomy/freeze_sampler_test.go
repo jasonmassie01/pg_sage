@@ -221,6 +221,15 @@ func TestFreezeSamplerNilPoolAndCancelledContext(t *testing.T) {
 	}
 }
 
+// A custodian built without a pool fails its reading with an actionable
+// error instead of panicking on a nil *pgxpool.Pool.
+func TestFreezeSamplerOfAPoollessCustodianErrs(t *testing.T) {
+	_, err := NewPostgresFreezeCustodian(nil, "db", 25).Sampler().Read(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "no database pool") {
+		t.Fatalf("pool-less custodian reading: %v, want the no-pool error", err)
+	}
+}
+
 func TestFreezeSamplerNegativeTTLIsZero(t *testing.T) {
 	if s := NewFreezeSampler(nil, 0, -time.Second); s.ttl != 0 {
 		t.Fatalf("ttl = %v, want 0", s.ttl)
