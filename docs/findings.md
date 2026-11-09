@@ -432,7 +432,12 @@ start, no `pg_stat_statements`) keeps the open finding open; `0` disables a reso
 The same figures are exported as `pg_sage_self_cpu_ms_per_cycle`,
 `pg_sage_self_db_time_ms_per_hour`, `pg_sage_self_blocks_per_hour`,
 `pg_sage_self_budget{resource}`, `pg_sage_self_budget_exceeded{database,resource}` and
-`pg_sage_self_loop_busy_seconds_total{loop}`.
+`pg_sage_self_loop_busy_seconds_total{loop}`. Per-cycle figures are per cycle of the
+database's own collector (its period in fleet mode, which self-configuration may lengthen).
+When the database-time budget is inherited from `analyzer.self_cost_budget_ms`, each database
+inherits it at its own collector period, exported as
+`pg_sage_self_budget_database{database,resource="db_time"}`, and that database's `db_time`
+exceeded flag compares with it.
 
 **Example output:**
 

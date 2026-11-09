@@ -379,7 +379,7 @@ briefing:
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
 | `analyzer.table_bloat_min_bytes` | `1073741824` (1 GiB) | Smallest heap (bytes, from `pg_class.relpages`) for which the freeze custodian plans an online bloat rebuild. The plan needs a catalog bloat estimate of at least 50% (`reltuples` times the `pg_stats` row width against `relpages`, at the table's fillfactor); the dead-tuple ratio alone never plans one, because the analyzer's `table_bloat` `VACUUM` covers it, and a table never analyzed has no estimate. When `pgstattuple` is installed, the three largest candidates per cycle are confirmed with `pgstattuple_approx` under `safety.query_timeout_ms` and `safety.lock_timeout_ms`; a timeout or error keeps the estimate (`evidence.bloat_source` is `estimate` or `pgstattuple`). Every plan is recorded once, and its repeats folded into that row, as a parked `bloat_remediation` decision at risk tier `high`; pg_sage never runs it. A `pg_repack` plan is offered only where the extension is installed. `0` uses the default. Restart to change |
 | `self_budget.cpu_ms_per_cycle` | `600` | CPU time the sidecar process may use per collector cycle (all databases it monitors together), in ms; 600 is 1% of one core at the default 60 s interval. Over budget raises `sage_self_budget`. `0` disables. `0`-`3600000` |
-| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. `0`-`3600000` |
+| `self_budget.db_time_ms_per_hour` | `0` | Database time pg_sage's own statements may use per hour on each database, in ms. `0` keeps `analyzer.self_cost_budget_ms` (per collector cycle) as the database-time budget, so one breach never raises two findings. That inherited budget is per cycle of each database's own collector: `analyzer.self_cost_budget_ms` x 3600 / its period in seconds (in fleet mode a database whose collector runs every 120 s inherits half the hourly budget of one at 60 s). `/metrics` exports it per database as `pg_sage_self_budget_database{database,resource="db_time"}` and compares `pg_sage_self_budget_exceeded{database,resource="db_time"}` with it; `pg_sage_self_budget{resource="db_time"}` stays the value at the configured `collector.interval_seconds`. An explicit value applies to every database as-is. `0`-`3600000` |
 | `self_budget.blocks_per_hour` | `18000000` | Shared buffer blocks (8 KB, hit or read) pg_sage's own statements may touch per hour on each database (5,000 a second). `0` disables. `0`-`1000000000000` |
 | `self_budget.storage_mb` | `10240` | Size the `sage` schema (tables, TOAST, indexes) may reach on each database, in MB; complements the relative `retention.sage_size_warning_pct`. `0` disables. `0`-`10485760` |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
@@ -402,6 +402,15 @@ major upgrade, report the statement figures (`pg_sage_self_db_time_ms_per_cycle`
 `pg_sage_self_statements_per_cycle`, `pg_sage_self_blocks_per_cycle`) as unknown while the sage
 schema counters are still measured, and pg_sage logs once per database: run
 `ALTER EXTENSION pg_stat_statements UPDATE` in that database.
+
+The per-cycle figures (`pg_sage_self_*_per_cycle`, `pg_sage_self_cpu_ms_per_cycle`, the
+`sage_self_cost` budget and `self_budget.cpu_ms_per_cycle`) are per cycle of that database's
+collector at the period it actually runs: in fleet mode a database's collector can run at its
+own, self-configured `collector.interval_seconds`, and the finding's `cycle_seconds` names that
+period. Until a database's collector has started there is no cycle to normalize to: the
+per-cycle and per-hour figures stay unknown (an open finding stays open) and only the `sage`
+schema's size is measured. In standalone mode the period is the configured interval, so nothing
+changes there.
 
 ### Derived settings (self-configuration)
 
