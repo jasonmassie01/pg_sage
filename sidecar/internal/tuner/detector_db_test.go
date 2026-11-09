@@ -186,3 +186,34 @@ func TestTune_DB_PicksUpEnableHintTableWithoutRestart(t *testing.T) {
 		t.Fatalf("after the setting: SQL %q", f.RecommendedSQL)
 	}
 }
+
+// PG14-16 ship pg_hint_plan 1.4-1.6, whose hint_plan.hints has no query_id:
+// the probe reads that layout without error and reports it, even with the
+// table setting on for the database.
+func TestDetectHintPlan_DB_PreQueryIDLayoutIsNotReady(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "tuning04_layout"))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if exists, hasQueryID := hintTableLayout(t, pool); !exists || hasQueryID {
+		t.Skip("needs the pre-1.7 hint table (pg_hint_plan 1.4-1.6, PG14-16)")
+	}
+	var db string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
+		t.Fatal(err)
+	}
+	execAll(t, pool, "ALTER DATABASE "+pgx.Identifier{db}.Sanitize()+
+		" SET pg_hint_plan.enable_hint_table = on")
+	got, err := DetectHintPlan(ctx, pool)
+	if err != nil {
+		t.Fatalf("DetectHintPlan: %v", err)
+	}
+	if got.ApplicationEffect || got.HintTableReady || !got.HintTableOn || !got.Preload {
+		t.Fatalf("pre-1.7 layout facts = %+v", got)
+	}
+	if !reflect.DeepEqual(got.Reasons, []string{reasonLayout}) {
+		t.Fatalf("reasons = %q, want [%q]", got.Reasons, reasonLayout)
+	}
+}
