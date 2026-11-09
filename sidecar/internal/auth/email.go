@@ -27,7 +27,15 @@ var (
 	// removes or renames the duplicates.
 	ErrEmailAmbiguous = errors.New(
 		"email matches more than one account (case-variant duplicates)")
+	// ErrEmailInUse means an account with this email, in any case, exists.
+	ErrEmailInUse = errors.New("an account with this email already exists (in any case)")
 )
+
+// newEmailOnlySQL guards an INSERT ... SELECT whose first parameter is the
+// email: no row is inserted when any account has it in any case. It holds
+// even where users_email_lower is missing (duplicates found at migration).
+const newEmailOnlySQL = "WHERE NOT EXISTS (SELECT 1 FROM sage.users " +
+	"WHERE lower(email) = lower($1::text))"
 
 // NormalizeEmail returns the email trimmed of surrounding whitespace and in
 // lower case: the form sage.users stores and lookups compare.

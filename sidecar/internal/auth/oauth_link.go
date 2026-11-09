@@ -129,8 +129,11 @@ func CreateSSOOnlyUser(
 	var id int
 	err := pool.QueryRow(ctx,
 		"INSERT INTO sage.users (email, password, role, oauth_provider) "+
-			"VALUES ($1, NULL, $2, '') RETURNING id",
+			"SELECT $1::text, NULL, $2::text, '' "+newEmailOnlySQL+" RETURNING id",
 		email, role).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("creating sso-only user: %w", ErrEmailInUse)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("creating sso-only user: %w", err)
 	}

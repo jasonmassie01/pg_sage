@@ -77,9 +77,12 @@ func CreateUser(
 	var id int
 	err = pool.QueryRow(ctx,
 		"INSERT INTO sage.users (email, password, role) "+
-			"VALUES ($1, $2, $3) RETURNING id",
+			"SELECT $1::text, $2::text, $3::text "+newEmailOnlySQL+" RETURNING id",
 		email, hash, role,
 	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("creating user: %w", ErrEmailInUse)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("creating user: %w", err)
 	}

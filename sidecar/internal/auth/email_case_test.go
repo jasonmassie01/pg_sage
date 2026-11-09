@@ -151,6 +151,37 @@ func TestEmailCase_CreateRejectsEmptyEmail(t *testing.T) {
 	}
 }
 
+// While users_email_lower is missing (duplicates found elsewhere), the
+// migration has not lower-cased stored emails, so only an explicit
+// case-insensitive check stops a new account beside a mixed-case one.
+func TestEmailCase_CreateRefusesVariantWithoutIndex(t *testing.T) {
+	pool := setupOIDCPool(t)
+	ctx := context.Background()
+	withCaseDuplicates(t, pool, "dup@corp.com", "DUP@corp.com")
+	var erin int
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.users (email, password, role)
+		VALUES ('Erin@Corp.com', NULL, 'viewer') RETURNING id`).Scan(&erin); err != nil {
+		t.Fatalf("insert mixed-case account: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.users WHERE id = $1`, erin)
+	})
+	if id, err := CreateUser(ctx, pool, "erin@corp.com", "local-password-1",
+		RoleAdmin); !errors.Is(err, ErrEmailInUse) {
+		t.Fatalf("CreateUser(erin@corp.com) = (%d, %v), want ErrEmailInUse", id, err)
+	}
+	if id, err := CreateSSOOnlyUser(ctx, pool, "ERIN@corp.com",
+		RoleViewer); !errors.Is(err, ErrEmailInUse) {
+		t.Fatalf("CreateSSOOnlyUser(ERIN@corp.com) = (%d, %v), want ErrEmailInUse", id, err)
+	}
+	if n := countUsersByEmail(t, pool, "erin@corp.com"); n != 1 {
+		t.Fatalf("accounts for erin@corp.com = %d, want 1", n)
+	}
+	if got := storedEmail(t, pool, erin); got != "Erin@Corp.com" {
+		t.Fatalf("existing account email changed to %q", got)
+	}
+}
+
 func TestEmailCase_SSOFirstLoginStoresLowerCase(t *testing.T) {
 	pool := setupOIDCPool(t)
 	ctx := context.Background()
