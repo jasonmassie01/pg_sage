@@ -736,7 +736,9 @@ that:
   same write, or send it empty to clear it. A masked secret does not count.
   A path-only change, or an edit with the masked secret on the same origin,
   needs nothing new. `llm.auth: databricks` is exempt, because it pins the
-  workspace origin and sends no API key.
+  workspace origin and sends no API key. Switching `llm.auth` away from
+  `databricks` while `llm.api_key` is stored asks for the key the same way,
+  since the endpoint may have moved while the exemption applied.
 - Updating an email channel's `smtp_host` or `smtp_port` while sending the
   masked `smtp_pass` or `smtp_password` fails with a validation error asking
   for the password again; the stored value is unchanged.

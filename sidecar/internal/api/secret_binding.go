@@ -48,7 +48,8 @@ func boundConfigWrites(
 
 // bindSecretDestinations refuses a config write that moves an endpoint to a
 // new origin (scheme, host or effective port) while a secret is stored for
-// it, unless the same write supplies that secret unmasked. An empty secret
+// it, or that switches llm.auth away from databricks while llm.api_key is
+// stored, unless the same write supplies that secret unmasked. An empty secret
 // clears the stored one in the same write. It reads body and current only.
 func bindSecretDestinations(body map[string]any, current *config.Config) error {
 	if current == nil {
@@ -63,23 +64,35 @@ func bindSecretDestinations(body map[string]any, current *config.Config) error {
 }
 
 func (b secretBinding) check(body map[string]any, current *config.Config) error {
-	raw, ok := body[b.endpointKey]
-	if !ok {
-		return nil
-	}
-	next, stored := fmt.Sprintf("%v", raw), b.endpoint(current)
-	if next == stored || egress.SameOrigin(next, stored) || b.secret(current) == "" {
-		return nil
-	}
-	if b.databricksExempt && effectiveLLMAuth(body, current) == "databricks" {
+	reason := b.moveReason(body, current)
+	if reason == "" || b.secret(current) == "" {
 		return nil
 	}
 	if secret, ok := body[b.secretKey]; ok &&
 		!isMaskedSecretUpdate(b.secretKey, fmt.Sprintf("%v", secret)) {
 		return nil
 	}
-	return fmt.Errorf("%s moves to a new origin: include %s, or send it empty to clear it",
-		b.endpointKey, b.secretKey)
+	return fmt.Errorf("%s: include %s, or send it empty to clear it", reason, b.secretKey)
+}
+
+// moveReason says why the write sends the stored secret somewhere it was
+// not saved for, or "" when it does not. Under the databricks exemption an
+// endpoint may move without the key, so leaving databricks auth later must
+// ask for the key too: otherwise it would reach the endpoint moved earlier.
+func (b secretBinding) moveReason(body map[string]any, current *config.Config) string {
+	if b.databricksExempt && effectiveLLMAuth(body, current) == "databricks" {
+		return ""
+	}
+	if raw, ok := body[b.endpointKey]; ok {
+		next, stored := fmt.Sprintf("%v", raw), b.endpoint(current)
+		if next != stored && !egress.SameOrigin(next, stored) {
+			return b.endpointKey + " moves to a new origin"
+		}
+	}
+	if b.databricksExempt && current.LLM.Auth == "databricks" {
+		return "llm.auth leaves databricks"
+	}
+	return ""
 }
 
 // effectiveLLMAuth is llm.auth after the write: the body's value if it sets
