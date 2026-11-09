@@ -288,3 +288,39 @@ func TestOptions_WraparoundGateMarginRange(t *testing.T) {
 		}
 	}
 }
+
+// The recommendation reads as a sentence: the series is named in lower
+// case mid-sentence, the consumption basis says what is consumed, and
+// inside the gate margin (age still below the maximum) it does not claim
+// autovacuum should already be freezing.
+func TestGate_RecommendationWording(t *testing.T) {
+	rs, _, _ := evalAge(mxidReading(4.1e8, 4e8),
+		ageTrend(probes.RunwayMXID, 4.1e8, 10000, math.NaN()), testOptions())
+	if len(rs) != 1 {
+		t.Fatalf("mxid past the gate: %d runways, want 1", len(rs))
+	}
+	rec := rs[0].Recommendation
+	for _, want := range []string{"Anti-wraparound autovacuum should already be freezing",
+		"the multixact age is past autovacuum_multixact_freeze_max_age",
+		"multixacts are consumed at 10000 per second"} {
+		if !strings.Contains(rec, want) {
+			t.Errorf("mxid recommendation %q lacks %q", rec, want)
+		}
+	}
+	if strings.Contains(rec, "Multixact age") || strings.Contains(rec, "age is consumed") {
+		t.Errorf("mxid recommendation %q is mis-worded", rec)
+	}
+	margin := testOptions()
+	margin.WraparoundGateMargin = 0.05
+	rs, _, _ = evalAge(xidReading(1.95e8, 2e8),
+		ageTrend(probes.RunwayXID, 1.95e8, 10000, 10000), margin)
+	if len(rs) != 1 {
+		t.Fatalf("xid inside the margin: %d runways, want 1", len(rs))
+	}
+	rec = rs[0].Recommendation
+	if strings.Contains(rec, "should already be freezing") ||
+		!strings.Contains(rec, "the XID age is near autovacuum_freeze_max_age") ||
+		!strings.Contains(rec, "it rises at 10000 per second") {
+		t.Errorf("xid recommendation inside the margin: %q", rec)
+	}
+}

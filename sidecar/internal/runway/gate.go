@@ -36,11 +36,12 @@ const (
 const MaxWraparoundGateMargin = 0.25
 
 // ageGate is one series' gate: the cluster age, its effective freeze
-// maximum, the age at or past which the trend is projected, and the
-// setting that maximum comes from.
+// maximum, the age at or past which the trend is projected, the setting
+// that maximum comes from, and how the series and what it consumes are
+// named (what heads a title, noun goes mid-sentence).
 type ageGate struct {
-	what, setting        string
-	age, freezeMax, gate float64
+	what, noun, unit, setting string
+	age, freezeMax, gate      float64
 }
 
 // wraparoundGate returns the gate of an xid or mxid series; false when
@@ -49,11 +50,12 @@ func wraparoundGate(kind string, x *probes.XIDRunway, margin float64) (ageGate, 
 	if x == nil {
 		return ageGate{}, false
 	}
-	g := ageGate{what: "XID age", setting: "autovacuum_freeze_max_age",
-		age: x.ClusterXIDAge, freezeMax: x.FreezeMaxAge}
+	g := ageGate{what: "XID age", noun: "XID age", unit: "XIDs",
+		setting: "autovacuum_freeze_max_age", age: x.ClusterXIDAge, freezeMax: x.FreezeMaxAge}
 	if kind == probes.RunwayMXID {
-		g = ageGate{what: "Multixact age", setting: "autovacuum_multixact_freeze_max_age",
-			age: x.ClusterMXIDAge, freezeMax: x.MXIDFreezeMaxAge}
+		g = ageGate{what: "Multixact age", noun: "multixact age", unit: "multixacts",
+			setting: "autovacuum_multixact_freeze_max_age", age: x.ClusterMXIDAge,
+			freezeMax: x.MXIDFreezeMaxAge}
 	}
 	if !probes.Known(g.age) || !(g.freezeMax > 0) {
 		return ageGate{}, false
@@ -98,9 +100,9 @@ func ageRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, bool)
 // ageWords titles a wraparound runway past its gate.
 func ageWords(r Runway, p probes.RunwayTrend, g ageGate, basis string) (string, string) {
 	when := (time.Duration(r.SecondsToLimit) * time.Second).Round(time.Minute)
-	where := "is past"
-	if g.age < g.freezeMax {
-		where = "is near" // inside the gate margin
+	where, lead := "is past", "Anti-wraparound autovacuum should already be freezing"
+	if g.age < g.freezeMax { // inside the gate margin: freezing has not started
+		where, lead = "is near", "Anti-wraparound autovacuum is about to start freezing"
 	}
 	head := fmt.Sprintf("%s %s %s %s (%s)", g.what, approxCount(g.age), where, g.setting,
 		approxCount(g.freezeMax))
@@ -110,12 +112,14 @@ func ageWords(r Runway, p probes.RunwayTrend, g ageGate, basis string) (string, 
 		title = fmt.Sprintf("%s; at its consumption rate the wraparound warning limit "+
 			"is in about %s", head, when)
 	}
-	rec := fmt.Sprintf("Anti-wraparound autovacuum should already be freezing: the %s "+
-		"%s %s and %s at %s per second (%s, measured over %d samples). A "+
-		"read-only pre-incident investigation looks for what holds freezing back; act "+
-		"before the wraparound warning limit is reached.", g.what, where, g.setting,
-		map[string]string{BasisNetAgeSlope: "rises", BasisConsumption: "is consumed"}[basis],
-		probes.FormatValue(round2(p.RatePerS)), basis, p.Samples)
+	pace := "it rises"
+	if basis == BasisConsumption {
+		pace = g.unit + " are consumed"
+	}
+	rec := fmt.Sprintf("%s: the %s %s %s, and %s at %s per second (%s, measured over %d "+
+		"samples). A read-only pre-incident investigation looks for what holds freezing "+
+		"back; act before the wraparound warning limit is reached.", lead, g.noun, where,
+		g.setting, pace, probes.FormatValue(round2(p.RatePerS)), basis, p.Samples)
 	return title, rec
 }
 
