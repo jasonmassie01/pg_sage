@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -32,10 +34,11 @@ func wraparoundRule(t *testing.T) analyzer.RuleFunc {
 	return nil
 }
 
-func TestFreezeSingleProducerOneVacuumPerRedTable(t *testing.T) {
-	pool := autonomyPool(t)
+// redReloptionTable creates table frozen, with a 100,000 freeze maximum,
+// and burns 80,000 XIDs: the table is red, every other one green.
+func redReloptionTable(t *testing.T, pool *pgxpool.Pool, table string) {
+	t.Helper()
 	ctx := context.Background()
-	const table = "public.vacuum08_single"
 	for _, sql := range []string{"DROP TABLE IF EXISTS " + table,
 		"CREATE TABLE " + table + ` (id int) WITH (autovacuum_enabled = false,
 			autovacuum_freeze_max_age = 100000)`,
@@ -46,9 +49,44 @@ func TestFreezeSingleProducerOneVacuumPerRedTable(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
 	testdb.BurnXIDs(t, ctx, pool, 80000)
+}
+
+// adviseWraparound runs the runway advisor over custodian for table.
+func adviseWraparound(t *testing.T, custodian autonomy.Custodian,
+	table string) []sre.ActionProposal {
+	t.Helper()
+	advisor := newRunwayAdvisor(custodian, &scanStub{}, func(context.Context) bool { return false })
+	exec := executor.New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
+	exec.WithPolicyGate(&explainStub{verdict: policy.Decision{
+		Verdict: policy.VerdictQueueApproval, RiskTier: policy.RiskSafe}})
+	advisor.attach(exec)
+	advised, err := advisor.Advise(context.Background(), sre.AdviceRequest{
+		Kind: sre.TriggerWraparound, Subject: "table " + table})
+	if err != nil {
+		t.Fatalf("advisor: %v", err)
+	}
+	return advised
+}
+
+// freezeStatements counts the custodian's VACUUM statements for table.
+func freezeStatements(proposals []autonomy.Proposal, table string) map[string]int {
+	statements := map[string]int{}
+	for _, p := range proposals {
+		if len(p.TargetObjects) == 1 && p.TargetObjects[0] == table &&
+			strings.Contains(p.SQL, "VACUUM") {
+			statements[p.SQL]++
+		}
+	}
+	return statements
+}
+
+func TestFreezeSingleProducerOneVacuumPerRedTable(t *testing.T) {
+	pool := autonomyPool(t)
+	ctx := context.Background()
+	const table = "public.vacuum08_single"
+	redReloptionTable(t, pool, table)
 	cfg := config.DefaultConfig()
 	custodian := newFreezeCustodian(pool, cfg, "testdb")
-
 	horizons, err := custodian.Sampler().FreezeHorizons(ctx)
 	if err != nil {
 		t.Fatalf("sampler: %v", err)
@@ -59,19 +97,8 @@ func TestFreezeSingleProducerOneVacuumPerRedTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("custodian scan: %v", err)
 	}
-	advisor := newRunwayAdvisor(custodian, &scanStub{}, func(context.Context) bool { return false })
-	exec := executor.New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
-	exec.WithPolicyGate(&explainStub{verdict: policy.Decision{
-		Verdict: policy.VerdictQueueApproval, RiskTier: policy.RiskSafe}})
-	advisor.attach(exec)
-	advised, err := advisor.Advise(ctx, sre.AdviceRequest{Kind: sre.TriggerWraparound,
-		Subject: "table " + table})
-	if err != nil {
-		t.Fatalf("advisor: %v", err)
-	}
-
+	advised := adviseWraparound(t, custodian, table)
 	diagnosed := 0
-	statements := map[string]int{}
 	for _, f := range findings {
 		if f.ObjectIdentifier == table {
 			diagnosed++
@@ -80,29 +107,19 @@ func TestFreezeSingleProducerOneVacuumPerRedTable(t *testing.T) {
 			}
 		}
 	}
-	for _, p := range proposals {
-		if len(p.TargetObjects) == 1 && p.TargetObjects[0] == table &&
-			strings.Contains(p.SQL, "VACUUM") {
-			statements[p.SQL]++
-		}
+	statements := freezeStatements(proposals, table)
+	if diagnosed != 1 || len(statements) != 1 || len(advised) != 1 {
+		t.Fatalf("diagnosed %d, custodian statements %v, advised %d; want 1, one, 1",
+			diagnosed, statements, len(advised))
 	}
-	if diagnosed != 1 || len(statements) != 1 {
-		t.Fatalf("diagnosed %d times, custodian statements %v; want 1 and exactly one",
-			diagnosed, statements)
-	}
-	for _, a := range advised {
-		if _, known := statements[a.SQL]; !known {
-			t.Fatalf("the runway advisor proposed its own statement %q (custodian: %v)",
-				a.SQL, statements)
-		}
+	if _, known := statements[advised[0].SQL]; !known {
+		t.Fatalf("the advisor proposed its own statement %q (custodian: %v)",
+			advised[0].SQL, statements)
 	}
 	for sql, n := range statements {
 		if n != 1 || !strings.HasPrefix(sql, "VACUUM (FREEZE) ") || strings.HasSuffix(sql, ";") {
 			t.Fatalf("custodian statement %q x%d, want one VACUUM (FREEZE) with no ';'", sql, n)
 		}
-	}
-	if len(advised) != 1 {
-		t.Fatalf("advisor explained %d proposals for the table, want 1: %+v", len(advised), advised)
 	}
 }
 
