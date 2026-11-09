@@ -277,13 +277,14 @@ func applyMetaDatabaseUpdate(
 	if err != nil {
 		return nil, err
 	}
-	if oldRec.Name != candidate.Name {
-		forgetRemovedDatabase(oldRec.Name)
-	}
 	if err := fleet.ShutdownInstance(ctx, retired); err != nil {
 		logWarn("meta-db",
 			"db %q: replacement published; old runtime still draining: %v",
 			candidate.Name, err)
+	}
+	// After the drain: the old runtime's in-flight work may still count.
+	if oldRec.Name != candidate.Name && mgr.GetInstance(oldRec.Name) == nil {
+		forgetRemovedDatabase(oldRec.Name)
 	}
 	updateInstanceFindings(context.Background(), candidate)
 	logInfo("meta-db", "db %q: replaced", candidate.Name)
@@ -307,11 +308,14 @@ func applyMetaDatabaseDelete(
 	if err != nil {
 		return err
 	}
-	forgetRemovedDatabase(rec.Name)
 	if err := fleet.ShutdownInstance(context.WithoutCancel(ctx), retired); err != nil {
 		logWarn("meta-db",
 			"db %q: delete committed; runtime drain incomplete: %v",
 			rec.Name, err)
+	}
+	// After the drain, unless the name was added back meanwhile.
+	if mgr.GetInstance(rec.Name) == nil {
+		forgetRemovedDatabase(rec.Name)
 	}
 	return nil
 }
