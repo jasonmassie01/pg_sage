@@ -76,7 +76,7 @@ func TestConfirmedDropsAReadOutdatedByAnExpiry(t *testing.T) {
 	var once sync.Once
 	s.afterConfirmedRead = func() {
 		once.Do(func() {
-			if _, err := NewStore(pool).Expire(ctx, f.ID, "slot dropped"); err != nil {
+			if _, err := NewStore(pool).Expire(ctx, f.ID, "ops", "slot dropped"); err != nil {
 				t.Errorf("expire while Confirmed reads: %v", err)
 			}
 		})

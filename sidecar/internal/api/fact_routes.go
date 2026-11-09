@@ -174,11 +174,13 @@ func (h factHandlers) decide(verb string) http.HandlerFunc {
 func decideFact(r *http.Request, s *facts.Store, id int64, verb, note string) (facts.Fact,
 	error) {
 	if verb == "expire" {
-		reason := "expired by " + factActor(r)
-		if strings.TrimSpace(note) != "" {
-			reason += ": " + note
+		// The actor is recorded in expired_by and the fact history; the
+		// reason is the operator's note, or says who when there is none.
+		reason := strings.TrimSpace(note)
+		if reason == "" {
+			reason = "expired by " + factActor(r)
 		}
-		return s.Expire(r.Context(), id, reason)
+		return s.Expire(r.Context(), id, factActor(r), reason)
 	}
 	return s.Decide(r.Context(), id, facts.Decision{Confirm: verb == "confirm",
 		Actor: factActor(r), Note: note})

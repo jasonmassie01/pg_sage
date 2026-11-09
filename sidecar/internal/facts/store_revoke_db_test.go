@@ -96,7 +96,7 @@ func TestStoreExpireUnregistersTheSlot(t *testing.T) {
 	pool, ctx := livePool(t)
 	s := NewStore(pool)
 	f := confirmedSlot(t, ctx, s, "cdc_billing")
-	e, err := s.Expire(ctx, f.ID, "slot dropped")
+	e, err := s.Expire(ctx, f.ID, "ops", "slot dropped")
 	if err != nil || e.Status != StatusExpired || e.ExpiredReason != "slot dropped" {
 		t.Fatalf("expire %+v %v", e, err)
 	}
@@ -106,10 +106,10 @@ func TestStoreExpireUnregistersTheSlot(t *testing.T) {
 	}
 	// Invalid transition: an expired fact cannot expire again, and the
 	// refusal leaves the registry alone.
-	if _, err := s.Expire(ctx, f.ID, "again"); !errors.Is(err, ErrInvalidTransition) {
+	if _, err := s.Expire(ctx, f.ID, "ops", "again"); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("expire an expired fact: %v", err)
 	}
-	if _, err := s.Expire(ctx, 987654, "x"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Expire(ctx, 987654, "ops", "x"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expire an unknown fact: %v", err)
 	}
 	// A proposed slot fact never registered anything: expiring it must
@@ -118,7 +118,7 @@ func TestStoreExpireUnregistersTheSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Expire(ctx, p.ID, "slot dropped"); err != nil {
+	if _, err := s.Expire(ctx, p.ID, "ops", "slot dropped"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readRegistry(t, ctx, pool, "cdc_never"); got.exists {
@@ -228,7 +228,7 @@ func TestStoreRevocationRollsBackWhenTheRegistryFails(t *testing.T) {
 	f := confirmedSlot(t, ctx, s, "cdc_orders")
 	failRegistryUpdates(t, ctx, pool)
 	_, rejectErr := s.Decide(ctx, f.ID, Decision{Actor: "op"})
-	_, expireErr := s.Expire(ctx, f.ID, "slot dropped")
+	_, expireErr := s.Expire(ctx, f.ID, "ops", "slot dropped")
 	for name, err := range map[string]error{"reject": rejectErr, "expire": expireErr} {
 		var pgErr *pgconn.PgError
 		if !errors.As(err, &pgErr) || pgErr.Message != "facts04 registry refused" {

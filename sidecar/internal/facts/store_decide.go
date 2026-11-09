@@ -75,20 +75,25 @@ func statusIn(st Status, set []Status) bool {
 	return false
 }
 
-// Expire ends, by a person's choice, a proposed or confirmed fact that is
-// no longer true. An expired slot consumer is unregistered in the same
-// transaction. The fact never comes back by itself (missing_since is
-// cleared).
-func (s *Store) Expire(ctx context.Context, id int64, reason string) (Fact, error) {
-	return s.expire(ctx, id, reason, true, false)
+// Expire ends, by actor's choice, a proposed or confirmed fact that is no
+// longer true; actor is recorded in expired_by and the fact history. An
+// expired slot consumer is unregistered in the same transaction. The fact
+// never comes back by itself (missing_since is cleared).
+func (s *Store) Expire(ctx context.Context, id int64, actor, reason string) (Fact, error) {
+	actor, err := validActor(actor)
+	if err != nil {
+		return Fact{}, err
+	}
+	return s.expire(ctx, id, actor, reason, true, false)
 }
 
-// expire ends fact id. With unregister false the slot registry is left as
-// it is: an automatic expiry is nobody's decision, and unregistering would
-// widen what the WAL custodian may do. byAbsence expires only a fact still
+// expire ends fact id, recording actor as who expired it. With unregister
+// false the slot registry is left as it is: an automatic expiry is
+// nobody's decision, and unregistering would widen what the WAL custodian
+// may do. byAbsence expires only a fact still
 // marked absent and keeps missing_since, so the same confirmation can come
 // back with its subject; every other expiry clears it.
-func (s *Store) expire(ctx context.Context, id int64, reason string,
+func (s *Store) expire(ctx context.Context, id int64, actor, reason string,
 	unregister, byAbsence bool) (Fact, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -96,12 +101,12 @@ func (s *Store) expire(ctx context.Context, id int64, reason string,
 	}
 	defer rollbackQuietly(ctx, tx)
 	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts
-		SET status = 'expired', expired_reason = $2, updated_at = now(),
+		SET status = 'expired', expired_reason = $2, expired_by = $4, updated_at = now(),
 		    missing_since = CASE WHEN $3::boolean THEN missing_since END
 		WHERE id = $1 AND `+ownTypes+` AND status IN ('proposed', 'confirmed')
 		  AND (NOT $3::boolean OR missing_since IS NOT NULL)
 		RETURNING `+factColumns,
-		id, clip(cleanText(reason), 500), byAbsence))
+		id, clip(cleanText(reason), 500), byAbsence, actor))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, expireRefusal(ctx, tx, id)
 	}

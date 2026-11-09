@@ -73,7 +73,7 @@ func seedTombstoneFacts(t *testing.T, ctx context.Context, store *facts.Store,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Expire(ctx, expired.ID, "slot dropped"); err != nil {
+	if _, err := store.Expire(ctx, expired.ID, "ops", "slot dropped"); err != nil {
 		t.Fatal(err)
 	}
 	return appendOnly, slotFact, expired.ID

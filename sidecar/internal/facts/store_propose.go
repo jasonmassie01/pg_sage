@@ -51,6 +51,7 @@ ON CONFLICT (fact_type, subject_kind, subject) DO UPDATE SET
                          WHEN ` + restoreCond + ` THEN ` + restoredNote + `
                          ELSE f.decision_note END,
     expired_reason = CASE WHEN f.status = 'expired' THEN '' ELSE f.expired_reason END,
+    expired_by = CASE WHEN f.status = 'expired' THEN NULL ELSE f.expired_by END,
     missing_since = CASE WHEN f.status = 'expired' THEN NULL ELSE f.missing_since END,
     status = CASE WHEN ` + restoreCond + ` THEN 'confirmed'
                   WHEN f.status = 'expired' THEN 'proposed' ELSE f.status END,

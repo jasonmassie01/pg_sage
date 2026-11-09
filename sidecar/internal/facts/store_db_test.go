@@ -115,7 +115,7 @@ func TestStoreDecideTransitionsAndCache(t *testing.T) {
 		Actor: "alice@example.com"}); err != nil || again.Status != StatusConfirmed {
 		t.Fatalf("an operator may confirm a rejected fact: %+v %v", again, err)
 	}
-	if _, err := s.Expire(ctx, f.ID, "index dropped"); err != nil {
+	if _, err := s.Expire(ctx, f.ID, "ops", "index dropped"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Decide(ctx, f.ID, Decision{Confirm: true,
@@ -173,7 +173,7 @@ func TestStoreReproposalRespectsTheOperatorsDecision(t *testing.T) {
 	if kept.Status != StatusConfirmed || kept.Value["consumer"] != "debezium" {
 		t.Fatalf("a proposal must not rewrite a confirmed fact: %+v", kept)
 	}
-	if _, err := s.Expire(ctx, f.ID, "slot dropped"); err != nil {
+	if _, err := s.Expire(ctx, f.ID, "ops", "slot dropped"); err != nil {
 		t.Fatal(err)
 	}
 	reopened, created, err := s.Propose(ctx, slot)

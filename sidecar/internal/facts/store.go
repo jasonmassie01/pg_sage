@@ -102,7 +102,7 @@ const ownTypes = `fact_type <> 'column_class'`
 const factColumns = `id, fact_type, subject_kind, subject, value, source, proposed_by,
 	evidence, rationale, status, COALESCE(decided_by, ''), decided_at, decision_note,
 	expires_at, expired_reason, proposals, created_at, updated_at, last_verified_at,
-	missing_since`
+	missing_since, COALESCE(expired_by, '')`
 
 func scanFact(row pgx.Row, extra ...any) (Fact, error) {
 	var f Fact
@@ -110,7 +110,7 @@ func scanFact(row pgx.Row, extra ...any) (Fact, error) {
 	dest := []any{&f.ID, &f.Type, &f.Kind, &f.Subject, &value, &f.Source, &f.ProposedBy,
 		&evidence, &f.Rationale, &f.Status, &f.DecidedBy, &f.DecidedAt, &f.DecisionNote,
 		&f.ExpiresAt, &f.ExpiredReason, &f.Proposals, &f.CreatedAt, &f.UpdatedAt,
-		&f.LastVerifiedAt, &f.MissingSince}
+		&f.LastVerifiedAt, &f.MissingSince, &f.ExpiredBy}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return Fact{}, err
 	}
@@ -150,7 +150,8 @@ ON CONFLICT (fact_type, subject_kind, subject) DO UPDATE SET
     value = EXCLUDED.value, source = 'operator', proposed_by = EXCLUDED.proposed_by,
     rationale = EXCLUDED.rationale, expires_at = EXCLUDED.expires_at,
     status = 'confirmed', decided_by = EXCLUDED.decided_by, decided_at = now(),
-    decision_note = EXCLUDED.decision_note, expired_reason = '', missing_since = NULL,
+    decision_note = EXCLUDED.decision_note, expired_reason = '', expired_by = NULL,
+    missing_since = NULL,
     proposals = f.proposals + 1, updated_at = now()
 RETURNING ` + factColumns
 

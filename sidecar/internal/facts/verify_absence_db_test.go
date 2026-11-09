@@ -238,7 +238,8 @@ func TestReproposalReopensAfterAnExpiryByHandOrDate(t *testing.T) {
 	if mustGet(t, ctx, s, hf.ID).MissingSince == nil {
 		t.Fatal("the absent slot was not marked missing")
 	}
-	if e, err := s.Expire(ctx, hf.ID, "decommissioned"); err != nil || e.MissingSince != nil {
+	if e, err := s.Expire(ctx, hf.ID, "ops", "decommissioned"); err != nil ||
+		e.MissingSince != nil {
 		t.Fatalf("expire by hand: %+v %v (want missing_since cleared)", e, err)
 	}
 	reopened("expired by a person", slotFactProposal(byHand, "debezium"))

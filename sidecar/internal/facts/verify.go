@@ -27,6 +27,10 @@ var existsSQL = map[Kind]string{
 // expiryDatePassed is the reason a fact past its expiry date expires.
 const expiryDatePassed = "its expiry date passed"
 
+// verifierActor is who re-verification's expiries are recorded as
+// (expired_by and the fact history).
+const verifierActor = "pg_sage:verifier"
+
 // Reverify re-checks every proposed and confirmed fact at now. A fact past
 // its expiry date expires; a fact whose subject no longer names anything
 // is marked absent (missing_since, kept across restarts) and expires once
@@ -158,7 +162,7 @@ func (s *Store) markMissing(ctx context.Context, f Fact, now time.Time) (time.Ti
 // of the live statuses is skipped: one expiry, one notification.
 func (s *Store) expireFor(ctx context.Context, f Fact, reason string, unregister,
 	byAbsence bool) (verdict, error) {
-	e, err := s.expire(ctx, f.ID, reason, unregister, byAbsence)
+	e, err := s.expire(ctx, f.ID, verifierActor, reason, unregister, byAbsence)
 	if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrNotFound) {
 		return verdict{}, nil
 	}

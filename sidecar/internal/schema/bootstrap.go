@@ -450,7 +450,8 @@ func migrationStatements() []string {
 		ddlManagedChangeFingerprintV2,
 		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
 		ddlUsersDisabledAt,   // apiauth-01: user deactivation
-		ddlFactsMissingSince) // facts-08: persisted absence of a fact's subject
+		ddlFactsMissingSince, // facts-08: persisted absence of a fact's subject
+		ddlFactEvents)        // facts-07: the fact history and facts.expired_by
 }
 
 // ---------------------------------------------------------------------------

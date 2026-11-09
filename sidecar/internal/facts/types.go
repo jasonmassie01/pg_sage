@@ -129,6 +129,8 @@ type Fact struct {
 	// MissingSince is when re-verification first found the subject absent
 	// (nil while it exists). An absent confirmed fact keeps binding.
 	MissingSince *time.Time `json:"missing_since,omitempty"`
+	// ExpiredBy names who expired the fact: a person, or pg_sage's verifier.
+	ExpiredBy string `json:"expired_by,omitempty"`
 }
 
 // Decision is an operator's confirm or reject of a fact. ExpectHash, when
