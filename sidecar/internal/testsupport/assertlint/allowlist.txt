@@ -1,44 +1,10 @@
-# Hollow tests that predate the assertlint gate (ci-11). This list may only
-# shrink: TestModuleTestsCanFail fails on any finding not listed here and on
-# any entry that no longer matches (the test now asserts, moved or was
-# deleted). Never add a line; give the test an assertion or delete it.
+# Hollow tests exempt from the assertlint gate (ci-11). The list is empty:
+# every hollow test that predated the gate was given an assertion or deleted.
+# It may only shrink: TestModuleTestsCanFail fails on any finding not listed
+# here and on any entry that no longer matches. Never add a line; give the
+# test an assertion (require.NotPanics for a nil-safety contract) or delete it.
 #
 # Format: noassert <path from sidecar/> <function>, for a Test function with
 # no failing call. A getenv finding (a test-file read of SAGE_TEST_DATABASE_URL
 # or testdb.EnvName outside internal/testdb) cannot be listed at all: use
 # testdb.SkipUnlessLive(t), so a run without a server skips.
-
-noassert cmd/pg_sage_sidecar/audit_wiring_test.go TestRunChainVerificationWithoutSources
-noassert cmd/pg_sage_sidecar/main_process_char_test.go TestMainProcessChild
-noassert internal/analyzer/analyzer_test.go TestDispatchRewriteFindings_NilDispatcher
-noassert internal/api/auth_handlers_test.go TestLogoutHandler_WithCookie
-noassert internal/api/config_handlers_test.go TestConfigGlobalGetHandler_NilStore
-noassert internal/api/coverage_phase2_test.go TestPhase2_RegisterAuthRoutes_NoPanic
-noassert internal/api/coverage_phase2_test.go TestPhase2_RegisterNotificationRoutes_NoPanic
-noassert internal/api/coverage_phase2_test.go TestPhase2_RegisterUserRoutes_NoPanic
-noassert internal/api/events_test.go TestEventBrokerPollOnceNilManagerIsSafe
-noassert internal/briefing/briefing_test.go TestDispatch_EmptyChannels
-noassert internal/briefing/briefing_test.go TestDispatch_SlackWithoutURL
-noassert internal/briefing/briefing_test.go TestDispatch_Stdout
-noassert internal/collector/collector_integ_test.go TestCircuitBreaker_ShouldSkip_EntersDormant
-noassert internal/collector/collector_integ_test.go TestCircuitBreaker_ShouldSkip_ZeroCeiling
-noassert internal/collector/collector_integ_test.go TestCollectSystem_PG14Path
-noassert internal/collector/collector_integ_test.go TestPersist
-noassert internal/collector/coverage_phase2_test.go TestPhase2_Cycle_CollectError
-noassert internal/executor/coverage_phase2_test.go TestPhase2_CheckSchemaCreate_ResolvesCurrentUser
-noassert internal/executor/coverage_phase2_test.go TestPhase2_CheckSignalBackend_PostgresUser
-noassert internal/executor/coverage_phase2_test.go TestPhase2_VerifyGrants_FullIntegration
-noassert internal/executor/dispatcher_test.go TestDispatchEvent_NilDispatcher
-noassert internal/executor/mode_test.go TestManualMode_SkipsRunCycle
-noassert internal/logwatch/fanout_test.go TestFanoutSubscriber_ImplementsLogSource
-noassert internal/logwatch/fanout_test.go TestFanoutSubscriber_StopIsNoop
-noassert internal/logwatch/tailer_test.go TestTailer_Stop_NilFile
-noassert internal/logwatch/watcher_test.go TestFileWatcher_Stop_NilTailer
-noassert internal/optimizer/coverage_phase2_test.go TestPhase2_CheckExtensionRequired_GINTrgm_WithDB
-noassert internal/optimizer/coverage_phase2_test.go TestPhase2_ExtensionInstalled_WithDB_PgTrgm
-noassert internal/retention/cleanup_test.go TestPurgeTable_SkipsZeroRetention
-noassert internal/retention/cleanup_test.go TestPurgeTable_ZeroDaysAllTables
-noassert internal/selfmonitor/conn_config_test.go TestConfigureConn_NilIsNoop
-noassert internal/selfmonitor/pool_test.go TestConfigurePool_NilIsNoop
-noassert internal/store/config_consistency_test.go TestConfigConsistency_PrintRegistrySummary
-noassert internal/tuner/functional_test.go TestFunctional_Coverage_Tune_NilPool

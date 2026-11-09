@@ -30,11 +30,27 @@ func TestPhase2_ExtensionInstalled_NilPool(t *testing.T) {
 func TestPhase2_ExtensionInstalled_WithDB_PgTrgm(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
-
+	want := catalogHasExtension(t, pool, "pg_trgm")
 	v := NewValidator(pool, &config.OptimizerConfig{}, noopLog2)
-	// pg_trgm may or may not be installed; we just verify
-	// the function doesn't panic and returns a bool.
-	_ = v.extensionInstalled(context.Background(), "pg_trgm")
+	if got := v.extensionInstalled(context.Background(), "pg_trgm"); got != want {
+		t.Fatalf("extensionInstalled(pg_trgm) = %v, pg_extension says %v", got, want)
+	}
+	if v.extensionInstalled(context.Background(), "pg_sage_no_such_extension") {
+		t.Fatal("an extension missing from pg_extension reported installed")
+	}
+}
+
+// catalogHasExtension reads pg_extension directly, independent of the
+// validator under test.
+func catalogHasExtension(t *testing.T, pool *pgxpool.Pool, name string) bool {
+	t.Helper()
+	var ok bool
+	if err := pool.QueryRow(context.Background(),
+		"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = $1)", name).
+		Scan(&ok); err != nil {
+		t.Fatalf("read pg_extension: %v", err)
+	}
+	return ok
 }
 
 func TestPhase2_ExtensionInstalled_WithDB_NonExistent(t *testing.T) {
@@ -125,19 +141,19 @@ func TestPhase2_CheckExtensionRequired_BtreeNoCheck(t *testing.T) {
 func TestPhase2_CheckExtensionRequired_GINTrgm_WithDB(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
-
+	installed := catalogHasExtension(t, pool, "pg_trgm")
 	v := NewValidator(pool, &config.OptimizerConfig{}, noopLog2)
 	rec := Recommendation{
 		DDL:       "CREATE INDEX CONCURRENTLY idx ON t USING gin (col gin_trgm_ops)",
 		IndexType: "gin",
 	}
-	ok, reason := v.checkExtensionRequired(
-		context.Background(), rec,
-	)
-	// If pg_trgm is not installed, should reject.
-	// Either way, verify no panic.
-	_ = ok
-	_ = reason
+	ok, reason := v.checkExtensionRequired(context.Background(), rec)
+	if ok != installed {
+		t.Fatalf("trigram GIN admitted = %v (%q), pg_trgm installed = %v", ok, reason, installed)
+	}
+	if !ok && !strings.Contains(reason, "pg_trgm") {
+		t.Fatalf("rejection reason %q does not name pg_trgm", reason)
+	}
 }
 
 // ---------------------------------------------------------------------------

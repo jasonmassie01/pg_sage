@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // A single connection pg_sage opens outside a pool (the API's connection
@@ -70,6 +71,7 @@ func TestConfigureConn_NilConnFromHookIsAnError(t *testing.T) {
 	}
 }
 
+// A nil connection config is left alone.
 func TestConfigureConn_NilIsNoop(t *testing.T) {
-	ConfigureConn(nil) // must not panic
+	require.NotPanics(t, func() { ConfigureConn(nil) })
 }

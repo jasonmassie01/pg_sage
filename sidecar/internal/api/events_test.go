@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 func TestEventBrokerPublishFansOut(t *testing.T) {
@@ -102,10 +104,12 @@ func TestEventBrokerStartIdempotent(t *testing.T) {
 	b.Stop()
 }
 
+// With no subscriber, pool or manager, a poll is a no-op.
 func TestEventBrokerPollOnceNilManagerIsSafe(t *testing.T) {
 	b := NewEventBroker()
-	// No subscriber, no pool, nil manager — must not panic.
-	b.pollOnce(context.Background(), nil, map[string]map[EventType]lastSeen{})
+	require.NotPanics(t, func() {
+		b.pollOnce(context.Background(), nil, map[string]map[EventType]lastSeen{})
+	})
 }
 
 func TestEventBrokerPollOncePublishesActionQueueChanges(t *testing.T) {

@@ -1,6 +1,7 @@
 package briefing
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -243,36 +244,42 @@ func TestNew(t *testing.T) {
 }
 
 func TestDispatch_Stdout(t *testing.T) {
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels: []string{"stdout"},
-		},
-	}
-	w := newTestWorker(cfg)
-	// Should not panic.
+	w := newTestWorker(&config.Config{
+		Briefing: config.BriefingConfig{Channels: []string{"stdout"}},
+	})
+	var out, errOut bytes.Buffer
+	w.stdout, w.stderr = &out, &errOut
 	w.Dispatch(context.Background(), "test briefing")
+	if out.String() != "test briefing\n" || errOut.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q, want the briefing on stdout only",
+			out.String(), errOut.String())
+	}
 }
 
 func TestDispatch_SlackWithoutURL(t *testing.T) {
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels:        []string{"slack"},
-			SlackWebhookURL: "",
-		},
-	}
-	w := newTestWorker(cfg)
-	// Should not panic; slack is skipped when URL is empty.
+	w := newTestWorker(&config.Config{
+		Briefing: config.BriefingConfig{Channels: []string{"slack"}},
+	})
+	var out, errOut bytes.Buffer
+	w.stdout, w.stderr = &out, &errOut
 	w.Dispatch(context.Background(), "test briefing")
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("slack without a URL wrote stdout=%q stderr=%q, want nothing",
+			out.String(), errOut.String())
+	}
 }
 
 func TestDispatch_EmptyChannels(t *testing.T) {
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels: []string{},
-		},
-	}
-	w := newTestWorker(cfg)
+	w := newTestWorker(&config.Config{
+		Briefing: config.BriefingConfig{Channels: []string{}},
+	})
+	var out, errOut bytes.Buffer
+	w.stdout, w.stderr = &out, &errOut
 	w.Dispatch(context.Background(), "test briefing")
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("no channels wrote stdout=%q stderr=%q, want nothing",
+			out.String(), errOut.String())
+	}
 }
 
 func TestParseCron(t *testing.T) {

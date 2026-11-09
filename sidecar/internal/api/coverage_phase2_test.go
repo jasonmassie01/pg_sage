@@ -3601,26 +3601,36 @@ func TestPhase2_FleetPendingCountHandler_RealDB(
 // / registerNotificationRoutes — verify registration doesn't panic
 // ================================================================
 
-func TestPhase2_RegisterAuthRoutes_NoPanic(t *testing.T) {
-	pool, _ := phase2RequireDB(t)
-	mux := http.NewServeMux()
-	cfg := &config.Config{}
-	// Should not panic with nil OAuth.
-	registerAuthRoutes(mux, pool, nil, cfg)
+// assertRouted fails unless mux has a handler registered for method and path.
+func assertRouted(t *testing.T, mux *http.ServeMux, method, path string) {
+	t.Helper()
+	if _, pattern := mux.Handler(httptest.NewRequest(method, path, nil)); pattern == "" {
+		t.Errorf("%s %s is not routed", method, path)
+	}
 }
 
-func TestPhase2_RegisterUserRoutes_NoPanic(t *testing.T) {
+func TestPhase2_RegisterAuthRoutes(t *testing.T) {
+	pool, _ := phase2RequireDB(t)
+	mux := http.NewServeMux()
+	registerAuthRoutes(mux, pool, nil, &config.Config{})
+	assertRouted(t, mux, http.MethodPost, "/api/v1/auth/login")
+	assertRouted(t, mux, http.MethodPost, "/api/v1/auth/logout")
+	assertRouted(t, mux, http.MethodGet, "/api/v1/auth/me")
+}
+
+func TestPhase2_RegisterUserRoutes(t *testing.T) {
 	pool, _ := phase2RequireDB(t)
 	mux := http.NewServeMux()
 	registerUserRoutes(mux, pool)
+	assertRouted(t, mux, http.MethodGet, "/api/v1/users")
+	assertRouted(t, mux, http.MethodPut, "/api/v1/users/7/role")
 }
 
-func TestPhase2_RegisterNotificationRoutes_NoPanic(
-	t *testing.T,
-) {
+func TestPhase2_RegisterNotificationRoutes(t *testing.T) {
 	pool, _ := phase2RequireDB(t)
 	mux := http.NewServeMux()
 	registerNotificationRoutes(mux, pool, notificationRouteDeps{})
+	assertRouted(t, mux, http.MethodGet, "/api/v1/notifications/log")
 }
 
 // ================================================================

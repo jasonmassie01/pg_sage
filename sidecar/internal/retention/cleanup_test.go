@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 var (
@@ -221,34 +222,15 @@ func TestPurgeQueryFormat(t *testing.T) {
 	}
 }
 
+// purgeTable returns before any query when retention is 0 or negative, which
+// disables the purge: the nil pool would panic on Exec.
 func TestPurgeTable_SkipsZeroRetention(t *testing.T) {
-	// purgeTable should return immediately when retentionDays <= 0.
-	// Since pool is nil, calling pool.Exec would panic. If this
-	// test does not panic, the early return is working.
-	cfg := &config.Config{}
-	c := New(nil, cfg, noopLog)
-	c.purgeTable(nil, "snapshots", "collected_at", 0, "")
-	c.purgeTable(nil, "snapshots", "collected_at", -1, "")
-}
-
-func TestPurgeTable_ZeroDaysAllTables(t *testing.T) {
-	// When all retention days are 0, Run should not attempt any DB calls.
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			SnapshotsDays: 0,
-			FindingsDays:  0,
-			ActionsDays:   0,
-			ExplainsDays:  0,
-		},
+	c := New(nil, &config.Config{}, noopLog)
+	for _, days := range []int{0, -1} {
+		require.NotPanics(t, func() {
+			c.purgeTable(nil, "snapshots", "collected_at", days, "")
+		}, "retention %d days", days)
 	}
-	c := New(nil, cfg, noopLog)
-
-	// This would panic if any purgeTable tried to use the nil pool.
-	// cleanStaleFirstSeen will try to use pool, so we only test purgeTable.
-	c.purgeTable(nil, "snapshots", "collected_at", cfg.Retention.SnapshotsDays, "")
-	c.purgeTable(nil, "findings", "last_seen", cfg.Retention.FindingsDays, "AND status = 'resolved'")
-	c.purgeTable(nil, "action_log", "executed_at", cfg.Retention.ActionsDays, "")
-	c.purgeTable(nil, "explain_cache", "captured_at", cfg.Retention.ExplainsDays, "")
 }
 
 func TestRun_LivePG(t *testing.T) {

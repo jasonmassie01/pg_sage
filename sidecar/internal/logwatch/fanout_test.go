@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -64,9 +65,7 @@ func TestSubscribe_MultipleSubscribers(t *testing.T) {
 // FanoutSubscriber satisfies rca.LogSource
 // ---------------------------------------------------------------------------
 
-func TestFanoutSubscriber_ImplementsLogSource(t *testing.T) {
-	var _ rca.LogSource = (*FanoutSubscriber)(nil)
-}
+var _ rca.LogSource = (*FanoutSubscriber)(nil)
 
 func TestFanoutSubscriber_StartIsNoop(t *testing.T) {
 	f := NewLogFanout(&FileWatcher{})
@@ -76,10 +75,11 @@ func TestFanoutSubscriber_StartIsNoop(t *testing.T) {
 	}
 }
 
+// Stopping a fanout subscriber leaves the shared watcher alone.
 func TestFanoutSubscriber_StopIsNoop(t *testing.T) {
 	f := NewLogFanout(&FileWatcher{})
 	sub := f.Subscribe("db1")
-	sub.Stop() // should not panic
+	require.NotPanics(t, sub.Stop)
 }
 
 // ---------------------------------------------------------------------------

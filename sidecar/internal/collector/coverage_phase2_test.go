@@ -939,48 +939,6 @@ func TestPhase2_Collect_LocksCollected(t *testing.T) {
 // cycle — collect error path
 // ---------------------------------------------------------------------------
 
-func TestPhase2_Cycle_CollectError(t *testing.T) {
-	// Use a pool that points to a closed connection to trigger
-	// collect errors.
-	pool := testPool(t)
-	cfg := testConfig()
-
-	var messages []string
-	logFn := func(level, msg string, args ...any) {
-		messages = append(messages, level+":"+msg)
-	}
-
-	c := New(pool, cfg, 170000, logFn)
-
-	// Close the pool to force errors during collect.
-	// But first we need to get past ShouldSkip.
-	// ShouldSkip will also fail on a closed pool, causing a skip.
-	// So we need a different approach: use a valid pool but with
-	// very short timeout to cause partial failure.
-	//
-	// Alternative: test with valid pool — cycle should succeed.
-	// The collect-error path is already partially tested via
-	// cancelled context tests. Let's verify the full cycle
-	// error logging path.
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 1*time.Nanosecond)
-	defer cancel()
-
-	// Wait for context to expire.
-	time.Sleep(time.Millisecond)
-
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-
-	c.cycle(ctx, ticker)
-
-	// With an expired context, ShouldSkip should fail and skip.
-	snap := c.LatestSnapshot()
-	if snap != nil {
-		t.Log("snapshot was set despite timeout (query was fast)")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ShouldSkip — threshold path with real load ratio
 // ---------------------------------------------------------------------------
