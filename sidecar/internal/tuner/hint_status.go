@@ -146,11 +146,23 @@ func (t *Tuner) reconcileStep(ctx context.Context, name, sql string, args ...any
 }
 
 // hintRejectedRecentlySQL reports an operator rejection, within $3
-// seconds, of exactly this hint text for the statement.
+// seconds, of exactly this hint text for the statement. The window runs
+// from the operator's decision: a proposal answered on its 29th day binds
+// for 30 more days, not one. The proposal's own age still counts when the
+// decision row is gone (a rejection is never older than its proposal).
 const hintRejectedRecentlySQL = `/* pg_sage */
-SELECT EXISTS (SELECT 1 FROM sage.query_hints
-                WHERE queryid = $1 AND hint_text = $2 AND status = 'rejected'
-                  AND created_at >= now() - make_interval(secs => $3::double precision))`
+SELECT EXISTS (
+    SELECT 1 FROM sage.query_hints q
+     WHERE q.queryid = $1 AND q.hint_text = $2 AND q.status = 'rejected'
+       AND (q.created_at >= now() - make_interval(secs => $3::double precision)
+            OR EXISTS (SELECT 1 FROM sage.action_queue a
+                         JOIN sage.findings f ON f.id = a.finding_id
+                        WHERE a.status = 'rejected' AND a.decided_by IS NOT NULL
+                          AND a.decided_at >= q.created_at
+                          AND a.decided_at >= now() - make_interval(
+                                  secs => $3::double precision)
+                          AND f.category = 'query_tuning'
+                          AND f.object_identifier = 'queryid:' || q.queryid)))`
 
 // rejectedHint reports whether an operator rejected hint for the statement
 // within proposalExpiry, so the deterministic pass does not propose it
