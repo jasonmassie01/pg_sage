@@ -103,7 +103,7 @@ func TestFleetPendingCount_EmptyFleetIsExactZero(t *testing.T) {
 func TestFleetPendingCount_RejectsBadDatabaseParam(t *testing.T) {
 	handler := fleetPendingCountHandler(pendingCountFleet("db1"))
 	cases := map[string]int{
-		"/api/v1/actions/pending/count?database=nope":         http.StatusNotFound,
+		"/api/v1/actions/pending/count?database=nope":          http.StatusNotFound,
 		"/api/v1/actions/pending/count?database=x%27%3B--drop": http.StatusBadRequest,
 	}
 	for url, want := range cases {
