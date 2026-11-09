@@ -580,8 +580,19 @@ ciphertext.
   new one. Then remove `encryption_key_previous`. A value no configured key
   can open is ignored with an ERROR naming its key and key id. Rotation
   currently covers config secrets only: per-database passwords and
-  notification channel secrets are still sealed with `encryption_key` alone
-  and must be re-entered after a rotation.
+  notification channel secrets are still sealed with `encryption_key` alone.
+- **Changed `encryption_key` and database passwords or channel secrets.**
+  After `encryption_key` changes, a stored database password that no longer
+  opens fails that database with `database <id>: encryption key does not open
+  this value`, and startup logs one ERROR per database id ("the stored
+  password does not open with encryption_key; was encryption_key changed?")
+  with `database_id`; reconnects do not repeat it. A sealed channel secret
+  fails with `channel secret <key> does not open with encryption_key`. The
+  failure is fast: no key is derived per read. To recover, either restore the
+  old `encryption_key` and restart, or keep the new one and re-enter each
+  named password and channel secret in the dashboard or through the API.
+  Passwords written by v0.8.x key derivations still open and are re-sealed
+  under the current key on first read.
 
 ### CSRF and Cross-Origin Requests
 
