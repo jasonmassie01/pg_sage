@@ -521,6 +521,8 @@ the hint), so it never removes a hint for working or for being old.
 | `retired` | The query case's retire action retired the hint. Revalidation no longer retires. | removed through the `retire_query_hint` action |
 | `broken` | An index the hint names no longer exists. | removed through the `retire_query_hint` action |
 | `rolled_back` | The installed hint of an `active` or `dormant` row was removed (rollback or operator). | no |
+| `rejected` | An operator rejected the approval of the proposal's `query_tuning` finding. | no |
+| `expired` | The proposal waited 30 days without an answer. | no |
 
 Transitions:
 
@@ -531,6 +533,45 @@ Transitions:
 | `dormant` | `active` | A revalidation pass sees the summed calls advance again. |
 | `active`, `dormant` | `broken` | A revalidation pass finds an index named in an `IndexScan` / `BitmapScan` directive missing from `pg_class`. |
 | `active`, `dormant` | `rolled_back` | The row for the query no longer holds this hint's text: it was removed, or an operator replaced it with their own hint (reconciled at the start of each tuner cycle). |
+| `proposed` | `rejected` | An operator (`decided_by` set) rejected an approval of the statement's `query_tuning` finding after the proposal was made. A system expiry of the queue item rejects nothing. Reconciled at the start of each tuner cycle, with or without a hint table. |
+| `proposed` | `expired` | The proposal is older than 30 days (the same window the tuning agent keeps operator rejections). Reconciled at the start of each tuner cycle. |
+
+`rejected` and `expired` free the statement: it may take a new proposal
+(one per statement still applies). The tuner's deterministic rules do not
+propose again, within 30 days, the exact hint text an operator rejected for
+the statement. No `proposed` row is written while hints cannot reach
+application sessions (see `hint_readiness`): such a proposal could only wait
+until it expired. `sage.query_hints.status` carries a `NOT VALID` CHECK on
+these eight values; rows earlier releases wrote are not rescanned.
+
+### When a query_tuning finding resolves
+
+The tuning agent keeps every open finding it did not judge, so a
+`query_tuning` finding (the tuner's or the agent's) resolves only on
+deterministic evidence, checked once per analyzer cycle:
+
+- its statement's latest `sage.query_hints` row left `proposed` (it is
+  `active`, `dormant`, `broken`, `retired`, `rolled_back`, `rejected` or
+  `expired`): at once;
+- its queryid has been absent from `pg_stat_statements` in this database
+  for `tuner.hint_absent_cycles` consecutive cycles (default 3);
+- it has stayed below the tuner's admission for `tuner.hint_absent_cycles`
+  consecutive cycles: the cumulative counters no longer pass
+  `tuner.min_query_calls` with a mean above 100 ms, temp blocks written or
+  planning above `tuner.plan_time_ratio`, and the interval between two
+  snapshots shows no calls, or a mean of at most 100 ms with no temp blocks
+  written.
+
+The counts are stored on the finding (`absent_cycles`, `quiet_cycles` in its
+detail), so a restart keeps them; a statement seen again, or seen slow,
+resets them. N cycles is N analyzer intervals: with the default 3 and a
+5-minute interval a finding resolves 15 minutes after its statement left
+`pg_stat_statements`. Nothing unknown resolves a finding: if
+`pg_stat_statements` cannot be read, or the snapshots cannot measure the
+statement's interval, the finding and its counts stay as they were. An open
+hint finding no longer keeps the agent from asking about the rest of its
+case (index and statistics answers); a second hint for the statement is
+still refused.
 
 Two revalidation outcomes keep the status:
 
