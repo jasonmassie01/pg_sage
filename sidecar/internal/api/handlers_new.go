@@ -72,7 +72,7 @@ func forecastsHandler(
 // accepts (docs/hint-verification.md "Hint lifecycle").
 var queryHintStatuses = map[string]bool{
 	"proposed": true, "active": true, "dormant": true, "retired": true,
-	"broken": true, "rolled_back": true,
+	"broken": true, "rolled_back": true, "rejected": true, "expired": true,
 }
 
 func queryHintsHandler(
