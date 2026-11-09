@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var ErrGenerationConflict = errors.New("config generation conflict")
@@ -68,6 +69,10 @@ type ConfigController struct {
 	store      RevisionStore
 	owners     map[string]ReconfigurationOwner
 	ownerOrder []string
+	// durable is the shared revision a resync reads (config-05); nil when
+	// no control database shares the global overrides.
+	durable    atomic.Pointer[durableBinding]
+	lastResync atomic.Pointer[time.Time]
 }
 
 // RegisterOwner adds a runtime resource owner before configuration writers
@@ -189,17 +194,8 @@ func (c *ConfigController) apply(
 	ctx context.Context, expectedGeneration uint64, candidate *Config,
 	persist PersistDesiredFunc,
 ) (ApplyResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if candidate == nil {
-		return ApplyResult{}, fmt.Errorf("candidate config is nil")
-	}
-	candidate = Clone(candidate)
-	if err := candidate.validate(); err != nil {
-		return ApplyResult{}, fmt.Errorf("%w: %w", ErrInvalidCandidate, err)
-	}
-	if err := ctx.Err(); err != nil {
+	ctx, candidate, err := checkedCandidate(ctx, candidate)
+	if err != nil {
 		return ApplyResult{}, err
 	}
 
@@ -213,40 +209,30 @@ func (c *ConfigController) apply(
 			ErrGenerationConflict, expectedGeneration, desired.Generation,
 		)
 	}
+	generation := nextGeneration(active.Generation, desired.Generation)
 	if len(changedConfigPaths(desired.Config, candidate)) == 0 {
 		if persist != nil ||
 			len(changedConfigPaths(active.Config, candidate)) > 0 {
-			return c.applyLocked(ctx, active, candidate, persist)
+			return c.applyLocked(ctx, active, candidate, generation, persist)
 		}
 		c.applyMu.Unlock()
 		return unchangedResult(
 			desired.Generation, active.Generation,
 		), nil
 	}
-	return c.applyLocked(ctx, active, candidate, persist)
+	return c.applyLocked(ctx, active, candidate, generation, persist)
 }
 
+// applyLocked publishes candidate as desiredGeneration; the caller holds
+// applyMu, which applyLocked releases.
 func (c *ConfigController) applyLocked(
 	ctx context.Context, active ConfigSnapshot, candidate *Config,
-	persist PersistDesiredFunc,
+	desiredGeneration uint64, persist PersistDesiredFunc,
 ) (ApplyResult, error) {
 	changed := changedConfigPaths(active.Config, candidate)
 	if len(changed) == 0 {
-		desiredGeneration := nextGeneration(
-			active.Generation, c.desired.Load().Generation,
-		)
-		revision := ConfigSnapshot{
-			Generation: desiredGeneration, Config: Clone(candidate),
-		}
-		if err := c.persistDesired(ctx, revision, persist); err != nil {
-			c.applyMu.Unlock()
-			return ApplyResult{}, err
-		}
-		c.active.Store(snapshotPointer(revision))
-		c.applyMu.Unlock()
-		return unchangedResult(desiredGeneration, desiredGeneration), nil
+		return c.publishUnchangedLocked(ctx, desiredGeneration, candidate, persist)
 	}
-	desiredGeneration := nextGeneration(active.Generation, c.desired.Load().Generation)
 	desired := ConfigSnapshot{Generation: desiredGeneration, Config: Clone(candidate)}
 	result, ownerNames := c.planApply(active.Generation, desiredGeneration, changed)
 	if len(result.Applied) == 0 {
@@ -269,16 +255,8 @@ func (c *ConfigController) applyLocked(
 	}
 	if err := commitPrepared(ctx, prepared); err != nil {
 		rollbackPrepared(ctx, prepared)
-		result.PendingRestart = append(
-			result.PendingRestart, result.Applied...,
-		)
-		result.Applied = nil
-		result.Warnings = append(result.Warnings, err.Error())
-		for _, name := range ownerNames {
-			result.ComponentStatus[name] = "commit_failed"
-		}
 		c.applyMu.Unlock()
-		return result, nil
+		return commitFailedResult(result, ownerNames, err), nil
 	}
 	c.active.Store(snapshotPointer(effective))
 	result.ActiveGeneration = desiredGeneration
@@ -291,6 +269,36 @@ func (c *ConfigController) applyLocked(
 		result.Warnings = append(result.Warnings, err.Error())
 	}
 	return result, nil
+}
+
+// publishUnchangedLocked persists a revision whose fields all equal the
+// active ones and publishes it as active; it releases applyMu.
+func (c *ConfigController) publishUnchangedLocked(
+	ctx context.Context, generation uint64, candidate *Config,
+	persist PersistDesiredFunc,
+) (ApplyResult, error) {
+	revision := ConfigSnapshot{Generation: generation, Config: Clone(candidate)}
+	if err := c.persistDesired(ctx, revision, persist); err != nil {
+		c.applyMu.Unlock()
+		return ApplyResult{}, err
+	}
+	c.active.Store(snapshotPointer(revision))
+	c.applyMu.Unlock()
+	return unchangedResult(generation, generation), nil
+}
+
+// commitFailedResult reports a persisted revision whose owners refused the
+// commit: its fields wait for a restart.
+func commitFailedResult(
+	result ApplyResult, ownerNames []string, err error,
+) ApplyResult {
+	result.PendingRestart = append(result.PendingRestart, result.Applied...)
+	result.Applied = nil
+	result.Warnings = append(result.Warnings, err.Error())
+	for _, name := range ownerNames {
+		result.ComponentStatus[name] = "commit_failed"
+	}
+	return result
 }
 
 func (c *ConfigController) planApply(
