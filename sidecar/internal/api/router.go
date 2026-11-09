@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -349,16 +348,23 @@ func registerRootRoutes(root *http.ServeMux) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Embedded dashboard (SPA fallback).
-	staticSub, _ := fs.Sub(staticFiles, "dist")
-	fileServer := http.FileServer(http.FS(staticSub))
-	root.HandleFunc("/", func(
-		w http.ResponseWriter, r *http.Request,
-	) {
-		path := r.URL.Path
-		if path == "/" || !strings.Contains(path, ".") {
-			r.URL.Path = "/"
+	// Embedded dashboard (SPA fallback), gzipped with cache validators.
+	root.Handle("/", embeddedDashboard())
+}
+
+// embeddedDashboard builds the static handler over the embedded dist. The
+// embed is fixed at compile time, so a failure here is a broken build; it is
+// logged and answered with 503 rather than silently serving nothing.
+func embeddedDashboard() http.Handler {
+	sub, err := fs.Sub(staticFiles, "dist")
+	if err == nil {
+		var h http.Handler
+		if h, err = newStaticHandler(sub); err == nil {
+			return h
 		}
-		fileServer.ServeHTTP(w, r)
+	}
+	slog.Error("embedded dashboard unavailable", "error", err)
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "dashboard assets unavailable", http.StatusServiceUnavailable)
 	})
 }
