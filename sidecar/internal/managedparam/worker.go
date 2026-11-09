@@ -28,6 +28,9 @@ type WorkerOptions struct {
 	Pool     *pgxpool.Pool
 	Store    *Store
 	Resolver Resolver // nil: proposals use placeholders, no drift
+	// Resource names the provider instance (clouds-08): the worker skips a
+	// change a peer database of it holds (see JoinPeers). "": no peers.
+	Resource string
 	// TargetTTL caches the resolved target (default 15 minutes).
 	TargetTTL time.Duration
 	Now       func() time.Time
@@ -35,14 +38,22 @@ type WorkerOptions struct {
 
 // CycleResult is what one cycle did.
 type CycleResult struct {
-	Proposed    int      `json:"proposed"`
-	Refreshed   int      `json:"refreshed"`
-	Skipped     int      `json:"skipped"`
-	Superseded  int      `json:"superseded"`
-	Applied     int      `json:"applied"`
+	Proposed   int `json:"proposed"`
+	Refreshed  int `json:"refreshed"`
+	Skipped    int `json:"skipped"`
+	Superseded int `json:"superseded"`
+	Applied    int `json:"applied"`
+	// HeldByPeer counts changes not proposed because a peer database of
+	// the same instance holds them; PeerError reports, once, that a peer
+	// could not be read (those changes were proposed here instead).
+	HeldByPeer  int      `json:"held_by_peer"`
+	PeerError   string   `json:"peer_error,omitempty"`
 	TargetError string   `json:"target_error,omitempty"`
 	BuildErrors []string `json:"build_errors,omitempty"`
 	Drift       []Drift  `json:"drift"`
+
+	peerReads int    // peer stores read this cycle
+	peerErr   string // the cycle's first peer read failure
 }
 
 // Worker turns open findings that carry a managed intent into stored
@@ -59,6 +70,7 @@ type Worker struct {
 	targetAt  time.Time
 	targetErr string
 	drift     []Drift
+	peerErr   string // the peer read failure last reported
 }
 
 // NewWorker validates the options.
@@ -132,6 +144,7 @@ func (w *Worker) Cycle(ctx context.Context) (CycleResult, error) {
 	w.mu.Lock()
 	w.drift = res.Drift
 	w.mu.Unlock()
+	w.notePeerError(&res)
 	return res, nil
 }
 
@@ -163,8 +176,8 @@ func (w *Worker) propose(ctx context.Context, fi findingIntent, target Target, n
 			return err
 		}
 	}
-	rec, created, err := w.store.Upsert(ctx, p, fi.findingID)
-	if err != nil {
+	rec, created, held, err := w.upsert(ctx, p, fi.findingID, res)
+	if err != nil || held {
 		return err
 	}
 	if created {
