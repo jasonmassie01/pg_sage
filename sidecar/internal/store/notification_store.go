@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -19,6 +20,7 @@ type NotificationStore struct {
 	pool       *pgxpool.Pool
 	dispatcher *notify.Dispatcher
 	secretKey  []byte
+	keyring    *crypto.Keyring
 	policy     notify.TargetPolicy
 }
 
@@ -40,6 +42,15 @@ func NewNotificationStore(
 // channels must use notify.NewPoolStore with the same key.
 func (s *NotificationStore) WithSecretKey(key []byte) *NotificationStore {
 	s.secretKey = key
+	s.keyring = notify.SecretKeyring(key, nil)
+	return s
+}
+
+// WithPreviousSecretKey also opens channel secrets sealed under the
+// previous key of a rotation, so ResealChannelSecrets can move them to the
+// active key (security-08). Call it after WithSecretKey.
+func (s *NotificationStore) WithPreviousSecretKey(previous []byte) *NotificationStore {
+	s.keyring = notify.SecretKeyring(s.secretKey, previous)
 	return s
 }
 
@@ -75,22 +86,26 @@ func (s *NotificationStore) CreateChannel(
 	if err := s.validateChannel(typ, config); err != nil {
 		return 0, err
 	}
-	cfgJSON, err := s.encodeConfig(config)
-	if err != nil {
-		return 0, err
-	}
-
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	// The id comes first so sealed secrets can be bound to the channel.
 	var id int
-	err = s.pool.QueryRow(qctx,
+	if err := s.pool.QueryRow(qctx, `/* pg_sage */ SELECT
+		nextval(pg_get_serial_sequence('sage.notification_channels', 'id'))::int`,
+	).Scan(&id); err != nil {
+		return 0, fmt.Errorf("allocating channel id: %w", err)
+	}
+	cfgJSON, err := s.encodeConfig(config, id)
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.pool.Exec(qctx,
 		`/* pg_sage */ INSERT INTO sage.notification_channels
-		    (name, type, config, created_by)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id`,
-		name, typ, cfgJSON, userID,
-	).Scan(&id)
+		    (id, name, type, config, created_by)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		id, name, typ, cfgJSON, userID,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("inserting channel: %w", err)
 	}
@@ -106,14 +121,12 @@ func (s *NotificationStore) validateChannel(
 	return validateChannelTargets(s.policy, typ, config)
 }
 
-// encodeConfig seals secrets (when a key is configured) and marshals.
-func (s *NotificationStore) encodeConfig(config map[string]string) ([]byte, error) {
-	if len(s.secretKey) > 0 {
-		sealed, err := notify.SealSecrets(config, s.secretKey)
-		if err != nil {
-			return nil, err
-		}
-		config = sealed
+// encodeConfig seals secrets for channel id (when a key is configured)
+// and marshals.
+func (s *NotificationStore) encodeConfig(config map[string]string, id int) ([]byte, error) {
+	config, err := notify.SealSecrets(config, s.keyring, id)
+	if err != nil {
+		return nil, err
 	}
 	cfgJSON, err := json.Marshal(config)
 	if err != nil {
@@ -146,7 +159,7 @@ func (s *NotificationStore) ListChannels(
 		); err != nil {
 			return nil, fmt.Errorf("scanning channel: %w", err)
 		}
-		if ch.Config, err = s.decodeConfig(cfgJSON); err != nil {
+		if ch.Config, err = s.decodeConfig(cfgJSON, ch.ID); err != nil {
 			return nil, fmt.Errorf("channel %d: %w", ch.ID, err)
 		}
 		result = append(result, ch)
@@ -154,8 +167,10 @@ func (s *NotificationStore) ListChannels(
 	return result, rows.Err()
 }
 
-func (s *NotificationStore) decodeConfig(cfgJSON []byte) (map[string]string, error) {
-	return notify.OpenSecrets(parseJSONConfig(cfgJSON), s.secretKey)
+func (s *NotificationStore) decodeConfig(
+	cfgJSON []byte, id int,
+) (map[string]string, error) {
+	return notify.OpenSecrets(parseJSONConfig(cfgJSON), s.keyring, id)
 }
 
 // GetChannel returns a single channel by ID, migrating plaintext
@@ -179,10 +194,10 @@ func (s *NotificationStore) GetChannel(
 		return nil, fmt.Errorf("getting channel %d: %w", id, err)
 	}
 	stored := parseJSONConfig(cfgJSON)
-	if ch.Config, err = notify.OpenSecrets(stored, s.secretKey); err != nil {
+	if ch.Config, err = notify.OpenSecrets(stored, s.keyring, id); err != nil {
 		return nil, fmt.Errorf("channel %d: %w", id, err)
 	}
-	if len(s.secretKey) > 0 && notify.HasPlaintextSecrets(stored) {
+	if notify.NeedsReseal(stored, s.keyring) {
 		if err := s.writeConfig(qctx, id, ch.Config); err != nil {
 			return nil, fmt.Errorf("migrating channel %d secrets: %w", id, err)
 		}
@@ -193,7 +208,7 @@ func (s *NotificationStore) GetChannel(
 func (s *NotificationStore) writeConfig(
 	ctx context.Context, id int, config map[string]string,
 ) error {
-	cfgJSON, err := s.encodeConfig(config)
+	cfgJSON, err := s.encodeConfig(config, id)
 	if err != nil {
 		return err
 	}
@@ -221,7 +236,7 @@ func (s *NotificationStore) UpdateChannel(
 	if err := s.validateChannel(ch.Type, config); err != nil {
 		return err
 	}
-	cfgJSON, err := s.encodeConfig(config)
+	cfgJSON, err := s.encodeConfig(config, id)
 	if err != nil {
 		return err
 	}

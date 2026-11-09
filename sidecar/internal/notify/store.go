@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/crypto"
 )
 
 // RuleStore is where the dispatcher reads rules and channels and
@@ -21,14 +23,29 @@ type RuleStore interface {
 
 // PoolStore implements RuleStore on sage.notification_* tables.
 type PoolStore struct {
-	pool      *pgxpool.Pool
-	secretKey []byte
+	pool    *pgxpool.Pool
+	keyring *crypto.Keyring
 }
 
 // NewPoolStore creates a PoolStore. secretKey (32 bytes, may be nil)
 // decrypts channel secrets sealed by the notification API (G7-B20).
 func NewPoolStore(pool *pgxpool.Pool, secretKey []byte) *PoolStore {
-	return &PoolStore{pool: pool, secretKey: secretKey}
+	return &PoolStore{pool: pool, keyring: SecretKeyring(secretKey, nil)}
+}
+
+// SecretKeyring is the channel-secret keyring for a 32-byte active key and
+// an optional previous key; nil when active is not a usable key, so
+// secrets stay plaintext as before.
+func SecretKeyring(active, previous []byte) *crypto.Keyring {
+	if len(active) != 32 {
+		return nil
+	}
+	// NewKeyring only fails on a key that is not 32 bytes.
+	kr, err := crypto.NewKeyring(active, previous)
+	if err != nil {
+		return nil
+	}
+	return kr
 }
 
 // MatchingRules returns enabled rules for an event type.
@@ -81,7 +98,7 @@ func (s *PoolStore) Channel(ctx context.Context, id int) (*Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("channel %d: %w", id, err)
 	}
-	if ch.Config, err = OpenSecrets(cfg, s.secretKey); err != nil {
+	if ch.Config, err = OpenSecrets(cfg, s.keyring, id); err != nil {
 		return nil, fmt.Errorf("channel %d: %w", id, err)
 	}
 	return &ch, nil

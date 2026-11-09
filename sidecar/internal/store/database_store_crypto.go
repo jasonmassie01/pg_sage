@@ -11,15 +11,28 @@ import (
 	"github.com/pg-sage/sidecar/internal/crypto"
 )
 
-// decryptPassword decrypts a stored password with the current key and, when
-// key migration is configured, with the legacy keys derived at construction.
-// It derives no key. A legacy hit is re-encrypted in place so the fallback
-// runs once per row. A value no key opens is ErrWrongEncryptionKey naming
+// decryptPassword opens a stored password. A sage-enc:v1 value opens with
+// the keyring under the row's AAD. Older AAD-less values open with the
+// current key, then the legacy keys derived at construction, then a
+// previous key; a legacy-key hit is re-encrypted in place so the fallback
+// runs once per row (ResealDatabasePasswords seals the rest at startup).
+// It derives no key. A value no key opens is ErrWrongEncryptionKey naming
 // the database, logged once per database id per process.
 func (s *DatabaseStore) decryptPassword(
 	ctx context.Context, id int, enc []byte,
 ) (string, error) {
-	password, resealed, err := crypto.DecryptLegacy(enc, s.encryptKey, s.legacy)
+	if crypto.IsSealed(string(enc)) {
+		password, _, err := s.keyring.Open(string(enc), dbPasswordAAD(id))
+		if errors.Is(err, crypto.ErrOpenFailed) || errors.Is(err, crypto.ErrUnknownKeyID) {
+			s.logWrongKeyOnce(id)
+			return "", fmt.Errorf("database %d: %w: %w", id, crypto.ErrWrongEncryptionKey, err)
+		}
+		if err != nil {
+			return "", fmt.Errorf("decrypting password for database %d: %w", id, err)
+		}
+		return password, nil
+	}
+	password, resealed, err := s.openLegacy(enc)
 	if errors.Is(err, crypto.ErrWrongEncryptionKey) {
 		s.logWrongKeyOnce(id)
 		return "", fmt.Errorf("database %d: %w", id, crypto.ErrWrongEncryptionKey)
@@ -37,6 +50,20 @@ func (s *DatabaseStore) decryptPassword(
 		}
 	}
 	return password, nil
+}
+
+// openLegacy opens an AAD-less password: the current key and the pre-v0.9
+// keys first (resealed is set for a pre-v0.9 hit), then a previous key.
+func (s *DatabaseStore) openLegacy(enc []byte) (string, []byte, error) {
+	password, resealed, err := crypto.DecryptLegacy(enc, s.encryptKey, s.legacy)
+	if !errors.Is(err, crypto.ErrWrongEncryptionKey) || s.keyring == nil {
+		return password, resealed, err
+	}
+	password, _, unboundErr := s.keyring.OpenUnbound(enc)
+	if unboundErr != nil {
+		return "", nil, err
+	}
+	return password, nil, nil
 }
 
 func (s *DatabaseStore) logWrongKeyOnce(id int) {
