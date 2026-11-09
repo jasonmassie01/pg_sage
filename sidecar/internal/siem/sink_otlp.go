@@ -36,7 +36,7 @@ func (s *otlpSink) Send(ctx context.Context, events []Event) error {
 	for _, e := range events {
 		rec, err := logRecord(e)
 		if err != nil {
-			return fmt.Errorf("siem sink %s: encode: %w", s.name, err)
+			return fmt.Errorf("siem sink %s: encode: %w: %w", s.name, ErrPermanent, err)
 		}
 		records = append(records, rec)
 	}
@@ -47,7 +47,7 @@ func (s *otlpSink) Send(ctx context.Context, events []Event) error {
 			"logRecords": records}},
 	}}})
 	if err != nil {
-		return fmt.Errorf("siem sink %s: encode: %w", s.name, err)
+		return fmt.Errorf("siem sink %s: encode: %w: %w", s.name, ErrPermanent, err)
 	}
 	reply, err := post(ctx, s.client, s.name, s.url, s.token, body)
 	if err != nil {
@@ -100,7 +100,8 @@ func otlpSeverity(ocsf int) (int, string) {
 }
 
 // partialRejection turns an OTLP partial success that rejected records
-// into an error, so the batch is retried rather than silently lost.
+// into ErrPermanent (OTLP forbids retrying them), so the exporter isolates
+// the refused events rather than lose them silently.
 func partialRejection(name string, reply []byte) error {
 	var r struct {
 		Partial *struct {
@@ -115,6 +116,6 @@ func partialRejection(name string, reply []byte) error {
 	if n == "" || n == "0" {
 		return nil
 	}
-	return fmt.Errorf("siem sink %s: receiver rejected %s log records: %s", name, n,
-		r.Partial.Message)
+	return fmt.Errorf("siem sink %s: receiver rejected %s log records: %s: %w", name, n,
+		r.Partial.Message, ErrPermanent)
 }
