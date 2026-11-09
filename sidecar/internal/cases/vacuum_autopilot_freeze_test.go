@@ -99,8 +99,9 @@ func TestVacuumAutopilotAutovacuumTuningTrustsQuotedRollbacks(t *testing.T) {
 		}
 	}
 	candidate, _ := vacuumAutopilotCandidate(SourceFinding{Category: "autovacuum_tuning",
-		RecommendedSQL: `ALTER TABLE "public"."a SET (b" SET (autovacuum_vacuum_scale_factor = 0.01)`,
-		RollbackSQL:    `ALTER TABLE "public"."a" RESET (autovacuum_vacuum_scale_factor)`})
+		RecommendedSQL: `ALTER TABLE "public"."a SET (b" SET ` +
+			`(autovacuum_vacuum_scale_factor = 0.01)`,
+		RollbackSQL: `ALTER TABLE "public"."a" RESET (autovacuum_vacuum_scale_factor)`})
 	if candidate.RollbackClass != "unknown" {
 		t.Fatal("a rollback of a different (prefix-named) table was trusted")
 	}
