@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -277,7 +278,7 @@ func applyMetaDatabaseUpdate(
 		return nil, err
 	}
 	if oldRec.Name != candidate.Name {
-		unregisterFleetBudget(oldRec.Name)
+		forgetRemovedDatabase(oldRec.Name)
 	}
 	if err := fleet.ShutdownInstance(ctx, retired); err != nil {
 		logWarn("meta-db",
@@ -306,7 +307,7 @@ func applyMetaDatabaseDelete(
 	if err != nil {
 		return err
 	}
-	unregisterFleetBudget(rec.Name)
+	forgetRemovedDatabase(rec.Name)
 	if err := fleet.ShutdownInstance(context.WithoutCancel(ctx), retired); err != nil {
 		logWarn("meta-db",
 			"db %q: delete committed; runtime drain incomplete: %v",
@@ -370,12 +371,16 @@ func replaceManagedDatabase(
 	return candidate, retired, err
 }
 
-// unregisterFleetBudget returns a deleted or renamed database's LLM budget
-// share to the remaining databases (G5-B06).
-func unregisterFleetBudget(name string) {
+// forgetRemovedDatabase releases what the process keeps per database name
+// once that name has left it (deleted, renamed or removed by a reload):
+// the LLM budget share returns to the remaining databases (G5-B06), and
+// the process-wide /metrics counters drop its series (observability-07).
+func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
 	}
+	executor.PruneCounts(name)
+	shadow.Prune(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

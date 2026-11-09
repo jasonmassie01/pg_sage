@@ -152,7 +152,7 @@ func finishMetaOutcome(
 			outcome.retired.Name, err)
 	}
 	if mgr.GetInstance(outcome.retired.Name) == nil {
-		unregisterFleetBudget(outcome.retired.Name)
+		forgetRemovedDatabase(outcome.retired.Name)
 	}
 }
 
