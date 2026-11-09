@@ -312,6 +312,9 @@ func (t *Tuner) processCandidate(
 	// memory); with host memory unknown it needs approval (tuning-03).
 	budget := t.workMemBudget()
 	combined, budgetDetail := budget.capHint(combined)
+	if t.rejectedHint(ctx, c.QueryID, combined) {
+		return staleFindings
+	}
 	title := buildTitle(symptoms)
 	finding := t.buildFinding(ctx, c, symptoms, combined, title, rationale)
 	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
@@ -453,17 +456,15 @@ func (t *Tuner) buildFinding(
 	}
 	// Executable SQL only when the hint would change the application's plan
 	// (tuning-04); otherwise the finding stays advisory and names why.
-	if t.HintsAvailable() {
-		f.RecommendedSQL = BuildInsertSQL(
-			c.QueryID, combinedHint,
-		)
-		f.RollbackSQL = BuildDeleteSQL(c.QueryID, combinedHint)
-	} else {
+	// A hint that cannot be installed is not recorded as proposed either
+	// (tuning-06): it could only wait there until it expired.
+	if !t.HintsAvailable() {
 		detail["hint_readiness"] = t.hints().Readiness()
+		return f
 	}
-
+	f.RecommendedSQL = BuildInsertSQL(c.QueryID, combinedHint)
+	f.RollbackSQL = BuildDeleteSQL(c.QueryID, combinedHint)
 	// Persist to sage.query_hints for the dashboard query-hints page.
 	t.upsertQueryHint(ctx, c.QueryID, combinedHint, strings.Join(names, ", "))
-
 	return f
 }

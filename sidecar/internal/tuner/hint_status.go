@@ -1,6 +1,9 @@
 package tuner
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // sage.query_hints status lifecycle (Phase 0 item 11):
 //
@@ -13,9 +16,15 @@ import "context"
 //	broken      set by revalidation when a referenced index is missing
 //	retired     set by the retire_query_hint action (cases); revalidation
 //	            no longer retires (tuning-01)
+//	rejected    an operator rejected the approval of the proposal's
+//	            query_tuning finding (tuning-06)
+//	expired     the proposal waited proposalExpiry without an answer
+//	            (tuning-06)
 //
 // The executor installs hints through the approval path; the tuner
-// reconciles the status with hint_plan.hints at the start of each cycle.
+// reconciles the status with hint_plan.hints and the action queue at the
+// start of each cycle. Neither rejected nor expired holds the statement:
+// it may take a new proposal (one per statement, hintStates).
 
 // upsertQueryHint records a proposed hint for the dashboard query-hints
 // page: it updates the query's open proposal, or inserts one. The tuner
@@ -72,24 +81,97 @@ const hintRolledBackSQL = `/* pg_sage */ UPDATE sage.query_hints q
                     WHERE h.query_id = q.queryid AND h.application_name = ''
                       AND h.hints = q.hint_text)`
 
+// proposalExpiry is how long a proposal waits for an answer before it
+// expires: the tuning agent's operator rejection window (30 days).
+const proposalExpiry = 30 * 24 * time.Hour
+
+// hintRejectedSQL marks a proposal rejected once an operator rejected the
+// approval of its statement's query_tuning finding after it was proposed
+// (a system expiry has no decided_by and rejects nothing).
+const hintRejectedSQL = `/* pg_sage */ UPDATE sage.query_hints q
+   SET status = 'rejected'
+ WHERE q.status = 'proposed'
+   AND EXISTS (SELECT 1 FROM sage.action_queue a
+                 JOIN sage.findings f ON f.id = a.finding_id
+                WHERE a.status = 'rejected' AND a.decided_by IS NOT NULL
+                  AND a.decided_at >= q.created_at
+                  AND f.category = 'query_tuning'
+                  AND f.object_identifier = 'queryid:' || q.queryid)`
+
+// hintExpiredSQL expires the proposals older than $1 seconds.
+const hintExpiredSQL = `/* pg_sage */ UPDATE sage.query_hints
+   SET status = 'expired'
+ WHERE status = 'proposed'
+   AND created_at < now() - make_interval(secs => $1::double precision)`
+
 // reconcileHintStatuses moves query_hints rows to the state hint_plan.hints
-// shows. Without a ready hint table nothing can have been applied.
+// and the action queue show. Without a ready hint table nothing can have
+// been applied or rolled back; proposals still expire or are rejected.
 func (t *Tuner) reconcileHintStatuses(ctx context.Context) {
-	if h := t.hints(); t.pool == nil || h == nil || !h.HintTableReady {
+	if t.pool == nil {
 		return
 	}
-	for _, step := range []struct{ name, sql string }{
-		{"applied", hintAppliedSQL}, {"rolled back", hintRolledBackSQL},
-	} {
-		tag, err := t.pool.Exec(ctx, step.sql)
-		if err != nil {
-			t.logFn("WARN", "tuner: reconcile %s query hints: %v", step.name, err)
-			continue
-		}
-		if n := tag.RowsAffected(); n > 0 {
-			t.logFn("INFO", "tuner: %d query hint(s) marked %s", n, step.name)
-		}
+	if h := t.hints(); h != nil && h.HintTableReady {
+		t.reconcileStep(ctx, "applied", hintAppliedSQL)
+		t.reconcileStep(ctx, "rolled back", hintRolledBackSQL)
 	}
+	t.reconcileLifecycle(ctx)
+}
+
+// reconcileLifecycle rejects and expires open proposals and returns how
+// many of each it moved. Each is one UPDATE of 'proposed' rows, so tuners
+// racing on the same row move it once.
+func (t *Tuner) reconcileLifecycle(ctx context.Context) (rejected, expired int64) {
+	if t.pool == nil {
+		return 0, 0
+	}
+	rejected = t.reconcileStep(ctx, "rejected", hintRejectedSQL)
+	expired = t.reconcileStep(ctx, "expired", hintExpiredSQL, proposalExpiry.Seconds())
+	return rejected, expired
+}
+
+// reconcileStep runs one status UPDATE and returns the rows it moved; a
+// failure is logged and moves nothing.
+func (t *Tuner) reconcileStep(ctx context.Context, name, sql string, args ...any) int64 {
+	tag, err := t.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		t.logFn("WARN", "tuner: reconcile %s query hints: %v", name, err)
+		return 0
+	}
+	n := tag.RowsAffected()
+	if n > 0 {
+		t.logFn("INFO", "tuner: %d query hint(s) marked %s", n, name)
+	}
+	return n
+}
+
+// hintRejectedRecentlySQL reports an operator rejection, within $3
+// seconds, of exactly this hint text for the statement.
+const hintRejectedRecentlySQL = `/* pg_sage */
+SELECT EXISTS (SELECT 1 FROM sage.query_hints
+                WHERE queryid = $1 AND hint_text = $2 AND status = 'rejected'
+                  AND created_at >= now() - make_interval(secs => $3::double precision))`
+
+// rejectedHint reports whether an operator rejected hint for the statement
+// within proposalExpiry, so the deterministic pass does not propose it
+// again. An unreadable answer counts as rejected (no proposal is made).
+func (t *Tuner) rejectedHint(ctx context.Context, queryID int64, hint string) bool {
+	if t.pool == nil || hint == "" {
+		return false
+	}
+	var rejected bool
+	err := t.pool.QueryRow(ctx, hintRejectedRecentlySQL, queryID, hint,
+		proposalExpiry.Seconds()).Scan(&rejected)
+	if err != nil {
+		t.logFn("WARN", "tuner: read rejected hints of queryid %d, proposing none: %v",
+			queryID, err)
+		return true
+	}
+	if rejected {
+		t.logFn("INFO", "tuner: queryid %d: an operator rejected %s; not proposing "+
+			"it again within %s", queryID, hint, proposalExpiry)
+	}
+	return rejected
 }
 
 // loadFacts starts the cycle's catalog facts empty: cycleFacts reads them
