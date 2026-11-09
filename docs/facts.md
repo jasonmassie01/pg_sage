@@ -143,12 +143,26 @@ fails closed.
 
 ### Partitioned tables
 
-A table fact binds the relation it names, not the partition tree. A fact on a partitioned
-table `public.events` does not cover `public.events_2026_11`: an action on a partition or on
-a partition's index is matched against the partition's own name. To cover the partitions,
-use a pattern (`public.events*`, which also matches other tables with that prefix) or
-confirm a fact per partition. A fact on a partitioned table does not expire while the table
-exists, even with no partitions.
+A table fact on a partitioned table covers all its partitions (declarative partitioning;
+legacy inheritance children are not covered). A fact on `public.events` binds work on
+`public.events_2026_11`, on a sub-partition of it, and on a partition's index, as it binds
+work on `public.events` itself: `ALTER TABLE public.events_2026_11 SET (...)`, a
+`VACUUM (FULL)` of a partition, a `VACUUM` of a partition inside the table's batch window, or
+`DROP INDEX` of a partition's index. A schema fact also covers a partition that lives in
+another schema than its partitioned table. The binding names the partition as its object and
+the partitioned table's fact as its subject.
+
+The partition tree is read from the catalog of the database the action runs on
+(`pg_partition_root`, PostgreSQL 12 and later), in one bounded, read-only query per gate
+check, so a partition attached after the fact was confirmed is covered at once. If the
+catalog cannot be read, the gate fails closed (`facts_unavailable`). The analyzer reads it
+once per cycle to turn findings on partitions into source-fix packets; if that read fails,
+the findings keep their SQL for that cycle (logged) and the gate still binds them. A
+partition the action names without a schema is matched by its own name only.
+
+A fact on a partitioned table does not expire while the table exists, even with no
+partitions. A fact on a partition covers that partition alone, not its siblings or its
+partitioned table.
 
 ### Slot facts are cluster facts
 
