@@ -1,13 +1,16 @@
 # pg_sage Fleet Walkthrough
 
 Run one pg_sage sidecar against multiple PostgreSQL databases and verify the
-v1 autonomous DBA workflow.
+v1 autonomous DBA workflow. [Fleet Mode](fleet.md) explains the pieces used
+here: the control database, tenant boundaries, fleet learning, leader
+election and the fleet routes.
 
 ## Prerequisites
 
 - Docker or Docker Desktop
 - Go 1.26+
 - Node.js 22+ and npm
+- `openssl`, to generate the encryption key
 - Ports `5433`, `5434`, `8080`, and `9187` available
 
 ## 1. Start Two PostgreSQL Targets
@@ -25,6 +28,16 @@ This starts:
 - `pg2` on `localhost:5434`
 
 ## 2. Seed Databases
+
+pg_sage keeps the fleet's control data (logins, the database registry, the
+trust ledger, the leader lease) in a meta database. Create a dedicated one,
+`sage_meta`, next to the monitored databases:
+
+```bash
+docker exec pg_sage-pg1-1 psql -U postgres -c "CREATE DATABASE sage_meta;" 2>/dev/null || true
+```
+
+Then create and seed the two monitored databases:
 
 ```bash
 docker exec pg_sage-pg1-1 psql -U postgres -c "CREATE DATABASE app_production;" 2>/dev/null || true
@@ -58,7 +71,7 @@ Create `fleet-local.yaml`:
 ```yaml
 mode: fleet
 
-meta_db: "postgres://postgres:postgres@localhost:5433/app_production?sslmode=disable"
+meta_db: "postgres://postgres:postgres@localhost:5433/sage_meta?sslmode=disable"
 
 api:
   listen_addr: "0.0.0.0:8080"
@@ -67,13 +80,28 @@ prometheus:
   listen_addr: "0.0.0.0:9187"
 ```
 
+`mode: fleet` with a `meta_db` runs a meta-db fleet: the databases come from
+the meta database, where you add them in the next step. You could point
+`meta_db` at a monitored database such as `app_production`; that is
+supported, but its `sage` schema then also holds the control data and the
+lease writes, and its backups carry them (see
+[Sharing the control database](fleet.md#sharing-the-control-database-with-a-monitored-database)).
+
+Database passwords are stored encrypted in the meta database, so pg_sage
+needs an encryption key before you add a database. Create one and keep it:
+the same key must be used on every restart.
+
+```bash
+openssl rand -hex 32 > fleet-local.key
+```
+
 Build and run:
 
 ```bash
 cd sidecar
 cd web && npm ci && npm run build && cd ..
 go build -o pg_sage ./cmd/pg_sage_sidecar
-./pg_sage --config ../fleet-local.yaml
+SAGE_ENCRYPTION_KEY_FILE=../fleet-local.key ./pg_sage --config ../fleet-local.yaml
 ```
 
 Copy the one-time `INITIAL ADMIN PASSWORD` from stderr.
@@ -95,25 +123,11 @@ Use **Test Connection** before saving each database.
 
 Fleet learning (look-alike databases and shared action priors) only compares
 databases inside one boundary. A database tagged `tenant=<name>` belongs to
-that tenant's boundary (the name is case-insensitive); untagged databases
-share one boundary. This applies to databases added here (stored in the meta
-database) exactly as to `databases[].tags` in YAML. A tag edit on a running
-database needs no restart: an edit saved here applies at once, a change
-written to `sage.databases` by other means applies at the next reconcile
-pass, and the next fingerprint cycle regroups the database. At startup
-pg_sage logs the count of databases per boundary, for example
-`fleet-learning boundaries: shared=1 tenant:acme=2`.
-
-Fleet learning idles until two connected databases share a boundary: a
-database is never its own look-alike, so a standalone sidecar, a one-database
-fleet, or a fleet whose every database is in a different tenant has nothing
-to compare. While it idles, the fingerprint cycle reads no catalog and no
-`pg_stat_statements` and writes nothing, and pg_sage logs
-`fleet learning: skipped, no peer in boundary` once each time it starts
-idling. Within a minute of a second database joining a boundary, the next
-cycle runs at once instead of waiting for `fleet_learning.interval_minutes`.
-Fingerprints left from a fleet that shrank stay readable until the next
-cycle that runs.
+that tenant's boundary; untagged databases share one. Leave both databases
+untagged here so they share a boundary. Fleet learning idles until two
+connected databases share one, and its first cycle runs 2 minutes after
+startup. See [Tenant boundaries](fleet.md#tenant-boundaries-tenant-tags)
+and [Fleet learning](fleet.md#fleet-learning).
 
 ## 5. Verify the v1 UI
 
@@ -123,7 +137,8 @@ cycle that runs.
 | Cases | Cases from both databases, sorted by urgency/actionability |
 | Actions | Pending Approval and Executed tabs |
 | Fleet | Both managed databases and their status |
-| Settings | Emergency controls and Shadow Mode report |
+| Header | **Stop all** and **Resume all**, the emergency controls |
+| Settings | Shadow Mode report |
 
 The old `#/findings` route remains a compatibility alias for **Cases**.
 
@@ -132,54 +147,11 @@ holds starts stopped, and only **Resume all** lifts it. Resuming a single
 database returns `409 fleet-wide stop is active: resume all first`. See
 [Fleet-wide stop](security.md#fleet-wide-stop).
 
-### Health score
-
-Each database tile shows a health score from 0 to 100 and the reasons
-behind it (hover the score, or read the list under it). The same score and
-reasons are in `status.health_score` and `status.health_reasons` of
-`GET /api/v1/databases` and `GET /api/v1/metrics?database=<name>`.
-
-| Condition | Effect on the score | Reason shown |
-|---|---|---|
-| Not connected | 0 | `disconnected: <error>` |
-| Connected with an error | 0 | `error: <error>` |
-| Each critical finding | minus 25 | `2 critical findings` |
-| Each warning | minus 5 | `5 warnings` |
-| No collector sample for more than 3 collector intervals | capped at 25 | `collector stale 42m` |
-| Emergency stop active | none | `emergency stopped by alice` |
-
-The interval is the one the database's collector runs at: its
-`collector.interval_seconds` after any reload or self-config promotion, or
-the circuit breaker's dormant interval while it is dormant. Before the
-collector starts, the database's `collector_interval_seconds` is used, else
-the global `collector.interval_seconds`. A database that has never been sampled
-counts as stale only once it has been registered for more than 3
-intervals, so a new database is not penalised while its first sample runs.
-The score never goes below 0.
-
-A database counts as **healthy** (`summary.healthy` and the
-`pg_sage_fleet_healthy` gauge) when it is connected, has no error and
-scores at least 50; every other database counts as degraded. Databases are
-listed worst first, and by name among equal scores, so the tiles and the
-`pg_sage_fleet_instance_health` series keep a stable order. The rule is the
-same in every mode and on every provider.
-
-### Recurring across the fleet
-
-The Fleet page lists the problems open on several databases at once, from
-`GET /api/v1/fleet/findings` (the MCP `fleet_findings` tool reads the same
-data). pg_sage reads each database's open findings at most once a minute and
-serves every viewer, page load and MCP call from that read, so the list can
-be up to 60 seconds old. A database that could not be read is retried after
-15 seconds and is listed under `errors` ("Not read" on the page) without
-hiding the others. Up to 8 databases are read at a time, and a request waits
-at most 15 seconds: a database still being read then is listed in `errors`
-as `timed out`, and its read finishes in the background for the next
-request.
-
-Each database contributes at most its 500 newest open findings. A database
-with more is named in `truncated` and on the page as "counts may be low
-for", because a problem it shares may be among the findings not read.
+Each database tile shows a health score and the reasons behind it; see
+[Health score](fleet.md#health-score). The **Fleet** page lists problems
+open on several databases at once, 3 by default, so it stays empty with
+this walkthrough's two databases; see
+[Recurring across the fleet](fleet.md#recurring-across-the-fleet).
 
 ## 6. API Checks
 
@@ -195,6 +167,16 @@ curl -b cookies.txt http://localhost:8080/api/v1/actions/pending
 curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
 ```
 
+Fleet routes (sample responses in [Fleet Mode](fleet.md#api-routes)). With
+two databases, pass `min_databases=2`: a fleet finding needs 3 databases by
+default.
+
+```bash
+curl -b cookies.txt 'http://localhost:8080/api/v1/fleet/findings?min_databases=2'
+curl -b cookies.txt 'http://localhost:8080/api/v1/fleet/lookalikes?database=production'
+curl -b cookies.txt http://localhost:8080/api/v1/fleet/leader
+```
+
 Metrics:
 
 ```bash
@@ -208,6 +190,9 @@ Stop pg_sage with `Ctrl+C`.
 ```bash
 docker compose stop pg1 pg2
 ```
+
+Delete `fleet-local.key` only together with the `sage_meta` database: the
+passwords stored there cannot be read without it.
 
 Use `docker compose down -v` only when you intentionally want to delete the
 local demo database volumes.
