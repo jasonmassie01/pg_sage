@@ -109,6 +109,9 @@ type databaseRuntime struct {
 	// place among the process's databases of the same cluster (facts-02).
 	facts       *facts.Store
 	factCluster *factClusterMember
+	// instanceOwner is the runtime's place among the process's databases
+	// of one instance (advisors-08); nil in single-database mode.
+	instanceOwner *instanceMember
 	// cloud is managed-cloud host telemetry and cloudResolver the managed
 	// change target (nil when the provider has none).
 	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
@@ -293,7 +296,8 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		// Removal and replacement let in-flight actions finish first.
-		Quiesce: rt.executor.Quiesce,
+		Quiesce:       rt.executor.Quiesce,
+		InstanceOwner: rt.instanceOwnership(),
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,

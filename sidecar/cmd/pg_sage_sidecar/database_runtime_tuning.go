@@ -38,6 +38,7 @@ func (rt *databaseRuntime) newTuningAgent(hints *tuner.Tuner) *tuning.Agent {
 	rt.note("tuning")
 	settings := tuningSettings(cfg, rt.provider, rt.spec.Config.Database, 0)
 	settings.HostMemory = rt.hostMemory
+	settings.InstanceOwner = rt.instanceOwnerFunc()
 	return tuning.New(settings, deps, logStructuredWrapper)
 }
 
