@@ -79,7 +79,7 @@ func TestDDLLockTimeoutByActionType(t *testing.T) {
 	}
 }
 
-// The inputs of the removed NeedsConcurrently/NeedsTopLevel tests, routed
+// The inputs of the removed substring-routing tests (executor-08), routed
 // by type. Changed: VACUUM FULL and a bare VACUUM have no contract and no
 // longer run top-level (they fail closed in a transaction block); an
 // ALTER DATABASE, DROP INDEX and plain CREATE INDEX stay in-transaction.
