@@ -126,7 +126,15 @@ func (p *pass) extensions(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 	if err != nil {
 		return nil, err
 	}
+	logs, err := readLogSettings(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	caps, items := ExtensionCapabilities(e, p.opts.Provider)
-	p.report.Capabilities = caps
+	logRCA := LogRCACapability(logs, p.opts.Provider)
+	if it, ok := LogRCAItem(logRCA); ok {
+		items = append(items, it)
+	}
+	p.report.Capabilities = append(caps, logRCA)
 	return []outcome{p.add(RuleMissingExtension, items)}, nil
 }

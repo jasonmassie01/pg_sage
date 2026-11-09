@@ -71,6 +71,9 @@ func extensionsStep(in ChecklistInput) Step {
 	}
 	var missing []string
 	for _, c := range in.Capabilities {
+		if c.Name == firstlook.CapLogRCA {
+			continue // the server log, not an extension: a first-look item
+		}
 		if c.Status == firstlook.CapabilityOK {
 			if c.Name == firstlook.CapStatStatements {
 				s.Done = true
