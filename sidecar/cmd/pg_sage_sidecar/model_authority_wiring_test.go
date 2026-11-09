@@ -16,10 +16,8 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
-	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
-	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Roadmap 2.4 wiring: each database's investigator asks its own trust
@@ -150,17 +148,9 @@ func reversingModel(t *testing.T) string {
 }
 
 func TestSREInvestigator_AdoptsTheModelRootOnlyWithLedgerAuthority(t *testing.T) {
-	dsn := testdb.SkipUnlessLive(t)
+	pool := autonomyPool(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
 	for _, c := range []struct {
 		k, n                    int
 		model, authority, cause string
