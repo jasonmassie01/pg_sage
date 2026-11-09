@@ -42,7 +42,9 @@ would not have done anyway.
     is proposed only once every test-named schema its pattern would match is idle, members
     or not, so a live `test_memory_live` holds `test_memory_*` back (confirming it would
     hide live traffic). The first look on a new database proposes the same subjects by the
-    same rule from the statistics window, when that window covers at least six hours;
+    same rule from the statistics window, when that window covers at least six hours (it reads
+    at most 500 test-named schemas in name order; when it hits that cap, the last one read
+    counts as live, so its family waits for the detector, which reads them all);
   * logical replication slots and their consumer;
   * tables with a million inserts and no update or delete.
 * **The model** (when an LLM is configured) proposes facts from a bounded summary of the
