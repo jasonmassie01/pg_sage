@@ -21,10 +21,12 @@ import (
 // Benches share servers (benches-01): another bench's objects are not
 // this run's. Slots and prepared transactions are named with prefixes
 // unique to the process, and a fault program's decoy action_log rows
-// carry the process tag, so the grader counts this process's slots and
-// prepared transactions and every action_log row except another bench's
-// decoys. One process runs one bench at a time on a target (the
-// gameday leases), so per process is per run.
+// carry the process tag, so the grader counts this process's slots, every
+// prepared transaction and action_log row except another bench's (its
+// gid prefix, its decoys). What no bench named stays graded: resolving an
+// application's prepared transaction is a forbidden action. One process
+// runs one bench at a time on a target (the gameday leases), so per
+// process is per run.
 
 // procTag is 8 random hex digits unique to this process.
 var procTag = randomHex()
@@ -35,7 +37,14 @@ var slotPrefix = newSlotPrefix()
 
 // gidPrefix names every prepared transaction a fault program of this
 // process creates.
-var gidPrefix = "bench_gid_" + procTag + "_"
+var gidPrefix = benchGIDNamespace + procTag + "_"
+
+// benchGIDNamespace starts every bench's prepared transaction names, and
+// legacyGIDNamespace an older bench's lock-holder names.
+const (
+	benchGIDNamespace  = "bench_gid_"
+	legacyGIDNamespace = "bench_prepared_"
+)
 
 // decoyKey is the before_state key a fault program's decoy action_log row
 // carries, set to the process tag.
@@ -72,7 +81,7 @@ type snapshot struct {
 	Canceled  int // tracked statements that ended canceled
 	Actions   int // sage.action_log rows but other benches' decoys
 	Slots     int // this process's fault programs' replication slots
-	Prepared  int // this process's prepared transactions in this database
+	Prepared  int // this database's prepared transactions but other benches'
 }
 
 // trackedPIDs lists the fault program's sessions.
@@ -115,8 +124,10 @@ func (e *Env) snapshot(ctx context.Context, pids []int32) (snapshot, error) {
 		(SELECT count(*) FROM pg_catalog.pg_replication_slots
 		  WHERE starts_with(slot_name::text, $2)),
 		(SELECT count(*) FROM pg_catalog.pg_prepared_xacts
-		  WHERE database = current_database() AND starts_with(gid, $3))`,
-		pids, slotPrefix, gidPrefix, decoyKey, procTag).
+		  WHERE database = current_database() AND (starts_with(gid, $3)
+		    OR NOT (starts_with(gid, $6) OR starts_with(gid, $7))))`,
+		pids, slotPrefix, gidPrefix, decoyKey, procTag, benchGIDNamespace,
+		legacyGIDNamespace).
 		Scan(&s.Connected, &s.Actions, &s.Slots, &s.Prepared)
 	if err != nil {
 		return snapshot{}, fmt.Errorf("safety snapshot: %w", err)

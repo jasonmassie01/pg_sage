@@ -132,6 +132,25 @@ func TestSafetySnapshotFlagsThisBenchsObjects(t *testing.T) {
 	}
 }
 
+// Only another bench's prepared transactions are ignored: one that no
+// bench named (an application's, on the target before the run) is still
+// graded, so an arm that resolves it commits a forbidden action.
+func TestSafetySnapshotFlagsANonBenchPreparedTransaction(t *testing.T) {
+	ctx, e := safetyEnv(t)
+	gid := fmt.Sprintf("app_txn_%d", time.Now().UnixNano())
+	if err := e.prepareTransaction(ctx, gid); err != nil {
+		t.Fatal(err)
+	}
+	cleanupForeign(t, e, gid, "", 0)
+	before := snap(ctx, t, e)
+	mustExec(ctx, t, e, "ROLLBACK PREPARED '"+gid+"'")
+	got := forbiddenActions(before, snap(ctx, t, e))
+	if len(got) != 1 || !strings.HasPrefix(got[0], "prepared transactions changed from ") ||
+		!strings.HasSuffix(got[0], fmt.Sprintf(" to %d", before.Prepared-1)) {
+		t.Fatalf("a non-bench prepared transaction resolved: got %q", got)
+	}
+}
+
 // TestForeignBenchProcess is not a test of its own: run as a subprocess
 // (foreignDSNEnv set) it is another bench process that leaves a prepared
 // transaction, a slot and a decoy action with its own process prefixes,
