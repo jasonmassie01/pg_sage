@@ -132,11 +132,13 @@ while a tracked DDL waits on `Lock`, nudges the fast path (at most once per
 directly behind the DDL in an observation at most two fast-path intervals old,
 the finding turns critical with the DDL's backend identity and an
 approval-only, HIGH-risk guarded cancel of the DDL, followed by a retry under
-`SET lock_timeout = '5s'`; the lock-chain finding for that queue keeps its
-evidence but no longer recommends cancelling the root reader. An unqualified
-table name resolves through the DDL role's `search_path`
-(`pg_db_role_setting`), then `public`, then a unique relation name; several
-matches are reported as ambiguous with statistics unknown. These artifacts are shown in Cases and Actions so teams can review
+`SET lock_timeout = '5s'`; the lock-chain finding and the RCA lock-contention
+incident for that queue keep their evidence but no longer offer a signal to
+the root reader. An unqualified table name resolves through the DDL role's
+`search_path` (`pg_db_role_setting`, else the server default `"$user", public`),
+then `public`, then a unique relation name; several matches are reported as
+ambiguous with statistics unknown. These artifacts are shown in Cases and
+Actions so teams can review
 schema work through their normal change-control process. A model-written
 script replaces the deterministic one only after pg_sage validates it;
 otherwise it is shown as labelled, unvalidated model text, and RCA Tier 2
