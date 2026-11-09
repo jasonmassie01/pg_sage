@@ -56,6 +56,13 @@ const (
 	AuditMCPTokenRevoked    = "mcp_token_revoked"
 )
 
+// Databricks App identity-pin audit events (databricks-07). Detail carries
+// the user id and pin prefixes only, never an email or forwarded value.
+const (
+	AuditDatabricksAppIdentityChanged = "databricks_app_identity_changed"
+	AuditDatabricksAppPinReset        = "databricks_app_pin_reset"
+)
+
 // AuthAuditEvent is one identity-change record. Detail must never carry
 // credentials, grant tokens or email addresses. SourceIP is the client
 // address as the API resolved it (trusted proxies honoured).
