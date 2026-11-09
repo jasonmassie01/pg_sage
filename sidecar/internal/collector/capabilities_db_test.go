@@ -67,14 +67,18 @@ func capsWorkload(t *testing.T, pool *pgxpool.Pool) (read, write string) {
 	return "FROM " + tmp + " WHERE pad", "INSERT INTO " + wal
 }
 
-// statsSQLRecorder keeps the pg_stat_statements read of each cycle.
+// queryCountersMarker is in the queries step's counters read only (its text
+// read is statementTextsTag).
+const queryCountersMarker = "sum(calls)::bigint AS calls"
+
+// statsSQLRecorder keeps the pg_stat_statements counters read of each cycle.
 type statsSQLRecorder struct {
 	mu   sync.Mutex
 	sqls []string
 }
 
 func (r *statsSQLRecorder) hook(_ context.Context, _ pgx.Tx, sql string, _ []any) {
-	if !strings.Contains(sql, "candidates") {
+	if !strings.Contains(sql, queryCountersMarker) {
 		return
 	}
 	r.mu.Lock()

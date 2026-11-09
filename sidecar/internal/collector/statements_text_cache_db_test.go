@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -204,14 +205,17 @@ func TestCollect_TenSteadyCyclesReadTextsAtMostOnce(t *testing.T) {
 
 // CHECK-02: the split read returns the old single statement's queries, in
 // its order, with its counters (golden), with room to spare and when the
-// limit cuts.
+// limit cuts. The collector's pool is tagged as in production: its own
+// statements (transaction control included), which run between the two
+// reads, are left out by both, so only the workload is compared.
 func TestCollectQueries_MatchesLegacySingleRead(t *testing.T) {
 	ctx := context.Background()
 	pool := textTestDB(t, ctx)
 	seedTextWorkload(t, pool)
+	sage := taggedPool(t, ctx, pool)
 	for _, limit := range []int{5000, 3} {
 		pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
-			c := warmCollector(t, ctx, pool, limit, false)
+			c := warmCollector(t, ctx, sage, limit, false)
 			want, err := legacyQueries(ctx, c)
 			if err != nil {
 				return []string{fmt.Sprintf("legacy read: %v", err)}
@@ -223,6 +227,20 @@ func TestCollectQueries_MatchesLegacySingleRead(t *testing.T) {
 			return diffQueries(limit, got, want)
 		})
 	}
+}
+
+// taggedPool is a pool on pool's database configured as pg_sage's own
+// (selfmonitor.ConfigurePool): every statement it sends carries the tag.
+func taggedPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := pool.Config()
+	selfmonitor.ConfigurePool(cfg)
+	tagged, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect a tagged pool: %v", err)
+	}
+	t.Cleanup(tagged.Close)
+	return tagged
 }
 
 // legacyQueries runs the pre-collection-11 single statement.
