@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/executor"
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 // No concurrent access tests: adapters are built fresh per call and share
@@ -123,3 +124,47 @@ func TestAdapterForProviderRegistryAliases(t *testing.T) {
 		}
 	}
 }
+
+// Supported families derive from the executor contracts minus the
+// profile's exclusions, so readiness and the gate agree on provider support.
+func TestAdapterFamiliesDeriveFromContracts(t *testing.T) {
+	for _, profile := range prov.Profiles() {
+		a := AdapterForProvider(profile.Name)
+		for _, action := range executor.ContractActionTypes() {
+			contract, _ := executor.ContractForActionType(action)
+			want := contractListsProvider(contract, profile.Name) &&
+				!containsString(profile.ExcludedFamilies, action)
+			if got := a.SupportsAction(action); got != want {
+				t.Errorf("%s: SupportsAction(%s) = %v, want %v", profile.Name, action,
+					got, want)
+			}
+		}
+	}
+	if a := AdapterForProvider("postgres"); !a.SupportsAction("alter_system_guc") {
+		t.Error("self-managed readiness hides ALTER SYSTEM that its contract allows")
+	}
+	if a := AdapterForProvider("unknown"); len(a.SupportedActions) != 0 {
+		t.Errorf("unknown adapter supports %v", a.SupportedActions)
+	}
+}
+
+// Must not change: Lakebase's narrowed family list.
+func TestLakebaseFamiliesUnchanged(t *testing.T) {
+	want := []string{"analyze_table", "vacuum_table", "create_index_concurrently",
+		"revert_created_index", "reindex_concurrently", "create_statistics",
+		"revert_created_statistics", "alter_database_guc"}
+	a := AdapterForProvider("lakebase")
+	if len(a.SupportedActions) != len(want) {
+		t.Fatalf("lakebase families = %v, want %v", a.SupportedActions, want)
+	}
+	for _, action := range want {
+		if !a.SupportsAction(action) {
+			t.Errorf("lakebase lost %s", action)
+		}
+	}
+}
+
+func contractListsProvider(c executor.ActionContract, name string) bool {
+	return len(c.ProviderSupport) == 0 || containsString(c.ProviderSupport, name)
+}
+
