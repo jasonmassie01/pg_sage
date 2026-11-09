@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -58,7 +57,7 @@ func LinkOAuthIdentity(
 		"UPDATE sage.users SET oauth_issuer = $1, oauth_subject = $2, "+
 			"oauth_provider = $3 "+
 			"WHERE id = $4 AND oauth_issuer IS NULL AND lower(email) = lower($5)",
-		id.Issuer, id.Subject, provider, userID, id.Email)
+		id.Issuer, id.Subject, provider, userID, NormalizeEmail(id.Email))
 	if isUniqueViolation(err) {
 		return ErrOAuthLinkConflict
 	}
@@ -120,7 +119,7 @@ func unlinkMissReason(ctx context.Context, tx pgx.Tx, userID int) error {
 func CreateSSOOnlyUser(
 	ctx context.Context, pool *pgxpool.Pool, email, role string,
 ) (int, error) {
-	email = strings.TrimSpace(email)
+	email = NormalizeEmail(email)
 	if email == "" {
 		return 0, fmt.Errorf("email required")
 	}

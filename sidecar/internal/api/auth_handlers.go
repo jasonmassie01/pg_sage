@@ -240,11 +240,13 @@ type createUserRequest struct {
 	SSOOnly bool `json:"sso_only"`
 }
 
-// validate returns a client-facing error message, or "" when valid.
+// validate returns a client-facing error message, or "" when valid. It
+// normalizes the email (trimmed, lower case): one identity per address.
 func (req *createUserRequest) validate() string {
 	if req.Role == "" {
 		req.Role = auth.RoleViewer
 	}
+	req.Email = auth.NormalizeEmail(req.Email)
 	switch {
 	case req.SSOOnly && req.Email == "":
 		return "email required"
@@ -256,6 +258,9 @@ func (req *createUserRequest) validate() string {
 		return "password must be at least 8 characters"
 	case !auth.IsValidRole(req.Role):
 		return "invalid role"
+	}
+	if _, err := auth.ValidateEmail(req.Email); err != nil {
+		return "invalid email address"
 	}
 	return ""
 }
