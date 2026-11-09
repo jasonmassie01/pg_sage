@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,5 +91,22 @@ func TestSingleRelationVacuumStillAuthorized(t *testing.T) {
 	if decision.Decision != PolicyDecisionExecute {
 		t.Fatalf("single-table VACUUM decision = %s/%s, want execute",
 			decision.Decision, decision.BlockedReason)
+	}
+}
+
+// CHECK-02: Ask Sage cannot queue an unscoped VACUUM or REINDEX for
+// approval (no typed contract), while the one-table form stays proposable.
+func TestAskSageRefusesUnscopedMaintenance(t *testing.T) {
+	for _, sql := range []string{"VACUUM", "VACUUM (FREEZE);", "VACUUM a, b",
+		"REINDEX DATABASE CONCURRENTLY app"} {
+		_, _, err := typedProposal(7, proposableFinding{sql: sql})
+		if !errors.Is(err, ErrNotProposable) ||
+			!strings.Contains(err.Error(), "no typed action contract") {
+			t.Errorf("typedProposal(%q) error = %v, want not proposable (no contract)", sql, err)
+		}
+	}
+	proposal, _, err := typedProposal(7, proposableFinding{sql: "VACUUM public.orders"})
+	if err != nil || proposal.ActionType != "vacuum_table" {
+		t.Fatalf("one-table VACUUM proposal = %+v, %v; want vacuum_table", proposal, err)
 	}
 }
