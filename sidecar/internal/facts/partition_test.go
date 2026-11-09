@@ -20,6 +20,8 @@ import (
 // No concurrent access tests: the change adds no shared state. The
 // resolver is stateless per call and Pattern.Matches is a pure function;
 // partitionCatalog locks only so the fake itself is safe.
+// No state transition tests: binding is a pure function of the confirmed
+// facts and the resolved refs; the fact lifecycle is covered by the store.
 
 // partitionCatalog is a fake catalog: "schema.name" -> what the catalog
 // says about that relation.
@@ -272,5 +274,28 @@ func TestFindingFilterReadsNoCatalogWithoutFactsOrResolver(t *testing.T) {
 	out, _ = NewFindingFilter(src, nil, nil).ApplyFindings(context.Background(), in, nil)
 	if !reflect.DeepEqual(out, in) {
 		t.Fatalf("nil resolver matches as written (no root): %+v", out)
+	}
+}
+
+// shortCatalog breaks the one-ref-per-ref contract.
+type shortCatalog struct{}
+
+func (shortCatalog) ResolveCatalog(_ context.Context, refs []ObjectRef) ([]ObjectRef,
+	error) {
+	return refs[:len(refs)-1], nil
+}
+
+func TestFindingFilterRefusesAResolverThatDropsRefs(t *testing.T) {
+	src := &fakeConfirmed{facts: []Fact{
+		confirmed(31, TypeAppMigrations, KindTable, "app.events", nil)}}
+	var logged []logLine
+	in := []analyzer.Finding{childFinding("app.events_p01"), childFinding("app.events")}
+	out, _ := NewFindingFilter(src, shortCatalog{}, capture(&logged)).ApplyFindings(
+		context.Background(), in, nil)
+	if !reflect.DeepEqual(out[0], in[0]) || out[1].RecommendedSQL != "" {
+		t.Fatalf("refs must be matched as written: %+v", out)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0].msg, "returned 3 refs for 4") {
+		t.Fatalf("logged %+v", logged)
 	}
 }
