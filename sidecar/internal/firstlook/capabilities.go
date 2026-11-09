@@ -147,33 +147,9 @@ func preloadSteps(provider, lib string, preload *string) []string {
 		return []string{fmt.Sprintf("%s is preloaded on %s.", lib, provider), create}
 	}
 	return []string{fmt.Sprintf("As a superuser: ALTER SYSTEM SET shared_preload_libraries "+
-		"= '%s';", withLibrary(preload, lib)),
+		"= %s;", libraryList(preload, lib)),
 		"Then restart PostgreSQL: shared_preload_libraries changes only at server start.",
 		create}
-}
-
-// withLibrary appends lib to the preload list; an unreadable list keeps a
-// placeholder the operator fills in.
-func withLibrary(preload *string, lib string) string {
-	if preload == nil {
-		return "<existing libraries>," + lib
-	}
-	var libs []string
-	for _, l := range strings.Split(*preload, ",") {
-		if l = strings.TrimSpace(l); l != "" && l != lib {
-			libs = append(libs, l)
-		}
-	}
-	return strings.Join(append(libs, lib), ",")
-}
-
-// sessionLibraries is session_preload_libraries with auto_explain added;
-// a list that already names it is kept exactly as it is.
-func sessionLibraries(list *string) string {
-	if list != nil && preloads(*list, "auto_explain") {
-		return *list
-	}
-	return withLibrary(list, "auto_explain")
 }
 
 func hypoPG(e Extensions, provider string) Capability {
@@ -232,7 +208,7 @@ func autoExplain(e Extensions, provider string) Capability {
 			"settings if your plan offers it (auto_explain.log_min_duration)."}
 	default:
 		c.Steps = []string{"As a superuser: ALTER SYSTEM SET session_preload_libraries " +
-			"= '" + sessionLibraries(e.SessionPreloadLibraries) + "';",
+			"= " + libraryList(e.SessionPreloadLibraries, "auto_explain") + ";",
 			"ALTER SYSTEM SET auto_explain.log_min_duration = " +
 			"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
 	}

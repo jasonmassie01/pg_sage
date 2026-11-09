@@ -48,7 +48,7 @@ func TestStatStatementsNotLoadedSelfManaged(t *testing.T) {
 	}
 	steps := strings.Join(c.Steps, "\n")
 	for _, want := range []string{
-		"ALTER SYSTEM SET shared_preload_libraries = 'auto_explain,pg_stat_statements'",
+		"ALTER SYSTEM SET shared_preload_libraries = 'auto_explain', 'pg_stat_statements';",
 		"restart", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"} {
 		if !strings.Contains(steps, want) {
 			t.Fatalf("steps %q lack %q", steps, want)
@@ -169,23 +169,6 @@ func TestUnknownProviderFallsBackToSelfManaged(t *testing.T) {
 	}
 }
 
-func TestWithLibraryKeepsTheListAndAvoidsDuplicates(t *testing.T) {
-	cases := map[string]string{
-		"":                                    "pg_stat_statements",
-		"auto_explain":                        "auto_explain,pg_stat_statements",
-		" pg_stat_statements , auto_explain ": "auto_explain,pg_stat_statements",
-	}
-	for in, want := range cases {
-		in := in
-		if got := withLibrary(&in, "pg_stat_statements"); got != want {
-			t.Errorf("withLibrary(%q) = %q, want %q", in, got, want)
-		}
-	}
-	if got := withLibrary(nil, "auto_explain"); got != "<existing libraries>,auto_explain" {
-		t.Errorf("unknown list = %q", got)
-	}
-}
-
 // The self-managed auto_explain step adds auto_explain to the current
 // session_preload_libraries instead of replacing it, which would silently
 // unload the operator's other session libraries.
@@ -195,10 +178,10 @@ func TestAutoExplainKeepsSessionPreloadLibraries(t *testing.T) {
 		list *string
 		want string
 	}{
-		{"other library kept", strp("pg_hint_plan"), "'pg_hint_plan,auto_explain'"},
-		{"unreadable setting", nil, "'<existing libraries>,auto_explain'"},
+		{"other library kept", strp("pg_hint_plan"), "'pg_hint_plan', 'auto_explain'"},
+		{"unreadable setting", nil, "'<existing libraries>', 'auto_explain'"},
 		{"already listed, unchanged", strp("auto_explain,pg_hint_plan"),
-			"'auto_explain,pg_hint_plan'"},
+			"'auto_explain', 'pg_hint_plan'"},
 		{"empty list", strp(""), "'auto_explain'"},
 	}
 	for _, c := range cases {
