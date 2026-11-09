@@ -49,6 +49,10 @@ func TestGlobalPut_MixedPayload_WithExecutionMode(
 ) {
 	cs, user := contractSetup(t)
 	cfg := config.DefaultConfig()
+	// Start away from the values the PUT sets, so each assertion below
+	// fails when the key is not applied.
+	cfg.Trust.Level = "advisory"
+	cfg.Safety.CPUCeilingPct = 80
 	controller := config.NewConfigController(cfg, nil)
 	handler := configGlobalPutHandler(cs, controller)
 
@@ -147,6 +151,9 @@ func TestGlobalPut_AllSimpleModeFields(t *testing.T) {
 func TestGlobalPut_AllAdvancedLLMFields(t *testing.T) {
 	cs, user := contractSetup(t)
 	cfg := config.DefaultConfig()
+	cfg.Advisor.Enabled = false
+	cfg.LLM.Optimizer.Enabled = false
+	cfg.LLM.Optimizer.MinQueryCalls = 10
 	controller := config.NewConfigController(cfg, nil)
 	handler := configGlobalPutHandler(cs, controller)
 
@@ -451,6 +458,8 @@ func TestP2_ConfigGlobalPut_CompleteFrontendPayload(
 ) {
 	cs, user := contractSetup(t)
 	cfg := config.DefaultConfig()
+	cfg.LLM.Enabled = false
+	cfg.Advisor.Enabled = false
 
 	controller := config.NewConfigController(cfg, nil)
 	putHandler := configGlobalPutHandler(cs, controller)
