@@ -313,6 +313,25 @@ describe('useCursorPages across refreshes', () => {
     expect(result.current.rows.map(r => r.ledger_key)).toEqual(['log:7', 'queue:7'])
   })
 
+  it('starts over when the operator switches away and back (a to b to a)', async () => {
+    const a = '/api/v1/findings?status=open&database=a'
+    const b = '/api/v1/findings?status=open&database=b'
+    const fetch = stubFetch({
+      [`${a}&cursor=a1`]: { json: page([2], 'a2') },
+      [`${a}&cursor=a9`]: { json: page([8]) },
+    })
+    const { result, rerender } = hook(a, page([1], 'a1'))
+    await act(async () => { await result.current.loadMore() })
+    expect(ids(result.current.rows)).toEqual([1, 2])
+    rerender({ u: b, p: page([10]) })
+    rerender({ u: a, p: page([7], 'a9') })
+    // Page 2 of the earlier visit is not current: only the fresh first page.
+    expect(ids(result.current.rows)).toEqual([7])
+    await act(async () => { await result.current.loadMore() })
+    expect(ids(result.current.rows)).toEqual([7, 8])
+    expect(fetch.mock.calls.at(-1)[0]).toBe(`${a}&cursor=a9`)
+  })
+
   it('does not show a page that lands after a database switch', async () => {
     const a = '/api/v1/findings?database=a'
     const b = '/api/v1/findings?database=b'

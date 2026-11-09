@@ -95,7 +95,10 @@ export function useCursorPages(firstPage, url, key, { idOf = rowIdentity } = {})
   useEffect(() => { setError(null) }, [firstPage])
   const live = listKey !== null && pages.key === listKey
   const head = firstPage?.[key] || NO_ROWS
-  if (live && !sameIds(pages.base, head, idOf)) {
+  if (pages.key !== null && pages.key !== listKey) {
+    // Another list: drop the old one's pages, so coming back starts over.
+    setPages(NO_PAGES)
+  } else if (live && !sameIds(pages.base, head, idOf)) {
     // The first page refreshed with other rows: refold what was below it.
     const shown = mergeRows([pages.base, pages.tail], idOf)
     setPages({ ...pages, base: head, tail: tailAfter(shown, head, idOf) })
