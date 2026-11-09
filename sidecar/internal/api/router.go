@@ -352,10 +352,14 @@ func registerRootRoutes(root *http.ServeMux) {
 	root.Handle("/", embeddedDashboard())
 }
 
-// embeddedDashboard builds the static handler over the embedded dist. The
-// embed is fixed at compile time, so a failure here is a broken build; it is
-// logged and answered with 503 rather than silently serving nothing.
-func embeddedDashboard() http.Handler {
+// embeddedDashboard returns the static handler over the embedded dist. The
+// embed is fixed at compile time and the handler is immutable, so it is built
+// (hashed and gzipped) once per process, not on every NewRouter call.
+var embeddedDashboard = sync.OnceValue(buildEmbeddedDashboard)
+
+// buildEmbeddedDashboard indexes the embedded dist. A failure here is a broken
+// build; it is logged and answered with 503 rather than silently serving nothing.
+func buildEmbeddedDashboard() http.Handler {
 	sub, err := fs.Sub(staticFiles, "dist")
 	if err == nil {
 		var h http.Handler
