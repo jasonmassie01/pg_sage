@@ -109,6 +109,8 @@ func snapshotRows(snap *Snapshot) ([]snapstore.Row, error) {
 		"io":           snap.IO,
 		"partitions":   snap.Partitions,
 		"config_data":  snap.ConfigData,
+		// rules-03
+		"partitioned_indexes": snap.PartitionedIndexes,
 	}
 	rows := make([]snapstore.Row, 0, len(categories))
 	for cat, data := range categories {

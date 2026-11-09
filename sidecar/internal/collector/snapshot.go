@@ -40,6 +40,10 @@ type Snapshot struct {
 	// SequenceCoverage is how much of the sequence catalog this cycle
 	// read (not persisted).
 	SequenceCoverage *SequenceCoverage `json:"sequence_coverage,omitempty"`
+
+	// PartitionedIndexes are the partitioned (relkind I) indexes, which
+	// pg_stat_user_indexes leaves out.
+	PartitionedIndexes []PartitionedIndex `json:"partitioned_indexes,omitempty"`
 }
 
 // Available reports whether category was read this cycle.
@@ -140,6 +144,29 @@ type IndexStats struct {
 	// LastIdxScan is pg_stat_user_indexes.last_idx_scan (PG16+): when the
 	// index was last scanned. Nil before PG16 or when never scanned.
 	LastIdxScan *time.Time `json:"last_idx_scan,omitempty"`
+	// ParentIndexOID is the partitioned index this index is attached to
+	// (pg_inherits); 0 for a standalone index. PostgreSQL refuses to drop
+	// an attached index on its own.
+	ParentIndexOID uint32 `json:"parent_index_oid,omitempty"`
+}
+
+// PartitionedIndex is a partitioned (relkind I) index: an index on a
+// partitioned table, with no storage of its own and no statistics row.
+type PartitionedIndex struct {
+	SchemaName   string `json:"schemaname"`
+	RelName      string `json:"relname"`
+	IndexRelName string `json:"indexrelname"`
+	IndexRelID   uint32 `json:"indexrelid"`
+	// ParentIndexOID is the partitioned index this one is attached to
+	// (a sub-partitioned partition's index); 0 at the top.
+	ParentIndexOID uint32 `json:"parent_index_oid,omitempty"`
+	// KeyColumns are the key columns in order (INCLUDE columns left out);
+	// an expression key is "".
+	KeyColumns []string `json:"key_columns"`
+	IsValid    bool     `json:"indisvalid"`
+	IsUnique   bool     `json:"indisunique"`
+	IsPrimary  bool     `json:"indisprimary"`
+	IsPartial  bool     `json:"partial,omitempty"`
 }
 
 // ForeignKey describes a foreign key constraint.

@@ -28,6 +28,14 @@ func (c *Collector) catalogSteps() []catalogStep {
 			s.Indexes, err = c.collectIndexes(ctx)
 			return err
 		}},
+		{"partitioned_indexes", func(ctx context.Context, s *Snapshot) (err error) {
+			s.PartitionedIndexes, err = c.collectPartitionedIndexes(ctx)
+			return err
+		}},
+		{"partitions", func(ctx context.Context, s *Snapshot) (err error) {
+			s.Partitions, err = c.collectPartitions(ctx)
+			return err
+		}},
 		{"foreign_keys", func(ctx context.Context, s *Snapshot) (err error) {
 			s.ForeignKeys, err = c.collectForeignKeys(ctx)
 			return err

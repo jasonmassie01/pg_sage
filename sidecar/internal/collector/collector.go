@@ -260,9 +260,6 @@ func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot) {
 		c.logFn("WARN", "prepared xacts collection failed: %v", err)
 	}
 	c.collectXminHoldersInto(ctx, snap)
-	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
-		c.logFn("WARN", "partition collection failed: %v", err)
-	}
 	if c.CollectsConfigSnapshots() { // config data for advisor features
 		querier := timedCatalogQuerier{collector: c}
 		if snap.ConfigData, err = collectConfigSnapshot(ctx, querier); err != nil {

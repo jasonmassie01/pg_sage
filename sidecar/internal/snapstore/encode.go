@@ -32,8 +32,10 @@ var keyFields = map[string][]string{
 	"sequences":    {"schemaname", "sequencename"},
 	"foreign_keys": {"table_name", "constraint_name", "fk_column"},
 	"partitions":   {"child_schema", "child_table"},
-	"queries":      {"queryid"},
-	"io":           {"backend_type", "object", "context"},
+	// rules-03: partitioned (relkind I) indexes
+	"partitioned_indexes": {"schemaname", "indexrelname"},
+	"queries":             {"queryid"},
+	"io":                  {"backend_type", "object", "context"},
 }
 
 // objectCategories are object documents that are mostly static members

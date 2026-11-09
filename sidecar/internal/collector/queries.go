@@ -170,7 +170,10 @@ SELECT s.schemaname, s.relname, s.indexrelname,
        -- (and a mis-detected version) return NULL instead of failing.
        (to_jsonb(s) ->> 'last_idx_scan')::timestamptz AS last_idx_scan,
        ic.xmin::text || ':' || ic.relfilenode::text || ':' ||
-         tc.xmin::text || ':' || n.xmin::text AS def_version
+         tc.xmin::text || ':' || n.xmin::text AS def_version,
+       -- the partitioned index this one is attached to (rules-03)
+       COALESCE((SELECT inh.inhparent FROM pg_inherits inh
+                  WHERE inh.inhrelid = s.indexrelid), 0::oid) AS parent_index_oid
   FROM pg_stat_user_indexes s
   JOIN pg_index ix ON ix.indexrelid = s.indexrelid
   JOIN pg_class ic ON ic.oid = s.indexrelid
