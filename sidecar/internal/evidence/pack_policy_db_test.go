@@ -68,10 +68,10 @@ func buildPolicyPack(
 	t *testing.T, ledgerDB, policyDB *pgxpool.Pool, action int64,
 ) (Manifest, []packPolicyRow, map[string][]byte) {
 	t.Helper()
-	pack, err := BuildWithPolicy(context.Background(), ledgerDB, policyDB,
+	pack, err := Build(context.Background(), Sources{DB: ledgerDB, Control: policyDB},
 		Scope{ActionID: action}, nil, time.Now())
 	if err != nil {
-		t.Fatalf("BuildWithPolicy: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	var buf bytes.Buffer
 	if err := pack.WriteTarGz(&buf); err != nil {
@@ -111,7 +111,8 @@ func TestBuildReadsThePolicyFromTheLedgerDatabase(t *testing.T) {
 	pool := freshDB(t, "evidence_policy_build")
 	hash := seedPolicy(t, pool)
 	action := seedExecutedDecision(t, pool, &hash)
-	pack, err := Build(context.Background(), pool, Scope{ActionID: action}, nil, time.Now())
+	pack, err := Build(context.Background(), Sources{DB: pool}, Scope{ActionID: action},
+		nil, time.Now())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -190,11 +191,13 @@ func TestLegacyDecisionWithoutHashHasNoHashMatch(t *testing.T) {
 	}
 }
 
-func TestBuildWithPolicyNeedsAPolicyDatabase(t *testing.T) {
+// audit-07: a nil Control now means "the policy is in the audited
+// database" (standalone), so the pack still needs the audited database.
+func TestBuildNeedsTheLedgerDatabase(t *testing.T) {
 	pool := freshDB(t, "evidence_policy_nil")
 	action := seedExecutedDecision(t, pool, nil)
-	if _, err := BuildWithPolicy(context.Background(), pool, nil, Scope{ActionID: action},
-		nil, time.Now()); err == nil {
-		t.Fatal("a pack was built without a policy database")
+	if _, err := Build(context.Background(), Sources{Control: pool},
+		Scope{ActionID: action}, nil, time.Now()); err == nil {
+		t.Fatal("a pack was built without the audited database")
 	}
 }

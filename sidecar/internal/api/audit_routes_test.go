@@ -195,3 +195,36 @@ func TestAuditSIEMStatusServesLanes(t *testing.T) {
 	require.Equal(t, float64(5), lanes[1]["cursor"])
 	require.Equal(t, float64(9), lanes[1]["head"])
 }
+
+// audit-07: a continuation names one window file and the id to page after;
+// anything else is refused with 400, and a valid one downloads, audited.
+func TestAuditEvidencePagingRefusals(t *testing.T) {
+	pool := auditPool(t, "api_audit_paging")
+	mux := auditMux(pool, AuditDeps{})
+	from := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	to := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	win := "/api/v1/audit/evidence?database=orders&from=" + from + "&to=" + to
+	for _, q := range []string{"&after_id=10", "&file=actions.json&after_id=-1",
+		"&file=nope.json", "&file=actions.json&after_id=x",
+		"&file=manifest.json&after_id=1"} {
+		w := auditGet(mux, win+q, true)
+		require.Equal(t, http.StatusBadRequest, w.Code, q+": "+w.Body.String())
+	}
+	w := auditGet(mux, "/api/v1/audit/evidence?database=orders&action_id=1"+
+		"&file=actions.json", true)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
+	w = auditGet(mux, win+"&file=actions.json&after_id=5", true)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Header().Get("Content-Disposition"), "actions-after-5")
+	m, err := evidence.Verify(bytes.NewReader(w.Body.Bytes()), nil)
+	require.NoError(t, err)
+	require.Equal(t, "actions.json", m.Scope.File)
+	require.Equal(t, int64(5), m.Scope.AfterID)
+	require.Equal(t, 2, len(m.Files))
+	var detail string
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT detail::text
+		FROM sage.auth_audit WHERE event = 'evidence_exported'`).Scan(&detail))
+	require.Contains(t, detail, `"file": "actions.json"`)
+	require.Contains(t, detail, `"after_id": 5`)
+}

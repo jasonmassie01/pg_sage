@@ -91,8 +91,8 @@ type RuntimeDeps struct {
 	// MCPOAuth validates OAuth 2.1 access tokens on the MCP endpoints (E2);
 	// nil accepts pg_sage's own MCP tokens only.
 	MCPOAuth *mcpauth.Validator
-	// Audit serves the E2 audit routes; its Pool and Control are filled
-	// from the fleet and the control pool.
+	// Audit serves the E2 audit routes; its Pool, Control and DatabaseID are
+	// filled from the fleet and the control pool.
 	Audit AuditDeps
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
@@ -165,9 +165,7 @@ func NewRouterFullRuntime(
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
 	}
-	audit := rt.Audit
-	audit.Pool, audit.Control = fleetAuditPool(mgr, pool), pool
-	registerAuditRoutes(apiMux, audit)
+	registerAuditRoutes(apiMux, fleetAuditDeps(rt.Audit, mgr, pool))
 	if rt.DatabricksAppAuth {
 		// Innermost: verify platform identity before reporting unsupported
 		// optional protocols. No second token system is mounted in this mode.

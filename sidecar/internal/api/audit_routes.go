@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,8 +27,12 @@ type AuditDeps struct {
 	// Pool resolves a database name ("control" for the control database)
 	// to the pool whose audit chains it reads; nil = unknown.
 	Pool func(name string) *pgxpool.Pool
-	// Control records the evidence exports in sage.auth_audit.
+	// Control records the evidence exports in sage.auth_audit, and holds
+	// the sign-ins, config changes and policy an evidence pack reads.
 	Control *pgxpool.Pool
+	// DatabaseID resolves a database name to its sage.databases id, which
+	// selects its config changes in Control; nil or false = unknown.
+	DatabaseID func(name string) (int, bool)
 	// SIEMStatus reports the sinks' health; nil when export is off.
 	SIEMStatus func() []siem.SinkStatus
 	// SIEMReanchor moves a sink's cursor back after a chain regressed
@@ -49,6 +54,14 @@ func registerAuditRoutes(mux *http.ServeMux, deps AuditDeps) {
 		adminOnly(auditSIEMReanchorHandler(deps)))
 }
 
+// fleetAuditDeps fills the audit routes' database lookups: the fleet's
+// pools and ids, and the control pool.
+func fleetAuditDeps(d AuditDeps, mgr *fleet.DatabaseManager, control *pgxpool.Pool) AuditDeps {
+	d.Pool, d.Control, d.DatabaseID = fleetAuditPool(mgr, control), control,
+		fleetDatabaseID(mgr)
+	return d
+}
+
 // fleetAuditPool resolves audit sources: "control" is the control pool,
 // any other name a fleet database.
 func fleetAuditPool(mgr *fleet.DatabaseManager, control *pgxpool.Pool) func(string) *pgxpool.Pool {
@@ -60,6 +73,21 @@ func fleetAuditPool(mgr *fleet.DatabaseManager, control *pgxpool.Pool) func(stri
 			return nil
 		}
 		return mgr.PoolForDatabase(name)
+	}
+}
+
+// fleetDatabaseID resolves a fleet database's sage.databases id; the
+// control database and unregistered names have none.
+func fleetDatabaseID(mgr *fleet.DatabaseManager) func(string) (int, bool) {
+	return func(name string) (int, bool) {
+		if mgr == nil || name == "" || name == "all" || name == "control" {
+			return 0, false
+		}
+		inst := mgr.GetInstance(name)
+		if inst == nil || inst.DatabaseID <= 0 {
+			return 0, false
+		}
+		return inst.DatabaseID, true
 	}
 }
 
@@ -77,13 +105,21 @@ func (d AuditDeps) pool(w http.ResponseWriter, r *http.Request) (*pgxpool.Pool, 
 	return p, name, true
 }
 
-// policyPool is where the standing policy lives: the control database
-// (fleet and standalone alike), or the audited pool when none is wired.
-func (d AuditDeps) policyPool(audited *pgxpool.Pool) *pgxpool.Pool {
-	if d.Control != nil {
-		return d.Control
+// evidenceSources are the databases a pack of name reads. The control
+// database is a separate source unless it is the audited pool with no
+// database id (standalone, or the control database's own pack), where
+// the pack reads everything, config unfiltered, from the one database.
+func (d AuditDeps) evidenceSources(audited *pgxpool.Pool, name string) evidence.Sources {
+	src := evidence.Sources{DB: audited}
+	if d.DatabaseID != nil {
+		if id, ok := d.DatabaseID(name); ok && id > 0 {
+			src.DatabaseID = id
+		}
 	}
-	return audited
+	if d.Control != nil && (d.Control != audited || src.DatabaseID > 0) {
+		src.Control = d.Control
+	}
+	return src
 }
 
 // auditVerifyTimeout bounds a verification that may read a whole chain
@@ -244,7 +280,7 @@ func auditEvidenceHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		pack, err := evidence.BuildWithPolicy(r.Context(), pool, d.policyPool(pool), scope,
+		pack, err := evidence.Build(r.Context(), d.evidenceSources(pool, name), scope,
 			d.EvidenceKey, time.Now())
 		switch {
 		case errors.Is(err, evidence.ErrScope):
@@ -290,6 +326,14 @@ func evidenceScope(r *http.Request, database string) (evidence.Scope, error) {
 			*dst = t
 		}
 	}
+	s.File = q.Get("file")
+	if raw := q.Get("after_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id < 0 {
+			return s, fmt.Errorf("after_id must be a non-negative integer")
+		}
+		s.AfterID = id
+	}
 	return s, nil
 }
 
@@ -297,8 +341,12 @@ func evidenceFilename(s evidence.Scope) string {
 	if s.ActionID > 0 {
 		return fmt.Sprintf("pg_sage-evidence-%s-action-%d.tar.gz", s.Database, s.ActionID)
 	}
-	return fmt.Sprintf("pg_sage-evidence-%s-%s.tar.gz", s.Database,
-		s.From.UTC().Format("20060102T150405Z"))
+	page := ""
+	if s.File != "" {
+		page = fmt.Sprintf("-%s-after-%d", strings.TrimSuffix(s.File, ".json"), s.AfterID)
+	}
+	return fmt.Sprintf("pg_sage-evidence-%s-%s%s.tar.gz", s.Database,
+		s.From.UTC().Format("20060102T150405Z"), page)
 }
 
 // recordEvidenceExport audits who exported which evidence.
@@ -312,6 +360,9 @@ func recordEvidenceExport(r *http.Request, control *pgxpool.Pool, s evidence.Sco
 		detail["action_id"] = s.ActionID
 	} else {
 		detail["from"], detail["to"] = s.From.UTC(), s.To.UTC()
+	}
+	if s.File != "" {
+		detail["file"], detail["after_id"] = s.File, s.AfterID
 	}
 	recordAuthEvent(r, control, auth.AuthAuditEvent{Event: auditEvidenceExported,
 		ActorUserID: actor, Detail: detail})
