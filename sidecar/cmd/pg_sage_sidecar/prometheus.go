@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/pgaudit"
 	"github.com/pg-sage/sidecar/internal/shadow"
 )
 
@@ -76,6 +77,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
 	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
 	writeRecordFailureMetrics(&b, executor.RecordFailureCounts())
+	writePGAuditMetrics(&b, pgaudit.RecordCounts())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {
