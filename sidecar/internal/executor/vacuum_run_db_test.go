@@ -332,6 +332,28 @@ func TestVacuumWatchedProbeErrorsDoNotCancel(t *testing.T) {
 	}
 }
 
+// A probe that hangs (a pool with no free connection, a stalled network)
+// is bounded, so the watchdog still cancels at the cap; unbounded, it held
+// the watchdog until the session itself was closed cap+30 s later.
+func TestVacuumWatchedHungProbeStillCancelsAtTheCap(t *testing.T) {
+	f := newVacuumFixture(t, 80000, "50ms")
+	f.exec.vacuumHooks.readProgress = func(ctx context.Context, _ uint32) (
+		vacuumProgress, bool, error) {
+		<-ctx.Done()
+		return vacuumProgress{}, false, ctx.Err()
+	}
+	f.exec.vacuumHooks.cap = 200 * time.Millisecond
+	took, err := f.vacuum()
+	var watch *VacuumWatchError
+	if !errors.As(err, &watch) || watch.Outcome != VacuumCap {
+		t.Fatalf("error %v after %s, want a vacuum_cap VacuumWatchError", err, took)
+	}
+	requireCanceled(t, err)
+	if took > vacuumCancelTimeout+5*time.Second {
+		t.Fatalf("cap cancel after %s, want within one probe bound of the cap", took)
+	}
+}
+
 // A missing progress row (the VACUUM has not reached the heap yet, or has
 // finished) is not a stall either.
 func TestVacuumWatchedMissingProgressRowIsNotAStall(t *testing.T) {

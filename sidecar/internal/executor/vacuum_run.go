@@ -19,7 +19,8 @@ const (
 const (
 	// vacuumWatchInterval is how often the watchdog samples progress.
 	vacuumWatchInterval = 30 * time.Second
-	// vacuumCancelTimeout bounds each cancel and emergency-stop read.
+	// vacuumCancelTimeout bounds each cancel, emergency-stop read and
+	// progress probe.
 	vacuumCancelTimeout = 5 * time.Second
 	// vacuumAbortGrace is how long after the cap the session itself is
 	// closed if the cancel never took effect.
@@ -178,10 +179,13 @@ func (w *vacuumWatch) watch(ctx context.Context, pid uint32, abort func()) *Vacu
 			return w.end(ctx, pid, VacuumCap, last, abort)
 		case <-ticker.C:
 		}
+		if fired(capTimer) {
+			return w.end(ctx, pid, VacuumCap, last, abort)
+		}
 		if w.emergencyStopped(ctx) {
 			return w.end(ctx, pid, VacuumEmergencyStop, last, abort)
 		}
-		p, ok, err := w.read(ctx, pid)
+		p, ok, err := w.sample(ctx, pid)
 		if err != nil || !ok {
 			if err != nil && ctx.Err() == nil {
 				w.logFn("executor", "VACUUM watchdog probe of pid %d: %v", pid, err)
@@ -194,6 +198,26 @@ func (w *vacuumWatch) watch(ctx context.Context, pid uint32, abort func()) *Vacu
 			return w.end(ctx, pid, VacuumStalled, p, abort)
 		}
 	}
+}
+
+// fired reports a timer that has fired. select picks at random among ready
+// cases, so a tick ready with the cap must not run another probe first.
+func fired(t *time.Timer) bool {
+	select {
+	case <-t.C:
+		return true
+	default:
+		return false
+	}
+}
+
+// sample reads the backend's progress under vacuumCancelTimeout: a probe
+// stuck acquiring a connection or on the network must not keep the
+// watchdog from the cap or an emergency stop.
+func (w *vacuumWatch) sample(ctx context.Context, pid uint32) (vacuumProgress, bool, error) {
+	readCtx, cancel := context.WithTimeout(ctx, vacuumCancelTimeout)
+	defer cancel()
+	return w.read(readCtx, pid)
 }
 
 // emergencyStopped reports this run's in-process stop or the durable flag
