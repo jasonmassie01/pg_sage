@@ -45,7 +45,7 @@ type numScan struct {
 	text        string
 	identifiers bool
 	b           strings.Builder
-	prev        string // "cmp", "list", "between", "word:<UPPER>", "other"
+	prev        string // "cmp", "cmp:ARRAY", "between", "word:<UPPER>", "open", ...
 	lists       []bool
 	between     bool
 }
@@ -110,6 +110,8 @@ func (s *numScan) opensList(c byte) bool {
 		return c == '('
 	case "word:ARRAY":
 		return c == '[' && s.inList()
+	case "cmp:ARRAY":
+		return c == '['
 	case "open", "comma":
 		return s.inList()
 	}
@@ -131,6 +133,8 @@ func (s *numScan) word(i int) int {
 	case w == "SYMMETRIC" && s.prev == "between":
 	case w == "AND" && s.between:
 		s.between, s.prev = false, "between"
+	case w == "ARRAY" && s.prev == "cmp":
+		s.prev = "cmp:ARRAY" // x = ARRAY[...] compares every element
 	default:
 		s.prev = "word:" + w
 	}
@@ -158,6 +162,13 @@ func (s *numScan) operator(i int) int {
 func (s *numScan) number(i int) int {
 	end, digits := numberEnd(s.text, i)
 	if end < len(s.text) && (isTagCont(s.text[end]) || s.text[end] >= 0x80) {
+		if !isDigit(s.text[i]) {
+			// A sign or point before 5px or 5s: consume it alone so the
+			// scan always advances, then read the rest as a word.
+			s.punct(s.text[i])
+			s.b.WriteByte(s.text[i])
+			return i + 1
+		}
 		return s.word(i) // 123abc is not a number
 	}
 	compared := s.prev == "cmp" || s.prev == "between" ||
@@ -230,10 +241,10 @@ func numberEnd(text string, i int) (int, int) {
 	return j, digits
 }
 
-// comparisonFollows reports a comparison operator after optional spaces
+// comparisonFollows reports a comparison operator after optional space
 // at i, so the left operand of "123456789 = ssn" is redacted too.
 func comparisonFollows(text string, i int) bool {
-	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+	for i < len(text) && strings.IndexByte(" \t\n\r", text[i]) >= 0 {
 		i++
 	}
 	j := i
