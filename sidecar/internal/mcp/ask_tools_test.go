@@ -60,17 +60,16 @@ func TestAskToolCallerFollowsThePrincipal(t *testing.T) {
 		p       *Principal
 		actor   string
 		propose bool
-		agent   bool
 	}{
-		{"viewer", &Principal{Actor: "user:3", Role: "viewer"}, "mcp:user:3", false, false},
-		{"operator", &Principal{Actor: "user:2", Role: "operator"}, "mcp:user:2", true, false},
+		{"viewer", &Principal{Actor: "user:3", Role: "viewer"}, "mcp:user:3", false},
+		{"operator", &Principal{Actor: "user:2", Role: "operator"}, "mcp:user:2", true},
 		{"agent token", &Principal{Actor: "token:abc", Kind: KindAgent,
-			Scopes: []Scope{ScopeRead, ScopePropose}}, "mcp:token:abc", true, true},
+			Scopes: []Scope{ScopeRead, ScopePropose}}, "mcp:token:abc", true},
 		{"read-only agent", &Principal{Actor: "token:ro", Kind: KindAgent,
-			Scopes: []Scope{ScopeRead}}, "mcp:token:ro", false, true},
+			Scopes: []Scope{ScopeRead}}, "mcp:token:ro", false},
 		{"agent claiming approve", &Principal{Actor: "token:x", Kind: KindAgent,
-			Scopes: []Scope{ScopeRead, ScopePropose, ScopeApprove}}, "mcp:token:x", true, true},
-		{"unbound library caller", nil, "mcp-agent", false, true},
+			Scopes: []Scope{ScopeRead, ScopePropose, ScopeApprove}}, "mcp:token:x", true},
+		{"unbound library caller", nil, "mcp-agent", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -84,7 +83,7 @@ func TestAskToolCallerFollowsThePrincipal(t *testing.T) {
 			require.Equal(t, 1, backend.calls)
 			require.Equal(t, "orders", backend.database)
 			require.Equal(t, "Why is checkout slow?", backend.request.Question)
-			want := ask.Caller{Actor: tc.actor, MayPropose: tc.propose, Agent: tc.agent}
+			want := ask.Caller{Actor: tc.actor, MayPropose: tc.propose}
 			require.Equal(t, want, backend.caller)
 			content := structuredContent(t, response)
 			require.Equal(t, ask.StatusNotObserved, content["status"])
@@ -140,7 +139,7 @@ func TestAskToolReadOnlyDropsTheProposeRight(t *testing.T) {
 	require.Empty(t, response.Error.Code)
 	require.Equal(t, 1, backend.calls)
 	require.True(t, backend.request.ReadOnly, "read_only was not forwarded")
-	require.Equal(t, ask.Caller{Actor: "mcp:token:abc", MayPropose: false, Agent: true},
+	require.Equal(t, ask.Caller{Actor: "mcp:token:abc", MayPropose: false},
 		backend.caller)
 
 	backend = &askRecordingBackend{}

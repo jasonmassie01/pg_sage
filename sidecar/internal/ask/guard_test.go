@@ -237,7 +237,7 @@ func TestGuard_CallerForKeepsTheCallerUnlessReadOnly(t *testing.T) {
 		t.Fatalf("zero request changed the caller: %+v", got)
 	}
 	got := agent.For(Request{ReadOnly: true})
-	if got.MayPropose || got.Actor != agent.Actor || !got.Agent {
+	if got.MayPropose || got.Actor != agent.Actor {
 		t.Fatalf("read-only agent caller = %+v", got)
 	}
 	if got := viewer.For(Request{ReadOnly: true}); got != viewer {

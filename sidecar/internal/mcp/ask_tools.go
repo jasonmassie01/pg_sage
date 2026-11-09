@@ -55,10 +55,9 @@ func askTools() []Tool {
 func askCaller(ctx context.Context) ask.Caller {
 	p, bound := PrincipalFromContext(ctx)
 	if !bound {
-		return ask.Caller{Actor: unboundActor, Agent: true}
+		return ask.Caller{Actor: unboundActor}
 	}
-	return ask.Caller{Actor: ActorFromContext(ctx), MayPropose: p.Has(ScopePropose),
-		Agent: p.Kind == KindAgent}
+	return ask.Caller{Actor: ActorFromContext(ctx), MayPropose: p.Has(ScopePropose)}
 }
 
 func (s *Server) callAskTool(ctx context.Context, _ string, raw json.RawMessage) (any,

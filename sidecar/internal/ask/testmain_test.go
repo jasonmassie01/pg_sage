@@ -188,5 +188,5 @@ func (f *fixture) service(d Deps) *Service {
 var (
 	viewer   = Caller{Actor: "user:7"}
 	operator = Caller{Actor: "user:1", MayPropose: true}
-	agent    = Caller{Actor: "mcp:token:abc", MayPropose: true, Agent: true}
+	agent    = Caller{Actor: "mcp:token:abc", MayPropose: true}
 )
