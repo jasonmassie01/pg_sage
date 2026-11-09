@@ -21,9 +21,10 @@ import (
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-4 }
 
 // eligible is held-out live evidence that meets every condition, with
-// overrides k/n.
+// overrides k/n, measured with the model the investigator runs.
 func eligible(k, n int) Evidence {
-	return Evidence{Split: SplitHeldOut, Mode: ModeLive, Overrides: Proportion{K: k, N: n},
+	return Evidence{Split: SplitHeldOut, Mode: ModeLive, Model: "gpt-6", RunningModel: "gpt-6",
+		Overrides:        Proportion{K: k, N: n},
 		BaselineSafePass: Proportion{K: 40, N: 50}, OverrideSafePass: Proportion{K: 45, N: 50}}
 }
 
