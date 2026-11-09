@@ -245,9 +245,11 @@ func (s *investigatorSession) diagnosis(ctx context.Context) (causal.Diagnosis,
 }
 
 // collect runs one read under the lease, commits its result as evidence
-// and returns it as the model sees it. Running out of active time or of
-// the investigation's probe ceiling is a tool failure the model is told
-// about; a lost lease or an unavailable store aborts the run.
+// and returns it as the model sees it. A read refused its probe slot is
+// read once more when the lease allows (retryQueued). Running out of
+// active time or of the investigation's probe ceiling is a tool failure
+// the model is told about; a lost lease or an unavailable store aborts
+// the run.
 func (s *investigatorSession) collect(ctx context.Context,
 	read func(context.Context) probes.Result) (agentloop.Output, error) {
 	if time.Until(s.lease.SegmentDeadline) < 2*stepMargin {
@@ -258,7 +260,8 @@ func (s *investigatorSession) collect(ctx context.Context,
 		return agentloop.Output{}, agentloop.Abort(err)
 	}
 	s.lease = lease
-	res := read(ctx)
+	res := retryQueued(s.lease.SegmentDeadline, read(ctx),
+		func() probes.Result { return read(ctx) })
 	ev, err := s.commit(ctx, res)
 	if errors.Is(err, ErrBudgetExhausted) {
 		return agentloop.Output{}, fmt.Errorf("the investigation's probe ceiling is "+

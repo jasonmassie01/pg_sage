@@ -49,7 +49,7 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err := c.checkReadPolicy(ctx, inv); err != nil {
 		return c.fail(ctx, lease, "read_policy_changed", err.Error())
 	}
-	ctx = probes.WithReadPolicy(ctx, c.readPolicy)
+	ctx = probes.WithCaller(probes.WithReadPolicy(ctx, c.readPolicy), probes.CallerInvestigation)
 	plan, ok := c.plan(inv.TriggerKind)
 	plan = scopePlanQuery(plan, inv)
 	if !ok {
@@ -172,7 +172,7 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 			next = StateEvaluating
 		}
 		committed, err := c.store.CommitStep(ctx, lease, StepResult{IdempotencyKey: key,
-			Results: c.runStep(ctx, st), NextState: next})
+			Results: c.runStep(ctx, lease, st), NextState: next})
 		if err != nil {
 			return lease, err
 		}
@@ -220,12 +220,28 @@ func (c *Coordinator) committedSteps(ctx context.Context, scope Scope,
 
 func stepKey(i int) string { return fmt.Sprintf("step-%d", i+1) }
 
-func (c *Coordinator) runStep(ctx context.Context, st planStep) []probes.Result {
+// runStep runs a step's probes in order. A probe refused its slot is run
+// once more when the lease leaves time for it (retryQueued).
+func (c *Coordinator) runStep(ctx context.Context, lease Lease, st planStep) []probes.Result {
 	out := make([]probes.Result, 0, len(st.calls))
 	for _, call := range st.calls {
-		out = append(out, c.runner.Run(ctx, call.id, call.args))
+		run := func() probes.Result { return c.runner.Run(ctx, call.id, call.args) }
+		out = append(out, retryQueued(lease.SegmentDeadline, run(), run))
 	}
 	return out
+}
+
+// retryQueued returns res, or a second read when res found no free probe
+// slot (background sampling held them) and deadline leaves a whole queue
+// wait and a step's margin. The second result stands whatever it is: an
+// investigation never inflicts a missing observation on itself by losing
+// one queue race, and never waits for slots more than twice (sre-06).
+func retryQueued(deadline time.Time, res probes.Result,
+	read func() probes.Result) probes.Result {
+	if !probes.QueueRefused(res) || time.Until(deadline) < probes.QueueWait+stepMargin {
+		return res
+	}
+	return read()
 }
 
 // fail ends the run as failed with a code and a bounded reason.

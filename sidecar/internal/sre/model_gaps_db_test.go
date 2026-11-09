@@ -50,7 +50,7 @@ func TestCollect_ResumeAfterNeedsEvidenceConcludes(t *testing.T) {
 		t.Fatalf("claim: %v", err)
 	}
 	plan, _ := planFor(TriggerLock, time.Hour)
-	steps := []StepResult{{IdempotencyKey: "step-1", Results: c.runStep(ctx, plan[0]),
+	steps := []StepResult{{IdempotencyKey: "step-1", Results: c.runStep(ctx, dead, plan[0]),
 		NextState: StateCollecting}, {IdempotencyKey: "evaluate",
 		NextState: StateEvaluating}, {IdempotencyKey: "model-probe-old",
 		Results:   []probes.Result{runner.Run(ctx, probes.LockGraph, probes.Args{})},
@@ -106,7 +106,7 @@ func TestConclude_RefusesModelEvidenceOutOfScope(t *testing.T) {
 	}
 	plan, _ := planFor(TriggerLock, time.Hour)
 	if _, err := st.CommitStep(ctx, lease, StepResult{IdempotencyKey: "step-1",
-		Results: c.runStep(ctx, plan[0]), NextState: StateEvaluating}); err != nil {
+		Results: c.runStep(ctx, lease, plan[0]), NextState: StateEvaluating}); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	ev, _ := st.Evidence(ctx, inv.Scope, inv.ID)
