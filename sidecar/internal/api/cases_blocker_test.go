@@ -133,3 +133,20 @@ func TestSourceIncidentFromMapGuardedLockCandidate(t *testing.T) {
 		t.Fatalf("pre-playbooks-01 row = %+v, want a blocked cancel", old)
 	}
 }
+
+// migration-05: the queued-DDL marker RCA records on a root blocker
+// survives the jsonb read, so the playbook withholds the root's signal.
+func TestIncidentChainFromAnyKeepsQueuedDDL(t *testing.T) {
+	b := rcaBlocker()
+	b.QueuedDDLPID = 200
+	got := incidentChainFromAny(storedChain(t, []rca.ChainLink{
+		{Order: 2, Signal: "lock_contention", Blocker: b}}))
+	if len(got) != 1 || got[0].Blocker == nil || got[0].Blocker.QueuedDDLPID != 200 {
+		t.Fatalf("chain = %+v, want the blocker with QueuedDDLPID 200", got)
+	}
+	plain := incidentChainFromAny(storedChain(t, []rca.ChainLink{
+		{Order: 2, Signal: "lock_contention", Blocker: rcaBlocker()}}))
+	if plain[0].Blocker.QueuedDDLPID != 0 {
+		t.Fatalf("blocker without a queued DDL decoded %d", plain[0].Blocker.QueuedDDLPID)
+	}
+}
