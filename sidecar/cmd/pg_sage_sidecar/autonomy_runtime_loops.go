@@ -126,7 +126,10 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 			provider, srebench.GameDayFaults{}, svc, store)
 		if err == nil {
 			processAutonomy().gameDays.Register(rt.spec.Name, runner)
-			rt.start(func() { every(rt.ctx, gameDayCheckInterval, gameDayTick(runner)) })
+			delay := gameDayStartDelay(rt.spec.Name, gameDayCheckInterval)
+			rt.start(func() {
+				everyAfter(rt.ctx, delay, gameDayCheckInterval, gameDayTick(runner))
+			})
 		}
 	}
 	if err != nil {
