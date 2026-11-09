@@ -38,6 +38,24 @@ ceiling (a tier3 switch stays on only if both have it on; the other bounds keep 
 value), so a failure never raises autonomy. `trust.tier3_high_risk` and the trust ramp
 (`trust.ramp_*`) still need a restart.
 
+**Replicas share the global settings and converge within 30 seconds.** A setting saved in
+Settings or through the API is a global override stored in the control database, and it
+takes precedence over each replica's YAML. Replicas on one control database share these
+overrides: meta-db mode (every sidecar on one `--meta-db`) and standalone replicas on one
+monitored database. Each replica reads the durable config generation every 30 seconds (one
+small query) and adopts a newer one the way a local save applies: its current YAML file plus
+the stored overrides, validated as a whole, live fields rebuilt by their owners, `restart`
+fields reported as pending restart. A save based on a stale generation is still refused with
+`409`, but the refusing replica resyncs first, so the `409` body's `desired_generation` (and
+a refetch of `GET /api/v1/config/global`) is the fresh one and the retry succeeds. A YAML hot
+reload that loses this race takes effect through the same resync. If the stored overrides do
+not validate on a replica (for example `clone.provider: dle` where that replica's YAML has no
+endpoint), the replica keeps its current config and logs an ERROR naming the key; an
+unreadable generation logs a WARN, and the next tick retries. `GET /api/v1/config` and
+`GET /api/v1/config/global` report `last_resync_at`: when the replica last adopted a
+generation another writer saved (`null` if it never has). A YAML fleet has no shared
+overrides: each sidecar's file is its configuration, and nothing is polled.
+
 **Restarting from the dashboard** is offered only under a declared supervisor: set
 `SAGE_SUPERVISED=1` when a supervisor (systemd, Kubernetes, the Databricks Apps launcher)
 relaunches the sidecar after it exits with code 42. Without it the restart endpoint answers
