@@ -728,7 +728,7 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `advisor.enabled` | `true` | LLM configuration advisor (WAL, connections, rewrites, bloat). With `advisor.memory_enabled` / `advisor.vacuum_enabled` it also lets the tuning agent propose server settings / table storage parameters |
 | `tuner.llm_enabled` | `true` | Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way |
 | `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |
-| `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
+| `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must equal a value in the evidence that claim cites (integers exactly and with their sign, decimals at the stated precision, timestamps as whole RFC 3339 instants; a probe result's head line, row count and `[i]` row ordinals ground nothing). Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
 
 ### Tuning agent
 
@@ -1308,8 +1308,13 @@ The model finishes with `submit_conclusion`, whose outcome is one of:
 - `unmodeled`: it names a cause the graph has no node for;
 - `inconclusive`.
 
-Each claim must cite evidence ids, and every number in a claim must appear in the cited
-evidence. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
+Each claim must cite evidence ids, and every number in a claim must equal a typed value of
+the cited evidence: an integer exactly and with its sign (a 64-bit queryid off by one, or
+with its sign flipped, is ungrounded), a decimal at the precision the evidence states, and a
+timestamp as the whole RFC 3339 instant, never its year, hour or second. For the model's own
+reads these are the row values it was shown; a probe's version, its row count and its `[i]`
+row ordinals ground nothing. A minus sign counts only at the start of a value or after a
+space, `(`, `=` or `:`, so `10-20` is a range. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
 unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
 advisory unless its family has earned model-root authority from held-out bench results, and
 the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The
@@ -1334,7 +1339,7 @@ scored the hypotheses, the configured LLM (`llm.*`) reviews the result. It may o
   narrative").
 
 Every reply is checked: known node ids only, catalog probes with valid arguments, evidence ids
-of this investigation, every number found in the cited evidence, and a 16 KiB size limit. A
+of this investigation, every number equal to a value of the cited evidence, and a 16 KiB size limit. A
 reply that fails gets one repair attempt. If the repair fails too, or the model times out, is
 rate limited or is over budget, the investigation ends with the deterministic result and a
 `model_rejected` event that gives the reason. Before concluding, a verifier rechecks the ranking

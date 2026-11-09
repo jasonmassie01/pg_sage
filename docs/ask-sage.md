@@ -10,8 +10,10 @@ coding agent with the MCP tool `ask_sage`.
 ## What an answer contains
 
 - **Statements**, each citing the evidence it rests on (`finding:42`, `action:7`,
-  `trust:orders`, `table:public.orders`, ...). Every number in a statement must appear in
-  the evidence it cites. The UI links each citation to the finding, action, Trust page,
+  `trust:orders`, `table:public.orders`, ...). Every number in a statement must equal a
+  value in the evidence it cites: integers exactly and with their sign, decimals at the
+  precision the evidence states, timestamps as whole RFC 3339 instants. The UI links each
+  citation to the finding, action, Trust page,
   facts or investigation it came from, and shows the digest of exactly what the model read.
 - **Could not verify**: what Ask Sage looked for and did not find. "Not observed" is a
   valid answer. These notes may not contain numbers (a number is a claim and needs a
