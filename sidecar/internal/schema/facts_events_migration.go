@@ -11,7 +11,8 @@ package schema
 // an event names exactly the fact a card or decision was bound to. Only
 // the audit chain's own columns may be written after the insert; the
 // chain itself (auditchain.FactEvents) is installed by the audit chain
-// migration, Bootstrap's last step.
+// migration, Bootstrap's last step. The first install records the state
+// of every older fact once (verb baseline; see ddlFactEventsBaseline).
 //
 // sage.facts.expired_by names who expired a fact (a person, or pg_sage's
 // verifier). A nullable column without a default: no table rewrite on
@@ -25,7 +26,7 @@ CREATE TABLE IF NOT EXISTS sage.fact_events (
     at          timestamptz NOT NULL DEFAULT now(),
     actor       text        NOT NULL CHECK (length(actor) BETWEEN 1 AND 200),
     verb        text        NOT NULL CHECK (verb IN ('proposed', 'declared', 'confirmed',
-                    'rejected', 'expired', 'reopened', 'restored')),
+                    'rejected', 'expired', 'reopened', 'restored', 'baseline')),
     from_status text        NOT NULL DEFAULT '',
     to_status   text        NOT NULL,
     fact_hash   text        NOT NULL CHECK (length(fact_hash) = 32),
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS sage.fact_events (
 );
 CREATE INDEX IF NOT EXISTS fact_events_fact ON sage.fact_events (fact_id, id);
 CREATE INDEX IF NOT EXISTS fact_events_at ON sage.fact_events (at);
-` + ddlFactEventsGuard + ddlFactEventsRecord + `
+` + ddlFactHash + ddlFactEventsGuard + ddlFactEventsRecord + `
 DO $fact_events$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'sage.facts'::regclass
@@ -48,8 +49,15 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'sage.facts'::regclass
                    AND tgname = 'fact_events_insert') THEN
-        CREATE TRIGGER fact_events_insert AFTER INSERT ON sage.facts
-            FOR EACH ROW EXECUTE FUNCTION sage.fact_events_record();
+        -- Writers wait while the older facts' state is recorded, so none
+        -- slips between the baseline and the triggers.
+        LOCK TABLE sage.facts IN SHARE ROW EXCLUSIVE MODE;
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'sage.facts'::regclass
+                       AND tgname = 'fact_events_insert') THEN
+            ` + ddlFactEventsBaseline + `
+            CREATE TRIGGER fact_events_insert AFTER INSERT ON sage.facts
+                FOR EACH ROW EXECUTE FUNCTION sage.fact_events_record();
+        END IF;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'sage.facts'::regclass
                    AND tgname = 'fact_events_update') THEN
@@ -118,14 +126,50 @@ BEGIN
     INSERT INTO sage.fact_events (fact_id, actor, verb, from_status, to_status,
         fact_hash, note)
     VALUES (NEW.id, left(COALESCE(NULLIF(v_actor, ''), 'unknown'), 200), v_verb, v_from,
-        NEW.status, left(encode(sha256(convert_to(concat_ws(chr(31), NEW.id::text,
-            NEW.fact_type, NEW.subject_kind, NEW.subject, NEW.status)
-            || COALESCE((SELECT string_agg(chr(31) || e.key || '=' || e.value, ''
-                                           ORDER BY e.key COLLATE "C")
-                         FROM jsonb_each_text(CASE WHEN jsonb_typeof(NEW.value) = 'object'
-                              THEN NEW.value ELSE '{}'::jsonb END) e), ''),
-            'UTF8')), 'hex'), 32),
-        left(COALESCE(v_note, ''), 1000));
+        NEW.status, sage.fact_hash(NEW), left(COALESCE(v_note, ''), 1000));
     RETURN NULL;
 END $fn$;
 `
+
+// ddlFactHash is Fact.Hash() in SQL: sha256 over id, type, kind, subject,
+// status and the value's keys in byte order (COLLATE "C", like
+// sort.Strings), the first 16 bytes in hex. A value that is not a JSON
+// object hashes as {}.
+const ddlFactHash = `
+CREATE OR REPLACE FUNCTION sage.fact_hash(f sage.facts) RETURNS text
+LANGUAGE sql STABLE AS $fn$
+    SELECT left(encode(sha256(convert_to(concat_ws(chr(31), f.id::text, f.fact_type,
+            f.subject_kind, f.subject, f.status)
+        || COALESCE((SELECT string_agg(chr(31) || e.key || '=' || e.value, ''
+                                       ORDER BY e.key COLLATE "C")
+                     FROM jsonb_each_text(CASE WHEN jsonb_typeof(f.value) = 'object'
+                          THEN f.value ELSE '{}'::jsonb END) e), ''),
+        'UTF8')), 'hex'), 32)
+$fn$;
+`
+
+// ddlFactEventsBaseline records, once, the state of each fact that has no
+// event yet (decided before facts-07), so the first revocation after the
+// upgrade still shows who decided it. The row keeps only its latest
+// decision: the event names that decider and time; who expired a fact
+// was never recorded, so an expiry's actor is unknown and its note keeps
+// the decider and the reason.
+const ddlFactEventsBaseline = `INSERT INTO sage.fact_events (fact_id, at, actor, verb,
+                from_status, to_status, fact_hash, note)
+            SELECT f.id, COALESCE(f.decided_at, f.created_at),
+                left(COALESCE(NULLIF(CASE
+                    WHEN f.status IN ('confirmed', 'rejected') THEN f.decided_by
+                    WHEN f.status = 'proposed' THEN COALESCE(NULLIF(f.proposed_by, ''),
+                                                             f.source)
+                    END, ''), 'unknown'), 200),
+                'baseline', '', f.status, sage.fact_hash(f),
+                left('state when the fact history began (facts-07)' || COALESCE(': ' ||
+                    NULLIF(concat_ws('; ',
+                        CASE WHEN f.status = 'expired' AND f.decided_by <> ''
+                             THEN 'decided by ' || f.decided_by END,
+                        CASE WHEN f.status = 'expired' THEN NULLIF(f.expired_reason, '')
+                             WHEN f.status IN ('confirmed', 'rejected')
+                             THEN NULLIF(f.decision_note, '') END), ''), ''), 1000)
+            FROM sage.facts f
+            WHERE NOT EXISTS (SELECT 1 FROM sage.fact_events e WHERE e.fact_id = f.id)
+            ORDER BY f.id;`

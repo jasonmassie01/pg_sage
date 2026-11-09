@@ -96,7 +96,7 @@ again. Cancel sends nothing. Confirming or rejecting a proposal is one click.
 
 Every change of a fact's status or decision appends one row to `sage.fact_events`: when, who
 (`actor`), what (`verb`: `proposed`, `declared`, `confirmed`, `rejected`, `expired`,
-`reopened` or `restored`), the status before and after, the fact's hash after the change (the
+`reopened`, `restored` or `baseline`), the status before and after, the fact's hash after the change (the
 one a chat card binds to) and the note or expiry reason. A trigger on `sage.facts` writes it
 in the same transaction as the change, so every path is recorded (the UI and API, chat cards,
 MCP `decide_fact`, re-verification, and agent column classes), and a change whose event cannot
@@ -105,6 +105,10 @@ marks (`last_verified_at`, `missing_since`) are not decisions and add no event.
 
 * The row in `sage.facts` keeps only the latest decision; the history keeps every one, so the
   person who first confirmed a fact can still be read after someone revokes it.
+* Facts that existed before the upgrade get one `baseline` event when the history is first
+  installed: their current status, by their latest decider (or proposer), at the decision
+  time. Who expired an older fact was never recorded, so its actor is `unknown` and the note
+  keeps the decider and the expiry reason.
 * `expired_by` names who expired a fact: the signed-in user for an expiry through the UI or
   API, `pg_sage:verifier` for re-verification. A restored confirmation is recorded as
   `pg_sage`'s.
