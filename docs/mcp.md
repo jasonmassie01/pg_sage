@@ -174,7 +174,7 @@ matched and the form is not proven safe, or it did not parse).
 | `ddl_add_exclusion_builds_index` | `ADD ... EXCLUDE` | ACCESS EXCLUSIVE | no (index build) |
 | `ddl_set_not_null` | `ALTER COLUMN ... SET NOT NULL` | ACCESS EXCLUSIVE | no (scan) |
 | `ddl_not_null_constraint_scan` | PG 18 `ADD CONSTRAINT n NOT NULL col` without `NOT VALID` | ACCESS EXCLUSIVE | no (scan) |
-| `ddl_alter_type_rewrite` | `ALTER COLUMN ... TYPE` (no rewrite when binary coercible, read from the catalog, and without `USING`) | ACCESS EXCLUSIVE | yes |
+| `ddl_alter_type_rewrite` | `ALTER COLUMN ... TYPE` (no rewrite only when binary coercible, see below) | ACCESS EXCLUSIVE | yes |
 | `ddl_add_column_volatile_default` | `ADD COLUMN` with a volatile default, serial, identity or stored generated column | ACCESS EXCLUSIVE | yes |
 | `ddl_set_logged` | `SET LOGGED` / `SET UNLOGGED` | ACCESS EXCLUSIVE | yes |
 | `ddl_set_access_method` | `SET ACCESS METHOD` (PG 15+) | ACCESS EXCLUSIVE | yes |
@@ -190,6 +190,13 @@ matched and the form is not proven safe, or it did not parse).
 | `ddl_refresh_not_concurrent` | `REFRESH MATERIALIZED VIEW` without `CONCURRENTLY` | ACCESS EXCLUSIVE | yes |
 | `ddl_cluster` | `CLUSTER` | ACCESS EXCLUSIVE | yes |
 | `ddl_missing_lock_timeout` | an ACCESS EXCLUSIVE statement with no earlier `SET lock_timeout` | (advice) | no |
+
+`ALTER COLUMN ... TYPE` is reported as no rewrite only when the column's current type, read
+from the catalog, makes the change binary coercible: `varchar(n)` to `varchar(m)` with m >= n,
+to unbounded `varchar`, or to `text`. It stays a rewrite with a `USING` expression, with a
+`COLLATE` clause, when one statement changes the type of more than one column, and when the
+column has a collation other than the default. PostgreSQL then rewrites the table or rebuilds
+the column's indexes.
 
 A build without cgo has no parser. It logs once that classification is degraded and
 matches the older rules with regular expressions. `SET LOGGED`, `SET ACCESS METHOD`,

@@ -1,8 +1,11 @@
 package agenttools
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/migration"
@@ -105,4 +108,84 @@ func TestLintMigrationMissedFormsAreNeverSafe(t *testing.T) {
 	require.Equal(t, "review", res.Verdict)
 	require.True(t, strings.Contains(res.Note, "unrecognized"), "note %q", res.Note)
 	require.True(t, f.relationExists(t1), "linting renamed the table")
+}
+
+// relfilenodes maps the table and each of its indexes, by name, to its
+// file node, which a rewrite or an index rebuild changes.
+func (f *fixture) relfilenodes(q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, table string) map[string]int64 {
+	f.t.Helper()
+	rows, err := q.Query(f.ctx, `SELECT c.relname, c.relfilenode::bigint FROM pg_class c
+		WHERE c.oid = $1::regclass OR c.oid IN
+		  (SELECT indexrelid FROM pg_index WHERE indrelid = $1::regclass)`, table)
+	require.NoError(f.t, err)
+	out := map[string]int64{}
+	for rows.Next() {
+		var name string
+		var node int64
+		require.NoError(f.t, rows.Scan(&name, &node))
+		out[name] = node
+	}
+	require.NoError(f.t, rows.Err())
+	return out
+}
+
+// Integration (migration-04 review): a second type change in the same
+// statement, a COLLATE clause, and a column whose collation ALTER TYPE
+// resets each rewrite the table or rebuild an index on a real server.
+// Lint and the advisor must both say rewrite, although v alone
+// (varchar(20) -> text) is binary coercible.
+func TestLintAndAdvisorKeepHiddenTypeRewrites(t *testing.T) {
+	f := newFixture(t)
+	table := f.q("hid")
+	f.exec("CREATE TABLE "+table+` (v varchar(20), n int, w varchar(20) COLLATE "C")`,
+		"CREATE INDEX hid_v ON "+table+" (v)", "CREATE INDEX hid_w ON "+table+" (w)",
+		"INSERT INTO "+table+" SELECT i::text, i, i::text FROM generate_series(1, 2000) i")
+	cfg := &config.MigrationConfig{Enabled: true, DDLRowThreshold: 1}
+	advisor := migration.NewAdvisor(f.pool, cfg, 0, "db", func(string, string, ...any) {}, nil)
+	at := "ALTER TABLE " + table + " ALTER COLUMN "
+	for _, sql := range []string{
+		at + "v TYPE text, ALTER COLUMN n TYPE bigint",
+		at + `v TYPE text COLLATE "C"`,
+		at + "w TYPE text",
+	} {
+		res, err := New(f.pool, Options{}).LintMigration(f.ctx, LintRequest{SQL: sql})
+		require.NoError(t, err)
+		var item *LintItem
+		for i := range res.Statements {
+			if res.Statements[i].RuleID == "ddl_alter_type_rewrite" {
+				item = &res.Statements[i]
+			}
+		}
+		require.NotNil(t, item, "lint %q: %+v", sql, res.Statements)
+		require.True(t, item.RequiresRewrite, "lint called %q no rewrite", sql)
+		_, risk, err := advisor.AnalyzeRisk(f.ctx, sql)
+		require.NoError(t, err)
+		require.NotNil(t, risk, "advisor reported nothing for %q", sql)
+		require.True(t, risk.RequiresRewrite, "advisor called %q no rewrite", sql)
+		require.True(t, f.rewritesOnServer(table, sql), "server kept every file for %q", sql)
+	}
+	require.False(t, f.rewritesOnServer(table, at+"v TYPE text"),
+		"control: varchar(20) -> text must keep the table and its index")
+}
+
+// rewritesOnServer runs sql in a rolled-back transaction and reports
+// whether it gave the table or one of its indexes a new file.
+func (f *fixture) rewritesOnServer(table, sql string) bool {
+	f.t.Helper()
+	before := f.relfilenodes(f.pool, table)
+	tx, err := f.pool.Begin(f.ctx)
+	require.NoError(f.t, err)
+	defer func() { _ = tx.Rollback(f.ctx) }()
+	_, err = tx.Exec(f.ctx, sql)
+	require.NoError(f.t, err, "server rejected %q", sql)
+	after := f.relfilenodes(tx, table)
+	require.Equal(f.t, len(before), len(after), "relations of %s after %q", table, sql)
+	for name, node := range after {
+		if before[name] != node {
+			return true
+		}
+	}
+	return false
 }

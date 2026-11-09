@@ -62,12 +62,19 @@ var alterRuleIDs = map[pg_query.AlterTableType]string{
 
 // alterTable maps every subcommand. The statement holds the strongest
 // lock of its subcommands, so each rule reports at least that lock. The
-// table is named only for ALTER TABLE, as the regex rules do.
+// table is named only for ALTER TABLE, as the regex rules do. Two type
+// changes share one classification (a rule matches a statement once), so
+// it names no target type: refineAlterType must not clear a rewrite on
+// the first column's type alone.
 func (m astMapper) alterTable(s *pg_query.AlterTableStmt) ([]DDLClassification, bool) {
 	var found []DDLClassification
-	known, lock := true, ""
+	known, lock, typeChanges := true, "", 0
 	for _, n := range s.GetCmds() {
-		hits, cmdLock, ok := m.alterCmd(n.GetAlterTableCmd())
+		cmd := n.GetAlterTableCmd()
+		if cmd.GetSubtype() == pg_query.AlterTableType_AT_AlterColumnType {
+			typeChanges++
+		}
+		hits, cmdLock, ok := m.alterCmd(cmd)
 		known = known && ok
 		lock = strongerLock(lock, cmdLock)
 		found = mergeRules(found, hits)
@@ -78,6 +85,9 @@ func (m astMapper) alterTable(s *pg_query.AlterTableStmt) ([]DDLClassification, 
 	}
 	for i := range found {
 		found[i].LockLevel = strongerLock(found[i].LockLevel, lock)
+		if typeChanges > 1 {
+			found[i].TargetType = ""
+		}
 		if rv != nil {
 			found[i].SchemaName, found[i].TableName = rv.GetSchemaname(), rv.GetRelname()
 		}
@@ -105,8 +115,11 @@ func (m astMapper) alterCmd(cmd *pg_query.AlterTableCmd) ([]DDLClassification, s
 		c := m.rule("ddl_alter_type_rewrite", nil)
 		c.ColumnName = cmd.GetName()
 		// A USING expression (the ColumnDef's raw default here) can compute
-		// any value, so the change stays a rewrite: no TargetType to refine.
-		if def := cmd.GetDef().GetColumnDef(); def.GetRawDefault() == nil {
+		// any value, and a COLLATE clause that changes the collation
+		// rebuilds the column's indexes, so either stays a rewrite: no
+		// TargetType to refine.
+		def := cmd.GetDef().GetColumnDef()
+		if def.GetRawDefault() == nil && def.GetCollClause() == nil {
 			c.TargetType = typeText(def.GetTypeName())
 		}
 		return []DDLClassification{c}, lockAccessExclusive, true

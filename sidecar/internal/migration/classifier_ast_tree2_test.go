@@ -196,3 +196,39 @@ func TestASTTreeAlterTypeUsingKeepsRewrite(t *testing.T) {
 		t.Fatalf("TYPE text USING lower(v): %+v, want no target type", c)
 	}
 }
+
+// A COLLATE clause, or a second type change in the same statement, also
+// hides a rewrite from the one target type a classification carries: a
+// new collation rebuilds the column's indexes, and one statement's two
+// type changes share one classification. Neither names a target type,
+// so refineAlterType cannot clear the rewrite (migration-04 review).
+func TestASTTreeAlterTypeHiddenRewritesNameNoTarget(t *testing.T) {
+	typeCmd := func(col, typ string, coll *pg_query.CollateClause) *pg_query.AlterTableCmd {
+		def := &pg_query.ColumnDef{TypeName: typeName(typ), CollClause: coll}
+		c := cmd(pg_query.AlterTableType_AT_AlterColumnType,
+			&pg_query.Node{Node: &pg_query.Node_ColumnDef{ColumnDef: def}})
+		c.Name = col
+		return c
+	}
+	collateC := &pg_query.CollateClause{Collname: []*pg_query.Node{strNode("C")}}
+	for name, stmt := range map[string]*pg_query.Node{
+		"COLLATE":          alterStmt(typeCmd("v", "text", collateC)),
+		"two type changes": alterStmt(typeCmd("v", "text", nil), typeCmd("n", "int8", nil)),
+	} {
+		found, known := testMapper.statement(stmt)
+		if !known {
+			t.Fatalf("%s: unrecognized", name)
+		}
+		c := requireOneRule(t, found, "ddl_alter_type_rewrite", lockAccessExclusive)
+		if c.TargetType != "" || !c.RequiresRewrite || c.ColumnName != "v" {
+			t.Fatalf("%s: %+v, want a rewrite of v with no target type", name, c)
+		}
+	}
+	// Boundary: one type change next to another subcommand keeps its target.
+	found, _ := testMapper.statement(alterStmt(typeCmd("v", "text", nil),
+		cmd(pg_query.AlterTableType_AT_ColumnDefault, nil)))
+	c := requireOneRule(t, found, "ddl_alter_type_rewrite", lockAccessExclusive)
+	if c.TargetType != "text" {
+		t.Fatalf("TYPE text, SET DEFAULT: %+v, want target text", c)
+	}
+}

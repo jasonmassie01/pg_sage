@@ -100,3 +100,22 @@ func requireSameClassification(t *testing.T, sql string, got, want DDLClassifica
 		}
 	}
 }
+
+// The parser and the regex rules agree on the hidden-rewrite spellings,
+// and neither names a target type for them (migration-04 review).
+func TestASTClassifierMatchesRegexOnHiddenTypeRewrites(t *testing.T) {
+	re := NewRegexClassifier()
+	for _, sql := range hiddenTypeRewrites {
+		want := re.Classify(sql, 170000)
+		got := astClassify(sql, 170000).All()
+		if len(got) != len(want) || len(got) == 0 {
+			t.Fatalf("%q: parser %v, regex %v", sql, ruleIDs(got), ruleIDs(want))
+		}
+		for i := range want {
+			requireSameClassification(t, sql, got[i], want[i])
+			if got[i].TargetType != "" {
+				t.Fatalf("%q: parser target type %q, want none", sql, got[i].TargetType)
+			}
+		}
+	}
+}

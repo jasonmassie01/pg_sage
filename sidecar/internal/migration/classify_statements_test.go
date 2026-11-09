@@ -244,3 +244,42 @@ func TestClassifyStatementsAlterTypeUsingStaysRewrite(t *testing.T) {
 		}
 	}
 }
+
+// hiddenTypeRewrites are ALTER COLUMN TYPE spellings whose rewrite (or
+// index rebuild) the one target type of a classification cannot show: a
+// COLLATE clause, or a second type change in the same statement.
+var hiddenTypeRewrites = []string{
+	"ALTER TABLE app.t ALTER COLUMN v TYPE text, ALTER COLUMN n TYPE bigint",
+	"ALTER TABLE app.t ALTER COLUMN v TYPE text, ALTER COLUMN n TYPE bigint USING n::bigint",
+	`ALTER TABLE app.t ALTER COLUMN v TYPE text COLLATE "C"`,
+	`ALTER TABLE app.t ALTER v SET DATA TYPE varchar(30) COLLATE "C", ALTER n SET DEFAULT 0`,
+}
+
+// On either classifier (the build's, and the regex path a cgo build also
+// keeps), these stay a rewrite of v and read no column type: the varchar
+// column v alone would be binary coercible (migration-04 review).
+func TestClassifyStatementsHiddenTypeRewritesStayRewrite(t *testing.T) {
+	for _, sql := range hiddenTypeRewrites {
+		q := &fakeQuerier{typ: "character varying(20)"}
+		res, err := ClassifyStatements(context.Background(), q, sql, 170000)
+		if err != nil || q.calls != 0 {
+			t.Fatalf("%q: err %v, %d lookups, want none", sql, err, q.calls)
+		}
+		if c := alterTypeRule(t, res); !c.RequiresRewrite || c.ColumnName != "v" {
+			t.Fatalf("%q: %+v, want a rewrite of v", sql, c)
+		}
+		if c := alterTypeRule(t, classifyText(sql, 170000, regexStatement)); c.TargetType != "" ||
+			c.ColumnName != "v" {
+			t.Fatalf("regex path %q: %+v, want no target type", sql, c)
+		}
+	}
+	// A current column with a collation other than the default comes back
+	// with it (the lookup's contract), and is never binary coercible.
+	q := &fakeQuerier{typ: `character varying(20) COLLATE "C"`}
+	res, err := ClassifyStatements(context.Background(), q,
+		"ALTER TABLE app.t ALTER COLUMN v TYPE text", 170000)
+	if err != nil || q.calls != 1 || !alterTypeRule(t, res).RequiresRewrite {
+		t.Fatalf("varchar COLLATE \"C\" -> text: %+v err %v calls %d, want a rewrite",
+			alterTypeRule(t, res), err, q.calls)
+	}
+}

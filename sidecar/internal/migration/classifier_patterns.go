@@ -48,8 +48,9 @@ var (
 			`)\s+(?:SET\s+DATA\s+)?TYPE\s+([^,;]+?)` +
 			`(?:\s+(?:USING|COLLATE)\b.*)?(?:,|;|$)`)
 
-	// reUsingClause finds the USING of an ALTER TYPE match.
-	reUsingClause = regexp.MustCompile(`(?i)\bUSING\b`)
+	// reUsingOrCollate finds the USING or COLLATE clause of an ALTER TYPE
+	// match, either of which keeps the change a rewrite.
+	reUsingOrCollate = regexp.MustCompile(`(?i)\b(?:USING|COLLATE)\b`)
 
 	// ADD [COLUMN] x type ... DEFAULT expr
 	reAddColumnDefault = regexp.MustCompile(

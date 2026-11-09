@@ -13,11 +13,18 @@ import (
 	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
+// columnTypeSQL reads a column's type. A collation other than the
+// default (OID 100, the one ALTER TYPE gives text or varchar when it names
+// none) is appended as COLLATE name: the change would reset it and rebuild
+// the column's indexes, so that type is never binary coercible.
 const columnTypeSQL = `
-SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
+SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) ||
+       CASE WHEN a.attcollation IN (0, 100) THEN ''
+            ELSE ' COLLATE ' || pg_catalog.quote_ident(co.collname) END
 FROM   pg_catalog.pg_attribute a
 JOIN   pg_catalog.pg_class c ON c.oid = a.attrelid
 JOIN   pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_catalog.pg_collation co ON co.oid = a.attcollation
 WHERE  n.nspname = $1 AND c.relname = $2 AND a.attname = $3
   AND  a.attnum > 0 AND NOT a.attisdropped`
 
