@@ -132,6 +132,9 @@ type RuntimeDeps struct {
 	// AgentGrants serves agent grants and capability requests; nil answers
 	// 503 (no control database or executor).
 	AgentGrants AgentGrantService
+	// Metrics serves GET /metrics on this listener (prometheus.serve_on_api,
+	// observability-08); nil leaves the path to the dashboard.
+	Metrics *MetricsRoute
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -191,6 +194,7 @@ func NewRouterFullRuntime(
 	}
 	// Readiness (E1): config loaded, control database up, schema migrated.
 	root.Handle("/ready", NewReadinessHandler(ControlPoolReadiness(cfg, pool)))
+	registerMetricsRoute(root, rt.Metrics, pool, rt.DatabricksAppAuth)
 	if rt.MCPHandler != nil && !rt.DatabricksAppAuth {
 		registerMCPMetadata(root, rt.MCPOAuth)
 	}

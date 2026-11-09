@@ -5,32 +5,11 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/shadow"
 )
-
-func startPrometheusServer(addr string) *http.Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/metrics", handleMetrics)
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-	go func() {
-		logInfo("prometheus", "listening on %s", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logError("prometheus", "server error: %v", err)
-		}
-	}()
-	return srv
-}
 
 // handleMetrics renders in-memory state and the refreshers' snapshots;
 // it performs no database I/O (observability-03). Each database's
@@ -47,6 +26,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeBuildMetrics(&b)
 
 	writeModeMetric(&b, cfg.Mode)
+	writeMetricsListenerMetric(&b)
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 

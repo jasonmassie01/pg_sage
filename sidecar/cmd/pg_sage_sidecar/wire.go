@@ -52,6 +52,18 @@ type WireResult struct {
 	DBDeps     *api.DatabaseDeps
 }
 
+// apiRateLimit is the API rate limiter: per platform identity in a
+// Databricks App, per client address elsewhere.
+func apiRateLimit(p WireParams) func(http.Handler) http.Handler {
+	rl := p.RateLimiter
+	return func(next http.Handler) http.Handler {
+		if p.DatabricksAppAuth != nil {
+			return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
+		}
+		return rateLimitMiddleware(rl, next)
+	}
+}
+
 // wireRouter assembles the HTTP handler from the given params.
 // This is the testable core extracted from startAPIServer.
 func wireRouter(p WireParams) WireResult {
@@ -136,14 +148,7 @@ func wireRouter(p WireParams) WireResult {
 	// so the limiter must be first to run before auth performs a DB lookup.
 	middlewares := make([]func(http.Handler) http.Handler, 0, 2)
 	if p.RateLimiter != nil {
-		rl := p.RateLimiter
-		middlewares = append(middlewares,
-			func(next http.Handler) http.Handler {
-				if p.DatabricksAppAuth != nil {
-					return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
-				}
-				return rateLimitMiddleware(rl, next)
-			})
+		middlewares = append(middlewares, apiRateLimit(p))
 	}
 	if p.DatabricksAppAuth != nil {
 		middlewares = append(middlewares, api.DatabricksAppAuthMiddleware(authPool, *p.DatabricksAppAuth))
@@ -191,6 +196,8 @@ func wireRouter(p WireParams) WireResult {
 			AgentActivity: agentActivityAPI{},
 			// Agent grants and capability requests (agent_grants_wiring.go).
 			AgentGrants: agentGrantAPI(p.Cfg, p.FleetMgr, p.MetaState),
+			// GET /metrics on this listener (prometheus.serve_on_api).
+			Metrics: apiMetricsRoute(p, authPool),
 		},
 		middlewares...,
 	)

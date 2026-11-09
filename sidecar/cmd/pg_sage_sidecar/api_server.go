@@ -68,6 +68,10 @@ func startAPIServer(rl *RateLimiter) {
 		LLMBudgets:       llmBudgetRegistry(),
 		MCPHandler:       mcpHTTPHandler(),
 	})
+	if err := checkMetricsOnAPI(cfg, result.AuthPool); err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
 	startAuthPoolServices(result.AuthPool)
 	serveAPI(addr, result.Handler)
 }
