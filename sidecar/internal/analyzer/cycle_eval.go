@@ -63,3 +63,12 @@ func (a *Analyzer) evalFail(categories ...string) {
 type EvaluatedCategoryReporter interface {
 	LastEvaluatedCategories() []string
 }
+
+// IncompleteCategoryReporter is implemented by producers whose latest run
+// emitted findings of categories it did not fully evaluate, such as an
+// agent posture detector that read only the first rows of a large
+// catalog. Those categories are marked failed for the cycle, so the open
+// findings the run did not reach stay open.
+type IncompleteCategoryReporter interface {
+	LastIncompleteCategories() []string
+}

@@ -246,7 +246,8 @@ func (a *Analyzer) runLateChecks(ctx context.Context) []Finding {
 // runSupplementalDetectors runs the attached detectors. A detector that
 // reports the categories its run evaluated (EvaluatedCategoryReporter, as
 // the agent posture monitor does) lets their cleared findings resolve; a
-// detector that failed evaluated nothing.
+// detector that failed evaluated nothing, and one that reports incomplete
+// categories (IncompleteCategoryReporter) keeps their open findings.
 func (a *Analyzer) runSupplementalDetectors(ctx context.Context) []Finding {
 	var out []Finding
 	for _, detector := range a.detectors {
@@ -257,6 +258,9 @@ func (a *Analyzer) runSupplementalDetectors(ctx context.Context) []Finding {
 		}
 		if r, ok := detector.(EvaluatedCategoryReporter); ok {
 			a.eval.evaluated(r.LastEvaluatedCategories()...)
+		}
+		if r, ok := detector.(IncompleteCategoryReporter); ok {
+			a.eval.fail(r.LastIncompleteCategories()...)
 		}
 		out = append(out, findings...)
 	}
