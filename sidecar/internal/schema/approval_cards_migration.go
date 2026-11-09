@@ -42,3 +42,31 @@ ALTER TABLE sage.action_queue ADD COLUMN IF NOT EXISTS snooze_reason text;
 CREATE INDEX IF NOT EXISTS idx_action_queue_snoozed
     ON sage.action_queue (snoozed_until) WHERE snoozed_until IS NOT NULL;
 `
+
+// ddlApprovalFollowupClaim adds the follow-up claim (fleet-03): the leader
+// epoch that claimed a card's follow-up and when, so a leader handover in
+// the middle of a cycle cannot post the same follow-up twice.
+// Catalog-first, so a re-run takes no lock.
+const ddlApprovalFollowupClaim = `
+SET LOCAL lock_timeout = '5s';
+DO $approval_followup_claim$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid = 'sage.approval_card_deliveries'::regclass
+           AND attname = 'followup_claim_epoch' AND NOT attisdropped
+    ) THEN
+        ALTER TABLE sage.approval_card_deliveries
+            ADD COLUMN followup_claim_epoch bigint;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid = 'sage.approval_card_deliveries'::regclass
+           AND attname = 'followup_claimed_at' AND NOT attisdropped
+    ) THEN
+        ALTER TABLE sage.approval_card_deliveries
+            ADD COLUMN followup_claimed_at timestamptz;
+    END IF;
+END
+$approval_followup_claim$;
+`

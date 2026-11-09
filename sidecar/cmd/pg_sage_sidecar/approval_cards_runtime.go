@@ -67,7 +67,7 @@ func startApprovalCardLoop(ctx context.Context, controlPool *pgxpool.Pool,
 				return inst.Pool
 			}
 			return nil
-		}}
+		}, Fence: followupFence}
 	go func() {
 		ticker := time.NewTicker(approvalCardInterval)
 		defer ticker.Stop()
@@ -82,6 +82,16 @@ func startApprovalCardLoop(ctx context.Context, controlPool *pgxpool.Pool,
 			}
 		}
 	}()
+}
+
+// followupFence is the lease follow-ups are claimed under: the fleet
+// leader's, or none when election is disabled.
+func followupFence() (chatops.ClaimFence, bool) {
+	if fleetLeader == nil {
+		return chatops.ClaimFence{}, true
+	}
+	tok, ok := fleetLeader.Fence()
+	return chatops.ClaimFence{Scope: tok.Scope, Holder: tok.Holder, Epoch: tok.Epoch}, ok
 }
 
 // runApprovalCardCycle posts due follow-ups and re-sends ended snoozes.

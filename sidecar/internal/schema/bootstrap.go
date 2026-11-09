@@ -448,9 +448,10 @@ func migrationStatements() []string {
 		ddlEmergencyStopSeed,
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
-		ddlUsersDisabledAt,   // apiauth-01: user deactivation
-		ddlFleetLeaseControl) // fleet-03: control database on the lease
+		ddlSessionsTokenHash,     // apiauth-04: hashed session cookies
+		ddlUsersDisabledAt,       // apiauth-01: user deactivation
+		ddlFleetLeaseControl,     // fleet-03: control database on the lease
+		ddlApprovalFollowupClaim) // fleet-03: fenced follow-up claims
 }
 
 // ---------------------------------------------------------------------------

@@ -167,6 +167,11 @@ in different databases.
   leader lease moved to another sidecar mid-cycle`).
 - A sidecar that shuts down releases its lease, so a follower takes over at
   its next renewal.
+- Each approval card follow-up is claimed under the leader's lease epoch
+  right before it is posted (`sage.approval_card_deliveries.followup_claim_epoch`).
+  A claim only moves to the same or a newer epoch, or once it is 5 minutes
+  old, and only while that lease is current, so a handover in the middle of
+  a cycle does not post the same follow-up twice.
 - A follower logs once per job that the job `runs on the leader sidecar of
   this fleet, not here (see /api/v1/fleet/leader)`.
 
