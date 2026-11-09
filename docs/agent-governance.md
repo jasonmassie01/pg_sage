@@ -44,7 +44,7 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 | `id` | `agp_` and 20 lower-case base32 characters, assigned at creation |
 | `name` | a unique slug: `^[a-z][a-z0-9-]{1,62}$` |
 | `sponsor_user_id` | the accountable person, a pg_sage user id; required at creation |
-| `sponsor_active` | true while the sponsor is an existing user |
+| `sponsor_active` | true while the sponsor is an existing, enabled operator or admin |
 | `profile` | the capability profile (see [Profiles](#profiles)); required |
 | `env_ceiling` | `branch`, `dev`, `stage` or `prod` (default `dev`): the most production-like environment the agent may reach |
 | `tenant` | optional free text, up to 200 characters |
@@ -61,7 +61,8 @@ superuser or `BYPASSRLS`, hold no dangerous membership and own nothing. pg_sage 
 | `PATCH /api/v1/agents/{id}` `{"sponsor_user_id", "profile", "env_ceiling", "status", "reason"}` | admin | Changes the sponsor, profile or ceiling, or retires it (`"status": "retired"`) |
 
 Unknown body fields are refused. A missing or bad field answers 422, an unknown agent 404,
-and a taken name or a change to a retired agent 409. `status` accepts only `retired`: freeze
+and a taken name or a change to a retired agent 409. A sponsor change while the agent has an
+open freeze answers 409 with `code: sponsor_change_frozen`. `status` accepts only `retired`: freeze
 and unfreeze have their own routes (see [the kill switch](#kill-switch-freeze-and-unfreeze)).
 
 **Statuses.**
@@ -74,11 +75,38 @@ and unfreeze have their own routes (see [the kill switch](#kill-switch-freeze-an
 
 **Sponsor rules.**
 - Every agent is created with a sponsor: 422 without one, or with a user that doesn't exist.
-- Deleting the sponsor's user clears the sponsor. An unsponsored agent keeps its read tools,
-  its propose tools queue for a person (L2), and its `agent_*` tools answer
-  `agent_unsponsored` until an admin assigns a sponsor with `PATCH`.
+- The sponsor is an enabled operator or admin. Naming a viewer or a deactivated user, on
+  create or on `PATCH`, answers 422.
+- Deleting the sponsor's user clears the sponsor. A sponsor demoted to viewer or deactivated
+  stays on record but no longer counts: `sponsor_active` reads false. Either way the agent is
+  unsponsored: it keeps its read tools, its propose tools queue for a person (L2), and its
+  `agent_*` tools answer `agent_unsponsored` until an admin assigns a sponsor with `PATCH`.
 - Changing the sponsor doesn't widen anything, so one admin does it.
+- The sponsor can't change while the agent has an open freeze (409 `sponsor_change_frozen`):
+  unfreeze it first. The unfreeze after a kill refuses the sponsor as the second admin, so
+  handing the sponsorship to someone else first would get around that rule.
 - The sponsor is never the second person on their own agent's two-person decisions.
+
+**Audit.** Every governance change writes one row to `sage.auth_audit`, the hash-chained
+table that also records sign-ins and user administration, in the same transaction as the
+change. If the audit row can't be written, the change isn't made and the request answers 500.
+`actor_user_id` is the admin, `source_ip` the client address, and `target_user_id` the agent's
+sponsor (or an operator token's owner).
+
+| Event | Written by | `detail` |
+|---|---|---|
+| `agent_created` | `POST /api/v1/agents` | `principal_id`, `name`, `tenant`, `after` |
+| `agent_updated` | `PATCH /api/v1/agents/{id}` | `principal_id`, `name`, `before`, `after`, `reason` |
+| `agent_widened_single_operator` | a widening `PATCH` in single-operator mode | as `agent_updated`; `reason` is required |
+| `agent_retired` | `PATCH /api/v1/agents/{id}` `{"status": "retired"}` | `principal_id`, `name`, `before_status`, `after_status`, `reason` |
+| `agent_status_changed` | a freeze or unfreeze made through the principal store (tools and tests) | as `agent_retired` |
+| `agent_token_minted` | `POST /api/v1/agents/{id}/tokens` | `token_id`, `name`, `kind`, `scopes`, `databases`, `expires_at`, `principal_id` |
+| `mcp_token_created` | `POST /api/v1/mcp/tokens` | as `agent_token_minted`, with `owner_user_id` |
+| `mcp_token_revoked` | `DELETE /api/v1/mcp/tokens/{id}` (not a repeat on a revoked token) | as `mcp_token_created` |
+
+`before` and `after` are `{"sponsor_user_id", "profile", "env_ceiling"}`. No row carries a token
+secret, its hash or its prefix. An empty `PATCH` changes nothing and writes nothing. Kills and
+unfreezes are recorded in the action log (see [the kill switch](#kill-switch-freeze-and-unfreeze)).
 
 **Levels.** Read tools work up to L3. Propose tools are capped at L2: a person approves each
 proposal. `agent_*` tools reach L3 at most, and L2 while the agent is tainted. The trust level
@@ -253,7 +281,8 @@ cluster identity verifies a label other than `prod`.
 
 A change that widens what an agent may do needs a second person. Where the table allows it,
 `agents.single_operator_mode: true` lets one admin apply the change instead, but only with a
-reason, which pg_sage records for a review after the fact.
+reason, which pg_sage records for a review after the fact (a principal's widening is the
+`agent_widened_single_operator` event in `sage.auth_audit`).
 
 | Change | Request | Second person | Single-operator mode |
 |---|---|---|---|

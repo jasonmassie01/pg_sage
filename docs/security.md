@@ -438,6 +438,8 @@ client address (`source_ip`, honouring `api.trusted_proxies`):
 | `user_disabled`, `user_enabled` | Deactivation and reactivation (`detail.sessions_ended`, `detail.mcp_tokens_revoked`) |
 | `user_role_changed` | Role changes from the API (`source: api`) or the IdP (`source: idp`) |
 | `oidc_linked`, `oidc_unlinked`, `oidc_link_grant_*` | Account linking |
+| `agent_created`, `agent_updated`, `agent_widened_single_operator`, `agent_retired`, `agent_status_changed` | Agent principal changes, in the change's own transaction (see [Agent governance](agent-governance.md#principals)) |
+| `agent_token_minted`, `mcp_token_created`, `mcp_token_revoked` | MCP token issue and revocation, never with the secret or its hash |
 | `logout` | A user signed out |
 | `sessions_revoked` | "Sign out everywhere else" (`detail.count`, `detail.scope`) |
 
@@ -744,8 +746,9 @@ Every autonomous action is recorded with:
 
 ### Authentication Log (`sage.auth_audit`)
 
-Logins, break-glass use, and user and role changes, with actor, time and
-client address; see [Authentication Audit](#authentication-audit).
+Logins, break-glass use, user and role changes, and agent and MCP token
+governance, with actor, time and client address; see
+[Authentication Audit](#authentication-audit).
 
 ### API Request Log
 
