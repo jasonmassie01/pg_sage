@@ -76,6 +76,15 @@ func (d AuditDeps) pool(w http.ResponseWriter, r *http.Request) (*pgxpool.Pool, 
 	return p, name, true
 }
 
+// policyPool is where the standing policy lives: the control database
+// (fleet and standalone alike), or the audited pool when none is wired.
+func (d AuditDeps) policyPool(audited *pgxpool.Pool) *pgxpool.Pool {
+	if d.Control != nil {
+		return d.Control
+	}
+	return audited
+}
+
 func auditVerifyHandler(d AuditDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		pool, name, ok := d.pool(w, r)
@@ -169,7 +178,8 @@ func auditEvidenceHandler(d AuditDeps) http.HandlerFunc {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		pack, err := evidence.Build(r.Context(), pool, scope, d.EvidenceKey, time.Now())
+		pack, err := evidence.BuildWithPolicy(r.Context(), pool, d.policyPool(pool), scope,
+			d.EvidenceKey, time.Now())
 		switch {
 		case errors.Is(err, evidence.ErrScope):
 			jsonError(w, err.Error(), http.StatusBadRequest)
