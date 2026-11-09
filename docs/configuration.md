@@ -1314,7 +1314,7 @@ with its sign flipped, is ungrounded), a decimal at the precision the evidence s
 timestamp as the whole RFC 3339 instant, never its year, hour or second. For the model's own
 reads these are the row values it was shown; a probe's version, its row count and its `[i]`
 row ordinals ground nothing. A minus sign counts only at the start of a value or after a
-space, `(`, `=` or `:`, so `10-20` is a range. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
+space, `(`, `=`, `:`, `[` or `,`, so `10-20` is a range. Uncited or ungrounded claims are dropped and counted. A conclusion, contest or
 unmodeled cause with no surviving claim counts as inconclusive. The model's root stays
 advisory unless its family has earned model-root authority from held-out bench results, and
 the model's self-reported confidence is ignored. An unmodeled cause is always advisory. The

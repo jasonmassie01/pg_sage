@@ -206,3 +206,22 @@ func TestValidateClaims_EmptyEvidenceGroundsNoNumber(t *testing.T) {
 		}
 	}
 }
+
+// A JSON array (Ask Sage evidence is JSON) keeps its signs: before the fix
+// "[-5,-7]" read as 5 and 7, so a sign-flipped claim was grounded.
+func TestValidateClaims_JSONArrayMinusIsASign(t *testing.T) {
+	ev := EvidenceCatalog{"J": `{"deltas":[-5,-7],"range":"10-20"}`}
+	cases := map[string]bool{
+		"deltas -5 and -7":  true,
+		"delta 5":           false,
+		"delta 7":           false,
+		"fell to -20":       false,
+		"between 10 and 20": true,
+	}
+	for text, ok := range cases {
+		err := ValidateClaims([]Claim{{Text: text, EvidenceIDs: []string{"J"}}}, ev)
+		if (err == nil) != ok {
+			t.Errorf("%q: err = %v, want ok=%v", text, err, ok)
+		}
+	}
+}

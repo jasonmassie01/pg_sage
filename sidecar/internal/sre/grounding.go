@@ -63,7 +63,8 @@ func valueTokens(values []string) []groundToken {
 
 // groundTokens extracts the timestamps and numbers of s ("1,200" is 1200). A
 // minus sign is a sign only at the start of s or after whitespace, "(",
-// "=" or ":", so "10-20" is a range and "delta=-5" is negative.
+// "=", ":", "[" or ",", so "10-20" is a range while "delta=-5" and the
+// JSON array "[-5,-7]" are negative.
 func groundTokens(s string) []groundToken {
 	var out []groundToken
 	s = timestampPattern.ReplaceAllStringFunc(s, func(ts string) string {
@@ -95,7 +96,7 @@ func signed(s string, i int) bool {
 	if i == 1 {
 		return true
 	}
-	return strings.ContainsRune(" \t\r\n(=:", rune(s[i-2]))
+	return strings.ContainsRune(" \t\r\n(=:[,", rune(s[i-2]))
 }
 
 // normalizeNumber is the comparison form of a decimal token: no leading
