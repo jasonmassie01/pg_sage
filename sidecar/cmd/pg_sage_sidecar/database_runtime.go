@@ -153,6 +153,7 @@ func buildDatabaseRuntime(
 	rt.startSelfConfig()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
+	rt.startCapabilityRefresh()
 	rt.startProviderReprobe()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))

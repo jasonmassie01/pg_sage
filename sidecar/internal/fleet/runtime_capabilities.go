@@ -20,6 +20,44 @@ func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *Provi
 	defer cancel()
 	collectExtensionEvidence(ctx, pool, caps)
 	collectStatsPrivilege(ctx, pool, caps)
+	collectMaintainPrivilege(ctx, pool, caps)
+}
+
+// maintainerRoles are the roles whose members may ANALYZE and VACUUM every
+// table: the managed providers' admin roles and PostgreSQL 17's
+// pg_maintain. A role a server lacks simply matches nothing.
+var maintainerRoles = []string{
+	"rds_superuser", "cloudsqlsuperuser", "alloydbsuperuser", "azure_pg_admin", "pg_maintain",
+}
+
+// maintainPrivilegeSQL passes role OIDs to pg_has_role, so a listed role
+// that does not exist on this server version raises no error.
+const maintainPrivilegeSQL = `SELECT r.rolsuper OR EXISTS (
+	SELECT 1 FROM pg_catalog.pg_roles g
+	 WHERE g.rolname = ANY($1) AND pg_has_role(current_user, g.oid, 'MEMBER'))
+  FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`
+
+const maintainProbeFailed = "maintenance privilege probe failed; check role access"
+
+// collectMaintainPrivilege sets the analyze permission: ok for a superuser
+// or a member of a maintainer role, limited (checked per table at
+// execution) otherwise. A failed probe leaves it unknown.
+func collectMaintainPrivilege(
+	ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities,
+) {
+	var maintains bool
+	err := pool.QueryRow(ctx, maintainPrivilegeSQL, maintainerRoles).Scan(&maintains)
+	if err != nil {
+		caps.Limitations = append(caps.Limitations, maintainProbeFailed)
+		return
+	}
+	status := CapabilityStatus{Status: "limited", Reason: "role is not a superuser or " +
+		"maintainer; table ANALYZE permission checked at execution"}
+	if maintains {
+		status = CapabilityStatus{Status: "ok",
+			Reason: "role is a superuser or a member of a maintainer role"}
+	}
+	caps.Permissions["analyze"] = status
 }
 
 // A loaded module does not imply its product integration is usable. Lakebase

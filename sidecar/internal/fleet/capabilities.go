@@ -25,6 +25,10 @@ type ProviderCapabilities struct {
 	Blockers         []string                    `json:"blockers,omitempty"`
 	ActionFamilies   []ActionFamilyReadiness     `json:"action_families,omitempty"`
 	ReadyForAutoSafe bool                        `json:"ready_for_auto_safe"`
+	// ExtensionHints are the provider adapter's enable paths (for example
+	// azure_extensions_allowlist_required), kept apart from the runtime
+	// Extensions status, which only catalog evidence sets.
+	ExtensionHints map[string]string `json:"extension_hints,omitempty"`
 	// PendingProvider is what a re-probe of an unknown provider found where
 	// the runtime cannot be rebuilt in place; it applies after a restart.
 	PendingProvider string `json:"pending_provider,omitempty"`
@@ -80,12 +84,13 @@ func BuildProviderCapabilities(
 ) ProviderCapabilities {
 	adapter := AdapterForProvider(provider)
 	caps := ProviderCapabilities{
-		Provider:    adapter.Provider,
-		IsReplica:   isReplica,
-		Permissions: defaultPermissionReadiness(),
-		Extensions:  adapter.Extensions,
-		LogAccess:   adapter.LogAccess,
-		Limitations: adapter.Limitations,
+		Provider:       adapter.Provider,
+		IsReplica:      isReplica,
+		Permissions:    defaultPermissionReadiness(),
+		Extensions:     adapter.Extensions,
+		ExtensionHints: extensionHints(adapter.Extensions),
+		LogAccess:      adapter.LogAccess,
+		Limitations:    adapter.Limitations,
 	}
 	caps.ActionFamilies = buildActionFamilyReadiness(caps, explain)
 	caps.Blockers = readinessBlockers(caps)
@@ -305,17 +310,25 @@ func defaultPermissionReadiness() map[string]CapabilityStatus {
 	return map[string]CapabilityStatus{
 		"analyze": {
 			Status: "unknown",
-			Reason: "table-specific ANALYZE permission checked at execution",
-		},
-		"create_schema_object": {
-			Status: "unknown",
-			Reason: "schema CREATE privilege not checked in this slice",
+			Reason: "maintenance privilege not probed",
 		},
 		"read_stats": {
 			Status: "unknown",
 			Reason: "pg_stat access depends on configured grants",
 		},
 	}
+}
+
+// extensionHints are the adapter's informative extension states; an
+// "unknown" entry says nothing about how to enable the extension.
+func extensionHints(adapter map[string]string) map[string]string {
+	hints := make(map[string]string, len(adapter))
+	for name, state := range adapter {
+		if state != "" && state != "unknown" {
+			hints[name] = state
+		}
+	}
+	return hints
 }
 
 func defaultExtensionReadiness() map[string]string {
@@ -339,8 +352,9 @@ func readinessBlockers(caps ProviderCapabilities) []string {
 	if caps.IsReplica {
 		blockers = append(blockers, "target is a replica")
 	}
-	if p := caps.Permissions["analyze"]; p.Status != "ok" {
-		blockers = append(blockers, "ANALYZE permission "+p.Status)
+	// "limited" is informational: ANALYZE is checked per table at execution.
+	if p := caps.Permissions["analyze"]; p.Status == "unknown" || p.Status == "" {
+		blockers = append(blockers, "ANALYZE permission unknown")
 	}
 	if s := caps.Extensions["pg_stat_statements"]; s != "available" {
 		blockers = append(blockers, "pg_stat_statements "+s)
