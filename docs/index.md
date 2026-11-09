@@ -55,6 +55,17 @@ planned improvement and the unplanned queryids (`what_if_measured`,
 re-measures remembered rejections the new minimum would admit and stops listing
 them to the tuning agent as rejected.
 
+On a write-heavy table (index-maintaining writes, that is inserts and non-HOT
+updates, above `optimizer.write_heavy_ratio_pct` of those writes plus the tuples
+read) a measured improvement must also reach
+`optimizer.write_impact_threshold_pct`; below it the candidate is rejected and
+remembered, and once the table stops being write-heavy the idea is measured
+again. An unmeasured candidate on such a table stays unverified ("write-heavy
+table; improvement unmeasured"). When the table's columns could not be read
+this cycle, column existence is left to HypoPG and PostgreSQL and an unverified
+reason says "column metadata unavailable this cycle". The per-table index cap
+counts only valid indexes, and a replacement does not count the index it drops.
+
 Provider readiness is adapter-driven for Lakebase, self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
 access, provider limitations, and action-family readiness so automation policy

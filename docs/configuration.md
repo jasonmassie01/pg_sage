@@ -305,10 +305,11 @@ llm:
   optimizer:
     enabled: true                # default
     min_query_calls: 100         # ignore ad-hoc queries below this threshold
-    max_indexes_per_table: 10    # skip tables already at this index count
+    max_indexes_per_table: 10    # cap of valid indexes; a replacement adds none
     max_include_columns: 3       # refuse proposals with a wider INCLUDE list
     max_new_per_table: 3
-    write_heavy_ratio_pct: 70
+    write_heavy_ratio_pct: 70    # % inserts + non-HOT updates vs those + tuples read
+    write_impact_threshold_pct: 15  # measured gain a write-heavy table needs
     rejection_memory:            # skip re-measuring ideas HypoPG already rejected
       enabled: true
       max_age_days: 7
