@@ -79,3 +79,13 @@ func TestInstallGivesTheLedgerTheRunningModel(t *testing.T) {
 	}
 	t.Fatal("lock_blocking missing from the view")
 }
+
+// liftModel is the model ledgerWithLift's report measured.
+const liftModel = "gpt-4o-mini"
+
+// liftModelClient is testLLMClient at endpoint running model.
+func liftModelClient(endpoint, model string) *llm.Client {
+	return llm.New(&config.LLMConfig{Enabled: true, Endpoint: endpoint, APIKey: "k",
+		Model: model, TimeoutSeconds: 5, TokenBudgetDaily: 500000},
+		func(string, string, ...any) {})
+}

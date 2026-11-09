@@ -162,12 +162,14 @@ func TestSREInvestigator_AdoptsTheModelRootOnlyWithLedgerAuthority(t *testing.T)
 		t.Fatalf("bootstrap: %v", err)
 	}
 	for _, c := range []struct {
-		k, n      int
-		authority string
-	}{{16, 16, sre.ContestAdopted}, {15, 15, sre.ContestAdvisory}} {
+		k, n                    int
+		model, authority, cause string
+	}{{16, 16, liftModel, sre.ContestAdopted, ""},
+		{15, 15, liftModel, sre.ContestAdvisory, "below 0.80"},
+		{16, 16, "m", sre.ContestAdvisory, `the investigator runs "m"`}} {
 		svc, err := newSREInvestigator(sreInvestigatorDeps{control: pool, monitored: pool,
 			runner: twoEdgeRunner{}, name: "w3a_db", settings: reviewSettings(),
-			llm: testLLMClient(reversingModel(t), true), dailyTokens: 500000,
+			llm: liftModelClient(reversingModel(t), c.model), dailyTokens: 500000,
 			notices: &sre.OnceLog{}, runtimeKey: fmt.Sprintf("w3a:%d", time.Now().UnixNano()),
 			logFn: func(string, string, ...any) {},
 			rootAuthority: registryRootAuthority{registry: ledgerWithLift(t, pool, c.k, c.n),
@@ -185,7 +187,7 @@ func TestSREInvestigator_AdoptsTheModelRootOnlyWithLedgerAuthority(t *testing.T)
 			t.Fatal(err)
 		}
 		mc := d.Investigation.Summary.ModelContest
-		if mc == nil || mc.Authority != c.authority {
+		if mc == nil || mc.Authority != c.authority || !strings.Contains(mc.Reason, c.cause) {
 			t.Fatalf("%d/%d: contest = %+v (summary %+v)", c.k, c.n, mc,
 				d.Investigation.Summary)
 		}
