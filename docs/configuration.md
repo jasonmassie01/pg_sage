@@ -1628,6 +1628,19 @@ reconcile pass. After an upgrade, a rollback older than the newest rollback the 
 already read is not judged, and one that happened before the pair's level was last set never
 demotes it.
 
+**How live outcomes are read.** Each reconcile pass reads the approved L2 handoffs and the L3
+executions of the last 30 days forward from a cursor kept per database in
+`sage.trust_ledger_state` (`handoff_cursor`, `auto_cursor`), at most 1000 of each kind per
+pass, so a busy database's newest actions are reached within a few passes. The cursor moves
+past an action only once it is 5 minutes old, so an action whose transaction commits late is
+still read. An action still waiting for its verification verdict, or whose L3 notification
+failed, stays in a pending set (`handoff_pending`, `auto_pending`, at most 1000 each) and is
+read again by id each pass until it is recorded and notified. The reconciler stops waiting for
+a pending action once it is older than 30 days, or when the set overflows (the oldest go
+first). It logs a warning naming the action ids, whose outcomes are then not recorded. A pass
+that finds nothing new writes nothing and keeps the evidence cache. After an upgrade the
+cursors are empty, so the first pass reads the 30 days as before.
+
 **Model-sourced roots (measured).** When an investigation's causal graph is conclusive and
 the model ranks another open hypothesis first, the model's root is advisory (L1) by default:
 the graph's root stands and the investigation shows the contest (`model_contest`). The model
