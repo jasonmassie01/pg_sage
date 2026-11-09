@@ -691,7 +691,7 @@
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle, or snapshot.",
+    "doc": "Clone provider: none or dle (Database Lab).",
     "class": "safety_critical"
   },
   "cloud_telemetry.aws.db_cluster_identifier": {
@@ -2338,7 +2338,7 @@
   "sre.autonomy.game_days.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Run game days. Needs clone.provider (dle or snapshot) or local_dsn. Default: false.",
+    "doc": "Run game days. Needs clone.provider dle or local_dsn. Default: false.",
     "class": "safety_critical"
   },
   "sre.autonomy.game_days.families": {

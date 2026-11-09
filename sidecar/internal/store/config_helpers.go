@@ -206,7 +206,7 @@ func validateByType(vtype, key, value string) error {
 		})
 	case "clone_provider":
 		return validateEnum(key, value, map[string]bool{
-			"none": true, "dle": true, "snapshot": true,
+			"none": true, "dle": true,
 		})
 	case "mcp_transport":
 		return validateEnum(key, value, map[string]bool{

@@ -35,7 +35,7 @@ type IOCapacityConfig struct {
 }
 
 type CloneProviderConfig struct {
-	Provider           string `yaml:"provider" doc:"Clone provider: none, dle, or snapshot."`
+	Provider           string `yaml:"provider" doc:"Clone provider: none or dle (Database Lab)."`
 	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint."`
 	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true"`
 	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age."`
@@ -86,9 +86,12 @@ func (c *Config) validateAgentNative() error {
 		c.Verify.WriteImpactPct < 0 {
 		return fmt.Errorf("verify percentages must be non-negative")
 	}
-	if c.Clone.Provider != "none" && c.Clone.Provider != "dle" &&
-		c.Clone.Provider != "snapshot" {
-		return fmt.Errorf("clone.provider must be none, dle, or snapshot")
+	if c.Clone.Provider == "snapshot" {
+		return fmt.Errorf("clone.provider snapshot has no adapter in this build: " +
+			"use dle or none")
+	}
+	if c.Clone.Provider != "none" && c.Clone.Provider != "dle" {
+		return fmt.Errorf("clone.provider must be none or dle")
 	}
 	if c.Clone.Provider == "dle" && c.Clone.DLEEndpoint == "" {
 		return fmt.Errorf("clone.dle_endpoint is required for dle provider")

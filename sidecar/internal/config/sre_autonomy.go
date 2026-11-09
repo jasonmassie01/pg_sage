@@ -36,7 +36,7 @@ type SREAutonomyConfig struct {
 // SREGameDaysConfig configures game days: PGIncidentBench fault programs
 // on a disposable clone (clone.provider) of the customer's database.
 type SREGameDaysConfig struct {
-	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider (dle or snapshot) or local_dsn. Default: false."`
+	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider dle or local_dsn. Default: false."`
 	IntervalHours int      `yaml:"interval_hours" doc:"Hours between scheduled game days, 24-2160. Default: 168."`
 	LocalDSN      string   `yaml:"local_dsn" doc:"Fallback when clone.provider is none: a database for game days and local bench runs, on its own cluster and marked by COMMENT ON DATABASE <db> IS 'pg_sage:gameday_target'." secret:"true"`
 	Families      []string `yaml:"families" doc:"Incident families to exercise. Empty: every family the bench covers."`
