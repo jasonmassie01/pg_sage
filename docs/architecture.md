@@ -172,6 +172,27 @@ includes case projection, shadow report, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
+**Header and context strip.** The header says which database you are looking
+at, its mode and what pg_sage may do there right now. With one database
+selected, the trust badge shows its level, and its tooltip lists the action
+families that run without approval now ("Auto-executes now: analyze_table"),
+or "Nothing auto-executes right now". The list comes from each family's
+policy decision, which the server takes from the executor's gate on every
+status read, so it already accounts for the trust ramp, a disabled executor,
+replicas and the emergency stop. A database that is emergency-stopped never
+lists a family. In the all-databases view, a fleet on one level shows that
+level, and a fleet on several shows every level in use, for example
+"Mixed · 9 autonomous · 1 observation" (a database that has not reported a
+level counts as "unknown", never as autonomous). The tooltip then names, per
+family, the databases that run it unattended. The context strip under the
+header repeats this in words ("Can run without approval now: create_index,
+analyze_table. Everything else queues for approval or is blocked by policy.")
+and, in the all-databases view, says how many databases are emergency-stopped.
+The pending-approvals badge counts the selected database, or the whole fleet
+in the all-databases view, the same scope as the Actions list. When a
+database could not be counted (not connected, or its read failed) the badge
+shows "3+" and its tooltip names the databases left out.
+
 **Data freshness.** The header shows how current the page is. "Live" means the
 `/api/v1/events` stream is open and pages refresh as changes are pushed.
 "Polling, updated 40 s ago" means the stream is not live yet, or dropped; pages
