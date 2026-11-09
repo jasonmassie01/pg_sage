@@ -150,25 +150,31 @@ func databaseInverse(sql, name, database string) string {
 	return "ALTER DATABASE " + sanitize.QuoteIdentifier(database) + sql[len("ALTER SYSTEM"):]
 }
 
+// tenantConfigGuidance is a tenant provider's advisory note; it names the
+// setting and the provider, so a withheld change says what it was and why.
 func tenantConfigGuidance(provider, name, settingContext string) string {
+	return fmt.Sprintf(" (%s on %s: %s)", name, provider,
+		tenantGuidanceText(provider, name, settingContext))
+}
+
+func tenantGuidanceText(provider, name, settingContext string) string {
 	if settingContext == "" {
-		return fmt.Sprintf(" (Verify pg_settings.context and privileges for %s "+
-			"before applying.)", name)
+		return "Verify pg_settings.context and privileges before applying."
 	}
 	if provider == "lakebase" {
-		return " (Lakebase manages instance settings; only permitted user-context " +
+		return "Lakebase manages instance settings; only permitted user-context " +
 			"session/database/role settings can be changed. ALTER SYSTEM and instance " +
-			"changes are unavailable.)"
+			"changes are unavailable."
 	}
 	if provider == "supabase" {
 		if strings.HasPrefix(name, "auto_explain.") {
-			return " (Supabase supports auto_explain settings for the privileged postgres " +
-				"role; review ALTER ROLE scope and logging overhead before applying.)"
+			return "Supabase supports auto_explain settings for the privileged postgres " +
+				"role; review ALTER ROLE scope and logging overhead before applying."
 		}
-		return " (Use a supported Supabase Postgres config API/CLI control for instance " +
+		return "Use a supported Supabase Postgres config API/CLI control for instance " +
 			"settings; some privileged settings are permitted at role scope. Verify the " +
-			"setting and restart needs.)"
+			"setting and restart needs."
 	}
-	return " (Neon controls instance settings; use permitted session/database/role settings. " +
-		"Consult Neon support for instance changes; availability is not guaranteed.)"
+	return "Neon controls instance settings; use permitted session/database/role settings. " +
+		"Consult Neon support for instance changes; availability is not guaranteed."
 }
