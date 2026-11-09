@@ -108,4 +108,8 @@ release:
   # ci-05: a draft until the release job has smoke-tested the archived
   # binary; that job then publishes it.
   draft: true
+  # A rerun of the release job (a flaky Rekor call, a failed smoke test)
+  # deletes the draft the failed run left, so the publish step finds only
+  # this run's verified draft for the tag.
+  replace_existing_draft: true
   prerelease: auto

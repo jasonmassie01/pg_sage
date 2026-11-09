@@ -1022,7 +1022,8 @@ jobs:
     needs: [test, test-arm64, agent-servers, lint, bench-sign, integration-matrix, security,
       container-health]
     # master pushes publish :edge and :sha-*; release tags publish the
-    # semver tags and move :latest, so :latest is always a release.
+    # semver tags, and stable ones (no -rc) move :latest, so :latest is
+    # always a stable release.
     # A tag image needs verified signed bench reports; :edge is published
     # without them when bench-sign fails or is skipped (the sidecar starts
     # cleanly with no shipped reports). A tag image also needs the
@@ -1051,6 +1052,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # :latest moves on a stable tag only; a v*-rc tag publishes :X.Y.Z-rcN.
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -1059,7 +1061,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=edge,branch=master
             type=sha
 
@@ -1151,7 +1153,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=edge,branch=master
             type=sha
 

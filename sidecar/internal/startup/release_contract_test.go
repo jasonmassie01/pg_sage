@@ -290,7 +290,10 @@ type goreleaserCfg struct {
 		Documents []string `yaml:"documents"`
 	} `yaml:"sboms"`
 	Release struct {
-		Draft bool `yaml:"draft"`
+		Draft                bool   `yaml:"draft"`
+		ReplaceExistingDraft bool   `yaml:"replace_existing_draft"`
+		UseExistingDraft     bool   `yaml:"use_existing_draft"`
+		NameTemplate         string `yaml:"name_template"`
 	} `yaml:"release"`
 }
 

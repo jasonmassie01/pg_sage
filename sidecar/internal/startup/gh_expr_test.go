@@ -9,7 +9,7 @@ import (
 
 // ci-05: a small evaluator for the GitHub Actions expressions the release
 // gates use (&&, ||, !, ==, !=, parentheses, string literals, contexts,
-// always(), success(), failure(), cancelled() and startsWith()), so the
+// always(), success(), failure(), cancelled(), startsWith() and contains()), so the
 // release tests can ask "does this job run when lint failed on a tag?"
 // instead of matching substrings of the if.
 
@@ -193,6 +193,13 @@ func (p *ghParser) call(fn string) (any, error) {
 			return nil, fmt.Errorf("startsWith takes 2 arguments, got %d", len(args))
 		}
 		return strings.HasPrefix(fmt.Sprint(args[0]), fmt.Sprint(args[1])), nil
+	case "contains":
+		if len(args) != 2 {
+			return nil, fmt.Errorf("contains takes 2 arguments, got %d", len(args))
+		}
+		// GitHub compares strings without regard to case.
+		return strings.Contains(strings.ToLower(fmt.Sprint(args[0])),
+			strings.ToLower(fmt.Sprint(args[1]))), nil
 	}
 	return nil, fmt.Errorf("unknown function %s()", fn)
 }
@@ -275,15 +282,40 @@ func TestGHIfEvaluatesGateExpressions(t *testing.T) {
 func TestGHIfRejectsMalformedExpressions(t *testing.T) {
 	st := pushState("refs/tags/v1.0.0", nil)
 	for _, cond := range []string{
-		"always() && (github.ref == 'x'",   // unclosed paren
-		"always() && github.ref == 'x",     // unterminated string
-		"always() && startsWith('a')",      // wrong arity
-		"always() && contains(github.ref)", // unsupported function
-		"always() && github.ref == 'x' )",  // trailing token
-		"always() && github.ref ~ 'x'",     // unknown operator
+		"always() && (github.ref == 'x'",        // unclosed paren
+		"always() && github.ref == 'x",          // unterminated string
+		"always() && startsWith('a')",           // wrong arity
+		"always() && contains(github.ref)",      // wrong arity
+		"always() && endsWith(github.ref, 'x')", // unsupported function
+		"always() && github.ref == 'x' )",       // trailing token
+		"always() && github.ref ~ 'x'",          // unknown operator
 	} {
 		if got, err := ghIf(cond, st); err == nil {
 			t.Errorf("ghIf(%q) = %v, want a parse error", cond, got)
+		}
+	}
+}
+
+func TestGHIfContains(t *testing.T) {
+	cases := []struct {
+		cond, ref string
+		want      bool
+	}{
+		{"contains(github.ref, '-')", "refs/tags/v2.6.0-rc1", true},
+		{"contains(github.ref, '-')", "refs/tags/v2.6.0", false},
+		{"contains(github.ref, 'RC')", "refs/tags/v2.6.0-rc1", true},
+		{"!contains(github.ref, '-')", "refs/tags/v2.6.0", true},
+		{"!contains(github.ref, '-')", "refs/tags/v2.6.0-rc1", false},
+		{"contains(github.ref, '')", "refs/tags/v2.6.0", true},
+		{"contains(github.missing, '-')", "refs/tags/v2.6.0-rc1", false},
+	}
+	for _, c := range cases {
+		got, err := ghIf(c.cond, pushState(c.ref, nil))
+		if err != nil {
+			t.Fatalf("ghIf(%q) on %s: %v", c.cond, c.ref, err)
+		}
+		if got != c.want {
+			t.Errorf("ghIf(%q) on %s = %v, want %v", c.cond, c.ref, got, c.want)
 		}
 	}
 }
