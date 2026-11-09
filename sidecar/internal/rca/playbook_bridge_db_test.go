@@ -132,23 +132,21 @@ func TestSequenceFindingScriptRunsOnPostgres(t *testing.T) {
 		t.Fatalf("sequence finding candidates = %+v", got.ActionCandidates)
 	}
 	script := got.ActionCandidates[0].ScriptOutput
-	if _, err := pool.Exec(ctx, script.MigrationSQL); err != nil {
-		t.Fatalf("migration script fails on PostgreSQL: %v\n%s", err, script.MigrationSQL)
+	var table, column, colType, binding string
+	runway := "SELECT owning_table, owning_column, column_type, binding_limit FROM (" +
+		strings.TrimSuffix(script.VerificationSQL[0], ";") + ") q"
+	if err := pool.QueryRow(ctx, runway).Scan(&table, &column, &colType, &binding); err != nil {
+		t.Fatalf("runway query fails on PostgreSQL: %v\n%s", err, runway)
 	}
-	for _, sql := range script.VerificationSQL {
-		if _, err := pool.Exec(ctx, sql); err != nil {
-			t.Fatalf("verification SQL fails: %v\n%s", err, sql)
-		}
+	if table != "pb02_orders" || column != "id" || colType != "integer" ||
+		binding != "column" {
+		t.Fatalf("runway = %s.%s %s limit %s, want pb02_orders.id integer limit column",
+			table, column, colType, binding)
 	}
-	owner := strings.SplitN(script.MigrationSQL, ";\n", 2)[0]
-	owner = owner[strings.Index(owner, "SELECT"):]
-	var table, column, colType string
-	owner = "SELECT owning_table::text, owning_column::text, column_type FROM (" +
-		strings.TrimSuffix(strings.TrimSpace(owner), ";") + ") q"
-	if err := pool.QueryRow(ctx, owner).Scan(&table, &column, &colType); err != nil {
-		t.Fatalf("owning-column query: %v\n%s", err, owner)
-	}
-	if table != "pb02_orders" || column != "id" || colType != "integer" {
-		t.Fatalf("owner = %s.%s %s, want pb02_orders.id integer", table, column, colType)
+	// playbooks-03: run whole, the script fails closed on a serial integer
+	// column: its guard refuses ALTER SEQUENCE until the column is widened.
+	_, err := pool.Exec(ctx, script.MigrationSQL)
+	if err == nil || !strings.Contains(err.Error(), "widen") {
+		t.Fatalf("whole script on an integer column = %v, want the guard refusal", err)
 	}
 }

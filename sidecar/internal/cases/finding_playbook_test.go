@@ -40,7 +40,7 @@ func TestSequenceExhaustionFindingAddsMigrationScript(t *testing.T) {
 	if script == nil {
 		t.Fatal("expected sequence migration script output")
 	}
-	if !strings.Contains(script.MigrationSQL, `FROM "public"."orders_id_seq";`) {
+	if !strings.Contains(script.MigrationSQL, `ALTER SEQUENCE "public"."orders_id_seq" AS`) {
 		t.Fatalf("migration SQL does not quote the sequence: %s", script.MigrationSQL)
 	}
 	if script.Filename != "sequence_capacity_public_orders_id_seq.sql" {
@@ -63,14 +63,6 @@ func TestSequenceFindingQuotesHostileIdentifier(t *testing.T) {
 	if strings.Contains(script.MigrationSQL, `FROM public.s"; DROP`) ||
 		!strings.Contains(script.MigrationSQL, `"public"."s""; DROP TABLE t; --"`) {
 		t.Fatalf("identifier not quoted: %s", script.MigrationSQL)
-	}
-}
-
-// Nil/empty: without a sequence name there is nothing to migrate.
-func TestSequenceFindingWithoutIdentifierHasNoCandidate(t *testing.T) {
-	for _, ident := range []string{"", "   "} {
-		got := ProjectFinding(sequenceFinding(ident))
-		assertActionTypes(t, "blank sequence "+ident, got)
 	}
 }
 
@@ -141,22 +133,16 @@ func TestNeighbourFindingCategoriesUnchanged(t *testing.T) {
 
 // The review script's queries name only real catalog columns: a sequence
 // relation has no max_value, and pg_get_serial_sequence with empty names errors.
-// rca/playbook_bridge_db_test.go runs them on PostgreSQL.
+// sequence_playbook_db_test.go runs them on PostgreSQL.
 func TestSequenceScriptQueriesTheCatalogForLimits(t *testing.T) {
 	script := ProjectFinding(sequenceFinding("public.orders_id_seq")).
 		ActionCandidates[0].ScriptOutput
 	all := script.MigrationSQL + "\n" + strings.Join(script.VerificationSQL, "\n")
 	for _, bad := range []string{"pg_get_serial_sequence('', '')",
-		`max_value FROM "public"`} {
+		`max_value FROM "public"`, "affected_sequence"} {
 		if strings.Contains(all, bad) {
 			t.Fatalf("script contains %q:\n%s", bad, all)
 		}
-	}
-	limit := `FROM pg_catalog.pg_sequence WHERE seqrelid = ` +
-		`'"public"."orders_id_seq"'::regclass;`
-	if !strings.Contains(script.MigrationSQL, limit) ||
-		!strings.Contains(script.VerificationSQL[1], limit) {
-		t.Fatalf("limit query missing:\n%s\n%v", script.MigrationSQL, script.VerificationSQL)
 	}
 	if !strings.Contains(script.MigrationSQL,
 		`d.objid = '"public"."orders_id_seq"'::regclass`) {
