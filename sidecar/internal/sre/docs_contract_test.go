@@ -34,7 +34,9 @@ func readSREDoc(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading the Sage SRE permissions doc %s: %w", path, err)
 	}
-	return string(raw), nil
+	// A Windows checkout (core.autocrlf) has CRLF line ends; the heading
+	// and row checks split on "\n".
+	return strings.ReplaceAll(string(raw), "\r\n", "\n"), nil
 }
 
 // docProblems is every way doc contradicts the code; none means it holds.

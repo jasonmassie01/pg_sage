@@ -3,6 +3,8 @@ package sre
 import (
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,6 +47,24 @@ func TestDocsContract_MissingFileFailsNotSkips(t *testing.T) {
 	_, err := readSREDoc("../../../docs/no-such-sre-doc.md")
 	if !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), "no-such-sre-doc") {
 		t.Fatalf("err = %v, want a not-exist error naming the file", err)
+	}
+}
+
+// A CRLF checkout of the same page must pass: the section and row checks
+// would otherwise miss "### Action privileges\r".
+func TestDocsContract_CRLFCheckoutPasses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "crlf.md")
+	crlf := strings.ReplaceAll(realSREDoc(t), "\n", "\r\n")
+	if err := os.WriteFile(path, []byte(crlf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := readSREDoc(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := docProblems(doc); len(problems) > 0 {
+		t.Fatalf("a CRLF checkout of the doc fails the contract:\n%s",
+			strings.Join(problems, "\n"))
 	}
 }
 
