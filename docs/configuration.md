@@ -1696,6 +1696,25 @@ waits five minutes plus a delay derived from its name (under an hour), so a flee
 not start its game days together. Clone providers (`dle`, `snapshot`) give each run its
 own clone and are not serialized.
 
+A run that its sidecar never finished (a crash, `kill -9`, a redeploy mid-run) is
+cleaned up afterwards. Game days and local bench runs are both recorded in
+`sage.sre_game_days` (`kind` is `game_day` or `local`; the game-day list and schedule
+read only game days), and each run's clone id is recorded as soon as the clone exists. A
+run still `running` 6 hours after it started (no run lives that long) is marked
+`abandoned` and its recorded clone destroyed: game days at each hourly check, local
+bench runs at startup and before each new run. A younger `running` row may be another
+sidecar's live run and is left alone. A clone that cannot be destroyed is named in the
+row's `error`, for the operator to remove; with `local_dsn` nothing is destroyed (the
+target stays). Shutdown no longer stops a fault program's recovery: it finishes on a
+2-minute budget of its own. Before any fault program runs, a run also removes what a
+crashed run left on the target's cluster, under the same cluster lock the WAL and
+checkpoint programs hold: `ALTER SYSTEM` settings a fault program recorded in
+`sage.bench_fixture_state` on the target are reset, inactive `bench_slot_*` replication
+slots are dropped, and bench prepared transactions (`bench_gid_*`, `bench_prepared_*`)
+prepared more than 6 hours ago are rolled back. Nothing a bench did not name or record
+is touched: an operator's own `ALTER SYSTEM` setting, another slot or an application's
+prepared transaction stays.
+
 #### Bench evidence: signed release reports and local runs
 
 L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:
