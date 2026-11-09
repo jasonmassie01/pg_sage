@@ -225,3 +225,25 @@ func TestWatchedConfigRefusesBlockedAlertTarget(t *testing.T) {
 		t.Fatalf("desired generation = %d, want %d (reload refused)", got, before)
 	}
 }
+
+// The Slack channel gets the same build-time check as webhooks: a
+// link-local Slack URL builds nothing, even with private targets allowed.
+func TestBuildAlertRoutes_BlockedSlackURLBuildsNoChannel(t *testing.T) {
+	c := slackRoutedConfig()
+	c.Alerting.SlackWebhookURL = "https://169.254.169.254/services/T/B/secret"
+	c.NotificationPolicy.AllowPrivateTargets = true
+	var log routeLog
+	if n := len(buildAlertRoutes(c, log.logFn)["critical"]); n != 0 {
+		t.Fatalf("link-local Slack URL built %d channels", n)
+	}
+	if len(log.lines) != 1 || !strings.HasPrefix(log.lines[0], "ERROR") ||
+		!strings.Contains(log.lines[0], "alerting.slack_webhook_url") ||
+		strings.Contains(log.lines[0], "secret") {
+		t.Fatalf("log = %q, want one ERROR naming the key without the URL", log.lines)
+	}
+	c.Alerting.SlackWebhookURL = "https://hooks.slack.com/services/T/B/x"
+	routes := buildAlertRoutes(c, nil)["critical"]
+	if len(routes) != 1 || routes[0].Name() != "slack" {
+		t.Fatalf("public Slack URL routes = %v, want the slack channel", routes)
+	}
+}
