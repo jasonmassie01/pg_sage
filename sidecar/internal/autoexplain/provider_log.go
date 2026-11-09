@@ -93,6 +93,9 @@ func StoreObservedPlan(ctx context.Context, pool *pgxpool.Pool, plan ObservedPla
 	if pool == nil || plan.QueryID == 0 || plan.CapturedAt.IsZero() || !json.Valid(plan.JSON) {
 		return errors.New("observed plan requires a pool, query identifier, timestamp and valid JSON")
 	}
+	// Resolve partition roots before the store transaction holds a
+	// connection. A failed read leaves the v2u fingerprint, which records it.
+	hash, _ := planHashParam(ctx, pool, plan.JSON)
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin observed plan store: %w", err)
@@ -114,7 +117,7 @@ func StoreObservedPlan(ctx context.Context, pool *pgxpool.Pool, plan ObservedPla
 		WHERE NOT EXISTS (SELECT 1 FROM sage.explain_cache
 			WHERE queryid=$1 AND captured_at=$6 AND source='auto_explain_log' AND plan_json=$3::jsonb)`,
 		plan.QueryID, plan.Query, plan.JSON, plan.TotalCost, plan.ExecutionMS, plan.CapturedAt,
-		planHashParam(plan.JSON))
+		hash)
 	if err != nil {
 		return fmt.Errorf("store observed auto_explain plan: %w", err)
 	}
