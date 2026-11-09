@@ -59,9 +59,10 @@ func (r *PostgresRepository) InsertDecision(
 const insertDecisionColumns = `INSERT INTO sage.decision
 	(database_id, feature, intent, target_objects, policy_version, verdict,
 	 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
-	 fingerprint, principal_id, task_id, artifact_hash, candidate_key)
+	 fingerprint, principal_id, task_id, artifact_hash, candidate_key,
+	 guardrails, off_window_ok, policy_doc_sha256)
 	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
-	        NULLIF($14,''),NULLIF($15,''),NULLIF($16,''),$17)`
+	        NULLIF($14,''),NULLIF($15,''),NULLIF($16,''),$17,$18,$19,$20)`
 
 const insertDecisionSQL = insertDecisionColumns + ` RETURNING id`
 
@@ -95,13 +96,18 @@ func (r *PostgresRepository) LinkQueue(
 	return tag.RowsAffected() == 1, nil
 }
 
-// decisionValues encodes a decision as the 17 INSERT parameters. An insert
-// that is not an upsert stores no fingerprint, so it can never collide
-// with an open fingerprinted row. Every row carries its candidate key.
+// decisionValues encodes a decision as the decisionParamCount INSERT
+// parameters. An insert that is not an upsert stores no fingerprint, so it
+// can never collide with an open fingerprinted row. Every row carries its
+// candidate key and its policy provenance (policy-03).
 func decisionValues(input DecisionInput) ([]any, error) {
 	targets, err := json.Marshal(input.TargetObjects)
 	if err != nil {
 		return nil, fmt.Errorf("persist decision targets: %w", err)
+	}
+	guardrails, err := json.Marshal(nonNilStrings(input.Guardrails))
+	if err != nil {
+		return nil, fmt.Errorf("persist decision guardrails: %w", err)
 	}
 	evidence := cloneEvidence(input.Evidence)
 	if input.ProposedSQL != "" {
@@ -114,7 +120,31 @@ func decisionValues(input DecisionInput) ([]any, error) {
 	return []any{input.DatabaseID, input.Feature, input.Intent, targets,
 		input.PolicyVersion, input.Verdict, input.RiskTier, input.Reason, evidenceJSON,
 		input.EvidenceID, input.DeadlineKind, input.DeadlineHardAt, nil,
-		input.PrincipalID, input.TaskID, input.ArtifactHash, CandidateKey(input)}, nil
+		input.PrincipalID, input.TaskID, input.ArtifactHash, CandidateKey(input),
+		guardrails, input.OffWindowOK, nilIfEmpty(input.PolicySHA256)}, nil
+}
+
+// The decisionValues parameters the provenance tests and the upsert name.
+const (
+	guardrailsParam    = 17 // $18
+	offWindowParam     = 18 // $19
+	policyHashParam    = 19 // $20
+	decisionParamCount = 20
+)
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+// nilIfEmpty stores "" as NULL: a decision that read no policy has no hash.
+func nilIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // FindAuditViolations reports recent actions that lack a decision or a

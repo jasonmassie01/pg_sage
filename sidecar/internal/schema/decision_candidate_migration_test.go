@@ -11,9 +11,13 @@ import (
 // verdicts, and idx_decision_candidate_open finds its open rows when an
 // execute ends the episode.
 
-func TestDecisionCandidateMigrationIsRegisteredLastAndBounded(t *testing.T) {
-	statements := migrationStatements()
-	last := statements[len(statements)-1]
+func TestDecisionCandidateMigrationIsRegisteredAndBounded(t *testing.T) {
+	var last string
+	for _, statement := range migrationStatements() {
+		if strings.Contains(statement, "idx_decision_candidate_open") {
+			last = statement
+		}
+	}
 	if !strings.Contains(last, "candidate_key") ||
 		!strings.Contains(last, "idx_decision_candidate_open") {
 		t.Fatalf("the last migration is not the candidate-key step:\n%s", last)

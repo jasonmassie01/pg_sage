@@ -104,7 +104,9 @@ func (r *PostgresRepository) UpsertDecision(
 // upsertDecisionSQL bumps only unindexed columns on a repeat, so the
 // update stays HOT unless the deadline changed. candidate_key is indexed
 // but unchanged on a repeat (it is derived from the fingerprint's inputs),
-// except on a row written before policy-02, which gains its key here.
+// except on a row written before policy-02, which gains its key here. A
+// repeat records the latest guardrails and deadline override; the policy
+// hash is the version's (the version is in the fingerprint), so it stays.
 const upsertDecisionSQL = insertDecisionColumns + `
 	ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL AND resolved_at IS NULL
 	DO UPDATE SET repeat_count = sage.decision.repeat_count + 1,
@@ -112,7 +114,9 @@ const upsertDecisionSQL = insertDecisionColumns + `
 	              risk_tier = EXCLUDED.risk_tier, evidence = EXCLUDED.evidence,
 	              deadline_kind = EXCLUDED.deadline_kind,
 	              deadline_hard_at = EXCLUDED.deadline_hard_at,
-	              candidate_key = EXCLUDED.candidate_key
+	              candidate_key = EXCLUDED.candidate_key,
+	              guardrails = EXCLUDED.guardrails,
+	              off_window_ok = EXCLUDED.off_window_ok
 	RETURNING id, evidence_id`
 
 // fingerprintParam is the index of $13, fingerprint, in decisionValues.

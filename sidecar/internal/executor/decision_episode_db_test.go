@@ -68,7 +68,7 @@ func recordInBudget(
 	if err != nil {
 		t.Fatalf("serializeBudget: %v", err)
 	}
-	_, id, err := exec.recordStandingDecision(lockedCtx, 1, req, decision)
+	_, id, err := exec.recordStandingDecisionAt(lockedCtx, 1, req, decision)
 	if endErr := done(err == nil); endErr != nil && err == nil {
 		t.Fatalf("end the budget transaction: %v", endErr)
 	}
@@ -138,7 +138,7 @@ func TestResolveFailureFailsTheBudgetRecord(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '100ms'`); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = exec.recordStandingDecision(lockedCtx, 1, req, episodeExecute)
+	_, _, err = exec.recordStandingDecisionAt(lockedCtx, 1, req, episodeExecute)
 	var pgErr *pgconn.PgError
 	if err == nil || !errors.As(err, &pgErr) || pgErr.Code != "55P03" {
 		t.Fatalf("execute record = %v, want the resolve's lock_not_available", err)
@@ -159,10 +159,10 @@ func TestResolveFailureFailsTheBudgetRecord(t *testing.T) {
 // approved execute ends an autonomous park of the same change.
 func TestLedgerInputCandidateKeySpansVerdictsAndIntent(t *testing.T) {
 	f := createIndexFinding("public.episode_key")
-	park := ledgerInput(nil, 1, findingRequest(f, false), episodePark)
+	park := ledgerInputAt(nil, 1, findingRequest(f, false), episodePark)
 	approved := findingRequest(f, false)
 	approved.OperatorApproved = true
-	execute := ledgerInput(nil, 2, approved, episodeExecute)
+	execute := ledgerInputAt(nil, 2, approved, episodeExecute)
 	if park.Intent == execute.Intent {
 		t.Fatalf("intents %q and %q: the test needs them to differ", park.Intent,
 			execute.Intent)

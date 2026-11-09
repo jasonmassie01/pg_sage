@@ -43,7 +43,8 @@ func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) D
 	return decisionForRequest(req, gate.evaluate(ctx, req))
 }
 
-func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) Decision {
+// evaluateRequest is evaluate without the policy provenance stamp.
+func (gate *authorizationGate) evaluateRequest(ctx context.Context, req ActionRequest) Decision {
 	runtime, err := gate.runtime(ctx, req)
 	if err != nil {
 		return blocked(ReasonPolicyUnavailable, err.Error())
@@ -258,7 +259,11 @@ func (gate *authorizationGate) policy(
 	if gate.config.Policy == nil {
 		return Document{}, ErrPolicyNotFound
 	}
-	return gate.config.Policy(ctx, req)
+	doc, err := gate.config.Policy(ctx, req)
+	if err == nil {
+		noteDocumentRead(ctx, doc)
+	}
+	return doc, err
 }
 
 func (gate *authorizationGate) usage(

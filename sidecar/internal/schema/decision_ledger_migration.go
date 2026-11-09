@@ -35,8 +35,6 @@ var ledgerIndexes = []ledgerIndex{
 		"(action_log_id) WHERE action_log_id IS NOT NULL"},
 	{"idx_decision_queue", "decision",
 		"INDEX %I ON sage.decision (queue_id) WHERE queue_id IS NOT NULL"},
-	{"idx_decision_policy", "decision",
-		"INDEX %I ON sage.decision (policy_id) WHERE policy_id IS NOT NULL"},
 	{"idx_verification_decision", "verification",
 		"INDEX %I ON sage.verification (decision_id)"},
 	{"idx_change_lease_decision", "change_lease",

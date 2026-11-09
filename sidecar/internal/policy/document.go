@@ -89,6 +89,11 @@ type Document struct {
 	RefusalSet              []string
 	UnknownClassification   string
 	SerializeMode           string
+	// Version and SHA256 name the stored policy row the document was read
+	// from: its version and the SHA-256 of its stored jsonb text
+	// (DocumentFromPolicy). Both are zero for a document read from nowhere.
+	Version int64
+	SHA256  string
 }
 
 type documentWire struct {

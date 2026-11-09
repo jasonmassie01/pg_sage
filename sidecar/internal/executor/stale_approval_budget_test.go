@@ -32,6 +32,13 @@ import (
 func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	_, ctx := requireDB(t) // skips without a database; serializes packages
+	return anotherSageDB(t, ctx), ctx
+}
+
+// anotherSageDB is a further throwaway sage database for a test that
+// already called requireDB (which holds the cross-package lock).
+func anotherSageDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
 	admin, err := pgxpool.New(ctx, testDSN())
 	if err != nil {
 		t.Fatalf("admin pool: %v", err)
@@ -63,7 +70,7 @@ func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
 		t.Fatalf("config migration: %v", err)
 	}
-	return pool, ctx
+	return pool
 }
 
 // lifeosPolicy is lifeos's standing policy (sage.policy id 1) as stored:

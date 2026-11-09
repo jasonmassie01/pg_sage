@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -60,8 +62,17 @@ func (e *Executor) warnInvalidStoredPolicy(current policy.Policy) {
 	}
 }
 
+// policyReader reads the standing policy in force for a scope
+// (policy.Store.Current).
+type policyReader interface {
+	Current(context.Context, policy.Scope) (policy.Policy, error)
+}
+
+// newStandingPolicyGate reads the policy once per decision: the decision
+// carries the version and document hash the gate evaluated, and the
+// recorder writes those (policy-03), never a second read's.
 func (e *Executor) newStandingPolicyGate(
-	store *policy.Store, scope policy.Scope,
+	store policyReader, scope policy.Scope,
 ) policy.Gate {
 	return policy.NewGate(policy.GateConfig{
 		Runtime: func(ctx context.Context, request policy.ActionRequest) (policy.RuntimeState, error) {
@@ -80,31 +91,19 @@ func (e *Executor) newStandingPolicyGate(
 			if err != nil {
 				return policy.Document{}, err
 			}
-			doc, err := policy.ParseDocument(current.Document)
-			if err == nil {
-				doc.Profile = policy.Profile(current.Profile)
-			}
-			return doc, err
+			return policy.DocumentFromPolicy(current)
 		},
-		RecordDecisionDetailed: func(
-			ctx context.Context, request policy.ActionRequest, decision policy.Decision,
-		) (string, int64, error) {
-			current, err := store.Current(ctx, scope)
-			if err != nil {
-				return "", 0, err
-			}
-			return e.recordStandingDecision(ctx, current.Version, request, decision)
-		},
+		RecordDecisionDetailed: e.recordStandingDecision,
 	})
 }
 
+// ledgerInput maps a gate decision onto its ledger row, with the policy
+// version and hash the decision carries.
 func ledgerInput(
-	databaseID *int, policyVersion int64, request policy.ActionRequest,
-	decision policy.Decision,
+	databaseID *int, request policy.ActionRequest, decision policy.Decision,
 ) ledger.DecisionInput {
 	evidenceID := ledger.NewEvidenceID()
 	evidence := cloneCustodianEvidence(request.Evidence)
-	evidence["off_window_ok"] = decision.OffWindowOK
 	stampBudgetEvidence(evidence, request, decision)
 	stampVerificationEvidence(evidence, decision)
 	autonomyEvidence(evidence, request)
@@ -117,8 +116,9 @@ func ledgerInput(
 		Evidence:    evidence,
 		ProposedSQL: request.SQL, Verdict: ledgerVerdict(decision.Verdict),
 		Reason: string(decision.Reason), RiskTier: string(decision.RiskTier),
-		PolicyVersion: int(policyVersion), TargetObjects: request.TargetObjs,
-		EvidenceID: evidenceID,
+		PolicyVersion: int(decision.PolicyVersion), PolicySHA256: decision.PolicySHA256,
+		Guardrails: guardrailNames(decision.Guardrails), OffWindowOK: decision.OffWindowOK,
+		TargetObjects: request.TargetObjs, EvidenceID: evidenceID,
 	}
 	budgetBypassReason(&input, decision)
 	if request.Principal != nil {
@@ -170,6 +170,14 @@ func ledgerVerdict(verdict policy.Verdict) ledger.Verdict {
 	return ledger.Verdict(verdict)
 }
 
+func guardrailNames(guardrails []policy.Guardrail) []string {
+	names := make([]string, 0, len(guardrails))
+	for _, guardrail := range guardrails {
+		names = append(names, string(guardrail))
+	}
+	return names
+}
+
 func int64Pointer(value *int) *int64 {
 	if value == nil {
 		return nil
@@ -184,6 +192,7 @@ func int64Pointer(value *int) *int64 {
 // the executor has a pool. It serves embedders and tests without a policy
 // table; production executors use EnableStandingPolicyWithStore.
 func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() time.Time) {
+	doc = inMemoryDocument(doc)
 	config := policy.GateConfig{
 		Runtime: func(ctx context.Context, req policy.ActionRequest) (policy.RuntimeState, error) {
 			state := e.standingRuntimeState(ctx, req)
@@ -206,14 +215,27 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 		config.Usage = e.standingUsage
 		config.Serialize = e.serializeBudget
 		config.Verification = e.VerificationWaits()
-		config.RecordDecisionDetailed = func(
-			ctx context.Context, req policy.ActionRequest, decision policy.Decision,
-		) (string, int64, error) {
-			return e.recordStandingDecision(ctx, 1, req, decision)
-		}
+		config.RecordDecisionDetailed = e.recordStandingDecision
 		config.RecordFailed = e.reportRecordFailure
 	}
 	e.WithPolicyGate(policy.NewGate(config))
+}
+
+// inMemoryDocument names an in-memory document as version 1 with the
+// SHA-256 of its canonical encoding, so its decisions name the policy they
+// were made under as stored ones do. A document that does not encode (it
+// fails validation, and the gate blocks every action on it) has no hash.
+func inMemoryDocument(doc policy.Document) policy.Document {
+	if doc.Version == 0 {
+		doc.Version = 1
+	}
+	if doc.SHA256 == "" {
+		if raw, err := policy.MarshalDocument(doc); err == nil {
+			sum := sha256.Sum256(raw)
+			doc.SHA256 = hex.EncodeToString(sum[:])
+		}
+	}
+	return doc
 }
 
 // WithEmergencyStopCheck replaces how the executor reads the emergency-stop
