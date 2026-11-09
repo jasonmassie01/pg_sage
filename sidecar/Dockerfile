@@ -28,7 +28,8 @@ RUN CGO_ENABLED=1 go build \
 FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -g 1000 sage \
-    && adduser -u 1000 -G sage -s /sbin/nologin -D sage     && install -d -m 0700 -o sage -g sage /var/lib/pg_sage
+    && adduser -u 1000 -G sage -s /sbin/nologin -D sage \
+    && install -d -m 0700 -o sage -g sage /var/lib/pg_sage
 COPY --from=builder /build/sage-sidecar /usr/local/bin/sage-sidecar
 # Roadmap 1.1: this commit's signed PGIncidentBench reports (CI puts them
 # in release-bench/; a local build ships only the README). The sidecar

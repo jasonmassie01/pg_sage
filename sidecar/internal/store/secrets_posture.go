@@ -21,8 +21,9 @@ func CountPlaintextSecrets(ctx context.Context, pool *pgxpool.Pool) (int, error)
 		(SELECT count(*) FROM sage.config
 		  WHERE key = ANY($1) AND value <> '' AND value NOT LIKE 'sage-enc:v1:%')
 		+ (SELECT count(*) FROM sage.notification_channels c
-		  WHERE jsonb_typeof(c.config) = 'object'
-		    AND EXISTS (SELECT 1 FROM jsonb_each_text(c.config) e
+		  WHERE EXISTS (SELECT 1 FROM jsonb_each_text(CASE
+		      WHEN jsonb_typeof(c.config) = 'object' THEN c.config
+		      ELSE '{}'::jsonb END) e
 		    WHERE e.key = ANY($2) AND e.value <> ''
 		      AND e.value NOT LIKE 'sage-enc:v1:%' AND e.value NOT LIKE 'enc:v1:%'))`,
 		secretConfigKeys(), notify.SecretConfigKeys).Scan(&n)
