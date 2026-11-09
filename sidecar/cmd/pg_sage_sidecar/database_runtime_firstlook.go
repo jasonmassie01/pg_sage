@@ -353,8 +353,10 @@ func writeFirstLookMetrics(b *strings.Builder, metrics []onboarding.Metrics) {
 		var lines []string
 		for _, m := range metrics {
 			if v, ok := s.value(m); ok {
-				lines = append(lines, fmt.Sprintf("%s{database=%q} %s\n", s.name, m.Database,
-					strconv.FormatFloat(v, 'f', -1, 64)))
+				var line strings.Builder
+				writeSample(&line, s.name, dbLabel(m.Database),
+					strconv.FormatFloat(v, 'f', -1, 64))
+				lines = append(lines, line.String())
 			}
 		}
 		if len(lines) == 0 {

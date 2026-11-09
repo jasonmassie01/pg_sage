@@ -75,18 +75,18 @@ func writeDatabaseUp(b *strings.Builder, family string, db fleet.DatabaseStatus)
 	if db.Status.Connected && db.Status.Error == "" {
 		up = 1
 	}
-	fmt.Fprintf(b, "%s{database=%q} %d\n", family, db.Name, up)
+	writeSample(b, family, dbLabel(db.Name), up)
 }
 
 func writeCollectorSuccess(b *strings.Builder, family string, db fleet.DatabaseStatus) {
 	if at := db.Status.CollectorLastRun; !at.IsZero() {
-		fmt.Fprintf(b, "%s{database=%q} %d\n", family, db.Name, at.Unix())
+		writeSample(b, family, dbLabel(db.Name), at.Unix())
 	}
 }
 
 func writeAnalyzerSuccess(b *strings.Builder, family string, db fleet.DatabaseStatus) {
 	if at := db.Status.AnalyzerLastRun; !at.IsZero() {
-		fmt.Fprintf(b, "%s{database=%q} %d\n", family, db.Name, at.Unix())
+		writeSample(b, family, dbLabel(db.Name), at.Unix())
 	}
 }
 
@@ -97,13 +97,13 @@ func writeFindingsOpen(b *strings.Builder, family string, db fleet.DatabaseStatu
 		count int
 	}{{"critical", s.FindingsCritical}, {"warning", s.FindingsWarning},
 		{"info", s.FindingsInfo}} {
-		fmt.Fprintf(b, "%s{database=%q,severity=%q} %d\n", family, db.Name, sev.name,
+		writeSample(b, family, []labelPair{{"database", db.Name}, {"severity", sev.name}},
 			sev.count)
 	}
 }
 
 func writeHealthScore(b *strings.Builder, family string, db fleet.DatabaseStatus) {
-	fmt.Fprintf(b, "%s{database=%q} %d\n", family, db.Name, db.Status.HealthScore)
+	writeSample(b, family, dbLabel(db.Name), db.Status.HealthScore)
 }
 
 func writeEmergencyStopped(b *strings.Builder, family string, db fleet.DatabaseStatus) {
@@ -111,7 +111,7 @@ func writeEmergencyStopped(b *strings.Builder, family string, db fleet.DatabaseS
 	if db.EmergencyStopped {
 		stopped = 1
 	}
-	fmt.Fprintf(b, "%s{database=%q} %d\n", family, db.Name, stopped)
+	writeSample(b, family, dbLabel(db.Name), stopped)
 }
 
 // writeTrustLevel is one-hot over the known levels. No level yet (a
@@ -128,10 +128,10 @@ func writeTrustLevel(b *strings.Builder, family string, db fleet.DatabaseStatus)
 		if l == level {
 			v, known = 1, true
 		}
-		fmt.Fprintf(b, "%s{database=%q,level=%q} %d\n", family, db.Name, l, v)
+		writeSample(b, family, []labelPair{{"database", db.Name}, {"level", l}}, v)
 	}
 	if !known {
-		fmt.Fprintf(b, "%s{database=%q,level=%q} 1\n", family, db.Name, level)
+		writeSample(b, family, []labelPair{{"database", db.Name}, {"level", level}}, 1)
 	}
 }
 
@@ -139,6 +139,6 @@ func writeTrustLevel(b *strings.Builder, family string, db fleet.DatabaseStatus)
 // reporting 0; the value is the collector's cached measurement.
 func writeDatabaseSize(b *strings.Builder, family string, db fleet.DatabaseStatus) {
 	if size := db.Status.DatabaseSize; size > 0 {
-		fmt.Fprintf(b, "%s{database=%q} %d\n", family, db.Name, size)
+		writeSample(b, family, dbLabel(db.Name), size)
 	}
 }

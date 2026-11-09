@@ -54,16 +54,15 @@ func writeFleetBudgetMetrics(b *strings.Builder, budget *fleet.FleetBudget) {
 		"Fleet LLM tokens used today per database\n" +
 		"# TYPE pg_sage_llm_fleet_budget_used_tokens gauge\n")
 	for _, name := range names {
-		fmt.Fprintf(b, "pg_sage_llm_fleet_budget_used_tokens{database=%q} %d\n",
-			name, snapshot[name].Used)
+		writeSample(b, "pg_sage_llm_fleet_budget_used_tokens", dbLabel(name),
+			snapshot[name].Used)
 	}
 	b.WriteString("\n# HELP pg_sage_llm_fleet_budget_allocation_tokens " +
 		"Fleet LLM daily token allocation per database\n" +
 		"# TYPE pg_sage_llm_fleet_budget_allocation_tokens gauge\n")
 	for _, name := range names {
-		fmt.Fprintf(b,
-			"pg_sage_llm_fleet_budget_allocation_tokens{database=%q} %d\n",
-			name, snapshot[name].Allocation)
+		writeSample(b, "pg_sage_llm_fleet_budget_allocation_tokens", dbLabel(name),
+			snapshot[name].Allocation)
 	}
 	b.WriteString("\n")
 }

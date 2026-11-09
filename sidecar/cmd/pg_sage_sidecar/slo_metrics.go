@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -35,28 +34,28 @@ func writeSLOStatusMetrics(b *strings.Builder, byDB map[string][]slo.Status) {
 	sort.Strings(dbs)
 	b.WriteString("# HELP pg_sage_slo_state SLO error-budget state (1 = current)\n" +
 		"# TYPE pg_sage_slo_state gauge\n")
-	forEachSLO(dbs, byDB, func(labels string, st slo.Status) {
+	forEachSLO(dbs, byDB, func(labels []labelPair, st slo.Status) {
 		for _, s := range sloStates {
 			v := 0
 			if st.State == s {
 				v = 1
 			}
-			fmt.Fprintf(b, "pg_sage_slo_state{%s,state=%q} %d\n", labels, s, v)
+			writeSample(b, "pg_sage_slo_state", withLabel(labels, "state", string(s)), v)
 		}
 	})
 	b.WriteString("\n# HELP pg_sage_slo_burn_rate SLO burn rate per window " +
 		"(1 spends the budget exactly)\n# TYPE pg_sage_slo_burn_rate gauge\n")
-	forEachSLO(dbs, byDB, func(labels string, st slo.Status) {
+	forEachSLO(dbs, byDB, func(labels []labelPair, st slo.Status) {
 		for _, wb := range knownBurnRates(st) {
-			fmt.Fprintf(b, "pg_sage_slo_burn_rate{%s,window=%q} %g\n", labels, wb.window,
+			writeSample(b, "pg_sage_slo_burn_rate", withLabel(labels, "window", wb.window),
 				wb.burn)
 		}
 	})
 	b.WriteString("\n# HELP pg_sage_slo_error_budget_remaining Share of the SLO window's " +
 		"error budget left\n# TYPE pg_sage_slo_error_budget_remaining gauge\n")
-	forEachSLO(dbs, byDB, func(labels string, st slo.Status) {
+	forEachSLO(dbs, byDB, func(labels []labelPair, st slo.Status) {
 		if st.BudgetRemaining != nil {
-			fmt.Fprintf(b, "pg_sage_slo_error_budget_remaining{%s} %g\n", labels,
+			writeSample(b, "pg_sage_slo_error_budget_remaining", labels,
 				*st.BudgetRemaining)
 		}
 	})
@@ -64,10 +63,10 @@ func writeSLOStatusMetrics(b *strings.Builder, byDB map[string][]slo.Status) {
 }
 
 func forEachSLO(dbs []string, byDB map[string][]slo.Status,
-	fn func(labels string, st slo.Status)) {
+	fn func(labels []labelPair, st slo.Status)) {
 	for _, db := range dbs {
 		for _, st := range byDB[db] {
-			fn(fmt.Sprintf("database=%q,slo=%q,kind=%q", db, st.Name, st.Kind), st)
+			fn([]labelPair{{"database", db}, {"slo", st.Name}, {"kind", string(st.Kind)}}, st)
 		}
 	}
 }

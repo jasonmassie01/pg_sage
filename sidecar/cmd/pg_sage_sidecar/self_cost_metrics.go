@@ -73,7 +73,7 @@ func writeSelfCostMetrics(b *strings.Builder, costs map[string]selfcost.Cost, bu
 		fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", g.name, g.help, g.name)
 		for _, db := range dbs {
 			if v, ok := g.value(costs[db]); ok {
-				fmt.Fprintf(b, "%s{database=%q} %s\n", g.name, db, formatGauge(v))
+				writeSample(b, g.name, dbLabel(db), formatGauge(v))
 			}
 		}
 	}

@@ -88,7 +88,7 @@ func writeSelfDBRates(b *strings.Builder, dbs []string, usages map[string]selfbu
 				fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", g.name, g.help, g.name)
 				header = true
 			}
-			fmt.Fprintf(b, "%s{database=%q} %s\n", g.name, db, formatGauge(g.value(u)))
+			writeSample(b, g.name, dbLabel(db), formatGauge(g.value(u)))
 		}
 	}
 }
@@ -122,7 +122,7 @@ func writeSelfBudgets(b *strings.Builder, dbs []string, usages map[string]selfbu
 		if r.limit <= 0 {
 			continue
 		}
-		fmt.Fprintf(&limits, "pg_sage_self_budget{resource=%q} %s\n", r.name,
+		writeSample(&limits, "pg_sage_self_budget", []labelPair{{"resource", string(r.name)}},
 			formatGauge(r.limit))
 		for _, db := range dbs {
 			if used, ok := r.used(usages[db]); ok {
@@ -130,8 +130,8 @@ func writeSelfBudgets(b *strings.Builder, dbs []string, usages map[string]selfbu
 				if used > r.limit {
 					flag = 1
 				}
-				fmt.Fprintf(&exceeded, "pg_sage_self_budget_exceeded{database=%q,"+
-					"resource=%q} %d\n", db, r.name, flag)
+				writeSample(&exceeded, "pg_sage_self_budget_exceeded",
+					[]labelPair{{"database", db}, {"resource", string(r.name)}}, flag)
 			}
 		}
 	}
@@ -153,12 +153,13 @@ func writeSelfLoops(b *strings.Builder, loops map[string]selfbudget.LoopStat) {
 	b.WriteString("# HELP pg_sage_self_loop_busy_seconds_total Wall time pg_sage's " +
 		"periodic loops spent working\n# TYPE pg_sage_self_loop_busy_seconds_total counter\n")
 	for _, n := range names {
-		fmt.Fprintf(b, "pg_sage_self_loop_busy_seconds_total{loop=%q} %s\n", n,
+		writeSample(b, "pg_sage_self_loop_busy_seconds_total", []labelPair{{"loop", n}},
 			formatGauge(loops[n].Busy.Seconds()))
 	}
 	b.WriteString("# HELP pg_sage_self_loop_runs_total Runs of pg_sage's periodic loops\n" +
 		"# TYPE pg_sage_self_loop_runs_total counter\n")
 	for _, n := range names {
-		fmt.Fprintf(b, "pg_sage_self_loop_runs_total{loop=%q} %d\n", n, loops[n].Runs)
+		writeSample(b, "pg_sage_self_loop_runs_total", []labelPair{{"loop", n}},
+			loops[n].Runs)
 	}
 }

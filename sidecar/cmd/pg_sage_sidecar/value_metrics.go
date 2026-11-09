@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -39,7 +38,7 @@ func writeValueMetrics(b *strings.Builder, views []metricsView) {
 		if v.ok(metricsSourceValue) {
 			up = 1
 		}
-		fmt.Fprintf(b, "pg_sage_value_metrics_up{database=%q} %d\n", v.name, up)
+		writeSample(b, "pg_sage_value_metrics_up", dbLabel(v.name), up)
 	}
 	b.WriteString("\n")
 }
@@ -71,8 +70,8 @@ func writeToilSeries(b *strings.Builder, v metricsView) {
 	}
 	toil := v.snap.value.ToilMinutesByFeature
 	for _, feature := range sortedKeys(toil) {
-		fmt.Fprintf(b, "pg_sage_toil_minutes_saved{database=%q,feature=%q} %g\n",
-			v.name, feature, toil[feature])
+		writeSample(b, "pg_sage_toil_minutes_saved",
+			[]labelPair{{"database", v.name}, {"feature", feature}}, toil[feature])
 	}
 }
 
@@ -82,7 +81,7 @@ func writeIncidentSeries(b *strings.Builder, v metricsView) {
 	}
 	counts := v.snap.value.IncidentsByKind
 	for _, kind := range sortedKeys(counts) {
-		fmt.Fprintf(b, "pg_sage_incidents_avoided_total{database=%q,kind=%q} %d\n",
-			v.name, kind, counts[kind])
+		writeSample(b, "pg_sage_incidents_avoided_total",
+			[]labelPair{{"database", v.name}, {"kind", kind}}, counts[kind])
 	}
 }

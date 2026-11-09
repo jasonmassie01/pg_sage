@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,7 +42,9 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// Info metric.
 	b.WriteString("# HELP pg_sage_info pg_sage version\n" +
 		"# TYPE pg_sage_info gauge\n")
-	fmt.Fprintf(&b, "pg_sage_info{version=%q,mode=%q} 1\n\n", version, cfg.Mode)
+	writeSample(&b, "pg_sage_info", []labelPair{{"version", version}, {"mode", cfg.Mode}}, 1)
+	b.WriteString("\n")
+	writeBuildMetrics(&b)
 
 	writeModeMetric(&b, cfg.Mode)
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
@@ -109,7 +112,8 @@ func writeProcessMetrics(b *strings.Builder, views []metricsView) {
 	if anal != nil {
 		counts := anal.OpenFindingsCount()
 		for _, sev := range []string{"critical", "warning", "info"} {
-			fmt.Fprintf(b, "pg_sage_findings_total{severity=%q} %d\n", sev, counts[sev])
+			writeSample(b, "pg_sage_findings_total", []labelPair{{"severity", sev}},
+				counts[sev])
 		}
 	}
 	b.WriteString("\n")
@@ -166,8 +170,8 @@ func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {
 	if v, found := sourceView(views, metricsSourceOptimizer); found &&
 		v.ok(metricsSourceOptimizer) {
 		for _, cat := range sortedKeys(v.snap.optimizer) {
-			fmt.Fprintf(b, "pg_sage_optimizer_recommendations_total{category=%q} %d\n",
-				cat, v.snap.optimizer[cat])
+			writeSample(b, "pg_sage_optimizer_recommendations_total",
+				[]labelPair{{"category", cat}}, v.snap.optimizer[cat])
 		}
 	}
 	b.WriteString("\n")
@@ -180,6 +184,11 @@ func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {
 
 func writeFleetMetrics(b *strings.Builder) {
 	status := fleetMgr.FleetStatus()
+	// FleetStatus lists databases in map order; the exposition must not
+	// reorder series between scrapes (observability-07).
+	sort.Slice(status.Databases, func(i, j int) bool {
+		return status.Databases[i].Name < status.Databases[j].Name
+	})
 	b.WriteString("# HELP pg_sage_fleet_databases Total fleet databases\n" +
 		"# TYPE pg_sage_fleet_databases gauge\n")
 	fmt.Fprintf(b, "pg_sage_fleet_databases %d\n\n",
@@ -203,18 +212,16 @@ func writeFleetMetrics(b *strings.Builder) {
 	b.WriteString(helpFleetInstanceFindings +
 		"# TYPE pg_sage_fleet_instance_findings gauge\n")
 	for _, db := range status.Databases {
-		fmt.Fprintf(b,
-			"pg_sage_fleet_instance_findings{database=%q} %d\n",
-			db.Name, db.Status.FindingsOpen)
+		writeSample(b, "pg_sage_fleet_instance_findings",
+			[]labelPair{{"database", db.Name}}, db.Status.FindingsOpen)
 	}
 	b.WriteString("\n")
 
 	b.WriteString(helpFleetInstanceHealth +
 		"# TYPE pg_sage_fleet_instance_health gauge\n")
 	for _, db := range status.Databases {
-		fmt.Fprintf(b,
-			"pg_sage_fleet_instance_health{database=%q} %d\n",
-			db.Name, db.Status.HealthScore)
+		writeSample(b, "pg_sage_fleet_instance_health",
+			[]labelPair{{"database", db.Name}}, db.Status.HealthScore)
 	}
 	b.WriteString("\n")
 }
@@ -231,7 +238,7 @@ func writeDatabaseMetrics(b *strings.Builder, views []metricsView) {
 	stat := v.snap.pgstat
 	b.WriteString(helpConnectionsTotal + "# TYPE pg_sage_connections_total gauge\n")
 	for _, state := range sortedKeys(stat.connectionsByState) {
-		fmt.Fprintf(b, "pg_sage_connections_total{state=%q} %d\n", state,
+		writeSample(b, "pg_sage_connections_total", []labelPair{{"state", state}},
 			stat.connectionsByState[state])
 	}
 	b.WriteString("\n")

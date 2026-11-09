@@ -68,8 +68,8 @@ func writeMetricsRefreshSeries(b *strings.Builder, views []metricsView) {
 			if v.snap.ok[source] {
 				ok = 1
 			}
-			fmt.Fprintf(b, "pg_sage_metrics_refresh_success{database=%q,source=%q} %d\n",
-				v.name, source, ok)
+			writeSample(b, "pg_sage_metrics_refresh_success",
+				[]labelPair{{"database", v.name}, {"source", source}}, ok)
 		}
 	}
 	b.WriteString("\n# HELP pg_sage_metrics_refresh_timestamp_seconds " +
@@ -84,8 +84,8 @@ func writeMetricsRefreshSeries(b *strings.Builder, views []metricsView) {
 			if at.IsZero() {
 				continue
 			}
-			fmt.Fprintf(b, "pg_sage_metrics_refresh_timestamp_seconds"+
-				"{database=%q,source=%q} %d\n", v.name, source, at.Unix())
+			writeSample(b, "pg_sage_metrics_refresh_timestamp_seconds",
+				[]labelPair{{"database", v.name}, {"source", source}}, at.Unix())
 		}
 	}
 	b.WriteString("\n")
