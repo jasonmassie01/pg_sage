@@ -7,19 +7,19 @@ import (
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
-func vacuumAutopilotCandidate(f SourceFinding) (ActionCandidate, bool) {
+func vacuumAutopilotCandidate(f SourceFinding, classify SQLClassifier) (ActionCandidate, bool) {
 	switch f.Category {
 	case "table_bloat", "schema_lint:lint_bloated_table":
-		return tableBloatCandidate(f), true
+		return tableBloatCandidate(f, classify), true
 	case "xid_wraparound", "schema_lint:lint_txid_age",
 		"schema_lint:lint_mxid_age":
 		return freezeDiagnosticCandidate(f), true
 	case "vacuum_tuning":
-		return autovacuumTuningCandidate(f), true
+		return autovacuumTuningCandidate(f, classify), true
 	case "bloat_remediation":
 		return bloatRemediationCandidate(f), true
 	case "reindex_candidate":
-		return reindexCandidate(f), true
+		return reindexCandidate(f, classify), true
 	case "blocked_vacuum":
 		return blockedVacuumCandidate(f), true
 	default:
@@ -43,14 +43,39 @@ func bloatRemediationCandidate(f SourceFinding) ActionCandidate {
 	return candidate
 }
 
-func reindexCandidate(f SourceFinding) ActionCandidate {
+// statementTyped gives a candidate that runs the finding's own statement
+// the executor's classification of that statement (cases-04): an ALTER
+// SYSTEM autovacuum setting is alter_system_guc, and a VACUUM FULL or a
+// non-concurrent REINDEX is a script-only ddl_preflight, never the
+// category's default type. A candidate without a statement, or one whose
+// type the statement confirms, keeps its plan with the contract's tier.
+func statementTyped(c ActionCandidate, classify SQLClassifier) ActionCandidate {
+	if strings.TrimSpace(c.ProposedSQL) == "" {
+		return c
+	}
+	actionType, riskTier := classifySQL(c.ProposedSQL, classify)
+	if actionType == "" {
+		actionType, riskTier = ddlPreflightType, ddlPreflightRisk
+	}
+	if actionType == c.ActionType {
+		c.RiskTier = riskTier
+		return c
+	}
+	c.ActionType, c.RiskTier = actionType, riskTier
+	c.OutputModes = candidateOutputModes(actionType)
+	c.RollbackClass, c.RecoveryDetail = rollbackClassForAction(actionType), ""
+	c.VerificationPlan = verificationPlanForAction(actionType)
+	return c
+}
+
+func reindexCandidate(f SourceFinding, classify SQLClassifier) ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
 		sql = "REINDEX INDEX CONCURRENTLY " +
 			sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
 	}
 	expires := evidenceTime(f).Add(72 * time.Hour)
-	return ActionCandidate{
+	return statementTyped(ActionCandidate{
 		ActionType:       "reindex_concurrently",
 		RiskTier:         "moderate",
 		Confidence:       0.72,
@@ -60,7 +85,7 @@ func reindexCandidate(f SourceFinding) ActionCandidate {
 		RollbackClass:    "unknown",
 		RecoveryDetail:   "Reindexing rebuilds the physical index. No procedure to restore the previous physical state is attached; capture the definition and review a forward recovery plan.",
 		VerificationPlan: verificationPlanForAction("reindex_concurrently"),
-	}
+	}, classify)
 }
 
 func blockedVacuumCandidate(f SourceFinding) ActionCandidate {
@@ -100,7 +125,7 @@ func bloatRemediationScriptOutput(
 	}
 }
 
-func tableBloatCandidate(f SourceFinding) ActionCandidate {
+func tableBloatCandidate(f SourceFinding, classify SQLClassifier) ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
 		sql = "VACUUM " + sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
@@ -116,6 +141,7 @@ func tableBloatCandidate(f SourceFinding) ActionCandidate {
 		RollbackClass:    "no_rollback_needed",
 		VerificationPlan: verificationPlanForAction("vacuum_table"),
 	}
+	candidate = statementTyped(candidate, classify)
 	if detailBool(f.Detail, "io_saturated", false) {
 		candidate.BlockedReason = "IO is saturated; wait for maintenance window or lower load"
 		candidate.OutputModes = []string{"generate_pr_or_script"}
@@ -137,7 +163,7 @@ func freezeDiagnosticCandidate(f SourceFinding) ActionCandidate {
 	}
 }
 
-func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
+func autovacuumTuningCandidate(f SourceFinding, classify SQLClassifier) ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	expires := evidenceTime(f).Add(72 * time.Hour)
 	candidate := ActionCandidate{
@@ -151,6 +177,7 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 		RecoveryDetail:   "The previous table storage parameters have not been captured. Capture which settings were explicit and their values before preparing recovery; RESET may not restore the previous state.",
 		VerificationPlan: verificationPlanForAction("set_table_autovacuum"),
 	}
+	candidate = statementTyped(candidate, classify)
 	candidate.ScriptOutput = scriptOutputFromFinding(f, candidate)
 	return candidate
 }

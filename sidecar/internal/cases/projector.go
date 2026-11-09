@@ -83,7 +83,7 @@ func actionCandidatesForFinding(f SourceFinding, classify SQLClassifier) []Actio
 	if f.Category == "migration_safety" {
 		return migrationSafetyCandidates(f, classify)
 	}
-	if candidate, ok := vacuumAutopilotCandidate(f); ok {
+	if candidate, ok := vacuumAutopilotCandidate(f, classify); ok {
 		return []ActionCandidate{candidate}
 	}
 	if candidate, ok := queryTuningCandidate(f); ok {
