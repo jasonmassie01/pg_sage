@@ -29,7 +29,7 @@ func TestGlobalPutAlertingEnabledIsPendingRestart(t *testing.T) {
 	base.Alerting.Enabled = true
 	controller := config.NewConfigController(base, nil, apiTrustOwner{},
 		namedAPIOwner(config.LLMOwner), namedAPIOwner(config.FleetDatabasesOwner))
-	put := configGlobalPutHandler(cs, base, nil, controller)
+	put := configGlobalPutHandler(cs, controller)
 	response := doRequestWithUser(put, http.MethodPut, "/api/v1/config/global",
 		`{"alerting.enabled":"false","expected_generation":1}`, user)
 	if response.Code != http.StatusOK {

@@ -279,7 +279,7 @@ func TestRouterServesProtectedResourceMetadata(t *testing.T) {
 	p := newOAuthIDP(t)
 	cfg := config.DefaultConfig()
 	cfg.MCP.Enabled, cfg.MCP.Transport = true, "http"
-	h := NewRouterFullRuntime(nil, cfg, nil, nil, nil, nil,
+	h := newTestRouter(nil, cfg, nil, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: &capture{}, MCPOAuth: oauthValidator(t, p, fakeResolver{})},
 		SessionAuthMiddleware(nil))
 	w := httptest.NewRecorder()

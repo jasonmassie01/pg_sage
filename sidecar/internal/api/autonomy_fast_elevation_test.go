@@ -22,7 +22,7 @@ func (f *autonomyAPIFixture) routerWith(user *auth.User,
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
+	return newTestRouter(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
 		&RuntimeDeps{Autonomy: &AutonomyDeps{Ledgers: f.reg, FastElevation: lowered}}, inject)
 }
 

@@ -29,9 +29,9 @@ func TestGatewayModelHandlersFollowActiveAuthWithoutAPIKey(t *testing.T) {
 				}
 				return []databricksauth.GatewayModel{{ID: "main.models.current"}}, nil
 			}
-			h := listModelsWithDiscovery(&base.LLM, []*config.ConfigController{controller}, discover)
+			h := listModelsWithDiscovery(controller, discover)
 			if method == http.MethodPost {
-				h = discoverModelsWithDiscovery(&base.LLM, []*config.ConfigController{controller}, discover)
+				h = discoverModelsWithDiscovery(controller, discover)
 			}
 			response := callModelSnapshotHandler(method, h)
 			var body struct {
@@ -55,7 +55,7 @@ func TestGatewayDiscoveryOverridePreservesOriginAndRequestScope(t *testing.T) {
 		}
 		return []databricksauth.GatewayModel{}, nil
 	}
-	h := discoverModelsWithDiscovery(cfg, nil, discover)
+	h := discoverModelsWithDiscovery(llmController(cfg), discover)
 	for _, body := range []string{
 		`{"config":{"llm.endpoint":"https://other.example/v1","llm.api_key":"explicit-key"}}`,
 		`{"config":{"llm.endpoint":"http://workspace.example/v1"}}`,
@@ -89,7 +89,7 @@ func TestGatewayDiscoveryPreviewFromUnconfiguredProvider(t *testing.T) {
 			}
 			return []databricksauth.GatewayModel{{ID: "system.ai.current"}}, nil
 		}
-		h := discoverModelsWithDiscovery(cfg, nil, discover)
+		h := discoverModelsWithDiscovery(llmController(cfg), discover)
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models", strings.NewReader(`{"config":{"llm.auth":"databricks","llm.endpoint":"https://workspace.example/ai-gateway/mlflow/v1"}}`))
 		w := httptest.NewRecorder()
 		h(w, r)

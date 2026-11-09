@@ -81,7 +81,7 @@ func TestMetaNotificationSecretEncryptedAtRestAndDelivered(t *testing.T) {
 	cfg.NotificationPolicy.AllowPrivateTargets = true
 	sink, hits := webhookSink(t)
 
-	router := wireRouter(WireParams{
+	router := testWireRouter(WireParams{
 		Cfg: cfg, Pool: state.Pool, FleetMgr: fleetMgr, MetaState: state,
 	}).Handler
 	created := adminAPIRequest(t, router, state.Pool, userID, http.MethodPost,
@@ -133,7 +133,7 @@ func TestNotificationPrivateTargetRefusedByDefault(t *testing.T) {
 	resetNotifyDispatchers(t)
 	cfg.MetaDB = "postgres://fixture"
 	sink, _ := webhookSink(t)
-	router := wireRouter(WireParams{
+	router := testWireRouter(WireParams{
 		Cfg: cfg, Pool: state.Pool, FleetMgr: fleetMgr, MetaState: state,
 	}).Handler
 	created := adminAPIRequest(t, router, state.Pool, userID, http.MethodPost,
@@ -201,7 +201,7 @@ func TestFactCardDeliveredUnderDefaultApprovalRule(t *testing.T) {
 	sink, hits := webhookSink(t)
 	ctx := context.Background()
 
-	router := wireRouter(WireParams{
+	router := testWireRouter(WireParams{
 		Cfg: cfg, Pool: state.Pool, FleetMgr: fleetMgr, MetaState: state,
 	}).Handler
 	channelID := createDefaultApprovalRule(t, router, state.Pool, userID, sink.URL)

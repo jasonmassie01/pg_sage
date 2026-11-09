@@ -124,7 +124,7 @@ func TestPutWithInvalidCandidateReturns400NamingTheKey(t *testing.T) {
 	base := config.DefaultConfig()
 	base.Collector.IntervalSeconds = 0 // the state an "abc" replay left behind
 	controller := config.NewConfigController(base, nil, apiTrustOwner{})
-	put := configGlobalPutHandler(nil, base, nil, controller)
+	put := configGlobalPutHandler(nil, controller)
 	resp := doRequestWithUser(put, http.MethodPut, "/api/v1/config/global",
 		`{"trust.level":"advisory","expected_generation":1}`,
 		&auth.User{ID: 1, Role: auth.RoleAdmin})

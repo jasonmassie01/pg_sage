@@ -59,10 +59,6 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			cbPool = nil
 			return
 		}
-		if err := schema.EnsureDatabasesTable(qctx, cbPool); err != nil {
-			cbPoolErr = fmt.Errorf("ensure databases: %w", err)
-			return
-		}
 		if err := schema.MigrateConfigSchema(qctx, cbPool); err != nil {
 			cbPoolErr = fmt.Errorf("migrate config: %w", err)
 			return

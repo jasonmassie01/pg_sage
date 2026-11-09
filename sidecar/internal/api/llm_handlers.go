@@ -15,18 +15,17 @@ import (
 
 // listModelsHandler returns available LLM models from the
 // configured provider. Results are cached in the llm package.
-func listModelsHandler(
-	cfg *config.LLMConfig,
-	controllers ...*config.ConfigController,
-) http.HandlerFunc {
-	return listModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
+func listModelsHandler(controller *config.ConfigController) http.HandlerFunc {
+	return listModelsWithDiscovery(controller, databricksauth.ListModelServices)
 }
 
 type gatewayModelLister func(context.Context, string, string) ([]databricksauth.GatewayModel, error)
 
-func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.ConfigController, discover gatewayModelLister) http.HandlerFunc {
+func listModelsWithDiscovery(
+	controller *config.ConfigController, discover gatewayModelLister,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cfg := activeLLMConfig(cfg, controllers)
+		cfg := activeLLMConfig(controller)
 		if err := cfg.ValidateDatabricksApp(); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -55,16 +54,8 @@ func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.Config
 
 // Model discovery follows committed runtime config, never a startup pointer or
 // a desired revision whose reconfiguration has not completed.
-func activeLLMConfig(
-	fallback *config.LLMConfig, controllers []*config.ConfigController,
-) config.LLMConfig {
-	if controller := firstConfigController(controllers); controller != nil {
-		return controller.Active().Config.LLM
-	}
-	if fallback != nil {
-		return *fallback
-	}
-	return config.LLMConfig{}
+func activeLLMConfig(controller *config.ConfigController) config.LLMConfig {
+	return controller.Active().Config.LLM
 }
 
 type modelDiscoveryRequest struct {
@@ -73,16 +64,15 @@ type modelDiscoveryRequest struct {
 
 // discoverModelsHandler lists models using a request-scoped LLM config
 // payload. It intentionally does not persist endpoint/API key edits.
-func discoverModelsHandler(
-	cfg *config.LLMConfig,
-	controllers ...*config.ConfigController,
-) http.HandlerFunc {
-	return discoverModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
+func discoverModelsHandler(controller *config.ConfigController) http.HandlerFunc {
+	return discoverModelsWithDiscovery(controller, databricksauth.ListModelServices)
 }
 
-func discoverModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.ConfigController, discover gatewayModelLister) http.HandlerFunc {
+func discoverModelsWithDiscovery(
+	controller *config.ConfigController, discover gatewayModelLister,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		discoveryCfg := activeLLMConfig(cfg, controllers)
+		discoveryCfg := activeLLMConfig(controller)
 		configuredEndpoint := discoveryCfg.Endpoint
 		configuredAuth := discoveryCfg.Auth
 		endpointSupplied := false

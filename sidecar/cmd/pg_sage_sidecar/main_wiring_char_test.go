@@ -198,14 +198,3 @@ func TestCharTrustedProxyNets_ParsesAndSkipsInvalidEntries(t *testing.T) {
 		t.Fatalf("default trusted proxies = %v", defaults)
 	}
 }
-
-func TestCharEnvOrDefault(t *testing.T) {
-	t.Setenv("PG_SAGE_CHAR_ENV", "")
-	if got := envOrDefault("PG_SAGE_CHAR_ENV", "fallback"); got != "fallback" {
-		t.Fatalf("empty env = %q", got)
-	}
-	t.Setenv("PG_SAGE_CHAR_ENV", "set")
-	if got := envOrDefault("PG_SAGE_CHAR_ENV", "fallback"); got != "set" {
-		t.Fatalf("set env = %q", got)
-	}
-}

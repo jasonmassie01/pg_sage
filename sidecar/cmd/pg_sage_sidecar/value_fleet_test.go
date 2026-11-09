@@ -54,7 +54,7 @@ func TestValueMetaModeReadsTargetLedger(t *testing.T) {
 	mcpReport := mcpValueReport(t, &fleetMCPAccess{manager: fleetMgr, fallback: state.Pool})
 	assertSingleDatabaseValue(t, "mcp", mcpReport, "managed-a", 0.25)
 
-	router := wireRouter(WireParams{
+	router := testWireRouter(WireParams{
 		Cfg: cfg, Pool: state.Pool, FleetMgr: fleetMgr, MetaState: state,
 	}).Handler
 	w := adminAPIRequest(t, router, state.Pool, userID, http.MethodGet,

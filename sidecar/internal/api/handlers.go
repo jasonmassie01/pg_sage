@@ -735,8 +735,7 @@ func validateMetric(metric string) bool {
 }
 
 func configGetHandler(
-	mgr *fleet.DatabaseManager, cfg *config.Config,
-	controllers ...*config.ConfigController,
+	mgr *fleet.DatabaseManager, controller *config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := readDatabaseParam(w, r)
@@ -759,14 +758,11 @@ func configGetHandler(
 			})
 			return
 		}
-		responseCfg := cfg
-		response := make(map[string]any)
-		if controller := firstConfigController(controllers); controller != nil {
-			active := controller.Active()
-			desired := controller.Desired()
-			responseCfg = active.Config
-			response["active_generation"] = active.Generation
-			response["desired_generation"] = desired.Generation
+		active := controller.Active()
+		responseCfg := active.Config
+		response := map[string]any{
+			"active_generation":  active.Generation,
+			"desired_generation": controller.Desired().Generation,
 		}
 		response["mode"] = responseCfg.Mode
 		response["trust"] = responseCfg.Trust
@@ -781,7 +777,6 @@ func configGetHandler(
 }
 
 func configUpdateHandlerWithStore(
-	mgr *fleet.DatabaseManager, cfg *config.Config,
 	controller *config.ConfigController, cs *store.ConfigStore,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -790,35 +785,28 @@ func configUpdateHandlerWithStore(
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if controller != nil {
-			expected, ok := configExpectedGeneration(body)
-			if !ok {
-				jsonError(w, "expected_generation is required",
-					http.StatusPreconditionRequired)
-				return
-			}
-			candidate := controller.Desired().Config
-			if !applyTrustConfigUpdate(w, body, candidate) {
-				return
-			}
-			result, err := applyConfigUpdateCandidate(
-				r, controller, cs, expected, candidate,
-			)
-			if err != nil {
-				if errors.Is(err, config.ErrGenerationConflict) {
-					jsonError(w, err.Error(), http.StatusConflict)
-					return
-				}
-				internalError(w, r, "apply config generation", err)
-				return
-			}
-			jsonResponse(w, result)
+		expected, ok := configExpectedGeneration(body)
+		if !ok {
+			jsonError(w, "expected_generation is required",
+				http.StatusPreconditionRequired)
 			return
 		}
-		if !applyTrustConfigUpdate(w, body, cfg) {
+		candidate := controller.Desired().Config
+		if !applyTrustConfigUpdate(w, body, candidate) {
 			return
 		}
-		jsonResponse(w, map[string]string{"status": "updated"})
+		result, err := applyConfigUpdateCandidate(
+			r, controller, cs, expected, candidate,
+		)
+		if err != nil {
+			if errors.Is(err, config.ErrGenerationConflict) {
+				jsonError(w, err.Error(), http.StatusConflict)
+				return
+			}
+			internalError(w, r, "apply config generation", err)
+			return
+		}
+		jsonResponse(w, result)
 	}
 }
 
@@ -857,11 +845,7 @@ func applyTrustConfigUpdate(
 	if trust, ok := body["trust"]; ok {
 		if trustMap, ok := trust.(map[string]any); ok {
 			if level, ok := trustMap["level"].(string); ok {
-				valid := map[string]bool{
-					"observation": true, "advisory": true,
-					"autonomous": true,
-				}
-				if !valid[level] {
+				if !config.IsTrustLevel(level) {
 					jsonError(w, "invalid trust level",
 						http.StatusBadRequest)
 					return false
@@ -871,15 +855,6 @@ func applyTrustConfigUpdate(
 		}
 	}
 	return true
-}
-
-func firstConfigController(
-	controllers []*config.ConfigController,
-) *config.ConfigController {
-	if len(controllers) == 0 {
-		return nil
-	}
-	return controllers[0]
 }
 
 func configExpectedGeneration(body map[string]any) (uint64, bool) {

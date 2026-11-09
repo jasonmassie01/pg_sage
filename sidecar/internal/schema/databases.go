@@ -1,13 +1,6 @@
 package schema
 
-import (
-	"context"
-	"fmt"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-)
-
+// ddlDatabases is the sage.databases step of the Bootstrap chain.
 const ddlDatabases = `
 CREATE TABLE IF NOT EXISTS sage.databases (
     id              SERIAL PRIMARY KEY,
@@ -28,15 +21,3 @@ CREATE TABLE IF NOT EXISTS sage.databases (
     updated_at      TIMESTAMPTZ DEFAULT now()
 );
 `
-
-// EnsureDatabasesTable creates sage.databases if it doesn't exist.
-func EnsureDatabasesTable(ctx context.Context, pool *pgxpool.Pool) error {
-	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	_, err := pool.Exec(qctx, ddlDatabases)
-	if err != nil {
-		return fmt.Errorf("creating sage.databases: %w", err)
-	}
-	return nil
-}

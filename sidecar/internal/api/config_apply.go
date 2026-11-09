@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -11,45 +10,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/store"
 )
-
-// applyConfigOverrides iterates over body keys, validates, persists,
-// and hot-reloads the config. Returns a list of error messages.
-func applyConfigOverrides(
-	ctx context.Context,
-	cs *store.ConfigStore,
-	cfg *config.Config,
-	body map[string]any,
-	databaseID int,
-	userID int,
-) []string {
-	overrides, errs := validatedConfigWrites(body)
-	if len(errs) > 0 {
-		return errs
-	}
-
-	for _, override := range overrides {
-		err := cs.SetOverride(
-			ctx, override.Key, override.Value, databaseID, userID)
-		if err != nil {
-			// Validation errors (invalid key, invalid value, range
-			// violation) are safe to expose — the user needs them to
-			// correct the request. Anything else is a DB/internal
-			// failure whose text we must not leak.
-			msg := configErrorMessage(err)
-			if msg == internalConfigErrMsg {
-				slog.Error("config override failed",
-					"key", override.Key, "err", err)
-			}
-			errs = append(errs, fmt.Sprintf("%s: %s", override.Key, msg))
-			continue
-		}
-		// Hot-reload into running config when global.
-		if databaseID == 0 {
-			hotReload(cfg, override.Key, override.Value)
-		}
-	}
-	return errs
-}
 
 func validatedConfigWrites(
 	body map[string]any,
@@ -147,14 +107,6 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadAlerting(cfg, key, value)
 	case strings.HasPrefix(key, "retention."):
 		hotReloadRetention(cfg, key, value)
-	case strings.HasPrefix(key, "briefing."):
-		hotReloadBriefing(cfg, key, value)
-	case strings.HasPrefix(key, "forecaster."):
-		hotReloadForecaster(cfg, key, value)
-	case strings.HasPrefix(key, "auto_explain."):
-		hotReloadAutoExplain(cfg, key, value)
-	case strings.HasPrefix(key, "tuner."):
-		hotReloadTuner(cfg, key, value)
 	case strings.HasPrefix(key, "rca."):
 		hotReloadRCA(cfg, key, value)
 	case strings.HasPrefix(key, "runaway."):
@@ -241,18 +193,11 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 	}
 }
 
-// validTrustLevels enumerates the accepted trust level strings.
-var validTrustLevels = map[string]bool{
-	"observation": true,
-	"advisory":    true,
-	"autonomous":  true,
-}
-
 func hotReloadTrust(cfg *config.Config, key, v string) {
 	switch key {
 	case "trust.level":
-		if !validTrustLevels[v] {
-			return // silently reject invalid trust levels
+		if !config.IsTrustLevel(v) {
+			return // replay validated it; never apply an unknown level
 		}
 		cfg.Trust.Level = v
 	case "trust.tier3_safe":
@@ -315,18 +260,6 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 		cfg.LLM.Optimizer.MinQueryCalls = atoi(v)
 	case "llm.optimizer.max_new_per_table":
 		cfg.LLM.Optimizer.MaxNewPerTable = atoi(v)
-	case "llm.optimizer_llm.enabled":
-		cfg.LLM.OptimizerLLM.Enabled = atob(v)
-	case "llm.optimizer_llm.endpoint":
-		cfg.LLM.OptimizerLLM.Endpoint = v
-	case "llm.optimizer_llm.model":
-		cfg.LLM.OptimizerLLM.Model = v
-	case "llm.optimizer_llm.token_budget_daily":
-		cfg.LLM.OptimizerLLM.TokenBudgetDaily = atoi(v)
-	case "llm.optimizer_llm.max_output_tokens":
-		cfg.LLM.OptimizerLLM.MaxOutputTokens = atoi(v)
-	case "llm.optimizer_llm.fallback_to_general":
-		cfg.LLM.OptimizerLLM.FallbackToGeneral = atob(v)
 	}
 }
 
@@ -355,8 +288,6 @@ func hotReloadAlerting(cfg *config.Config, key, v string) {
 		cfg.Alerting.QuietHoursStart = v
 	case "alerting.quiet_hours_end":
 		cfg.Alerting.QuietHoursEnd = v
-	case "alerting.timezone":
-		cfg.Alerting.Timezone = v
 	}
 }
 
@@ -372,62 +303,6 @@ func hotReloadRetention(cfg *config.Config, key, v string) {
 		cfg.Retention.ExplainsDays = atoi(v)
 	case "retention.sage_size_warning_pct":
 		cfg.Retention.SageSizeWarningPct = atoi(v)
-	}
-}
-
-func hotReloadBriefing(cfg *config.Config, key, v string) {
-	switch key {
-	case "briefing.schedule":
-		cfg.Briefing.Schedule = v
-	case "briefing.slack_webhook_url":
-		cfg.Briefing.SlackWebhookURL = v
-	}
-}
-
-func hotReloadForecaster(cfg *config.Config, key, v string) {
-	switch key {
-	case "forecaster.enabled":
-		cfg.Forecaster.Enabled = atob(v)
-	case "forecaster.lookback_days":
-		cfg.Forecaster.LookbackDays = atoi(v)
-	case "forecaster.disk_warn_growth_gb_day":
-		cfg.Forecaster.DiskWarnGrowthGBDay = atof(v)
-	}
-}
-
-func hotReloadAutoExplain(cfg *config.Config, key, v string) {
-	switch key {
-	case "auto_explain.enabled":
-		cfg.AutoExplain.Enabled = atob(v)
-	case "auto_explain.log_min_duration_ms":
-		cfg.AutoExplain.LogMinDurationMs = atoi(v)
-	case "auto_explain.collect_interval_seconds":
-		cfg.AutoExplain.CollectIntervalSeconds = atoi(v)
-	case "auto_explain.max_plans_per_cycle":
-		cfg.AutoExplain.MaxPlansPerCycle = atoi(v)
-	}
-}
-
-func hotReloadTuner(cfg *config.Config, key, v string) {
-	switch key {
-	case "tuner.enabled":
-		cfg.Tuner.Enabled = atob(v)
-	case "tuner.llm_enabled":
-		cfg.Tuner.LLMEnabled = atob(v)
-	case "tuner.work_mem_max_mb":
-		cfg.Tuner.WorkMemMaxMB = atoi(v)
-	case "tuner.plan_time_ratio":
-		cfg.Tuner.PlanTimeRatio = atof(v)
-	case "tuner.nested_loop_row_threshold":
-		n, _ := strconv.ParseInt(v, 10, 64)
-		cfg.Tuner.NestedLoopRowThreshold = n
-	case "tuner.parallel_min_table_rows":
-		n, _ := strconv.ParseInt(v, 10, 64)
-		cfg.Tuner.ParallelMinTableRows = n
-	case "tuner.min_query_calls":
-		cfg.Tuner.MinQueryCalls = atoi(v)
-	case "tuner.verify_after_apply":
-		cfg.Tuner.VerifyAfterApply = atob(v)
 	}
 }
 

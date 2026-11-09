@@ -82,12 +82,6 @@ func phase2RequireDB(t *testing.T) (
 			p2Pool = nil
 			return
 		}
-		if err := schema.EnsureDatabasesTable(
-			qctx, p2Pool); err != nil {
-			p2PoolErr = fmt.Errorf(
-				"ensure databases: %w", err)
-			return
-		}
 
 		if err := schema.MigrateConfigSchema(
 			qctx, p2Pool); err != nil {
@@ -1618,189 +1612,6 @@ func TestPhase2_AlertLogHandler_RealDB(t *testing.T) {
 // applyConfigOverrides
 // ================================================================
 
-func TestPhase2_ApplyConfigOverrides_ValidKey(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-	userID := phase2EnsureUser(t, pool, ctx)
-
-	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{
-		Trust: config.TrustConfig{Level: "observation"},
-	}
-
-	body := map[string]any{
-		"trust.level": "advisory",
-	}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg, body, 0, userID)
-	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
-	}
-	if cfg.Trust.Level != "advisory" {
-		t.Errorf("trust.level: got %q, want advisory",
-			cfg.Trust.Level)
-	}
-}
-
-func TestPhase2_ApplyConfigOverrides_InvalidKey(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-
-	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{}
-
-	body := map[string]any{
-		"bogus.key": "value",
-	}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg, body, 0, 0)
-	if len(errs) == 0 {
-		t.Error("expected error for invalid key")
-	}
-}
-
-func TestPhase2_ApplyConfigOverrides_MultipleKeys(
-	t *testing.T,
-) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-	userID := phase2EnsureUser(t, pool, ctx)
-
-	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{
-		Collector: config.CollectorConfig{
-			IntervalSeconds: 60,
-			BatchSize:       1000,
-		},
-	}
-
-	body := map[string]any{
-		"collector.interval_seconds": "30",
-		"collector.batch_size":       "500",
-	}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg, body, 0, userID)
-	if len(errs) != 0 {
-		t.Fatalf("errors: %v", errs)
-	}
-	if cfg.Collector.IntervalSeconds != 30 {
-		t.Errorf("interval: got %d, want 30",
-			cfg.Collector.IntervalSeconds)
-	}
-	if cfg.Collector.BatchSize != 500 {
-		t.Errorf("batch_size: got %d, want 500",
-			cfg.Collector.BatchSize)
-	}
-}
-
-func TestPhase2_ApplyConfigOverrides_MultiKeyValidationAtomic(
-	t *testing.T,
-) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-	userID := phase2EnsureUser(t, pool, ctx)
-
-	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{
-		Collector: config.CollectorConfig{IntervalSeconds: 60},
-	}
-
-	body := map[string]any{
-		"collector.interval_seconds": "30",
-		"collector.batch_size":       "0",
-	}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg, body, 0, userID)
-	if len(errs) == 0 {
-		t.Fatal("expected validation error")
-	}
-	if cfg.Collector.IntervalSeconds != 60 {
-		t.Errorf("interval hot-reloaded despite batch error: got %d",
-			cfg.Collector.IntervalSeconds)
-	}
-	var count int
-	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.config`).Scan(&count); err != nil {
-		t.Fatalf("count config rows: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("config rows written despite validation error: %d",
-			count)
-	}
-}
-
-func TestPhase2_ApplyConfigOverrides_SkipsMaskedLLMKey(
-	t *testing.T,
-) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-	userID := phase2EnsureUser(t, pool, ctx)
-
-	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{
-		LLM: config.LLMConfig{APIKey: "real-secret-1234"},
-	}
-	body := map[string]any{
-		"llm.api_key": "************1234",
-	}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg, body, 0, userID)
-	if len(errs) != 0 {
-		t.Fatalf("unexpected errors: %v", errs)
-	}
-	if cfg.LLM.APIKey != "real-secret-1234" {
-		t.Fatalf("api key was overwritten: %q", cfg.LLM.APIKey)
-	}
-	var count int
-	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.config`).Scan(&count); err != nil {
-		t.Fatalf("count config rows: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("masked api key persisted rows: %d", count)
-	}
-}
-
-func TestPhase2_ApplyConfigOverrides_PerDatabase(
-	t *testing.T,
-) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-	userID := phase2EnsureUser(t, pool, ctx)
-
-	// Insert a database row so FK on database_id is satisfied.
-	_, err := pool.Exec(ctx,
-		`INSERT INTO sage.databases
-		 (id, name, host, port, database_name, username,
-		  password_enc, sslmode)
-		 VALUES (1, 'perdb-test', 'localhost', 5432,
-		  'testdb', 'user', '\x00', 'disable')`)
-	if err != nil {
-		t.Fatalf("insert db: %v", err)
-	}
-
-	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{
-		Trust: config.TrustConfig{Level: "observation"},
-	}
-
-	// Per-database override should NOT hot-reload global config.
-	body := map[string]any{
-		"trust.level": "autonomous",
-	}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg, body, 1, userID)
-	if len(errs) != 0 {
-		t.Fatalf("errors: %v", errs)
-	}
-	// Global config should stay at "observation" since
-	// databaseID=1.
-	if cfg.Trust.Level != "observation" {
-		t.Errorf("trust.level: got %q, want observation",
-			cfg.Trust.Level)
-	}
-}
-
 // ================================================================
 // hotReload coverage for all config sections
 // ================================================================
@@ -2003,11 +1814,6 @@ func TestPhase2_HotReload_Alerting(t *testing.T) {
 		t.Errorf("end: got %q",
 			cfg.Alerting.QuietHoursEnd)
 	}
-	hotReload(cfg, "alerting.timezone", "America/New_York")
-	if cfg.Alerting.Timezone != "America/New_York" {
-		t.Errorf("timezone: got %q",
-			cfg.Alerting.Timezone)
-	}
 }
 
 func TestPhase2_HotReload_Retention(t *testing.T) {
@@ -2038,147 +1844,6 @@ func TestPhase2_HotReload_UnknownPrefix(t *testing.T) {
 	hotReload(cfg, "unknown.key", "value")
 	if cfg.Trust.Level != "observation" {
 		t.Error("config should not have changed")
-	}
-}
-
-func TestPhase2_HotReload_Briefing(t *testing.T) {
-	cfg := &config.Config{}
-	hotReload(cfg, "briefing.schedule", "0 8 * * MON")
-	if cfg.Briefing.Schedule != "0 8 * * MON" {
-		t.Errorf("schedule: got %q",
-			cfg.Briefing.Schedule)
-	}
-	hotReload(cfg, "briefing.slack_webhook_url",
-		"https://hooks.slack.com/briefing")
-	if cfg.Briefing.SlackWebhookURL !=
-		"https://hooks.slack.com/briefing" {
-		t.Errorf("slack: got %q",
-			cfg.Briefing.SlackWebhookURL)
-	}
-}
-
-func TestPhase2_HotReload_Forecaster(t *testing.T) {
-	cfg := &config.Config{}
-	hotReload(cfg, "forecaster.enabled", "true")
-	if !cfg.Forecaster.Enabled {
-		t.Error("enabled should be true")
-	}
-	hotReload(cfg, "forecaster.lookback_days", "30")
-	if cfg.Forecaster.LookbackDays != 30 {
-		t.Errorf("lookback_days: got %d",
-			cfg.Forecaster.LookbackDays)
-	}
-	// Float field: disk_warn_growth_gb_day.
-	hotReload(cfg, "forecaster.disk_warn_growth_gb_day", "1.5")
-	if cfg.Forecaster.DiskWarnGrowthGBDay != 1.5 {
-		t.Errorf("disk_warn: got %f",
-			cfg.Forecaster.DiskWarnGrowthGBDay)
-	}
-}
-
-func TestPhase2_HotReload_AutoExplain(t *testing.T) {
-	cfg := &config.Config{}
-	hotReload(cfg, "auto_explain.enabled", "true")
-	if !cfg.AutoExplain.Enabled {
-		t.Error("enabled should be true")
-	}
-	hotReload(cfg,
-		"auto_explain.log_min_duration_ms", "100")
-	if cfg.AutoExplain.LogMinDurationMs != 100 {
-		t.Errorf("log_min_duration_ms: got %d",
-			cfg.AutoExplain.LogMinDurationMs)
-	}
-	hotReload(cfg,
-		"auto_explain.collect_interval_seconds", "60")
-	if cfg.AutoExplain.CollectIntervalSeconds != 60 {
-		t.Errorf("collect_interval: got %d",
-			cfg.AutoExplain.CollectIntervalSeconds)
-	}
-	hotReload(cfg,
-		"auto_explain.max_plans_per_cycle", "50")
-	if cfg.AutoExplain.MaxPlansPerCycle != 50 {
-		t.Errorf("max_plans: got %d",
-			cfg.AutoExplain.MaxPlansPerCycle)
-	}
-}
-
-func TestPhase2_HotReload_Tuner(t *testing.T) {
-	cfg := &config.Config{}
-	hotReload(cfg, "tuner.enabled", "true")
-	if !cfg.Tuner.Enabled {
-		t.Error("enabled should be true")
-	}
-	hotReload(cfg, "tuner.llm_enabled", "true")
-	if !cfg.Tuner.LLMEnabled {
-		t.Error("llm_enabled should be true")
-	}
-	hotReload(cfg, "tuner.work_mem_max_mb", "256")
-	if cfg.Tuner.WorkMemMaxMB != 256 {
-		t.Errorf("work_mem_max_mb: got %d",
-			cfg.Tuner.WorkMemMaxMB)
-	}
-	hotReload(cfg, "tuner.plan_time_ratio", "0.25")
-	if cfg.Tuner.PlanTimeRatio != 0.25 {
-		t.Errorf("plan_time_ratio: got %f",
-			cfg.Tuner.PlanTimeRatio)
-	}
-	hotReload(cfg,
-		"tuner.nested_loop_row_threshold", "100000")
-	if cfg.Tuner.NestedLoopRowThreshold != 100000 {
-		t.Errorf("nested_loop: got %d",
-			cfg.Tuner.NestedLoopRowThreshold)
-	}
-	hotReload(cfg,
-		"tuner.parallel_min_table_rows", "500000")
-	if cfg.Tuner.ParallelMinTableRows != 500000 {
-		t.Errorf("parallel_min: got %d",
-			cfg.Tuner.ParallelMinTableRows)
-	}
-	hotReload(cfg, "tuner.min_query_calls", "10")
-	if cfg.Tuner.MinQueryCalls != 10 {
-		t.Errorf("min_query_calls: got %d",
-			cfg.Tuner.MinQueryCalls)
-	}
-	hotReload(cfg, "tuner.verify_after_apply", "true")
-	if !cfg.Tuner.VerifyAfterApply {
-		t.Error("verify_after_apply should be true")
-	}
-}
-
-func TestPhase2_HotReload_OptimizerLLM(t *testing.T) {
-	cfg := &config.Config{}
-	hotReload(cfg, "llm.optimizer_llm.enabled", "true")
-	if !cfg.LLM.OptimizerLLM.Enabled {
-		t.Error("enabled should be true")
-	}
-	hotReload(cfg, "llm.optimizer_llm.endpoint",
-		"https://api.reasoning.example.com")
-	if cfg.LLM.OptimizerLLM.Endpoint !=
-		"https://api.reasoning.example.com" {
-		t.Errorf("endpoint: got %q",
-			cfg.LLM.OptimizerLLM.Endpoint)
-	}
-	hotReload(cfg, "llm.optimizer_llm.model", "o1-mini")
-	if cfg.LLM.OptimizerLLM.Model != "o1-mini" {
-		t.Errorf("model: got %q",
-			cfg.LLM.OptimizerLLM.Model)
-	}
-	hotReload(cfg,
-		"llm.optimizer_llm.token_budget_daily", "50000")
-	if cfg.LLM.OptimizerLLM.TokenBudgetDaily != 50000 {
-		t.Errorf("token_budget: got %d",
-			cfg.LLM.OptimizerLLM.TokenBudgetDaily)
-	}
-	hotReload(cfg,
-		"llm.optimizer_llm.max_output_tokens", "4096")
-	if cfg.LLM.OptimizerLLM.MaxOutputTokens != 4096 {
-		t.Errorf("max_output: got %d",
-			cfg.LLM.OptimizerLLM.MaxOutputTokens)
-	}
-	hotReload(cfg,
-		"llm.optimizer_llm.fallback_to_general", "true")
-	if !cfg.LLM.OptimizerLLM.FallbackToGeneral {
-		t.Error("fallback should be true")
 	}
 }
 
@@ -3688,7 +3353,7 @@ func TestPhase2_ConfigGlobalGetHandler_RealDB(t *testing.T) {
 		},
 	}
 
-	handler := configGlobalGetHandler(cs, cfg)
+	handler := configGlobalGetHandler(cs, config.NewConfigController(cfg, nil))
 	req := httptest.NewRequest("GET",
 		"/api/v1/config/global", nil)
 	w := httptest.NewRecorder()
@@ -3719,12 +3384,11 @@ func TestPhase2_ConfigGlobalPutHandler_RealDB(t *testing.T) {
 	userID := phase2EnsureUser(t, pool, ctx)
 
 	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{
-		Trust: config.TrustConfig{Level: "observation"},
-	}
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
 
-	handler := configGlobalPutHandler(cs, cfg, nil)
-	body := `{"trust.level": "advisory"}`
+	handler := configGlobalPutHandler(cs, controller)
+	body := `{"trust.level": "advisory", "expected_generation": 1}`
 	req := httptest.NewRequest("PUT",
 		"/api/v1/config/global",
 		strings.NewReader(body))
@@ -3742,9 +3406,8 @@ func TestPhase2_ConfigGlobalPutHandler_RealDB(t *testing.T) {
 			w.Code, w.Body.String())
 	}
 
-	if cfg.Trust.Level != "advisory" {
-		t.Errorf("trust.level: got %q, want advisory",
-			cfg.Trust.Level)
+	if got := controller.Desired().Config.Trust.Level; got != "advisory" {
+		t.Errorf("desired trust.level: got %q, want advisory", got)
 	}
 }
 
@@ -3755,10 +3418,9 @@ func TestPhase2_ConfigGlobalPutHandler_InvalidKey(
 	phase2CleanTables(t, pool, ctx)
 
 	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{}
-
-	handler := configGlobalPutHandler(cs, cfg, nil)
-	body := `{"bad.key": "value"}`
+	handler := configGlobalPutHandler(
+		cs, config.NewConfigController(config.DefaultConfig(), nil))
+	body := `{"bad.key": "value", "expected_generation": 1}`
 	req := httptest.NewRequest("PUT",
 		"/api/v1/config/global",
 		strings.NewReader(body))
@@ -3776,9 +3438,8 @@ func TestPhase2_ConfigGlobalPutHandler_InvalidJSON(
 ) {
 	pool, _ := phase2RequireDB(t)
 	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{}
-
-	handler := configGlobalPutHandler(cs, cfg, nil)
+	handler := configGlobalPutHandler(
+		cs, config.NewConfigController(config.DefaultConfig(), nil))
 	req := httptest.NewRequest("PUT",
 		"/api/v1/config/global",
 		strings.NewReader("{bad"))
@@ -3802,13 +3463,8 @@ func TestPhase2_ConfigAuditHandler_RealDB(t *testing.T) {
 
 	// Create an override to generate audit entries.
 	cs := store.NewConfigStore(pool)
-	cfg := &config.Config{}
-	errs := applyConfigOverrides(
-		ctx, cs, cfg,
-		map[string]any{"trust.level": "advisory"},
-		0, userID)
-	if len(errs) != 0 {
-		t.Fatalf("setup override: %v", errs)
+	if err := cs.SetOverride(ctx, "trust.level", "advisory", 0, userID); err != nil {
+		t.Fatalf("setup override: %v", err)
 	}
 
 	handler := configAuditHandler(cs)
@@ -4412,36 +4068,6 @@ func TestPhase2_UpdateChannelHandler_MissingReturns404(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status: got %d, want 404; body: %s",
 			w.Code, w.Body.String())
-	}
-}
-
-// ================================================================
-// syncTrustLevelToFleet
-// ================================================================
-
-func TestPhase2_SyncTrustLevelToFleet(t *testing.T) {
-	cfg := &config.Config{}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name: "a",
-		Status: &fleet.InstanceStatus{
-			TrustLevel: "observation",
-		},
-	})
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name: "b",
-		Status: &fleet.InstanceStatus{
-			TrustLevel: "observation",
-		},
-	})
-
-	syncTrustLevelToFleet(mgr, "autonomous")
-
-	for _, inst := range mgr.Instances() {
-		if inst.Status.TrustLevel != "autonomous" {
-			t.Errorf("instance %s: got %q, want autonomous",
-				inst.Name, inst.Status.TrustLevel)
-		}
 	}
 }
 
