@@ -167,8 +167,13 @@ func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomy
 	b := runningBuild()
 	faults := srebench.GameDayFaults{MinRunsPerFamily: max(th.MinTop1N, th.MinSafePassN),
 		PgSageVersion: b.Version, PgSageCommit: b.Commit}
+	store, err := gameday.NewStore(svc.Store().Pool(), svc.Store().DeploymentID())
+	if err != nil {
+		return nil, fmt.Errorf("local bench run store: %w", err)
+	}
 	return gameday.NewLocalBench(gameday.LocalBenchConfig{Database: database, Provider: name,
-		Log: func(format string, args ...any) { logWarn("autonomy", format, args...) }},
+		Store: store,
+		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) }},
 		provider, faults, svc)
 }
 
@@ -187,6 +192,11 @@ func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAuto
 	benches.Register(rt.spec.Name, bench)
 	name := rt.spec.Name
 	rt.start(func() {
+		if n, err := bench.AbandonStale(rt.ctx); err != nil {
+			logWarn("autonomy", "db %q: abandon stale local bench runs: %v", name, err)
+		} else if n > 0 {
+			logInfo("autonomy", "db %q: abandoned %d stale local bench run(s)", name, n)
+		}
 		<-rt.ctx.Done()
 		benches.Remove(name)
 	})

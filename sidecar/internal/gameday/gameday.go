@@ -193,7 +193,7 @@ func (r *Runner) run(ctx context.Context, id string) (GameDay, error) {
 	gd := GameDay{ID: id, Database: r.cfg.Database, Provider: r.cfg.Provider,
 		Families: append([]string{}, r.cfg.Families...), Status: StatusRunning,
 		StartedAt: r.now()}
-	if err := r.store.start(ctx, gd); err != nil {
+	if err := r.store.start(ctx, gd, rowGameDay); err != nil {
 		return gd, err
 	}
 	c, err := r.provider.Create(ctx, clone.CloneSpec{IncludeData: true})
@@ -201,16 +201,28 @@ func (r *Runner) run(ctx context.Context, id string) (GameDay, error) {
 		return r.finish(ctx, gd, StatusFailed, fmt.Errorf("create clone: %w", err))
 	}
 	gd.CloneID = c.ID
-	runErr := r.exercise(ctx, &gd, c.DSN)
+	runErr := r.store.attachClone(ctx, gd.ID, c.ID)
+	if runErr == nil {
+		runErr = r.exercise(ctx, &gd, c.DSN)
+	}
+	status, runErr := destroyClone(ctx, r.provider, c, runErr)
+	return r.finish(ctx, gd, status, runErr)
+}
+
+// destroyClone destroys a run's clone, even when ctx is cancelled, and
+// returns the run's status: completed, failed (runErr), or
+// destroy_failed.
+func destroyClone(ctx context.Context, provider clone.Provider, c clone.Clone,
+	runErr error) (string, error) {
 	status := StatusCompleted
 	if runErr != nil {
 		status = StatusFailed
 	}
-	if err := r.provider.Destroy(context.WithoutCancel(ctx), c); err != nil {
+	if err := provider.Destroy(context.WithoutCancel(ctx), c); err != nil {
 		status = StatusDestroyFailed
 		runErr = errors.Join(runErr, fmt.Errorf("destroy clone %s: %w", c.ID, err))
 	}
-	return r.finish(ctx, gd, status, runErr)
+	return status, runErr
 }
 
 // exercise runs the fault programs on the clone and records the evidence.

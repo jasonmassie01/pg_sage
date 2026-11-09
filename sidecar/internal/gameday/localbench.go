@@ -40,6 +40,10 @@ type LocalBenchConfig struct {
 	// Leases are the shared targets held in this process (nil: the
 	// process-wide table game days share too).
 	Leases *Leases
+	// Store records runs as kind 'local' (benches-03), so a run its
+	// process never finished is abandoned and its clone destroyed. Nil
+	// keeps runs in memory only.
+	Store *Store
 }
 
 // LocalBenchRun is one local bench run. The clone's DSN carries
@@ -162,27 +166,44 @@ func (b *LocalBench) begin(ctx context.Context, families []string) (LocalBenchRu
 	run := LocalBenchRun{ID: id, Database: b.cfg.Database, Provider: b.cfg.Provider,
 		Families: append([]string{}, families...), Status: StatusRunning,
 		StartedAt: b.cfg.Now().UTC()}
+	if err := b.persistStart(ctx, run); err != nil {
+		release()
+		b.running.Store(false)
+		return LocalBenchRun{}, nil, err
+	}
 	b.record(run)
 	return run, release, nil
+}
+
+// persistStart sweeps this database's stale local runs (a failed sweep is
+// logged; it does not block the run) and records run as running. A run
+// that cannot be recorded is refused: its clone could leak unrecorded.
+func (b *LocalBench) persistStart(ctx context.Context, run LocalBenchRun) error {
+	if b.cfg.Store == nil {
+		return nil
+	}
+	if _, err := b.sweep(ctx); err != nil {
+		b.cfg.Log("local bench on %s: sweep stale runs: %v", b.cfg.Database, err)
+	}
+	return b.cfg.Store.start(ctx, GameDay(run), rowLocal)
 }
 
 func (b *LocalBench) execute(ctx context.Context, run LocalBenchRun) (LocalBenchRun,
 	error) {
 	c, err := b.provider.Create(ctx, clone.CloneSpec{IncludeData: true})
 	if err != nil {
-		return b.finish(run, StatusFailed, fmt.Errorf("create clone: %w", err))
+		return b.finish(ctx, run, StatusFailed, fmt.Errorf("create clone: %w", err))
 	}
 	run.CloneID = c.ID
-	runErr := b.exercise(ctx, &run, c.DSN)
-	status := StatusCompleted
-	if runErr != nil {
-		status = StatusFailed
+	var runErr error
+	if b.cfg.Store != nil {
+		runErr = b.cfg.Store.attachClone(ctx, run.ID, c.ID)
 	}
-	if err := b.provider.Destroy(context.WithoutCancel(ctx), c); err != nil {
-		status = StatusDestroyFailed
-		runErr = errors.Join(runErr, fmt.Errorf("destroy clone %s: %w", c.ID, err))
+	if runErr == nil {
+		runErr = b.exercise(ctx, &run, c.DSN)
 	}
-	return b.finish(run, status, runErr)
+	status, runErr := destroyClone(ctx, b.provider, c, runErr)
+	return b.finish(ctx, run, status, runErr)
 }
 
 // exercise runs the fault programs on the clone and ingests the report
@@ -201,14 +222,19 @@ func (b *LocalBench) exercise(ctx context.Context, run *LocalBenchRun, dsn strin
 	return nil
 }
 
-func (b *LocalBench) finish(run LocalBenchRun, status string, runErr error) (LocalBenchRun,
-	error) {
+func (b *LocalBench) finish(ctx context.Context, run LocalBenchRun, status string,
+	runErr error) (LocalBenchRun, error) {
 	at := b.cfg.Now().UTC()
 	run.Status, run.FinishedAt = status, &at
 	if runErr != nil {
 		run.Error = truncate(runErr.Error(), 2000)
 	}
 	b.record(run)
+	if b.cfg.Store != nil {
+		if err := b.cfg.Store.finish(context.WithoutCancel(ctx), GameDay(run)); err != nil {
+			return run, errors.Join(runErr, err)
+		}
+	}
 	return run, runErr
 }
 
