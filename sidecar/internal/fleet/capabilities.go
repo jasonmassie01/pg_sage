@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/executor"
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 type CapabilityStatus struct {
@@ -411,22 +412,14 @@ func detectReplica(ctx context.Context, pool *pgxpool.Pool) bool {
 	return replica
 }
 
+// normalizeProviderName is the registry's canonical name; an unrecognised
+// name is kept (lower-cased) so readiness shows what was detected.
 func normalizeProviderName(provider string) string {
-	p := strings.ToLower(strings.TrimSpace(provider))
-	switch p {
-	case "", "unknown":
-		return "unknown"
-	case "cloudsql", "cloud sql", "gcp-cloud-sql":
-		return "cloud-sql"
-	case "aurora-postgresql":
-		return "aurora"
-	case "aws-rds":
-		return "rds"
-	case "azure-flexible", "azure-single", "azure-postgres":
-		return "azure"
-	case "postgresql", "self-managed":
-		return "postgres"
-	default:
+	if name := prov.Canonical(provider); name != "" {
+		return name
+	}
+	if p := strings.ToLower(strings.TrimSpace(provider)); p != "" {
 		return p
 	}
+	return prov.Unknown
 }

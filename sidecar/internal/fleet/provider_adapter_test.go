@@ -103,3 +103,23 @@ func findFamily(
 	t.Fatalf("no readiness family %s", action)
 	return ActionFamilyReadiness{}
 }
+
+// Aliases resolve through the provider registry; an unrecognised name is
+// kept for display but gets the fail-closed unknown adapter.
+func TestAdapterForProviderRegistryAliases(t *testing.T) {
+	for in, want := range map[string]string{"aws": "rds", "GCP": "cloud-sql",
+		"aurora-postgresql": "aurora", "postgresql": "postgres", "self-managed": "postgres"} {
+		if got := AdapterForProvider(in); got.Provider != want || got.LogAccess == "unknown" {
+			t.Errorf("AdapterForProvider(%q) = %q (log %q), want %q", in, got.Provider,
+				got.LogAccess, want)
+		}
+	}
+	for in, want := range map[string]string{"bogus": "bogus", " Bogus ": "bogus", "": "unknown",
+		"unknown": "unknown"} {
+		a := AdapterForProvider(in)
+		if a.Provider != want || a.LogAccess != "unknown" || len(a.SupportedActions) != 0 {
+			t.Errorf("AdapterForProvider(%q) = %q log %q actions %d", in, a.Provider,
+				a.LogAccess, len(a.SupportedActions))
+		}
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/managedparam"
+	"github.com/pg-sage/sidecar/internal/provider"
 )
 
 // No concurrent access tests: every consumer checked here is a pure
@@ -56,50 +58,58 @@ func TestKnownProvidersCoverDetection(t *testing.T) {
 	}
 }
 
-// TestProviderConsumersAgree runs every detectable provider through each
-// hand-maintained consumer and asserts they agree on managed versus
-// self-managed versus unknown.
+// TestProviderConsumersAgree runs every detectable provider and every
+// registry alias through each consumer and asserts they agree on managed
+// versus self-managed versus unknown.
 func TestProviderConsumersAgree(t *testing.T) {
-	for _, name := range knownProviders {
+	names := append([]string(nil), knownProviders...)
+	for _, p := range provider.Profiles() {
+		names = append(names, p.Aliases...)
+	}
+	for _, name := range names {
 		t.Run(name, func(t *testing.T) { checkProviderConsumers(t, name) })
 	}
 }
 
 func checkProviderConsumers(t *testing.T, name string) {
 	t.Helper()
+	profile, known := provider.Lookup(name)
 	managed := advisor.IsManagedService(name)
 	adapter := fleet.AdapterForProvider(name)
-	canonical := adapter.Provider
-	alterSystem := contractSupports(t, "alter_system_guc", canonical)
-	switch name {
-	case providerUnknown:
-		if managed || canonical != "unknown" || len(adapter.SupportedActions) != 0 {
-			t.Fatalf("unknown: managed %v adapter %q actions %d", managed, canonical,
-				len(adapter.SupportedActions))
+	alterSystem := contractSupports(t, "alter_system_guc", adapter.Provider)
+	if !known {
+		if name != providerUnknown || managed || adapter.Provider != "unknown" ||
+			len(adapter.SupportedActions) != 0 || managedparam.Supported(name) {
+			t.Fatalf("%q has no profile: managed %v adapter %q actions %d", name, managed,
+				adapter.Provider, len(adapter.SupportedActions))
 		}
 		for action := range providerListExceptions {
-			if contractSupports(t, action, canonical) {
+			if contractSupports(t, action, adapter.Provider) {
 				t.Errorf("unknown is supported by %s", action)
 			}
 		}
 		return
-	case providerSelfManaged:
-		if managed || canonical != "postgres" || !alterSystem {
-			t.Fatalf("self-managed: managed %v adapter %q alter_system %v",
-				managed, canonical, alterSystem)
-		}
-	default:
-		if !managed || alterSystem || canonical == "unknown" || canonical == "postgres" {
-			t.Fatalf("%s: managed %v alter_system %v adapter %q", name, managed,
-				alterSystem, canonical)
-		}
-		if adapter.LogAccess == "local" || adapter.LogAccess == "unknown" {
-			t.Errorf("%s: adapter log access %q", name, adapter.LogAccess)
-		}
+	}
+	if adapter.Provider != profile.Name || managed != profile.Managed ||
+		alterSystem == profile.Managed {
+		t.Fatalf("%s: profile %q managed %v; advisor managed %v, adapter %q, "+
+			"alter_system %v", name, profile.Name, profile.Managed, managed,
+			adapter.Provider, alterSystem)
+	}
+	if adapter.LogAccess != profile.LogAccess {
+		t.Errorf("%s: adapter log access %q, profile %q", name, adapter.LogAccess,
+			profile.LogAccess)
+	}
+	paramSupported := profile.ConfigMechanism == provider.ConfigParameterGroup ||
+		profile.ConfigMechanism == provider.ConfigClusterParameterGroup ||
+		profile.ConfigMechanism == provider.ConfigCloudSQLFlags
+	if managedparam.Supported(name) != paramSupported {
+		t.Errorf("%s: managedparam.Supported %v, mechanism %q", name,
+			managedparam.Supported(name), profile.ConfigMechanism)
 	}
 	for action, exceptions := range providerListExceptions {
-		_, excepted := exceptions[canonical]
-		if got := contractSupports(t, action, canonical); got == excepted {
+		_, excepted := exceptions[profile.Name]
+		if got := contractSupports(t, action, profile.Name); got == excepted {
 			t.Errorf("%s: %s support %v, exception listed %v", name, action, got, excepted)
 		}
 	}

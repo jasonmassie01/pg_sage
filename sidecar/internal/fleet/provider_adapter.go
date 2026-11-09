@@ -1,5 +1,7 @@
 package fleet
 
+import prov "github.com/pg-sage/sidecar/internal/provider"
+
 type ProviderAdapter struct {
 	Provider         string
 	Extensions       map[string]string
@@ -16,7 +18,7 @@ func AdapterForProvider(provider string) ProviderAdapter {
 	case "neon", "supabase":
 		return hostedPostgresAdapter(normalized)
 	case "cloud-sql":
-		return managedAdapter(normalized, "provider_logging",
+		return managedAdapter(normalized,
 			map[string]string{
 				"pg_stat_statements": "available",
 				"hypopg":             "available",
@@ -29,7 +31,7 @@ func AdapterForProvider(provider string) ProviderAdapter {
 			},
 		)
 	case "rds":
-		return managedAdapter(normalized, "cloudwatch",
+		return managedAdapter(normalized,
 			map[string]string{
 				"pg_stat_statements": "available",
 				"hypopg":             "available",
@@ -42,7 +44,7 @@ func AdapterForProvider(provider string) ProviderAdapter {
 			},
 		)
 	case "aurora":
-		return managedAdapter(normalized, "cloudwatch",
+		return managedAdapter(normalized,
 			map[string]string{
 				"pg_stat_statements": "available",
 				"hypopg":             "available",
@@ -55,7 +57,7 @@ func AdapterForProvider(provider string) ProviderAdapter {
 			},
 		)
 	case "alloydb":
-		return managedAdapter(normalized, "cloud-logging",
+		return managedAdapter(normalized,
 			map[string]string{
 				"pg_stat_statements": "available",
 				"hypopg":             "available",
@@ -69,10 +71,10 @@ func AdapterForProvider(provider string) ProviderAdapter {
 		)
 	case "azure":
 		return azureAdapter()
-	case "azure-cosmos":
+	case prov.AzureCosmos:
 		return cosmosAdapter()
 	case "postgres":
-		return managedAdapter(normalized, "local",
+		return managedAdapter(normalized,
 			map[string]string{
 				"pg_stat_statements": "unknown",
 				"hypopg":             "unknown",
@@ -82,7 +84,7 @@ func AdapterForProvider(provider string) ProviderAdapter {
 			nil,
 		)
 	default:
-		adapter := managedAdapter(normalized, "unknown",
+		adapter := managedAdapter(normalized,
 			defaultExtensionReadiness(), []string{"provider adapter unknown"})
 		adapter.SupportedActions = map[string]bool{}
 		return adapter
@@ -92,7 +94,7 @@ func AdapterForProvider(provider string) ProviderAdapter {
 // Lakebase only advertises action families verified on the native OAuth path.
 // Catalog collection still supplies the endpoint-specific extension evidence.
 func lakebaseAdapter() ProviderAdapter {
-	adapter := managedAdapter("lakebase", "unavailable", map[string]string{
+	adapter := managedAdapter("lakebase", map[string]string{
 		"pg_stat_statements": "unknown",
 		"hypopg":             "unavailable",
 		"pg_hint_plan":       "unknown",
@@ -119,7 +121,7 @@ func lakebaseAdapter() ProviderAdapter {
 // The database owner may ALTER DATABASE ... SET; instance parameters go
 // through Azure server parameters (managed config), never ALTER SYSTEM.
 func azureAdapter() ProviderAdapter {
-	adapter := managedAdapter("azure", "azure_monitor",
+	adapter := managedAdapter("azure",
 		map[string]string{
 			"pg_stat_statements": "available",
 			"hypopg":             "azure_extensions_allowlist_required",
@@ -141,7 +143,7 @@ func azureAdapter() ProviderAdapter {
 // has no adapter for its server parameters, so they stay guidance-only and
 // readiness does not advertise ALTER DATABASE changes.
 func cosmosAdapter() ProviderAdapter {
-	return managedAdapter("azure-cosmos", "azure_monitor",
+	return managedAdapter(prov.AzureCosmos,
 		map[string]string{
 			"pg_stat_statements": "available",
 			"hypopg":             "azure_extensions_allowlist_required",
@@ -160,7 +162,7 @@ func cosmosAdapter() ProviderAdapter {
 func hostedPostgresAdapter(provider string) ProviderAdapter {
 	extensions := defaultExtensionReadiness()
 	extensions["vector"] = "unknown"
-	adapter := managedAdapter(provider, "provider_console", extensions, []string{
+	adapter := managedAdapter(provider, extensions, []string{
 		"use a direct or session connection for session-dependent operations",
 		"extension installation and role privileges must be checked on the target",
 		"server configuration and host telemetry are controlled by the provider",
@@ -169,12 +171,17 @@ func hostedPostgresAdapter(provider string) ProviderAdapter {
 	return adapter
 }
 
+// managedAdapter builds an adapter whose log access comes from the
+// provider registry ("unknown" for a provider it does not know).
 func managedAdapter(
 	provider string,
-	logAccess string,
 	extensions map[string]string,
 	limitations []string,
 ) ProviderAdapter {
+	logAccess := "unknown"
+	if profile, ok := prov.Lookup(provider); ok {
+		logAccess = profile.LogAccess
+	}
 	return ProviderAdapter{
 		Provider:         provider,
 		Extensions:       copyExtensions(extensions),
