@@ -1482,7 +1482,7 @@
   "logwatch.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true.",
+    "doc": "Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false.",
     "class": "operator_preference"
   },
   "logwatch.exclude_applications": {
@@ -1518,7 +1518,7 @@
   "logwatch.poll_interval_ms": {
     "type": "int",
     "default": 1000,
-    "doc": "Fallback poll interval when fsnotify is unavailable. Default: 1000.",
+    "doc": "How often the log tailer polls the log file for new lines (it only polls). Default: 1000.",
     "class": "derivable"
   },
   "logwatch.slow_query_enabled": {

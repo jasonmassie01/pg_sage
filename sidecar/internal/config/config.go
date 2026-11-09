@@ -382,10 +382,10 @@ type LockChainConfig struct {
 
 // LogWatchConfig controls PostgreSQL log file monitoring (v0.9.1).
 type LogWatchConfig struct {
-	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true."`
+	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true. Default: false."`
 	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank."`
 	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
-	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Fallback poll interval when fsnotify is unavailable. Default: 1000."`
+	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Log file poll interval (the tailer only polls). Default: 1000."`
 	DedupWindowS        int      `yaml:"dedup_window_seconds" doc:"Suppress duplicate log signals within this window. Default: 60."`
 	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Discard log lines longer than this. Default: 65536."`
 	TempFileMinBytes    int      `yaml:"temp_file_min_bytes" doc:"Minimum temp file size to trigger log_temp_file_created. Default: 10485760."`

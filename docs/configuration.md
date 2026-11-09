@@ -1819,14 +1819,84 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.max_tokens_per_question` | `40000` | Most tokens one question may use (4000-200000). Restart to change |
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 
-### Log-based RCA: what the server log must look like
+### Log-based RCA
 
 With `logwatch.enabled` and `rca.enabled`, pg_sage tails the server's csvlog or jsonlog
-(jsonlog needs PostgreSQL 15+) and opens incidents from it. Some signals come from the
-SQLSTATE and work in any language. The others match the message text, which PostgreSQL
-translates, so the server must log in C or English: set `lc_messages = 'C'`. When
-`lc_messages` is something else, pg_sage logs a warning naming the setting when the log
-watcher starts.
+and opens incidents from it (crashes, WAL gaps, corruption, wraparound, disk full and the
+other signals below). It is **off by default**: `logwatch.enabled` is `false`. Migration
+log detection (`migration.log_detection`) reads the same watcher.
+
+**Requirements.** PostgreSQL 14-18. The server must write log files pg_sage can parse:
+
+| Setting | Needed value | Why |
+|---|---|---|
+| `log_destination` | includes `jsonlog` (PostgreSQL 15+) or `csvlog` (14+), e.g. `'stderr,jsonlog'` | pg_sage parses only these formats; plain `stderr` is not read |
+| `logging_collector` | `on` (restart to change) | csvlog and jsonlog files are written only by the collector |
+| `log_directory` | readable by the sidecar | auto-detected from `pg_settings` (relative paths are under `data_directory`); mount it read-only into the sidecar at the same path, or set `logwatch.log_directory` |
+| `lc_messages` | `'C'` or English | the text-matched signals need English messages; SQLSTATE signals work in any language |
+| `log_temp_files` | `>= 0`, e.g. `'10MB'` | without it `log_temp_file_created` never fires |
+| `log_min_duration_statement` | `>= 0` | only with `logwatch.slow_query_enabled`, for `log_slow_query` |
+
+`log_lock_waits` and `log_autovacuum_min_duration` feed no signal today; leaving them off
+loses nothing. Detection only reads `pg_settings` (read-only, bounded by a timeout).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `logwatch.enabled` | `false` | Tail the server log for RCA. Needs `rca.enabled` (or migration log detection) |
+| `logwatch.log_directory` | auto | Log directory as the sidecar sees it; blank reads `log_directory` from `pg_settings` |
+| `logwatch.format` | auto | `jsonlog` or `csvlog`; blank reads `log_destination` |
+| `logwatch.poll_interval_ms` | `1000` | How often the tailer polls the log file (it only polls) |
+| `logwatch.dedup_window_seconds` | `60` | Suppress repeats of one signal within this window |
+| `logwatch.max_line_len_bytes` | `65536` | Discard longer lines |
+| `logwatch.temp_file_min_bytes` | `10485760` | Smallest temporary file that raises `log_temp_file_created` |
+| `logwatch.max_lines_per_cycle` | `10000` | Lines classified per drain; critical lines are never skipped |
+| `logwatch.exclude_applications` | `[pg_sage]` | `application_name` values excluded from timeout and deadlock signals |
+| `logwatch.slow_query_enabled` | `false` | Parse `log_min_duration_statement` output as `log_slow_query` |
+
+**Log source status.** `GET /api/v1/databases` returns `status.log_source` for every
+database: `state` is `active` (tailing; with `format`, `file`, `last_line_at`,
+`parse_errors` and `dropped_lines`), `unavailable` (wanted but unreadable; `reason` names the
+setting at fault, for example `log_destination is "stderr"` or `logging_collector is "off"`,
+and `next_retry_at` says when pg_sage tries again) or `disabled` (`reason` names the switch,
+for example `logwatch.enabled is false`). `hints` lists settings that keep a signal silent.
+An unavailable source is retried in the background, first after 30 s and then doubling to
+every 10 minutes, until it starts or the sidecar stops; databases that started while it was
+unavailable receive its signals once it is active, without a restart. In fleet mode one
+watcher serves each cluster (host:port), so every database on a cluster shows that cluster's
+status. The First Look reports the `log_rca` capability with the exact steps for the
+provider, and an info item when the log cannot be read.
+
+**Managed services.** Their server log files are not reachable from the sidecar. RDS and
+Aurora send logs to CloudWatch Logs, Cloud SQL and AlloyDB to Cloud Logging, and Azure to
+Azure Monitor; pg_sage reads none of these, so log-based RCA is unavailable there. Supabase
+logs arrive through the Management API when `SAGE_SUPABASE_OBSERVABILITY_TOKEN` is set, and
+Lakebase logs through the opt-in `lakebase_observability` reader.
+
+**Statement text.** Log records can carry SQL. Before log signals reach an LLM prompt,
+query text has its literals redacted and comments stripped, quoted values in messages are
+replaced with `"?"`, and the `detail`, `user` and `cluster_key` fields are dropped.
+
+| Signal | Matched on | Severity |
+|---|---|---|
+| `log_deadlock_detected` | SQLSTATE 40P01 | critical |
+| `log_connection_refused` | SQLSTATE 53300 (too many connections) | critical |
+| `log_out_of_memory` | SQLSTATE 53200 | critical |
+| `log_disk_full` | SQLSTATE 53100 | critical |
+| `log_archive_failed` | "archive command failed" | critical |
+| `log_txid_wraparound_warning` | "must be vacuumed within" | critical |
+| `log_temp_file_created` | "temporary file" (needs `log_temp_files`) | warning |
+| `log_checkpoint_too_frequent` | "checkpoints are occurring too frequently" | warning |
+| `log_lock_timeout` | SQLSTATE 55P03 | warning |
+| `log_statement_timeout` | SQLSTATE 57014 | warning |
+| `log_replication_conflict` | "conflict with recovery" | warning |
+| `log_autovacuum_cancel` | "canceling autovacuum task" | warning |
+| `log_authentication_failure` | FATAL authentication failures | warning |
+| `log_slow_query` | "duration:" (opt-in, `logwatch.slow_query_enabled`) | info |
+
+The signals below need the server process that logs them and are matched as follows. The
+text-matched ones need `lc_messages = 'C'` or English: when `lc_messages` is something else,
+pg_sage logs a warning naming the setting when the log watcher starts, and lists it in
+`log_source.hints`.
 
 | Signal | How it is matched | Incident |
 |---|---|---|
