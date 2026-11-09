@@ -448,7 +448,7 @@ func migrationStatements() []string {
 		ddlEmergencyStopSeed,
 		// clouds-02: after the table (ddlManagedChangeProposals).
 		ddlManagedChangeFingerprintV2,
-		ddlSessionsTokenHash, // apiauth-04: hashed session cookies
+		ddlSessionsTokenHash,     // apiauth-04: hashed session cookies
 		ddlUsersDisabledAt,       // apiauth-01: user deactivation
 		ddlRolloutInstanceStatus) // executor-04: canary pending and unverified states
 }

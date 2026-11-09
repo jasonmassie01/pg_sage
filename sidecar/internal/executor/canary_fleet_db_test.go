@@ -23,7 +23,8 @@ import (
 // records the action as "monitoring"; the canary waits for the target's
 // own verdict before it judges, and completes once it is a success.
 
-const fleetCanarySQL = "CREATE INDEX CONCURRENTLY idx_canary_orders ON public.canary_orders (status)"
+const fleetCanarySQL = "CREATE INDEX CONCURRENTLY idx_canary_orders " +
+	"ON public.canary_orders (status)"
 
 const fleetCanaryRollbackSQL = "DROP INDEX CONCURRENTLY public.idx_canary_orders"
 
@@ -93,9 +94,9 @@ func fleetDatabase(t *testing.T, label string) executorTarget {
 	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
 		t.Fatalf("config schema %s: %v", label, err)
 	}
-	if _, err := pool.Exec(ctx, `CREATE TABLE public.canary_orders (id int, status text);
-		INSERT INTO public.canary_orders SELECT g, 'open' FROM generate_series(1, 200) g`);
-		err != nil {
+	_, err = pool.Exec(ctx, `CREATE TABLE public.canary_orders (id int, status text);
+		INSERT INTO public.canary_orders SELECT g, 'open' FROM generate_series(1, 200) g`)
+	if err != nil {
 		t.Fatalf("table on %s: %v", label, err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.findings (category, severity, object_type,

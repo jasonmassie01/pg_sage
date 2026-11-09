@@ -62,8 +62,13 @@ func TestFleetCanaryTargetReadsTheDatabase(t *testing.T) {
 	if _, err := target.Execute(ctx, findingID, "x", "", nil); err == nil {
 		t.Fatal("a database without an executor executed")
 	}
-	// executor-04: the canary's wait is bounded by the target's monitor.
-	if _, err := target.MonitorDeadline(ctx, actionID); err == nil ||
+}
+
+// executor-04: the canary's wait is bounded by the target's monitor, and a
+// database without an executor has none.
+func TestFleetCanaryTargetMonitorDeadlineNeedsAnExecutor(t *testing.T) {
+	target := fleetCanaryTarget{inst: &fleet.DatabaseInstance{Name: "orders"}}
+	if _, err := target.MonitorDeadline(context.Background(), 1); err == nil ||
 		!strings.Contains(err.Error(), "orders has no executor") {
 		t.Fatalf("monitor deadline without an executor: %v", err)
 	}
