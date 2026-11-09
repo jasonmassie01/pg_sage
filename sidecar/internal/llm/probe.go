@@ -33,6 +33,8 @@ var probeSeq atomic.Uint64
 // half-open probe even inside the cooldown, so a success closes the
 // breaker. Each probe carries a nonce so the duplicate-prompt cooldown
 // never suppresses a repeated test.
+//
+//llm:no-db-content a fixed system prompt and a nonce, with no database text
 func (c *Client) Probe(ctx context.Context) ProbeResult {
 	if c == nil || !c.IsEnabled() {
 		return ProbeResult{Class: "disabled", CircuitState: breakerClosed.String()}

@@ -52,6 +52,8 @@ func (m investigatorModel) ChatWithTools(ctx context.Context, msgs []llm.Message
 
 // reservedCall reserves the call exactly as the loop estimated it, calls
 // the model bounded by the reservation and settles it.
+//
+//llm:transport internal/agentloop.systemPrompt
 func (s *investigatorSession) reservedCall(ctx context.Context, msgs []llm.Message,
 	tools []llm.ToolSpec, opts llm.ToolOptions) (llm.ToolResult, error) {
 	s.calls++

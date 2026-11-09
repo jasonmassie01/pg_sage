@@ -74,6 +74,8 @@ type TurnOutcome struct {
 // provider reported it (or proved nothing was sent), otherwise the full
 // hold stays (unknown). The caller's errors and settlement errors are
 // both returned.
+//
+//llm:transport internal/sre.reviewMessages
 func RunModelTurn(ctx context.Context, st ModelStore, lease Lease, client *llm.Client,
 	turn ModelTurn) (TurnOutcome, error) {
 	if client == nil {
