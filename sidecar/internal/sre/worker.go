@@ -220,15 +220,22 @@ func (c *Coordinator) committedSteps(ctx context.Context, scope Scope,
 
 func stepKey(i int) string { return fmt.Sprintf("step-%d", i+1) }
 
-// runStep runs a step's probes in order. A probe refused its slot is run
-// once more when the lease leaves time for it (retryQueued).
+// runStep runs a step's probes in order (runQueued).
 func (c *Coordinator) runStep(ctx context.Context, lease Lease, st planStep) []probes.Result {
 	out := make([]probes.Result, 0, len(st.calls))
 	for _, call := range st.calls {
-		run := func() probes.Result { return c.runner.Run(ctx, call.id, call.args) }
-		out = append(out, retryQueued(lease.SegmentDeadline, run(), run))
+		out = append(out, c.runQueued(ctx, lease, call.id, call.args))
 	}
 	return out
+}
+
+// runQueued runs one investigation probe: a plan step's, the model's or
+// a runbook's. A probe refused its slot is run once more when the lease
+// leaves time for it (retryQueued).
+func (c *Coordinator) runQueued(ctx context.Context, lease Lease, id probes.ID,
+	args probes.Args) probes.Result {
+	run := func() probes.Result { return c.runner.Run(ctx, id, args) }
+	return retryQueued(lease.SegmentDeadline, run(), run)
 }
 
 // retryQueued returns res, or a second read when res found no free probe

@@ -2,6 +2,7 @@ package sre
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -121,5 +122,63 @@ func TestCollect_TwoQueueRefusalsCommitConcurrencyLimit(t *testing.T) {
 	}
 	if reads != 2 || len(ev) != 1 || ev[0].ReasonCode != "concurrency_limit" {
 		t.Fatalf("reads %d evidence %+v, want 2 reads and one concurrency_limit", reads, ev)
+	}
+}
+
+func TestRunbookRun_QueueRefusedProbeIsRetriedOnce(t *testing.T) {
+	st, _, ctx := liveStore(t, DefaultLimits())
+	runner := idleChainRunner().script(probes.LockChains, queueRefusal(probes.LockChains),
+		probes.Result{ProbeID: probes.LockChains, Version: "v1", Status: probes.StatusEmpty,
+			Reason: "no_rows"})
+	inv, _ := runIdle(t, ctx, st, runner, func(scope Scope) {
+		signedRunbook(t, ctx, st, scope, idleRunbook())
+	})
+	if inv.State != StateConcluded || inv.ProbeCount != 5 {
+		t.Fatalf("investigation %s with %d probes, want concluded with 5", inv.State,
+			inv.ProbeCount)
+	}
+	ev := runbookEvidence(t, st, inv)
+	if len(ev) != 1 || ev[0].ProbeID != string(probes.LockChains) ||
+		ev[0].ReasonCode == "concurrency_limit" {
+		t.Fatalf("runbook evidence = %+v, want the retried lock_chains read", ev)
+	}
+	if run := inv.Summary.Runbook; run == nil || run.Outcome != RunbookCompleted {
+		t.Fatalf("summary runbook = %+v, want a completed run", run)
+	}
+	if runner.calls[probes.LockChains] != 2 {
+		t.Fatalf("lock_chains runs = %d, want 2 (one retry)", runner.calls[probes.LockChains])
+	}
+}
+
+// callerRecorder records the caller class of every probe it passes on.
+type callerRecorder struct {
+	base    ProbeRunner
+	mu      sync.Mutex
+	callers []probes.Caller
+}
+
+func (r *callerRecorder) Run(ctx context.Context, id probes.ID, a probes.Args) probes.Result {
+	r.mu.Lock()
+	r.callers = append(r.callers, probes.CallerOf(ctx))
+	r.mu.Unlock()
+	return r.base.Run(ctx, id, a)
+}
+
+func TestCoordinator_PlanProbesAreTaggedInvestigation(t *testing.T) {
+	st, _, ctx := liveStore(t, DefaultLimits())
+	r := &callerRecorder{base: idleChainRunner()}
+	c, _ := testCoordinator(t, ctx, st, r, nil)
+	if inv := startAndRun(t, ctx, c, lockTrigger("caller-tag")); inv.State != StateConcluded {
+		t.Fatalf("investigation state = %s, want concluded", inv.State)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.callers) != 4 {
+		t.Fatalf("probe runs = %d, want the lock plan's 4", len(r.callers))
+	}
+	for _, got := range r.callers {
+		if got != probes.CallerInvestigation {
+			t.Fatalf("plan probe caller = %q, want investigation", got)
+		}
 	}
 }
