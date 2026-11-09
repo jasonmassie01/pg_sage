@@ -372,6 +372,10 @@ One event that cannot be delivered no longer blocks the events behind it:
   means the sink or control database is unavailable, not that the event is
   bad. Delivery stops for that poll without spending an attempt, and resumes
   on the next poll.
+- Three consecutive failed events also stop the poll, after each spends one
+  attempt. A sink-wide fault that is not one of the outage classes above (a
+  full disk, a read-only sink, a revoked grant) then costs a few events per
+  poll instead of exhausting the whole backlog as `delivery_failed`.
 
 Attempts are kept in `sage.lakebaseobs_attempts` (schema version 6, created
 by the telemetry schema setup). The table stores the attempt count, the next

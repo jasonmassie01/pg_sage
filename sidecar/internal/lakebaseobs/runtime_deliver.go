@@ -92,7 +92,8 @@ func (r *Runtime) deliver(ctx context.Context, now time.Time) []error {
 
 // deliverTo offers up to MaxRows pending events to one consumer. A failed
 // event is scheduled for a retry and the next event is offered; policy
-// revocation, cancellation or an unavailable sink stops this consumer's poll.
+// revocation, cancellation, an unavailable sink or maxFailureStreak
+// consecutive failures stop this consumer's poll.
 // Consumer error text is never returned: it can carry SQL or payload values.
 func (r *Runtime) deliverTo(ctx context.Context, c Consumer, now time.Time) error {
 	events, err := r.store.PendingStreams(ctx, r.binding, c.Name(), r.subscribed[c.Name()],
@@ -100,11 +101,12 @@ func (r *Runtime) deliverTo(ctx context.Context, c Consumer, now time.Time) erro
 	if err != nil {
 		return err
 	}
-	failed := 0
+	failed, streak := 0, 0
 	for _, e := range events {
 		err = r.deliverOne(ctx, c, e, now)
 		switch {
 		case err == nil:
+			streak = 0
 			continue
 		case errors.Is(err, ErrPolicy), errors.Is(err, ErrStalePolicy):
 			return err
@@ -118,6 +120,10 @@ func (r *Runtime) deliverTo(ctx context.Context, c Consumer, now time.Time) erro
 			return err
 		}
 		failed++
+		if streak++; streak == maxFailureStreak {
+			return fmt.Errorf("lakebase telemetry consumer %s failed %d consecutive events; "+
+				"delivery resumes next poll", c.Name(), streak)
+		}
 	}
 	if failed > 0 {
 		return fmt.Errorf("lakebase telemetry consumer %s failed %d events; "+

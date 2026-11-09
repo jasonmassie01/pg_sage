@@ -14,6 +14,13 @@ import (
 // so one poison event cannot stall the consumer for the payload's retention.
 const MaxDeliveryAttempts = 5
 
+// maxFailureStreak stops a poll after this many consecutive failed events.
+// A sink-wide fault that is not classified as an outage (a full disk, a
+// read-only or failed-over sink, a revoked grant) then spends attempts on a
+// few events per poll instead of exhausting the whole backlog as
+// delivery_failed, while isolated poison events still never stall the rest.
+const maxFailureStreak = 3
+
 const (
 	retryBaseDelay = 30 * time.Second
 	retryMaxDelay  = 15 * time.Minute
