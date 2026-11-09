@@ -133,7 +133,10 @@ func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 			fleetLearningSources(mgr), fleetlearn.Settings{IncludeNames: fl.IncludeNames,
 				MinSimilarity: fl.LookalikeMinSimilarity, MinPriorOutcomes: fl.MinPriorOutcomes},
 			logStructuredWrapper)
+		svc := fleetLearning
 		go afterDelay(ctx, firstCycleDelay, func() {
+			go watchFleetLearningPeers(ctx, peerCheckPeriod, svc.Eligible,
+				runFleetLearningCycle)
 			every(ctx, fl.Interval(), runFleetLearningCycle)
 		})
 	}
@@ -146,13 +149,19 @@ func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 		fl.Enabled, fl.LeaderLeaseSeconds > 0)
 }
 
+// fleetLearningCycleMu serializes the interval loop and the peer watcher.
+var fleetLearningCycleMu sync.Mutex
+
 // runFleetLearningCycle fingerprints the fleet when this sidecar leads,
-// fencing every write with the lease it holds.
+// fencing every write with the lease it holds. A cycle skipped for want of
+// a peer is logged by the service, once per entry into that state.
 func runFleetLearningCycle(ctx context.Context) {
 	svc := fleetLearning
 	if svc == nil || !fleetLeaderAllows("fleet learning") {
 		return
 	}
+	fleetLearningCycleMu.Lock()
+	defer fleetLearningCycleMu.Unlock()
 	fence := fleetlearn.Fence{}
 	if fleetLeader != nil {
 		tok, ok := fleetLeader.Fence()
@@ -169,6 +178,9 @@ func runFleetLearningCycle(ctx context.Context) {
 	}
 	if err != nil {
 		logWarn("fleet", "fleet learning cycle failed: %v", err)
+		return
+	}
+	if res.Skipped != "" {
 		return
 	}
 	logInfo("fleet", "fleet learning: fingerprinted %d databases (%d skipped)",
@@ -219,4 +231,30 @@ func applyFleetBudgetSplit(weights map[string]float64) {
 	fl := cfg.FleetLearning
 	b.SetSplit(fl.BudgetSplit, fl.BudgetFloorPct, fl.BudgetCeilingPct)
 	b.SetNeeds(weights)
+}
+
+// peerCheckPeriod is how often the fleet's databases are checked (in
+// memory, no SQL) for a newly possible look-alike.
+const peerCheckPeriod = time.Minute
+
+// watchFleetLearningPeers runs run at once when eligible flips to true,
+// for example when a second database registers, instead of waiting up to
+// the learning interval. Steady state stays with the interval loop.
+func watchFleetLearningPeers(ctx context.Context, period time.Duration,
+	eligible func() bool, run func(context.Context)) {
+	was := eligible()
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			now := eligible()
+			if now && !was {
+				run(ctx)
+			}
+			was = now
+		}
+	}
 }

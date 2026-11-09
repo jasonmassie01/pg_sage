@@ -52,6 +52,7 @@ type Service struct {
 	cache    []Fingerprint
 	cachedAt time.Time
 	cached   bool
+	idle     bool // the last cycle was skipped for want of a peer
 }
 
 // NewService returns the service; sources lists the fleet's databases.
@@ -79,14 +80,22 @@ func NewService(store *Store, sources func() []DatabaseSource, s Settings,
 type CycleResult struct {
 	Databases int      `json:"databases"`
 	Failed    []string `json:"failed"`
+	Skipped   string   `json:"skipped,omitempty"` // SkipNoPeer: nothing read
 }
 
 // RunCycle fingerprints every fleet database, records its outcome digest
-// and drops departed databases (not when no database could be read). A database that cannot be read is logged
-// and skipped; a lost lease (ErrFenced) stops the cycle at once.
+// and drops departed databases (not when no database could be read). A
+// database that cannot be read is logged and skipped; a lost lease
+// (ErrFenced) stops the cycle at once. While no boundary holds two
+// databases the cycle reads and writes nothing (Skipped: SkipNoPeer), and
+// stored fingerprints wait for the next eligible cycle.
 func (s *Service) RunCycle(ctx context.Context, f Fence) (CycleResult, error) {
 	res := CycleResult{Failed: []string{}}
 	srcs := s.sources()
+	if !s.noteEligible(eligible(srcs)) {
+		res.Skipped = SkipNoPeer
+		return res, nil
+	}
 	names := make([]string, 0, len(srcs))
 	for _, src := range srcs {
 		names = append(names, src.Name)
