@@ -238,32 +238,6 @@ func TestPurgeTable_SkipsZeroRetention(t *testing.T) {
 	c.purgeTable(nil, "snapshots", "collected_at", -1, "")
 }
 
-func TestRetentionConfig_DefaultValues(t *testing.T) {
-	// Verify the cleaner uses config values correctly by checking
-	// that Run dispatches to the right tables with right config.
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			SnapshotsDays: 30,
-			FindingsDays:  90,
-			ActionsDays:   180,
-			ExplainsDays:  14,
-		},
-	}
-
-	if cfg.Retention.SnapshotsDays != 30 {
-		t.Error("expected SnapshotsDays=30")
-	}
-	if cfg.Retention.FindingsDays != 90 {
-		t.Error("expected FindingsDays=90")
-	}
-	if cfg.Retention.ActionsDays != 180 {
-		t.Error("expected ActionsDays=180")
-	}
-	if cfg.Retention.ExplainsDays != 14 {
-		t.Error("expected ExplainsDays=14")
-	}
-}
-
 func TestPurgeTable_ZeroDaysAllTables(t *testing.T) {
 	// When all retention days are 0, Run should not attempt any DB calls.
 	cfg := &config.Config{

@@ -1355,17 +1355,12 @@ func TestPhase2_SendDirect_WithPool(t *testing.T) {
 // 14. Sender interface conformance
 // ---------------------------------------------------------------------------
 
-func TestPhase2_EmailSender_ImplementsSender(t *testing.T) {
-	var _ Sender = NewEmailSender()
-}
-
-func TestPhase2_SlackSender_ImplementsSender(t *testing.T) {
-	var _ Sender = NewSlackSender()
-}
-
-func TestPhase2_PagerDutySender_ImplementsSender(t *testing.T) {
-	var _ Sender = NewPagerDutySender()
-}
+// Compile-time checks; a test function cannot fail on them (ci-11).
+var (
+	_ Sender = NewEmailSender()
+	_ Sender = NewSlackSender()
+	_ Sender = NewPagerDutySender()
+)
 
 // ---------------------------------------------------------------------------
 // 15. NewDispatcher — verify initial state

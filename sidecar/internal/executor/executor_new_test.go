@@ -75,34 +75,6 @@ func TestExecuteManual_RejectsMultiStatement(t *testing.T) {
 	}
 }
 
-func TestExecuteManual_AcceptsValidSQL_ButNeedsDB(t *testing.T) {
-	// Valid SQL passes validation but will fail at the DB layer (pool is nil).
-	// This confirms the validation gate does NOT reject valid statements.
-	e := &Executor{
-		pool: nil,
-		cfg: &config.Config{
-			Trust: config.TrustConfig{Level: "advisory"},
-		},
-		recentActions: make(map[string]time.Time),
-		logFn:         func(string, string, ...any) {},
-		execMode:      "auto",
-	}
-
-	// Expect a panic from nil pool dereference — the SQL passed validation.
-	defer func() {
-		r := recover()
-		if r == nil {
-			// If no panic, ExecuteManual returned normally which means
-			// either emergency stop blocked it (possible with nil pool)
-			// or something else. Either way, validation passed.
-		}
-	}()
-
-	_, _ = e.ExecuteManual(t.Context(), 1, "CREATE INDEX idx ON t (c)", "DROP INDEX idx", nil)
-	// If we reach here without panic, that's fine too — emergency stop
-	// query on nil pool may panic or the test captures the recovery.
-}
-
 // ---------------------------------------------------------------------------
 // 2. actionOutcome()
 // ---------------------------------------------------------------------------
