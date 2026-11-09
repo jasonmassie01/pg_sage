@@ -3,6 +3,8 @@ package firstlook
 import (
 	"fmt"
 	"strings"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 // Capability names.
@@ -47,6 +49,9 @@ type Extensions struct {
 // pg_stat_statements, which query analysis needs; info for the optional
 // HypoPG and auto_explain), plus one when query text is hidden.
 func ExtensionCapabilities(e Extensions, provider string) ([]Capability, []Item) {
+	if name := prov.Canonical(provider); name != "" {
+		provider = name
+	}
 	caps := []Capability{statStatements(e, provider), hypoPG(e, provider),
 		autoExplain(e, provider)}
 	var items []Item
@@ -112,36 +117,12 @@ func statStatements(e Extensions, provider string) Capability {
 }
 
 // preloadSteps are the steps that add lib to shared_preload_libraries and
-// create the extension, per provider.
+// create the extension: the provider registry's steps, or the self-managed
+// ALTER SYSTEM steps.
 func preloadSteps(provider, lib string, preload *string) []string {
 	create := "CREATE EXTENSION IF NOT EXISTS " + lib + ";"
-	switch provider {
-	case "lakebase":
-		return []string{"Lakebase manages shared_preload_libraries; verify the extension is " +
-			"supported by this endpoint and ask a database owner to enable it in this database.", create}
-	case "rds", "aurora":
-		group := "DB parameter group"
-		if provider == "aurora" {
-			group = "DB cluster parameter group"
-		}
-		return []string{fmt.Sprintf("In the instance's %s, add %s to "+
-			"shared_preload_libraries.", group, lib),
-			"Then reboot the instance (the setting applies at start).", create}
-	case "cloud-sql":
-		return []string{fmt.Sprintf("Cloud SQL preloads %s; no database flag is needed "+
-			"to enable it. Its settings are database flags (gcloud sql instances patch "+
-			"INSTANCE --database-flags=...).", lib), create}
-	case "alloydb":
-		return []string{fmt.Sprintf("AlloyDB preloads %s; no database flag is needed to "+
-			"enable it. Its settings are database flags (gcloud alloydb instances update "+
-			"INSTANCE --database-flags=...).", lib), create}
-	case "azure", "azure-cosmos":
-		return []string{fmt.Sprintf("In the server parameters, add %s to azure.extensions "+
-			"and to shared_preload_libraries (az postgres flexible-server parameter set).",
-			strings.ToUpper(lib)), "Restart the server (shared_preload_libraries applies " +
-			"at start).", create}
-	case "neon", "supabase":
-		return []string{fmt.Sprintf("%s is preloaded on %s.", lib, provider), create}
+	if steps := prov.PreloadSteps(provider, lib); steps != nil {
+		return append(steps, create)
 	}
 	return []string{fmt.Sprintf("As a superuser: ALTER SYSTEM SET shared_preload_libraries "+
 		"= '%s';", withLibrary(preload, lib)),
@@ -179,7 +160,7 @@ func hypoPG(e Extensions, provider string) Capability {
 		c.Steps = []string{"Install the hypopg package on the database server (e.g. " +
 			"apt install postgresql-<version>-hypopg), then CREATE EXTENSION IF NOT " +
 			"EXISTS hypopg;"}
-		if provider == "azure" || provider == "azure-cosmos" {
+		if provider == prov.Azure || provider == prov.AzureCosmos {
 			c.Steps = []string{"Add HYPOPG to the azure.extensions server parameter, " +
 				"then CREATE EXTENSION IF NOT EXISTS hypopg;"}
 		}
@@ -208,7 +189,7 @@ func autoExplain(e Extensions, provider string) Capability {
 		c.Detail = "Direct auto_explain log access is unavailable; Lakebase plan history has a separate delivery status."
 		c.Steps = []string{"Lakebase exposes plan history and PostgreSQL logs through system.lakebase. " +
 			"Configure the opt-in lakebase_observability reader with an explicit endpoint/database binding and inspect its source status. Direct server log-file ingestion is unavailable."}
-	case "rds", "aurora", "azure", "azure-cosmos":
+	case prov.RDS, prov.Aurora, prov.Azure, prov.AzureCosmos:
 		steps := preloadSteps(provider, "auto_explain", e.PreloadLibraries)
 		c.Steps = append(steps[:len(steps)-1], "Set auto_explain.log_min_duration "+
 			"(e.g. 1000 ms) in the same parameters.")
