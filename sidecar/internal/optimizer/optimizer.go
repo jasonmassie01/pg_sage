@@ -122,10 +122,11 @@ type Admission struct {
 }
 
 // Admit canonicalizes, validates, checks rejection memory and HypoPG-
-// measures one candidate for tc. An idea rejection memory already measured
-// on this workload skips the what-if; a new what-if rejection is
-// remembered. Memory's age and material-change rules let an idea be
-// measured again once it may have changed.
+// measures one candidate for tc, then applies the write-impact gate to the
+// measurement. An idea rejection memory already measured on this workload
+// skips the what-if; a new what-if rejection is remembered. Memory's age
+// and material-change rules let an idea be measured again once it may
+// have changed.
 func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableContext,
 ) Admission {
 	rec, err := canonicalizeRecommendation(rec, tc)
@@ -135,17 +136,22 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
-	if r, seen := o.memory.view(ctx, tc).suppress(rec, o.cfg.HypoPGMinImprovePct); seen {
+	minPct := o.minImprovePct(tc)
+	if r, seen := o.memory.view(ctx, tc).suppress(rec, minPct); seen {
 		o.whatIfSkips.Add(1)
 		return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
 			"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
 			r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
+	if !rejected {
+		rec, rejected = o.gateWriteImpact(rec, tc)
+	}
 	if rejected {
-		o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct)
+		o.memory.remember(ctx, tc, rec, minPct)
 		return Admission{Rec: rec, Outcome: AdmitRejected, Reason: rec.WhatIfReason}
 	}
+	rec = noteUnknownColumns(rec, tc)
 	// The queryids the index is expected to help, for verify-and-revert.
 	rec.AffectedQueryIDs = contextQueryIDs(tc)
 	return Admission{Rec: rec, Outcome: AdmitAccepted}
@@ -154,7 +160,7 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 // MeasuredRejections lists the newest shapes rejection memory already
 // measured and rejected on tc's workload, for the agent's case packet.
 func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []string {
-	return o.memory.view(ctx, tc).promptLines(o.cfg.HypoPGMinImprovePct)
+	return o.memory.view(ctx, tc).promptLines(o.minImprovePct(tc))
 }
 
 // enrichWithHypoPG measures the recommendation with hypothetical indexes

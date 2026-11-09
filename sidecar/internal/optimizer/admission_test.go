@@ -59,6 +59,7 @@ func admitTable() TableContext {
 	tc.Queries[0].Text = "SELECT id FROM ai_claims WHERE status = $1"
 	tc.Queries[1].Text = "SELECT status FROM ai_claims WHERE id = $1"
 	tc.WriteRate, tc.IndexCount, tc.Workload = 5, 1, "oltp_read"
+	tc.ColumnsKnown = true
 	return tc
 }
 

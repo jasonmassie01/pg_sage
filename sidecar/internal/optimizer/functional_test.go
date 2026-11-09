@@ -31,16 +31,17 @@ func fnTestOptimizerConfig() *config.OptimizerConfig {
 
 func sampleTableContext() TableContext {
 	return TableContext{
-		Schema:     "public",
-		Table:      "orders",
-		LiveTuples: 50000,
-		DeadTuples: 100,
-		TableBytes: 10485760,
-		IndexBytes: 2097152,
-		WriteRate:  15.5,
-		Workload:   "oltp_read",
-		IndexCount: 2,
-		Collation:  "C",
+		Schema:       "public",
+		Table:        "orders",
+		LiveTuples:   50000,
+		DeadTuples:   100,
+		TableBytes:   10485760,
+		IndexBytes:   2097152,
+		WriteRate:    15.5,
+		Workload:     "oltp_read",
+		IndexCount:   2,
+		Collation:    "C",
+		ColumnsKnown: true,
 		Columns: []ColumnInfo{
 			{Name: "id", Type: "integer", IsNullable: false},
 			{Name: "customer_id", Type: "integer", IsNullable: false},
@@ -254,7 +255,8 @@ func TestFunctional_Validate_WriteHeavyRejection(t *testing.T) {
 	tc := sampleTableContext()
 	tc.WriteRate = 80.0 // write-heavy
 
-	ok, reason := v.Validate(context.Background(), rec, tc)
+	// indexes-02: Admit applies the gate to the what-if's measurement.
+	ok, reason := v.checkWriteImpact(rec, tc)
 	if ok {
 		t.Fatal("expected rejection for write-heavy + low improvement")
 	}

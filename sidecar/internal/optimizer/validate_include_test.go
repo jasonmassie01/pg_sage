@@ -22,7 +22,8 @@ func includeTable() TableContext {
 	for _, name := range []string{"a", "b", "c", "d", "e", "b,c"} {
 		cols = append(cols, ColumnInfo{Name: name, Type: "int"})
 	}
-	return TableContext{Schema: "public", Table: "t", Columns: cols, IndexCount: 1}
+	return TableContext{Schema: "public", Table: "t", Columns: cols, ColumnsKnown: true,
+		IndexCount: 1}
 }
 
 func includeValidator(limit int) *Validator {

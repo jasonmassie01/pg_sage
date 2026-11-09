@@ -48,7 +48,7 @@ func TestComputeWriteRate(t *testing.T) {
 		},
 		{
 			name: "50 50 split",
-			ts:   collector.TableStats{SeqScan: 50, NTupIns: 50},
+			ts:   collector.TableStats{SeqTupRead: 50, NTupIns: 50},
 			want: 50,
 		},
 		{
@@ -173,9 +173,9 @@ func TestFilterByMinCalls_Empty(t *testing.T) {
 
 func TestCountIndexes(t *testing.T) {
 	indexes := []collector.IndexStats{
-		{SchemaName: "public", RelName: "orders", IndexRelName: "idx1"},
-		{SchemaName: "public", RelName: "orders", IndexRelName: "idx2"},
-		{SchemaName: "public", RelName: "items", IndexRelName: "idx3"},
+		{SchemaName: "public", RelName: "orders", IndexRelName: "idx1", IsValid: true},
+		{SchemaName: "public", RelName: "orders", IndexRelName: "idx2", IsValid: true},
+		{SchemaName: "public", RelName: "items", IndexRelName: "idx3", IsValid: true},
 	}
 	got := countIndexes(indexes, "public", "orders")
 	if got != 2 {

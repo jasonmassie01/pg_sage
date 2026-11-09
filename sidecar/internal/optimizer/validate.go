@@ -43,7 +43,9 @@ func NewValidator(
 	return v
 }
 
-// Validate runs all checks in order. Returns (accepted, reason).
+// Validate runs all checks in order. Returns (accepted, reason). The
+// write-impact gate is not among them: it needs the what-if's measurement,
+// so Admit applies it after HypoPG (checkWriteImpact).
 func (v *Validator) Validate(
 	ctx context.Context,
 	rec Recommendation,
@@ -61,10 +63,7 @@ func (v *Validator) Validate(
 	if ok, reason := v.checkDuplicate(rec, tc); !ok {
 		return false, reason
 	}
-	if ok, reason := v.checkWriteImpact(rec, tc); !ok {
-		return false, reason
-	}
-	if ok, reason := v.checkMaxIndexes(tc); !ok {
+	if ok, reason := v.checkMaxIndexes(rec, tc); !ok {
 		return false, reason
 	}
 	if ok, reason := v.checkExtensionRequired(ctx, rec, tc); !ok {
@@ -89,11 +88,16 @@ func (v *Validator) checkConcurrently(rec Recommendation) (bool, string) {
 
 // checkColumnExistence requires every plain key and INCLUDE column to
 // exist, and every expression key to reference at least one existing
-// column (PostgreSQL validates the rest of the expression itself).
+// column (PostgreSQL validates the rest of the expression itself). Without
+// this cycle's column list (ColumnsKnown false) it checks nothing: a
+// missing list is not evidence that a column does not exist.
 func (v *Validator) checkColumnExistence(
 	rec Recommendation,
 	tc TableContext,
 ) (bool, string) {
+	if !tc.ColumnsKnown {
+		return true, ""
+	}
 	keys, include, ok := indexColumns(rec.DDL)
 	if !ok {
 		return true, "" // unparseable DDL is rejected by canonicalization
@@ -177,30 +181,68 @@ func (v *Validator) checkDuplicate(
 	return true, ""
 }
 
+// writeHeavy reports whether index-maintaining writes exceed
+// write_heavy_ratio_pct of the table's activity.
+func (v *Validator) writeHeavy(tc TableContext) bool {
+	return tc.WriteRate > float64(v.cfg.WriteHeavyRatioPct)
+}
+
+// writeImpactThreshold is write_impact_threshold_pct, 15 when unset.
+func (v *Validator) writeImpactThreshold() float64 {
+	if v.cfg.WriteImpactThreshPct <= 0 {
+		return 15
+	}
+	return v.cfg.WriteImpactThreshPct
+}
+
+// checkWriteImpact rejects an index on a write-heavy table whose measured
+// improvement is below write_impact_threshold_pct: every write maintains
+// it. Admit calls it only for a complete (verified) measurement.
 func (v *Validator) checkWriteImpact(
 	rec Recommendation,
 	tc TableContext,
 ) (bool, string) {
-	threshold := v.cfg.WriteImpactThreshPct
-	if threshold <= 0 {
-		threshold = 15
-	}
-	if tc.WriteRate > float64(v.cfg.WriteHeavyRatioPct) &&
-		rec.EstimatedImprovementPct < threshold {
-		return false, "write-heavy table with low estimated improvement"
+	threshold := v.writeImpactThreshold()
+	if v.writeHeavy(tc) && rec.EstimatedImprovementPct < threshold {
+		return false, fmt.Sprintf("write-heavy table (%.1f%% index-maintaining writes): "+
+			"measured improvement %.1f%% is below the %.1f%% write-impact minimum",
+			tc.WriteRate, rec.EstimatedImprovementPct, threshold)
 	}
 	return true, ""
 }
 
-func (v *Validator) checkMaxIndexes(tc TableContext) (bool, string) {
-	max := v.cfg.MaxIndexesPerTable
-	if max <= 0 {
-		max = 10
+// checkMaxIndexes rejects a new index on a table that already has
+// max_indexes_per_table valid indexes. A replacement does not add one: the
+// valid index it removes is not counted.
+func (v *Validator) checkMaxIndexes(rec Recommendation, tc TableContext) (bool, string) {
+	limit := v.cfg.MaxIndexesPerTable
+	if limit <= 0 {
+		limit = 10
 	}
-	if tc.IndexCount >= max {
+	count := tc.IndexCount
+	if replacesValidIndex(rec.Replaces, tc.Indexes) {
+		count--
+	}
+	if count >= limit {
 		return false, "table already has maximum indexes"
 	}
 	return true, ""
+}
+
+// replacesValidIndex reports whether ref names one of the table's valid
+// indexes; when both OIDs are known they must match (a recreated index
+// under the same name is another object).
+func replacesValidIndex(ref *IndexRef, indexes []IndexInfo) bool {
+	if ref == nil || ref.Name == "" {
+		return false
+	}
+	for _, idx := range indexes {
+		if idx.Name == ref.Name && idx.IsValid &&
+			(ref.OID == 0 || idx.OID == 0 || idx.OID == ref.OID) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkBRINCorrelation rejects BRIN index recommendations when the target

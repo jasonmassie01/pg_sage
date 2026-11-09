@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -78,15 +79,18 @@ func writeRateKnown(ts collector.TableStats) bool {
 	return ts.SeqScan+ts.IdxScan+ts.NTupIns+ts.NTupUpd+ts.NTupDel > 0
 }
 
+// computeWriteRate is the percentage of index-maintaining writes among
+// those writes plus the tuples read. Inserts and non-HOT updates add index
+// entries; HOT updates and deletes do not (vacuum removes dead entries).
+// Reads are tuples, not scans: a bulk COPY is one row per tuple written and
+// must be weighed against the tuples lookups return, not their count.
 func computeWriteRate(ts collector.TableStats) float64 {
-	total := float64(
-		ts.SeqScan + ts.IdxScan + ts.NTupIns + ts.NTupUpd + ts.NTupDel,
-	)
+	writes := float64(ts.NTupIns + max(ts.NTupUpd-ts.NTupHotUpd, 0))
+	total := writes + float64(ts.SeqTupRead+ts.IdxTupFetch)
 	if total == 0 {
 		return 0
 	}
-	writes := float64(ts.NTupIns + ts.NTupUpd + ts.NTupDel)
-	return (writes / total) * 100
+	return writes / total * 100
 }
 
 func classifyWorkload(writeRatePct float64, liveTuples int64) string {
@@ -102,13 +106,16 @@ func classifyWorkload(writeRatePct float64, liveTuples int64) string {
 	return "htap"
 }
 
+// countIndexes counts the table's valid indexes: an invalid one (a failed
+// CONCURRENTLY build) is the invalid-index rule's to drop, and does not
+// hold a slot under max_indexes_per_table.
 func countIndexes(
 	indexes []collector.IndexStats,
 	schema, table string,
 ) int {
 	count := 0
 	for _, idx := range indexes {
-		if idx.SchemaName == schema && idx.RelName == table {
+		if idx.SchemaName == schema && idx.RelName == table && idx.IsValid {
 			count++
 		}
 	}
@@ -129,24 +136,27 @@ func buildIndexInfo(
 				IsUnique:   idx.IsUnique,
 				IsValid:    idx.IsValid,
 				SizeBytes:  idx.IndexBytes,
+				OID:        idx.IndexRelID,
 			})
 		}
 	}
 	return result
 }
 
+// fetchColumns reads the table's columns. A failed read returns the
+// error and no columns, never a partial list.
 func fetchColumns(
 	ctx context.Context,
 	pool catalogread.Querier,
 	schema, table string,
-) []ColumnInfo {
+) ([]ColumnInfo, error) {
 	rows, err := pool.Query(ctx,
 		`/* pg_sage */ SELECT column_name, data_type, is_nullable
 		 FROM information_schema.columns
 		 WHERE table_schema = $1 AND table_name = $2
 		 ORDER BY ordinal_position`, schema, table)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("read columns of %s.%s: %w", schema, table, err)
 	}
 	defer rows.Close()
 
@@ -155,12 +165,15 @@ func fetchColumns(
 		var c ColumnInfo
 		var nullable string
 		if err := rows.Scan(&c.Name, &c.Type, &nullable); err != nil {
-			continue
+			return nil, fmt.Errorf("scan a column of %s.%s: %w", schema, table, err)
 		}
 		c.IsNullable = nullable == "YES"
 		cols = append(cols, c)
 	}
-	return cols
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read columns of %s.%s: %w", schema, table, err)
+	}
+	return cols, nil
 }
 
 func fetchColStats(
