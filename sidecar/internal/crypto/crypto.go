@@ -7,9 +7,24 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"golang.org/x/crypto/argon2"
 )
+
+// argon2Calls counts argon2id derivations; each costs 64 MiB and tens of
+// milliseconds, so hot paths must not run one per read.
+var argon2Calls atomic.Int64
+
+// Argon2Derivations returns how many argon2id derivations this process has
+// run. Tests and benchmarks use it to prove a path derives nothing.
+func Argon2Derivations() int64 { return argon2Calls.Load() }
+
+// idKey is the only caller of argon2.IDKey, so every derivation is counted.
+func idKey(passphrase string, salt []byte) []byte {
+	argon2Calls.Add(1)
+	return argon2.IDKey([]byte(passphrase), salt, 1, 64*1024, 4, 32)
+}
 
 const (
 	nonceSize = 12
@@ -71,7 +86,9 @@ func Decrypt(ciphertext []byte, key []byte) (string, error) {
 
 	plaintext, err := gcm.Open(nil, nonce, encrypted, nil)
 	if err != nil {
-		return "", fmt.Errorf("decrypt: %w", err)
+		// GCM cannot tell a different key from a tampered value; with
+		// sealed rows only pg_sage writes, a different key is the cause.
+		return "", fmt.Errorf("decrypt: %w: %w", ErrWrongEncryptionKey, err)
 	}
 
 	return string(plaintext), nil
@@ -97,9 +114,7 @@ func DeriveKeyV1(passphrase string) []byte {
 // from sage.crypto_meta.
 func DeriveKeyV2Legacy(passphrase string) []byte {
 	salt := sha256.Sum256([]byte("pg_sage_kdf_v1:" + passphrase))
-	return argon2.IDKey(
-		[]byte(passphrase), salt[:16], 1, 64*1024, 4, 32,
-	)
+	return idKey(passphrase, salt[:16])
 }
 
 // DeriveKey derives a 32-byte key from a passphrase using argon2id
@@ -119,7 +134,7 @@ func DeriveKey(passphrase string, salt []byte) []byte {
 			"crypto.DeriveKey: salt too short (%d bytes); "+
 				"expected >= 8", len(salt)))
 	}
-	return argon2.IDKey([]byte(passphrase), salt, 1, 64*1024, 4, 32)
+	return idKey(passphrase, salt)
 }
 
 // NewKDFSalt generates a cryptographically random KDFSaltSize-byte
@@ -130,51 +145,4 @@ func NewKDFSalt() ([]byte, error) {
 		return nil, fmt.Errorf("crypto: generating kdf salt: %w", err)
 	}
 	return b, nil
-}
-
-// DecryptWithMigration attempts to decrypt ciphertext using the current
-// salted argon2id key. If that fails it falls back, in order, to the
-// legacy deterministic-salt argon2id key and then to the original
-// SHA-256 key. On a successful legacy decryption the plaintext is
-// returned along with reEncrypted — the same plaintext re-encrypted
-// under the current key — so the caller can persist the upgrade.
-//
-// If needsReEncrypt is true the caller must persist reEncrypted in
-// place of the original ciphertext.
-func DecryptWithMigration(
-	ciphertext []byte, passphrase string, salt []byte,
-) (plaintext string, reEncrypted []byte, needsReEncrypt bool, err error) {
-	newKey := DeriveKey(passphrase, salt)
-	plaintext, err = Decrypt(ciphertext, newKey)
-	if err == nil {
-		return plaintext, nil, false, nil
-	}
-
-	// Try deterministic-salt argon2id (v2 legacy).
-	v2Key := DeriveKeyV2Legacy(passphrase)
-	plaintext, err = Decrypt(ciphertext, v2Key)
-	if err == nil {
-		reEncrypted, encErr := Encrypt(plaintext, newKey)
-		if encErr != nil {
-			return "", nil, false, fmt.Errorf(
-				"decrypt: re-encrypt after v2 migration: %w", encErr)
-		}
-		return plaintext, reEncrypted, true, nil
-	}
-
-	// Try SHA-256 (v1 legacy).
-	v1Key := DeriveKeyV1(passphrase)
-	plaintext, err = Decrypt(ciphertext, v1Key)
-	if err != nil {
-		return "", nil, false, fmt.Errorf(
-			"decrypt: failed with v3, v2, and v1 keys: %w", err)
-	}
-
-	// Re-encrypt under the current key.
-	reEncrypted, err = Encrypt(plaintext, newKey)
-	if err != nil {
-		return "", nil, false, fmt.Errorf(
-			"decrypt: re-encrypt after v1 migration: %w", err)
-	}
-	return plaintext, reEncrypted, true, nil
 }

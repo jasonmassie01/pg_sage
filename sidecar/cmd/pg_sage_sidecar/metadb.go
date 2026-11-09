@@ -144,7 +144,7 @@ func initMetaDB(
 	if encKeyPassphrase != "" {
 		// Credentials written by v0.8.4/v0.8.5 used legacy key
 		// derivations; decrypt and re-encrypt them on first read (G5-B05).
-		dbStore.WithKeyMigration(encKeyPassphrase, salt)
+		dbStore.WithKeyMigration(encKeyPassphrase)
 	}
 
 	return &metaDBState{
