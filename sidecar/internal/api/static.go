@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"path"
 	"strconv"
@@ -177,7 +178,7 @@ func (h *staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *staticHandler) serveIdentity(w http.ResponseWriter, r *http.Request, a *staticAsset) {
 	f, err := h.fsys.Open(a.name)
 	if err != nil {
-		http.Error(w, "dashboard asset unavailable", http.StatusInternalServerError)
+		staticAssetError(w, a.name, err)
 		return
 	}
 	defer f.Close()
@@ -187,10 +188,21 @@ func (h *staticHandler) serveIdentity(w http.ResponseWriter, r *http.Request, a 
 	}
 	data, err := io.ReadAll(f)
 	if err != nil {
-		http.Error(w, "dashboard asset unavailable", http.StatusInternalServerError)
+		staticAssetError(w, a.name, err)
 		return
 	}
 	http.ServeContent(w, r, a.name, time.Time{}, bytes.NewReader(data))
+}
+
+// staticAssetError answers a read failure with a 500 that no cache keeps: the
+// asset's validators and its (possibly year-long) Cache-Control are dropped.
+func staticAssetError(w http.ResponseWriter, name string, err error) {
+	slog.Error("dashboard asset unreadable", "asset", name, "error", err)
+	hdr := w.Header()
+	hdr.Del("ETag")
+	hdr.Del("Vary")
+	hdr.Set("Cache-Control", "no-store")
+	http.Error(w, "dashboard asset unavailable", http.StatusInternalServerError)
 }
 
 // acceptsGzip reports whether the Accept-Encoding values allow gzip: an
