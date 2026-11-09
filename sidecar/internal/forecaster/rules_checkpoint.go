@@ -119,8 +119,9 @@ func checkpointFinding(total checkpointInterval, rates []float64,
 				"%.0f%% of all checkpoints). A requested checkpoint starts when "+
 				"WAL reaches max_wal_size before checkpoint_timeout, or on an "+
 				"explicit CHECKPOINT or base backup. Raise max_wal_size so the WAL "+
-				"of a checkpoint interval fits; pg_sage's config advisor sizes it "+
-				"from the measured WAL rate.",
+				"written in one checkpoint_timeout fits; with advisor.enabled, "+
+				"pg_sage's configuration advisor reviews max_wal_size "+
+				"(wal_tuning findings).",
 			total.requested, total.hours, smoothed, share*100),
 	}
 }

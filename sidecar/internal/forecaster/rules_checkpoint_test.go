@@ -121,7 +121,8 @@ func TestCheckpointPressure_RecommendationNamesMaxWalSize(t *testing.T) {
 		t.Fatalf("5 requested per hour gave %+v", f)
 	}
 	rec := f[0].Recommendation
-	for _, want := range []string{"1080 requested", "max_wal_size", "advisor"} {
+	for _, want := range []string{"1080 requested", "max_wal_size", "advisor.enabled",
+		"wal_tuning"} {
 		if !strings.Contains(rec, want) {
 			t.Errorf("recommendation %q does not mention %q", rec, want)
 		}

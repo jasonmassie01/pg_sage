@@ -245,7 +245,7 @@ checkpoint needs 8). Findings (`rules.go`):
 | `forecast_cache_pressure` | EWMA < `CacheWarnThreshold` (**0.95**) OR declining slope with R²>0.5 → warning | `CacheWarnThreshold` |
 | `forecast_sequence_exhaustion` | days-to-100% ≤ `SequenceCriticalDays` (**30**) crit / ≤ `SequenceWarnDays` (**90**) warn | per-sequence |
 | `forecast_query_volume` | WoW growth >100% critical / >50% warning | needs 14 days |
-| `forecast_checkpoint_pressure` | EWMA rate > 12/hr → warning | hardcoded |
+| `forecast_checkpoint_pressure` | EWMA of requested checkpoints/hr over closed days ≥ threshold → warning (timed checkpoints not counted) | `forecaster.checkpoint_requested_per_hour` (**2**) |
 | `storage_forecast` (`growth.go:231`) | `days_until_full`: ≤3 & R²≥0.8 critical, ≤7 & R²≥0.5 warning, ≤30 & R²≥0.5 info; R²<`MinRSquared` → info "unreliable" | `DiskCapacityBytes`, `MinDataPoints` (**24**), `MinRSquared` (**0.5**) |
 
 Defaults: `defaults.go:133-158`. `ForecastGrowth` is no-op unless `MinDataPoints>0` (v0.9 fields configured).

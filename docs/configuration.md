@@ -1876,7 +1876,8 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
   read as 0. The finding warns when the EWMA of those hourly rates is at or above
   `forecaster.checkpoint_requested_per_hour` (default `2`, above `0` and at most
   `3600`); its detail carries the requested share of all checkpoints, and the advice
-  is to raise `max_wal_size` (the config advisor sizes it from the measured WAL rate).
+  is to raise `max_wal_size` (with `advisor.enabled`, the configuration advisor reviews
+  it in its `wal_tuning` findings).
 - The checkpoint trend needs 7 usable day-to-day rates (8 closed days). Snapshots
   written before this version carry only the total count, so after an upgrade the
   category is not evaluated until 8 closed days of new snapshots exist: an open
