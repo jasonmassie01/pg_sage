@@ -116,6 +116,9 @@ func configControlPool() *pgxpool.Pool {
 	return nil
 }
 
+// applyPersistedGlobalOverrides replays the stored global overrides onto
+// candidate (config-02): rows the store would refuse today are skipped with
+// a warning naming the key and updated_at, never the value.
 func applyPersistedGlobalOverrides(
 	candidate *config.Config, controlPool *pgxpool.Pool,
 ) error {
@@ -128,10 +131,15 @@ func applyPersistedGlobalOverrides(
 	if err != nil {
 		return fmt.Errorf("load persisted global overrides: %w", err)
 	}
-	for _, override := range overrides {
-		api.ApplyConfigOverrideSnapshot(
-			candidate, override.Key, override.Value,
-		)
+	api.ReplayStoredOverrides(candidate, overrides, func(msg string) {
+		logWarn("config", "%s", msg)
+	})
+	// Rows valid one by one can still leave an invalid whole. Startup exits
+	// and a reload keeps the previous config, rather than every PUT failing.
+	if err := candidate.Validate(); err != nil {
+		return fmt.Errorf("config with the stored global overrides is invalid: %w "+
+			"(fix the key in Settings, or DELETE /api/v1/config/global/<key> "+
+			"removes a stored override)", err)
 	}
 	return nil
 }

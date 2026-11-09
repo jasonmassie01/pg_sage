@@ -18,23 +18,12 @@ var liveTrustCeilingFields = map[string]bool{
 }
 
 // validateCeiling rejects ceiling values a running executor cannot adopt.
-// Zero keeps meaning "use the documented default" where a reader has one.
+// The threshold, window and cooldown ranges are the API's (value_ranges.go);
+// a zero cascade cooldown keeps meaning "use the documented default".
 func (t TrustConfig) validateCeiling() error {
-	if t.RollbackThresholdPct < 0 || t.RollbackThresholdPct > 100 {
-		return fmt.Errorf("trust.rollback_threshold_pct must be 0-100 (got %d)",
-			t.RollbackThresholdPct)
-	}
-	for _, field := range []struct {
-		name  string
-		value int
-	}{
-		{"trust.rollback_window_minutes", t.RollbackWindowMinutes},
-		{"trust.rollback_cooldown_days", t.RollbackCooldownDays},
-		{"trust.cascade_cooldown_cycles", t.CascadeCooldownCycles},
-	} {
-		if field.value < 0 {
-			return fmt.Errorf("%s must be non-negative (got %d)", field.name, field.value)
-		}
+	if t.CascadeCooldownCycles < 0 {
+		return fmt.Errorf("trust.cascade_cooldown_cycles must be non-negative (got %d)",
+			t.CascadeCooldownCycles)
 	}
 	return nil
 }

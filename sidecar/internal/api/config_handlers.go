@@ -244,6 +244,11 @@ func writeConfigApplyError(
 		jsonError(w, err.Error(), http.StatusConflict)
 		return
 	}
+	if errors.Is(err, config.ErrInvalidCandidate) {
+		// Validation text names the key and the operator's own value.
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	internalError(w, r, "apply config generation", err)
 }
 
@@ -359,13 +364,17 @@ func globalCandidateWithoutOverride(
 	if err != nil {
 		return nil, err
 	}
+	kept := make([]store.ConfigOverride, 0, len(overrides))
 	for _, override := range overrides {
 		if override.Key != omittedKey {
-			hotReload(candidate, override.Key, override.Value)
+			kept = append(kept, override)
 		}
 	}
+	ReplayStoredOverrides(candidate, kept, warnStoredOverride)
 	return candidate, nil
 }
+
+func warnStoredOverride(msg string) { slog.Warn(msg) }
 
 func reloadGlobalConfigFromStore(
 	ctx context.Context,
@@ -381,9 +390,7 @@ func reloadGlobalConfigFromStore(
 	config.LockForHotReload()
 	*cfg = *next
 	config.UnlockForHotReload()
-	for _, override := range overrides {
-		hotReload(cfg, override.Key, override.Value)
-	}
+	ReplayStoredOverrides(cfg, overrides, warnStoredOverride)
 	return nil
 }
 

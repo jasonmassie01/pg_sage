@@ -261,8 +261,7 @@ func validateFloatRange(
 }
 
 func validateBool(key, value string) error {
-	v := strings.ToLower(value)
-	if v != "true" && v != "false" {
+	if _, err := config.ParseBool(value); err != nil {
 		return fmt.Errorf(
 			"validate: %s must be true or false, got %q", key, value)
 	}
@@ -724,9 +723,13 @@ func applyOverrides(
 	m map[string]any, overrides []ConfigOverride, source string,
 ) {
 	for _, o := range overrides {
+		replayed, ok, _ := ReplayOverride(o.Key, o.Value)
+		if !ok {
+			continue // the runtime skips it too (config-02)
+		}
 		if existing, ok := m[o.Key]; ok {
 			if em, ok := existing.(map[string]any); ok {
-				value := coerceValue(o.Key, o.Value)
+				value := coerceValue(o.Key, replayed)
 				if isSecretConfigKey(o.Key) {
 					value = maskSecret(o.Value)
 				}
@@ -751,7 +754,9 @@ func coerceValue(key, value string) any {
 			return f
 		}
 	case "bool":
-		return strings.ToLower(value) == "true"
+		if b, err := config.ParseBool(value); err == nil {
+			return b
+		}
 	}
 	return value
 }

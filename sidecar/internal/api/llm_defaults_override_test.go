@@ -72,9 +72,10 @@ func TestPersistedTrueOverrideRestoresLLMSwitch(t *testing.T) {
 	}
 }
 
-// Anything but the literal "true" fails closed to off.
+// Anything config.ParseBool does not read as true fails closed to off
+// ("1" is true since config-02; TestEveryBoolSetterAppliesParseBoolForms).
 func TestPersistedNonBooleanOverrideTurnsLLMSwitchOff(t *testing.T) {
-	for _, value := range []string{"", "yes", "1", "TRUE "} {
+	for _, value := range []string{"", "yes", "TRUE "} {
 		candidate := config.DefaultConfig()
 		ApplyConfigOverrideSnapshot(candidate, "llm.enabled", value)
 		if candidate.LLM.Enabled {

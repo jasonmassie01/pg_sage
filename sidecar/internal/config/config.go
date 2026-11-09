@@ -727,6 +727,9 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if err := c.validateAPITypedRanges(); err != nil {
+		return err
+	}
 	if err := c.Analyzer.validateSchemaGuard(); err != nil {
 		return err
 	}
@@ -987,6 +990,12 @@ func newDefaults() *Config {
 			CheckIntervalSeconds: DefaultAlertingCheckInterval,
 			CooldownMinutes:      DefaultAlertingCooldown,
 			Timezone:             "UTC",
+		},
+		SchemaLint: SchemaLintConfig{
+			ScanIntervalMinutes: DefaultSchemaLintScanIntervalMinutes,
+		},
+		Migration: MigrationConfig{
+			PollIntervalSeconds: DefaultMigrationPollIntervalSeconds,
 		},
 		AutoExplain: AutoExplainConfig{
 			Enabled:                true,

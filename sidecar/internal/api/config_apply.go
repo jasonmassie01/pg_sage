@@ -177,8 +177,9 @@ func hotReload(cfg *config.Config, key, value string) {
 	}
 }
 
-// ApplyConfigOverrideSnapshot applies one validated persisted override while
-// assembling the startup snapshot. It must be called before workers start.
+// ApplyConfigOverrideSnapshot applies one persisted override that
+// store.ReplayOverride accepted while assembling a snapshot. It must be
+// called before workers start; ReplayStoredOverrides is the validating loop.
 func ApplyConfigOverrideSnapshot(
 	candidate *config.Config, key, value string,
 ) {
@@ -228,7 +229,7 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 	case "analyzer.slow_slot_retained_bytes":
 		cfg.Analyzer.SlowSlotRetainedBytes = atoi64(v)
 	case "analyzer.lock_chain.enabled":
-		cfg.Analyzer.LockChain.Enabled = v == "true"
+		cfg.Analyzer.LockChain.Enabled = atob(v)
 	case "analyzer.lock_chain.min_blocked_threshold":
 		cfg.Analyzer.LockChain.MinBlockedThreshold = atoi(v)
 	case "analyzer.lock_chain.critical_blocked_threshold":
@@ -255,11 +256,11 @@ func hotReloadTrust(cfg *config.Config, key, v string) {
 		}
 		cfg.Trust.Level = v
 	case "trust.tier3_safe":
-		cfg.Trust.Tier3Safe = v == "true"
+		cfg.Trust.Tier3Safe = atob(v)
 	case "trust.tier3_moderate":
-		cfg.Trust.Tier3Moderate = v == "true"
+		cfg.Trust.Tier3Moderate = atob(v)
 	case "trust.tier3_high_risk":
-		cfg.Trust.Tier3HighRisk = v == "true"
+		cfg.Trust.Tier3HighRisk = atob(v)
 	case "trust.maintenance_window":
 		cfg.Trust.MaintenanceWindow = v
 	case "trust.rollback_threshold_pct":
@@ -291,7 +292,7 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 	case "llm.auth":
 		cfg.LLM.Auth = v
 	case "llm.enabled":
-		cfg.LLM.Enabled = v == "true"
+		cfg.LLM.Enabled = atob(v)
 	case "llm.endpoint":
 		cfg.LLM.Endpoint = v
 	case "llm.api_key":
@@ -299,7 +300,7 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 	case "llm.model":
 		cfg.LLM.Model = v
 	case "llm.json_mode":
-		cfg.LLM.JSONMode = v == "true"
+		cfg.LLM.JSONMode = atob(v)
 	case "llm.timeout_seconds":
 		cfg.LLM.TimeoutSeconds = atoi(v)
 	case "llm.token_budget_daily":
@@ -309,13 +310,13 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 	case "llm.context_budget_tokens":
 		cfg.LLM.ContextBudgetTokens = atoi(v)
 	case "llm.optimizer.enabled":
-		cfg.LLM.Optimizer.Enabled = v == "true"
+		cfg.LLM.Optimizer.Enabled = atob(v)
 	case "llm.optimizer.min_query_calls":
 		cfg.LLM.Optimizer.MinQueryCalls = atoi(v)
 	case "llm.optimizer.max_new_per_table":
 		cfg.LLM.Optimizer.MaxNewPerTable = atoi(v)
 	case "llm.optimizer_llm.enabled":
-		cfg.LLM.OptimizerLLM.Enabled = v == "true"
+		cfg.LLM.OptimizerLLM.Enabled = atob(v)
 	case "llm.optimizer_llm.endpoint":
 		cfg.LLM.OptimizerLLM.Endpoint = v
 	case "llm.optimizer_llm.model":
@@ -325,14 +326,14 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 	case "llm.optimizer_llm.max_output_tokens":
 		cfg.LLM.OptimizerLLM.MaxOutputTokens = atoi(v)
 	case "llm.optimizer_llm.fallback_to_general":
-		cfg.LLM.OptimizerLLM.FallbackToGeneral = v == "true"
+		cfg.LLM.OptimizerLLM.FallbackToGeneral = atob(v)
 	}
 }
 
 func hotReloadAdvisor(cfg *config.Config, key, v string) {
 	switch key {
 	case "advisor.enabled":
-		cfg.Advisor.Enabled = v == "true"
+		cfg.Advisor.Enabled = atob(v)
 	case "advisor.interval_seconds":
 		cfg.Advisor.IntervalSeconds = atoi(v)
 	}
@@ -341,7 +342,7 @@ func hotReloadAdvisor(cfg *config.Config, key, v string) {
 func hotReloadAlerting(cfg *config.Config, key, v string) {
 	switch key {
 	case "alerting.enabled":
-		cfg.Alerting.Enabled = v == "true"
+		cfg.Alerting.Enabled = atob(v)
 	case "alerting.slack_webhook_url":
 		cfg.Alerting.SlackWebhookURL = v
 	case "alerting.pagerduty_routing_key":
@@ -386,7 +387,7 @@ func hotReloadBriefing(cfg *config.Config, key, v string) {
 func hotReloadForecaster(cfg *config.Config, key, v string) {
 	switch key {
 	case "forecaster.enabled":
-		cfg.Forecaster.Enabled = v == "true"
+		cfg.Forecaster.Enabled = atob(v)
 	case "forecaster.lookback_days":
 		cfg.Forecaster.LookbackDays = atoi(v)
 	case "forecaster.disk_warn_growth_gb_day":
@@ -397,7 +398,7 @@ func hotReloadForecaster(cfg *config.Config, key, v string) {
 func hotReloadAutoExplain(cfg *config.Config, key, v string) {
 	switch key {
 	case "auto_explain.enabled":
-		cfg.AutoExplain.Enabled = v == "true"
+		cfg.AutoExplain.Enabled = atob(v)
 	case "auto_explain.log_min_duration_ms":
 		cfg.AutoExplain.LogMinDurationMs = atoi(v)
 	case "auto_explain.collect_interval_seconds":
@@ -410,9 +411,9 @@ func hotReloadAutoExplain(cfg *config.Config, key, v string) {
 func hotReloadTuner(cfg *config.Config, key, v string) {
 	switch key {
 	case "tuner.enabled":
-		cfg.Tuner.Enabled = v == "true"
+		cfg.Tuner.Enabled = atob(v)
 	case "tuner.llm_enabled":
-		cfg.Tuner.LLMEnabled = v == "true"
+		cfg.Tuner.LLMEnabled = atob(v)
 	case "tuner.work_mem_max_mb":
 		cfg.Tuner.WorkMemMaxMB = atoi(v)
 	case "tuner.plan_time_ratio":
@@ -426,14 +427,14 @@ func hotReloadTuner(cfg *config.Config, key, v string) {
 	case "tuner.min_query_calls":
 		cfg.Tuner.MinQueryCalls = atoi(v)
 	case "tuner.verify_after_apply":
-		cfg.Tuner.VerifyAfterApply = v == "true"
+		cfg.Tuner.VerifyAfterApply = atob(v)
 	}
 }
 
 func hotReloadRCA(cfg *config.Config, key, v string) {
 	switch key {
 	case "rca.enabled":
-		cfg.RCA.Enabled = v == "true"
+		cfg.RCA.Enabled = atob(v)
 	case "rca.llm_correlation_threshold":
 		cfg.RCA.LLMCorrelationThreshold = atoi(v)
 	case "rca.dedup_window_minutes":
@@ -449,21 +450,21 @@ func hotReloadRCA(cfg *config.Config, key, v string) {
 	case "rca.wal_spike_multiplier":
 		cfg.RCA.WALSpikeMultiplier = atof(v)
 	case "rca.narration_enabled":
-		cfg.RCA.NarrationEnabled = v == "true"
+		cfg.RCA.NarrationEnabled = atob(v)
 	}
 }
 
 func hotReloadRunaway(cfg *config.Config, key, v string) {
 	switch key {
 	case "runaway.enabled":
-		cfg.Runaway.Enabled = v == "true"
+		cfg.Runaway.Enabled = atob(v)
 	}
 }
 
 func hotReloadExplain(cfg *config.Config, key, v string) {
 	switch key {
 	case "explain.enabled":
-		cfg.Explain.Enabled = v == "true"
+		cfg.Explain.Enabled = atob(v)
 	case "explain.timeout_ms":
 		cfg.Explain.TimeoutMs = atoi(v)
 	case "explain.cache_ttl_minutes":
@@ -476,7 +477,7 @@ func hotReloadExplain(cfg *config.Config, key, v string) {
 func hotReloadLogWatch(cfg *config.Config, key, v string) {
 	switch key {
 	case "logwatch.enabled":
-		cfg.LogWatch.Enabled = v == "true"
+		cfg.LogWatch.Enabled = atob(v)
 	case "logwatch.log_directory":
 		cfg.LogWatch.LogDirectory = v
 	case "logwatch.format":
@@ -494,14 +495,14 @@ func hotReloadLogWatch(cfg *config.Config, key, v string) {
 	case "logwatch.exclude_applications":
 		cfg.LogWatch.ExcludeApplications = strings.Split(v, ",")
 	case "logwatch.slow_query_enabled":
-		cfg.LogWatch.SlowQueryEnabled = v == "true"
+		cfg.LogWatch.SlowQueryEnabled = atob(v)
 	}
 }
 
 func hotReloadSchemaLint(cfg *config.Config, key, v string) {
 	switch key {
 	case "schema_lint.enabled":
-		cfg.SchemaLint.Enabled = v == "true"
+		cfg.SchemaLint.Enabled = atob(v)
 	case "schema_lint.scan_interval_minutes":
 		cfg.SchemaLint.ScanIntervalMinutes = atoi(v)
 	case "schema_lint.min_table_rows":
@@ -512,15 +513,15 @@ func hotReloadSchemaLint(cfg *config.Config, key, v string) {
 func hotReloadMigration(cfg *config.Config, key, v string) {
 	switch key {
 	case "migration.enabled":
-		cfg.Migration.Enabled = v == "true"
+		cfg.Migration.Enabled = atob(v)
 	case "migration.mode":
 		cfg.Migration.Mode = v
 	case "migration.managed_service":
 		cfg.Migration.ManagedService = v
 	case "migration.log_detection":
-		cfg.Migration.LogDetection = v == "true"
+		cfg.Migration.LogDetection = atob(v)
 	case "migration.activity_polling":
-		cfg.Migration.ActivityPolling = v == "true"
+		cfg.Migration.ActivityPolling = atob(v)
 	case "migration.poll_interval_seconds":
 		cfg.Migration.PollIntervalSeconds = atoi(v)
 	case "migration.ddl_row_threshold":
@@ -561,7 +562,7 @@ func hotReloadAgentNative(cfg *config.Config, key, v string) {
 	case "custodian.wal.retained_wal_disk_pct_ceiling":
 		cfg.Custodian.WAL.RetainedWALDiskPctCeiling = atof(v)
 	case "mcp.enabled":
-		cfg.MCP.Enabled = v == "true"
+		cfg.MCP.Enabled = atob(v)
 	case "mcp.transport":
 		cfg.MCP.Transport = v
 	}

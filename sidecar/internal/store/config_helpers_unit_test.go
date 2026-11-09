@@ -651,7 +651,7 @@ func TestValidateConfigValue_Comprehensive(t *testing.T) {
 		{"llm.enabled", "True", false},
 		{"llm.enabled", "FALSE", false},
 		{"llm.enabled", "yes", true},
-		{"llm.enabled", "1", true},
+		{"llm.enabled", "1", false}, // config-02: config.ParseBool grammar
 
 		// trust_level
 		{"trust.level", "observation", false},

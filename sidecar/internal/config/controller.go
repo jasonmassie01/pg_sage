@@ -10,6 +10,10 @@ import (
 
 var ErrGenerationConflict = errors.New("config generation conflict")
 
+// ErrInvalidCandidate marks a candidate that fails load-time validation; the
+// error text names the failing key, so the API answers 400 with it.
+var ErrInvalidCandidate = errors.New("invalid config candidate")
+
 // ConfigSnapshot is an immutable, versioned effective configuration.
 type ConfigSnapshot struct {
 	Generation uint64
@@ -193,7 +197,7 @@ func (c *ConfigController) apply(
 	}
 	candidate = Clone(candidate)
 	if err := candidate.validate(); err != nil {
-		return ApplyResult{}, fmt.Errorf("validate candidate: %w", err)
+		return ApplyResult{}, fmt.Errorf("%w: %w", ErrInvalidCandidate, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return ApplyResult{}, err
