@@ -193,7 +193,7 @@ func TestLive_ScopesDatabasesAndRevocation(t *testing.T) {
 		t.Fatalf("unknown remediation: %d %s", w.Code, w.Body.String())
 	}
 	if _, err := mcptoken.NewStore(f.pool).Revoke(ctx, f.tokens["billing-id"],
-		"admin"); err != nil {
+		"admin", mcptoken.Audit{}); err != nil {
 		t.Fatal(err)
 	}
 	w = call(t, f.handler, "GET", base+"/databases/billing/investigations/"+

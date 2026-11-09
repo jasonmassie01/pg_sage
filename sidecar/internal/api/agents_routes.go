@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/agentguard/upkeep"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
 )
@@ -21,7 +21,8 @@ import (
 // them, retire them and mint their MCP tokens. A widening change (a higher
 // ceiling, another profile) needs a second person unless
 // agents.single_operator_mode is on, when one admin applies it with a
-// recorded reason.
+// recorded reason. Every change writes one sage.auth_audit event in the
+// change's own transaction (agentgov-05); a failed audit write fails it.
 
 type agentRoutes struct {
 	pool           *pgxpool.Pool
@@ -41,6 +42,12 @@ func registerAgentRoutes(mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Con
 	mux.Handle("GET /api/v1/agents/{id}", operator(http.HandlerFunc(r.get)))
 	mux.Handle("PATCH /api/v1/agents/{id}", admin(http.HandlerFunc(r.patch)))
 	mux.Handle("POST /api/v1/agents/{id}/tokens", admin(http.HandlerFunc(r.mintToken)))
+}
+
+// governanceAudit is the audit of a change the signed-in admin makes.
+func governanceAudit(r *http.Request, reason string) agentguard.Audit {
+	return agentguard.Audit{ActorUserID: sessionUserID(r), SourceIP: requestClientIP(r),
+		Reason: reason}
 }
 
 // decodeStrict reads a JSON body, refusing unknown fields.
@@ -95,7 +102,7 @@ func (a *agentRoutes) create(w http.ResponseWriter, r *http.Request) {
 	p, err := a.store.Create(r.Context(), agentguard.CreateRequest{Name: body.Name,
 		SponsorUserID: &body.SponsorUserID, Profile: body.Profile,
 		EnvCeiling: agentguard.Env(body.EnvCeiling), Tenant: body.Tenant,
-		CreatedBy: authenticatedActor(r)})
+		CreatedBy: authenticatedActor(r), Audit: governanceAudit(r, "")})
 	if err != nil {
 		agentError(w, r, "create agent", err)
 		return
@@ -146,17 +153,21 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 		agentError(w, r, "update agent", err)
 		return
 	}
-	patch := body.patch()
-	if patch.Widens(cur) && !a.allowWidening(w, r, cur, body.Reason) {
-		return
+	patch, audit := body.patch(), governanceAudit(r, body.Reason)
+	if patch.Widens(cur) {
+		if !a.allowWidening(w, body.Reason) {
+			return
+		}
+		audit.Event = auth.AuditAgentWidenedSingleOperator
 	}
-	p, err := a.store.Update(r.Context(), cur.ID, patch)
+	p, err := a.store.Update(r.Context(), cur.ID, patch, audit)
 	if err == nil && body.Status != nil {
 		// The leader drops the roles after the grace under this admin's approval.
 		err = upkeep.RecordRetiringAdmin(r.Context(), a.pool, cur.ID, sessionUserID(r))
 	}
 	if err == nil && body.Status != nil {
-		p, err = a.store.SetStatus(r.Context(), cur.ID, agentguard.StatusRetired, body.Reason)
+		p, err = a.store.SetStatus(r.Context(), cur.ID, agentguard.StatusRetired,
+			governanceAudit(r, body.Reason))
 	}
 	if err != nil {
 		agentError(w, r, "update agent", err)
@@ -167,9 +178,9 @@ func (a *agentRoutes) patch(w http.ResponseWriter, r *http.Request) {
 
 // allowWidening applies the two-person rule (§6.11): a widening change
 // needs a second admin. In single-operator mode one admin may apply it
-// with a reason, which is logged for the post-hoc review.
-func (a *agentRoutes) allowWidening(w http.ResponseWriter, r *http.Request,
-	cur agentguard.Principal, reason string) bool {
+// with a reason; the change is recorded as agent_widened_single_operator
+// for the post-hoc review.
+func (a *agentRoutes) allowWidening(w http.ResponseWriter, reason string) bool {
 	if !a.singleOperator {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -183,8 +194,6 @@ func (a *agentRoutes) allowWidening(w http.ResponseWriter, r *http.Request,
 			http.StatusUnprocessableEntity)
 		return false
 	}
-	slog.Warn("agent widened by a single operator; review it", "agent", cur.Name,
-		"principal_id", cur.ID, "actor", authenticatedActor(r), "reason", reason)
 	return true
 }
 
@@ -208,7 +217,8 @@ func (a *agentRoutes) mintToken(w http.ResponseWriter, r *http.Request) {
 	tok, err := agentguard.IssueToken(r.Context(), a.store, a.tokens, r.PathValue("id"),
 		agentguard.TokenRequest{Name: body.Name, Scopes: body.Scopes,
 			Databases: body.Databases, CreatedBy: authenticatedActor(r),
-			ExpiresIn: time.Duration(body.ExpiresInDays) * 24 * time.Hour})
+			ExpiresIn: time.Duration(body.ExpiresInDays) * 24 * time.Hour,
+			Audit:     governanceAudit(r, "")})
 	if err != nil {
 		agentError(w, r, "mint agent token", err)
 		return
@@ -233,7 +243,13 @@ func agentError(w http.ResponseWriter, r *http.Request, op string, err error) {
 	switch {
 	case errors.Is(err, agentguard.ErrNotFound):
 		jsonError(w, "agent not found", http.StatusNotFound)
-	case errors.Is(err, agentguard.ErrInvalid), errors.Is(err, agentguard.ErrSponsorNotFound):
+	case errors.Is(err, agentguard.ErrSponsorChangeFrozen):
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{"code": "sponsor_change_frozen",
+			"error": msg})
+	case errors.Is(err, agentguard.ErrInvalid), errors.Is(err, agentguard.ErrSponsorNotFound),
+		errors.Is(err, agentguard.ErrSponsorNotEligible):
 		jsonError(w, msg, http.StatusUnprocessableEntity)
 	case errors.Is(err, agentguard.ErrDuplicateName), errors.Is(err, agentguard.ErrRetired):
 		jsonError(w, msg, http.StatusConflict)

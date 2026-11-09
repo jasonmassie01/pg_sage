@@ -52,8 +52,25 @@ func normalize(req CreateRequest) (CreateRequest, error) {
 	if err := checkText("created_by", req.CreatedBy, maxActorLen); err != nil {
 		return CreateRequest{}, err
 	}
+	if err := req.Audit.validate(); err != nil {
+		return CreateRequest{}, err
+	}
 	req.Scopes, req.Databases = scopes, databases
 	return req, nil
+}
+
+const maxSourceIPLen = 200
+
+// validate checks the audit's shape.
+func (a Audit) validate() error {
+	if a.ActorUserID < 0 {
+		return invalid("audit actor_user_id must not be negative")
+	}
+	if len(a.SourceIP) > maxSourceIPLen || hasControl(a.SourceIP) {
+		return invalid("audit source_ip must be at most %d characters without control "+
+			"characters", maxSourceIPLen)
+	}
+	return nil
 }
 
 // checkText requires 1..max characters and no control characters.

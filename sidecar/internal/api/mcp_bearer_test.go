@@ -268,7 +268,8 @@ func TestMCPBearerToolsListMatchesScopes(t *testing.T) {
 func TestMCPBearerRejectsBadCredentials(t *testing.T) {
 	f := newBearerFixture(t)
 	revoked := f.agentToken(t)
-	_, err := f.store.Revoke(context.Background(), revoked.ID, "admin@example.com")
+	_, err := f.store.Revoke(context.Background(), revoked.ID, "admin@example.com",
+		mcptoken.Audit{})
 	require.NoError(t, err)
 	expired := f.agentToken(t)
 	_, err = f.pool.Exec(context.Background(), `UPDATE sage.mcp_tokens
