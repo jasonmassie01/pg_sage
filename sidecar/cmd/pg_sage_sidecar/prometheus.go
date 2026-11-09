@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/shadow"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 func startPrometheusServer(addr string) *http.Server {
@@ -76,6 +77,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeShadowMetrics(&b, shadow.DecisionCounts(), shadow.ScoreCounts())
 	writeParkMetrics(&b, executor.ParkCounts(), executor.WaitReleaseCounts())
 	writeRecordFailureMetrics(&b, executor.RecordFailureCounts())
+	writeSREProbeMetrics(&b, probes.QueueStats())
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {

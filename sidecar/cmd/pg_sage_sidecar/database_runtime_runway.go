@@ -89,6 +89,6 @@ func (rt *databaseRuntime) startRunways() {
 		logWarn(rt.spec.Scope, "db %q: runway monitor not started: %v", rt.spec.Name, err)
 		return
 	}
-	rt.start(func() { m.Run(rt.ctx) })
+	rt.start(func() { m.Run(probes.WithCaller(rt.ctx, probes.CallerRunway)) })
 	rt.note("runways")
 }

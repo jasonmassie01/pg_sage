@@ -15,7 +15,7 @@ type Phase string
 
 // Probe phases.
 const (
-	// PhaseQueue is the wait for a concurrency slot (queueWait).
+	// PhaseQueue is the wait for a concurrency slot (QueueWait).
 	PhaseQueue Phase = "queue_wait"
 	// PhasePoolAcquire is the wait for a pool connection (acquireWait).
 	PhasePoolAcquire Phase = "pool_acquire"

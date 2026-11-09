@@ -121,6 +121,7 @@ func (d *ReactiveDetector) Triggers(ctx context.Context) ([]Trigger, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	ctx = probes.WithCaller(ctx, probes.CallerDetector)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var out []Trigger
