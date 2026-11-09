@@ -232,6 +232,7 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	snap.System.StatStatements = c.collectStatStatementsUsage(ctx,
 		snap.System.StatStatementsMax)
 
+	c.markSystemInterval(snap)
 	c.markStatsReset(snap)
 	return snap, nil
 }

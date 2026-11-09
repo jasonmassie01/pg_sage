@@ -179,6 +179,21 @@ type SystemStats struct {
 	// stats_reset (moved by pg_stat_reset() and by every single-relation
 	// reset) and the postmaster start. Zero when unknown (legacy rows).
 	RelationStatsEpoch time.Time `json:"relation_stats_epoch,omitzero"`
+	// Lifetime pg_stat_database counters of this database (collection-06),
+	// accumulated since RelationStatsEpoch; zero on legacy rows.
+	BlksHit      int64 `json:"blks_hit"`
+	BlksRead     int64 `json:"blks_read"`
+	XactCommit   int64 `json:"xact_commit"`
+	XactRollback int64 `json:"xact_rollback"`
+	TempBytes    int64 `json:"temp_bytes"`
+	// CheckpointStatsEpoch is the instant since which TotalCheckpoints
+	// accumulates: the later of the checkpoint view's stats_reset
+	// (pg_stat_bgwriter before 17, pg_stat_checkpointer from 17) and the
+	// postmaster start. Zero when unknown (legacy rows).
+	CheckpointStatsEpoch time.Time `json:"checkpoint_stats_epoch,omitzero"`
+	// Interval is what the counters did since the previous snapshot; nil
+	// on the first snapshot after a start and on legacy rows.
+	Interval *SystemInterval `json:"interval,omitempty"`
 }
 
 // LockInfo is one row of the lock wait graph (locksSQL): a waiting lock,

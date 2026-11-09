@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -39,13 +40,18 @@ func otherMajorVersion(err error) bool {
 func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStats, error) {
 	var s SystemStats
 	var ratio *float64
+	var ckptEpoch *time.Time
 	err := c.catalogQueryRow(ctx, sql).Scan(
 		&s.ActiveBackends, &s.IdleInTransaction,
 		&s.TotalBackends, &s.MaxConnections,
 		&ratio, &s.Deadlocks,
 		&s.BlkReadTime, &s.BlkWriteTime,
-		&s.TotalCheckpoints, &s.IsReplica,
+		&s.BlksHit, &s.BlksRead, &s.XactCommit, &s.XactRollback, &s.TempBytes,
+		&s.TotalCheckpoints, &ckptEpoch, &s.IsReplica,
 	)
+	if ckptEpoch != nil {
+		s.CheckpointStatsEpoch = ckptEpoch.UTC()
+	}
 	s.CacheHitRatio = CacheHitRatioUnknown
 	if ratio != nil {
 		s.CacheHitRatio = *ratio
