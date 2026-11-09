@@ -89,6 +89,39 @@ jobs:
           npm run test -- --maxWorkers=2
           npm run build
 
+      # ci-08: the mocked dashboard suite (sidecar/web/e2e, every /api route
+      # stubbed by fixtures.ts) runs on every push. The browser cache is keyed
+      # on the lockfile, so a Playwright bump downloads the matching build.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('sidecar/web/package-lock.json') }}
+
+      - name: Playwright gate scripts (unit tests)
+        run: node --test scripts/ci/*.test.mjs
+
+      - name: Dashboard browser tests (mocked API)
+        working-directory: sidecar/web
+        env:
+          CI: "1"
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/playwright-report.json
+        run: |
+          npx playwright install --with-deps chromium
+          status=0
+          npx playwright test --reporter=list,json || status=$?
+          node ../../scripts/ci/playwright-skip-gate.mjs test-results/playwright-report.json || status=1
+          exit $status
+
+      - name: Upload dashboard browser test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-mocked-test-results
+          path: sidecar/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Go vet
         working-directory: sidecar
         run: go vet ./...
