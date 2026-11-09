@@ -416,18 +416,6 @@ func TestCoverage_OAuthCallbackHandler_NilProvider(t *testing.T) {
 	}
 }
 
-func TestCoverage_OAuthCallbackHandler_MissingCode(t *testing.T) {
-	// Use a non-nil provider to get past the nil check.
-	// We need a real provider object, so we use a minimal one.
-	// But since OAuthProvider requires config, and we just need
-	// to get past the nil check, we test with nil provider
-	// separately, and test missing params with a non-nil-like path.
-	// Actually, with nil provider, missing code check is unreachable.
-	// We tested the nil path above. The missing code path needs
-	// a non-nil provider -- skip since we can't construct one
-	// without real OAuth config.
-}
-
 // ================================================================
 // processCSVImport
 // ================================================================
@@ -464,14 +452,6 @@ func TestCoverage_ProcessCSVImport_BadHeader(t *testing.T) {
 		t.Errorf("error: got %q, want invalid CSV header",
 			result.Errors[0].Error)
 	}
-}
-
-func TestCoverage_ProcessCSVImport_HeaderOnly(t *testing.T) {
-	// nil store will panic if we try to call ds.Count, so
-	// we only test empty/bad header paths through processCSVImport.
-	// The validCSVHeader function is tested directly below.
-	_ = strings.NewReader(
-		"name,host,port,database_name,username,password,sslmode\n")
 }
 
 // ================================================================
@@ -2304,19 +2284,6 @@ func TestCoverage_MultipleMiddlewares(t *testing.T) {
 	if w.Header().Get("X-MW2") != "yes" {
 		t.Error("MW2 not applied")
 	}
-}
-
-// ================================================================
-// SPA fallback — static file with dot in path
-// ================================================================
-
-func TestCoverage_Dashboard_StaticFile(t *testing.T) {
-	r := testRouter("db1")
-	// Path with a dot should be served as a static file.
-	w := get(t, r, "/app.js")
-	// Will be 404 since no real app.js exists in embedded FS,
-	// but the handler should try to serve it.
-	_ = w // Just exercising the code path.
 }
 
 // ================================================================

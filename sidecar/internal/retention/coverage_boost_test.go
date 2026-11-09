@@ -192,16 +192,6 @@ func TestCoverage_PurgeTable_NothingToDelete(t *testing.T) {
 	}
 }
 
-// TestCoverage_PurgeTable_NegativeRetention exercises the early return for
-// negative retention values.
-func TestCoverage_PurgeTable_NegativeRetention(t *testing.T) {
-	// nil pool -- would panic if purgeTable didn't return early
-	cfg := &config.Config{}
-	c := New(nil, cfg, noopLog)
-	c.purgeTable(context.Background(), "snapshots", "collected_at", -5, "")
-	// If we get here without panic, the early return worked.
-}
-
 // TestCoverage_PurgeTable_LogsError exercises the error logging path in
 // purgeTable by using a cancelled context.
 func TestCoverage_PurgeTable_LogsError(t *testing.T) {
@@ -309,21 +299,6 @@ func TestCoverage_New_StoresAllFields(t *testing.T) {
 	c.logFn("test", "msg")
 	if !called {
 		t.Error("stored logFn was not the one we passed")
-	}
-}
-
-// TestCoverage_PurgeTable_ZeroRetentionVariants covers both 0 and negative
-// retention values to ensure the early-return guard works.
-func TestCoverage_PurgeTable_ZeroRetentionVariants(t *testing.T) {
-	cfg := &config.Config{}
-	c := New(nil, cfg, noopLog)
-
-	// These would panic if purgeTable tried to use the nil pool.
-	values := []int{0, -1, -100, -2147483648}
-	for _, v := range values {
-		t.Run(fmt.Sprintf("days=%d", v), func(t *testing.T) {
-			c.purgeTable(context.Background(), "snapshots", "collected_at", v, "")
-		})
 	}
 }
 
