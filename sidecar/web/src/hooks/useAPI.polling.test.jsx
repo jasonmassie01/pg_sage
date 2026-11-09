@@ -215,6 +215,38 @@ describe('useAPI backoff after failures', () => {
     expect(fetch.mock.calls[4][0]).toBe('/api/v1/cases?database=b')
   })
 
+  it('keeps backing off when the time-range tick moves a windowed url', async () => {
+    const state = { fail: true }
+    const fetch = stubFetch({
+      '/api/v1/actions': () => (state.fail ? { status: 503 } : { json: { ok: true } }),
+    })
+    render(<TimeRangeProvider><WindowedProbe url="/api/v1/actions" /></TimeRangeProvider>)
+    await advance(30000) // failures 1 and 2: the interval and the first tick
+    const afterTwo = fetch.mock.calls.length
+    expect(afterTwo).toBeGreaterThanOrEqual(2)
+    expect(afterTwo).toBeLessThanOrEqual(3)
+    await advance(59999) // ticks at 60 s move the window but wait out the 2x backoff
+    expect(fetch).toHaveBeenCalledTimes(afterTwo)
+    await advance(1) // 90 s: the backed-off poll asks for the moved window
+    expect(fetch).toHaveBeenCalledTimes(afterTwo + 1)
+    expect(fetch.mock.calls.at(-1)[0]).toContain('to=2026-11-09T10%3A01%3A00')
+    await advance(119999) // three ticks fall inside the 4x wait
+    expect(fetch).toHaveBeenCalledTimes(afterTwo + 1)
+    state.fail = false
+    // 210 s: this poll succeeds and ends the backoff, so the tick due at the
+    // same moment refetches the moved window at once again.
+    await advance(1)
+    const recovered = fetch.mock.calls.length
+    expect(recovered).toBeGreaterThanOrEqual(afterTwo + 2)
+    expect(recovered).toBeLessThanOrEqual(afterTwo + 3)
+    // Healthy again: the window move refetches at once. With zero latency the
+    // 30 s poll falls due in the same millisecond, as before dashboard-08.
+    await advance(30000)
+    expect(fetch.mock.calls.length - recovered).toBeGreaterThanOrEqual(1)
+    expect(fetch.mock.calls.length - recovered).toBeLessThanOrEqual(2)
+    expect(fetch.mock.calls.at(-1)[0]).toContain('to=2026-11-09T10%3A04%3A00')
+  })
+
   it('does not fetch again when only the interval changes', async () => {
     const fetch = stubFetch({ '/api/v1/onboarding': { json: { ok: true } } })
     const { rerender } = renderHook(({ ms }) => useAPI('/api/v1/onboarding', ms), {

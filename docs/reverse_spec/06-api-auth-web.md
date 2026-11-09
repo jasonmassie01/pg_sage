@@ -379,8 +379,10 @@ standalone route.
 - Returns `{ data, loading, error, refetch }`.
 - Bounded polling (dashboard-08): a poll that falls due while `document.hidden`
   is skipped and runs once when the tab is shown; failures in a row wait 1x, 2x,
-  4x the interval and so on, capped at 5 min (`pollDelay`), and a success
-  restores the interval. `refetch()` always fetches at once.
+  4x the interval and so on, capped at 5 min (`pollDelay` in
+  `hooks/usePolling.js`), and a success restores the interval. The 30 s
+  time-range tick does not cut a backoff short: a moved window of the same
+  resource waits for the poll already due. `refetch()` always fetches at once.
 - **SSE** via `hooks/useLiveEvents.jsx`: one `EventSource('/api/v1/events',
   {withCredentials:true})` at mount, named events `findings`/`actions`/`health`/
   `heartbeat`; `useLiveRefetch(types, refetch, {database})` invalidates polled
