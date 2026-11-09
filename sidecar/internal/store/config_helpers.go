@@ -120,7 +120,6 @@ var allowedConfigKeys = map[string]string{
 	// v0.10: Migration / DDL safety.
 	"migration.enabled":               "bool",
 	"migration.mode":                  "string",
-	"migration.managed_service":       "string",
 	"migration.log_detection":         "bool",
 	"migration.activity_polling":      "bool",
 	"migration.poll_interval_seconds": "int_pos",
@@ -678,8 +677,6 @@ func addMigrationFields(
 ) {
 	addField(m, "migration.enabled", mg.Enabled, "yaml")
 	addField(m, "migration.mode", mg.Mode, "yaml")
-	addField(m, "migration.managed_service",
-		mg.ManagedService, "yaml")
 	addField(m, "migration.log_detection",
 		mg.LogDetection, "yaml")
 	addField(m, "migration.activity_polling",

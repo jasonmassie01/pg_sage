@@ -220,8 +220,11 @@ stats/ANALYZE (`analyze_max_table_mb` 10240, `analyze_timeout_ms` 600000,
 `min_table_rows` (1000).
 
 **migration** (DDL safety advisor) — `enabled`, `mode` (`advisory`),
-`managed_service` (none/rds/aurora/cloudsql/alloydb), `log_detection`,
-`activity_polling`, `poll_interval_seconds` (5), `ddl_row_threshold` (10000).
+`log_detection`, `activity_polling`, `poll_interval_seconds` (5),
+`ddl_row_threshold` (10000). The retired `managed_service` key still loads
+with a warning and is ignored: the advisor checks `pg_available_extensions`
+and names pg_repack in VACUUM FULL and CLUSTER advice only when the server
+offers it.
 
 **retention** — `snapshots_days` (90), `findings_days` (180), `actions_days`
 (365), `explains_days` (90).

@@ -243,7 +243,6 @@
 | `migration.ddl_row_threshold` | `restart` | `-` | `derivable` |
 | `migration.enabled` | `restart` | `-` | `safety_critical` |
 | `migration.log_detection` | `restart` | `-` | `operator_preference` |
-| `migration.managed_service` | `restart` | `-` | `operator_preference` |
 | `migration.mode` | `restart` | `-` | `safety_critical` |
 | `migration.poll_interval_seconds` | `restart` | `-` | `derivable` |
 | `mode` | `restart` | `-` | `safety_critical` |

@@ -515,8 +515,6 @@ func hotReloadMigration(cfg *config.Config, key, v string) {
 		cfg.Migration.Enabled = v == "true"
 	case "migration.mode":
 		cfg.Migration.Mode = v
-	case "migration.managed_service":
-		cfg.Migration.ManagedService = v
 	case "migration.log_detection":
 		cfg.Migration.LogDetection = v == "true"
 	case "migration.activity_polling":

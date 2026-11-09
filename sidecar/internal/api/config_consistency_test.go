@@ -421,10 +421,6 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "advisory",
 		reader: func(c *config.Config) string { return c.Migration.Mode },
 	},
-	"migration.managed_service": {
-		input:  "rds",
-		reader: func(c *config.Config) string { return c.Migration.ManagedService },
-	},
 	"migration.log_detection": {
 		input:  "true",
 		reader: func(c *config.Config) string { return btoa(c.Migration.LogDetection) },

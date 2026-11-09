@@ -206,7 +206,6 @@ operator_preference migration.activity_polling
 derivable migration.ddl_row_threshold
 safety_critical migration.enabled
 operator_preference migration.log_detection
-operator_preference migration.managed_service
 safety_critical migration.mode
 derivable migration.poll_interval_seconds
 derivable rca.connection_saturation_pct

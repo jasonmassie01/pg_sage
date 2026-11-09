@@ -1,9 +1,6 @@
 package config
 
 import (
-	"bytes"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -13,22 +10,7 @@ import (
 
 const managedServiceWarning = "migration.managed_service is no longer used and is ignored"
 
-// loadWithWarnings loads body as a config file and returns the config,
-// everything written to the warning output and the load error.
-func loadWithWarnings(t *testing.T, body string) (*Config, string, error) {
-	t.Helper()
-	chdirTemp(t)
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	previous := configWarningOutput
-	configWarningOutput = &out
-	t.Cleanup(func() { configWarningOutput = previous })
-	cfg, err := Load([]string{"--config", path})
-	return cfg, out.String(), err
-}
+// loadWithWarnings is shared with ignored_keys_test.go.
 
 // Nil/empty (migration-12): migration.managed_service never filtered
 // anything. A strict-YAML config that still sets it loads, its sibling

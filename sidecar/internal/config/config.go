@@ -431,7 +431,6 @@ type SchemaLintConfig struct {
 type MigrationConfig struct {
 	Enabled             bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
 	Mode                string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
-	ManagedService      string `yaml:"managed_service" doc:"Cloud provider: none, rds, aurora, cloudsql, alloydb, neon, supabase. Filters unavailable recommendations."`
 	LogDetection        bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
 	ActivityPolling     bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
 	PollIntervalSeconds int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`

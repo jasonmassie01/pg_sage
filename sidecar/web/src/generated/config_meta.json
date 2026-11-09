@@ -1617,12 +1617,6 @@
     "doc": "Parse DDL from PG logs (requires log_statement=ddl).",
     "class": "operator_preference"
   },
-  "migration.managed_service": {
-    "type": "string",
-    "default": "",
-    "doc": "Cloud provider: none, rds, aurora, cloudsql, alloydb, neon, supabase. Filters unavailable recommendations.",
-    "class": "operator_preference"
-  },
   "migration.mode": {
     "type": "string",
     "default": "",
