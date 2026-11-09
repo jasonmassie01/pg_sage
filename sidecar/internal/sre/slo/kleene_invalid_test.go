@@ -62,3 +62,22 @@ func TestPromSource_CoveragePartialInvalidIsInvalid(t *testing.T) {
 		t.Fatalf("partial window with bad>eligible: %+v, want invalid_value", w)
 	}
 }
+
+// A Prometheus SLO not yet evaluated already says its coverage is
+// unverified; with a coverage query, or for a pushed SLI, it does not.
+func TestUnevaluatedStatus_CoverageUnverified(t *testing.T) {
+	prom := promCoverageObjective()
+	prom.CoverageQuery = ""
+	cases := map[string]struct {
+		o    Objective
+		want bool
+	}{"prometheus": {prom, true}, "covered": {promCoverageObjective(), false},
+		"push": {appObjective(), false}}
+	for name, c := range cases {
+		st := unevaluatedStatus(c.o, c.o.Hash())
+		if st.CoverageUnverified != c.want || st.State != StateUnknown {
+			t.Errorf("%s: state %s coverage unverified = %v, want %v", name, st.State,
+				st.CoverageUnverified, c.want)
+		}
+	}
+}

@@ -263,8 +263,15 @@ func FormatWindow(d time.Duration) string {
 	return fmt.Sprintf("%ds", d/time.Second)
 }
 
+// coverageUnverified reports a Prometheus SLI without a coverage query:
+// its windows are taken as fully covered and fresh.
+func (o Objective) coverageUnverified() bool {
+	return o.Source == SourcePrometheus && o.CoverageQuery == ""
+}
+
 // Hash identifies the definition: a changed target, window, source or
-// query is a new definition.
+// SLI query is a new definition. The coverage query is left out: it
+// changes how a window is measured, not what the SLI counts.
 func (o Objective) Hash() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{o.Name, string(o.Kind),
 		string(o.Source), strconv.FormatFloat(o.Target, 'g', -1, 64), o.Window.String(),

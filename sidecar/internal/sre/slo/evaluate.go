@@ -100,7 +100,7 @@ func Evaluate(o Objective, rules []Rule, windows map[time.Duration]Window, budge
 	}
 	sort.Strings(st.Unknown)
 	st.CustomerImpact = o.Kind == KindApp && st.Burning()
-	st.CoverageUnverified = o.Source == SourcePrometheus && o.CoverageQuery == ""
+	st.CoverageUnverified = o.coverageUnverified()
 	budget = classify(budget, o)
 	if b, ok := budget.BurnRate(o.Target); ok {
 		left := 1 - b
