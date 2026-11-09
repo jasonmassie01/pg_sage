@@ -164,18 +164,24 @@ func (rt *databaseRuntime) wireRCA() {
 	if rt.llmOn {
 		rt.rca.WithLLM(rt.generalLLM)
 	}
+	var critical rca.CriticalLogSource
 	if rt.logFanout != nil {
-		rt.rca.SetLogSource(rt.logFanout.Subscribe(rt.spec.Name))
+		sub := rt.logFanout.Subscribe(rt.spec.Name)
+		rt.rca.SetLogSource(sub)
+		critical = sub
 	}
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
-		probes: rt.probes,
+		probes: rt.probes, logSource: critical,
 	})
 	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
 	rt.note("rca")
 	if rt.rcaAdapter.fastPath != nil {
 		rt.note("sre_fast_path")
+	}
+	if rt.rcaAdapter.logFastPath != nil {
+		rt.note("log_fast_path")
 	}
 }
 

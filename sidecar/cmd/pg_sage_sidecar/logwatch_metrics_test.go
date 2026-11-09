@@ -27,15 +27,20 @@ func TestWriteLogwatchMetrics(t *testing.T) {
 	for _, want := range []string{
 		"# HELP pg_sage_logwatch_dropped_lines_total ",
 		"# TYPE pg_sage_logwatch_dropped_lines_total counter\n",
-		`pg_sage_logwatch_dropped_lines_total{cluster="db1:5432",reason="queue_overflow"} 10001` + "\n",
-		`pg_sage_logwatch_dropped_lines_total{cluster="db1:5432",reason="classifier_cap"} 3` + "\n",
-		`pg_sage_logwatch_dropped_lines_total{cluster="db2:5433",reason="queue_overflow"} 0` + "\n",
-		`pg_sage_logwatch_dropped_lines_total{cluster="db2:5433",reason="classifier_cap"} 0` + "\n",
+		logwatchSeries("db1:5432", "queue_overflow", 10001),
+		logwatchSeries("db1:5432", "classifier_cap", 3),
+		logwatchSeries("db2:5433", "queue_overflow", 0),
+		logwatchSeries("db2:5433", "classifier_cap", 0),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("metrics lack %q:\n%s", want, out)
 		}
 	}
+}
+
+func logwatchSeries(cluster, reason string, n int) string {
+	return fmt.Sprintf("pg_sage_logwatch_dropped_lines_total{cluster=%q,reason=%q} %d\n",
+		cluster, reason, n)
 }
 
 func TestWriteLogwatchMetricsEmpty(t *testing.T) {
