@@ -267,8 +267,9 @@ func TestGateSerializesTheLastBudgetSlot(t *testing.T) {
 	}
 }
 
-// ExplainBatch reads usage once per budget kind, so a hygiene family is
-// explained against the hygiene budget, not the first request's.
+// ExplainBatch reads usage per budget kind, so a hygiene family is
+// explained against the hygiene budget, not the first request's; and per
+// target (cases-04), so public.b is not explained with public.a's usage.
 func TestExplainBatchReadsUsageOncePerKind(t *testing.T) {
 	fx := &budgetFixture{doc: budgetDoc(), usage: map[BudgetKind]LimitUsage{
 		BudgetPerformance: {TablesInWindow: 9},
@@ -283,8 +284,8 @@ func TestExplainBatchReadsUsageOncePerKind(t *testing.T) {
 		t.Fatalf("batch = %v/%v/%v, want park, park, execute",
 			got[0].Verdict, got[1].Verdict, got[2].Verdict)
 	}
-	if fx.usageCalls(BudgetPerformance) != 1 || fx.usageCalls(BudgetHygiene) != 1 {
-		t.Fatalf("usage reads = %d performance, %d hygiene; want one each",
+	if fx.usageCalls(BudgetPerformance) != 2 || fx.usageCalls(BudgetHygiene) != 1 {
+		t.Fatalf("usage reads = %d performance, %d hygiene; want one per table",
 			fx.usageCalls(BudgetPerformance), fx.usageCalls(BudgetHygiene))
 	}
 	if len(fx.recordedDecisions()) != 0 {
