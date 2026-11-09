@@ -31,6 +31,8 @@ func webhookConfig(routes ...config.AlertRoute) *config.Config {
 		{Name: "myapp", URL: "http://127.0.0.1:1/hook"},
 	}
 	c.Alerting.Routes = routes
+	// The loopback fixture URL models an on-prem relay (alerting-11).
+	c.NotificationPolicy.AllowPrivateTargets = true
 	return c
 }
 

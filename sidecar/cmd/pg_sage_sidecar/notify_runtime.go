@@ -80,9 +80,7 @@ func notificationSecretKey(controlPool *pgxpool.Pool) []byte {
 // notificationTargetPolicy is the operator's notification target policy;
 // private networks are refused unless explicitly allowed (G7-B21).
 func notificationTargetPolicy() notify.TargetPolicy {
-	return notify.TargetPolicy{
-		AllowPrivate: cfg != nil && cfg.NotificationPolicy.AllowPrivateTargets,
-	}
+	return configTargetPolicy(cfg)
 }
 
 // newInstanceAlertManager builds the alerting manager for one monitored

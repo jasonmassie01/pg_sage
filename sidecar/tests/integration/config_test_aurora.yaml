@@ -131,3 +131,8 @@ prometheus:
 
 api:
   listen_addr: ":28080"
+
+# The alert hook is a local plain-http test listener, which the
+# notification target policy refuses by default (alerting-11).
+notification_policy:
+  allow_private_targets: true
