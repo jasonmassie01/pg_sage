@@ -33,7 +33,7 @@ func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStat
 		&s.TotalBackends, &s.MaxConnections,
 		&ratio, &s.Deadlocks,
 		&s.BlkReadTime, &s.BlkWriteTime,
-		&s.TotalCheckpoints, &s.IsReplica,
+		&s.TotalCheckpoints, &s.IsReplica, &s.ClientBackends,
 	)
 	s.CacheHitRatio = CacheHitRatioUnknown
 	if ratio != nil {

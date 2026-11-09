@@ -43,10 +43,11 @@ func (e *Engine) detectConnectionsHigh(
 	curr, prev *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
-	if curr.System.MaxConnections == 0 {
+	if curr.System.MaxConnections == 0 || !e.ClusterOwner() {
 		return nil
 	}
-	pct := curr.System.TotalBackends * 100 / curr.System.MaxConnections
+	used := connectionSlotsUsed(curr.System)
+	pct := used * 100 / curr.System.MaxConnections
 	threshold := cfg.RCA.ConnectionSaturationPct
 	if threshold == 0 {
 		threshold = 80
@@ -60,6 +61,7 @@ func (e *Engine) detectConnectionsHigh(
 		Severity: severityForPct(pct, 90),
 		Metrics: map[string]any{
 			"total_backends":  curr.System.TotalBackends,
+			"client_backends": used,
 			"max_connections": curr.System.MaxConnections,
 			"pct":             pct,
 		},
@@ -153,7 +155,8 @@ func (e *Engine) detectReplicationLag(
 	curr, prev *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
-	if curr.Replication == nil || len(curr.Replication.Replicas) == 0 {
+	if curr.Replication == nil || len(curr.Replication.Replicas) == 0 ||
+		!e.ClusterOwner() {
 		return nil
 	}
 	thresholdS := cfg.RCA.ReplicationLagThresholdS

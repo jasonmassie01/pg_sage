@@ -7,7 +7,9 @@ import "github.com/pg-sage/sidecar/internal/selfmonitor"
 // index builds) are not the workload: active and idle-in-transaction
 // counts, locks, connection states, churn and the load circuit breaker
 // leave them out with selfmonitor.ActivityExclusionSQL. Connection slots
-// (total_backends) are capacity and still count every backend.
+// (total_backends, client_backends) are capacity and still count every
+// backend; client_backends counts the cluster's client sessions only, the
+// ones max_connections limits (rca-08).
 
 // notSelf is the session filter of these reads.
 var notSelf = selfmonitor.ActivityExclusionSQL("")
@@ -42,17 +44,24 @@ SELECT
     WHERE datname = current_database()), 0) AS blk_write_time,
 `
 
+// clientBackendsColumn is the last column of both variants: the
+// cluster's client sessions, every database's, as total_backends counts.
+const clientBackendsColumn = `,
+  (SELECT count(*) FROM pg_stat_activity
+    WHERE pid <> pg_backend_pid()
+      AND backend_type = 'client backend') AS client_backends`
+
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).
 var systemStatsSQL14 = systemStatsSQLBase + `
   (SELECT checkpoints_timed + checkpoints_req
     FROM pg_stat_bgwriter) AS total_checkpoints,
-  pg_is_in_recovery() AS is_replica`
+  pg_is_in_recovery() AS is_replica` + clientBackendsColumn
 
 // systemStatsSQL17 uses pg_stat_checkpointer (PG 17+).
 var systemStatsSQL17 = systemStatsSQLBase + `
   (SELECT num_timed + num_requested
     FROM pg_stat_checkpointer) AS total_checkpoints,
-  pg_is_in_recovery() AS is_replica`
+  pg_is_in_recovery() AS is_replica` + clientBackendsColumn
 
 // locksSQL is the lock wait graph of the current database (collection-01),
 // bounded: pg_locks holds every lock of every session (thousands of
