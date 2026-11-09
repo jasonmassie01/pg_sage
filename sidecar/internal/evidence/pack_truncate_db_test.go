@@ -140,3 +140,20 @@ func TestWindowPackContinuationWithoutChain(t *testing.T) {
 		t.Fatalf("decisions.json entry = %+v, want 1 row", e)
 	}
 }
+
+// Review of audit-07: the bound is applied in id order, not heap order.
+// Rows stored highest id first (and more than the bound plus one of them)
+// would give a LIMIT without ORDER BY the highest ids; the pack must still
+// hold the lowest.
+func TestWindowPackTruncatesByIDNotHeapOrder(t *testing.T) {
+	pool := freshDB(t, "evidence_truncate_heap")
+	n := maxWindowRows + 2
+	mustExec(t, pool, `INSERT INTO sage.action_log (id, action_type, sql_executed)
+		SELECT g, 'vacuum', 'VACUUM t' || g FROM generate_series($1::bigint, 1, -1) g`, n)
+	m, files := buildFrom(t, Sources{DB: pool}, lastHour())
+	assertConsecutive(t, actionIDs(t, files["actions.json"]), 1, maxWindowRows)
+	if e := entry(t, m, "actions.json"); !e.Truncated || e.LastID == nil ||
+		*e.LastID != maxWindowRows {
+		t.Fatalf("actions.json entry = %+v, want truncated at id %d", e, maxWindowRows)
+	}
+}
