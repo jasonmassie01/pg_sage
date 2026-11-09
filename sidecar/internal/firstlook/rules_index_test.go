@@ -44,7 +44,7 @@ func TestInvalidIndexesReportsOnlyInvalid(t *testing.T) {
 	good := btree(1, 10, "t_ok", 1)
 	bad := btree(2, 10, "t_bad", 2)
 	bad.Valid = false
-	items := InvalidIndexes([]Index{good, bad})
+	items := InvalidIndexes([]Index{good, bad}, IndexBuilds{})
 	if len(items) != 1 || items[0].Object != "public.t_bad" ||
 		items[0].Rule != RuleInvalidIndex || items[0].Severity != SeverityWarning {
 		t.Fatalf("invalid = %+v, want one warning for public.t_bad", items)
@@ -60,10 +60,10 @@ func TestInvalidIndexesReportsOnlyInvalid(t *testing.T) {
 }
 
 func TestInvalidIndexesNilAndEmpty(t *testing.T) {
-	if got := InvalidIndexes(nil); len(got) != 0 {
+	if got := InvalidIndexes(nil, IndexBuilds{}); len(got) != 0 {
 		t.Fatalf("nil indexes gave %v", got)
 	}
-	if got := InvalidIndexes([]Index{}); len(got) != 0 {
+	if got := InvalidIndexes([]Index{}, IndexBuilds{}); len(got) != 0 {
 		t.Fatalf("empty indexes gave %v", got)
 	}
 }

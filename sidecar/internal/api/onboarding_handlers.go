@@ -18,7 +18,7 @@ type onboardingDatabase struct {
 	Connected  bool
 	TrustLevel string
 	State      *onboarding.State
-	FirstLook  *firstlook.Report
+	FirstLook  *firstlook.ReportSummary
 }
 
 // grantTarget tells the UI how trust.level is changed in this mode.
@@ -33,7 +33,11 @@ type grantTarget struct {
 type onboardingReader interface {
 	// Names resolves the database parameter; false means unknown.
 	Names(database string) ([]string, bool)
+	// Database returns what it could read before an error (at least the
+	// name, the connection status and the trust level) with that error.
 	Database(ctx context.Context, name string) (onboardingDatabase, error)
+	// FirstLook is the newest full report; nil before the first one.
+	FirstLook(ctx context.Context, name string) (*firstlook.Report, error)
 	// MCP reports whether MCP over HTTP is on and, for admins, whether an
 	// active token exists (nil: not visible to the caller).
 	MCP(ctx context.Context) (bool, *bool)
@@ -62,6 +66,9 @@ type onboardingEntry struct {
 	TTFFSeconds *float64          `json:"time_to_first_finding_seconds"`
 	FirstLook   firstLookSummary  `json:"first_look"`
 	Steps       []onboarding.Step `json:"steps"`
+	// Error is why this database could not be read (no_runtime,
+	// unreachable, read_failed); the other entries are unaffected.
+	Error string `json:"error,omitempty"`
 }
 
 // resolveNames writes 503/400/404 and returns false when the request
@@ -92,15 +99,17 @@ func onboardingHandler(reader onboardingReader) http.Handler {
 		}
 		mcpOn, token := reader.MCP(r.Context())
 		notifications := reader.Notifications(r.Context())
-		out := make([]onboardingEntry, 0, len(names))
-		for _, name := range names {
-			db, err := reader.Database(r.Context(), name)
-			if err != nil {
-				internalError(w, r, "read onboarding", err)
-				return
+		out := make([]onboardingEntry, len(names))
+		readEach(r.Context(), names, func(ctx context.Context, i int, name string) {
+			db, err := reader.Database(ctx, name)
+			db.Name = name
+			code := entryError("read onboarding", name, err)
+			if code == entryUnreachable || code == entryNoRuntime {
+				db.Connected = false
 			}
-			out = append(out, entryFor(db, mcpOn, token, notifications))
-		}
+			out[i] = entryFor(db, mcpOn, token, notifications)
+			out[i].Error = code
+		})
 		jsonResponse(w, map[string]any{"databases": out})
 	})
 }
@@ -117,11 +126,11 @@ func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onb
 	}
 	if fl := db.FirstLook; fl != nil {
 		finished := fl.FinishedAt
-		n := firstlook.CountChecks(fl.Checks, "")
-		e.FirstLook = firstLookSummary{Ready: true, Items: len(fl.Items),
+		n := fl.Checks
+		e.FirstLook = firstLookSummary{Ready: true, Items: fl.Items,
 			FinishedAt: &finished, DurationMS: fl.DurationMS, Summary: fl.Summary,
 			Checks: n.Total, Degraded: n.Degraded, Truncated: n.Truncated}
-		in.FirstLookReady, in.FirstLookItems = true, len(fl.Items)
+		in.FirstLookReady, in.FirstLookItems = true, fl.Items
 		in.FirstLookChecks, in.FirstLookDegraded = n.Total, n.Degraded
 		in.FirstLookTruncated = n.Truncated
 		in.Capabilities = fl.Capabilities
@@ -133,6 +142,7 @@ func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onb
 type firstLookEntry struct {
 	Database string            `json:"database"`
 	Report   *firstlook.Report `json:"report"`
+	Error    string            `json:"error,omitempty"`
 }
 
 func firstLookHandler(reader onboardingReader) http.Handler {
@@ -141,15 +151,15 @@ func firstLookHandler(reader onboardingReader) http.Handler {
 		if !ok {
 			return
 		}
-		out := make([]firstLookEntry, 0, len(names))
-		for _, name := range names {
-			db, err := reader.Database(r.Context(), name)
+		out := make([]firstLookEntry, len(names))
+		readEach(r.Context(), names, func(ctx context.Context, i int, name string) {
+			report, err := reader.FirstLook(ctx, name)
+			out[i] = firstLookEntry{Database: name, Report: report,
+				Error: entryError("read first look", name, err)}
 			if err != nil {
-				internalError(w, r, "read first look", err)
-				return
+				out[i].Report = nil
 			}
-			out = append(out, firstLookEntry{Database: name, Report: db.FirstLook})
-		}
+		})
 		jsonResponse(w, map[string]any{"databases": out})
 	})
 }

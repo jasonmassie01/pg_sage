@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // maxWriteCaseStatements bounds the statements a write case carries.
@@ -59,16 +60,16 @@ func writeCases(cur, prev *collector.Snapshot, w Workload, stmts []intervalStmt,
 func writeTables(cur, prev *collector.Snapshot, w Workload, secs float64) []writeTable {
 	before := make(map[string]collector.TableStats, len(prev.Tables))
 	for _, t := range prev.Tables {
-		before[qualified(t.SchemaName, t.RelName)] = t
+		before[sqlident.Qualified(t.SchemaName, t.RelName)] = t
 	}
 	byTable := map[string][]collector.IndexStats{}
 	for _, ix := range cur.Indexes {
-		k := qualified(ix.SchemaName, ix.RelName)
+		k := sqlident.Qualified(ix.SchemaName, ix.RelName)
 		byTable[k] = append(byTable[k], ix)
 	}
 	var out []writeTable
 	for _, t := range cur.Tables {
-		name := qualified(t.SchemaName, t.RelName)
+		name := sqlident.Qualified(t.SchemaName, t.RelName)
 		p, ok := before[name]
 		info := w.Tables[name]
 		if !ok || (info.Class != ClassApp && info.Class != ClassTenant) {

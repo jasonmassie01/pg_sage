@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Index candidates are judged against the indexes of their table that
@@ -45,7 +46,7 @@ func (v *validator) loadInFlight(ctx context.Context, open []analyzer.Finding) {
 		if err != nil || spec.TableSchema == "" {
 			continue
 		}
-		t := qualified(spec.TableSchema, spec.TableName)
+		t := sqlident.Qualified(spec.TableSchema, spec.TableName)
 		v.flight.ddl[t] = append(v.flight.ddl[t], ddl)
 		if k, ok := optimizer.LeadingKey(ddl); ok {
 			v.flight.families[t+"|"+k] = ddl

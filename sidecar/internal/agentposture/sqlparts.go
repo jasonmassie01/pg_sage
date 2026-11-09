@@ -3,6 +3,8 @@ package agentposture
 import (
 	"slices"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // userSchemaFilter keeps user schemas: no system schema and not pg_sage's.
@@ -64,7 +66,7 @@ func grantTarget(r Role) string {
 	if r.OID == PublicOID {
 		return "PUBLIC"
 	}
-	return QuoteIdent(r.Name)
+	return sqlident.Ident(r.Name)
 }
 
 func containsOID(xs []uint32, x uint32) bool { return slices.Contains(xs, x) }

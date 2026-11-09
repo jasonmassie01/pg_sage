@@ -3,6 +3,8 @@ package firstlook
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Capability names.
@@ -40,6 +42,7 @@ type Extensions struct {
 	HypoPGAvailable         bool
 	AutoExplainLoaded       bool
 	PreloadLibraries        *string
+	SessionPreloadLibraries *string
 }
 
 // ExtensionCapabilities reports each extension with its enablement steps
@@ -80,7 +83,7 @@ func queryTextItem(role string) Item {
 		Detail: "pg_stat_statements shows <insufficient privilege> for other roles' " +
 			"queries, so query findings cannot name the statement.",
 		Recommendation: "Grant pg_read_all_stats (pg_monitor includes it).",
-		SuggestedSQL:   "GRANT pg_read_all_stats TO " + ident(role) + ";",
+		SuggestedSQL:   "GRANT pg_read_all_stats TO " + sqlident.Role(role) + ";",
 		Evidence: []Evidence{{Source: "pg_stat_statements",
 			Ref: "pg_stat_statements.query = '<insufficient privilege>'"}}}
 }
@@ -146,24 +149,9 @@ func preloadSteps(provider, lib string, preload *string) []string {
 		return []string{fmt.Sprintf("%s is preloaded on %s.", lib, provider), create}
 	}
 	return []string{fmt.Sprintf("As a superuser: ALTER SYSTEM SET shared_preload_libraries "+
-		"= '%s';", withLibrary(preload, lib)),
+		"= %s;", libraryList(preload, lib)),
 		"Then restart PostgreSQL: shared_preload_libraries changes only at server start.",
 		create}
-}
-
-// withLibrary appends lib to the preload list; an unreadable list keeps a
-// placeholder the operator fills in.
-func withLibrary(preload *string, lib string) string {
-	if preload == nil {
-		return "<existing libraries>," + lib
-	}
-	var libs []string
-	for _, l := range strings.Split(*preload, ",") {
-		if l = strings.TrimSpace(l); l != "" && l != lib {
-			libs = append(libs, l)
-		}
-	}
-	return strings.Join(append(libs, lib), ",")
 }
 
 func hypoPG(e Extensions, provider string) Capability {
@@ -222,8 +210,9 @@ func autoExplain(e Extensions, provider string) Capability {
 			"settings if your plan offers it (auto_explain.log_min_duration)."}
 	default:
 		c.Steps = []string{"As a superuser: ALTER SYSTEM SET session_preload_libraries " +
-			"= 'auto_explain';", "ALTER SYSTEM SET auto_explain.log_min_duration = " +
-			"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
+			"= " + libraryList(e.SessionPreloadLibraries, "auto_explain") + ";",
+			"ALTER SYSTEM SET auto_explain.log_min_duration = " +
+				"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
 	}
 	return c
 }

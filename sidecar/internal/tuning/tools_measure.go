@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // indexOnCaseTable parses a single CREATE INDEX on a case table.
@@ -21,7 +22,7 @@ func (tb *toolbox) indexOnCaseTable(ddl string) (string, string, error) {
 	if spec.TableSchema == "" {
 		return "", "", fmt.Errorf("the table must be schema-qualified")
 	}
-	table, err := tb.caseTable(qualified(spec.TableSchema, spec.TableName))
+	table, err := tb.caseTable(sqlident.Qualified(spec.TableSchema, spec.TableName))
 	return sql, table, err
 }
 

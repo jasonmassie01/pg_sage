@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // indexChecks reads the indexes and foreign keys once and evaluates the
@@ -22,18 +23,35 @@ func (p *pass) indexChecks(ctx context.Context, tx pgx.Tx) ([]outcome, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.evalIndexes(idx, fks, truncated), nil
+	keysErr := readUniqueKeys(ctx, tx, idx)
+	partsErr := readUnattached(ctx, tx, idx)
+	out := p.evalIndexes(idx, fks, readIndexBuilds(ctx, tx), truncated)
+	if keysErr != nil { // out[0] is the invalid-index rule
+		out[0].note = strings.TrimSpace(out[0].note + " No duplicate-key query for " +
+			"invalid unique indexes: " + keysErr.Error())
+	}
+	if partsErr != nil {
+		out[0].note = strings.TrimSpace(out[0].note + " No partitions named for invalid " +
+			"partitioned indexes: " + partsErr.Error())
+	}
+	return out, nil
 }
 
-// evalIndexes evaluates the index rules; truncated means the index read
-// stopped at its row limit, so every rule saw only part of the indexes.
-func (p *pass) evalIndexes(idx []Index, fks []ForeignKey, truncated bool) []outcome {
+// evalIndexes evaluates the index rules; builds are the index builds in
+// progress, and truncated means the index read stopped at its row limit,
+// so every rule saw only part of the indexes.
+func (p *pass) evalIndexes(idx []Index, fks []ForeignKey, builds IndexBuilds,
+	truncated bool) []outcome {
 	th := p.opts.Thresholds
 	dups, flagged := DuplicateIndexes(idx)
+	unscanned := idx
+	if truncated {
+		unscanned = withoutPartitioned(idx)
+	}
 	out := []outcome{
-		p.add(RuleInvalidIndex, InvalidIndexes(idx)),
+		p.add(RuleInvalidIndex, InvalidIndexes(idx, builds)),
 		p.add(RuleDuplicateIndex, dups),
-		p.add(RuleNeverScannedIndex, NeverScannedIndexes(idx, flagged, p.window,
+		p.add(RuleNeverScannedIndex, NeverScannedIndexes(unscanned, flagged, p.window,
 			p.opts.Now())),
 		p.add(RuleUnindexedFK, UnindexedForeignKeys(fks, idx, th.FKMinRows)),
 	}
@@ -92,7 +110,7 @@ func unreadableNote(seqs []Sequence, n int) string {
 			break
 		}
 		grants = append(grants, fmt.Sprintf("GRANT SELECT ON ALL SEQUENCES IN SCHEMA %s "+
-			"TO <pg_sage role>;", ident(s)))
+			"TO <pg_sage role>;", sqlident.Ident(s)))
 	}
 	return fmt.Sprintf("%d sequences are not readable by the pg_sage role, so their "+
 		"runway is unknown: %s", n, strings.Join(grants, " "))

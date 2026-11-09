@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/rolegrants"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Grant names in the trust guide.
@@ -209,5 +210,5 @@ func quoteRole(role string) string {
 	if role == "" {
 		return "sage_agent"
 	}
-	return rolegrants.QuoteRole(role)
+	return sqlident.Role(role)
 }

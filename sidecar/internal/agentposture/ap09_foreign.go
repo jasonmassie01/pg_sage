@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // ap09ForeignSQL reads the remote wrappers, their servers and the user
@@ -74,7 +76,7 @@ func foreignFinding(env Env, r foreignRow) (Finding, bool) {
 		"foreign_server": "FOREIGN SERVER"}[r.kind]
 	var fix []string
 	for _, g := range revokeTargets(who, r.usage) {
-		fix = append(fix, "REVOKE USAGE ON "+what+" "+QuoteIdent(r.name)+" FROM "+
+		fix = append(fix, "REVOKE USAGE ON "+what+" "+sqlident.Ident(r.name)+" FROM "+
 			revokeTarget(g)+";")
 	}
 	detail := roleText(who) + " can use " + strings.ToLower(what) + " " + r.name
@@ -113,7 +115,7 @@ func mappingFinding(env Env, r foreignRow, who []Role) (Finding, bool) {
 			"its stored credentials.", owner.Name, r.name, r.wrapper, roleText(who)),
 		Recommendation: "Drop the mapping, or map only the roles that need the remote " +
 			"server, with credentials limited to what they need there.",
-		FixScript: "DROP USER MAPPING FOR " + user + " SERVER " + QuoteIdent(r.name) + ";",
+		FixScript: "DROP USER MAPPING FOR " + user + " SERVER " + sqlident.Ident(r.name) + ";",
 		Evidence: []Evidence{{Source: "pg_user_mappings", Ref: owner.Name + "@" + r.name,
 			Detail: "server USAGE held by " + roleText(who)}}}, true
 }
@@ -167,7 +169,7 @@ func ap09Languages(ctx context.Context, in Input) ([]Finding, error) {
 func languageFinding(lang, handler string, who []Role, usage []uint32) Finding {
 	var fix []string
 	for _, g := range revokeTargets(who, usage) {
-		fix = append(fix, "REVOKE USAGE ON LANGUAGE "+QuoteIdent(lang)+" FROM "+
+		fix = append(fix, "REVOKE USAGE ON LANGUAGE "+sqlident.Ident(lang)+" FROM "+
 			revokeTarget(g)+";")
 	}
 	fix = append(fix, "-- Untrusted languages must not be marked trusted. As a superuser:",

@@ -100,7 +100,7 @@ func (c *Collector) refreshCapabilities(ctx context.Context) {
 	c.mu.Lock()
 	c.caps.attempted = true
 	c.mu.Unlock()
-	db := c.probeQuerier()
+	db := c.statementsDB(c.probeQuerier())
 	var key capKey
 	if err := db.QueryRow(ctx, capabilityKeySQL).Scan(
 		&key.version, &key.viewOID, &key.extVersion); err != nil {

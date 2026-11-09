@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -50,7 +51,7 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	if spec.TableSchema == "" {
 		return reject(p, ReasonInvalid, "the index's table must be schema-qualified")
 	}
-	table, j, ok := v.tableInCase(c, p, qualified(spec.TableSchema, spec.TableName))
+	table, j, ok := v.tableInCase(c, p, sqlident.Qualified(spec.TableSchema, spec.TableName))
 	if !ok {
 		return j
 	}
@@ -132,9 +133,9 @@ func (v *validator) judgeIndexDrop(c Case, p Proposal) Judged {
 	}
 	ix, found := v.findIndex(schema, name)
 	if !found {
-		return reject(p, ReasonInvalid, "no index %s", qualified(schema, name))
+		return reject(p, ReasonInvalid, "no index %s", sqlident.Qualified(schema, name))
 	}
-	table, j, ok := v.tableInCase(c, p, qualified(ix.SchemaName, ix.RelName))
+	table, j, ok := v.tableInCase(c, p, sqlident.Qualified(ix.SchemaName, ix.RelName))
 	if !ok {
 		return j
 	}
@@ -196,7 +197,7 @@ func (v *validator) coveredBy(ix collector.IndexStats) (string, string) {
 
 func dropFinding(ix collector.IndexStats, table string, p Proposal,
 	coveredBy string) analyzer.Finding {
-	index := qualified(ix.SchemaName, ix.IndexRelName)
+	index := sqlident.Qualified(ix.SchemaName, ix.IndexRelName)
 	d := map[string]any{"table": table, "index": index, "index_bytes": ix.IndexBytes,
 		"index_scans": ix.IdxScan, "action_risk": optimizer.RiskHigh,
 		"covered_by": coveredBy}

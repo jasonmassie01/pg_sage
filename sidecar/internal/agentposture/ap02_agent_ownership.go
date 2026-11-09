@@ -3,6 +3,8 @@ package agentposture
 import (
 	"context"
 	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap02{}) }
@@ -72,7 +74,7 @@ func ap02Finding(role Role, n int, examples []string) Finding {
 		Recommendation: "Move the objects to an application owner role; agent roles " +
 			"own nothing.",
 		FixScript: fmt.Sprintf("-- Replace app_owner with the role that should own them.\n"+
-			"REASSIGN OWNED BY %s TO app_owner;", QuoteIdent(role.Name)),
+			"REASSIGN OWNED BY %s TO app_owner;", sqlident.Ident(role.Name)),
 		Caveat: "REASSIGN OWNED works per database; run it in every database where " +
 			"the role owns objects.",
 		Evidence: ev}

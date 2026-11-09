@@ -19,19 +19,23 @@ import (
 //   - the subquery (OFFSET 0 keeps it) computes the narrow output columns
 //     before the sort, so the sort holds short text instead of 64-byte names
 //     and fits in work_mem;
-//   - the vectors travel as their text form and the five flags as one
-//     integer: 1.9 MB instead of 3.3 MB at 15,000 indexes.
+//   - the vectors travel as their text form and the seven flags as one
+//     integer: 1.9 MB instead of 3.3 MB at 15,000 indexes;
+//   - partition parentage is one hashed join to pg_inherits: an index
+//     inherits from at most one partitioned index.
 const indexesSQL = tag + `SELECT x.* FROM (
   SELECT i.indexrelid, i.indrelid, n.nspname::text AS schema, t.relname::text AS tbl,
     c.relname::text AS name, i.indkey::text AS indkey, i.indnkeyatts::int AS nkeys,
     i.indclass::text AS indclass, i.indcollation::text AS indcollation,
     am.amname::text AS am,
     (i.indisunique::int + 2 * i.indisprimary::int + 4 * (con.conindid IS NOT NULL)::int
-      + 8 * i.indisvalid::int + 16 * i.indisready::int)::int2 AS flags,
+      + 8 * i.indisvalid::int + 16 * i.indisready::int + 32 * (c.relkind = 'I')::int
+      + 64 * c.relispartition::int)::int2 AS flags,
     COALESCE(pg_catalog.pg_get_expr(i.indpred, i.indrelid), '') AS pred,
     COALESCE(pg_catalog.pg_get_expr(i.indexprs, i.indrelid), '') AS exprs,
     c.relpages::bigint * (SELECT current_setting('block_size')::bigint) AS size,
-    pg_catalog.pg_stat_get_numscans(i.indexrelid) AS scans
+    pg_catalog.pg_stat_get_numscans(i.indexrelid) AS scans,
+    COALESCE(h.inhparent, 0::oid) AS parent
   FROM pg_catalog.pg_index i
   JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
   JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
@@ -39,6 +43,7 @@ const indexesSQL = tag + `SELECT x.* FROM (
   JOIN pg_catalog.pg_am am ON am.oid = c.relam
   LEFT JOIN (SELECT DISTINCT con.conindid FROM pg_catalog.pg_constraint con
              WHERE con.contype IN ('p', 'u', 'x')) con ON con.conindid = i.indexrelid
+  LEFT JOIN pg_catalog.pg_inherits h ON h.inhrelid = i.indexrelid
   WHERE ` + userSchemas + `
   OFFSET 0) x
 ORDER BY x.indexrelid
@@ -51,6 +56,8 @@ const (
 	flagConstraint
 	flagValid
 	flagReady
+	flagPartitioned // relkind 'I'
+	flagPartition   // relispartition: attached to a partitioned index
 )
 
 func (x *Index) setFlags(f int16) {
@@ -59,6 +66,8 @@ func (x *Index) setFlags(f int16) {
 	x.ConstraintBacked = f&flagConstraint != 0
 	x.Valid = f&flagValid != 0
 	x.Ready = f&flagReady != 0
+	x.Partitioned = f&flagPartitioned != 0
+	x.IsPartition = f&flagPartition != 0
 }
 
 func readIndexes(ctx context.Context, tx pgx.Tx) ([]Index, bool, error) {
@@ -93,7 +102,7 @@ func scanIndex(rows pgx.Rows) (Index, error) {
 	var flags int16
 	if err := rows.Scan(&x.OID, &x.TableOID, &x.Schema, &x.Table, &x.Name, &keys,
 		&x.KeyColumns, &classes, &collations, &x.AccessMethod, &flags, &x.Predicate,
-		&x.Expressions, &x.SizeBytes, &x.Scans); err != nil {
+		&x.Expressions, &x.SizeBytes, &x.Scans, &x.ParentOID); err != nil {
 		return x, fmt.Errorf("scan index: %w", err)
 	}
 	x.setFlags(flags)

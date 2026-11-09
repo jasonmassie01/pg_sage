@@ -3,6 +3,8 @@ package agentposture
 import (
 	"context"
 	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap05{}) }
@@ -58,7 +60,7 @@ func (ap05) Detect(ctx context.Context, in Input) ([]Finding, error) {
 func ap05Finding(schema, name, args, kind string, reach []Role,
 	grantees []uint32) Finding {
 	obj := fmt.Sprintf("%s.%s(%s)", schema, name, args)
-	sig := fmt.Sprintf("%s(%s)", QualifiedName(schema, name), args)
+	sig := fmt.Sprintf("%s(%s)", sqlident.Qualified(schema, name), args)
 	what := "FUNCTION"
 	if kind == "p" {
 		what = "PROCEDURE"

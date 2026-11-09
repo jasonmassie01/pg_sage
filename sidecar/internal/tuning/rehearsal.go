@@ -11,6 +11,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Clone rehearsal: with a clone provider configured, an index is built
@@ -96,7 +97,7 @@ func (r *cloneRehearser) Rehearse(ctx context.Context, req RehearsalRequest) (
 	if err != nil {
 		return RehearsalResult{}, fmt.Errorf("%w: %w", ErrCloneUnavailable, err)
 	}
-	res, err := r.onClone(ctx, cl, ddl, qualified(spec.TableSchema, spec.TableName),
+	res, err := r.onClone(ctx, cl, ddl, sqlident.Qualified(spec.TableSchema, spec.TableName),
 		req.Statements)
 	if derr := r.provider.Destroy(context.WithoutCancel(ctx), cl); derr != nil {
 		err = errors.Join(err, fmt.Errorf("destroy clone %s: %w", cl.ID, derr))

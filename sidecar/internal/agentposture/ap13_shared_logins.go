@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap13{}) }
@@ -117,7 +119,7 @@ func sharedLoginFinding(lc *loginClients, sev Severity, stats bool) Finding {
 		Recommendation: "Give the agent its own login (or a Guard principal) with only " +
 			"the privileges it needs, and keep this login for the application.",
 		FixScript: "-- A dedicated login for the agent; grant it only what it needs:\n" +
-			"CREATE ROLE " + QuoteIdent(lc.name+"_agent") + " LOGIN NOINHERIT;\n" +
+			"CREATE ROLE " + sqlident.Ident(lc.name+"_agent") + " LOGIN NOINHERIT;\n" +
 			"-- then move the agent's connection string to it",
 		Evidence: []Evidence{{Source: "pg_stat_activity", Ref: lc.name,
 			Detail: strings.Join(clients, ", ")}}}

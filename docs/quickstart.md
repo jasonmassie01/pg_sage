@@ -79,11 +79,24 @@ The landing page opens with **"Getting started"**, a checklist with live status:
 Below it, **"First look"** lists what a DBA would flag on day one. Each finding cites the
 catalog evidence it rests on, for example `pg_index.indisvalid = false`:
 
-- invalid indexes left by a failed concurrent build;
+- invalid indexes left by a failed concurrent build. An index still being built (seen in
+  `pg_stat_progress_create_index`) is shown as information with no SQL. A `_ccnew` or
+  `_ccold` copy left by a failed `REINDEX CONCURRENTLY` gets `DROP INDEX CONCURRENTLY`.
+  A failed unique index gets a read-only query for its duplicate keys, to clean up
+  before any rebuild;
 - duplicate indexes, and redundant ones whose columns lead another index;
 - indexes never scanned. The caveat states the statistics window: since the last reset or
   the server start. Scans on replicas are not counted;
 - foreign keys whose columns lead no index;
+- on partitioned tables, the index on the parent stands for its partitions. It is
+  "never scanned" only when its partitions' indexes have no scans in total; a parent
+  with no partitions is not reported. A duplicate or redundant parent is reported once,
+  not once per partition, and the indexes attached to it are never reported on their
+  own. PostgreSQL cannot drop a partitioned index concurrently, so the SQL is
+  `DROP INDEX` and the caveat states the lock it takes on every partition. A parent
+  index created `ON ONLY` stays invalid until every partition has an index attached; the
+  finding names those partitions and gives `CREATE INDEX CONCURRENTLY` plus
+  `ALTER INDEX ... ATTACH PARTITION` for each, not a `REINDEX`;
 - transaction ID and multixact runway, and sequence runway, including a bigint sequence
   that feeds an integer column;
 - tables of at least 100 MB with a high share of dead tuples. This is an estimate from
@@ -108,6 +121,14 @@ The same data is available from the API at `/api/v1/first-look` and `/api/v1/onb
 and from Prometheus as `pg_sage_time_to_first_finding_seconds`,
 `pg_sage_first_look_items` and `pg_sage_first_look_duration_seconds` (one series per
 database).
+
+In a fleet, a database pg_sage cannot read does not hide the others. Getting started and
+First look name it ("pg_sage cannot reach the database ...") and show every other database
+in full. Both endpoints mark it with an `error` field on its entry: `unreachable` (it
+refused the connection or gave no answer within 3 s), `no_runtime` (its connection failed
+at startup) or `read_failed` (it answered, but reading pg_sage's state failed). The cause
+is in the pg_sage log, with the database name. The checklist polls once a minute until
+setup is complete, then stops.
 
 ### Minute 5: the analyzer
 

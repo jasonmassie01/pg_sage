@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/rolegrants"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // missingGrant is one privilege the connected role lacks.
@@ -21,13 +22,13 @@ type missingGrant struct {
 // rolegrants, which the Grant more guide uses too.
 func schemaCreateGrant(user string, sc rolegrants.SchemaCreate) missingGrant {
 	return missingGrant{what: sc.What(), need: rolegrants.Need,
-		fix: sc.GrantSQL(rolegrants.QuoteRole(user))}
+		fix: sc.GrantSQL(sqlident.Role(user))}
 }
 
 func signalBackendGrant(user string) missingGrant {
 	return missingGrant{what: "pg_signal_backend",
 		need: "cancelling a runaway query when an action needs it",
-		fix:  "GRANT pg_signal_backend TO " + rolegrants.QuoteRole(user)}
+		fix:  "GRANT pg_signal_backend TO " + sqlident.Role(user)}
 }
 
 // executesActions reports whether a trust level runs actions; only those

@@ -198,13 +198,7 @@ func prepareMonitoredDatabase(
 	if err != nil && requireChecks && !errors.Is(err, startup.ErrStatementsUnavailable) {
 		return nil, fmt.Errorf("prerequisite checks for %q: %w", name, err)
 	}
-	if err != nil {
-		logWarn("runtime", "db %q: prerequisite checks failed; monitoring "+
-			"degraded: %v", name, err)
-	} else if !checks.QueryTextVisible {
-		logWarn("runtime", "db %q: query text not visible; GRANT "+
-			"pg_read_all_stats to the monitoring role", name)
-	}
+	reportChecks(name, checks, err, logWarn)
 	logInfo("runtime", "db %q: PG version %d, WAL columns: %v, plan_time "+
 		"columns: %v", name, checks.PGVersionNum, checks.HasWALColumns,
 		checks.HasPlanTimeColumns)
@@ -244,9 +238,7 @@ func (rt *databaseRuntime) runtimeConfig() *config.Config {
 		runtimeCfg.CloudEnvironment = rt.provider
 		return runtimeCfg
 	}
-	cfg.PGVersionNum = rt.checks.PGVersionNum
-	cfg.HasWALColumns = rt.checks.HasWALColumns
-	cfg.HasPlanTimeColumns = rt.checks.HasPlanTimeColumns
+	withCapabilityFlags(cfg, rt.checks)
 	cfg.CloudEnvironment = rt.provider
 	return cfg
 }

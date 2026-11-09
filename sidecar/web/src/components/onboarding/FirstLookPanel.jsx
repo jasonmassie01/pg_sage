@@ -1,4 +1,6 @@
 import { useAPI } from '../../hooks/useAPI'
+import { entryErrorText } from './entryError'
+import { LoadError } from './LoadError'
 
 // FirstLookPanel shows the catalog-only first look: what a DBA would flag
 // on day one, each finding with the catalog evidence it rests on. Suggested
@@ -166,6 +168,13 @@ function emptyText(checks) {
 
 function Report({ entry }) {
   const report = entry.report
+  if (entry.error) {
+    return (
+      <p className="text-sm" style={{ color: 'var(--yellow)' }}>
+        {entryErrorText(entry.error, entry.database)}
+      </p>
+    )
+  }
   if (!report) {
     return (
       <p role="status" className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -194,7 +203,15 @@ function Report({ entry }) {
 }
 
 export function FirstLookPanel({ database }) {
-  const { data } = useAPI(firstLookURL(database), 30000)
+  const { data, error, refetch } = useAPI(firstLookURL(database), 30000)
+  if (error && !data) {
+    return (
+      <section className="space-y-3" aria-labelledby="first-look-heading">
+        <h2 id="first-look-heading" className="text-lg font-semibold">First look</h2>
+        <LoadError what="First look" error={error} onRetry={refetch} />
+      </section>
+    )
+  }
   const entries = data?.databases || []
   if (entries.length === 0) return null
   return (

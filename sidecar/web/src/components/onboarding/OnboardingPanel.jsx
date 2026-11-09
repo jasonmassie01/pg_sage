@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
+import { entryErrorText } from './entryError'
+import { LoadError } from './LoadError'
 import { GrantMoreDialog } from './GrantMoreDialog'
 
 // OnboardingPanel is the first-run checklist on the landing page: live
@@ -39,10 +41,22 @@ function StepItem({ step }) {
   )
 }
 
+// Polling backs off to a minute while setup is incomplete and stops once
+// every database's required steps are done (the Grant flow refetches).
+const POLL_MS = 60000
+
+function visibleSteps(entry, platformManaged) {
+  return (entry.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
+}
+
+function setupComplete(entry, platformManaged) {
+  const required = visibleSteps(entry, platformManaged).filter(s => !s.optional)
+  return !entry.error && required.length > 0 && required.every(s => s.done)
+}
+
 function DatabaseChecklist({ entry, onGrant, platformManaged }) {
-  const steps = (entry.steps || []).filter(step => !platformManaged || step.id !== 'mcp_token')
-  const required = steps.filter(s => !s.optional)
-  const complete = required.length > 0 && required.every(s => s.done)
+  const steps = visibleSteps(entry, platformManaged)
+  const complete = setupComplete(entry, platformManaged)
   const grantStep = steps.find(s => s.id === 'grant_more')
   return (
     <div className="space-y-2">
@@ -52,6 +66,11 @@ function DatabaseChecklist({ entry, onGrant, platformManaged }) {
         {entry.time_to_first_finding_seconds != null &&
           ` · First finding ${formatSeconds(entry.time_to_first_finding_seconds)} after start`}
       </p>
+      {entry.error && (
+        <p className="text-sm" style={{ color: 'var(--yellow)' }}>
+          {entryErrorText(entry.error, entry.database)}
+        </p>
+      )}
       {complete ? (
         <p className="text-sm">Setup complete.</p>
       ) : (
@@ -73,16 +92,16 @@ function DatabaseChecklist({ entry, onGrant, platformManaged }) {
 }
 
 export function OnboardingPanel({ database, authMode }) {
-  const { data, error, refetch } = useAPI(onboardingURL(database), 10000)
+  const [settled, setSettled] = useState(false)
+  const { data, error, refetch } = useAPI(onboardingURL(database), settled ? 0 : POLL_MS)
   const [granting, setGranting] = useState(null)
-  if (error && !data) {
-    return (
-      <p role="alert" className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Setup status unavailable: {error}
-      </p>
-    )
-  }
+  const platformManaged = authMode === 'databricks_app'
   const entries = data?.databases || []
+  const allDone = entries.length > 0 && entries.every(e => setupComplete(e, platformManaged))
+  useEffect(() => { setSettled(allDone) }, [allDone])
+  if (error && !data) {
+    return <LoadError what="Setup status" error={error} onRetry={refetch} />
+  }
   if (entries.length === 0) return null
   return (
     <section className="space-y-3 rounded border p-4" aria-labelledby="getting-started"
@@ -90,7 +109,7 @@ export function OnboardingPanel({ database, authMode }) {
       <h2 id="getting-started" className="text-lg font-semibold">Getting started</h2>
       {entries.map(entry => (
         <DatabaseChecklist key={entry.database} entry={entry} onGrant={setGranting}
-          platformManaged={authMode === 'databricks_app'} />
+          platformManaged={platformManaged} />
       ))}
       {granting && (
         <GrantMoreDialog database={granting} onClose={() => setGranting(null)}

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
+import { LoadError } from './LoadError'
 
 // GrantMoreDialog is the guided "grant more" step: for each trust level it
 // shows what pg_sage may do, what it never does without approval, what it
@@ -119,7 +120,7 @@ function GrantAction({ guide, choice, onGranted }) {
 }
 
 export function GrantMoreDialog({ database, onClose, onGranted }) {
-  const { data: guide } = useAPI(trustURL(database), 0)
+  const { data: guide, error, refetch } = useAPI(trustURL(database), 0)
   const [picked, setPicked] = useState(null)
   const choice = picked || guide?.current
   return (
@@ -132,7 +133,9 @@ export function GrantMoreDialog({ database, onClose, onGranted }) {
           <h2 id="grant-more-title" className="text-lg font-semibold">Grant more</h2>
           <button type="button" onClick={onClose} className="text-sm">Close</button>
         </div>
-        {!guide ? <p role="status">Loading trust levels…</p> : (
+        {!guide && error && <LoadError what="Trust levels" error={error} onRetry={refetch} />}
+        {!guide && !error && <p role="status">Loading trust levels…</p>}
+        {guide && (
           <>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               Every action still passes the policy gate and is verified afterwards.

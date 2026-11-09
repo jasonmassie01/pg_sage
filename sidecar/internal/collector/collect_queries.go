@@ -61,6 +61,7 @@ func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
 // published without their texts: a failed text read fails the step.
 func (c *Collector) collectQueriesVia(ctx context.Context,
 	db catalogQuerier) ([]QueryStats, error) {
+	db = c.statementsDB(db)
 	caps := c.queryCapabilities(ctx)
 	limit := c.maxQueries()
 	candidates, err := readQueryCounters(ctx, db, caps, limit)

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap12{}) }
@@ -75,7 +77,7 @@ func observeCheckpoints(ctx context.Context, q Querier) (Observation, error) {
 		v := cur.Values[schema]
 		v.Bytes += bytes
 		v.Deletes += deletes
-		v.Tables = append(v.Tables, QualifiedName(schema, table))
+		v.Tables = append(v.Tables, sqlident.Qualified(schema, table))
 		cur.Values[schema] = v
 	}
 	if err := rows.Err(); err != nil {
@@ -133,7 +135,7 @@ func growthFinding(schema string, before, now ObservedValue, from, to time.Time,
 		Recommendation: "Give the agent's checkpoints a retention: delete old threads " +
 			"regularly (LangGraph keeps every checkpoint by default).",
 		FixScript: "-- Find the largest threads, then delete the ones past retention:\n" +
-			"SELECT thread_id, count(*) FROM " + QualifiedName(schema, "checkpoints") +
+			"SELECT thread_id, count(*) FROM " + sqlident.Qualified(schema, "checkpoints") +
 			" GROUP BY 1 ORDER BY 2 DESC LIMIT 20;",
 		Caveat: "Growth is measured between two posture runs pg_sage made in this " +
 			"process; after a restart it needs two new observations.",

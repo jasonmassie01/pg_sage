@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // xidWrapLimit is the distance to transaction ID wraparound (2^31 - 1).
@@ -28,10 +30,10 @@ type XIDState struct {
 type Sequence struct {
 	Schema, Name string
 	// LastValue is nil when the role may not read the sequence.
-	LastValue   *int64
-	Min, Max    int64
-	Increment   int64
-	Cycle       bool
+	LastValue *int64
+	Min, Max  int64
+	Increment int64
+	Cycle     bool
 	// OwnerColumn is the column the sequence feeds (owner, identity or
 	// DEFAULT nextval; the narrowest when several), "" when none.
 	OwnerColumn string
@@ -72,8 +74,8 @@ func XIDRunway(x XIDState, th Thresholds) []Item {
 				Detail: fmt.Sprintf("%d", x.DatFrozenXIDAge)}}}
 		if len(x.OldestTables) > 0 {
 			o := x.OldestTables[0]
-			it.SuggestedSQL = fmt.Sprintf("VACUUM (FREEZE, VERBOSE) %s.%s;", ident(o.Schema),
-				ident(o.Table))
+			it.SuggestedSQL = fmt.Sprintf("VACUUM (FREEZE, VERBOSE) %s;",
+				sqlident.Qualified(o.Schema, o.Table))
 			it.Evidence = append(it.Evidence, Evidence{Source: "pg_class",
 				Ref:    "age(pg_class.relfrozenxid) (relname " + qualified(o.Schema, o.Table) + ")",
 				Detail: fmt.Sprintf("%d", o.Age)})
@@ -226,8 +228,8 @@ func TableBloat(ts []TableStat, th Thresholds) []Item {
 				sizeText(t.SizeBytes), autovacuumText(t.LastAutovacuum)),
 			Recommendation: "Let autovacuum catch up or run VACUUM; look for long " +
 				"transactions that hold cleanup back.",
-			SuggestedSQL: fmt.Sprintf("VACUUM (VERBOSE, ANALYZE) %s.%s;", ident(t.Schema),
-				ident(t.Table)),
+			SuggestedSQL: fmt.Sprintf("VACUUM (VERBOSE, ANALYZE) %s;",
+				sqlident.Qualified(t.Schema, t.Table)),
 			Caveat: "An estimate from the dead-tuple counters, not a measurement; " +
 				"pgstattuple measures it exactly.",
 			Evidence: []Evidence{{Source: "pg_stat_user_tables",

@@ -3,6 +3,8 @@ package tuning
 import (
 	"slices"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // referencedTables names the snapshot tables a statement reads or writes:
@@ -79,15 +81,15 @@ func resolveRelation(schema, name string, known map[string][]string) string {
 	schemas := known[name]
 	if schema != "" {
 		if slices.Contains(schemas, schema) {
-			return qualified(schema, name)
+			return sqlident.Qualified(schema, name)
 		}
 		return ""
 	}
 	switch {
 	case len(schemas) == 1:
-		return qualified(schemas[0], name)
+		return sqlident.Qualified(schemas[0], name)
 	case slices.Contains(schemas, "public"):
-		return qualified("public", name)
+		return sqlident.Qualified("public", name)
 	}
 	return ""
 }

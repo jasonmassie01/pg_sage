@@ -112,5 +112,6 @@ func withCapabilityFlags(runtimeCfg *config.Config, checks *startup.CheckResult)
 	runtimeCfg.PGVersionNum = checks.PGVersionNum
 	runtimeCfg.HasWALColumns = checks.HasWALColumns
 	runtimeCfg.HasPlanTimeColumns = checks.HasPlanTimeColumns
+	runtimeCfg.StatementsSchema = checks.StatementsSchema
 	return runtimeCfg
 }

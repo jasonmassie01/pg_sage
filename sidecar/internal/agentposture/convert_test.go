@@ -82,27 +82,6 @@ func TestProposalLevelIsL1(t *testing.T) {
 	}
 }
 
-func TestQuoteIdent(t *testing.T) {
-	cases := map[string]string{
-		"orders":       "orders",
-		"Orders":       `"Orders"`,
-		"user":         `"user"`,
-		"my table":     `"my table"`,
-		`we"ird`:       `"we""ird"`,
-		"1abc":         `"1abc"`,
-		"":             `""`,
-		"snake_case_1": "snake_case_1",
-	}
-	for in, want := range cases {
-		if got := QuoteIdent(in); got != want {
-			t.Errorf("QuoteIdent(%q) = %s, want %s", in, got, want)
-		}
-	}
-	if got := QualifiedName("App", "t"); got != `"App".t` {
-		t.Fatalf("QualifiedName = %s", got)
-	}
-}
-
 func TestStatementCarriesTheFirstLookTag(t *testing.T) {
 	s := Statement("AP-03", "SELECT 1")
 	if !strings.HasPrefix(s, "/* pg_sage first_look */ ") {

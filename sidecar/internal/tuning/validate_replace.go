@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -47,8 +48,8 @@ func (v *validator) admitReplacement(p Proposal, f analyzer.Finding, table, crea
 	if err != nil {
 		return reject(p, ReasonInvalid, "the admitted index is not a CREATE INDEX: %v", err)
 	}
-	oldIndex := qualified(old.SchemaName, old.IndexRelName)
-	newIndex := qualified(spec.TableSchema, spec.Name)
+	oldIndex := sqlident.Qualified(old.SchemaName, old.IndexRelName)
+	newIndex := sqlident.Qualified(spec.TableSchema, spec.Name)
 	v.dropping[old.IndexRelName] = true
 	d := make(map[string]any, len(f.Detail)+2)
 	for k, val := range f.Detail {

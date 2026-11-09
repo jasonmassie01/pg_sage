@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap03{}) }
@@ -84,7 +86,7 @@ func (ap03) Detect(ctx context.Context, in Input) ([]Finding, error) {
 
 func ap03Finding(env Env, r ap03Row, reach []Role) Finding {
 	obj := r.schema + "." + r.name
-	qn := QualifiedName(r.schema, r.name)
+	qn := sqlident.Qualified(r.schema, r.name)
 	granted := grantText(env, r.grants)
 	f := Finding{Severity: Critical, Object: obj,
 		Evidence: []Evidence{{Source: "pg_class.relacl", Ref: obj, Detail: granted},

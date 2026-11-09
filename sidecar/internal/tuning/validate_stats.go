@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/extstats"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -142,10 +143,10 @@ func statsFinding(table, schema, rel string, cols, kinds []string,
 	name := statsName(rel, cols)
 	quoted := make([]string, len(cols))
 	for i, col := range cols {
-		quoted[i] = quoteIdent(col)
+		quoted[i] = sqlident.Ident(col)
 	}
 	sql := fmt.Sprintf("CREATE STATISTICS %s.%s (%s) ON %s FROM %s",
-		quoteIdent(schema), name, strings.Join(kinds, ", "), strings.Join(quoted, ", "), table)
+		sqlident.Ident(schema), name, strings.Join(kinds, ", "), strings.Join(quoted, ", "), table)
 	parsed, err := extstats.ParseCreate(sql)
 	if err != nil {
 		return analyzer.Finding{}, fmt.Errorf("not the accepted statistics form: %w", err)

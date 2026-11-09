@@ -108,4 +108,51 @@ describe('OnboardingPanel', () => {
     render(<OnboardingPanel database="all" />)
     expect(screen.getAllByRole('list', { name: 'Setup checklist' })).toHaveLength(2)
   })
+
+  function pollIntervals() {
+    return api.useAPI.mock.calls
+      .filter(([url]) => url && !url.startsWith('/api/v1/onboarding/trust'))
+      .map(call => call[1])
+  }
+
+  it('polls every 60 s while setup is incomplete', () => {
+    respond(() => onboarding)
+    render(<OnboardingPanel database="app" />)
+    const intervals = pollIntervals()
+    expect(intervals.length).toBeGreaterThan(0)
+    expect(intervals.every(i => i === 60000)).toBe(true)
+  })
+
+  it('stops polling once every required step is done', () => {
+    const done = steps.map(s => ({ ...s, done: s.optional ? s.done : true }))
+    respond(() => ({ databases: [{ ...onboarding.databases[0], steps: done }] }))
+    render(<OnboardingPanel database="app" />)
+    const intervals = pollIntervals()
+    expect(intervals[0]).toBe(60000)
+    expect(intervals[intervals.length - 1]).toBe(0)
+  })
+
+  it('offers Retry when the setup status cannot be read', () => {
+    const refetch = vi.fn()
+    api.useAPI.mockImplementation(() => ({
+      data: null, loading: false, error: 'HTTP 500', refetch,
+    }))
+    render(<OnboardingPanel database="app" />)
+    expect(screen.getByRole('alert')).toHaveTextContent(/Setup status unavailable: HTTP 500/)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows a database it could not read next to the full checklist of the others', () => {
+    const down = { database: 'down', connected: false, trust_level: 'observation',
+      error: 'unreachable', first_look: { ready: false, items: 0 },
+      steps: steps.map(s => (s.id === 'connected' ? { ...s, done: false,
+        detail: 'pg_sage cannot reach the database; check the connection URL.' } : s)) }
+    respond(url => (url === '/api/v1/onboarding'
+      ? { databases: [onboarding.databases[0], down] } : null))
+    render(<OnboardingPanel database="all" />)
+    expect(screen.getAllByRole('list', { name: 'Setup checklist' })).toHaveLength(2)
+    expect(screen.getByText(/pg_sage cannot reach the database down/)).toBeInTheDocument()
+    expect(pollIntervals().every(i => i === 60000)).toBe(true)
+  })
 })

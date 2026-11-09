@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap04{}) }
@@ -74,7 +76,7 @@ func ap04Finding(env Env, r ap04Row) Finding {
 		exprs = append(exprs, "WITH CHECK (true)")
 	}
 	table := r.schema + "." + r.table
-	qt := QualifiedName(r.schema, r.table)
+	qt := sqlident.Qualified(r.schema, r.table)
 	cmd := policyCommands[r.cmd]
 	detail := fmt.Sprintf("Permissive %s policy %s on %s applies to %s with %s, so it "+
 		"allows every row.", cmd, r.policy, table, roleList(who), strings.Join(exprs, " and "))
@@ -94,8 +96,8 @@ func ap04Finding(env Env, r ap04Row) Finding {
 			"the table is not meant to be open.",
 		FixScript: fmt.Sprintf("-- Replace the predicate with the rows each user may "+
 			"reach.\nALTER POLICY %s ON %s %s (owner_id = current_user);\n-- or:\n"+
-			"-- DROP POLICY %s ON %s;", QuoteIdent(r.policy), qt, clause,
-			QuoteIdent(r.policy), qt),
+			"-- DROP POLICY %s ON %s;", sqlident.Ident(r.policy), qt, clause,
+			sqlident.Ident(r.policy), qt),
 		Caveat: "Check what the application expects before narrowing a policy.",
 		Evidence: []Evidence{{Source: "pg_policy", Ref: table + ":" + r.policy,
 			Detail: cmd + " " + strings.Join(exprs, " ")}}}

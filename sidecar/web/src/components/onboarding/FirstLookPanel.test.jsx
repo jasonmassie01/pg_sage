@@ -117,4 +117,28 @@ describe('FirstLookPanel', () => {
     render(<FirstLookPanel database="orders" />)
     expect(api.useAPI.mock.calls[0][0]).toBe('/api/v1/first-look?database=orders')
   })
+
+  it('states a failed read with Retry instead of rendering nothing', () => {
+    const refetch = vi.fn()
+    api.useAPI.mockImplementation(() => ({
+      data: null, loading: false, error: 'HTTP 500', refetch,
+    }))
+    const { container } = render(<FirstLookPanel database="app" />)
+    expect(container).not.toBeEmptyDOMElement()
+    expect(screen.getByRole('alert')).toHaveTextContent(/First look unavailable: HTTP 500/)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('names the database it could not read and still shows the others', () => {
+    api.useAPI.mockImplementation(() => ({
+      data: { databases: [{ database: 'app', report },
+        { database: 'down', report: null, error: 'unreachable' }] },
+      loading: false, error: null, refetch: vi.fn(),
+    }))
+    render(<FirstLookPanel database="all" />)
+    expect(screen.getAllByRole('article')).toHaveLength(2)
+    expect(screen.getByText(/cannot reach the database down/)).toBeInTheDocument()
+    expect(screen.queryByText(/First look running for down/)).not.toBeInTheDocument()
+  })
 })

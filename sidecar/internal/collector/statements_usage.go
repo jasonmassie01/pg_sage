@@ -103,7 +103,7 @@ func (c *Collector) collectStatStatementsUsage(ctx context.Context,
 		return nil
 	}
 	var entries int
-	err := c.catalogQueryRow(ctx, statementsEntriesSQL).Scan(&entries)
+	err := c.catalogQueryRow(ctx, c.statementsSQL(statementsEntriesSQL)).Scan(&entries)
 	var u *StatStatementsUsage
 	switch {
 	case err != nil:
@@ -151,10 +151,10 @@ func (c *Collector) readStatStatementsUsage(ctx context.Context,
 	u := &StatStatementsUsage{Dealloc: -1, Classified: classify}
 	var err error
 	if classify {
-		err = c.catalogQueryRow(ctx, statementsClassifySQL).Scan(&u.Entries, &u.Utility,
-			&u.CopyOut)
+		err = c.catalogQueryRow(ctx, c.statementsSQL(statementsClassifySQL)).Scan(&u.Entries,
+			&u.Utility, &u.CopyOut)
 	} else {
-		err = c.catalogQueryRow(ctx, statementsEntriesSQL).Scan(&u.Entries)
+		err = c.catalogQueryRow(ctx, c.statementsSQL(statementsEntriesSQL)).Scan(&u.Entries)
 	}
 	if err != nil {
 		return nil, err
@@ -169,14 +169,14 @@ func (c *Collector) readStatStatementsUsage(ctx context.Context,
 // exists, the deallocation count.
 func (c *Collector) readStatementsSettings(ctx context.Context, u *StatStatementsUsage) error {
 	var hasInfo bool
-	if err := c.catalogQueryRow(ctx, statementsSettingsSQL).Scan(&u.TrackUtility,
-		&hasInfo); err != nil {
+	if err := c.catalogQueryRow(ctx, c.statementsSQL(statementsSettingsSQL)).Scan(
+		&u.TrackUtility, &hasInfo); err != nil {
 		return err
 	}
 	if !hasInfo {
 		return nil
 	}
-	err := c.catalogQueryRow(ctx, statementsDeallocSQL).Scan(&u.Dealloc)
+	err := c.catalogQueryRow(ctx, c.statementsSQL(statementsDeallocSQL)).Scan(&u.Dealloc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
