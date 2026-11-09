@@ -538,8 +538,8 @@ Transitions:
 
 `rejected` and `expired` free the statement: it may take a new proposal
 (one per statement still applies). The tuner's deterministic rules do not
-propose again, within 30 days, the exact hint text an operator rejected for
-the statement. No `proposed` row is written while hints cannot reach
+propose again, within 30 days of the operator's decision, the exact hint
+text an operator rejected for the statement. No `proposed` row is written while hints cannot reach
 application sessions (see `hint_readiness`): such a proposal could only wait
 until it expired. `sage.query_hints.status` carries a `NOT VALID` CHECK on
 these eight values; rows earlier releases wrote are not rescanned.
@@ -550,9 +550,11 @@ The tuning agent keeps every open finding it did not judge, so a
 `query_tuning` finding (the tuner's or the agent's) resolves only on
 deterministic evidence, checked once per analyzer cycle:
 
-- its statement's latest `sage.query_hints` row left `proposed` (it is
-  `active`, `dormant`, `broken`, `retired`, `rolled_back`, `rejected` or
-  `expired`): at once;
+- for a finding that carries installable hint SQL, its statement's latest
+  `sage.query_hints` row left `proposed` (it is `active`, `dormant`,
+  `broken`, `retired`, `rolled_back`, `rejected` or `expired`): at once. An
+  operator-hint or advisory finding recorded no row of its own, so an older
+  row does not resolve it;
 - its queryid has been absent from `pg_stat_statements` in this database
   for `tuner.hint_absent_cycles` consecutive cycles (default 3);
 - it has stayed below the tuner's admission for `tuner.hint_absent_cycles`
