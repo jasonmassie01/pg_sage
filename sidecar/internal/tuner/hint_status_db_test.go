@@ -79,6 +79,10 @@ func TestHintStatus_NoHintTableRecordsNoProposal(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			pool, ctx := lifecycleDB(t, qid)
+			if avail != nil && avail.HintTableReady {
+				// Claiming a ready table needs the 1.7 layout the state read uses.
+				requireQueryIDHintTable(t, pool)
+			}
 			tu := New(pool, TunerConfig{WorkMemMaxMB: 256, MinQueryCalls: 1,
 				PlanTimeRatio: 0.5}, avail, noopLog2)
 			fs, err := tuneLocked(ctx, tu, planTimeCandidate(qid))
