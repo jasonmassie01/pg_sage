@@ -142,6 +142,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "1800",
 		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumTimeoutSeconds) },
 	},
+	"safety.vacuum_stall_minutes": {
+		input:  "45",
+		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumStallMinutes) },
+	},
 
 	// --- llm ---
 	"llm.enabled": {

@@ -2035,10 +2035,16 @@
     "doc": "statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400.",
     "class": "safety_critical"
   },
+  "safety.vacuum_stall_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Minutes an executor VACUUM may show no heap-phase progress before its watchdog cancels it (vacuum_stalled). 0 uses the default. Range 5-240. Default: 15.",
+    "class": "safety_critical"
+  },
   "safety.vacuum_timeout_seconds": {
     "type": "int",
     "default": 14400,
-    "doc": "statement_timeout of a VACUUM (not VACUUM FULL) run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400.",
+    "doc": "Cap on a VACUUM (not VACUUM FULL) run by the executor (seconds), enforced by its watchdog; the VACUUM runs with statement_timeout 0. 0 uses the default. Range 60-86400. Default: 14400.",
     "class": "safety_critical"
   },
   "safety.wal_io_ceiling_pct": {

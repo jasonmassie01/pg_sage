@@ -213,7 +213,9 @@ type SafetyConfig struct {
 	// Per-class statement timeouts (executor-05): see ddl_class_timeouts.go.
 	IndexBuildTimeoutSeconds int `yaml:"index_build_timeout_seconds" doc:"statement_timeout of a CREATE INDEX CONCURRENTLY run by the executor (seconds). Other DDL keeps ddl_timeout_seconds. 0 uses the default. Range 60-86400. Default: 14400."`
 	ReindexTimeoutSeconds    int `yaml:"reindex_timeout_seconds" doc:"statement_timeout of a REINDEX CONCURRENTLY run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
-	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"statement_timeout of a VACUUM (not VACUUM FULL) run by the executor (seconds). 0 uses the default. Range 60-86400. Default: 14400."`
+	VacuumTimeoutSeconds     int `yaml:"vacuum_timeout_seconds" doc:"Cap on a VACUUM (not VACUUM FULL) run by the executor (seconds), enforced by its watchdog; the VACUUM runs with statement_timeout 0. 0 uses the default. Range 60-86400. Default: 14400."`
+	// VACUUM watchdog (vacuum-05): see vacuum_stall.go.
+	VacuumStallMinutes int `yaml:"vacuum_stall_minutes" doc:"Minutes an executor VACUUM may show no heap-phase progress before its watchdog cancels it (vacuum_stalled). 0 uses the default. Range 5-240. Default: 15."`
 }
 
 type TrustConfig struct {
@@ -926,6 +928,7 @@ func newDefaults() *Config {
 			IndexBuildTimeoutSeconds: DefaultClassTimeoutSeconds,
 			ReindexTimeoutSeconds:    DefaultClassTimeoutSeconds,
 			VacuumTimeoutSeconds:     DefaultClassTimeoutSeconds,
+			VacuumStallMinutes:       DefaultVacuumStallMinutes,
 		},
 		Trust: TrustConfig{
 			Level:                 DefaultTrustLevel,

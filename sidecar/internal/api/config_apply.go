@@ -289,6 +289,8 @@ func hotReloadSafety(cfg *config.Config, key, v string) {
 		cfg.Safety.ReindexTimeoutSeconds = atoi(v)
 	case "safety.vacuum_timeout_seconds":
 		cfg.Safety.VacuumTimeoutSeconds = atoi(v)
+	case "safety.vacuum_stall_minutes":
+		cfg.Safety.VacuumStallMinutes = atoi(v)
 	}
 }
 

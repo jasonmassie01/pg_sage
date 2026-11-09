@@ -40,7 +40,7 @@ func classTimeout(seconds int) time.Duration {
 }
 
 // validateClassTimeouts accepts 0 (the default) or 60-86400 seconds for
-// each class timeout.
+// each class timeout, then the VACUUM watchdog's stall window.
 func (c *SafetyConfig) validateClassTimeouts() error {
 	for _, field := range []struct {
 		key     string
@@ -59,5 +59,5 @@ func (c *SafetyConfig) validateClassTimeouts() error {
 				DefaultClassTimeoutSeconds, field.seconds)
 		}
 	}
-	return nil
+	return c.validateVacuumStall()
 }

@@ -106,6 +106,7 @@ safety_critical safety.index_build_timeout_seconds
 safety_critical safety.lock_timeout_ms
 derivable safety.query_timeout_ms
 safety_critical safety.reindex_timeout_seconds
+safety_critical safety.vacuum_stall_minutes
 safety_critical safety.vacuum_timeout_seconds
 safety_critical safety.wal_io_ceiling_pct
 safety_critical verify.drop_window_hours

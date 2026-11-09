@@ -45,6 +45,7 @@ var allowedConfigKeys = map[string]string{
 	"safety.index_build_timeout_seconds":  "int_class_timeout",
 	"safety.reindex_timeout_seconds":      "int_class_timeout",
 	"safety.vacuum_timeout_seconds":       "int_class_timeout",
+	"safety.vacuum_stall_minutes":         "int_vacuum_stall",
 	"llm.enabled":                         "bool",
 	"llm.auth":                            "llm_auth",
 	"llm.endpoint":                        "string",
@@ -178,6 +179,7 @@ var intRanges = map[string][2]int{
 	"int_pos": {1, 1 << 30}, "int_nonneg": {0, 1 << 30}, "int_min5": {5, 1 << 30},
 	"pct": {0, 100}, "pct1_100": {1, 100},
 	"int_class_timeout": {config.MinClassTimeoutSeconds, config.MaxClassTimeoutSeconds},
+	"int_vacuum_stall":  {config.MinVacuumStallMinutes, config.MaxVacuumStallMinutes},
 }
 
 func validateByType(vtype, key, value string) error {
@@ -555,6 +557,8 @@ func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 		s.ReindexTimeoutSeconds, "yaml")
 	addField(m, "safety.vacuum_timeout_seconds",
 		s.VacuumTimeoutSeconds, "yaml")
+	addField(m, "safety.vacuum_stall_minutes",
+		s.VacuumStallMinutes, "yaml")
 }
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
@@ -751,7 +755,8 @@ func applyOverrides(
 func coerceValue(key, value string) any {
 	vtype := allowedConfigKeys[key]
 	switch vtype {
-	case "int_pos", "int_nonneg", "int_min5", "pct", "pct1_100", "int_class_timeout":
+	case "int_pos", "int_nonneg", "int_min5", "pct", "pct1_100", "int_class_timeout",
+		"int_vacuum_stall":
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
