@@ -400,7 +400,7 @@ would produce an invalid configuration answers `400` with the key.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `mode` | `standalone` | `standalone` (one database), `fleet` (YAML `databases`), or `meta` (inferred from `--meta-db`). The former `extension` mode was removed with the C extension and is rejected at startup |
+| `mode` | `standalone` | `standalone` (one database), `fleet` (YAML `databases`), or `meta` (inferred from `--meta-db`). `mode: standalone` together with `meta_db` / `--meta-db` is a startup error: leave `mode` unset (meta is inferred) or set `mode: meta`. The former `extension` mode was removed with the C extension and is rejected at startup |
 | `postgres.max_connections` | `2` | Connection pool size |
 | `postgres.sslmode` | `prefer` | SSL mode (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`) |
 
