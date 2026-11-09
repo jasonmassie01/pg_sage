@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/azure"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 // newAzureTokenSource builds the ARM credential; a variable for tests.
@@ -19,14 +20,14 @@ var newAzureTokenSource = azure.DefaultTokenSource
 func azureManagedConfig(
 	cfg *config.Config, provider, host string,
 ) (executor.ManagedConfigAdapter, string) {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "azure", "azure-flexible":
-	case "azure-single":
+	name := strings.ToLower(strings.TrimSpace(provider))
+	switch {
+	case name == "azure-single":
 		return nil, "azure single server is retired; server parameters are guidance-only"
-	case "azure-cosmos":
+	case prov.Canonical(name) == prov.AzureCosmos:
 		return nil, "azure cosmos db for postgresql: server parameters are guidance-only " +
 			"(the ARM adapter targets flexible servers)"
-	default:
+	case prov.Canonical(name) != prov.Azure:
 		return nil, ""
 	}
 	if cfg == nil {
