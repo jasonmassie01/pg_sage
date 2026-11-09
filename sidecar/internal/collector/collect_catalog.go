@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 // collectForeignKeys reads one ForeignKey per constraint. No keys is an
@@ -40,8 +41,8 @@ type storedForeignKey struct {
 
 // DecodeForeignKeys decodes a stored foreign_keys document. A legacy
 // document (one element per column) is regrouped into one ForeignKey per
-// (table, constraint), columns in row order, with an empty Schema and
-// RefSchema: the owning schema of such a row is unknown. null and [] are
+// (table, constraint), columns in row order and each listed once, with an
+// empty Schema and RefSchema: the owning schema of such a row is unknown. null and [] are
 // no keys.
 func DecodeForeignKeys(raw []byte) ([]ForeignKey, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
@@ -66,7 +67,11 @@ func DecodeForeignKeys(raw []byte) ([]ForeignKey, error) {
 			out = append(out, ForeignKey{TableName: s.TableName,
 				ReferencedTable: s.ReferencedTable, ConstraintName: s.ConstraintName})
 		}
-		out[i].Columns = append(out[i].Columns, *s.FKColumn)
+		// One tenant's (table, constraint) repeats another's: the rows
+		// cannot be told apart, so a column is listed once.
+		if !slices.Contains(out[i].Columns, *s.FKColumn) {
+			out[i].Columns = append(out[i].Columns, *s.FKColumn)
+		}
 	}
 	return out, nil
 }

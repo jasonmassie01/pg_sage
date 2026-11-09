@@ -89,3 +89,21 @@ func TestDecodeForeignKeys_MalformedIsAnError(t *testing.T) {
 		}
 	}
 }
+
+// Invalid input: a legacy document from a schema-per-tenant database
+// holds the same (table, constraint, column) once per tenant. The
+// tenants cannot be told apart, so they decode to one key whose columns
+// are not repeated.
+func TestDecodeForeignKeys_LegacyTenantDuplicatesAreNotRepeated(t *testing.T) {
+	row := `{"table_name":"orders","referenced_table":"customers",` +
+		`"fk_column":"customer_id","constraint_name":"orders_customer_fk"}`
+	got, err := DecodeForeignKeys([]byte("[" + row + "," + row + "]"))
+	if err != nil {
+		t.Fatalf("DecodeForeignKeys: %v", err)
+	}
+	want := []ForeignKey{{TableName: "orders", ReferencedTable: "customers",
+		ConstraintName: "orders_customer_fk", Columns: []string{"customer_id"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("decoded = %+v, want %+v", got, want)
+	}
+}
