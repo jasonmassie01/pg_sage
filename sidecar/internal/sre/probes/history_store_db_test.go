@@ -73,3 +73,38 @@ func TestHistoryProbesAreExactlyTheHistoryReaders(t *testing.T) {
 		t.Fatal("plan_regressions must be a history probe")
 	}
 }
+
+// history.store: meta and a pool no runtime registered: a history probe is
+// refused (histstore.ErrNotRegistered) before it touches a connection,
+// instead of reading the monitored database's own query store; a catalog
+// probe on the same pool still runs (collection-12).
+func TestHistoryProbeRefusesUnregisteredPoolInMetaMode(t *testing.T) {
+	pool, ctx := livePool(t)
+	bootstrapQueryStore(t, ctx, pool)
+	if err := histstore.SetProcessMode(histstore.ModeMeta); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := histstore.SetProcessMode(histstore.ModeMonitored); err != nil {
+			t.Error(err)
+		}
+	})
+	before := histstore.Refused()
+	r := NewRunner(pool, Catalog(), NewLimiter(1))
+	res := r.Run(ctx, PlanRegressions, Args{})
+	if res.Status != StatusError || res.Reason != ReasonHistoryNotRegistered {
+		t.Fatalf("plan_regressions on an unregistered pool = %s/%s (%s), want %s/%s",
+			res.Status, res.Reason, res.Error, StatusError, ReasonHistoryNotRegistered)
+	}
+	if res.Phase != PhaseExecution || res.Timing.Acquire != 0 || res.Timing.Attempts != 1 {
+		t.Fatalf("refusal = phase %s, timing %+v; want one attempt refused before the "+
+			"pool acquire", res.Phase, res.Timing)
+	}
+	if !strings.Contains(res.Error, "Register") || histstore.Refused() != before+1 {
+		t.Fatalf("refusal error %q, refused %d -> %d; want the fix named and one refusal",
+			res.Error, before, histstore.Refused())
+	}
+	if other := r.Run(ctx, LockGraph, Args{}); !other.Status.Usable() {
+		t.Fatalf("catalog probe on the same pool = %+v, want it to run", other)
+	}
+}

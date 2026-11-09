@@ -227,3 +227,27 @@ func TestResolveConcurrentWithRegisterInMetaMode(t *testing.T) {
 		t.Fatalf("%d statements fell back to the monitored database in meta mode", n)
 	}
 }
+
+// Err is how code that binds statements itself (Bind) sees a refusal:
+// ErrNotRegistered, counted, for a refused store; nil for a usable store
+// and for the zero Store (whose statements fail with ErrNoDatabase).
+func TestStoreErrReportsOnlyRefusals(t *testing.T) {
+	useProcessMode(t, ModeMeta)
+	refusedStore := Resolve(&fakeDB{})
+	before := Refused()
+	if err := refusedStore.Err(); !errors.Is(err, ErrNotRegistered) {
+		t.Fatalf("refused store Err = %v, want ErrNotRegistered", err)
+	}
+	if Refused() != before+1 {
+		t.Fatalf("Refused = %d, want %d after one Err", Refused(), before+1)
+	}
+	for name, s := range map[string]Store{"monitored": NewMonitored(&fakeDB{}),
+		"zero": {}, "meta": mustMeta(t, &fakeDB{}, 4)} {
+		if err := s.Err(); err != nil {
+			t.Fatalf("%s store Err = %v, want nil", name, err)
+		}
+	}
+	if Refused() != before+1 {
+		t.Fatalf("Refused = %d: a usable store's Err counted a refusal", Refused())
+	}
+}

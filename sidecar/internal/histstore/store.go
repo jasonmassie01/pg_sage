@@ -183,11 +183,20 @@ func (s Store) Bind(sql string, args ...any) (string, []any) {
 	return out, append(bound, s.databaseID)
 }
 
-// unusable is why the store cannot run a statement on its handle, or nil.
-func (s Store) unusable(ok bool) error {
+// Err is why the store refuses every statement (ErrNotRegistered), or nil.
+// Code that runs a bound statement on its own connection (Bind) checks it
+// first; a refusal counts in Refused.
+func (s Store) Err() error {
 	if s.err != nil {
 		refused.Add(1)
-		return s.err
+	}
+	return s.err
+}
+
+// unusable is why the store cannot run a statement on its handle, or nil.
+func (s Store) unusable(ok bool) error {
+	if err := s.Err(); err != nil {
+		return err
 	}
 	if !ok || isNil(s.db) {
 		return s.noDB()
