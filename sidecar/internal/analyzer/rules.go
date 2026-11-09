@@ -26,8 +26,20 @@ type RuleExtras struct {
 	// IndexOID records the object (oid) each FirstSeen clock belongs to: a
 	// dropped and recreated index under the same name is a new object.
 	IndexOID map[string]uint32
+	// InactiveSlotSince records when each replication slot was first seen
+	// inactive, for servers without pg_replication_slots.inactive_since
+	// (before PG17). It lives in memory: a restart only delays a finding.
+	InactiveSlotSince map[string]time.Time
+	// InactiveSlotPending is set by the slot rule when an inactive slot is
+	// below the threshold on the in-memory clock (no inactive_since): it
+	// may carry an open finding from before a restart, so its absence is
+	// not proof of clearance and inactive_slot must not resolve.
+	InactiveSlotPending bool
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
+	// zeroScanSeen records the identities whose zero-scan clock the
+	// unused_index rule read this cycle (rules-04); nil outside a cycle.
+	zeroScanSeen map[string]bool
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.

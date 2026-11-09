@@ -229,16 +229,20 @@ type ReplicationStats struct {
 // ReplicaInfo describes a single streaming replica. LSNs are NULL while a
 // walsender is starting up or catching up (G1-B20).
 type ReplicaInfo struct {
-	ClientAddr *string `json:"client_addr"`
-	State      string  `json:"state"`
-	SentLSN    *string `json:"sent_lsn"`
-	WriteLSN   *string `json:"write_lsn"`
-	FlushLSN   *string `json:"flush_lsn"`
-	ReplayLSN  *string `json:"replay_lsn"`
-	WriteLag   *string `json:"write_lag"`
-	FlushLag   *string `json:"flush_lag"`
-	ReplayLag  *string `json:"replay_lag"`
-	SyncState  string  `json:"sync_state"`
+	// ApplicationName is the walsender's application_name: with
+	// ClientAddr it names a replica stably across cycles (row order in
+	// pg_stat_replication is not stable).
+	ApplicationName string  `json:"application_name"`
+	ClientAddr      *string `json:"client_addr"`
+	State           string  `json:"state"`
+	SentLSN         *string `json:"sent_lsn"`
+	WriteLSN        *string `json:"write_lsn"`
+	FlushLSN        *string `json:"flush_lsn"`
+	ReplayLSN       *string `json:"replay_lsn"`
+	WriteLag        *string `json:"write_lag"`
+	FlushLag        *string `json:"flush_lag"`
+	ReplayLag       *string `json:"replay_lag"`
+	SyncState       string  `json:"sync_state"`
 }
 
 // IOStats holds pg_stat_io data (PG16+).
@@ -310,6 +314,16 @@ type SlotInfo struct {
 	SlotType      string `json:"slot_type"`
 	Active        bool   `json:"active"`
 	RetainedBytes int64  `json:"retained_bytes"`
+	// The fields below exist only on newer servers and are NULL (nil,
+	// false) where the column does not exist: wal_status and
+	// safe_wal_size PG13+, inactive_since, synced and invalidation_reason
+	// PG17+.
+	WALStatus          *string    `json:"wal_status,omitempty"`
+	SafeWALSize        *int64     `json:"safe_wal_size,omitempty"`
+	Temporary          bool       `json:"temporary"`
+	InactiveSince      *time.Time `json:"inactive_since,omitempty"`
+	Synced             bool       `json:"synced"`
+	InvalidationReason *string    `json:"invalidation_reason,omitempty"`
 }
 
 // PreparedTransaction describes a two-phase commit transaction from

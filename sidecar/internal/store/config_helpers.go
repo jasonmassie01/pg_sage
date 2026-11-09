@@ -19,6 +19,7 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.interval_seconds":           "int_min5",
 	"analyzer.slow_query_threshold_ms":    "int_nonneg",
 	"analyzer.self_cost_budget_ms":        "int_nonneg",
+	"analyzer.inactive_slot_min_minutes":  "int_week_minutes",
 	"analyzer.seq_scan_min_rows":          "int_pos",
 	"analyzer.unused_index_window_days":   "int_pos",
 	"analyzer.index_bloat_threshold_pct":  "pct",
@@ -169,18 +170,21 @@ func ValidateConfigOverride(key, value string) error {
 	return validateConfigValue(key, value)
 }
 
+// intRanges are the inclusive bounds of the integer value types.
+var intRanges = map[string][2]int{
+	"int_pos":          {1, 1 << 30},
+	"int_nonneg":       {0, 1 << 30},
+	"int_min5":         {5, 1 << 30},
+	"int_week_minutes": {1, config.MaxInactiveSlotMinMinutes},
+	"pct":              {0, 100},
+	"pct1_100":         {1, 100},
+}
+
 func validateByType(vtype, key, value string) error {
+	if r, ok := intRanges[vtype]; ok {
+		return validateIntRange(key, value, r[0], r[1])
+	}
 	switch vtype {
-	case "int_pos":
-		return validateIntRange(key, value, 1, 1<<30)
-	case "int_nonneg":
-		return validateIntRange(key, value, 0, 1<<30)
-	case "int_min5":
-		return validateIntRange(key, value, 5, 1<<30)
-	case "pct":
-		return validateIntRange(key, value, 0, 100)
-	case "pct1_100":
-		return validateIntRange(key, value, 1, 100)
 	case "float01":
 		return validateFloatRange(key, value, 0, 1)
 	case "float_pos":
@@ -488,6 +492,8 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.SlowQueryThresholdMs, "yaml")
 	addField(m, "analyzer.self_cost_budget_ms",
 		a.SelfCostBudgetMs, "yaml")
+	addField(m, "analyzer.inactive_slot_min_minutes",
+		a.InactiveSlotMinMinutes, "yaml")
 	addField(m, "analyzer.seq_scan_min_rows",
 		a.SeqScanMinRows, "yaml")
 	addField(m, "analyzer.unused_index_window_days",
@@ -739,7 +745,7 @@ func applyOverrides(
 func coerceValue(key, value string) any {
 	vtype := allowedConfigKeys[key]
 	switch vtype {
-	case "int_pos", "int_nonneg", "int_min5", "pct", "pct1_100":
+	case "int_pos", "int_nonneg", "int_min5", "int_week_minutes", "pct", "pct1_100":
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}

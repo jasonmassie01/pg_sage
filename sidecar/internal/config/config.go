@@ -186,6 +186,9 @@ type AnalyzerConfig struct {
 	// v0.9.2 — Slow active replication slot threshold (bytes).
 	SlowSlotRetainedBytes int64 `yaml:"slow_slot_retained_bytes" doc:"Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum."`
 
+	// InactiveSlotMinMinutes: see inactive_slot.go.
+	InactiveSlotMinMinutes int `yaml:"inactive_slot_min_minutes" doc:"Report a replication slot once it has been inactive this many minutes (wal_status extended, unreserved or lost reports it at once). 0 uses the default. Range 0-10080. Default: 5."`
+
 	// v0.9 — Lock chain detection.
 	LockChain LockChainConfig `yaml:"lock_chain"`
 
@@ -771,6 +774,9 @@ func (c *Config) validate() error {
 	if err := c.Retention.validateSageFootprint(); err != nil {
 		return err
 	}
+	if err := c.Analyzer.validateInactiveSlotMinMinutes(); err != nil {
+		return err
+	}
 	if err := c.Analyzer.validateSelfCostBudget(); err != nil {
 		return err
 	}
@@ -895,6 +901,7 @@ func newDefaults() *Config {
 
 			SchemaGuardDDLDebounceSeconds: DefaultSchemaGuardDDLDebounceSeconds,
 			SelfCostBudgetMs:              DefaultSelfCostBudgetMs,
+			InactiveSlotMinMinutes:        DefaultInactiveSlotMinMinutes,
 			LockChain: LockChainConfig{
 				Enabled:                  true,
 				MinBlockedThreshold:      DefaultLockChainMinBlocked,

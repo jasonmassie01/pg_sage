@@ -641,19 +641,21 @@ Honest list:
 
 ## 16. Appendix — category → subsystem taxonomy
 
-The `source` dropdown in §5.3 maps to this table. The mapping is implemented as an allowlist-to-SQL rewrite in `api/handlers.go`:
+The `source` dropdown in §5.3 maps to this table. The mapping is an allowlist-to-SQL rewrite (`category = ANY($n)` over a named list, or a prefix match) in `api/findings_source.go`; each list row reports the same subsystem as `subsystem`. An unknown `source` means no filter.
 
 | Subsystem (`?source=`) | Matches `category` values | Emitted by |
 |---|---|---|
-| `rules` | `index_health`, `unused_index`, `invalid_index`, `duplicate_index`, `missing_fk_index`, `slow_query`, `high_plan_time`, `query_regression`, `seq_scan_heavy`, `high_total_time`, `lock_chain`, `connection_leak`, `cache_hit_ratio`, `checkpoint_pressure`, `stat_statements_pressure`, `replication_lag`, `inactive_slot`, `slow_replication_slot`, `sequence_exhaustion`, `sort_without_index`, `work_mem_promotion`, `table_bloat`, `xid_wraparound`, `extension_drift`, `plan_regression` | `internal/analyzer/rules_*.go` |
-| `forecaster` | `storage_forecast`, `forecast_disk_growth`, `forecast_connection_saturation`, `forecast_cache_pressure`, `forecast_sequence_exhaustion`, `forecast_query_volume`, `forecast_checkpoint_pressure` | `internal/forecaster/*` |
+| `rules` | `index_health`, `unused_index`, `invalid_index`, `duplicate_index`, `missing_fk_index`, `slow_query`, `high_plan_time`, `query_regression`, `seq_scan_heavy`, `high_total_time`, `temp_spill`, `lock_chain`, `connection_leak`, `cache_hit_ratio`, `checkpoint_pressure`, `stat_statements_pressure`, `replication_lag`, `inactive_slot`, `slow_replication_slot`, `sequence_exhaustion`, `sort_without_index`, `work_mem_promotion`, `table_bloat`, `xid_wraparound`, `extension_drift`, `plan_regression`, `wraparound_freeze`, `autovacuum_tuning`, `sage_footprint`, `sage_self_cost`, `sage_self_budget`, `clone_schemas`, `app_managed_index`, `stale_statistics` | `internal/analyzer/*` |
+| `forecaster` | any `category` with prefix `forecast` (`forecast_disk_growth`, `forecast_connection_saturation`, `forecast_cache_pressure`, `forecast_sequence_exhaustion`, `forecast_query_volume`, `forecast_checkpoint_pressure`, …) | `internal/forecaster/*` |
 | `query_tuning` | `query_tuning`, `stale_statistics`, `runaway_query` | `internal/tuner/*`, `internal/executor/runaway.go` |
-| `advisor` | whatever `advisor/prompt.go` emits via the `category` param — dynamic, LLM-chosen | `internal/advisor/*` |
-| `optimizer` | index recommendations — typically posted with `category="unused_index"` or `"missing_fk_index"`; unify under `optimizer` via a provenance hint in `detail` when needed | `internal/optimizer/*` |
+| `advisor` | `wal_tuning`, `connection_tuning`, `query_rewrite`, `bloat_remediation`, `advisor_degraded`, and the older `vacuum_tuning`, `memory_tuning` | `internal/advisor/*` |
+| `optimizer` | `missing_index`, and the pre-v1.8.0 `covering_index`, `partial_index`, `composite_index` (`optimizer.Categories()`) | `internal/optimizer/*` via `internal/analyzer/optimizer_mapping.go` |
+| `incident` | `incident`, `incident_open`, `incident_resolved` | incident projection |
 | `schema_lint` | any `category` with prefix `schema_lint:` (28+ rule IDs: `missing_pk`, `duplicate_index`, `invalid_index`, `fk_type_mismatch`, `jsonb_in_joins`, `low_cardinality_index`, `missing_fk_index`, `mxid_age`, `nullable_unique`, `overlapping_index`, `sequence_overflow`, `serial_usage`, `timestamp_no_tz`, `toast_heavy`, `txid_age`, `unused_index`, `varchar_255`, `char_usage`, `bloated_table`, `int_pk`, `wide_table`, …) | `internal/schema/lint/rule_*.go` |
-| `migration_advisor` | (not yet emitted; reserved for the planned migration advisor workstream) | — |
+| `migration_advisor` | (not yet emitted; reserved for the planned migration advisor workstream; always returns no rows) | — |
 
 Notes:
-- `optimizer` overlaps with `rules` on some categories today (both can surface `unused_index`). **Do not disambiguate via a JSONB `provenance` field** — list queries filter on subsystem and a JSONB condition on a large table will miss indexes and slow the Findings page as the table grows. Instead, add a physical `sage.findings.subsystem text` column indexed on `(status, subsystem, last_seen desc)`. Backfill from the current category prefix / emitter. Callers set `subsystem` explicitly at emit time. The virtual category-mapping (this table) is the bootstrap strategy for Phase 2; the physical column is the durable answer and should land in Phase 3 or earlier.
-- `advisor`'s category is dynamic because the LLM picks it. For the filter to work, `advisor/prompt.go` must constrain output to an allowlist or every advisor finding must set `subsystem='advisor'` explicitly regardless of category.
+- `stale_statistics` is emitted by both the analyzer rule and the tuner. It matches both the `rules` and `query_tuning` filters and is shown as `rules`.
+- No producer writes `detail.subsystem`; the filter never reads it. The lists are kept in lockstep with the producers by a unit test (`api/findings_source_filter_test.go`) until rules-12 replaces them with an analyzer-owned registry.
+- `optimizer` index advice and analyzer index rules use different categories (`missing_index` vs `unused_index`/`duplicate_index`), so they no longer overlap. A physical `sage.findings.subsystem` column remains the durable answer if a category is ever shared.
 - The allowlist in `buildFindingsOrder` must remain column-name-only; never accept arbitrary strings from the client.

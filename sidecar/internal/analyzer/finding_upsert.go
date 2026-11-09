@@ -87,7 +87,7 @@ func upsertOne(
 	if suppressed {
 		return outcomeSuppressed, nil
 	}
-	detailJSON, err := json.Marshal(f.Detail)
+	detailJSON, err := findingDetailJSON(f)
 	if err != nil {
 		return outcomeSkipped, fmt.Errorf("marshal detail of %s finding %s: %w",
 			f.Category, f.ObjectIdentifier, err)
@@ -194,4 +194,19 @@ func insertFinding(
 		f.RollbackSQL, ruleID, impactScore,
 	)
 	return err
+}
+
+// findingDetailJSON is the stored detail: the producer's Detail plus its
+// ActionRisk under DetailActionRisk (the field wins over a stale key). The
+// caller's map is copied, never written.
+func findingDetailJSON(f Finding) ([]byte, error) {
+	if f.ActionRisk == "" {
+		return json.Marshal(f.Detail)
+	}
+	detail := make(map[string]any, len(f.Detail)+1)
+	for k, v := range f.Detail {
+		detail[k] = v
+	}
+	detail[DetailActionRisk] = f.ActionRisk
+	return json.Marshal(detail)
 }

@@ -57,6 +57,7 @@
 | `analyzer.cache_hit_ratio_warning` | `restart` | `-` | `derivable` |
 | `analyzer.checkpoint_frequency_warning_per_hour` | `restart` | `-` | `derivable` |
 | `analyzer.idle_in_transaction_timeout_minutes` | `restart` | `-` | `derivable` |
+| `analyzer.inactive_slot_min_minutes` | `restart` | `-` | `derivable` |
 | `analyzer.index_bloat_threshold_pct` | `restart` | `-` | `derivable` |
 | `analyzer.interval_seconds` | `reconfigure` | `analyzer` | `derivable` |
 | `analyzer.lock_chain.active_query_cancel_minutes` | `restart` | `-` | `safety_critical` |

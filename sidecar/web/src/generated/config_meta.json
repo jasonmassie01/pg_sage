@@ -323,6 +323,12 @@
     "doc": "Report sessions sitting in 'idle in transaction' longer than this. Long idle-in-tx sessions block vacuum and hold locks.",
     "class": "derivable"
   },
+  "analyzer.inactive_slot_min_minutes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Report a replication slot once it has been inactive this many minutes (wal_status extended, unreserved or lost reports it at once). 0 uses the default. Range 0-10080. Default: 5.",
+    "class": "derivable"
+  },
   "analyzer.index_bloat_threshold_pct": {
     "type": "int",
     "default": 30,

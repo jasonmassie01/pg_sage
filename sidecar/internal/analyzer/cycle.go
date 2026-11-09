@@ -34,10 +34,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	excluded := a.excludeFactSchemas(ctx, current, previous)
 
 	a.eval = newCycleEval()
-	// Load recently created indexes to prevent cooldown violations.
-	a.loadRecentlyCreatedIndexes(ctx)
-	a.loadStatsEpoch(ctx)
-	a.loadIndexBuilds(ctx)
+	a.loadCycleInputs(ctx, current)
 
 	// Skip query-based rules when pg_stat_statements was reset.
 	skipQueryRules := current.StatsReset
@@ -67,6 +64,17 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// Temp spills clear only on a new, observed, zero-spill execution.
 	a.finishTempSpillCycle(ctx, current, previous, all)
 	a.finalizeCycle(ctx, all, a.eval.resolvable(all))
+	a.saveUnusedClock(ctx)
+}
+
+// loadCycleInputs reads the state the rules need besides the snapshot:
+// recently created indexes (cooldown), the stats epoch, index builds and
+// the persisted unused_index clock (after the epoch, which it needs).
+func (a *Analyzer) loadCycleInputs(ctx context.Context, current *collector.Snapshot) {
+	a.loadRecentlyCreatedIndexes(ctx)
+	a.loadStatsEpoch(ctx)
+	a.loadIndexBuilds(ctx)
+	a.prepareUnusedClock(ctx, current)
 }
 
 // claimFreshSnapshot reports whether latest is newer than the snapshot the
@@ -109,7 +117,15 @@ func (a *Analyzer) runSnapshotRules(
 			a.eval.fail("invalid_index")
 		}
 		a.eval.evaluated(rule.Categories...)
-		out = append(out, rule.Fn(current, previous, a.cfg, a.extras)...)
+		got := rule.Fn(current, previous, a.cfg, a.extras)
+		out = append(out, got...)
+		if rule.Name == "unused_indexes" {
+			// The zero-scan clock's restart warmup and holds (rules-04).
+			a.holdUnusedFindings(current, previous, got)
+		}
+		if rule.Name == "inactive_slots" && a.extras != nil && a.extras.InactiveSlotPending {
+			a.eval.fail("inactive_slot")
+		}
 	}
 	return out
 }

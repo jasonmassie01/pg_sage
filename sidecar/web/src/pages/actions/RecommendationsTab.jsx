@@ -42,6 +42,10 @@ function RecommendationCard({ row, database, mode, onReview }) {
   const blocked = mode === 'observation'
     ? 'Database changes are disabled in Observation mode.'
     : blockerText(context.blocked_reason || context.policy_decision?.blocked_reason)
+  // A case candidate says requires_approval (from the policy explainer); a
+  // finding row says approval_required. Either one shows the approval line.
+  const needsApproval = Boolean(row.approval_required || context.approval_required
+    || context.requires_approval || context.policy_decision?.requires_approval)
   const title = row.title || actionLabel(row.action_type)
   const state = ({ proposed: 'Proposed', approved: 'Approved; waiting to run',
     applying: 'Applying change', applied: 'Applied; awaiting verification', verifying: 'Verifying result',
@@ -54,10 +58,15 @@ function RecommendationCard({ row, database, mode, onReview }) {
         <h3 className="font-medium">{title}</h3>
         <span className="text-xs" style={muted}>{state}</span>
       </div>
-      <p className="text-sm" style={muted}>
+      <p className="text-sm" style={muted} data-testid="proposal-risk">
         {db || 'Database unknown'}{row.target ? <> · <code>{row.target}</code></> : ''}
         {' · '}{row.storedRecommendation ? 'Saved proposal risk' : 'Risk'}: {riskLabel(row.risk_tier || row.action_risk)}
+        {row.contract_tier && <>{' · '}<span data-testid="proposal-contract">Contract tier: {
+          row.contract_tier === 'none' ? 'none (advisory only)' : riskLabel(row.contract_tier)}</span></>}
       </p>
+      {needsApproval && <p className="text-sm" data-testid="proposal-approval"
+        style={{ color: 'var(--yellow)' }}>Needs approval: {row.approval_reason
+          || 'an operator must approve this change before it runs.'}</p>}
       <p className="text-sm" style={muted}>
         {linked?.why ? `Case context: ${linked.why}` : row.reason
           || 'The reason and expected effect have not been supplied in this summary. Review the case evidence before choosing a change.'}

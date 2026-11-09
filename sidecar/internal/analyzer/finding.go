@@ -18,6 +18,10 @@ const actionResolutionReopenGrace = "2 minutes"
 // unknown, or a restart-required setting. The executor enforces it.
 const DetailApprovalRequired = "approval_required"
 
+// DetailActionRisk is the Detail key the upsert stores the producer's
+// ActionRisk under, so readers of sage.findings can show it (rules-07).
+const DetailActionRisk = "action_risk"
+
 // Finding represents a single diagnostic finding from the rules engine.
 type Finding struct {
 	Category         string

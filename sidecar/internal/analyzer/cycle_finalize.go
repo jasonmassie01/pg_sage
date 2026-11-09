@@ -89,8 +89,9 @@ func (a *Analyzer) finalizeCycle(
 // output, for every category in evaluated -- including categories that
 // produced nothing, so the last finding of a category resolves (G2-B02).
 // Categories not in evaluated (failed or skipped evaluators) are left
-// untouched. Suppressed identities are absent from findings, so a legacy
-// duplicate open row for them is resolved too.
+// untouched, and so are identities the cycle kept open (cycleEval.keep).
+// Suppressed identities are absent from findings, so a legacy duplicate
+// open row for them is resolved too.
 func (a *Analyzer) resolveCleared(
 	ctx context.Context, findings []Finding, evaluated map[string]bool,
 ) {
@@ -104,6 +105,9 @@ func (a *Analyzer) resolveCleared(
 		}
 	}
 	for cat, idents := range activeByCategory {
+		for ident := range a.eval.kept(cat) {
+			idents[ident] = true
+		}
 		cleared, err := ResolveClearedFindings(ctx, a.pool, idents, cat)
 		// Findings resolved before an error still get their resolve.
 		a.dispatchResolvedCritical(ctx, cleared)

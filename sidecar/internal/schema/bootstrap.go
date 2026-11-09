@@ -450,7 +450,8 @@ func migrationStatements() []string {
 		ddlManagedChangeFingerprintV2,
 		ddlSessionsTokenHash,   // apiauth-04: hashed session cookies
 		ddlUsersDisabledAt,     // apiauth-01: user deactivation
-		ddlMigrationRunBlocked) // migration-03: 'blocked' verdict and reason
+		ddlMigrationRunBlocked, // migration-03: 'blocked' verdict and reason
+		ddlUnusedIndexClock)    // rules-04: unused_index clock survives restarts
 }
 
 // ---------------------------------------------------------------------------
