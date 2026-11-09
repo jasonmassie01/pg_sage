@@ -33,6 +33,7 @@ func configGlobalGetHandler(
 			"desired_generation": desired.Generation,
 			"active_generation":  controller.Active().Generation,
 			"pending_restart":    controller.PendingRestart(),
+			"last_resync_at":     lastResyncValue(controller),
 		}
 		merged, err := cs.GetMergedConfig(r.Context(), responseCfg, 0)
 		if err != nil {
@@ -191,7 +192,7 @@ func applyControlledGlobalConfig(
 		},
 	)
 	if err != nil {
-		writeConfigApplyError(w, r, err)
+		writeControlledApplyError(w, r, controller, err)
 		return
 	}
 	jsonResponse(w, map[string]any{
@@ -279,7 +280,7 @@ func applyControlledGlobalDelete(
 		},
 	)
 	if err != nil {
-		writeConfigApplyError(w, r, err)
+		writeControlledApplyError(w, r, controller, err)
 		return
 	}
 	jsonResponse(w, map[string]any{

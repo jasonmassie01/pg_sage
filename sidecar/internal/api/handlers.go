@@ -763,6 +763,7 @@ func configGetHandler(
 		response := map[string]any{
 			"active_generation":  active.Generation,
 			"desired_generation": controller.Desired().Generation,
+			"last_resync_at":     lastResyncValue(controller),
 		}
 		response["mode"] = responseCfg.Mode
 		response["trust"] = responseCfg.Trust
