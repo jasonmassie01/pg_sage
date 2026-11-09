@@ -711,7 +711,8 @@ Daily LLM usage survives restarts. The sidecar writes today's spend of every cli
 global ceiling and each database's `fleet_token_budget_daily` share to
 [`sage.llm_usage`](sql-reference.md#sagellm_usage) in the control database every 60 s and on
 shutdown, and adds it back at startup, so a deploy, a crash loop or `/restart` mid-day does
-not grant the full daily budget again. `GET /api/v1/llm/status` reports `usage_restored_at`
+not grant the full daily budget again. A crash skips the shutdown flush, so each crash
+loses up to the last 60 s of spend. `GET /api/v1/llm/status` reports `usage_restored_at`
 and `ledger_last_flush_at` (null until the first restore or flush). If the control database
 is unreachable, LLM calls keep running on local accounting and one warning is logged per
 outage; a restart during the outage starts from the last flushed usage. A meta-DB database
