@@ -73,10 +73,11 @@ request of a few tokens, charged like any other.
 ## Model consumers
 
 Every model call in the code, by feature. "Cap" is the most output tokens one call may
-ask for; the prompt comes on top. All of them use the database's general client except
-the tuning agent, which uses the optimizer client when `llm.optimizer_llm.enabled` is
-`true` (and the general client otherwise). Ask Sage uses the general client but is also
-held to its own `ask.*` budgets.
+ask for; the prompt comes on top. All of them use a general client except the tuning
+agent, which uses the optimizer client when `llm.optimizer_llm.enabled` is `true` (and
+the general client otherwise). In fleet mode explain and the agent column classifier
+are charged to the shared client; the others to the database's own general client.
+Ask Sage is also held to its own `ask.*` budgets.
 
 | Feature | Code | Calls the model | Cap per call |
 |---------|------|-----------------|--------------|
@@ -99,8 +100,9 @@ held to its own `ask.*` budgets.
 
 The scheduled consumers make a handful of calls a day per database: one briefing, up to
 four advisor calls, one facts pass, the classifier's daily pass, and the first look once.
-The rest follow events: analyzer cases, incidents, operator questions and DDL. On a busy database the tuning agent dominates,
-and the binding cap is the client's `llm.token_budget_daily`.
+The rest follow events: analyzer cases, incidents, operator questions and DDL. On a busy
+database the tuning agent dominates, and the binding cap is the client's
+`llm.token_budget_daily`.
 
 ## Estimates by Database Size
 
