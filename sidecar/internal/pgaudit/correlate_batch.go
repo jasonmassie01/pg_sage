@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -106,8 +107,13 @@ func (b *batch) addOwn(ctx context.Context, h heldRecord) error {
 
 // holdable reports whether an unmatched record may be an action whose row
 // is not written yet: DDL (index builds) or MISC (VACUUM), but not the
-// SET and RESET of pg_sage's session setup, which no action row ever has.
+// SET and RESET of pg_sage's session setup, and not pg_sage's upkeep of
+// its own sage schema (bootstrap DDL): no action row ever has those, and
+// holding them would push real actions' records out of the queue.
 func holdable(rec Record) bool {
+	if strings.HasPrefix(rec.ObjectName, "sage.") {
+		return false
+	}
 	switch rec.Class {
 	case "DDL":
 		return true
