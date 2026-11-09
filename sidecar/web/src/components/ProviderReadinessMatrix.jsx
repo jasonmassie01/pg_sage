@@ -11,6 +11,23 @@ function extensionText(row, key) {
   return row.capabilities?.extensions?.[key] || 'unknown'
 }
 
+// The provider's enable path (for example the azure.extensions allow-list),
+// shown only when it adds to the runtime status.
+function extensionHint(row, key) {
+  const hint = row.capabilities?.extension_hints?.[key]
+  return hint && hint !== extensionText(row, key) ? hint : ''
+}
+
+function ExtensionCell({ row, name }) {
+  const hint = extensionHint(row, name)
+  return (
+    <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+      <div>{extensionText(row, name)}</div>
+      {hint && <div className="text-xs">{`hint: ${hint}`}</div>}
+    </td>
+  )
+}
+
 function readinessIcon(row) {
   if (row.ready_for_auto_safe === true) {
     return <CheckCircle size={14} style={{ color: 'var(--green)' }} />
@@ -116,12 +133,8 @@ export function ProviderReadinessMatrix() {
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {statusText(row, 'analyze')}
                   </td>
-                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                    {extensionText(row, 'pg_stat_statements')}
-                  </td>
-                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                    {extensionText(row, 'pg_hint_plan')}
-                  </td>
+                  <ExtensionCell row={row} name="pg_stat_statements" />
+                  <ExtensionCell row={row} name="pg_hint_plan" />
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {row.capabilities?.is_replica === true ? 'yes'
                       : row.capabilities?.is_replica === false ? 'no' : 'unknown'}

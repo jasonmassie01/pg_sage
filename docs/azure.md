@@ -21,7 +21,8 @@ created, so this path is covered by unit tests only.
 - **Readiness has its own adapter.** The fleet overview shows `azure-cosmos` with
   `azure_monitor` log access, the `azure.extensions` allow-list, and the limitation
   "server parameters are guidance-only (Citus coordinator)". It does not advertise
-  `ALTER DATABASE ... SET` changes.
+  `ALTER DATABASE ... SET` changes, and the standing policy gate blocks them there
+  (`provider_unsupported`).
 - **Agent governance** (agent role contracts) covers Cosmos like the other managed
   providers.
 - First-look preload steps for `pg_stat_statements` and `auto_explain` name the Cosmos
@@ -35,7 +36,7 @@ created, so this path is covered by unit tests only.
 | Portable actions | ANALYZE, VACUUM, CREATE/DROP/REINDEX INDEX CONCURRENTLY, per-table autovacuum settings, `ALTER DATABASE ... SET`, backend cancel/terminate, reviewed `ALTER TABLE` run as SQL through the standing policy gate like any provider |
 | Instance parameters | `ALTER SYSTEM` is unavailable. Configuration changes use Azure **server parameters** through Azure Resource Manager when the `azure:` section is set; otherwise pg_sage reports the exact `az` command to run |
 | Restart-bound parameters | Applied through ARM and reported as `applied_pending_restart` until the server restarts |
-| Readiness | The fleet overview shows `azure_monitor` log access and the `azure.extensions` allow-list requirement for HypoPG, pg_hint_plan and auto_explain |
+| Readiness | The fleet overview shows `azure_monitor` log access. The `azure.extensions` allow-list requirement for HypoPG, pg_hint_plan and auto_explain appears as a separate `extension_hints` field (shown as "hint:" in the dashboard); the `extensions` field is what the catalog shows is installed. ANALYZE permission is `ok` for members of `azure_pg_admin`, otherwise `limited` (checked per table at execution). Capabilities are recollected every 15 minutes and after a config reload |
 
 ## Database setup
 
