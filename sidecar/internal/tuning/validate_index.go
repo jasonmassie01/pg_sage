@@ -10,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/verify"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // singleStatement returns sql without one trailing semicolon, or false
@@ -23,11 +24,11 @@ func singleStatement(sql string) (string, bool) {
 // hasSemicolon reports a semicolon outside literals, comments and quoted
 // identifiers.
 func hasSemicolon(sql string) bool {
-	t := blankLiteralsAndComments(sql)
+	t := workload.BlankLiteralsAndComments(sql)
 	for i := 0; i < len(t); i++ {
 		switch t[i] {
 		case '"':
-			_, next, _ := readIdent(t, i)
+			_, next, _ := workload.ReadIdent(t, i)
 			i = max(next, i+1) - 1
 		case ';':
 			return true
@@ -76,7 +77,8 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	}
 	adm := v.a.deps.Indexes.Admit(ctx, optimizer.Recommendation{DDL: ddl, Severity: "info",
 		Rationale: p.Rationale, IndexType: spec.Method, Alongside: ov.alongside,
-		Category: optimizer.OptimizerCategory, AffectedQueryIDs: v.targets(c, p)}, tc)
+		Category: optimizer.OptimizerCategory, AffectedQueryIDs: v.targets(c, p),
+		Replaces: replacedRef(replaced)}, tc)
 	switch adm.Outcome {
 	case optimizer.AdmitAccepted:
 	case optimizer.AdmitMeasured:
@@ -96,6 +98,15 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	}
 	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: []string{table},
 		Class: verify.ClassIndexCreate, Prediction: pred}
+}
+
+// replacedRef is the index a replacement removes, for the optimizer's
+// per-table index cap; nil for a plain create.
+func replacedRef(ix collector.IndexStats) *optimizer.IndexRef {
+	if ix.IndexRelName == "" {
+		return nil
+	}
+	return &optimizer.IndexRef{Name: ix.IndexRelName, OID: ix.IndexRelID}
 }
 
 func (v *validator) createPrediction(c Case, p Proposal,

@@ -67,7 +67,6 @@ llm:
     min_query_calls: 1
     max_indexes_per_table: 10
     max_include_columns: 3
-    over_indexed_ratio_pct: 150
     write_heavy_ratio_pct: 70
 
 advisor:

@@ -82,11 +82,9 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 				MaxIndexesPerTable:   8,
 				MaxNewPerTable:       2,
 				MaxIncludeColumns:    4,
-				OverIndexedRatioPct:  200,
 				WriteHeavyRatioPct:   80,
 				MinSnapshots:         3,
 				HypoPGMinImprovePct:  15.0,
-				PlanSource:           "hypopg",
 				ConfidenceThreshold:  0.7,
 				WriteImpactThreshPct: 20.0,
 			},
@@ -258,11 +256,9 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 	assertEqualInt(t, "LLM.Optimizer.MaxIndexesPerTable", roundtripped.LLM.Optimizer.MaxIndexesPerTable, original.LLM.Optimizer.MaxIndexesPerTable)
 	assertEqualInt(t, "LLM.Optimizer.MaxNewPerTable", roundtripped.LLM.Optimizer.MaxNewPerTable, original.LLM.Optimizer.MaxNewPerTable)
 	assertEqualInt(t, "LLM.Optimizer.MaxIncludeColumns", roundtripped.LLM.Optimizer.MaxIncludeColumns, original.LLM.Optimizer.MaxIncludeColumns)
-	assertEqualInt(t, "LLM.Optimizer.OverIndexedRatioPct", roundtripped.LLM.Optimizer.OverIndexedRatioPct, original.LLM.Optimizer.OverIndexedRatioPct)
 	assertEqualInt(t, "LLM.Optimizer.WriteHeavyRatioPct", roundtripped.LLM.Optimizer.WriteHeavyRatioPct, original.LLM.Optimizer.WriteHeavyRatioPct)
 	assertEqualInt(t, "LLM.Optimizer.MinSnapshots", roundtripped.LLM.Optimizer.MinSnapshots, original.LLM.Optimizer.MinSnapshots)
 	assertEqualFloat(t, "LLM.Optimizer.HypoPGMinImprovePct", roundtripped.LLM.Optimizer.HypoPGMinImprovePct, original.LLM.Optimizer.HypoPGMinImprovePct)
-	assertEqual(t, "LLM.Optimizer.PlanSource", roundtripped.LLM.Optimizer.PlanSource, original.LLM.Optimizer.PlanSource)
 	assertEqualFloat(t, "LLM.Optimizer.ConfidenceThreshold", roundtripped.LLM.Optimizer.ConfidenceThreshold, original.LLM.Optimizer.ConfidenceThreshold)
 	assertEqualFloat(t, "LLM.Optimizer.WriteImpactThreshPct", roundtripped.LLM.Optimizer.WriteImpactThreshPct, original.LLM.Optimizer.WriteImpactThreshPct)
 
@@ -687,8 +683,6 @@ func TestDefaultConfig_NonZeroFields(t *testing.T) {
 		t.Error("LLM.Optimizer.ConfidenceThreshold is 0 " +
 			"(should be 0.5)")
 	}
-	assertEqual(t, "LLM.Optimizer.PlanSource",
-		cfg.LLM.Optimizer.PlanSource, DefaultOptPlanSource)
 
 	// Advisor defaults: enabled and every sub-feature on
 	assertEqualBool(t, "Advisor.Enabled", cfg.Advisor.Enabled, true)
@@ -794,11 +788,9 @@ llm:
     max_indexes_per_table: 10
     max_new_per_table: 3
     max_include_columns: 3
-    over_indexed_ratio_pct: 150
     write_heavy_ratio_pct: 70
     min_snapshots: 3
     hypopg_min_improvement_pct: 15.0
-    plan_source: hypopg
     confidence_threshold: 0.5
     write_impact_threshold_pct: 20.0
   optimizer_llm:

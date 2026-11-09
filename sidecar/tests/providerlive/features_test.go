@@ -149,15 +149,12 @@ func hasFixtureTable(snap *collector.Snapshot, namespace string) bool {
 func checkOptimizer(t *testing.T, f fixture) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	var version int
-	checkError(t, "read optimizer version", f.pool.QueryRow(ctx,
-		"SELECT current_setting('server_version_num')::int").Scan(&version))
 	query := collector.QueryStats{QueryID: 1, Calls: 100,
 		Query: "SELECT id FROM " + f.namespace + ".items WHERE category = $1"}
 	snap := &collector.Snapshot{Queries: []collector.QueryStats{query},
 		Tables: []collector.TableStats{{SchemaName: f.namespace, RelName: "items", NLiveTup: 1900}}}
 	// indexes-05: the context runs no EXPLAIN (the plan capture was removed).
-	o := optimizer.New(f.pool, &config.DefaultConfig().LLM.Optimizer, version,
+	o := optimizer.New(f.pool, &config.DefaultConfig().LLM.Optimizer,
 		func(string, string, ...any) {})
 	tc, ok, err := o.TableContext(ctx, snap, f.namespace+".items")
 	checkError(t, "build real optimizer context", err)

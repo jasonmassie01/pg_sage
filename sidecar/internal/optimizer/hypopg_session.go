@@ -91,9 +91,9 @@ func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []st
 			return WhatIfResult{}, fmt.Errorf("in-flight index %q: %w", d, err)
 		}
 	}
-	before, failed, err := s.measureCosts(ctx, queries)
+	before, unplanned, err := s.measureCosts(ctx, queries)
 	if err != nil || len(before) == 0 {
-		return WhatIfResult{Failed: failed}, err
+		return WhatIfResult{Failed: len(unplanned), UnplannedQueryIDs: unplanned}, err
 	}
 	oid, err := s.createIndex(ctx, ddl)
 	if err != nil {
@@ -103,13 +103,7 @@ func (s *hypopgSession) evaluate(ctx context.Context, ddl string, alongside []st
 	if err != nil {
 		return WhatIfResult{}, err
 	}
-	res := WhatIfResult{Failed: failed}
-	res.Improvement, res.Measured = weightedImprovement(queries, before, after)
-	for id := range before {
-		if _, ok := after[id]; !ok {
-			res.Failed++ // planned without the index but not with it
-		}
-	}
+	res := comparedCosts(queries, before, after, unplanned)
 	if res.Measured == 0 {
 		return res, nil
 	}
@@ -139,44 +133,76 @@ func (s *hypopgSession) estimateSize(ctx context.Context, oid uint32) (int64, er
 	return size, nil
 }
 
+// comparedCosts is the evaluation of the costs planned without (before)
+// and with (after) the index: the improvement over the statements planned
+// both times, and as unplanned those that failed before (unplanned) and
+// those planned only without the index. Any unplanned statement keeps the
+// verdict unverified (whatIfVerdict).
+func comparedCosts(queries []QueryInfo, before, after map[int64]float64,
+	unplanned []int64,
+) WhatIfResult {
+	res := WhatIfResult{UnplannedQueryIDs: append(unplanned,
+		lostPlans(queries, before, after)...)}
+	res.Failed = len(res.UnplannedQueryIDs)
+	res.Improvement, res.Measured = weightedImprovement(queries, before, after)
+	return res
+}
+
+// lostPlans are the queryids planned without the index but not with it,
+// in workload order.
+func lostPlans(queries []QueryInfo, before, after map[int64]float64) []int64 {
+	var lost []int64
+	seen := make(map[int64]bool, len(queries))
+	for _, q := range queries {
+		_, planned := before[q.QueryID]
+		_, replanned := after[q.QueryID]
+		if planned && !replanned && !seen[q.QueryID] {
+			lost = append(lost, q.QueryID)
+		}
+		seen[q.QueryID] = true
+	}
+	return lost
+}
+
 // measureCosts plans every explainable workload query. Each EXPLAIN runs
 // in its own savepoint, so a query that fails (a dropped column, a type
-// it cannot plan) is counted and skipped instead of aborting the shared
-// transaction. A cancelled context or a lock timeout (the table is locked:
-// every other statement on it would wait as long) aborts the measurement.
+// it cannot plan) is named in the unplanned queryids and skipped instead
+// of aborting the shared transaction. A cancelled context or a lock
+// timeout (the table is locked: every other statement on it would wait
+// as long) aborts the measurement.
 func (s *hypopgSession) measureCosts(ctx context.Context,
 	queries []QueryInfo,
-) (map[int64]float64, int, error) {
+) (map[int64]float64, []int64, error) {
 	costs := make(map[int64]float64)
-	failed := 0
+	var unplanned []int64
 	for _, query := range queries {
 		if !isExplainable(query.Text) {
 			continue
 		}
 		if err := sanitize.RejectMultiStatement(query.Text); err != nil {
-			failed++
+			unplanned = append(unplanned, query.QueryID)
 			continue
 		}
 		plan, err := s.explainIsolated(ctx, query.Text)
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, failed, ctxErr
+			return nil, unplanned, ctxErr
 		}
 		if err != nil {
 			if errors.Is(err, errSessionBroken) {
-				return nil, failed, err
+				return nil, unplanned, err
 			}
 			if isLockTimeout(err) {
-				return nil, failed, fmt.Errorf("lock timeout: queryid %d waited past "+
+				return nil, unplanned, fmt.Errorf("lock timeout: queryid %d waited past "+
 					"lock_timeout for a lock on its tables: %w", query.QueryID, err)
 			}
-			failed++
+			unplanned = append(unplanned, query.QueryID)
 			continue
 		}
 		if cost := extractTotalCost(plan); cost > 0 {
 			costs[query.QueryID] = cost
 		}
 	}
-	return costs, failed, nil
+	return costs, unplanned, nil
 }
 
 // isLockTimeout reports a statement cancelled by lock_timeout.

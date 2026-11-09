@@ -1,117 +1,169 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// tuning-09: tuner.revalidation_keep_ratio, revalidation_rollback_ratio and
-// revalidation_explain_timeout_ms never had an effect (revalidation does no
-// hinted-vs-unhinted cost comparison and issues no EXPLAIN). They are
-// retired: a config that still sets one loads, the key is dropped, and one
-// actionable warning per key is written.
+// indexes-11: llm.optimizer.over_indexed_ratio_pct and plan_source, and
+// llm.index_optimizer.over_indexed_ratio_pct, had no reader. They are gone
+// from the struct; a config that still sets one loads, with exactly one
+// WARNING per key, and the value has no effect.
 
-var tuning09RetiredKeys = []string{
-	"revalidation_keep_ratio",
-	"revalidation_rollback_ratio",
-	"revalidation_explain_timeout_ms",
-}
-
-// loadWithWarnings is shared with ignored_keys_test.go.
-
-func retiredWarning(key string) string {
-	return "tuner." + key + " is no longer used and is ignored; remove it"
-}
-
-func TestRetiredKeepRatioKeyLoadsWithOneWarning(t *testing.T) {
-	cfg, warnings, err := loadWithWarnings(t,
-		"tuner:\n  revalidation_keep_ratio: 1.2\n  hint_retirement_days: 9\n")
+func TestRetiredOptimizerKeysLoadWithOneWarningEach(t *testing.T) {
+	baseline, _, err := loadWithWarnings(t, "llm:\n  optimizer:\n    min_query_calls: 7\n")
 	if err != nil {
-		t.Fatalf("Load with retired key: %v", err)
+		t.Fatalf("Load baseline: %v", err)
 	}
-	if cfg.Tuner.HintRetirementDays != 9 {
-		t.Fatalf("sibling key lost: hint_retirement_days = %d, want 9",
-			cfg.Tuner.HintRetirementDays)
-	}
-	if got := strings.Count(warnings, "WARNING:"); got != 1 {
-		t.Fatalf("WARNING count = %d in %q, want exactly 1", got, warnings)
-	}
-	if !strings.Contains(warnings, retiredWarning("revalidation_keep_ratio")) {
-		t.Fatalf("warning %q does not name tuner.revalidation_keep_ratio", warnings)
-	}
-}
-
-// All three keys together: three warnings, one per key, and the config
-// still loads with its other tuner values.
-func TestRetiredRevalidationKeysEachWarnOnce(t *testing.T) {
-	yaml := "tuner:\n  revalidation_keep_ratio: 1.2\n" +
-		"  revalidation_rollback_ratio: 0.8\n" +
-		"  revalidation_explain_timeout_ms: 10000\n" +
-		"  nested_loop_row_threshold: 25000\n"
-	cfg, warnings, err := loadWithWarnings(t, yaml)
-	if err != nil {
-		t.Fatalf("Load with retired keys: %v", err)
-	}
-	if cfg.Tuner.NestedLoopRowThreshold != 25000 {
-		t.Fatalf("nested_loop_row_threshold = %d, want 25000",
-			cfg.Tuner.NestedLoopRowThreshold)
-	}
-	for _, key := range tuning09RetiredKeys {
-		if got := strings.Count(warnings, retiredWarning(key)); got != 1 {
-			t.Errorf("warning for %s appears %d times in %q, want 1", key, got, warnings)
-		}
+	for _, tc := range []struct{ name, body, warning string }{
+		{"plan_source auto", "llm:\n  optimizer:\n    plan_source: auto\n" +
+			"    min_query_calls: 7\n", "llm.optimizer.plan_source"},
+		{"over_indexed_ratio_pct", "llm:\n  optimizer:\n    over_indexed_ratio_pct: 80\n" +
+			"    min_query_calls: 7\n", "llm.optimizer.over_indexed_ratio_pct"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, out, err := loadWithWarnings(t, tc.body)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := strings.Count(out, "WARNING:"); got != 1 {
+				t.Fatalf("output %q has %d warnings, want exactly 1", out, got)
+			}
+			if !strings.Contains(out, tc.warning) || !strings.Contains(out, "remove it") {
+				t.Fatalf("warning %q does not name %s and tell the operator what to do",
+					out, tc.warning)
+			}
+			if !reflect.DeepEqual(cfg.LLM.Optimizer, baseline.LLM.Optimizer) {
+				t.Fatalf("retired key changed the optimizer config:\n%+v\nwant\n%+v",
+					cfg.LLM.Optimizer, baseline.LLM.Optimizer)
+			}
+		})
 	}
 }
 
-// Invalid values for a retired key are not validated: the key is dropped
-// before the strict decode, so a wrong type cannot fail the load.
-func TestRetiredRevalidationKeyWithBadValueStillLoads(t *testing.T) {
-	_, warnings, err := loadWithWarnings(t,
-		"tuner:\n  revalidation_explain_timeout_ms: \"ten seconds\"\n")
-	if err != nil {
-		t.Fatalf("Load with a mistyped retired key: %v", err)
-	}
-	if !strings.Contains(warnings, retiredWarning("revalidation_explain_timeout_ms")) {
-		t.Fatalf("missing warning in %q", warnings)
-	}
-}
-
-// Defaults without any config file: nested_loop_row_threshold keeps its
-// 10,000 default and no warning is written.
-func TestNestedLoopThresholdDefaultWithoutConfig(t *testing.T) {
-	cfg, warnings, err := loadWithWarnings(t, "tuner:\n  enabled: true\n")
+func TestRetiredLegacyIndexOptimizerKeyLoadsWithOneWarning(t *testing.T) {
+	cfg, out, err := loadWithWarnings(t, "llm:\n  index_optimizer:\n    enabled: true\n"+
+		"    over_indexed_ratio_pct: 120\n    max_include_columns: 2\n")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Tuner.NestedLoopRowThreshold != 10000 {
-		t.Fatalf("nested_loop_row_threshold default = %d, want 10000",
-			cfg.Tuner.NestedLoopRowThreshold)
+	if got := strings.Count(out, "WARNING:"); got != 1 ||
+		!strings.Contains(out, "llm.index_optimizer.over_indexed_ratio_pct") {
+		t.Fatalf("output %q, want one warning naming the legacy key", out)
 	}
-	for _, key := range tuning09RetiredKeys {
-		if strings.Contains(warnings, key) {
-			t.Fatalf("unexpected warning for %s: %q", key, warnings)
+	if !cfg.LLM.Optimizer.Enabled || cfg.LLM.Optimizer.MaxIncludeColumns != 2 {
+		t.Fatalf("legacy block must still migrate: enabled=%v max_include_columns=%d",
+			cfg.LLM.Optimizer.Enabled, cfg.LLM.Optimizer.MaxIncludeColumns)
+	}
+}
+
+// Every retired key in one file: one warning each, nothing else lost.
+func TestRetiredKeysAcrossSectionsWarnOncePerKey(t *testing.T) {
+	cfg, out, err := loadWithWarnings(t, "tuner:\n  analyze_maintenance_threshold_mb: 5\n"+
+		"  analyze_cooldown_minutes: 45\nllm:\n  optimizer:\n    plan_source: none\n"+
+		"    over_indexed_ratio_pct: 80\n    max_include_columns: 4\n"+
+		"  index_optimizer:\n    over_indexed_ratio_pct: 90\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := strings.Count(out, "WARNING:"); got != 4 {
+		t.Fatalf("output %q has %d warnings, want 4", out, got)
+	}
+	for _, key := range []string{"tuner.analyze_maintenance_threshold_mb",
+		"llm.optimizer.plan_source", "llm.optimizer.over_indexed_ratio_pct",
+		"llm.index_optimizer.over_indexed_ratio_pct"} {
+		if strings.Count(out, key+" ") != 1 {
+			t.Errorf("output %q must name %s exactly once", out, key)
+		}
+	}
+	if cfg.Tuner.AnalyzeCooldownMinutes != 45 || cfg.LLM.Optimizer.MaxIncludeColumns != 4 {
+		t.Fatalf("sibling keys lost: cooldown=%d max_include_columns=%d",
+			cfg.Tuner.AnalyzeCooldownMinutes, cfg.LLM.Optimizer.MaxIncludeColumns)
+	}
+}
+
+func TestMaxIncludeColumnsDefaultsToThreeWithoutConfigFile(t *testing.T) {
+	chdirTemp(t)
+	cfg, err := Load([]string{"--pg-url", "postgres://u:p@db.example:5432/app"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.Optimizer.MaxIncludeColumns != 3 {
+		t.Fatalf("max_include_columns = %d without a config file, want 3",
+			cfg.LLM.Optimizer.MaxIncludeColumns)
+	}
+}
+
+func TestMaxIncludeColumnsZeroLoadsAndIsKept(t *testing.T) {
+	// 0 is not a config error: the validator reads <= 0 as the default 3.
+	cfg, out, err := loadWithWarnings(t, "llm:\n  optimizer:\n    max_include_columns: 0\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLM.Optimizer.MaxIncludeColumns != 0 || strings.Contains(out, "WARNING") {
+		t.Fatalf("max_include_columns 0 = %d warnings %q", cfg.LLM.Optimizer.MaxIncludeColumns,
+			out)
+	}
+}
+
+func TestStripRetiredKeysInputs(t *testing.T) {
+	if _, _, err := stripRetiredKeys("llm: [unclosed"); err == nil {
+		t.Fatal("invalid YAML must be an error, not silently no warnings")
+	}
+	for name, raw := range map[string]string{
+		"empty":                 "",
+		"no retired key":        "llm:\n  optimizer:\n    min_query_calls: 5\n",
+		"llm not a map":         "llm: ~\n",
+		"optimizer not a map":   "llm:\n  optimizer: ~\n",
+		"optimizer is a list":   "llm:\n  optimizer: [plan_source]\n",
+		"key at the wrong path": "plan_source: auto\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, warnings, err := stripRetiredKeys(raw)
+			if err != nil || len(warnings) != 0 || got != raw {
+				t.Fatalf("stripRetiredKeys(%q) = %q, %v, %v; want unchanged", raw, got,
+					warnings, err)
+			}
+		})
+	}
+}
+
+func TestStripRetiredKeysRemovesOnlyRetiredKeys(t *testing.T) {
+	raw := "llm:\n  optimizer:\n    plan_source: auto\n    min_query_calls: 9\n"
+	got, warnings, err := stripRetiredKeys(raw)
+	if err != nil || len(warnings) != 1 {
+		t.Fatalf("stripRetiredKeys = %v, %v; want one warning", warnings, err)
+	}
+	if strings.Contains(got, "plan_source") || !strings.Contains(got, "min_query_calls: 9") {
+		t.Fatalf("stripped YAML %q must drop plan_source and keep min_query_calls", got)
+	}
+}
+
+// Stripping re-encodes only the first document, so a second document must
+// still be refused rather than silently dropped with the retired key.
+func TestRetiredKeyDoesNotHideASecondDocument(t *testing.T) {
+	for name, body := range map[string]string{
+		"optimizer key": "llm:\n  optimizer:\n    plan_source: auto\n---\nmode: x\n",
+		"tuner key":     "tuner:\n  analyze_maintenance_threshold_mb: 5\n---\nmode: x\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := loadWithWarnings(t, body)
+			if err == nil || !strings.Contains(err.Error(), "exactly one YAML document") {
+				t.Fatalf("Load = %v, want the one-document error", err)
+			}
+		})
+	}
+	if err := requireOneDocument("mode: x\n---\nllm: [unclosed\n"); err == nil ||
+		!strings.Contains(err.Error(), "read config") {
+		t.Fatalf("broken second document = %v, want a read error", err)
+	}
+	for _, one := range []string{"", "---\nmode: x\n", "mode: x\n...\n", "# only a comment\n"} {
+		if err := requireOneDocument(one); err != nil {
+			t.Fatalf("requireOneDocument(%q) = %v, want nil", one, err)
 		}
 	}
 }
 
-// Shipped example configs and user docs no longer carry the keys.
-func TestShippedFilesOmitRetiredRevalidationKeys(t *testing.T) {
-	root := filepath.Join("..", "..", "..")
-	for _, rel := range []string{
-		filepath.Join("sidecar", "config.example.yaml"),
-		filepath.Join("docs", "generated", "config-lifecycles.md"),
-		filepath.Join("sidecar", "web", "src", "generated", "config_meta.json"),
-	} {
-		body, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
-		for _, key := range tuning09RetiredKeys {
-			if strings.Contains(string(body), key) {
-				t.Errorf("%s still names tuner.%s", rel, key)
-			}
-		}
-	}
-}
+// No concurrency or state-transition tests: stripping is a pure function of
+// the YAML text, run once per load.

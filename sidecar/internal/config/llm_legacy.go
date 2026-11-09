@@ -53,9 +53,6 @@ func copyLegacyOptimizerTuning(l *LLMConfig) {
 	if legacy.MaxIncludeColumns > 0 {
 		opt.MaxIncludeColumns = legacy.MaxIncludeColumns
 	}
-	if legacy.OverIndexedRatio > 0 {
-		opt.OverIndexedRatioPct = legacy.OverIndexedRatio
-	}
 	if legacy.WriteHeavyRatio > 0 {
 		opt.WriteHeavyRatioPct = legacy.WriteHeavyRatio
 	}

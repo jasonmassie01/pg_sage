@@ -23,6 +23,10 @@ type Recommendation struct {
 	// WhatIfReason says why a recommendation is unverified.
 	WhatIf       string `json:"what_if_verdict,omitempty"`
 	WhatIfReason string `json:"what_if_reason,omitempty"`
+	// WhatIfMeasured counts the statements the what-if planned with and
+	// without the index; WhatIfUnplannedQueryIDs are those it could not.
+	WhatIfMeasured          int     `json:"what_if_measured,omitempty"`
+	WhatIfUnplannedQueryIDs []int64 `json:"what_if_unplanned_queryids,omitempty"`
 	// PartitionedParent marks an index on a partitioned table: it is
 	// advisory, and PartitionPlan holds the ON ONLY / per-partition /
 	// ATTACH statements (nil for multi-level partitioning).
@@ -30,20 +34,32 @@ type Recommendation struct {
 	PartitionPlan     []string      `json:"partition_plan,omitempty"`
 	ActionRisk        string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
 	CostEstimate      *CostEstimate `json:"cost_estimate,omitempty"`
+	// Replaces is the existing index this candidate replaces (nil for a
+	// plain create): the per-table index cap does not count it.
+	Replaces *IndexRef `json:"-"`
+}
+
+// IndexRef names an existing index of the table and its identity (OID).
+type IndexRef struct {
+	Name string
+	OID  uint32
 }
 
 // TableContext holds a table's enriched data: what the tuning agent's tools
 // show and what admission validates and measures a candidate against.
 type TableContext struct {
-	Schema           string
-	Table            string
-	Columns          []ColumnInfo
-	Indexes          []IndexInfo
-	Queries          []QueryInfo
-	ColStats         []ColStat
-	LiveTuples       int64
-	DeadTuples       int64
-	WriteRate        float64
+	Schema     string
+	Table      string
+	Columns    []ColumnInfo
+	Indexes    []IndexInfo
+	Queries    []QueryInfo
+	ColStats   []ColStat
+	LiveTuples int64
+	DeadTuples int64
+	// WriteRate is the percentage of index-maintaining writes (inserts and
+	// non-HOT updates) among those writes plus the tuples read.
+	WriteRate float64
+	// IndexCount counts the table's valid indexes.
 	IndexCount       int
 	TableBytes       int64
 	IndexBytes       int64
@@ -62,6 +78,11 @@ type TableContext struct {
 	// (nil when the catalog was not read): the duplicate check drops an
 	// explicit default before comparing with pg_get_indexdef.
 	KeyDefaults map[string]KeyDefault
+	// ColumnsKnown is true when Columns is the table's column list read
+	// this cycle. When the read failed or returned nothing, a column the
+	// candidate names is not evidence of a hallucination: the existence
+	// check is skipped and HypoPG and PostgreSQL validate the columns.
+	ColumnsKnown bool
 }
 
 // ColumnInfo describes a table column.
@@ -79,6 +100,7 @@ type IndexInfo struct {
 	IsUnique   bool
 	IsValid    bool
 	SizeBytes  int64
+	OID        uint32 // pg_class oid; zero when the snapshot lacks it
 }
 
 // QueryInfo describes a query hitting a table.
@@ -91,12 +113,10 @@ type QueryInfo struct {
 	Operators   []string // operators used in WHERE/JOIN (e.g., "@>", "&&", "@@")
 }
 
-// PlanSummary holds a condensed execution plan for one query.
-type PlanSummary struct {
-	QueryID  int64
-	Summary  string
-	ScanType string
-	SortDisk int64
+// CostEstimate is the measured cost of an index: the size HypoPG
+// estimated for it.
+type CostEstimate struct {
+	EstimatedSizeBytes int64
 }
 
 // ColStat holds pg_stats data for a single column.

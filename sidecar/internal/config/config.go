@@ -254,7 +254,6 @@ type IndexOptimizerConfig struct {
 	MinQueryCalls      int  `yaml:"min_query_calls"`
 	MaxIndexesPerTable int  `yaml:"max_indexes_per_table"`
 	MaxIncludeColumns  int  `yaml:"max_include_columns"`
-	OverIndexedRatio   int  `yaml:"over_indexed_ratio_pct"`
 	WriteHeavyRatio    int  `yaml:"write_heavy_ratio_pct"`
 }
 
@@ -264,12 +263,10 @@ type OptimizerConfig struct {
 	MinQueryCalls        int     `yaml:"min_query_calls"`
 	MaxIndexesPerTable   int     `yaml:"max_indexes_per_table"`
 	MaxNewPerTable       int     `yaml:"max_new_per_table"`
-	MaxIncludeColumns    int     `yaml:"max_include_columns"`
-	OverIndexedRatioPct  int     `yaml:"over_indexed_ratio_pct"`
+	MaxIncludeColumns    int     `yaml:"max_include_columns" doc:"Most INCLUDE columns a proposed index may carry; a wider proposal is refused with a reason naming the cap. 0 or less means 3. Default: 3."`
 	WriteHeavyRatioPct   int     `yaml:"write_heavy_ratio_pct"`
 	MinSnapshots         int     `yaml:"min_snapshots"`
 	HypoPGMinImprovePct  float64 `yaml:"hypopg_min_improvement_pct"`
-	PlanSource           string  `yaml:"plan_source"`
 	ConfidenceThreshold  float64 `yaml:"confidence_threshold"`
 	WriteImpactThreshPct float64 `yaml:"write_impact_threshold_pct"`
 	// RejectionMemory: optimizer_rejection_memory.go.
@@ -950,7 +947,6 @@ func newDefaults() *Config {
 				MinQueryCalls:      DefaultIdxOptMinQueryCalls,
 				MaxIndexesPerTable: DefaultIdxOptMaxIndexesPerTable,
 				MaxIncludeColumns:  DefaultIdxOptMaxIncludeColumns,
-				OverIndexedRatio:   DefaultIdxOptOverIndexedRatio,
 				WriteHeavyRatio:    DefaultIdxOptWriteHeavyRatio,
 			},
 			Optimizer: OptimizerConfig{
@@ -959,11 +955,9 @@ func newDefaults() *Config {
 				MaxIndexesPerTable:   DefaultOptMaxIndexesPerTable,
 				MaxNewPerTable:       DefaultOptMaxNewPerTable,
 				MaxIncludeColumns:    DefaultOptMaxIncludeColumns,
-				OverIndexedRatioPct:  DefaultOptOverIndexedRatioPct,
 				WriteHeavyRatioPct:   DefaultOptWriteHeavyRatioPct,
 				MinSnapshots:         DefaultOptMinSnapshots,
 				HypoPGMinImprovePct:  DefaultOptHypoPGMinImprovePct,
-				PlanSource:           DefaultOptPlanSource,
 				ConfidenceThreshold:  DefaultOptConfidenceThreshold,
 				WriteImpactThreshPct: DefaultOptWriteImpactThreshPct,
 				RejectionMemory:      DefaultOptimizerRejectionMemory(),
@@ -1166,6 +1160,9 @@ func loadYAML(path string, cfg *Config) error {
 	for _, warning := range unexpandedEnvWarnings(path, raw) {
 		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
+	if err := requireOneDocument(expanded); err != nil {
+		return err
+	}
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
@@ -1179,14 +1176,6 @@ func loadYAML(path string, cfg *Config) error {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(candidate); err != nil {
 		return err
-	}
-
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("config must contain exactly one YAML document")
 	}
 	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {
 		return err

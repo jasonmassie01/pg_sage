@@ -16,8 +16,9 @@ import (
 // of a candidate is remembered with the workload it was measured on.
 // While that workload and the table are materially unchanged, a candidate
 // with the same shape skips the what-if, and the tuning agent's case
-// packet lists the shape as already measured. An operator's request is
-// never suppressed, and deterministic detectors do not pass through the
+// packet lists the shape as already measured. Memory never blocks for
+// good: the age limit and the material-change rules let the idea be
+// measured again, and deterministic detectors do not pass through the
 // optimizer at all.
 
 const (
@@ -235,8 +236,10 @@ type tableMemory struct {
 }
 
 // suppress reports the remembered rejection of the same idea as rec, if
-// any. A nil view or an unparseable candidate never matches.
-func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
+// any, that the current minimum improvement minPct would still reject: a
+// minimum lowered to (or below) the remembered improvement re-measures. A
+// nil view or an unparseable candidate never matches.
+func (v *tableMemory) suppress(rec Recommendation, minPct float64) (rejection, bool) {
 	if v == nil || len(v.live) == 0 {
 		return rejection{}, false
 	}
@@ -245,7 +248,7 @@ func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
 		return rejection{}, false
 	}
 	for _, r := range v.live {
-		if r.Shape.sameIdea(shape) {
+		if r.ImprovementPct < minPct && r.Shape.sameIdea(shape) {
 			return r, true
 		}
 	}
@@ -253,15 +256,21 @@ func (v *tableMemory) suppress(rec Recommendation) (rejection, bool) {
 }
 
 // promptLines lists the newest rejected shapes for the tuning agent's case
-// packet, bounded in count and length.
-func (v *tableMemory) promptLines() []string {
+// packet, bounded in count and length. Like suppress, it leaves out a
+// rejection the current minimum improvement minPct would admit, so a
+// lowered minimum does not steer the agent away from re-proposing it.
+func (v *tableMemory) promptLines(minPct float64) []string {
 	if v == nil || v.mem == nil || len(v.live) == 0 {
 		return nil
 	}
-	n := min(len(v.live), v.mem.settings.PromptMax)
-	lines := make([]string, 0, n)
-	for _, r := range v.live[:n] {
-		lines = append(lines, promptLine(r))
+	var lines []string
+	for _, r := range v.live {
+		if len(lines) >= v.mem.settings.PromptMax {
+			break
+		}
+		if r.ImprovementPct < minPct {
+			lines = append(lines, promptLine(r))
+		}
 	}
 	return lines
 }

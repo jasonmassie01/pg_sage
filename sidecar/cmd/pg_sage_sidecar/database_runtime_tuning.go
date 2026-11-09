@@ -20,7 +20,7 @@ func (rt *databaseRuntime) newTuningAgent(hints *tuner.Tuner) *tuning.Agent {
 	primary, fallback := tuningModels(rt.llmManager)
 	timeouts := catalogread.FromSafety(cfg.Safety)
 	deps := tuning.Deps{Model: primary,
-		Indexes: optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer, rt.pgVersion(),
+		Indexes: optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer,
 			logStructuredWrapper, optimizer.WithCatalogReadTimeouts(timeouts)),
 		Store: tuning.NewPostgresStore(rt.spec.Pool, rt.pgVersion(), timeouts)}
 	if fallback != nil {

@@ -305,11 +305,11 @@ llm:
   optimizer:
     enabled: true                # default
     min_query_calls: 100         # ignore ad-hoc queries below this threshold
-    max_indexes_per_table: 10    # skip tables already at this index count
-    max_include_columns: 3
+    max_indexes_per_table: 10    # cap of valid indexes; a replacement adds none
+    max_include_columns: 3       # refuse proposals with a wider INCLUDE list
     max_new_per_table: 3
-    over_indexed_ratio_pct: 80
-    write_heavy_ratio_pct: 70
+    write_heavy_ratio_pct: 70    # % inserts + non-HOT updates vs those + tuples read
+    write_impact_threshold_pct: 15  # measured gain a write-heavy table needs
     rejection_memory:            # skip re-measuring ideas HypoPG already rejected
       enabled: true
       max_age_days: 7
@@ -768,7 +768,7 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `llm.optimizer.enabled` | `true` | Let the tuning agent propose index creates (validated and HypoPG-measured by the optimizer's admission) and drops of indexes another valid index covers, each marked for approval when the database has standbys (primary statistics miss replica reads). Never-scanned indexes are proposed only by the `unused_index` rule, with its first-seen clock and its recently-created, FK-only and standby guards |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new index proposals per table per cycle |
-| `llm.optimizer.plan_source` | `auto` | Deprecated and ignored since v2.5.1: the optimizer no longer captures plans for the tuning agent (nothing read them). A config that sets it still loads and prints one startup warning; remove the key, which a later release retires. The HypoPG what-if plans at most 25 SELECT statements per candidate (writes take no slot; the hottest by total time, always including the proposal's or the case's target statements) under `safety.lock_timeout_ms` capped at 1 s (below its 5 s statement timeout), and a lock timeout leaves the candidate unverified |
+| `llm.optimizer.max_include_columns` | `3` | Most INCLUDE columns a proposed index may carry. The optimizer refuses a wider proposal before any HypoPG what-if, with a reason naming the cap so the tuning agent can propose a narrower index; `0` or less means `3`. The deprecated `llm.index_optimizer.max_include_columns` still sets it |
 | `llm.optimizer.rejection_memory.enabled` | `true` | Remember HypoPG what-if rejections of model-proposed indexes: a repeat of the same idea (same method, keys with opclass/collation/order and predicate; any name; INCLUDE columns reordered, added or removed) skips the what-if, and the tuning agent's case packet lists the shapes already measured. Applies to the agent's candidates and what-if tool calls, never to deterministic findings. Rows live in `sage.optimizer_rejection` and age out with `retention.findings_days` (YAML only) |
 | `llm.optimizer.rejection_memory.max_age_days` | `7` | Days a rejection stays valid; then the idea may be measured again (1-90) |
 | `llm.optimizer.rejection_memory.call_volume_ratio` | `2` | A target query whose call count changed by at least this factor (up or down) is a material workload change (>1-1000) |
@@ -782,6 +782,8 @@ through the policy gate, trust level and execution mode, like any other recommen
 | `tuner.llm_enabled` | `true` | Let the tuning agent propose per-query pg_hint_plan hints; the tuner validates, clamps and records them (YAML only). The tuner's deterministic hint rules run either way. Hints are offered as executable SQL only when they would reach application sessions: pg_hint_plan preloaded, `pg_hint_plan.enable_hint_table` on for the database or role (`ALTER DATABASE mydb SET pg_hint_plan.enable_hint_table = on`), the 1.7 hint table, and `INSERT`/`DELETE` on it. Otherwise findings stay advisory with a `hint_readiness` detail; the tuner re-reads these facts every cycle (see [hint verification, section 10](hint-verification.md#10-hint_planhints-table-integration)) |
 | `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |
 | `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
+
+Retired keys: `llm.optimizer.plan_source`, `llm.optimizer.over_indexed_ratio_pct` and `llm.index_optimizer.over_indexed_ratio_pct` had no effect and are no longer read. A config that still sets one loads and prints one startup warning per key; remove them. The optimizer captures no plans (plan_source chose how it once did): the HypoPG what-if plans at most 25 SELECT statements per candidate (writes take no slot; the hottest by total time, always including the proposal's or the case's target statements) under `safety.lock_timeout_ms` capped at 1 s (below its 5 s statement timeout), and a lock timeout leaves the candidate unverified.
 
 ### Tuning agent
 

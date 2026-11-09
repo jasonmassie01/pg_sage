@@ -15,15 +15,17 @@ import (
 func noopLog2(_ string, _ string, _ ...any) {}
 
 // ---------------------------------------------------------------------------
-// extensionInstalled (was 40%)
+// installedExtensions (was extensionInstalled, 40%)
 // ---------------------------------------------------------------------------
 
 func TestPhase2_ExtensionInstalled_NilPool(t *testing.T) {
 	v := NewValidator(nil, &config.OptimizerConfig{}, noopLog2)
-	// With nil pool, extensionInstalled should return true
-	// (can't check, assume installed).
-	if !v.extensionInstalled(context.Background(), "pg_trgm") {
-		t.Error("nil pool should return true (assume installed)")
+	// With nil pool the extension check cannot read and admits
+	// (PostgreSQL validates the operator class).
+	ok, reason := v.checkExtensionRequired(context.Background(), Recommendation{
+		DDL: "CREATE INDEX CONCURRENTLY i ON t USING gin (c gin_trgm_ops)"}, TableContext{})
+	if !ok {
+		t.Errorf("nil pool should admit (cannot check), got %q", reason)
 	}
 }
 
@@ -34,7 +36,7 @@ func TestPhase2_ExtensionInstalled_WithDB_PgTrgm(t *testing.T) {
 	v := NewValidator(pool, &config.OptimizerConfig{}, noopLog2)
 	// pg_trgm may or may not be installed; we just verify
 	// the function doesn't panic and returns a bool.
-	_ = v.extensionInstalled(context.Background(), "pg_trgm")
+	_ = installedForTest(t, v, context.Background(), "pg_trgm")
 }
 
 func TestPhase2_ExtensionInstalled_WithDB_NonExistent(t *testing.T) {
@@ -42,7 +44,7 @@ func TestPhase2_ExtensionInstalled_WithDB_NonExistent(t *testing.T) {
 	defer pool.Close()
 
 	v := NewValidator(pool, &config.OptimizerConfig{}, noopLog2)
-	got := v.extensionInstalled(
+	got := installedForTest(t, v,
 		context.Background(), "nonexistent_ext_xyz",
 	)
 	if got {
@@ -56,7 +58,7 @@ func TestPhase2_ExtensionInstalled_WithDB_Plpgsql(t *testing.T) {
 
 	v := NewValidator(pool, &config.OptimizerConfig{}, noopLog2)
 	// plpgsql is always installed in PostgreSQL.
-	got := v.extensionInstalled(context.Background(), "plpgsql")
+	got := installedForTest(t, v, context.Background(), "plpgsql")
 	if !got {
 		t.Error("plpgsql should always be installed")
 	}
@@ -67,7 +69,7 @@ func TestPhase2_ExtensionInstalled_EmptyName(t *testing.T) {
 	defer pool.Close()
 
 	v := NewValidator(pool, &config.OptimizerConfig{}, noopLog2)
-	got := v.extensionInstalled(context.Background(), "")
+	got := installedForTest(t, v, context.Background(), "")
 	if got {
 		t.Error("empty extension name should return false")
 	}
@@ -84,9 +86,9 @@ func TestPhase2_CheckExtensionRequired_GINTrgmNilPool(t *testing.T) {
 		IndexType: "gin",
 	}
 	ok, reason := v.checkExtensionRequired(
-		context.Background(), rec,
+		context.Background(), rec, TableContext{},
 	)
-	// nil pool -> extensionInstalled returns true -> accepted
+	// nil pool -> the check cannot read -> accepted
 	if !ok {
 		t.Errorf("should accept with nil pool, got rejected: %s",
 			reason)
@@ -102,7 +104,7 @@ func TestPhase2_CheckExtensionRequired_GISTPostgisNilPool(
 		IndexType: "gist",
 	}
 	ok, reason := v.checkExtensionRequired(
-		context.Background(), rec,
+		context.Background(), rec, TableContext{},
 	)
 	if !ok {
 		t.Errorf("should accept with nil pool, got rejected: %s",
@@ -116,7 +118,7 @@ func TestPhase2_CheckExtensionRequired_BtreeNoCheck(t *testing.T) {
 		DDL:       "CREATE INDEX CONCURRENTLY idx ON t (col)",
 		IndexType: "btree",
 	}
-	ok, _ := v.checkExtensionRequired(context.Background(), rec)
+	ok, _ := v.checkExtensionRequired(context.Background(), rec, TableContext{})
 	if !ok {
 		t.Error("btree should not require extension check")
 	}
@@ -132,7 +134,7 @@ func TestPhase2_CheckExtensionRequired_GINTrgm_WithDB(t *testing.T) {
 		IndexType: "gin",
 	}
 	ok, reason := v.checkExtensionRequired(
-		context.Background(), rec,
+		context.Background(), rec, TableContext{},
 	)
 	// If pg_trgm is not installed, should reject.
 	// Either way, verify no panic.
@@ -530,6 +532,17 @@ func TestPhase2_ExtractTotalCost_NullBytes(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Helper: connect to test DB or skip
 // ---------------------------------------------------------------------------
+
+// installedForTest reads whether one extension is installed through the
+// validator's bounded catalog read.
+func installedForTest(t *testing.T, v *Validator, ctx context.Context, name string) bool {
+	t.Helper()
+	installed, err := v.installedExtensions(ctx, []string{name})
+	if err != nil {
+		t.Fatalf("read extension %q: %v", name, err)
+	}
+	return installed[name]
+}
 
 func connectTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()

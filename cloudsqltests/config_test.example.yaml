@@ -53,7 +53,6 @@ llm:
     max_indexes_per_table: 3
     max_new_per_table: 3
     max_include_columns: 5
-    over_indexed_ratio_pct: 100
     write_heavy_ratio_pct: 50
 
 retention:

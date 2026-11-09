@@ -33,7 +33,7 @@ func partitionSnapshot() *collector.Snapshot {
 
 // Happy path: partitions known, the parent's context names its partition.
 func TestTableContext_KnownPartitionsBuildTheParentContext(t *testing.T) {
-	o := New(nil, admissionConfig(), 170000, admitNoLog)
+	o := New(nil, admissionConfig(), admitNoLog)
 	tc, ok, err := o.TableContext(context.Background(), partitionSnapshot(), "app.events")
 	if err != nil || !ok {
 		t.Fatalf("context: ok %v err %v", ok, err)
@@ -48,7 +48,7 @@ func TestTableContext_KnownPartitionsBuildTheParentContext(t *testing.T) {
 // a partition (either would be planned as a standalone table), and the
 // error says why.
 func TestTableContext_UnknownPartitionsWithholdTheContext(t *testing.T) {
-	o := New(nil, admissionConfig(), 170000, admitNoLog)
+	o := New(nil, admissionConfig(), admitNoLog)
 	snap := partitionSnapshot()
 	snap.Partitions = nil
 	snap.Unavailable = map[string]string{"partitions": "canceling statement due to " +
@@ -68,7 +68,7 @@ func TestTableContext_UnknownPartitionsWithholdTheContext(t *testing.T) {
 // Nil/empty: no partitions read as none (an available empty list) is a
 // real fact, and a plain table gets its context.
 func TestTableContext_NoPartitionsIsAFact(t *testing.T) {
-	o := New(nil, admissionConfig(), 170000, admitNoLog)
+	o := New(nil, admissionConfig(), admitNoLog)
 	snap := partitionSnapshot()
 	snap.Partitions = nil
 	tc, ok, err := o.TableContext(context.Background(), snap, "app.events_2026")

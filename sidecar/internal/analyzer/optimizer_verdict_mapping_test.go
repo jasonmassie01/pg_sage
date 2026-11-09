@@ -60,3 +60,27 @@ func TestOptimizerMapping_PartitionedParentIsAdvisory(t *testing.T) {
 		t.Fatalf("identity changed: %q", f.ObjectIdentifier)
 	}
 }
+
+// indexes-06: a partial measurement's evidence reaches the finding detail
+// the approval card reads; a recommendation the what-if never measured
+// records neither key.
+func TestOptimizerMapping_CarriesPartialMeasurement(t *testing.T) {
+	rec := optimizer.Recommendation{Table: "public.orders",
+		DDL:    "CREATE INDEX CONCURRENTLY idx_o ON public.orders (status)",
+		WhatIf: optimizer.WhatIfUnverified, WhatIfMeasured: 4,
+		WhatIfUnplannedQueryIDs: []int64{123, 456},
+		WhatIfReason: "planned statements improved 62.0% (call-weighted, 4 of 6); " +
+			"not planned: queryid 123, 456"}
+	f := OptimizerRecommendationFinding(rec)
+	if f.Detail["what_if_measured"] != 4 ||
+		!reflect.DeepEqual(f.Detail["what_if_unplanned_queryids"], []int64{123, 456}) {
+		t.Fatalf("detail = %+v", f.Detail)
+	}
+	rec.WhatIfMeasured, rec.WhatIfUnplannedQueryIDs = 0, nil
+	f = OptimizerRecommendationFinding(rec)
+	for _, key := range []string{"what_if_measured", "what_if_unplanned_queryids"} {
+		if _, ok := f.Detail[key]; ok {
+			t.Fatalf("unmeasured recommendation recorded %s: %+v", key, f.Detail)
+		}
+	}
+}

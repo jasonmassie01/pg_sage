@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // ErrPartitionsUnknown: the collector could not read the partition map
@@ -40,7 +41,8 @@ func (o *Optimizer) TableContext(
 	}
 	key := ts.SchemaName + "." + ts.RelName
 	tableQueries := groupQueriesByTable(snap)
-	queries := filterByMinCalls(tableQueries[key], int64(o.cfg.MinQueryCalls))
+	rel := workload.Relation{Schema: ts.SchemaName, Name: ts.RelName}
+	queries := filterByMinCalls(tableQueries[rel], int64(o.cfg.MinQueryCalls))
 	isParent := buildPartitionParentSet(snap)[key]
 	if isParent {
 		queries = mergeChildQueries(queries, tableQueries,
@@ -81,18 +83,29 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 
 // readCatalog adds the table's columns, their key defaults, column
 // statistics and the database collation; without a database the context
-// keeps none.
+// keeps none (and ColumnsKnown stays false).
 func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries []QueryInfo) {
 	if o.pool == nil {
 		return
 	}
-	reader := catalogread.New(o.pool, o.catalogTimeouts)
+	o.fillCatalog(ctx, catalogread.New(o.pool, o.catalogTimeouts), tc, queries)
+}
+
+// fillCatalog runs readCatalog's reads on reader. A failed or empty column
+// read leaves ColumnsKnown false: information_schema.columns lists only
+// the columns the role may see, and a timeout is no evidence either.
+func (o *Optimizer) fillCatalog(ctx context.Context, reader catalogread.Querier,
+	tc *TableContext, queries []QueryInfo) {
 	collation, err := fetchCollation(ctx, reader)
 	if err != nil {
 		o.logFn("optimizer", "read database collation: %v", err)
 	}
 	tc.Collation = collation
-	tc.Columns = fetchColumns(ctx, reader, tc.Schema, tc.Table)
+	cols, err := fetchColumns(ctx, reader, tc.Schema, tc.Table)
+	if err != nil {
+		o.logFn("WARN", "optimizer: %v; column existence is not checked this cycle", err)
+	}
+	tc.Columns, tc.ColumnsKnown = cols, err == nil && len(cols) > 0
 	defaults, err := fetchKeyDefaults(ctx, reader, tc.Schema, tc.Table)
 	if err != nil {
 		o.logFn("optimizer", "%v; explicit default opclasses and collations will not "+

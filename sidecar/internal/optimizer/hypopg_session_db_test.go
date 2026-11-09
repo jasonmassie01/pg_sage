@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestHypoPGLockWaitEndsWithLockTimeout(t *testing.T) {
 	if !strings.Contains(err.Error(), "lock timeout") {
 		t.Fatalf("err = %q, want it to say lock timeout", err)
 	}
-	if res != (WhatIfResult{}) {
+	if !reflect.DeepEqual(res, WhatIfResult{}) {
 		t.Fatalf("a lock-timed-out evaluation produced evidence: %+v", res)
 	}
 	if elapsed > 3*time.Second {
@@ -148,7 +149,7 @@ func assertNoWaitingLocks(t *testing.T) {
 func TestOptimizerWhatIfReportsLockTimeout(t *testing.T) {
 	pool := hypopgSessionPool(t)
 	lockItems(t)
-	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, 170000, noopLog2,
+	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, noopLog2,
 		WithCatalogReadTimeouts(catalogread.Timeouts{Statement: time.Second,
 			Lock: 200 * time.Millisecond}))
 	tc := TableContext{Schema: "hypopg_session_test", Table: "items",
@@ -168,7 +169,7 @@ func TestOptimizerWhatIfReportsLockTimeout(t *testing.T) {
 // still runs and verifies a useful index.
 func TestOptimizerWhatIfStillRuns(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, 170000, noopLog2)
+	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, noopLog2)
 	tc := TableContext{Schema: "hypopg_session_test", Table: "items",
 		Queries: []QueryInfo{{QueryID: 1, Calls: 10, TotalTimeMs: 100,
 			Text: "SELECT id FROM hypopg_session_test.items WHERE category=42"}}}
@@ -243,7 +244,7 @@ func TestHypoPGSessionLockTimeoutIsCapped(t *testing.T) {
 func TestOptimizerWhatIfDefaultSafetyAbortsQuicklyOnLock(t *testing.T) {
 	pool := hypopgSessionPool(t)
 	lockItems(t)
-	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, 170000, noopLog2,
+	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10}, noopLog2,
 		WithCatalogReadTimeouts(catalogread.Default()))
 	tc := TableContext{Schema: "hypopg_session_test", Table: "items",
 		Queries: manyHypoQueries(3)}

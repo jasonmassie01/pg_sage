@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 )
@@ -15,7 +14,7 @@ import (
 func admitAll(t *testing.T, w whatIfValidator, recs []Recommendation) (
 	[]Recommendation, int) {
 	t.Helper()
-	opt := New(nil, fnTestOptimizerConfig(), 160000, fnNoopLog)
+	opt := New(nil, fnTestOptimizerConfig(), fnNoopLog)
 	if w != nil {
 		opt.whatIf = w
 	}
@@ -209,14 +208,5 @@ func TestRiskTier_NonCreateIgnoresSelfRating(t *testing.T) {
 		if got := RiskTierForRecommendation(rec); got != RiskHigh {
 			t.Errorf("RiskTier(%+v) = %q, want high_risk", rec, got)
 		}
-	}
-}
-
-// G3-D10: savings were computed as if mean time (ms) were cost units at
-// 0.01 ms each — a 100x under-estimate.
-func TestComputeQuerySavings_Milliseconds(t *testing.T) {
-	got := ComputeQuerySavings(10, 5, 1000)
-	if got != 5*time.Second {
-		t.Errorf("savings = %v, want 5s (5ms x 1000 calls)", got)
 	}
 }

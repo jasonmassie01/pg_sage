@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 func TestClassifyWorkload(t *testing.T) {
@@ -48,7 +49,7 @@ func TestComputeWriteRate(t *testing.T) {
 		},
 		{
 			name: "50 50 split",
-			ts:   collector.TableStats{SeqScan: 50, NTupIns: 50},
+			ts:   collector.TableStats{SeqTupRead: 50, NTupIns: 50},
 			want: 50,
 		},
 		{
@@ -64,69 +65,6 @@ func TestComputeWriteRate(t *testing.T) {
 				t.Errorf("computeWriteRate() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestExtractTablesFromQuery_Simple(t *testing.T) {
-	tables := extractTablesFromQuery("SELECT * FROM orders")
-	if len(tables) != 1 || tables[0] != "public.orders" {
-		t.Errorf("expected [public.orders], got %v", tables)
-	}
-}
-
-func TestExtractTablesFromQuery_SchemaQualified(t *testing.T) {
-	tables := extractTablesFromQuery("SELECT * FROM myschema.orders")
-	if len(tables) != 1 || tables[0] != "myschema.orders" {
-		t.Errorf("expected [myschema.orders], got %v", tables)
-	}
-}
-
-func TestExtractTablesFromQuery_Join(t *testing.T) {
-	tables := extractTablesFromQuery("SELECT * FROM orders JOIN items ON orders.id = items.order_id")
-	if len(tables) != 2 {
-		t.Fatalf("expected 2 tables, got %d: %v", len(tables), tables)
-	}
-	if tables[0] != "public.orders" {
-		t.Errorf("expected public.orders first, got %s", tables[0])
-	}
-	if tables[1] != "public.items" {
-		t.Errorf("expected public.items second, got %s", tables[1])
-	}
-}
-
-func TestExtractTablesFromQuery_Update(t *testing.T) {
-	tables := extractTablesFromQuery("UPDATE orders SET x = 1")
-	if len(tables) != 1 || tables[0] != "public.orders" {
-		t.Errorf("expected [public.orders], got %v", tables)
-	}
-}
-
-func TestExtractTablesFromQuery_Insert(t *testing.T) {
-	tables := extractTablesFromQuery("INSERT INTO orders VALUES (1)")
-	if len(tables) != 1 || tables[0] != "public.orders" {
-		t.Errorf("expected [public.orders], got %v", tables)
-	}
-}
-
-func TestExtractTablesFromQuery_PgTable(t *testing.T) {
-	tables := extractTablesFromQuery("SELECT * FROM pg_stat_activity")
-	if len(tables) != 0 {
-		t.Errorf("expected empty slice for pg_ table, got %v", tables)
-	}
-}
-
-func TestExtractTablesFromQuery_Subquery(t *testing.T) {
-	tables := extractTablesFromQuery(
-		"SELECT * FROM orders WHERE id IN (SELECT id FROM items)",
-	)
-	if len(tables) != 2 {
-		t.Fatalf("expected 2 tables, got %d: %v", len(tables), tables)
-	}
-	if tables[0] != "public.orders" {
-		t.Errorf("expected public.orders first, got %s", tables[0])
-	}
-	if tables[1] != "public.items" {
-		t.Errorf("expected public.items second, got %s", tables[1])
 	}
 }
 
@@ -173,9 +111,9 @@ func TestFilterByMinCalls_Empty(t *testing.T) {
 
 func TestCountIndexes(t *testing.T) {
 	indexes := []collector.IndexStats{
-		{SchemaName: "public", RelName: "orders", IndexRelName: "idx1"},
-		{SchemaName: "public", RelName: "orders", IndexRelName: "idx2"},
-		{SchemaName: "public", RelName: "items", IndexRelName: "idx3"},
+		{SchemaName: "public", RelName: "orders", IndexRelName: "idx1", IsValid: true},
+		{SchemaName: "public", RelName: "orders", IndexRelName: "idx2", IsValid: true},
+		{SchemaName: "public", RelName: "items", IndexRelName: "idx3", IsValid: true},
 	}
 	got := countIndexes(indexes, "public", "orders")
 	if got != 2 {
@@ -264,7 +202,7 @@ func TestPartitionedParentDetection(t *testing.T) {
 	}
 
 	// Verify mergeChildQueries folds child queries into parent.
-	parentQueries := tableQueries["public.events"]
+	parentQueries := tableQueries[workload.Relation{Schema: "public", Name: "events"}]
 	merged := mergeChildQueries(
 		parentQueries, tableQueries, childSet, snap, "public.events",
 	)
@@ -380,14 +318,14 @@ func TestMergeChildQueries_NoDuplicates(t *testing.T) {
 		},
 	}
 	// Same query ID hits both parent and child.
-	tableQueries := map[string][]QueryInfo{
-		"public.orders":    {{QueryID: 10, Calls: 50}},
-		"public.orders_q1": {{QueryID: 10, Calls: 25}},
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "orders"}:    {{QueryID: 10, Calls: 50}},
+		{Schema: "public", Name: "orders_q1"}: {{QueryID: 10, Calls: 25}},
 	}
 	childSet := map[string]bool{"public.orders_q1": true}
 
 	merged := mergeChildQueries(
-		tableQueries["public.orders"],
+		tableQueries[workload.Relation{Schema: "public", Name: "orders"}],
 		tableQueries,
 		childSet,
 		snap,

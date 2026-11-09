@@ -46,13 +46,10 @@ func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
 
-// New creates an Optimizer with all sub-components. The server version
-// argument has had no reader since the plan capture it chose a strategy
-// for was removed (indexes-05); indexes-11 drops it from the signature.
+// New creates an Optimizer with all sub-components.
 func New(
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
-	_ int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
 ) *Optimizer {
@@ -74,6 +71,7 @@ func New(
 		opt(o)
 	}
 	o.hypopg.lockTimeout = o.catalogTimeouts.Lock
+	o.hypopg.readTimeouts = o.catalogTimeouts
 	o.validator.timeouts = o.catalogTimeouts
 	return o
 }
@@ -124,9 +122,11 @@ type Admission struct {
 }
 
 // Admit canonicalizes, validates, checks rejection memory and HypoPG-
-// measures one candidate for tc. An idea rejection memory already measured
-// on this workload skips the what-if (unless an operator asked); a new
-// what-if rejection is remembered.
+// measures one candidate for tc, then applies the write-impact gate to the
+// measurement. An idea rejection memory already measured on this workload
+// skips the what-if; a new what-if rejection is remembered. Memory's age
+// and material-change rules let an idea be measured again once it may
+// have changed.
 func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableContext,
 ) Admission {
 	rec, err := canonicalizeRecommendation(rec, tc)
@@ -136,19 +136,22 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
-	if !operatorRequested(ctx) {
-		if r, seen := o.memory.view(ctx, tc).suppress(rec); seen {
-			o.whatIfSkips.Add(1)
-			return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
-				"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
-				r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
-		}
+	minPct := o.minImprovePct(tc)
+	if r, seen := o.memory.view(ctx, tc).suppress(rec, minPct); seen {
+		o.whatIfSkips.Add(1)
+		return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
+			"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
+			r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
+	if !rejected {
+		rec, rejected = o.gateWriteImpact(rec, tc)
+	}
 	if rejected {
-		o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct)
+		o.memory.remember(ctx, tc, rec, minPct)
 		return Admission{Rec: rec, Outcome: AdmitRejected, Reason: rec.WhatIfReason}
 	}
+	rec = noteUnknownColumns(rec, tc)
 	// The queryids the index is expected to help, for verify-and-revert.
 	rec.AffectedQueryIDs = contextQueryIDs(tc)
 	return Admission{Rec: rec, Outcome: AdmitAccepted}
@@ -157,22 +160,27 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 // MeasuredRejections lists the newest shapes rejection memory already
 // measured and rejected on tc's workload, for the agent's case packet.
 func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []string {
-	return o.memory.view(ctx, tc).promptLines()
+	return o.memory.view(ctx, tc).promptLines(o.minImprovePct(tc))
 }
 
 // enrichWithHypoPG measures the recommendation with hypothetical indexes
 // and records the verdict (Phase 0 item 7). A complete measurement below
 // HypoPGMinImprovePct rejects it. Anything less than a complete
-// measurement — HypoPG unavailable, an error, no measurable query, a
-// query that could not be planned — is "unverified": the recommendation
-// is kept, but only an operator can approve it (the executor gates on
-// the verdict).
+// measurement — an access method HypoPG cannot model (the candidate's or
+// an in-flight index's), HypoPG unavailable, an error, no measurable
+// query, a query that could not be planned — is "unverified": the
+// recommendation is kept, but only an operator can approve it (the
+// executor gates on the verdict).
 func (o *Optimizer) enrichWithHypoPG(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
 ) (Recommendation, bool) {
 	rec.Validated = false
+	if reason := hypopgCannotModelRec(rec); reason != "" {
+		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, reason
+		return rec, false
+	}
 	if o.whatIf == nil || !o.whatIf.IsAvailable(ctx) {
 		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, "HypoPG unavailable"
 		return rec, false
@@ -183,6 +191,7 @@ func (o *Optimizer) enrichWithHypoPG(
 	}
 	verdict, reason := whatIfVerdict(res, err, o.cfg.HypoPGMinImprovePct)
 	rec.WhatIf, rec.WhatIfReason = verdict, reason
+	rec.WhatIfMeasured, rec.WhatIfUnplannedQueryIDs = res.Measured, res.UnplannedQueryIDs
 	if res.Measured > 0 {
 		rec.EstimatedImprovementPct = res.Improvement
 	}
@@ -217,18 +226,4 @@ func (o *Optimizer) MemoryStats() MemoryStats {
 		return MemoryStats{}
 	}
 	return MemoryStats{WhatIfSkipped: o.whatIfSkips.Load()}
-}
-
-type operatorRequestKey struct{}
-
-// WithOperatorRequest marks an admission an operator asked for: every
-// candidate is measured, whatever rejection memory says (memory still
-// records what it measures).
-func WithOperatorRequest(ctx context.Context) context.Context {
-	return context.WithValue(ctx, operatorRequestKey{}, true)
-}
-
-func operatorRequested(ctx context.Context) bool {
-	requested, _ := ctx.Value(operatorRequestKey{}).(bool)
-	return requested
 }

@@ -1256,12 +1256,6 @@
     "doc": "",
     "class": "derivable"
   },
-  "llm.index_optimizer.over_indexed_ratio_pct": {
-    "type": "int",
-    "default": 150,
-    "doc": "",
-    "class": "derivable"
-  },
   "llm.index_optimizer.write_heavy_ratio_pct": {
     "type": "int",
     "default": 70,
@@ -1301,7 +1295,7 @@
   "llm.optimizer.max_include_columns": {
     "type": "int",
     "default": 3,
-    "doc": "",
+    "doc": "Most INCLUDE columns a proposed index may carry; a wider proposal is refused with a reason naming the cap. 0 or less means 3. Default: 3.",
     "class": "safety_critical"
   },
   "llm.optimizer.max_indexes_per_table": {
@@ -1327,18 +1321,6 @@
     "default": 2,
     "doc": "",
     "class": "derivable"
-  },
-  "llm.optimizer.over_indexed_ratio_pct": {
-    "type": "int",
-    "default": 150,
-    "doc": "",
-    "class": "derivable"
-  },
-  "llm.optimizer.plan_source": {
-    "type": "string",
-    "default": "auto",
-    "doc": "",
-    "class": "operator_preference"
   },
   "llm.optimizer.rejection_memory.call_volume_ratio": {
     "type": "float64",

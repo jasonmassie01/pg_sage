@@ -26,9 +26,11 @@ const queryTextsSQL = `/* pg_sage */ SELECT s.queryid, min(s.query), sum(s.calls
 	GROUP BY s.queryid`
 
 // evaluate is p's what-if, nil when it cannot be evaluated (budget spent,
-// targets idle or unknown, HypoPG absent, an error).
+// an access method HypoPG cannot model, targets idle or unknown, HypoPG
+// absent, an error).
 func (w *whatIf) evaluate(ctx context.Context, p pendingDecision) *hypoFact {
-	if w.budget <= 0 {
+	ddl := concurrently.ReplaceAllString(p.SQL, "")
+	if w.budget <= 0 || optimizer.HypoPGCannotModel(ddl) != "" {
 		return nil
 	}
 	running := w.stillRunning(ctx, p)
@@ -40,7 +42,6 @@ func (w *whatIf) evaluate(ctx context.Context, p pendingDecision) *hypoFact {
 		return nil
 	}
 	w.budget--
-	ddl := concurrently.ReplaceAllString(p.SQL, "")
 	res, err := w.hypo.Validate(ctx, optimizer.Recommendation{DDL: ddl}, queries)
 	verdict, reason := optimizer.WhatIfVerdict(res, err, w.s.opts.HypoPGMinPct)
 	if err != nil {

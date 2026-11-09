@@ -26,8 +26,8 @@ func TestLegacyIndexOptimizerTrueCopiesTuning(t *testing.T) {
 		t.Fatal("legacy enabled=true did not enable the optimizer")
 	}
 	got := []int{opt.MinQueryCalls, opt.MaxIndexesPerTable,
-		opt.MaxIncludeColumns, opt.OverIndexedRatioPct, opt.WriteHeavyRatioPct}
-	want := []int{42, 7, 2, 120, 60}
+		opt.MaxIncludeColumns, opt.WriteHeavyRatioPct}
+	want := []int{42, 7, 2, 60}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("migrated tuning = %v, want %v", got, want)
