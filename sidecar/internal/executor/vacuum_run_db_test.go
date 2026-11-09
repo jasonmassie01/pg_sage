@@ -32,15 +32,17 @@ type vacuumFixture struct {
 }
 
 // newVacuumFixture creates a fresh table (every page unvisited, so a
-// VACUUM scans them all) and an executor whose VACUUM session sleeps
+// VACUUM scans them all, and autovacuum off) and an executor whose VACUUM session sleeps
 // costDelay per page.
 func newVacuumFixture(t *testing.T, rows int, costDelay string) *vacuumFixture {
 	t.Helper()
 	pool, ctx := requireDB(t)
 	f := &vacuumFixture{t: t, pool: pool, ctx: ctx,
 		table: fmt.Sprintf("public.vac_%d", time.Now().UnixNano())}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s AS
-		SELECT g AS a, g %% 7 AS b FROM generate_series(1, %d) g`, f.table, rows)); err != nil {
+	// Autovacuum off: an insert-triggered autovacuum would race the test's
+	// own VACUUM (and the admission tests' "running vacuum").
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE %s WITH (autovacuum_enabled = false)
+		AS SELECT g AS a, g %% 7 AS b FROM generate_series(1, %d) g`, f.table, rows)); err != nil {
 		t.Fatalf("create %s: %v", f.table, err)
 	}
 	t.Cleanup(func() {

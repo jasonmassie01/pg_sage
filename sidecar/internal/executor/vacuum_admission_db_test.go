@@ -15,7 +15,7 @@ import (
 // counts toward the custodian backoff.
 
 // startThrottledVacuum runs a slow VACUUM of table on its own session and
-// returns that backend's pid once the progress view shows it.
+// returns that backend's pid once the progress view shows that backend.
 func startThrottledVacuum(t *testing.T, f *vacuumFixture) int {
 	t.Helper()
 	conn, err := f.pool.Acquire(context.Background())
@@ -40,7 +40,13 @@ func startThrottledVacuum(t *testing.T, f *vacuumFixture) int {
 	})
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if f.vacuumRunning() {
+		var running bool
+		if err := f.pool.QueryRow(context.Background(), `SELECT EXISTS (SELECT 1
+			FROM pg_stat_progress_vacuum WHERE pid = $1 AND relid = to_regclass($2))`,
+			pid, f.table).Scan(&running); err != nil {
+			t.Fatalf("read progress of pid %d: %v", pid, err)
+		}
+		if running {
 			return pid
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -53,7 +59,9 @@ func admissionExecutor(t *testing.T, f *vacuumFixture) (*Executor, int64) {
 	t.Helper()
 	decisionID := recordCustodianDecision(t, f.ctx, f.pool, "freeze", f.table[len("public."):])
 	cfg := config.DefaultConfig()
-	exec := New(f.pool, cfg, zeroTime(), nopLog)
+	exec := New(f.pool, cfg, zeroTime(), func(c, format string, a ...any) {
+		t.Logf(c+": "+format, a...)
+	})
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	exec.WithPolicyGate(&custodianGateCapture{verdict: policy.Decision{
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe, DecisionID: decisionID,
