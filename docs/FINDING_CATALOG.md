@@ -25,6 +25,8 @@ pg_sage emits findings from **five independent pathways**:
 
 All findings include Category, Severity, ObjectType, RecommendedSQL (if applicable), RollbackSQL, and ActionRisk classification. The executor's trust gate (trust.go ShouldExecute) gates execution by risk tier + ramp age + maintenance window.
 
+**Statement scope and target binding (executor-08).** A VACUUM is `vacuum_table` only when it names exactly one relation, and REINDEX CONCURRENTLY is `reindex_concurrently` only for an INDEX or TABLE target; a bare or database-wide VACUUM, a comma list and a schema- or database-wide REINDEX have no contract and park as `no_typed_contract`. A finding whose ObjectType names a relation must recommend SQL on the object its ObjectIdentifier names (default schema `public`, unquoted names folded; the FK-index rule's `table(column)` names the table; an optimizer finding names its table): otherwise the standing gate blocks it as `target_mismatch`. Every rule below satisfies this; `TestCatalogStatementTargetParity` (internal/analyzer) checks each source that writes RecommendedSQL.
+
 ---
 
 ## Part 1: Tier-1 Analyzer Rules (26 Categories)

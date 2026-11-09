@@ -12,7 +12,9 @@ import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { formatTotal, useCursorPages } from '../lib/listPaging'
 import { LoadMore } from '../components/LoadMore'
-import { canRollBackRow, isQueuedRow, queuedLabels } from './actions/ledger'
+import {
+  canRollBackRow, isQueuedRow, queuedLabels, rollbackButtonLabel, showsRollbackReason,
+} from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { VerificationOutcome } from '../components/VerificationOutcome'
@@ -435,8 +437,7 @@ function ExecutedTab({ data, paging, loading, error, refetch, user, view, cases,
                 </code>
               </div>
             )}
-            {row.outcome === 'rolled_back'
-              && row.rollback_reason && (
+            {showsRollbackReason(row) && (
               <div className="p-3 rounded text-sm"
                 style={{
                   background: 'rgba(245,158,11,0.1)',
@@ -481,7 +482,7 @@ function ExecutedTab({ data, paging, loading, error, refetch, user, view, cases,
                       background: 'var(--yellow)',
                       color: '#111827',
                     }}>
-                    Roll Back Action
+                    {rollbackButtonLabel(row)}
                   </button>
                 )}
               </div>

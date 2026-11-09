@@ -27,6 +27,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		if err := e.ResumeIndexReplaces(ctx); err != nil {
 			e.logFn("executor", "resume index replacements: %v", err)
 		}
+		// Every cycle, not once: a claim younger than the grace at startup,
+		// or a terminal write lost while running, settles later.
+		e.settleStuckRollbacks(ctx)
 	}
 	e.reconcileRecommendations(ctx)
 	// Queue housekeeping runs in every mode: a proposal whose reason is
@@ -252,7 +255,7 @@ func (e *Executor) runAuthorizedFinding(
 		}
 		if err != nil {
 			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v", f.Title, err)
-			markContentBoundWithhold(f, beforeState)
+			markContentBoundWithhold(f, beforeState, err)
 			return e.logRefusedAction(ctx, f, findingID, beforeState, decisionID, err)
 		}
 	}
@@ -303,7 +306,7 @@ func (e *Executor) prepareAndRunFinding(
 		config.record(beforeState)
 	}
 	e.predictAction(ctx, f.RecommendedSQL, f.Detail, beforeState)
-	return config, e.runFindingSQL(ctx, *f, decision)
+	return config, e.runFindingSQLRecorded(ctx, *f, decision, beforeState)
 }
 
 // findingRefusal is a reason never to run the finding unattended: backend
@@ -331,19 +334,29 @@ func (e *Executor) findingRefusal(f analyzer.Finding) error {
 func (e *Executor) runFindingSQL(
 	ctx context.Context, f analyzer.Finding, decision ActionPolicyDecision,
 ) error {
-	if err := e.checkGUCValueSafety(ctx, f.RecommendedSQL); err != nil {
+	return e.runFindingSQLRecorded(ctx, f, decision, nil)
+}
+
+// runFindingSQLRecorded is runFindingSQL that records a failed
+// CONCURRENTLY statement's remnant cleanup in beforeState.
+func (e *Executor) runFindingSQLRecorded(
+	ctx context.Context, f analyzer.Finding, decision ActionPolicyDecision,
+	beforeState map[string]any,
+) error {
+	sql := f.RecommendedSQL
+	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	lockOpt := e.lockOption(f.RecommendedSQL, decision)
+	lockOpt := e.lockOption(sql, decision)
 	switch {
-	case categorizeAction(f.RecommendedSQL) == "create_statistics":
-		return ExecStatistics(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
-	case categorizeAction(f.RecommendedSQL) == "analyze":
-		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(f.RecommendedSQL, decision))
-	case NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL):
-		return ExecConcurrently(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
+	case categorizeAction(sql) == "create_statistics":
+		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)
+	case categorizeAction(sql) == "analyze":
+		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(sql, decision))
+	case statementRunsTopLevel(sql):
+		return e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 	default:
-		return ExecInTransaction(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
+		return ExecInTransaction(ctx, e.pool, sql, e.ddlTimeoutFor(sql), lockOpt)
 	}
 }
 

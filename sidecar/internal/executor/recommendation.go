@@ -23,9 +23,10 @@ func newRecommendationStore(pool *pgxpool.Pool) *recommendation.Store {
 }
 
 // recommendationLease outlives any apply attempt: each Apply stage is
-// bounded by applyTimeout, so an expired lease means its owner is gone.
+// bounded by the longest class's apply timeout, so an expired lease means
+// its owner is gone.
 func (e *Executor) recommendationLease() time.Duration {
-	return 2 * e.applyTimeout()
+	return 2 * e.maxApplyTimeout()
 }
 
 // reconcileRecommendations resumes interrupted claims and records

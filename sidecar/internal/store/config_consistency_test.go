@@ -557,16 +557,17 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 
 	// Build a map of test values per validation type.
 	testValues := map[string]string{
-		"int_pos":     "42",
-		"int_nonneg":  "7",
-		"int_min5":    "15",
-		"pct":         "50",
-		"pct1_100":    "75",
-		"float01":     "0.5",
-		"bool":        "true",
-		"trust_level": "advisory",
-		"exec_mode":   "auto",
-		"string":      "test-value",
+		"int_pos":           "42",
+		"int_nonneg":        "7",
+		"int_min5":          "15",
+		"int_class_timeout": "7200",
+		"pct":               "50",
+		"pct1_100":          "75",
+		"float01":           "0.5",
+		"bool":              "true",
+		"trust_level":       "advisory",
+		"exec_mode":         "auto",
+		"string":            "test-value",
 		// maintenance_window is validated against the policy window grammar.
 		"maintenance_window": "weeknights",
 		"float_pos":          "2.0",
@@ -797,16 +798,17 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 	// and "trust_level"/"exec_mode" which legitimately return
 	// strings).
 	testInputs := map[string]string{
-		"int_pos":     "10",
-		"int_nonneg":  "0",
-		"int_min5":    "10",
-		"pct":         "50",
-		"pct1_100":    "50",
-		"float01":     "0.5",
-		"bool":        "true",
-		"trust_level": "advisory",
-		"exec_mode":   "auto",
-		"string":      "hello",
+		"int_pos":           "10",
+		"int_nonneg":        "0",
+		"int_min5":          "10",
+		"int_class_timeout": "3600",
+		"pct":               "50",
+		"pct1_100":          "50",
+		"float01":           "0.5",
+		"bool":              "true",
+		"trust_level":       "advisory",
+		"exec_mode":         "auto",
+		"string":            "hello",
 		// maintenance_window is validated against the policy window grammar.
 		"maintenance_window": "weeknights",
 		"float_pos":          "2.0",
@@ -847,7 +849,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		// Verify type-specific coercion.
 		switch vtype {
 		case "int_pos", "int_nonneg", "int_min5", "pct",
-			"pct1_100":
+			"pct1_100", "int_class_timeout":
 			if _, ok := result.(int); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -884,7 +886,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 113 // Update when adding/removing keys.
+	const expectedCount = 116 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -913,7 +915,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 113 // Should match allowedConfigKeys.
+	const expectedCount = 116 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

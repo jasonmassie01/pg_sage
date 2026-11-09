@@ -240,50 +240,6 @@ func TestPhase2_ExtractIndexName_Variants(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// NeedsConcurrently + NeedsTopLevel — edge cases
-// ---------------------------------------------------------------------------
-
-func TestPhase2_NeedsConcurrently_Variants(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"CREATE INDEX CONCURRENTLY idx ON t (a)", true},
-		{"REINDEX INDEX CONCURRENTLY idx", true},
-		{"DROP INDEX CONCURRENTLY idx", true},
-		{"CREATE INDEX idx ON t (a)", false},
-		{"VACUUM ANALYZE t", false},
-	}
-	for _, tt := range tests {
-		got := NeedsConcurrently(tt.sql)
-		if got != tt.want {
-			t.Errorf("NeedsConcurrently(%q) = %v, want %v",
-				tt.sql, got, tt.want)
-		}
-	}
-}
-
-func TestPhase2_NeedsTopLevel_Variants(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"VACUUM ANALYZE t", true},
-		{"VACUUM t", true},
-		{"vacuum full t", true},
-		{"CREATE INDEX idx ON t (a)", false},
-		{"SELECT 1", false},
-	}
-	for _, tt := range tests {
-		got := NeedsTopLevel(tt.sql)
-		if got != tt.want {
-			t.Errorf("NeedsTopLevel(%q) = %v, want %v",
-				tt.sql, got, tt.want)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // VerifyGrants full integration
 // ---------------------------------------------------------------------------
 

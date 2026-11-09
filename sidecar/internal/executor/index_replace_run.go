@@ -43,7 +43,7 @@ func (e *Executor) ExecuteIndexReplace(ctx context.Context, findingID int, sql,
 		return 0, err
 	}
 	defer release()
-	runCtx, cancel := e.detachedDDLContext(ctx)
+	runCtx, cancel := e.detachedDDLContext(ctx, sql)
 	defer cancel()
 	if preview := e.explainOperatorAction(runCtx, sql); preview.Decision !=
 		PolicyDecisionExecute {
@@ -168,11 +168,15 @@ func (r *replaceRun) steps(ctx context.Context, decision ActionPolicyDecision,
 }
 
 // replaceBuild runs the CREATE INDEX CONCURRENTLY and checks the result;
-// on failure it drops an INVALID remnant and records create_failed.
+// on failure the remnant handler drops the INVALID index the build
+// registered (recorded as remnant_cleanup) and create_failed is recorded.
 func (e *Executor) replaceBuild(ctx context.Context, rec *indexReplaceRecord,
 	decision ActionPolicyDecision) error {
 	sql := rec.Plan.CreateSQL
-	buildErr := ExecConcurrently(ctx, e.pool, sql, e.ddlTimeout(), e.lockOption(sql, decision))
+	run := e.remnantRunFor(sql, e.lockOption(sql, decision))
+	run.onCapture = func(oid int64) { e.recordReplaceBuildOID(ctx, rec.ID, oid) }
+	cleanup, buildErr := run.exec(ctx, sql)
+	recordRemnantCleanup(rec.Before, cleanup)
 	if buildErr == nil {
 		oid, err := e.validNewIndex(ctx, rec.Plan)
 		rec.NewOID, buildErr = oid, err
@@ -182,9 +186,6 @@ func (e *Executor) replaceBuild(ctx context.Context, rec *indexReplaceRecord,
 			return err
 		}
 		return e.setReplaceFields(ctx, *rec)
-	}
-	if err := e.dropInvalidIndex(ctx, rec.Plan.NewIndex); err != nil {
-		buildErr = errors.Join(buildErr, err)
 	}
 	if err := e.moveReplace(ctx, rec, replaceCreateFailed, buildErr.Error(),
 		replaceCreating); err != nil {
@@ -203,20 +204,6 @@ func (e *Executor) validNewIndex(ctx context.Context, p IndexReplace) (int64, er
 		return 0, fmt.Errorf("%s is not valid and ready after its build", p.NewIndex)
 	}
 	return e.indexOID(ctx, p.NewIndex)
-}
-
-// dropInvalidIndex drops index only while it is INVALID (a failed build's
-// remnant); a valid index of that name is never touched.
-func (e *Executor) dropInvalidIndex(ctx context.Context, index string) error {
-	var invalid bool
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM pg_index
-		WHERE indexrelid = to_regclass($1) AND NOT indisvalid)`, index).Scan(&invalid)
-	if err != nil || !invalid {
-		return err
-	}
-	drop := "DROP INDEX CONCURRENTLY IF EXISTS " + index
-	return ExecConcurrently(ctx, e.pool, drop, e.ddlTimeout(),
-		WithLockTimeout(e.lockTimeoutMS(drop, ActionPolicyDecision{})))
 }
 
 // replaceDropStep re-checks the old index's identity, then drops it. A
@@ -260,7 +247,7 @@ func (e *Executor) partialReplace(ctx context.Context, rec *indexReplaceRecord,
 	stateErr := e.moveReplace(ctx, rec, replaceDropFailed, dropErr.Error(), replaceDropping)
 	id := e.logReplaceAction(ctx, *rec, cause, claim)
 	if id > 0 {
-		updateActionOutcome(ctx, e.pool, id, "partial", cause.Error())
+		recordActionOutcome(ctx, e.pool, e.logFn, id, "partial", cause.Error())
 	}
 	rec.ActionLogID = id
 	if err := e.setReplaceFields(ctx, *rec); err != nil {

@@ -112,6 +112,8 @@ type Executor struct {
 	// watches and its test seams (roadmap 2.3).
 	replaceWatch replaceWatchSet
 	replaceHooks replaceHooks
+	// remnantHooks: the CONCURRENTLY remnant handler's test seams.
+	remnantHooks remnantHooks
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal

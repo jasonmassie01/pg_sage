@@ -2,13 +2,14 @@ package executor
 
 import "github.com/pg-sage/sidecar/internal/policy"
 
-// ddlLockTimeoutMS is the lock_timeout for sql. In-transaction DDL takes the
-// tighter of the policy's lock_duration_ceiling_ms and
-// safety.lock_timeout_ms. CONCURRENTLY and other top-level statements keep
-// the safety value: CREATE/REINDEX CONCURRENTLY waits on older transactions
-// by design, and a short cap would mostly leave INVALID indexes behind.
-func ddlLockTimeoutMS(sql string, safetyMS int, ceilingMS int64) int {
-	if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
+// ddlLockTimeoutMS is the lock_timeout for a statement of actionType.
+// In-transaction DDL takes the tighter of the policy's
+// lock_duration_ceiling_ms and safety.lock_timeout_ms. Top-level types
+// (executionMode) keep the safety value: CREATE/REINDEX CONCURRENTLY waits
+// on older transactions by design, and a short cap would mostly leave
+// INVALID indexes behind.
+func ddlLockTimeoutMS(actionType string, safetyMS int, ceilingMS int64) int {
+	if executionMode(actionType) == execTopLevel {
 		return safetyMS
 	}
 	return int(policy.EffectiveLockTimeoutMS(ceilingMS, int64(safetyMS)))

@@ -105,7 +105,7 @@ func (e *Executor) CancelBackend(ctx context.Context, req BackendCancel) (int64,
 		return 0, err
 	}
 	run := &backendCancelRun{executor: e, req: req, maxAge: maxAge}
-	runCtx, cancel := e.detachedDDLContext(ctx)
+	runCtx, cancel := e.detachedDDLContext(ctx, "")
 	defer cancel()
 	// A signal is not DDL: it takes no DDL slot and no change lease.
 	return e.Apply(runCtx, ActionIntent{Authorize: run.authorize, SlotHeld: true,

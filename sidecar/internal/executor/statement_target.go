@@ -2,6 +2,7 @@ package executor
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/pg-sage/sidecar/internal/extstats"
 )
@@ -58,7 +59,7 @@ func operatorLeaseTargets(sql string) []string {
 
 // createIndexTable is the table after ON (skipping ONLY).
 func createIndexTable(sql string) string {
-	fields := strings.Fields(sql)
+	fields := sqlFields(sql)
 	for i := 0; i < len(fields)-1; i++ {
 		if !strings.EqualFold(fields[i], "ON") {
 			continue
@@ -76,7 +77,7 @@ func createIndexTable(sql string) string {
 }
 
 func firstObjectAfter(sql, prefix string, skip ...string) string {
-	fields := strings.Fields(sql)
+	fields := sqlFields(sql)
 	prefixFields := strings.Fields(prefix)
 	if len(fields) < len(prefixFields)+1 {
 		return ""
@@ -94,7 +95,7 @@ func firstObjectAfter(sql, prefix string, skip ...string) string {
 // reindexObject is the index or table a REINDEX names, past its option
 // list, its scope keyword and CONCURRENTLY.
 func reindexObject(sql string) string {
-	fields := strings.Fields(sql)
+	fields := sqlFields(sql)
 	i := skipOptionList(fields, 1)
 	if i >= len(fields) {
 		return ""
@@ -116,7 +117,7 @@ func reindexObject(sql string) string {
 // vacuumObject is the table a VACUUM names, past its parenthesized option
 // list and its bare option keywords.
 func vacuumObject(sql string) string {
-	fields := strings.Fields(sql)
+	fields := sqlFields(sql)
 	for i := skipOptionList(fields, 1); i < len(fields); i++ {
 		token := strings.Trim(fields[i], ",;")
 		switch strings.ToUpper(token) {
@@ -147,4 +148,33 @@ func cleanupIdentifierToken(token string) string {
 		token = token[:idx]
 	}
 	return token
+}
+
+// sqlFields splits sql on whitespace outside quoted identifiers and
+// literals, so a quoted name holding a space (or " ON x ") stays one field.
+func sqlFields(sql string) []string {
+	var fields []string
+	var field strings.Builder
+	var quote rune
+	for _, r := range sql {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '"' || r == '\'':
+			quote = r
+		case unicode.IsSpace(r):
+			if field.Len() > 0 {
+				fields = append(fields, field.String())
+				field.Reset()
+			}
+			continue
+		}
+		field.WriteRune(r)
+	}
+	if field.Len() > 0 {
+		fields = append(fields, field.String())
+	}
+	return fields
 }

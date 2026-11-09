@@ -122,6 +122,7 @@ func custodianRequest(proposal CustodianProposal) policy.ActionRequest {
 	} else if contract, ok := contractForCustodianProposal(proposal.SQL); ok {
 		request.Contract = policyContract(contract)
 	}
+	bindCustodianRequest(&request, proposal)
 	return request
 }
 
@@ -213,13 +214,13 @@ func (r *custodianRun) execute(
 	}
 	r.executed = true
 	if managed {
-		updateActionOutcome(ctx, e.pool, actionID,
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID,
 			outcomeStatus(managedResult.InEffect), managedResult.Note)
 	} else if isAlterSystem(r.proposal.SQL) {
 		outcome := applyConfigChange(
 			ctx, e.pool, r.proposal.SQL, e.cfg.CloudEnvironment, e.logFn,
 		)
-		updateActionOutcome(ctx, e.pool, actionID,
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID,
 			outcomeStatus(outcome.InEffect), outcome.Note)
 	}
 	return actionID, nil
@@ -236,7 +237,7 @@ func (r *custodianRun) verify(ctx context.Context, actionID int64) error {
 		verificationID, _ := finalizeActionVerification(
 			ctx, e.pool, actionID, "unverifiable", verifyErr.Error())
 		setCustodianVerificationCriterion(ctx, e.pool, verificationID, criterion)
-		updateActionOutcome(ctx, e.pool, actionID, "failed",
+		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed",
 			"custodian post-check failed: "+verifyErr.Error())
 		return fmt.Errorf("verify custodian proposal: %w", verifyErr)
 	}
@@ -369,11 +370,11 @@ func (e *Executor) executeCustodianSQL(
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	timeout := e.ddlTimeout()
+	timeout := e.ddlTimeoutFor(sql)
 	lockOpt := e.lockOption(sql, decision)
 	var err error
-	if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-		err = ExecConcurrently(ctx, e.pool, sql, timeout, lockOpt)
+	if statementRunsTopLevel(sql) {
+		err = e.execConcurrentDDL(ctx, sql, nil, lockOpt)
 	} else {
 		err = ExecInTransaction(ctx, e.pool, sql, timeout, lockOpt)
 	}
