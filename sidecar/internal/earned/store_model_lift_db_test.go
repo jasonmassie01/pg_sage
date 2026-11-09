@@ -171,3 +171,27 @@ func viewFamily(t *testing.T, v ModelLiftView, family Family) RootAuthority {
 	t.Fatalf("family %s missing from the view", family)
 	return RootAuthority{}
 }
+
+func TestModelLiftStore_LegacyRowWithoutTheKeyNeverShadowsAMatchingOne(t *testing.T) {
+	// A lift stored before llm-01 has no llm_model key at all, so the
+	// match expression is NULL there; NULL must not sort ahead of a match.
+	f := newFixture(t)
+	match := f.ingestModelLift(f.clock.Now().Add(-3*time.Hour), "gpt-6",
+		good("lock_blocking", 16, 16))
+	legacy := f.ingestModelLift(f.clock.Now().Add(-time.Hour), "gpt-6",
+		good("lock_blocking", 40, 40))
+	tag, err := f.pool.Exec(f.ctx, `UPDATE sage.sre_eval_runs
+		SET model_lift = model_lift - 'llm_model' WHERE id = $1`, legacy.ID)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("strip llm_model from %s: %v (%d rows)", legacy.ID, err, tag.RowsAffected())
+	}
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, "gpt-6")
+	if err != nil || !got.Granted || got.Report == nil || got.Report.ID != match.ID {
+		t.Fatalf("authority %+v (%v), want the gpt-6 report %s", got, err, match.ID)
+	}
+	got, err = f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, "llama3")
+	if err != nil || got.Granted || got.Report == nil || got.Report.ID != legacy.ID ||
+		!strings.Contains(got.Reason, "names no model") {
+		t.Fatalf("unmatched model: %+v (%v), want the newest, legacy report advisory", got, err)
+	}
+}
