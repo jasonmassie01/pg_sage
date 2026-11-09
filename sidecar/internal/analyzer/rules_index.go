@@ -202,7 +202,7 @@ func appendPairFinding(
 // appendSubset adds the finding for sub, an index whose columns lead sup's.
 func appendSubset(out []Finding, seen map[string]bool, sub, sup duplicateIndexCandidate,
 	subIdent, supIdent string) []Finding {
-	if isConstraintBacked(sub.info) ||
+	if isUndroppable(sub.info) ||
 		!subsetWorthDropping(sub.parsed, sup.parsed, sub.info, sup.info) || seen[subIdent] {
 		return out
 	}
@@ -233,8 +233,8 @@ func duplicateFinding(drop, keep duplicateIndexCandidate, dropIdent, keepIdent s
 func chooseDuplicateDrop(
 	a, b duplicateIndexCandidate, aIdent, bIdent string,
 ) (duplicateIndexCandidate, duplicateIndexCandidate, string, string, bool) {
-	aProtected := isConstraintBacked(a.info)
-	bProtected := isConstraintBacked(b.info)
+	aProtected := isUndroppable(a.info)
+	bProtected := isUndroppable(b.info)
 	switch {
 	case aProtected && bProtected:
 		return duplicateIndexCandidate{}, duplicateIndexCandidate{},
@@ -252,6 +252,13 @@ func chooseDuplicateDrop(
 
 func isConstraintBacked(idx collector.IndexStats) bool {
 	return idx.IsPrimary || idx.IsUnique
+}
+
+// isUndroppable reports whether the duplicate rule must keep idx: it backs
+// a constraint, or it is attached to a partitioned index, which PostgreSQL
+// refuses to drop on its own (rules-03). It can still be the index kept.
+func isUndroppable(idx collector.IndexStats) bool {
+	return isConstraintBacked(idx) || idx.ParentIndexOID != 0
 }
 
 const (

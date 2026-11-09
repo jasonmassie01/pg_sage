@@ -109,8 +109,18 @@ func cats(c ...string) []string { return c }
 
 // hasIndexes needs the index list and the foreign keys: an index that
 // supports a key must not look unused when the keys could not be read.
+// The partition categories (rules-03) say which indexes are attached and
+// which tables are partitioned: without them a roll-up would resolve and
+// a partitioned table would look unindexed.
 func hasIndexes(cur, _ *collector.Snapshot) bool {
-	return len(cur.Indexes) > 0 && cur.Available("indexes") && cur.Available("foreign_keys")
+	return len(cur.Indexes) > 0 && cur.Available("indexes") &&
+		cur.Available("foreign_keys") && partitionsKnown(cur)
+}
+
+// partitionsKnown reports whether the partition tree and the partitioned
+// indexes were read this cycle.
+func partitionsKnown(cur *collector.Snapshot) bool {
+	return cur.Available("partitions") && cur.Available("partitioned_indexes")
 }
 
 // hasIndexList needs only the index list.
@@ -119,10 +129,12 @@ func hasIndexList(cur, _ *collector.Snapshot) bool {
 }
 
 // hasForeignKeys needs the keys and the index list: a missing index list
-// would make every key look unindexed.
+// would make every key look unindexed. It needs the tables (relkind) and
+// the partition categories too: a partitioned table read as a plain one
+// would get CREATE INDEX CONCURRENTLY, which PostgreSQL rejects (rules-03).
 func hasForeignKeys(cur, _ *collector.Snapshot) bool {
 	return len(cur.ForeignKeys) > 0 && cur.Available("foreign_keys") &&
-		cur.Available("indexes")
+		cur.Available("indexes") && cur.Available("tables") && partitionsKnown(cur)
 }
 
 func hasTables(cur, _ *collector.Snapshot) bool {

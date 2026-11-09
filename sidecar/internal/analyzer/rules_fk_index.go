@@ -58,7 +58,10 @@ func groupForeignKeys(snap *collector.Snapshot) []fkConstraint {
 // ruleMissingFKIndexes flags foreign keys without a supporting index.
 // FKs whose table name exists in several schemas are skipped: the
 // collector does not report the FK's schema, and guessing produced
-// CREATE INDEX on the wrong tenant's table (G2-B08).
+// CREATE INDEX on the wrong tenant's table (G2-B08). A partitioned table's
+// key is checked against its partitioned indexes and gets a partition
+// plan instead of SQL; its partitions' cloned copies of the key are left
+// to that one finding (rules-03).
 func ruleMissingFKIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -67,24 +70,35 @@ func ruleMissingFKIndexes(
 ) []Finding {
 	unlogged := buildUnloggedSet(current)
 	indexed := indexedColumnsByTable(current)
+	parts := newPartitionLayout(current)
+	parts.addParentIndexColumns(indexed)
 	var findings []Finding
 	for _, fk := range groupForeignKeys(current) {
 		if len(fk.Schemas) != 1 || isSystemSchema(fk.Schemas[0]) {
 			continue
 		}
-		schema := fk.Schemas[0]
-		covered := false
-		for _, idxCols := range indexed[tableKey{schema, fk.Table}] {
-			if isLeadingSet(fk.Columns, idxCols) {
-				covered = true
-				break
-			}
+		key := tableKey{fk.Schemas[0], fk.Table}
+		if parts.inheritsKey(key, fk.Columns) || fkCovered(fk, indexed[key]) {
+			continue
 		}
-		if !covered {
-			findings = append(findings, missingFKFinding(fk, schema, unlogged))
+		f := missingFKFinding(fk, key.schema, unlogged)
+		if parts.relkind[key] == "p" {
+			parts.advisePartitionedFK(&f, key, fk)
 		}
+		findings = append(findings, f)
 	}
 	return findings
+}
+
+// fkCovered reports whether one of a table's index column lists leads
+// with exactly the key's columns.
+func fkCovered(fk fkConstraint, indexed [][]string) bool {
+	for _, idxCols := range indexed {
+		if isLeadingSet(fk.Columns, idxCols) {
+			return true
+		}
+	}
+	return false
 }
 
 func indexedColumnsByTable(snap *collector.Snapshot) map[tableKey][][]string {
