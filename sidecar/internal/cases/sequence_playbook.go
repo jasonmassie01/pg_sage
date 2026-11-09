@@ -44,8 +44,9 @@ func sequenceCapacityCandidates(f SourceFinding) []ActionCandidate {
 		PRTitle:         "Review sequence capacity migration: " + object,
 		PRBody: "Generated from pg_sage finding " + f.ID + ". Step 1 reads the " +
 			"sequence's runway and what limits it. Step 2 widens the sequence to " +
-			"bigint; its guard refuses while a smallint or integer column takes " +
-			"the sequence's values. Step 3 lists the online widening of that column. " +
+			"bigint; its guard refuses while a smallint or integer column taking " +
+			"the sequence's values would overflow first. Step 3 lists the online " +
+			"widening of that column. " +
 			"Sequence exhaustion is forward-fix only and must be reviewed.",
 		RiskLabels: []string{"high", "forward_fix_only", "sequence_exhaustion"},
 		Format:     "sql",
@@ -61,7 +62,12 @@ func sequenceCapacityMigrationSQL(quotedSequence string) string {
 -- pg_sage never runs this script. Review each step before running it.
 -- Step 1 (read-only): the runway. binding_limit names what stops nextval first:
 --   sequence: the sequence's type or MAXVALUE (MINVALUE when descending): step 2.
---   column:   a smallint or integer column takes the values: step 3, then step 2.
+--             A bigint sequence at the bigint limit has no wider type to move to.
+--   column:   a smallint or integer column overflows first: step 3, then step 2.
+-- owning_column NULL: no column takes the values through OWNED BY, identity or
+-- DEFAULT. Check application code that calls nextval before step 2: its guard
+-- cannot see such a column. remaining_values NULL: this role cannot read
+-- last_value; rerun as the sequence's owner.
 ` + sequenceRunwaySQL(quotedSequence) + `
 -- Step 2 (binding_limit = sequence): widen the sequence to bigint. AS bigint
 -- moves a default MAXVALUE (MINVALUE) to the bigint limit; a custom one is
@@ -102,9 +108,12 @@ func sequenceRunwaySQL(quotedSequence string) string {
        s.last_value, s.min_value, s.max_value, s.increment_by, s.cycle,
        o.owning_table, o.owning_column, o.column_type,
        l.effective_limit,
-       pg_catalog.floor((l.effective_limit - COALESCE(s.last_value::numeric,
-           s.start_value::numeric - s.increment_by)) / s.increment_by) AS remaining_values,
-       CASE WHEN l.column_limit IS NOT NULL AND l.column_limit = l.effective_limit
+       CASE WHEN s.last_value IS NOT NULL
+                 OR pg_catalog.has_sequence_privilege(c.oid, 'SELECT,USAGE')
+            THEN pg_catalog.floor((l.effective_limit - COALESCE(s.last_value::numeric,
+                 s.start_value::numeric - s.increment_by)) / s.increment_by)
+       END AS remaining_values,
+       CASE WHEN l.column_limit = l.effective_limit AND o.type_max < 9223372036854775807
             THEN 'column' ELSE 'sequence' END AS binding_limit
 FROM pg_catalog.pg_sequences s
 JOIN pg_catalog.pg_namespace n ON n.nspname = s.schemaname
@@ -160,8 +169,9 @@ func sequenceConsumersSQL(quotedSequence string) string {
 }
 
 // sequenceWidenSQL is the guarded ALTER SEQUENCE: one DO block that
-// refuses while a smallint or integer column takes the sequence's values
-// (widening the sequence alone would move the failure to the column) and
+// refuses while a smallint or integer column taking the sequence's values
+// would overflow at or before the sequence's own bound (the runway's
+// binding_limit = column: widening the sequence would not help) and
 // otherwise alters the sequence under lock_timeout.
 func sequenceWidenSQL(quotedSequence string) string {
 	body := `
@@ -174,7 +184,16 @@ BEGIN
       INTO narrow
       FROM (` + sequenceConsumersSQL(quotedSequence) + `) u
      WHERE u.atttypid IN ('pg_catalog.int2'::pg_catalog.regtype,
-                          'pg_catalog.int4'::pg_catalog.regtype);
+                          'pg_catalog.int4'::pg_catalog.regtype)
+       AND EXISTS (
+           SELECT 1 FROM pg_catalog.pg_sequence q
+            WHERE q.seqrelid = ` + sequenceRegclass(quotedSequence) + `
+              AND CASE WHEN q.seqincrement > 0
+                       THEN q.seqmax >= CASE WHEN u.atttypid =
+                            'pg_catalog.int2'::pg_catalog.regtype THEN 32767 ELSE 2147483647 END
+                       ELSE q.seqmin <= CASE WHEN u.atttypid =
+                            'pg_catalog.int2'::pg_catalog.regtype THEN -32768 ELSE -2147483648 END
+                  END);
     IF narrow IS NOT NULL THEN
         RAISE EXCEPTION 'pg_sage: % takes this sequence''s values; widen it first (step 3)',
             narrow;
