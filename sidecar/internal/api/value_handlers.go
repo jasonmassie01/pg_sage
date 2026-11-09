@@ -68,14 +68,16 @@ func valueFilterFromRequest(r *http.Request) (value.Filter, error) {
 		}
 	}
 	if raw := r.URL.Query().Get("until"); raw != "" {
-		filter.Until, err = parseValueDate(raw)
+		untilDay, err := parseValueDate(raw)
 		if err != nil {
 			return value.Filter{}, err
 		}
-	}
-	if !filter.Since.IsZero() && !filter.Until.IsZero() &&
-		filter.Until.Before(filter.Since) {
-		return value.Filter{}, &valueRangeError{}
+		if !filter.Since.IsZero() && untilDay.Before(filter.Since) {
+			return value.Filter{}, &valueRangeError{}
+		}
+		// until names the last day of the report: the bound is the next
+		// midnight, exclusive, so every moment of that day is counted.
+		filter.Until = untilDay.AddDate(0, 0, 1)
 	}
 	return filter, nil
 }

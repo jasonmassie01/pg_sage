@@ -2,6 +2,8 @@ package value
 
 import "time"
 
+// Filter selects the ledgers and the time window of a value read. Since is
+// inclusive and Until exclusive; a zero bound is open.
 type Filter struct {
 	Database string
 	Since    time.Time
