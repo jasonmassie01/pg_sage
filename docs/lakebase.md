@@ -352,6 +352,48 @@ History that leaves the source horizon before it is read still counts as a gap.
 forward lag that keeps growing means the stream needs more than its share of
 the budget: raise `queries_per_poll` or `max_rows`.
 
+#### Delivery, retries and backlog
+
+Only `plan_history` events have a sink: they are copied into the monitored
+database's plan cache. Events of the other streams stay in the durable inbox
+as history and are acknowledged in the same transaction that stores them,
+under the same policy fence, so they never queue for delivery. Each poll
+delivers at most `max_rows` plan events, oldest first.
+
+One event that cannot be delivered no longer blocks the events behind it:
+
+- A plan that can never be stored (for example, one whose plan tree has no
+  valid EXPLAIN shape) is acknowledged and counted as `rejected_row`.
+- Any other sink failure is retried. The next attempt waits 30 seconds,
+  doubling to at most 15 minutes, while later events keep being delivered.
+  After 5 failed attempts the event is acknowledged and counted as
+  `delivery_failed`; its inbox history remains until it expires.
+- A timeout, cancellation, failed connection, or SQLSTATE class 08 or 57
+  means the sink or control database is unavailable, not that the event is
+  bad. Delivery stops for that poll without spending an attempt, and resumes
+  on the next poll.
+
+Attempts are kept in `sage.lakebaseobs_attempts` (schema version 6, created
+by the telemetry schema setup). The table stores the attempt count, the next
+attempt time and a fixed failure class such as `sqlstate_40P01` or `timeout`,
+never error text.
+
+`GET /api/v1/lakebase-observability/status` reports, per database, a
+`delivery` list with one entry per consumer as of the last poll:
+
+| Field | Meaning |
+|---|---|
+| `consumer` | Consumer name, for example `normalized_history_v1` |
+| `pending_rows` | Deliverable, unacknowledged events, including those waiting for a retry |
+| `pending_rows_capped` | `true` when `pending_rows` reached 10,001; the backlog is at least that large |
+| `oldest_pending_at` | Occurrence time of the oldest pending event; absent when nothing is pending |
+| `oldest_pending_age_seconds` | Age of that event at the last poll |
+
+`delivery_outcomes_since_start` counts `normalized`, `payload_unavailable`,
+`rejected_row`, `self_excluded` and `delivery_failed` per stream. A backlog
+that keeps growing while plans are delivered means plan events arrive faster
+than `max_rows` per poll: raise `max_rows`.
+
 This configuration is restart-bound and never grants permissions or enables a
 provider setting. Compute-wide streams require explicit `allow_compute: true`.
 Payload mode requires separately approved access; metadata mode does not select
