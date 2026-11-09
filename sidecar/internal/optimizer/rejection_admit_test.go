@@ -48,7 +48,7 @@ func claimsTable() TableContext {
 func memOptimizer(store *memStore, result WhatIfResult) (*Optimizer, *countWhatIf,
 	*logRecorder) {
 	logs := &logRecorder{}
-	o := New(nil, fnTestOptimizerConfig(), 160000, logs.log)
+	o := New(nil, fnTestOptimizerConfig(), logs.log)
 	w := &countWhatIf{result: result}
 	o.whatIf = w
 	o.memory = testMemory(store, logs)
@@ -226,7 +226,7 @@ func TestRejectionMemory_ListedShapesAreBounded(t *testing.T) {
 func TestNew_NoPoolNoMemory(t *testing.T) {
 	cfg := fnTestOptimizerConfig()
 	cfg.RejectionMemory = config.DefaultOptimizerRejectionMemory()
-	o := New(nil, cfg, 160000, noopLog2)
+	o := New(nil, cfg, noopLog2)
 	if o.memory != nil {
 		t.Fatal("memory without a database pool")
 	}

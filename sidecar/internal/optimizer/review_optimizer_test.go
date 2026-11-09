@@ -14,7 +14,7 @@ import (
 func admitAll(t *testing.T, w whatIfValidator, recs []Recommendation) (
 	[]Recommendation, int) {
 	t.Helper()
-	opt := New(nil, fnTestOptimizerConfig(), 160000, fnNoopLog)
+	opt := New(nil, fnTestOptimizerConfig(), fnNoopLog)
 	if w != nil {
 		opt.whatIf = w
 	}

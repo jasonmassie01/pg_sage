@@ -29,7 +29,7 @@ func admissionConfig() *config.OptimizerConfig {
 func admissionOptimizer(store *memStore, res WhatIfResult) (*Optimizer, *countingWhatIf,
 	*logRecorder) {
 	logs := &logRecorder{}
-	o := New(nil, admissionConfig(), 170000, logs.log)
+	o := New(nil, admissionConfig(), logs.log)
 	w := &countingWhatIf{result: res}
 	o.whatIf = w
 	o.memory = testMemory(store, logs)
@@ -193,7 +193,7 @@ func TestTableContext_FromTheSnapshot(t *testing.T) {
 			IndexRelName: "orders_pkey", IsUnique: true, IsValid: true,
 			IndexDef: "CREATE UNIQUE INDEX orders_pkey ON admit_ctx.orders USING btree (id)"}},
 	}
-	o := New(pool, admissionConfig(), 170000, admitNoLog)
+	o := New(pool, admissionConfig(), admitNoLog)
 	tc, ok, err := o.TableContext(ctx, snap, "admit_ctx.orders")
 	if err != nil || !ok {
 		t.Fatalf("context: ok %v err %v", ok, err)

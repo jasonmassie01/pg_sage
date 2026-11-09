@@ -113,7 +113,7 @@ func realOptimizer(t *testing.T, pool *pgxpool.Pool) *optimizer.Optimizer {
 	cfg := config.DefaultConfig().LLM.Optimizer
 	cfg.MinSnapshots = 0
 	cfg.MinQueryCalls = 1
-	return optimizer.New(pool, &cfg, serverVersion(t, pool), noLog)
+	return optimizer.New(pool, &cfg, noLog)
 }
 
 func realAgent(t *testing.T, pool *pgxpool.Pool, model Model,

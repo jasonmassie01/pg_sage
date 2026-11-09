@@ -150,7 +150,7 @@ func TestAdmit_PatternOpsBesidePlainBtreeIsMeasured(t *testing.T) {
 	}
 	snap := opclassFixture(t, pool)
 	o := New(pool, &config.OptimizerConfig{HypoPGMinImprovePct: 10, MaxIndexesPerTable: 10,
-		MaxNewPerTable: 3}, 0, noopLog2)
+		MaxNewPerTable: 3}, noopLog2)
 	tc := opclassDBContext(t, o, snap)
 	tc.Queries = []QueryInfo{{QueryID: 1, Calls: 500, TotalTimeMs: 5000, MeanTimeMs: 10,
 		Text: "SELECT id FROM opclass_probe.people WHERE email LIKE 'abc%'"}}

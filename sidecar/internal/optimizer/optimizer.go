@@ -46,13 +46,10 @@ func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
 
-// New creates an Optimizer with all sub-components. The server version
-// argument has had no reader since the plan capture it chose a strategy
-// for was removed (indexes-05); indexes-11 drops it from the signature.
+// New creates an Optimizer with all sub-components.
 func New(
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
-	_ int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
 ) *Optimizer {

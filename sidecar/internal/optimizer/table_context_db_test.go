@@ -78,7 +78,7 @@ func explainCount(t *testing.T, pool *pgxpool.Pool, table string) int {
 }
 
 func tcOptimizer(pool *pgxpool.Pool) *Optimizer {
-	return New(pool, &config.OptimizerConfig{MinQueryCalls: 1}, 170000,
+	return New(pool, &config.OptimizerConfig{MinQueryCalls: 1},
 		func(string, string, ...any) {})
 }
 

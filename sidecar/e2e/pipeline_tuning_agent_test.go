@@ -92,7 +92,7 @@ func e2eTuningAgent(t *testing.T, pool *pgxpool.Pool, model tuning.Model) *tunin
 		MaxOutputTokens: 4096, Allowed: map[tuning.ProposalType]bool{
 			tuning.ProposeIndexCreate: true, tuning.ProposeStatistics: true}}
 	return tuning.New(settings, tuning.Deps{Model: model,
-		Indexes: optimizer.New(pool, &opt, version, logf), Facts: facts.NewStore(pool),
+		Indexes: optimizer.New(pool, &opt, logf), Facts: facts.NewStore(pool),
 		Store: tuning.NewPostgresStore(pool, version, catalogread.Default())}, logf)
 }
 

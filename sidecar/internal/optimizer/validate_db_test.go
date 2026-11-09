@@ -17,7 +17,7 @@ func TestCheckDuplicate_CatalogDefaultsOnRealPostgres(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
 	snap := opclassFixture(t, pool)
-	o := New(pool, &config.OptimizerConfig{}, 0, noopLog2)
+	o := New(pool, &config.OptimizerConfig{}, noopLog2)
 	tc := opclassDBContext(t, o, snap)
 	for _, c := range []struct {
 		keys string
@@ -64,7 +64,7 @@ func TestCheckDuplicate_VectorAndVarcharOnRealPostgres(t *testing.T) {
 		"CREATE INDEX people_emb_l2 ON opclass_probe.people "+
 			"USING hnsw (embedding vector_l2_ops)",
 		"CREATE INDEX people_vc ON opclass_probe.people (vc)")
-	o := New(pool, &config.OptimizerConfig{}, 0, noopLog2)
+	o := New(pool, &config.OptimizerConfig{}, noopLog2)
 	tc := opclassDBContext(t, o, snap)
 	for _, c := range []struct {
 		keys string
@@ -92,7 +92,7 @@ func TestCheckDuplicate_OpclassParametersOnRealPostgres(t *testing.T) {
 		"ALTER TABLE opclass_probe.people ADD COLUMN t tsvector",
 		"CREATE INDEX people_t_sig ON opclass_probe.people "+
 			"USING gist (t tsvector_ops (siglen = 32))")
-	o := New(pool, &config.OptimizerConfig{}, 0, noopLog2)
+	o := New(pool, &config.OptimizerConfig{}, noopLog2)
 	tc := opclassDBContext(t, o, snap)
 	for _, c := range []struct {
 		keys string

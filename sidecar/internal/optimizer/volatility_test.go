@@ -162,7 +162,7 @@ func TestVolatility_ExtensionOffAllowlistRefused(t *testing.T) {
 func TestVolatilityUnit_OptimizerPassesCatalogTimeouts(t *testing.T) {
 	custom := catalogread.Timeouts{
 		Statement: 1234 * time.Millisecond, Lock: 567 * time.Millisecond}
-	o := New(nil, fnTestOptimizerConfig(), 170000, noopLog, WithCatalogReadTimeouts(custom))
+	o := New(nil, fnTestOptimizerConfig(), noopLog, WithCatalogReadTimeouts(custom))
 	if o.validator.timeouts != custom {
 		t.Fatalf("validator timeouts = %+v, want %+v", o.validator.timeouts, custom)
 	}

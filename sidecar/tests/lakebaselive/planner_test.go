@@ -39,7 +39,7 @@ func TestLakebasePlannerFeatures(t *testing.T) {
 		query := collector.QueryStats{QueryID: 1, Calls: 100, Query: "SELECT id FROM sage_live.planner_items WHERE category=$1"}
 		snap := &collector.Snapshot{Queries: []collector.QueryStats{query}, Tables: []collector.TableStats{{SchemaName: "sage_live", RelName: "planner_items", NLiveTup: 5000}}}
 		cfg := config.DefaultConfig()
-		o := optimizer.New(p, &cfg.LLM.Optimizer, 180000, func(string, string, ...any) {})
+		o := optimizer.New(p, &cfg.LLM.Optimizer, func(string, string, ...any) {})
 		tc, ok, err := o.TableContext(ctx, snap, "sage_live.planner_items")
 		if err != nil {
 			t.Fatal(err)
