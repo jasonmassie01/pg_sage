@@ -94,13 +94,15 @@ func TestTableContext_FromListAndOnly(t *testing.T) {
 	assertIDs(t, snap, "public.t", 2)
 }
 
-// Invalid input: a CTE name is no table, and a comment or literal naming a
-// table is no reference to it (the comment failed before).
+// Invalid input: a CTE name is no table, even one named like a real table,
+// and a comment or literal naming a table is no reference to it (the
+// comment failed before).
 func TestTableContext_CTEsLiteralsAndComments(t *testing.T) {
 	snap := &collector.Snapshot{
 		Tables: tcTables([2]string{"app", "orders"}, [2]string{"public", "x"},
 			[2]string{"public", "recent"}),
-		Queries: tcQueries("WITH r AS (SELECT * FROM orders WHERE ts > $1) SELECT * FROM r",
+		Queries: tcQueries(
+			"WITH recent AS (SELECT * FROM orders WHERE ts > $1) SELECT * FROM recent",
 			"SELECT 'FROM x' AS v FROM orders -- JOIN x\n WHERE id = $1")}
 	assertIDs(t, snap, "app.orders", 1, 2)
 	assertIDs(t, snap, "public.x")

@@ -36,10 +36,12 @@ func KnownTables(snap *collector.Snapshot) map[string][]string {
 // else to public when public has it: pg_stat_statements' text carries no
 // search_path, so a name held by public and another schema is taken as
 // public's, and one held only by other schemas is left out. Functions,
-// CTE names and unknown relations are left out; string literals and
-// comments are never read.
+// CTE names (an unqualified name a WITH of the statement defines, even one
+// named like a table) and unknown relations are left out; string literals
+// and comments are never read.
 func ReferencedTables(query string, known map[string][]string) []Relation {
 	text := BlankLiteralsAndComments(query)
+	ctes := cteNames(text)
 	var out []Relation
 	for i := 0; i < len(text); {
 		word, next := nextWord(text, i)
@@ -50,7 +52,7 @@ func ReferencedTables(query string, known map[string][]string) []Relation {
 		switch strings.ToLower(word) {
 		case "from", "join", "update", "into":
 			var refs []Relation
-			refs, i = readRelationList(text, i, known)
+			refs, i = readRelationList(text, i, known, ctes)
 			out = append(out, refs...)
 		}
 	}
@@ -60,8 +62,10 @@ func ReferencedTables(query string, known map[string][]string) []Relation {
 	return slices.Compact(out)
 }
 
-// readRelationList reads "rel [alias] {, rel [alias]}" at text[i:].
-func readRelationList(text string, i int, known map[string][]string) ([]Relation, int) {
+// readRelationList reads "rel [alias] {, rel [alias]}" at text[i:]; an
+// unqualified name in ctes is a CTE, not a relation.
+func readRelationList(text string, i int, known map[string][]string,
+	ctes map[string]bool) ([]Relation, int) {
 	var out []Relation
 	for {
 		i = skipSpace(text, i)
@@ -72,7 +76,8 @@ func readRelationList(text string, i int, known map[string][]string) ([]Relation
 		if err != nil {
 			return out, i
 		}
-		if ref, ok := resolveRelation(schema, name, known); ok {
+		shadowed := schema == "" && ctes[name]
+		if ref, ok := resolveRelation(schema, name, known); ok && !shadowed {
 			out = append(out, ref)
 		}
 		i = skipAlias(text, next)
@@ -81,6 +86,90 @@ func readRelationList(text string, i int, known map[string][]string) ([]Relation
 		}
 		i++
 	}
+}
+
+// cteNames returns the names the statement's WITH clauses define
+// ("WITH [RECURSIVE] name [(columns)] AS [[NOT] MATERIALIZED] (body)" and
+// each further ", name ... (body)"). A name counts for the whole
+// statement: a table reference outside the CTE's scope that shares its
+// name is missed, which leaves the statement out of that table's workload
+// rather than adding one that does not read it.
+func cteNames(text string) map[string]bool {
+	names := map[string]bool{}
+	for i := 0; i < len(text); {
+		word, next := nextWord(text, i)
+		if word == "" {
+			break
+		}
+		i = next
+		if !strings.EqualFold(word, "with") {
+			continue
+		}
+		j := skipSpace(text, i)
+		if w, n := wordAt(text, j); strings.EqualFold(w, "recursive") {
+			j = n
+		}
+		for {
+			name, end, ok := readCTE(text, j)
+			if !ok {
+				break
+			}
+			names[name] = true
+			if j = skipSpace(text, end); j >= len(text) || text[j] != ',' {
+				break
+			}
+			j++
+		}
+	}
+	return names
+}
+
+// readCTE reads "name [(columns)] AS [[NOT] MATERIALIZED] (body)" at
+// text[i:] and returns the name and the index after the body.
+func readCTE(text string, i int) (string, int, bool) {
+	name, j, err := ReadIdent(text, skipSpace(text, i))
+	if err != nil {
+		return "", i, false
+	}
+	if j = skipSpace(text, j); j < len(text) && text[j] == '(' {
+		j = skipSpace(text, skipParens(text, j))
+	}
+	w, n := wordAt(text, j)
+	if !strings.EqualFold(w, "as") {
+		return "", i, false
+	}
+	j = skipSpace(text, n)
+	for _, opt := range []string{"not", "materialized"} {
+		if w, n := wordAt(text, j); strings.EqualFold(w, opt) {
+			j = skipSpace(text, n)
+		}
+	}
+	if j >= len(text) || text[j] != '(' {
+		return "", i, false
+	}
+	return name, skipParens(text, j), true
+}
+
+// skipParens returns the index after the parenthesis that closes the one
+// at text[i] (quoted identifiers skipped), or len(text) when none does.
+func skipParens(text string, i int) int {
+	depth := 0
+	for i < len(text) {
+		switch text[i] {
+		case '"':
+			_, next, _ := ReadIdent(text, i)
+			i = max(next, i+1)
+			continue
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				return i + 1
+			}
+		}
+		i++
+	}
+	return i
 }
 
 // skipAlias skips an optional "[AS] alias" after a relation.

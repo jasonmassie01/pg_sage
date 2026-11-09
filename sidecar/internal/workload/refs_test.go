@@ -82,6 +82,40 @@ func TestReferencedTables_CTENameIsNotATable(t *testing.T) {
 		"SELECT * FROM recent r", known, rel("app", "orders"))
 }
 
+// Invalid input: a CTE named like a real table is the CTE, as in
+// PostgreSQL; column lists, RECURSIVE, [NOT] MATERIALIZED and several CTEs
+// all define names. A qualified reference still names the table.
+func TestReferencedTables_CTEShadowsTableOfItsName(t *testing.T) {
+	known := map[string][]string{"orders": {"public"}, "recent": {"public"},
+		"t": {"public"}, "u": {"public"}, "items": {"public"}}
+	assertRefs(t, "WITH recent AS (SELECT * FROM orders WHERE ts > $1) "+
+		"SELECT * FROM recent r", known, rel("public", "orders"))
+	assertRefs(t, "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t "+
+		"WHERE n < 5), u AS NOT MATERIALIZED (SELECT * FROM items) "+
+		"SELECT * FROM t, u, orders", known, rel("public", "items"), rel("public", "orders"))
+	assertRefs(t, "WITH recent AS MATERIALIZED (SELECT 1) SELECT * FROM public.recent",
+		known, rel("public", "recent"))
+	assertRefs(t, "WITH x AS (DELETE FROM orders RETURNING *) INSERT INTO recent "+
+		"SELECT * FROM x", known, rel("public", "orders"), rel("public", "recent"))
+}
+
+// Boundary: WITH that defines no CTE (TIME ZONE, ORDINALITY, storage
+// options) shadows nothing.
+func TestReferencedTables_WithThatIsNoCTE(t *testing.T) {
+	known := map[string][]string{"time": {"public"}, "ordinality": {"public"},
+		"t": {"public"}}
+	assertRefs(t, "SELECT ts::timestamp with time zone FROM time", known,
+		rel("public", "time"))
+	assertRefs(t, "SELECT * FROM t, unnest($1) WITH ORDINALITY AS o(v, n) "+
+		"JOIN ordinality ON true", known, rel("public", "ordinality"), rel("public", "t"))
+	assertRefs(t, "CREATE INDEX i ON t (v) WITH (fillfactor = 70)", known)
+	assertRefs(t, `WITH "t" (a) AS`, known)
+	assertRefs(t, "WITH t AS (SELECT * FROM", known)
+	// A parenthesis inside a quoted identifier does not end the CTE body.
+	assertRefs(t, `WITH r AS (SELECT ")" FROM ordinality) SELECT * FROM r, t`, known,
+		rel("public", "ordinality"), rel("public", "t"))
+}
+
 // Invalid input: string literals and comments never read as relations.
 func TestReferencedTables_LiteralsAndCommentsIgnored(t *testing.T) {
 	known := map[string][]string{"orders": {"public"}, "x": {"public"}, "y": {"public"},
