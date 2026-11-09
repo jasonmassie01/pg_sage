@@ -3,6 +3,8 @@ package optimizer
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -201,6 +203,98 @@ func assertOwnQueries(t *testing.T, tc TableContext, table string, n int, lo, hi
 		if q.QueryID < lo || q.QueryID > hi {
 			t.Fatalf("%s holds queryid %d of another table", table, q.QueryID)
 		}
+	}
+}
+
+// spPool is a pool whose sessions run with search_path=app, public, the
+// way an application on search_path=app (and a pg_sage that shares the
+// database's or role's setting) connects. Schema app is created empty.
+func spPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
+	if err != nil {
+		t.Fatalf("parse test DSN: %v", err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = "app, public"
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(context.Background(), `DROP SCHEMA IF EXISTS app CASCADE;
+		CREATE SCHEMA app`); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS app CASCADE")
+	})
+	return pool
+}
+
+const spStatement = "SELECT id, total FROM orders WHERE customer_id = $1"
+
+// spWorkload runs the unqualified statement and returns its
+// pg_stat_statements row as the collector reads it.
+func spWorkload(t *testing.T, pool *pgxpool.Pool) collector.QueryStats {
+	t.Helper()
+	ctx := context.Background()
+	for i := range 20 {
+		if _, err := pool.Exec(ctx, spStatement, i); err != nil {
+			t.Fatalf("workload statement: %v", err)
+		}
+	}
+	var q collector.QueryStats
+	err := pool.QueryRow(ctx, `SELECT s.queryid, s.query, s.calls, s.total_exec_time,
+		s.mean_exec_time FROM pg_stat_statements s
+		JOIN pg_database d ON d.oid = s.dbid AND d.datname = current_database()
+		WHERE s.query = $1`, spStatement).Scan(&q.QueryID, &q.Query, &q.Calls,
+		&q.TotalExecTime, &q.MeanExecTime)
+	if err != nil {
+		t.Fatalf("read pg_stat_statements: %v", err)
+	}
+	if strings.Contains(q.Query, "app.") || q.Calls < 20 {
+		t.Fatalf("recorded statement %+v, want the unqualified text with 20 calls", q)
+	}
+	return q
+}
+
+// Integration (indexes-04): statements on app.orders run under
+// search_path=app reach app.orders' context, HypoPG verifies an index on
+// app.orders, and the admitted recommendation names them as affected.
+// Failed before: the context had no statements ("no workload query could
+// be measured", unverified, no affected queryids).
+func TestAdmit_SearchPathStatementsVerifyAppIndex(t *testing.T) {
+	pool := spPool(t)
+	ctx := context.Background()
+	if !hypopgInstallable(t, pool) {
+		t.Skip("HypoPG server extension unavailable; the app index cannot be verified")
+	}
+	if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS hypopg WITH SCHEMA app;
+		CREATE TABLE app.orders (id int PRIMARY KEY, customer_id int, total int);
+		INSERT INTO app.orders SELECT g, g % 5000, g % 97 FROM generate_series(1, 200000) g`,
+	); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "VACUUM ANALYZE app.orders"); err != nil {
+		t.Fatalf("vacuum fixture: %v", err)
+	}
+	q := spWorkload(t, pool)
+	snap := &collector.Snapshot{Queries: []collector.QueryStats{q},
+		Tables: []collector.TableStats{{SchemaName: "app", RelName: "orders",
+			NLiveTup: 200000, SeqScan: 20, SeqTupRead: 4000000}}}
+	o := New(pool, admissionConfig(), admitNoLog)
+	tc, ok, err := o.TableContext(ctx, snap, "app.orders")
+	if err != nil || !ok || len(tc.Queries) != 1 || tc.Queries[0].QueryID != q.QueryID {
+		t.Fatalf("context of app.orders: queries %+v ok %v err %v, want queryid %d",
+			tc.Queries, ok, err, q.QueryID)
+	}
+	a := o.Admit(ctx, Recommendation{IndexType: "btree", DDL: "CREATE INDEX CONCURRENTLY " +
+		"orders_customer_id ON app.orders (customer_id)"}, tc)
+	if a.Outcome != AdmitAccepted || a.Rec.WhatIf != WhatIfVerified ||
+		a.Rec.WhatIfMeasured != 1 || !slices.Equal(a.Rec.AffectedQueryIDs, []int64{q.QueryID}) {
+		t.Fatalf("admission %s (%s): verdict %q measured %d affected %v, want verified "+
+			"with queryid %d", a.Outcome, a.Reason, a.Rec.WhatIf, a.Rec.WhatIfMeasured,
+			a.Rec.AffectedQueryIDs, q.QueryID)
 	}
 }
 

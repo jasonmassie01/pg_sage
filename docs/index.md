@@ -55,6 +55,20 @@ planned improvement and the unplanned queryids (`what_if_measured`,
 re-measures remembered rejections the new minimum would admit and stops listing
 them to the tuning agent as rejected.
 
+A table's workload is the application statements that name it after FROM, JOIN,
+UPDATE or INTO (every relation of a comma list, `ONLY` and quoted mixed-case
+names included; literals, comments and CTE names never count), resolved the way
+the tuning agent resolves them. A schema-qualified name counts only for its own
+schema. An unqualified name counts for the only schema holding a table of that
+name, so an application on `search_path=app` has its statements on `app.orders`
+measured. pg_stat_statements does not record the search_path a statement ran
+under, so a name held by `public` and another schema counts for `public`, and a
+name held by two schemas other than `public` counts for neither; qualify the
+statements to have them measured against the other table. HypoPG plans the
+statements under pg_sage's own search_path, so an unqualified statement is
+measured only when pg_sage's role or database resolves the name the same way
+(an unplanned statement leaves the verdict unverified).
+
 On a write-heavy table (index-maintaining writes, that is inserts and non-HOT
 updates, above `optimizer.write_heavy_ratio_pct` of those writes plus the tuples
 read) a measured improvement must also reach

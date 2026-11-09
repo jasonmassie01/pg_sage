@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // ----------------------------------------------------------------
@@ -1056,9 +1057,9 @@ func TestFunctional_Coverage_MergeChildQueries_SkipNonMatchingParent(t *testing.
 	parentQueries := []QueryInfo{
 		{QueryID: 1, Text: "SELECT 1"},
 	}
-	tableQueries := map[string][]QueryInfo{
-		"public.child_a": {{QueryID: 10, Text: "SELECT child_a"}},
-		"public.child_b": {{QueryID: 20, Text: "SELECT child_b"}},
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "child_a"}: {{QueryID: 10, Text: "SELECT child_a"}},
+		{Schema: "public", Name: "child_b"}: {{QueryID: 20, Text: "SELECT child_b"}},
 	}
 	childSet := map[string]bool{
 		"public.child_a": true,
@@ -1109,8 +1110,8 @@ func TestFunctional_Coverage_MergeChildQueries_DeduplicateByQueryID(t *testing.T
 	parentQueries := []QueryInfo{
 		{QueryID: 1, Text: "SELECT 1"},
 	}
-	tableQueries := map[string][]QueryInfo{
-		"public.child_a": {
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "child_a"}: {
 			{QueryID: 1, Text: "SELECT 1"}, // duplicate of parent
 			{QueryID: 2, Text: "SELECT 2"},
 		},
@@ -1142,8 +1143,8 @@ func TestFunctional_Coverage_MergeChildQueries_ChildNotInChildSet(t *testing.T) 
 	parentQueries := []QueryInfo{
 		{QueryID: 1, Text: "SELECT 1"},
 	}
-	tableQueries := map[string][]QueryInfo{
-		"public.child_a": {{QueryID: 10, Text: "SELECT child_a"}},
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "child_a"}: {{QueryID: 10, Text: "SELECT child_a"}},
 	}
 	childSet := map[string]bool{
 		// child_a is NOT in the childSet

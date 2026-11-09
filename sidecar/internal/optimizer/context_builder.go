@@ -8,14 +8,19 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
+// groupQueriesByTable maps each snapshot table to the application
+// statements that name it, resolved like the tuning agent resolves them
+// (workload.ReferencedTables): an unqualified name belongs to the only
+// schema holding it, or to public when public is one of several.
 func groupQueriesByTable(
 	snap *collector.Snapshot,
-) map[string][]QueryInfo {
-	result := make(map[string][]QueryInfo)
+) map[workload.Relation][]QueryInfo {
+	result := make(map[workload.Relation][]QueryInfo)
+	known := workload.KnownTables(snap)
 	for _, q := range applicationQueries(snap.Queries) {
-		tables := extractTablesFromQuery(q.Query)
 		qi := QueryInfo{
 			QueryID:     q.QueryID,
 			Text:        q.Query,
@@ -23,32 +28,11 @@ func groupQueriesByTable(
 			MeanTimeMs:  q.MeanExecTime,
 			TotalTimeMs: q.TotalExecTime,
 		}
-		for _, t := range tables {
+		for _, t := range workload.ReferencedTables(q.Query, known) {
 			result[t] = append(result[t], qi)
 		}
 	}
 	return result
-}
-
-func extractTablesFromQuery(query string) []string {
-	var tables []string
-	upper := strings.ToUpper(query)
-	words := strings.Fields(upper)
-	for i, w := range words {
-		if (w == "FROM" || w == "JOIN" || w == "UPDATE" || w == "INTO") &&
-			i+1 < len(words) {
-			table := strings.ToLower(words[i+1])
-			table = strings.Trim(table, "\"(),;")
-			if table == "" || strings.HasPrefix(table, "pg_") || table == "sage" {
-				continue
-			}
-			if !strings.Contains(table, ".") {
-				table = "public." + table
-			}
-			tables = append(tables, table)
-		}
-	}
-	return tables
 }
 
 func filterByMinCalls(queries []QueryInfo, minCalls int64) []QueryInfo {
@@ -357,7 +341,7 @@ func buildPartitionParentSet(
 // the parent's query list, deduplicating by QueryID.
 func mergeChildQueries(
 	parentQueries []QueryInfo,
-	tableQueries map[string][]QueryInfo,
+	tableQueries map[workload.Relation][]QueryInfo,
 	childSet map[string]bool,
 	snap *collector.Snapshot,
 	parentKey string,
@@ -373,7 +357,8 @@ func mergeChildQueries(
 		if pk != parentKey || !childSet[childKey] {
 			continue
 		}
-		for _, q := range tableQueries[childKey] {
+		child := workload.Relation{Schema: p.ChildSchema, Name: p.ChildTable}
+		for _, q := range tableQueries[child] {
 			if !seen[q.QueryID] {
 				seen[q.QueryID] = true
 				merged = append(merged, q)

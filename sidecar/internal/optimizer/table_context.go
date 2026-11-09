@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // TableContext builds the context of one table ("schema.table", quoted
@@ -28,7 +29,8 @@ func (o *Optimizer) TableContext(
 	}
 	key := ts.SchemaName + "." + ts.RelName
 	tableQueries := groupQueriesByTable(snap)
-	queries := filterByMinCalls(tableQueries[key], int64(o.cfg.MinQueryCalls))
+	rel := workload.Relation{Schema: ts.SchemaName, Name: ts.RelName}
+	queries := filterByMinCalls(tableQueries[rel], int64(o.cfg.MinQueryCalls))
 	isParent := buildPartitionParentSet(snap)[key]
 	if isParent {
 		queries = mergeChildQueries(queries, tableQueries,
