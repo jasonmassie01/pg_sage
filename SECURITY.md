@@ -37,9 +37,9 @@ progress toward a fix and coordinated disclosure.
 
 ## Severity Considerations
 
-pg_sage connects as a dedicated non-superuser role. A superuser, or a role
-with `BYPASSRLS`, bypasses row-level security and holds every agent role, so
-pg_sage warns at startup and raises posture finding AP-14 when it runs as one.
+pg_sage connects as a dedicated non-superuser role. A superuser bypasses
+row-level security and holds every agent role, so pg_sage warns at startup when
+it connects as one; posture finding AP-14 flags a superuser or `BYPASSRLS` role.
 On managed services, `rds_superuser`, `cloudsqlsuperuser`, `azure_pg_admin`
 and the like are admin roles to grant pg_sage's privileges from, not roles to
 run it as. See [Required Database Grants](docs/security.md#required-database-grants).
@@ -54,6 +54,8 @@ Operators grant that role more than read access so pg_sage can act:
   `CREATE STATISTICS` and other table DDL need
 - `MAINTAIN` (PostgreSQL 17+) to `VACUUM`, `ANALYZE` and `REINDEX` tables it
   does not own
+- `CREATEROLE` (PostgreSQL 16+) when agent governance manages agent roles;
+  without it agent governance is posture-only
 
 Through owner-role membership a pg_sage connection holds the privileges of
 the application's table owner: it could read, change or drop that owner's

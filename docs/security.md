@@ -39,6 +39,9 @@ the [SQL boundary](#what-pg_sage-can-change) matter. On PostgreSQL 17+,
 `GRANT pg_maintain TO sage_agent` lets it `VACUUM`, `ANALYZE` and `REINDEX` tables
 it does not own. `GET /api/v1/onboarding/trust` (the dashboard's onboarding guide)
 lists which of these grants the role holds, with the SQL for each missing one.
+Agent governance creates and retires agent roles only when pg_sage's role has
+`CREATEROLE` on PostgreSQL 16+ (`ALTER ROLE sage_agent CREATEROLE`); without it,
+or below 16, agent governance is posture-only ([agent governance](agent-governance.md)).
 
 The sidecar bootstraps the `sage` schema and tables on first connect. Either
 connect with a role that can create that schema, or pre-create it and grant the
@@ -103,7 +106,7 @@ role: the API and MCP expose typed actions and tools
 |---|---|---|
 | Executor actions | `CREATE INDEX CONCURRENTLY`, `DROP INDEX`, `REINDEX`, `VACUUM`, `ANALYZE`, `CREATE STATISTICS`, table storage parameters, allowlisted `ALTER SYSTEM` settings, query hints, cancelling or terminating a session | A typed action contract per class with its risk; execution mode, trust level, trust ramp, maintenance window, emergency stop and the standing policy's refusal set ([Trust Model](#trust-model), [One trust system](configuration.md#one-trust-system), [standing policy](configuration.md#agent-native-autonomy)). HIGH-risk actions always need approval |
 | Retention deletes | `DELETE` of application rows older than the declared window, at most 1,000 rows per batch | Only on a table whose owner declared a [retention contract](configuration.md#retention-contracts) with `declare_table_contract` (`approve` scope) naming the column; a dry run at least 24 hours old first; policy consent to the `retention` class; a batch with any row outside the predicate or relation rolls back. Irreversible, so the trust ledger never runs it above L1 |
-| Agent roles | `CREATE ROLE`/`ALTER ROLE` of `sage_agent_*` and `sage_agentb_*` roles and their grants; `NOLOGIN` and session termination on a kill | Typed contracts `guard_role_ensure` and `guard_role_retire` through the executor, operator-approved; a kill or freeze only takes access away and needs no approval ([agent governance](agent-governance.md#kill-switch-freeze-and-unfreeze)) |
+| Agent roles | `CREATE ROLE`/`ALTER ROLE` of `sage_agent_*` and `sage_agentb_*` roles and their grants; `NOLOGIN` and session termination on a kill | Typed contracts `guard_role_ensure` and `guard_role_retire` through the executor, operator-approved, and only when pg_sage's role has `CREATEROLE` on PostgreSQL 16+; a kill or freeze only takes access away and needs no approval ([agent governance](agent-governance.md#kill-switch-freeze-and-unfreeze)) |
 | Managed provider settings | RDS, Aurora and Cloud SQL parameter changes through the provider API | Proposed only from tuning findings and for allowlisted settings ([Model output is data](#model-output-is-data)) |
 | The `sage` schema | pg_sage's own tables, functions and audit chains | Created and migrated at startup; pg_sage writes there freely, and retention trims it (`retention.*`) |
 

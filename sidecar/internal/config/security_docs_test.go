@@ -218,3 +218,18 @@ func TestSecurityDocsGrantComments(t *testing.T) {
 		}
 	}
 }
+
+// TestSecurityDocsListRoleManagementGrant pins CREATEROLE in both
+// grant lists: agent governance cannot create or retire agent roles
+// without it (agentguard self-check), so an operator choosing pg_sage's
+// privileges from either page must see it.
+func TestSecurityDocsListRoleManagementGrant(t *testing.T) {
+	for _, path := range []string{securityPolicyPath, securityDocPath} {
+		doc := readRepoFile(t, path)
+		if !strings.Contains(doc, "`CREATEROLE` (PostgreSQL 16+)") &&
+			!strings.Contains(doc, "`CREATEROLE` on PostgreSQL 16+") {
+			t.Errorf("%s must say agent role management needs CREATEROLE on "+
+				"PostgreSQL 16+", path)
+		}
+	}
+}
