@@ -160,3 +160,27 @@ func parseSealed(v string) (string, []byte, error) {
 	}
 	return kid, body, nil
 }
+
+// ErrNoKeyring means a value needs a key but no encryption key is set.
+var ErrNoKeyring = errors.New("crypto: no encryption key is configured")
+
+// OpenUnbound opens a legacy AAD-less value (crypto.Encrypt output: a
+// 12-byte nonce, then ciphertext and tag) with any key of the keyring and
+// returns the plaintext and the id of the key that opened it. Such values
+// are bound to no row, so callers re-seal them with Seal. A value no key
+// opens wraps ErrWrongEncryptionKey.
+func (k *Keyring) OpenUnbound(raw []byte) (string, string, error) {
+	if k == nil {
+		return "", "", ErrNoKeyring
+	}
+	if len(raw) < nonceSize+16 {
+		return "", "", errors.New("crypto: legacy ciphertext too short")
+	}
+	for kid, aead := range k.aeads {
+		plain, err := aead.Open(nil, raw[:nonceSize], raw[nonceSize:], nil)
+		if err == nil {
+			return string(plain), kid, nil
+		}
+	}
+	return "", "", fmt.Errorf("crypto: legacy value: %w", ErrWrongEncryptionKey)
+}
