@@ -75,6 +75,15 @@ WAL received (or replayed), since `pg_current_wal_lsn()` fails there.
 `prepared_xacts` is stored as changes on a keyframe, paired by `gid`; a database with no
 prepared transaction stores `[]`, which differs from the missing row of an unknown cycle.
 
+`foreign_keys` holds one element per constraint: `schemaname`, `table_name`,
+`ref_schemaname`, `referenced_table`, `constraint_name`, the constraint `oid` and `columns`,
+the referencing columns in declared (`conkey`) order. Partition clones (`conparentid <> 0`)
+are left out, so a key on a partitioned table, or one referencing a partitioned table, is one
+element naming the partitioned parent. The category is stored as changes on a keyframe,
+paired by schema, table and constraint name; no keys stores `[]`. Rows written before this
+shape held one element per column with no schema; `/api/v1/snapshots/latest` regroups such a
+row per constraint, with an empty schema.
+
 ### Analyzer (Tier 1 -- Rules Engine)
 
 25+ deterministic rules across 6 categories. No LLM required:

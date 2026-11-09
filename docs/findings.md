@@ -110,6 +110,15 @@ Detects foreign key columns that lack a supporting index on the referencing tabl
 
 **What it detects:** Foreign keys where the referencing column(s) have no matching index. This causes sequential scans on JOINs and cascading DELETE operations.
 
+The rule is schema-aware: each key is checked against the indexes of its own schema's table,
+so in a schema-per-tenant layout an unindexed `tenant_b.orders` is reported even when
+`tenant_a.orders` is indexed. An index whose leading columns are the key's columns in any
+order supports it; the recommended index lists a composite key's columns in declared order.
+A key on a partitioned table is checked on each leaf partition (PostgreSQL enforces it there,
+and only the leaves' indexes are visible), and the finding names the partition. Nothing is
+guessed: a key whose table is not in the snapshot gives no finding. An index that is the only
+support of a key is never recommended for drop by `unused_index`.
+
 **Example output:**
 
 ```
