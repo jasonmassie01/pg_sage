@@ -1547,7 +1547,9 @@ values are `ambiguous_series`). pg_sage then evaluates
 it over each window (coverage) and over `stale_after_seconds` (freshness): a series that
 began two hours ago gives a 30-day budget of `partial_window`, and no sample within the
 stale limit makes the window `stale`. Prometheus resolves recency to its lookback delta
-(5 minutes by default), so a scrape outage is seen up to that much later. A failing
+(5 minutes by default), so a scrape outage is seen up to that much later. Keep
+`stale_after_seconds` at least the subquery step (`1m` above): a shorter freshness range
+can hold no step, and the window then reads `stale`. A failing
 coverage query makes the window unknown with the query's reason, never fully covered.
 Without `coverage_query`, Prometheus windows are taken as fully covered and fresh (as
 before) and the SLO reports `coverage_unverified: true`; the SLOs page shows "coverage
