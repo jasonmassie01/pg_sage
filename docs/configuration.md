@@ -1683,6 +1683,19 @@ every game day and local bench run pg_sage opens one short, read-only connection
 A refused run is recorded as `failed` with the reason and the fix, and no fault program
 runs.
 
+One run at a time per `local_dsn` cluster. Every database of a fleet is given the same
+`local_dsn`, so game days and local bench runs on it take turns: a run holds the target
+from the start of its fault programs to the end, inside the sidecar and, through a
+session-level advisory lock in the target server's `postgres` database (the role needs
+`CONNECT` there), across sidecar processes. A run started while another holds the target
+is refused before anything is recorded: the API answers `409` naming the holder
+(`target busy: game day <id> for <database>`, or "another session" for another
+process), and a scheduled game day tries again at its next hourly check. A holder that
+crashes releases the target with its connection. Each database's first game-day check
+waits five minutes plus a delay derived from its name (under an hour), so a fleet does
+not start its game days together. Clone providers (`dle`, `snapshot`) give each run its
+own clone and are not serialized.
+
 #### Bench evidence: signed release reports and local runs
 
 L2 needs a PGIncidentBench report for the family. You do not have to copy CI artifacts:
