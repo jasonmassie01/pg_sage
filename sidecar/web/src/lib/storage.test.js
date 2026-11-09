@@ -89,8 +89,8 @@ describe('writePref', () => {
   })
 
   it('stores non-string values as strings', () => {
-    expect(writePref('pg_sage_findings_visit', 1730851200000)).toBe(true)
-    expect(localStorage.getItem('pg_sage_findings_visit')).toBe('1730851200000')
+    expect(writePref('pg_sage_numeric_pref', 1730851200000)).toBe(true)
+    expect(localStorage.getItem('pg_sage_numeric_pref')).toBe('1730851200000')
   })
 
   it('overwrites an existing value', () => {

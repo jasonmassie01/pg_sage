@@ -249,19 +249,6 @@ export default function App({ reloadPage = () => window.location.reload() }) {
     ? null
     : databases.find(db => db.name === effectiveDB)
 
-  // TODO(fleet-ctx): Audit every fetch() call site and ensure
-  // per-database context is forwarded via ?database= where the
-  // endpoint accepts it. Current direct fetch() call sites:
-  //   - Actions.jsx approve/reject: id-scoped, no ?database= needed
-  //   - Findings.jsx suppress/execute: id-scoped, no ?database=
-  //   - ChannelsTab, RulesTab, LogTab: global notifications config
-  //   - DatabaseTable/DatabaseForm: address the managed DB by id
-  //   - SettingsPage config/global, emergency-stop, resume: pass dbParam
-  //   - UsersPage, LoginPage, DatabasesPage: global resources
-  // Page-level useAPI calls already pass dbParam where applicable
-  // (Findings, Actions, AlertLog, Dashboard, DatabasePage, etc).
-  // Revisit when new per-DB endpoints are added.
-
   const isAdmin = user.role === 'admin'
   const denied = { title: 'Access denied', node: <AccessDenied /> }
   const pageState = (() => {

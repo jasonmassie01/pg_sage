@@ -116,10 +116,12 @@ function NavLink({ item, active, pendingCount }) {
   )
 }
 
+// App owns the one /api/v1/databases poll: fleetData is its result (null
+// until the first load) and onFleetChanged refetches it.
 export function Layout({
   children, databases, selectedDB, onSelectDB,
-  user, authMode = user?.auth_mode, fleetData: fleetDataProp,
-  fleetUpdatedAt: fleetUpdatedAtProp, fleetError, onFleetChanged, onLogout, pageTitle,
+  user, authMode = user?.auth_mode, fleetData, fleetUpdatedAt, fleetError,
+  onFleetChanged, onLogout, pageTitle,
   ...rest
 }) {
   const hash = (window.location.hash || '#/').split('?')[0]
@@ -132,15 +134,6 @@ export function Layout({
   // events (no database scope); a hidden tab refreshes it when shown.
   useLiveRefetch(['actions'], refetchPending)
   const pendingCount = countData?.count || 0
-
-  // Reuse the fleet data App.jsx already fetches to avoid a
-  // duplicate 30s poll. Fall back to our own useAPI when the
-  // prop is absent (kept for older callers/tests).
-  const { data: fleetDataOwn, refetch: refetchFleetOwn, updatedAt: fleetUpdatedAtOwn } = useAPI(
-    user && !fleetDataProp ? '/api/v1/databases' : null, 30000,
-  )
-  const fleetData = fleetDataProp || fleetDataOwn
-  const fleetUpdatedAt = fleetDataProp ? fleetUpdatedAtProp : fleetUpdatedAtOwn
   const liveStatus = useLiveStatus()
   const emergencyStopped =
     fleetData?.summary?.emergency_stopped === true
@@ -362,7 +355,7 @@ export function Layout({
               canControl={canReviewActions}
               summaryStopped={emergencyStopped}
               fleetStop={fleetData?.summary}
-              onChanged={onFleetChanged || refetchFleetOwn}
+              onChanged={onFleetChanged}
             />
             {trustLevel && <TrustBadge level={trustLevel} />}
             <TimeRangePicker />

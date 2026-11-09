@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { SeverityBadge } from '../components/SeverityBadge'
@@ -11,7 +11,6 @@ import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { Skeleton } from '../components/Skeleton'
-import { readPref } from '../lib/storage'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
@@ -58,11 +57,11 @@ export function formatTrustLevel(raw) {
 }
 
 function StatCard({
-  label, value, color, 'data-testid': testId, badge,
+  label, value, color, 'data-testid': testId,
 }) {
   const isLoading = value === undefined || value === null
   return (
-    <div className="rounded p-4 relative"
+    <div className="rounded p-4"
       data-testid={testId}
       style={{
         background: 'var(--bg-card)',
@@ -79,15 +78,6 @@ function StatCard({
           style={{ color: color || 'var(--text-primary)' }}>
           {value}
         </div>
-      )}
-      {badge !== undefined && badge !== null && badge > 0 && (
-        <span
-          data-testid="new-since-visit-badge"
-          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full
-            text-xs font-semibold"
-          style={{ background: 'var(--red)', color: '#fff' }}>
-          +{badge} new
-        </span>
       )}
     </div>
   )
@@ -378,31 +368,6 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
   useLiveRefetch(['findings', 'health'], refetch)
   useLiveRefetch(['findings'], findings.refetch, { database })
 
-  const [lastVisitAt, setLastVisitAt] = useState(() => {
-    const v = readPref('pg_sage_findings_visit', null)
-    return v ? parseInt(v, 10) : 0
-  })
-
-  useEffect(() => {
-    const onStorage = e => {
-      if (e.key === 'pg_sage_findings_visit') {
-        setLastVisitAt(parseInt(e.newValue, 10) || 0)
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-
-  const newSinceVisit = (() => {
-    const list = findings.data?.findings
-    if (!Array.isArray(list) || !lastVisitAt) return 0
-    return list.filter(f => {
-      const t = f.first_seen || f.created_at || f.last_seen
-      if (!t) return false
-      return new Date(t).getTime() > lastVisitAt
-    }).length
-  })()
-
   if (fleet.error && !hasData(fleet)) return <QueryState query={fleet} />
 
   const summary = data?.summary
@@ -432,8 +397,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
         <StatCard label="Critical Findings"
           value={summary?.total_critical}
           color={summary?.total_critical > 0
-            ? 'var(--red)' : 'var(--text-primary)'}
-          badge={newSinceVisit} />
+            ? 'var(--red)' : 'var(--text-primary)'} />
       </div>
 
       <Suspense fallback={<Skeleton height={192}
