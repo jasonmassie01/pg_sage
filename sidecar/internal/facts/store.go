@@ -204,7 +204,7 @@ func (s *Store) Declare(ctx context.Context, p Proposal, actor, note string) (Fa
 	if err != nil {
 		return Fact{}, fmt.Errorf("declare fact: %w", err)
 	}
-	if err := registerSlot(ctx, tx, f); err != nil {
+	if err := syncSlotRegistry(ctx, tx, f); err != nil {
 		return Fact{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
