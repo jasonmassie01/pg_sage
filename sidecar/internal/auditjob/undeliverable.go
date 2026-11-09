@@ -25,7 +25,7 @@ func RaiseUndeliverable(ctx context.Context, pool *pgxpool.Pool,
 		return fmt.Errorf("auditjob: %s: no database for source %s",
 			UndeliverableCategory, u.Source)
 	}
-	if err := analyzer.UpsertFindings(ctx, pool,
+	if err := analyzer.UpsertSystemFindings(ctx, pool,
 		[]analyzer.Finding{undeliverableFinding(u)}); err != nil {
 		return fmt.Errorf("auditjob: raise %s finding on %s: %w", UndeliverableCategory,
 			u.Source, err)
@@ -37,8 +37,9 @@ func undeliverableFinding(u siem.Undeliverable) analyzer.Finding {
 	return analyzer.Finding{
 		Category: UndeliverableCategory, Severity: "warning", ObjectType: "siem_sink",
 		ObjectIdentifier: "siem_sink:" + u.Sink + "/" + u.Chain, DatabaseName: u.Source,
-		Title: fmt.Sprintf("SIEM sink %s refused audit event %d of %s", u.Sink, u.Seq,
-			u.Chain),
+		// The title names no sink or source: the findings list hides a title
+		// holding "pg_sage", and the identifier and detail name them anyway.
+		Title: fmt.Sprintf("A SIEM sink refused audit event %d of %s", u.Seq, u.Chain),
 		Detail: map[string]any{"sink": u.Sink, "source": u.Source, "chain": u.Chain,
 			"seq": u.Seq, "hash": u.Hash, "reason": u.Reason},
 		Recommendation: "The receiver refuses this event however often it is sent (HTTP " +
