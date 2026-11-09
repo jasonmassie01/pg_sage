@@ -3,6 +3,7 @@ package agentposture
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -92,7 +93,9 @@ func observeCheckpoints(ctx context.Context, in Input) (Observation, error) {
 // whether cur becomes the new baseline. Without a previous one, or when
 // the clock went backwards, cur is recorded; closer than
 // minObservationGap the older one stays. A schema whose deletes went down
-// (a statistics reset) or that is new is not judged.
+// (a statistics reset), that is new, or whose checkpoint tables differ (a
+// table added or dropped, or a read truncated at a different row) is not
+// judged: its sizes are not of the same tables.
 func memoryGrowth(prev Observation, have bool, cur Observation,
 	limitGBDay float64) ([]Finding, bool) {
 	elapsed := cur.At.Sub(prev.At)
@@ -112,7 +115,7 @@ func memoryGrowth(prev Observation, have bool, cur Observation,
 	for _, s := range schemas {
 		before, ok := prev.Values[s]
 		now := cur.Values[s]
-		if !ok || now.Deletes != before.Deletes {
+		if !ok || now.Deletes != before.Deletes || !slices.Equal(now.Tables, before.Tables) {
 			continue
 		}
 		rate := float64(now.Bytes-before.Bytes) / bytesPerGB / days
