@@ -40,6 +40,11 @@ in **External agent requests** on the MCP tokens page.
 Limits (configurable under `specialist.*`): 30 opens/remediation requests and
 240 reads per token per minute (`429` with `Retry-After`), at most 3 live
 investigations opened per token and 10 in total (attaching never counts).
+An opened investigation pg_sage cannot read right now (its database is
+reconnecting, reloading or gone from the fleet, or the read fails) still
+counts as live: the bound fails closed. Only a read that shows it ended
+frees its slot, or, for one that stays unreadable, reaching
+`specialist.max_live_age_hours` (24 by default) since it was opened.
 
 ## Calls
 

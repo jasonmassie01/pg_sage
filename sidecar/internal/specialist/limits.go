@@ -13,16 +13,26 @@ type Limits struct {
 	ReadsPerMinute     int // status, result and stream calls
 	MaxOpenPerIdentity int // live investigations one identity opened
 	MaxOpenTotal       int // live investigations all identities opened
+	// MaxLiveAge releases an opened investigation that cannot be read (its
+	// database left the fleet) after this age; a readable live one always
+	// counts.
+	MaxLiveAge time.Duration
 }
+
+// Bounds of Limits.MaxLiveAge.
+const (
+	minMaxLiveAge = time.Hour
+	maxMaxLiveAge = 7 * 24 * time.Hour
+)
 
 // DefaultLimits are the configuration defaults.
 func DefaultLimits() Limits {
 	return Limits{WritesPerMinute: 30, ReadsPerMinute: 240, MaxOpenPerIdentity: 3,
-		MaxOpenTotal: 10}
+		MaxOpenTotal: 10, MaxLiveAge: 24 * time.Hour}
 }
 
 // Validate checks the bounds (rates 1-10000, live investigations 1-100,
-// per identity at most the total).
+// per identity at most the total, the live age cap 1 h-7 d).
 func (l Limits) Validate() error {
 	switch {
 	case l.WritesPerMinute < 1 || l.WritesPerMinute > 10000:
@@ -34,6 +44,8 @@ func (l Limits) Validate() error {
 	case l.MaxOpenPerIdentity > l.MaxOpenTotal:
 		return invalidf("per-identity bound %d exceeds the total %d",
 			l.MaxOpenPerIdentity, l.MaxOpenTotal)
+	case l.MaxLiveAge < minMaxLiveAge || l.MaxLiveAge > maxMaxLiveAge:
+		return invalidf("live investigation age cap must be 1h-168h, got %s", l.MaxLiveAge)
 	}
 	return nil
 }

@@ -442,6 +442,7 @@ safety_critical specialist.enabled
 safety_critical specialist.keep_identifiers
 safety_critical specialist.max_open_per_identity
 safety_critical specialist.max_open_total
+safety_critical specialist.max_live_age_hours
 safety_critical specialist.pagerduty.api_token
 safety_critical specialist.pagerduty.api_url
 safety_critical specialist.pagerduty.from_email
