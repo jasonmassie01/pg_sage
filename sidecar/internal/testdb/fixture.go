@@ -47,9 +47,13 @@ func DesignatedDSN() (string, error) {
 }
 
 // Run creates one database per package process, runs the package tests, then
-// force-drops only that validated fixture database.
+// force-drops only that validated fixture database. Without EnvName it says
+// so on stderr, once, and runs the tests against the disabled DSN, so their
+// database tests skip instead of reaching an implicit localhost server.
 func Run(run func() int, packageID string) int {
 	if strings.TrimSpace(os.Getenv(EnvName)) == "" {
+		fmt.Fprintf(os.Stderr, "testdb: %s unset; database tests in %s will skip\n",
+			EnvName, packageID)
 		return runWithDSNEnvironment(run, disabledDSN)
 	}
 	baseDSN, err := DesignatedDSN()
