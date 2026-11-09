@@ -62,6 +62,9 @@ type MaintenanceDeps struct {
 	DatabaseID     *int
 	ApprovalTTL    time.Duration
 	MaxEvidenceAge time.Duration
+	// Now is the clock the stranded-run sweeper ages proposals by; nil is
+	// time.Now.
+	Now func() time.Time
 }
 type MaintenanceService struct {
 	MaintenanceDeps
@@ -80,6 +83,9 @@ func NewMaintenanceService(d MaintenanceDeps) (*MaintenanceService, error) {
 	}
 	if !d.Executor.StatisticsPoolMatches(d.Pool) {
 		return nil, fmt.Errorf("%w: maintenance and executor target pools differ", sre.ErrInvalidRequest)
+	}
+	if d.Now == nil {
+		d.Now = time.Now
 	}
 	if d.ApprovalTTL == 0 {
 		d.ApprovalTTL = 15 * time.Minute

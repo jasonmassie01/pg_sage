@@ -237,6 +237,11 @@ func (e *Executor) applyTimeout() time.Duration {
 	return e.ddlTimeout() + applyGrace
 }
 
+// ApplyTimeout is the bound on one stage of Apply. A typed run bounds its
+// DDL-slot wait with it, and its owner uses it to tell a dead run from a slow
+// one.
+func (e *Executor) ApplyTimeout() time.Duration { return e.applyTimeout() }
+
 // lockOption is the lock_timeout for one statement under an authorized
 // decision: safety.lock_timeout_ms, capped by the policy's
 // lock_duration_ceiling_ms for in-transaction statements (D1). Every
