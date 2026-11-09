@@ -1,10 +1,10 @@
 package migration
 
 import (
-	"os"
 	"strings"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -13,16 +13,9 @@ import (
 // probes, EXPLAINs and plan captures run application query text) are not
 // load a migration competes with.
 
-func selfloadDSN() string {
-	if dsn := os.Getenv("SAGE_DATABASE_URL"); dsn != "" {
-		return dsn
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
-
 func TestRiskActiveQueriesCountApplicationSessionsOnly(t *testing.T) {
 	pool, ctx := requireDB(t)
-	w, _, _ := selfload.Start(t, selfloadDSN())
+	w, _, _ := selfload.Start(t, testdb.SkipUnlessLive(t))
 	ra := NewRiskAssessor(pool, func(string, string, ...any) {})
 	risk := &DDLRisk{TableName: strings.TrimPrefix(w.AppTable, "public.")}
 	ra.fetchActiveQueries(ctx, risk)
@@ -34,7 +27,7 @@ func TestRiskActiveQueriesCountApplicationSessionsOnly(t *testing.T) {
 
 func TestRiskPendingLocksCountApplicationWaitersOnly(t *testing.T) {
 	pool, ctx := requireDB(t)
-	w, _, _ := selfload.Start(t, selfloadDSN())
+	w, _, _ := selfload.Start(t, testdb.SkipUnlessLive(t))
 	ra := NewRiskAssessor(pool, func(string, string, ...any) {})
 	risk := &DDLRisk{TableName: strings.TrimPrefix(w.AppTable, "public."),
 		SchemaName: "public"}

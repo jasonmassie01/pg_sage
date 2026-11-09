@@ -2,19 +2,19 @@ package collector
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // No concurrent-access cases: this probe reads deterministic SQL in an isolated DB.
 func TestAuditCollectorCacheRatioUsesFractionContract(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

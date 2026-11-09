@@ -2,7 +2,6 @@ package collector
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 // Skips the test if the connection cannot be established.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)

@@ -5,13 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Integration tests on real PostgreSQL: the guarded cancel/terminate
@@ -22,10 +22,7 @@ const guardedVictimRole = "guarded_signal_victim"
 
 func guardedDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	if dsn == "" {
 		t.Skip("SAGE_TEST_DATABASE_URL unset: the guarded signal script needs real PostgreSQL")
 	}

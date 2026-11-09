@@ -2,7 +2,6 @@ package rca
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -10,13 +9,14 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // No nil-config/malformed-SQL tests here: these focused regression probes target
 // valid operational state transitions; existing RCA tests own detector input validation.
 func preflightRCAPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pool, err := pgxpool.New(t.Context(), testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

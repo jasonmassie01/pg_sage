@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -15,7 +16,7 @@ import (
 // samples. (Connections stay every slot in use: capacity, not workload.)
 func TestGatherSystemActiveLeavesOutPgSage(t *testing.T) {
 	pool, ctx := requireDB(t)
-	w := selfload.New(t, testDSN())
+	w := selfload.New(t, testdb.SkipUnlessLive(t))
 	w.StartApp(t)
 	worker := New(pool, &config.Config{}, nil, func(string, string, ...any) {})
 	active := func() (float64, error) {

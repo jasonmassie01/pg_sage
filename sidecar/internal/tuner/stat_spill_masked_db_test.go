@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // tuning-03 review: the server-wide work_mem baseline of a role without
@@ -19,7 +20,7 @@ import (
 func tunerPoolAs(t *testing.T, user, password string,
 	params map[string]string) *pgxpool.Pool {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(tunerTestDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

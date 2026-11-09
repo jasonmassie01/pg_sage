@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -65,7 +66,7 @@ func TestPreflightVerifierProcessCrashResumesRollback(t *testing.T) {
 		}
 	}
 	cmd.Env = append(cmd.Env, "SAGE_TEST_DATABASE_URL=",
-		"PREFLIGHT_SHARED_VERIFY_DSN="+os.Getenv("SAGE_TEST_DATABASE_URL"),
+		"PREFLIGHT_SHARED_VERIFY_DSN="+testdb.SkipUnlessLive(t),
 		"PREFLIGHT_VERIFY_ACTION="+strconv.FormatInt(f.id, 10),
 		"PREFLIGHT_VERIFY_AT="+f.at.Format(time.RFC3339Nano))
 	out, err := cmd.CombinedOutput()

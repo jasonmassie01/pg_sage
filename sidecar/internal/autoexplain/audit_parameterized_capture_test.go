@@ -1,10 +1,8 @@
 package autoexplain
 
 import (
-	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
-	"os"
-	"strings"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"testing"
 	"time"
 
@@ -66,10 +64,7 @@ func TestCaptureOnDemand_NormalizedParameterizedQuery(t *testing.T) {
 
 func requireAuditFixturePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := strings.TrimSpace(os.Getenv("SAGE_TEST_DATABASE_URL"))
-	if dsn == "" || strings.Contains(dsn, "pgsage_test_disabled") {
-		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL fixture is not configured")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)

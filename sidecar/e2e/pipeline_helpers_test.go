@@ -13,7 +13,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -27,18 +26,14 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // pipelineURL returns the throwaway-Postgres URL or skips the test with an
 // explicit reason (no silent skips: the runner script always sets it).
 func pipelineURL(t *testing.T) string {
 	t.Helper()
-	u := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if u == "" {
-		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL not set — run via " +
-			"scripts/run_pipeline_coverage.sh (dedicated container)")
-	}
-	return u
+	return testdb.SkipUnlessLive(t)
 }
 
 // pipelinePool connects, bootstraps the sage schema, and registers cleanup.

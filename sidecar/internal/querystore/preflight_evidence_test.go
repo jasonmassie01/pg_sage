@@ -2,18 +2,18 @@ package querystore
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // No concurrent access: these fixtures test ordered sample semantics, not worker contention.
 func TestPreflightEvidenceInteriorResetWindow(t *testing.T) {
 	ctx := context.Background()
-	p, err := pgxpool.New(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	p, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

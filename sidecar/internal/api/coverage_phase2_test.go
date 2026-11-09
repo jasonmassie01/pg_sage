@@ -9,7 +9,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +22,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ================================================================
@@ -40,20 +40,13 @@ var (
 		[]byte("p2-test-salt--16"))
 )
 
-func phase2DSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
-
 func phase2RequireDB(t *testing.T) (
 	*pgxpool.Pool, context.Context,
 ) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	p2PoolOnce.Do(func() {
-		dsn := phase2DSN()
 		qctx, cancel := context.WithTimeout(
 			ctx, 45*time.Second)
 		defer cancel()

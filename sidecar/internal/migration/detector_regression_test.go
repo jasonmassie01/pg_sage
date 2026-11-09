@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // blockedDDL holds an ACCESS EXCLUSIVE lock on table in one session
@@ -90,10 +91,7 @@ func waitForLockWait(t *testing.T, conn *pgx.Conn, pid int) {
 
 func fixtureDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	return dsn
 }
 

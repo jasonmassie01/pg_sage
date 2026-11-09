@@ -40,7 +40,7 @@ func dialLive(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
 // TABLE (ACCESS EXCLUSIVE) behind it and a reader behind the ALTER.
 func startChain(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *chainFixture {
 	t.Helper()
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.SkipUnlessLive(t)
 	cf := &chainFixture{table: fmt.Sprintf("sre_chain_%d", time.Now().UnixNano())}
 	ident := pgx.Identifier{cf.table}.Sanitize()
 	if _, err := pool.Exec(ctx, "CREATE TABLE "+ident+" (id int)"); err != nil {
@@ -195,7 +195,7 @@ func TestCatalog_LockGraphIgnoresOtherDatabases(t *testing.T) {
 func TestCatalog_ConnectionSaturationCountsRealSessions(t *testing.T) {
 	pool, ctx := livePool(t)
 	app := fmt.Sprintf("sre_conn_pressure_%d", os.Getpid())
-	cfg, err := pgx.ParseConfig(os.Getenv(testdb.EnvName))
+	cfg, err := pgx.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestCatalog_ConnectionSaturationCountsRealSessions(t *testing.T) {
 
 func TestCatalog_IdleInTransactionSession(t *testing.T) {
 	pool, ctx := livePool(t)
-	conn := dialLive(t, ctx, os.Getenv(testdb.EnvName))
+	conn := dialLive(t, ctx, testdb.SkipUnlessLive(t))
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	var pid int
 	_ = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid)
@@ -288,7 +288,7 @@ func TestCatalog_ReplicationProbesOnAPrimaryWithoutReplicas(t *testing.T) {
 	}
 	// Slots are cluster-wide: serialize with PGIncidentBench's WAL
 	// scenarios, which would otherwise see this inactive slot.
-	release, err := testdb.LockCluster(ctx, os.Getenv(testdb.EnvName), "wal")
+	release, err := testdb.LockCluster(ctx, testdb.SkipUnlessLive(t), "wal")
 	if err != nil {
 		t.Fatalf("cluster lock: %v", err)
 	}

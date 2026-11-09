@@ -102,7 +102,7 @@ func TestMeasureDisk_WithoutPGMonitorMeasuresNothing(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+ident+"; DROP ROLE "+ident)
 	})
-	u, _ := url.Parse(os.Getenv(testdb.EnvName))
+	u, _ := url.Parse(testdb.SkipUnlessLive(t))
 	u.User = url.UserPassword(role, "runway-test")
 	restricted, err := pgxpool.New(ctx, u.String())
 	if err != nil {

@@ -140,7 +140,7 @@ func TestSnapshotCap_ConcurrentWriterNeverFails(t *testing.T) {
 	for i := 0; i < 150; i++ {
 		insertBlob(t, ctx, today.AddDate(0, 0, -1).Add(time.Duration(i)*time.Minute), 8)
 	}
-	writer, err := pgxpool.New(ctx, testDSN())
+	writer, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}

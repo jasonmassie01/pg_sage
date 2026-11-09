@@ -3,7 +3,6 @@ package optimizer
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -166,7 +165,7 @@ func TestOptimizer_ColdStartWithoutSnapshotsCheck(t *testing.T) {
 
 func TestTableContext_FromTheSnapshot(t *testing.T) {
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, os.Getenv(testdb.EnvName))
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err == nil {
 		err = pool.Ping(ctx)
 	}

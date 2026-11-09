@@ -2,22 +2,19 @@ package collector
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Five-minute time to value: the first snapshot is taken at startup, not
 // one full interval later (60 s by default).
 func TestRunCollectsImmediately(t *testing.T) {
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)

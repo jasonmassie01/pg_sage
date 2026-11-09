@@ -137,7 +137,7 @@ func vpVacuumSkipped(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tabl
 func TestMaintenancePrivilegeDB_NonOwnerRefused(t *testing.T) {
 	admin, ctx := requireDB(t)
 	table := vpTable(t, ctx, admin, "vp_nonowner_t")
-	pool, role := grantsRoleNamed(t, testDSN(), vpRoleName("nonowner"))
+	pool, role := grantsRoleNamed(t, testdb.SkipUnlessLive(t), vpRoleName("nonowner"))
 	got, err := readMaintenancePrivilege(ctx, pool, table, "vacuum_table")
 	if err != nil {
 		t.Fatalf("readMaintenancePrivilege: %v", err)
@@ -197,7 +197,7 @@ func TestMaintenancePrivilegeDB_DatabaseOwnerAllowed(t *testing.T) {
 func TestMaintenancePrivilegeDB_MaintainGrants(t *testing.T) {
 	admin, ctx := requireDB(t)
 	table := vpTable(t, ctx, admin, "vp_maintain_t")
-	pool, role := grantsRoleNamed(t, testDSN(), vpRoleName("maintain"))
+	pool, role := grantsRoleNamed(t, testdb.SkipUnlessLive(t), vpRoleName("maintain"))
 	rq := pgx.Identifier{role}.Sanitize()
 	_, grantErr := admin.Exec(ctx, "GRANT MAINTAIN ON "+table+" TO "+rq)
 	if vpServerVersion(t, ctx, admin) < maintainMinVersion {
@@ -286,7 +286,7 @@ func vpDecisionRow(t *testing.T, ctx context.Context, admin *pgxpool.Pool, id in
 func TestApplyWithholdsNonOwnerVacuum(t *testing.T) {
 	admin, ctx := requireDB(t)
 	table := vpTable(t, ctx, admin, "vp_apply_t")
-	pool, role := grantsRoleNamed(t, testDSN(), vpRoleName("apply"))
+	pool, role := grantsRoleNamed(t, testdb.SkipUnlessLive(t), vpRoleName("apply"))
 	vpGrantSage(t, ctx, admin, role)
 	decisionID := vpDecision(t, ctx, admin, table)
 	e := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
@@ -355,7 +355,7 @@ func TestVerifyImmediateFailsSkippedVacuum(t *testing.T) {
 	table := vpTable(t, ctx, admin, "vp_skip_t")
 	deleteAndFlush(t, ctx, admin, "DELETE FROM "+table+" WHERE a > 500")
 	waitForDeadTuples(t, ctx, admin, "vp_skip_t")
-	pool, role := grantsRoleNamed(t, testDSN(), vpRoleName("skip"))
+	pool, role := grantsRoleNamed(t, testdb.SkipUnlessLive(t), vpRoleName("skip"))
 	vpGrantSage(t, ctx, admin, role)
 	e := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	sql := "VACUUM " + table
@@ -425,7 +425,7 @@ func TestApplyPrecheckReadsTheWholeTarget(t *testing.T) {
 		_, _ = admin.Exec(context.Background(), `DROP TABLE IF EXISTS public."vp spaced"`)
 	})
 	spaced := `"public"."vp spaced"`
-	pool, role := grantsRoleNamed(t, testDSN(), vpRoleName("spaced"))
+	pool, role := grantsRoleNamed(t, testdb.SkipUnlessLive(t), vpRoleName("spaced"))
 	vpGrantSage(t, ctx, admin, role)
 	executed, err = vpApply(ctx, New(pool, config.DefaultConfig(), time.Time{}, nopLog),
 		"VACUUM "+spaced, vpDecision(t, ctx, admin, "public.vp spaced"))

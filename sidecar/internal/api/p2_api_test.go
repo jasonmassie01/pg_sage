@@ -11,13 +11,14 @@ import (
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // G9-B15: one failing database must not look like "nothing pending".
 func TestFleetPendingActions_ReportsPerDatabaseErrors(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
-	broken, err := pgxpool.New(ctx, phase2DSN())
+	broken, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("broken pool: %v", err)
 	}

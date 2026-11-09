@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func TestIncidentResolveHandlerScopesToRequestedDatabase(t *testing.T) {
@@ -299,7 +300,7 @@ func phase2PoolForDatabase(
 ) *pgxpool.Pool {
 	t.Helper()
 
-	cfg, err := pgxpool.ParseConfig(phase2DSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

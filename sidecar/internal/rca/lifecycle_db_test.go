@@ -3,7 +3,6 @@ package rca
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Regression tests for R04 / substrate-B4, B5, B7 and SURF-19: incident
@@ -25,10 +25,11 @@ var (
 
 func lifecycleDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
+	dsn := testdb.SkipUnlessLive(t)
 	lcPoolOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		pool, err := pgxpool.New(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+		pool, err := pgxpool.New(ctx, dsn)
 		if err != nil {
 			lcPoolErr = err
 			return

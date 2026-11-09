@@ -3,22 +3,15 @@ package startup
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ── DB pool shared by all coverage-boost tests ──────────────────────
-
-func coverageDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	cbPool     *pgxpool.Pool
@@ -29,8 +22,8 @@ var (
 func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	cbPoolOnce.Do(func() {
-		dsn := coverageDSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			cbPoolErr = fmt.Errorf("parse DSN: %w", err)

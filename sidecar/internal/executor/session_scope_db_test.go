@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 const pinnedSearchPath = "pg_catalog, pg_temp"
@@ -19,7 +20,7 @@ const pinnedSearchPath = "pg_catalog, pg_temp"
 func singleConnPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	_, ctx := requireDB(t)
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

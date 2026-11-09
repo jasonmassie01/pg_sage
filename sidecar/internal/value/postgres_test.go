@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // A source snapshot counts only verified credit, keeps potential and
@@ -207,10 +207,7 @@ type valueEvidenceGraph struct {
 
 func requireValuePostgres(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL not set; real-Postgres value test")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	// Bootstrap's migration batch is bounded at 30 seconds. Keep the test
 	// deadline above that production contract so it tests behavior, not timing.
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

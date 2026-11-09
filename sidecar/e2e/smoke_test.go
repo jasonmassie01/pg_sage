@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 const (
@@ -97,10 +98,7 @@ func freePort(t *testing.T) int {
 // databaseURL returns the PG connection string for the test.
 func databaseURL(t *testing.T) string {
 	t.Helper()
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
+	return testdb.SkipUnlessLive(t)
 }
 
 // pgAvailable checks whether PostgreSQL is reachable.

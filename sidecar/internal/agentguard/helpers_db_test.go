@@ -62,8 +62,12 @@ func leakedRoles() []string {
 	if len(names) == 0 {
 		return nil
 	}
+	dsn, err := testdb.DesignatedDSN()
+	if err != nil {
+		return []string{"(cannot check: " + err.Error() + ")"}
+	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, os.Getenv(testdb.EnvName))
+	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		return []string{"(cannot check: " + err.Error() + ")"}
 	}

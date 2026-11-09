@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Dogfood lifeos, 2026-10-03 (v1.8.4): finding 18569 (CREATE INDEX on
@@ -32,7 +33,7 @@ import (
 func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	_, ctx := requireDB(t) // skips without a database; serializes packages
-	admin, err := pgxpool.New(ctx, testDSN())
+	admin, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("admin pool: %v", err)
 	}
@@ -41,7 +42,7 @@ func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 		admin.Close()
 		t.Fatalf("create database: %v", err)
 	}
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
