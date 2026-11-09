@@ -164,11 +164,15 @@ func TestEvaluate_AllQuietIsOK(t *testing.T) {
 	}
 }
 
-// One unknown window makes its rule unknown; with nothing firing the
-// SLO is unknown (with the reason), never ok.
+// An unknown window that cannot be told from the other window's reading
+// makes its rule unknown; with nothing firing the SLO is unknown (with
+// the reason), never ok. Absent, stale, failed or invalid data says
+// nothing about the present, so it keeps the rule undecided even when
+// the other window is quiet. (Sparse-data reasons are decided by the
+// other window, see TestEvaluate_SparseShortWindowQuietLongIsDecided.)
 func TestEvaluate_UnknownIsNeverOK(t *testing.T) {
-	for _, reason := range []string{ReasonLowTraffic, ReasonZeroEligible, ReasonNoData,
-		ReasonStale, ReasonPartialWindow, ReasonSourceError} {
+	for _, reason := range []string{ReasonNoData, ReasonStale, ReasonSourceError,
+		ReasonInvalidValue, ReasonAmbiguous, ReasonConnectorNotConfigured} {
 		ws := windowsAt(allBurning(0.1))
 		w := ws[5*time.Minute]
 		w.Unknown = reason
@@ -178,8 +182,32 @@ func TestEvaluate_UnknownIsNeverOK(t *testing.T) {
 			t.Errorf("%s: state %s", reason, st.State)
 		}
 		if strings.Join(st.Unknown, ",") != reason || st.Rules[0].Unknown != reason ||
-			st.Rules[0].Firing || st.Rules[0].Short.BurnRate != nil {
+			st.Rules[0].Firing || st.Rules[0].Short.BurnRate != nil ||
+			st.Rules[0].Partial != "" {
 			t.Errorf("%s: unknown = %v, rule = %+v", reason, st.Unknown, st.Rules[0])
+		}
+	}
+}
+
+// Kleene AND (owner sign-off, playbooks-07): a rule fires only when both
+// windows burn, so a known window below the factor decides "not firing"
+// whatever a sparse other window says. The rule is not unknown; the
+// sparse window's reason is kept as Partial, and the SLO is ok.
+func TestEvaluate_SparseShortWindowQuietLongIsDecided(t *testing.T) {
+	for _, reason := range []string{ReasonLowTraffic, ReasonZeroEligible,
+		ReasonPartialWindow} {
+		ws := windowsAt(allBurning(0.1))
+		w := ws[5*time.Minute]
+		w.Unknown = reason
+		ws[5*time.Minute] = w
+		st := Evaluate(appObjective(), DefaultRules(), ws, known(30*24*time.Hour, 0.1), now)
+		if st.State != StateOK || st.FastBurning || len(st.Unknown) != 0 {
+			t.Errorf("%s: state %s unknown %v, want ok", reason, st.State, st.Unknown)
+		}
+		r := st.Rules[0]
+		if r.Firing || r.Unknown != "" || r.Partial != reason || r.Short.BurnRate != nil ||
+			r.Short.Unknown != reason || r.Long.BurnRate == nil {
+			t.Errorf("%s: rule = %+v", reason, r)
 		}
 	}
 }

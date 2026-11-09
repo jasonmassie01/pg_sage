@@ -23,6 +23,9 @@ type RuleResult struct {
 	Short    WindowView `json:"short"`
 	Firing   bool       `json:"firing"`
 	Unknown  string     `json:"unknown,omitempty"`
+	// Partial names why the other window is unknown when a known window
+	// below the factor already decides the rule is not firing.
+	Partial string `json:"partial,omitempty"`
 }
 
 // Status is one SLO's error-budget state for one database.
@@ -55,9 +58,10 @@ func (s Status) Burning() bool { return s.State == StatePage || s.State == State
 
 // Evaluate applies the rules to the evaluated windows. A rule fires when
 // both of its windows burn at or above its factor; a rule with an
-// unknown window is unknown. A firing page rule pages, else a firing
-// ticket rule tickets, else any unknown rule makes the SLO unknown, and
-// only then is it ok. budget is the window of the whole SLO period.
+// unknown window is unknown unless the other window decides it (see
+// evaluateRule). A firing page rule pages, else a firing ticket rule
+// tickets, else any unknown rule makes the SLO unknown, and only then is
+// it ok. budget is the window of the whole SLO period.
 func Evaluate(o Objective, rules []Rule, windows map[time.Duration]Window, budget Window,
 	now time.Time) Status {
 	st := Status{Name: o.Name, Database: o.Database, Kind: o.Kind, Source: o.Source,
@@ -103,22 +107,44 @@ func Evaluate(o Objective, rules []Rule, windows map[time.Duration]Window, budge
 	return st
 }
 
+// evaluateRule applies one rule as a Kleene AND of its windows: both
+// known and at or above the factor fire; a known window below the factor
+// decides "not firing" when the other window is only sparse (its reason
+// is kept as Partial); otherwise an unknown window leaves the rule
+// unknown. Absent, stale, failed or invalid data never decides a rule.
 func evaluateRule(o Objective, r Rule, windows map[time.Duration]Window) RuleResult {
 	rr := RuleResult{Severity: r.Severity, Factor: r.Factor}
 	long, longOK := burnView(o, r.Long, windows)
 	short, shortOK := burnView(o, r.Short, windows)
 	rr.Long, rr.Short = long, short
+	// The factor is inclusive, with a tolerance for float rounding.
+	floor := r.Factor * (1 - burnTolerance)
+	quiet := func(v WindowView, ok bool) bool { return ok && *v.BurnRate < floor }
 	switch {
 	case longOK && shortOK:
-		// The factor is inclusive, with a tolerance for float rounding.
-		floor := r.Factor * (1 - burnTolerance)
 		rr.Firing = *long.BurnRate >= floor && *short.BurnRate >= floor
+	case quiet(long, longOK) && sparseReason(short.Unknown):
+		rr.Partial = short.Unknown
+	case quiet(short, shortOK) && sparseReason(long.Unknown):
+		rr.Partial = long.Unknown
 	case !longOK:
 		rr.Unknown = long.Unknown
 	default:
 		rr.Unknown = short.Unknown
 	}
 	return rr
+}
+
+// sparseReason reports whether an unknown window still had current data,
+// only too little of it: too few or no eligible events, or samples not
+// covering the whole window. Such a window cannot keep a rule undecided
+// when the rule's other window is known and below the factor.
+func sparseReason(reason string) bool {
+	switch reason {
+	case ReasonLowTraffic, ReasonZeroEligible, ReasonPartialWindow:
+		return true
+	}
+	return false
 }
 
 func burnView(o Objective, d time.Duration, windows map[time.Duration]Window) (WindowView,
