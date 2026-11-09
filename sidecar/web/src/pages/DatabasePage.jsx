@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { QueryState } from '../components/QueryState'
@@ -7,20 +7,31 @@ import { EmptyState } from '../components/EmptyState'
 
 const MAX_INLINE_CHARS = 500000
 
+// renderSnapshot returns the indented text to show, or the reason it cannot
+// be shown. It is derived from the snapshot, so a later, smaller snapshot
+// replaces an earlier error.
+function renderSnapshot(snapshot) {
+  let text
+  try {
+    text = JSON.stringify(snapshot, null, 2)
+  } catch (err) {
+    // JSON.stringify throws TypeError on a cycle or a BigInt; others are bugs.
+    if (err instanceof TypeError) return { text: null, error: err.message }
+    throw err
+  }
+  if (text.length > MAX_INLINE_CHARS) {
+    return {
+      text: null,
+      error: `Snapshot is too large to display (${text.length} chars)`,
+    }
+  }
+  return { text, error: null }
+}
+
 function SnapshotView({ snapshot }) {
   const [copied, setCopied] = useState(false)
-  const [error, setError] = useState(null)
-  let rendered = null
-  try {
-    const str = JSON.stringify(snapshot, null, 2)
-    if (str.length > MAX_INLINE_CHARS) {
-      throw new Error(
-        `Snapshot is too large to display (${str.length} chars)`)
-    }
-    rendered = str
-  } catch (e) {
-    if (!error) setError(e.message)
-  }
+  const { text: rendered, error } = useMemo(
+    () => renderSnapshot(snapshot), [snapshot])
 
   const copyRaw = () => {
     try {
