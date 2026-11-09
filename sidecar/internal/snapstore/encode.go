@@ -27,14 +27,16 @@ var errNotEncodable = errors.New("document cannot be delta encoded")
 // encoded as a list of one; every other category (system, locks,
 // replication) is stored in full every cycle.
 var keyFields = map[string][]string{
-	"tables":         {"schemaname", "relname"},
-	"indexes":        {"schemaname", "indexrelname"},
-	"sequences":      {"schemaname", "sequencename"},
-	"foreign_keys":   {"schemaname", "table_name", "constraint_name"},
-	"partitions":     {"child_schema", "child_table"},
-	"queries":        {"queryid"},
-	"io":             {"backend_type", "object", "context"},
-	"prepared_xacts": {"gid"},
+	"tables":       {"schemaname", "relname"},
+	"indexes":      {"schemaname", "indexrelname"},
+	"sequences":    {"schemaname", "sequencename"},
+	"foreign_keys": {"schemaname", "table_name", "constraint_name"},
+	"partitions":   {"child_schema", "child_table"},
+	// rules-03: partitioned (relkind I) indexes
+	"partitioned_indexes": {"schemaname", "indexrelname"},
+	"queries":             {"queryid"},
+	"io":                  {"backend_type", "object", "context"},
+	"prepared_xacts":      {"gid"},
 }
 
 // objectCategories are object documents that are mostly static members

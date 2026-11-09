@@ -10,13 +10,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
-const actionResolutionReopenGrace = "2 minutes"
-
 // DetailApprovalRequired is the Detail key a producer sets (to a
 // human-readable reason) when a finding's SQL may run only with operator
 // approval, never unattended: e.g. an index drop while standby usage is
 // unknown, or a restart-required setting. The executor enforces it.
 const DetailApprovalRequired = "approval_required"
+
+// DetailActionRisk is the Detail key the upsert stores the producer's
+// ActionRisk under, so readers of sage.findings can show it (rules-07).
+const DetailActionRisk = "action_risk"
 
 // Finding represents a single diagnostic finding from the rules engine.
 type Finding struct {
@@ -49,31 +51,6 @@ func isSelfMonitoringFinding(f Finding) bool {
 	})
 }
 
-func recentlyResolvedByAction(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	category, objectIdentifier string,
-) (bool, error) {
-	var one int
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT 1 FROM sage.findings
-		  WHERE category = $1
-		    AND object_identifier = $2
-		    AND status = 'resolved'
-		    AND action_log_id IS NOT NULL
-		    AND resolved_at > now() - ($3::text)::interval
-		  LIMIT 1`,
-		category, objectIdentifier, actionResolutionReopenGrace,
-	).Scan(&one)
-	if err == nil {
-		return true, nil
-	}
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
-	return false, err
-}
-
 // ResolveCleared marks open findings as resolved when they are no longer
 // present in the active set for a given category.
 func ResolveCleared(
@@ -98,7 +75,9 @@ type ClearedFinding struct {
 // ResolveClearedFindings is ResolveCleared returning the findings it
 // resolved, so the analyzer can resolve their pages (alerting-01). Each
 // row is resolved only while still open, so concurrent resolvers report
-// a finding once. On error the findings resolved before it are returned.
+// a finding once. A failed UPDATE does not stop the rest: the findings
+// resolved are returned with the joined errors (rules-06). A lost
+// connection does stop them.
 func ResolveClearedFindings(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -110,7 +89,13 @@ func ResolveClearedFindings(
 		return nil, fmt.Errorf("list open %s findings: %w", category, err)
 	}
 	var cleared []ClearedFinding
+	var errs []error
 	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, fmt.Errorf("resolve %s findings stopped: %w",
+				category, err))
+			break
+		}
 		var c ClearedFinding
 		err := pool.QueryRow(ctx,
 			`/* pg_sage */ UPDATE sage.findings
@@ -124,12 +109,17 @@ func ResolveClearedFindings(
 			continue // resolved concurrently by another caller
 		}
 		if err != nil {
-			return cleared, fmt.Errorf("resolve %s finding %s: %w",
-				category, id, err)
+			// Keep going: one bad row must not keep the rest open.
+			errs = append(errs, fmt.Errorf("resolve %s finding %s: %w",
+				category, id, err))
+			if connectionLost(err) {
+				break // every later row would wait out the same timeout
+			}
+			continue
 		}
 		cleared = append(cleared, c)
 	}
-	return cleared, nil
+	return cleared, errors.Join(errs...)
 }
 
 // clearedFindingIDs lists the open findings of category whose identity
@@ -142,7 +132,8 @@ func clearedFindingIDs(
 ) ([]string, error) {
 	rows, err := pool.Query(ctx,
 		`/* pg_sage */ SELECT id, object_identifier FROM sage.findings
-		 WHERE category = $1 AND status = 'open'`,
+		 WHERE category = $1 AND status = 'open'
+		 ORDER BY id`,
 		category,
 	)
 	if err != nil {

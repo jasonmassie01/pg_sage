@@ -13,10 +13,13 @@ import (
 // their own schema's table (rules-08). The collector reports each key's
 // schema and its columns in conkey order, so nothing is guessed: a key
 // whose schema is unknown (a row stored before collection-04) or whose
-// table is not in the snapshot gives no finding. A key on a partitioned
-// table is checked on each leaf partition (fkTables.leaves). Coverage uses
-// set semantics: an index whose leading columns are any permutation of
-// the key's columns supports it; the recommended index keeps conkey order.
+// table is not in the snapshot gives no finding. Coverage uses set
+// semantics: an index whose leading columns are any permutation of the
+// key's columns supports it; the recommended index keeps conkey order.
+// A key on a partitioned table is covered by a usable partitioned index
+// on the parent (rules-03) or by an index on each leaf partition
+// (fkTables.leaves); partitionedFKFindings says what an uncovered one
+// gets. A partition's clone of its parent's key is left to the parent.
 func ruleMissingFKIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -26,16 +29,24 @@ func ruleMissingFKIndexes(
 	unlogged := buildUnloggedSet(current)
 	indexed := indexedColumnsByTable(current)
 	tables := newFKTables(current)
+	parts := newPartitionLayout(current)
+	parts.addParentIndexColumns(indexed)
 	var findings []Finding
 	for _, fk := range current.ForeignKeys {
 		if fk.Schema == "" || len(fk.Columns) == 0 || isSystemSchema(fk.Schema) {
 			continue
 		}
 		key := tableKey{fk.Schema, fk.TableName}
+		if parts.inheritsKey(key, fk.Columns) || coveredBy(fk.Columns, indexed[key]) {
+			continue
+		}
+		if parts.relkind[key] == "p" {
+			findings = append(findings,
+				parts.partitionedFKFindings(fk, key, tables.leaves(key), indexed, unlogged)...)
+			continue
+		}
 		for _, leaf := range tables.leaves(key) {
-			if !coveredBy(fk.Columns, indexed[leaf]) {
-				findings = append(findings, missingFKFinding(fk, key, leaf, unlogged))
-			}
+			findings = append(findings, missingFKFinding(fk, key, leaf, unlogged))
 		}
 	}
 	return findings

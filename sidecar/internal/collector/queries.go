@@ -149,7 +149,10 @@ SELECT s.schemaname, s.relname, s.indexrelname,
        -- (and a mis-detected version) return NULL instead of failing.
        (to_jsonb(s) ->> 'last_idx_scan')::timestamptz AS last_idx_scan,
        ic.xmin::text || ':' || ic.relfilenode::text || ':' ||
-         tc.xmin::text || ':' || n.xmin::text AS def_version
+         tc.xmin::text || ':' || n.xmin::text AS def_version,
+       -- the partitioned index this one is attached to (rules-03)
+       COALESCE((SELECT inh.inhparent FROM pg_inherits inh
+                  WHERE inh.inhrelid = s.indexrelid), 0::oid) AS parent_index_oid
   FROM pg_stat_user_indexes s
   JOIN pg_index ix ON ix.indexrelid = s.indexrelid
   JOIN pg_class ic ON ic.oid = s.indexrelid
@@ -193,7 +196,7 @@ const cacheHitRatioExpr = `round(sum(blks_hit)::numeric /
        NULLIF(sum(blks_hit) + sum(blks_read), 0), 4)`
 
 const replicationReplicasSQL = sageTag + `
-SELECT client_addr::text, state,
+SELECT COALESCE(application_name, '') AS application_name, client_addr::text, state,
        sent_lsn::text, write_lsn::text, flush_lsn::text, replay_lsn::text,
        write_lag::text, flush_lag::text, replay_lag::text,
        sync_state
@@ -204,16 +207,26 @@ SELECT client_addr::text, state,
 // so we pick the receive LSN there instead. restart_lsn is NULL for a
 // slot that has not reserved WAL yet, which would make the diff NULL
 // and break the scan into a non-nullable int64 — COALESCE guards it.
+// The columns that depend on the major version (wal_status and
+// safe_wal_size PG13+; inactive_since, synced and invalidation_reason
+// PG17+) are read by name through to_jsonb, so one statement runs on
+// every server and a missing column reads as NULL.
 const replicationSlotsSQL = sageTag + `
-SELECT slot_name, slot_type, active,
+SELECT s.slot_name, s.slot_type, s.active,
        COALESCE(
          pg_wal_lsn_diff(
            CASE WHEN pg_is_in_recovery()
                 THEN pg_last_wal_receive_lsn()
                 ELSE pg_current_wal_lsn() END,
-           restart_lsn),
-         0) AS retained_bytes
-  FROM pg_replication_slots`
+           s.restart_lsn),
+         0) AS retained_bytes,
+       to_jsonb(s) ->> 'wal_status' AS wal_status,
+       (to_jsonb(s) ->> 'safe_wal_size')::int8 AS safe_wal_size,
+       COALESCE((to_jsonb(s) ->> 'temporary')::bool, false) AS temporary,
+       (to_jsonb(s) ->> 'inactive_since')::timestamptz AS inactive_since,
+       COALESCE((to_jsonb(s) ->> 'synced')::bool, false) AS synced,
+       to_jsonb(s) ->> 'invalidation_reason' AS invalidation_reason
+  FROM pg_replication_slots s`
 
 // pg_stat_io (PG16+): I/O statistics by backend type.
 const ioStatsSQL = sageTag + `

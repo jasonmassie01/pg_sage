@@ -24,6 +24,60 @@ The next cycle that reads the category resumes them.
 
 ---
 
+## Source filter and risk fields
+
+`GET /api/v1/findings?source=<subsystem>` filters by the producer that emitted a finding:
+`rules`, `advisor`, `optimizer`, `query_tuning`, `forecaster`, `incident` or `schema_lint`
+(see the category table in [ui-redesign-v2.md §16](ui-redesign-v2.md)). Each row reports
+the same value as `subsystem`. An unknown `source` value applies no filter, and
+`migration_advisor` is reserved and returns no rows.
+
+Each finding row (list and detail) also carries display-only action fields:
+
+| Field | Meaning |
+|---|---|
+| `action_type` | The executor action the `recommended_sql` classifies as, or `""` when it has none |
+| `contract_tier` | That action contract's base risk tier (`read_only`, `safe`, `moderate`, `high`), or `none` when the SQL is empty or has no contract: the finding is advisory only |
+| `action_risk` | The stricter of the producer's risk (`detail.action_risk`, with `high_risk` reported as `high`) and the contract tier; `none` when there is no SQL. An unrecognised producer risk is reported as `high` |
+| `approval_required`, `approval_reason` | Whether, and why, the change may run only with an operator's approval: a producer mark, a restart-required or non-allowlisted setting, or high risk |
+
+The upsert stores the producer's risk in `detail.action_risk`. These fields never gate
+execution: the executor re-derives risk and approval under policy for every action.
+
+---
+
+## Lifecycle
+
+Each analyzer cycle persists its findings, publishes them to the executor, the API and MCP,
+and resolves the open findings a fully evaluated category no longer reports.
+
+- **Identity.** A finding is one open row per `(category, object_identifier)`. Two writers
+  racing on a new identity end with one open row; neither reports an error.
+- **Partial failures.** A finding that cannot be persisted (for example a statement
+  timeout) does not stop the cycle. The rest are still persisted, and the cycle logs one
+  error naming each failed finding's category and identity. Resolving cleared findings
+  also continues past a failed row. A lost connection (a connect or network error,
+  SQLSTATE class 08, a server shutdown) stops the batch instead, so an unreachable
+  database costs one timeout per cycle rather than one per finding.
+- **Suppression.** Before publishing, one query drops every identity under an active
+  suppression (`status = 'suppressed'` with `suppressed_until` empty or in the future),
+  including identities that came after a failed row. If that query fails, the cycle keeps
+  the previously published findings, records no recommendations and resolves nothing.
+  Suppression is per database in fleet mode.
+- **After an action.** When an action resolves a finding, the snapshot's collection time
+  decides what the next sighting means. Evidence collected before the action resolved the
+  finding is stale and is ignored. Evidence collected up to 2 × max(analyzer interval,
+  collector interval) after it (20 minutes with the defaults) reopens the same row with
+  `detail.persisted_after_action` set to the action's `action_log` id: the action did not
+  clear the condition. A critical finding reopened this way pages once, subject to the
+  usual one-hour cooldown per identity. Later evidence opens a new row. Writers outside
+  the analyzer cycle (runway, schema lint, audit, cloud telemetry) carry no collection
+  time; their evidence is treated as two default collector intervals (2 minutes) old.
+  The comparison uses the sidecar's snapshot clock against the database's `resolved_at`,
+  so keep both clocks synchronised (NTP).
+
+---
+
 ## Index Health
 
 ### unused_index
@@ -39,7 +93,18 @@ A statistics reset makes zero scans meaningless, so it restarts the clock. Reset
 database's statistics epoch (`pg_stat_database.stats_reset` or the postmaster start). The
 window never starts before the last reset. A counter that went down, or an index dropped
 and recreated under the same name (new oid), also restarts it. The finding shows
-`unused_since` and `stats_epoch`. Before an autonomous `DROP INDEX`, the executor re-checks
+`unused_since` and `stats_epoch`.
+
+The clock survives sidecar restarts. The window is measured from the first persisted
+zero-scan sighting, kept in `sage.unused_index_clock` (one row per index at zero scans, in
+each database's own sage schema in fleet mode; PG 14-18). A row counts only while the
+index has the same oid. Until the analyzer has read that table, no `unused_index` finding
+resolves. An open zero-scan finding from before the table existed gets its clock from the
+earliest day of snapshot history that shows the same index continuously at zero scans
+(one document a day, at most window + 1 days). Without such history the clock starts at
+the restart and the finding stays open until the clock reaches the window. A scan, a
+dropped or recreated index, a counter that went down or a statistics reset still resolve
+it. Before an autonomous `DROP INDEX`, the executor re-checks
 live that the index still has zero scans and that no reset happened inside the window.
 If either check fails, it does not drop the index.
 
@@ -54,6 +119,19 @@ Unused index public.idx_old on public.orders (zero scans)
 ```sql
 DROP INDEX CONCURRENTLY public.idx_old;
 ```
+
+**Partitioned tables:** an index attached to a partitioned index is never flagged:
+PostgreSQL refuses to drop it on its own ("index ... requires it"). Each attached index
+keeps its clock, and when every one under a partitioned index has been unused for the
+window, one finding is raised on the partitioned index itself ("unused on N of M
+partitions"; `detail.partitioned_index`, `partitions_unused`, `partitions_total`). It is
+advisory: no `recommended_sql`, a plain `DROP INDEX` in `detail.manual_sql` (a partitioned
+index cannot be dropped `CONCURRENTLY`, and the drop locks every partition) and
+`approval_required`. A sub-partitioned tree rolls up to its top partitioned index. A
+standalone index on a partition (never attached, or left by `DETACH PARTITION`) is
+evaluated like any other. The rule does not run in a cycle where the partition tree or
+the partitioned indexes could not be read. On upgrade, open findings on attached
+partition indexes resolve once.
 
 ---
 
@@ -76,6 +154,11 @@ Duplicate index public.idx_orders_dup2 matches idx_orders_dup1
 ```sql
 DROP INDEX CONCURRENTLY public.idx_orders_dup2;
 ```
+
+**Partitioned tables:** an index attached to a partitioned index is never the one to
+drop. Two attached duplicates (from two partitioned indexes on the same key) give no
+finding; a standalone index on a partition that duplicates an attached one is the one
+dropped.
 
 ---
 
@@ -132,6 +215,18 @@ Missing index on public.order_items(order_id) for FK to public.orders
 ```sql
 CREATE INDEX CONCURRENTLY idx_order_items_order_id ON public.order_items (order_id);
 ```
+
+**Partitioned tables:** PostgreSQL rejects `CREATE INDEX CONCURRENTLY` on a partitioned
+table, and its indexes are not in `pg_stat_user_indexes`. The rule checks a partitioned
+table's keys against its partitioned indexes (valid, non-partial, key columns leading).
+An uncovered key gives one advisory finding on the parent with no `recommended_sql` and,
+in `detail.partition_plan`, the statements that build the index without blocking writes:
+`CREATE INDEX ... ON ONLY` the parent, then for each partition `CREATE INDEX CONCURRENTLY`
+and `ALTER INDEX ... ATTACH PARTITION`. The parent index becomes valid once every partition
+is attached. A parent with sub-partitioned partitions gets the note only. The copies of
+the key that PostgreSQL clones onto each partition are covered by that one finding; a key
+declared on a partition alone is evaluated as on a plain table. The rule does not run in
+a cycle where the tables, the partition tree or the partitioned indexes could not be read.
 
 ---
 
@@ -524,9 +619,11 @@ Checkpoint pressure: 45 checkpoints in last hour (expected < 6)
 
 Detects replication lag exceeding acceptable thresholds.
 
-**Severity:** warning or critical
+**Severity:** warning (replay lag of 30 seconds or more) or critical (5 minutes or more)
 
 **What it detects:** Standby servers falling behind the primary, measured via `pg_stat_replication`.
+
+**Identity:** one finding per `replica:<application_name>@<client_addr>` (`<unnamed>` and `<unknown>` stand in for an empty name or a Unix-socket connection). `pg_stat_replication` row order is not stable, so the row position is not part of the name. Replicas that share a name merge into one finding at the worst lag; `detail.merged_replicas` counts them. Findings opened by earlier releases (named `replica:<row>:<addr>`) resolve once after the upgrade and reopen under the new name.
 
 **Example output:**
 
@@ -542,17 +639,19 @@ Replication lag: 45 seconds behind primary
 
 Detects inactive replication slots consuming WAL.
 
-**Severity:** warning
+**Severity:** warning, or critical when `wal_status` is `unreserved` or `lost`
 
-**What it detects:** Replication slots without active consumers, causing WAL to accumulate and disk usage to grow.
+**What it detects:** Replication slots without an active consumer, causing WAL to accumulate and disk usage to grow. A slot is reported once it has been inactive for `analyzer.inactive_slot_min_minutes` (default 5), so a CDC connector's reconnect or a nightly consumer does not raise a warning. The inactive time comes from `pg_replication_slots.inactive_since` on PostgreSQL 17 and later; on older servers pg_sage starts its own clock the first time it sees the slot inactive (kept in memory, so a restart only delays a finding, never fires one early; an already open finding stays open while that clock catches up). A slot whose `wal_status` is `extended` (warning) or `unreserved`/`lost` (critical) is reported at once. Temporary slots are never reported, and neither are synchronized failover slots (`synced = true`) on a standby, which are always inactive there and cannot be dropped.
+
+**Detail:** `slot_type`, `retained_bytes`, `wal_status`, `safe_wal_size`, `inactive_since`, `inactive_seconds` and `invalidation_reason` (each when the server has it), `manual_sql` and `approval_required`.
 
 **Example output:**
 
 ```
-Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
+Inactive replication slot old_subscriber (retaining 12.0 GB)
 ```
 
-**Recommended action:** Drop the inactive slot if the consumer is permanently gone.
+**Recommended action:** Find the slot's consumer (CDC connector, subscriber or standby) and reconnect it. If it is gone for good, drop the slot by hand with `detail.manual_sql`. The finding is `high_risk` and carries no executable SQL: dropping a slot is irreversible and the consumer must resync, so pg_sage never runs it.
 
 ```sql
 SELECT pg_drop_replication_slot('old_subscriber');

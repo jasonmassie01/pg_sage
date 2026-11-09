@@ -26,8 +26,20 @@ type RuleExtras struct {
 	// IndexOID records the object (oid) each FirstSeen clock belongs to: a
 	// dropped and recreated index under the same name is a new object.
 	IndexOID map[string]uint32
+	// InactiveSlotSince records when each replication slot was first seen
+	// inactive, for servers without pg_replication_slots.inactive_since
+	// (before PG17). It lives in memory: a restart only delays a finding.
+	InactiveSlotSince map[string]time.Time
+	// InactiveSlotPending is set by the slot rule when an inactive slot is
+	// below the threshold on the in-memory clock (no inactive_since): it
+	// may carry an open finding from before a restart, so its absence is
+	// not proof of clearance and inactive_slot must not resolve.
+	InactiveSlotPending bool
 	// Now is the rule clock; nil means time.Now (tests set it).
 	Now func() time.Time
+	// zeroScanSeen records the identities whose zero-scan clock the
+	// unused_index rule read this cycle (rules-04); nil outside a cycle.
+	zeroScanSeen map[string]bool
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.
@@ -98,9 +110,18 @@ func cats(c ...string) []string { return c }
 // hasIndexes needs the index list and the foreign keys: an index that
 // supports a key must not look unused when the keys could not be read, or
 // when the partitions a key is enforced on are unknown (fkKeysPlaced).
+// The partitioned indexes (rules-03) say which indexes are attached: without
+// them an unused partitioned index's roll-up would resolve.
 func hasIndexes(cur, _ *collector.Snapshot) bool {
 	return len(cur.Indexes) > 0 && cur.Available("indexes") &&
-		cur.Available("foreign_keys") && fkKeysPlaced(cur)
+		cur.Available("foreign_keys") && cur.Available("partitioned_indexes") &&
+		fkKeysPlaced(cur)
+}
+
+// partitionsKnown reports whether the partition tree and the partitioned
+// indexes were read this cycle.
+func partitionsKnown(cur *collector.Snapshot) bool {
+	return cur.Available("partitions") && cur.Available("partitioned_indexes")
 }
 
 // hasIndexList needs only the index list.
@@ -109,10 +130,12 @@ func hasIndexList(cur, _ *collector.Snapshot) bool {
 }
 
 // hasForeignKeys needs the keys and the index list: a missing index list
-// would make every key look unindexed.
+// would make every key look unindexed. It needs the tables (relkind) and
+// the partition categories too: a partitioned table read as a plain one
+// would get CREATE INDEX CONCURRENTLY, which PostgreSQL rejects (rules-03).
 func hasForeignKeys(cur, _ *collector.Snapshot) bool {
 	return len(cur.ForeignKeys) > 0 && cur.Available("foreign_keys") &&
-		cur.Available("indexes")
+		cur.Available("indexes") && cur.Available("tables") && partitionsKnown(cur)
 }
 
 func hasTables(cur, _ *collector.Snapshot) bool {

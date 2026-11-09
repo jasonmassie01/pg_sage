@@ -69,9 +69,9 @@ All findings include Category, Severity, ObjectType, RecommendedSQL (if applicab
 
 | Category | Source | Trigger | ActionRisk | SQL Shape | Auto-Execute |
 |----------|--------|---------|-----------|-----------|--------------|
-| replication_lag | rules_replication.go:16 | Lag >30s | safe | None (advisory) | NO |
-| inactive_slot | rules_replication.go:83 | Active=false | safe | DROP slot | YES (8d) |
-| slow_replication_slot | rules_replication.go:83 | Retains >1GB | moderate | None (advisory) | NO |
+| replication_lag | rules_replication.go:19 | Lag >30s, one finding per `application_name@client_addr` | safe | None (advisory) | NO |
+| inactive_slot | rules_replication_slot.go:21 | Inactive >= `inactive_slot_min_minutes` (5), or at once when `wal_status` is extended/unreserved/lost; temporary slots and synced slots on a standby skipped | high_risk | None; drop is `detail.manual_sql`, approval required (irreversible; the consumer must resync) | NO |
+| slow_replication_slot | rules_replication_slot.go:21 | Retains >1GB | moderate | None (advisory) | NO |
 
 ### Sequences (1 category)
 

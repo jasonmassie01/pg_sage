@@ -198,10 +198,12 @@ Detail map[string]any, Recommendation, RecommendedSQL, RollbackSQL, ActionRisk, 
 - If an open `(category, object_identifier)` exists → **bump** `occurrence_count`, refresh
   `last_seen`, `detail`, `severity`, `title`, `recommendation`, `recommended_sql` (and rule_id/
   impact_score when non-empty/non-zero). Titles/recs legitimately change between scans.
-- Else → check **resolution-by-action grace**: `recentlyResolvedByAction` (`:138`) — if the same
-  `(category, object)` was resolved by an action (`action_log_id IS NOT NULL`) within the last
-  **2 minutes** (`actionResolutionReopenGrace`, `:12`), **do not re-insert** (avoids flapping right
-  after the executor fixes something).
+- Else → check the **latest resolution by an action** (`lastActionResolution`,
+  `finding_reopen.go`) against the snapshot's collection time (rules-06): evidence collected
+  before `resolved_at` is stale and ignored; evidence within 2 × max(analyzer, collector
+  interval) after it **reopens the same row** with `detail.persisted_after_action`; later
+  evidence opens a new row. Callers without a collection time are assumed two default
+  collector intervals old.
 - Else → INSERT new `status='open'`, `occurrence_count=1`.
 
 **Status transitions**: `open` → `resolved` (`resolved_at` set). Suppression (`suppressed`) and

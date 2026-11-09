@@ -90,3 +90,12 @@ func partitionChildren(snap *collector.Snapshot, parentKey string) ([]string, bo
 	sort.Strings(children)
 	return children, nested
 }
+
+// PartitionPlan is partitionPlan for the partitioned table schema.table of
+// snap (rules-03: the analyzer's missing_fk_index uses it). It is nil when
+// snap is nil, the table has no partitions, or one is sub-partitioned.
+func PartitionPlan(snap *collector.Snapshot, schema, table string, spec IndexSpec) []string {
+	children, nested := partitionChildren(snap, schema+"."+table)
+	return partitionPlan(spec, TableContext{Schema: schema, Table: table,
+		PartitionChildren: children, NestedPartitions: nested})
+}

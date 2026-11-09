@@ -69,6 +69,7 @@ func TestMissingFKIndex_PartitionedAllLeavesIndexedOrUnknown(t *testing.T) {
 	}
 	snap = partitionedEvents()
 	snap.Partitions = nil
+	snap.Unavailable = map[string]string{"partitions": "statement timeout"}
 	if got := ruleMissingFKIndexes(snap, nil, nil, nil); len(got) != 0 {
 		t.Fatalf("partitions unknown: findings = %+v, want none (no guessing)", got)
 	}
