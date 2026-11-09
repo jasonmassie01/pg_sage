@@ -6,13 +6,14 @@ import (
 )
 
 // statementsSQLs is every collector statement that reads pg_stat_statements.
+// capabilityKeySQL also names the extension in a pg_extension literal, which
+// unqualified would count: QuotesHostileSchemaNames checks its to_regclass.
 func statementsSQLs() map[string]string {
 	return map[string]string{
 		"queryStatsSQL":                   queryStatsSQL,
 		"queryStatsWithWALSQL":            queryStatsWithWALSQL,
 		"queryStatsWithPlanTimeSQL":       queryStatsWithPlanTimeSQL,
 		"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
-		"capabilityKeySQL":                capabilityKeySQL,
 		"statementTextsSQL":               statementTextsSQL,
 		"statementsEntriesSQL":            statementsEntriesSQL,
 		"statementsClassifySQL":           statementsClassifySQL,
@@ -97,8 +98,8 @@ func TestQualifyStatements_DoesNotDoubleQualify(t *testing.T) {
 	if strings.Contains(once, `"ext"."ext".`) || strings.Contains(once, `"ext".ext`) {
 		t.Fatalf("double qualification:\n%s", once)
 	}
-	if n := strings.Count(once, `"ext".pg_stat_statements(`); n != 2 {
-		t.Errorf("qualified function calls = %d, want 2 (ranked and candidates)", n)
+	if n := strings.Count(once, `"ext".pg_stat_statements(`); n != 1 {
+		t.Errorf("qualified function calls = %d, want 1 (the counters read)", n)
 	}
 }
 
