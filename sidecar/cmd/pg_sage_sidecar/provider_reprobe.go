@@ -132,8 +132,12 @@ func (rt *databaseRuntime) rebuildForProvider(provider string) error {
 }
 
 func (rt *databaseRuntime) markProviderPending(provider string) {
+	until := "provider-gated actions stay blocked until then"
+	if rt.provider != providerUnknown {
+		until = "the configured provider " + rt.provider + " applies until then"
+	}
 	logWarn(rt.spec.Scope, "db %q: provider re-probe found %s; restart pg_sage to apply "+
-		"it (provider-gated actions stay blocked until then)", rt.spec.Name, provider)
+		"it (%s)", rt.spec.Name, provider, until)
 	if rt.inst == nil {
 		return
 	}

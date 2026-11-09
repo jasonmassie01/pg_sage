@@ -150,3 +150,21 @@ func TestStartProviderReprobeFollowsTheProbe(t *testing.T) {
 		t.Fatal("an unknown probe with an override still needs a re-probe")
 	}
 }
+
+// A standalone re-probe that disagrees with a configured provider cannot
+// rebuild in place; the warning says which provider stays in force.
+func TestMarkProviderPendingNamesTheConfiguredProvider(t *testing.T) {
+	rt := overrideRuntime("cloud-sql")
+	rt.provider, rt.probed = "cloud-sql", providerUnknown
+	logs := captureStderr(t, func() { rt.markProviderPending("alloydb") })
+	if !strings.Contains(logs, "found alloydb") ||
+		!strings.Contains(logs, "configured provider cloud-sql applies") ||
+		strings.Contains(logs, "stay blocked") {
+		t.Fatalf("logs = %q, want the configured provider named, not a block", logs)
+	}
+	rt.provider = providerUnknown
+	logs = captureStderr(t, func() { rt.markProviderPending("alloydb") })
+	if !strings.Contains(logs, "stay blocked") {
+		t.Fatalf("logs = %q, want provider-gated actions blocked under unknown", logs)
+	}
+}
