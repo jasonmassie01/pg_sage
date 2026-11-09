@@ -217,3 +217,24 @@ func TestDetectHintPlan_DB_PreQueryIDLayoutIsNotReady(t *testing.T) {
 		t.Fatalf("reasons = %q, want [%q]", got.Reasons, reasonLayout)
 	}
 }
+
+// pg_hint_plan.enable_hint off for the database disables every hint, so the
+// table setting alone is not application effect.
+func TestDetectHintPlan_DB_EnableHintOffIsNotReady(t *testing.T) {
+	pool, db, ctx := readinessDB(t, "tuning04_hintoff")
+	dbIdent := pgx.Identifier{db}.Sanitize()
+	execAll(t, pool,
+		"ALTER DATABASE "+dbIdent+" SET pg_hint_plan.enable_hint_table = on",
+		"ALTER DATABASE "+dbIdent+" SET pg_hint_plan.enable_hint = off")
+	got, err := ProbeHintReadiness(ctx, pool)
+	if err != nil || got.ApplicationEffect || got.HintTableOn {
+		t.Fatalf("enable_hint off: %+v, %v", got, err)
+	}
+	if !reflect.DeepEqual(got.Reasons, []string{reasonHintsOff}) {
+		t.Fatalf("reasons = %q, want [%q]", got.Reasons, reasonHintsOff)
+	}
+	execAll(t, pool, "ALTER DATABASE "+dbIdent+" RESET pg_hint_plan.enable_hint")
+	if got, err := ProbeHintReadiness(ctx, pool); err != nil || !got.ApplicationEffect {
+		t.Fatalf("after RESET enable_hint: %+v, %v", got, err)
+	}
+}

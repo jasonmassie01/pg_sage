@@ -2,24 +2,27 @@ package tuner
 
 import "strings"
 
-// scopeValues are the two settings one kind of session starts with.
+// scopeValues are the settings one kind of session starts with.
 type scopeValues struct {
 	session string // session_preload_libraries
 	tableOn string // pg_hint_plan.enable_hint_table
+	hintOn  string // pg_hint_plan.enable_hint, the module's master switch
 }
 
 // apply evaluates the settings for the database's default sessions and for
 // every login role with settings of its own. It fills SharedPreload,
-// Preload and HintTableOn, adds the reasons, and reports whether one kind
-// of session has both pg_hint_plan preloaded and the hint table on: a role
-// that preloads the module and another that turns the table on give no
-// session that applies hints.
+// Preload and HintTableOn (enable_hint_table and enable_hint both on), adds
+// the reasons, and reports whether one kind of session has both
+// pg_hint_plan preloaded and the hint table on: a role that preloads the
+// module and another that turns the table on give no session that applies
+// hints.
 func (s hintSettings) apply(out *HintPlanAvailability) bool {
 	out.SharedPreload = s.shared != nil && hasHintLibrary(*s.shared)
-	same := false
+	same, tableSet := false, false
 	for _, scope := range s.scopes() {
 		preloaded := out.SharedPreload || hasHintLibrary(scope.session)
-		on := settingIsOn(scope.tableOn)
+		tableSet = tableSet || settingIsOn(scope.tableOn)
+		on := settingIsOn(scope.tableOn) && settingIsOn(scope.hintOn)
 		out.Preload = out.Preload || preloaded
 		out.HintTableOn = out.HintTableOn || on
 		same = same || (preloaded && on)
@@ -30,7 +33,10 @@ func (s hintSettings) apply(out *HintPlanAvailability) bool {
 	case !out.Preload:
 		out.Reasons = append(out.Reasons, reasonNotPreloaded)
 	}
-	if !out.HintTableOn {
+	switch {
+	case !out.HintTableOn && tableSet:
+		out.Reasons = append(out.Reasons, reasonHintsOff)
+	case !out.HintTableOn:
 		out.Reasons = append(out.Reasons, reasonHintTableOff)
 	}
 	if out.Preload && out.HintTableOn && !same {
@@ -44,7 +50,7 @@ func (s hintSettings) apply(out *HintPlanAvailability) bool {
 // ALTER ROLE ALL, then ALTER DATABASE, then ALTER ROLE, then ALTER ROLE IN
 // DATABASE. The default scope assumes some application role sets neither.
 func (s hintSettings) scopes() []scopeValues {
-	base := scopeValues{session: s.session, tableOn: s.tableOn}
+	base := scopeValues{session: s.session, tableOn: s.tableOn, hintOn: s.hintOn}
 	base = s.overlay(base, "", false)
 	base = s.overlay(base, "", true)
 	out := []scopeValues{base}
@@ -71,6 +77,8 @@ func (s hintSettings) overlay(v scopeValues, role string, inDatabase bool) scope
 				v.session = value
 			case "pg_hint_plan.enable_hint_table":
 				v.tableOn = value
+			case "pg_hint_plan.enable_hint":
+				v.hintOn = value
 			}
 		}
 	}

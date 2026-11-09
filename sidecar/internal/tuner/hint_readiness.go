@@ -19,6 +19,7 @@ const (
 	reasonNotPreloaded      = "not preloaded"
 	reasonPreloadUnreadable = "shared_preload_libraries unreadable"
 	reasonHintTableOff      = "enable_hint_table off"
+	reasonHintsOff          = "enable_hint off"
 	reasonRoleMismatch      = "preload and enable_hint_table differ by role"
 	reasonLayout            = "hint table layout"
 	reasonPrivilege         = "privilege"
@@ -77,6 +78,7 @@ type hintSettings struct {
 	shared  *string // shared_preload_libraries; nil when not readable
 	session string  // server-level session_preload_libraries
 	tableOn string  // server-level pg_hint_plan.enable_hint_table
+	hintOn  string  // server-level pg_hint_plan.enable_hint ("" when unknown)
 	roles   []roleSetting
 }
 
@@ -92,7 +94,8 @@ type roleSetting struct {
 func readHintSettings(ctx context.Context, q HintQuerier) (hintSettings, error) {
 	var s hintSettings
 	var roles string
-	err := q.QueryRow(ctx, hintSettingsSQL).Scan(&s.shared, &s.session, &s.tableOn, &roles)
+	err := q.QueryRow(ctx, hintSettingsSQL).Scan(&s.shared, &s.session, &s.tableOn,
+		&s.hintOn, &roles)
 	if err != nil {
 		return s, fmt.Errorf("read pg_hint_plan settings: %w", err)
 	}
@@ -103,12 +106,15 @@ func readHintSettings(ctx context.Context, q HintQuerier) (hintSettings, error) 
 }
 
 // hintSettingsSQL reads shared_preload_libraries (NULL when this role may
-// not see it), the server-level session_preload_libraries and
-// enable_hint_table, and the ALTER DATABASE / ALTER ROLE settings for this
-// database and for all databases (login roles only: a setting on a group
-// role is not applied to its members). pg_settings shows pg_sage's own
-// session, so a value whose source is pg_sage's database, role or session
-// is not taken as the server's; those settings come from pg_db_role_setting.
+// not see it); the server-level session_preload_libraries,
+// enable_hint_table and enable_hint (the module's master switch: on, its
+// default, when the module is not loaded here, and empty when only pg_sage's
+// own database, role or session value shows); and the ALTER DATABASE / ALTER
+// ROLE settings for this database and for all databases (login roles only: a
+// setting on a group role is not applied to its members). pg_settings shows
+// pg_sage's own session, so a value whose source is pg_sage's database, role
+// or session is not taken as the server's; those settings come from
+// pg_db_role_setting.
 const hintSettingsSQL = `/* pg_sage */
 SELECT
   (SELECT setting FROM pg_catalog.pg_settings WHERE name = 'shared_preload_libraries'),
@@ -120,6 +126,10 @@ SELECT
              WHERE name = 'pg_hint_plan.enable_hint_table'
                AND source IN ('default', 'configuration file', 'command line',
                               'environment variable')), ''),
+  coalesce((SELECT CASE WHEN source IN ('default', 'configuration file', 'command line',
+                                        'environment variable') THEN setting ELSE '' END
+              FROM pg_catalog.pg_settings
+             WHERE name = 'pg_hint_plan.enable_hint'), 'on'),
   coalesce((SELECT json_agg(json_build_object(
                      'role', coalesce(r.rolname, ''),
                      'database', s.setdatabase <> 0,

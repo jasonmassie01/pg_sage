@@ -54,8 +54,9 @@ type HintPlanAvailability struct {
 	// Preload: shared or session_preload_libraries (server, database or
 	// role) load pg_hint_plan into application sessions.
 	Preload bool `json:"preload"`
-	// HintTableOn: pg_hint_plan.enable_hint_table is on for application
-	// sessions (server, ALTER DATABASE or ALTER ROLE).
+	// HintTableOn: pg_hint_plan.enable_hint_table, and the module's master
+	// switch pg_hint_plan.enable_hint, are on for application sessions
+	// (server, ALTER DATABASE or ALTER ROLE).
 	HintTableOn bool `json:"hint_table_on"`
 	// HintTableReady: hint_plan.hints has the 1.7 layout with its unique
 	// index, and pg_sage can read it.

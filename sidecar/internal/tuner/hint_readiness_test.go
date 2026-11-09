@@ -88,8 +88,15 @@ const sharedWithHints = "pg_stat_statements,pg_hint_plan"
 
 // settingsRow scripts the settings read: shared_preload_libraries (nil when
 // unreadable), the server session_preload_libraries and enable_hint_table,
-// and the pg_db_role_setting rows for this database and globally.
+// and the pg_db_role_setting rows for this database and globally. The
+// server's pg_hint_plan.enable_hint is at its default, on.
 func settingsRow(shared any, session, tableOn string, roles ...roleSetting) fakeHintRow {
+	return settingsRowHint(shared, session, tableOn, "on", roles...)
+}
+
+// settingsRowHint is settingsRow with the server's pg_hint_plan.enable_hint.
+func settingsRowHint(shared any, session, tableOn, hintOn string,
+	roles ...roleSetting) fakeHintRow {
 	if roles == nil {
 		roles = []roleSetting{}
 	}
@@ -97,7 +104,7 @@ func settingsRow(shared any, session, tableOn string, roles ...roleSetting) fake
 	if err != nil {
 		panic(err)
 	}
-	return fakeHintRow{vals: []any{shared, session, tableOn, string(doc)}}
+	return fakeHintRow{vals: []any{shared, session, tableOn, hintOn, string(doc)}}
 }
 
 func tableRow(layout, readable, writable bool) fakeHintRow {
@@ -125,17 +132,21 @@ func probeFake(t *testing.T, settings, table fakeHintRow) (*HintPlanAvailability
 	return got, err
 }
 
-func TestProbeHintReadiness_Scopes(t *testing.T) {
-	ready := tableRow(true, true, true)
-	cases := []struct {
-		name     string
-		settings fakeHintRow
-		effect   bool
-		preload  bool
-		tableOn  bool
-		method   string
-		reasons  []string
-	}{
+// scopeCase is one settings layout and the facts it must give.
+type scopeCase struct {
+	name     string
+	settings fakeHintRow
+	effect   bool
+	preload  bool
+	tableOn  bool
+	method   string
+	reasons  []string
+}
+
+// tableSettingCases vary where enable_hint_table is set, with PostgreSQL's
+// precedence, for a shared-preloaded module.
+func tableSettingCases() []scopeCase {
+	return []scopeCase{
 		{"shared preload, enable_hint_table at its default off",
 			settingsRow(sharedWithHints, "", "off"), false, true, false,
 			"shared_preload", []string{reasonHintTableOff}},
@@ -165,6 +176,12 @@ func TestProbeHintReadiness_Scopes(t *testing.T) {
 			settingsRow(sharedWithHints, "", "off", dbSetting("app", false, tableOnConf),
 				dbSetting("app", true, tableOffConf)), false, true, false,
 			"shared_preload", []string{reasonHintTableOff}},
+	}
+}
+
+// preloadCases vary where pg_hint_plan is preloaded.
+func preloadCases() []scopeCase {
+	return []scopeCase{
 		{"server session_preload_libraries",
 			settingsRow("pg_stat_statements", "pg_hint_plan", "on"), true, true, true,
 			"session_preload", nil},
@@ -192,6 +209,11 @@ func TestProbeHintReadiness_Scopes(t *testing.T) {
 				dbSetting("", true, "pg_hint_plan.enable_hint_table")), false, true, false,
 			"shared_preload", []string{reasonHintTableOff}},
 	}
+}
+
+func TestProbeHintReadiness_Scopes(t *testing.T) {
+	ready := tableRow(true, true, true)
+	cases := append(tableSettingCases(), preloadCases()...)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := probeFake(t, tc.settings, ready)
@@ -265,7 +287,7 @@ func TestProbeHintReadiness_ReadErrorsAreNotReady(t *testing.T) {
 	}{
 		{"pg_settings read fails", fakeHintRow{err: boom}, ready, "pg_hint_plan settings"},
 		{"malformed pg_db_role_setting rows",
-			fakeHintRow{vals: []any{sharedWithHints, "", "on", "{not json"}}, ready,
+			fakeHintRow{vals: []any{sharedWithHints, "", "on", "on", "{not json"}}, ready,
 			"pg_db_role_setting"},
 		{"hint table read fails", on, fakeHintRow{err: boom}, "hint_plan.hints"},
 	}
@@ -397,5 +419,52 @@ func TestSettingIsOn(t *testing.T) {
 		if settingIsOn(v) {
 			t.Errorf("settingIsOn(%q) = true", v)
 		}
+	}
+}
+
+// pg_hint_plan.enable_hint is the module's master switch: with it off no
+// hint applies, hint table rows included, whatever enable_hint_table says.
+func TestProbeHintReadiness_EnableHintOff(t *testing.T) {
+	ready := tableRow(true, true, true)
+	hintOff := "pg_hint_plan.enable_hint=off"
+	cases := []struct {
+		name     string
+		settings fakeHintRow
+		effect   bool
+		reasons  []string
+	}{
+		{"server enable_hint off", settingsRowHint(sharedWithHints, "", "on", "off"),
+			false, []string{reasonHintsOff}},
+		{"server value hidden by pg_sage's own session reads as off",
+			settingsRowHint(sharedWithHints, "", "on", ""), false, []string{reasonHintsOff}},
+		{"ALTER DATABASE SET enable_hint off",
+			settingsRow(sharedWithHints, "", "on", dbSetting("", true, hintOff)),
+			false, []string{reasonHintsOff}},
+		{"enable_hint off for the only role with the table on",
+			settingsRow(sharedWithHints, "", "off",
+				dbSetting("app", true, tableOnConf, hintOff)),
+			false, []string{reasonHintsOff}},
+		{"database off, a role turns both back on",
+			settingsRowHint(sharedWithHints, "", "off", "on", dbSetting("", true, hintOff),
+				dbSetting("app", true, tableOnConf, "pg_hint_plan.enable_hint=on")),
+			true, nil},
+		{"enable_hint_table off is reported first",
+			settingsRowHint(sharedWithHints, "", "off", "off"),
+			false, []string{reasonHintTableOff}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := probeFake(t, tc.settings, ready)
+			if err != nil {
+				t.Fatalf("probe error: %v", err)
+			}
+			if got.ApplicationEffect != tc.effect || got.HintTableOn != tc.effect {
+				t.Fatalf("effect=%t tableOn=%t, want %t", got.ApplicationEffect,
+					got.HintTableOn, tc.effect)
+			}
+			if !reflect.DeepEqual(got.Reasons, tc.reasons) {
+				t.Fatalf("reasons = %q, want %q", got.Reasons, tc.reasons)
+			}
+		})
 	}
 }
