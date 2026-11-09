@@ -182,12 +182,13 @@ values go through one sanitizer before they are put in a prompt:
 | | JSON numbers in plans (`Plan Rows`, `Total Cost`), byte for byte |
 
 A number counts as compared after or before `=`, `<>`, `!=`, `<`, `>`, `<=` or
-`>=`, inside `IN (...)` and `ANY(ARRAY[...])`, as a `BETWEEN ... AND ...` bound,
-and in the log form `Key (pan)=(4111111111111111)`; a sign or decimal part is
-part of the number. So `WHERE pan = 4111111111111111 AND id IN (123456, 7)
+`>=`, inside `IN (...)`, `ANY(ARRAY[...])` and `= ARRAY[...]`, as a
+`BETWEEN ... AND ...` bound, and in the log form `Key (pan)=(4111111111111111)`;
+a sign or decimal part is part of the number. So `WHERE pan = 4111111111111111 AND id IN (123456, 7)
 LIMIT 10` reaches the model as `WHERE pan = ? AND id IN (?, 7) LIMIT 10`. In
 plan JSON the SQL inside string values (`Filter`, `Index Cond`) is redacted
-the same way. `llm.redact_numeric_literals: false` keeps numbers as they are
+the same way. Log messages (RCA Tier 2) keep `--` as ordinary text rather than
+stripping it as a comment. `llm.redact_numeric_literals: false` keeps numbers as they are
 (string, dollar and comment redaction always apply); the switch is
 process-wide and applies on a config reload without a restart.
 
