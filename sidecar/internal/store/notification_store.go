@@ -48,9 +48,15 @@ func (s *NotificationStore) WithSecretKey(key []byte) *NotificationStore {
 
 // WithPreviousSecretKey also opens channel secrets sealed under the
 // previous key of a rotation, so ResealChannelSecrets can move them to the
-// active key (security-08). Call it after WithSecretKey.
+// active key (security-08). Call it after WithSecretKey. Without an active
+// key, or with an unusable previous key, the keyring is unchanged.
 func (s *NotificationStore) WithPreviousSecretKey(previous []byte) *NotificationStore {
-	s.keyring = notify.SecretKeyring(s.secretKey, previous)
+	if s.keyring == nil || len(previous) == 0 {
+		return s
+	}
+	if kr := notify.SecretKeyring(s.secretKey, previous); kr != nil {
+		s.keyring = kr
+	}
 	return s
 }
 
@@ -198,24 +204,14 @@ func (s *NotificationStore) GetChannel(
 		return nil, fmt.Errorf("channel %d: %w", id, err)
 	}
 	if notify.NeedsReseal(stored, s.keyring) {
-		if err := s.writeConfig(qctx, id, ch.Config); err != nil {
+		// A compare-and-swap: a channel updated since the read keeps its
+		// update; losing the swap leaves the newer value for the next read.
+		row := storedChannelConfig{id: id, raw: cfgJSON}
+		if _, err := s.swapChannelConfig(qctx, row, ch.Config); err != nil {
 			return nil, fmt.Errorf("migrating channel %d secrets: %w", id, err)
 		}
 	}
 	return &ch, nil
-}
-
-func (s *NotificationStore) writeConfig(
-	ctx context.Context, id int, config map[string]string,
-) error {
-	cfgJSON, err := s.encodeConfig(config, id)
-	if err != nil {
-		return err
-	}
-	_, err = s.pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.notification_channels
-		 SET config = $1 WHERE id = $2`, cfgJSON, id)
-	return err
 }
 
 // UpdateChannel modifies a channel's name, config, and enabled state.

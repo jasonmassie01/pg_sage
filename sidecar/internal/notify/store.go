@@ -23,14 +23,28 @@ type RuleStore interface {
 
 // PoolStore implements RuleStore on sage.notification_* tables.
 type PoolStore struct {
-	pool    *pgxpool.Pool
-	keyring *crypto.Keyring
+	pool      *pgxpool.Pool
+	secretKey []byte
+	keyring   *crypto.Keyring
 }
 
 // NewPoolStore creates a PoolStore. secretKey (32 bytes, may be nil)
 // decrypts channel secrets sealed by the notification API (G7-B20).
 func NewPoolStore(pool *pgxpool.Pool, secretKey []byte) *PoolStore {
-	return &PoolStore{pool: pool, keyring: SecretKeyring(secretKey, nil)}
+	return &PoolStore{pool: pool, secretKey: secretKey, keyring: SecretKeyring(secretKey, nil)}
+}
+
+// WithPreviousKey also opens channel secrets sealed under the previous key
+// of a rotation (security-08); secretKey stays the active key. Without an
+// active key, or with an unusable previous key, the keyring is unchanged.
+func (s *PoolStore) WithPreviousKey(previous []byte) *PoolStore {
+	if s.keyring == nil || len(previous) == 0 {
+		return s
+	}
+	if kr := SecretKeyring(s.secretKey, previous); kr != nil {
+		s.keyring = kr
+	}
+	return s
 }
 
 // SecretKeyring is the channel-secret keyring for a 32-byte active key and

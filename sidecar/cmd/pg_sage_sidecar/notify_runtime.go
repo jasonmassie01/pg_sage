@@ -40,7 +40,8 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 		return dispatcher
 	}
 	dispatcher := notify.NewDispatcherWithStore(
-		notify.NewPoolStore(controlPool, notificationSecretKey(controlPool)),
+		notify.NewPoolStore(controlPool, notificationSecretKey(controlPool)).
+			WithPreviousKey(notificationPreviousSecretKey(controlPool)),
 		logStructuredWrapper,
 	)
 	registerNotifySenders(dispatcher)
@@ -67,6 +68,18 @@ func notificationSecretKey(controlPool *pgxpool.Pool) []byte {
 		return nil
 	}
 	return keys.active
+}
+
+// notificationPreviousSecretKey is the previous key of a rotation for
+// channel secrets stored in controlPool, derived like notificationSecretKey
+// (security-08), so readers open values the startup re-seal did not move
+// (YAML fleet mode has none). nil without a rotation or a key.
+func notificationPreviousSecretKey(controlPool *pgxpool.Pool) []byte {
+	keys, err := notificationKeys(context.Background(), controlPool)
+	if err != nil || keys == nil {
+		return nil
+	}
+	return keys.previous
 }
 
 // notificationKeys is the key set behind notificationSecretKey.

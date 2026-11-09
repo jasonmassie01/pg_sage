@@ -56,7 +56,8 @@ type chatopsDeps struct {
 func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	mgr *fleet.DatabaseManager, cfg *config.Config, rt RuntimeDeps) {
 	d := &chatopsDeps{mgr: mgr, ids: chatops.NewStore(pool), cards: chatops.NewCardStore(pool),
-		channels:  store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey),
+		channels: store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey).
+			WithPreviousSecretKey(rt.NotificationPreviousSecretKey),
 		tolerance: 5 * time.Minute, factCards: chatops.NewFactCardStore(pool)}
 	if cfg != nil {
 		d.tolerance = cfg.SRE.Actions.ChatOpsTolerance()
