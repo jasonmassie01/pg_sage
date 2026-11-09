@@ -154,8 +154,8 @@ func TestGolden_EveryDocumentReadsBackIdentically(t *testing.T) {
 	}
 }
 
-// The forecaster's daily aggregates (system growth, query volume, sequence
-// use) are identical and non-empty.
+// The forecaster's daily aggregates (system growth, query volume) are
+// identical and non-empty.
 func TestGolden_ForecasterAggregatesIdentical(t *testing.T) {
 	deltaPool, legacyPool, ctx := goldenStores(t)
 	writeBoth(t, ctx, deltaPool, legacyPool, goldenScenario(t))
@@ -163,25 +163,19 @@ func TestGolden_ForecasterAggregatesIdentical(t *testing.T) {
 	sysL, err2 := forecaster.QueryDailySystemAggs(ctx, legacyPool, 7)
 	qD, err3 := forecaster.QueryDailyQueryAggs(ctx, deltaPool, 7)
 	qL, err4 := forecaster.QueryDailyQueryAggs(ctx, legacyPool, 7)
-	sD, err5 := forecaster.QueryDailySeqAggs(ctx, deltaPool, 7)
-	sL, err6 := forecaster.QueryDailySeqAggs(ctx, legacyPool, 7)
-	for i, err := range []error{err1, err2, err3, err4, err5, err6} {
+	for i, err := range []error{err1, err2, err3, err4} {
 		if err != nil {
 			t.Fatalf("aggregate %d: %v", i, err)
 		}
 	}
-	if len(sysL) < 3 || len(qL) < 3 || len(sL) < 3 {
-		t.Fatalf("legacy aggregates too small to compare: %d/%d/%d", len(sysL), len(qL),
-			len(sL))
+	if len(sysL) < 3 || len(qL) < 3 {
+		t.Fatalf("legacy aggregates too small to compare: %d/%d", len(sysL), len(qL))
 	}
 	if !reflect.DeepEqual(sysD, sysL) {
 		t.Errorf("system aggs differ:\n delta  %+v\n legacy %+v", sysD, sysL)
 	}
 	if !reflect.DeepEqual(qD, qL) {
 		t.Errorf("query aggs differ:\n delta  %+v\n legacy %+v", qD, qL)
-	}
-	if !reflect.DeepEqual(sD, sL) {
-		t.Errorf("sequence aggs differ:\n delta  %+v\n legacy %+v", sD, sL)
 	}
 }
 
@@ -289,12 +283,10 @@ func TestGolden_EmptyArraySampleIsEmptyForForecaster(t *testing.T) {
 	if n := countDeltas(t, ctx, deltaPool); n != 1 {
 		t.Fatalf("%d delta rows, want the empty sample stored as one delta", n)
 	}
-	got, err1 := forecaster.QueryDailySeqAggs(ctx, deltaPool, 3)
-	want, err2 := forecaster.QueryDailySeqAggs(ctx, legacyPool, 3)
-	if err1 != nil || err2 != nil {
-		t.Fatalf("seq aggs: %v / %v", err1, err2)
-	}
-	if len(want) != 2 || !reflect.DeepEqual(got, want) {
-		t.Fatalf("seq aggs:\n delta  %+v\n legacy %+v", got, want)
+	// forecast-05 retired the forecaster's sequence aggregates, which read
+	// this sample; the documents themselves must read back identically.
+	got, want := readAll(t, ctx, deltaPool), readAll(t, ctx, legacyPool)
+	if len(want) != 2 || want[1].data != "[]" || !reflect.DeepEqual(got, want) {
+		t.Fatalf("documents:\n delta  %+v\n legacy %+v", got, want)
 	}
 }

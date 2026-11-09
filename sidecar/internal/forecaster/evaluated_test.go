@@ -21,10 +21,15 @@ func TestLastEvaluatedCategories_Success(t *testing.T) {
 		got[c] = true
 	}
 	for _, c := range []string{"forecast_disk_growth", "forecast_query_volume",
-		"forecast_sequence_exhaustion", "forecast_cache_pressure"} {
+		"forecast_cache_pressure"} {
 		if !got[c] {
 			t.Fatalf("missing %s in %v", c, got)
 		}
+	}
+	// forecast-05: the runway forecasts sequences; the forecaster's rule is
+	// retired and must never again claim (and so resolve) its category.
+	if got["forecast_sequence_exhaustion"] {
+		t.Fatalf("the retired forecast_sequence_exhaustion is evaluated: %v", got)
 	}
 }
 

@@ -190,8 +190,6 @@ operator_preference forecaster.enabled
 derivable forecaster.lookback_days
 derivable forecaster.min_data_points
 derivable forecaster.min_r_squared
-derivable forecaster.sequence_critical_days
-derivable forecaster.sequence_warn_days
 derivable logwatch.dedup_window_seconds
 operator_preference logwatch.enabled
 operator_preference logwatch.exclude_applications

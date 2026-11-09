@@ -158,8 +158,6 @@ forecaster:
   disk_warn_growth_gb_day: 5    # Warn if DB growing faster than this
   connection_warn_pct: 80       # Warn when peak connections > this % of max
   cache_warn_threshold: 0.95    # Warn when cache hit ratio trends below this
-  sequence_warn_days: 90        # Warn when sequence exhausts in < this many days
-  sequence_critical_days: 30    # Critical when sequence exhausts in < this many days
 
 # Per-query tuner: non-invasive query optimization via pg_hint_plan.
 # Detects plan-level symptoms (disk sorts, hash spills, bad joins) and

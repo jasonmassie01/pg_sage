@@ -146,13 +146,11 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 			PreferSessionLoad:      false,
 		},
 		Forecaster: ForecasterConfig{
-			Enabled:              true,
-			LookbackDays:         60,
-			DiskWarnGrowthGBDay:  10.0,
-			ConnectionWarnPct:    70.0,
-			CacheWarnThreshold:   0.90,
-			SequenceWarnDays:     60,
-			SequenceCriticalDays: 15,
+			Enabled:             true,
+			LookbackDays:        60,
+			DiskWarnGrowthGBDay: 10.0,
+			ConnectionWarnPct:   70.0,
+			CacheWarnThreshold:  0.90,
 		},
 		Tuner: TunerConfig{
 			Enabled:                true,
@@ -326,8 +324,6 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 	assertEqualFloat(t, "Forecaster.DiskWarnGrowthGBDay", roundtripped.Forecaster.DiskWarnGrowthGBDay, original.Forecaster.DiskWarnGrowthGBDay)
 	assertEqualFloat(t, "Forecaster.ConnectionWarnPct", roundtripped.Forecaster.ConnectionWarnPct, original.Forecaster.ConnectionWarnPct)
 	assertEqualFloat(t, "Forecaster.CacheWarnThreshold", roundtripped.Forecaster.CacheWarnThreshold, original.Forecaster.CacheWarnThreshold)
-	assertEqualInt(t, "Forecaster.SequenceWarnDays", roundtripped.Forecaster.SequenceWarnDays, original.Forecaster.SequenceWarnDays)
-	assertEqualInt(t, "Forecaster.SequenceCriticalDays", roundtripped.Forecaster.SequenceCriticalDays, original.Forecaster.SequenceCriticalDays)
 
 	// --- Tuner ---
 	assertEqualBool(t, "Tuner.Enabled", roundtripped.Tuner.Enabled, original.Tuner.Enabled)
@@ -849,8 +845,6 @@ forecaster:
   disk_warn_growth_gb_day: 5.0
   connection_warn_pct: 80.0
   cache_warn_threshold: 0.95
-  sequence_warn_days: 90
-  sequence_critical_days: 30
 tuner:
   enabled: true
   llm_enabled: false

@@ -3,8 +3,6 @@ package forecaster
 import (
 	"context"
 	"fmt"
-	"sort"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -106,84 +104,6 @@ func decodeQueryCalls(ctx context.Context, pool *pgxpool.Pool, ids []int64,
 		var e queryCalls
 		if err := rows.Scan(&id, &e.qid, &e.calls); err != nil {
 			return fmt.Errorf("scan query sample: %w", err)
-		}
-		into[id] = append(into[id], e)
-	}
-	return rows.Err()
-}
-
-// seqAggs reads each day's last non-empty 'sequences' snapshot: a
-// sequence's use only grows (a restart is a new, lower reading), so the
-// day's last reading is its use that day.
-func (h *dayHistory) seqAggs(ctx context.Context, pool *pgxpool.Pool,
-	days int) ([]DaySeqAgg, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	_, last, err := dayPicks(ctx, pool, "sequences", days)
-	if err != nil {
-		return nil, err
-	}
-	cached := keepOnly(last, h.seqs)
-	err = decodeBatches(missingIDs(last, cached), func(ids []int64) error {
-		return decodeSequenceUse(ctx, pool, ids, cached)
-	})
-	if err != nil {
-		return nil, err
-	}
-	h.seqs = cached
-	var out []DaySeqAgg
-	for _, s := range last {
-		out = append(out, daySequences(s.day, cached[s.id])...)
-	}
-	return out, nil
-}
-
-// daySequences is one day's maximum use per sequence, ordered by name.
-func daySequences(day time.Time, elems []sequenceUse) []DaySeqAgg {
-	byName := map[string]*DaySeqAgg{}
-	var names []string
-	for _, e := range elems {
-		a, ok := byName[e.name]
-		if !ok {
-			byName[e.name] = &DaySeqAgg{Day: day, SeqName: e.name, PctUsed: e.pct,
-				MaxValue: e.maxValue}
-			names = append(names, e.name)
-			continue
-		}
-		a.PctUsed, a.MaxValue = max(a.PctUsed, e.pct), max(a.MaxValue, e.maxValue)
-	}
-	sort.Strings(names)
-	out := make([]DaySeqAgg, 0, len(names))
-	for _, n := range names {
-		out = append(out, *byName[n])
-	}
-	return out
-}
-
-func decodeSequenceUse(ctx context.Context, pool *pgxpool.Pool, ids []int64,
-	into map[int64][]sequenceUse) error {
-	for _, id := range ids {
-		into[id] = nil
-	}
-	rows, err := histstore.Resolve(pool).Query(ctx, sequenceUseSQL, ids)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var name *string
-		var pct *float64
-		var maxValue *int64
-		if err := rows.Scan(&id, &name, &pct, &maxValue); err != nil {
-			return fmt.Errorf("scan sequence sample: %w", err)
-		}
-		if name == nil || pct == nil {
-			continue // an element without a name or use is no sequence reading
-		}
-		e := sequenceUse{name: *name, pct: *pct}
-		if maxValue != nil {
-			e.maxValue = *maxValue
 		}
 		into[id] = append(into[id], e)
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
-// The query volume and sequence forecasts read each day's first and last
+// The query volume forecast reads each day's first and last
 // non-empty snapshot of a category (dogfood lifeos-1). v1.8.3
 // (performance gate offender 4): the samples are found by index, one
 // probe per day, instead of ranking every snapshot of the lookback, and a
@@ -62,14 +62,6 @@ var queryCallsSQL = fmt.Sprintf(decodedDocsSQL, snapstore.DataSQL("s"), `
 SELECT d.id, (elem->>'queryid')::bigint, (elem->>'calls')::bigint
   FROM d, jsonb_array_elements(d.doc) AS elem`)
 
-// sequenceUseSQL reads each sample's sequences at or over 1% used: none
-// under it can be within the forecaster's horizons (the collector keeps
-// those only as its top N).
-var sequenceUseSQL = fmt.Sprintf(decodedDocsSQL, snapstore.DataSQL("s"), `
-SELECT d.id, (elem->>'schemaname') || '.' || (elem->>'sequencename'),
-       (elem->>'pct_used')::float, (elem->>'max_value')::bigint
-  FROM d, jsonb_path_query(d.doc, '$[*] ? (@.pct_used >= 1)') AS elem`)
-
 // daySample is one picked snapshot.
 type daySample struct {
 	day time.Time
@@ -82,18 +74,10 @@ type queryCalls struct {
 	qid, calls *int64
 }
 
-// sequenceUse is one element of a 'sequences' sample.
-type sequenceUse struct {
-	name     string
-	pct      float64
-	maxValue int64
-}
-
 // dayHistory remembers the decoded samples of the current lookback.
 type dayHistory struct {
 	mu      sync.Mutex
 	queries map[int64][]queryCalls
-	seqs    map[int64][]sequenceUse
 }
 
 // dayPicks returns the lookback's first and last samples per day.

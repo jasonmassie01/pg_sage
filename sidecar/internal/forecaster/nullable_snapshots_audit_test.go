@@ -38,26 +38,6 @@ func TestAuditQueryAggsNullableSnapshots(t *testing.T) {
 	}
 }
 
-func TestAuditSeqAggsNullableSnapshots(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	cleanupSnapshots(t, pool, ctx, "sequences")
-	for _, raw := range []string{"null", "[]",
-		`[{"schemaname":"public","sequencename":"ids","pct_used":25,"max_value":100}]`} {
-		_, err := pool.Exec(ctx, `INSERT INTO sage.snapshots
-   (collected_at, category, data) VALUES (now(), 'sequences', $1::jsonb)`, raw)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := QueryDailySeqAggs(ctx, pool, 1)
-	if err != nil {
-		t.Fatalf("nullable snapshots must preserve valid sequences: %v", err)
-	}
-	if len(got) != 1 || got[0].SeqName != "public.ids" || got[0].PctUsed != 25 || got[0].MaxValue != 100 {
-		t.Fatalf("unexpected aggregates: %#v", got)
-	}
-}
-
 // forecast-07: every row of one day wrote db_size_bytes as JSON null (the
 // size was never measured). The day must come back as unknown, not fail
 // the read and with it all four system forecast categories.

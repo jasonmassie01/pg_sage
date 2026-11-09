@@ -11,13 +11,11 @@ import (
 
 // ForecasterConfig holds thresholds for workload forecasting.
 type ForecasterConfig struct {
-	Enabled              bool
-	LookbackDays         int
-	DiskWarnGrowthGBDay  float64
-	ConnectionWarnPct    float64
-	CacheWarnThreshold   float64
-	SequenceWarnDays     int
-	SequenceCriticalDays int
+	Enabled             bool
+	LookbackDays        int
+	DiskWarnGrowthGBDay float64
+	ConnectionWarnPct   float64
+	CacheWarnThreshold  float64
 	// v0.9: storage growth forecasting fields.
 	MinDataPoints     int
 	AlertHorizons     []int
@@ -53,8 +51,7 @@ var (
 		"forecast_disk_growth", "forecast_connection_saturation",
 		"forecast_cache_pressure", "forecast_checkpoint_pressure",
 	}
-	queryForecastCategories    = []string{"forecast_query_volume"}
-	sequenceForecastCategories = []string{"forecast_sequence_exhaustion"}
+	queryForecastCategories = []string{"forecast_query_volume"}
 )
 
 // Forecast runs all forecast rules and returns findings. A data source
@@ -80,12 +77,6 @@ func (f *Forecaster) Forecast(
 	} else {
 		all = append(all, forecastQueryVolume(qAggs, f.cfg)...)
 		evaluated = append(evaluated, queryForecastCategories...)
-	}
-	if seqAggs, err := f.dailySeqAggs(ctx); err != nil {
-		f.logFn("WARN", "forecaster: seq aggs: %v", err)
-	} else {
-		all = append(all, forecastSequenceExhaustion(seqAggs, f.cfg)...)
-		evaluated = append(evaluated, sequenceForecastCategories...)
 	}
 
 	f.mu.Lock()

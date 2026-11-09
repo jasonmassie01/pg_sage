@@ -132,54 +132,6 @@ func TestForecastCachePressure_Insufficient(t *testing.T) {
 
 // --- sequence exhaustion ---
 
-func TestForecastSequenceExhaustion_Growing(t *testing.T) {
-	seqAggs := makeSeqAggs("public.orders_id_seq", 14,
-		func(i int) float64 { return 80 + float64(i)*0.5 },
-	)
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	findings := forecastSequenceExhaustion(seqAggs, cfg)
-	if len(findings) == 0 {
-		t.Fatal("expected sequence exhaustion finding")
-	}
-	if findings[0].ObjectIdentifier != "public.orders_id_seq" {
-		t.Errorf(
-			"identifier = %q",
-			findings[0].ObjectIdentifier,
-		)
-	}
-}
-
-func TestForecastSequenceExhaustion_Flat(t *testing.T) {
-	seqAggs := makeSeqAggs("public.orders_id_seq", 14,
-		func(_ int) float64 { return 10 },
-	)
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	findings := forecastSequenceExhaustion(seqAggs, cfg)
-	if len(findings) != 0 {
-		t.Error("expected no findings for flat sequence")
-	}
-}
-
-func TestForecastSequenceExhaustion_Insufficient(t *testing.T) {
-	seqAggs := makeSeqAggs("public.orders_id_seq", 3,
-		func(i int) float64 { return 90 + float64(i)*5 },
-	)
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	findings := forecastSequenceExhaustion(seqAggs, cfg)
-	if len(findings) != 0 {
-		t.Error("expected no findings for insufficient data")
-	}
-}
-
 // --- query volume ---
 
 func TestForecastQueryVolume_HighGrowth(t *testing.T) {
@@ -304,20 +256,6 @@ func makeQueryAggs(
 		aggs[i] = DayQueryAgg{
 			Day:        time.Now().AddDate(0, 0, -n+i),
 			TotalCalls: fill(i),
-		}
-	}
-	return aggs
-}
-
-func makeSeqAggs(
-	name string, n int, pctFn func(int) float64,
-) []DaySeqAgg {
-	aggs := make([]DaySeqAgg, n)
-	for i := range aggs {
-		aggs[i] = DaySeqAgg{
-			Day:     time.Now().AddDate(0, 0, -n+i),
-			SeqName: name,
-			PctUsed: pctFn(i),
 		}
 	}
 	return aggs

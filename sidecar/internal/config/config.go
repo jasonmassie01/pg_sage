@@ -335,13 +335,11 @@ type AutoExplainConfig struct {
 }
 
 type ForecasterConfig struct {
-	Enabled              bool    `yaml:"enabled"`
-	LookbackDays         int     `yaml:"lookback_days"`
-	DiskWarnGrowthGBDay  float64 `yaml:"disk_warn_growth_gb_day"`
-	ConnectionWarnPct    float64 `yaml:"connection_warn_pct"`
-	CacheWarnThreshold   float64 `yaml:"cache_warn_threshold"`
-	SequenceWarnDays     int     `yaml:"sequence_warn_days"`
-	SequenceCriticalDays int     `yaml:"sequence_critical_days"`
+	Enabled             bool    `yaml:"enabled"`
+	LookbackDays        int     `yaml:"lookback_days"`
+	DiskWarnGrowthGBDay float64 `yaml:"disk_warn_growth_gb_day"`
+	ConnectionWarnPct   float64 `yaml:"connection_warn_pct"`
+	CacheWarnThreshold  float64 `yaml:"cache_warn_threshold"`
 
 	// v0.9 fields
 	MinDataPoints     int     `yaml:"min_data_points" doc:"Minimum data points required before generating a forecast. Default: 24."`
@@ -996,17 +994,15 @@ func newDefaults() *Config {
 			PreferSessionLoad:      true,
 		},
 		Forecaster: ForecasterConfig{
-			Enabled:              true,
-			LookbackDays:         DefaultForecasterLookbackDays,
-			DiskWarnGrowthGBDay:  DefaultForecasterDiskWarnGBDay,
-			ConnectionWarnPct:    DefaultForecasterConnectionPct,
-			CacheWarnThreshold:   DefaultForecasterCacheThreshold,
-			SequenceWarnDays:     DefaultForecasterSeqWarnDays,
-			SequenceCriticalDays: DefaultForecasterSeqCritDays,
-			MinDataPoints:        DefaultForecasterMinDataPoints,
-			AlertHorizons:        []int{30, 7, 3},
-			DiskCapacityBytes:    0,
-			MinRSquared:          DefaultForecasterMinRSquared,
+			Enabled:             true,
+			LookbackDays:        DefaultForecasterLookbackDays,
+			DiskWarnGrowthGBDay: DefaultForecasterDiskWarnGBDay,
+			ConnectionWarnPct:   DefaultForecasterConnectionPct,
+			CacheWarnThreshold:  DefaultForecasterCacheThreshold,
+			MinDataPoints:       DefaultForecasterMinDataPoints,
+			AlertHorizons:       []int{30, 7, 3},
+			DiskCapacityBytes:   0,
+			MinRSquared:         DefaultForecasterMinRSquared,
 		},
 		// LogWatch defaults were previously absent here, so with
 		// logwatch enabled but no explicit values, MaxLinesPerCycle and

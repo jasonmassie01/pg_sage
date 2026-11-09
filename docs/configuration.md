@@ -1476,7 +1476,15 @@ each series and projects when the series reaches its limit:
 | A table 1.25 times past its freeze maximum | its effective `autovacuum_freeze_max_age` (the table's own setting when lower) | `forecast_wraparound_runway` (the table) | wraparound runway |
 | Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it; `0`, the default, means undeclared: nothing auto-detects capacity, so there is no disk runway and no disk-full credit) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
 | WAL a slot retains | `max_slot_wal_keep_size` when it is set, else the WAL custodian's 10 GiB ceiling | `forecast_wal_runway` (`slot:<name>`) | disk/WAL runway |
-| A sequence's last value | the lower of its maximum and its owning integer column's maximum | `forecast_sequence_runway` (the sequence) | sequence runway |
+| A sequence's last value | ascending: the lower of its maximum and its owning integer column's maximum; descending: the higher of its minimum and the column's minimum (a `CYCLE` sequence wraps and is never projected) | `forecast_sequence_runway` (the sequence) | sequence runway |
+
+The sequence runway is pg_sage's only sequence forecast: the forecaster's
+`forecast_sequence_exhaustion` rule, which measured each sequence against its own range
+and so missed a bigint sequence feeding an int4 column, is retired, and upgrading resolves
+its open findings (`detail.resolved_reason`: superseded by `forecast_sequence_runway`).
+Each reading lists the 50 used sequences nearest their limit plus up to 50 more that
+already have samples in the lookback, so a sampled sequence keeps its series when others
+overtake it.
 
 A projection needs `sre.runways.min_samples` samples over at least
 `sre.runways.min_span_minutes`. Disk and slot projections also need a steady trend (a line
@@ -1490,7 +1498,7 @@ when the lookback holds too few samples, too short a span or an unknown rate, or
 and gains `detail.stale = true`, `detail.stale_reason` (`unmeasured` or `no_samples`) and
 `detail.stale_since`; the next measured projection replaces the detail and clears them. A
 replication slot or sequence is held only while the current reading still lists it, so the
-finding of a dropped slot or sequence (or one that fell out of the top sequences) resolves.
+finding of a dropped slot or sequence (or one past the 50 kept sequences) resolves.
 While the slots cannot be read, an open slot finding without samples is held too.
 When the trends read reaches its row cap, the categories it may have cut are not resolved
 until it fits again (logged once). A standby samples nothing (it is read-only).
@@ -1857,6 +1865,11 @@ over `lookback_days` of system snapshots and needs 7 days of data for each trend
 - Days without backend counts or `max_connections` are left out of the connection
   trend, and days without a checkpoint count are left out of the checkpoint trend,
   whose hourly rate spans the days since the previous counted day.
+- Sequences are forecast by the runway monitor (`sre.runways.sequence_horizon_days`
+  and `sequence_critical_days`, see
+  [Runways and pre-incident investigations](#runways-and-pre-incident-investigations)).
+  The retired `forecaster.sequence_warn_days` and `forecaster.sequence_critical_days`
+  still load, with a warning each, and have no effect; remove them.
 
 ### Retention
 

@@ -102,8 +102,6 @@ forecaster:
   disk_warn_growth_gb_day: 0.1
   connection_warn_pct: 50
   cache_warn_threshold: 0.99
-  sequence_warn_days: 90
-  sequence_critical_days: 30
 
 tuner:
   enabled: true

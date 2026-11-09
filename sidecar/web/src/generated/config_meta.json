@@ -1081,18 +1081,6 @@
     "doc": "Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5.",
     "class": "derivable"
   },
-  "forecaster.sequence_critical_days": {
-    "type": "int",
-    "default": 30,
-    "doc": "",
-    "class": "derivable"
-  },
-  "forecaster.sequence_warn_days": {
-    "type": "int",
-    "default": 90,
-    "doc": "",
-    "class": "derivable"
-  },
   "history.store": {
     "type": "string",
     "default": "monitored",

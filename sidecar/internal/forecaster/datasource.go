@@ -36,14 +36,6 @@ type DayQueryAgg struct {
 	TotalCalls float64
 }
 
-// DaySeqAgg holds daily aggregated sequence usage.
-type DaySeqAgg struct {
-	Day      time.Time
-	SeqName  string
-	PctUsed  float64
-	MaxValue int64
-}
-
 const systemAggsSQL = `/* pg_sage */
 SELECT date_trunc('day', collected_at) AS day,
        -- db_size_bytes is null until pg_database_size succeeds; legacy
@@ -139,34 +131,11 @@ func QueryDailyQueryAggs(
 	return aggs, nil
 }
 
-// QueryDailySeqAggs returns daily sequence usage aggregates (a one-off
-// read: a Forecaster remembers the decoded samples across runs).
-func QueryDailySeqAggs(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	lookbackDays int,
-) ([]DaySeqAgg, error) {
-	aggs, err := (&dayHistory{}).seqAggs(ctx, pool, lookbackDays)
-	if err != nil {
-		return nil, fmt.Errorf("query seq aggs: %w", err)
-	}
-	return aggs, nil
-}
-
 // dailyQueryAggs is QueryDailyQueryAggs over the Forecaster's samples.
 func (f *Forecaster) dailyQueryAggs(ctx context.Context) ([]DayQueryAgg, error) {
 	aggs, err := f.history.queryAggs(ctx, f.pool, f.cfg.LookbackDays)
 	if err != nil {
 		return nil, fmt.Errorf("query query aggs: %w", err)
-	}
-	return aggs, nil
-}
-
-// dailySeqAggs is QueryDailySeqAggs over the Forecaster's samples.
-func (f *Forecaster) dailySeqAggs(ctx context.Context) ([]DaySeqAgg, error) {
-	aggs, err := f.history.seqAggs(ctx, f.pool, f.cfg.LookbackDays)
-	if err != nil {
-		return nil, fmt.Errorf("query seq aggs: %w", err)
 	}
 	return aggs, nil
 }

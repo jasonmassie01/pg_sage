@@ -183,56 +183,6 @@ func cacheDecliningFinding(smoothed float64, reg RegressionResult) analyzer.Find
 	}
 }
 
-// forecastSequenceExhaustion projects when sequences will reach
-// 100% usage based on linear trend.
-func forecastSequenceExhaustion(
-	seqAggs []DaySeqAgg, cfg ForecasterConfig,
-) []analyzer.Finding {
-	grouped := groupSeqAggs(seqAggs)
-
-	var findings []analyzer.Finding
-	for name, aggs := range grouped {
-		if len(aggs) < minDataPoints {
-			continue
-		}
-
-		points := seqToDataPoints(aggs)
-		reg := LinearRegression(points)
-		current := aggs[len(aggs)-1].PctUsed
-		days := DaysUntilThreshold(current, reg.Slope, 100.0)
-
-		severity := seqSeverity(days, cfg)
-		if severity == "" {
-			continue
-		}
-
-		findings = append(findings, analyzer.Finding{
-			Category:         "forecast_sequence_exhaustion",
-			Severity:         severity,
-			ObjectType:       "sequence",
-			ObjectIdentifier: name,
-			Title: fmt.Sprintf(
-				"Sequence %s will exhaust in %.0f days",
-				name, days,
-			),
-			Detail: map[string]any{
-				"forecast_type": "sequence_exhaustion",
-				"current_pct":   current,
-				"slope_per_day": reg.Slope,
-				"days_until":    days,
-				"r_squared":     reg.R2,
-			},
-			Recommendation: fmt.Sprintf(
-				"Sequence %s is projected to exhaust. "+
-					"Consider ALTER SEQUENCE ... MAXVALUE "+
-					"or switching to bigint.",
-				name,
-			),
-		})
-	}
-	return findings
-}
-
 // forecastQueryVolume flags rapid week-over-week query growth.
 func forecastQueryVolume(
 	qAggs []DayQueryAgg, cfg ForecasterConfig,
@@ -344,33 +294,6 @@ func sysToDataPoints(
 	return points
 }
 
-// seqToDataPoints converts sequence aggregates to regression points.
-func seqToDataPoints(aggs []DaySeqAgg) []DataPoint {
-	if len(aggs) == 0 {
-		return nil
-	}
-	origin := aggs[0].Day
-	points := make([]DataPoint, len(aggs))
-	for i, a := range aggs {
-		points[i] = DataPoint{
-			X: a.Day.Sub(origin).Hours() / 24,
-			Y: a.PctUsed,
-		}
-	}
-	return points
-}
-
-// groupSeqAggs groups sequence aggregates by sequence name.
-func groupSeqAggs(
-	aggs []DaySeqAgg,
-) map[string][]DaySeqAgg {
-	m := make(map[string][]DaySeqAgg)
-	for _, a := range aggs {
-		m[a.SeqName] = append(m[a.SeqName], a)
-	}
-	return m
-}
-
 // severityByDays returns severity based on projected days until
 // threshold. Empty string means no finding needed.
 func severityByDays(days float64) string {
@@ -383,19 +306,5 @@ func severityByDays(days float64) string {
 		return "critical"
 	default:
 		return "warning"
-	}
-}
-
-// seqSeverity determines severity for sequence exhaustion.
-func seqSeverity(days float64, cfg ForecasterConfig) string {
-	switch {
-	case math.IsInf(days, 1):
-		return ""
-	case days <= float64(cfg.SequenceCriticalDays):
-		return "critical"
-	case days <= float64(cfg.SequenceWarnDays):
-		return "warning"
-	default:
-		return ""
 	}
 }
