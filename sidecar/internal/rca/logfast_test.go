@@ -358,3 +358,34 @@ func TestLogSignalTickerRunSurvivesTickErrors(t *testing.T) {
 		t.Fatalf("Interval() = %s", lt.Interval())
 	}
 }
+
+// Boundary: the watcher emits one overload signal per lossy drain (about
+// every second), so the cycle's incident must report their sum, not only
+// the last drain's loss.
+func TestOverloadIncidentSumsTheCycleDrains(t *testing.T) {
+	now := time.Now()
+	drain := func(at time.Time, queue, capped int) *Signal {
+		return &Signal{ID: SignalLogWatcherOverloaded, FiredAt: at,
+			Severity: "warning", Metrics: map[string]any{
+				"dropped_lines": queue + capped, "queue_overflow_lines": queue,
+				"classifier_cap_lines": capped}}
+	}
+	eng := testEngine()
+	eng.SetLogSource(&mockLogSource{signals: []*Signal{
+		drain(now.Add(-2*time.Second), 3000, 0),
+		drain(now, 4000, 25)}})
+	inc := requireOne(t, eng.Analyze(quietSnapshot(), quietSnapshot(), testConfig(), nil))
+	if !strings.Contains(inc.RootCause, "7025 log lines dropped") {
+		t.Fatalf("root cause %q, want the cycle total 7025", inc.RootCause)
+	}
+	if ev := inc.CausalChain[0].Evidence; ev != "queue_overflow=7000 classifier_cap=25" {
+		t.Fatalf("evidence = %q", ev)
+	}
+	if !inc.LastDetectedAt.Equal(now) && !inc.DetectedAt.Equal(now) {
+		t.Fatalf("detected %v / last %v, want the latest drain %v",
+			inc.DetectedAt, inc.LastDetectedAt, now)
+	}
+	if sumOverloadSignals([]*Signal{nil, diskFullSignal()}) != nil {
+		t.Fatal("no overload signal must sum to nil")
+	}
+}

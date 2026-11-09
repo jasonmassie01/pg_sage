@@ -33,7 +33,9 @@ type CriticalLogSource interface {
 // signals among signals, without counting an analyzer cycle, and returns
 // the open incidents it touched. Other signals are ignored. The replay and
 // database filters of the analyzer cycle apply. An occurrence is counted
-// once per analyzer-cycle window, as the cycle itself would.
+// once per analyzer-cycle window, as the cycle itself would, and that first
+// sighting is also checked against recent pg_sage actions: the signals the
+// fast path takes never reach the cycle's self-action correlation.
 func (e *Engine) ObserveLogSignals(
 	ctx context.Context, signals []*Signal,
 ) []Incident {
@@ -41,27 +43,61 @@ func (e *Engine) ObserveLogSignals(
 		return nil
 	}
 	e.syncResolved(ctx)
+	touched, fresh := e.recordLogSignals(signals)
+	e.correlateSelfActions(ctx, fresh)
+	return touched
+}
+
+// recordLogSignals merges the critical log signals' incidents under e.mu.
+// It returns the open incidents touched and the detections that were the
+// first sighting of their signals since the last analyzer cycle.
+func (e *Engine) recordLogSignals(signals []*Signal) (touched, fresh []Incident) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	critical := criticalSignals(e.filterLogSignals(signals))
 	if len(critical) == 0 {
-		return nil
+		return nil, nil
 	}
 	if e.fastFired == nil {
 		e.fastFired = make(map[string]bool)
 	}
-	var touched []Incident
 	for _, inc := range e.runLogDecisionTrees(critical) {
 		inc.DatabaseName = e.databaseName
-		e.merge(&inc, !anyFired(inc.SignalIDs, e.fastFired))
+		first := !anyFired(inc.SignalIDs, e.fastFired)
+		e.merge(&inc, first)
 		for _, id := range inc.SignalIDs {
 			e.fastFired[id] = true
+		}
+		if first {
+			fresh = append(fresh, inc)
 		}
 		if open, ok := e.openByIdentity(identityString(&inc)); ok {
 			touched = append(touched, open)
 		}
 	}
-	return touched
+	return touched, fresh
+}
+
+// correlateSelfActions attributes fast-path detections to recent pg_sage
+// actions exactly as commitCycle does (create_index -> log_disk_full,
+// set_work_mem -> log_out_of_memory, and the anti-oscillation manual
+// review). The action store is read outside e.mu; a read error leaves the
+// detections uncorrelated, as in the cycle.
+func (e *Engine) correlateSelfActions(ctx context.Context, fresh []Incident) {
+	if len(fresh) == 0 {
+		return
+	}
+	e.mu.Lock()
+	plan := cyclePlan{incidents: fresh, actionStore: e.actionStore,
+		correlator: e.correlator}
+	e.mu.Unlock()
+	actions := e.fetchSageActions(ctx, plan)
+	if !actions.ok || len(actions.recent) == 0 {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.applySelfActionCorrelation(plan, actions)
 }
 
 func criticalSignals(signals []*Signal) []*Signal {
@@ -69,6 +105,31 @@ func criticalSignals(signals []*Signal) []*Signal {
 	for _, s := range signals {
 		if s != nil && s.Severity == "critical" {
 			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// sumOverloadSignals folds every log_watcher_overloaded signal of one
+// analyzer cycle into one: the watcher emits one per lossy drain (about
+// every second), so the incident reports the cycle's total loss, not only
+// the last drain's. It returns nil when there is none.
+func sumOverloadSignals(signals []*Signal) *Signal {
+	var out *Signal
+	keys := []string{"dropped_lines", "queue_overflow_lines", "classifier_cap_lines"}
+	for _, s := range signals {
+		if s == nil || s.ID != SignalLogWatcherOverloaded {
+			continue
+		}
+		if out == nil {
+			out = &Signal{ID: s.ID, Severity: s.Severity,
+				Metrics: make(map[string]any, len(keys))}
+		}
+		if s.FiredAt.After(out.FiredAt) {
+			out.FiredAt = s.FiredAt
+		}
+		for _, k := range keys {
+			out.Metrics[k] = intMetric(out, k) + intMetric(s, k)
 		}
 	}
 	return out

@@ -18,7 +18,7 @@ func (e *Engine) runLogDecisionTrees(signals []*Signal) []Incident {
 	incidents = append(incidents, e.logTreesCriticalP0(sigMap)...)
 	incidents = append(incidents, e.logTreesWarningP1(sigMap)...)
 	incidents = append(incidents, logTreesWraparound(sigMap)...)
-	if s, ok := sigMap[SignalLogWatcherOverloaded]; ok {
+	if s := sumOverloadSignals(signals); s != nil {
 		incidents = append(incidents, logTreeWatcherOverloaded(s))
 	}
 	return incidents
