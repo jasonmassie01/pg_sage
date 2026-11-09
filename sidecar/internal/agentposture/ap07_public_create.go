@@ -28,13 +28,14 @@ ORDER BY n.nspname
 LIMIT $1`)
 
 func (ap07) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap07SQL, maxRows)
+	lim := in.capRows("schemas", maxRows)
+	rows, err := in.Q.Query(ctx, ap07SQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read schema ACLs: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var schema string
 		if err := rows.Scan(&schema); err != nil {
 			return nil, fmt.Errorf("read schema ACLs: %w", err)

@@ -42,13 +42,14 @@ type ap04Row struct {
 }
 
 func (ap04) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap04SQL, in.Env.ExposedOIDs(), maxRows)
+	lim := in.capRows("policies", maxRows)
+	rows, err := in.Q.Query(ctx, ap04SQL, in.Env.ExposedOIDs(), lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read permissive policies: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var r ap04Row
 		if err := rows.Scan(&r.schema, &r.table, &r.policy, &r.cmd, &r.roles, &r.rls,
 			&r.qual, &r.check); err != nil {

@@ -3,6 +3,7 @@ package agentposture
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -238,5 +239,68 @@ func TestFingerprint_ChangesWithPostureRelevantCatalogOnly(t *testing.T) {
 			t.Errorf("fingerprint unchanged after %s", strings.SplitN(c, " ", 4)[:3])
 		}
 		prev = now
+	}
+}
+
+// ap03Monitor monitors f's database with AP-03 alone, f's exposed role,
+// the clock *now and its log lines in *logged.
+func ap03Monitor(t *testing.T, f *fixture, now *time.Time, logged *[]string) *Monitor {
+	t.Helper()
+	ap03, _ := Default().Get("AP-03")
+	reg := NewRegistry()
+	if err := reg.Register(ap03); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.ExposedRoles, cfg.ClientPatterns = []string{f.exposed}, nil
+	return NewMonitor(f.pool, MonitorOptions{Registry: reg, Config: func() Config { return cfg },
+		Now: func() time.Time { return *now },
+		Logf: func(level, format string, args ...any) {
+			*logged = append(*logged, level+" "+fmt.Sprintf(format, args...))
+		}})
+}
+
+// State transitions: a truncated AP-03 reports the rows it read but is
+// neither evaluated nor resolvable, so an open finding on a table past
+// the cut stays open; the next complete run evaluates it again.
+func TestMonitor_TruncatedDetectorKeepsFindingsPastTheCutOpen(t *testing.T) {
+	f := newFixture(t)
+	withLimit(t, &maxRows, 3)
+	f.tables(1, 4, f.exposed)
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.Local)
+	var logged []string
+	m := ap03Monitor(t, f, &now, &logged)
+	got, err := m.Detect(f.ctx)
+	if err != nil || len(got) != 3 {
+		t.Fatalf("truncated run: %d findings, %v; want the first 3", len(got), err)
+	}
+	for _, fd := range got {
+		if fd.ObjectIdentifier == f.q("t04") {
+			t.Fatalf("a row past the cut was reported: %+v", fd)
+		}
+	}
+	if c := m.LastEvaluatedCategories(); slices.Contains(c, "agent_posture:AP-03") {
+		t.Fatalf("evaluated = %v: t04's open finding would resolve", c)
+	}
+	if c := m.LastIncompleteCategories(); !slices.Equal(c, []string{"agent_posture:AP-03"}) {
+		t.Fatalf("incomplete = %v, want AP-03 so its emitted category is not resolvable", c)
+	}
+	if !slices.ContainsFunc(logged, func(l string) bool {
+		return strings.HasPrefix(l, "WARN") && strings.Contains(l, "AP-03") &&
+			strings.Contains(l, "first 3 rows")
+	}) {
+		t.Fatalf("logged %q, want a warning naming AP-03 and its row limit", logged)
+	}
+
+	withLimit(t, &maxRows, 50000)
+	now = now.Add(24 * time.Hour)
+	if got, err = m.Detect(f.ctx); err != nil || len(got) != 4 {
+		t.Fatalf("complete run: %d findings, %v; want 4", len(got), err)
+	}
+	if c := m.LastEvaluatedCategories(); !slices.Contains(c, "agent_posture:AP-03") {
+		t.Fatalf("evaluated = %v after a complete run, want AP-03", c)
+	}
+	if c := m.LastIncompleteCategories(); len(c) != 0 {
+		t.Fatalf("incomplete = %v after a complete run", c)
 	}
 }

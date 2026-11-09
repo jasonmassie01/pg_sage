@@ -28,13 +28,20 @@ type MonitorOptions struct {
 // Other cycles read only the fingerprint and report nothing, so the open
 // posture findings stay as they are.
 type Monitor struct {
-	pool      *pgxpool.Pool
-	opts      MonitorOptions
-	mu        sync.Mutex
-	st        cadence
-	evaluated []string
-	obs       *ObservationStore
+	pool       *pgxpool.Pool
+	opts       MonitorOptions
+	mu         sync.Mutex
+	st         cadence
+	evaluated  []string
+	incomplete []string
+	obs        *ObservationStore
 }
+
+// The analyzer finds both through type assertions on the detector.
+var (
+	_ analyzer.EvaluatedCategoryReporter  = (*Monitor)(nil)
+	_ analyzer.IncompleteCategoryReporter = (*Monitor)(nil)
+)
 
 // NewMonitor returns a monitor of pool's database.
 func NewMonitor(pool *pgxpool.Pool, opts MonitorOptions) *Monitor {
@@ -54,7 +61,7 @@ func NewMonitor(pool *pgxpool.Pool, opts MonitorOptions) *Monitor {
 func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.evaluated = nil
+	m.evaluated, m.incomplete = nil, nil
 	if m.pool == nil {
 		return nil, ErrNoPool
 	}
@@ -77,6 +84,8 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 		m.st.record(fp, now)
 	}
 	m.evaluated = res.EvaluatedCategories()
+	m.incomplete = res.TruncatedCategories()
+	m.logTruncated(res.Outcomes)
 	found := res.Findings()
 	out := make([]analyzer.Finding, len(found))
 	for i, f := range found {
@@ -101,6 +110,27 @@ func (m *Monitor) logFailures(failed map[string]error) bool {
 		again = again || transient(failed[id])
 	}
 	return again
+}
+
+// logTruncated warns about each detector that hit a row limit: its
+// findings past the limit are neither reported nor resolved.
+func (m *Monitor) logTruncated(outs []Outcome) {
+	for _, o := range outs {
+		if len(o.Truncated) > 0 {
+			m.opts.Logf("WARN", "agent posture: %s read only part of the catalog (%s); "+
+				"its open findings stay open until a complete run", o.Detector, o.Note())
+		}
+	}
+}
+
+// LastIncompleteCategories are the categories the latest Detect reported
+// findings for but did not fully evaluate, because a read hit its row
+// limit (analyzer.IncompleteCategoryReporter): their open findings must
+// not resolve, although the category was emitted.
+func (m *Monitor) LastIncompleteCategories() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.incomplete...)
 }
 
 // LastEvaluatedCategories are the categories the latest Detect evaluated

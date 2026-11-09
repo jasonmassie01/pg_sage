@@ -61,7 +61,8 @@ func (ap09) Detect(ctx context.Context, in Input) ([]Finding, error) {
 
 // ap09Dblink is one finding for the dblink functions exposed roles can run.
 func ap09Dblink(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap09DblinkSQL, apbMaxRows)
+	lim := in.capRows("dblink", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap09DblinkSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read dblink function privileges: %w", err)
 	}
@@ -69,7 +70,7 @@ func ap09Dblink(ctx context.Context, in Input) ([]Finding, error) {
 	var fix []string
 	var ev []Evidence
 	var reached, granted []Role
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var fn string
 		var exec, usage []uint32
 		if err := rows.Scan(&fn, &exec, &usage); err != nil {

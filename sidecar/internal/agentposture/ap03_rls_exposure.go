@@ -60,14 +60,21 @@ type ap03Row struct {
 	bases              []string // views: base tables without RLS
 }
 
+// ap03Item is one exposed relation and the exposed roles it reaches.
+type ap03Item struct {
+	r     ap03Row
+	reach []Role
+}
+
 func (ap03) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap03SQL, in.Env.ExposedOIDs(), maxRows)
+	lim := in.capRows("relations", maxRows)
+	rows, err := in.Q.Query(ctx, ap03SQL, in.Env.ExposedOIDs(), lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read relation grants to exposed roles: %w", err)
 	}
 	defer rows.Close()
-	var out []Finding
-	for rows.Next() {
+	var found []ap03Item
+	for rows.Next() && !lim.past() {
 		var r ap03Row
 		if err := rows.Scan(&r.schema, &r.name, &r.kind, &r.grantees, &r.grants, &r.usage,
 			&r.bases); err != nil {
@@ -77,9 +84,16 @@ func (ap03) Detect(ctx context.Context, in Input) ([]Finding, error) {
 		if len(reach) == 0 || (r.kind == "v" && len(r.bases) == 0) {
 			continue
 		}
-		out = append(out, ap03Finding(in.Env, r, reach))
+		found = append(found, ap03Item{r: r, reach: reach})
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read relation grants to exposed roles: %w", err)
+	}
+	return groupBySchema(found, func(i ap03Item) string { return i.r.schema },
+		func(i ap03Item) Finding { return ap03Finding(in.Env, i.r, i.reach) },
+		func(schema string, is []ap03Item) Finding {
+			return ap03SchemaFinding(in.Env, schema, is)
+		}), nil
 }
 
 func ap03Finding(env Env, r ap03Row, reach []Role) Finding {
@@ -116,6 +130,50 @@ func ap03Finding(env Env, r ap03Row, reach []Role) Finding {
 	f.Caveat = "Enabling row-level security without a policy hides every row from " +
 		"non-owner roles; an application using the table stops seeing data."
 	return f
+}
+
+// ap03SchemaFinding is one finding for a schema with more than
+// groupThreshold exposed relations. Its fix revokes the schema's tables
+// from every role that holds one of them (PUBLIC included) and lists the
+// RLS alternative for the first tables.
+func ap03SchemaFinding(env Env, schema string, items []ap03Item) Finding {
+	var reach, targets []Role
+	objs := make([]string, len(items))
+	ev := make([]Evidence, len(items))
+	fix := []string{fmt.Sprintf("-- %d tables and views in schema %s are reachable "+
+		"without row-level security.", len(items), schema),
+		"-- Either write each table's policies and enable row-level security on it",
+		"-- (with RLS on and no policy, every row is hidden), for example:"}
+	for i, it := range items {
+		objs[i] = it.r.schema + "." + it.r.name
+		ev[i] = Evidence{Source: "pg_class.relacl", Ref: objs[i],
+			Detail: grantText(env, it.r.grants)}
+		reach = mergeRoles(reach, it.reach)
+		targets = mergeRoles(targets, revokeTargets(it.reach, it.r.grantees))
+		if it.r.kind != "v" && len(fix) < 3+groupShown {
+			fix = append(fix, "-- ALTER TABLE "+QualifiedName(it.r.schema, it.r.name)+
+				" ENABLE ROW LEVEL SECURITY;")
+		}
+	}
+	fix = append(fix, "-- or, if the schema's tables are not meant for these roles:")
+	for _, r := range targets {
+		fix = append(fix, "REVOKE ALL ON ALL TABLES IN SCHEMA "+QuoteIdent(schema)+
+			" FROM "+grantTarget(r)+";")
+	}
+	return Finding{Severity: Critical, ObjectType: "schema", Object: schema,
+		Title: fmt.Sprintf("%d tables and views in schema %s are reachable by exposed "+
+			"roles without row-level security", len(items), schema),
+		Detail: fmt.Sprintf("%d tables and views in %s are reachable by %s without "+
+			"row-level security, so these roles reach every row: %s.", len(items), schema,
+			roleList(reach), listSome(objs, 10)),
+		Recommendation: "Enable row-level security with policies on each table (and make " +
+			"the views security_invoker on PostgreSQL 15+), or revoke the schema's tables " +
+			"from the exposed roles if they are not meant for them.",
+		FixScript: strings.Join(fix, "\n"),
+		Caveat: "The REVOKE covers every table, view and foreign table in the schema, not " +
+			"only the ones listed: applications using them as these roles lose access. " +
+			"Enabling row-level security without a policy hides every row.",
+		Evidence: groupEvidence("pg_class.relacl", schema, "tables and views", ev)}
 }
 
 func revokeAll(qn string, reach []Role) string {

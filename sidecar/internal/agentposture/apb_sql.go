@@ -11,8 +11,9 @@ import (
 const apbUserSchemas = `n.nspname NOT IN ('pg_catalog', 'information_schema', 'sage')
   AND n.nspname !~ '^pg_toast' AND n.nspname !~ '^pg_temp'`
 
-// apbMaxRows bounds each AP-09..AP-16 catalog read.
-const apbMaxRows = 5000
+// apbMaxRows bounds each AP-09..AP-16 catalog read; a variable so tests
+// can reach the limit with a few rows.
+var apbMaxRows = 5000
 
 // exposedHolders lists the exposed roles that hold a privilege granted to
 // grantees, directly or through PUBLIC.

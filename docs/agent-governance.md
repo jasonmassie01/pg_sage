@@ -326,9 +326,11 @@ itself: posture findings stop at autonomy level L1.
 
   The catalog check uses pg_sage's own hash of roles, memberships, per-role settings, ACLs,
   ownership, row-level security, policies, view rules and extension versions. Data changes,
-  `ANALYZE` and `VACUUM` don't trigger a run.
+  `ANALYZE` and `VACUUM` don't trigger a run, and neither do temporary tables, temporary
+  views or the `pg_temp_N` schemas: posture doesn't read them.
   - Each problem is a finding in `sage.findings` with the category `agent_posture:AP-NN`.
-    It resolves on its own once a completed check no longer sees it.
+    It resolves on its own once a completed check no longer sees it. A check that hit its
+    row limit isn't complete: see [Large catalogs](#large-catalogs).
   - The fix script is stored as `detail.manual_script`, with `detail.proposal_level = L1`.
   - The finding has no `recommended_sql`, so the executor never acts on it.
 
@@ -365,10 +367,10 @@ pg_sage's own role is never counted as an agent.
 |---|---|---|---|
 | AP-01 | An agent role that is superuser or holds `BYPASSRLS`, `CREATEROLE`, `CREATEDB` or `REPLICATION`, or is a member (directly or not) of `pg_execute_server_program`, `pg_write_server_files`, `pg_read_server_files` or `pg_write_all_data` | critical (registered), warning (hint) | `ALTER ROLE … NO…`; `REVOKE <group> FROM …` for direct memberships |
 | AP-02 | Objects owned by an agent role, in this database or the cluster's shared catalogs (from `pg_shdepend`), with up to five named | critical (registered), warning (hint) | `REASSIGN OWNED BY … TO app_owner` |
-| AP-03 | A table with row-level security off that grants `SELECT`, `INSERT`, `UPDATE`, `DELETE` or `TRUNCATE` to an exposed role or `PUBLIC`. Also a view granted to one that runs as its owner over such a table | critical | `ENABLE ROW LEVEL SECURITY` (write the policies first), or `REVOKE ALL … FROM …` |
+| AP-03 | A table with row-level security off that grants `SELECT`, `INSERT`, `UPDATE`, `DELETE` or `TRUNCATE` to an exposed role or `PUBLIC`. Also a view granted to one that runs as its owner over such a table. One finding per schema past 20 | critical | `ENABLE ROW LEVEL SECURITY` (write the policies first), or `REVOKE ALL … FROM …`; per schema `REVOKE ALL ON ALL TABLES IN SCHEMA … FROM …` |
 | AP-04 | A permissive policy for an exposed role or `PUBLIC` whose `USING` or `WITH CHECK` is plain `true` | warning | `ALTER POLICY … USING (<predicate>)`, or `DROP POLICY` |
-| AP-05 | A `SECURITY DEFINER` function or procedure that an exposed role (or `PUBLIC`, the default) can execute, with no `search_path` in its settings | warning | `ALTER FUNCTION … SET search_path = pg_catalog, pg_temp`; optionally `REVOKE EXECUTE` |
-| AP-06 | A view in an exposed schema (one where an exposed role has `USAGE`) over a table with row-level security, without `security_invoker`. On PostgreSQL 14 it's reported as "no security_invoker available" | warning | PostgreSQL 15+: `ALTER VIEW … SET (security_invoker = true)`. PostgreSQL 14: revoke the view from exposed roles |
+| AP-05 | A `SECURITY DEFINER` function or procedure that an exposed role (or `PUBLIC`, the default) can execute, with no `search_path` in its settings. One finding per schema past 20 | warning | `ALTER FUNCTION … SET search_path = pg_catalog, pg_temp`; optionally `REVOKE EXECUTE`; per schema a `DO` block that pins them all |
+| AP-06 | A view in an exposed schema (one where an exposed role has `USAGE`) over a table with row-level security, without `security_invoker`. On PostgreSQL 14 it's reported as "no security_invoker available". One finding per schema past 20 | warning | PostgreSQL 15+: `ALTER VIEW … SET (security_invoker = true)`. PostgreSQL 14: revoke the view from exposed roles |
 | AP-07 | A schema where `PUBLIC` holds `CREATE` (PostgreSQL 14's `public` schema by default) | warning | `REVOKE CREATE ON SCHEMA … FROM PUBLIC` |
 | AP-08 | A non-superuser login role without a non-zero `statement_timeout` or `idle_in_transaction_session_timeout`. Settings count when made for the role (in this database or all), for the database, or in the server configuration where pg_sage's session can see it | info | `ALTER ROLE … SET statement_timeout = '30s'` and `idle_in_transaction_session_timeout = '60s'` |
 | AP-09 | Remote access or host code an exposed role (or `PUBLIC`) can reach: `dblink` functions it can execute, the `postgres_fdw`/`dblink_fdw` wrappers and their servers it can use, a user mapping (stored credentials) for it on such a server, and an untrusted language (`plperlu`, `plpython3u`, `pltclu`, …) marked trusted | critical | `REVOKE EXECUTE ON FUNCTION … FROM …`, `REVOKE USAGE ON FOREIGN DATA WRAPPER/SERVER/LANGUAGE …`, `DROP USER MAPPING FOR … SERVER …` |
@@ -412,6 +414,30 @@ Notes on AP-09 to AP-16:
 On other versions the arm is skipped, and the check's note records why. For example, on
 PostgreSQL 14, AP-06's note reads "arm security_invoker skipped: security_invoker views need
 PostgreSQL 15+".
+
+### Large catalogs
+
+**Row limits.** Each catalog read is bounded: AP-01 to AP-08 read at most 50,000 rows, AP-09
+to AP-16 at most 5,000. A read that reaches its limit is *truncated*:
+- the check's note says so, for example "relations: first 50,000 rows read, later rows not
+  checked";
+- the analyzer logs a warning naming the detector;
+- the findings that were read are reported, but the detector counts as not evaluated, so its
+  open findings stay open (including those on objects past the limit) until a run that reads
+  everything.
+
+**Schema findings.** In one schema, AP-03, AP-05 and AP-06 report at most 20 findings on
+their own. With more than 20, the schema gets one finding instead, with the same severity
+and the object type `schema`:
+- its evidence holds the count and the first 50 objects;
+- its fix script covers the whole schema. AP-03 revokes the schema's tables from the roles
+  that hold them, with `REVOKE ALL ON ALL TABLES IN SCHEMA` (the RLS alternative is listed
+  for the first tables). AP-05 pins the `search_path` of every definer routine in the
+  schema with a `DO` block. AP-06 makes every such view `security_invoker`, or on
+  PostgreSQL 14 revokes them.
+
+When a schema crosses 20, its per-object findings resolve once and the schema finding
+replaces them (and the reverse when it drops back to 20 or fewer).
 
 ## Configuration
 

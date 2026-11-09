@@ -40,14 +40,15 @@ type foreignRow struct {
 // ap09Foreign reports remote wrappers and servers exposed roles can use,
 // and user mappings (stored credentials) of exposed roles on such servers.
 func ap09Foreign(ctx context.Context, in Input) ([]Finding, error) {
+	lim := in.capRows("foreign data", apbMaxRows)
 	rows, err := in.Q.Query(ctx, ap09ForeignSQL, remoteWrappers, in.Env.ExposedOIDs(),
-		apbMaxRows)
+		lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read foreign-data privileges: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var r foreignRow
 		if err := rows.Scan(&r.kind, &r.name, &r.wrapper, &r.usage, &r.mapUser); err != nil {
 			return nil, fmt.Errorf("read foreign-data privileges: %w", err)
@@ -139,14 +140,15 @@ LIMIT $3`)
 // ap09Languages reports untrusted languages marked trusted that exposed
 // roles may use: any function they create runs with the server's rights.
 func ap09Languages(ctx context.Context, in Input) ([]Finding, error) {
+	lim := in.capRows("languages", apbMaxRows)
 	rows, err := in.Q.Query(ctx, ap09LanguageSQL, untrustedLanguages, untrustedHandlers,
-		apbMaxRows)
+		lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read procedural languages: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var lang, handler string
 		var usage []uint32
 		if err := rows.Scan(&lang, &handler, &usage); err != nil {

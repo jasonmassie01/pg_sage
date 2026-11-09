@@ -63,13 +63,14 @@ const (
 )
 
 func (ap08) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap08SQL, in.Env.Self.OID, providerAdminRoles, maxRows)
+	lim := in.capRows("login roles", maxRows)
+	rows, err := in.Q.Query(ctx, ap08SQL, in.Env.Self.OID, providerAdminRoles, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read login role timeouts: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var oid uint32
 		var name string
 		var stmt, idle bool

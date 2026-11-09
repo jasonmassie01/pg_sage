@@ -21,8 +21,9 @@ const notExtensionMember = `NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e
   WHERE e.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND e.objid = c.oid
     AND e.objsubid = 0 AND e.deptype = 'e')`
 
-// maxRows bounds each detector's catalog read.
-const maxRows = 50000
+// maxRows bounds each AP-01..AP-08 catalog read; a variable so tests can
+// reach the limit with a few rows.
+var maxRows = 50000
 
 // reachingRoles lists the exposed roles that hold a privilege granted to
 // grantees (directly or through PUBLIC) and USAGE on its schema (granted

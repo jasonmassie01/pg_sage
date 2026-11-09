@@ -36,13 +36,14 @@ func (ap16) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	for i, h := range hints {
 		oids[i] = h.OID
 	}
-	rows, err := in.Q.Query(ctx, ap16SQL, oids, apbMaxRows)
+	lim := in.capRows("logins", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap16SQL, oids, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read agent-like logins: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var oid uint32
 		var name string
 		if err := rows.Scan(&oid, &name); err != nil {
