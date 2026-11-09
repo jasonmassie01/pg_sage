@@ -16,9 +16,16 @@ const managedChangeInterval = 5 * time.Minute
 // newCloudTelemetry is a variable so tests can stub the credential chains.
 var newCloudTelemetry = func(ctx context.Context, rt *databaseRuntime) (*cloudtel.Runtime,
 	managedparam.Resolver) {
+	return runtimeCloudTelemetry(ctx, rt, defaultCloudDeps())
+}
+
+// runtimeCloudTelemetry resolves the telemetry of rt's database from its
+// host and its own cloud_resource.
+func runtimeCloudTelemetry(ctx context.Context, rt *databaseRuntime,
+	deps cloudDeps) (*cloudtel.Runtime, managedparam.Resolver) {
 	host := rt.spec.Pool.Config().ConnConfig.Host
 	return cloudTelemetryFor(ctx, rt.cfg, rt.provider, host, rt.spec.Name, rt.spec.Shared,
-		rt.spec.Config.CloudResource, defaultCloudDeps())
+		rt.spec.Config.CloudResource, deps)
 }
 
 // initCloudTelemetry resolves the database's managed-cloud telemetry
