@@ -167,4 +167,3 @@ func TestLakebaseFamiliesUnchanged(t *testing.T) {
 func contractListsProvider(c executor.ActionContract, name string) bool {
 	return len(c.ProviderSupport) == 0 || containsString(c.ProviderSupport, name)
 }
-
