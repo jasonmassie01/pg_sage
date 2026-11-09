@@ -77,6 +77,9 @@ func Text(c Card, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\nDatabase: %s | Risk: %s | %s | queue item %d\n", c.Title,
 		c.Database, c.Risk.Tier, expiresIn(c.ExpiresAt, now), c.QueueID)
+	if BackendSignal(c.ActionType) && len(c.Targets) > 0 {
+		fmt.Fprintf(&b, "Target: %s\n", strings.Join(c.Targets, ", "))
+	}
 	if o := c.Origin; o != nil {
 		fmt.Fprintf(&b, "Proposed via %s by %s\n", o.Label, o.By)
 	}

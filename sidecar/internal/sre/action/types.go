@@ -223,6 +223,7 @@ type ApprovalRequest struct {
 	InvestigationID sre.UUID
 	QueueID         int
 	Title           string
+	SQL             string
 	Summary         string
 	Risk            string
 	ExpiresAt       time.Time

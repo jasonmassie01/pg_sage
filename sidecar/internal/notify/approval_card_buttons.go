@@ -6,10 +6,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/chatops"
 )
 
-// withCardButtons appends an approval card's Approve / Reject / Snooze
-// buttons to a Slack payload. Each carries only the card token; the
-// callback is verified and the decider resolved server side.
-func withCardButtons(payload []byte, token string) ([]byte, error) {
+// withCardButtons appends an approval card's Approve / Reject (and, unless
+// the card has none, Snooze) buttons to a Slack payload. Each carries only
+// the card token; the callback is verified and the decider resolved
+// server side.
+func withCardButtons(payload []byte, token string, snooze bool) ([]byte, error) {
 	var msg map[string]any
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return nil, err
@@ -31,21 +32,30 @@ func withCardButtons(payload []byte, token string) ([]byte, error) {
 		"confirm": map[string]any{"type": "plain_text", "text": "Approve"},
 		"deny":    map[string]any{"type": "plain_text", "text": "Cancel"},
 	}
-	msg["blocks"] = append(blocks, map[string]any{"type": "actions",
-		"elements": []any{approve,
-			button("Reject", chatops.SlackCardRejectAction, "danger"),
-			button("Snooze 4h", chatops.SlackCardSnoozeAction, "")}})
+	elements := []any{approve, button("Reject", chatops.SlackCardRejectAction, "danger")}
+	if snooze {
+		elements = append(elements, button("Snooze 4h", chatops.SlackCardSnoozeAction, ""))
+	}
+	msg["blocks"] = append(blocks, map[string]any{"type": "actions", "elements": elements})
 	return json.Marshal(msg)
 }
 
 // cardKeyboard is an approval card's Telegram inline keyboard.
-func cardKeyboard(token string) map[string]any {
+// cardSnooze reports whether a card event offers Snooze.
+func cardSnooze(evt Event) bool {
+	ref, _ := ApprovalCardOf(evt)
+	return !ref.NoSnooze
+}
+
+func cardKeyboard(token string, snooze bool) map[string]any {
 	key := func(text string, d chatops.Decision) map[string]string {
 		return map[string]string{"text": text,
 			"callback_data": chatops.CardCallbackData(d, token)}
 	}
-	return map[string]any{"inline_keyboard": [][]map[string]string{{
-		key("Approve", chatops.DecisionApprove), key("Reject", chatops.DecisionDeny),
-		key("Snooze 4h", chatops.DecisionSnooze),
-	}}}
+	row := []map[string]string{key("Approve", chatops.DecisionApprove),
+		key("Reject", chatops.DecisionDeny)}
+	if snooze {
+		row = append(row, key("Snooze 4h", chatops.DecisionSnooze))
+	}
+	return map[string]any{"inline_keyboard": [][]map[string]string{row}}
 }

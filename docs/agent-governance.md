@@ -13,6 +13,10 @@ self-managed or managed, and needs only pg_sage's usual `pg_monitor` role. Every
 proposes is a SQL script for you to review and run. pg_sage never runs a posture fix
 itself: posture findings stop at autonomy level L1.
 
+Posture says how exposed a database is; it does not decide whether a change runs. Every
+change, an agent's included, passes the policy gate: see [Policy gate](policy-gate.md) for
+its evaluation order and every verdict and reason it records.
+
 ## Where you see it
 
 - **First look.** The catalog-only first look of every new database has an **Agent posture**

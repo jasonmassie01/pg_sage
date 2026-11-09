@@ -141,9 +141,22 @@ family says so (`disk_capacity: provider_metric_unavailable`) and makes no runwa
 | `sage.sre_*` tables | evidence (probe results with hashes), hypotheses, the summary (graph result and model output side by side), the append-only event chain, budget reservations | each investigation |
 | Cases panel, REST API, MCP read tools (`sre_list_incidents`, `sre_get_investigation`, `sre_get_evidence`), export | the stored records, **redacted on every read** | when a signed-in user or MCP principal asks; export needs the operator role |
 | LLM endpoint (`llm.endpoint`) | the model turn's prompt and, in investigator mode, the results of the reads the model asks for (below) | only with an LLM configured and `sre.llm.enabled: true` (default) |
+| Slack and Telegram channels with an `approval_needed` rule | a cancel proposal's approval card: the database, the target (pid, backend start, user), how many sessions it blocks, the cancel SQL and its expiry; never query text. The buttons carry only a single-use card token | when a cancel proposal is queued for approval |
 
 Nothing else leaves: investigations send no notifications of their own, and the probes make no
 network calls.
+
+### Deciding a cancel from chat
+
+A cancel proposal is decided in chat through its approval card, the same protocol as every
+other queued action. The card token works only in the channel it was sent to, only while the
+queued cancel and its target (pid plus backend start) are unchanged, and only until the
+earlier of 15 minutes and the approval request's expiry. The card has Approve and Reject
+and no Snooze. Each callback must carry the provider's signature, come from the channel's
+workspace or chat, be new (replays are refused) and come from a chat user mapped to an
+operator or admin. A Reject records the denial on the proposal at once. The Approve / Deny
+buttons of earlier releases carried only the proposal id; for one release a press of one is
+answered "This button is outdated; open pg_sage to decide" and changes nothing.
 
 ### What is sent to the LLM
 

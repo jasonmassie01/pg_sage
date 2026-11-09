@@ -41,6 +41,7 @@ nav:
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
   - Security: security.md
+  - Policy Gate: policy-gate.md
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md
   - Deployment: deployment.md
   - Azure: azure.md

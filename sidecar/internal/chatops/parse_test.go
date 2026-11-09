@@ -8,9 +8,12 @@ import (
 	"testing"
 )
 
-// Callback payloads carry only a decision and a proposal id; everything
+// Callback payloads carry only a decision and a card token; everything
 // else (who, which team or chat, a replay nonce) comes from the
-// provider's envelope. Anything ambiguous or unknown is malformed.
+// provider's envelope. Anything ambiguous or unknown is malformed. The
+// retired proposal buttons ("sage_approve" / "sage:a:<proposal id>") are
+// still recognised for one release, only to answer that they are outdated
+// (policy-08).
 
 const proposalID = "33333333-3333-4333-8333-333333333333"
 
@@ -33,16 +36,17 @@ func slackPayload(actionID, value string) map[string]any {
 	}
 }
 
-func TestParseSlackApproveAndDeny(t *testing.T) {
+func TestParseSlackLegacyProposalButtonIsOutdated(t *testing.T) {
 	for actionID, want := range map[string]Decision{
-		SlackApproveAction: DecisionApprove, SlackDenyAction: DecisionDeny,
+		LegacySlackApproveAction: DecisionApprove, LegacySlackDenyAction: DecisionDeny,
 	} {
 		got, err := ParseSlack(slackForm(t, slackPayload(actionID, proposalID)))
 		if err != nil {
 			t.Fatalf("%s: %v", actionID, err)
 		}
 		if got.Provider != ProviderSlack || got.TeamID != "T0001" || got.UserID != "U0042" ||
-			got.UserName != "alice" || got.Decision != want || got.ProposalID != proposalID ||
+			got.UserName != "alice" || got.Decision != want || !got.Outdated ||
+			got.CardToken != "" || got.FactToken != "" ||
 			got.ResponseURL != "https://hooks.slack.com/actions/T0001/1/abc" ||
 			got.Nonce != "T0001:U0042:1759320000.123456" {
 			t.Fatalf("%s parsed as %+v", actionID, got)
@@ -56,30 +60,31 @@ func TestParseSlackRejectsMalformed(t *testing.T) {
 		"no payload":       []byte("foo=bar"),
 		"payload not json": []byte(url.Values{"payload": {"{"}}.Encode()),
 		"other type": slackForm(t, func() map[string]any {
-			p := slackPayload(SlackApproveAction, proposalID)
+			p := slackPayload(LegacySlackApproveAction, proposalID)
 			p["type"] = "view_submission"
 			return p
 		}()),
 		"unknown action": slackForm(t, slackPayload("sage_terminate", proposalID)),
-		"bad proposal id": slackForm(t, slackPayload(SlackApproveAction,
+		"empty value":    slackForm(t, slackPayload(LegacySlackDenyAction, "")),
+		"bad proposal id": slackForm(t, slackPayload(LegacySlackApproveAction,
 			"'; DROP TABLE x; --")),
 		"no actions": slackForm(t, func() map[string]any {
-			p := slackPayload(SlackApproveAction, proposalID)
+			p := slackPayload(LegacySlackApproveAction, proposalID)
 			p["actions"] = []any{}
 			return p
 		}()),
 		"two actions": slackForm(t, func() map[string]any {
-			p := slackPayload(SlackApproveAction, proposalID)
+			p := slackPayload(LegacySlackApproveAction, proposalID)
 			p["actions"] = append(p["actions"].([]any), p["actions"].([]any)[0])
 			return p
 		}()),
 		"no user": slackForm(t, func() map[string]any {
-			p := slackPayload(SlackApproveAction, proposalID)
+			p := slackPayload(LegacySlackApproveAction, proposalID)
 			delete(p, "user")
 			return p
 		}()),
 		"no team": slackForm(t, func() map[string]any {
-			p := slackPayload(SlackApproveAction, proposalID)
+			p := slackPayload(LegacySlackApproveAction, proposalID)
 			delete(p, "team")
 			return p
 		}()),
@@ -100,18 +105,18 @@ func telegramUpdate(data string) []byte {
 	return raw
 }
 
-func TestParseTelegramCallback(t *testing.T) {
-	for d, want := range map[Decision]Decision{DecisionApprove: DecisionApprove,
-		DecisionDeny: DecisionDeny} {
-		got, err := ParseTelegram(telegramUpdate(CallbackData(d, proposalID)))
+func TestParseTelegramLegacyProposalButtonIsOutdated(t *testing.T) {
+	for data, want := range map[string]Decision{"sage:a:" + proposalID: DecisionApprove,
+		"sage:d:" + strings.ToUpper(proposalID): DecisionDeny} {
+		got, err := ParseTelegram(telegramUpdate(data))
 		if err != nil {
-			t.Fatalf("%s: %v", d, err)
+			t.Fatalf("%s: %v", data, err)
 		}
 		if got.Provider != ProviderTelegram || got.UserID != "12345" ||
 			got.UserName != "bob" || got.ChatID != "-1001" || got.CallbackID != "cbq-1" ||
-			got.MessageID != 77 || got.Decision != want || got.ProposalID != proposalID ||
-			got.Nonce != "update:987654" || got.TeamID != "" {
-			t.Fatalf("%s parsed as %+v", d, got)
+			got.MessageID != 77 || got.Decision != want || !got.Outdated ||
+			got.CardToken != "" || got.Nonce != "update:987654" || got.TeamID != "" {
+			t.Fatalf("%s parsed as %+v", data, got)
 		}
 	}
 }
@@ -141,11 +146,15 @@ func TestParseTelegramRejectsMalformed(t *testing.T) {
 	}
 }
 
-func TestCallbackDataFitsTelegramsLimit(t *testing.T) {
-	for _, d := range []Decision{DecisionApprove, DecisionDeny} {
-		data := CallbackData(d, proposalID)
-		if len(data) > 64 || !strings.HasSuffix(data, proposalID) {
-			t.Fatalf("callback data %q (%d bytes)", data, len(data))
-		}
+// A current card button is never read as an outdated one.
+func TestParseCardButtonsAreNotOutdated(t *testing.T) {
+	token := "AbCdEfGhIjKlMnOpQrStUv"
+	slack, err := ParseSlack(slackForm(t, slackPayload(SlackCardApproveAction, token)))
+	if err != nil || slack.Outdated || slack.CardToken != token {
+		t.Fatalf("slack card button = %+v, %v", slack, err)
+	}
+	tg, err := ParseTelegram(telegramUpdate(CardCallbackData(DecisionDeny, token)))
+	if err != nil || tg.Outdated || tg.CardToken != token || tg.Decision != DecisionDeny {
+		t.Fatalf("telegram card button = %+v, %v", tg, err)
 	}
 }

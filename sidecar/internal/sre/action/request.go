@@ -35,7 +35,8 @@ func (a *ActionService) RequestExecution(ctx context.Context, id sre.UUID,
 		return p, fmt.Errorf("%w: %s", ErrPolicyBlocked, verdict)
 	}
 	item, err := a.queue.Enqueue(ctx, ApprovalItem{ProposalID: p.ID,
-		InvestigationID: p.InvestigationID, PID: p.Target.PID, SQL: p.SQL,
+		InvestigationID: p.InvestigationID, PID: p.Target.PID,
+		BackendStart: p.Target.BackendStart, SQL: p.SQL,
 		Title: cancelTitle(p.Target.PID), Detail: p.summary(a.svc.Name()),
 		Database: a.svc.Name(), ExpiresAt: time.Now().Add(a.cfg.ApprovalTTL)})
 	if err != nil {
@@ -99,7 +100,7 @@ func (a *ActionService) notify(ctx context.Context, p Proposal) {
 	}
 	err := a.notifier.ApprovalRequested(ctx, ApprovalRequest{Database: a.svc.Name(),
 		ProposalID: p.ID, InvestigationID: p.InvestigationID, QueueID: p.QueueID,
-		Title: cancelTitle(p.Target.PID), Summary: p.summary(a.svc.Name()),
+		Title: cancelTitle(p.Target.PID), SQL: p.SQL, Summary: p.summary(a.svc.Name()),
 		Risk: p.Contract.BaseRiskTier, ExpiresAt: p.ExpiresAt})
 	if err != nil {
 		a.logFn("WARN", "sre: proposal %s: sending the approval request failed: %v",

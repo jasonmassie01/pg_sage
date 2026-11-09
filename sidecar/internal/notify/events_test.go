@@ -76,8 +76,6 @@ func constructorEvents() map[string]Event {
 		"WithApprovalCard":     WithApprovalCard(queued, CardRef{QueueID: 7}, "b"),
 		"ApprovalOutcomeEvent": ApprovalOutcomeEvent(ApprovalOutcome{
 			Database: "orders", QueueID: 7, Verdict: "verified"}),
-		"ActionApprovalEvent": ActionApprovalEvent(ActionApproval{
-			Database: "orders", ProposalID: "p1"}),
 		"FactProposedEvent":      fact,
 		"IncidentDetectedEvent":  IncidentDetectedEvent(incident),
 		"IncidentEscalatedEvent": IncidentEscalatedEvent(incident),
