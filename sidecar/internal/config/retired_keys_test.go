@@ -140,5 +140,30 @@ func TestStripRetiredKeysRemovesOnlyRetiredKeys(t *testing.T) {
 	}
 }
 
+// Stripping re-encodes only the first document, so a second document must
+// still be refused rather than silently dropped with the retired key.
+func TestRetiredKeyDoesNotHideASecondDocument(t *testing.T) {
+	for name, body := range map[string]string{
+		"optimizer key": "llm:\n  optimizer:\n    plan_source: auto\n---\nmode: x\n",
+		"tuner key":     "tuner:\n  analyze_maintenance_threshold_mb: 5\n---\nmode: x\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := loadWithWarnings(t, body)
+			if err == nil || !strings.Contains(err.Error(), "exactly one YAML document") {
+				t.Fatalf("Load = %v, want the one-document error", err)
+			}
+		})
+	}
+	if err := requireOneDocument("mode: x\n---\nllm: [unclosed\n"); err == nil ||
+		!strings.Contains(err.Error(), "read config") {
+		t.Fatalf("broken second document = %v, want a read error", err)
+	}
+	for _, one := range []string{"", "---\nmode: x\n", "mode: x\n...\n", "# only a comment\n"} {
+		if err := requireOneDocument(one); err != nil {
+			t.Fatalf("requireOneDocument(%q) = %v, want nil", one, err)
+		}
+	}
+}
+
 // No concurrency or state-transition tests: stripping is a pure function of
 // the YAML text, run once per load.

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"sync"
@@ -99,7 +101,8 @@ func stripRetiredSections(raw string) (string, []string, error) {
 }
 
 // dropRetired removes retired keys and retired sections from raw and
-// prints their warnings.
+// prints their warnings. It re-encodes only the first document: Load
+// refuses a second one first (requireOneDocument).
 func dropRetired(raw string) (string, error) {
 	raw, keyWarnings, err := stripRetiredKeys(raw)
 	if err != nil {
@@ -114,4 +117,23 @@ func dropRetired(raw string) (string, error) {
 		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
 	return raw, nil
+}
+
+// requireOneDocument refuses raw when it holds more than one YAML document.
+// It runs before any rewrite of raw, which keeps the first document only.
+func requireOneDocument(raw string) error {
+	decoder := yaml.NewDecoder(strings.NewReader(raw))
+	for documents := 0; ; documents++ {
+		var node yaml.Node
+		err := decoder.Decode(&node)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read config: %w", err)
+		}
+		if documents == 1 {
+			return fmt.Errorf("config must contain exactly one YAML document")
+		}
+	}
 }

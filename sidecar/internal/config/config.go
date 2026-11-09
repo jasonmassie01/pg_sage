@@ -1154,6 +1154,9 @@ func loadYAML(path string, cfg *Config) error {
 	for _, warning := range unexpandedEnvWarnings(path, raw) {
 		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
+	if err := requireOneDocument(expanded); err != nil {
+		return err
+	}
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
@@ -1167,14 +1170,6 @@ func loadYAML(path string, cfg *Config) error {
 	decoder.KnownFields(true)
 	if err := decoder.Decode(candidate); err != nil {
 		return err
-	}
-
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("config must contain exactly one YAML document")
 	}
 	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {
 		return err
